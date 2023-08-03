@@ -23,11 +23,11 @@
       <property name="currentIndex">
        <number>1</number>
       </property>
-      <widget class="QWidget" name="psx_panel">
+      <widget class="QWidget" name="psx_tab">
        <attribute name="title">
         <string>PSX</string>
        </attribute>
-       <layout class="QGridLayout" name="psx_panel_grid_layout">
+       <layout class="QGridLayout" name="psx_tab_grid_layout">
         <property name="leftMargin">
          <number>9</number>
         </property>
@@ -46,9 +46,15 @@
            <layout class="QHBoxLayout" name="psx_input_row">
             <item>
              <widget class="QLabel" name="psx_input_label">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
               <property name="minimumSize">
                <size>
-                <width>81</width>
+                <width>90</width>
                 <height>0</height>
                </size>
               </property>
@@ -83,9 +89,15 @@
            <layout class="QHBoxLayout" name="psx_output_row">
             <item>
              <widget class="QLabel" name="psx_output_label">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
               <property name="minimumSize">
                <size>
-                <width>81</width>
+                <width>90</width>
                 <height>0</height>
                </size>
               </property>
@@ -120,6 +132,18 @@
               <property name="enabled">
                <bool>false</bool>
               </property>
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>453</width>
+                <height>0</height>
+               </size>
+              </property>
               <property name="text">
                <string>Extract</string>
               </property>
@@ -131,10 +155,16 @@
             <item>
              <widget class="QCheckBox" name="psx_toggle_sub_dirs">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
+               <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>135</width>
+                <height>0</height>
+               </size>
               </property>
               <property name="toolTip">
                <string>When selected, a subdirectory will be created for each PSX file.</string>
@@ -205,11 +235,11 @@
         </item>
        </layout>
       </widget>
-      <widget class="QWidget" name="rle_panel">
+      <widget class="QWidget" name="rle_tab">
        <attribute name="title">
         <string>RLE / BMR</string>
        </attribute>
-       <layout class="QGridLayout" name="rle_panel_grid_layout">
+       <layout class="QGridLayout" name="rle_tab_grid_layout">
         <property name="leftMargin">
          <number>9</number>
         </property>
@@ -228,9 +258,15 @@
            <layout class="QHBoxLayout" name="rle_input_row">
             <item>
              <widget class="QLabel" name="rle_input_label">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
               <property name="minimumSize">
                <size>
-                <width>81</width>
+                <width>90</width>
                 <height>0</height>
                </size>
               </property>
@@ -265,9 +301,15 @@
            <layout class="QHBoxLayout" name="rle_output_row">
             <item>
              <widget class="QLabel" name="rle_output_label">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
               <property name="minimumSize">
                <size>
-                <width>81</width>
+                <width>90</width>
                 <height>0</height>
                </size>
               </property>
@@ -302,6 +344,18 @@
               <property name="enabled">
                <bool>false</bool>
               </property>
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>453</width>
+                <height>0</height>
+               </size>
+              </property>
               <property name="text">
                <string>Convert</string>
               </property>
@@ -320,7 +374,7 @@
               </property>
               <property name="minimumSize">
                <size>
-                <width>51</width>
+                <width>59</width>
                 <height>0</height>
                </size>
               </property>
@@ -343,6 +397,18 @@
             </item>
             <item>
              <widget class="QSpinBox" name="rle_width_selector">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>70</width>
+                <height>0</height>
+               </size>
+              </property>
               <property name="maximumSize">
                <size>
                 <width>70</width>

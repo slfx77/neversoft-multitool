@@ -1,5 +1,4 @@
-from PyQt5 import QtCore, QtWidgets
-
+from PyQt6 import QtCore, QtWidgets
 from psx import PsxUi
 from rle import RleUi
 
@@ -15,14 +14,19 @@ class MainWindowUi(object):
         self.tabs = QtWidgets.QTabWidget(self.main_layout)
         self.tabs.setAutoFillBackground(False)
         self.tabs.setObjectName("tabs")
+       
+        # PSX Panel Code
         self.psx_ui = PsxUi()
         self.psx_tab = self.psx_ui.psx_tab
         self.psx_ui.retranslate_ui()
         self.tabs.addTab(self.psx_tab, "")
+        
+        # RLE Panel Code
         self.rle_ui = RleUi()
         self.rle_tab = self.rle_ui.rle_tab
         self.rle_ui.retranslate_ui()
         self.tabs.addTab(self.rle_tab, "")
+
         self.grid_layout.addWidget(self.tabs, 0, 0, 1, 1)
         main_window.setCentralWidget(self.main_layout)
         self.status_bar = QtWidgets.QStatusBar(main_window)
@@ -30,6 +34,7 @@ class MainWindowUi(object):
         main_window.setStatusBar(self.status_bar)
         self.retranslate_ui(main_window)
         self.tabs.setCurrentIndex(0)
+        self.psx_tab.setTabOrder(self.tabs, self.psx_ui.psx_input_path)
         self.psx_ui.psx_output_browse.clicked.connect(main_window.psx_output_browse_clicked)  # type: ignore
         self.psx_ui.psx_extract_button.clicked.connect(main_window.psx_extract_clicked)  # type: ignore
         self.psx_ui.psx_input_browse.clicked.connect(main_window.psx_input_browse_clicked)  # type: ignore
