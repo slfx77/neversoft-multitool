@@ -3,7 +3,7 @@ import sys
 import traceback
 from datetime import datetime
 
-from PyQt6.QtCore import pyqtSlot
+from PyQt6.QtCore import pyqtSlot, Qt
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMainWindow, QTableWidgetItem
 
 from main_window_ui import MainWindowUi
@@ -70,7 +70,7 @@ class Window(QMainWindow, MainWindowUi):
             self.psx_ui.psx_file_table.setRowCount(len(psx_files))
             for row, file in enumerate(psx_files):
                 self.current_psx_files.append(file)
-                self.psx_ui.psx_file_table.setItem(row, 0, QTableWidgetItem(file))
+                self.psx_ui.psx_file_table.setItem(row, 0, self.get_table_item(file))
             if self.psx_output_dir:
                 self.psx_ui.psx_extract_button.setEnabled(True)
         else:
@@ -90,8 +90,8 @@ class Window(QMainWindow, MainWindowUi):
     # Clear the Textures Extracted and Status columns
     def psx_clear_columns(self):
         for row in range(self.psx_ui.psx_file_table.rowCount()):
-            self.psx_ui.psx_file_table.setItem(row, 2, NumericTableWidgetItem(""))
-            self.psx_ui.psx_file_table.setItem(row, 3, NumericTableWidgetItem(""))
+            self.psx_ui.psx_file_table.setItem(row, 2, self.get_table_item("", True))
+            self.psx_ui.psx_file_table.setItem(row, 3, self.get_table_item("", True))
 
     # Start the extraction process when the extract button is clicked
     def psx_extract_clicked(self):
@@ -120,7 +120,7 @@ class Window(QMainWindow, MainWindowUi):
     # Update the file table in the GUI
     @pyqtSlot(int, int, str)
     def update_psx_file_table(self, row, col, text):
-        self.psx_ui.psx_file_table.setItem(row, col, NumericTableWidgetItem(text)) if col in [1, 2] else self.psx_ui.psx_file_table.setItem(row, col, QTableWidgetItem(text))
+        self.psx_ui.psx_file_table.setItem(row, col, self.get_table_item(text, True)) if col in [1, 2] else self.psx_ui.psx_file_table.setItem(row, col, self.get_table_item(text))
 
     # Update the UI and display the time elapsed when the extraction is complete
     @pyqtSlot()
@@ -145,6 +145,7 @@ class Window(QMainWindow, MainWindowUi):
             self.rle_ui.rle_file_table.setRowCount(0)
             self.get_rle_files(dir_name)
 
+    @pyqtSlot(str)
     def get_rle_files(self, dir_name):
         self.rle_ui.rle_input_path.setText(dir_name)
         dir_files = [f for f in os.listdir(dir_name) if os.path.isfile(os.path.join(dir_name, f))]
@@ -153,12 +154,13 @@ class Window(QMainWindow, MainWindowUi):
             self.rle_ui.rle_file_table.setRowCount(len(rle_files))
             for row, file in enumerate(rle_files):
                 self.current_rle_files.append(file)
-                self.rle_ui.rle_file_table.setItem(row, 0, QTableWidgetItem(file))
+                self.rle_ui.rle_file_table.setItem(row, 0, self.get_table_item(file))
             if self.rle_output_dir != "":
                 self.rle_ui.rle_convert_button.setEnabled(True)
         else:
             self.rle_ui.rle_convert_button.setEnabled(False)
 
+    @pyqtSlot()
     def rle_output_browse_clicked(self):
         dir_name = QFileDialog.getExistingDirectory(self, "Choose Directory", "")
         if dir_name:
@@ -169,6 +171,7 @@ class Window(QMainWindow, MainWindowUi):
             else:
                 self.rle_ui.rle_convert_button.setEnabled(False)
 
+    @pyqtSlot()
     def rle_convert_clicked(self):
         self.rle_ui.rle_progress_bar.setValue(0)
         for index, filename in enumerate(self.current_rle_files):
@@ -177,19 +180,28 @@ class Window(QMainWindow, MainWindowUi):
                 width = self.rle_ui.rle_width_selector.value()
                 pixels = convert(input_file, width)
                 write_to_png(self, filename, width, len(pixels), pixels)
-                self.rle_ui.rle_file_table.setItem(index, 1, QTableWidgetItem("OK"))
+                self.rle_ui.rle_file_table.setItem(index, 1, self.get_table_item("OK"))
             except Exception as e:
                 self.printer("An error ocurred while trying to convert {}. The error was: {}", filename, e)
                 if PRINT_TRACEBACK:
                     traceback.print_exc()
-                self.rle_ui.rle_file_table.setItem(index, 1, QTableWidgetItem("ERROR"))
+                self.rle_ui.rle_file_table.setItem(index, 1, self.get_table_item("ERROR"))
             self.rle_ui.rle_progress_bar.setValue(round(index / len(self.current_rle_files) * 100))
         self.rle_ui.rle_progress_bar.setValue(100)
 
     # RLE / BMR PANEL SPECIFIC CODE ENDS HERE
 
-    def tab_changed(self, num):
-        print(f"Tab changed: {num}")
+    def get_table_item(self, message, numeric=False):
+        if numeric:
+            item = NumericTableWidgetItem(message)
+        else:
+            item = QTableWidgetItem(message)
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        return item
+
+    @pyqtSlot()
+    def tab_changed(self):
+        self.status_bar.clearMessage()
 
 
 if __name__ == "__main__":

@@ -48,7 +48,6 @@ def ps1_to_32bpp(color):
     r = (color) & 0x1F
     g = (color >> 5) & 0x1F
     b = (color >> 10) & 0x1F
-    a = (color >> 15) & 0x1
 
     # Fully transparent
     if r == 31 and g == 0 and b == 31:
