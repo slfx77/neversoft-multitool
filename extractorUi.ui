@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Neversoft Image Tool v1.0</string>
+   <string>Neversoft Multitool v1.0</string>
   </property>
   <widget class="QWidget" name="main_layout">
    <layout class="QGridLayout" name="grid_layout">
@@ -21,7 +21,7 @@
        <bool>false</bool>
       </property>
       <property name="currentIndex">
-       <number>0</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="psx_tab">
        <attribute name="title">
@@ -483,6 +483,189 @@
         </item>
        </layout>
       </widget>
+      <widget class="QWidget" name="archive_tab">
+       <attribute name="title">
+        <string>Archive</string>
+       </attribute>
+       <widget class="QWidget" name="layoutWidget">
+        <property name="geometry">
+         <rect>
+          <x>10</x>
+          <y>10</y>
+          <width>591</width>
+          <height>391</height>
+         </rect>
+        </property>
+        <layout class="QVBoxLayout" name="archive_vertical_layout">
+         <item>
+          <layout class="QHBoxLayout" name="archive_input_row">
+           <item>
+            <widget class="QLabel" name="archive_input_label">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>90</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Input Archive</string>
+             </property>
+             <property name="buddy">
+              <cstring>rle_input_path</cstring>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLineEdit" name="archive_input_path">
+             <property name="enabled">
+              <bool>true</bool>
+             </property>
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="archive_input_browse">
+             <property name="text">
+              <string>Browse...</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="archive_output_row">
+           <item>
+            <widget class="QLabel" name="archive_output_label">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>90</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Output Directory</string>
+             </property>
+             <property name="buddy">
+              <cstring>rle_output_path</cstring>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLineEdit" name="archive_output_path">
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="archive_output_browse">
+             <property name="text">
+              <string>Browse...</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="archive_convert_row">
+           <item>
+            <widget class="QPushButton" name="archive_convert_button">
+             <property name="enabled">
+              <bool>false</bool>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>453</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Extract</string>
+             </property>
+             <property name="checkable">
+              <bool>false</bool>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QTableWidget" name="archive_file_table">
+           <property name="autoScroll">
+            <bool>true</bool>
+           </property>
+           <property name="tabKeyNavigation">
+            <bool>true</bool>
+           </property>
+           <property name="showDropIndicator" stdset="0">
+            <bool>true</bool>
+           </property>
+           <property name="alternatingRowColors">
+            <bool>true</bool>
+           </property>
+           <property name="showGrid">
+            <bool>true</bool>
+           </property>
+           <property name="sortingEnabled">
+            <bool>true</bool>
+           </property>
+           <property name="columnCount">
+            <number>2</number>
+           </property>
+           <attribute name="horizontalHeaderVisible">
+            <bool>false</bool>
+           </attribute>
+           <attribute name="horizontalHeaderCascadingSectionResizes">
+            <bool>false</bool>
+           </attribute>
+           <attribute name="horizontalHeaderDefaultSectionSize">
+            <number>120</number>
+           </attribute>
+           <column>
+            <property name="text">
+             <string>File Name</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>Status</string>
+            </property>
+           </column>
+          </widget>
+         </item>
+         <item>
+          <widget class="QProgressBar" name="archive_progress_bar">
+           <property name="value">
+            <number>0</number>
+           </property>
+           <property name="textVisible">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </widget>
      </widget>
     </item>
    </layout>
@@ -573,30 +756,14 @@
    </hints>
   </connection>
   <connection>
-   <sender>rle_input_browse</sender>
-   <signal>clicked()</signal>
+   <sender>tabs</sender>
+   <signal>currentChanged(int)</signal>
    <receiver>main_window</receiver>
-   <slot>rle_input_browse_clicked()</slot>
+   <slot>tab_changed()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>578</x>
-     <y>53</y>
-    </hint>
-    <hint type="destinationlabel">
      <x>319</x>
-     <y>239</y>
-    </hint>
-   </hints>
-  </connection>
-  <connection>
-   <sender>rle_output_browse</sender>
-   <signal>clicked()</signal>
-   <receiver>main_window</receiver>
-   <slot>rle_output_browse_clicked()</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>578</x>
-     <y>84</y>
+     <y>229</y>
     </hint>
     <hint type="destinationlabel">
      <x>319</x>
@@ -621,14 +788,30 @@
    </hints>
   </connection>
   <connection>
-   <sender>tabs</sender>
-   <signal>currentChanged(int)</signal>
+   <sender>rle_input_browse</sender>
+   <signal>clicked()</signal>
    <receiver>main_window</receiver>
-   <slot>tab_changed()</slot>
+   <slot>rle_input_browse_clicked()</slot>
    <hints>
     <hint type="sourcelabel">
+     <x>578</x>
+     <y>53</y>
+    </hint>
+    <hint type="destinationlabel">
      <x>319</x>
-     <y>229</y>
+     <y>239</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>rle_output_browse</sender>
+   <signal>clicked()</signal>
+   <receiver>main_window</receiver>
+   <slot>rle_output_browse_clicked()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>578</x>
+     <y>84</y>
     </hint>
     <hint type="destinationlabel">
      <x>319</x>

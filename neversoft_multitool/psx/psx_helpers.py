@@ -45,6 +45,8 @@ argb4444_params = {
 
 
 def ps1_to_32bpp(color):
+    """Converts a 16-bit PS1 color to a 32-bit RGBA color."""
+
     r = (color) & 0x1F
     g = (color >> 5) & 0x1F
     b = (color >> 10) & 0x1F
@@ -57,6 +59,8 @@ def ps1_to_32bpp(color):
 
 
 def get_16bpp_color_params(pixel_format):
+    """Gets the color parameters for a 16-bit texture."""
+
     # 0x00 = ARGB1555 (bilevel translucent alpha 0,255)
     if pixel_format & 0xF == 0:
         return argb1555_params
@@ -72,6 +76,8 @@ def get_16bpp_color_params(pixel_format):
 
 
 def convert_16bpp_to_32bpp(params, color):
+    """Converts a 16-bit color to a 32-bit color."""
+
     r = (color & params["red_mask"]) >> params["red_shift"]
     g = (color & params["green_mask"]) >> params["green_shift"]
     b = color & params["blue_mask"]
@@ -87,6 +93,8 @@ def convert_16bpp_to_32bpp(params, color):
 
 
 def convert_16_bit_texture_for_pypng(pixel_format, width, texture):
+    """Converts a 16-bit texture to a 32-bit texture for use with PyPNG."""
+
     params = get_16bpp_color_params(pixel_format)
 
     pixels = []
@@ -99,3 +107,59 @@ def convert_16_bit_texture_for_pypng(pixel_format, width, texture):
             pixel_row = []
 
     return pixels
+
+
+# IO THPS Scene Image Correction
+
+
+def fix_pixel_data(width, height, pixels):
+    """Fixes the pixel data of a texture read by the IO THPS scene code."""
+    initial_image = []
+    for row in range(0, height):
+        cur_row = []
+        for col in reversed(range(row * width, (row + 1) * width)):
+            cur_row.extend(pixels[col])
+        shifted_right = shift_row_pixels(cur_row, 1)
+        initial_image.append(shifted_right)
+    shifted_down = shift_image_rows(initial_image, 1)
+    return shift_image_column(shifted_down, 0, -1, height)
+
+
+def shift_row_pixels(row_pixels, shift_amount):
+    """Shifts the pixels in a row by a specified amount."""
+    shifted_row = []
+    shifted_row.extend(row_pixels[shift_amount * -4 :])
+    shifted_row.extend(row_pixels[0 : shift_amount * -4])
+    return shifted_row
+
+
+def shift_image_rows(image_data, shift_amount):
+    """Shifts the rows in an image by a specified amount."""
+    shifted_image = image_data.copy()
+    for _ in range(shift_amount):
+        new_rows = []
+        new_rows.append(shifted_image[-1])
+        new_rows.extend(shifted_image[0:-1])
+        shifted_image = new_rows
+    return shifted_image
+
+
+def shift_image_column(image_data, col_index, shift_amount, image_height):
+    """Shifts a column in an image by a specified amount."""
+    column_data = []
+    col_start_index = col_index * 4
+    for row_index in range(image_height):
+        column_data.extend(image_data[row_index][col_start_index : col_start_index + 4])
+    shifted_column = shift_row_pixels(column_data, shift_amount)
+    new_image_data = []
+    for row_index in range(image_height):
+        if col_index != 0:
+            new_image_data.append(image_data[row_index][0:col_start_index])
+        else:
+            new_image_data.append([])
+        new_image_data[row_index].extend(shifted_column[row_index * 4 : row_index * 4 + 4])
+        new_image_data[row_index].extend(image_data[row_index][col_start_index + 4 :])
+    return new_image_data
+
+
+# End IO THPS Scene Image Correction

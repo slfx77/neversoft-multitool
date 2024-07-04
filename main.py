@@ -3,18 +3,23 @@ import sys
 import traceback
 from datetime import datetime
 
-from PyQt6.QtCore import pyqtSlot, Qt
+from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMainWindow, QTableWidgetItem
 
+from neversoft_multitool.archive.archive_common import extract_pre_file, is_archive_file
+from common import get_file_extension
+from common_strings import CHOOSE_DIRECTORY
+from neversoft_multitool.formats.pkr_archive import extract_pkr_file
+from neversoft_multitool.formats.rle_image import convert
+from neversoft_multitool.formats.wad_archive import extract_wad_file, get_hed_file_list
 from main_window_ui import MainWindowUi
 from numeric_table_widget_item import NumericTableWidgetItem
 from printer import Printer
-from psx.psx_tab import PSXWorker
-from rle.rle_helper import convert
-from rle.rle_tab import filter_rle_files, write_to_png
+from neversoft_multitool.psx.psx_worker import PSXWorker
+from neversoft_multitool.rle.rle_io import filter_rle_files, write_to_png
 
 # PSX PANEL SPECIFIC CODE STARTS HERE
-PRINT_OUTPUT = True
+PRINT_OUTPUT = False
 PRINT_TRACEBACK = True
 
 
@@ -33,7 +38,7 @@ class Window(QMainWindow, MainWindowUi):
 
     # RLE
     printer = Printer()
-    printer.on = True
+    printer.on = False
 
     rle_input_dir = ""
     rle_output_dir = ""
@@ -41,16 +46,23 @@ class Window(QMainWindow, MainWindowUi):
     rle_files_converted = 0
     # RLE
 
+    # ARCHIVE
+    archive_input_path = ""
+    archive_output_dir = ""
+    number_of_files_in_archive = 0
+    archive_files_extracted = 0
+    current_archive_file = ""
+
     start_time = 0
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setup_ui(self)
 
-    # PSX PANEL SPECIFIC CODE STARTS HERE
+    # PSX TAB SPECIFIC CODE STARTS HERE
     # Open a directory picker and set the input directory path
     def psx_input_browse_clicked(self):
-        dir_name = QFileDialog.getExistingDirectory(self, "Choose Directory", "")
+        dir_name = QFileDialog.getExistingDirectory(self, CHOOSE_DIRECTORY, "")
         if dir_name:
             self.psx_input_dir = dir_name
             self.current_psx_files = []
@@ -59,7 +71,7 @@ class Window(QMainWindow, MainWindowUi):
 
     # Filter files with .psx or .PSX extensions
     def filter_psx_files(self, file_list):
-        return [f for f in file_list if f.lower().endswith((".psx", ".PSX"))]
+        return [f for f in file_list if f.upper().endswith(".PSX")]
 
     # Get .psx files from the chosen directory and update the GUI
     def get_psx_files(self, dir_name):
@@ -78,7 +90,7 @@ class Window(QMainWindow, MainWindowUi):
 
     # Open a directory picker and set the output directory path
     def psx_output_browse_clicked(self):
-        dir_name = QFileDialog.getExistingDirectory(self, "Choose Directory", "")
+        dir_name = QFileDialog.getExistingDirectory(self, CHOOSE_DIRECTORY, "")
         if dir_name:
             self.psx_output_dir = dir_name
             self.psx_ui.psx_output_path.setText(dir_name)
@@ -134,11 +146,12 @@ class Window(QMainWindow, MainWindowUi):
     def psx_create_sub_dirs_clicked(self):
         self.psx_create_sub_dirs = not self.psx_create_sub_dirs
 
-    # PSX PANEL SPECIFIC CODE ENDS HERE
+    # PSX TAB SPECIFIC CODE ENDS HERE
 
-    # RLE / BMR PANEL SPECIFIC CODE STARTS HERE
+    # RLE / BMR TAB SPECIFIC CODE STARTS HERE
+    @pyqtSlot()
     def rle_input_browse_clicked(self):
-        dir_name = QFileDialog.getExistingDirectory(self, "Choose Directory", "")
+        dir_name = QFileDialog.getExistingDirectory(self, CHOOSE_DIRECTORY, "")
         if dir_name:
             self.rle_input_dir = dir_name
             self.current_rle_files = []
@@ -162,7 +175,7 @@ class Window(QMainWindow, MainWindowUi):
 
     @pyqtSlot()
     def rle_output_browse_clicked(self):
-        dir_name = QFileDialog.getExistingDirectory(self, "Choose Directory", "")
+        dir_name = QFileDialog.getExistingDirectory(self, CHOOSE_DIRECTORY, "")
         if dir_name:
             self.rle_output_dir = dir_name
             self.rle_ui.rle_output_path.setText(dir_name)
@@ -173,6 +186,7 @@ class Window(QMainWindow, MainWindowUi):
 
     @pyqtSlot()
     def rle_convert_clicked(self):
+        self.start_time = datetime.now()
         self.rle_ui.rle_progress_bar.setValue(0)
         for index, filename in enumerate(self.current_rle_files):
             try:
@@ -188,8 +202,77 @@ class Window(QMainWindow, MainWindowUi):
                 self.rle_ui.rle_file_table.setItem(index, 1, self.get_table_item("ERROR"))
             self.rle_ui.rle_progress_bar.setValue(round(index / len(self.current_rle_files) * 100))
         self.rle_ui.rle_progress_bar.setValue(100)
+        self.status_bar.showMessage(f"Time elapsed: {(datetime.now() - self.start_time).total_seconds()}")
 
-    # RLE / BMR PANEL SPECIFIC CODE ENDS HERE
+    # RLE / BMR TAB SPECIFIC CODE ENDS HERE
+
+    # ARCHIVE SPECIFIC CODE STARTS HERE
+
+    @pyqtSlot()
+    def archive_input_browse_clicked(self):
+        file_path = QFileDialog.getOpenFileName(self, "Choose an Archive", "", "Archives (*.WAD *.PKR *.PRE)")[0]
+        if os.path.isfile(file_path):
+            self.archive_input_path = os.path.normpath(file_path)
+            self.archive_ui.archive_file_table.setRowCount(0)
+            self.get_archive_file(file_path)
+
+    @pyqtSlot(str)
+    def get_archive_file(self, file_path):
+        filename = os.path.basename(file_path)
+        self.archive_ui.archive_input_path.setText(file_path)
+        if is_archive_file(self, filename):
+            self.current_archive_file = file_path
+            archive_type = get_file_extension(file_path)
+
+            if archive_type == "WAD":
+                get_hed_file_list(self, file_path)
+            elif archive_type == "PKR":
+                # Temporary code to display the archive name in the table. This will be replaced with the actual file list once implemented.
+                # get_pkr_file_list(self, file_path)
+                print("PKR file selected. File list not implemented yet.")
+            else:
+                self.archive_ui.archive_file_table.setRowCount(1)
+                self.archive_ui.archive_file_table.setItem(0, 0, self.get_table_item(filename))
+
+            if self.archive_output_dir != "":
+                self.archive_ui.archive_extract_button.setEnabled(True)
+        else:
+            self.archive_ui.archive_extract_button.setEnabled(False)
+
+    @pyqtSlot()
+    def archive_output_browse_clicked(self):
+        dir_name = QFileDialog.getExistingDirectory(self, CHOOSE_DIRECTORY, "")
+        if dir_name:
+            self.archive_output_dir = os.path.normpath(dir_name)
+            self.archive_ui.archive_output_path.setText(dir_name)
+            if len(self.current_archive_file) > 0:
+                self.archive_ui.archive_extract_button.setEnabled(True)
+            else:
+                self.archive_ui.archive_extract_button.setEnabled(False)
+
+    @pyqtSlot()
+    def archive_extract_clicked(self):
+        self.start_time = datetime.now()
+        self.archive_ui.archive_progress_bar.setValue(0)
+        extension = get_file_extension(self.current_archive_file)
+
+        # TODO Implement Extraction Code Here
+        extraction_functions = {
+            "WAD": lambda: extract_wad_file(self, self.archive_input_path, self.archive_output_dir),
+            "PKR": lambda: extract_pkr_file(self, self.archive_input_path, self.archive_output_dir),
+            "PRE": lambda: extract_pre_file(self, self.archive_input_path),
+        }
+
+        extraction_function = extraction_functions.get(extension)
+
+        if extraction_function != None:
+            extraction_function()
+
+    # ARCHIVE SPECIFIC CODE ENDS HERE
+
+    @pyqtSlot()
+    def tab_changed(self):
+        self.status_bar.clearMessage()
 
     def get_table_item(self, message, numeric=False):
         if numeric:
@@ -198,10 +281,6 @@ class Window(QMainWindow, MainWindowUi):
             item = QTableWidgetItem(message)
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         return item
-
-    @pyqtSlot()
-    def tab_changed(self):
-        self.status_bar.clearMessage()
 
 
 if __name__ == "__main__":

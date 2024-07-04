@@ -7,19 +7,23 @@ from traceback import format_exception
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from .extract_psx import extract_textures
+from neversoft_multitool.formats.psx_library import extract_textures
 
 PRINT_OUTPUT = True
 PRINT_TRACEBACK = True
 
 
 class PSXWorker(QThread):
+    """Worker thread for extracting textures from PSX files in parallel using a ProcessPoolExecutor."""
+
     # Define custom PyQt signals for progress, completion, and updating the file table
     update_progress_bar_signal = pyqtSignal()
     update_file_table_signal = pyqtSignal(int, int, str)
     extraction_complete_signal = pyqtSignal()
 
     def __init__(self, files, input_dir, output_dir, file_table, create_sub_dirs):
+        """Initialize the worker thread with the necessary parameters."""
+
         super().__init__()
         # Initialize instance variables
         self.files = files
@@ -30,6 +34,8 @@ class PSXWorker(QThread):
 
     # Run the worker thread
     def run(self):
+        """Run the worker thread to extract textures from PSX files in parallel using a ProcessPoolExecutor."""
+
         # Get the number of available CPU cores
         max_workers = os.cpu_count()
 
@@ -72,10 +78,14 @@ class PSXWorker(QThread):
 
 # Function to process a single file
 def process_file(queue, filename, input_dir, output_dir, file_index, create_sub_dirs):
+    """Process a single PSX file to extract textures from it and update the file table."""
+
     output_strings = []
     separator = "\n"
 
     def update_file_table(row, cols):
+        """Update the specified row in the file table with the provided columns."""
+
         for col, text in cols.items():
             queue.put(("update_file_table_signal", row, col, text))
 

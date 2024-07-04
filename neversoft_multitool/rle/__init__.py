@@ -149,6 +149,7 @@ class RleUi:
         # Pair labels to controls
         self.rle_input_label.setBuddy(self.rle_input_path)
         self.rle_output_label.setBuddy(self.rle_output_path)
+        self.rle_width_label.setBuddy(self.rle_width_selector)
 
         # Tab order
         self.rle_tab.setTabOrder(self.rle_input_path, self.rle_input_browse)

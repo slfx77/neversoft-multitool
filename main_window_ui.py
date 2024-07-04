@@ -1,6 +1,8 @@
 from PyQt6 import QtCore, QtWidgets
-from psx import PsxUi
-from rle import RleUi
+
+from neversoft_multitool.archive import ArchiveUi
+from neversoft_multitool.psx import PsxUi
+from neversoft_multitool.rle import RleUi
 
 
 class MainWindowUi(object):
@@ -29,6 +31,12 @@ class MainWindowUi(object):
         self.rle_ui.retranslate_ui()
         self.tabs.addTab(self.rle_tab, "")
 
+        ## Archive Tab
+        self.archive_ui = ArchiveUi()
+        self.archive_tab = self.archive_ui.archive_tab
+        self.archive_ui.retranslate_ui()
+        self.tabs.addTab(self.archive_tab, "")
+
         self.grid_layout.addWidget(self.tabs, 0, 0, 1, 1)
 
         # Main layout
@@ -45,19 +53,29 @@ class MainWindowUi(object):
         self.tabs.setCurrentIndex(0)
         self.psx_tab.setTabOrder(self.tabs, self.psx_ui.psx_input_path)
 
-        # Slots
+        # PSX slots
         self.psx_ui.psx_output_browse.clicked.connect(main_window.psx_output_browse_clicked)  # type: ignore
         self.psx_ui.psx_extract_button.clicked.connect(main_window.psx_extract_clicked)  # type: ignore
         self.psx_ui.psx_input_browse.clicked.connect(main_window.psx_input_browse_clicked)  # type: ignore
         self.psx_ui.psx_toggle_sub_dirs.stateChanged["int"].connect(main_window.psx_create_sub_dirs_clicked)  # type: ignore
+
+        # RLE slots
         self.rle_ui.rle_input_browse.clicked.connect(main_window.rle_input_browse_clicked)  # type: ignore
         self.rle_ui.rle_output_browse.clicked.connect(main_window.rle_output_browse_clicked)  # type: ignore
         self.rle_ui.rle_convert_button.clicked.connect(main_window.rle_convert_clicked)  # type: ignore
+
+        # Archive slots
+        self.archive_ui.archive_input_browse.clicked.connect(main_window.archive_input_browse_clicked)  # type: ignore
+        self.archive_ui.archive_output_browse.clicked.connect(main_window.archive_output_browse_clicked)  # type: ignore
+        self.archive_ui.archive_extract_button.clicked.connect(main_window.archive_extract_clicked)  # type: ignore
+
+        # Main UI slots
         self.tabs.currentChanged.connect(main_window.tab_changed)  # type: ignore
         QtCore.QMetaObject.connectSlotsByName(main_window)
 
     def retranslate_ui(self, main_window):
         _translate = QtCore.QCoreApplication.translate
-        main_window.setWindowTitle(_translate("main_window", "Neversoft Image Tool v1.0"))
+        main_window.setWindowTitle(_translate("main_window", "Neversoft Multiool v1.0"))
         self.tabs.setTabText(self.tabs.indexOf(self.psx_tab), _translate("main_window", "PSX"))
         self.tabs.setTabText(self.tabs.indexOf(self.rle_tab), _translate("main_window", "RLE / BMR"))
+        self.tabs.setTabText(self.tabs.indexOf(self.archive_tab), _translate("main_window", "Archive"))

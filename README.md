@@ -1,4 +1,4 @@
-# Neversoft Image Tool
+# Neversoft Multitool
 
 This is a combination of two previous tools I released: [Neversoft Bitmap Converter](https://github.com/slfx77/neversoft_bitmap_converter) and
 [PSX Texture Extractor](https://github.com/slfx77/psx_texture_extractor).
@@ -47,9 +47,11 @@ PNGs. If the resulting images don't appear correct, you may try adjusting the wi
 
 - [ ] Set up multiprocessing for RLE conversion to speed up the process
 - [ ] Update or remove .ui project file. It is out of date as I started to manually code the UI.
-- [ ] Add support for Xbox PSX model extraction
+- [ ] Add support for Xbox PSX texture (PVR-T) extraction - Possibly borrow code from [thps2-tools](https://github.com/JayFoxRox/thps2-tools) to do so?
 - [ ] Determine if there's a way to calculate the width of RLE / BMR files. At the moment, the width has to be set manually.
 - [ ] Add support for Dreamcast RLE files
+- [ ] Add support for .PRE files
+- [ ] Add support for (hashed? compressed?) WAD files (THPS2 - PSX, for example) The current commit _NOT_ release of WADTool can do so: [WADTool](https://github.com/DCxDemo/WAD-Tool)
 
 # Credits
 
@@ -59,6 +61,10 @@ This program contains code from the following other projects:
   Neversoft which use the same formats.
 - [psx_extractor](https://github.com/krystalgamer/spidey-tools/tree/master/psx_extractor), an extractor intended for the PC version of Spider-Man. This is used for the decoding of
   PSX files with 16-bit textures. I've also created a standalone clone in Python that can be found [here](https://github.com/slfx77/psx_extract_py).
+- [pkr_extractor](https://github.com/krystalgamer/spidey-tools/tree/master/pkr_extractor), an extractor intended for the PC version of Spider-Man. This is used for extracting files
+  from .pkr archives. I've also created a standalone clone in Python that can be found [here](https://github.com/slfx77/pkr_extract_py).
 - [Rawtex](https://zenhax.com/viewtopic.php?t=7099), a multipurpose converter for raw texture files. Used to convert 16-bit textures with palette types 0x100-0x102 and 0xd01.
-- [RLE-GIMP-Plugin](https://github.com/Daniel-McCarthy/RLE-GIMP-Plugin), a GIMP Plugin the support Neversoft RLE / BMR files. Supports saving in the format, alowing the in-game images to be modified.
+- [RLE-GIMP-Plugin](https://github.com/Daniel-McCarthy/RLE-GIMP-Plugin), a GIMP Plugin the support Neversoft RLE / BMR files. Supports saving in the format, allowing the in-game
+  images to be modified.
 - [pypng](https://github.com/drj11/pypng), used to write textures to PNG files.
+- [thps2-tools](https://github.com/JayFoxRox/thps2-tools) May be replaced in the future, but at the moment is used for WAD extraction.

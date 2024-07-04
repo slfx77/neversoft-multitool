@@ -102,7 +102,7 @@ def verify_file_is_rle(file):
 
 
 # Note: The width changes on a per game basis. There is no header data
-# to determine the width for the image from. 512px is for Spiderman 1 (PSX).
+# to determine the width for the image from. 512px is for Spider-Man 1 (PSX).
 
 
 def load_bmr(file, width):
@@ -149,6 +149,7 @@ def load_rle(file, max_width):
     row = []
     row_len = 0
     quantity_bits = 0b0111111111111111
+
     # Read in, decode, & convert all colors to 32 bit RGBA
     while file.tell() + 1 < file_size and len(canvas) < total_rows:
         byte_1 = struct.unpack("<B", file.read(1))[0]
@@ -201,7 +202,7 @@ def unshift_columns(canvas):
     last_pixel = first_row[row_len - 1]
     matches_blue = last_pixel == blue_color or last_pixel == blue_color2
 
-    # This blue pixel incidates the column has been encoded
+    # This blue pixel indicates the column has been encoded
     # If it's not present, no shifting is present.
     if not matches_blue:
         return canvas

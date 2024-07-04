@@ -1,4 +1,6 @@
 class PSXTextureHeader:
+    """A class representation of a PSX texture header."""
+
     # An unknown value, possibly a header or some format-specific information.
     unk = 0
 
