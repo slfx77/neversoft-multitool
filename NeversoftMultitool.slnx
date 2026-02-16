@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/NeversoftMultitool/NeversoftMultitool.csproj" />
+  <Project Path="tests/NeversoftMultitool.Tests/NeversoftMultitool.Tests.csproj" />
+</Solution>

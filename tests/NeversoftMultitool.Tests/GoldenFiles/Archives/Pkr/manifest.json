@@ -1,0 +1,51 @@
+{
+  "fileCount": 4,
+  "directories": [
+    {
+      "name": "testdir",
+      "numFiles": 2
+    },
+    {
+      "name": "subdir",
+      "numFiles": 2
+    }
+  ],
+  "entries": [
+    {
+      "name": "hello.txt",
+      "directory": "testdir",
+      "crc": 4245039986,
+      "isCompressed": false,
+      "offset": 8,
+      "size": 22,
+      "compressedSize": 22
+    },
+    {
+      "name": "data.bin",
+      "directory": "testdir",
+      "crc": 3070970918,
+      "isCompressed": true,
+      "offset": 30,
+      "size": 1024,
+      "compressedSize": 287
+    },
+    {
+      "name": "small.dat",
+      "directory": "subdir",
+      "crc": 1064516756,
+      "isCompressed": false,
+      "offset": 317,
+      "size": 32,
+      "compressedSize": 32
+    },
+    {
+      "name": "big.dat",
+      "directory": "subdir",
+      "crc": 3525010929,
+      "isCompressed": true,
+      "offset": 349,
+      "size": 1024,
+      "compressedSize": 25
+    }
+  ]
+}

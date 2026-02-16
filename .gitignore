@@ -1,10 +1,71 @@
-.vscode
-__pycache__
-ignore
-*.psx
-*.PSX
-*.png
-*.bmp
-*.exe
+# Build outputs
+bin/
+obj/
+out/
+
+# IDE
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.claude/
+
+# Build artifacts
+build/
+
+# Accidental files
+nul
+
+# NuGet
+packages/
+*.nupkg
+*.nuget.props
+*.nuget.targets
+
+# Test results
+TestResults/
+*.trx
+*.runsettings
+
+# Coverage
+coverage/
+*.coverage
+*.coveragexml
+*.cobertura.xml
+
+# Logs
 *.log
-*.autosave
+
+# Output directories
+test_output/
+output/
+TestOutput/
+
+# Python remnants (if any)
+.venv/
+__pycache__/
+*.pyc
+
+# Sample data (copyrighted game files)
+Sample/
+
+# Copyrighted test data (game files — not distributable)
+# Synthetic test fixtures (tests/TestData/Archives/Pkr/) are fine to commit
+tests/TestData/Psx/
+tests/TestData/Rle/
+tests/TestData/Archives/Wad/
+
+# Golden files derived from copyrighted game content
+# Synthetic golden files (GoldenFiles/Archives/Pkr/) are fine to commit
+tests/NeversoftMultitool.Tests/GoldenFiles/Psx/
+tests/NeversoftMultitool.Tests/GoldenFiles/Rle/
+tests/NeversoftMultitool.Tests/GoldenFiles/Archives/Wad/
+
+# Reference copies (not part of the project)
+FalloutXbox360Utils/
+neversoft_multitool/
+
+# SonarQube
+.sonarqube/

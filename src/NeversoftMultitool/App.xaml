@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<Application
+  x:Class="NeversoftMultitool.App"
+  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+        <!-- Shared tab styles -->
+        <ResourceDictionary Source="ms-appx:///App/Styles/TabStyles.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+
+      <!--  Theme-aware resources  -->
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <!--  Accent button overrides  -->
+          <SolidColorBrush x:Key="AccentButtonForeground"
+                           Color="White" />
+          <SolidColorBrush x:Key="AccentButtonForegroundPointerOver"
+                           Color="White" />
+          <SolidColorBrush x:Key="AccentButtonForegroundPressed"
+                           Color="#C0FFFFFF" />
+          <SolidColorBrush x:Key="AccentButtonForegroundDisabled"
+                           Color="#60FFFFFF" />
+          <!--  Panel backgrounds (semi-transparent for Mica)  -->
+          <SolidColorBrush x:Key="CardBackgroundBrush"
+                           Color="#80202020" />
+          <SolidColorBrush x:Key="CardBackgroundSolidBrush"
+                           Color="#FF1E1E1E" />
+          <SolidColorBrush x:Key="CardBackgroundAltBrush"
+                           Color="#FF252526" />
+          <SolidColorBrush x:Key="CardBackgroundAlt2Brush"
+                           Color="#FF2D2D2D" />
+          <SolidColorBrush x:Key="CardBackgroundAlt3Brush"
+                           Color="#FF3C3C3C" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <!--  Accent button overrides  -->
+          <SolidColorBrush x:Key="AccentButtonForeground"
+                           Color="White" />
+          <SolidColorBrush x:Key="AccentButtonForegroundPointerOver"
+                           Color="White" />
+          <SolidColorBrush x:Key="AccentButtonForegroundPressed"
+                           Color="#C0FFFFFF" />
+          <SolidColorBrush x:Key="AccentButtonForegroundDisabled"
+                           Color="#60FFFFFF" />
+          <!--  Panel backgrounds (semi-transparent for Mica)  -->
+          <SolidColorBrush x:Key="CardBackgroundBrush"
+                           Color="#40000000" />
+          <SolidColorBrush x:Key="CardBackgroundSolidBrush"
+                           Color="#FFF3F3F3" />
+          <SolidColorBrush x:Key="CardBackgroundAltBrush"
+                           Color="#FFE8E8E8" />
+          <SolidColorBrush x:Key="CardBackgroundAlt2Brush"
+                           Color="#FFDCDCDC" />
+          <SolidColorBrush x:Key="CardBackgroundAlt3Brush"
+                           Color="#FFD0D0D0" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>

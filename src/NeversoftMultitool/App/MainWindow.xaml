@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<Window
+  x:Class="NeversoftMultitool.MainWindow"
+  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  xmlns:tabs="using:NeversoftMultitool"
+  Title="Neversoft Multitool">
+
+  <Grid>
+    <!--  Title bar with app name (behind NavigationView so expanded pane covers it)  -->
+    <Grid
+      x:Name="AppTitleBar"
+      Height="32"
+      Margin="48,0,0,0"
+      HorizontalAlignment="Stretch"
+      VerticalAlignment="Top"
+      Background="Transparent">
+      <StackPanel
+        Orientation="Horizontal"
+        VerticalAlignment="Center">
+        <Image
+          Width="16"
+          Height="16"
+          Margin="8,1,8,0"
+          VerticalAlignment="Center"
+          Source="ms-appx:///Assets/AppIcon.png" />
+        <TextBlock
+          Text="Neversoft Multitool"
+          VerticalAlignment="Center"
+          FontSize="12" />
+      </StackPanel>
+    </Grid>
+
+    <!--  Navigation View with hamburger menu - fills entire window  -->
+    <NavigationView
+      x:Name="NavView"
+      Background="Transparent"
+      IsBackButtonVisible="Collapsed"
+      IsPaneToggleButtonVisible="True"
+      IsSettingsVisible="False"
+      IsTitleBarAutoPaddingEnabled="True"
+      OpenPaneLength="200"
+      PaneDisplayMode="LeftCompact"
+      SelectionChanged="NavView_SelectionChanged">
+
+      <NavigationView.MenuItems>
+        <NavigationViewItemHeader Content="Textures" />
+
+        <!--  PSX Texture Extraction  -->
+        <NavigationViewItem
+          Content="PSX Textures"
+          IsSelected="True"
+          Tag="PsxTextures">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xEB9F;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+
+        <!--  RLE / BMR Bitmap Conversion  -->
+        <NavigationViewItem
+          Content="RLE / BMR"
+          Tag="RleBitmaps">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE8B9;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+
+        <NavigationViewItemSeparator />
+
+        <NavigationViewItemHeader Content="Archives" />
+
+        <!--  Archive Extractor  -->
+        <NavigationViewItem
+          Content="Archive Extractor"
+          Tag="Archives">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE7B8;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+      </NavigationView.MenuItems>
+
+      <!--  Main content area  -->
+      <Grid Background="Transparent">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="32" />
+          <!--  Window controls area (title bar)  -->
+          <RowDefinition Height="*" />
+          <!--  Content  -->
+          <RowDefinition Height="Auto" />
+          <!--  Status bar  -->
+        </Grid.RowDefinitions>
+
+        <!--  Tab content with rounded corners at top-left and bottom-left  -->
+        <Border
+          Grid.Row="1"
+          Background="{ThemeResource LayerOnMicaBaseAltFillColorDefaultBrush}"
+          CornerRadius="8,0,0,8">
+          <Grid VerticalAlignment="Stretch">
+            <tabs:PsxTextureTab
+              x:Name="PsxTextureTabContent"
+              VerticalAlignment="Stretch"
+              Visibility="Visible" />
+            <tabs:RleBitmapTab
+              x:Name="RleBitmapTabContent"
+              VerticalAlignment="Stretch"
+              Visibility="Collapsed" />
+            <tabs:ArchiveExtractorTab
+              x:Name="ArchiveExtractorTabContent"
+              VerticalAlignment="Stretch"
+              Visibility="Collapsed" />
+          </Grid>
+        </Border>
+
+        <!--  Status bar (same transparent Mica as title bar)  -->
+        <Grid
+          Grid.Row="2"
+          Height="24"
+          Padding="15,0,16,0"
+          Background="Transparent">
+          <TextBlock
+            x:Name="GlobalStatusTextBlock"
+            VerticalAlignment="Center"
+            FontSize="12"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            Text="" />
+        </Grid>
+      </Grid>
+    </NavigationView>
+  </Grid>
+</Window>
