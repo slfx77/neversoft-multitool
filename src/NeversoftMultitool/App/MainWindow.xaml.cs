@@ -118,6 +118,8 @@ public sealed partial class MainWindow : Window
             PsxTextureTabContent.Visibility = Visibility.Collapsed;
             RleBitmapTabContent.Visibility = Visibility.Collapsed;
             ArchiveExtractorTabContent.Visibility = Visibility.Collapsed;
+            AudioConverterTabContent.Visibility = Visibility.Collapsed;
+            HashReviewerTabContent.Visibility = Visibility.Collapsed;
 
             // Clear status bar when switching tabs
             SetStatus("");
@@ -133,6 +135,12 @@ public sealed partial class MainWindow : Window
                     break;
                 case "Archives":
                     ArchiveExtractorTabContent.Visibility = Visibility.Visible;
+                    break;
+                case "AudioConverter":
+                    AudioConverterTabContent.Visibility = Visibility.Visible;
+                    break;
+                case "HashReviewer":
+                    HashReviewerTabContent.Visibility = Visibility.Visible;
                     break;
             }
 

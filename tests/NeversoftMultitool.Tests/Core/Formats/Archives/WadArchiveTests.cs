@@ -50,7 +50,7 @@ public class WadArchiveTests(TestPaths paths)
             WadArchive.ExtractFiles(wadPath, tempDir, (current, total) =>
             {
                 extractedCount = current;
-            });
+            }, TestContext.Current.CancellationToken);
 
             Assert.Equal(expectedEntries.Count, extractedCount);
 
@@ -60,7 +60,7 @@ public class WadArchiveTests(TestPaths paths)
                 var extractedPath = Path.Combine(tempDir, "CD", entry.Name);
                 Assert.True(File.Exists(extractedPath), $"Extracted file not found: {entry.Name}");
                 var info = new FileInfo(extractedPath);
-                Assert.Equal((long)entry.Size, info.Length);
+                Assert.Equal(entry.Size, (uint)info.Length);
             }
         }
         finally

@@ -1,0 +1,64 @@
+root = true
+# EditorConfig is awesome: https://EditorConfig.org
+
+# All files
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = crlf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Microsoft .NET properties
+csharp_prefer_braces = true:none
+
+# ReSharper properties
+resharper_apply_on_completion = true
+resharper_braces_redundant = true
+
+# C# files
+[*.cs]
+indent_size = 4
+
+# Suppress CA1305: Spectre.Console CLI output uses invariant formatting intentionally
+dotnet_diagnostic.CA1305.severity = none
+
+# Suppress CA1720: Domain-specific identifiers are intentional format type names
+dotnet_diagnostic.CA1720.severity = none
+
+# Suppress CA1711/S2344: [Flags] enums with "Flags" suffix are intentional
+dotnet_diagnostic.CA1711.severity = none
+dotnet_diagnostic.S2344.severity = none
+
+# Unused code detection (enable as warnings)
+dotnet_diagnostic.IDE0051.severity = warning
+dotnet_diagnostic.IDE0052.severity = warning
+dotnet_diagnostic.CA1812.severity = warning
+dotnet_diagnostic.CA1823.severity = warning
+
+# XAML files
+[*.xaml]
+indent_size = 2
+
+# ReSharper properties for WinUI 3 XAML
+resharper_xaml_redundant_explicit_property_name_highlighting = none
+resharper_xaml_obsolete_target_property_highlighting = none
+resharper_unknown_xaml_namespace_highlighting = none
+resharper_unresolved_tag_highlighting = none
+resharper_unresolved_markup_extension_highlighting = none
+resharper_xaml_unresolved_markup_extension_highlighting = none
+resharper_xaml_style_class_not_found_highlighting = none
+resharper_xaml_missing_xmlns_highlighting = none
+
+# JSON files
+[*.json]
+indent_size = 2
+
+# XML files
+[*.xml]
+indent_size = 2
+
+# Project files
+[*.{csproj,props,targets}]
+indent_size = 2

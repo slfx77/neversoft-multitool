@@ -75,10 +75,16 @@ public sealed partial class RleBitmapTab : UserControl
         ConvertButton.IsEnabled = hasFiles && hasOutput;
     }
 
+    private void AutoWidthCheckbox_Changed(object sender, RoutedEventArgs e)
+    {
+        WidthNumberBox.IsEnabled = AutoWidthCheckbox.IsChecked != true;
+    }
+
     private async void ConvertButton_Click(object sender, RoutedEventArgs e)
     {
         if (_files.Count == 0 || string.IsNullOrEmpty(_outputDir)) return;
 
+        var autoDetect = AutoWidthCheckbox.IsChecked == true;
         var width = (int)WidthNumberBox.Value;
 
         // Reset state
@@ -105,7 +111,9 @@ public sealed partial class RleBitmapTab : UserControl
                 dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
 
                 var inputFile = Path.Combine(inputDir, entry.FileName);
-                var result = RleImage.Convert(inputFile, width);
+                var result = autoDetect
+                    ? RleImage.Convert(inputFile)
+                    : RleImage.Convert(inputFile, width);
 
                 if (result.Success)
                 {

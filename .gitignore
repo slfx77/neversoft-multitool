@@ -67,5 +67,12 @@ tests/NeversoftMultitool.Tests/GoldenFiles/Archives/Wad/
 FalloutXbox360Utils/
 neversoft_multitool/
 
+# QBKey pipeline data files (large, derived from copyrighted game content)
+tools/*.txt
+tools/*.json
+
+# QBKey pipeline compiled binary
+tools/qbkey_pipeline/*.exe
+
 # SonarQube
 .sonarqube/

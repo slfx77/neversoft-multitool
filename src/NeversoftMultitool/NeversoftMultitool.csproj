@@ -7,9 +7,6 @@
     <RootNamespace>NeversoftMultitool</RootNamespace>
     <AssemblyName>NeversoftMultitool</AssemblyName>
     <Platforms>x64;AnyCPU</Platforms>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <LangVersion>preview</LangVersion>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
@@ -40,8 +37,15 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="NeversoftMultitool.Tests" />
+    <InternalsVisibleTo Include="PsxAnalyzer" />
+  </ItemGroup>
+
   <!-- Shared packages -->
   <ItemGroup>
+    <PackageReference Include="Pfim" Version="0.11.2" />
+    <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.6" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
     <PackageReference Include="System.CommandLine" Version="2.0.1" />
     <PackageReference Include="Spectre.Console" Version="0.54.0" />

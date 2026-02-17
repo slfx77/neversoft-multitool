@@ -28,6 +28,8 @@ public sealed partial class ArchiveExtractorTab : UserControl
         picker.FileTypeFilter.Add(".wad");
         picker.FileTypeFilter.Add(".pkr");
         picker.FileTypeFilter.Add(".pre");
+        picker.FileTypeFilter.Add(".ddx");
+        picker.FileTypeFilter.Add(".bon");
         var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
         InitializeWithWindow.Initialize(picker, hwnd);
 
@@ -35,6 +37,7 @@ public sealed partial class ArchiveExtractorTab : UserControl
         if (file == null) return;
 
         _archivePath = file.Path;
+        InputPathText.Text = _archivePath;
         var ext = Path.GetExtension(_archivePath).ToLowerInvariant();
 
         _files.Clear();
@@ -56,6 +59,14 @@ public sealed partial class ArchiveExtractorTab : UserControl
                 case ".pre":
                     _archiveType = "PRE";
                     entries = PreArchive.GetFileList(_archivePath);
+                    break;
+                case ".ddx":
+                    _archiveType = "DDX";
+                    entries = DdxArchive.GetFileList(_archivePath);
+                    break;
+                case ".bon":
+                    _archiveType = "BON";
+                    entries = BonArchive.GetFileList(_archivePath);
                     break;
                 default:
                     MainWindow.Instance?.SetStatus($"Unsupported archive format: {ext}");
@@ -171,6 +182,15 @@ public sealed partial class ArchiveExtractorTab : UserControl
                         break;
                     case "PKR3":
                         PkrArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
+                        break;
+                    case "DDX":
+                        DdxArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
+                        break;
+                    case "BON":
+                        BonArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
+                        break;
+                    case "PRE":
+                        PreArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
                         break;
                 }
             }, token);

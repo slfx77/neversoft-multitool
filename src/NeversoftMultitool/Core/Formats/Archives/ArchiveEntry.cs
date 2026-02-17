@@ -1,7 +1,7 @@
 namespace NeversoftMultitool.Core.Formats.Archives;
 
 /// <summary>
-/// Represents a single file entry within an archive (WAD or PKR).
+/// Represents a single file entry within an archive (WAD, PKR, PRE, DDX, or BON).
 /// </summary>
 public sealed class ArchiveEntry
 {

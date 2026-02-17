@@ -101,6 +101,8 @@ public sealed partial class PsxTextureTab : UserControl
         var totalFiles = _files.Count;
         var token = _cts.Token;
         var dispatcher = DispatcherQueue;
+        var inputDir = _inputDir;
+        var outputDir = _outputDir;
 
         await Task.Run(() =>
         {
@@ -115,8 +117,8 @@ public sealed partial class PsxTextureTab : UserControl
 
                     dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
 
-                    var inputFile = Path.Combine(_inputDir, entry.FileName);
-                    var result = PsxLibrary.ExtractTextures(inputFile, _outputDir, createSubDirs);
+                    var inputFile = Path.Combine(inputDir, entry.FileName);
+                    var result = PsxLibrary.ExtractTextures(inputFile, outputDir, createSubDirs);
 
                     dispatcher.TryEnqueue(() =>
                     {

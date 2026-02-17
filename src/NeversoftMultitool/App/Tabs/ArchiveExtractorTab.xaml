@@ -20,24 +20,13 @@
     <!-- Header row -->
     <Grid Grid.Row="0"
           Margin="0,0,0,8">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*" />
-        <ColumnDefinition Width="Auto" />
-      </Grid.ColumnDefinitions>
       <StackPanel Style="{StaticResource TabHeaderStackPanelStyle}">
         <TextBlock
           Text="Archive Extraction"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Extract files from WAD, PKR, and PRE archives"
+          Text="Extract files from WAD, PKR, PRE, DDX, and BON archives"
           Style="{StaticResource TabSubtitleStyle}" />
-      </StackPanel>
-      <StackPanel
-        Grid.Column="1"
-        Style="{StaticResource SelectButtonsPanelStyle}">
-        <Button
-          Content="Open Archive"
-          Click="OpenArchiveButton_Click" />
       </StackPanel>
     </Grid>
 
@@ -156,34 +145,50 @@
           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
           TextAlignment="Center" />
         <TextBlock
-          Text="Open a WAD, PKR, or PRE archive to view its contents"
+          Text="Open a WAD, PKR, PRE, DDX, or BON archive to view its contents"
           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
           TextAlignment="Center" />
         <Button
-          Content="Open Archive"
+          Content="Browse..."
           HorizontalAlignment="Center"
           Click="OpenArchiveButton_Click"
           Style="{StaticResource AccentButtonStyle}" />
       </StackPanel>
     </Border>
 
-    <!-- I/O Section (output only) -->
+    <!-- I/O Section -->
     <Grid Grid.Row="3"
           Style="{StaticResource IoSectionGridStyle}">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="Auto" />
         <ColumnDefinition Width="*" />
         <ColumnDefinition Width="Auto" />
       </Grid.ColumnDefinitions>
 
-      <TextBlock Grid.Column="0"
+      <TextBlock Grid.Row="0" Grid.Column="0"
+                 Text="Input:"
+                 Style="{StaticResource IoLabelStyle}" />
+      <TextBox x:Name="InputPathText"
+               Grid.Row="0" Grid.Column="1"
+               IsReadOnly="True"
+               Style="{StaticResource IoTextBoxStyle}" />
+      <Button Grid.Row="0" Grid.Column="2"
+              Content="Browse..."
+              MinWidth="120"
+              Click="OpenArchiveButton_Click" />
+
+      <TextBlock Grid.Row="1" Grid.Column="0"
                  Text="Output:"
                  Style="{StaticResource IoLabelStyle}" />
       <TextBox x:Name="OutputPathText"
-               Grid.Column="1"
+               Grid.Row="1" Grid.Column="1"
                IsReadOnly="True"
                Style="{StaticResource IoTextBoxStyle}" />
-      <Button Grid.Column="2"
+      <Button Grid.Row="1" Grid.Column="2"
               Content="Browse..."
               MinWidth="120"
               Click="OutputBrowse_Click" />

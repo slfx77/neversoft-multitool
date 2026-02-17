@@ -16,7 +16,7 @@ public static class PsxCommand
         var outputOption = new Option<string>("-o", "--output")
         {
             Description = "Output directory for extracted textures",
-            DefaultValueFactory = _ => "output"
+            DefaultValueFactory = _ => "TestOutput"
         };
         var subdirsOption = new Option<bool>("--subdirs")
         {
@@ -26,12 +26,17 @@ public static class PsxCommand
         {
             Description = "Enable verbose output"
         };
+        var noDdsOption = new Option<bool>("--no-dds")
+        {
+            Description = "Skip DDS output for 16-bit textures (PNG only)"
+        };
 
         var command = new Command("psx", "Extract textures from PSX model files");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(subdirsOption);
         command.Options.Add(verboseOption);
+        command.Options.Add(noDdsOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -39,6 +44,7 @@ public static class PsxCommand
             var output = parseResult.GetValue(outputOption)!;
             var subdirs = parseResult.GetValue(subdirsOption);
             var verbose = parseResult.GetValue(verboseOption);
+            var noDds = parseResult.GetValue(noDdsOption);
 
             if (!Directory.Exists(input))
             {
@@ -63,16 +69,20 @@ public static class PsxCommand
             foreach (var file in psxFiles)
             {
                 var filename = Path.GetFileName(file);
-                var result = PsxLibrary.ExtractTextures(file, output, subdirs);
+                var result = PsxLibrary.ExtractTextures(file, output, subdirs, writeDds: !noDds);
 
                 totalTextures += result.TotalTextures;
                 totalWritten += result.TexturesWritten;
 
                 if (verbose)
                 {
-                    var status = result.Skipped ? "[dim]skipped[/]"
-                        : result.Success ? $"[green]{result.TexturesWritten} textures[/]"
-                        : $"[red]error: {result.ErrorMessage}[/]";
+                    string status;
+                    if (result.Skipped)
+                        status = "[dim]skipped[/]";
+                    else if (result.Success)
+                        status = $"[green]{result.TexturesWritten} textures[/]";
+                    else
+                        status = $"[red]error: {result.ErrorMessage}[/]";
                     AnsiConsole.MarkupLine($"  {filename}: {status}");
                 }
             }

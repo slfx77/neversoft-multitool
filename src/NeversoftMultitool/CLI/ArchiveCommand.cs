@@ -11,19 +11,19 @@ public static class ArchiveCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to archive file (WAD, PKR, or PRE)"
+            Description = "Path to archive file (WAD, PKR, PRE, DDX, or BON)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
             Description = "Output directory for extracted files",
-            DefaultValueFactory = _ => "output"
+            DefaultValueFactory = _ => "TestOutput"
         };
         var verboseOption = new Option<bool>("-v", "--verbose")
         {
             Description = "Enable verbose output"
         };
 
-        var command = new Command("archive", "Extract files from WAD/PKR/PRE archives");
+        var command = new Command("archive", "Extract files from WAD/PKR/PRE/DDX/BON archives");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -59,9 +59,9 @@ public static class ArchiveCommand
                             filesExtracted = current;
                             if (verbose)
                             {
-                                AnsiConsole.MarkupLine($"  [{current}/{total}] {wadEntries[current - 1].Name}");
+                                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {wadEntries[current - 1].Name}");
                             }
-                        });
+                        }, cancellationToken);
                         break;
 
                     case ".pkr":
@@ -73,14 +73,52 @@ public static class ArchiveCommand
                             filesExtracted = current;
                             if (verbose)
                             {
-                                AnsiConsole.MarkupLine($"  [{current}/{total}] {pkrEntries[current - 1].FullName}");
+                                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {pkrEntries[current - 1].FullName}");
                             }
-                        });
+                        }, cancellationToken);
+                        break;
+
+                    case ".ddx":
+                        AnsiConsole.MarkupLine("[blue]DDX[/] texture archive detected");
+                        var ddxEntries = DdxArchive.GetFileList(input);
+                        AnsiConsole.MarkupLine($"Found [green]{ddxEntries.Count}[/] textures");
+                        DdxArchive.ExtractFiles(input, output, (current, total) =>
+                        {
+                            filesExtracted = current;
+                            if (verbose)
+                            {
+                                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {ddxEntries[current - 1].Name}");
+                            }
+                        }, cancellationToken);
+                        break;
+
+                    case ".bon":
+                        AnsiConsole.MarkupLine("[blue]BON[/] model archive detected");
+                        var bonEntries = BonArchive.GetFileList(input);
+                        AnsiConsole.MarkupLine($"Found [green]{bonEntries.Count}[/] textures");
+                        BonArchive.ExtractFiles(input, output, (current, total) =>
+                        {
+                            filesExtracted = current;
+                            if (verbose)
+                            {
+                                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {bonEntries[current - 1].Name}");
+                            }
+                        }, cancellationToken);
                         break;
 
                     case ".pre":
-                        AnsiConsole.MarkupLine("[yellow]PRE archive extraction is not yet implemented.[/]");
-                        return Task.FromResult(0);
+                        AnsiConsole.MarkupLine("[blue]PRE[/] archive detected");
+                        var preEntries = PreArchive.GetFileList(input);
+                        AnsiConsole.MarkupLine($"Found [green]{preEntries.Count}[/] files");
+                        PreArchive.ExtractFiles(input, output, (current, total) =>
+                        {
+                            filesExtracted = current;
+                            if (verbose)
+                            {
+                                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {preEntries[current - 1].Name}");
+                            }
+                        }, cancellationToken);
+                        break;
 
                     default:
                         AnsiConsole.MarkupLine($"[red]Unsupported archive format:[/] {ext}");

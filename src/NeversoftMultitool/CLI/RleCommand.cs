@@ -17,12 +17,12 @@ public static class RleCommand
         var outputOption = new Option<string>("-o", "--output")
         {
             Description = "Output directory for converted PNG files",
-            DefaultValueFactory = _ => "output"
+            DefaultValueFactory = _ => "TestOutput"
         };
         var widthOption = new Option<int>("-w", "--width")
         {
-            Description = "Image width in pixels",
-            DefaultValueFactory = _ => 512
+            Description = "Image width in pixels (0 = auto-detect)",
+            DefaultValueFactory = _ => 0
         };
         var verboseOption = new Option<bool>("-v", "--verbose")
         {
@@ -60,7 +60,10 @@ public static class RleCommand
             }
 
             Directory.CreateDirectory(output);
-            AnsiConsole.MarkupLine($"Found [green]{rleFiles.Length}[/] RLE/BMR file(s), width={width}px");
+            var autoDetect = width == 0;
+            AnsiConsole.MarkupLine(autoDetect
+                ? $"Found [green]{rleFiles.Length}[/] RLE/BMR file(s), width=auto"
+                : $"Found [green]{rleFiles.Length}[/] RLE/BMR file(s), width={width}px");
 
             var stopwatch = Stopwatch.StartNew();
             var converted = 0;
@@ -68,7 +71,9 @@ public static class RleCommand
             foreach (var file in rleFiles)
             {
                 var filename = Path.GetFileName(file);
-                var result = RleImage.Convert(file, width);
+                var result = autoDetect
+                    ? RleImage.Convert(file)
+                    : RleImage.Convert(file, width);
 
                 if (result.Success)
                 {
@@ -79,7 +84,8 @@ public static class RleCommand
 
                     if (verbose)
                     {
-                        AnsiConsole.MarkupLine($"  {filename}: [green]{result.Width}x{result.Height}[/]");
+                        var autoTag = result.WidthAutoDetected ? " (auto)" : "";
+                        AnsiConsole.MarkupLine($"  {filename}: [green]{result.Width}x{result.Height}[/]{autoTag}");
                     }
                 }
                 else if (verbose)

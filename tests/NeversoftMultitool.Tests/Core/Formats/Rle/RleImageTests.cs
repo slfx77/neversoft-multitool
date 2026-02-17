@@ -11,7 +11,9 @@ public class RleImageTests(TestPaths paths)
     [Theory]
     [InlineData("legal.rle")]
     [InlineData("loadlogo.rle")]
-    public void Convert_RleFiles_MatchesGoldenFiles(string filename)
+    [InlineData("load01.bmr")]
+    [InlineData("title.bmr")]
+    public void Convert_MatchesGoldenFiles(string filename)
     {
         Assert.SkipWhen(!paths.HasTestData || !paths.HasGoldenFiles, "Test data not available");
 
@@ -23,7 +25,7 @@ public class RleImageTests(TestPaths paths)
         var result = RleImage.Convert(inputFile, DefaultWidth);
         Assert.True(result.Success, $"Conversion failed: {result.ErrorMessage}");
 
-        var tempFile = Path.GetTempFileName() + ".png";
+        var tempFile = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".png");
         try
         {
             ImageWriter.WritePngRgb(tempFile, result.Width, result.Height, result.RgbPixels);
@@ -38,47 +40,44 @@ public class RleImageTests(TestPaths paths)
     }
 
     [Theory]
+    [InlineData("legal.rle")]
+    [InlineData("loadlogo.rle")]
     [InlineData("load01.bmr")]
     [InlineData("title.bmr")]
-    public void Convert_BmrFiles_MatchesGoldenFiles(string filename)
+    public void Convert_AutoDetect_MatchesExplicitWidth(string filename)
     {
-        Assert.SkipWhen(!paths.HasTestData || !paths.HasGoldenFiles, "Test data not available");
+        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
 
         var inputFile = Path.Combine(paths.RleDir!, filename);
-        var goldenFile = Path.Combine(paths.GoldenRleDir!, Path.ChangeExtension(filename, ".png"));
         Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
-        Assert.SkipWhen(!File.Exists(goldenFile), $"Golden file not found");
 
-        var result = RleImage.Convert(inputFile, DefaultWidth);
-        Assert.True(result.Success, $"Conversion failed: {result.ErrorMessage}");
+        var explicitResult = RleImage.Convert(inputFile, DefaultWidth);
+        var autoResult = RleImage.Convert(inputFile);
 
-        var tempFile = Path.GetTempFileName() + ".png";
-        try
-        {
-            ImageWriter.WritePngRgb(tempFile, result.Width, result.Height, result.RgbPixels);
-            var comparison = PixelComparer.CompareRgb(tempFile, goldenFile);
-            Assert.True(comparison.Match, $"{filename}: {comparison.Details}");
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        Assert.True(autoResult.Success, $"Auto-detect failed: {autoResult.ErrorMessage}");
+        Assert.True(autoResult.WidthAutoDetected);
+        Assert.Equal(explicitResult.Width, autoResult.Width);
+        Assert.Equal(explicitResult.Height, autoResult.Height);
+        Assert.Equal(explicitResult.RgbPixels, autoResult.RgbPixels);
     }
 
-    [Fact]
-    public void Convert_UnsupportedExtension_ReturnsError()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Convert_UnsupportedExtension_ReturnsError(bool autoDetect)
     {
-        var tempFile = Path.GetTempFileName();
+        var tempFile = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        File.Create(tempFile).Dispose();
         try
         {
-            var result = RleImage.Convert(tempFile, DefaultWidth);
+            var result = autoDetect ? RleImage.Convert(tempFile) : RleImage.Convert(tempFile, DefaultWidth);
             Assert.False(result.Success);
             Assert.Contains("Unsupported", result.ErrorMessage);
         }
         finally
         {
-            File.Delete(tempFile);
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
         }
     }
 

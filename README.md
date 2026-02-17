@@ -4,14 +4,39 @@
 
 ## Supported Formats
 
-| Format | Description | Status |
-|--------|------------|--------|
-| PSX (PS1) | 4-bit and 8-bit paletted textures | Supported |
-| PSX (Xbox/DC) | 16-bit PowerVR textures (twiddled, VQ, rectangle) | Supported |
-| RLE / BMR | Neversoft's custom RLE-compressed bitmaps | Supported |
-| WAD + HED | Paired archive/index format (Apocalypse, THPS) | Supported |
-| PKR3 | Compressed archive format (Spider-Man PC) | Supported |
-| PRE | Archive format (THPS series) | Planned |
+### Textures
+
+| Format        | Description                                                                | Games                           |
+| ------------- | -------------------------------------------------------------------------- | ------------------------------- |
+| PSX (PS1)     | 4-bit and 8-bit paletted textures → PNG                                    | All PS1 titles                  |
+| PSX (Xbox/DC) | 16-bit PowerVR textures (twiddled, VQ, rectangle) → PNG/DDS                | THPS2X, Spider-Man DC, THPS2 DC |
+| PVR           | Standalone Dreamcast GBIX+PVRT textures (ARGB1555, RGB565, ARGB4444) → PNG | THPS2 DC, Spider-Man DC         |
+| RLE / BMR     | Neversoft's custom RLE-compressed bitmaps → PNG/BMP                        | All titles                      |
+
+### Archives
+
+| Format    | Description                                       | Games                   |
+| --------- | ------------------------------------------------- | ----------------------- |
+| WAD + HED | Paired archive/index format                       | Apocalypse, THPS series |
+| PKR3      | Compressed archive format                         | Spider-Man PC           |
+| PRE       | Simple flat archive format                        | THPS1 PS1, THPS2 PS1/DC |
+| DDX       | Xbox texture archives containing DDS files        | THPS2X                  |
+| BON       | Dreamcast v1 (PVR → PNG) and Xbox v3/v4 (raw DDS) | THPS2 DC, THPS2X        |
+
+### Audio
+
+| Format | Description                                   | Games                   |
+| ------ | --------------------------------------------- | ----------------------- |
+| XA     | PS1 ADPCM audio (sectored and raw) → WAV      | All PS1 titles          |
+| VAB    | PS1 sound bank (multi-sample) → WAV           | All PS1 titles          |
+| ADX    | CRI Middleware audio → WAV                    | THPS2 DC, Spider-Man DC |
+| KAT    | Dreamcast audio soundbank (ADPCM + PCM) → WAV | THPS2 DC, Spider-Man DC |
+
+### 3D Models
+
+| Format | Description                                                                         | Games  |
+| ------ | ----------------------------------------------------------------------------------- | ------ |
+| DDM    | Xbox level geometry → glTF (.glb) with materials, vertex colors, texture references | THPS2X |
 
 ### Tested Games
 
@@ -49,7 +74,7 @@ Run the executable with no arguments to launch the WinUI 3 interface:
 dotnet run --project src/NeversoftMultitool -f net10.0-windows10.0.19041.0
 ```
 
-The GUI provides tabs for each format type with drag-and-drop file selection and batch processing.
+The GUI provides tabs for PSX textures, RLE bitmaps, archives, audio conversion, and hash review with batch processing support.
 
 ### CLI Mode
 
@@ -70,15 +95,25 @@ NeversoftMultitool psx <directory> [-o output] [--subdirs] [-v]
 - `--subdirs` - Create subdirectories per .psx file
 - `-v, --verbose` - Show per-file details
 
+#### Convert PVR Textures
+
+```bash
+NeversoftMultitool pvr <input> [-o output] [-v]
+```
+
+- `<input>` - Path to a .pvr file or directory containing .pvr files
+- `-o, --output` - Output directory (default: `TestOutput`)
+- `-v, --verbose` - Show per-file details
+
 #### Convert RLE/BMR Bitmaps
 
 ```bash
-NeversoftMultitool rle <directory> [-o output] [-w 512] [-v]
+NeversoftMultitool rle <directory> [-o output] [-w width] [-v]
 ```
 
 - `<directory>` - Path to directory containing .rle/.bmr files
 - `-o, --output` - Output directory (default: `output`)
-- `-w, --width` - Image width in pixels (default: 512)
+- `-w, --width` - Image width in pixels (default: auto-detect)
 - `-v, --verbose` - Show per-file details
 
 #### Extract Archives
@@ -87,9 +122,33 @@ NeversoftMultitool rle <directory> [-o output] [-w 512] [-v]
 NeversoftMultitool archive <file> [-o output] [-v]
 ```
 
-- `<file>` - Path to archive file (.wad, .pkr, or .pre)
-- `-o, --output` - Output directory (default: `output`)
+- `<file>` - Path to archive file (.wad, .pkr, .pre, .ddx, or .bon)
+- `-o, --output` - Output directory (default: `TestOutput`)
 - `-v, --verbose` - Show per-file extraction progress
+
+#### Convert DDM Meshes
+
+```bash
+NeversoftMultitool ddm <directory> [-o output] [-t textures] [-v]
+```
+
+- `<directory>` - Path to directory containing .ddm files
+- `-o, --output` - Output directory (default: `TestOutput/DDM`)
+- `-t, --textures` - Path to directory with extracted DDX textures (PNG) for material binding
+- `-v, --verbose` - Show per-file details
+
+Level DDMs are automatically paired with companion `_o` (object) DDMs and `.psx` files for world-space placement.
+
+#### Convert Audio Files
+
+```bash
+NeversoftMultitool audio <directory> [-o output] [-r sample-rate] [-v]
+```
+
+- `<directory>` - Path to directory containing audio files (.adx, .xa, .vab, .kat)
+- `-o, --output` - Output directory (default: `TestOutput`)
+- `-r, --sample-rate` - Sample rate for VAB output (default: 11025)
+- `-v, --verbose` - Show per-file details
 
 ## Architecture
 
@@ -105,9 +164,29 @@ src/NeversoftMultitool/
   Core/                    # Shared format logic
     BinaryIO/              # BinaryReader extensions, ImageWriter
     Formats/
-      Psx/                 # PSX texture extraction + decoding
+      Psx/                 # PSX/PVR texture extraction + decoding
       Rle/                 # RLE/BMR bitmap conversion
-      Archives/            # WAD, PKR, PRE extraction
+      Archives/            # WAD, PKR, PRE, DDX, BON extraction
+      Audio/               # ADX, XA, VAB, KAT audio decoding
+      Mesh/                # DDM mesh extraction → glTF
   CLI/                     # Command-line interface
   App/                     # WinUI 3 GUI (Windows only)
 ```
+
+## Acknowledgements
+
+This project contains code derived from or informed by:
+
+- [io_thps_scene](https://github.com/denetii/io_thps_scene) — Blender plugin for Tony Hawk's Pro Skater formats, used as reference for PSX model/texture parsing.
+- [psx_extractor](https://github.com/krystalgamer/spidey-tools/tree/master/psx_extractor) — Spider-Man PC PSX extractor, used as reference for 16-bit texture decoding.
+- [Rawtex](https://zenhax.com/viewtopic.php?t=7099) — Multipurpose raw texture converter, used as reference for PowerVR palette type handling.
+- [RLE-GIMP-Plugin](https://github.com/Daniel-McCarthy/RLE-GIMP-Plugin) — GIMP plugin for Neversoft RLE/BMR files, used as reference for the PS1 RLE format.
+- [jPSXdec](https://github.com/m35/jpsxdec) — PlayStation 1 media decoder/converter in Java, used as reference for XA ADPCM audio decoding.
+- [KAT2WAV](https://github.com/DCxDemo/KAT2WAV) — Dreamcast KAT soundbank extractor, used as reference for KAT format understanding.
+
+### Previous Versions
+
+This tool was originally two separate Python/PyQt5 tools:
+
+- [Neversoft Bitmap Converter](https://github.com/slfx77/neversoft_bitmap_converter)
+- [PSX Texture Extractor](https://github.com/slfx77/psx_texture_extractor)

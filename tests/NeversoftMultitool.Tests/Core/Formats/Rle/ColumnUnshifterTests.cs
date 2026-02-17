@@ -14,14 +14,6 @@ public class ColumnUnshifterTests
         return Activator.CreateInstance(RgbColorType, r, g, b)!;
     }
 
-    private static (byte R, byte G, byte B) GetColor(object color)
-    {
-        var r = (byte)RgbColorType.GetProperty("R")!.GetValue(color)!;
-        var g = (byte)RgbColorType.GetProperty("G")!.GetValue(color)!;
-        var b = (byte)RgbColorType.GetProperty("B")!.GetValue(color)!;
-        return (r, g, b);
-    }
-
     [Fact]
     public void Unshift_NoBlueMarker_ReturnsUnchanged()
     {

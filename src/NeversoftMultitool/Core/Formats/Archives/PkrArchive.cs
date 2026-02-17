@@ -10,7 +10,6 @@ namespace NeversoftMultitool.Core.Formats.Archives;
 public static class PkrArchive
 {
     private const uint FileCompressed = 0x00000002;
-    private const uint FileUncompressed = 0xFFFFFFFE;
 
     /// <summary>
     /// Reads the file list from a PKR archive.

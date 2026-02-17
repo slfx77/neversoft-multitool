@@ -37,6 +37,9 @@ public static class Program
         rootCommand.Subcommands.Add(PsxCommand.Create());
         rootCommand.Subcommands.Add(RleCommand.Create());
         rootCommand.Subcommands.Add(ArchiveCommand.Create());
+        rootCommand.Subcommands.Add(PvrCommand.Create());
+        rootCommand.Subcommands.Add(DdmCommand.Create());
+        rootCommand.Subcommands.Add(AudioCommand.Create());
 
         return rootCommand.Parse(args).Invoke();
     }
@@ -75,7 +78,10 @@ public static class Program
         AnsiConsole.MarkupLine("[bold]Commands:[/]");
         AnsiConsole.MarkupLine("  [green]psx[/]       Extract textures from PSX model files");
         AnsiConsole.MarkupLine("  [green]rle[/]       Convert RLE/BMR bitmap files to PNG");
-        AnsiConsole.MarkupLine("  [green]archive[/]   Extract files from WAD/PKR/PRE archives");
+        AnsiConsole.MarkupLine("  [green]archive[/]   Extract files from WAD/PKR/PRE/DDX/BON archives");
+        AnsiConsole.MarkupLine("  [green]pvr[/]       Convert Dreamcast PVR texture files to PNG");
+        AnsiConsole.MarkupLine("  [green]ddm[/]       Convert DDM mesh files to glTF (.glb)");
+        AnsiConsole.MarkupLine("  [green]audio[/]     Convert ADX/XA/VAB/KAT audio files to WAV");
 #if WINDOWS_GUI
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]For GUI mode:[/]");
@@ -91,7 +97,10 @@ public static class Program
             args.Any(a => a.Equals("-n", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("psx", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("rle", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("archive", StringComparison.OrdinalIgnoreCase)));
+            args.Any(a => a.Equals("archive", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("pvr", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("ddm", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("audio", StringComparison.OrdinalIgnoreCase)));
     }
 #endif
 }

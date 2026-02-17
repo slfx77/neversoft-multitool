@@ -1,5 +1,8 @@
+using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Psx;
 using NeversoftMultitool.Tests.Helpers;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Psx;
 
@@ -110,5 +113,232 @@ public class PsxLibraryTests(TestPaths paths)
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, true);
         }
+    }
+
+    [Theory]
+    [InlineData("bits.psx")]
+    [InlineData("Default.PSX")]
+    [InlineData("hawk2.PSX")]
+    public void ExtractTextures_Xbox_DdsMainSurfaceMatchesPng(string filename)
+    {
+        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
+
+        var inputFile = Path.Combine(paths.PsxXboxDir!, filename);
+        Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "NsMultitool_Test_Dds_" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var result = PsxLibrary.ExtractTextures(inputFile, tempDir, createSubDirs: false);
+            Assert.True(result.Success, $"Extraction failed: {result.ErrorMessage}");
+
+            var ddsFiles = Directory.GetFiles(tempDir, "*.dds");
+            Assert.SkipWhen(ddsFiles.Length == 0, "No DDS files produced (no 16-bit textures)");
+
+            foreach (var ddsFile in ddsFiles)
+            {
+                var pngFile = Path.ChangeExtension(ddsFile, ".png");
+                Assert.True(File.Exists(pngFile), $"Matching PNG not found for {Path.GetFileName(ddsFile)}");
+
+                var ddsInfo = DdsTestReader.ReadMainSurface(ddsFile);
+                using var pngImage = Image.Load<Rgba32>(pngFile);
+
+                Assert.Equal(pngImage.Width, ddsInfo.Width);
+                Assert.Equal(pngImage.Height, ddsInfo.Height);
+
+                // Convert DDS main surface ushorts to RGBA and compare
+                var ddsRgba = new byte[ddsInfo.Width * ddsInfo.Height * 4];
+                var rgba = new byte[4];
+                for (var i = 0; i < ddsInfo.Pixels.Length; i++)
+                {
+                    ColorHelpers.Convert16BppTo32Bpp(ddsInfo.Pixels[i], ddsInfo.Format, rgba);
+                    ddsRgba[i * 4] = rgba[0];
+                    ddsRgba[i * 4 + 1] = rgba[1];
+                    ddsRgba[i * 4 + 2] = rgba[2];
+                    ddsRgba[i * 4 + 3] = rgba[3];
+                }
+
+                for (var y = 0; y < pngImage.Height; y++)
+                {
+                    for (var x = 0; x < pngImage.Width; x++)
+                    {
+                        var px = pngImage[x, y];
+                        var offset = (y * pngImage.Width + x) * 4;
+                        Assert.True(
+                            ddsRgba[offset] == px.R && ddsRgba[offset + 1] == px.G &&
+                            ddsRgba[offset + 2] == px.B && ddsRgba[offset + 3] == px.A,
+                            $"{Path.GetFileName(ddsFile)}: pixel mismatch at ({x},{y})");
+                    }
+                }
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Theory]
+    [InlineData("bits.psx")]
+    [InlineData("Default.PSX")]
+    [InlineData("hawk2.PSX")]
+    public void ExtractTextures_Xbox_DdsHasCorrectMipHeaders(string filename)
+    {
+        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
+
+        var inputFile = Path.Combine(paths.PsxXboxDir!, filename);
+        Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "NsMultitool_Test_DdsMip_" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var result = PsxLibrary.ExtractTextures(inputFile, tempDir, createSubDirs: false);
+            Assert.True(result.Success, $"Extraction failed: {result.ErrorMessage}");
+
+            var ddsFiles = Directory.GetFiles(tempDir, "*.dds");
+            Assert.SkipWhen(ddsFiles.Length == 0, "No DDS files produced");
+
+            foreach (var ddsFile in ddsFiles)
+            {
+                var header = DdsTestReader.ReadHeader(ddsFile);
+
+                if (header.MipMapCount > 1)
+                {
+                    // Mipmapped: verify flags
+                    Assert.True((header.Flags & 0x20000) != 0,
+                        $"{Path.GetFileName(ddsFile)}: DDSD_MIPMAPCOUNT flag not set");
+                    Assert.True((header.Caps & 0x8) != 0,
+                        $"{Path.GetFileName(ddsFile)}: DDSCAPS_COMPLEX flag not set");
+                    Assert.True((header.Caps & 0x400000) != 0,
+                        $"{Path.GetFileName(ddsFile)}: DDSCAPS_MIPMAP flag not set");
+
+                    // Verify total file size = 128 (magic + header) + sum of all mip level sizes
+                    var expectedSize = 128L;
+                    var w = header.Width;
+                    var h = header.Height;
+                    for (var level = 0; level < header.MipMapCount; level++)
+                    {
+                        expectedSize += w * h * 2; // 16 bpp = 2 bytes per pixel
+                        w = Math.Max(1, w / 2);
+                        h = Math.Max(1, h / 2);
+                    }
+
+                    var actualSize = new FileInfo(ddsFile).Length;
+                    Assert.Equal(expectedSize, actualSize);
+                }
+                else
+                {
+                    // Non-mipmapped: caps should just be TEXTURE
+                    Assert.True((header.Caps & 0x400000) == 0,
+                        $"{Path.GetFileName(ddsFile)}: DDSCAPS_MIPMAP should not be set for non-mipmapped");
+                }
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Theory]
+    [InlineData("bits.psx")]
+    [InlineData("Default.PSX")]
+    public void ExtractTextures_NoDds_ProducesOnlyPng(string filename)
+    {
+        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
+
+        var inputFile = Path.Combine(paths.PsxXboxDir!, filename);
+        Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "NsMultitool_Test_NoDds_" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var result = PsxLibrary.ExtractTextures(inputFile, tempDir, createSubDirs: false, writeDds: false);
+            Assert.True(result.Success, $"Extraction failed: {result.ErrorMessage}");
+
+            var pngFiles = Directory.GetFiles(tempDir, "*.png");
+            var ddsFiles = Directory.GetFiles(tempDir, "*.dds");
+
+            Assert.NotEmpty(pngFiles);
+            Assert.Empty(ddsFiles);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+}
+
+/// <summary>
+/// Minimal DDS reader for test verification.
+/// </summary>
+internal static class DdsTestReader
+{
+    public sealed record DdsHeader(int Width, int Height, uint Flags, uint MipMapCount, uint Caps, ColorFormat Format);
+
+    public sealed record DdsSurface(int Width, int Height, ColorFormat Format, ushort[] Pixels);
+
+    public static DdsHeader ReadHeader(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var reader = new BinaryReader(stream);
+
+        var magic = reader.ReadUInt32();
+        Assert.Equal(0x20534444u, magic); // "DDS "
+
+        var headerSize = reader.ReadUInt32();
+        Assert.Equal(124u, headerSize);
+
+        var flags = reader.ReadUInt32();
+        var height = reader.ReadInt32();
+        var width = reader.ReadInt32();
+        reader.ReadUInt32(); // pitch
+        reader.ReadUInt32(); // depth
+        var mipMapCount = reader.ReadUInt32();
+        for (var i = 0; i < 11; i++) reader.ReadUInt32(); // reserved
+
+        // Pixel format
+        reader.ReadUInt32(); // pfSize
+        reader.ReadUInt32(); // pfFlags
+        reader.ReadUInt32(); // fourCC
+        reader.ReadUInt32(); // rgbBitCount
+        var rMask = reader.ReadUInt32();
+        reader.ReadUInt32(); // gMask
+        reader.ReadUInt32(); // bMask
+        reader.ReadUInt32(); // aMask
+
+        var caps = reader.ReadUInt32();
+
+        var format = rMask switch
+        {
+            0x7C00 => ColorFormat.Argb1555,
+            0xF800 => ColorFormat.Rgb565,
+            0x0F00 => ColorFormat.Argb4444,
+            _ => ColorFormat.Argb1555
+        };
+
+        return new DdsHeader(width, height, flags, mipMapCount, caps, format);
+    }
+
+    public static DdsSurface ReadMainSurface(string path)
+    {
+        var header = ReadHeader(path);
+
+        using var stream = File.OpenRead(path);
+        stream.Seek(128, SeekOrigin.Begin); // Skip magic (4) + header (124)
+
+        using var reader = new BinaryReader(stream);
+        var pixelCount = header.Width * header.Height;
+        var pixels = new ushort[pixelCount];
+        for (var i = 0; i < pixelCount; i++)
+            pixels[i] = reader.ReadUInt16();
+
+        return new DdsSurface(header.Width, header.Height, header.Format, pixels);
     }
 }

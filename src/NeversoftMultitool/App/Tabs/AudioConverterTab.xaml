@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <UserControl
-  x:Class="NeversoftMultitool.RleBitmapTab"
+  x:Class="NeversoftMultitool.AudioConverterTab"
   xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
   xmlns:local="using:NeversoftMultitool">
@@ -20,10 +20,10 @@
           Margin="0,0,0,8">
       <StackPanel Style="{StaticResource TabHeaderStackPanelStyle}">
         <TextBlock
-          Text="RLE / BMR Bitmap Conversion"
+          Text="Audio Conversion"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Convert Neversoft RLE and BMR bitmap files to PNG"
+          Text="Convert ADX, XA, VAB, and KAT audio files to WAV"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>
@@ -46,10 +46,14 @@
               Style="{StaticResource ColumnHeaderGridStyle}">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="70" />
+            <ColumnDefinition Width="80" />
             <ColumnDefinition Width="100" />
           </Grid.ColumnDefinitions>
           <TextBlock Grid.Column="0" Text="File Name" FontWeight="SemiBold" />
-          <TextBlock Grid.Column="1" Text="Status" FontWeight="SemiBold" />
+          <TextBlock Grid.Column="1" Text="Format" FontWeight="SemiBold" />
+          <TextBlock Grid.Column="2" Text="Samples" FontWeight="SemiBold" HorizontalAlignment="Center" />
+          <TextBlock Grid.Column="3" Text="Status" FontWeight="SemiBold" />
         </Grid>
 
         <!-- Files ListView -->
@@ -58,10 +62,12 @@
           Grid.Row="1"
           Style="{StaticResource FileListViewStyle}">
           <ListView.ItemTemplate>
-            <DataTemplate x:DataType="local:RleFileEntry">
+            <DataTemplate x:DataType="local:AudioFileEntry">
               <Grid Style="{StaticResource ListItemRowGridStyle}">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="70" />
+                  <ColumnDefinition Width="80" />
                   <ColumnDefinition Width="100" />
                 </Grid.ColumnDefinitions>
                 <TextBlock
@@ -72,6 +78,15 @@
                   ToolTipService.ToolTip="{x:Bind FileName}" />
                 <TextBlock
                   Grid.Column="1"
+                  VerticalAlignment="Center"
+                  Text="{x:Bind AudioFormat}" />
+                <TextBlock
+                  Grid.Column="2"
+                  VerticalAlignment="Center"
+                  HorizontalAlignment="Center"
+                  Text="{x:Bind SampleCountDisplay, Mode=OneWay}" />
+                <TextBlock
+                  Grid.Column="3"
                   VerticalAlignment="Center"
                   Foreground="{x:Bind StatusColor, Mode=OneWay}"
                   Text="{x:Bind StatusDisplay, Mode=OneWay}" />
@@ -92,7 +107,7 @@
                   VerticalAlignment="Center"
                   Spacing="16">
         <FontIcon FontSize="64"
-                  Glyph="&#xE8B9;"
+                  Glyph="&#xE8D6;"
                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
         <TextBlock
           Text="No directory selected"
@@ -100,7 +115,7 @@
           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
           TextAlignment="Center" />
         <TextBlock
-          Text="Select an input directory containing .rle or .bmr files"
+          Text="Select a directory containing .adx, .xa, .vab, or .kat audio files"
           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
           TextAlignment="Center" />
         <Button
@@ -150,33 +165,34 @@
               Click="OutputBrowse_Click" />
 
       <TextBlock Grid.Row="2" Grid.Column="0"
-                 Text="Width:"
+                 Text="VAB Rate:"
                  Style="{StaticResource IoLabelStyle}" />
-      <StackPanel Grid.Row="2" Grid.Column="1"
-                  Orientation="Horizontal" Spacing="8"
-                  HorizontalAlignment="Left" VerticalAlignment="Center">
-        <NumberBox x:Name="WidthNumberBox"
-                   Value="512"
-                   Minimum="1"
-                   Maximum="1024"
-                   SpinButtonPlacementMode="Compact"
-                   SmallChange="1"
-                   LargeChange="128"
-                   IsEnabled="False" />
-        <CheckBox x:Name="AutoWidthCheckbox"
-                  Content="Auto"
-                  IsChecked="True"
-                  MinWidth="0"
-                  Checked="AutoWidthCheckbox_Changed"
-                  Unchecked="AutoWidthCheckbox_Changed" />
+      <ComboBox x:Name="VabSampleRateCombo"
+                Grid.Row="2" Grid.Column="1"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                SelectedIndex="0">
+        <ComboBoxItem Content="11025 Hz" />
+        <ComboBoxItem Content="22050 Hz" />
+        <ComboBoxItem Content="44100 Hz" />
+      </ComboBox>
+      <StackPanel Grid.Row="2" Grid.Column="2"
+                  Orientation="Horizontal"
+                  Spacing="8">
+        <Button
+          x:Name="CancelButton"
+          Content="Cancel"
+          MinWidth="80"
+          Click="CancelButton_Click"
+          Visibility="Collapsed" />
+        <Button
+          x:Name="ConvertButton"
+          Content="Convert"
+          MinWidth="120"
+          Click="ConvertButton_Click"
+          IsEnabled="False"
+          Style="{StaticResource AccentButtonStyle}" />
       </StackPanel>
-      <Button x:Name="ConvertButton"
-              Grid.Row="2" Grid.Column="2"
-              Content="Convert"
-              MinWidth="120"
-              Click="ConvertButton_Click"
-              IsEnabled="False"
-              Style="{StaticResource AccentButtonStyle}" />
     </Grid>
 
     <!-- Progress Bar -->

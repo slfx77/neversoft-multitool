@@ -27,7 +27,7 @@ public static class ColorHelpers
         RedMax: 15, GreenMax: 15, BlueMax: 15, AlphaMax: 15,
         AlphaShift: 12, RedShift: 8, GreenShift: 4);
 
-    private record ColorParams(
+    private sealed record ColorParams(
         int RedMask, int GreenMask, int BlueMask, int AlphaMask,
         int RedMax, int GreenMax, int BlueMax, int AlphaMax,
         int AlphaShift, int RedShift, int GreenShift);

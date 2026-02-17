@@ -78,6 +78,32 @@
             <FontIcon Glyph="&#xE7B8;" />
           </NavigationViewItem.Icon>
         </NavigationViewItem>
+
+        <NavigationViewItemSeparator />
+
+        <NavigationViewItemHeader Content="Audio" />
+
+        <!--  Audio Converter  -->
+        <NavigationViewItem
+          Content="Audio Converter"
+          Tag="AudioConverter">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE8D6;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+
+        <NavigationViewItemSeparator />
+
+        <NavigationViewItemHeader Content="Tools" />
+
+        <!--  Hash Reviewer  -->
+        <NavigationViewItem
+          Content="Hash Reviewer"
+          Tag="HashReviewer">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE71C;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
       </NavigationView.MenuItems>
 
       <!--  Main content area  -->
@@ -107,6 +133,14 @@
               Visibility="Collapsed" />
             <tabs:ArchiveExtractorTab
               x:Name="ArchiveExtractorTabContent"
+              VerticalAlignment="Stretch"
+              Visibility="Collapsed" />
+            <tabs:AudioConverterTab
+              x:Name="AudioConverterTabContent"
+              VerticalAlignment="Stretch"
+              Visibility="Collapsed" />
+            <tabs:HashReviewerTab
+              x:Name="HashReviewerTabContent"
               VerticalAlignment="Stretch"
               Visibility="Collapsed" />
           </Grid>

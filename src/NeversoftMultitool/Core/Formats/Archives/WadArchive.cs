@@ -20,6 +20,8 @@ public static class WadArchive
 
     /// <summary>
     /// Reads the file list from the HED companion file.
+    /// Supports both plaintext HED (null-terminated names) and hashed HED
+    /// (12-byte entries: uint32 hash, uint32 offset, uint32 size).
     /// </summary>
     public static List<ArchiveEntry> GetFileList(string wadPath)
     {
@@ -27,18 +29,26 @@ public static class WadArchive
         if (!File.Exists(hedPath))
             throw new FileNotFoundException($"Companion HED file not found: {hedPath}");
 
-        var entries = new List<ArchiveEntry>();
-
         using var stream = File.OpenRead(hedPath);
         using var reader = new BinaryReader(stream);
 
-        var fileSize = stream.Length;
+        // Detect format: if first byte is printable ASCII, it's plaintext
+        var firstByte = reader.ReadByte();
+        stream.Position = 0;
 
-        // Read entries until near end of file (leave 7 bytes to prevent overflow)
-        while (stream.Position < fileSize - 7)
+        return firstByte is >= 0x20 and <= 0x7E
+            ? ReadPlaintextEntries(reader, stream.Length)
+            : ReadHashedEntries(reader, stream.Length);
+    }
+
+    private static List<ArchiveEntry> ReadPlaintextEntries(BinaryReader reader, long fileSize)
+    {
+        var entries = new List<ArchiveEntry>();
+
+        while (reader.BaseStream.Position < fileSize - 7)
         {
             var name = ReadNullTerminatedString(reader);
-            AlignStream(stream, 4);
+            AlignStream(reader.BaseStream, 4);
             var offset = reader.ReadUInt32();
             var size = reader.ReadUInt32();
 
@@ -54,6 +64,36 @@ public static class WadArchive
         var terminator = reader.ReadByte();
         if (terminator != 0xFF)
             throw new InvalidDataException("Invalid HED file: missing 0xFF terminator");
+
+        return entries;
+    }
+
+    private static List<ArchiveEntry> ReadHashedEntries(BinaryReader reader, long fileSize)
+    {
+        var entries = new List<ArchiveEntry>();
+
+        while (reader.BaseStream.Position + 12 <= fileSize)
+        {
+            var hash = reader.ReadUInt32();
+            var offset = reader.ReadUInt32();
+            var size = reader.ReadUInt32();
+
+            // Sentinel: all zeros marks end of entries
+            if (hash == 0 && offset == 0 && size == 0)
+                break;
+
+            // Try to resolve the hash to a filename using Crc32Neversoft dictionary
+            var resolvedName = HedDictionary.TryResolve(hash);
+            var name = resolvedName ?? $"{hash:X8}.dat";
+
+            entries.Add(new ArchiveEntry
+            {
+                Name = name,
+                Crc = hash,
+                Size = size,
+                Offset = offset
+            });
+        }
 
         return entries;
     }
