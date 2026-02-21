@@ -6,7 +6,7 @@
 
 Supported formats:
 
-- **PSX textures**: 4-bit/8-bit paletted (PS1), 16-bit PowerVR (twiddled, VQ, rectangle) — PS1, Dreamcast, Xbox
+- **PSX files**: Multi-purpose format containing textures + optional 3D mesh geometry. File naming conventions: `*_g.psx` = level geometry, `*_l.psx` = texture library (paired with `_g`), `*_o.psx` = level objects, no suffix = character/creature/item model. Textures: 4-bit/8-bit paletted (PS1), 16-bit PowerVR (twiddled, VQ, rectangle) — PS1, Dreamcast, Xbox. Meshes: → glTF (.glb) with vertex colors, normals, and texture references. **Format versions** (0x03, 0x04, 0x06) are unreliable — prototype builds may share a version ID but differ structurally. Engine timeline: Apocalypse (1998) → THPS1 (1999) → Spider-Man (2000) → THPS2 (2000) → SM2:EE (2001)
 - **PVR textures**: Standalone Dreamcast GBIX+PVRT textures (ARGB1555, RGB565, ARGB4444; twiddled, VQ, rectangle)
 - **RLE/BMR bitmaps**: Neversoft's custom RLE compression — RGBA5551 (PS1) and BMP-wrapped 24-bit RGB (Dreamcast)
 - **WAD+HED archives**: Paired archive/index format used in Apocalypse, THPS series
@@ -16,6 +16,10 @@ Supported formats:
 - **BON archives**: Dreamcast v1 (PVR textures → PNG) and Xbox v3/v4 (raw DDS extraction)
 - **Audio**: XA (PS1 ADPCM), VAB (PS1 sound banks), ADX (CRI Middleware), KAT (Dreamcast soundbanks) → WAV
 - **DDM meshes**: Xbox 3D level geometry → glTF (.glb) with materials, vertex colors, and texture references (partial — individual meshes work, level layouts produce incorrect results)
+- **TRG triggers**: Level trigger/script files → JSON — spawn points, camera paths, rail networks, enemy spawns, command lists, bytecode scripts. Versions 2.0 (Apocalypse/THPS) and 2.1 (Spider-Man)
+- **SFD video**: CRI Sofdec video (Dreamcast) → MP4 via ffmpeg. MPEG-PS container with MPEG-1 video + ADX audio. Requires ffmpeg on PATH.
+- **STR video**: PS1 MDEC video streams → MP4 via pure C# decoder + ffmpeg encoding. 2336-byte CD-ROM sectors with interleaved XA-ADPCM audio. Variable resolutions (320×240, 320×192, 96×64). Present in Apocalypse, Spider-Man, THPS1/2 (PS1). Audio extracted via XaDecoder, raw RGB24 frames piped to ffmpeg stdin.
+- **Video tab** (GUI): Unified Video Conversion tab handles both SFD and STR files with full playback preview via MediaPlayerElement.
 
 ## Build Commands
 
@@ -43,15 +47,17 @@ src/NeversoftMultitool/
 ├── Core/                    # Shared format logic (both CLI + GUI)
 │   ├── BinaryIO/            # BinaryReader extensions, ImageWriter
 │   └── Formats/
-│       ├── Psx/             # PSX texture extraction
+│       ├── Psx/             # PSX texture extraction + mesh geometry → glTF
 │       ├── Rle/             # RLE/BMR bitmap conversion
 │       ├── Audio/           # ADX, XA, VAB, KAT audio decoding
 │       ├── Mesh/            # DDM mesh extraction → glTF
+│       ├── Trg/             # TRG level trigger/script parsing → JSON
+│       ├── Video/           # SFD (Sofdec) + STR (PS1 MDEC) video conversion
 │       └── Archives/        # WAD, PKR, PRE, DDX, BON extraction
 ├── CLI/                     # Command-line interface
 ├── App/                     # WinUI 3 GUI (Windows only)
 │   ├── MainWindow.xaml      # NavigationView with tabs
-│   └── Tabs/                # PsxTextureTab, RleBitmapTab, ArchiveExtractorTab, AudioConverterTab, HashReviewerTab
+│   └── Tabs/                # PsxTextureTab, RleBitmapTab, ArchiveExtractorTab, AudioConverterTab, SfdConverterTab, HashReviewerTab
 tests/
 ├── TestData/                # Game files for integration testing
 ├── NeversoftMultitool.Tests/
@@ -74,21 +80,27 @@ tests/
 
 ## Deferred Items
 
-### Format Support — Well-Understood (Documentable)
-
-- **STR**: PS1 MDEC video streams — present in most PS1 builds
-- **SFD**: Sofdec video (CRI Middleware) — Dreamcast only (35 in THPS2 DC, 28 in Spider-Man DC). Well-documented format.
-- **TRG**: Level trigger/script files — `_TRG` magic, versions 2.0 (THPS/Apocalypse) / 2.1 (Spider-Man). 311 files across all platforms. Contains spawn points, camera paths, rail definitions, trick objects, goals, embedded bytecode scripts. Documented: [JayFoxRox/thps2-tools](https://github.com/JayFoxRox/thps2-tools), [Vadru93/THPS2X-Formats](https://github.com/Vadru93/THPS2X-Formats), [krystalgamer/spidey-tools](https://github.com/krystalgamer/spidey-tools).
-- **BET**: Beat detection maps for THPS2X music — 18 Xbox-only files. Pre-computed rhythm events (timestamp + intensity + channel) for syncing visual effects to music. Trivially simple format (uint16 count + 6-byte records). No existing documentation.
-
 ### Not Game Formats
 
 - **SCC**: Microsoft Visual SourceSafe `vssver.scc` version tracking files. Development artifacts accidentally shipped on disc. No game data.
 - **BIN**: Generic file extension used for PS1 MIPS code overlays (game logic, menu screens), THPS2 data tables (cretex.bin, tricks.bin), and Dreamcast bootstrap executables. ~89% compiled machine code. Not suitable for asset extraction. See [spidey-decomp](https://github.com/krystalgamer/spidey-decomp) for Spider-Man module decompilation.
 
+### In Progress (Not Yet Bug-Free)
+
+- **TRG triggers**: Parser (`Core/Formats/Trg/`), CLI command (`CLI/TrgCommand.cs`), GUI viewer tab (`App/Tabs/TrgViewerTab.xaml`), and tests exist. Versions 2.0 (Apocalypse/THPS) and 2.1 (Spider-Man).
+- **QBKey name resolution**: `QbKeyNames.txt` embedded resource contains 17,650 hash→name mappings loaded at startup into `FrozenDictionary` (via partial class `QbKey.KnownNames.cs`). Format: `name=0xHASH` per line. Discovered via `qbkey cross-ref` matching DDM plaintext names against PSX QBKey hashes across 104 THPS2X Xbox file pairs, plus archive filename scanning. Coverage: **mesh hashes 81.9% (19,336/23,611)**. Texture identifiers are build-tool-assigned IDs (not name hashes), so name resolution does not apply to them.
+  - **Hash algorithm**: PS1/DC/Xbox-era Neversoft games use **case-sensitive** reflected CRC-32 (polynomial 0xEDB88320, init 0xFFFFFFFF, no final XOR, **no lowercasing**). This was confirmed by verifying DDM checksum fields match case-sensitive CRC-32 of mixed-case mesh names (e.g. `Itm_Bonus01`). `QbKey.Hash()` is case-sensitive; `QbKey.HashLower()` provides the THUG+ era lowercase variant. The `io_thps_scene` Blender addon documents the same split: `crc32b_from_string()` (no lowercase) for THPS1/2 vs `crc_from_string()` (lowercase) for THUG+.
+  - **Texture identifiers (NOT name hashes)**: The PSX "texture name" array stores opaque identifiers used as keys in `TextureChecksumHashTable` (a 512-bucket hash table, decompiled from THPS2 proto). `ProcessNewPSX` reads each identifier, looks it up via `Spool_FindTextureEntry__FUi`, then **replaces the value in-place with a pointer** to the texture entry struct. Values include small numbers like `0x0000001E` (30) that cannot be CRC-32 of any string, ruling out name hashing. Same identifier appears across files with different texture dimensions (e.g. `0x3FB86DC4`: hawk2.PSX 32x64 vs hawk2b.PSX 32x32), proving they're not pixel-data checksums either. The `TexId` field in the per-texture header is actually a **palette hash** (passed to `Pal_FindPaletteEntry__FUi`), not a texture name. These are build-tool-assigned identifiers; name resolution is not applicable. See `tools/ghidra/psx/output/psx_decompiled.c` for full decompilation.
+  - `qbkey cross-ref <ddm-dir> <psx-dir>` — cross-reference DDM vs PSX hashes. `--export path.txt` merges discovered + existing mappings. `--scan-archives <builds-path>` scans WAD/PRE/BON/PKR/DDX archive filenames and hashes them against PSX pools.
+  - `qbkey import <names-file> [--psx-dir <path>]` — import candidate names from external sources (e.g. C pipeline output), hash with QBKey, check against PSX hashes, optionally export merged dictionary.
+  - **Texture hash diagnostic**: `tools/texture_diagnostic.py` — Python diagnostic script for analyzing PSX texture/mesh hash populations and testing alternative hash algorithms. Modes: default (file pair comparison), `--all` (batch all 104 pairs), `--analyze-hashes` (hash distribution analysis), `--real-hashes` (float vs real hash separation), `--test-algorithms` (test 4 CRC variants against all candidate names), `--dump-ghidra` (inspect GHIDRA extraction results).
+  - External C pipeline tool in `tools/qbkey_pipeline/` provides `collect-names` (BON/DDX/DDM/PRE/PKR + executable string scraping), `match`, `brute`, and `brute-gpu` subcommands. Compile: `clang -O3 -D_CRT_SECURE_NO_WARNINGS -o qbkey_pipeline.exe qbkey_pipeline.c`. Add `-fopenmp` for multithreaded CPU brute-force. Add `-DHAS_OPENCL -DCL_TARGET_OPENCL_VERSION=120 -I"<CUDA>/include" -L"<CUDA>/lib/x64" -lOpenCL` for GPU brute-force.
+  - **GHIDRA decompilation pipeline** (`tools/ghidra/psx/`): Decompiles PSX model/texture functions from THPS2 PSX Prototype (SLUS_900.86 + MAIN.SYM, 3,566 PSY-Q symbols). `ApplyPsyqSymbols.java` (pre-script: applies symbols, sets GP=0x800D7CA0), `DecompilePsxFunctions.java` (post-script: decompiles targeted functions by address), `run_decompile.sh` (driver). Output: `output/psx_decompiled.c`. Parallel TRG pipeline in `tools/ghidra/trg/`. Available binaries: 14 PS1 executables (Apocalypse through SM2:EE), 2 Dreamcast, 1 PC — only THPS2 protos (Mar/Jun 2000) have SYM files; others require signature-based function matching. `tools/ghidra/trg/output/symbols.txt` contains all 3,566 symbol names with addresses.
+  - **GHIDRA headless string extraction**: `tools/ghidra/ExtractStrings.java` is a GHIDRA Java postScript that extracts analyzed strings from game executables. Performs proper disassembly and data-flow analysis via three tiers: defined strings, symbol names, and data section scanning. Run via `tools/ghidra/run_extraction.sh [builds_path] [output_dir]` which processes 16 executables across PS1 (MIPS), PC (x86), Dreamcast (SH-2 fallback), and Xbox (x86). Output feeds into `qbkey import <combined> --psx-dir <path>`. Requires GHIDRA 11+ and Java 17+; set `GHIDRA_HOME` env var (default: `C:/tools/ghidra_12.0.2_PUBLIC`). Extracted 25,462 candidate names from 15 executables; 0 texture matches (names don't correspond to original PS1 texture naming convention).
+- **Audio preview**: In-tab playback controls in Audio Converter tab — play/pause/stop, seekable slider, position display, temp file caching. Converts selected file/sample to WAV via Windows MediaPlayer API. Supports ADX/XA (whole file) and VAB/KAT (individual samples).
+
 ### Research & Improvements
 
 - **DDM level layout**: DDM mesh converter produces correct individual meshes but incorrect results for level layouts (multi-mesh world-space assembly). Needs investigation.
-- **QBKey pipeline tool**: `tools/qbkey_pipeline/` — unified C CLI for hash resolution. Resolves 4,004 of 69K QBKey hashes (5.8%) via dictionary matching + brute-force. Needs review and integration into main project workflow. Compile (basic): `clang -O3 -D_CRT_SECURE_NO_WARNINGS -o qbkey_pipeline.exe qbkey_pipeline.c`. Add `-fopenmp` for multithreaded CPU brute-force. Add `-DHAS_OPENCL -DCL_TARGET_OPENCL_VERSION=120 -I"<CUDA>/include" -L"<CUDA>/lib/x64" -lOpenCL` for GPU brute-force. Subcommands: `collect-hashes`, `collect-names`, `match`, `brute` (CPU), `brute-gpu` (GPU/OpenCL), `filter`, `prefilter`, `candidates`.
-- **PowerVR format improvements**: DDS output with mip level preservation is implemented for formats 0x200 (twiddled+mip) and 0x400 (VQ+mip). Remaining: texture atlas conversion, research GIMP's newly added PowerVR support
-- **PSX OBJ mesh export**: Export 3D geometry from PSX model files as OBJ format. Mesh name hashes can be resolved using the confirmed reflected CRC-32 algorithm (polynomial 0xEDB88320, init 0xFFFFFFFF, no final XOR, lowercase input). Body part naming confirmed for Apocalypse; THPS naming convention still unknown.
+- **PowerVR format improvements**: DDS output with mip level preservation is implemented for formats 0x200 (twiddled+mip) and 0x400 (VQ+mip). Mip atlas PNG (`_mips.png`) output renders all mip levels into a single image for visual verification. GIMP PVR research: `Sample/gimp/plug-ins/common/file-pvr.c` supports additional format types (Small VQ, CLUT4/8, stride, etc.) but none of these appear in any Neversoft game files — scan of 20,726 textures across 1,041 files found zero unsupported format codes. Current six format types (0x100, 0x200, 0x300, 0x400, 0x900, 0xD00) provide complete coverage.
+- **PSX mesh conversion**: Parser (`Core/Formats/Psx/PsxMeshFile.cs`), glTF writer (`PsxGltfWriter.cs`), CLI (`CLI/PsxMeshCommand.cs`), and GUI tab (`App/Tabs/MeshConverterTab.xaml`) exist. Level geometry (`_g.psx`) works; **character models produce wrong geometry** (garbled/misaligned body parts). No community tool implements a catchall across all format variants — Ghidra decompilation of game binaries is the sole authoritative reference. Current decompilation: 25 functions from THPS2 PSX Prototype (2000-03-29) with MAIN.SYM symbols (`tools/ghidra/psx/output/psx_decompiled.c`). Key functions: `M3dInit_ParsePSX__Fi` (runtime mesh processing), `ProcessNewPSX__Fi` (file loading pipeline), `CreatePSX__14LevelGeneratorPib` (format construction). Vertex type semantics need verification against decompilation — psxprev interpretations (type 1=joint anchor, type 2=stitched) may not match Neversoft's actual behavior (`M3dInit_ParsePSX` shows type 2 as sprite-scale, not stitching). PSY-Q C++ mangled symbol names encode parameter types (e.g. `__FP6CSuper` = takes `CSuper*`; key types: `CSuper`=character class, `SVECTOR`=vertex struct, `SModel`=model struct, `Item`=renderable object). Mesh name hashes resolved via `QbKey.Hash()` (case-sensitive CRC-32, 81.9% coverage via QbKeyNames.txt).

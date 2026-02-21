@@ -31,6 +31,10 @@ public class TestPaths
     public string? GoldenWadManifest => GoldenFilesDir != null ? Path.Combine(GoldenFilesDir, "Archives", "Wad", "manifest.json") : null;
     public string? GoldenPkrManifest => GoldenFilesDir != null ? Path.Combine(GoldenFilesDir, "Archives", "Pkr", "manifest.json") : null;
 
+    // Sample builds (for formats without dedicated TestData, e.g. TRG)
+    public string? SampleBuildsDir { get; }
+    public bool HasSampleBuilds => SampleBuildsDir != null && Directory.Exists(SampleBuildsDir);
+
     public bool HasTestData => TestDataDir != null && Directory.Exists(TestDataDir);
     public bool HasGoldenFiles => GoldenFilesDir != null && Directory.Exists(GoldenFilesDir);
 
@@ -38,6 +42,7 @@ public class TestPaths
     {
         TestDataDir = FindDirectory("tests", "TestData");
         GoldenFilesDir = FindDirectory("tests", "NeversoftMultitool.Tests", "GoldenFiles");
+        SampleBuildsDir = FindDirectory("Sample", "Builds");
     }
 
     private static string? FindDirectory(params string[] relativeParts)
