@@ -42,6 +42,11 @@
     <InternalsVisibleTo Include="PsxAnalyzer" />
   </ItemGroup>
 
+  <!-- Embedded data files -->
+  <ItemGroup>
+    <EmbeddedResource Include="Core\QbKeyNames.txt" LogicalName="QbKeyNames.txt" />
+  </ItemGroup>
+
   <!-- Shared packages -->
   <ItemGroup>
     <PackageReference Include="Pfim" Version="0.11.2" />
