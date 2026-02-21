@@ -45,12 +45,13 @@ public sealed partial class MeshConverterTab : UserControl
 
         await Task.Run(() =>
         {
-            // Scan DDM files (exclude _o companion files — they're processed with their level)
+            // Scan DDM files — filter out _o.ddm (object companions)
             var ddmFiles = Directory.GetFiles(inputDir, "*.ddm",
                     new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive })
                 .Where(f => !Path.GetFileNameWithoutExtension(f)
                     .EndsWith("_o", StringComparison.OrdinalIgnoreCase))
-                .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase);
+                .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
             foreach (var file in ddmFiles)
             {
@@ -59,7 +60,7 @@ public sealed partial class MeshConverterTab : UserControl
                     dispatcher.TryEnqueue(() => _items.Add(entry));
             }
 
-            // Scan PSX files that have mesh data (skip texture-only, skip files with companion DDMs)
+            // Scan PSX files that have mesh data (skip files with companion DDMs)
             var ddmStems = ddmFiles
                 .Select(f => Path.GetFileNameWithoutExtension(f))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -85,42 +86,24 @@ public sealed partial class MeshConverterTab : UserControl
         try
         {
             var ddm = DdmFile.Parse(file);
-            var ddmName = Path.GetFileNameWithoutExtension(file);
-            var inputDir = Path.GetDirectoryName(file)!;
+            var dir = Path.GetDirectoryName(file)!;
+            var stem = Path.GetFileNameWithoutExtension(file);
 
-            // Auto-resolve companion files from the same directory
-            var psxFile = FindCompanionFile(inputDir, ddmName, ".psx");
-            List<PsxObjectPosition>? positions = null;
-            if (psxFile != null)
-            {
-                try { positions = PsxObjectPositionParser.ParsePositions(psxFile); }
-                catch { /* no valid positions */ }
-            }
-
-            string? objectsDdmPath = null;
-            if (positions != null)
-                objectsDdmPath = FindCompanionFile(inputDir, ddmName + "_o", ".ddm");
-
-            var totalObjects = ddm.Objects.Count;
-            if (objectsDdmPath != null)
-            {
-                try
-                {
-                    var objectsDdm = DdmFile.Parse(objectsDdmPath);
-                    totalObjects += objectsDdm.Objects.Count;
-                }
-                catch { /* ignore companion parse errors */ }
-            }
+            // Detect PSX layout companion for placed level assembly
+            var companionPsx = FindCompanionFile(dir, stem, ".psx");
+            var companionObjectsDdm = companionPsx != null
+                ? FindCompanionFile(dir, stem + "_o", ".ddm")
+                : null;
 
             return new MeshFileEntry
             {
                 FileName = Path.GetFileName(file),
                 FilePath = file,
-                Format = positions != null ? "DDM (placed)" : "DDM",
-                ObjectCount = totalObjects,
+                Format = companionPsx != null ? "DDM (placed)" : "DDM",
+                ObjectCount = ddm.Objects.Count,
                 MeshCount = ddm.Objects.Count,
-                CompanionObjectsDdmPath = objectsDdmPath,
-                CompanionPsxPath = psxFile,
+                CompanionPsxPath = companionPsx,
+                CompanionObjectsDdmPath = companionObjectsDdm,
             };
         }
         catch
@@ -239,7 +222,7 @@ public sealed partial class MeshConverterTab : UserControl
                     else if (entry.IsPlacedLevel)
                         triangles = ConvertPlacedDdm(entry, outputDir, embedTextures);
                     else
-                        triangles = ConvertStandaloneDdm(entry, outputDir, embedTextures);
+                        triangles = ConvertDdmFile(entry, outputDir, embedTextures);
 
                     Interlocked.Add(ref totalTriangles, triangles);
                     Interlocked.Increment(ref totalConverted);
@@ -309,50 +292,50 @@ public sealed partial class MeshConverterTab : UserControl
         return PsxGltfWriter.Write(psxFile, outputFile, textureProvider);
     }
 
-    private static int ConvertStandaloneDdm(MeshFileEntry entry, string outputDir, bool embedTextures)
-    {
-        var ddm = DdmFile.Parse(entry.FilePath);
-        var ddmName = Path.GetFileNameWithoutExtension(entry.FileName);
-        var outputFile = Path.Combine(outputDir, ddmName + ".glb");
-        var ddxTextures = embedTextures ? LoadDdxForEntry(entry.FilePath, ddmName) : null;
-        return GltfWriter.WriteDdm(ddm, outputFile, null, ddmName, ddxTextures);
-    }
-
-    private static int ConvertPlacedDdm(MeshFileEntry entry, string outputDir, bool embedTextures)
+    private static int ConvertDdmFile(MeshFileEntry entry, string outputDir, bool embedTextures)
     {
         var ddm = DdmFile.Parse(entry.FilePath);
         var ddmName = Path.GetFileNameWithoutExtension(entry.FileName);
         var inputDir = Path.GetDirectoryName(entry.FilePath)!;
+        var outputFile = Path.Combine(outputDir, ddmName + ".glb");
 
-        var psxFile = PsxLayoutFile.Parse(entry.CompanionPsxPath!)
-            ?? throw new InvalidOperationException("PSX file has no mesh data");
-
-        var objectsDdm = entry.CompanionObjectsDdmPath != null
-            ? DdmFile.Parse(entry.CompanionObjectsDdmPath)
-            : null;
-
-        PsxLayoutFile? objectsPsxFile = null;
-        var objectsPsxPath = FindCompanionFile(inputDir, ddmName + "_o", ".psx");
-        if (objectsPsxPath != null)
+        // Load DDX textures from the same directory
+        Dictionary<string, byte[]>? ddxTextures = null;
+        if (embedTextures)
         {
-            try { objectsPsxFile = PsxLayoutFile.Parse(objectsPsxPath); }
-            catch { /* Objects PSX parse failed — objects placed at local origin */ }
+            var ddxFile = FindCompanionFile(inputDir, ddmName, ".ddx");
+            if (ddxFile != null)
+                ddxTextures = DdxArchive.ReadAllEntries(ddxFile);
         }
 
-        // DDX archives and .lit lights live in the same directory as the DDM files
-        var ddxPath = embedTextures ? inputDir : null;
-        var result = GltfWriter.WritePlacedLevel(ddm, objectsDdm, psxFile, objectsPsxFile,
-            outputDir, ddmName, null, ddxPath);
-        return result.Combined;
+        // Load .lit lights from the same directory
+        List<LitLight>? lights = null;
+        var litFile = FindCompanionFile(inputDir, ddmName, ".lit");
+        if (litFile != null)
+        {
+            try { lights = LitFile.Parse(litFile); }
+            catch { /* ignore parse errors */ }
+        }
+
+        return GltfWriter.WriteDdm(ddm, outputFile, null, ddmName, ddxTextures, lights);
     }
 
-    /// <summary>
-    /// Loads DDX textures for a standalone DDM entry from the same directory.
-    /// </summary>
-    private static Dictionary<string, byte[]>? LoadDdxForEntry(string filePath, string ddmName)
+    private static int ConvertPlacedDdm(MeshFileEntry entry, string outputDir, bool embedTextures)
     {
-        var dir = Path.GetDirectoryName(filePath)!;
-        var ddxFile = FindCompanionFile(dir, ddmName, ".ddx");
-        return ddxFile != null ? DdxArchive.ReadAllEntries(ddxFile) : null;
+        var ddmName = Path.GetFileNameWithoutExtension(entry.FileName);
+        var inputDir = Path.GetDirectoryName(entry.FilePath)!;
+        var ddxPath = embedTextures ? inputDir : null;
+
+        // Find _o.psx companion for objects placement
+        var objectsPsx = entry.CompanionObjectsDdmPath != null
+            ? FindCompanionFile(inputDir, ddmName + "_o", ".psx")
+            : null;
+
+        var (levelTris, objTris) = GltfWriter.WritePlacedLevel(
+            entry.FilePath, entry.CompanionPsxPath!,
+            entry.CompanionObjectsDdmPath, objectsPsx,
+            outputDir, ddmName, ddxPath);
+
+        return levelTris + objTris;
     }
 }

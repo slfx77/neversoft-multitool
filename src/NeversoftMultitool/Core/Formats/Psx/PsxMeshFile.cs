@@ -381,7 +381,7 @@ public sealed class PsxMeshFile
                     if (attachableVertices.TryGetValue(attachIdx, out var resolvedWorld))
                         position = resolvedWorld; // Already in world space
                     else
-                        position = new Vector3(x / scaleDivisor, y / scaleDivisor, z / scaleDivisor) + objectOffset;
+                        position = objectOffset; // Unresolved — game would read uninitialized stitch buffer
                 }
                 else
                 {
@@ -432,6 +432,7 @@ public sealed class PsxMeshFile
         //   bit 4 (0x10): sprite billboard — position is metadata, not geometry
         // Decompilation order: stitched (bit 1) → sprite (bit 4) → stitch source (bit 0).
         var vertices = new List<PsxVertex>((int)vertexCount);
+        var stitchFailures = 0;
         for (uint j = 0; j < vertexCount; j++)
         {
             var x = reader.ReadInt16();
@@ -453,7 +454,10 @@ public sealed class PsxMeshFile
                 }
                 else
                 {
-                    vx = x / scaleDivisor; vy = y / scaleDivisor; vz = z / scaleDivisor;
+                    // Unresolved — game would read uninitialized stitch buffer.
+                    // Place at object origin rather than treating the index as a coordinate.
+                    vx = 0; vy = 0; vz = 0;
+                    stitchFailures++;
                 }
             }
             else
@@ -505,6 +509,7 @@ public sealed class PsxMeshFile
             LodNextMeshIndex = lodNextMeshIndex,
             HasPerVertexNormals = normalCount == vertexCount + faceCount,
             VertexCount = vertexCount,
+            StitchFailureCount = stitchFailures,
         };
     }
 
@@ -691,6 +696,13 @@ public sealed class PsxMeshObject
     public ushort MeshIndex { get; init; }
     public int ParentIndex { get; set; } = -1;
 
+    /// <summary>
+    /// Item flag bit 1 (0x02) = character ("Super"). The game uses this to select
+    /// M3dAsm_TransformAndOutcodeSuperVertices (which divides vertices by 16)
+    /// vs M3dAsm_TransformAndOutcodeItemVertices (no division).
+    /// </summary>
+    public bool IsCharacter => (Flags & 0x02) != 0;
+
     public float X(float translationDivisor) => RawX / (4096f * translationDivisor);
     public float Y(float translationDivisor) => RawY / (4096f * translationDivisor);
     public float Z(float translationDivisor) => RawZ / (4096f * translationDivisor);
@@ -716,6 +728,12 @@ public sealed class PsxMesh
 
     /// <summary>Number of vertices in this mesh (needed to index per-vertex normals).</summary>
     public uint VertexCount { get; init; }
+
+    /// <summary>
+    /// Number of type-2 (stitched) vertices whose attachment index could not be resolved.
+    /// Non-zero indicates stitch source ordering mismatch. These vertices are placed at (0,0,0).
+    /// </summary>
+    public int StitchFailureCount { get; init; }
 }
 
 /// <summary>

@@ -15,12 +15,14 @@ public sealed class MeshFileEntry : INotifyPropertyChanged
     public required int ObjectCount { get; init; }
     public required int MeshCount { get; init; }
 
-    // Internal: DDM placed-level companion references
-    internal string? CompanionObjectsDdmPath { get; init; }
-    internal string? CompanionPsxPath { get; init; }
     // Internal: PSX level geometry companion texture library (*_g.psx → *_l.psx)
     internal string? CompanionLibraryPsxPath { get; init; }
+
+    // Internal: DDM placement companions
+    internal string? CompanionPsxPath { get; init; }
+    internal string? CompanionObjectsDdmPath { get; init; }
     internal bool IsPlacedLevel => CompanionPsxPath != null;
+
     internal bool IsPsx => Format == "PSX";
 
     public string FormatDisplay => Format;

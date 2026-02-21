@@ -1,10 +1,11 @@
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Psx;
 using NeversoftMultitool.Tests.Helpers;
+using Xunit.v3;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Psx;
 
-public class PsxMeshFileTests(TestPaths paths)
+public class PsxMeshFileTests(TestPaths paths, ITestOutputHelper output)
 {
     // ── Parse tests (Xbox PSX files — version 0x04) ───────────────────
 
@@ -649,27 +650,13 @@ public class PsxMeshFileTests(TestPaths paths)
 
             if (psxFile == null) continue;
 
-            // 1. Stitch fallback detection: stitched vertices that didn't resolve
-            var stitchedCount = 0;
-            var fallbackCount = 0;
-            foreach (var mesh in psxFile.Meshes)
-            {
-                foreach (var v in mesh.Vertices)
-                {
-                    if ((v.Type & 0x02) == 0) continue;
-                    stitchedCount++;
-                    var fbX = v.RawX / psxFile.ScaleDivisor;
-                    var fbY = v.RawY / psxFile.ScaleDivisor;
-                    var fbZ = v.RawZ / psxFile.ScaleDivisor;
-                    if (Math.Abs(v.X - fbX) < 0.001f &&
-                        Math.Abs(v.Y - fbY) < 0.001f &&
-                        Math.Abs(v.Z - fbZ) < 0.001f)
-                        fallbackCount++;
-                }
-            }
-            if (fallbackCount > 0)
+            // 1. Stitch fallback detection via StitchFailureCount property
+            var totalStitchFailures = psxFile.Meshes.Sum(m => m.StitchFailureCount);
+            var stitchedCount = psxFile.Meshes.Sum(m =>
+                m.Vertices.Count(v => (v.Type & 0x02) != 0));
+            if (totalStitchFailures > 0)
                 issues.Add((relPath, "STITCH_FALLBACK",
-                    $"{fallbackCount}/{stitchedCount} stitched vertices unresolved"));
+                    $"{totalStitchFailures}/{stitchedCount} stitched vertices unresolved"));
 
             // 2. Unknown vertex type bits (beyond 0/1/4)
             var unknownTypes = new HashSet<ushort>();
@@ -713,6 +700,70 @@ public class PsxMeshFileTests(TestPaths paths)
             Console.WriteLine("\nNo issues detected across all sample builds.");
         else
             Console.WriteLine($"\nTotal: {issues.Count} issues across {issues.Select(i => i.File).Distinct().Count()} files");
+    }
+
+    [Fact]
+    public void Diagnostic_CharacterModels_ExportGlb()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        Assert.SkipWhen(paths.TestOutputDir == null, "TestOutput directory not found");
+
+        var psxFiles = Directory.GetFiles(paths.SampleBuildsDir!, "*.psx",
+                new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive, RecurseSubdirectories = true })
+            .ToList();
+        Assert.SkipWhen(psxFiles.Count == 0, "No PSX files found in sample builds");
+
+        var glbDir = Path.Combine(paths.TestOutputDir!, "CharacterModels");
+        if (Directory.Exists(glbDir))
+            Directory.Delete(glbDir, true);
+        Directory.CreateDirectory(glbDir);
+
+        var exported = 0;
+        var errors = new List<string>();
+
+        foreach (var file in psxFiles.OrderBy(f => f))
+            ExportCharacterModel(file, glbDir, paths.SampleBuildsDir!, errors, ref exported);
+
+        output.WriteLine($"Exported {exported} character models to: {glbDir}");
+        if (errors.Count > 0)
+        {
+            output.WriteLine($"Errors ({errors.Count}):");
+            foreach (var e in errors)
+                output.WriteLine($"  {e}");
+        }
+    }
+
+    private static void ExportCharacterModel(string file, string glbDir, string sampleBuildsDir,
+        List<string> errors, ref int exported)
+    {
+        PsxMeshFile? psxFile;
+        try { psxFile = PsxMeshFile.Parse(file); }
+        catch { return; }
+        if (psxFile is not { HasHierarchy: true }) return;
+
+        var relPath = Path.GetRelativePath(sampleBuildsDir, file);
+        var parts = relPath.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]);
+        var buildDir = Path.Combine(glbDir, parts[0]);
+        Directory.CreateDirectory(buildDir);
+
+        var modelName = Path.GetFileNameWithoutExtension(parts[^1]);
+        var glbPath = Path.Combine(buildDir, modelName + ".glb");
+        try
+        {
+            PsxGltfWriter.TextureProvider textureProvider = hash =>
+            {
+                var result = PsxLibrary.ExtractTextureByHash(file, hash);
+                if (result == null) return null;
+                var (rgba, w, h) = result.Value;
+                return ImageWriter.WritePngToMemory(w, h, rgba);
+            };
+            PsxGltfWriter.Write(psxFile, glbPath, textureProvider);
+            exported++;
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"{relPath}: {ex.Message}");
+        }
     }
 
     [Fact]

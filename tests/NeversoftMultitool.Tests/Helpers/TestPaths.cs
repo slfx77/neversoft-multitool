@@ -35,6 +35,9 @@ public class TestPaths
     public string? SampleBuildsDir { get; }
     public bool HasSampleBuilds => SampleBuildsDir != null && Directory.Exists(SampleBuildsDir);
 
+    // Test output directory for diagnostic reports
+    public string? TestOutputDir { get; }
+
     public bool HasTestData => TestDataDir != null && Directory.Exists(TestDataDir);
     public bool HasGoldenFiles => GoldenFilesDir != null && Directory.Exists(GoldenFilesDir);
 
@@ -43,6 +46,7 @@ public class TestPaths
         TestDataDir = FindDirectory("tests", "TestData");
         GoldenFilesDir = FindDirectory("tests", "NeversoftMultitool.Tests", "GoldenFiles");
         SampleBuildsDir = FindDirectory("Sample", "Builds");
+        TestOutputDir = FindDirectory("tests", "TestOutput");
     }
 
     private static string? FindDirectory(params string[] relativeParts)

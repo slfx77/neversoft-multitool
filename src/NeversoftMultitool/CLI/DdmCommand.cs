@@ -27,14 +27,6 @@ public static class DdmCommand
         {
             Description = "Enable verbose output"
         };
-        var psxOption = new Option<string>("-p", "--psx")
-        {
-            Description = "Path to companion PSX file or directory for world placement (auto-detected by name if omitted)"
-        };
-        var objectsOption = new Option<string>("--objects")
-        {
-            Description = "Path to companion _o.ddm objects file (auto-detected by name if omitted)"
-        };
         var ddxOption = new Option<string>("-d", "--ddx")
         {
             Description = "Path to DDX texture archive directory for material binding"
@@ -43,16 +35,19 @@ public static class DdmCommand
         {
             Description = "Process all level subdirectories under the given parent directory"
         };
+        var psxOption = new Option<string>("-p", "--psx")
+        {
+            Description = "Path to PSX layout file or directory for placed level assembly"
+        };
 
         var command = new Command("ddm", "Convert DDM mesh files to glTF (.glb)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(texturesOption);
         command.Options.Add(verboseOption);
-        command.Options.Add(psxOption);
-        command.Options.Add(objectsOption);
         command.Options.Add(ddxOption);
         command.Options.Add(allOption);
+        command.Options.Add(psxOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -60,14 +55,13 @@ public static class DdmCommand
             var output = parseResult.GetValue(outputOption)!;
             var textures = parseResult.GetValue(texturesOption);
             var verbose = parseResult.GetValue(verboseOption);
-            var psx = parseResult.GetValue(psxOption);
-            var objects = parseResult.GetValue(objectsOption);
             var ddx = parseResult.GetValue(ddxOption);
             var all = parseResult.GetValue(allOption);
+            var psx = parseResult.GetValue(psxOption);
 
             if (all)
                 return Task.FromResult(ExecuteAll(input, output, verbose));
-            return Task.FromResult(Execute(input, output, textures, verbose, psx, objects, ddx));
+            return Task.FromResult(Execute(input, output, textures, verbose, ddx, psx));
         });
 
         return command;
@@ -103,7 +97,7 @@ public static class DdmCommand
         {
             var name = Path.GetFileName(dir);
             var levelOutput = Path.Combine(output, name);
-            var exitCode = Execute(dir, levelOutput, null, verbose, null, null, null);
+            var exitCode = Execute(dir, levelOutput, null, verbose, null);
             if (exitCode == 0)
                 totalConverted++;
             else
@@ -120,7 +114,7 @@ public static class DdmCommand
     }
 
     private static int Execute(string input, string output, string? textures, bool verbose,
-        string? psxPath, string? objectsPath, string? ddxPath)
+        string? ddxPath, string? psxPath = null)
     {
         if (!Directory.Exists(input))
         {
@@ -128,194 +122,196 @@ public static class DdmCommand
             return 1;
         }
 
-        var ddmFiles = Directory.GetFiles(input, "*.ddm",
+        var allDdmFiles = Directory.GetFiles(input, "*.ddm",
             new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
 
-        if (ddmFiles.Length == 0)
+        if (allDdmFiles.Length == 0)
         {
             AnsiConsole.MarkupLine("[yellow]No .ddm files found in the specified directory.[/]");
             return 0;
         }
 
-        // Auto-detect DDX directory: check input directory first, then sibling DDX/
-        if (string.IsNullOrEmpty(ddxPath))
-        {
-            var ddxFiles = Directory.GetFiles(input, "*.ddx",
-                new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
-            ddxPath = ddxFiles.Length > 0 ? input : ResolveSiblingDirectory(input, "DDX");
-        }
+        ddxPath = ResolveCompanionDir(input, ddxPath, "*.ddx", "DDX");
+        psxPath = ResolveCompanionDir(input, psxPath, "*.psx", "PSX");
+
+        var (placedLevels, objectDdmStems) = ClassifyDdmFiles(allDdmFiles, psxPath);
+        var standaloneDdmFiles = allDdmFiles
+            .Where(f => !placedLevels.ContainsKey(f) &&
+                        !objectDdmStems.Contains(Path.GetFileNameWithoutExtension(f)))
+            .ToArray();
 
         Directory.CreateDirectory(output);
 
-        var textureInfo = textures != null && Directory.Exists(textures)
-            ? $", textures={textures}"
-            : "";
+        var textureInfo = textures != null && Directory.Exists(textures) ? $", textures={textures}" : "";
         var ddxInfo = ddxPath != null ? $", ddx={ddxPath}" : "";
-        AnsiConsole.MarkupLine($"Found [green]{ddmFiles.Length}[/] DDM file(s){textureInfo}{ddxInfo}");
-
-        // Separate level DDMs from _o (object) DDMs — _o files are processed with their level
-        var levelFiles = ddmFiles
-            .Where(f => !Path.GetFileNameWithoutExtension(f)
-                .EndsWith("_o", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var placedInfo = placedLevels.Count > 0 ? $", [blue]{placedLevels.Count} placed level(s)[/]" : "";
+        AnsiConsole.MarkupLine(
+            $"Found [green]{allDdmFiles.Length}[/] DDM file(s){placedInfo}{textureInfo}{ddxInfo}");
 
         var stopwatch = Stopwatch.StartNew();
         var totalObjects = 0;
         var totalTriangles = 0;
         var converted = 0;
-        var placedLevels = 0;
 
-        foreach (var file in levelFiles)
+        foreach (var (ddmFile, levelPsx) in placedLevels)
         {
-            var result = ConvertDdmFile(file, output, textures, verbose, psxPath, objectsPath, ddxPath);
+            var result = ConvertPlacedLevel(ddmFile, levelPsx, output, verbose, ddxPath, psxPath);
             totalObjects += result.Objects;
             totalTriangles += result.Triangles;
             if (result.Converted) converted++;
-            if (result.Placed) placedLevels++;
+        }
+
+        foreach (var file in standaloneDdmFiles)
+        {
+            var result = ConvertDdmFile(file, output, textures, verbose, ddxPath);
+            totalObjects += result.Objects;
+            totalTriangles += result.Triangles;
+            if (result.Converted) converted++;
         }
 
         stopwatch.Stop();
-        var placedInfo = placedLevels > 0 ? $", {placedLevels} placed levels" : "";
+        var totalFileCount = standaloneDdmFiles.Length + placedLevels.Count;
         AnsiConsole.MarkupLine(
-            $"Converted [green]{converted}[/]/{levelFiles.Count} files " +
-            $"({totalObjects:N0} objects, {totalTriangles:N0} triangles{placedInfo}) " +
+            $"Converted [green]{converted}[/]/{totalFileCount} files " +
+            $"({totalObjects:N0} objects, {totalTriangles:N0} triangles) " +
             $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
 
         return 0;
     }
 
-    private readonly record struct ConvertResult(
-        int Objects, int Triangles, bool Converted, bool Placed);
+    /// <summary>
+    /// Auto-detects a companion directory: checks input dir for matching files, then sibling dir.
+    /// </summary>
+    private static string? ResolveCompanionDir(string input, string? explicitPath,
+        string searchPattern, string siblingName)
+    {
+        if (!string.IsNullOrEmpty(explicitPath))
+            return explicitPath;
+        var files = Directory.GetFiles(input, searchPattern,
+            new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
+        return files.Length > 0 ? input : ResolveSiblingDirectory(input, siblingName);
+    }
+
+    /// <summary>
+    /// Classifies DDM files into placed levels (have PSX companion) and object companions (_o suffix).
+    /// </summary>
+    private static (Dictionary<string, string> PlacedLevels, HashSet<string> ObjectStems)
+        ClassifyDdmFiles(string[] allDdmFiles, string? psxPath)
+    {
+        var placedLevels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var objectStems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (string.IsNullOrEmpty(psxPath))
+            return (placedLevels, objectStems);
+
+        foreach (var ddmFile in allDdmFiles)
+        {
+            var stem = Path.GetFileNameWithoutExtension(ddmFile);
+            if (stem.EndsWith("_o", StringComparison.OrdinalIgnoreCase))
+            {
+                objectStems.Add(stem);
+                continue;
+            }
+
+            var psx = FindCompanionFile(psxPath, stem, ".psx");
+            if (psx != null)
+                placedLevels[ddmFile] = psx;
+        }
+
+        return (placedLevels, objectStems);
+    }
+
+    private readonly record struct ConvertResult(int Objects, int Triangles, bool Converted);
+
+    private static ConvertResult ConvertPlacedLevel(
+        string levelDdmPath, string levelPsxPath, string output, bool verbose,
+        string? ddxPath, string? psxDir)
+    {
+        var ddmName = Path.GetFileNameWithoutExtension(levelDdmPath);
+        var inputDir = Path.GetDirectoryName(levelDdmPath)!;
+
+        try
+        {
+            // Find _o companions (objects DDM + objects PSX)
+            var objectsDdm = FindCompanionFile(inputDir, ddmName + "_o", ".ddm");
+            var objectsPsx = psxDir != null ? FindCompanionFile(psxDir, ddmName + "_o", ".psx") : null;
+
+            var (levelTris, objTris) = GltfWriter.WritePlacedLevel(
+                levelDdmPath, levelPsxPath,
+                objectsDdm, objectsPsx,
+                output, ddmName, ddxPath);
+
+            var totalTriangles = levelTris + objTris;
+
+            if (verbose)
+            {
+                var objInfo = objectsDdm != null ? $" + objects" : "";
+                AnsiConsole.MarkupLine(
+                    $"  {ddmName}: [blue]placed level{objInfo}, {totalTriangles:N0} triangles[/]");
+            }
+
+            return new ConvertResult(0, totalTriangles, true);
+        }
+        catch (Exception ex)
+        {
+            if (verbose)
+                AnsiConsole.MarkupLine($"  {ddmName}: [red]error: {ex.Message}[/]");
+            return new ConvertResult(0, 0, false);
+        }
+    }
 
     private static ConvertResult ConvertDdmFile(
-        string file, string output, string? textures, bool verbose,
-        string? explicitPsxPath, string? explicitObjectsPath, string? ddxPath)
+        string file, string output, string? textures, bool verbose, string? ddxPath)
     {
         var filename = Path.GetFileName(file);
         var ddmName = Path.GetFileNameWithoutExtension(filename);
-        var inputDir = Path.GetDirectoryName(file)!;
 
         try
         {
             var ddm = DdmFile.Parse(file);
 
-            // Resolve PSX file: explicit flag → explicit directory search → auto-detect in DDM directory
-            var psxPath = ResolvePsxPath(explicitPsxPath, inputDir, ddmName);
-            PsxLayoutFile? psxFile = null;
-            if (psxPath != null)
+            // Load DDX textures
+            Dictionary<string, byte[]>? ddxTextures = null;
+            if (!string.IsNullOrEmpty(ddxPath) && Directory.Exists(ddxPath))
             {
-                try { psxFile = PsxLayoutFile.Parse(psxPath); }
-                catch (Exception ex)
-                {
-                    if (verbose)
-                        AnsiConsole.MarkupLine($"  [yellow]PSX parse failed: {ex.Message}[/]");
-                }
+                var ddx = FindCompanionFile(ddxPath, ddmName, ".ddx");
+                if (ddx != null)
+                    ddxTextures = DdxArchive.ReadAllEntries(ddx);
             }
 
-            if (psxFile != null)
-                return ConvertPlacedLevel(ddm, ddmName, inputDir, output, textures, psxFile,
-                    explicitObjectsPath, ddxPath, verbose);
+            // Load .lit lights (search DDX dir, then input dir)
+            var lights = FindAndParseLitFile(ddmName, ddxPath)
+                      ?? FindAndParseLitFile(ddmName, Path.GetDirectoryName(file));
 
-            return ConvertStandalone(ddm, ddmName, filename, output, textures, ddxPath, verbose);
+            var outputFile = Path.Combine(output, ddmName + ".glb");
+            var triangles = GltfWriter.WriteDdm(ddm, outputFile, textures, ddmName, ddxTextures, lights);
+
+            if (verbose)
+            {
+                var lightInfo = lights != null ? $", {lights.Count} lights" : "";
+                AnsiConsole.MarkupLine(
+                    $"  {filename}: [green]{ddm.Objects.Count} objects, {triangles:N0} triangles{lightInfo}[/]");
+            }
+
+            return new ConvertResult(ddm.Objects.Count, triangles, true);
         }
         catch (Exception ex)
         {
             if (verbose)
                 AnsiConsole.MarkupLine($"  {filename}: [red]error: {ex.Message}[/]");
-            return new ConvertResult(0, 0, false, false);
+            return new ConvertResult(0, 0, false);
         }
     }
 
-    /// <summary>
-    /// Resolves the PSX companion file path. If explicitPsx is a file, uses it directly.
-    /// If it's a directory, searches for a matching file by DDM name. Otherwise auto-detects
-    /// in the DDM's directory.
-    /// </summary>
-    private static string? ResolvePsxPath(string? explicitPsx, string inputDir, string ddmName)
+    private static List<LitLight>? FindAndParseLitFile(string levelName, string? searchDir)
     {
-        if (!string.IsNullOrEmpty(explicitPsx))
-        {
-            if (File.Exists(explicitPsx))
-                return explicitPsx;
-            if (Directory.Exists(explicitPsx))
-                return FindCompanionFile(explicitPsx, ddmName, ".psx");
-        }
-
-        return FindCompanionFile(inputDir, ddmName, ".psx");
+        if (string.IsNullOrEmpty(searchDir)) return null;
+        var litPath = FindCompanionFile(searchDir, levelName, ".lit");
+        if (litPath == null) return null;
+        try { return LitFile.Parse(litPath); }
+        catch { return null; }
     }
 
-    private static ConvertResult ConvertPlacedLevel(
-        DdmFile ddm, string ddmName, string inputDir, string output,
-        string? textures, PsxLayoutFile psxFile, string? explicitObjectsPath,
-        string? ddxPath, bool verbose)
-    {
-        // Resolve objects file: explicit flag → auto-detect in DDM directory
-        var objectsFile = !string.IsNullOrEmpty(explicitObjectsPath) && File.Exists(explicitObjectsPath)
-            ? explicitObjectsPath
-            : FindCompanionFile(inputDir, ddmName + "_o", ".ddm");
-        var objectsDdm = objectsFile != null ? DdmFile.Parse(objectsFile) : null;
-
-        // Resolve objects PSX companion (_o.PSX) for object placement
-        PsxLayoutFile? objectsPsxFile = null;
-        var objectsPsxPath = FindCompanionFile(inputDir, ddmName + "_o", ".psx");
-        if (objectsPsxPath != null)
-        {
-            try { objectsPsxFile = PsxLayoutFile.Parse(objectsPsxPath); }
-            catch (Exception ex)
-            {
-                if (verbose)
-                    AnsiConsole.MarkupLine($"  [yellow]Objects PSX parse failed: {ex.Message}[/]");
-            }
-        }
-
-        var result = GltfWriter.WritePlacedLevel(
-            ddm, objectsDdm, psxFile, objectsPsxFile, output, ddmName, textures, ddxPath);
-
-        var objects = ddm.Objects.Count + (objectsDdm?.Objects.Count ?? 0);
-        var triangles = result.Level + result.Objects;
-
-        if (verbose)
-        {
-            var objPsxInfo = objectsPsxFile != null
-                ? $", {objectsPsxFile.Objects.Count} obj PSX objects"
-                : "";
-            AnsiConsole.MarkupLine(
-                $"  {ddmName}: [green]placed level[/] " +
-                $"({ddm.Objects.Count} DDM meshes, {psxFile.Objects.Count} PSX objects{objPsxInfo}, " +
-                $"{result.Level:N0} level tris, {result.Objects:N0} object tris)");
-        }
-
-        return new ConvertResult(objects, triangles, true, true);
-    }
-
-    private static ConvertResult ConvertStandalone(
-        DdmFile ddm, string ddmName, string filename, string output,
-        string? textures, string? ddxPath, bool verbose)
-    {
-        // Load DDX textures for standalone DDM
-        Dictionary<string, byte[]>? ddxTextures = null;
-        if (!string.IsNullOrEmpty(ddxPath) && Directory.Exists(ddxPath))
-        {
-            var ddx = FindCompanionFile(ddxPath, ddmName, ".ddx");
-            if (ddx != null)
-                ddxTextures = DdxArchive.ReadAllEntries(ddx);
-        }
-
-        var outputFile = Path.Combine(output, ddmName + ".glb");
-        var triangles = GltfWriter.WriteDdm(ddm, outputFile, textures, ddmName, ddxTextures);
-
-        if (verbose)
-        {
-            AnsiConsole.MarkupLine(
-                $"  {filename}: [green]{ddm.Objects.Count} objects, {triangles:N0} triangles[/]");
-        }
-
-        return new ConvertResult(ddm.Objects.Count, triangles, true, false);
-    }
-
-    /// <summary>
-    /// Looks for a sibling directory (e.g. DDX/ next to DDM/).
-    /// </summary>
     private static string? ResolveSiblingDirectory(string inputDir, string siblingName)
     {
         var parent = Path.GetDirectoryName(inputDir);

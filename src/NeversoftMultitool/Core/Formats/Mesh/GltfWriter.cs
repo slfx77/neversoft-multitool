@@ -20,16 +20,20 @@ using VERTEX = VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexE
 public static class GltfWriter
 {
     /// <summary>
-    /// Writes a parsed DDM file to a .glb file.
+    /// Writes a parsed DDM file to a .glb file without PSX placement.
+    /// Objects are placed at their local vertex positions (no world transforms).
+    /// For level assembly with world placement, use WritePlacedLevel instead.
     /// </summary>
     /// <param name="ddm">Parsed DDM data.</param>
     /// <param name="outputPath">Output .glb file path.</param>
     /// <param name="texturePath">Optional directory containing extracted DDX textures (subdirectories searched by DDM name).</param>
     /// <param name="ddmName">DDM filename stem, used to find matching texture subdirectory.</param>
     /// <param name="ddxTextures">Optional in-memory DDX texture cache (name → DDS bytes).</param>
+    /// <param name="lights">Optional parsed .lit lights to embed in the glTF scene.</param>
     /// <returns>Total number of triangles written.</returns>
     public static int WriteDdm(DdmFile ddm, string outputPath, string? texturePath = null,
-        string? ddmName = null, Dictionary<string, byte[]>? ddxTextures = null)
+        string? ddmName = null, Dictionary<string, byte[]>? ddxTextures = null,
+        List<LitLight>? lights = null)
     {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
@@ -54,10 +58,209 @@ public static class GltfWriter
             scene.AddRigidMesh(mesh, node);
         }
 
+        if (lights != null)
+            AddLightsToScene(scene, lights);
+
         var model = scene.ToGltf2();
         model.SaveGLB(outputPath);
 
         return totalTriangles;
+    }
+
+    /// <summary>
+    /// Writes a placed level: combines level DDM + objects DDM with PSX layout placement.
+    /// Produces up to three output files:
+    ///   {name}_level.glb  — placed level geometry
+    ///   {name}_objects.glb — placed objects
+    ///   {name}.glb         — combined (all in one)
+    ///
+    /// Coordinate mapping confirmed via THPS2X Xbox decompilation:
+    ///   world_pos = psx_raw_int32 / 4096.0 (direct, no axis negation)
+    ///   glTF output uses (-X, -Y, +Z) conversion matching MakeVertex.
+    /// </summary>
+    public static (int LevelTriangles, int ObjectTriangles) WritePlacedLevel(
+        string levelDdmPath, string levelPsxPath,
+        string? objectsDdmPath, string? objectsPsxPath,
+        string outputDir, string levelName,
+        string? ddxPath = null)
+    {
+        Directory.CreateDirectory(outputDir);
+
+        var levelDdm = DdmFile.Parse(levelDdmPath);
+        var levelPsx = PsxLayoutFile.Parse(levelPsxPath);
+
+        // Load DDX textures for both level and objects
+        var ddxTextures = LoadDdxTextures(ddxPath, levelName);
+
+        // Load .lit lights
+        var lights = FindAndParseLitFile(levelName, ddxPath)
+                  ?? FindAndParseLitFile(levelName, Path.GetDirectoryName(levelDdmPath));
+
+        var textureDirs = BuildTextureSearchPaths(null, null);
+
+        // Level geometry
+        var levelScene = new SceneBuilder();
+        var levelMats = new Dictionary<string, MaterialBuilder>();
+        var levelTriangles = AddDdmToScene(levelScene, levelDdm, levelPsx, textureDirs, levelMats, ddxTextures);
+        if (lights != null) AddLightsToScene(levelScene, lights);
+        levelScene.ToGltf2().SaveGLB(Path.Combine(outputDir, levelName + "_level.glb"));
+
+        // Objects
+        var objectTriangles = 0;
+        DdmFile? objectsDdm = null;
+        PsxLayoutFile? objectsPsx = null;
+        if (objectsDdmPath != null && File.Exists(objectsDdmPath))
+        {
+            objectsDdm = DdmFile.Parse(objectsDdmPath);
+            objectsPsx = objectsPsxPath != null ? PsxLayoutFile.Parse(objectsPsxPath) : null;
+
+            var objScene = new SceneBuilder();
+            var objMats = new Dictionary<string, MaterialBuilder>();
+            objectTriangles = AddDdmToScene(objScene, objectsDdm, objectsPsx, textureDirs, objMats, ddxTextures);
+            objScene.ToGltf2().SaveGLB(Path.Combine(outputDir, levelName + "_objects.glb"));
+        }
+
+        // Combined
+        var combinedScene = new SceneBuilder();
+        var combinedMats = new Dictionary<string, MaterialBuilder>();
+        AddDdmToScene(combinedScene, levelDdm, levelPsx, textureDirs, combinedMats, ddxTextures);
+        if (objectsDdm != null)
+            AddDdmToScene(combinedScene, objectsDdm, objectsPsx, textureDirs, combinedMats, ddxTextures);
+        if (lights != null) AddLightsToScene(combinedScene, lights);
+        combinedScene.ToGltf2().SaveGLB(Path.Combine(outputDir, levelName + ".glb"));
+
+        return (levelTriangles, objectTriangles);
+    }
+
+    /// <summary>
+    /// Adds a DDM file to a scene, optionally placing objects via PSX layout.
+    /// Returns the number of triangles added.
+    /// </summary>
+    private static int AddDdmToScene(
+        SceneBuilder scene, DdmFile ddm, PsxLayoutFile? psx,
+        List<string> textureDirs, Dictionary<string, MaterialBuilder> materialCache,
+        Dictionary<string, byte[]>? ddxTextures)
+    {
+        if (psx != null)
+        {
+            var (tris, placedIndices) = AddPlacedObjects(
+                scene, ddm, psx, textureDirs, materialCache, ddxTextures);
+            AddUnplacedObjects(scene, ddm, placedIndices, textureDirs, materialCache, ddxTextures);
+            return tris;
+        }
+
+        AddUnplacedObjects(scene, ddm, new HashSet<int>(), textureDirs, materialCache, ddxTextures);
+        return 0;
+    }
+
+    /// <summary>
+    /// Places DDM objects using PSX layout positions.
+    /// Position mapping: PSX raw int32 / 4096 → float, then (-X, -Y, +Z) for glTF.
+    /// </summary>
+    private static (int Triangles, HashSet<int> PlacedIndices) AddPlacedObjects(
+        SceneBuilder scene, DdmFile ddm, PsxLayoutFile psxFile,
+        List<string> textureDirs, Dictionary<string, MaterialBuilder> materialCache,
+        Dictionary<string, byte[]>? ddxTextures)
+    {
+        var ddmByHash = DdmHashLookup.Build(ddm);
+        var meshSlotToDdm = DdmHashLookup.ResolveMeshIndices(psxFile, ddmByHash);
+        var placedIndices = new HashSet<int>();
+        var meshCache = new Dictionary<int, MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>>();
+        var totalTriangles = 0;
+
+        foreach (var psxObj in psxFile.Objects)
+        {
+            if (!meshSlotToDdm.TryGetValue(psxObj.MeshIndex, out var ddmIndex))
+                continue;
+
+            placedIndices.Add(ddmIndex);
+            var obj = ddm.Objects[ddmIndex];
+
+            if (!meshCache.TryGetValue(ddmIndex, out var mesh))
+            {
+                if (obj.Vertices.Count == 0 || obj.Indices.Length == 0)
+                    continue;
+                mesh = BuildDdmMesh(obj, textureDirs, materialCache, ddxTextures, out var tris);
+                totalTriangles += tris;
+                meshCache[ddmIndex] = mesh;
+            }
+
+            // Coordinate mapping from Xbox decompilation (FUN_0018b940, line 17795-17797):
+            // world_pos = psx_raw_int32 * (1/4096)  — direct, no negation
+            // glTF conversion matches MakeVertex: (-X, -Y, +Z)
+            var translation = new Vector3(-psxObj.X, -psxObj.Y, psxObj.Z);
+            scene.AddRigidMesh(mesh, Matrix4x4.CreateTranslation(translation));
+        }
+
+        return (totalTriangles, placedIndices);
+    }
+
+    /// <summary>
+    /// Adds DDM objects that were not matched by PSX placement (fallback at local origin).
+    /// </summary>
+    private static void AddUnplacedObjects(
+        SceneBuilder scene, DdmFile ddm, HashSet<int> placedIndices,
+        List<string> textureDirs, Dictionary<string, MaterialBuilder> materialCache,
+        Dictionary<string, byte[]>? ddxTextures)
+    {
+        for (var i = 0; i < ddm.Objects.Count; i++)
+        {
+            if (placedIndices.Contains(i))
+                continue;
+
+            var obj = ddm.Objects[i];
+            if (obj.Vertices.Count == 0 || obj.Indices.Length == 0)
+                continue;
+
+            var mesh = BuildDdmMesh(obj, textureDirs, materialCache, ddxTextures, out _);
+            var node = new NodeBuilder(obj.Name);
+            scene.AddRigidMesh(mesh, node);
+        }
+    }
+
+    /// <summary>
+    /// Loads DDX texture archives for a level (both base and _o variant).
+    /// </summary>
+    private static Dictionary<string, byte[]>? LoadDdxTextures(string? ddxPath, string levelName)
+    {
+        if (string.IsNullOrEmpty(ddxPath) || !Directory.Exists(ddxPath))
+            return null;
+
+        var result = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+
+        // Try level DDX
+        var levelDdx = FindCompanionFile(ddxPath, levelName, ".ddx");
+        if (levelDdx != null)
+            MergeDdxEntries(result, DdxArchive.ReadAllEntries(levelDdx));
+
+        // Try objects DDX
+        var objectsDdx = FindCompanionFile(ddxPath, levelName + "_o", ".ddx");
+        if (objectsDdx != null)
+            MergeDdxEntries(result, DdxArchive.ReadAllEntries(objectsDdx));
+
+        return result.Count > 0 ? result : null;
+    }
+
+    private static void MergeDdxEntries(Dictionary<string, byte[]> target, Dictionary<string, byte[]> source)
+    {
+        foreach (var (name, bytes) in source)
+            target.TryAdd(name, bytes);
+    }
+
+    private static List<LitLight>? FindAndParseLitFile(string levelName, string? searchDir)
+    {
+        if (string.IsNullOrEmpty(searchDir)) return null;
+        var litPath = FindCompanionFile(searchDir, levelName, ".lit");
+        if (litPath == null) return null;
+        try { return LitFile.Parse(litPath); }
+        catch { return null; }
+    }
+
+    private static string? FindCompanionFile(string directory, string stem, string extension)
+    {
+        var files = Directory.GetFiles(directory, stem + extension,
+            new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
+        return files.Length > 0 ? files[0] : null;
     }
 
     private static List<string> BuildTextureSearchPaths(string? texturePath, string? ddmName)
@@ -354,171 +557,6 @@ public static class GltfWriter
         return mesh;
     }
 
-    /// <summary>
-    /// Adds placed DDM objects to a scene using PSX mesh name hashes for matching
-    /// and glTF node transforms for world-space placement.
-    /// Returns total triangles and the set of DDM object indices that were placed.
-    /// </summary>
-    private static (int Triangles, HashSet<int> PlacedIndices) AddPlacedObjects(
-        SceneBuilder scene,
-        DdmFile ddm,
-        PsxLayoutFile psxFile,
-        List<string> textureDirs,
-        Dictionary<string, MaterialBuilder> materialCache,
-        Dictionary<string, byte[]>? ddxTextures)
-    {
-        var ddmByHash = DdmHashLookup.Build(ddm);
-        var meshIndexToDdm = DdmHashLookup.ResolveMeshIndices(psxFile, ddmByHash);
-
-        // Cache built glTF meshes by DDM object index (for instancing —
-        // multiple PSX objects can reference the same DDM mesh geometry)
-        var meshCache = new Dictionary<int, (MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty> Mesh, int Triangles)>();
-        var totalTriangles = 0;
-        var placedIndices = new HashSet<int>();
-
-        foreach (var psxObj in psxFile.Objects)
-        {
-            if (psxObj.MeshIndex >= psxFile.MeshNameHashes.Length)
-                continue;
-
-            if (!meshIndexToDdm.TryGetValue(psxObj.MeshIndex, out var ddmIdx))
-                continue;
-
-            var ddmObj = ddm.Objects[ddmIdx];
-            if (ddmObj.Vertices.Count == 0 || ddmObj.Indices.Length == 0)
-                continue;
-
-            placedIndices.Add(ddmIdx);
-
-            // Build mesh once, reuse for instances
-            if (!meshCache.TryGetValue(ddmIdx, out var cached))
-            {
-                var gltfMesh = BuildDdmMesh(ddmObj, textureDirs, materialCache, ddxTextures, out var tris);
-                cached = (gltfMesh, tris);
-                meshCache[ddmIdx] = cached;
-                totalTriangles += tris;
-            }
-
-            // Place via node transform (DDM coordinate convention: -X, -Y, +Z)
-            var translation = new Vector3(-psxObj.X, -psxObj.Y, psxObj.Z);
-            scene.AddRigidMesh(cached.Mesh, Matrix4x4.CreateTranslation(translation));
-        }
-
-        return (totalTriangles, placedIndices);
-    }
-
-    /// <summary>
-    /// Adds DDM objects to a scene in local space (no world placement).
-    /// Objects whose indices appear in excludeIndices are skipped.
-    /// </summary>
-    private static int AddUnplacedObjects(
-        SceneBuilder scene,
-        DdmFile ddm,
-        List<string> textureDirs,
-        Dictionary<string, MaterialBuilder> materialCache,
-        Dictionary<string, byte[]>? ddxTextures,
-        HashSet<int>? excludeIndices = null)
-    {
-        var totalTriangles = 0;
-
-        for (var i = 0; i < ddm.Objects.Count; i++)
-        {
-            if (excludeIndices != null && excludeIndices.Contains(i))
-                continue;
-
-            var obj = ddm.Objects[i];
-            if (obj.Vertices.Count == 0 || obj.Indices.Length == 0)
-                continue;
-
-            var gltfMesh = BuildDdmMesh(obj, textureDirs, materialCache, ddxTextures, out var tris);
-            totalTriangles += tris;
-
-            var node = new NodeBuilder(obj.Name);
-            scene.AddRigidMesh(gltfMesh, node);
-        }
-
-        return totalTriangles;
-    }
-
-    /// <summary>
-    /// Writes a placed level with up to three output files.
-    /// </summary>
-    /// <param name="levelDdm">Main level DDM (static geometry).</param>
-    /// <param name="objectsDdm">Optional objects DDM (_o file, interactive objects).</param>
-    /// <param name="psxFile">Parsed PSX file providing level object positions and mesh name hashes.</param>
-    /// <param name="objectsPsxFile">Optional objects PSX (_o.PSX) for object placement. Falls back to psxFile.</param>
-    /// <param name="outputDir">Output directory.</param>
-    /// <param name="levelName">Level stem name (e.g. "skware").</param>
-    /// <param name="texturePath">Optional texture directory.</param>
-    /// <param name="ddxPath">Optional directory for DDX texture archives and .lit light files.</param>
-    /// <returns>(combined triangles, level triangles, objects triangles)</returns>
-    public static (int Combined, int Level, int Objects) WritePlacedLevel(
-        DdmFile levelDdm,
-        DdmFile? objectsDdm,
-        PsxLayoutFile psxFile,
-        PsxLayoutFile? objectsPsxFile,
-        string outputDir,
-        string levelName,
-        string? texturePath = null,
-        string? ddxPath = null)
-    {
-        Directory.CreateDirectory(outputDir);
-        var textureDirs = BuildTextureSearchPaths(texturePath, levelName);
-        var ddxTextures = LoadDdxTextures(ddxPath, levelName);
-
-        // Auto-detect .lit file from the same directory as DDX/DDM/PSX
-        var lights = FindAndParseLitFile(levelName, ddxPath);
-
-        var materialCache = new Dictionary<string, MaterialBuilder>();
-
-        // 1. Level-only (placed static geometry)
-        var levelScene = new SceneBuilder();
-        var (levelTriangles, _) = AddPlacedObjects(levelScene, levelDdm, psxFile,
-            textureDirs, materialCache, ddxTextures);
-        if (lights != null)
-            AddLightsToScene(levelScene, lights);
-        var levelPath = Path.Combine(outputDir, levelName + "_level.glb");
-        levelScene.ToGltf2().SaveGLB(levelPath);
-
-        // 2. Objects-only (placed via objects PSX, unmatched at origin)
-        var objectsTriangles = 0;
-        var objPsx = objectsPsxFile ?? psxFile;
-        if (objectsDdm != null)
-        {
-            var objectsScene = new SceneBuilder();
-            var objectsMaterialCache = new Dictionary<string, MaterialBuilder>();
-            var (placedTris, placedIndices) = AddPlacedObjects(objectsScene, objectsDdm, objPsx,
-                textureDirs, objectsMaterialCache, ddxTextures);
-            objectsTriangles = placedTris;
-            objectsTriangles += AddUnplacedObjects(objectsScene, objectsDdm,
-                textureDirs, objectsMaterialCache, ddxTextures, placedIndices);
-            var objectsPath = Path.Combine(outputDir, levelName + "_objects.glb");
-            objectsScene.ToGltf2().SaveGLB(objectsPath);
-        }
-
-        // 3. Combined (placed level + placed/unplaced objects in one file)
-        var combinedScene = new SceneBuilder();
-        var combinedMaterialCache = new Dictionary<string, MaterialBuilder>();
-        var (combinedTriangles, _) = AddPlacedObjects(combinedScene, levelDdm, psxFile,
-            textureDirs, combinedMaterialCache, ddxTextures);
-
-        if (objectsDdm != null)
-        {
-            var (objTris, objPlaced) = AddPlacedObjects(combinedScene, objectsDdm, objPsx,
-                textureDirs, combinedMaterialCache, ddxTextures);
-            combinedTriangles += objTris;
-            combinedTriangles += AddUnplacedObjects(combinedScene, objectsDdm,
-                textureDirs, combinedMaterialCache, ddxTextures, objPlaced);
-        }
-
-        if (lights != null)
-            AddLightsToScene(combinedScene, lights);
-
-        var combinedPath = Path.Combine(outputDir, levelName + ".glb");
-        combinedScene.ToGltf2().SaveGLB(combinedPath);
-
-        return (combinedTriangles, levelTriangles, objectsTriangles);
-    }
 
     /// <summary>
     /// Adds parsed .lit lights to a glTF scene using KHR_lights_punctual.
@@ -614,55 +652,4 @@ public static class GltfWriter
         return Quaternion.Normalize(new Quaternion(cross.X, cross.Y, cross.Z, 1 + dot));
     }
 
-    /// <summary>
-    /// Loads DDX texture archives for a level into an in-memory cache.
-    /// Searches for level DDX and objects DDX archives.
-    /// </summary>
-    private static Dictionary<string, byte[]>? LoadDdxTextures(string? ddxPath, string levelName)
-    {
-        if (string.IsNullOrEmpty(ddxPath) || !Directory.Exists(ddxPath))
-            return null;
-
-        Dictionary<string, byte[]>? cache = null;
-
-        // Level DDX (e.g. skware.DDX)
-        var levelDdx = FindCompanionFile(ddxPath, levelName, ".ddx");
-        if (levelDdx != null)
-        {
-            cache ??= new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-            MergeDdxEntries(cache, DdxArchive.ReadAllEntries(levelDdx));
-        }
-
-        // Objects DDX (e.g. skware_o.DDX)
-        var objectsDdx = FindCompanionFile(ddxPath, levelName + "_o", ".ddx");
-        if (objectsDdx != null)
-        {
-            cache ??= new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-            MergeDdxEntries(cache, DdxArchive.ReadAllEntries(objectsDdx));
-        }
-
-        return cache;
-    }
-
-    private static void MergeDdxEntries(Dictionary<string, byte[]> target, Dictionary<string, byte[]> source)
-    {
-        foreach (var (key, value) in source)
-            target.TryAdd(key, value);
-    }
-
-    private static List<LitLight>? FindAndParseLitFile(string levelName, string? searchDir)
-    {
-        if (string.IsNullOrEmpty(searchDir)) return null;
-        var litPath = FindCompanionFile(searchDir, levelName, ".lit");
-        if (litPath == null) return null;
-        try { return LitFile.Parse(litPath); }
-        catch { return null; }
-    }
-
-    private static string? FindCompanionFile(string directory, string stem, string extension)
-    {
-        var files = Directory.GetFiles(directory, stem + extension,
-            new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
-        return files.Length > 0 ? files[0] : null;
-    }
 }
