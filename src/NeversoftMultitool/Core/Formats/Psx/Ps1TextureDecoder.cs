@@ -16,7 +16,7 @@ public static class Ps1TextureDecoder
         // Find matching palette
         foreach (var pal in palette4Bit)
         {
-            if (pal.TexId != header.Hash) continue;
+            if (pal.TexId != header.TexId) continue;
 
             var pixels = new byte[header.Width * header.Height * 4];
             Span<byte> rgba = stackalloc byte[4];
@@ -62,7 +62,7 @@ public static class Ps1TextureDecoder
         // Find matching palette
         foreach (var pal in palette8Bit)
         {
-            if (pal.TexId != header.Hash) continue;
+            if (pal.TexId != header.TexId) continue;
 
             var pixels = new byte[header.Width * header.Height * 4];
             Span<byte> rgba = stackalloc byte[4];

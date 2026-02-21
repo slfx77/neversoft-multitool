@@ -47,7 +47,7 @@ public sealed class DdmFile
     {
         // Object header (136 bytes)
         reader.ReadUInt32(); // index
-        reader.ReadUInt32(); // checksum
+        var checksum = reader.ReadUInt32();
         var animSpeedX = reader.ReadSingle();
         var animSpeedY = reader.ReadSingle();
         reader.ReadSingle(); // animRate
@@ -58,7 +58,13 @@ public sealed class DdmFile
         var name = Encoding.ASCII.GetString(nameBytes).TrimEnd('\0');
 
         // Bounding box center (3 floats) + extents (3 floats) + sphere radius (1 float)
-        reader.ReadBytes(7 * 4); // skip bounding volume
+        var bboxCenterX = reader.ReadSingle();
+        var bboxCenterY = reader.ReadSingle();
+        var bboxCenterZ = reader.ReadSingle();
+        var bboxExtentX = reader.ReadSingle();
+        var bboxExtentY = reader.ReadSingle();
+        var bboxExtentZ = reader.ReadSingle();
+        reader.ReadSingle(); // sphere radius
 
         var materialCount = reader.ReadUInt32();
         var vertexCount = reader.ReadUInt32();
@@ -112,9 +118,16 @@ public sealed class DdmFile
         return new DdmObject
         {
             Name = name,
+            Checksum = checksum,
             Flags = flags,
             AnimSpeedX = animSpeedX,
             AnimSpeedY = animSpeedY,
+            BBoxCenterX = bboxCenterX,
+            BBoxCenterY = bboxCenterY,
+            BBoxCenterZ = bboxCenterZ,
+            BBoxExtentX = bboxExtentX,
+            BBoxExtentY = bboxExtentY,
+            BBoxExtentZ = bboxExtentZ,
             Materials = materials,
             Vertices = vertices,
             Indices = indices,
@@ -162,9 +175,16 @@ public sealed class DdmFile
 public sealed class DdmObject
 {
     public required string Name { get; init; }
+    public uint Checksum { get; init; }
     public uint Flags { get; init; }
     public float AnimSpeedX { get; init; }
     public float AnimSpeedY { get; init; }
+    public float BBoxCenterX { get; init; }
+    public float BBoxCenterY { get; init; }
+    public float BBoxCenterZ { get; init; }
+    public float BBoxExtentX { get; init; }
+    public float BBoxExtentY { get; init; }
+    public float BBoxExtentZ { get; init; }
     public required List<DdmMaterial> Materials { get; init; }
     public required List<DdmVertex> Vertices { get; init; }
     public required ushort[] Indices { get; init; }

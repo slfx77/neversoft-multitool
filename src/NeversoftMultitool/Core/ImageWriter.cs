@@ -22,6 +22,18 @@ public static class ImageWriter
     }
 
     /// <summary>
+    /// Encodes a flat RGBA byte array to PNG bytes in memory.
+    /// Used for embedding textures in glTF files.
+    /// </summary>
+    public static byte[] WritePngToMemory(int width, int height, byte[] rgbaPixels)
+    {
+        using var image = Image.LoadPixelData<Rgba32>(rgbaPixels, width, height);
+        using var ms = new MemoryStream();
+        image.SaveAsPng(ms);
+        return ms.ToArray();
+    }
+
+    /// <summary>
     /// Writes a flat RGB byte array to a PNG file.
     /// Used for RLE/BMR bitmaps (which produce RGB output).
     /// </summary>

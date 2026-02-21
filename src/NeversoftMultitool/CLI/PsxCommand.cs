@@ -69,7 +69,7 @@ public static class PsxCommand
             foreach (var file in psxFiles)
             {
                 var filename = Path.GetFileName(file);
-                var result = PsxLibrary.ExtractTextures(file, output, subdirs, writeDds: !noDds);
+                var result = PsxLibrary.ExtractTextures(file, output, subdirs, writeDds: !noDds, writeMipAtlas: !noDds);
 
                 totalTextures += result.TotalTextures;
                 totalWritten += result.TexturesWritten;

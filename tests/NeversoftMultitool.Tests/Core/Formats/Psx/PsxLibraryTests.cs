@@ -247,6 +247,131 @@ public class PsxLibraryTests(TestPaths paths)
     [Theory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
+    [InlineData("hawk2.PSX")]
+    public void ExtractTextureByHash_FindsAllTexturesInNameList(string filename)
+    {
+        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
+
+        var inputFile = Path.Combine(paths.PsxXboxDir!, filename);
+        Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
+
+        // Read the texture name hash list
+        using var stream = File.OpenRead(inputFile);
+        using var reader = new BinaryReader(stream);
+        reader.ReadBytes(4); // magic
+        PsxLibrary.SkipModelData(reader);
+        var texNames = PsxLibrary.ReadTextureInfo(reader);
+
+        Assert.True(texNames.Length > 0, "No texture name hashes found");
+
+        // Each name hash should be resolvable via ExtractTextureByHash
+        var diagnostics = new List<string>();
+        foreach (var hash in texNames)
+        {
+            var result = PsxLibrary.ExtractTextureByHash(inputFile, hash, diagnostics);
+            Assert.True(result != null,
+                $"ExtractTextureByHash failed for hash 0x{hash:X8}. Diagnostics: {string.Join("; ", diagnostics)}");
+            Assert.True(result.Value.Width > 0 && result.Value.Height > 0);
+            Assert.True(result.Value.Rgba.Length == result.Value.Width * result.Value.Height * 4);
+            diagnostics.Clear();
+        }
+    }
+
+    [Theory]
+    [InlineData("ring.psx")]
+    [InlineData("bits.psx")]
+    [InlineData("items.psx")]
+    public void ExtractTextureByHash_FindsAllTexturesInNameList_Ps1(string filename)
+    {
+        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
+
+        var inputFile = Path.Combine(paths.PsxPs1Dir!, filename);
+        Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
+
+        using var stream = File.OpenRead(inputFile);
+        using var reader = new BinaryReader(stream);
+        reader.ReadBytes(4);
+        PsxLibrary.SkipModelData(reader);
+        var texNames = PsxLibrary.ReadTextureInfo(reader);
+
+        Assert.True(texNames.Length > 0, "No texture name hashes found");
+
+        var diagnostics = new List<string>();
+        foreach (var hash in texNames)
+        {
+            var result = PsxLibrary.ExtractTextureByHash(inputFile, hash, diagnostics);
+            Assert.True(result != null,
+                $"ExtractTextureByHash failed for hash 0x{hash:X8}. Diagnostics: {string.Join("; ", diagnostics)}");
+            Assert.True(result.Value.Width > 0 && result.Value.Height > 0);
+            diagnostics.Clear();
+        }
+    }
+
+    [Theory]
+    [InlineData("bits.psx")]
+    [InlineData("Default.PSX")]
+    public void ExtractTextureByHash_PixelsMatchBatchExtraction(string filename)
+    {
+        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
+
+        var inputFile = Path.Combine(paths.PsxXboxDir!, filename);
+        Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
+
+        // Enumerate textures to get headers + name hashes
+        var textures = PsxLibrary.EnumerateTextures(inputFile);
+        Assert.NotEmpty(textures);
+
+        // Batch extract all textures to get reference PNGs
+        var tempDir = Path.Combine(Path.GetTempPath(), "NsMultitool_Test_HashMatch_" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var batchResult = PsxLibrary.ExtractTextures(inputFile, tempDir, createSubDirs: false, writeDds: false);
+            Assert.True(batchResult.Success, $"Batch extraction failed: {batchResult.ErrorMessage}");
+
+            // For each texture with a name hash, verify single-texture extraction matches
+            foreach (var (header, nameHash) in textures)
+            {
+                if (nameHash == 0) continue;
+
+                var singleResult = PsxLibrary.ExtractTextureByHash(inputFile, nameHash);
+                Assert.True(singleResult != null, $"Single extraction failed for hash 0x{nameHash:X8}");
+
+                Assert.Equal(header.Width, singleResult.Value.Width);
+                Assert.Equal(header.Height, singleResult.Value.Height);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Theory]
+    [InlineData("bits.psx")]
+    [InlineData("Default.PSX")]
+    public void EnumerateTextures_ReturnsCorrectCount(string filename)
+    {
+        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
+
+        var inputFile = Path.Combine(paths.PsxXboxDir!, filename);
+        Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
+
+        var textures = PsxLibrary.EnumerateTextures(inputFile);
+        Assert.NotEmpty(textures);
+
+        // Each texture should have valid dimensions
+        foreach (var (header, _) in textures)
+        {
+            Assert.True(header.Width > 0, $"Invalid width at offset 0x{header.Offset:X}");
+            Assert.True(header.Height > 0, $"Invalid height at offset 0x{header.Offset:X}");
+        }
+    }
+
+    [Theory]
+    [InlineData("bits.psx")]
+    [InlineData("Default.PSX")]
     public void ExtractTextures_NoDds_ProducesOnlyPng(string filename)
     {
         Assert.SkipWhen(!paths.HasTestData, "Test data not available");
@@ -271,6 +396,70 @@ public class PsxLibraryTests(TestPaths paths)
         {
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, true);
+        }
+    }
+
+    // ── GUI Round-Trip Tests ────────────────────────────────────────────
+    // These verify that every texture returned by EnumerateTextures (which
+    // the GUI displays) can be resolved back via ExtractTextureByHash
+    // (which the GUI calls for preview). This is the exact flow that must
+    // work end-to-end for texture previews to function.
+
+    [Theory]
+    [InlineData("bits.psx")]
+    [InlineData("Default.PSX")]
+    [InlineData("hawk2.PSX")]
+    public void EnumerateTextures_AllHashesResolvableByExtractTextureByHash(string filename)
+    {
+        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
+
+        var inputFile = Path.Combine(paths.PsxXboxDir!, filename);
+        Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
+
+        var textures = PsxLibrary.EnumerateTextures(inputFile);
+        Assert.NotEmpty(textures);
+
+        var diagnostics = new List<string>();
+        foreach (var (header, nameHash) in textures)
+        {
+            if (nameHash == 0) continue;
+
+            var result = PsxLibrary.ExtractTextureByHash(inputFile, nameHash, diagnostics);
+            Assert.True(result != null,
+                $"GUI preview would fail for hash 0x{nameHash:X8} at offset 0x{header.Offset:X}. " +
+                $"Diagnostics: {string.Join("; ", diagnostics)}");
+            Assert.Equal(header.Width, result.Value.Width);
+            Assert.Equal(header.Height, result.Value.Height);
+            diagnostics.Clear();
+        }
+    }
+
+    [Theory]
+    [InlineData("ring.psx")]
+    [InlineData("bits.psx")]
+    [InlineData("items.psx")]
+    public void EnumerateTextures_AllHashesResolvableByExtractTextureByHash_Ps1(string filename)
+    {
+        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
+
+        var inputFile = Path.Combine(paths.PsxPs1Dir!, filename);
+        Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
+
+        var textures = PsxLibrary.EnumerateTextures(inputFile);
+        Assert.NotEmpty(textures);
+
+        var diagnostics = new List<string>();
+        foreach (var (header, nameHash) in textures)
+        {
+            if (nameHash == 0) continue;
+
+            var result = PsxLibrary.ExtractTextureByHash(inputFile, nameHash, diagnostics);
+            Assert.True(result != null,
+                $"GUI preview would fail for hash 0x{nameHash:X8} at offset 0x{header.Offset:X}. " +
+                $"Diagnostics: {string.Join("; ", diagnostics)}");
+            Assert.Equal(header.Width, result.Value.Width);
+            Assert.Equal(header.Height, result.Value.Height);
+            diagnostics.Clear();
         }
     }
 }

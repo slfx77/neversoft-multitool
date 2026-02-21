@@ -4,7 +4,7 @@ public sealed class PsxTextureHeader
 {
     public uint Unk { get; set; }
     public uint PalSize { get; set; }
-    public uint Hash { get; set; }
+    public uint TexId { get; set; }
     public uint Index { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }

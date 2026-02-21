@@ -1,5 +1,6 @@
 using System.Numerics;
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats.Archives;
 using Pfim;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
@@ -25,8 +26,10 @@ public static class GltfWriter
     /// <param name="outputPath">Output .glb file path.</param>
     /// <param name="texturePath">Optional directory containing extracted DDX textures (subdirectories searched by DDM name).</param>
     /// <param name="ddmName">DDM filename stem, used to find matching texture subdirectory.</param>
+    /// <param name="ddxTextures">Optional in-memory DDX texture cache (name → DDS bytes).</param>
     /// <returns>Total number of triangles written.</returns>
-    public static int WriteDdm(DdmFile ddm, string outputPath, string? texturePath = null, string? ddmName = null)
+    public static int WriteDdm(DdmFile ddm, string outputPath, string? texturePath = null,
+        string? ddmName = null, Dictionary<string, byte[]>? ddxTextures = null)
     {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
@@ -44,19 +47,8 @@ public static class GltfWriter
             if (obj.Vertices.Count == 0 || obj.Indices.Length == 0)
                 continue;
 
-            var mesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>(obj.Name);
-
-            foreach (var split in obj.Splits)
-            {
-                if (split.IndexCount < 3 || split.MaterialIndex >= obj.Materials.Count)
-                    continue;
-
-                var mat = obj.Materials[split.MaterialIndex];
-                var material = GetOrCreateMaterial(mat, textureDirs, materialCache);
-                var prim = mesh.UsePrimitive(material);
-
-                totalTriangles += AddTriangleStrip(prim, obj, split);
-            }
+            var mesh = BuildDdmMesh(obj, textureDirs, materialCache, ddxTextures, out var tris);
+            totalTriangles += tris;
 
             var node = new NodeBuilder(obj.Name);
             scene.AddRigidMesh(mesh, node);
@@ -96,9 +88,12 @@ public static class GltfWriter
 
     private static MaterialBuilder GetOrCreateMaterial(
         DdmMaterial mat, List<string> textureDirs,
-        Dictionary<string, MaterialBuilder> cache)
+        Dictionary<string, MaterialBuilder> cache,
+        Dictionary<string, byte[]>? ddxTextures)
     {
-        var key = mat.TextureName;
+        // Additive materials need luminance-to-alpha conversion, so cache separately
+        var isAdditive = mat.BlendMode is 1 or 3;
+        var key = isAdditive ? $"{mat.TextureName}__additive" : mat.TextureName;
         if (cache.TryGetValue(key, out var cached))
             return cached;
 
@@ -109,39 +104,98 @@ public static class GltfWriter
         // White base color — vertex colors and textures provide all color/lighting
         builder.WithBaseColor(new Vector4(1, 1, 1, 1));
 
-        // Set alpha mode for transparent materials
-        if (mat.BlendMode > 0)
-            builder.WithAlpha(AlphaMode.BLEND);
+        var hasTextureAlpha = false;
 
         // Try to find and load a texture
-        if (textureDirs.Count > 0 &&
+        if ((textureDirs.Count > 0 || ddxTextures?.Count > 0) &&
             !mat.TextureName.Equals("No_Texture_Map", StringComparison.OrdinalIgnoreCase))
         {
-            var imageBytes = LoadTexture(textureDirs, mat.TextureName);
-            if (imageBytes != null)
+            var loaded = LoadTexture(textureDirs, mat.TextureName, ddxTextures);
+            if (loaded != null)
             {
-                var memImage = new MemoryImage(imageBytes);
+                byte[] pngBytes = loaded.Value.Bytes;
+                hasTextureAlpha = loaded.Value.HasAlpha;
+
+                // For additive blend modes (light cones, flares, glows), convert
+                // texture luminance to alpha. In-game, additive blending makes dark
+                // pixels invisible and bright pixels add light. In glTF (no additive
+                // mode), we approximate by making dark pixels transparent and setting
+                // bright pixels to white with proportional alpha.
+                if (isAdditive && !hasTextureAlpha)
+                {
+                    pngBytes = ConvertLuminanceToAlpha(pngBytes);
+                    hasTextureAlpha = true;
+                }
+
+                var memImage = new MemoryImage(pngBytes);
                 builder.WithChannelImage(KnownChannel.BaseColor, memImage);
             }
         }
+
+        // Set alpha mode based on BlendMode and actual texture alpha
+        // BlendMode 1,3 = additive/glow (BLEND is closest glTF approximation)
+        // BlendMode 2   = alpha test/cutout (MASK preserves Z-order for fences, leaves, etc.)
+        // BlendMode 0   = opaque unless texture has transparent pixels
+        if (isAdditive || hasTextureAlpha)
+            builder.WithAlpha(AlphaMode.BLEND);
+        else if (mat.BlendMode == 2)
+            builder.WithAlpha(AlphaMode.MASK, 0.5f);
 
         cache[key] = builder;
         return builder;
     }
 
     /// <summary>
-    /// Searches texture directories for a matching texture file (PNG or DDS).
+    /// Converts a texture for additive blend approximation in glTF.
+    /// Converts texture to white RGB with luminance-derived alpha.
+    /// Dark pixels become transparent (invisible, like additive black)
+    /// and bright pixels become white with proportional opacity.
+    /// </summary>
+    private static byte[] ConvertLuminanceToAlpha(byte[] pngBytes)
+    {
+        using var img = Image.Load<Rgba32>(pngBytes);
+        img.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    ref var pixel = ref row[x];
+                    var lum = (byte)((pixel.R * 77 + pixel.G * 150 + pixel.B * 29) >> 8);
+                    pixel = new Rgba32(255, 255, 255, lum);
+                }
+            }
+        });
+
+        using var ms = new MemoryStream();
+        img.SaveAsPng(ms);
+        return ms.ToArray();
+    }
+
+    /// <summary>
+    /// Searches DDX cache and texture directories for a matching texture.
     /// DDS files are decoded and converted to PNG bytes in memory.
     /// </summary>
-    private static byte[]? LoadTexture(List<string> textureDirs, string textureName)
+    private static (byte[] Bytes, bool HasAlpha)? LoadTexture(
+        List<string> textureDirs, string textureName,
+        Dictionary<string, byte[]>? ddxTextures)
     {
+        // Check DDX in-memory cache first
+        if (ddxTextures != null && ddxTextures.TryGetValue(textureName, out var ddsBytes))
+        {
+            using var ms = new MemoryStream(ddsBytes);
+            return DecodeDdsToPng(ms);
+        }
+
+        // Search directories
         foreach (var dir in textureDirs)
         {
             // Try PNG first (native glTF format)
             var pngFiles = Directory.GetFiles(dir, textureName + ".png",
                 new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
             if (pngFiles.Length > 0)
-                return File.ReadAllBytes(pngFiles[0]);
+                return (File.ReadAllBytes(pngFiles[0]), false);
 
             // Try DDS (decode to PNG)
             var ddsFiles = Directory.GetFiles(dir, textureName + ".dds",
@@ -157,36 +211,71 @@ public static class GltfWriter
     /// Decodes a DDS file to PNG bytes using Pfim for DXT decompression
     /// and ImageSharp for PNG encoding.
     /// </summary>
-    private static byte[]? DecodeDdsToPng(string ddsPath)
+    private static (byte[] Bytes, bool HasAlpha)? DecodeDdsToPng(string ddsPath)
     {
         try
         {
             using var image = Pfimage.FromFile(ddsPath);
-
-            // Pfim decodes to Rgba32 or Rgb24
-            using var ms = new MemoryStream();
-
-            if (image.Format == ImageFormat.Rgba32)
-            {
-                using var img = Image.LoadPixelData<Bgra32>(image.Data, image.Width, image.Height);
-                img.SaveAsPng(ms);
-            }
-            else if (image.Format == ImageFormat.Rgb24)
-            {
-                using var img = Image.LoadPixelData<Bgr24>(image.Data, image.Width, image.Height);
-                img.SaveAsPng(ms);
-            }
-            else
-            {
-                return null;
-            }
-
-            return ms.ToArray();
+            return EncodePfimToPng(image);
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Decodes DDS bytes from a stream to PNG bytes.
+    /// </summary>
+    private static (byte[] Bytes, bool HasAlpha)? DecodeDdsToPng(Stream ddsStream)
+    {
+        try
+        {
+            using var image = Pfimage.FromStream(ddsStream);
+            return EncodePfimToPng(image);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static (byte[] Bytes, bool HasAlpha)? EncodePfimToPng(IImage image)
+    {
+        using var ms = new MemoryStream();
+
+        if (image.Format == ImageFormat.Rgba32)
+        {
+            // Check if any pixel actually has non-opaque alpha (BGRA layout: alpha at offset 3)
+            var hasAlpha = false;
+            var data = image.Data;
+            var stride = image.Stride;
+            for (var y = 0; y < image.Height && !hasAlpha; y++)
+            {
+                var rowStart = y * stride;
+                for (var x = 0; x < image.Width; x++)
+                {
+                    if (data[rowStart + x * 4 + 3] < 255)
+                    {
+                        hasAlpha = true;
+                        break;
+                    }
+                }
+            }
+
+            using var img = Image.LoadPixelData<Bgra32>(image.Data, image.Width, image.Height);
+            img.SaveAsPng(ms);
+            return (ms.ToArray(), hasAlpha);
+        }
+
+        if (image.Format == ImageFormat.Rgb24)
+        {
+            using var img = Image.LoadPixelData<Bgr24>(image.Data, image.Width, image.Height);
+            img.SaveAsPng(ms);
+            return (ms.ToArray(), false);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -227,9 +316,6 @@ public static class GltfWriter
         return triangleCount;
     }
 
-    /// <summary>
-    /// Makes a vertex with X/Y negation for non-placed (local-space) export.
-    /// </summary>
     private static VERTEX MakeVertex(DdmVertex v)
     {
         return new VERTEX(
@@ -241,107 +327,114 @@ public static class GltfWriter
                 new Vector2(v.U, v.V)));
     }
 
-    private const float WorldScale = 2.833f;
-
     /// <summary>
-    /// Makes a vertex with world-space transform applied using PSX position data.
-    /// Formula: world = -(raw + offset) / 2.833
+    /// Builds a glTF mesh from a DDM object's geometry in local space.
     /// </summary>
-    private static VERTEX MakePlacedVertex(DdmVertex v, PsxObjectPosition pos)
-    {
-        return new VERTEX(
-            new VertexPositionNormal(
-                new Vector3(
-                    -(v.X + pos.X) / WorldScale,
-                    -(v.Y + pos.Y) / WorldScale,
-                    -(v.Z + pos.Z) / WorldScale),
-                new Vector3(-v.NX, -v.NY, -v.NZ)),
-            new VertexColor1Texture1(
-                new Vector4(v.R / 255f, v.G / 255f, v.B / 255f, v.A / 255f),
-                new Vector2(v.U, v.V)));
-    }
-
-    /// <summary>
-    /// Converts a triangle strip using placed (world-space) vertices.
-    /// </summary>
-    private static int AddPlacedTriangleStrip(
-        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexEmpty> prim,
+    private static MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty> BuildDdmMesh(
         DdmObject obj,
-        DdmSplit split,
-        PsxObjectPosition pos)
+        List<string> textureDirs,
+        Dictionary<string, MaterialBuilder> materialCache,
+        Dictionary<string, byte[]>? ddxTextures,
+        out int triangleCount)
     {
-        var triangleCount = 0;
-        var end = split.IndexOffset + split.IndexCount;
+        var mesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>(obj.Name);
+        triangleCount = 0;
 
-        for (var i = split.IndexOffset; i + 2 < end; i++)
+        foreach (var split in obj.Splits)
         {
-            var ai = obj.Indices[i];
-            var bi = obj.Indices[i + 1];
-            var ci = obj.Indices[i + 2];
-
-            if (ai == bi || ai == ci || bi == ci)
+            if (split.IndexCount < 3 || split.MaterialIndex >= obj.Materials.Count)
                 continue;
 
-            var va = MakePlacedVertex(obj.Vertices[ai], pos);
-            var vb = MakePlacedVertex(obj.Vertices[bi], pos);
-            var vc = MakePlacedVertex(obj.Vertices[ci], pos);
-
-            var stripIndex = i - split.IndexOffset;
-            if (stripIndex % 2 == 0)
-                prim.AddTriangle(va, vb, vc);
-            else
-                prim.AddTriangle(vb, va, vc);
-
-            triangleCount++;
+            var mat = obj.Materials[split.MaterialIndex];
+            var material = GetOrCreateMaterial(mat, textureDirs, materialCache, ddxTextures);
+            var prim = mesh.UsePrimitive(material);
+            triangleCount += AddTriangleStrip(prim, obj, split);
         }
 
-        return triangleCount;
+        return mesh;
     }
 
     /// <summary>
-    /// Adds placed DDM objects to an existing scene using PSX world positions.
+    /// Adds placed DDM objects to a scene using PSX mesh name hashes for matching
+    /// and glTF node transforms for world-space placement.
+    /// Returns total triangles and the set of DDM object indices that were placed.
     /// </summary>
-    private static int AddPlacedObjects(
+    private static (int Triangles, HashSet<int> PlacedIndices) AddPlacedObjects(
         SceneBuilder scene,
         DdmFile ddm,
-        List<PsxObjectPosition> positions,
+        PsxLayoutFile psxFile,
         List<string> textureDirs,
-        Dictionary<string, MaterialBuilder> materialCache)
+        Dictionary<string, MaterialBuilder> materialCache,
+        Dictionary<string, byte[]>? ddxTextures)
     {
-        // Build index lookup: mesh index -> PSX position
-        var positionByIndex = new Dictionary<ushort, PsxObjectPosition>();
-        foreach (var pos in positions)
+        var ddmByHash = DdmHashLookup.Build(ddm);
+        var meshIndexToDdm = DdmHashLookup.ResolveMeshIndices(psxFile, ddmByHash);
+
+        // Cache built glTF meshes by DDM object index (for instancing —
+        // multiple PSX objects can reference the same DDM mesh geometry)
+        var meshCache = new Dictionary<int, (MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty> Mesh, int Triangles)>();
+        var totalTriangles = 0;
+        var placedIndices = new HashSet<int>();
+
+        foreach (var psxObj in psxFile.Objects)
         {
-            positionByIndex.TryAdd(pos.MeshIndex, pos);
+            if (psxObj.MeshIndex >= psxFile.MeshNameHashes.Length)
+                continue;
+
+            if (!meshIndexToDdm.TryGetValue(psxObj.MeshIndex, out var ddmIdx))
+                continue;
+
+            var ddmObj = ddm.Objects[ddmIdx];
+            if (ddmObj.Vertices.Count == 0 || ddmObj.Indices.Length == 0)
+                continue;
+
+            placedIndices.Add(ddmIdx);
+
+            // Build mesh once, reuse for instances
+            if (!meshCache.TryGetValue(ddmIdx, out var cached))
+            {
+                var gltfMesh = BuildDdmMesh(ddmObj, textureDirs, materialCache, ddxTextures, out var tris);
+                cached = (gltfMesh, tris);
+                meshCache[ddmIdx] = cached;
+                totalTriangles += tris;
+            }
+
+            // Place via node transform (DDM coordinate convention: -X, -Y, +Z)
+            var translation = new Vector3(-psxObj.X, -psxObj.Y, psxObj.Z);
+            scene.AddRigidMesh(cached.Mesh, Matrix4x4.CreateTranslation(translation));
         }
 
+        return (totalTriangles, placedIndices);
+    }
+
+    /// <summary>
+    /// Adds DDM objects to a scene in local space (no world placement).
+    /// Objects whose indices appear in excludeIndices are skipped.
+    /// </summary>
+    private static int AddUnplacedObjects(
+        SceneBuilder scene,
+        DdmFile ddm,
+        List<string> textureDirs,
+        Dictionary<string, MaterialBuilder> materialCache,
+        Dictionary<string, byte[]>? ddxTextures,
+        HashSet<int>? excludeIndices = null)
+    {
         var totalTriangles = 0;
 
-        for (var objIdx = 0; objIdx < ddm.Objects.Count; objIdx++)
+        for (var i = 0; i < ddm.Objects.Count; i++)
         {
-            var obj = ddm.Objects[objIdx];
+            if (excludeIndices != null && excludeIndices.Contains(i))
+                continue;
+
+            var obj = ddm.Objects[i];
             if (obj.Vertices.Count == 0 || obj.Indices.Length == 0)
                 continue;
 
-            if (!positionByIndex.TryGetValue((ushort)objIdx, out var pos))
-                continue;
-
-            var mesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>(obj.Name);
-
-            foreach (var split in obj.Splits)
-            {
-                if (split.IndexCount < 3 || split.MaterialIndex >= obj.Materials.Count)
-                    continue;
-
-                var mat = obj.Materials[split.MaterialIndex];
-                var material = GetOrCreateMaterial(mat, textureDirs, materialCache);
-                var prim = mesh.UsePrimitive(material);
-
-                totalTriangles += AddPlacedTriangleStrip(prim, obj, split, pos);
-            }
+            var gltfMesh = BuildDdmMesh(obj, textureDirs, materialCache, ddxTextures, out var tris);
+            totalTriangles += tris;
 
             var node = new NodeBuilder(obj.Name);
-            scene.AddRigidMesh(mesh, node);
+            scene.AddRigidMesh(gltfMesh, node);
         }
 
         return totalTriangles;
@@ -352,44 +445,74 @@ public static class GltfWriter
     /// </summary>
     /// <param name="levelDdm">Main level DDM (static geometry).</param>
     /// <param name="objectsDdm">Optional objects DDM (_o file, interactive objects).</param>
-    /// <param name="positions">PSX object positions for world placement.</param>
+    /// <param name="psxFile">Parsed PSX file providing level object positions and mesh name hashes.</param>
+    /// <param name="objectsPsxFile">Optional objects PSX (_o.PSX) for object placement. Falls back to psxFile.</param>
     /// <param name="outputDir">Output directory.</param>
     /// <param name="levelName">Level stem name (e.g. "skware").</param>
     /// <param name="texturePath">Optional texture directory.</param>
+    /// <param name="ddxPath">Optional directory for DDX texture archives and .lit light files.</param>
     /// <returns>(combined triangles, level triangles, objects triangles)</returns>
     public static (int Combined, int Level, int Objects) WritePlacedLevel(
         DdmFile levelDdm,
         DdmFile? objectsDdm,
-        List<PsxObjectPosition> positions,
+        PsxLayoutFile psxFile,
+        PsxLayoutFile? objectsPsxFile,
         string outputDir,
         string levelName,
-        string? texturePath = null)
+        string? texturePath = null,
+        string? ddxPath = null)
     {
         Directory.CreateDirectory(outputDir);
         var textureDirs = BuildTextureSearchPaths(texturePath, levelName);
+        var ddxTextures = LoadDdxTextures(ddxPath, levelName);
+
+        // Auto-detect .lit file from the same directory as DDX/DDM/PSX
+        var lights = FindAndParseLitFile(levelName, ddxPath);
+
         var materialCache = new Dictionary<string, MaterialBuilder>();
 
         // 1. Level-only (placed static geometry)
         var levelScene = new SceneBuilder();
-        var levelTriangles = AddPlacedObjects(levelScene, levelDdm, positions, textureDirs, materialCache);
+        var (levelTriangles, _) = AddPlacedObjects(levelScene, levelDdm, psxFile,
+            textureDirs, materialCache, ddxTextures);
+        if (lights != null)
+            AddLightsToScene(levelScene, lights);
         var levelPath = Path.Combine(outputDir, levelName + "_level.glb");
         levelScene.ToGltf2().SaveGLB(levelPath);
 
-        // 2. Objects-only (local space, non-placed)
+        // 2. Objects-only (placed via objects PSX, unmatched at origin)
         var objectsTriangles = 0;
+        var objPsx = objectsPsxFile ?? psxFile;
         if (objectsDdm != null)
         {
+            var objectsScene = new SceneBuilder();
+            var objectsMaterialCache = new Dictionary<string, MaterialBuilder>();
+            var (placedTris, placedIndices) = AddPlacedObjects(objectsScene, objectsDdm, objPsx,
+                textureDirs, objectsMaterialCache, ddxTextures);
+            objectsTriangles = placedTris;
+            objectsTriangles += AddUnplacedObjects(objectsScene, objectsDdm,
+                textureDirs, objectsMaterialCache, ddxTextures, placedIndices);
             var objectsPath = Path.Combine(outputDir, levelName + "_objects.glb");
-            objectsTriangles = WriteDdm(objectsDdm, objectsPath, texturePath, levelName + "_o");
+            objectsScene.ToGltf2().SaveGLB(objectsPath);
         }
 
-        // 3. Combined (placed level + unplaced objects in one file)
+        // 3. Combined (placed level + placed/unplaced objects in one file)
         var combinedScene = new SceneBuilder();
         var combinedMaterialCache = new Dictionary<string, MaterialBuilder>();
-        var combinedTriangles = AddPlacedObjects(combinedScene, levelDdm, positions, textureDirs, combinedMaterialCache);
+        var (combinedTriangles, _) = AddPlacedObjects(combinedScene, levelDdm, psxFile,
+            textureDirs, combinedMaterialCache, ddxTextures);
 
         if (objectsDdm != null)
-            combinedTriangles += AddUnplacedObjects(combinedScene, objectsDdm, textureDirs, combinedMaterialCache);
+        {
+            var (objTris, objPlaced) = AddPlacedObjects(combinedScene, objectsDdm, objPsx,
+                textureDirs, combinedMaterialCache, ddxTextures);
+            combinedTriangles += objTris;
+            combinedTriangles += AddUnplacedObjects(combinedScene, objectsDdm,
+                textureDirs, combinedMaterialCache, ddxTextures, objPlaced);
+        }
+
+        if (lights != null)
+            AddLightsToScene(combinedScene, lights);
 
         var combinedPath = Path.Combine(outputDir, levelName + ".glb");
         combinedScene.ToGltf2().SaveGLB(combinedPath);
@@ -398,37 +521,148 @@ public static class GltfWriter
     }
 
     /// <summary>
-    /// Adds DDM objects to a scene in local space (with X/Y negation, no world placement).
+    /// Adds parsed .lit lights to a glTF scene using KHR_lights_punctual.
+    /// Coordinates are converted from 3ds Max space to glTF space (-X, -Y, +Z).
     /// </summary>
-    private static int AddUnplacedObjects(
-        SceneBuilder scene,
-        DdmFile ddm,
-        List<string> textureDirs,
-        Dictionary<string, MaterialBuilder> materialCache)
+    private static void AddLightsToScene(SceneBuilder scene, List<LitLight> lights)
     {
-        var totalTriangles = 0;
-
-        foreach (var obj in ddm.Objects)
+        foreach (var lit in lights)
         {
-            if (obj.Vertices.Count == 0 || obj.Indices.Length == 0)
-                continue;
+            var gltfLight = CreateGltfLight(lit);
+            if (gltfLight == null) continue;
 
-            var mesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>(obj.Name);
-            foreach (var split in obj.Splits)
+            var pos = new Vector3(-lit.Position.X, -lit.Position.Y, lit.Position.Z);
+            var node = new NodeBuilder(lit.Name);
+            node.LocalTransform = CreateLightTransform(pos, lit.Direction, lit.Type);
+
+            scene.AddLight(gltfLight, node);
+        }
+    }
+
+    private static LightBuilder? CreateGltfLight(LitLight lit)
+    {
+        var (color, intensity) = NormalizeHdrColor(lit.Color);
+        var range = lit.Atten2 > 0 ? lit.Atten2 : float.PositiveInfinity;
+
+        return lit.Type switch
+        {
+            LitLightType.Point => new LightBuilder.Point
             {
-                if (split.IndexCount < 3 || split.MaterialIndex >= obj.Materials.Count)
-                    continue;
+                Color = color, Intensity = intensity, Range = range,
+            },
+            LitLightType.Spot => CreateSpotLight(color, intensity, range, lit),
+            // DirLights with small Radius are bounded area lights — approximate as spot.
+            // Large or negative Radius means unbounded directional.
+            LitLightType.Directional when lit.Radius is > 0 and < 100 =>
+                CreateSpotLight(color, intensity, range, lit),
+            LitLightType.Directional => new LightBuilder.Directional
+            {
+                Color = color, Intensity = intensity,
+            },
+            _ => null,
+        };
+    }
 
-                var mat = obj.Materials[split.MaterialIndex];
-                var material = GetOrCreateMaterial(mat, textureDirs, materialCache);
-                var prim = mesh.UsePrimitive(material);
-                totalTriangles += AddTriangleStrip(prim, obj, split);
-            }
+    private static LightBuilder.Spot CreateSpotLight(
+        Vector3 color, float intensity, float range, LitLight lit) => new()
+    {
+        Color = color,
+        Intensity = intensity,
+        Range = range,
+        InnerConeAngle = lit.Hotspot > 0 ? lit.Hotspot / 2f : 0f,
+        OuterConeAngle = lit.Radius > 0 ? lit.Radius / 2f : 0.785f,
+    };
 
-            var node = new NodeBuilder(obj.Name);
-            scene.AddRigidMesh(mesh, node);
+    private static (Vector3 Color, float Intensity) NormalizeHdrColor(Vector3 color)
+    {
+        var max = MathF.Max(color.X, MathF.Max(color.Y, color.Z));
+        return max > 1f ? (color / max, max) : (color, 1f);
+    }
+
+    /// <summary>
+    /// Creates a node transform that positions the light and orients it so that
+    /// the glTF local -Z axis points in the light's direction.
+    /// </summary>
+    private static Matrix4x4 CreateLightTransform(Vector3 position, Vector3? direction, LitLightType type)
+    {
+        if (direction == null || type == LitLightType.Point)
+            return Matrix4x4.CreateTranslation(position);
+
+        // Convert direction from .lit space to glTF space: (-X, -Y, +Z)
+        var dir = direction.Value;
+        var gltfDir = Vector3.Normalize(new Vector3(-dir.X, -dir.Y, dir.Z));
+
+        // Build rotation: glTF lights point along local -Z, so rotate -Z to gltfDir
+        var rotation = RotationFromTo(-Vector3.UnitZ, gltfDir);
+        return Matrix4x4.CreateFromQuaternion(rotation)
+             * Matrix4x4.CreateTranslation(position);
+    }
+
+    private static Quaternion RotationFromTo(Vector3 from, Vector3 to)
+    {
+        var dot = Vector3.Dot(from, to);
+        if (dot > 0.999999f)
+            return Quaternion.Identity;
+        if (dot < -0.999999f)
+        {
+            // 180-degree rotation around any perpendicular axis
+            var perp = MathF.Abs(from.X) < 0.9f ? Vector3.UnitX : Vector3.UnitY;
+            var axis = Vector3.Normalize(Vector3.Cross(from, perp));
+            return new Quaternion(axis, 0);
+        }
+        var cross = Vector3.Cross(from, to);
+        return Quaternion.Normalize(new Quaternion(cross.X, cross.Y, cross.Z, 1 + dot));
+    }
+
+    /// <summary>
+    /// Loads DDX texture archives for a level into an in-memory cache.
+    /// Searches for level DDX and objects DDX archives.
+    /// </summary>
+    private static Dictionary<string, byte[]>? LoadDdxTextures(string? ddxPath, string levelName)
+    {
+        if (string.IsNullOrEmpty(ddxPath) || !Directory.Exists(ddxPath))
+            return null;
+
+        Dictionary<string, byte[]>? cache = null;
+
+        // Level DDX (e.g. skware.DDX)
+        var levelDdx = FindCompanionFile(ddxPath, levelName, ".ddx");
+        if (levelDdx != null)
+        {
+            cache ??= new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            MergeDdxEntries(cache, DdxArchive.ReadAllEntries(levelDdx));
         }
 
-        return totalTriangles;
+        // Objects DDX (e.g. skware_o.DDX)
+        var objectsDdx = FindCompanionFile(ddxPath, levelName + "_o", ".ddx");
+        if (objectsDdx != null)
+        {
+            cache ??= new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            MergeDdxEntries(cache, DdxArchive.ReadAllEntries(objectsDdx));
+        }
+
+        return cache;
+    }
+
+    private static void MergeDdxEntries(Dictionary<string, byte[]> target, Dictionary<string, byte[]> source)
+    {
+        foreach (var (key, value) in source)
+            target.TryAdd(key, value);
+    }
+
+    private static List<LitLight>? FindAndParseLitFile(string levelName, string? searchDir)
+    {
+        if (string.IsNullOrEmpty(searchDir)) return null;
+        var litPath = FindCompanionFile(searchDir, levelName, ".lit");
+        if (litPath == null) return null;
+        try { return LitFile.Parse(litPath); }
+        catch { return null; }
+    }
+
+    private static string? FindCompanionFile(string directory, string stem, string extension)
+    {
+        var files = Directory.GetFiles(directory, stem + extension,
+            new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
+        return files.Length > 0 ? files[0] : null;
     }
 }

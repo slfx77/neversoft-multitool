@@ -108,7 +108,7 @@ public static class PkrArchive
         for (var i = 0; i < numDirs; i++)
         {
             var nameBytes = reader.ReadBytes(32);
-            var name = Encoding.ASCII.GetString(nameBytes).TrimEnd('\0');
+            var name = Encoding.ASCII.GetString(nameBytes).TrimEnd('\0').Replace('\\', '/');
             var dirUnk = reader.ReadUInt32();
             var dirNumFiles = reader.ReadUInt32();
             dirs.Add(new PkrDir(name, dirUnk, (int)dirNumFiles));

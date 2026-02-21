@@ -45,6 +45,28 @@ public static class DdxArchive
     }
 
     /// <summary>
+    /// Reads all entries from a DDX archive into memory.
+    /// Returns a dictionary keyed by filename stem (no extension, case-insensitive).
+    /// </summary>
+    public static Dictionary<string, byte[]> ReadAllEntries(string ddxPath)
+    {
+        var entries = GetFileList(ddxPath);
+        var result = new Dictionary<string, byte[]>(entries.Count, StringComparer.OrdinalIgnoreCase);
+
+        using var stream = File.OpenRead(ddxPath);
+        foreach (var entry in entries)
+        {
+            stream.Seek(entry.Offset, SeekOrigin.Begin);
+            var data = new byte[entry.Size];
+            stream.ReadExactly(data);
+            var name = Path.GetFileNameWithoutExtension(entry.Name);
+            result.TryAdd(name, data);
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// Extracts all DDS textures from a DDX archive.
     /// </summary>
     public static void ExtractFiles(string ddxPath, string outputDir,

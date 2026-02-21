@@ -32,11 +32,20 @@ public static class WadArchive
         using var stream = File.OpenRead(hedPath);
         using var reader = new BinaryReader(stream);
 
-        // Detect format: if first byte is printable ASCII, it's plaintext
-        var firstByte = reader.ReadByte();
+        // Detect format by probing the first bytes.
+        // Plaintext HED: printable ASCII bytes terminated by null (a filename).
+        // Hashed HED: uint32 hash where non-printable bytes appear before any null.
+        var probe = reader.ReadBytes((int)Math.Min(12, stream.Length));
         stream.Position = 0;
 
-        return firstByte is >= 0x20 and <= 0x7E
+        var isPlaintext = false;
+        for (var i = 0; i < probe.Length; i++)
+        {
+            if (probe[i] == 0) { isPlaintext = i >= 2; break; }
+            if (probe[i] is < 0x20 or > 0x7E) break;
+        }
+
+        return isPlaintext
             ? ReadPlaintextEntries(reader, stream.Length)
             : ReadHashedEntries(reader, stream.Length);
     }

@@ -168,11 +168,14 @@ public static class BonArchive
             var displayNameLen = reader.ReadUInt16();
             reader.ReadBytes(displayNameLen);
 
-            // Material properties: RGBA (4 bytes) + 2 floats + 1 flag byte
+            // Material properties: RGBA (4 bytes) + 2 floats + has-texture flag
             reader.ReadBytes(4);  // RGBA color
             reader.ReadBytes(4);  // float specular
             reader.ReadBytes(4);  // float glossiness
-            reader.ReadByte();    // unknown flag
+            var hasTexture = reader.ReadByte();
+
+            if (hasTexture == 0)
+                continue; // No texture data for this material
 
             // Internal name (uint16 length + chars)
             var internalNameLen = reader.ReadUInt16();
