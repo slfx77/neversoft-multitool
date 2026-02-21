@@ -21,6 +21,17 @@ public static class RleImage
     private const string RleMagic = "_RLE_16_";
 
     private static readonly int[] CandidateWidths = [512, 640, 768, 320, 256, 384, 480, 1024];
+    private static readonly HashSet<long> PreferredHeights = [240, 256, 480, 512];
+
+    /// <summary>
+    /// Detects the image width for an RLE or BMR file without fully decoding it.
+    /// </summary>
+    public static int DetectWidth(string filePath)
+    {
+        var ext = Path.GetExtension(filePath);
+        var totalPixels = GetTotalPixelCount(filePath, ext);
+        return GuessWidth(totalPixels);
+    }
 
     /// <summary>
     /// Converts an RLE or BMR file to RGB pixel data with auto-detected width.
@@ -120,11 +131,12 @@ public static class RleImage
     /// </summary>
     private static List<List<RgbColor>> LoadBmr(BinaryReader reader, int width)
     {
-        var fileSize = reader.BaseStream.Length;
+        // BMR files have 8 bytes of trailing zero-padding
+        var dataSize = Math.Max(0, reader.BaseStream.Length - 8);
         var canvas = new List<List<RgbColor>>();
         var row = new List<RgbColor>();
 
-        for (long i = 0; i < fileSize; i += 2)
+        for (long i = 0; i < dataSize; i += 2)
         {
             var colorBytes = reader.ReadUInt16();
             var color = ConvertRgba5551ToRgb(colorBytes);
@@ -217,7 +229,8 @@ public static class RleImage
 
         if (ext.Equals(".bmr", StringComparison.OrdinalIgnoreCase))
         {
-            return stream.Length / 2;
+            // BMR files have 8 bytes of trailing zero-padding
+            return stream.Length >= 8 ? (stream.Length - 8) / 2 : stream.Length / 2;
         }
 
         // RLE: skip 8-byte magic, read decompressed size at offset 8
@@ -229,20 +242,31 @@ public static class RleImage
 
     /// <summary>
     /// Guesses image width from total pixel count by trying common widths.
+    /// Prefers candidates that produce standard PS1 display heights (240, 256, 480, 512).
     /// </summary>
-    private static int GuessWidth(long totalPixels)
+    internal static int GuessWidth(long totalPixels)
     {
         if (totalPixels <= 0) return 512;
+
+        var bestWidth = -1;
+        var bestHasPreferredHeight = false;
 
         foreach (var candidate in CandidateWidths)
         {
             if (totalPixels % candidate != 0) continue;
             var height = totalPixels / candidate;
-            if (height is >= 1 and <= 4096)
-                return candidate;
+            if (height is < 1 or > 4096) continue;
+
+            var hasPreferredHeight = PreferredHeights.Contains(height);
+
+            if (bestWidth < 0 || (hasPreferredHeight && !bestHasPreferredHeight))
+            {
+                bestWidth = candidate;
+                bestHasPreferredHeight = hasPreferredHeight;
+            }
         }
 
-        return 512;
+        return bestWidth > 0 ? bestWidth : 512;
     }
 
     /// <summary>

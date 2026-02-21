@@ -262,8 +262,15 @@
       </StackPanel>
     </Border>
 
+    <!-- Progress Bar -->
+    <ProgressBar
+      x:Name="ReviewProgress"
+      Grid.Row="2"
+      Maximum="100"
+      Style="{StaticResource TabProgressBarStyle}" />
+
     <!-- I/O Section -->
-    <Grid Grid.Row="2"
+    <Grid Grid.Row="3"
           Style="{StaticResource IoSectionGridStyle}">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
@@ -299,13 +306,6 @@
               MinWidth="120"
               Click="CandidatesBrowse_Click" />
     </Grid>
-
-    <!-- Progress Bar -->
-    <ProgressBar
-      x:Name="ReviewProgress"
-      Grid.Row="3"
-      Maximum="100"
-      Style="{StaticResource TabProgressBarStyle}" />
 
     <!-- Navigation Buttons -->
     <Grid Grid.Row="4" Margin="0,8,0,0">

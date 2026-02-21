@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Psx;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
@@ -10,17 +11,19 @@ namespace NeversoftMultitool;
 
 public sealed partial class PsxTextureTab : UserControl
 {
-    private readonly ObservableCollection<PsxFileEntry> _files = [];
+    private readonly ObservableCollection<IListEntry> _items = [];
+    private readonly List<PsxFileEntry> _parentFiles = [];
     private string _inputDir = "";
     private string _outputDir = "";
     private CancellationTokenSource? _cts;
+    private CancellationTokenSource? _previewCts;
     private string _sortColumn = "";
     private bool _sortAscending = true;
 
     public PsxTextureTab()
     {
         InitializeComponent();
-        FilesListView.ItemsSource = _files;
+        FilesListView.ItemsSource = _items;
     }
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
@@ -36,7 +39,8 @@ public sealed partial class PsxTextureTab : UserControl
         _inputDir = folder.Path;
         InputPathText.Text = _inputDir;
 
-        _files.Clear();
+        _items.Clear();
+        _parentFiles.Clear();
         var psxFiles = Directory.GetFiles(_inputDir)
             .Where(f => f.EndsWith(".psx", StringComparison.OrdinalIgnoreCase))
             .Select(Path.GetFileName)
@@ -45,10 +49,38 @@ public sealed partial class PsxTextureTab : UserControl
 
         foreach (var file in psxFiles)
         {
-            _files.Add(new PsxFileEntry { FileName = file! });
+            var entry = new PsxFileEntry { FileName = file! };
+            _parentFiles.Add(entry);
+            _items.Add(entry);
         }
 
         UpdateUiState();
+
+        // Enumerate texture counts in background so we can show counts and hide
+        // the expand chevron for files with no textures
+        var inputDir = _inputDir;
+        var entries = _parentFiles.ToList();
+        var dispatcher = DispatcherQueue;
+        _ = Task.Run(() =>
+        {
+            foreach (var entry in entries)
+            {
+                try
+                {
+                    var inputFile = Path.Combine(inputDir, entry.FileName);
+                    var textures = PsxLibrary.EnumerateTextures(inputFile);
+                    dispatcher.TryEnqueue(() =>
+                    {
+                        entry.TextureCount = textures.Count;
+                        entry.HasTextures = textures.Count > 0;
+                    });
+                }
+                catch
+                {
+                    dispatcher.TryEnqueue(() => entry.HasTextures = false);
+                }
+            }
+        });
     }
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
@@ -68,7 +100,7 @@ public sealed partial class PsxTextureTab : UserControl
 
     private void UpdateUiState()
     {
-        var hasFiles = _files.Count > 0;
+        var hasFiles = _parentFiles.Count > 0;
         var hasOutput = !string.IsNullOrEmpty(_outputDir);
 
         EmptyStatePanel.Visibility = hasFiles ? Visibility.Collapsed : Visibility.Visible;
@@ -76,15 +108,65 @@ public sealed partial class PsxTextureTab : UserControl
         ExtractButton.IsEnabled = hasFiles && hasOutput;
     }
 
+    private void ExpandCollapse_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: PsxFileEntry parent }) return;
+        if (!parent.HasTextures) return;
+
+        var parentIndex = _items.IndexOf(parent);
+        if (parentIndex < 0) return;
+
+        if (parent.IsExpanded)
+        {
+            // Collapse: remove children after parent
+            parent.IsExpanded = false;
+            var removeIndex = parentIndex + 1;
+            while (removeIndex < _items.Count && _items[removeIndex].IsChildEntry)
+                _items.RemoveAt(removeIndex);
+        }
+        else
+        {
+            // Expand: lazy-load children on first expand
+            if (parent.CachedChildren == null)
+            {
+                var inputFile = Path.Combine(_inputDir, parent.FileName);
+                try
+                {
+                    var textures = PsxLibrary.EnumerateTextures(inputFile);
+                    parent.CachedChildren = textures.Select((t, i) => new PsxTextureEntry
+                    {
+                        ParentFileName = parent.FileName,
+                        NameHash = t.NameHash,
+                        Width = t.Header.Width,
+                        Height = t.Header.Height,
+                        PaletteType = PsxLibrary.DescribePaletteType(t.Header),
+                        Index = i,
+                        ResolvedName = QbKey.TryResolve(t.NameHash)
+                    }).ToList();
+                }
+                catch
+                {
+                    parent.CachedChildren = [];
+                }
+            }
+
+            parent.IsExpanded = true;
+            for (var i = 0; i < parent.CachedChildren.Count; i++)
+                _items.Insert(parentIndex + 1 + i, parent.CachedChildren[i]);
+        }
+    }
+
     private async void ExtractButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_files.Count == 0 || string.IsNullOrEmpty(_outputDir)) return;
+        if (_parentFiles.Count == 0 || string.IsNullOrEmpty(_outputDir)) return;
 
         _cts = new CancellationTokenSource();
         var createSubDirs = CreateSubDirsCheckbox.IsChecked == true;
+        var writeDds = WriteDdsCheckbox.IsChecked == true;
+        var writeMipAtlas = WriteMipAtlasCheckbox.IsChecked == true;
 
         // Reset state
-        foreach (var file in _files)
+        foreach (var file in _parentFiles)
         {
             file.TextureCount = 0;
             file.ExtractedCount = 0;
@@ -98,17 +180,20 @@ public sealed partial class PsxTextureTab : UserControl
 
         var stopwatch = Stopwatch.StartNew();
         var filesProcessed = 0;
-        var totalFiles = _files.Count;
+        var totalFiles = _parentFiles.Count;
         var token = _cts.Token;
         var dispatcher = DispatcherQueue;
         var inputDir = _inputDir;
         var outputDir = _outputDir;
 
+        // Snapshot parent entries for parallel iteration
+        var entries = _parentFiles.ToList();
+
         await Task.Run(() =>
         {
             var semaphore = new SemaphoreSlim(Environment.ProcessorCount);
 
-            var tasks = _files.Select((entry, index) => Task.Run(async () =>
+            var tasks = entries.Select((entry, index) => Task.Run(async () =>
             {
                 await semaphore.WaitAsync(token);
                 try
@@ -118,7 +203,7 @@ public sealed partial class PsxTextureTab : UserControl
                     dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
 
                     var inputFile = Path.Combine(inputDir, entry.FileName);
-                    var result = PsxLibrary.ExtractTextures(inputFile, outputDir, createSubDirs);
+                    var result = PsxLibrary.ExtractTextures(inputFile, outputDir, createSubDirs, writeDds, writeMipAtlas);
 
                     dispatcher.TryEnqueue(() =>
                     {
@@ -170,7 +255,7 @@ public sealed partial class PsxTextureTab : UserControl
 
     private void SortFiles<T>(string column, Func<PsxFileEntry, T> keySelector)
     {
-        if (_files.Count == 0) return;
+        if (_parentFiles.Count == 0) return;
 
         if (_sortColumn == column)
             _sortAscending = !_sortAscending;
@@ -180,13 +265,20 @@ public sealed partial class PsxTextureTab : UserControl
             _sortAscending = true;
         }
 
-        var sorted = _sortAscending
-            ? _files.OrderBy(keySelector).ToList()
-            : _files.OrderByDescending(keySelector).ToList();
+        // Collapse all before sorting
+        foreach (var parent in _parentFiles)
+            parent.IsExpanded = false;
 
-        _files.Clear();
+        var sorted = _sortAscending
+            ? _parentFiles.OrderBy(keySelector).ToList()
+            : _parentFiles.OrderByDescending(keySelector).ToList();
+
+        _parentFiles.Clear();
+        _parentFiles.AddRange(sorted);
+
+        _items.Clear();
         foreach (var item in sorted)
-            _files.Add(item);
+            _items.Add(item);
 
         UpdateSortIcons();
     }
@@ -198,5 +290,68 @@ public sealed partial class PsxTextureTab : UserControl
         TexturesSortIcon.Glyph = _sortColumn == "Textures" ? glyph : "";
         ExtractedSortIcon.Glyph = _sortColumn == "Extracted" ? glyph : "";
         StatusSortIcon.Glyph = _sortColumn == "Status" ? glyph : "";
+    }
+
+    private async void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (FilesListView.SelectedItem is PsxTextureEntry texture)
+        {
+            await LoadTexturePreview(texture);
+        }
+        else
+        {
+            ClearPreview();
+        }
+    }
+
+    private async Task LoadTexturePreview(PsxTextureEntry texture)
+    {
+        _previewCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _previewCts = cts;
+
+        // Show the preview panel and loading state
+        PreviewPanel.Visibility = Visibility.Visible;
+        PreviewColumn.Width = new GridLength(280);
+        TexturePreview.Source = null;
+        NoPreviewIcon.Visibility = Visibility.Collapsed;
+        PreviewLoading.IsActive = true;
+        PreviewDimensionsText.Text = "";
+        PreviewInfoText.Text = "";
+
+        var inputFile = Path.Combine(_inputDir, texture.ParentFileName);
+        var nameHash = texture.NameHash;
+
+        var result = await Task.Run(() =>
+            PsxLibrary.ExtractTextureByHash(inputFile, nameHash), cts.Token);
+
+        if (cts.Token.IsCancellationRequested) return;
+
+        PreviewLoading.IsActive = false;
+
+        if (result != null)
+        {
+            var (rgba, width, height) = result.Value;
+            TexturePreview.Source = BitmapHelper.CreateFromRgba(width, height, rgba);
+            PreviewDimensionsText.Text = $"{width} x {height}";
+            PreviewInfoText.Text = $"{texture.PaletteType}\n{texture.NameDisplay}";
+        }
+        else
+        {
+            NoPreviewIcon.Visibility = Visibility.Visible;
+            PreviewDimensionsText.Text = "Failed to decode";
+        }
+    }
+
+    private void ClearPreview()
+    {
+        _previewCts?.Cancel();
+        PreviewPanel.Visibility = Visibility.Collapsed;
+        PreviewColumn.Width = new GridLength(0);
+        TexturePreview.Source = null;
+        PreviewLoading.IsActive = false;
+        NoPreviewIcon.Visibility = Visibility.Collapsed;
+        PreviewDimensionsText.Text = "";
+        PreviewInfoText.Text = "";
     }
 }

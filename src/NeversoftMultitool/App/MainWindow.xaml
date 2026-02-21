@@ -94,6 +94,32 @@
 
         <NavigationViewItemSeparator />
 
+        <NavigationViewItemHeader Content="Video" />
+
+        <!--  Video Converter  -->
+        <NavigationViewItem
+          Content="Video Converter"
+          Tag="VideoConverter">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE714;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+
+        <NavigationViewItemSeparator />
+
+        <NavigationViewItemHeader Content="3D Models" />
+
+        <!--  Mesh Converter  -->
+        <NavigationViewItem
+          Content="Mesh Converter"
+          Tag="MeshConverter">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xF158;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+
+        <NavigationViewItemSeparator />
+
         <NavigationViewItemHeader Content="Tools" />
 
         <!--  Hash Reviewer  -->
@@ -102,6 +128,19 @@
           Tag="HashReviewer">
           <NavigationViewItem.Icon>
             <FontIcon Glyph="&#xE71C;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+
+        <NavigationViewItemSeparator />
+
+        <NavigationViewItemHeader Content="Level Data" />
+
+        <!--  TRG Viewer  -->
+        <NavigationViewItem
+          Content="TRG Viewer"
+          Tag="TrgViewer">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE81E;" />
           </NavigationViewItem.Icon>
         </NavigationViewItem>
       </NavigationView.MenuItems>
@@ -141,6 +180,18 @@
               Visibility="Collapsed" />
             <tabs:HashReviewerTab
               x:Name="HashReviewerTabContent"
+              VerticalAlignment="Stretch"
+              Visibility="Collapsed" />
+            <tabs:SfdConverterTab
+              x:Name="SfdConverterTabContent"
+              VerticalAlignment="Stretch"
+              Visibility="Collapsed" />
+            <tabs:TrgViewerTab
+              x:Name="TrgViewerTabContent"
+              VerticalAlignment="Stretch"
+              Visibility="Collapsed" />
+            <tabs:MeshConverterTab
+              x:Name="MeshConverterTabContent"
               VerticalAlignment="Stretch"
               Visibility="Collapsed" />
           </Grid>

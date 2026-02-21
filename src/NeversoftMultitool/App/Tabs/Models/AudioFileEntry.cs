@@ -4,13 +4,39 @@ using Microsoft.UI.Xaml.Media;
 
 namespace NeversoftMultitool;
 
-public sealed class AudioFileEntry : INotifyPropertyChanged
+public sealed class AudioFileEntry : IListEntry, INotifyPropertyChanged
 {
     private ExtractionStatus _status = ExtractionStatus.Pending;
     private int _sampleCount;
+    private bool _isExpanded;
+
+    public bool IsChildEntry => false;
 
     public required string FileName { get; init; }
     public required string AudioFormat { get; init; }
+
+    /// <summary>
+    /// Whether this format supports expand/collapse (VAB, KAT have multiple samples).
+    /// </summary>
+    public bool IsExpandable => AudioFormat is "VAB" or "KAT";
+
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set
+        {
+            _isExpanded = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ChevronGlyph));
+        }
+    }
+
+    public string ChevronGlyph => !IsExpandable ? "" : _isExpanded ? "\uE70D" : "\uE76C";
+
+    /// <summary>
+    /// Cached child sample entries, populated on first expand.
+    /// </summary>
+    internal List<AudioSampleEntry>? CachedChildren { get; set; }
 
     public int SampleCount
     {

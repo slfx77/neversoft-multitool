@@ -23,6 +23,88 @@ public static class VabExtractor
     private static readonly int[] F0 = [0, 60, 115, 98, 122];
     private static readonly int[] F1 = [0, 0, -52, -55, -60];
 
+    /// <summary>
+    /// Enumerates samples in a VAB file without decoding audio data.
+    /// Returns the index and data size of each valid (non-zero) VAG waveform.
+    /// </summary>
+    public static List<VabSampleInfo> EnumerateSamples(string inputPath)
+    {
+        using var stream = File.OpenRead(inputPath);
+        using var reader = new BinaryReader(stream);
+
+        var header = ReadHeader(reader);
+        if (header == null) return [];
+
+        stream.Position = ProgramTableOffset + ProgramSlots * ProgramEntrySize;
+        var toneTableSize = header.ProgramCount * TonesPerProgram * ToneEntrySize;
+        stream.Position += toneTableSize;
+
+        var vagSizes = new int[VagSizeTableEntries];
+        for (var i = 0; i < VagSizeTableEntries; i++)
+            vagSizes[i] = reader.ReadUInt16() * 8;
+
+        var results = new List<VabSampleInfo>();
+        for (var v = 1; v <= header.VagCount && v < VagSizeTableEntries; v++)
+        {
+            if (vagSizes[v] > 0)
+                results.Add(new VabSampleInfo(v, vagSizes[v]));
+        }
+
+        return results;
+    }
+
+    public sealed record VabSampleInfo(int Index, int DataSize);
+
+    /// <summary>
+    /// Extracts a single VAG sample by index to a WAV file.
+    /// Returns the output path on success, or null on failure.
+    /// </summary>
+    public static string? ExtractSingleToWav(string inputPath, int sampleIndex, string outputDir, int sampleRate = DefaultSampleRate)
+    {
+        try
+        {
+            using var stream = File.OpenRead(inputPath);
+            using var reader = new BinaryReader(stream);
+
+            var header = ReadHeader(reader);
+            if (header == null || sampleIndex < 1 || sampleIndex > header.VagCount)
+                return null;
+
+            // Skip program table and tone table
+            stream.Position = ProgramTableOffset + ProgramSlots * ProgramEntrySize;
+            var toneTableSize = header.ProgramCount * TonesPerProgram * ToneEntrySize;
+            stream.Position += toneTableSize;
+
+            // Read VAG size table
+            var vagSizes = new int[VagSizeTableEntries];
+            for (var i = 0; i < VagSizeTableEntries; i++)
+                vagSizes[i] = reader.ReadUInt16() * 8;
+
+            var size = vagSizes[sampleIndex];
+            if (size <= 0) return null;
+
+            // Calculate offset to the target sample (sum sizes of all preceding entries)
+            var vagDataOffset = stream.Position;
+            long currentOffset = vagDataOffset;
+            for (var v = 0; v < sampleIndex; v++)
+                currentOffset += vagSizes[v];
+
+            stream.Position = currentOffset;
+            var vagData = reader.ReadBytes(size);
+            var pcm = DecodeSpuAdpcm(vagData);
+            if (pcm.Length == 0) return null;
+
+            var stem = Path.GetFileNameWithoutExtension(inputPath);
+            var wavPath = Path.Combine(outputDir, $"{stem}_{sampleIndex:D3}.wav");
+            WavWriter.WritePcm16(wavPath, sampleRate, 1, pcm);
+            return wavPath;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public static AudioConvertResult ExtractToWav(string inputPath, string outputDir, int sampleRate = DefaultSampleRate)
     {
         try

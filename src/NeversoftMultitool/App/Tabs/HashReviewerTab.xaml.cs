@@ -1,9 +1,7 @@
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text;
 using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media.Imaging;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Psx;
 using Windows.ApplicationModel.DataTransfer;
@@ -320,25 +318,7 @@ public sealed partial class HashReviewerTab : UserControl
         }
 
         var (rgba, width, height) = result.Value;
-
-        // Convert RGBA to BGRA WriteableBitmap
-        var bitmap = new WriteableBitmap(width, height);
-        var bgra = new byte[rgba.Length];
-        for (var i = 0; i < rgba.Length; i += 4)
-        {
-            bgra[i] = rgba[i + 2];     // B
-            bgra[i + 1] = rgba[i + 1]; // G
-            bgra[i + 2] = rgba[i];     // R
-            bgra[i + 3] = rgba[i + 3]; // A
-        }
-
-        using (var stream = bitmap.PixelBuffer.AsStream())
-        {
-            stream.Write(bgra, 0, bgra.Length);
-        }
-
-        bitmap.Invalidate();
-        TexturePreview.Source = bitmap;
+        TexturePreview.Source = BitmapHelper.CreateFromRgba(width, height, rgba);
         TextureDimensionsText.Text = $"{width} x {height}";
     }
 

@@ -6,6 +6,94 @@
   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
   xmlns:local="using:NeversoftMultitool">
 
+  <UserControl.Resources>
+    <local:ExpandableListTemplateSelector x:Key="ListTemplateSelector">
+
+      <!-- Parent row: audio file -->
+      <local:ExpandableListTemplateSelector.ParentTemplate>
+        <DataTemplate x:DataType="local:AudioFileEntry">
+          <Grid Style="{StaticResource ListItemRowGridStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="28" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="80" />
+              <ColumnDefinition Width="100" />
+            </Grid.ColumnDefinitions>
+            <Button
+              Grid.Column="0"
+              Padding="0"
+              MinWidth="0"
+              MinHeight="0"
+              Width="24" Height="24"
+              Background="Transparent"
+              BorderThickness="0"
+              Click="ExpandCollapse_Click"
+              Tag="{x:Bind}"
+              IsEnabled="{x:Bind IsExpandable}"
+              VerticalAlignment="Center">
+              <FontIcon
+                FontSize="10"
+                Glyph="{x:Bind ChevronGlyph, Mode=OneWay}" />
+            </Button>
+            <TextBlock
+              Grid.Column="1"
+              VerticalAlignment="Center"
+              Text="{x:Bind FileName}"
+              TextTrimming="CharacterEllipsis"
+              ToolTipService.ToolTip="{x:Bind FileName}" />
+            <TextBlock
+              Grid.Column="2"
+              VerticalAlignment="Center"
+              Text="{x:Bind AudioFormat}" />
+            <TextBlock
+              Grid.Column="3"
+              VerticalAlignment="Center"
+              HorizontalAlignment="Center"
+              Text="{x:Bind SampleCountDisplay, Mode=OneWay}" />
+            <TextBlock
+              Grid.Column="4"
+              VerticalAlignment="Center"
+              Foreground="{x:Bind StatusColor, Mode=OneWay}"
+              Text="{x:Bind StatusDisplay, Mode=OneWay}" />
+          </Grid>
+        </DataTemplate>
+      </local:ExpandableListTemplateSelector.ParentTemplate>
+
+      <!-- Child row: individual audio sample -->
+      <local:ExpandableListTemplateSelector.ChildTemplate>
+        <DataTemplate x:DataType="local:AudioSampleEntry">
+          <Grid Style="{StaticResource ListItemRowGridStyle}"
+                Padding="28,0,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="50" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="80" />
+            </Grid.ColumnDefinitions>
+            <TextBlock
+              Grid.Column="0"
+              VerticalAlignment="Center"
+              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+              Text="{x:Bind IndexDisplay}" />
+            <TextBlock
+              Grid.Column="1"
+              VerticalAlignment="Center"
+              Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+              Text="{x:Bind InfoDisplay}"
+              TextTrimming="CharacterEllipsis" />
+            <TextBlock
+              Grid.Column="2"
+              VerticalAlignment="Center"
+              HorizontalAlignment="Right"
+              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+              Text="{x:Bind SizeDisplay}" />
+          </Grid>
+        </DataTemplate>
+      </local:ExpandableListTemplateSelector.ChildTemplate>
+
+    </local:ExpandableListTemplateSelector>
+  </UserControl.Resources>
+
   <Grid Padding="16"
         VerticalAlignment="Stretch">
     <Grid.RowDefinitions>
@@ -28,106 +116,190 @@
       </StackPanel>
     </Grid>
 
-    <!-- File list card -->
-    <Border
-      x:Name="FileListCard"
-      Grid.Row="1"
-      VerticalAlignment="Stretch"
-      Style="{StaticResource CardBorderStyle}"
-      Visibility="Collapsed">
-      <Grid VerticalAlignment="Stretch">
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto" />
-          <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+    <!-- Main content: file list + preview -->
+    <Grid Grid.Row="1" ColumnSpacing="8">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition x:Name="PreviewColumn" Width="0" />
+      </Grid.ColumnDefinitions>
 
-        <!-- Column headers -->
-        <Grid Grid.Row="0"
-              Style="{StaticResource ColumnHeaderGridStyle}">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="70" />
-            <ColumnDefinition Width="80" />
-            <ColumnDefinition Width="100" />
-          </Grid.ColumnDefinitions>
-          <TextBlock Grid.Column="0" Text="File Name" FontWeight="SemiBold" />
-          <TextBlock Grid.Column="1" Text="Format" FontWeight="SemiBold" />
-          <TextBlock Grid.Column="2" Text="Samples" FontWeight="SemiBold" HorizontalAlignment="Center" />
-          <TextBlock Grid.Column="3" Text="Status" FontWeight="SemiBold" />
+      <!-- File list card -->
+      <Border
+        x:Name="FileListCard"
+        Grid.Column="0"
+        VerticalAlignment="Stretch"
+        Style="{StaticResource CardBorderStyle}"
+        Visibility="Collapsed">
+        <Grid VerticalAlignment="Stretch">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+          </Grid.RowDefinitions>
+
+          <!-- Column headers -->
+          <Grid Grid.Row="0"
+                Style="{StaticResource ColumnHeaderGridStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="28" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="80" />
+              <ColumnDefinition Width="100" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="1" Text="File Name" FontWeight="SemiBold" />
+            <TextBlock Grid.Column="2" Text="Format" FontWeight="SemiBold" />
+            <TextBlock Grid.Column="3" Text="Samples" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            <TextBlock Grid.Column="4" Text="Status" FontWeight="SemiBold" />
+          </Grid>
+
+          <!-- Files ListView -->
+          <ListView
+            x:Name="FilesListView"
+            Grid.Row="1"
+            SelectionMode="Single"
+            Style="{StaticResource FileListViewStyle}"
+            SelectionChanged="FilesListView_SelectionChanged"
+            ItemTemplateSelector="{StaticResource ListTemplateSelector}" />
         </Grid>
+      </Border>
 
-        <!-- Files ListView -->
-        <ListView
-          x:Name="FilesListView"
-          Grid.Row="1"
-          Style="{StaticResource FileListViewStyle}">
-          <ListView.ItemTemplate>
-            <DataTemplate x:DataType="local:AudioFileEntry">
-              <Grid Style="{StaticResource ListItemRowGridStyle}">
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="70" />
-                  <ColumnDefinition Width="80" />
-                  <ColumnDefinition Width="100" />
-                </Grid.ColumnDefinitions>
-                <TextBlock
-                  Grid.Column="0"
-                  VerticalAlignment="Center"
-                  Text="{x:Bind FileName}"
-                  TextTrimming="CharacterEllipsis"
-                  ToolTipService.ToolTip="{x:Bind FileName}" />
-                <TextBlock
-                  Grid.Column="1"
-                  VerticalAlignment="Center"
-                  Text="{x:Bind AudioFormat}" />
-                <TextBlock
-                  Grid.Column="2"
-                  VerticalAlignment="Center"
-                  HorizontalAlignment="Center"
-                  Text="{x:Bind SampleCountDisplay, Mode=OneWay}" />
-                <TextBlock
-                  Grid.Column="3"
-                  VerticalAlignment="Center"
-                  Foreground="{x:Bind StatusColor, Mode=OneWay}"
-                  Text="{x:Bind StatusDisplay, Mode=OneWay}" />
-              </Grid>
-            </DataTemplate>
-          </ListView.ItemTemplate>
-        </ListView>
-      </Grid>
-    </Border>
+      <!-- Empty state -->
+      <Border
+        x:Name="EmptyStatePanel"
+        Grid.Column="0"
+        VerticalAlignment="Stretch"
+        Style="{StaticResource CardBorderStyle}">
+        <StackPanel HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="16">
+          <FontIcon FontSize="64"
+                    Glyph="&#xE8D6;"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+          <TextBlock
+            Text="No directory selected"
+            FontSize="18"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            TextAlignment="Center" />
+          <TextBlock
+            Text="Select a directory containing .adx, .xa, .vab, or .kat audio files"
+            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+            TextAlignment="Center" />
+          <Button
+            Content="Browse..."
+            HorizontalAlignment="Center"
+            Click="InputBrowse_Click"
+            Style="{StaticResource AccentButtonStyle}" />
+        </StackPanel>
+      </Border>
 
-    <!-- Empty state -->
-    <Border
-      x:Name="EmptyStatePanel"
-      Grid.Row="1"
-      VerticalAlignment="Stretch"
-      Style="{StaticResource CardBorderStyle}">
-      <StackPanel HorizontalAlignment="Center"
-                  VerticalAlignment="Center"
-                  Spacing="16">
-        <FontIcon FontSize="64"
-                  Glyph="&#xE8D6;"
-                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        <TextBlock
-          Text="No directory selected"
-          FontSize="18"
-          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-          TextAlignment="Center" />
-        <TextBlock
-          Text="Select a directory containing .adx, .xa, .vab, or .kat audio files"
-          Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-          TextAlignment="Center" />
-        <Button
-          Content="Browse..."
-          HorizontalAlignment="Center"
-          Click="InputBrowse_Click"
-          Style="{StaticResource AccentButtonStyle}" />
-      </StackPanel>
-    </Border>
+      <!-- Audio preview panel -->
+      <Border
+        x:Name="PreviewPanel"
+        Grid.Column="1"
+        VerticalAlignment="Top"
+        Style="{StaticResource CardBorderStyle}"
+        Visibility="Collapsed">
+        <StackPanel Spacing="12" Margin="4">
+
+          <!-- Audio icon / loading indicator -->
+          <Border Background="#FF1E1E1E"
+                  CornerRadius="4"
+                  MinHeight="80"
+                  Padding="8"
+                  HorizontalAlignment="Stretch">
+            <Grid>
+              <FontIcon x:Name="AudioIcon"
+                        FontSize="36"
+                        Glyph="&#xE8D6;"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center" />
+              <ProgressRing x:Name="PreviewLoading"
+                            IsActive="False"
+                            Width="32" Height="32"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+
+          <!-- File/sample name -->
+          <TextBlock x:Name="PreviewFileNameText"
+                     HorizontalAlignment="Center"
+                     FontSize="12"
+                     FontWeight="SemiBold"
+                     TextTrimming="CharacterEllipsis"
+                     MaxWidth="264" />
+
+          <!-- Format info -->
+          <TextBlock x:Name="PreviewInfoText"
+                     HorizontalAlignment="Center"
+                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                     FontSize="11"
+                     TextWrapping="Wrap"
+                     TextAlignment="Center"
+                     MaxWidth="264" />
+
+          <!-- Playback position slider -->
+          <Slider x:Name="PlaybackSlider"
+                  Minimum="0"
+                  Maximum="100"
+                  Value="0"
+                  HorizontalAlignment="Stretch"
+                  Margin="0,4,0,0"
+                  ValueChanged="PlaybackSlider_ValueChanged" />
+
+          <!-- Time display -->
+          <Grid Margin="0,-8,0,0">
+            <TextBlock x:Name="CurrentTimeText"
+                       Text="0:00"
+                       FontSize="11"
+                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                       HorizontalAlignment="Left" />
+            <TextBlock x:Name="TotalTimeText"
+                       Text="0:00"
+                       FontSize="11"
+                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                       HorizontalAlignment="Right" />
+          </Grid>
+
+          <!-- Transport controls -->
+          <StackPanel Orientation="Horizontal"
+                      HorizontalAlignment="Center"
+                      Spacing="8">
+            <Button x:Name="StopButton"
+                    Click="StopButton_Click"
+                    Padding="8"
+                    MinWidth="0"
+                    IsEnabled="False"
+                    ToolTipService.ToolTip="Stop">
+              <FontIcon FontSize="14" Glyph="&#xE71A;" />
+            </Button>
+            <Button x:Name="PlayPauseButton"
+                    Click="PlayPauseButton_Click"
+                    Padding="8"
+                    MinWidth="0"
+                    IsEnabled="False"
+                    Style="{StaticResource AccentButtonStyle}"
+                    ToolTipService.ToolTip="Play">
+              <FontIcon x:Name="PlayPauseIcon" FontSize="16" Glyph="&#xE768;" />
+            </Button>
+          </StackPanel>
+
+          <!-- Error display -->
+          <TextBlock x:Name="PreviewErrorText"
+                     HorizontalAlignment="Center"
+                     Foreground="Red"
+                     FontSize="11"
+                     TextWrapping="Wrap"
+                     TextAlignment="Center"
+                     MaxWidth="264"
+                     Visibility="Collapsed" />
+        </StackPanel>
+      </Border>
+    </Grid>
 
     <!-- I/O Section -->
-    <Grid Grid.Row="2"
+    <Grid Grid.Row="3"
           Style="{StaticResource IoSectionGridStyle}">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
@@ -198,7 +370,7 @@
     <!-- Progress Bar -->
     <ProgressBar
       x:Name="ConversionProgress"
-      Grid.Row="3"
+      Grid.Row="2"
       Maximum="100"
       Style="{StaticResource TabProgressBarStyle}" />
   </Grid>

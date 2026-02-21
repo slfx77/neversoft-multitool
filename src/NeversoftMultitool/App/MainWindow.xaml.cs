@@ -119,7 +119,10 @@ public sealed partial class MainWindow : Window
             RleBitmapTabContent.Visibility = Visibility.Collapsed;
             ArchiveExtractorTabContent.Visibility = Visibility.Collapsed;
             AudioConverterTabContent.Visibility = Visibility.Collapsed;
+            SfdConverterTabContent.Visibility = Visibility.Collapsed;
             HashReviewerTabContent.Visibility = Visibility.Collapsed;
+            TrgViewerTabContent.Visibility = Visibility.Collapsed;
+            MeshConverterTabContent.Visibility = Visibility.Collapsed;
 
             // Clear status bar when switching tabs
             SetStatus("");
@@ -139,8 +142,17 @@ public sealed partial class MainWindow : Window
                 case "AudioConverter":
                     AudioConverterTabContent.Visibility = Visibility.Visible;
                     break;
+                case "VideoConverter":
+                    SfdConverterTabContent.Visibility = Visibility.Visible;
+                    break;
                 case "HashReviewer":
                     HashReviewerTabContent.Visibility = Visibility.Visible;
+                    break;
+                case "TrgViewer":
+                    TrgViewerTabContent.Visibility = Visibility.Visible;
+                    break;
+                case "MeshConverter":
+                    MeshConverterTabContent.Visibility = Visibility.Visible;
                     break;
             }
 

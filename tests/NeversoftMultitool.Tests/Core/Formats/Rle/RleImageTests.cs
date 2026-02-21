@@ -97,4 +97,15 @@ public class RleImageTests(TestPaths paths)
                 File.Delete(tempFile);
         }
     }
+
+    [Theory]
+    [InlineData(122_880, 512)]  // 512x240 — standard PS1 half-height
+    [InlineData(131_072, 512)]  // 512x256
+    [InlineData(307_200, 640)]  // 640x480 — standard PS1 fullscreen (not 512x600)
+    [InlineData(0, 512)]        // fallback
+    [InlineData(-1, 512)]       // negative fallback
+    public void GuessWidth_ReturnsExpectedWidth(long totalPixels, int expectedWidth)
+    {
+        Assert.Equal(expectedWidth, RleImage.GuessWidth(totalPixels));
+    }
 }

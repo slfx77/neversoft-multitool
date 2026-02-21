@@ -16,6 +16,107 @@ public static class KatExtractor
     private static readonly int[] IndexScale =
         [0x0E6, 0x0E6, 0x0E6, 0x0E6, 0x133, 0x199, 0x200, 0x266];
 
+    /// <summary>
+    /// Enumerates samples in a KAT file without decoding audio data.
+    /// Returns the index, data size, sample rate, channels, and encoding of each valid entry.
+    /// </summary>
+    public static List<KatSampleInfo> EnumerateSamples(string inputPath)
+    {
+        using var stream = File.OpenRead(inputPath);
+        using var reader = new BinaryReader(stream);
+
+        if (stream.Length < 4) return [];
+
+        var entryCount = reader.ReadUInt32();
+        if (stream.Length < 4 + entryCount * EntrySize) return [];
+
+        var results = new List<KatSampleInfo>();
+        for (var i = 0; i < entryCount; i++)
+        {
+            reader.ReadUInt32(); // channels (AICA voices are always mono)
+            reader.ReadUInt32(); // offset
+            var size = reader.ReadUInt32();
+            var sampleRate = reader.ReadUInt32();
+            reader.ReadUInt32(); // loop
+            var bits = reader.ReadUInt32();
+            reader.ReadUInt32(); // unknown
+            reader.ReadBytes(16); // name
+
+            if (size == 0 || sampleRate == 0) continue;
+
+            var encoding = bits switch
+            {
+                4 => "AICA ADPCM",
+                8 => "PCM 8-bit",
+                0 or 16 => "PCM 16-bit",
+                _ => $"{bits}-bit"
+            };
+
+            results.Add(new KatSampleInfo(i, (int)size, (int)sampleRate, 1, encoding));
+        }
+
+        return results;
+    }
+
+    public sealed record KatSampleInfo(int Index, int DataSize, int SampleRate, int Channels, string Encoding);
+
+    /// <summary>
+    /// Extracts a single KAT sample by index to a WAV file.
+    /// Returns the output path on success, or null on failure.
+    /// </summary>
+    public static string? ExtractSingleToWav(string inputPath, int sampleIndex, string outputDir)
+    {
+        try
+        {
+            using var stream = File.OpenRead(inputPath);
+            using var reader = new BinaryReader(stream);
+
+            if (stream.Length < 4) return null;
+            var entryCount = reader.ReadUInt32();
+            if (sampleIndex < 0 || sampleIndex >= (int)entryCount) return null;
+            if (stream.Length < 4 + entryCount * EntrySize) return null;
+
+            // Seek to the target entry
+            stream.Position = 4 + (long)sampleIndex * EntrySize;
+            var entry = new KatEntry
+            {
+                Channels = reader.ReadUInt32(),
+                Offset = reader.ReadUInt32(),
+                Size = reader.ReadUInt32(),
+                SampleRate = reader.ReadUInt32(),
+                Loop = reader.ReadUInt32(),
+                Bits = reader.ReadUInt32(),
+                Unknown = reader.ReadUInt32(),
+                Name = reader.ReadBytes(16)
+            };
+
+            if (entry.Size == 0 || entry.SampleRate == 0) return null;
+
+            stream.Position = entry.Offset;
+            var rawData = reader.ReadBytes((int)entry.Size);
+            if (IsAllZeros(rawData)) return null;
+
+            short[] pcm = entry.Bits switch
+            {
+                4 => DecodeAicaAdpcm(rawData),
+                8 => DecodePcm8(rawData),
+                0 or 16 => DecodePcm16(rawData),
+                _ => []
+            };
+
+            if (pcm.Length == 0) return null;
+
+            var stem = Path.GetFileNameWithoutExtension(inputPath);
+            var wavPath = Path.Combine(outputDir, $"{stem}_{sampleIndex:D3}.wav");
+            WavWriter.WritePcm16(wavPath, (int)entry.SampleRate, 1, pcm);
+            return wavPath;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public static AudioConvertResult ExtractToWav(string inputPath, string outputDir)
     {
         try
@@ -75,6 +176,7 @@ public static class KatExtractor
                     case 8:
                         pcm = DecodePcm8(rawData);
                         break;
+                    case 0:
                     case 16:
                         pcm = DecodePcm16(rawData);
                         break;
@@ -84,9 +186,8 @@ public static class KatExtractor
 
                 if (pcm.Length > 0)
                 {
-                    var channels = (int)Math.Max(entry.Channels, 1);
                     var wavPath = Path.Combine(outDir, $"{i:D3}.wav");
-                    WavWriter.WritePcm16(wavPath, (int)entry.SampleRate, channels, pcm);
+                    WavWriter.WritePcm16(wavPath, (int)entry.SampleRate, 1, pcm);
                     filesWritten++;
                 }
             }
@@ -126,18 +227,14 @@ public static class KatExtractor
 
     private static void DecodeAdpcmNibble(int nibble, ref int stepSize, ref int history)
     {
-        var diff = stepSize * DiffLookup[nibble & 0x0F];
-        // Add rounding: (x + (x >>> 29)) >> 3 is equivalent to (x + 4) >> 3 for positive,
-        // but handles sign correctly via unsigned right shift
-        var x = history + ((diff + ((diff >> 29) & 0x07)) >> 3);
-        history = Math.Clamp(x, short.MinValue, short.MaxValue);
+        // MAME-accurate AICA ADPCM: magnitude from lower 3 bits, sign from bit 3
+        var diff = (stepSize * DiffLookup[nibble & 0x07]) / 8;
+        if (diff > 0x7FFF) diff = 0x7FFF;
+        if ((nibble & 8) != 0) diff = -diff;
+        history = Math.Clamp(history + diff, short.MinValue, short.MaxValue);
 
-        // Update step size using magnitude (lower 3 bits)
         stepSize = (stepSize * IndexScale[nibble & 0x07]) >> 8;
         stepSize = Math.Clamp(stepSize, 0x7F, 0x6000);
-
-        // High-pass filter to remove DC offset
-        history = history * 254 / 256;
     }
 
     /// <summary>

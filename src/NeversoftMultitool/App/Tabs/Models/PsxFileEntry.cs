@@ -4,11 +4,15 @@ using Microsoft.UI.Xaml.Media;
 
 namespace NeversoftMultitool;
 
-public sealed class PsxFileEntry : INotifyPropertyChanged
+public sealed class PsxFileEntry : IListEntry, INotifyPropertyChanged
 {
     private int _textureCount;
     private int _extractedCount;
     private ExtractionStatus _status = ExtractionStatus.Pending;
+    private bool _isExpanded;
+    private bool _hasTextures = true;
+
+    public bool IsChildEntry => false;
 
     public required string FileName { get; init; }
 
@@ -35,6 +39,35 @@ public sealed class PsxFileEntry : INotifyPropertyChanged
             OnPropertyChanged(nameof(StatusColor));
         }
     }
+
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set
+        {
+            _isExpanded = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ChevronGlyph));
+        }
+    }
+
+    public bool HasTextures
+    {
+        get => _hasTextures;
+        set
+        {
+            _hasTextures = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ChevronGlyph));
+        }
+    }
+
+    public string ChevronGlyph => !_hasTextures ? "" : _isExpanded ? "\uE70D" : "\uE76C";
+
+    /// <summary>
+    /// Cached child texture entries, populated on first expand.
+    /// </summary>
+    internal List<PsxTextureEntry>? CachedChildren { get; set; }
 
     public string TextureCountDisplay => _textureCount > 0 ? _textureCount.ToString() : "";
     public string ExtractedCountDisplay => _extractedCount > 0 ? _extractedCount.ToString() : "";

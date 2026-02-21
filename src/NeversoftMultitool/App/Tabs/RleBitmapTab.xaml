@@ -28,91 +28,156 @@
       </StackPanel>
     </Grid>
 
-    <!-- File list card -->
-    <Border
-      x:Name="FileListCard"
-      Grid.Row="1"
-      VerticalAlignment="Stretch"
-      Style="{StaticResource CardBorderStyle}"
-      Visibility="Collapsed">
-      <Grid VerticalAlignment="Stretch">
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto" />
-          <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+    <!-- Main content: file list + preview -->
+    <Grid Grid.Row="1" ColumnSpacing="8">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition x:Name="PreviewColumn" Width="0" />
+      </Grid.ColumnDefinitions>
 
-        <!-- Column headers -->
-        <Grid Grid.Row="0"
-              Style="{StaticResource ColumnHeaderGridStyle}">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="100" />
-          </Grid.ColumnDefinitions>
-          <TextBlock Grid.Column="0" Text="File Name" FontWeight="SemiBold" />
-          <TextBlock Grid.Column="1" Text="Status" FontWeight="SemiBold" />
+      <!-- File list card -->
+      <Border
+        x:Name="FileListCard"
+        Grid.Column="0"
+        VerticalAlignment="Stretch"
+        Style="{StaticResource CardBorderStyle}"
+        Visibility="Collapsed">
+        <Grid VerticalAlignment="Stretch">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+          </Grid.RowDefinitions>
+
+          <!-- Column headers -->
+          <Grid Grid.Row="0"
+                Style="{StaticResource ColumnHeaderGridStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="100" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="File Name" FontWeight="SemiBold" />
+            <TextBlock Grid.Column="1" Text="Width" FontWeight="SemiBold" />
+            <TextBlock Grid.Column="2" Text="Status" FontWeight="SemiBold" />
+          </Grid>
+
+          <!-- Files ListView -->
+          <ListView
+            x:Name="FilesListView"
+            Grid.Row="1"
+            SelectionMode="Single"
+            Style="{StaticResource FileListViewStyle}"
+            SelectionChanged="FilesListView_SelectionChanged">
+            <ListView.ItemTemplate>
+              <DataTemplate x:DataType="local:RleFileEntry">
+                <Grid Style="{StaticResource ListItemRowGridStyle}">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="70" />
+                    <ColumnDefinition Width="100" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="{x:Bind FileName}"
+                    TextTrimming="CharacterEllipsis"
+                    ToolTipService.ToolTip="{x:Bind FileName}" />
+                  <TextBlock
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Text="{x:Bind WidthDisplay, Mode=OneWay}" />
+                  <TextBlock
+                    Grid.Column="2"
+                    VerticalAlignment="Center"
+                    Foreground="{x:Bind StatusColor, Mode=OneWay}"
+                    Text="{x:Bind StatusDisplay, Mode=OneWay}" />
+                </Grid>
+              </DataTemplate>
+            </ListView.ItemTemplate>
+          </ListView>
         </Grid>
+      </Border>
 
-        <!-- Files ListView -->
-        <ListView
-          x:Name="FilesListView"
-          Grid.Row="1"
-          Style="{StaticResource FileListViewStyle}">
-          <ListView.ItemTemplate>
-            <DataTemplate x:DataType="local:RleFileEntry">
-              <Grid Style="{StaticResource ListItemRowGridStyle}">
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="100" />
-                </Grid.ColumnDefinitions>
-                <TextBlock
-                  Grid.Column="0"
-                  VerticalAlignment="Center"
-                  Text="{x:Bind FileName}"
-                  TextTrimming="CharacterEllipsis"
-                  ToolTipService.ToolTip="{x:Bind FileName}" />
-                <TextBlock
-                  Grid.Column="1"
-                  VerticalAlignment="Center"
-                  Foreground="{x:Bind StatusColor, Mode=OneWay}"
-                  Text="{x:Bind StatusDisplay, Mode=OneWay}" />
-              </Grid>
-            </DataTemplate>
-          </ListView.ItemTemplate>
-        </ListView>
-      </Grid>
-    </Border>
+      <!-- Empty state -->
+      <Border
+        x:Name="EmptyStatePanel"
+        Grid.Column="0"
+        VerticalAlignment="Stretch"
+        Style="{StaticResource CardBorderStyle}">
+        <StackPanel HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="16">
+          <FontIcon FontSize="64"
+                    Glyph="&#xE8B9;"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+          <TextBlock
+            Text="No directory selected"
+            FontSize="18"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            TextAlignment="Center" />
+          <TextBlock
+            Text="Select an input directory containing .rle or .bmr files"
+            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+            TextAlignment="Center" />
+          <Button
+            Content="Browse..."
+            HorizontalAlignment="Center"
+            Click="InputBrowse_Click"
+            Style="{StaticResource AccentButtonStyle}" />
+        </StackPanel>
+      </Border>
 
-    <!-- Empty state -->
-    <Border
-      x:Name="EmptyStatePanel"
-      Grid.Row="1"
-      VerticalAlignment="Stretch"
-      Style="{StaticResource CardBorderStyle}">
-      <StackPanel HorizontalAlignment="Center"
-                  VerticalAlignment="Center"
-                  Spacing="16">
-        <FontIcon FontSize="64"
-                  Glyph="&#xE8B9;"
-                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        <TextBlock
-          Text="No directory selected"
-          FontSize="18"
-          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-          TextAlignment="Center" />
-        <TextBlock
-          Text="Select an input directory containing .rle or .bmr files"
-          Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-          TextAlignment="Center" />
-        <Button
-          Content="Browse..."
-          HorizontalAlignment="Center"
-          Click="InputBrowse_Click"
-          Style="{StaticResource AccentButtonStyle}" />
-      </StackPanel>
-    </Border>
+      <!-- Preview panel -->
+      <Border
+        x:Name="PreviewPanel"
+        Grid.Column="1"
+        VerticalAlignment="Top"
+        Style="{StaticResource CardBorderStyle}"
+        Visibility="Collapsed">
+        <StackPanel Spacing="8" Margin="4">
+          <Border Background="#FF1E1E1E"
+                  CornerRadius="4"
+                  MinHeight="200"
+                  Padding="4"
+                  HorizontalAlignment="Stretch">
+            <Grid>
+              <Image x:Name="BitmapPreview"
+                     MaxWidth="264"
+                     MaxHeight="264"
+                     Stretch="Uniform"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center" />
+              <FontIcon x:Name="NoPreviewIcon"
+                        FontSize="48"
+                        Glyph="&#xE8B9;"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Visibility="Collapsed" />
+              <ProgressRing x:Name="PreviewLoading"
+                            IsActive="False"
+                            Width="32" Height="32"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <TextBlock x:Name="PreviewDimensionsText"
+                     HorizontalAlignment="Center"
+                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                     FontSize="11" />
+          <TextBlock x:Name="PreviewInfoText"
+                     HorizontalAlignment="Center"
+                     Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                     FontSize="11"
+                     TextWrapping="Wrap"
+                     TextAlignment="Center"
+                     MaxWidth="264" />
+        </StackPanel>
+      </Border>
+    </Grid>
 
     <!-- I/O Section -->
-    <Grid Grid.Row="2"
+    <Grid Grid.Row="3"
           Style="{StaticResource IoSectionGridStyle}">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
@@ -162,7 +227,8 @@
                    SpinButtonPlacementMode="Compact"
                    SmallChange="1"
                    LargeChange="128"
-                   IsEnabled="False" />
+                   IsEnabled="False"
+                   ValueChanged="WidthNumberBox_ValueChanged" />
         <CheckBox x:Name="AutoWidthCheckbox"
                   Content="Auto"
                   IsChecked="True"
@@ -182,7 +248,7 @@
     <!-- Progress Bar -->
     <ProgressBar
       x:Name="ConversionProgress"
-      Grid.Row="3"
+      Grid.Row="2"
       Maximum="100"
       Style="{StaticResource TabProgressBarStyle}" />
   </Grid>

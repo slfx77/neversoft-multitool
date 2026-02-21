@@ -157,7 +157,7 @@
     </Border>
 
     <!-- I/O Section -->
-    <Grid Grid.Row="3"
+    <Grid Grid.Row="4"
           Style="{StaticResource IoSectionGridStyle}">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
@@ -197,7 +197,7 @@
     <!-- Progress Bar -->
     <ProgressBar
       x:Name="ExtractionProgress"
-      Grid.Row="4"
+      Grid.Row="3"
       Maximum="100"
       Style="{StaticResource TabProgressBarStyle}" />
 

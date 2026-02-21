@@ -14,6 +14,9 @@ public sealed partial class RleBitmapTab : UserControl
     private readonly ObservableCollection<RleFileEntry> _files = [];
     private string _inputDir = "";
     private string _outputDir = "";
+    private CancellationTokenSource? _previewCts;
+    private CancellationTokenSource? _debounceCts;
+    private bool _suppressWidthEvents;
 
     public RleBitmapTab()
     {
@@ -44,7 +47,9 @@ public sealed partial class RleBitmapTab : UserControl
 
         foreach (var file in rleFiles)
         {
-            _files.Add(new RleFileEntry { FileName = file! });
+            var filePath = Path.Combine(_inputDir, file!);
+            var detectedWidth = RleImage.DetectWidth(filePath);
+            _files.Add(new RleFileEntry { FileName = file!, DetectedWidth = detectedWidth });
         }
 
         UpdateUiState();
@@ -75,17 +80,32 @@ public sealed partial class RleBitmapTab : UserControl
         ConvertButton.IsEnabled = hasFiles && hasOutput;
     }
 
-    private void AutoWidthCheckbox_Changed(object sender, RoutedEventArgs e)
+    private async void AutoWidthCheckbox_Changed(object sender, RoutedEventArgs e)
     {
-        WidthNumberBox.IsEnabled = AutoWidthCheckbox.IsChecked != true;
+        var isAuto = AutoWidthCheckbox.IsChecked == true;
+        WidthNumberBox.IsEnabled = !isAuto;
+
+        if (_suppressWidthEvents) return;
+        if (FilesListView.SelectedItem is not RleFileEntry entry) return;
+
+        _suppressWidthEvents = true;
+        if (isAuto)
+        {
+            entry.WidthOverride = null;
+            WidthNumberBox.Value = entry.DetectedWidth;
+        }
+        else
+        {
+            entry.WidthOverride = (int)WidthNumberBox.Value;
+        }
+        _suppressWidthEvents = false;
+
+        await LoadBitmapPreview(entry);
     }
 
     private async void ConvertButton_Click(object sender, RoutedEventArgs e)
     {
         if (_files.Count == 0 || string.IsNullOrEmpty(_outputDir)) return;
-
-        var autoDetect = AutoWidthCheckbox.IsChecked == true;
-        var width = (int)WidthNumberBox.Value;
 
         // Reset state
         foreach (var file in _files)
@@ -111,9 +131,7 @@ public sealed partial class RleBitmapTab : UserControl
                 dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
 
                 var inputFile = Path.Combine(inputDir, entry.FileName);
-                var result = autoDetect
-                    ? RleImage.Convert(inputFile)
-                    : RleImage.Convert(inputFile, width);
+                var result = RleImage.Convert(inputFile, entry.EffectiveWidth);
 
                 if (result.Success)
                 {
@@ -137,5 +155,110 @@ public sealed partial class RleBitmapTab : UserControl
         ConversionProgress.Value = 100;
         ConvertButton.IsEnabled = true;
         MainWindow.Instance?.SetStatus($"Completed in {stopwatch.Elapsed.TotalSeconds:F2}s");
+    }
+
+    private async void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        _debounceCts?.Cancel();
+
+        if (FilesListView.SelectedItem is RleFileEntry entry)
+        {
+            // Sync width controls to the selected file's state
+            _suppressWidthEvents = true;
+            if (entry.WidthOverride.HasValue)
+            {
+                AutoWidthCheckbox.IsChecked = false;
+                WidthNumberBox.IsEnabled = true;
+                WidthNumberBox.Value = entry.WidthOverride.Value;
+            }
+            else
+            {
+                AutoWidthCheckbox.IsChecked = true;
+                WidthNumberBox.IsEnabled = false;
+                WidthNumberBox.Value = entry.DetectedWidth;
+            }
+            _suppressWidthEvents = false;
+
+            await LoadBitmapPreview(entry);
+        }
+        else
+        {
+            ClearPreview();
+        }
+    }
+
+    private async Task LoadBitmapPreview(RleFileEntry entry)
+    {
+        _previewCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _previewCts = cts;
+
+        // Show the preview panel and loading state
+        PreviewPanel.Visibility = Visibility.Visible;
+        PreviewColumn.Width = new GridLength(280);
+        BitmapPreview.Source = null;
+        NoPreviewIcon.Visibility = Visibility.Collapsed;
+        PreviewLoading.IsActive = true;
+        PreviewDimensionsText.Text = "";
+        PreviewInfoText.Text = "";
+
+        var inputFile = Path.Combine(_inputDir, entry.FileName);
+        var width = entry.EffectiveWidth;
+
+        var result = await Task.Run(() => RleImage.Convert(inputFile, width), cts.Token);
+
+        if (cts.Token.IsCancellationRequested) return;
+
+        PreviewLoading.IsActive = false;
+
+        if (result.Success)
+        {
+            BitmapPreview.Source = BitmapHelper.CreateFromRgb(result.Width, result.Height, result.RgbPixels);
+            PreviewDimensionsText.Text = $"{result.Width} x {result.Height}";
+            PreviewInfoText.Text = entry.WidthOverride.HasValue ? "Manual width override" : "Width auto-detected";
+        }
+        else
+        {
+            NoPreviewIcon.Visibility = Visibility.Visible;
+            PreviewDimensionsText.Text = result.ErrorMessage ?? "Failed to decode";
+        }
+    }
+
+    private async void WidthNumberBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_suppressWidthEvents) return;
+        if (double.IsNaN(args.NewValue)) return;
+        if (FilesListView.SelectedItem is not RleFileEntry entry) return;
+        if (AutoWidthCheckbox.IsChecked == true) return;
+
+        entry.WidthOverride = (int)args.NewValue;
+
+        // Debounce preview re-rendering
+        _debounceCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _debounceCts = cts;
+
+        try
+        {
+            await Task.Delay(300, cts.Token);
+            if (!cts.Token.IsCancellationRequested)
+                await LoadBitmapPreview(entry);
+        }
+        catch (TaskCanceledException)
+        {
+            // Debounce cancelled — newer value incoming
+        }
+    }
+
+    private void ClearPreview()
+    {
+        _previewCts?.Cancel();
+        PreviewPanel.Visibility = Visibility.Collapsed;
+        PreviewColumn.Width = new GridLength(0);
+        BitmapPreview.Source = null;
+        PreviewLoading.IsActive = false;
+        NoPreviewIcon.Visibility = Visibility.Collapsed;
+        PreviewDimensionsText.Text = "";
+        PreviewInfoText.Text = "";
     }
 }
