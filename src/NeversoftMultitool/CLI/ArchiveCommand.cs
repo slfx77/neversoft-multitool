@@ -11,7 +11,7 @@ public static class ArchiveCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to archive file (WAD, PKR, PRE, DDX, or BON)"
+            Description = "Path to archive file (WAD, PKR, PRE, PRX, DDX, or BON)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -23,7 +23,7 @@ public static class ArchiveCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("archive", "Extract files from WAD/PKR/PRE/DDX/BON archives");
+        var command = new Command("archive", "Extract files from WAD/PKR/PRE/PRX/DDX/BON archives");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -102,6 +102,21 @@ public static class ArchiveCommand
                             if (verbose)
                             {
                                 AnsiConsole.MarkupLine($"  [[{current}/{total}]] {bonEntries[current - 1].Name}");
+                            }
+                        }, cancellationToken);
+                        break;
+
+                    case ".pre" when CompressedPreArchive.IsCompressedPre(input):
+                    case ".prx":
+                        AnsiConsole.MarkupLine("[blue]PRE v3[/] archive detected (LZSS compressed)");
+                        var compressedPreEntries = CompressedPreArchive.GetFileList(input);
+                        AnsiConsole.MarkupLine($"Found [green]{compressedPreEntries.Count}[/] files");
+                        CompressedPreArchive.ExtractFiles(input, output, (current, total) =>
+                        {
+                            filesExtracted = current;
+                            if (verbose)
+                            {
+                                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {compressedPreEntries[current - 1].FullName}");
                             }
                         }, cancellationToken);
                         break;

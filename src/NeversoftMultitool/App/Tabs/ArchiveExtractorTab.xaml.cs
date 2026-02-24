@@ -28,6 +28,7 @@ public sealed partial class ArchiveExtractorTab : UserControl
         picker.FileTypeFilter.Add(".wad");
         picker.FileTypeFilter.Add(".pkr");
         picker.FileTypeFilter.Add(".pre");
+        picker.FileTypeFilter.Add(".prx");
         picker.FileTypeFilter.Add(".ddx");
         picker.FileTypeFilter.Add(".bon");
         var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
@@ -55,6 +56,11 @@ public sealed partial class ArchiveExtractorTab : UserControl
                 case ".pkr":
                     _archiveType = "PKR3";
                     entries = PkrArchive.GetFileList(_archivePath);
+                    break;
+                case ".pre" when CompressedPreArchive.IsCompressedPre(_archivePath):
+                case ".prx":
+                    _archiveType = "PRE3";
+                    entries = CompressedPreArchive.GetFileList(_archivePath);
                     break;
                 case ".pre":
                     _archiveType = "PRE";
@@ -188,6 +194,9 @@ public sealed partial class ArchiveExtractorTab : UserControl
                         break;
                     case "BON":
                         BonArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
+                        break;
+                    case "PRE3":
+                        CompressedPreArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
                         break;
                     case "PRE":
                         PreArchive.ExtractFiles(archivePath, outputDir, onProgress, token);

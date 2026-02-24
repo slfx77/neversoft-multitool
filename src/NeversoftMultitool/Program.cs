@@ -45,6 +45,7 @@ public static class Program
         rootCommand.Subcommands.Add(SfdCommand.Create());
         rootCommand.Subcommands.Add(StrCommand.Create());
         rootCommand.Subcommands.Add(PsxMeshCommand.Create());
+        rootCommand.Subcommands.Add(Ps2TexCommand.Create());
 
         return rootCommand.Parse(args).Invoke();
     }
@@ -92,6 +93,7 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]sfd[/]       Convert SFD (Sofdec) video files to MP4");
         AnsiConsole.MarkupLine("  [green]str[/]       Convert PS1 STR (MDEC) video files to MP4");
         AnsiConsole.MarkupLine("  [green]psx-mesh[/]  Convert PSX model files to glTF (.glb)");
+        AnsiConsole.MarkupLine("  [green]ps2tex[/]    Extract textures from PS2 TEX/IMG files to PNG");
 #if WINDOWS_GUI
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]For GUI mode:[/]");
@@ -115,7 +117,8 @@ public static class Program
             args.Any(a => a.Equals("trg", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("sfd", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("str", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("psx-mesh", StringComparison.OrdinalIgnoreCase)));
+            args.Any(a => a.Equals("psx-mesh", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("ps2tex", StringComparison.OrdinalIgnoreCase)));
     }
 #endif
 }

@@ -287,9 +287,12 @@ public sealed partial class MeshConverterTab : UserControl
             };
         }
 
+        // Auto-detect companion PSH for bone names in character models
+        var pshFile = psxFile.HasHierarchy ? PshFile.FindCompanion(entry.FilePath) : null;
+
         var stem = Path.GetFileNameWithoutExtension(entry.FileName);
         var outputFile = Path.Combine(outputDir, stem + ".glb");
-        return PsxGltfWriter.Write(psxFile, outputFile, textureProvider);
+        return PsxGltfWriter.Write(psxFile, outputFile, textureProvider, pshFile);
     }
 
     private static int ConvertDdmFile(MeshFileEntry entry, string outputDir, bool embedTextures)

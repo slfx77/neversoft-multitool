@@ -311,6 +311,8 @@ public class PsxMeshFileTests(TestPaths paths, ITestOutputHelper output)
         // hawk2 should be a hierarchical model (character skeleton)
         Assert.True(psxFile.HasHierarchy, "hawk2.PSX should have hierarchy data");
         Assert.Equal(2.25f * 16f, psxFile.ScaleDivisor);
+        // Positions use base scale (2.25), vertices use 2.25×16 for characters
+        Assert.Equal(2.25f, psxFile.TranslationDivisor);
 
         // Verify parent indices are set
         var hasChildren = psxFile.Objects.Any(o => o.ParentIndex >= 0);
@@ -327,16 +329,121 @@ public class PsxMeshFileTests(TestPaths paths, ITestOutputHelper output)
             Assert.True(File.Exists(outputFile), "GLB file was not created");
             Assert.True(triangles > 0, "No triangles written");
 
-            // Read back the glTF and verify valid model produced.
-            // Flat placement is always used (PSX coordinates are absolute),
-            // so nodes are independent — no parent-child hierarchy in glTF output.
+            // Character models use hierarchical node tree with parent-child relationships
             var model = SharpGLTF.Schema2.ModelRoot.Load(outputFile);
             Assert.True(model.LogicalNodes.Count > 0, "GLB should have nodes");
+
+            // Verify hierarchy: at least some nodes should have children
+            var nodesWithChildren = model.LogicalNodes.Count(n => n.VisualChildren.Any());
+            Assert.True(nodesWithChildren > 0,
+                "Hierarchical model should have parent-child node relationships");
         }
         finally
         {
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void Diagnostic_Hawk2_PositionAndVertexDump()
+    {
+        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
+
+        var inputFile = Path.Combine(paths.PsxXboxDir!, "hawk2.PSX");
+        Assert.SkipWhen(!File.Exists(inputFile), "hawk2.PSX not found");
+
+        var psxFile = PsxMeshFile.Parse(inputFile);
+        Assert.SkipWhen(psxFile == null, "hawk2.PSX has no mesh data");
+
+        var pshFile = PshFile.FindCompanion(inputFile);
+
+        output.WriteLine($"hawk2.PSX: {psxFile.Objects.Count} objects, {psxFile.Meshes.Count} meshes");
+        output.WriteLine($"  ScaleDivisor={psxFile.ScaleDivisor} TranslationDivisor={psxFile.TranslationDivisor}");
+        output.WriteLine($"  HasHierarchy={psxFile.HasHierarchy}");
+        output.WriteLine("");
+
+        float minWorldY = float.MaxValue, maxWorldY = float.MinValue;
+
+        for (var i = 0; i < psxFile.Objects.Count; i++)
+        {
+            var obj = psxFile.Objects[i];
+            var boneName = pshFile?.GetBoneName(i) ?? $"obj_{i}";
+            var parentStr = obj.ParentIndex >= 0 ? $"parent={obj.ParentIndex}" : "ROOT";
+
+            // Object position in glTF space (X, -Y, -Z)
+            var posX = obj.X(psxFile.TranslationDivisor);
+            var posY = -obj.Y(psxFile.TranslationDivisor);
+            var posZ = -obj.Z(psxFile.TranslationDivisor);
+
+            output.WriteLine($"Obj {i,2} [{boneName}] mesh={obj.MeshIndex} {parentStr}");
+            output.WriteLine($"  Raw: ({obj.RawX,10}, {obj.RawY,10}, {obj.RawZ,10})");
+            output.WriteLine($"  glTF pos: ({posX,8:F2}, {posY,8:F2}, {posZ,8:F2})");
+
+            if (obj.MeshIndex < psxFile.Meshes.Count)
+            {
+                var mesh = psxFile.Meshes[obj.MeshIndex];
+                if (mesh.Vertices.Count > 0)
+                {
+                    var minVx = mesh.Vertices.Min(v => v.X);
+                    var maxVx = mesh.Vertices.Max(v => v.X);
+                    var minVy = mesh.Vertices.Min(v => -v.Y); // glTF Y
+                    var maxVy = mesh.Vertices.Max(v => -v.Y);
+                    var minVz = mesh.Vertices.Min(v => -v.Z); // glTF Z
+                    var maxVz = mesh.Vertices.Max(v => -v.Z);
+
+                    output.WriteLine($"  Verts: {mesh.Vertices.Count}, Faces: {mesh.Faces.Count}");
+                    output.WriteLine($"  Vert bbox (local glTF): X[{minVx,7:F2}..{maxVx,7:F2}] Y[{minVy,7:F2}..{maxVy,7:F2}] Z[{minVz,7:F2}..{maxVz,7:F2}]");
+
+                    // World bbox = local + position
+                    var worldMinY = posY + minVy;
+                    var worldMaxY = posY + maxVy;
+                    output.WriteLine($"  World Y range: [{worldMinY,7:F2}..{worldMaxY,7:F2}]");
+
+                    minWorldY = Math.Min(minWorldY, worldMinY);
+                    maxWorldY = Math.Max(maxWorldY, worldMaxY);
+                }
+            }
+            output.WriteLine("");
+        }
+
+        var totalHeight = maxWorldY - minWorldY;
+        output.WriteLine($"=== Total model world Y range: [{minWorldY:F2}..{maxWorldY:F2}] height={totalHeight:F2} ===");
+
+        // Also write to TestOutput for easy viewing
+        if (paths.TestOutputDir != null)
+        {
+            var reportPath = Path.Combine(paths.TestOutputDir, "hawk2_position_dump.txt");
+            var lines = new List<string>
+            {
+                $"hawk2.PSX: {psxFile.Objects.Count} objects, {psxFile.Meshes.Count} meshes",
+                $"ScaleDivisor={psxFile.ScaleDivisor} TranslationDivisor={psxFile.TranslationDivisor}",
+                ""
+            };
+            for (var i = 0; i < psxFile.Objects.Count; i++)
+            {
+                var obj = psxFile.Objects[i];
+                var boneName = pshFile?.GetBoneName(i) ?? $"obj_{i}";
+                var parentStr = obj.ParentIndex >= 0 ? $"parent={obj.ParentIndex}" : "ROOT";
+                var posX = obj.X(psxFile.TranslationDivisor);
+                var posY = -obj.Y(psxFile.TranslationDivisor);
+                var posZ = -obj.Z(psxFile.TranslationDivisor);
+                lines.Add($"Obj {i,2} [{boneName,-25}] mesh={obj.MeshIndex,2} {parentStr,-12} glTF=({posX,8:F2},{posY,8:F2},{posZ,8:F2})");
+                if (obj.MeshIndex < psxFile.Meshes.Count)
+                {
+                    var mesh = psxFile.Meshes[obj.MeshIndex];
+                    if (mesh.Vertices.Count > 0)
+                    {
+                        var bMinY = mesh.Vertices.Min(v => -v.Y);
+                        var bMaxY = mesh.Vertices.Max(v => -v.Y);
+                        lines.Add($"     verts={mesh.Vertices.Count,3} faces={mesh.Faces.Count,3} localY=[{bMinY,7:F2}..{bMaxY,7:F2}] worldY=[{posY + bMinY,7:F2}..{posY + bMaxY,7:F2}]");
+                    }
+                }
+            }
+            lines.Add("");
+            lines.Add($"Total model world Y: [{minWorldY:F2}..{maxWorldY:F2}] height={totalHeight:F2}");
+            File.WriteAllLines(reportPath, lines);
+            output.WriteLine($"Report written to: {reportPath}");
         }
     }
 
@@ -757,7 +864,8 @@ public class PsxMeshFileTests(TestPaths paths, ITestOutputHelper output)
                 var (rgba, w, h) = result.Value;
                 return ImageWriter.WritePngToMemory(w, h, rgba);
             };
-            PsxGltfWriter.Write(psxFile, glbPath, textureProvider);
+            var pshFile = PshFile.FindCompanion(file);
+            PsxGltfWriter.Write(psxFile, glbPath, textureProvider, pshFile);
             exported++;
         }
         catch (Exception ex)

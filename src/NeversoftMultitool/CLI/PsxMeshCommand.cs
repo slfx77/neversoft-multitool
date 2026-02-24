@@ -125,8 +125,11 @@ public static class PsxMeshCommand
                     };
                 }
 
+                // Auto-detect companion PSH for bone names in character models
+                var pshFile = psxFile.HasHierarchy ? PshFile.FindCompanion(file) : null;
+
                 var outputFile = Path.Combine(output, stem + ".glb");
-                var triangles = PsxGltfWriter.Write(psxFile, outputFile, textureProvider);
+                var triangles = PsxGltfWriter.Write(psxFile, outputFile, textureProvider, pshFile);
 
                 totalMeshes += psxFile.Meshes.Count;
                 totalTriangles += triangles;

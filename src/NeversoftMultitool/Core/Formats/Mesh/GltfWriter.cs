@@ -324,7 +324,10 @@ public static class GltfWriter
                 // pixels invisible and bright pixels add light. In glTF (no additive
                 // mode), we approximate by making dark pixels transparent and setting
                 // bright pixels to white with proportional alpha.
-                if (isAdditive && !hasTextureAlpha)
+                // Always apply for additive modes — even DXT3/DXT5 textures with an
+                // alpha channel need conversion, since additive blending ignores alpha
+                // and uses luminance only. Existing alpha is used as a multiplier.
+                if (isAdditive)
                 {
                     pngBytes = ConvertLuminanceToAlpha(pngBytes);
                     hasTextureAlpha = true;
@@ -353,6 +356,8 @@ public static class GltfWriter
     /// Converts texture to white RGB with luminance-derived alpha.
     /// Dark pixels become transparent (invisible, like additive black)
     /// and bright pixels become white with proportional opacity.
+    /// Existing alpha is used as a multiplier (for DXT3/DXT5 textures
+    /// where alpha may mask out parts of the glow independently).
     /// </summary>
     private static byte[] ConvertLuminanceToAlpha(byte[] pngBytes)
     {
@@ -365,8 +370,9 @@ public static class GltfWriter
                 for (var x = 0; x < row.Length; x++)
                 {
                     ref var pixel = ref row[x];
-                    var lum = (byte)((pixel.R * 77 + pixel.G * 150 + pixel.B * 29) >> 8);
-                    pixel = new Rgba32(255, 255, 255, lum);
+                    var lum = (pixel.R * 77 + pixel.G * 150 + pixel.B * 29) >> 8;
+                    var alpha = (lum * pixel.A) >> 8;
+                    pixel = new Rgba32(255, 255, 255, (byte)alpha);
                 }
             }
         });
@@ -482,12 +488,19 @@ public static class GltfWriter
     }
 
     /// <summary>
+    /// Small offset applied along vertex normals for non-opaque geometry (decals, graffiti,
+    /// signs) to prevent z-fighting with coplanar walls in glTF viewers that lack depth bias.
+    /// </summary>
+    private const float DecalNormalOffset = 0.1f;
+
+    /// <summary>
     /// Converts a triangle strip segment to individual triangles and adds them to the primitive.
     /// </summary>
     private static int AddTriangleStrip(
         PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexEmpty> prim,
         DdmObject obj,
-        DdmSplit split)
+        DdmSplit split,
+        float normalOffset = 0f)
     {
         var triangleCount = 0;
         var end = split.IndexOffset + split.IndexCount;
@@ -502,9 +515,9 @@ public static class GltfWriter
             if (ai == bi || ai == ci || bi == ci)
                 continue;
 
-            var va = MakeVertex(obj.Vertices[ai]);
-            var vb = MakeVertex(obj.Vertices[bi]);
-            var vc = MakeVertex(obj.Vertices[ci]);
+            var va = MakeVertex(obj.Vertices[ai], normalOffset);
+            var vb = MakeVertex(obj.Vertices[bi], normalOffset);
+            var vc = MakeVertex(obj.Vertices[ci], normalOffset);
 
             // Flip winding on odd triangles to maintain consistent face orientation
             var stripIndex = i - split.IndexOffset;
@@ -519,12 +532,16 @@ public static class GltfWriter
         return triangleCount;
     }
 
-    private static VERTEX MakeVertex(DdmVertex v)
+    private static VERTEX MakeVertex(DdmVertex v, float normalOffset = 0f)
     {
+        var pos = new Vector3(-v.X, -v.Y, v.Z);
+        var normal = new Vector3(-v.NX, -v.NY, v.NZ);
+
+        if (normalOffset > 0f)
+            pos += normal * normalOffset;
+
         return new VERTEX(
-            new VertexPositionNormal(
-                new Vector3(-v.X, -v.Y, v.Z),
-                new Vector3(-v.NX, -v.NY, v.NZ)),
+            new VertexPositionNormal(pos, normal),
             new VertexColor1Texture1(
                 new Vector4(v.R / 255f, v.G / 255f, v.B / 255f, v.A / 255f),
                 new Vector2(v.U, v.V)));
@@ -543,15 +560,36 @@ public static class GltfWriter
         var mesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>(obj.Name);
         triangleCount = 0;
 
-        foreach (var split in obj.Splits)
+        // Detect flat/planar objects (separate decal objects sitting on other geometry).
+        var minExtent = Math.Min(obj.BBoxExtentX, Math.Min(obj.BBoxExtentY, obj.BBoxExtentZ));
+        var isFlat = minExtent < 1.5f;
+
+        // Build drawOrder → rank mapping so overlay materials get pushed outward.
+        // Use rank (not raw magnitude) to keep offsets small and consistent.
+        var drawOrderRanks = obj.Splits
+            .Where(s => s.MaterialIndex < obj.Materials.Count)
+            .Select(s => obj.Materials[s.MaterialIndex].DrawOrder)
+            .Distinct()
+            .Order()
+            .ToList();
+
+        for (var splitIndex = 0; splitIndex < obj.Splits.Count; splitIndex++)
         {
+            var split = obj.Splits[splitIndex];
             if (split.IndexCount < 3 || split.MaterialIndex >= obj.Materials.Count)
                 continue;
 
             var mat = obj.Materials[split.MaterialIndex];
             var material = GetOrCreateMaterial(mat, textureDirs, materialCache, ddxTextures);
             var prim = mesh.UsePrimitive(material);
-            triangleCount += AddTriangleStrip(prim, obj, split);
+
+            // Prevent z-fighting for coplanar geometry in glTF viewers lacking depth bias.
+            // Higher drawOrder rank = overlay (graffiti, decals) pushed outward along normals.
+            var rank = drawOrderRanks.IndexOf(mat.DrawOrder);
+            var drawOrderOffset = rank * DecalNormalOffset;
+            var materialOffset = (isFlat || mat.BlendMode != 0) ? DecalNormalOffset : 0f;
+            var offset = Math.Max(drawOrderOffset, materialOffset);
+            triangleCount += AddTriangleStrip(prim, obj, split, offset);
         }
 
         return mesh;

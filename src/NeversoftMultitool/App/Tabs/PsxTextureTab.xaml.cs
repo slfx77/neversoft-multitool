@@ -41,13 +41,14 @@ public sealed partial class PsxTextureTab : UserControl
 
         _items.Clear();
         _parentFiles.Clear();
-        var psxFiles = Directory.GetFiles(_inputDir)
-            .Where(f => f.EndsWith(".psx", StringComparison.OrdinalIgnoreCase))
+        var textureFiles = Directory.GetFiles(_inputDir)
+            .Where(f => Path.GetExtension(f).Equals(".psx", StringComparison.OrdinalIgnoreCase)
+                    || IsPs2TextureFile(f))
             .Select(Path.GetFileName)
             .Where(f => f != null)
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
 
-        foreach (var file in psxFiles)
+        foreach (var file in textureFiles)
         {
             var entry = new PsxFileEntry { FileName = file! };
             _parentFiles.Add(entry);
@@ -68,11 +69,22 @@ public sealed partial class PsxTextureTab : UserControl
                 try
                 {
                     var inputFile = Path.Combine(inputDir, entry.FileName);
-                    var textures = PsxLibrary.EnumerateTextures(inputFile);
+                    int count;
+
+                    if (IsPs2TextureFile(entry.FileName))
+                    {
+                        var result = Ps2TexFile.Parse(inputFile);
+                        count = result.Success ? result.Textures.Count(t => t.Pixels != null) : 0;
+                    }
+                    else
+                    {
+                        count = PsxLibrary.EnumerateTextures(inputFile).Count;
+                    }
+
                     dispatcher.TryEnqueue(() =>
                     {
-                        entry.TextureCount = textures.Count;
-                        entry.HasTextures = textures.Count > 0;
+                        entry.TextureCount = count;
+                        entry.HasTextures = count > 0;
                     });
                 }
                 catch
@@ -132,17 +144,36 @@ public sealed partial class PsxTextureTab : UserControl
                 var inputFile = Path.Combine(_inputDir, parent.FileName);
                 try
                 {
-                    var textures = PsxLibrary.EnumerateTextures(inputFile);
-                    parent.CachedChildren = textures.Select((t, i) => new PsxTextureEntry
+                    if (IsPs2TextureFile(parent.FileName))
                     {
-                        ParentFileName = parent.FileName,
-                        NameHash = t.NameHash,
-                        Width = t.Header.Width,
-                        Height = t.Header.Height,
-                        PaletteType = PsxLibrary.DescribePaletteType(t.Header),
-                        Index = i,
-                        ResolvedName = QbKey.TryResolve(t.NameHash)
-                    }).ToList();
+                        var result = Ps2TexFile.Parse(inputFile);
+                        parent.CachedChildren = result.Success
+                            ? result.Textures.Where(t => t.Pixels != null).Select((t, i) => new PsxTextureEntry
+                            {
+                                ParentFileName = parent.FileName,
+                                NameHash = t.Checksum,
+                                Width = t.Width,
+                                Height = t.Height,
+                                PaletteType = Ps2TexFile.DescribePsm(t.Psm),
+                                Index = i,
+                                ResolvedName = QbKey.TryResolve(t.Checksum)
+                            }).ToList()
+                            : [];
+                    }
+                    else
+                    {
+                        var textures = PsxLibrary.EnumerateTextures(inputFile);
+                        parent.CachedChildren = textures.Select((t, i) => new PsxTextureEntry
+                        {
+                            ParentFileName = parent.FileName,
+                            NameHash = t.NameHash,
+                            Width = t.Header.Width,
+                            Height = t.Header.Height,
+                            PaletteType = PsxLibrary.DescribePaletteType(t.Header),
+                            Index = i,
+                            ResolvedName = QbKey.TryResolve(t.NameHash)
+                        }).ToList();
+                    }
                 }
                 catch
                 {
@@ -203,14 +234,44 @@ public sealed partial class PsxTextureTab : UserControl
                     dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
 
                     var inputFile = Path.Combine(inputDir, entry.FileName);
-                    var result = PsxLibrary.ExtractTextures(inputFile, outputDir, createSubDirs, writeDds, writeMipAtlas);
+                    int totalTex, writtenTex;
+                    bool skipped, success;
+
+                    if (IsPs2TextureFile(entry.FileName))
+                    {
+                        var ps2Result = Ps2TexFile.Parse(inputFile);
+                        if (ps2Result.Success)
+                        {
+                            var stem = Path.GetFileNameWithoutExtension(entry.FileName);
+                            var outDir = createSubDirs ? outputDir : Path.Combine(outputDir, stem);
+                            totalTex = ps2Result.Textures.Count;
+                            writtenTex = Ps2TexFile.SaveAllAsPng(ps2Result, createSubDirs ? outputDir : Path.GetDirectoryName(outputDir)!, stem);
+                            skipped = false;
+                            success = true;
+                        }
+                        else
+                        {
+                            totalTex = 0;
+                            writtenTex = 0;
+                            skipped = false;
+                            success = false;
+                        }
+                    }
+                    else
+                    {
+                        var result = PsxLibrary.ExtractTextures(inputFile, outputDir, createSubDirs, writeDds, writeMipAtlas);
+                        totalTex = result.TotalTextures;
+                        writtenTex = result.TexturesWritten;
+                        skipped = result.Skipped;
+                        success = result.Success;
+                    }
 
                     dispatcher.TryEnqueue(() =>
                     {
-                        entry.TextureCount = result.TotalTextures;
-                        entry.ExtractedCount = result.TexturesWritten;
-                        entry.Status = result.Skipped ? ExtractionStatus.Skipped
-                            : result.Success ? ExtractionStatus.Done
+                        entry.TextureCount = totalTex;
+                        entry.ExtractedCount = writtenTex;
+                        entry.Status = skipped ? ExtractionStatus.Skipped
+                            : success ? ExtractionStatus.Done
                             : ExtractionStatus.Error;
 
                         filesProcessed++;
@@ -321,9 +382,25 @@ public sealed partial class PsxTextureTab : UserControl
 
         var inputFile = Path.Combine(_inputDir, texture.ParentFileName);
         var nameHash = texture.NameHash;
+        var isPs2 = IsPs2TextureFile(texture.ParentFileName);
 
-        var result = await Task.Run(() =>
-            PsxLibrary.ExtractTextureByHash(inputFile, nameHash), cts.Token);
+        (byte[] rgba, int width, int height)? result;
+
+        if (isPs2)
+        {
+            result = await Task.Run(() =>
+            {
+                var ps2Result = Ps2TexFile.Parse(inputFile);
+                if (!ps2Result.Success) return ((byte[], int, int)?)null;
+                var tex = ps2Result.Textures.FirstOrDefault(t => t.Checksum == nameHash && t.Pixels != null);
+                return tex?.Pixels != null ? (tex.Pixels, tex.Width, tex.Height) : null;
+            }, cts.Token);
+        }
+        else
+        {
+            result = await Task.Run(() =>
+                PsxLibrary.ExtractTextureByHash(inputFile, nameHash), cts.Token);
+        }
 
         if (cts.Token.IsCancellationRequested) return;
 
@@ -353,5 +430,13 @@ public sealed partial class PsxTextureTab : UserControl
         NoPreviewIcon.Visibility = Visibility.Collapsed;
         PreviewDimensionsText.Text = "";
         PreviewInfoText.Text = "";
+    }
+
+    private static bool IsPs2TextureFile(string fileName)
+    {
+        return fileName.EndsWith(".tex", StringComparison.OrdinalIgnoreCase)
+            || fileName.EndsWith(".img", StringComparison.OrdinalIgnoreCase)
+            || fileName.EndsWith(".tex.ps2", StringComparison.OrdinalIgnoreCase)
+            || fileName.EndsWith(".img.ps2", StringComparison.OrdinalIgnoreCase);
     }
 }

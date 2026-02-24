@@ -143,7 +143,7 @@ public sealed class DdmFile
         var textureNameBytes = reader.ReadBytes(64);
         var textureName = Encoding.ASCII.GetString(textureNameBytes).TrimEnd('\0');
 
-        reader.ReadUInt32(); // drawOrder
+        var drawOrder = reader.ReadUInt32();
         var diffuseR = reader.ReadByte();
         var diffuseG = reader.ReadByte();
         var diffuseB = reader.ReadByte();
@@ -157,6 +157,7 @@ public sealed class DdmFile
         {
             Name = materialName,
             TextureName = textureName,
+            DrawOrder = drawOrder,
             DiffuseR = diffuseR,
             DiffuseG = diffuseG,
             DiffuseB = diffuseB,
@@ -207,6 +208,7 @@ public sealed class DdmMaterial
 {
     public required string Name { get; init; }
     public required string TextureName { get; init; }
+    public uint DrawOrder { get; init; }
     public byte DiffuseR { get; init; }
     public byte DiffuseG { get; init; }
     public byte DiffuseB { get; init; }

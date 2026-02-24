@@ -13,7 +13,7 @@ namespace NeversoftMultitool;
 
 public sealed partial class AudioConverterTab : UserControl
 {
-    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".kat"];
+    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".vag", ".kat"];
 
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<AudioFileEntry> _parentFiles = [];
@@ -55,12 +55,18 @@ public sealed partial class AudioConverterTab : UserControl
 
         _items.Clear();
         _parentFiles.Clear();
-        var audioFiles = Directory.GetFiles(_inputDir)
+        var allFiles = Directory.GetFiles(_inputDir);
+        var audioFiles = allFiles
             .Where(f => SupportedExtensions.Contains(
                 Path.GetExtension(f).ToLowerInvariant()))
-            .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase);
+            .ToList();
 
-        foreach (var filePath in audioFiles)
+        // Probe extensionless files for SPU-ADPCM audio
+        audioFiles.AddRange(allFiles
+            .Where(f => string.IsNullOrEmpty(Path.GetExtension(f)))
+            .Where(f => VagDecoder.Probe(f) != null));
+
+        foreach (var filePath in audioFiles.OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase))
         {
             var fileName = Path.GetFileName(filePath)!;
             var ext = Path.GetExtension(filePath).ToLowerInvariant();
@@ -218,6 +224,7 @@ public sealed partial class AudioConverterTab : UserControl
                             "ADX" => AdxDecoder.ConvertToWav(inputFile, outputDir),
                             "XA" => XaDecoder.ConvertToWav(inputFile, outputDir),
                             "VAB" => VabExtractor.ExtractToWav(inputFile, outputDir, vabSampleRate),
+                            "VAG" => VagDecoder.ConvertToWav(inputFile, outputDir),
                             "KAT" => KatExtractor.ExtractToWav(inputFile, outputDir),
                             _ => new AudioConvertResult { ErrorMessage = "Unknown format" }
                         };
@@ -274,7 +281,9 @@ public sealed partial class AudioConverterTab : UserControl
         ".adx" => "ADX",
         ".xa" => "XA",
         ".vab" => "VAB",
+        ".vag" => "VAG",
         ".kat" => "KAT",
+        "" => "VAG",
         _ => "Unknown"
     };
 
@@ -422,6 +431,7 @@ public sealed partial class AudioConverterTab : UserControl
             {
                 "ADX" => AdxDecoder.ConvertToWav(inputFile, _tempDir),
                 "XA" => XaDecoder.ConvertToWav(inputFile, _tempDir),
+                "VAG" => VagDecoder.ConvertToWav(inputFile, _tempDir),
                 _ => null
             };
 

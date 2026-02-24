@@ -27,9 +27,10 @@ public static class PsxGltfWriter
     /// <param name="psxFile">Parsed PSX mesh data.</param>
     /// <param name="outputPath">Output .glb file path.</param>
     /// <param name="textureProvider">Optional callback to resolve texture hashes to PNG bytes.</param>
+    /// <param name="pshFile">Optional parsed PSH file for bone names in hierarchical models.</param>
     /// <returns>Total number of triangles written.</returns>
     public static int Write(PsxMeshFile psxFile, string outputPath,
-        TextureProvider? textureProvider = null)
+        TextureProvider? textureProvider = null, PshFile? pshFile = null)
     {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
@@ -39,9 +40,11 @@ public static class PsxGltfWriter
         var materialCache = new Dictionary<uint, MaterialBuilder>();
         var untexturedMaterial = CreateUntexturedMaterial();
 
-        // Always use flat placement: PSX coordinates are absolute world-space
-        // (psxprev: IsAbsolute = true). Hierarchy is only used for animation.
-        var totalTriangles = WriteFlat(psxFile, scene, materialCache, untexturedMaterial, textureProvider);
+        // Character models (with HIER chunk) use hierarchical node tree for proper
+        // parent-child body part assembly. Level geometry uses flat placement.
+        var totalTriangles = psxFile.HasHierarchy
+            ? WriteHierarchical(psxFile, scene, materialCache, untexturedMaterial, textureProvider, pshFile)
+            : WriteFlat(psxFile, scene, materialCache, untexturedMaterial, textureProvider);
 
         var model = scene.ToGltf2();
         model.SaveGLB(outputPath);
@@ -83,7 +86,7 @@ public static class PsxGltfWriter
     /// </summary>
     private static int WriteHierarchical(PsxMeshFile psxFile, SceneBuilder scene,
         Dictionary<uint, MaterialBuilder> materialCache, MaterialBuilder untexturedMaterial,
-        TextureProvider? textureProvider)
+        TextureProvider? textureProvider, PshFile? pshFile)
     {
         var objectCount = psxFile.Objects.Count;
 
@@ -96,7 +99,7 @@ public static class PsxGltfWriter
             absolutePositions[i] = new Vector3(obj.X(psxFile.TranslationDivisor), -obj.Y(psxFile.TranslationDivisor), -obj.Z(psxFile.TranslationDivisor));
         }
 
-        var nodes = BuildNodeHierarchy(psxFile, absolutePositions);
+        var nodes = BuildNodeHierarchy(psxFile, absolutePositions, pshFile);
 
         // Attach meshes to their corresponding nodes
         var totalTriangles = 0;
@@ -121,7 +124,8 @@ public static class PsxGltfWriter
     /// higher-index objects, so we iterate: roots first, then children whose parents
     /// already exist, repeating until all nodes are placed.
     /// </summary>
-    private static NodeBuilder?[] BuildNodeHierarchy(PsxMeshFile psxFile, Vector3[] absolutePositions)
+    private static NodeBuilder?[] BuildNodeHierarchy(PsxMeshFile psxFile, Vector3[] absolutePositions,
+        PshFile? pshFile)
     {
         var objectCount = psxFile.Objects.Count;
         var nodes = new NodeBuilder?[objectCount];
@@ -134,7 +138,8 @@ public static class PsxGltfWriter
             {
                 if (nodes[i] != null) continue;
                 var obj = psxFile.Objects[i];
-                var name = ResolveMeshName(psxFile, obj.MeshIndex, $"obj_{i}");
+                var name = pshFile?.GetBoneName(i)
+                    ?? ResolveMeshName(psxFile, obj.MeshIndex, $"obj_{i}");
                 var parentIdx = obj.ParentIndex;
                 var isRoot = parentIdx < 0 || parentIdx >= objectCount || parentIdx == i;
 

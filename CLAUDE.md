@@ -14,7 +14,7 @@ Supported formats:
 - **PRE archives**: Simple flat archive format used in THPS1 (PS1), THPS2 (PS1, Dreamcast)
 - **DDX archives**: Xbox texture archives containing DDS files (THPS2X)
 - **BON archives**: Dreamcast v1 (PVR textures → PNG) and Xbox v3/v4 (raw DDS extraction)
-- **Audio**: XA (PS1 ADPCM), VAB (PS1 sound banks), ADX (CRI Middleware), KAT (Dreamcast soundbanks) → WAV
+- **Audio**: XA (PS1 ADPCM), VAB (PS1 sound banks), VAG (PS2 SPU-ADPCM, headered + headerless), ADX (CRI Middleware), KAT (Dreamcast soundbanks) → WAV
 - **DDM meshes**: Xbox 3D level geometry → glTF (.glb) with materials, vertex colors, texture references, and .lit lights. DDM vertices are in local/object space. Level assembly uses PSX layout files for world-space placement: each PSX object entry provides a 20.12 fixed-point position (raw/4096 → float), matched to DDM objects via CRC-32 hash lookup. Coordinate mapping confirmed via THPS2X Xbox decompilation: `world_pos = psx_int32 / 4096`, no axis negation; glTF output uses `(-X, -Y, +Z)` matching vertex conversion. Level DDMs produce three .glb files: `{name}_level.glb`, `{name}_objects.glb`, `{name}.glb` (combined). Standalone DDMs (no PSX companion) produce one .glb file.
 - **TRG triggers**: Level trigger/script files → JSON — spawn points, camera paths, rail networks, enemy spawns, command lists, bytecode scripts. Versions 2.0 (Apocalypse/THPS) and 2.1 (Spider-Man)
 - **SFD video**: CRI Sofdec video (Dreamcast) → MP4 via ffmpeg. MPEG-PS container with MPEG-1 video + ADX audio. Requires ffmpeg on PATH.
@@ -81,6 +81,20 @@ When writing analysis or diagnostic scripts (Python, shell, etc.), **always crea
 ## Sample Data
 
 `Sample/Builds/` contains 14 game builds organized by `Game (Date, Console)` with files sorted into format subdirectories (PSX/, WAD/, RLE/, PKR/, etc.). Conversion artifacts (.png, .bmp, .dds, .wav, .mp4) have been cleaned.
+
+## THUG Source Code Reference
+
+`Sample/thug/Code/` contains the THUG (Tony Hawk's Underground) source code, which provides exact binary format specifications for THPS4+ era PS2 formats:
+
+- `Gfx/NGPS/NX/texture.cpp` — PS2 TEX/IMG binary format: version-tagged groups, GS pixel modes (PSMCT32/24/16, PSMT8/4), CLUT CSM1 swizzle
+- `Gfx/NGPS/NX/scene.cpp` — PS2 scene loading: material/mesh/vert version triplet, material import, mesh groups
+- `Gfx/NGPS/NX/mesh.cpp` — PS2 mesh vertex data: VU1 DMA list packing, UV/color/normal formats
+- `Gfx/NGPS/NX/mesh.h` — sMesh struct, mesh flags (TEXTURE, COLOURS, NORMALS, ST16, SKINNED, etc.)
+- `Gfx/NGPS/NX/material.h` — sMaterial struct, material flags
+- `Gfx/BonedAnim.cpp` — SKA animation format: header, compression flags, Q48 table lookup
+- `Gfx/Skeleton.cpp` — SKE bone hierarchy, neutral pose, inverse matrices
+- `Gel/Music/Ngps/Pcm/pcm.h` — VAG header struct (VAGp magic, version, dataSize, sampleFreq, name)
+- `Sys/File/PRE.h` — PRE archive format (used in THPS3+ for bundled file loading)
 
 ## Deferred Items
 

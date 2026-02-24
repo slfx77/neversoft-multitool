@@ -7,13 +7,13 @@ namespace NeversoftMultitool.CLI;
 
 public static class AudioCommand
 {
-    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".kat"];
+    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".kat", ".vag"];
 
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to directory containing audio files (.adx, .xa, .vab, .kat)"
+            Description = "Path to directory containing audio files (.adx, .xa, .vab, .vag, .kat)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -26,11 +26,11 @@ public static class AudioCommand
         };
         var sampleRateOption = new Option<int>("-r", "--sample-rate")
         {
-            Description = "Sample rate for VAB output (default: 11025)",
-            DefaultValueFactory = _ => 11025
+            Description = "Sample rate override for VAB (default: 11025) / VAG (default: 22050)",
+            DefaultValueFactory = _ => 0
         };
 
-        var command = new Command("audio", "Convert ADX/XA/VAB/KAT audio files to WAV");
+        var command = new Command("audio", "Convert ADX/XA/VAB/VAG/KAT audio files to WAV");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -49,19 +49,32 @@ public static class AudioCommand
                 return Task.FromResult(1);
             }
 
-            var audioFiles = Directory.GetFiles(input)
+            var allFiles = Directory.GetFiles(input);
+            var audioFiles = allFiles
                 .Where(f => SupportedExtensions.Contains(
                     Path.GetExtension(f).ToLowerInvariant()))
-                .ToArray();
+                .ToList();
 
-            if (audioFiles.Length == 0)
+            // Probe extensionless files for SPU-ADPCM audio
+            var extensionlessFiles = allFiles
+                .Where(f => string.IsNullOrEmpty(Path.GetExtension(f)))
+                .Where(f => VagDecoder.Probe(f) != null)
+                .ToList();
+            audioFiles.AddRange(extensionlessFiles);
+
+            if (audioFiles.Count == 0)
             {
                 AnsiConsole.MarkupLine("[yellow]No supported audio files found in the specified directory.[/]");
                 return Task.FromResult(0);
             }
 
             Directory.CreateDirectory(output);
-            AnsiConsole.MarkupLine($"Found [green]{audioFiles.Length}[/] audio file(s)");
+            if (extensionlessFiles.Count > 0)
+                AnsiConsole.MarkupLine(
+                    $"Found [green]{audioFiles.Count}[/] audio file(s) " +
+                    $"({extensionlessFiles.Count} detected as headerless SPU-ADPCM)");
+            else
+                AnsiConsole.MarkupLine($"Found [green]{audioFiles.Count}[/] audio file(s)");
 
             var stopwatch = Stopwatch.StartNew();
             var totalConverted = 0;
@@ -76,8 +89,10 @@ public static class AudioCommand
                 {
                     ".adx" => AdxDecoder.ConvertToWav(file, output),
                     ".xa" => XaDecoder.ConvertToWav(file, output),
-                    ".vab" => VabExtractor.ExtractToWav(file, output, sampleRate),
+                    ".vab" => VabExtractor.ExtractToWav(file, output, sampleRate > 0 ? sampleRate : 11025),
+                    ".vag" => VagDecoder.ConvertToWav(file, output, sampleRate),
                     ".kat" => KatExtractor.ExtractToWav(file, output),
+                    "" => VagDecoder.ConvertToWav(file, output, sampleRate),
                     _ => new AudioConvertResult { ErrorMessage = "Unsupported format" }
                 };
 
@@ -102,7 +117,7 @@ public static class AudioCommand
 
             stopwatch.Stop();
             AnsiConsole.MarkupLine(
-                $"Converted [green]{totalConverted}[/]/{audioFiles.Length} files " +
+                $"Converted [green]{totalConverted}[/]/{audioFiles.Count} files " +
                 $"({totalSamples} WAV files) in {stopwatch.Elapsed.TotalSeconds:F2}s");
 
             return Task.FromResult(0);
