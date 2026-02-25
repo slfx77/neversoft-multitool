@@ -13,7 +13,7 @@ namespace NeversoftMultitool;
 
 public sealed partial class AudioConverterTab : UserControl
 {
-    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".vag", ".kat"];
+    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".vag", ".kat", ".pss"];
 
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<AudioFileEntry> _parentFiles = [];
@@ -281,7 +281,7 @@ public sealed partial class AudioConverterTab : UserControl
         ".adx" => "ADX",
         ".xa" => "XA",
         ".vab" => "VAB",
-        ".vag" => "VAG",
+        ".vag" or ".pss" => "VAG",
         ".kat" => "KAT",
         "" => "VAG",
         _ => "Unknown"

@@ -7,13 +7,13 @@ namespace NeversoftMultitool.CLI;
 
 public static class AudioCommand
 {
-    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".kat", ".vag"];
+    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".kat", ".vag", ".pss"];
 
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to directory containing audio files (.adx, .xa, .vab, .vag, .kat)"
+            Description = "Path to directory containing audio files (.adx, .xa, .vab, .vag, .kat, .pss)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -30,7 +30,7 @@ public static class AudioCommand
             DefaultValueFactory = _ => 0
         };
 
-        var command = new Command("audio", "Convert ADX/XA/VAB/VAG/KAT audio files to WAV");
+        var command = new Command("audio", "Convert ADX/XA/VAB/VAG/KAT/PSS audio files to WAV");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -90,7 +90,7 @@ public static class AudioCommand
                     ".adx" => AdxDecoder.ConvertToWav(file, output),
                     ".xa" => XaDecoder.ConvertToWav(file, output),
                     ".vab" => VabExtractor.ExtractToWav(file, output, sampleRate > 0 ? sampleRate : 11025),
-                    ".vag" => VagDecoder.ConvertToWav(file, output, sampleRate),
+                    ".vag" or ".pss" => VagDecoder.ConvertToWav(file, output, sampleRate),
                     ".kat" => KatExtractor.ExtractToWav(file, output),
                     "" => VagDecoder.ConvertToWav(file, output, sampleRate),
                     _ => new AudioConvertResult { ErrorMessage = "Unsupported format" }

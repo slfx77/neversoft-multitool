@@ -72,6 +72,7 @@ public static class Ps2TexFile
             {
                 2 => ParseImg(data),
                 3 or 4 or 5 => ParseTex(data, (int)version),
+                0x0016 => RwTxdFile.Parse(data), // RenderWare TXD (THPS3 PS2)
                 _ => Ps2TexResult.Fail($"Unsupported version {version} (expected 2-5)")
             };
         }
@@ -1129,7 +1130,7 @@ public static class Ps2TexFile
         {
             if (tex.Pixels == null) continue;
 
-            var name = QbKey.TryResolve(tex.Checksum) ?? $"{tex.Checksum:X8}";
+            var name = tex.Name ?? QbKey.TryResolve(tex.Checksum) ?? $"{tex.Checksum:X8}";
             var path = Path.Combine(outputDir, stem, $"{name}.png");
             ImageWriter.WritePng(path, tex.Width, tex.Height, tex.Pixels);
             count++;
@@ -1139,7 +1140,7 @@ public static class Ps2TexFile
     }
 }
 
-public sealed record Ps2Texture(uint Checksum, int Width, int Height, uint Psm, uint Cpsm, byte[]? Pixels);
+public sealed record Ps2Texture(uint Checksum, int Width, int Height, uint Psm, uint Cpsm, byte[]? Pixels, string? Name = null);
 
 public sealed class Ps2TexResult
 {

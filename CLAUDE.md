@@ -14,7 +14,9 @@ Supported formats:
 - **PRE archives**: Simple flat archive format used in THPS1 (PS1), THPS2 (PS1, Dreamcast)
 - **DDX archives**: Xbox texture archives containing DDS files (THPS2X)
 - **BON archives**: Dreamcast v1 (PVR textures → PNG) and Xbox v3/v4 (raw DDS extraction)
-- **Audio**: XA (PS1 ADPCM), VAB (PS1 sound banks), VAG (PS2 SPU-ADPCM, headered + headerless), ADX (CRI Middleware), KAT (Dreamcast soundbanks) → WAV
+- **PS2 TEX/IMG textures**: Neversoft PS2 texture format (THPS4/THUG/THUG2). Version-tagged groups, GS pixel modes (PSMCT32/16, PSMT8/4), CLUT CSM1 swizzle, Conv4to32/Conv4to16 un-swizzle. 47,154 textures across 2,485 files → PNG.
+- **RW TXD textures**: RenderWare 3.x Texture Dictionary files (THPS3 PS2). Chunk-based container (version 0x0310), PS2-native rasters with linear pixel data (version 0). Formats: PSMT4, PSMT8, PSMCT32, PSMCT16S. 4,547 textures across 390 files → PNG. Routed automatically via `Ps2TexFile.Parse()` when first u32 = 0x0016.
+- **Audio**: XA (PS1 ADPCM), VAB (PS1 sound banks), VAG (PS2 SPU-ADPCM, headered + headerless), PSS (headerless SPU-ADPCM, same as VAG), ADX (CRI Middleware), KAT (Dreamcast soundbanks) → WAV
 - **DDM meshes**: Xbox 3D level geometry → glTF (.glb) with materials, vertex colors, texture references, and .lit lights. DDM vertices are in local/object space. Level assembly uses PSX layout files for world-space placement: each PSX object entry provides a 20.12 fixed-point position (raw/4096 → float), matched to DDM objects via CRC-32 hash lookup. Coordinate mapping confirmed via THPS2X Xbox decompilation: `world_pos = psx_int32 / 4096`, no axis negation; glTF output uses `(-X, -Y, +Z)` matching vertex conversion. Level DDMs produce three .glb files: `{name}_level.glb`, `{name}_objects.glb`, `{name}.glb` (combined). Standalone DDMs (no PSX companion) produce one .glb file.
 - **TRG triggers**: Level trigger/script files → JSON — spawn points, camera paths, rail networks, enemy spawns, command lists, bytecode scripts. Versions 2.0 (Apocalypse/THPS) and 2.1 (Spider-Man)
 - **SFD video**: CRI Sofdec video (Dreamcast) → MP4 via ffmpeg. MPEG-PS container with MPEG-1 video + ADX audio. Requires ffmpeg on PATH.
@@ -49,7 +51,7 @@ src/NeversoftMultitool/
 │   └── Formats/
 │       ├── Psx/             # PSX texture extraction + mesh geometry → glTF
 │       ├── Rle/             # RLE/BMR bitmap conversion
-│       ├── Audio/           # ADX, XA, VAB, KAT audio decoding
+│       ├── Audio/           # ADX, XA, VAB, VAG, KAT audio decoding
 │       ├── Mesh/            # DDM mesh extraction → glTF
 │       ├── Trg/             # TRG level trigger/script parsing → JSON
 │       ├── Video/           # SFD (Sofdec) + STR (PS1 MDEC) video conversion
@@ -98,10 +100,13 @@ When writing analysis or diagnostic scripts (Python, shell, etc.), **always crea
 
 ## Deferred Items
 
-### Not Game Formats
+### Not Game Formats / Not Archives
 
 - **SCC**: Microsoft Visual SourceSafe `vssver.scc` version tracking files. Development artifacts accidentally shipped on disc. No game data.
 - **BIN**: Generic file extension used for PS1 MIPS code overlays (game logic, menu screens), THPS2 data tables (cretex.bin, tricks.bin), and Dreamcast bootstrap executables. ~89% compiled machine code. Not suitable for asset extraction. See [spidey-decomp](https://github.com/krystalgamer/spidey-decomp) for Spider-Man module decompilation.
+- **PAK (THAW)**: `.pak.ps2` files are opaque level data bundles, NOT traditional archives. No entry table, no magic number, contain embedded text config data mixed with binary blobs. No PAK parser needed. Note: nxtools `pak.py` (GHPak) is Guitar Hero-specific, not applicable to THPS/THAW.
+- **PRK**: Custom park save data (8-20KB files named `custom1-20.prk`). Not archives.
+- **THAW .tex.ps2**: Despite the `.tex` extension, these are QB script/dialogue data files, NOT texture files. Contain ASCII text (script commands, dialogue strings) interspersed with binary headers.
 
 ### In Progress (Not Yet Bug-Free)
 

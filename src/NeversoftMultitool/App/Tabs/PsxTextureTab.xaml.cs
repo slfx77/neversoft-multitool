@@ -156,7 +156,7 @@ public sealed partial class PsxTextureTab : UserControl
                                 Height = t.Height,
                                 PaletteType = Ps2TexFile.DescribePsm(t.Psm),
                                 Index = i,
-                                ResolvedName = QbKey.TryResolve(t.Checksum)
+                                ResolvedName = t.Name ?? QbKey.TryResolve(t.Checksum)
                             }).ToList()
                             : [];
                     }
