@@ -16,6 +16,8 @@ Supported formats:
 - **BON archives**: Dreamcast v1 (PVR textures → PNG) and Xbox v3/v4 (raw DDS extraction)
 - **PS2 TEX/IMG textures**: Neversoft PS2 texture format (THPS4/THUG/THUG2). Version-tagged groups, GS pixel modes (PSMCT32/16, PSMT8/4), CLUT CSM1 swizzle, Conv4to32/Conv4to16 un-swizzle. 47,154 textures across 2,485 files → PNG.
 - **RW TXD textures**: RenderWare 3.x Texture Dictionary files (THPS3 PS2). Chunk-based container (version 0x0310), PS2-native rasters with linear pixel data (version 0). Formats: PSMT4, PSMT8, PSMCT32, PSMCT16S. 4,547 textures across 390 files → PNG. Routed automatically via `Ps2TexFile.Parse()` when first u32 = 0x0016.
+- **PS2 MDL/SKIN meshes**: Native PS2 scene files (.mdl.ps2, .skin.ps2, .iskin.ps2) → glTF (.glb) with vertex colors, normals, UV coordinates, and material references. Version triples: THPS4 (3,4,1), THUG (5,6,1), THUG2 (6,6,1). 2,299 standard files across 3 games (574 THPS4, 812 THUG, 913 THUG2). THPS4 uses full float-precision vertices (40B non-skinned, 64B skinned). THUG/THUG2 non-skinned uses floats with packed sint16 normals (32B); skinned uses packed sint16 for positions/UVs/normals (28B). Triangle strips encoded via ADC bits per-vertex (0x8000 = strip restart). Packed normals: 2×sint16, nz=sqrt(1-nx²-ny²), Z sign from LSB of nx. Skinned position scale: SUB_INCH_PRECISION=16.0 (÷16). Skinned UV scale: ÷4096. Materials are single-pass (not multi-pass like cross-platform format). VC wibble has phase field in ALL versions (THUG source bug omits it). THUG2 shader_id is always 4 bytes (no conditional specular color). 739 THUG2 .skin.ps2 files with non-standard versions deferred. Reference: THUG source (scene.cpp/mesh.cpp/material.cpp), validated via `tools/ps2_scene_trace.py`.
+- **PS2 GEOM meshes**: Pre-compiled CGeomNode rendering trees (.geom.ps2) → glTF (.glb). VIF opcode parser extracts vertex data from embedded DMA chains. 1,800 files across 3 games (603 THPS4, 933 THUG, 264 THUG2), 1,798 converted (2 empty fireball.geom.ps2 particle placeholders). Texture embedding: THUG/THUG2 use CGeomNode.texture_checksum at +0x44 directly (932/933 THUG, 263/264 THUG2 textured). **THPS4 texture resolution via VRAM simulation**: CGeomNode.texture_checksum=0 for ALL THPS4 leaves; textures identified by GS TEX0_1 register values in DMA chain VU1 input (UNPACK V4_32 GIF tag + UNPACK V3_32 register writes). TEX0 contains TBP (VRAM texture base pointer) and CBP (CLUT base pointer). `Ps2VramAllocator` simulates PS2 GS VRAM allocation from TEX files (replicating texture.cpp LoadTextureGroup) to build (TBP,CBP)→checksum mapping. 602/603 THPS4 files textured (7,931 textures embedded, 4,727 VRAM mapping entries). Validated via `tools/ps2_geom_trace.py`, `tools/ps2_geom_gscontext.py`, `tools/ps2_vram_sim.py`.
 - **Audio**: XA (PS1 ADPCM), VAB (PS1 sound banks), VAG (PS2 SPU-ADPCM, headered + headerless), PSS (headerless SPU-ADPCM, same as VAG), ADX (CRI Middleware), KAT (Dreamcast soundbanks) → WAV
 - **DDM meshes**: Xbox 3D level geometry → glTF (.glb) with materials, vertex colors, texture references, and .lit lights. DDM vertices are in local/object space. Level assembly uses PSX layout files for world-space placement: each PSX object entry provides a 20.12 fixed-point position (raw/4096 → float), matched to DDM objects via CRC-32 hash lookup. Coordinate mapping confirmed via THPS2X Xbox decompilation: `world_pos = psx_int32 / 4096`, no axis negation; glTF output uses `(-X, -Y, +Z)` matching vertex conversion. Level DDMs produce three .glb files: `{name}_level.glb`, `{name}_objects.glb`, `{name}.glb` (combined). Standalone DDMs (no PSX companion) produce one .glb file.
 - **TRG triggers**: Level trigger/script files → JSON — spawn points, camera paths, rail networks, enemy spawns, command lists, bytecode scripts. Versions 2.0 (Apocalypse/THPS) and 2.1 (Spider-Man)
@@ -32,6 +34,33 @@ dotnet build src/NeversoftMultitool/NeversoftMultitool.csproj
 # Run tests (use exe directly; VSTest adapter has testhost issues with xunit.v3)
 dotnet build tests/NeversoftMultitool.Tests/NeversoftMultitool.Tests.csproj
 tests/NeversoftMultitool.Tests/bin/Debug/net10.0/NeversoftMultitool.Tests.exe
+```
+
+## glTF Validation
+
+After converting meshes to .glb, **always validate the output** using the bundled glTF validator:
+
+```bash
+# Validate a single file
+tools/gltf_validator_bin/gltf_validator.exe <file.glb>
+
+# Validate a directory (recursive)
+tools/gltf_validator_bin/gltf_validator.exe <directory>
+
+# JSON report to stdout (parse with Python for material/texture/mesh counts)
+tools/gltf_validator_bin/gltf_validator.exe -o <file.glb>
+```
+
+Key things to check: 0 errors, 0 warnings. `UNUSED_OBJECT` infos on `TEXCOORD_0` indicate meshes with UV coordinates but no texture assigned to the material — expected for untextured geometry, but a bug if textures should be present.
+
+For quick programmatic checks, parse the GLB JSON directly (first chunk after 12-byte header):
+```python
+import struct, json
+with open('file.glb', 'rb') as f:
+    f.read(12)  # skip magic/version/length
+    clen, _ = struct.unpack('<II', f.read(8))
+    d = json.loads(f.read(clen).decode().rstrip('\x00'))
+    print(f"Materials: {len(d.get('materials',[]))}, Textures: {len(d.get('textures',[]))}")
 ```
 
 ## Architecture
@@ -52,6 +81,7 @@ src/NeversoftMultitool/
 │       ├── Psx/             # PSX texture extraction + mesh geometry → glTF
 │       ├── Rle/             # RLE/BMR bitmap conversion
 │       ├── Audio/           # ADX, XA, VAB, VAG, KAT audio decoding
+│       ├── Ps2Scene/        # PS2 MDL/SKIN mesh extraction → glTF
 │       ├── Mesh/            # DDM mesh extraction → glTF
 │       ├── Trg/             # TRG level trigger/script parsing → JSON
 │       ├── Video/           # SFD (Sofdec) + STR (PS1 MDEC) video conversion
@@ -88,11 +118,13 @@ When writing analysis or diagnostic scripts (Python, shell, etc.), **always crea
 
 `Sample/thug/Code/` contains the THUG (Tony Hawk's Underground) source code, which provides exact binary format specifications for THPS4+ era PS2 formats:
 
-- `Gfx/NGPS/NX/texture.cpp` — PS2 TEX/IMG binary format: version-tagged groups, GS pixel modes (PSMCT32/24/16, PSMT8/4), CLUT CSM1 swizzle
+- `Gfx/NGPS/NX/texture.cpp` — PS2 TEX/IMG binary format: version-tagged groups, GS pixel modes (PSMCT32/24/16, PSMT8/4), CLUT CSM1 swizzle. VRAM allocation: LoadTextureGroup() lines 377-691 (sequential TBP with 8KB alignment, CBP from end, cache optimization +16 for odd small textures)
+- `Gfx/NGPS/NX/nx_init.cpp` — VramBufferBase=0x2BC0 (line 230), VramGroupSize=0x0A20, VramToggle=0x1E20
 - `Gfx/NGPS/NX/scene.cpp` — PS2 scene loading: material/mesh/vert version triplet, material import, mesh groups
 - `Gfx/NGPS/NX/mesh.cpp` — PS2 mesh vertex data: VU1 DMA list packing, UV/color/normal formats
 - `Gfx/NGPS/NX/mesh.h` — sMesh struct, mesh flags (TEXTURE, COLOURS, NORMALS, ST16, SKINNED, etc.)
 - `Gfx/NGPS/NX/material.h` — sMaterial struct, material flags
+- `Gfx/NGPS/NX/render.h` — SUB_INCH_PRECISION=16.0f (vertex position scale for sint16→float conversion)
 - `Gfx/BonedAnim.cpp` — SKA animation format: header, compression flags, Q48 table lookup
 - `Gfx/Skeleton.cpp` — SKE bone hierarchy, neutral pose, inverse matrices
 - `Gel/Music/Ngps/Pcm/pcm.h` — VAG header struct (VAGp magic, version, dataSize, sampleFreq, name)

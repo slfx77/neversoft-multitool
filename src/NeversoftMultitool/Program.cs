@@ -46,6 +46,8 @@ public static class Program
         rootCommand.Subcommands.Add(StrCommand.Create());
         rootCommand.Subcommands.Add(PsxMeshCommand.Create());
         rootCommand.Subcommands.Add(Ps2TexCommand.Create());
+        rootCommand.Subcommands.Add(Ps2SceneCommand.Create());
+        rootCommand.Subcommands.Add(Ps2GeomCommand.Create());
 
         return rootCommand.Parse(args).Invoke();
     }
