@@ -27,21 +27,7 @@ jobs:
       run: dotnet build --configuration Release --no-restore
 
     - name: Run Tests
-      run: |
-        dotnet test `
-          --project tests/NeversoftMultitool.Tests/NeversoftMultitool.Tests.csproj `
-          --configuration Release `
-          --no-build `
-          --verbosity normal `
-          --results-directory ./TestResults
-
-    - name: Upload Test Results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: test-results
-        path: ./TestResults
-        retention-days: 30
+      run: tests/NeversoftMultitool.Tests/bin/Release/net10.0/NeversoftMultitool.Tests.exe
 
   build-cli-cross-platform:
     runs-on: ubuntu-latest
