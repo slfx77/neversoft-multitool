@@ -47,7 +47,8 @@ jobs:
       run: |
         dotnet build src/NeversoftMultitool/NeversoftMultitool.csproj \
           --configuration Release \
-          --framework net10.0
+          --framework net10.0 \
+          -p:TargetFrameworks=net10.0
 
     - name: Verify CLI builds on Linux
       run: |
