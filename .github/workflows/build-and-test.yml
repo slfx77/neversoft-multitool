@@ -26,16 +26,14 @@ jobs:
     - name: Build (Release)
       run: dotnet build --configuration Release --no-restore
 
-    - name: Run Tests with Coverage
+    - name: Run Tests
       run: |
         dotnet test `
           --project tests/NeversoftMultitool.Tests/NeversoftMultitool.Tests.csproj `
           --configuration Release `
           --no-build `
           --verbosity normal `
-          --collect:"XPlat Code Coverage" `
-          --results-directory ./TestResults `
-          --logger "trx;LogFileName=test-results.trx"
+          --results-directory ./TestResults
 
     - name: Upload Test Results
       uses: actions/upload-artifact@v4
@@ -44,33 +42,6 @@ jobs:
         name: test-results
         path: ./TestResults
         retention-days: 30
-
-    - name: Generate Coverage Report
-      uses: danielpalme/ReportGenerator-GitHub-Action@5
-      with:
-        reports: '**/coverage.cobertura.xml'
-        targetdir: 'coveragereport'
-        reporttypes: 'HtmlInline;Cobertura;MarkdownSummaryGithub'
-
-    - name: Upload Coverage Report
-      uses: actions/upload-artifact@v4
-      with:
-        name: coverage-report
-        path: coveragereport
-        retention-days: 30
-
-    - name: Add Coverage PR Comment
-      uses: marocchino/sticky-pull-request-comment@v2
-      if: github.event_name == 'pull_request'
-      with:
-        recreate: true
-        path: coveragereport/SummaryGithub.md
-
-    - name: Write Coverage to Job Summary
-      run: |
-        if (Test-Path "coveragereport/SummaryGithub.md") {
-          Get-Content "coveragereport/SummaryGithub.md" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-        }
 
   build-cli-cross-platform:
     runs-on: ubuntu-latest
