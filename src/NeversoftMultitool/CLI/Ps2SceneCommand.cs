@@ -32,6 +32,10 @@ public static class Ps2SceneCommand
         {
             Description = "Enable verbose output"
         };
+        var skeletonOption = new Option<string?>("--ske")
+        {
+            Description = "Skeleton file (.ske.ps2) or directory. Auto-discovered for .skin.ps2 files if not specified."
+        };
 
         var command = new Command("ps2scene", "Convert PS2 scene files (MDL/SKIN) to glTF (.glb)");
         command.Arguments.Add(inputArgument);
@@ -39,6 +43,7 @@ public static class Ps2SceneCommand
         command.Options.Add(texturesOption);
         command.Options.Add(texPathOption);
         command.Options.Add(verboseOption);
+        command.Options.Add(skeletonOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -47,15 +52,16 @@ public static class Ps2SceneCommand
             var textures = parseResult.GetValue(texturesOption);
             var texPath = parseResult.GetValue(texPathOption);
             var verbose = parseResult.GetValue(verboseOption);
+            var skePath = parseResult.GetValue(skeletonOption);
 
-            return Task.FromResult(Execute(input, output, textures, texPath, verbose));
+            return Task.FromResult(Execute(input, output, textures, texPath, verbose, skePath));
         });
 
         return command;
     }
 
     private static int Execute(string input, string output, bool embedTextures,
-        string? texPath, bool verbose)
+        string? texPath, bool verbose, string? skePath = null)
     {
         List<string> files;
 
@@ -104,12 +110,44 @@ public static class Ps2SceneCommand
         Directory.CreateDirectory(output);
         AnsiConsole.MarkupLine($"Found [green]{files.Count}[/] PS2 scene file(s)");
 
+        // Pre-load explicit skeleton if provided
+        Ps2Skeleton? explicitSkeleton = null;
+        Dictionary<string, Ps2Skeleton>? skeletonCache = null;
+        if (skePath != null)
+        {
+            if (File.Exists(skePath))
+            {
+                explicitSkeleton = Ps2SkeletonFile.Parse(skePath);
+                AnsiConsole.MarkupLine(
+                    $"Loaded skeleton: [green]{explicitSkeleton.Bones.Length} bones[/]");
+            }
+            else if (Directory.Exists(skePath))
+            {
+                skeletonCache = new Dictionary<string, Ps2Skeleton>(StringComparer.OrdinalIgnoreCase);
+                foreach (var skeFile in Directory.GetFiles(skePath, "*.ske.ps2"))
+                {
+                    var skeStem = Path.GetFileName(skeFile).Replace(".ske.ps2", "", StringComparison.OrdinalIgnoreCase);
+                    try
+                    {
+                        skeletonCache[skeStem] = Ps2SkeletonFile.Parse(skeFile);
+                    }
+                    catch
+                    {
+                        // Skip unparseable skeleton files
+                    }
+                }
+                if (skeletonCache.Count > 0)
+                    AnsiConsole.MarkupLine($"Loaded [green]{skeletonCache.Count}[/] skeletons from directory");
+            }
+        }
+
         var stopwatch = Stopwatch.StartNew();
         var converted = 0;
         var failed = 0;
         var skipped = 0;
         var totalTriangles = 0;
         var texturedCount = 0;
+        var skinnedCount = 0;
 
         foreach (var file in files)
         {
@@ -129,7 +167,26 @@ public static class Ps2SceneCommand
 
             try
             {
-                var scene = Ps2SceneFile.Parse(file);
+                // Detect THUG2 pre-compiled DMA .skin.ps2 files before parsing
+                var fileData = File.ReadAllBytes(file);
+                if (fileData.Length >= 4 && BitConverter.ToInt32(fileData, 0) == 1
+                    && filename.EndsWith(".skin.ps2", StringComparison.OrdinalIgnoreCase))
+                {
+                    skipped++;
+                    if (verbose)
+                    {
+                        var iskinFile = file.Replace(".skin.ps2", ".iskin.ps2",
+                            StringComparison.OrdinalIgnoreCase);
+                        var iskinHint = File.Exists(iskinFile)
+                            ? " (matching .iskin.ps2 exists)"
+                            : "";
+                        AnsiConsole.MarkupLine(
+                            $"  {filename}: [yellow]pre-compiled VIF/DMA format, skipped{iskinHint}[/]");
+                    }
+                    continue;
+                }
+
+                var scene = Ps2SceneFile.Parse(fileData);
 
                 // Use per-file texture provider if we have a cache,
                 // or try auto-detecting a companion TEX file for this specific scene
@@ -148,7 +205,24 @@ public static class Ps2SceneCommand
                     }
                 }
 
-                var tris = Ps2SceneGltfWriter.Write(scene, outputPath, provider);
+                // Resolve skeleton: explicit > cache > auto-discover
+                var skeleton = explicitSkeleton;
+                if (skeleton == null && skeletonCache != null)
+                    skeletonCache.TryGetValue(stem, out skeleton);
+                if (skeleton == null && filename.Contains(".skin.", StringComparison.OrdinalIgnoreCase))
+                    skeleton = TryDiscoverSkeleton(file, stem);
+
+                int tris;
+                if (skeleton != null)
+                {
+                    tris = Ps2SceneGltfWriter.WriteSkinned(scene, skeleton, outputPath, provider);
+                    if (tris > 0) skinnedCount++;
+                }
+                else
+                {
+                    tris = Ps2SceneGltfWriter.Write(scene, outputPath, provider);
+                }
+
                 if (tris == 0)
                 {
                     skipped++;
@@ -166,9 +240,10 @@ public static class Ps2SceneCommand
                 if (verbose)
                 {
                     var texInfo = provider != null ? ", textured" : "";
+                    var skelInfo = skeleton != null ? $", {skeleton.Bones.Length} bones" : "";
                     AnsiConsole.MarkupLine(
                         $"  {filename}: [green]{scene.MeshGroups.Count} groups, " +
-                        $"{tris:N0} triangles{texInfo}[/]");
+                        $"{tris:N0} triangles{texInfo}{skelInfo}[/]");
                 }
             }
             catch (Exception ex)
@@ -181,10 +256,11 @@ public static class Ps2SceneCommand
 
         stopwatch.Stop();
         var texMsg = texturedCount > 0 ? $", {texturedCount} textured" : "";
+        var skelMsg = skinnedCount > 0 ? $", {skinnedCount} skinned" : "";
         var skipMsg = skipped > 0 ? $", {skipped} empty" : "";
         AnsiConsole.MarkupLine(
             $"Converted [green]{converted}[/]/{files.Count} files " +
-            $"({totalTriangles:N0} triangles, {failed} failed{skipMsg}{texMsg}) " +
+            $"({totalTriangles:N0} triangles, {failed} failed{skipMsg}{texMsg}{skelMsg}) " +
             $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
 
         return 0;
@@ -326,6 +402,39 @@ public static class Ps2SceneCommand
                     || name.EndsWith(".tex.ps2", StringComparison.OrdinalIgnoreCase);
             })
             .ToList();
+    }
+
+    /// <summary>
+    /// Auto-discover a companion .ske.ps2 file for a .skin.ps2 file.
+    /// Searches: same directory, sibling SKE/ directory.
+    /// </summary>
+    private static Ps2Skeleton? TryDiscoverSkeleton(string skinFile, string stem)
+    {
+        var dir = Path.GetDirectoryName(skinFile);
+        if (dir == null) return null;
+
+        // Search locations: same directory, sibling SKE/ directory
+        var parent = Path.GetDirectoryName(dir);
+        string?[] searchDirs = [dir, parent != null ? Path.Combine(parent, "SKE") : null];
+
+        foreach (var searchDir in searchDirs)
+        {
+            if (searchDir == null || !Directory.Exists(searchDir)) continue;
+
+            var skeFile = Path.Combine(searchDir, stem + ".ske.ps2");
+            if (!File.Exists(skeFile)) continue;
+
+            try
+            {
+                return Ps2SkeletonFile.Parse(skeFile);
+            }
+            catch
+            {
+                // Skip unparseable skeleton files
+            }
+        }
+
+        return null;
     }
 
     private static bool IsPs2SceneFile(string path)

@@ -40,7 +40,8 @@ public sealed class Ps2Material
 
     /// <summary>
     /// Returns the fixed-blend opacity (0-1) if RegALPHA uses FIXED_BLEND mode:
-    /// (Cs-Cd)*FIX/128 + Cd (A=0,B=1,C=2,D=1). Returns null for other modes.
+    /// (Cs-Cd)*FIX/128 + Cd (A=0,B=1,C=2,D=1). Returns null for other blend modes.
+    /// FIX=128 → 1.0 (fully opaque), FIX=0 → 0.0 (fully transparent).
     /// </summary>
     public float? FixedBlendOpacity
     {
@@ -52,7 +53,7 @@ public sealed class Ps2Material
             var d = (int)((RegAlpha >> 6) & 0x3);
             var fix = (int)((RegAlpha >> 32) & 0xFF);
             // (Cs-Cd)*FIX + Cd = standard alpha blend with fixed alpha
-            if (a == 0 && b == 1 && c == 2 && d == 1 && fix < 128)
+            if (a == 0 && b == 1 && c == 2 && d == 1)
                 return fix / 128f;
             return null;
         }
@@ -84,7 +85,7 @@ public sealed class Ps2Mesh
 }
 
 /// <summary>
-/// Vertex with position, normal, color, UV, and ADC strip restart flag.
+/// Vertex with position, normal, color, UV, skinning data, and ADC strip restart flag.
 /// All values are pre-converted to float (skinned sint16 positions and UVs are decoded).
 /// </summary>
 public readonly struct Ps2Vertex(
@@ -92,7 +93,10 @@ public readonly struct Ps2Vertex(
     byte r, byte g, byte b, byte a,
     float u, float v,
     bool hasNormal, bool hasColor, bool hasUV,
-    bool isStripRestart)
+    bool isStripRestart,
+    int boneIndex0 = 0, int boneIndex1 = 0, int boneIndex2 = 0,
+    float boneWeight0 = 0, float boneWeight1 = 0, float boneWeight2 = 0,
+    bool hasSkinData = false)
 {
     public readonly Vector3 Position = position;
     public readonly Vector3 Normal = normal;
@@ -107,6 +111,55 @@ public readonly struct Ps2Vertex(
     /// at this vertex, effectively starting a new triangle strip.
     /// </summary>
     public readonly bool IsStripRestart = isStripRestart;
+
+    /// <summary>Bone indices for skinned vertices (up to 3 influences).</summary>
+    public readonly int BoneIndex0 = boneIndex0, BoneIndex1 = boneIndex1, BoneIndex2 = boneIndex2;
+
+    /// <summary>Bone weights for skinned vertices (up to 3 influences, sum to ~1.0).</summary>
+    public readonly float BoneWeight0 = boneWeight0, BoneWeight1 = boneWeight1, BoneWeight2 = boneWeight2;
+
+    /// <summary>Whether this vertex has bone weight/index data for skinning.</summary>
+    public readonly bool HasSkinData = hasSkinData;
+}
+
+/// <summary>
+/// Parsed PS2 skeleton file (.ske.ps2).
+/// Contains bone hierarchy, neutral pose, and inverse bind matrices.
+/// Format: version(u32) + flags(u32) + numBones(i32) + 3×name tables + neutral poses.
+/// </summary>
+public sealed class Ps2Skeleton
+{
+    public required int Version { get; init; }
+    public required int Flags { get; init; }
+    public required Ps2Bone[] Bones { get; init; }
+
+    /// <summary>True if this is a female skeleton (flags bit 0).</summary>
+    public bool IsFemale => (Flags & 1) != 0;
+}
+
+/// <summary>
+/// Single bone in a PS2 skeleton.
+/// </summary>
+public sealed class Ps2Bone
+{
+    public required uint NameChecksum { get; init; }
+    public required uint ParentChecksum { get; init; }
+    public required uint FlipChecksum { get; init; }
+
+    /// <summary>Resolved index of the parent bone (-1 for root).</summary>
+    public required int ParentIndex { get; init; }
+
+    /// <summary>Local rotation (parent-relative) from the .ske file.</summary>
+    public required Quaternion LocalRotation { get; init; }
+
+    /// <summary>Local translation (parent-relative) from the .ske file.</summary>
+    public required Vector3 LocalTranslation { get; init; }
+
+    /// <summary>
+    /// Inverse bind matrix computed from the neutral pose hierarchy.
+    /// Transforms from model space to bone-local space.
+    /// </summary>
+    public required Matrix4x4 InverseBindMatrix { get; init; }
 }
 
 /// <summary>

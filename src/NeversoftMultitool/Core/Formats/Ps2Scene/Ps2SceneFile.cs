@@ -54,6 +54,14 @@ public static class Ps2SceneFile
         var meshVersion = r.ReadInt32();
         var vertVersion = r.ReadInt32();
 
+        // THUG2 .skin.ps2 files use format marker 1 for pre-compiled VIF/DMA rendering
+        // chains (bones pre-baked, lighting pre-computed). The matching .iskin.ps2 file
+        // contains the same mesh in the standard parseable scene format.
+        if (matVersion == 1)
+            throw new InvalidDataException(
+                $"THUG2 pre-compiled VIF/DMA format (version {matVersion},{meshVersion},{vertVersion})" +
+                " — use matching .iskin.ps2 file instead");
+
         // Materials (per material.cpp LoadMaterials)
         var numMaterials = r.ReadInt32();
         var materials = new List<Ps2Material>(numMaterials);
@@ -347,13 +355,22 @@ public static class Ps2SceneFile
             }
         }
 
-        // Skin data (skip for static mesh output)
-        if (isSkinned)
+        // Skin data — THPS4 only (meshVer <= 4): 2×f32 weights + pad(4B) + 2×u32 bones + pad(4B)
+        int bi0 = 0, bi1 = 0, bi2 = 0;
+        float bw0 = 0, bw1 = 0, bw2 = 0;
+        var hasSkin = false;
+        if (isSkinned && meshVer <= 4)
         {
-            if (meshVer <= 4)
-                r.BaseStream.Seek(24, SeekOrigin.Current); // 2×f32 weights + pad + 2×u32 bones + pad
-            // THUG/THUG2 skinned uses packed path (ReadVertexPacked), not this function
+            bw0 = r.ReadSingle();
+            bw1 = r.ReadSingle();
+            r.BaseStream.Seek(4, SeekOrigin.Current); // pad
+            bi0 = (int)r.ReadUInt32();
+            bi1 = (int)r.ReadUInt32();
+            r.BaseStream.Seek(4, SeekOrigin.Current); // pad
+            bw2 = 0; bi2 = 0; // THPS4 uses 2 bones max
+            hasSkin = true;
         }
+        // THUG/THUG2 skinned uses packed path (ReadVertexPacked), not this function
 
         // Position (3 floats) + ADC (u32)
         var px = r.ReadSingle();
@@ -367,7 +384,8 @@ public static class Ps2SceneFile
             cr, cg, cb, ca,
             u, v,
             hasNormals, hasColours, hasTexture,
-            (adc & 0x8000) != 0);
+            (adc & 0x8000) != 0,
+            bi0, bi1, bi2, bw0, bw1, bw2, hasSkin);
     }
 
     /// <summary>
@@ -401,8 +419,19 @@ public static class Ps2SceneFile
         if (hasNormals)
             DecodePackedNormal(r, out nx, out ny, out nz);
 
-        // Skin data — 4 bytes weights + 4 bytes bone indices (skip for static mesh)
-        r.BaseStream.Seek(8, SeekOrigin.Current);
+        // Skin data — 2×sint16 weights + 4×uint8 bone indices
+        // From THUG mesh.cpp VertexWeights(): w2 = 0x7FFF - w0 - w1 (3 bones max).
+        // Bone indices: only [0],[1],[2] used (packed into normals via <<2 in VU1).
+        var sw0 = r.ReadInt16();
+        var sw1 = r.ReadInt16();
+        var bi0 = r.ReadByte();
+        var bi1 = r.ReadByte();
+        var bi2 = r.ReadByte();
+        _ = r.ReadByte(); // unused 4th index
+        const float weightScale = 1f / 32767f;
+        var bw0 = sw0 * weightScale;
+        var bw1 = sw1 * weightScale;
+        var bw2 = (32767 - sw0 - sw1) * weightScale;
 
         // Position — 3×sint16, scaled by SUB_INCH_PRECISION inverse (1/16)
         var px = r.ReadInt16() * SkinPositionScale;
@@ -416,7 +445,8 @@ public static class Ps2SceneFile
             cr, cg, cb, ca,
             u, v,
             hasNormals, hasColours, hasTexture,
-            (adc & 0x8000) != 0);
+            (adc & 0x8000) != 0,
+            bi0, bi1, bi2, bw0, bw1, bw2, hasSkinData: true);
     }
 
     /// <summary>

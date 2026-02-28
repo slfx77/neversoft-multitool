@@ -19,6 +19,14 @@ using VERTEX = VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexE
 public static class Ps2SceneGltfWriter
 {
     /// <summary>
+    /// Minimum FIX value (0-128 scale) at or above which FixBlend materials are treated
+    /// as OPAQUE instead of BLEND. 96/128 = 75% opacity. High-FIX materials are nearly
+    /// opaque; marking them BLEND causes z-sorting artifacts in glTF viewers that don't
+    /// depth-sort transparent geometry.
+    /// </summary>
+    private const int FixBlendOpaqueThreshold = 96;
+
+    /// <summary>
     /// Delegate that resolves a texture checksum to PNG bytes for embedding in glTF.
     /// Returns null if the texture cannot be resolved.
     /// </summary>
@@ -79,6 +87,145 @@ public static class Ps2SceneGltfWriter
         model.SaveGLB(outputPath);
 
         return totalTriangles;
+    }
+
+    /// <summary>
+    /// Writes a parsed PS2 scene with skeleton to a skinned .glb file.
+    /// Creates bone hierarchy, JOINTS_0/WEIGHTS_0 vertex attributes, and inverse bind matrices.
+    /// </summary>
+    public static int WriteSkinned(Ps2Scene ps2Scene, Ps2Skeleton skeleton, string outputPath,
+        TextureProvider? textureProvider = null)
+    {
+        var directory = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        var scene = new SceneBuilder();
+        var materialCache = new Dictionary<uint, MaterialBuilder>();
+        var totalTriangles = 0;
+
+        // Build skeleton hierarchy as NodeBuilder tree
+        var jointNodes = new NodeBuilder[skeleton.Bones.Length];
+        for (var i = 0; i < skeleton.Bones.Length; i++)
+        {
+            var bone = skeleton.Bones[i];
+            var boneName = QbKey.TryResolve(bone.NameChecksum) ?? $"bone_{bone.NameChecksum:X8}";
+
+            if (bone.ParentIndex < 0)
+            {
+                // Root bone
+                jointNodes[i] = new NodeBuilder(boneName);
+            }
+            else
+            {
+                // Child bone — create under parent
+                jointNodes[i] = jointNodes[bone.ParentIndex].CreateNode(boneName);
+            }
+
+            // Set local transform from skeleton neutral pose
+            jointNodes[i].LocalTransform = new SharpGLTF.Transforms.AffineTransform(
+                null,  // scale
+                bone.LocalRotation,
+                bone.LocalTranslation);
+        }
+
+        // Build skinned mesh with VertexJoints4
+        var gltfMesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4>("skinned_mesh");
+
+        foreach (var group in ps2Scene.MeshGroups)
+        {
+            if (group.Meshes.Count == 0) continue;
+
+            foreach (var mesh in group.Meshes)
+            {
+                if (mesh.Vertices.Length < 3) continue;
+
+                var material = GetOrCreateMaterial(ps2Scene.Materials, mesh.MaterialChecksum,
+                    materialCache, textureProvider);
+                var prim = gltfMesh.UsePrimitive(material);
+
+                var tris = AddSkinnedTriangleStrip(prim, mesh.Vertices);
+                totalTriangles += tris;
+            }
+        }
+
+        if (totalTriangles == 0)
+            return 0;
+
+        // Add the skinned mesh with joint bindings
+        scene.AddSkinnedMesh(gltfMesh, Matrix4x4.Identity, jointNodes);
+
+        var model = scene.ToGltf2();
+        model.SaveGLB(outputPath);
+
+        return totalTriangles;
+    }
+
+    /// <summary>
+    /// Converts ADC-flagged triangle strips to individual triangles with joint/weight data.
+    /// </summary>
+    private static int AddSkinnedTriangleStrip(
+        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexJoints4> prim,
+        Ps2Vertex[] verts)
+    {
+        var count = 0;
+        for (var i = 2; i < verts.Length; i++)
+        {
+            if (verts[i].IsStripRestart) continue;
+
+            VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4> va, vb, vc;
+            if (i % 2 == 0)
+            {
+                va = MakeSkinnedVertex(verts[i - 2]);
+                vb = MakeSkinnedVertex(verts[i - 1]);
+                vc = MakeSkinnedVertex(verts[i]);
+            }
+            else
+            {
+                va = MakeSkinnedVertex(verts[i - 1]);
+                vb = MakeSkinnedVertex(verts[i - 2]);
+                vc = MakeSkinnedVertex(verts[i]);
+            }
+
+            prim.AddTriangle(va, vb, vc);
+            count++;
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// Creates a glTF vertex with skinning data from a PS2 vertex.
+    /// </summary>
+    private static VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4> MakeSkinnedVertex(
+        in Ps2Vertex v)
+    {
+        // Position and normal (same as rigid MakeVertex)
+        var pos = v.Position;
+        var normal = Vector3.UnitY;
+        if (v.HasNormal)
+        {
+            var len = v.Normal.Length();
+            normal = len > 0.001f ? v.Normal / len : Vector3.UnitY;
+        }
+
+        var r = Math.Min(v.R / 128f, 1f);
+        var g = Math.Min(v.G / 128f, 1f);
+        var b = Math.Min(v.B / 128f, 1f);
+        var a = Math.Min(v.A / 128f, 1f);
+        var uv = v.HasUV ? new Vector2(v.U, 1f - v.V) : Vector2.Zero;
+
+        // Build joint weights — up to 3 bone influences
+        var skinning = v.HasSkinData
+            ? new VertexJoints4(
+                (v.BoneIndex0, v.BoneWeight0),
+                (v.BoneIndex1, v.BoneWeight1),
+                (v.BoneIndex2, v.BoneWeight2))
+            : new VertexJoints4((0, 1f)); // fallback: 100% bone 0
+
+        return new VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4>(
+            new VertexPositionNormal(pos, normal),
+            new VertexColor1Texture1(new Vector4(r, g, b, a), uv),
+            skinning);
     }
 
     /// <summary>
@@ -283,17 +430,24 @@ public static class Ps2SceneGltfWriter
         }
         else if (!isOpaqueBlend)
         {
-            builder.WithAlpha(AlphaMode.BLEND);
-
             // Fixed-blend opacity: C field (bits 4-5) == 2 means FIX mode.
             // FIX value in ALPHA_1 bits 32-39. Opacity = FIX/128.
+            // High FIX values (>= threshold) are treated as OPAQUE to avoid
+            // z-sorting artifacts in glTF viewers that don't depth-sort BLEND.
             if (cField == 2)
             {
                 var fix = (byte)((alpha1 >> 32) & 0xFF);
-                if (fix < 128)
+                if (fix < FixBlendOpaqueThreshold)
                 {
+                    builder.WithAlpha(AlphaMode.BLEND);
                     builder.WithBaseColor(new Vector4(1f, 1f, 1f, fix / 128f));
                 }
+                // else: fix >= threshold → leave as default OPAQUE
+            }
+            else
+            {
+                // Non-FIX blend modes (source-alpha, dest-alpha) → always BLEND
+                builder.WithAlpha(AlphaMode.BLEND);
             }
         }
         else if (ate && aref >= 1)
@@ -432,14 +586,22 @@ public static class Ps2SceneGltfWriter
             var isTransparent = (mat.Flags & (uint)Ps2MaterialFlags.Transparent) != 0;
             if (isTransparent)
             {
-                builder.WithAlpha(AlphaMode.BLEND);
-
-                // Apply fixed-blend opacity from RegALPHA if available.
-                // E.g., ghost models use FIX=50 → 39% opacity.
+                // Check if this is a high-opacity fixed-blend that should be OPAQUE.
                 var fixedOpacity = mat.FixedBlendOpacity;
-                if (fixedOpacity.HasValue)
+                if (fixedOpacity.HasValue && fixedOpacity.Value >= FixBlendOpaqueThreshold / 128f)
                 {
-                    builder.WithBaseColor(new Vector4(1f, 1f, 1f, fixedOpacity.Value));
+                    // Near-opaque fixed blend: leave as default OPAQUE to avoid z-sorting artifacts.
+                }
+                else
+                {
+                    builder.WithAlpha(AlphaMode.BLEND);
+
+                    // Apply fixed-blend opacity from RegALPHA if available.
+                    // E.g., ghost models use FIX=50 → 39% opacity.
+                    if (fixedOpacity.HasValue)
+                    {
+                        builder.WithBaseColor(new Vector4(1f, 1f, 1f, fixedOpacity.Value));
+                    }
                 }
             }
             else if (mat.AlphaRef >= 1)
