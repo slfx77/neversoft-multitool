@@ -104,7 +104,7 @@ public class PshFileTests(TestPaths paths)
     [Fact]
     public void Parse_NonexistentFile_ReturnsNull()
     {
-        var result = PshFile.Parse(@"C:\nonexistent\fake.psh");
+        var result = PshFile.Parse(Path.Combine(Path.GetTempPath(), "nonexistent", "fake.psh"));
         Assert.Null(result);
     }
 }

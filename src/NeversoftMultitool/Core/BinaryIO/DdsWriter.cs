@@ -3,7 +3,7 @@ using NeversoftMultitool.Core.Formats.Psx;
 namespace NeversoftMultitool.Core;
 
 /// <summary>
-/// Writes 16-bit pixel data to DDS (DirectDraw Surface) files.
+///     Writes 16-bit pixel data to DDS (DirectDraw Surface) files.
 /// </summary>
 public static class DdsWriter
 {
@@ -30,7 +30,7 @@ public static class DdsWriter
     private const uint DdsCapsMipmap = 0x400000;
 
     /// <summary>
-    /// Writes raw 16-bit pixel data to a DDS file (single surface, no mipmaps).
+    ///     Writes raw 16-bit pixel data to a DDS file (single surface, no mipmaps).
     /// </summary>
     public static void WriteDds(string outputPath, int width, int height, ColorFormat format, ushort[] pixelData)
     {
@@ -46,8 +46,8 @@ public static class DdsWriter
     }
 
     /// <summary>
-    /// Writes a DDS file with a complete mip chain.
-    /// Levels in mipChain.Levels are ordered largest to smallest (DDS convention).
+    ///     Writes a DDS file with a complete mip chain.
+    ///     Levels in mipChain.Levels are ordered largest to smallest (DDS convention).
     /// </summary>
     public static void WriteDds(string outputPath, ColorFormat format, PvrMipChain mipChain)
     {
@@ -82,35 +82,35 @@ public static class DdsWriter
         writer.Write(DdsMagic);
 
         // DDS_HEADER
-        writer.Write(HeaderSize);                                                   // dwSize
-        writer.Write(hasMips ? DefaultFlags | DdsdMipmapCount : DefaultFlags);      // dwFlags
-        writer.Write((uint)height);                                                 // dwHeight
-        writer.Write((uint)width);                                                  // dwWidth
-        writer.Write((uint)pitch);                                                  // dwPitchOrLinearSize
-        writer.Write(0u);                                                           // dwDepth
-        writer.Write((uint)mipMapCount);                                            // dwMipMapCount
-        for (var i = 0; i < 11; i++)                                                // dwReserved1[11]
+        writer.Write(HeaderSize); // dwSize
+        writer.Write(hasMips ? DefaultFlags | DdsdMipmapCount : DefaultFlags); // dwFlags
+        writer.Write((uint)height); // dwHeight
+        writer.Write((uint)width); // dwWidth
+        writer.Write((uint)pitch); // dwPitchOrLinearSize
+        writer.Write(0u); // dwDepth
+        writer.Write((uint)mipMapCount); // dwMipMapCount
+        for (var i = 0; i < 11; i++) // dwReserved1[11]
             writer.Write(0u);
 
         // DDS_PIXELFORMAT (embedded in header)
-        writer.Write(PixelFormatSize);     // dwSize
-        writer.Write(pfFlags);             // dwFlags
-        writer.Write(0u);                  // dwFourCC
-        writer.Write(16u);                 // dwRGBBitCount
-        writer.Write(rMask);              // dwRBitMask
-        writer.Write(gMask);              // dwGBitMask
-        writer.Write(bMask);              // dwBBitMask
-        writer.Write(aMask);              // dwABitMask
+        writer.Write(PixelFormatSize); // dwSize
+        writer.Write(pfFlags); // dwFlags
+        writer.Write(0u); // dwFourCC
+        writer.Write(16u); // dwRGBBitCount
+        writer.Write(rMask); // dwRBitMask
+        writer.Write(gMask); // dwGBitMask
+        writer.Write(bMask); // dwBBitMask
+        writer.Write(aMask); // dwABitMask
 
         // Back to DDS_HEADER
         var caps = hasMips
             ? DdsCapsTexture | DdsCapsComplex | DdsCapsMipmap
             : DdsCapsTexture;
-        writer.Write(caps);                // dwCaps
-        writer.Write(0u);                  // dwCaps2
-        writer.Write(0u);                  // dwCaps3
-        writer.Write(0u);                  // dwCaps4
-        writer.Write(0u);                  // dwReserved2
+        writer.Write(caps); // dwCaps
+        writer.Write(0u); // dwCaps2
+        writer.Write(0u); // dwCaps3
+        writer.Write(0u); // dwCaps4
+        writer.Write(0u); // dwReserved2
     }
 
     private static (uint flags, uint rMask, uint gMask, uint bMask, uint aMask) GetPixelFormatMasks(ColorFormat format)

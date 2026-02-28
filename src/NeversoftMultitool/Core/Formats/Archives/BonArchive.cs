@@ -4,16 +4,16 @@ using NeversoftMultitool.Core.Formats.Psx;
 namespace NeversoftMultitool.Core.Formats.Archives;
 
 /// <summary>
-/// Extracts textures from Neversoft BON (Bone) model archives.
-/// BON files bundle textures, mesh geometry, and skeleton data into a single file.
-/// Supports Xbox versions 3/4 (DDS textures) and Dreamcast version 1 (PVR textures decoded to PNG).
+///     Extracts textures from Neversoft BON (Bone) model archives.
+///     BON files bundle textures, mesh geometry, and skeleton data into a single file.
+///     Supports Xbox versions 3/4 (DDS textures) and Dreamcast version 1 (PVR textures decoded to PNG).
 /// </summary>
 public static class BonArchive
 {
     private static readonly byte[] Magic = "Bon\0"u8.ToArray();
 
     /// <summary>
-    /// Reads the texture list from a BON archive.
+    ///     Reads the texture list from a BON archive.
     /// </summary>
     public static List<ArchiveEntry> GetFileList(string bonPath)
     {
@@ -28,9 +28,9 @@ public static class BonArchive
     }
 
     /// <summary>
-    /// Extracts all textures from a BON archive.
-    /// Xbox (v3/v4): extracts raw DDS files.
-    /// Dreamcast (v1): decodes PVR textures to PNG.
+    ///     Extracts all textures from a BON archive.
+    ///     Xbox (v3/v4): extracts raw DDS files.
+    ///     Dreamcast (v1): decodes PVR textures to PNG.
     /// </summary>
     public static void ExtractFiles(string bonPath, string outputDir,
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)
@@ -98,9 +98,9 @@ public static class BonArchive
     }
 
     /// <summary>
-    /// Parses Dreamcast BON v1 texture entries.
-    /// V1 uses uint8 name lengths, 7 material floats, a hasTexture flag,
-    /// and embeds PVR textures (GBIX+PVRT) instead of DDS.
+    ///     Parses Dreamcast BON v1 texture entries.
+    ///     V1 uses uint8 name lengths, 7 material floats, a hasTexture flag,
+    ///     and embeds PVR textures (GBIX+PVRT) instead of DDS.
     /// </summary>
     private static List<ArchiveEntry> ReadV1Entries(BinaryReader reader, Stream stream, int textureCount)
     {
@@ -154,9 +154,9 @@ public static class BonArchive
     }
 
     /// <summary>
-    /// Parses Xbox BON v3/v4 texture entries.
-    /// V3/V4 use uint16 name lengths, RGBA bytes + 2 floats + 1 flag,
-    /// and embed DDS textures.
+    ///     Parses Xbox BON v3/v4 texture entries.
+    ///     V3/V4 use uint16 name lengths, RGBA bytes + 2 floats + 1 flag,
+    ///     and embed DDS textures.
     /// </summary>
     private static List<ArchiveEntry> ReadV3V4Entries(BinaryReader reader, Stream stream, int textureCount)
     {
@@ -169,9 +169,9 @@ public static class BonArchive
             reader.ReadBytes(displayNameLen);
 
             // Material properties: RGBA (4 bytes) + 2 floats + has-texture flag
-            reader.ReadBytes(4);  // RGBA color
-            reader.ReadBytes(4);  // float specular
-            reader.ReadBytes(4);  // float glossiness
+            reader.ReadBytes(4); // RGBA color
+            reader.ReadBytes(4); // float specular
+            reader.ReadBytes(4); // float glossiness
             var hasTexture = reader.ReadByte();
 
             if (hasTexture == 0)

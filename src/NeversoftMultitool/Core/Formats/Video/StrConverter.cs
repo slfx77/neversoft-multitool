@@ -1,17 +1,18 @@
 using System.Diagnostics;
+using System.Text;
 using NeversoftMultitool.Core.Formats.Audio;
 
 namespace NeversoftMultitool.Core.Formats.Video;
 
 /// <summary>
-/// Converts PS1 STR (MDEC) video files to MP4.
-/// Pipeline: demux → decode frames (MdecDecoder) → pipe raw RGB to ffmpeg stdin.
-/// Audio: extract XA sectors → XaDecoder → temp WAV → ffmpeg muxes audio+video.
+///     Converts PS1 STR (MDEC) video files to MP4.
+///     Pipeline: demux → decode frames (MdecDecoder) → pipe raw RGB to ffmpeg stdin.
+///     Audio: extract XA sectors → XaDecoder → temp WAV → ffmpeg muxes audio+video.
 /// </summary>
 public static class StrConverter
 {
     /// <summary>
-    /// Probes an STR file for metadata without fully decoding it.
+    ///     Probes an STR file for metadata without fully decoding it.
     /// </summary>
     public static StrProbeResult? Probe(string inputPath)
     {
@@ -41,7 +42,7 @@ public static class StrConverter
     }
 
     /// <summary>
-    /// Converts an STR file to MP4 using MDEC decoding + ffmpeg encoding.
+    ///     Converts an STR file to MP4 using MDEC decoding + ffmpeg encoding.
     /// </summary>
     public static SfdConvertResult ConvertToMp4(
         string inputPath,
@@ -156,7 +157,7 @@ public static class StrConverter
             CreateNoWindow = true
         };
 
-        var stderrOutput = new System.Text.StringBuilder();
+        var stderrOutput = new StringBuilder();
         process.ErrorDataReceived += (_, e) =>
         {
             if (e.Data != null)
@@ -176,7 +177,15 @@ public static class StrConverter
             return new SfdConvertResult { ErrorMessage = "Cancelled" };
         }
 
-        try { process.StandardInput.BaseStream.Close(); } catch { /* pipe may already be broken */ }
+        try
+        {
+            process.StandardInput.BaseStream.Close();
+        }
+        catch
+        {
+            /* pipe may already be broken */
+        }
+
         process.WaitForExit(60_000);
 
         // Pipe break with exit code 0 is normal when -shortest ends encoding early
@@ -195,7 +204,7 @@ public static class StrConverter
         return new SfdConvertResult { Success = true, OutputPath = outputPath };
     }
 
-    private static bool PipeFrames(Stream stdin, List<StrDemuxer.StrFrame> frames,
+    private static void PipeFrames(Stream stdin, List<StrDemuxer.StrFrame> frames,
         int width, int height, IProgress<double>? progress,
         CancellationToken cancellationToken, out bool cancelled)
     {
@@ -205,7 +214,7 @@ public static class StrConverter
             if (cancellationToken.IsCancellationRequested)
             {
                 cancelled = true;
-                return false;
+                return;
             }
 
             try
@@ -215,24 +224,35 @@ public static class StrConverter
             }
             catch (IOException)
             {
-                return true; // ffmpeg died — pipe broken
+                return; // ffmpeg died — pipe broken
             }
             catch
             {
                 // Decode error — write black frame
-                try { stdin.Write(new byte[width * height * 3]); }
-                catch (IOException) { return true; }
+                try
+                {
+                    stdin.Write(new byte[width * height * 3]);
+                }
+                catch (IOException)
+                {
+                    return;
+                }
             }
 
             progress?.Report((double)(i + 1) / frames.Count);
         }
-
-        return false;
     }
 
     private static void TryDeleteFile(string? path)
     {
         if (path == null) return;
-        try { File.Delete(path); } catch { /* best effort */ }
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+            /* best effort */
+        }
     }
 }

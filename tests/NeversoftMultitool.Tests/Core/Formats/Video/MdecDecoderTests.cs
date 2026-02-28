@@ -40,7 +40,10 @@ public class MdecDecoderTests(TestPaths paths)
                     if (fs.Read(header, 0, 4) < 4) return false;
                     return !(header[0] == 'A' && header[1] == 'F' && header[2] == 'S' && header[3] == 0);
                 }
-                catch { return false; }
+                catch
+                {
+                    return false;
+                }
             })
             .ToArray();
     }
@@ -158,7 +161,8 @@ public class MdecDecoderTests(TestPaths paths)
         // Verify not all black (at least some non-zero pixels)
         var nonZero = 0;
         for (var i = 0; i < rgb.Length; i++)
-            if (rgb[i] != 0) nonZero++;
+            if (rgb[i] != 0)
+                nonZero++;
 
         Assert.True(nonZero > rgb.Length / 10,
             $"Expected >10% non-zero pixels, got {nonZero}/{rgb.Length} ({100.0 * nonZero / rgb.Length:F1}%)");
@@ -228,7 +232,7 @@ public class MdecDecoderTests(TestPaths paths)
     [Fact]
     public void Probe_InvalidFile_ReturnsNull()
     {
-        var tempFile = Path.GetTempFileName();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"mdec_test_{Guid.NewGuid():N}.tmp");
         try
         {
             File.WriteAllBytes(tempFile, new byte[100]);

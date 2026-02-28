@@ -1,7 +1,9 @@
+using System.Text;
+
 namespace NeversoftMultitool.Core.Formats.Rle;
 
 /// <summary>
-/// Result of converting a single RLE/BMR file.
+///     Result of converting a single RLE/BMR file.
 /// </summary>
 public sealed class RleConversionResult
 {
@@ -14,7 +16,7 @@ public sealed class RleConversionResult
 }
 
 /// <summary>
-/// Converts Neversoft RLE and BMR bitmap files to RGB pixel data.
+///     Converts Neversoft RLE and BMR bitmap files to RGB pixel data.
 /// </summary>
 public static class RleImage
 {
@@ -24,7 +26,7 @@ public static class RleImage
     private static readonly HashSet<long> PreferredHeights = [240, 256, 480, 512];
 
     /// <summary>
-    /// Detects the image width for an RLE or BMR file without fully decoding it.
+    ///     Detects the image width for an RLE or BMR file without fully decoding it.
     /// </summary>
     public static int DetectWidth(string filePath)
     {
@@ -34,7 +36,7 @@ public static class RleImage
     }
 
     /// <summary>
-    /// Converts an RLE or BMR file to RGB pixel data with auto-detected width.
+    ///     Converts an RLE or BMR file to RGB pixel data with auto-detected width.
     /// </summary>
     public static RleConversionResult Convert(string filePath)
     {
@@ -54,7 +56,7 @@ public static class RleImage
     }
 
     /// <summary>
-    /// Converts an RLE or BMR file to RGB pixel data.
+    ///     Converts an RLE or BMR file to RGB pixel data.
     /// </summary>
     public static RleConversionResult Convert(string filePath, int width)
     {
@@ -106,17 +108,17 @@ public static class RleImage
     }
 
     /// <summary>
-    /// Check if the file starts with the _RLE_16_ magic number.
+    ///     Check if the file starts with the _RLE_16_ magic number.
     /// </summary>
     private static bool VerifyFileIsRle(BinaryReader reader)
     {
         var bytes = reader.ReadBytes(8);
-        var magic = System.Text.Encoding.ASCII.GetString(bytes);
+        var magic = Encoding.ASCII.GetString(bytes);
         return magic == RleMagic;
     }
 
     /// <summary>
-    /// Convert a 16-bit RGBA5551 color to 24-bit RGB.
+    ///     Convert a 16-bit RGBA5551 color to 24-bit RGB.
     /// </summary>
     private static RgbColor ConvertRgba5551ToRgb(ushort rgba5551)
     {
@@ -127,7 +129,7 @@ public static class RleImage
     }
 
     /// <summary>
-    /// Load a raw BMR bitmap file.
+    ///     Load a raw BMR bitmap file.
     /// </summary>
     private static List<List<RgbColor>> LoadBmr(BinaryReader reader, int width)
     {
@@ -153,7 +155,7 @@ public static class RleImage
     }
 
     /// <summary>
-    /// Load and decompress an RLE-encoded bitmap file.
+    ///     Load and decompress an RLE-encoded bitmap file.
     /// </summary>
     private static List<List<RgbColor>> LoadRle(BinaryReader reader, int maxWidth)
     {
@@ -161,8 +163,8 @@ public static class RleImage
         var fileSize = reader.BaseStream.Length;
         reader.BaseStream.Seek(headerLength, SeekOrigin.Begin);
 
-        var decompressedFileSize = reader.ReadUInt32() - (uint)headerLength;
-        var totalRows = (int)((decompressedFileSize / 2) / (uint)maxWidth);
+        var decompressedFileSize = reader.ReadUInt32() - headerLength;
+        var totalRows = (int)(decompressedFileSize / 2 / (uint)maxWidth);
 
         var canvas = new List<List<RgbColor>>();
         var row = new List<RgbColor>();
@@ -220,7 +222,7 @@ public static class RleImage
     }
 
     /// <summary>
-    /// Reads total pixel count from an RLE or BMR file without fully decoding it.
+    ///     Reads total pixel count from an RLE or BMR file without fully decoding it.
     /// </summary>
     private static long GetTotalPixelCount(string filePath, string ext)
     {
@@ -241,8 +243,8 @@ public static class RleImage
     }
 
     /// <summary>
-    /// Guesses image width from total pixel count by trying common widths.
-    /// Prefers candidates that produce standard PS1 display heights (240, 256, 480, 512).
+    ///     Guesses image width from total pixel count by trying common widths.
+    ///     Prefers candidates that produce standard PS1 display heights (240, 256, 480, 512).
     /// </summary>
     internal static int GuessWidth(long totalPixels)
     {
@@ -270,9 +272,9 @@ public static class RleImage
     }
 
     /// <summary>
-    /// Checks if an RLE file contains a BMP wrapped inside the RLE stream.
-    /// Some Dreamcast RLE files (Spider-Man DC) decompress to 24-bit BMP data
-    /// instead of raw RGBA5551 pixels.
+    ///     Checks if an RLE file contains a BMP wrapped inside the RLE stream.
+    ///     Some Dreamcast RLE files (Spider-Man DC) decompress to 24-bit BMP data
+    ///     instead of raw RGBA5551 pixels.
     /// </summary>
     private static bool IsBmpWrappedRle(BinaryReader reader)
     {
@@ -299,8 +301,8 @@ public static class RleImage
     }
 
     /// <summary>
-    /// Decompresses RLE data to raw uint16 values.
-    /// Expects the reader to be positioned at the start of the compressed data (offset 12).
+    ///     Decompresses RLE data to raw uint16 values.
+    ///     Expects the reader to be positioned at the start of the compressed data (offset 12).
     /// </summary>
     private static List<ushort> DecompressRle(BinaryReader reader)
     {
@@ -332,8 +334,8 @@ public static class RleImage
     }
 
     /// <summary>
-    /// Decompresses an RLE stream and parses the result as a 24-bit BMP file.
-    /// Used for Dreamcast RLE files where the compressed data wraps a BMP.
+    ///     Decompresses an RLE stream and parses the result as a 24-bit BMP file.
+    ///     Used for Dreamcast RLE files where the compressed data wraps a BMP.
     /// </summary>
     private static RleConversionResult LoadRleAsBmp(BinaryReader reader)
     {
@@ -354,7 +356,7 @@ public static class RleImage
     }
 
     /// <summary>
-    /// Parses a 24-bit BMP byte array into an RleConversionResult.
+    ///     Parses a 24-bit BMP byte array into an RleConversionResult.
     /// </summary>
     private static RleConversionResult ParseBmpBytes(byte[] bytes)
     {
@@ -371,7 +373,7 @@ public static class RleImage
         if (bpp != 24)
             return new RleConversionResult { ErrorMessage = $"Unsupported BMP bit depth in RLE: {bpp}" };
 
-        var rowStride = ((width * 3 + 3) / 4) * 4; // BMP rows are 4-byte aligned
+        var rowStride = (width * 3 + 3) / 4 * 4; // BMP rows are 4-byte aligned
         var rgbPixels = new byte[width * height * 3];
 
         for (var y = 0; y < height; y++)
@@ -401,7 +403,7 @@ public static class RleImage
     }
 
     /// <summary>
-    /// Flatten a 2D canvas of colors to a flat RGB byte array.
+    ///     Flatten a 2D canvas of colors to a flat RGB byte array.
     /// </summary>
     private static byte[] FlattenToRgb(List<List<RgbColor>> canvas, int width)
     {
@@ -430,6 +432,6 @@ public static class RleImage
 }
 
 /// <summary>
-/// Simple RGB color value.
+///     Simple RGB color value.
 /// </summary>
 internal readonly record struct RgbColor(byte R, byte G, byte B);

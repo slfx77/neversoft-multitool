@@ -48,10 +48,8 @@ public class PkrArchiveTests(TestPaths paths)
             Directory.CreateDirectory(tempDir);
 
             var extractedCount = 0;
-            PkrArchive.ExtractFiles(pkrPath, tempDir, (current, total) =>
-            {
-                extractedCount = current;
-            }, TestContext.Current.CancellationToken);
+            PkrArchive.ExtractFiles(pkrPath, tempDir, (current, total) => { extractedCount = current; },
+                TestContext.Current.CancellationToken);
 
             Assert.Equal(4, extractedCount);
 

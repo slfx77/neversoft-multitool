@@ -5,12 +5,12 @@ namespace NeversoftMultitool.Tests.Core.Formats.Psx;
 public class MortonCurveTests
 {
     [Theory]
-    [InlineData(0, 4, 4, 0)]   // Index 0 → (0,0) → 0*4+0 = 0
-    [InlineData(1, 4, 4, 1)]   // Index 1 → (1,0) → 0*4+1 = 1
-    [InlineData(2, 4, 4, 4)]   // Index 2 → (0,1) → 1*4+0 = 4
-    [InlineData(3, 4, 4, 5)]   // Index 3 → (1,1) → 1*4+1 = 5
-    [InlineData(4, 4, 4, 2)]   // Index 4 → (2,0) → 0*4+2 = 2
-    [InlineData(5, 4, 4, 3)]   // Index 5 → (3,0) → 0*4+3 = 3
+    [InlineData(0, 4, 4, 0)] // Index 0 → (0,0) → 0*4+0 = 0
+    [InlineData(1, 4, 4, 1)] // Index 1 → (1,0) → 0*4+1 = 1
+    [InlineData(2, 4, 4, 4)] // Index 2 → (0,1) → 1*4+0 = 4
+    [InlineData(3, 4, 4, 5)] // Index 3 → (1,1) → 1*4+1 = 5
+    [InlineData(4, 4, 4, 2)] // Index 4 → (2,0) → 0*4+2 = 2
+    [InlineData(5, 4, 4, 3)] // Index 5 → (3,0) → 0*4+3 = 3
     public void Morton_KnownIndices_ReturnsExpected(int index, int width, int height, int expected)
     {
         Assert.Equal(expected, MortonCurve.Morton(index, width, height));

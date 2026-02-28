@@ -63,7 +63,10 @@ public static class StrCommand
                         // Reject AFS archives
                         return !(header[0] == 'A' && header[1] == 'F' && header[2] == 'S' && header[3] == 0);
                     }
-                    catch { return false; }
+                    catch
+                    {
+                        return false;
+                    }
                 })
                 .ToArray();
 
@@ -101,7 +104,7 @@ public static class StrCommand
                 {
                     totalConverted++;
                     if (verbose)
-                        AnsiConsole.MarkupLine($"    → [green]OK[/]");
+                        AnsiConsole.MarkupLine("    → [green]OK[/]");
                 }
                 else if (verbose)
                 {

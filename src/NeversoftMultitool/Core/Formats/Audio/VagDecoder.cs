@@ -1,13 +1,14 @@
 using System.Buffers.Binary;
+using System.Text;
 
 namespace NeversoftMultitool.Core.Formats.Audio;
 
 /// <summary>
-/// Converts standalone VAG audio files and headerless SPU-ADPCM streams to WAV.
-/// Handles two variants:
-///   1. Standard VAG with "VAGp" header (sample rate + data size from header)
-///   2. Headerless raw SPU-ADPCM blocks (defaults to specified sample rate)
-/// Used for PS2 .vag files and extensionless voice/music streams from STREAMS WADs.
+///     Converts standalone VAG audio files and headerless SPU-ADPCM streams to WAV.
+///     Handles two variants:
+///     1. Standard VAG with "VAGp" header (sample rate + data size from header)
+///     2. Headerless raw SPU-ADPCM blocks (defaults to specified sample rate)
+///     Used for PS2 .vag files and extensionless voice/music streams from STREAMS WADs.
 /// </summary>
 public static class VagDecoder
 {
@@ -16,8 +17,8 @@ public static class VagDecoder
     private const int DefaultSampleRate = 22050;
 
     /// <summary>
-    /// Converts a VAG or raw SPU-ADPCM file to a WAV file.
-    /// Returns an AudioConvertResult indicating success/failure.
+    ///     Converts a VAG or raw SPU-ADPCM file to a WAV file.
+    ///     Returns an AudioConvertResult indicating success/failure.
     /// </summary>
     public static AudioConvertResult ConvertToWav(string inputPath, string outputDir, int overrideSampleRate = 0)
     {
@@ -60,8 +61,8 @@ public static class VagDecoder
     }
 
     /// <summary>
-    /// Probes a file to determine if it's a valid VAG/SPU-ADPCM audio file.
-    /// Returns the sample rate and estimated duration, or null if not audio.
+    ///     Probes a file to determine if it's a valid VAG/SPU-ADPCM audio file.
+    ///     Returns the sample rate and estimated duration, or null if not audio.
     /// </summary>
     public static VagProbeResult? Probe(string filePath)
     {
@@ -80,7 +81,7 @@ public static class VagDecoder
                 return new VagProbeResult(
                     header.SampleRate,
                     totalSamples / (double)header.SampleRate,
-                    HasHeader: true,
+                    true,
                     header.Name);
             }
 
@@ -88,7 +89,7 @@ public static class VagDecoder
             var blocks = (int)(stream.Length / SpuAdpcm.BlockSize);
             var samples = blocks * SpuAdpcm.SamplesPerBlock;
             var duration = samples / (double)DefaultSampleRate;
-            return new VagProbeResult(DefaultSampleRate, duration, HasHeader: false, Name: null);
+            return new VagProbeResult(DefaultSampleRate, duration, false, null);
         }
         catch
         {
@@ -117,8 +118,8 @@ public static class VagDecoder
         var nameSpan = data.Slice(32, 16);
         var nameEnd = nameSpan.IndexOf((byte)0);
         var name = nameEnd > 0
-            ? System.Text.Encoding.ASCII.GetString(nameSpan[..nameEnd])
-            : System.Text.Encoding.ASCII.GetString(nameSpan).TrimEnd('\0');
+            ? Encoding.ASCII.GetString(nameSpan[..nameEnd])
+            : Encoding.ASCII.GetString(nameSpan).TrimEnd('\0');
 
         header = new VagHeader(version, dataSize, sampleRate, name.Length > 0 ? name : null);
         return true;

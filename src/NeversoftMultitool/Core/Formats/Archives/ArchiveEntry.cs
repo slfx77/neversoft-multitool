@@ -1,7 +1,7 @@
 namespace NeversoftMultitool.Core.Formats.Archives;
 
 /// <summary>
-/// Represents a single file entry within an archive (WAD, PKR, PRE, DDX, or BON).
+///     Represents a single file entry within an archive (WAD, PKR, PRE, DDX, or BON).
 /// </summary>
 public sealed class ArchiveEntry
 {
@@ -14,7 +14,7 @@ public sealed class ArchiveEntry
     public uint Crc { get; set; }
 
     /// <summary>
-    /// Full path including directory prefix.
+    ///     Full path including directory prefix.
     /// </summary>
     public string FullName => string.IsNullOrEmpty(Directory) ? Name : $"{Directory}/{Name}";
 }

@@ -1,10 +1,11 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text;
+using Windows.Storage.Pickers;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using NeversoftMultitool.Core.Formats.Trg;
-using Windows.Storage.Pickers;
 using WinRT.Interop;
 
 namespace NeversoftMultitool;
@@ -13,8 +14,8 @@ public sealed partial class TrgViewerTab : UserControl
 {
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<TrgFileEntry> _parentFiles = [];
-    private string _outputDir = "";
     private CancellationTokenSource? _cts;
+    private string _outputDir = "";
 
     public TrgViewerTab()
     {
@@ -61,20 +62,15 @@ public sealed partial class TrgViewerTab : UserControl
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        InputPathText.Text = folder.Path;
+        InputPathText.Text = path;
         ClearDetail();
         _items.Clear();
         _parentFiles.Clear();
 
-        var trgFiles = Directory.GetFiles(folder.Path)
+        var trgFiles = Directory.GetFiles(path)
             .Where(f => Path.GetExtension(f).Equals(".trg", StringComparison.OrdinalIgnoreCase))
             .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase);
 
@@ -118,15 +114,10 @@ public sealed partial class TrgViewerTab : UserControl
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        _outputDir = folder.Path;
+        _outputDir = path;
         OutputPathText.Text = _outputDir;
         UpdateUiState();
     }
@@ -166,7 +157,8 @@ public sealed partial class TrgViewerTab : UserControl
                     {
                         parent.CachedParsedFile = TrgFile.Parse(parent.FilePath);
                         parent.NodeCount = parent.CachedParsedFile.NodeCount;
-                        parent.VersionDisplay = $"{parent.CachedParsedFile.VersionMajor}.{parent.CachedParsedFile.VersionMinor}";
+                        parent.VersionDisplay =
+                            $"{parent.CachedParsedFile.VersionMajor}.{parent.CachedParsedFile.VersionMinor}";
                     }
                     catch
                     {
@@ -258,15 +250,25 @@ public sealed partial class TrgViewerTab : UserControl
         if (node.Name != null) props.Add(("Name", node.Name));
         if (node.Checksum.HasValue) props.Add(("Checksum", $"0x{node.Checksum.Value:X8}"));
         if (node.SubType.HasValue)
-            props.Add(("Sub-Type", node.SubTypeName != null ? $"{node.SubTypeName} ({node.SubType.Value})" : $"#{node.SubType.Value}"));
+            props.Add(("Sub-Type",
+                node.SubTypeName != null ? $"{node.SubTypeName} ({node.SubType.Value})" : $"#{node.SubType.Value}"));
         if (node.PickupType.HasValue)
-            props.Add(("Pickup", node.PickupTypeName != null ? $"{node.PickupTypeName} ({node.PickupType.Value})" : $"#{node.PickupType.Value}"));
+            props.Add(("Pickup",
+                node.PickupTypeName != null
+                    ? $"{node.PickupTypeName} ({node.PickupType.Value})"
+                    : $"#{node.PickupType.Value}"));
         if (node.CameraMode.HasValue)
-            props.Add(("Camera Mode", node.CameraModeName != null ? $"{node.CameraModeName} ({node.CameraMode.Value})" : $"#{node.CameraMode.Value}"));
+            props.Add(("Camera Mode",
+                node.CameraModeName != null
+                    ? $"{node.CameraModeName} ({node.CameraMode.Value})"
+                    : $"#{node.CameraMode.Value}"));
         if (node.CameraRadius.HasValue)
             props.Add(("Camera Radius", node.CameraRadius.Value.ToString()));
         if (node.TerrainType.HasValue)
-            props.Add(("Terrain", node.TerrainTypeName != null ? $"{node.TerrainTypeName} ({node.TerrainType.Value})" : $"#{node.TerrainType.Value}"));
+            props.Add(("Terrain",
+                node.TerrainTypeName != null
+                    ? $"{node.TerrainTypeName} ({node.TerrainType.Value})"
+                    : $"#{node.TerrainType.Value}"));
         if (node.LightParams != null)
         {
             var lp = node.LightParams;
@@ -276,6 +278,7 @@ public sealed partial class TrgViewerTab : UserControl
             props.Add(("Cone", $"{lp.InnerAngle}° / {lp.OuterAngle}°"));
             props.Add(("Falloff", $"{lp.Falloff}"));
         }
+
         PopulateProperties(props);
 
         // Position
@@ -373,7 +376,7 @@ public sealed partial class TrgViewerTab : UserControl
             {
                 Text = props[i].Label + ":",
                 FontSize = 12,
-                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
                 Margin = new Thickness(0, 0, 8, 0)
             };
             Grid.SetRow(label, i);
@@ -409,6 +412,7 @@ public sealed partial class TrgViewerTab : UserControl
                 a is string s ? $"\"{s}\"" : a?.ToString() ?? ""));
             return $"{cmd.Name}({args})";
         }
+
         return cmd.Name;
     }
 
@@ -421,6 +425,7 @@ public sealed partial class TrgViewerTab : UserControl
                 : op.Value.ToString();
             return $"{op.Opcode}  {op.Name}  {valueStr}";
         }
+
         return $"{op.Opcode}  {op.Name}";
     }
 
@@ -432,6 +437,7 @@ public sealed partial class TrgViewerTab : UserControl
             if (i > 0) sb.AppendLine();
             sb.Append(hex.AsSpan(i, Math.Min(32, hex.Length - i)));
         }
+
         return sb.ToString();
     }
 

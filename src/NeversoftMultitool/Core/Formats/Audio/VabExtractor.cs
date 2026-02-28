@@ -1,9 +1,9 @@
 namespace NeversoftMultitool.Core.Formats.Audio;
 
 /// <summary>
-/// Extracts audio samples from PS1 VAB (VAG Body) sound bank files.
-/// Each VAB contains multiple VAG waveforms encoded as SPU-ADPCM.
-/// Produces one WAV file per waveform in a subdirectory.
+///     Extracts audio samples from PS1 VAB (VAG Body) sound bank files.
+///     Each VAB contains multiple VAG waveforms encoded as SPU-ADPCM.
+///     Produces one WAV file per waveform in a subdirectory.
 /// </summary>
 public static class VabExtractor
 {
@@ -17,8 +17,8 @@ public static class VabExtractor
     private const int DefaultSampleRate = 11025;
 
     /// <summary>
-    /// Enumerates samples in a VAB file without decoding audio data.
-    /// Returns the index and data size of each valid (non-zero) VAG waveform.
+    ///     Enumerates samples in a VAB file without decoding audio data.
+    ///     Returns the index and data size of each valid (non-zero) VAG waveform.
     /// </summary>
     public static List<VabSampleInfo> EnumerateSamples(string inputPath)
     {
@@ -46,13 +46,12 @@ public static class VabExtractor
         return results;
     }
 
-    public sealed record VabSampleInfo(int Index, int DataSize);
-
     /// <summary>
-    /// Extracts a single VAG sample by index to a WAV file.
-    /// Returns the output path on success, or null on failure.
+    ///     Extracts a single VAG sample by index to a WAV file.
+    ///     Returns the output path on success, or null on failure.
     /// </summary>
-    public static string? ExtractSingleToWav(string inputPath, int sampleIndex, string outputDir, int sampleRate = DefaultSampleRate)
+    public static string? ExtractSingleToWav(string inputPath, int sampleIndex, string outputDir,
+        int sampleRate = DefaultSampleRate)
     {
         try
         {
@@ -78,7 +77,7 @@ public static class VabExtractor
 
             // Calculate offset to the target sample (sum sizes of all preceding entries)
             var vagDataOffset = stream.Position;
-            long currentOffset = vagDataOffset;
+            var currentOffset = vagDataOffset;
             for (var v = 0; v < sampleIndex; v++)
                 currentOffset += vagSizes[v];
 
@@ -98,7 +97,8 @@ public static class VabExtractor
         }
     }
 
-    public static AudioConvertResult ExtractToWav(string inputPath, string outputDir, int sampleRate = DefaultSampleRate)
+    public static AudioConvertResult ExtractToWav(string inputPath, string outputDir,
+        int sampleRate = DefaultSampleRate)
     {
         try
         {
@@ -184,6 +184,8 @@ public static class VabExtractor
             VagCount = vagCount
         };
     }
+
+    public sealed record VabSampleInfo(int Index, int DataSize);
 
     private sealed class VabHeader
     {

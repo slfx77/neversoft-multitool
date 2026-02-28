@@ -1,10 +1,8 @@
-using System.Text;
-
 namespace NeversoftMultitool.Core.Formats.Psx;
 
 /// <summary>
-/// Decodes standalone PVR texture files (GBIX+PVRT container format) to PNG.
-/// Bridges the standard Sega Dreamcast PVR container to the existing PvrTextureDecoder.
+///     Decodes standalone PVR texture files (GBIX+PVRT container format) to PNG.
+///     Bridges the standard Sega Dreamcast PVR container to the existing PvrTextureDecoder.
 /// </summary>
 public static class PvrFileDecoder
 {
@@ -12,8 +10,8 @@ public static class PvrFileDecoder
     private static readonly byte[] PvrtMagic = "PVRT"u8.ToArray();
 
     /// <summary>
-    /// Decodes a PVR texture from a stream and writes it as a PNG file.
-    /// The reader should be positioned at the start of the GBIX or PVRT header.
+    ///     Decodes a PVR texture from a stream and writes it as a PNG file.
+    ///     The reader should be positioned at the start of the GBIX or PVRT header.
     /// </summary>
     public static bool DecodeToPng(BinaryReader reader, long pvrDataOffset, string pngPath)
     {

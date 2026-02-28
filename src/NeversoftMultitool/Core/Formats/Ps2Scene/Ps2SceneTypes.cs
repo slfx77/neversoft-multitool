@@ -1,11 +1,13 @@
+#pragma warning disable CA1051 // Do not declare visible instance fields — Ps2Vertex is a readonly struct data carrier
+
 using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
 /// <summary>
-/// Parsed PS2 scene file (.mdl.ps2, .skin.ps2, .iskin.ps2).
-/// Native PS2 format with version-triple header:
-/// THPS4 (3,4,1), THUG (5,6,1), THUG2 (6,6,1).
+///     Parsed PS2 scene file (.mdl.ps2, .skin.ps2, .iskin.ps2).
+///     Native PS2 format with version-triple header:
+///     THPS4 (3,4,1), THUG (5,6,1), THUG2 (6,6,1).
 /// </summary>
 public sealed class Ps2Scene
 {
@@ -17,9 +19,9 @@ public sealed class Ps2Scene
 }
 
 /// <summary>
-/// Single-pass material in native PS2 format.
-/// Unlike the cross-platform format, PS2 materials have one texture per material
-/// rather than multiple rendering passes.
+///     Single-pass material in native PS2 format.
+///     Unlike the cross-platform format, PS2 materials have one texture per material
+///     rather than multiple rendering passes.
 /// </summary>
 public sealed class Ps2Material
 {
@@ -32,16 +34,16 @@ public sealed class Ps2Material
     public bool ClampV { get; init; }
 
     /// <summary>
-    /// Raw GS ALPHA register (u64). Encodes blend equation: Output = (A-B)*C + D.
-    /// Bits 0-1: A, 2-3: B, 4-5: C, 6-7: D, 32-39: FIX.
-    /// Sources: 0=Cs(source), 1=Cd(dest), 2=0. C sources: 0=As, 1=Ad, 2=FIX.
+    ///     Raw GS ALPHA register (u64). Encodes blend equation: Output = (A-B)*C + D.
+    ///     Bits 0-1: A, 2-3: B, 4-5: C, 6-7: D, 32-39: FIX.
+    ///     Sources: 0=Cs(source), 1=Cd(dest), 2=0. C sources: 0=As, 1=Ad, 2=FIX.
     /// </summary>
     public ulong RegAlpha { get; init; }
 
     /// <summary>
-    /// Returns the fixed-blend opacity (0-1) if RegALPHA uses FIXED_BLEND mode:
-    /// (Cs-Cd)*FIX/128 + Cd (A=0,B=1,C=2,D=1). Returns null for other blend modes.
-    /// FIX=128 → 1.0 (fully opaque), FIX=0 → 0.0 (fully transparent).
+    ///     Returns the fixed-blend opacity (0-1) if RegALPHA uses FIXED_BLEND mode:
+    ///     (Cs-Cd)*FIX/128 + Cd (A=0,B=1,C=2,D=1). Returns null for other blend modes.
+    ///     FIX=128 → 1.0 (fully opaque), FIX=0 → 0.0 (fully transparent).
     /// </summary>
     public float? FixedBlendOpacity
     {
@@ -61,8 +63,8 @@ public sealed class Ps2Material
 }
 
 /// <summary>
-/// Mesh group containing one or more meshes.
-/// Each group has a checksum identifier used for name resolution.
+///     Mesh group containing one or more meshes.
+///     Each group has a checksum identifier used for name resolution.
 /// </summary>
 public sealed class Ps2MeshGroup
 {
@@ -71,9 +73,9 @@ public sealed class Ps2MeshGroup
 }
 
 /// <summary>
-/// Individual mesh with material reference and vertex data.
-/// Triangle strips are encoded via ADC bits in vertex data — no separate index array.
-/// Vertices are always per-mesh (all game versions).
+///     Individual mesh with material reference and vertex data.
+///     Triangle strips are encoded via ADC bits in vertex data — no separate index array.
+///     Vertices are always per-mesh (all game versions).
 /// </summary>
 public sealed class Ps2Mesh
 {
@@ -85,17 +87,28 @@ public sealed class Ps2Mesh
 }
 
 /// <summary>
-/// Vertex with position, normal, color, UV, skinning data, and ADC strip restart flag.
-/// All values are pre-converted to float (skinned sint16 positions and UVs are decoded).
+///     Vertex with position, normal, color, UV, skinning data, and ADC strip restart flag.
+///     All values are pre-converted to float (skinned sint16 positions and UVs are decoded).
 /// </summary>
 public readonly struct Ps2Vertex(
-    Vector3 position, Vector3 normal,
-    byte r, byte g, byte b, byte a,
-    float u, float v,
-    bool hasNormal, bool hasColor, bool hasUV,
+    Vector3 position,
+    Vector3 normal,
+    byte r,
+    byte g,
+    byte b,
+    byte a,
+    float u,
+    float v,
+    bool hasNormal,
+    bool hasColor,
+    bool hasUV,
     bool isStripRestart,
-    int boneIndex0 = 0, int boneIndex1 = 0, int boneIndex2 = 0,
-    float boneWeight0 = 0, float boneWeight1 = 0, float boneWeight2 = 0,
+    int boneIndex0 = 0,
+    int boneIndex1 = 0,
+    int boneIndex2 = 0,
+    float boneWeight0 = 0,
+    float boneWeight1 = 0,
+    float boneWeight2 = 0,
     bool hasSkinData = false)
 {
     public readonly Vector3 Position = position;
@@ -107,8 +120,8 @@ public readonly struct Ps2Vertex(
     public readonly bool HasUV = hasUV;
 
     /// <summary>
-    /// ADC strip restart flag. When true, the GS does not draw a triangle
-    /// at this vertex, effectively starting a new triangle strip.
+    ///     ADC strip restart flag. When true, the GS does not draw a triangle
+    ///     at this vertex, effectively starting a new triangle strip.
     /// </summary>
     public readonly bool IsStripRestart = isStripRestart;
 
@@ -123,9 +136,9 @@ public readonly struct Ps2Vertex(
 }
 
 /// <summary>
-/// Parsed PS2 skeleton file (.ske.ps2).
-/// Contains bone hierarchy, neutral pose, and inverse bind matrices.
-/// Format: version(u32) + flags(u32) + numBones(i32) + 3×name tables + neutral poses.
+///     Parsed PS2 skeleton file (.ske.ps2).
+///     Contains bone hierarchy, neutral pose, and inverse bind matrices.
+///     Format: version(u32) + flags(u32) + numBones(i32) + 3×name tables + neutral poses.
 /// </summary>
 public sealed class Ps2Skeleton
 {
@@ -138,7 +151,7 @@ public sealed class Ps2Skeleton
 }
 
 /// <summary>
-/// Single bone in a PS2 skeleton.
+///     Single bone in a PS2 skeleton.
 /// </summary>
 public sealed class Ps2Bone
 {
@@ -156,14 +169,14 @@ public sealed class Ps2Bone
     public required Vector3 LocalTranslation { get; init; }
 
     /// <summary>
-    /// Inverse bind matrix computed from the neutral pose hierarchy.
-    /// Transforms from model space to bone-local space.
+    ///     Inverse bind matrix computed from the neutral pose hierarchy.
+    ///     Transforms from model space to bone-local space.
     /// </summary>
     public required Matrix4x4 InverseBindMatrix { get; init; }
 }
 
 /// <summary>
-/// Per-mesh attribute flags from THUG source mesh.h.
+///     Per-mesh attribute flags from THUG source mesh.h.
 /// </summary>
 [Flags]
 public enum Ps2MeshFlags : uint
@@ -172,11 +185,11 @@ public enum Ps2MeshFlags : uint
     Colours = 1 << 1,
     Normals = 1 << 2,
     St16 = 1 << 3,
-    Skinned = 1 << 4,
+    Skinned = 1 << 4
 }
 
 /// <summary>
-/// Material flags from THUG source material.h.
+///     Material flags from THUG source material.h.
 /// </summary>
 [Flags]
 public enum Ps2MaterialFlags : uint
@@ -189,5 +202,5 @@ public enum Ps2MaterialFlags : uint
     Smooth = 1 << 5,
     Transparent = 1 << 6,
     AnimatedTexture = 1 << 11,
-    IgnoreVertexAlpha = 1 << 12,
+    IgnoreVertexAlpha = 1 << 12
 }

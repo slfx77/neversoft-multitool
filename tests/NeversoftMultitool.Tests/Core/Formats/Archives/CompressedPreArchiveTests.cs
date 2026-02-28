@@ -64,10 +64,8 @@ public class CompressedPreArchiveTests(TestPaths paths)
         try
         {
             var extractedCount = 0;
-            CompressedPreArchive.ExtractFiles(preFile!, tempDir, (current, total) =>
-            {
-                extractedCount = current;
-            }, TestContext.Current.CancellationToken);
+            CompressedPreArchive.ExtractFiles(preFile!, tempDir, (current, total) => { extractedCount = current; },
+                TestContext.Current.CancellationToken);
 
             Assert.Equal(entries.Count, extractedCount);
 
@@ -99,9 +97,9 @@ public class CompressedPreArchiveTests(TestPaths paths)
             using (var stream = File.Create(tempFile))
             using (var writer = new BinaryWriter(stream))
             {
-                writer.Write(100);        // totalFileSize
+                writer.Write(100); // totalFileSize
                 writer.Write(0x12345678); // wrong version
-                writer.Write(0);          // numEntries
+                writer.Write(0); // numEntries
             }
 
             Assert.Throws<InvalidDataException>(() => CompressedPreArchive.GetFileList(tempFile));
@@ -146,6 +144,7 @@ public class CompressedPreArchiveTests(TestPaths paths)
             if (Directory.Exists(candidate))
                 return candidate;
         }
+
         return null;
     }
 
@@ -179,6 +178,7 @@ public class CompressedPreArchiveTests(TestPaths paths)
                     result.Add(file);
             }
         }
+
         return result;
     }
 }

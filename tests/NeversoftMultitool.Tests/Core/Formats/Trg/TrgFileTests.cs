@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NeversoftMultitool.Core.Formats.Trg;
 using NeversoftMultitool.Tests.Helpers;
 
@@ -114,6 +115,7 @@ public class TrgFileTests(TestPaths paths)
                 Path.GetExtension(f).Equals(".trg", StringComparison.OrdinalIgnoreCase));
             if (file != null) break;
         }
+
         Assert.SkipWhen(file == null, "No THPS TRG files found");
 
         var trg = TrgFile.Parse(file!);
@@ -162,7 +164,7 @@ public class TrgFileTests(TestPaths paths)
     [Fact]
     public void Parse_InvalidMagic_ThrowsInvalidDataException()
     {
-        var tempFile = Path.GetTempFileName();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"trg_test_{Guid.NewGuid():N}.tmp");
         try
         {
             File.WriteAllBytes(tempFile, [0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00]);
@@ -188,7 +190,7 @@ public class TrgFileTests(TestPaths paths)
         Assert.Contains("\"nodes\"", json);
         Assert.Contains("\"versionMajor\"", json);
         // Verify it's valid JSON by parsing it
-        var doc = System.Text.Json.JsonDocument.Parse(json);
+        var doc = JsonDocument.Parse(json);
         Assert.NotNull(doc);
     }
 }

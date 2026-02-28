@@ -1,10 +1,9 @@
 namespace NeversoftMultitool.Core.Formats.Rle;
 
 /// <summary>
-/// Corrects column-shifted pixels in RLE/BMR images.
-///
-/// Some RLE images encode the first two columns at the end of each row,
-/// shifted down by one pixel. This class detects and corrects that encoding.
+///     Corrects column-shifted pixels in RLE/BMR images.
+///     Some RLE images encode the first two columns at the end of each row,
+///     shifted down by one pixel. This class detects and corrects that encoding.
 /// </summary>
 internal static class ColumnUnshifter
 {

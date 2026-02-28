@@ -1,4 +1,3 @@
-using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Psx;
 using NeversoftMultitool.Tests.Helpers;
 using SixLabors.ImageSharp;
@@ -6,7 +5,7 @@ using SixLabors.ImageSharp.PixelFormats;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Psx;
 
-public class PsxLibraryTests(TestPaths paths)
+public sealed class PsxLibraryExtractionTests(TestPaths paths)
 {
     [Theory]
     [InlineData("bits.psx")]
@@ -25,7 +24,7 @@ public class PsxLibraryTests(TestPaths paths)
         try
         {
             Directory.CreateDirectory(tempDir);
-            var result = PsxLibrary.ExtractTextures(inputFile, tempDir, createSubDirs: false);
+            var result = PsxLibrary.ExtractTextures(inputFile, tempDir, false);
 
             Assert.True(result.TotalTextures > 0, $"No textures found in {filename}");
             Assert.True(result.Success, $"Extraction failed: {result.ErrorMessage}");
@@ -68,7 +67,7 @@ public class PsxLibraryTests(TestPaths paths)
         try
         {
             Directory.CreateDirectory(tempDir);
-            var result = PsxLibrary.ExtractTextures(inputFile, tempDir, createSubDirs: false);
+            var result = PsxLibrary.ExtractTextures(inputFile, tempDir, false);
 
             Assert.True(result.TotalTextures > 0, $"No textures found in {filename}");
             Assert.True(result.Success, $"Extraction failed: {result.ErrorMessage}");
@@ -103,7 +102,7 @@ public class PsxLibraryTests(TestPaths paths)
             Directory.CreateDirectory(tempDir);
             File.WriteAllBytes(tempFile, [0x00, 0x00, 0x00, 0x00]);
 
-            var result = PsxLibrary.ExtractTextures(tempFile, tempDir, createSubDirs: false);
+            var result = PsxLibrary.ExtractTextures(tempFile, tempDir, false);
 
             Assert.False(result.Success);
             Assert.Equal(0, result.TexturesWritten);
@@ -130,7 +129,7 @@ public class PsxLibraryTests(TestPaths paths)
         try
         {
             Directory.CreateDirectory(tempDir);
-            var result = PsxLibrary.ExtractTextures(inputFile, tempDir, createSubDirs: false);
+            var result = PsxLibrary.ExtractTextures(inputFile, tempDir, false);
             Assert.True(result.Success, $"Extraction failed: {result.ErrorMessage}");
 
             var ddsFiles = Directory.GetFiles(tempDir, "*.dds");
@@ -195,7 +194,7 @@ public class PsxLibraryTests(TestPaths paths)
         try
         {
             Directory.CreateDirectory(tempDir);
-            var result = PsxLibrary.ExtractTextures(inputFile, tempDir, createSubDirs: false);
+            var result = PsxLibrary.ExtractTextures(inputFile, tempDir, false);
             Assert.True(result.Success, $"Extraction failed: {result.ErrorMessage}");
 
             var ddsFiles = Directory.GetFiles(tempDir, "*.dds");
@@ -322,11 +321,12 @@ public class PsxLibraryTests(TestPaths paths)
         Assert.NotEmpty(textures);
 
         // Batch extract all textures to get reference PNGs
-        var tempDir = Path.Combine(Path.GetTempPath(), "NsMultitool_Test_HashMatch_" + Guid.NewGuid().ToString("N")[..8]);
+        var tempDir = Path.Combine(Path.GetTempPath(),
+            "NsMultitool_Test_HashMatch_" + Guid.NewGuid().ToString("N")[..8]);
         try
         {
             Directory.CreateDirectory(tempDir);
-            var batchResult = PsxLibrary.ExtractTextures(inputFile, tempDir, createSubDirs: false, writeDds: false);
+            var batchResult = PsxLibrary.ExtractTextures(inputFile, tempDir, false, false);
             Assert.True(batchResult.Success, $"Batch extraction failed: {batchResult.ErrorMessage}");
 
             // For each texture with a name hash, verify single-texture extraction matches
@@ -351,27 +351,6 @@ public class PsxLibraryTests(TestPaths paths)
     [Theory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
-    public void EnumerateTextures_ReturnsCorrectCount(string filename)
-    {
-        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
-
-        var inputFile = Path.Combine(paths.PsxXboxDir!, filename);
-        Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
-
-        var textures = PsxLibrary.EnumerateTextures(inputFile);
-        Assert.NotEmpty(textures);
-
-        // Each texture should have valid dimensions
-        foreach (var (header, _) in textures)
-        {
-            Assert.True(header.Width > 0, $"Invalid width at offset 0x{header.Offset:X}");
-            Assert.True(header.Height > 0, $"Invalid height at offset 0x{header.Offset:X}");
-        }
-    }
-
-    [Theory]
-    [InlineData("bits.psx")]
-    [InlineData("Default.PSX")]
     public void ExtractTextures_NoDds_ProducesOnlyPng(string filename)
     {
         Assert.SkipWhen(!paths.HasTestData, "Test data not available");
@@ -383,7 +362,7 @@ public class PsxLibraryTests(TestPaths paths)
         try
         {
             Directory.CreateDirectory(tempDir);
-            var result = PsxLibrary.ExtractTextures(inputFile, tempDir, createSubDirs: false, writeDds: false);
+            var result = PsxLibrary.ExtractTextures(inputFile, tempDir, false, false);
             Assert.True(result.Success, $"Extraction failed: {result.ErrorMessage}");
 
             var pngFiles = Directory.GetFiles(tempDir, "*.png");
@@ -398,81 +377,13 @@ public class PsxLibraryTests(TestPaths paths)
                 Directory.Delete(tempDir, true);
         }
     }
-
-    // ── GUI Round-Trip Tests ────────────────────────────────────────────
-    // These verify that every texture returned by EnumerateTextures (which
-    // the GUI displays) can be resolved back via ExtractTextureByHash
-    // (which the GUI calls for preview). This is the exact flow that must
-    // work end-to-end for texture previews to function.
-
-    [Theory]
-    [InlineData("bits.psx")]
-    [InlineData("Default.PSX")]
-    [InlineData("hawk2.PSX")]
-    public void EnumerateTextures_AllHashesResolvableByExtractTextureByHash(string filename)
-    {
-        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
-
-        var inputFile = Path.Combine(paths.PsxXboxDir!, filename);
-        Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
-
-        var textures = PsxLibrary.EnumerateTextures(inputFile);
-        Assert.NotEmpty(textures);
-
-        var diagnostics = new List<string>();
-        foreach (var (header, nameHash) in textures)
-        {
-            if (nameHash == 0) continue;
-
-            var result = PsxLibrary.ExtractTextureByHash(inputFile, nameHash, diagnostics);
-            Assert.True(result != null,
-                $"GUI preview would fail for hash 0x{nameHash:X8} at offset 0x{header.Offset:X}. " +
-                $"Diagnostics: {string.Join("; ", diagnostics)}");
-            Assert.Equal(header.Width, result.Value.Width);
-            Assert.Equal(header.Height, result.Value.Height);
-            diagnostics.Clear();
-        }
-    }
-
-    [Theory]
-    [InlineData("ring.psx")]
-    [InlineData("bits.psx")]
-    [InlineData("items.psx")]
-    public void EnumerateTextures_AllHashesResolvableByExtractTextureByHash_Ps1(string filename)
-    {
-        Assert.SkipWhen(!paths.HasTestData, "Test data not available");
-
-        var inputFile = Path.Combine(paths.PsxPs1Dir!, filename);
-        Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
-
-        var textures = PsxLibrary.EnumerateTextures(inputFile);
-        Assert.NotEmpty(textures);
-
-        var diagnostics = new List<string>();
-        foreach (var (header, nameHash) in textures)
-        {
-            if (nameHash == 0) continue;
-
-            var result = PsxLibrary.ExtractTextureByHash(inputFile, nameHash, diagnostics);
-            Assert.True(result != null,
-                $"GUI preview would fail for hash 0x{nameHash:X8} at offset 0x{header.Offset:X}. " +
-                $"Diagnostics: {string.Join("; ", diagnostics)}");
-            Assert.Equal(header.Width, result.Value.Width);
-            Assert.Equal(header.Height, result.Value.Height);
-            diagnostics.Clear();
-        }
-    }
 }
 
 /// <summary>
-/// Minimal DDS reader for test verification.
+///     Minimal DDS reader for test verification.
 /// </summary>
 internal static class DdsTestReader
 {
-    public sealed record DdsHeader(int Width, int Height, uint Flags, uint MipMapCount, uint Caps, ColorFormat Format);
-
-    public sealed record DdsSurface(int Width, int Height, ColorFormat Format, ushort[] Pixels);
-
     public static DdsHeader ReadHeader(string path)
     {
         using var stream = File.OpenRead(path);
@@ -530,4 +441,8 @@ internal static class DdsTestReader
 
         return new DdsSurface(header.Width, header.Height, header.Format, pixels);
     }
+
+    public sealed record DdsHeader(int Width, int Height, uint Flags, uint MipMapCount, uint Caps, ColorFormat Format);
+
+    public sealed record DdsSurface(int Width, int Height, ColorFormat Format, ushort[] Pixels);
 }

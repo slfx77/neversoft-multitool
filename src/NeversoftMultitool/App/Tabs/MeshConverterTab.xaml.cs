@@ -6,17 +6,15 @@ using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Psx;
-using Windows.Storage.Pickers;
-using WinRT.Interop;
 
 namespace NeversoftMultitool;
 
 public sealed partial class MeshConverterTab : UserControl
 {
     private readonly ObservableCollection<MeshFileEntry> _items = [];
+    private CancellationTokenSource? _cts;
     private string _inputDir = "";
     private string _outputDir = "";
-    private CancellationTokenSource? _cts;
 
     public MeshConverterTab()
     {
@@ -26,15 +24,10 @@ public sealed partial class MeshConverterTab : UserControl
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        _inputDir = folder.Path;
+        _inputDir = path;
         InputPathText.Text = _inputDir;
 
         _items.Clear();
@@ -103,7 +96,7 @@ public sealed partial class MeshConverterTab : UserControl
                 ObjectCount = ddm.Objects.Count,
                 MeshCount = ddm.Objects.Count,
                 CompanionPsxPath = companionPsx,
-                CompanionObjectsDdmPath = companionObjectsDdm,
+                CompanionObjectsDdmPath = companionObjectsDdm
             };
         }
         catch
@@ -136,7 +129,7 @@ public sealed partial class MeshConverterTab : UserControl
                 Format = "PSX",
                 ObjectCount = psxFile.Objects.Count,
                 MeshCount = psxFile.Meshes.Count,
-                CompanionLibraryPsxPath = companionLibPath,
+                CompanionLibraryPsxPath = companionLibPath
             };
         }
         catch
@@ -154,15 +147,10 @@ public sealed partial class MeshConverterTab : UserControl
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        _outputDir = folder.Path;
+        _outputDir = path;
         OutputPathText.Text = _outputDir;
         UpdateUiState();
     }
@@ -269,7 +257,7 @@ public sealed partial class MeshConverterTab : UserControl
     private static int ConvertPsxFile(MeshFileEntry entry, string outputDir, bool embedTextures)
     {
         var psxFile = PsxMeshFile.Parse(entry.FilePath)
-            ?? throw new InvalidOperationException("No mesh data");
+                      ?? throw new InvalidOperationException("No mesh data");
 
         PsxGltfWriter.TextureProvider? textureProvider = null;
         if (embedTextures)
@@ -316,8 +304,14 @@ public sealed partial class MeshConverterTab : UserControl
         var litFile = FindCompanionFile(inputDir, ddmName, ".lit");
         if (litFile != null)
         {
-            try { lights = LitFile.Parse(litFile); }
-            catch { /* ignore parse errors */ }
+            try
+            {
+                lights = LitFile.Parse(litFile);
+            }
+            catch
+            {
+                /* ignore parse errors */
+            }
         }
 
         return GltfWriter.WriteDdm(ddm, outputFile, null, ddmName, ddxTextures, lights);

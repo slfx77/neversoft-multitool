@@ -1,39 +1,12 @@
 using System.Text;
-using System.Text.Json.Serialization;
 
 namespace NeversoftMultitool.Core.Formats.Trg;
 
 /// <summary>
-/// Represents a parsed node from a TRG file. Node type determines which fields are populated.
+///     Represents a parsed node from a TRG file. Node type determines which fields are populated.
 /// </summary>
 public sealed class TrgNode
 {
-    // --- Common fields (always present) ---
-    public int Index { get; init; }
-    public int TypeId { get; init; }
-    public string Type { get; init; } = "UNKNOWN";
-    public uint Offset { get; init; }
-
-    // --- Optional fields (type-dependent) ---
-    public List<int>? Links { get; set; }
-    public TrgPosition? Position { get; set; }
-    public TrgAngles? Angles { get; set; }
-    public string? Name { get; set; }
-    public uint? Checksum { get; set; }
-    public int? SubType { get; set; }
-    public string? SubTypeName { get; set; }
-    public int? CameraRadius { get; set; }
-    public int? CameraMode { get; set; }
-    public string? CameraModeName { get; set; }
-    public int? PickupType { get; set; }
-    public string? PickupTypeName { get; set; }
-    public int? TerrainType { get; set; }
-    public string? TerrainTypeName { get; set; }
-    public TrgLightParams? LightParams { get; set; }
-    public List<TrgCommand>? Commands { get; set; }
-    public List<TrgScriptOp>? Script { get; set; }
-    public string? RawHex { get; set; }
-
     // Node type IDs
     private const int TypeBaddy = 1;
     private const int TypeCrate = 2;
@@ -167,6 +140,32 @@ public sealed class TrgNode
         [2] = "Wood"
     };
 
+    // --- Common fields (always present) ---
+    public int Index { get; init; }
+    public int TypeId { get; init; }
+    public string Type { get; init; } = "UNKNOWN";
+    public uint Offset { get; init; }
+
+    // --- Optional fields (type-dependent) ---
+    public List<int>? Links { get; set; }
+    public TrgPosition? Position { get; set; }
+    public TrgAngles? Angles { get; set; }
+    public string? Name { get; set; }
+    public uint? Checksum { get; set; }
+    public int? SubType { get; set; }
+    public string? SubTypeName { get; set; }
+    public int? CameraRadius { get; set; }
+    public int? CameraMode { get; set; }
+    public string? CameraModeName { get; set; }
+    public int? PickupType { get; set; }
+    public string? PickupTypeName { get; set; }
+    public int? TerrainType { get; set; }
+    public string? TerrainTypeName { get; set; }
+    public TrgLightParams? LightParams { get; set; }
+    public List<TrgCommand>? Commands { get; set; }
+    public List<TrgScriptOp>? Script { get; set; }
+    public string? RawHex { get; set; }
+
     public static TrgNode Parse(BinaryReader reader, int index, uint offset, int nodeSize, bool isSpiderMan)
     {
         var startPos = reader.BaseStream.Position;
@@ -189,7 +188,7 @@ public sealed class TrgNode
                     break;
 
                 case TypeRestart:
-                    ParseRestart(reader, node, startPos, nodeSize, isSpiderMan);
+                    ParseRestart(reader, node, startPos, nodeSize);
                     break;
 
                 case TypePoint:
@@ -207,7 +206,7 @@ public sealed class TrgNode
 
                 case TypeBaddy:
                 case 7: // SEEDABLEBADDY — same entity system as BADDY
-                    ParseBaddy(reader, node, startPos, nodeSize, isSpiderMan);
+                    ParseBaddy(reader, node, startPos, nodeSize);
                     break;
 
                 case TypeTrickOb:
@@ -328,7 +327,7 @@ public sealed class TrgNode
 
     // --- Node type parsers ---
 
-    private static void ParseRestart(BinaryReader reader, TrgNode node, long startPos, int nodeSize, bool isSpiderMan)
+    private static void ParseRestart(BinaryReader reader, TrgNode node, long startPos, int nodeSize)
     {
         node.Links = ReadLinks(reader);
         node.Position = ReadPosition(reader);
@@ -377,7 +376,7 @@ public sealed class TrgNode
         node.Links = [camLink];
     }
 
-    private static void ParseBaddy(BinaryReader reader, TrgNode node, long startPos, int nodeSize, bool isSpiderMan)
+    private static void ParseBaddy(BinaryReader reader, TrgNode node, long startPos, int nodeSize)
     {
         var baddyType = reader.ReadUInt16();
         node.SubType = baddyType;
@@ -428,15 +427,12 @@ public sealed class TrgNode
         node.Links = ReadLinks(reader);
         node.Checksum = reader.ReadUInt32();
 
-        if (!isSpiderMan)
+        // v2.0: may have 0xFFFF terminator
+        if (!isSpiderMan && reader.BaseStream.Position + 2 <= reader.BaseStream.Length)
         {
-            // v2.0: may have 0xFFFF terminator
-            if (reader.BaseStream.Position + 2 <= reader.BaseStream.Length)
-            {
-                var term = reader.ReadUInt16();
-                if (term != 0xFFFF)
-                    reader.BaseStream.Position -= 2;
-            }
+            var term = reader.ReadUInt16();
+            if (term != 0xFFFF)
+                reader.BaseStream.Position -= 2;
         }
     }
 
@@ -541,38 +537,3 @@ public sealed class TrgNode
         node.Position = ReadPosition(reader);
     }
 }
-
-public sealed class TrgPosition
-{
-    public double X { get; init; }
-    public double Y { get; init; }
-    public double Z { get; init; }
-}
-
-public sealed class TrgAngles
-{
-    public double X { get; init; }
-    public double Y { get; init; }
-    public double Z { get; init; }
-}
-
-/// <summary>
-/// Light parameters from CLight constructor (Ghidra decompilation):
-/// CLight(CVector&amp; pos, int nodeIndex, int range, int innerAngle, int outerAngle,
-///        int falloff, Uc r1, Uc g1, Uc b1, Uc r2, Uc g2, Uc b2)
-/// Node index passed externally; data contains 4 × int16 + 6 × uint8 = 14 bytes.
-/// </summary>
-public sealed class TrgLightParams
-{
-    public int Range { get; init; }
-    public int InnerAngle { get; init; }
-    public int OuterAngle { get; init; }
-    public int Falloff { get; init; }
-    public byte Color1R { get; init; }
-    public byte Color1G { get; init; }
-    public byte Color1B { get; init; }
-    public byte Color2R { get; init; }
-    public byte Color2G { get; init; }
-    public byte Color2B { get; init; }
-}
-

@@ -3,7 +3,7 @@ namespace NeversoftMultitool.Core;
 public static class WavWriter
 {
     /// <summary>
-    /// Writes 16-bit PCM audio data to a WAV file.
+    ///     Writes 16-bit PCM audio data to a WAV file.
     /// </summary>
     public static void WritePcm16(string outputPath, int sampleRate, int channels, short[] samples)
     {
@@ -21,13 +21,13 @@ public static class WavWriter
 
         // RIFF header
         writer.Write("RIFF"u8);
-        writer.Write(36 + dataSize);         // file size - 8
+        writer.Write(36 + dataSize); // file size - 8
         writer.Write("WAVE"u8);
 
         // fmt sub-chunk
         writer.Write("fmt "u8);
-        writer.Write(16);                    // sub-chunk size
-        writer.Write((short)1);              // PCM format
+        writer.Write(16); // sub-chunk size
+        writer.Write((short)1); // PCM format
         writer.Write((short)channels);
         writer.Write(sampleRate);
         writer.Write(byteRate);

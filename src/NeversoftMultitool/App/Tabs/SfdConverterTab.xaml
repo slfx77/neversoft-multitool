@@ -299,10 +299,10 @@
       <StackPanel Grid.Row="1" Grid.Column="2"
                   Orientation="Horizontal"
                   Spacing="8">
-        <Button Grid.Row="1" Grid.Column="2"
-                Content="Browse..."
-                MinWidth="120"
-                Click="OutputBrowse_Click" />
+        <Button
+          Content="Browse..."
+          MinWidth="120"
+          Click="OutputBrowse_Click" />
         <Button
           x:Name="CancelButton"
           Content="Cancel"

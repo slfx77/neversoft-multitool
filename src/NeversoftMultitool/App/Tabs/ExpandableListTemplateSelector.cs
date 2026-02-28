@@ -4,7 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 namespace NeversoftMultitool;
 
 /// <summary>
-/// Selects between parent and child DataTemplates based on IListEntry.IsChildEntry.
+///     Selects between parent and child DataTemplates based on IListEntry.IsChildEntry.
 /// </summary>
 public sealed class ExpandableListTemplateSelector : DataTemplateSelector
 {

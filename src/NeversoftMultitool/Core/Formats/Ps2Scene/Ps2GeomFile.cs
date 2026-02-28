@@ -4,16 +4,15 @@ using System.Numerics;
 namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
 /// <summary>
-/// Parser for PS2 GEOM files (.geom.ps2).
-/// These contain pre-compiled CGeomNode rendering trees with embedded VIF/DMA chains.
-/// Vertex data is extracted by walking VIF opcodes and decoding UNPACK instructions.
-///
-/// File format (from THUG source geomnode.cpp sProcessInPlace):
-///   [0x00] u32: data_section_offset
-///   [0x04] u32: hierarchy_array_offset
-///   [0x08] u32: reserved
-///   [0x0C] u32: hierarchy_array_count
-///   At data_section_offset: u32 root_node_offset, then DMA/node data.
+///     Parser for PS2 GEOM files (.geom.ps2).
+///     These contain pre-compiled CGeomNode rendering trees with embedded VIF/DMA chains.
+///     Vertex data is extracted by walking VIF opcodes and decoding UNPACK instructions.
+///     File format (from THUG source geomnode.cpp sProcessInPlace):
+///     [0x00] u32: data_section_offset
+///     [0x04] u32: hierarchy_array_offset
+///     [0x08] u32: reserved
+///     [0x0C] u32: hierarchy_array_count
+///     At data_section_offset: u32 root_node_offset, then DMA/node data.
 /// </summary>
 public static class Ps2GeomFile
 {
@@ -23,7 +22,10 @@ public static class Ps2GeomFile
     // CGeomNode flags
     private const uint NodeFlagLeaf = 1 << 1;
 
-    public static Ps2GeomScene Parse(string filePath) => Parse(File.ReadAllBytes(filePath));
+    public static Ps2GeomScene Parse(string filePath)
+    {
+        return Parse(File.ReadAllBytes(filePath));
+    }
 
     public static Ps2GeomScene Parse(byte[] data)
     {
@@ -116,7 +118,7 @@ public static class Ps2GeomFile
                             DmaTex0 = gsCtx.Tex0,
                             DmaClamp1 = gsCtx.Clamp1,
                             DmaAlpha1 = gsCtx.Alpha1,
-                            DmaTest1 = gsCtx.Test1,
+                            DmaTest1 = gsCtx.Test1
                         });
                     }
                 }
@@ -130,9 +132,9 @@ public static class Ps2GeomFile
     }
 
     /// <summary>
-    /// Extract vertex data from a DMA/VIF chain at the given absolute offset.
-    /// Scans for STMOD(1) + UNPACK patterns to find position data,
-    /// and identifies UV/color/normal UNPACKs by their format code.
+    ///     Extract vertex data from a DMA/VIF chain at the given absolute offset.
+    ///     Scans for STMOD(1) + UNPACK patterns to find position data,
+    ///     and identifies UV/color/normal UNPACKs by their format code.
     /// </summary>
     private static Ps2Vertex[] ExtractVerticesFromDma(byte[] data, int dmaOffset, Vector3 center)
     {
@@ -170,6 +172,7 @@ public static class Ps2GeomFile
                 {
                     batches.Add(currentBatch);
                 }
+
                 currentBatch = new VifBatch();
                 stmodActive = false;
                 pCode = VifNextCode(data, pCode, pEnd);
@@ -180,7 +183,7 @@ public static class Ps2GeomFile
             if ((cmd & 0x60) == 0x60)
             {
                 var vn = (cmd >> 2) & 3; // dimension: 0=S, 1=V2, 2=V3, 3=V4
-                var vl = cmd & 3;         // bitwidth: 0=32, 1=16, 2=8
+                var vl = cmd & 3; // bitwidth: 0=32, 1=16, 2=8
                 var num = data[pCode + 2];
                 if (num == 0) num = 0; // 0 means 256 for PS2 but unusual in practice
 
@@ -351,7 +354,7 @@ public static class Ps2GeomFile
     }
 
     /// <summary>
-    /// Advance past one VIF opcode. Port of vif::NextCode from vif.cpp.
+    ///     Advance past one VIF opcode. Port of vif::NextCode from vif.cpp.
     /// </summary>
     private static int VifNextCode(byte[] data, int offset, int end)
     {
@@ -368,7 +371,7 @@ public static class Ps2GeomFile
                 // 4-byte commands
                 0x00 or 0x01 or 0x02 or 0x03 or 0x04 or 0x05 or 0x06 or 0x07
                     or 0x10 or 0x11 or 0x13 or 0x14 or 0x15 or 0x17 => offset + 4,
-                0x20 => offset + 8,     // STMASK
+                0x20 => offset + 8, // STMASK
                 0x30 or 0x31 => offset + 20, // STROW/STCOL
                 0x4A => offset + (data[offset + 2] << 3) + 4, // MPG
                 0x50 or 0x51 => // DIRECT/DIRECTHL
@@ -384,15 +387,15 @@ public static class Ps2GeomFile
         if (num == 0) num = 0; // Handle edge case; 0 in practice means no data
         var dimension = vn + 1;
         var bitLength = 32 >> vl;
-        var dataSize = (((bitLength * dimension * num + 31) >> 5) << 2);
+        var dataSize = ((bitLength * dimension * num + 31) >> 5) << 2;
         return offset + 4 + dataSize;
     }
 
     /// <summary>
-    /// Extract GS register values from a DMA chain's GS context.
-    /// The GS context is encoded as: UNPACK V4_32 NUM=1 (GIF tag) followed by
-    /// UNPACK V3_32 NUM=N (register writes as data_lo32, data_hi32, reg_addr triplets).
-    /// Extracts TEX0_1 (0x06), CLAMP_1 (0x08), ALPHA_1 (0x42), TEST_1 (0x47).
+    ///     Extract GS register values from a DMA chain's GS context.
+    ///     The GS context is encoded as: UNPACK V4_32 NUM=1 (GIF tag) followed by
+    ///     UNPACK V3_32 NUM=N (register writes as data_lo32, data_hi32, reg_addr triplets).
+    ///     Extracts TEX0_1 (0x06), CLAMP_1 (0x08), ALPHA_1 (0x42), TEST_1 (0x47).
     /// </summary>
     private static GsContext ExtractGsContext(byte[] data, int dmaOffset)
     {
@@ -440,10 +443,10 @@ public static class Ps2GeomFile
 
                         switch (reg)
                         {
-                            case 0x06: ctx.Tex0 = val; break;   // TEX0_1
+                            case 0x06: ctx.Tex0 = val; break; // TEX0_1
                             case 0x08: ctx.Clamp1 = val; break; // CLAMP_1
                             case 0x42: ctx.Alpha1 = val; break; // ALPHA_1
-                            case 0x47: ctx.Test1 = val; break;  // TEST_1
+                            case 0x47: ctx.Test1 = val; break; // TEST_1
                         }
                     }
 
@@ -467,7 +470,7 @@ public static class Ps2GeomFile
     }
 
     /// <summary>
-    /// Tracks UNPACK offsets and metadata for one vertex batch within a VIF chain.
+    ///     Tracks UNPACK offsets and metadata for one vertex batch within a VIF chain.
     /// </summary>
     private struct VifBatch
     {

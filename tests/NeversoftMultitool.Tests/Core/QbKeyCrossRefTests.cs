@@ -43,7 +43,7 @@ public class QbKeyCrossRefTests(TestPaths paths)
         var inputFile = Path.Combine(paths.PsxXboxDir!, filename);
         Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
 
-        var hashes = PsxLibrary.EnumerateAllHashes(inputFile);
+        var hashes = PsxHashEnumerator.EnumerateAllHashes(inputFile);
 
         Assert.NotNull(hashes);
         Assert.NotNull(hashes.MeshNameHashes);
@@ -60,7 +60,7 @@ public class QbKeyCrossRefTests(TestPaths paths)
         var inputFile = Path.Combine(paths.PsxXboxDir!, filename);
         Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
 
-        var allHashes = PsxLibrary.EnumerateAllHashes(inputFile);
+        var allHashes = PsxHashEnumerator.EnumerateAllHashes(inputFile);
         var textures = PsxLibrary.EnumerateTextures(inputFile);
 
         Assert.NotNull(allHashes);
@@ -80,14 +80,15 @@ public class QbKeyCrossRefTests(TestPaths paths)
     [Fact]
     public void EnumerateAllHashes_InvalidFile_ReturnsNull()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "NsMultitool_Test_HashInvalid_" + Guid.NewGuid().ToString("N")[..8]);
+        var tempDir = Path.Combine(Path.GetTempPath(),
+            "NsMultitool_Test_HashInvalid_" + Guid.NewGuid().ToString("N")[..8]);
         var tempFile = Path.Combine(tempDir, "invalid.psx");
         try
         {
             Directory.CreateDirectory(tempDir);
             File.WriteAllBytes(tempFile, [0x00, 0x00, 0x00, 0x00]);
 
-            var result = PsxLibrary.EnumerateAllHashes(tempFile);
+            var result = PsxHashEnumerator.EnumerateAllHashes(tempFile);
             Assert.Null(result);
         }
         finally

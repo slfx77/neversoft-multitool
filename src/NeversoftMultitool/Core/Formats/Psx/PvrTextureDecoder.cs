@@ -5,13 +5,16 @@ public static class PvrTextureDecoder
     private static readonly HashSet<int> SupportedFormats = [0x100, 0x200, 0x300, 0x400, 0x900, 0xD00];
 
     /// <summary>
-    /// Returns true if the given format type code (PixelFormat &amp; 0xFF00) is supported.
+    ///     Returns true if the given format type code (PixelFormat &amp; 0xFF00) is supported.
     /// </summary>
-    public static bool IsSupportedFormat(int formatType) => SupportedFormats.Contains(formatType);
+    public static bool IsSupportedFormat(int formatType)
+    {
+        return SupportedFormats.Contains(formatType);
+    }
 
     /// <summary>
-    /// Extracts a 16-bit texture from a PowerVR texture file.
-    /// Returns a ushort[] texture buffer, or null if unsupported.
+    ///     Extracts a 16-bit texture from a PowerVR texture file.
+    ///     Returns a ushort[] texture buffer, or null if unsupported.
     /// </summary>
     public static ushort[]? Extract16BitTexture(BinaryReader reader, PsxTextureHeader header,
         List<string>? outputStrings = null)
@@ -22,7 +25,7 @@ public static class PvrTextureDecoder
     }
 
     /// <summary>
-    /// Decompresses a texture from a PowerVR texture file.
+    ///     Decompresses a texture from a PowerVR texture file.
     /// </summary>
     private static ushort[]? DecompressTexture(BinaryReader reader, PsxTextureHeader header,
         List<string>? outputStrings)
@@ -50,11 +53,12 @@ public static class PvrTextureDecoder
         {
             outputStrings?.Add($"Not implemented yet: 0x{header.PixelFormat:X} - palette type 0x{paletteType:X}.");
         }
+
         return null;
     }
 
     /// <summary>
-    /// Decodes a twiddled texture.
+    ///     Decodes a twiddled texture.
     /// </summary>
     private static ushort[] DecodeTwiddled(BinaryReader reader, PsxTextureHeader header, bool mipmap)
     {
@@ -106,7 +110,7 @@ public static class PvrTextureDecoder
     }
 
     /// <summary>
-    /// Decodes a twiddled VQ texture.
+    ///     Decodes a twiddled VQ texture.
     /// </summary>
     private static ushort[] DecodeTwiddledVq(BinaryReader reader, PsxTextureHeader header,
         long textureOffset, bool mipmap)
@@ -140,7 +144,7 @@ public static class PvrTextureDecoder
     }
 
     /// <summary>
-    /// Decodes a rectangular texture.
+    ///     Decodes a rectangular texture.
     /// </summary>
     private static ushort[] DecodeRectangle(BinaryReader reader, PsxTextureHeader header)
     {
@@ -156,7 +160,7 @@ public static class PvrTextureDecoder
     }
 
     /// <summary>
-    /// Calculates the starting index for a mip level.
+    ///     Calculates the starting index for a mip level.
     /// </summary>
     private static int CalculateMipLevelStartIndex(int mipLevelDimension)
     {
@@ -166,11 +170,12 @@ public static class PvrTextureDecoder
             mipLevelDimension >>= 1;
             startIndex += mipLevelDimension * mipLevelDimension;
         }
+
         return startIndex;
     }
 
     /// <summary>
-    /// Reads a color block from the texture.
+    ///     Reads a color block from the texture.
     /// </summary>
     private static ushort[] GetColorBlock(BinaryReader reader, long textureOffset, int colorOffset)
     {
@@ -183,14 +188,15 @@ public static class PvrTextureDecoder
         {
             pixels[i] = reader.ReadUInt16();
         }
+
         return pixels;
     }
 
     // ── Mip-chain decoding (new methods, existing methods unchanged) ──────────
 
     /// <summary>
-    /// Extracts a 16-bit texture with all mip levels.
-    /// Returns null for non-mipmapped formats; caller falls back to single-surface path.
+    ///     Extracts a 16-bit texture with all mip levels.
+    ///     Returns null for non-mipmapped formats; caller falls back to single-surface path.
     /// </summary>
     internal static PvrMipChain? Extract16BitTextureWithMips(BinaryReader reader, PsxTextureHeader header)
     {
@@ -200,7 +206,7 @@ public static class PvrTextureDecoder
         {
             0x200 => DecodeTwiddledAllLevels(reader, header),
             0x400 => DecodeTwiddledVqAllLevels(reader, header),
-            _ => (PvrMipChain?)null
+            _ => null
         };
 
         reader.BaseStream.Seek(header.TextureOffset + header.Size, SeekOrigin.Begin);
@@ -208,9 +214,9 @@ public static class PvrTextureDecoder
     }
 
     /// <summary>
-    /// Decodes all mip levels of a twiddled mipmapped texture (format 0x200).
-    /// PVR stores smallest-to-largest; we reverse to DDS convention (largest first).
-    /// Layout: [1-pixel sentinel][1x1][2x2][4x4]...[W/2×W/2][W×W main]
+    ///     Decodes all mip levels of a twiddled mipmapped texture (format 0x200).
+    ///     PVR stores smallest-to-largest; we reverse to DDS convention (largest first).
+    ///     Layout: [1-pixel sentinel][1x1][2x2][4x4]...[W/2×W/2][W×W main]
     /// </summary>
     private static PvrMipChain DecodeTwiddledAllLevels(BinaryReader reader, PsxTextureHeader header)
     {
@@ -241,8 +247,8 @@ public static class PvrTextureDecoder
     }
 
     /// <summary>
-    /// Decodes a single twiddled square surface at the current reader position.
-    /// Same Morton-curve logic as DecodeTwiddled but for arbitrary dimensions.
+    ///     Decodes a single twiddled square surface at the current reader position.
+    ///     Same Morton-curve logic as DecodeTwiddled but for arbitrary dimensions.
     /// </summary>
     private static ushort[] DecodeTwiddledSurface(BinaryReader reader, int width, int height)
     {
@@ -289,9 +295,9 @@ public static class PvrTextureDecoder
     }
 
     /// <summary>
-    /// Decodes all mip levels of a VQ mipmapped texture (format 0x400).
-    /// Codebook at textureOffset+0..0x800, indices at textureOffset+0x800.
-    /// Index layout: [1-byte sentinel][1×1 blocks][2×2 blocks]...[main]
+    ///     Decodes all mip levels of a VQ mipmapped texture (format 0x400).
+    ///     Codebook at textureOffset+0..0x800, indices at textureOffset+0x800.
+    ///     Index layout: [1-byte sentinel][1×1 blocks][2×2 blocks]...[main]
     /// </summary>
     private static PvrMipChain DecodeTwiddledVqAllLevels(BinaryReader reader, PsxTextureHeader header)
     {
@@ -327,7 +333,7 @@ public static class PvrTextureDecoder
     }
 
     /// <summary>
-    /// Reads the VQ codebook: 256 entries of 4 ushort pixels each.
+    ///     Reads the VQ codebook: 256 entries of 4 ushort pixels each.
     /// </summary>
     private static ushort[][] ReadVqCodebook(BinaryReader reader, long textureOffset)
     {
@@ -339,11 +345,12 @@ public static class PvrTextureDecoder
             for (var j = 0; j < 4; j++)
                 codebook[i][j] = reader.ReadUInt16();
         }
+
         return codebook;
     }
 
     /// <summary>
-    /// Decodes a single VQ surface at the given index offset within the index region.
+    ///     Decodes a single VQ surface at the given index offset within the index region.
     /// </summary>
     private static ushort[] DecodeVqSurface(BinaryReader reader, long textureOffset,
         ushort[][] codebook, int pixelDim, int blockDim, int indexStartOffset)

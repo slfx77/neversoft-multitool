@@ -3,33 +3,31 @@ using System.Numerics;
 namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
 /// <summary>
-/// Parser for native PS2 scene files (.mdl.ps2, .skin.ps2, .iskin.ps2).
-/// Follows the THUG source code (scene.cpp/mesh.cpp/material.cpp) binary format,
-/// validated across 2,299 files: THPS4 (574), THUG (812), THUG2 (913).
-///
-/// Version triples: THPS4 (3,4,1), THUG (5,6,1), THUG2 (6,6,1).
-///
-/// Key differences from the io_thps_scene cross-platform format:
-/// - Single-pass materials (no multi-pass concept)
-/// - Per-mesh vertex data with ADC-based triangle strips (no separate index arrays)
-/// - Version-dependent vertex precision (THPS4 all-float vs THUG packed sint16)
+///     Parser for native PS2 scene files (.mdl.ps2, .skin.ps2, .iskin.ps2).
+///     Follows the THUG source code (scene.cpp/mesh.cpp/material.cpp) binary format,
+///     validated across 2,299 files: THPS4 (574), THUG (812), THUG2 (913).
+///     Version triples: THPS4 (3,4,1), THUG (5,6,1), THUG2 (6,6,1).
+///     Key differences from the io_thps_scene cross-platform format:
+///     - Single-pass materials (no multi-pass concept)
+///     - Per-mesh vertex data with ADC-based triangle strips (no separate index arrays)
+///     - Version-dependent vertex precision (THPS4 all-float vs THUG packed sint16)
 /// </summary>
 public static class Ps2SceneFile
 {
-    public static readonly string[] SupportedExtensions =
-        [".mdl.ps2", ".skin.ps2", ".iskin.ps2"];
-
     /// <summary>
-    /// Skinned sint16 position scale factor. From THUG render.h: SUB_INCH_PRECISION = 16.0f.
-    /// VU1 converts: float_pos = sint16_pos / 16.0f.
+    ///     Skinned sint16 position scale factor. From THUG render.h: SUB_INCH_PRECISION = 16.0f.
+    ///     VU1 converts: float_pos = sint16_pos / 16.0f.
     /// </summary>
     private const float SkinPositionScale = 1f / 16f;
 
     /// <summary>
-    /// Skinned sint16 UV scale factor. From THUG mesh.cpp VertexSTFloat:
-    /// float_st = sint16 * 0.000244140625f = sint16 / 4096.0f.
+    ///     Skinned sint16 UV scale factor. From THUG mesh.cpp VertexSTFloat:
+    ///     float_st = sint16 * 0.000244140625f = sint16 / 4096.0f.
     /// </summary>
     private const float SkinUvScale = 1f / 4096f;
+
+    public static readonly string[] SupportedExtensions =
+        [".mdl.ps2", ".skin.ps2", ".iskin.ps2"];
 
     public static bool IsPs2Scene(byte[] data)
     {
@@ -38,11 +36,14 @@ public static class Ps2SceneFile
         var meshVer = BitConverter.ToUInt32(data, 4);
         var vertVer = BitConverter.ToUInt32(data, 8);
         return matVer is 3 or 5 or 6
-            && meshVer is 4 or 6
-            && vertVer == 1;
+               && meshVer is 4 or 6
+               && vertVer == 1;
     }
 
-    public static Ps2Scene Parse(string filePath) => Parse(File.ReadAllBytes(filePath));
+    public static Ps2Scene Parse(string filePath)
+    {
+        return Parse(File.ReadAllBytes(filePath));
+    }
 
     public static Ps2Scene Parse(byte[] data)
     {
@@ -83,7 +84,7 @@ public static class Ps2SceneFile
             MeshVersion = meshVersion,
             VertexVersion = vertVersion,
             Materials = materials,
-            MeshGroups = meshGroups,
+            MeshGroups = meshGroups
         };
     }
 
@@ -101,7 +102,7 @@ public static class Ps2SceneFile
             flags = r.ReadUInt32();
 
         // Alpha reference (Aref)
-        int alphaRef = 0;
+        var alphaRef = 0;
         if (matVer >= 2)
             alphaRef = (matVer >= 3 ? r.ReadInt32() : r.ReadByte()) & 0xFF;
 
@@ -197,7 +198,7 @@ public static class Ps2SceneFile
             AlphaRef = alphaRef,
             RegAlpha = regAlpha,
             ClampU = clampU != 0,
-            ClampV = clampV != 0,
+            ClampV = clampV != 0
         };
     }
 
@@ -217,7 +218,7 @@ public static class Ps2SceneFile
         return new Ps2MeshGroup
         {
             Checksum = groupChecksum,
-            Meshes = meshes,
+            Meshes = meshes
         };
     }
 
@@ -267,7 +268,7 @@ public static class Ps2SceneFile
         // Vertices
         var numVertices = r.ReadInt32();
         var vertices = numVertices > 0
-            ? ReadVertices(r, numVertices, meshFlags, meshVer, boundingSphere)
+            ? ReadVertices(r, numVertices, meshFlags, meshVer)
             : [];
 
         return new Ps2Mesh
@@ -276,7 +277,7 @@ public static class Ps2SceneFile
             MaterialChecksum = materialChecksum,
             MeshFlags = meshFlags,
             BoundingSphere = boundingSphere,
-            Vertices = vertices,
+            Vertices = vertices
         };
     }
 
@@ -291,8 +292,7 @@ public static class Ps2SceneFile
     // ================================================================
 
     private static Ps2Vertex[] ReadVertices(
-        BinaryReader r, int count, Ps2MeshFlags flags, int meshVer,
-        Vector4 boundingSphere)
+        BinaryReader r, int count, Ps2MeshFlags flags, int meshVer)
     {
         var hasTexture = (flags & Ps2MeshFlags.Texture) != 0;
         var hasColours = (flags & Ps2MeshFlags.Colours) != 0;
@@ -305,15 +305,15 @@ public static class Ps2SceneFile
         var vertices = new Ps2Vertex[count];
         for (var i = 0; i < count; i++)
             vertices[i] = usePacked
-                ? ReadVertexPacked(r, hasTexture, hasColours, hasNormals, boundingSphere)
+                ? ReadVertexPacked(r, hasTexture, hasColours, hasNormals)
                 : ReadVertexFloat(r, hasTexture, hasColours, hasNormals, isSkinned, meshVer);
 
         return vertices;
     }
 
     /// <summary>
-    /// Read a vertex with float-precision attributes.
-    /// Used for: all THPS4 vertices, THUG/THUG2 non-skinned vertices.
+    ///     Read a vertex with float-precision attributes.
+    ///     Used for: all THPS4 vertices, THUG/THUG2 non-skinned vertices.
     /// </summary>
     private static Ps2Vertex ReadVertexFloat(
         BinaryReader r, bool hasTexture, bool hasColours, bool hasNormals,
@@ -367,7 +367,8 @@ public static class Ps2SceneFile
             bi0 = (int)r.ReadUInt32();
             bi1 = (int)r.ReadUInt32();
             r.BaseStream.Seek(4, SeekOrigin.Current); // pad
-            bw2 = 0; bi2 = 0; // THPS4 uses 2 bones max
+            bw2 = 0;
+            bi2 = 0; // THPS4 uses 2 bones max
             hasSkin = true;
         }
         // THUG/THUG2 skinned uses packed path (ReadVertexPacked), not this function
@@ -389,12 +390,11 @@ public static class Ps2SceneFile
     }
 
     /// <summary>
-    /// Read a vertex with packed sint16 attributes.
-    /// Used for: THUG/THUG2 skinned vertices only.
+    ///     Read a vertex with packed sint16 attributes.
+    ///     Used for: THUG/THUG2 skinned vertices only.
     /// </summary>
     private static Ps2Vertex ReadVertexPacked(
-        BinaryReader r, bool hasTexture, bool hasColours, bool hasNormals,
-        Vector4 boundingSphere)
+        BinaryReader r, bool hasTexture, bool hasColours, bool hasNormals)
     {
         // ST (texture coordinates) — 2×sint16, scaled by 1/4096
         float u = 0, v = 0;
@@ -446,14 +446,14 @@ public static class Ps2SceneFile
             u, v,
             hasNormals, hasColours, hasTexture,
             (adc & 0x8000) != 0,
-            bi0, bi1, bi2, bw0, bw1, bw2, hasSkinData: true);
+            bi0, bi1, bi2, bw0, bw1, bw2, true);
     }
 
     /// <summary>
-    /// Decode packed normal from 2×sint16 (4 bytes).
-    /// From THUG mesh.cpp VertexNormal:
-    ///   nz = sqrt(32767² - nx² - ny²)
-    ///   Z sign encoded in LSB of nx (if bit 0 set, negate Z).
+    ///     Decode packed normal from 2×sint16 (4 bytes).
+    ///     From THUG mesh.cpp VertexNormal:
+    ///     nz = sqrt(32767² - nx² - ny²)
+    ///     Z sign encoded in LSB of nx (if bit 0 set, negate Z).
     /// </summary>
     private static void DecodePackedNormal(BinaryReader r, out float nx, out float ny, out float nz)
     {

@@ -1,12 +1,12 @@
 namespace NeversoftMultitool.Core.Formats.Psx;
 
 /// <summary>
-/// World-space position for a DDM mesh object, extracted from a PSX file's Object Position section.
+///     World-space position for a DDM mesh object, extracted from a PSX file's Object Position section.
 /// </summary>
 public readonly record struct PsxObjectPosition(float X, float Y, float Z, ushort MeshIndex);
 
 /// <summary>
-/// Parses Object Position entries from PSX files to provide world-space placement for DDM objects.
+///     Parses Object Position entries from PSX files to provide world-space placement for DDM objects.
 /// </summary>
 public static class PsxObjectPositionParser
 {
@@ -14,8 +14,8 @@ public static class PsxObjectPositionParser
     private const float FixedPointDivisor = 4096.0f;
 
     /// <summary>
-    /// Parses all Object Position entries from a PSX file.
-    /// Returns null if the file is not a valid PSX file.
+    ///     Parses all Object Position entries from a PSX file.
+    ///     Returns null if the file is not a valid PSX file.
     /// </summary>
     public static List<PsxObjectPosition>? ParsePositions(string psxFilePath)
     {

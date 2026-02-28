@@ -1,20 +1,17 @@
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
-using Microsoft.UI.Xaml.Media;
+using NeversoftMultitool.Core.Formats.Trg;
 
 namespace NeversoftMultitool;
 
-public sealed class TrgFileEntry : IListEntry, INotifyPropertyChanged
+public class TrgFileEntry : BaseFileEntry, IListEntry
 {
-    private ExtractionStatus _status = ExtractionStatus.Pending;
-    private int _nodeCount;
     private bool _isExpanded;
+    private int _nodeCount;
     private string _versionDisplay = "";
-
-    public bool IsChildEntry => false;
 
     public required string FileName { get; init; }
     public required string FilePath { get; init; }
+
+    protected override string ProcessingVerb => "Exporting...";
 
     public string VersionDisplay
     {
@@ -37,7 +34,11 @@ public sealed class TrgFileEntry : IListEntry, INotifyPropertyChanged
         }
     }
 
-    public string ChevronGlyph => _nodeCount == 0 ? "" : _isExpanded ? "\uE70D" : "\uE76C";
+    public string ChevronGlyph => _nodeCount switch
+    {
+        0 => "",
+        _ => _isExpanded ? "\uE70D" : "\uE76C"
+    };
 
     public int NodeCount
     {
@@ -53,44 +54,8 @@ public sealed class TrgFileEntry : IListEntry, INotifyPropertyChanged
 
     public string NodeCountDisplay => _nodeCount > 0 ? _nodeCount.ToString() : "";
 
-    public ExtractionStatus Status
-    {
-        get => _status;
-        set
-        {
-            _status = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(StatusDisplay));
-            OnPropertyChanged(nameof(StatusColor));
-        }
-    }
-
-    public string StatusDisplay => _status switch
-    {
-        ExtractionStatus.Pending => "",
-        ExtractionStatus.Processing => "Exporting...",
-        ExtractionStatus.Done => "OK",
-        ExtractionStatus.Error => "ERROR",
-        ExtractionStatus.Skipped => "SKIPPED",
-        _ => ""
-    };
-
-    public SolidColorBrush StatusColor => _status switch
-    {
-        ExtractionStatus.Processing => new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0xD7, 0x00)),
-        ExtractionStatus.Done => new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x00, 0xA6, 0x00)),
-        ExtractionStatus.Error => new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0x00, 0x00)),
-        ExtractionStatus.Skipped => new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0xA5, 0x00)),
-        _ => new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88))
-    };
-
-    internal Core.Formats.Trg.TrgFile? CachedParsedFile { get; set; }
+    internal TrgFile? CachedParsedFile { get; set; }
     internal List<TrgNodeEntry>? CachedChildren { get; set; }
 
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
+    public bool IsChildEntry => false;
 }

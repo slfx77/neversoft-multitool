@@ -3,14 +3,14 @@ using System.Text;
 namespace NeversoftMultitool.Core.Formats.Mesh;
 
 /// <summary>
-/// Parsed DDM (Xbox 3D mesh) file containing static level geometry.
+///     Parsed DDM (Xbox 3D mesh) file containing static level geometry.
 /// </summary>
 public sealed class DdmFile
 {
     public required List<DdmObject> Objects { get; init; }
 
     /// <summary>
-    /// Parses a DDM file from disk.
+    ///     Parses a DDM file from disk.
     /// </summary>
     public static DdmFile Parse(string filePath)
     {
@@ -171,7 +171,7 @@ public sealed class DdmFile
 }
 
 /// <summary>
-/// A single mesh object within a DDM file.
+///     A single mesh object within a DDM file.
 /// </summary>
 public sealed class DdmObject
 {
@@ -193,16 +193,24 @@ public sealed class DdmObject
 }
 
 /// <summary>
-/// Vertex with position, normal, vertex color, and texture coordinates.
+///     Vertex with position, normal, vertex color, and texture coordinates.
 /// </summary>
 public readonly record struct DdmVertex(
-    float X, float Y, float Z,
-    float NX, float NY, float NZ,
-    byte R, byte G, byte B, byte A,
-    float U, float V);
+    float X,
+    float Y,
+    float Z,
+    float NX,
+    float NY,
+    float NZ,
+    byte R,
+    byte G,
+    byte B,
+    byte A,
+    float U,
+    float V);
 
 /// <summary>
-/// Material with texture reference and rendering properties.
+///     Material with texture reference and rendering properties.
 /// </summary>
 public sealed class DdmMaterial
 {
@@ -220,7 +228,9 @@ public sealed class DdmMaterial
 }
 
 /// <summary>
-/// Maps a range of triangle strip indices to a material.
+///     Maps a range of triangle strip indices to a material.
 /// </summary>
 public readonly record struct DdmSplit(
-    ushort MaterialIndex, ushort IndexOffset, ushort IndexCount);
+    ushort MaterialIndex,
+    ushort IndexOffset,
+    ushort IndexCount);

@@ -1,14 +1,14 @@
 namespace NeversoftMultitool.Core.Formats.Psx;
 
 /// <summary>
-/// Holds a complete mip chain for a PowerVR texture.
-/// Levels are ordered from largest (main surface) to smallest (1x1), matching DDS convention.
+///     Holds a complete mip chain for a PowerVR texture.
+///     Levels are ordered from largest (main surface) to smallest (1x1), matching DDS convention.
 /// </summary>
 public sealed class PvrMipChain
 {
     /// <summary>
-    /// Mip levels ordered largest to smallest. Index 0 is the main surface.
-    /// Each level is a flat ushort[] of width * height pixels for that level.
+    ///     Mip levels ordered largest to smallest. Index 0 is the main surface.
+    ///     Each level is a flat ushort[] of width * height pixels for that level.
     /// </summary>
     public required List<ushort[]> Levels { get; init; }
 
@@ -19,8 +19,8 @@ public sealed class PvrMipChain
     public ushort[] MainSurface => Levels[0];
 
     /// <summary>
-    /// Renders all mip levels into a single RGBA atlas image for visual verification.
-    /// Layout: main surface on the left, smaller levels stacked vertically to the right.
+    ///     Renders all mip levels into a single RGBA atlas image for visual verification.
+    ///     Layout: main surface on the left, smaller levels stacked vertically to the right.
     /// </summary>
     public (byte[] Rgba, int AtlasWidth, int AtlasHeight) ToAtlasRgba(uint pixelFormat)
     {
@@ -39,7 +39,7 @@ public sealed class PvrMipChain
         }
 
         // Blit main surface at (0, 0)
-        BlitRgba(atlas, atlasWidth, rgbaLevels[0], Width, Height, destX: 0, destY: 0);
+        BlitRgba(atlas, atlasWidth, rgbaLevels[0], Width, Height, 0, 0);
 
         // Blit smaller levels stacked to the right of the main surface
         var yOffset = 0;
@@ -47,7 +47,7 @@ public sealed class PvrMipChain
 
         for (var i = 1; i < Levels.Count && mipDim >= 1; i++)
         {
-            BlitRgba(atlas, atlasWidth, rgbaLevels[i], mipDim, mipDim, destX: Width, destY: yOffset);
+            BlitRgba(atlas, atlasWidth, rgbaLevels[i], mipDim, mipDim, Width, yOffset);
             yOffset += mipDim;
             mipDim /= 2;
         }

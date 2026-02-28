@@ -180,7 +180,7 @@ public static class DdmCommand
     }
 
     /// <summary>
-    /// Auto-detects a companion directory: checks input dir for matching files, then sibling dir.
+    ///     Auto-detects a companion directory: checks input dir for matching files, then sibling dir.
     /// </summary>
     private static string? ResolveCompanionDir(string input, string? explicitPath,
         string searchPattern, string siblingName)
@@ -193,7 +193,7 @@ public static class DdmCommand
     }
 
     /// <summary>
-    /// Classifies DDM files into placed levels (have PSX companion) and object companions (_o suffix).
+    ///     Classifies DDM files into placed levels (have PSX companion) and object companions (_o suffix).
     /// </summary>
     private static (Dictionary<string, string> PlacedLevels, HashSet<string> ObjectStems)
         ClassifyDdmFiles(string[] allDdmFiles, string? psxPath)
@@ -221,8 +221,6 @@ public static class DdmCommand
         return (placedLevels, objectStems);
     }
 
-    private readonly record struct ConvertResult(int Objects, int Triangles, bool Converted);
-
     private static ConvertResult ConvertPlacedLevel(
         string levelDdmPath, string levelPsxPath, string output, bool verbose,
         string? ddxPath, string? psxDir)
@@ -245,7 +243,7 @@ public static class DdmCommand
 
             if (verbose)
             {
-                var objInfo = objectsDdm != null ? $" + objects" : "";
+                var objInfo = objectsDdm != null ? " + objects" : "";
                 AnsiConsole.MarkupLine(
                     $"  {ddmName}: [blue]placed level{objInfo}, {totalTriangles:N0} triangles[/]");
             }
@@ -281,7 +279,7 @@ public static class DdmCommand
 
             // Load .lit lights (search DDX dir, then input dir)
             var lights = FindAndParseLitFile(ddmName, ddxPath)
-                      ?? FindAndParseLitFile(ddmName, Path.GetDirectoryName(file));
+                         ?? FindAndParseLitFile(ddmName, Path.GetDirectoryName(file));
 
             var outputFile = Path.Combine(output, ddmName + ".glb");
             var triangles = GltfWriter.WriteDdm(ddm, outputFile, textures, ddmName, ddxTextures, lights);
@@ -308,8 +306,14 @@ public static class DdmCommand
         if (string.IsNullOrEmpty(searchDir)) return null;
         var litPath = FindCompanionFile(searchDir, levelName, ".lit");
         if (litPath == null) return null;
-        try { return LitFile.Parse(litPath); }
-        catch { return null; }
+        try
+        {
+            return LitFile.Parse(litPath);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string? ResolveSiblingDirectory(string inputDir, string siblingName)
@@ -326,4 +330,6 @@ public static class DdmCommand
             new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
         return files.Length > 0 ? files[0] : null;
     }
+
+    private readonly record struct ConvertResult(int Objects, int Triangles, bool Converted);
 }

@@ -6,9 +6,9 @@ using System.Text.RegularExpressions;
 namespace NeversoftMultitool.Core.Formats.Video;
 
 /// <summary>
-/// Converts CRI Sofdec (SFD) video files to MP4 using ffmpeg.
-/// SFD files are MPEG-PS containers with MPEG-1 video and ADX audio,
-/// used in Dreamcast games (Spider-Man DC, THPS2 DC).
+///     Converts CRI Sofdec (SFD) video files to MP4 using ffmpeg.
+///     SFD files are MPEG-PS containers with MPEG-1 video and ADX audio,
+///     used in Dreamcast games (Spider-Man DC, THPS2 DC).
 /// </summary>
 public static partial class SfdConverter
 {
@@ -17,7 +17,7 @@ public static partial class SfdConverter
     private static bool _searched;
 
     /// <summary>
-    /// Finds ffmpeg on the system PATH. Caches the result.
+    ///     Finds ffmpeg on the system PATH. Caches the result.
     /// </summary>
     public static string? FindFfmpeg()
     {
@@ -32,7 +32,7 @@ public static partial class SfdConverter
     }
 
     /// <summary>
-    /// Finds ffprobe on the system PATH. Calls FindFfmpeg() if not yet searched.
+    ///     Finds ffprobe on the system PATH. Calls FindFfmpeg() if not yet searched.
     /// </summary>
     public static string? FindFfprobe()
     {
@@ -41,8 +41,8 @@ public static partial class SfdConverter
     }
 
     /// <summary>
-    /// Probes an SFD file for metadata using ffprobe.
-    /// Returns null if ffprobe is not available or the file cannot be probed.
+    ///     Probes an SFD file for metadata using ffprobe.
+    ///     Returns null if ffprobe is not available or the file cannot be probed.
     /// </summary>
     public static SfdProbeResult? Probe(string inputPath)
     {
@@ -76,7 +76,7 @@ public static partial class SfdConverter
     }
 
     /// <summary>
-    /// Converts an SFD file to MP4 (H.264 + AAC) using ffmpeg.
+    ///     Converts an SFD file to MP4 (H.264 + AAC) using ffmpeg.
     /// </summary>
     public static SfdConvertResult ConvertToMp4(
         string inputPath,
@@ -102,7 +102,8 @@ public static partial class SfdConverter
             process.StartInfo = new ProcessStartInfo
             {
                 FileName = ffmpeg,
-                Arguments = $"-y -i \"{inputPath}\" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k \"{outputPath}\"",
+                Arguments =
+                    $"-y -i \"{inputPath}\" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k \"{outputPath}\"",
                 UseShellExecute = false,
                 RedirectStandardError = true,
                 CreateNoWindow = true
@@ -256,7 +257,14 @@ public static partial class SfdConverter
 
     private static void TryDeleteFile(string path)
     {
-        try { File.Delete(path); } catch { /* best effort */ }
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+            /* best effort */
+        }
     }
 
     [GeneratedRegex(@"time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})")]

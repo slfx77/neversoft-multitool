@@ -3,9 +3,9 @@ using System.Collections.Frozen;
 namespace NeversoftMultitool.Core.Formats.Archives;
 
 /// <summary>
-/// Dictionary mapping Crc32Neversoft hashes to filenames for hashed HED files.
-/// Generated from THPS2 cross-reference: prototype (plaintext) vs final (hashed) HED.
-/// Algorithm: Crc32Neversoft (BinaryReaderExtensions.Crc32Neversoft).
+///     Dictionary mapping Crc32Neversoft hashes to filenames for hashed HED files.
+///     Generated from THPS2 cross-reference: prototype (plaintext) vs final (hashed) HED.
+///     Algorithm: Crc32Neversoft (BinaryReaderExtensions.Crc32Neversoft).
 /// </summary>
 internal static class HedDictionary
 {
@@ -1541,9 +1541,11 @@ internal static class HedDictionary
         [0x4FFDCD89] = "venice.sfx",
         [0xEB90F87A] = "venice.vab",
         [0xA4906E06] = "ware.sfx",
-        [0x00FD5BF5] = "ware.vab",
+        [0x00FD5BF5] = "ware.vab"
     }.ToFrozenDictionary();
 
-    internal static string? TryResolve(uint hash) =>
-        Names.GetValueOrDefault(hash);
+    internal static string? TryResolve(uint hash)
+    {
+        return Names.GetValueOrDefault(hash);
+    }
 }

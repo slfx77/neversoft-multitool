@@ -3,10 +3,10 @@ using System.Text;
 namespace NeversoftMultitool.Core.Formats.Psx;
 
 /// <summary>
-/// Parses RenderWare 3.x Texture Dictionary (TXD) files to extract textures as RGBA pixel data.
-/// Used for THPS3 PS2 .tex files which use RenderWare format instead of Neversoft's custom binary.
-/// RW version 3.1.0 (stamp 0x0310). Chunk-based container with PS2-native rasters.
-/// Format reference: librw (aap/librw), GTAModding wiki, hex analysis of THPS3 files.
+///     Parses RenderWare 3.x Texture Dictionary (TXD) files to extract textures as RGBA pixel data.
+///     Used for THPS3 PS2 .tex files which use RenderWare format instead of Neversoft's custom binary.
+///     RW version 3.1.0 (stamp 0x0310). Chunk-based container with PS2-native rasters.
+///     Format reference: librw (aap/librw), GTAModding wiki, hex analysis of THPS3 files.
 /// </summary>
 public static class RwTxdFile
 {
@@ -23,7 +23,7 @@ public static class RwTxdFile
     private const int FMT_C1555 = 0x0100; // ABGR1555 palette entries (16-bit)
 
     /// <summary>
-    /// Parses an RW TXD file and returns all extracted textures.
+    ///     Parses an RW TXD file and returns all extracted textures.
     /// </summary>
     public static Ps2TexResult Parse(string filePath)
     {
@@ -38,7 +38,7 @@ public static class RwTxdFile
     }
 
     /// <summary>
-    /// Parses an RW TXD from a byte array.
+    ///     Parses an RW TXD from a byte array.
     /// </summary>
     public static Ps2TexResult Parse(byte[] data)
     {
@@ -66,7 +66,7 @@ public static class RwTxdFile
 
             for (var i = 0; i < textureCount && offset < dictEnd; i++)
             {
-                var (tType, tSize, _2) = ReadChunkHeader(data, ref offset);
+                var (tType, tSize, _) = ReadChunkHeader(data, ref offset);
                 var texEnd = offset + (int)tSize;
 
                 if (tType == RW_TEX_NATIVE)
@@ -88,7 +88,7 @@ public static class RwTxdFile
     }
 
     /// <summary>
-    /// Parses one TextureNative chunk: platform info, name, mask, raster data.
+    ///     Parses one TextureNative chunk: platform info, name, mask, raster data.
     /// </summary>
     private static Ps2Texture? ParseTextureNative(byte[] data, ref int offset, int endOffset)
     {
@@ -167,7 +167,7 @@ public static class RwTxdFile
             displayName = name[..extIdx];
 
         // Use CRC-32 hash of the name for the Checksum field
-        var checksum = Core.QbKey.Hash(name);
+        var checksum = QbKey.Hash(name);
 
         // Determine PSM from depth/format for metadata
         var psm = DepthToPsm(depth, rasterFormat);
@@ -223,7 +223,7 @@ public static class RwTxdFile
         {
             var si = i * 4;
             var di = i * 4;
-            dst[di] = src[si];         // R
+            dst[di] = src[si]; // R
             dst[di + 1] = src[si + 1]; // G
             dst[di + 2] = src[si + 2]; // B
             dst[di + 3] = ScaleAlpha(src[si + 3]);
@@ -238,9 +238,9 @@ public static class RwTxdFile
             var si = i * 2;
             var pixel = (ushort)(src[si] | (src[si + 1] << 8));
             var di = i * 4;
-            dst[di] = (byte)((pixel & 0x1F) << 3 | (pixel & 0x1F) >> 2);
-            dst[di + 1] = (byte)(((pixel >> 5) & 0x1F) << 3 | ((pixel >> 5) & 0x1F) >> 2);
-            dst[di + 2] = (byte)(((pixel >> 10) & 0x1F) << 3 | ((pixel >> 10) & 0x1F) >> 2);
+            dst[di] = (byte)(((pixel & 0x1F) << 3) | ((pixel & 0x1F) >> 2));
+            dst[di + 1] = (byte)((((pixel >> 5) & 0x1F) << 3) | (((pixel >> 5) & 0x1F) >> 2));
+            dst[di + 2] = (byte)((((pixel >> 10) & 0x1F) << 3) | (((pixel >> 10) & 0x1F) >> 2));
             dst[di + 3] = 255;
         }
     }
@@ -289,7 +289,7 @@ public static class RwTxdFile
     }
 
     /// <summary>
-    /// CSM1 CLUT swizzle for PSMT8: swap entries [j+8..j+15] with [j+16..j+23] in each group of 32.
+    ///     CSM1 CLUT swizzle for PSMT8: swap entries [j+8..j+15] with [j+16..j+23] in each group of 32.
     /// </summary>
     private static void SwizzleCsm1(byte[] clut)
     {
@@ -309,8 +309,8 @@ public static class RwTxdFile
     }
 
     /// <summary>
-    /// Expands a 16-bit ABGR1555 CLUT to 32-bit RGBA (4 bytes per entry).
-    /// PS2 GS PSMCT16 layout: bit 15 = A, bits 10-14 = B, bits 5-9 = G, bits 0-4 = R.
+    ///     Expands a 16-bit ABGR1555 CLUT to 32-bit RGBA (4 bytes per entry).
+    ///     PS2 GS PSMCT16 layout: bit 15 = A, bits 10-14 = B, bits 5-9 = G, bits 0-4 = R.
     /// </summary>
     private static byte[] ExpandClut16To32(byte[] clut16)
     {
@@ -323,16 +323,19 @@ public static class RwTxdFile
             var g = (pixel >> 5) & 0x1F;
             var b = (pixel >> 10) & 0x1F;
             var a = (pixel >> 15) & 1;
-            clut32[i * 4] = (byte)(r << 3 | r >> 2);
-            clut32[i * 4 + 1] = (byte)(g << 3 | g >> 2);
-            clut32[i * 4 + 2] = (byte)(b << 3 | b >> 2);
+            clut32[i * 4] = (byte)((r << 3) | (r >> 2));
+            clut32[i * 4 + 1] = (byte)((g << 3) | (g >> 2));
+            clut32[i * 4 + 2] = (byte)((b << 3) | (b >> 2));
             clut32[i * 4 + 3] = (byte)(a * 255);
         }
+
         return clut32;
     }
 
-    private static byte ScaleAlpha(byte gsAlpha) =>
-        (byte)Math.Min(gsAlpha * 255 / 128, 255);
+    private static byte ScaleAlpha(byte gsAlpha)
+    {
+        return (byte)Math.Min(gsAlpha * 255 / 128, 255);
+    }
 
     private static void FixAllZeroAlpha(byte[] pixels)
     {
@@ -394,21 +397,27 @@ public static class RwTxdFile
         return Encoding.ASCII.GetString(data, offset, len);
     }
 
-    private static uint DepthToPsm(int depth, int rasterFormat) => depth switch
+    private static uint DepthToPsm(int depth, int rasterFormat)
     {
-        4 when (rasterFormat & FMT_PAL4) != 0 => 0x14,  // PSMT4
-        8 when (rasterFormat & FMT_PAL8) != 0 => 0x13,  // PSMT8
-        32 => 0x00, // PSMCT32
-        16 => 0x02, // PSMCT16
-        _ => 0xFF
-    };
+        return depth switch
+        {
+            4 when (rasterFormat & FMT_PAL4) != 0 => 0x14, // PSMT4
+            8 when (rasterFormat & FMT_PAL8) != 0 => 0x13, // PSMT8
+            32 => 0x00, // PSMCT32
+            16 => 0x02, // PSMCT16
+            _ => 0xFF
+        };
+    }
 
-    public static string DescribeDepth(int depth) => depth switch
+    public static string DescribeDepth(int depth)
     {
-        4 => "4-bit indexed",
-        8 => "8-bit indexed",
-        16 => "16bpp RGBA5551",
-        32 => "32bpp RGBA",
-        _ => $"Unknown ({depth}bpp)"
-    };
+        return depth switch
+        {
+            4 => "4-bit indexed",
+            8 => "8-bit indexed",
+            16 => "16bpp RGBA5551",
+            32 => "32bpp RGBA",
+            _ => $"Unknown ({depth}bpp)"
+        };
+    }
 }

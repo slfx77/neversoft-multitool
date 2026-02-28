@@ -1,7 +1,7 @@
 namespace NeversoftMultitool.Core.Formats.Psx;
 
 /// <summary>
-/// A single bone/part entry from a PSH header file.
+///     A single bone/part entry from a PSH header file.
 /// </summary>
 public sealed class PshBone
 {
@@ -16,15 +16,13 @@ public sealed class PshBone
 }
 
 /// <summary>
-/// Parsed PSH (C preprocessor header) file containing bone hierarchy definitions.
-/// PSH files define the skeleton structure for character models as #define PART_ entries
-/// with parent comments. Found alongside PSX model files with the same stem.
-/// Format: <c>#define HAWK2PART_HAWK_PELVIS 0</c> followed by <c>//   parent: Scene Root</c>.
+///     Parsed PSH (C preprocessor header) file containing bone hierarchy definitions.
+///     PSH files define the skeleton structure for character models as #define PART_ entries
+///     with parent comments. Found alongside PSX model files with the same stem.
+///     Format: <c>#define HAWK2PART_HAWK_PELVIS 0</c> followed by <c>//   parent: Scene Root</c>.
 /// </summary>
 public sealed class PshFile
 {
-    public required IReadOnlyList<PshBone> Bones { get; init; }
-
     private readonly Dictionary<int, string> _namesByIndex;
 
     private PshFile(IReadOnlyList<PshBone> bones)
@@ -35,14 +33,18 @@ public sealed class PshFile
             _namesByIndex.TryAdd(bone.Index, bone.Name);
     }
 
-    /// <summary>
-    /// Returns the bone name for the given object index, or null if not found.
-    /// </summary>
-    public string? GetBoneName(int objectIndex) =>
-        _namesByIndex.GetValueOrDefault(objectIndex);
+    public required IReadOnlyList<PshBone> Bones { get; init; }
 
     /// <summary>
-    /// Parses a PSH header file. Returns null if the file has no PART_ entries.
+    ///     Returns the bone name for the given object index, or null if not found.
+    /// </summary>
+    public string? GetBoneName(int objectIndex)
+    {
+        return _namesByIndex.GetValueOrDefault(objectIndex);
+    }
+
+    /// <summary>
+    ///     Parses a PSH header file. Returns null if the file has no PART_ entries.
     /// </summary>
     public static PshFile? Parse(string filePath)
     {
@@ -85,7 +87,7 @@ public sealed class PshFile
             {
                 Name = boneName,
                 Index = index,
-                ParentName = parentName,
+                ParentName = parentName
             });
         }
 
@@ -95,8 +97,8 @@ public sealed class PshFile
     }
 
     /// <summary>
-    /// Attempts to find and parse a companion PSH file for a PSX model file.
-    /// Looks for a file with the same stem and .psh extension (case-insensitive).
+    ///     Attempts to find and parse a companion PSH file for a PSX model file.
+    ///     Looks for a file with the same stem and .psh extension (case-insensitive).
     /// </summary>
     public static PshFile? FindCompanion(string psxFilePath)
     {

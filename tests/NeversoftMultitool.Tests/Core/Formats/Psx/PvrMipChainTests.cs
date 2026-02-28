@@ -16,7 +16,7 @@ public class PvrMipChainTests
             [
                 new ushort[4 * 4], // 4x4 main
                 new ushort[2 * 2], // 2x2
-                new ushort[1 * 1]  // 1x1
+                new ushort[1 * 1] // 1x1
             ]
         };
 
@@ -41,7 +41,7 @@ public class PvrMipChainTests
             Levels =
             [
                 [redPixel, redPixel, redPixel, redPixel], // 2x2 red
-                [0]  // 1x1 black
+                [0] // 1x1 black
             ]
         };
 
@@ -49,18 +49,18 @@ public class PvrMipChainTests
 
         // Check top-left pixel of atlas (0,0) — should be red
         Assert.Equal(255, rgba[0]); // R
-        Assert.Equal(0, rgba[1]);   // G
-        Assert.Equal(0, rgba[2]);   // B
+        Assert.Equal(0, rgba[1]); // G
+        Assert.Equal(0, rgba[2]); // B
         Assert.Equal(255, rgba[3]); // A
 
         // Check pixel at (1,0) — still main surface, should be red
         var offset = 1 * 4;
-        Assert.Equal(255, rgba[offset]);     // R
+        Assert.Equal(255, rgba[offset]); // R
         Assert.Equal(255, rgba[offset + 3]); // A
 
         // Check pixel at (2,0) — right side, should be 1x1 mip (black/transparent)
         var mipOffset = 2 * 4;
-        Assert.Equal(0, rgba[mipOffset]);     // R
+        Assert.Equal(0, rgba[mipOffset]); // R
         Assert.Equal(0, rgba[mipOffset + 1]); // G
         Assert.Equal(0, rgba[mipOffset + 2]); // B
     }

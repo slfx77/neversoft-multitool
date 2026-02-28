@@ -20,7 +20,7 @@ public class RleImageTests(TestPaths paths)
         var inputFile = Path.Combine(paths.RleDir!, filename);
         var goldenFile = Path.Combine(paths.GoldenRleDir!, Path.ChangeExtension(filename, ".png"));
         Assert.SkipWhen(!File.Exists(inputFile), $"Test file not found: {filename}");
-        Assert.SkipWhen(!File.Exists(goldenFile), $"Golden file not found");
+        Assert.SkipWhen(!File.Exists(goldenFile), "Golden file not found");
 
         var result = RleImage.Convert(inputFile, DefaultWidth);
         Assert.True(result.Success, $"Conversion failed: {result.ErrorMessage}");
@@ -99,11 +99,11 @@ public class RleImageTests(TestPaths paths)
     }
 
     [Theory]
-    [InlineData(122_880, 512)]  // 512x240 — standard PS1 half-height
-    [InlineData(131_072, 512)]  // 512x256
-    [InlineData(307_200, 640)]  // 640x480 — standard PS1 fullscreen (not 512x600)
-    [InlineData(0, 512)]        // fallback
-    [InlineData(-1, 512)]       // negative fallback
+    [InlineData(122_880, 512)] // 512x240 — standard PS1 half-height
+    [InlineData(131_072, 512)] // 512x256
+    [InlineData(307_200, 640)] // 640x480 — standard PS1 fullscreen (not 512x600)
+    [InlineData(0, 512)] // fallback
+    [InlineData(-1, 512)] // negative fallback
     public void GuessWidth_ReturnsExpectedWidth(long totalPixels, int expectedWidth)
     {
         Assert.Equal(expectedWidth, RleImage.GuessWidth(totalPixels));

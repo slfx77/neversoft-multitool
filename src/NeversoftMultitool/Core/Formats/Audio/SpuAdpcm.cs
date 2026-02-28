@@ -1,30 +1,31 @@
 namespace NeversoftMultitool.Core.Formats.Audio;
 
 /// <summary>
-/// Shared SPU-ADPCM decoder used by both VAB (PS1 sound banks) and standalone VAG audio files.
-/// SPU-ADPCM uses 16-byte blocks encoding 28 PCM samples each.
-/// Block format: byte 0 = shift|filter, byte 1 = flags, bytes 2-15 = 28 nibble samples.
-/// SPU supports 5 filter coefficients (0-4), unlike CD-XA which only uses 0-3.
+///     Shared SPU-ADPCM decoder used by both VAB (PS1 sound banks) and standalone VAG audio files.
+///     SPU-ADPCM uses 16-byte blocks encoding 28 PCM samples each.
+///     Block format: byte 0 = shift|filter, byte 1 = flags, bytes 2-15 = 28 nibble samples.
+///     SPU supports 5 filter coefficients (0-4), unlike CD-XA which only uses 0-3.
 /// </summary>
 public static class SpuAdpcm
 {
     public const int BlockSize = 16;
     public const int SamplesPerBlock = 28;
 
+    /// <summary>
+    ///     Flags in byte[1] of each ADPCM block.
+    /// </summary>
+    public const byte FlagEnd = 0x01; // End of stream
+
+    public const byte FlagLoopStart = 0x04; // Loop start marker
+    public const byte FlagLoop = 0x02; // Loop (jump to loop start on end)
+
     // SPU-ADPCM filter coefficients (f0, f1) scaled by 1/64
     private static readonly int[] F0 = [0, 60, 115, 98, 122];
     private static readonly int[] F1 = [0, 0, -52, -55, -60];
 
     /// <summary>
-    /// Flags in byte[1] of each ADPCM block.
-    /// </summary>
-    public const byte FlagEnd = 0x01;       // End of stream
-    public const byte FlagLoopStart = 0x04; // Loop start marker
-    public const byte FlagLoop = 0x02;      // Loop (jump to loop start on end)
-
-    /// <summary>
-    /// Decodes a sequence of SPU-ADPCM blocks into 16-bit PCM samples.
-    /// Stops at end-of-stream flag or end of data.
+    ///     Decodes a sequence of SPU-ADPCM blocks into 16-bit PCM samples.
+    ///     Stops at end-of-stream flag or end of data.
     /// </summary>
     public static short[] Decode(ReadOnlySpan<byte> data)
     {
@@ -47,8 +48,8 @@ public static class SpuAdpcm
     }
 
     /// <summary>
-    /// Decodes a single 16-byte SPU-ADPCM block, appending 28 PCM samples to the output list.
-    /// Maintains prev1/prev2 state across consecutive blocks.
+    ///     Decodes a single 16-byte SPU-ADPCM block, appending 28 PCM samples to the output list.
+    ///     Maintains prev1/prev2 state across consecutive blocks.
     /// </summary>
     public static void DecodeBlock(ReadOnlySpan<byte> block, ref int prev1, ref int prev2, List<short> output)
     {

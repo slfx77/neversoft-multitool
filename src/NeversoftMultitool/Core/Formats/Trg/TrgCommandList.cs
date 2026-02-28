@@ -3,8 +3,8 @@ using System.Text;
 namespace NeversoftMultitool.Core.Formats.Trg;
 
 /// <summary>
-/// Disassembles TRG command lists (AUTOEXEC, COMMANDPOINT, RESTART nodes)
-/// and bytecode scripts (BADDY, SCRIPTPOINT nodes).
+///     Disassembles TRG command lists (AUTOEXEC, COMMANDPOINT, RESTART nodes)
+///     and bytecode scripts (BADDY, SCRIPTPOINT nodes).
 /// </summary>
 public static class TrgCommandList
 {
@@ -124,17 +124,21 @@ public static class TrgCommandList
 
     // Commands that take no arguments
     private static readonly HashSet<int> NoArgCommands =
-        [3, 4, 5, 10, 11, 12, 0x66, 0x67, 0x6E, 0x81, 0x88, 0x89, 0x8A, 0x95,
-         0x98, 0x9A, 0x9E, 0xA2, 0xAD,
-         0xAF, 0xB1, 0xB6, 0xB7, 0xB8, 0xBA, 0xBB, 0xBC, 0xC7, 0xDA,
-         0xDB, 0xDC, 0xDD, 0x12C, 0x12D, 0x130, 0x131];
+    [
+        3, 4, 5, 10, 11, 12, 0x66, 0x67, 0x6E, 0x81, 0x88, 0x89, 0x8A, 0x95,
+        0x98, 0x9A, 0x9E, 0xA2, 0xAD,
+        0xAF, 0xB1, 0xB6, 0xB7, 0xB8, 0xBA, 0xBB, 0xBC, 0xC7, 0xDA,
+        0xDB, 0xDC, 0xDD, 0x12C, 0x12D, 0x130, 0x131
+    ];
 
     // Commands that take one uint16 argument
     private static readonly HashSet<int> OneArgCommands =
-        [13, 0x69, 0x6A, 0x83, 0x84, 0x86, 0x93, 0x94, 0x96, 0x97, 0x99,
-         0x9B, 0x9C, 0x9D, 0xA0, 0xA1, 0xA3, 0xA4, 0xA5, 0xA6, 0xA8, 0xA9,
-         0xAA, 0xAC, 0xBE, 0xC3, 0xC5, 0xCB, 0xCC,
-         0xD9, 0xDE, 0xDF, 0x12E];
+    [
+        13, 0x69, 0x6A, 0x83, 0x84, 0x86, 0x93, 0x94, 0x96, 0x97, 0x99,
+        0x9B, 0x9C, 0x9D, 0xA0, 0xA1, 0xA3, 0xA4, 0xA5, 0xA6, 0xA8, 0xA9,
+        0xAA, 0xAC, 0xBE, 0xC3, 0xC5, 0xCB, 0xCC,
+        0xD9, 0xDE, 0xDF, 0x12E
+    ];
 
     // Commands that take two uint16 arguments
     private static readonly HashSet<int> TwoArgCommands =
@@ -254,8 +258,8 @@ public static class TrgCommandList
     };
 
     /// <summary>
-    /// Parses a command list (used by AUTOEXEC, COMMANDPOINT, RESTART nodes).
-    /// Sequential uint16 opcodes with variable arguments, terminated by 0xFFFF.
+    ///     Parses a command list (used by AUTOEXEC, COMMANDPOINT, RESTART nodes).
+    ///     Sequential uint16 opcodes with variable arguments, terminated by 0xFFFF.
     /// </summary>
     public static List<TrgCommand> ParseCommandList(BinaryReader reader, int maxBytes)
     {
@@ -353,12 +357,9 @@ public static class TrgCommandList
                     args.Add(str);
                 }
             }
-            else
-            {
-                // Unknown opcode — assume 0 args (safest default based on observed data).
-                // If this opcode actually has arguments, subsequent opcodes may desync.
-            }
 
+            // Unknown opcode — assume 0 args (safest default based on observed data).
+            // If this opcode actually has arguments, subsequent opcodes may desync.
             commands.Add(new TrgCommand
             {
                 Opcode = opcode,
@@ -371,8 +372,8 @@ public static class TrgCommandList
     }
 
     /// <summary>
-    /// Parses a bytecode script (used by BADDY and SCRIPTPOINT nodes).
-    /// Stack-based: 0x21xx = value ops, 0x42xx = command ops, values below 0x2000 are literals.
+    ///     Parses a bytecode script (used by BADDY and SCRIPTPOINT nodes).
+    ///     Stack-based: 0x21xx = value ops, 0x42xx = command ops, values below 0x2000 are literals.
     /// </summary>
     public static List<TrgScriptOp> ParseScript(BinaryReader reader, int maxBytes)
     {
@@ -417,6 +418,8 @@ public static class TrgCommandList
             switch (opcode)
             {
                 case 0x212F: // V_MODEL_CHECKSUM — align4, uint32 hash
+                case 0x4293: // C_SET_FMV_CHECKSUM — align4, uint32
+                case 0x2135: // V_CHECKSUM_2 — align4 + uint32
                     Align4(reader);
                     if (reader.BaseStream.Position + 4 <= endPos)
                         op.Value = $"0x{reader.ReadUInt32():X8}";
@@ -471,6 +474,7 @@ public static class TrgCommandList
                         var param = reader.ReadUInt16();
                         op.Value = new object[] { sfx, param };
                     }
+
                     break;
 
                 case 0x2125: // V_ATTRIBUTE — uint16, uint16
@@ -486,12 +490,6 @@ public static class TrgCommandList
                         op.Value = new object[] { reader.ReadInt16(), reader.ReadInt16(), reader.ReadInt16() };
                     break;
 
-                case 0x4293: // C_SET_FMV_CHECKSUM — align4, uint32
-                    Align4(reader);
-                    if (reader.BaseStream.Position + 4 <= endPos)
-                        op.Value = $"0x{reader.ReadUInt32():X8}";
-                    break;
-
                 case 0x429B: // C_SMOKEJET_ON — 6 uint16
                     if (reader.BaseStream.Position + 12 <= endPos)
                     {
@@ -500,6 +498,7 @@ public static class TrgCommandList
                             vals[i] = reader.ReadUInt16();
                         op.Value = vals;
                     }
+
                     break;
 
                 case 0x429C: // C_FLASH_SCREEN — 5 uint16 (r,g,b,duration,sort)
@@ -510,6 +509,7 @@ public static class TrgCommandList
                             vals[i] = reader.ReadUInt16();
                         op.Value = vals;
                     }
+
                     break;
 
                 case 0x4306: // C_SCALE_X — int16 percent, uint16 frames
@@ -544,12 +544,6 @@ public static class TrgCommandList
                             reader.ReadInt32() / 4096.0,
                             reader.ReadInt32() / 4096.0
                         };
-                    break;
-
-                case 0x2135: // V_CHECKSUM_2 — align4 + uint32
-                    Align4(reader);
-                    if (reader.BaseStream.Position + 4 <= endPos)
-                        op.Value = $"0x{reader.ReadUInt32():X8}";
                     break;
 
                 case 0x4200: // C_LOAD_MODEL — null-terminated string
@@ -641,7 +635,7 @@ public static class TrgCommandList
 }
 
 /// <summary>
-/// A single command in a TRG command list.
+///     A single command in a TRG command list.
 /// </summary>
 public sealed class TrgCommand
 {
@@ -651,7 +645,7 @@ public sealed class TrgCommand
 }
 
 /// <summary>
-/// A single operation in a TRG bytecode script.
+///     A single operation in a TRG bytecode script.
 /// </summary>
 public sealed class TrgScriptOp
 {

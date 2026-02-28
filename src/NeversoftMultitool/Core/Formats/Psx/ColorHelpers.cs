@@ -11,29 +11,24 @@ public static class ColorHelpers
 {
     // ARGB1555: alpha is either 0 or 128
     private static readonly ColorParams Argb1555Params = new(
-        RedMask: 0x7C00, GreenMask: 0x3E0, BlueMask: 0x1F, AlphaMask: 0x8000,
-        RedMax: 31, GreenMax: 31, BlueMax: 31, AlphaMax: 1,
-        AlphaShift: 15, RedShift: 10, GreenShift: 5);
+        0x7C00, 0x3E0, 0x1F, 0x8000,
+        31, 31, 31, 1,
+        15, 10, 5);
 
     // RGB565: no translucent
     private static readonly ColorParams Rgb565Params = new(
-        RedMask: 0xF800, GreenMask: 0x7E0, BlueMask: 0x1F, AlphaMask: 0,
-        RedMax: 31, GreenMax: 63, BlueMax: 31, AlphaMax: 0,
-        AlphaShift: 16, RedShift: 11, GreenShift: 5);
+        0xF800, 0x7E0, 0x1F, 0,
+        31, 63, 31, 0,
+        16, 11, 5);
 
     // ARGB4444: translucent alpha 0-255
     private static readonly ColorParams Argb4444Params = new(
-        RedMask: 0xF00, GreenMask: 0xF0, BlueMask: 0xF, AlphaMask: 0xF000,
-        RedMax: 15, GreenMax: 15, BlueMax: 15, AlphaMax: 15,
-        AlphaShift: 12, RedShift: 8, GreenShift: 4);
-
-    private sealed record ColorParams(
-        int RedMask, int GreenMask, int BlueMask, int AlphaMask,
-        int RedMax, int GreenMax, int BlueMax, int AlphaMax,
-        int AlphaShift, int RedShift, int GreenShift);
+        0xF00, 0xF0, 0xF, 0xF000,
+        15, 15, 15, 15,
+        12, 8, 4);
 
     /// <summary>
-    /// Converts a 16-bit PS1 color to RGBA bytes.
+    ///     Converts a 16-bit PS1 color to RGBA bytes.
     /// </summary>
     public static void Ps1To32Bpp(ushort color, Span<byte> rgba)
     {
@@ -58,7 +53,7 @@ public static class ColorHelpers
     }
 
     /// <summary>
-    /// Gets the color format parameters for a 16-bit texture.
+    ///     Gets the color format parameters for a 16-bit texture.
     /// </summary>
     public static ColorFormat Get16BppColorFormat(uint pixelFormat)
     {
@@ -72,7 +67,7 @@ public static class ColorHelpers
     }
 
     /// <summary>
-    /// Converts a 16-bit color to RGBA bytes.
+    ///     Converts a 16-bit color to RGBA bytes.
     /// </summary>
     public static void Convert16BppTo32Bpp(ushort color, ColorFormat format, Span<byte> rgba)
     {
@@ -96,7 +91,7 @@ public static class ColorHelpers
     }
 
     /// <summary>
-    /// Converts a 16-bit texture buffer to a flat RGBA byte array.
+    ///     Converts a 16-bit texture buffer to a flat RGBA byte array.
     /// </summary>
     public static byte[] Convert16BitTextureToRgba(uint pixelFormat, int width, int height, ushort[] textureBuffer)
     {
@@ -118,8 +113,8 @@ public static class ColorHelpers
     }
 
     /// <summary>
-    /// Fixes the pixel data of a texture read by the IO THPS scene code.
-    /// Converts from a list-of-lists pixel format to a flat RGBA byte array.
+    ///     Fixes the pixel data of a texture read by the IO THPS scene code.
+    ///     Converts from a list-of-lists pixel format to a flat RGBA byte array.
     /// </summary>
     public static byte[] FixPixelData(int width, int height, byte[] rawPixels)
     {
@@ -170,6 +165,7 @@ public static class ColorHelpers
         {
             Array.Copy(result, row * width * 4, columnData, row * 4, 4);
         }
+
         // Shift column up by 1 (row N gets row N+1, last gets first)
         for (var row = 0; row < height; row++)
         {
@@ -179,4 +175,17 @@ public static class ColorHelpers
 
         return result;
     }
+
+    private sealed record ColorParams(
+        int RedMask,
+        int GreenMask,
+        int BlueMask,
+        int AlphaMask,
+        int RedMax,
+        int GreenMax,
+        int BlueMax,
+        int AlphaMax,
+        int AlphaShift,
+        int RedShift,
+        int GreenShift);
 }

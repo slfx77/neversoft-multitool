@@ -3,9 +3,9 @@ using System.Text;
 namespace NeversoftMultitool.Core.Formats.Archives;
 
 /// <summary>
-/// Extracts files from Neversoft PRE archives.
-/// PRE is a simple flat archive format with no compression, used in THPS1 (PS1),
-/// THPS2 (PS1 and Dreamcast). Contains BMP images, fonts, PSX models, and scripts.
+///     Extracts files from Neversoft PRE archives.
+///     PRE is a simple flat archive format with no compression, used in THPS1 (PS1),
+///     THPS2 (PS1 and Dreamcast). Contains BMP images, fonts, PSX models, and scripts.
 /// </summary>
 public static class PreArchive
 {
@@ -85,6 +85,7 @@ public static class PreArchive
             if (b == 0) break;
             bytes.Add(b);
         }
+
         return Encoding.ASCII.GetString(bytes.ToArray());
     }
 }

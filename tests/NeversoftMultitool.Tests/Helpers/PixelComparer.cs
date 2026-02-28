@@ -4,14 +4,12 @@ using SixLabors.ImageSharp.PixelFormats;
 namespace NeversoftMultitool.Tests.Helpers;
 
 /// <summary>
-/// Compares two PNG images pixel-by-pixel.
+///     Compares two PNG images pixel-by-pixel.
 /// </summary>
 public static class PixelComparer
 {
-    public record CompareResult(bool Match, int? FirstMismatchX, int? FirstMismatchY, string? Details);
-
     /// <summary>
-    /// Compare two PNG files pixel-by-pixel as RGBA.
+    ///     Compare two PNG files pixel-by-pixel as RGBA.
     /// </summary>
     public static CompareResult CompareRgba(string actualPath, string expectedPath)
     {
@@ -42,7 +40,7 @@ public static class PixelComparer
     }
 
     /// <summary>
-    /// Compare two PNG files pixel-by-pixel as RGB (ignoring alpha).
+    ///     Compare two PNG files pixel-by-pixel as RGB (ignoring alpha).
     /// </summary>
     public static CompareResult CompareRgb(string actualPath, string expectedPath)
     {
@@ -71,4 +69,6 @@ public static class PixelComparer
 
         return new CompareResult(true, null, null, null);
     }
+
+    public record CompareResult(bool Match, int? FirstMismatchX, int? FirstMismatchY, string? Details);
 }

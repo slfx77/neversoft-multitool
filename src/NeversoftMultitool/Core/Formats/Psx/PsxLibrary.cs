@@ -1,33 +1,7 @@
-using System.Text;
-
 namespace NeversoftMultitool.Core.Formats.Psx;
 
 /// <summary>
-/// Result of extracting textures from a single PSX file.
-/// </summary>
-public sealed class PsxExtractionResult
-{
-    public int TotalTextures { get; set; }
-    public int TexturesWritten { get; set; }
-    public int PlaceholdersSkipped { get; set; }
-    public bool Success => TotalTextures > 0 && TexturesWritten == TotalTextures;
-    public bool Skipped => TotalTextures == 0;
-    public string? ErrorMessage { get; set; }
-}
-
-/// <summary>
-/// All name hashes and extended header names from a PSX file.
-/// </summary>
-public sealed class PsxHashEnumeration
-{
-    public required uint[] MeshNameHashes { get; init; }
-    public required uint[] TextureNameHashes { get; init; }
-    public string[]? DetailTextureNames { get; init; }
-    public string[]? CubemapNames { get; init; }
-}
-
-/// <summary>
-/// Extracts textures from Neversoft PSX model files.
+///     Extracts textures from Neversoft PSX model files.
 /// </summary>
 public static class PsxLibrary
 {
@@ -39,7 +13,7 @@ public static class PsxLibrary
     ];
 
     /// <summary>
-    /// Extracts all textures from a PSX file.
+    ///     Extracts all textures from a PSX file.
     /// </summary>
     public static PsxExtractionResult ExtractTextures(string inputFile, string outputDir, bool createSubDirs,
         bool writeDds = true, bool writeMipAtlas = false)
@@ -103,7 +77,8 @@ public static class PsxLibrary
                         || header.TextureOffset + header.Size > reader.BaseStream.Length)
                     {
                         result.TotalTextures = result.TexturesWritten;
-                        result.ErrorMessage = $"Unrecognized texture format 0x{header.PixelFormat:X} at offset 0x{header.Offset:X}";
+                        result.ErrorMessage =
+                            $"Unrecognized texture format 0x{header.PixelFormat:X} at offset 0x{header.Offset:X}";
                         break;
                     }
                 }
@@ -148,8 +123,8 @@ public static class PsxLibrary
     }
 
     /// <summary>
-    /// Extracts a 16-bit PVR texture, writing DDS output with mip levels when available.
-    /// For mipmapped textures, also writes a mip atlas PNG showing all levels side by side.
+    ///     Extracts a 16-bit PVR texture, writing DDS output with mip levels when available.
+    ///     For mipmapped textures, also writes a mip atlas PNG showing all levels side by side.
     /// </summary>
     private static byte[]? Extract16BitTexture(BinaryReader reader, PsxTextureHeader header,
         string filename, string outputDir, bool createSubDirs, OutputOptions output, uint nameHash)
@@ -180,25 +155,21 @@ public static class PsxLibrary
             return ColorHelpers.Convert16BitTextureToRgba(
                 header.PixelFormat, header.Width, header.Height, mipChain.MainSurface);
         }
-        else
+
+        // Non-mipmapped: single surface DDS
+        var textureBuffer = PvrTextureDecoder.Extract16BitTexture(reader, header);
+        if (textureBuffer == null) return null;
+
+        if (output.WriteDds)
         {
-            // Non-mipmapped: single surface DDS
-            var textureBuffer = PvrTextureDecoder.Extract16BitTexture(reader, header);
-            if (textureBuffer == null) return null;
-
-            if (output.WriteDds)
-            {
-                var colorFormat = ColorHelpers.Get16BppColorFormat(header.PixelFormat);
-                var ddsPath = GetOutputPath(filename, outputDir, createSubDirs, header, nameHash, ".dds");
-                DdsWriter.WriteDds(ddsPath, header.Width, header.Height, colorFormat, textureBuffer);
-            }
-
-            return ColorHelpers.Convert16BitTextureToRgba(
-                header.PixelFormat, header.Width, header.Height, textureBuffer);
+            var colorFormat = ColorHelpers.Get16BppColorFormat(header.PixelFormat);
+            var ddsPath = GetOutputPath(filename, outputDir, createSubDirs, header, nameHash, ".dds");
+            DdsWriter.WriteDds(ddsPath, header.Width, header.Height, colorFormat, textureBuffer);
         }
-    }
 
-    internal readonly record struct OutputOptions(bool WriteDds, bool WriteMipAtlas);
+        return ColorHelpers.Convert16BitTextureToRgba(
+            header.PixelFormat, header.Width, header.Height, textureBuffer);
+    }
 
     private static string GetOutputPath(string filename, string outputDir, bool createSubDirs,
         PsxTextureHeader header, uint nameHash, string extension)
@@ -213,7 +184,7 @@ public static class PsxLibrary
     }
 
     /// <summary>
-    /// Writes a texture to a PNG file.
+    ///     Writes a texture to a PNG file.
     /// </summary>
     private static void WriteToPng(string filename, string outputDir, bool createSubDirs,
         PsxTextureHeader header, uint nameHash, byte[] pixels)
@@ -238,18 +209,20 @@ public static class PsxLibrary
     private static bool IsPlaceholderTexture(PsxTextureHeader header)
     {
         return header.PalSize == 65536
-            && header.TexId == 0
-            && header.Width == 16
-            && header.Height == 16
-            && header.PixelFormat == 0x201
-            && header.Size == 692;
+               && header.TexId == 0
+               && header.Width == 16
+               && header.Height == 16
+               && header.PixelFormat == 0x201
+               && header.Size == 692;
     }
 
-    internal static bool IsValidMagic(byte[] magic) =>
-        ValidMagicNumbers.Any(valid => magic.AsSpan().SequenceEqual(valid));
+    internal static bool IsValidMagic(byte[] magic)
+    {
+        return ValidMagicNumbers.Any(valid => magic.AsSpan().SequenceEqual(valid));
+    }
 
     /// <summary>
-    /// Skip over model data to get to the texture information.
+    ///     Skip over model data to get to the texture information.
     /// </summary>
     internal static void SkipModelData(BinaryReader reader)
     {
@@ -278,7 +251,8 @@ public static class PsxLibrary
                 reader.ReadBytes((int)unkLength);
                 if (chunkCount > 16)
                 {
-                    throw new InvalidOperationException("Unable to parse PSX texture library, cannot find texture data");
+                    throw new InvalidOperationException(
+                        "Unable to parse PSX texture library, cannot find texture data");
                 }
             }
             else
@@ -295,7 +269,7 @@ public static class PsxLibrary
     }
 
     /// <summary>
-    /// Read texture information from the PSX file.
+    ///     Read texture information from the PSX file.
     /// </summary>
     internal static uint[] ReadTextureInfo(BinaryReader reader)
     {
@@ -305,11 +279,12 @@ public static class PsxLibrary
         {
             texNames[i] = reader.ReadUInt32();
         }
+
         return texNames;
     }
 
     /// <summary>
-    /// Read palettes from the PSX file.
+    ///     Read palettes from the PSX file.
     /// </summary>
     internal static List<PsxPalette> ReadPalettes(BinaryReader reader, int numColors)
     {
@@ -324,6 +299,7 @@ public static class PsxLibrary
             {
                 colorData[c] = reader.ReadUInt16();
             }
+
             palettes.Add(new PsxPalette { TexId = texId, ColorData = colorData });
         }
 
@@ -331,7 +307,7 @@ public static class PsxLibrary
     }
 
     /// <summary>
-    /// Read the texture header from the PSX file.
+    ///     Read the texture header from the PSX file.
     /// </summary>
     internal static PsxTextureHeader GetTextureHeader(BinaryReader reader)
     {
@@ -358,8 +334,8 @@ public static class PsxLibrary
     }
 
     /// <summary>
-    /// Extracts a single texture by hash from a PSX file, returning in-memory RGBA pixels.
-    /// Returns null if the hash is not found or the texture can't be decoded.
+    ///     Extracts a single texture by hash from a PSX file, returning in-memory RGBA pixels.
+    ///     Returns null if the hash is not found or the texture can't be decoded.
     /// </summary>
     internal static (byte[] Rgba, int Width, int Height)? ExtractTextureByHash(
         string psxFilePath, uint targetHash, List<string>? diagnostics = null)
@@ -399,7 +375,8 @@ public static class PsxLibrary
             var targetIndex = Array.IndexOf(texNames, targetHash);
             if (targetIndex < 0)
             {
-                diagnostics?.Add($"{Path.GetFileName(psxFilePath)}: hash 0x{targetHash:X8} not found in texture name list");
+                diagnostics?.Add(
+                    $"{Path.GetFileName(psxFilePath)}: hash 0x{targetHash:X8} not found in texture name list");
                 return null;
             }
 
@@ -480,7 +457,7 @@ public static class PsxLibrary
     }
 
     /// <summary>
-    /// Skips past texture data without decoding it.
+    ///     Skips past texture data without decoding it.
     /// </summary>
     private static void SkipTextureData(BinaryReader reader, PsxTextureHeader header)
     {
@@ -515,8 +492,8 @@ public static class PsxLibrary
     }
 
     /// <summary>
-    /// Enumerates all textures in a PSX file without extracting pixel data.
-    /// Returns headers paired with their name hashes from the texture name list.
+    ///     Enumerates all textures in a PSX file without extracting pixel data.
+    ///     Returns headers paired with their name hashes from the texture name list.
     /// </summary>
     public static List<(PsxTextureHeader Header, uint NameHash)> EnumerateTextures(string inputFile)
     {
@@ -561,100 +538,7 @@ public static class PsxLibrary
     }
 
     /// <summary>
-    /// Enumerates all name hashes (mesh + texture) from a PSX file,
-    /// plus any plaintext names from v6 extended headers.
-    /// Returns null if the file is not a valid PSX file.
-    /// </summary>
-    public static PsxHashEnumeration? EnumerateAllHashes(string inputFile)
-    {
-        using var stream = File.OpenRead(inputFile);
-        using var reader = new BinaryReader(stream);
-
-        var magic = reader.ReadBytes(4);
-        if (!IsValidMagic(magic))
-            return null;
-
-        var meshHashes = ReadModelDataWithHashes(reader);
-        var textureHashes = ReadTextureInfo(reader);
-        ReadPalettes(reader, 16);
-        ReadPalettes(reader, 256);
-
-        string[]? detailNames = null;
-        string[]? cubemapNames = null;
-
-        var numActualTex = reader.ReadUInt32();
-        if (numActualTex == 0xFFFFFFFF)
-        {
-            var detailCount = reader.ReadUInt32();
-            detailNames = new string[detailCount];
-            for (var i = 0; i < detailCount; i++)
-            {
-                var nameBytes = reader.ReadBytes(32);
-                detailNames[i] = Encoding.ASCII.GetString(nameBytes).TrimEnd('\0');
-                reader.ReadBytes(4); // flags
-            }
-
-            var cubemapCount = reader.ReadUInt32();
-            cubemapNames = new string[cubemapCount];
-            for (var i = 0; i < cubemapCount; i++)
-            {
-                var nameBytes = reader.ReadBytes(32);
-                cubemapNames[i] = Encoding.ASCII.GetString(nameBytes).TrimEnd('\0');
-                reader.ReadBytes(4); // flags
-            }
-        }
-
-        return new PsxHashEnumeration
-        {
-            MeshNameHashes = meshHashes,
-            TextureNameHashes = textureHashes,
-            DetailTextureNames = detailNames,
-            CubemapNames = cubemapNames,
-        };
-    }
-
-    /// <summary>
-    /// Reads model data and returns mesh name hashes instead of skipping them.
-    /// Same parsing logic as SkipModelData but captures the hash values.
-    /// </summary>
-    internal static uint[] ReadModelDataWithHashes(BinaryReader reader)
-    {
-        var ptrMeta = reader.ReadUInt32();
-        var objCount = reader.ReadUInt32();
-
-        for (var i = 0; i < objCount; i++)
-            reader.ReadBytes(36);
-
-        var meshCount = reader.ReadUInt32();
-
-        reader.BaseStream.Seek(ptrMeta, SeekOrigin.Begin);
-        var chunkCount = -1;
-        while (true)
-        {
-            var magic = reader.ReadBytes(4);
-            chunkCount++;
-            if (magic[0] != 0xFF || magic[1] != 0xFF || magic[2] != 0xFF || magic[3] != 0xFF)
-            {
-                var unkLength = reader.ReadUInt32();
-                reader.ReadBytes((int)unkLength);
-                if (chunkCount > 16)
-                    throw new InvalidOperationException("Unable to parse PSX texture library, cannot find texture data");
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        var meshHashes = new uint[meshCount];
-        for (var i = 0; i < meshCount; i++)
-            meshHashes[i] = reader.ReadUInt32();
-
-        return meshHashes;
-    }
-
-    /// <summary>
-    /// Returns a human-readable description of a texture's palette/format type.
+    ///     Returns a human-readable description of a texture's palette/format type.
     /// </summary>
     public static string DescribePaletteType(PsxTextureHeader header)
     {

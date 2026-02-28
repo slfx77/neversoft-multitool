@@ -261,13 +261,6 @@
                          FontSize="12" />
               <ItemsRepeater x:Name="CommandsRepeater">
                 <ItemsRepeater.ItemTemplate>
-                  <DataTemplate>
-                    <TextBlock Text="{Binding}"
-                               FontSize="11"
-                               FontFamily="Consolas"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               TextWrapping="Wrap" />
-                  </DataTemplate>
                 </ItemsRepeater.ItemTemplate>
               </ItemsRepeater>
             </StackPanel>
@@ -279,13 +272,6 @@
                          FontSize="12" />
               <ItemsRepeater x:Name="ScriptRepeater">
                 <ItemsRepeater.ItemTemplate>
-                  <DataTemplate>
-                    <TextBlock Text="{Binding}"
-                               FontSize="11"
-                               FontFamily="Consolas"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               TextWrapping="Wrap" />
-                  </DataTemplate>
                 </ItemsRepeater.ItemTemplate>
               </ItemsRepeater>
             </StackPanel>

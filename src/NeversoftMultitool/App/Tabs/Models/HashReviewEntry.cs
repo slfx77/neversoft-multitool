@@ -1,10 +1,9 @@
 using System.ComponentModel;
-using System.Runtime.CompilerServices;
 
 namespace NeversoftMultitool;
 
 /// <summary>
-/// Represents a single hash being reviewed, with its candidates and metadata.
+///     Represents a single hash being reviewed, with its candidates and metadata.
 /// </summary>
 public sealed class HashReviewEntry : INotifyPropertyChanged
 {
@@ -18,16 +17,13 @@ public sealed class HashReviewEntry : INotifyPropertyChanged
         ? string.Join(", ", Files)
         : $"{string.Join(", ", Files[..3])} (+{Files.Length - 3})";
 
+#pragma warning disable CS0067 // Event is never invoked (required by INotifyPropertyChanged for WinUI bindings)
     public event PropertyChangedEventHandler? PropertyChanged;
-
-    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
+#pragma warning restore CS0067
 }
 
 /// <summary>
-/// A single brute-force candidate for a hash.
+///     A single brute-force candidate for a hash.
 /// </summary>
 public sealed class HashCandidate
 {
@@ -39,7 +35,7 @@ public sealed class HashCandidate
 }
 
 /// <summary>
-/// Session state for the hash reviewer, persisted to JSON.
+///     Session state for the hash reviewer, persisted to JSON.
 /// </summary>
 public sealed class ReviewSession
 {

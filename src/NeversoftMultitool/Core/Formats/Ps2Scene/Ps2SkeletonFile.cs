@@ -3,17 +3,20 @@ using System.Numerics;
 namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
 /// <summary>
-/// Parser for PS2 skeleton files (.ske.ps2).
-/// Format from THUG source Gfx/Skeleton.cpp CSkeletonData::Load():
-///   version(u32) + flags(u32) + numBones(i32) +
-///   boneNameTable(N×u32) + parentNameTable(N×u32) + flipNameTable(N×u32) +
-///   neutralPoses(N × (Quat(4×f32) + Vec(4×f32)))
-/// Inverse bind matrices are computed at load time by walking the hierarchy.
-/// THUG/THUG2 only — THPS4 has no .ske.ps2 files.
+///     Parser for PS2 skeleton files (.ske.ps2).
+///     Format from THUG source Gfx/Skeleton.cpp CSkeletonData::Load():
+///     version(u32) + flags(u32) + numBones(i32) +
+///     boneNameTable(N×u32) + parentNameTable(N×u32) + flipNameTable(N×u32) +
+///     neutralPoses(N × (Quat(4×f32) + Vec(4×f32)))
+///     Inverse bind matrices are computed at load time by walking the hierarchy.
+///     THUG/THUG2 only — THPS4 has no .ske.ps2 files.
 /// </summary>
 public static class Ps2SkeletonFile
 {
-    public static Ps2Skeleton Parse(string filePath) => Parse(File.ReadAllBytes(filePath));
+    public static Ps2Skeleton Parse(string filePath)
+    {
+        return Parse(File.ReadAllBytes(filePath));
+    }
 
     public static Ps2Skeleton Parse(byte[] data)
     {
@@ -102,7 +105,7 @@ public static class Ps2SkeletonFile
                 ParentIndex = parentIndex,
                 LocalRotation = quat,
                 LocalTranslation = translation,
-                InverseBindMatrix = inverseBind,
+                InverseBindMatrix = inverseBind
             };
         }
 
@@ -110,12 +113,12 @@ public static class Ps2SkeletonFile
         {
             Version = version,
             Flags = flags,
-            Bones = bones,
+            Bones = bones
         };
     }
 
     /// <summary>
-    /// Check if data looks like a valid PS2 skeleton file.
+    ///     Check if data looks like a valid PS2 skeleton file.
     /// </summary>
     public static bool IsPs2Skeleton(byte[] data)
     {

@@ -40,8 +40,8 @@ public class ColorHelpersTests
         ColorHelpers.Ps1To32Bpp(red, rgba);
 
         Assert.Equal(255, rgba[0]); // R
-        Assert.Equal(0, rgba[1]);   // G
-        Assert.Equal(0, rgba[2]);   // B
+        Assert.Equal(0, rgba[1]); // G
+        Assert.Equal(0, rgba[2]); // B
         Assert.Equal(255, rgba[3]); // A
     }
 
@@ -90,8 +90,8 @@ public class ColorHelpersTests
         ColorHelpers.Convert16BppTo32Bpp(color, ColorFormat.Argb1555, rgba);
 
         Assert.Equal(255, rgba[0]); // R
-        Assert.Equal(0, rgba[1]);   // G
-        Assert.Equal(0, rgba[2]);   // B
+        Assert.Equal(0, rgba[1]); // G
+        Assert.Equal(0, rgba[2]); // B
         Assert.Equal(255, rgba[3]); // A=1 → 255
     }
 
@@ -104,9 +104,9 @@ public class ColorHelpersTests
         ColorHelpers.Convert16BppTo32Bpp(color, ColorFormat.Argb1555, rgba);
 
         Assert.Equal(255, rgba[0]); // R
-        Assert.Equal(0, rgba[1]);   // G
-        Assert.Equal(0, rgba[2]);   // B
-        Assert.Equal(0, rgba[3]);   // A=0 → 0
+        Assert.Equal(0, rgba[1]); // G
+        Assert.Equal(0, rgba[2]); // B
+        Assert.Equal(0, rgba[3]); // A=0 → 0
     }
 
     [Fact]

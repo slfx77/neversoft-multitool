@@ -97,269 +97,269 @@
   </UserControl.Resources>
 
   <Grid Padding="16"
-          VerticalAlignment="Stretch">
+        VerticalAlignment="Stretch">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <!-- Header row -->
+    <Grid Grid.Row="0"
+          Margin="0,0,0,8">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <StackPanel Style="{StaticResource TabHeaderStackPanelStyle}">
+        <TextBlock
+          Text="PSX Texture Extraction"
+          Style="{StaticResource SubtitleTextBlockStyle}" />
+        <TextBlock
+          Text="Extract textures from Neversoft PSX model files"
+          Style="{StaticResource TabSubtitleStyle}" />
+      </StackPanel>
+    </Grid>
+
+    <!-- Main content: file list + preview -->
+    <Grid Grid.Row="1" ColumnSpacing="8">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition x:Name="PreviewColumn" Width="0" />
+      </Grid.ColumnDefinitions>
+
+      <!-- File list card -->
+      <Border
+        x:Name="FileListCard"
+        Grid.Column="0"
+        VerticalAlignment="Stretch"
+        Style="{StaticResource CardBorderStyle}"
+        Visibility="Collapsed">
+        <Grid VerticalAlignment="Stretch">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+          </Grid.RowDefinitions>
+
+          <!-- Column headers -->
+          <Grid Grid.Row="0"
+                Style="{StaticResource ColumnHeaderGridStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="28" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="80" />
+              <ColumnDefinition Width="80" />
+              <ColumnDefinition Width="100" />
+            </Grid.ColumnDefinitions>
+            <Button
+              Grid.Column="1"
+              Style="{StaticResource SortableColumnHeaderButtonStyle}"
+              Click="SortByFileName_Click">
+              <StackPanel Orientation="Horizontal" Spacing="4">
+                <TextBlock Text="File Name" FontWeight="SemiBold" />
+                <FontIcon x:Name="FileNameSortIcon" Style="{StaticResource SortIconStyle}" />
+              </StackPanel>
+            </Button>
+            <Button
+              Grid.Column="2"
+              Style="{StaticResource SortableColumnHeaderButtonStyle}"
+              Click="SortByTextures_Click">
+              <StackPanel Orientation="Horizontal" Spacing="4">
+                <TextBlock Text="Textures" FontWeight="SemiBold" />
+                <FontIcon x:Name="TexturesSortIcon" Style="{StaticResource SortIconStyle}" />
+              </StackPanel>
+            </Button>
+            <Button
+              Grid.Column="3"
+              Style="{StaticResource SortableColumnHeaderButtonStyle}"
+              Click="SortByExtracted_Click">
+              <StackPanel Orientation="Horizontal" Spacing="4">
+                <TextBlock Text="Extracted" FontWeight="SemiBold" />
+                <FontIcon x:Name="ExtractedSortIcon" Style="{StaticResource SortIconStyle}" />
+              </StackPanel>
+            </Button>
+            <Button
+              Grid.Column="4"
+              Style="{StaticResource SortableColumnHeaderButtonStyle}"
+              Click="SortByStatus_Click">
+              <StackPanel Orientation="Horizontal" Spacing="4">
+                <TextBlock Text="Status" FontWeight="SemiBold" />
+                <FontIcon x:Name="StatusSortIcon" Style="{StaticResource SortIconStyle}" />
+              </StackPanel>
+            </Button>
+          </Grid>
+
+          <!-- Files ListView -->
+          <ListView
+            x:Name="FilesListView"
+            Grid.Row="1"
+            SelectionMode="Single"
+            Style="{StaticResource FileListViewStyle}"
+            SelectionChanged="FilesListView_SelectionChanged"
+            ItemTemplateSelector="{StaticResource ListTemplateSelector}" />
+        </Grid>
+      </Border>
+
+      <!-- Empty state when no directory selected -->
+      <Border
+        x:Name="EmptyStatePanel"
+        Grid.Column="0"
+        VerticalAlignment="Stretch"
+        Style="{StaticResource CardBorderStyle}">
+        <StackPanel HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="16">
+          <FontIcon FontSize="64"
+                    Glyph="&#xEB9F;"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+          <TextBlock
+            Text="No directory selected"
+            FontSize="18"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            TextAlignment="Center" />
+          <TextBlock
+            Text="Select an input directory containing .psx files to get started"
+            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+            TextAlignment="Center" />
+          <Button
+            Content="Browse..."
+            HorizontalAlignment="Center"
+            Click="InputBrowse_Click"
+            Style="{StaticResource AccentButtonStyle}" />
+        </StackPanel>
+      </Border>
+
+      <!-- Preview panel -->
+      <Border
+        x:Name="PreviewPanel"
+        Grid.Column="1"
+        VerticalAlignment="Top"
+        Style="{StaticResource CardBorderStyle}"
+        Visibility="Collapsed">
+        <StackPanel Spacing="8" Margin="4">
+          <Border Background="#FF1E1E1E"
+                  CornerRadius="4"
+                  MinHeight="200"
+                  Padding="4"
+                  HorizontalAlignment="Stretch">
+            <Grid>
+              <Image x:Name="TexturePreview"
+                     MaxWidth="264"
+                     MaxHeight="264"
+                     Stretch="Uniform"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center" />
+              <FontIcon x:Name="NoPreviewIcon"
+                        FontSize="48"
+                        Glyph="&#xE8B9;"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Visibility="Collapsed" />
+              <ProgressRing x:Name="PreviewLoading"
+                            IsActive="False"
+                            Width="32" Height="32"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+          <TextBlock x:Name="PreviewDimensionsText"
+                     HorizontalAlignment="Center"
+                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                     FontSize="11" />
+          <TextBlock x:Name="PreviewInfoText"
+                     HorizontalAlignment="Center"
+                     Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                     FontSize="11"
+                     TextWrapping="Wrap"
+                     TextAlignment="Center"
+                     MaxWidth="264" />
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <!-- I/O Section -->
+    <Grid Grid.Row="3"
+          Style="{StaticResource IoSectionGridStyle}">
       <Grid.RowDefinitions>
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="*" />
-        <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
 
-      <!-- Header row -->
-      <Grid Grid.Row="0"
-            Margin="0,0,0,8">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="*" />
-          <ColumnDefinition Width="Auto" />
-        </Grid.ColumnDefinitions>
-        <StackPanel Style="{StaticResource TabHeaderStackPanelStyle}">
-          <TextBlock
-            Text="PSX Texture Extraction"
-            Style="{StaticResource SubtitleTextBlockStyle}" />
-          <TextBlock
-            Text="Extract textures from Neversoft PSX model files"
-            Style="{StaticResource TabSubtitleStyle}" />
-        </StackPanel>
-      </Grid>
-
-      <!-- Main content: file list + preview -->
-      <Grid Grid.Row="1" ColumnSpacing="8">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="*" />
-          <ColumnDefinition x:Name="PreviewColumn" Width="0" />
-        </Grid.ColumnDefinitions>
-
-        <!-- File list card -->
-        <Border
-          x:Name="FileListCard"
-          Grid.Column="0"
-          VerticalAlignment="Stretch"
-          Style="{StaticResource CardBorderStyle}"
-          Visibility="Collapsed">
-          <Grid VerticalAlignment="Stretch">
-            <Grid.RowDefinitions>
-              <RowDefinition Height="Auto" />
-              <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
-
-            <!-- Column headers -->
-            <Grid Grid.Row="0"
-                  Style="{StaticResource ColumnHeaderGridStyle}">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="28" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="80" />
-                <ColumnDefinition Width="80" />
-                <ColumnDefinition Width="100" />
-              </Grid.ColumnDefinitions>
-              <Button
-                Grid.Column="1"
-                Style="{StaticResource SortableColumnHeaderButtonStyle}"
-                Click="SortByFileName_Click">
-                <StackPanel Orientation="Horizontal" Spacing="4">
-                  <TextBlock Text="File Name" FontWeight="SemiBold" />
-                  <FontIcon x:Name="FileNameSortIcon" Style="{StaticResource SortIconStyle}" />
-                </StackPanel>
-              </Button>
-              <Button
-                Grid.Column="2"
-                Style="{StaticResource SortableColumnHeaderButtonStyle}"
-                Click="SortByTextures_Click">
-                <StackPanel Orientation="Horizontal" Spacing="4">
-                  <TextBlock Text="Textures" FontWeight="SemiBold" />
-                  <FontIcon x:Name="TexturesSortIcon" Style="{StaticResource SortIconStyle}" />
-                </StackPanel>
-              </Button>
-              <Button
-                Grid.Column="3"
-                Style="{StaticResource SortableColumnHeaderButtonStyle}"
-                Click="SortByExtracted_Click">
-                <StackPanel Orientation="Horizontal" Spacing="4">
-                  <TextBlock Text="Extracted" FontWeight="SemiBold" />
-                  <FontIcon x:Name="ExtractedSortIcon" Style="{StaticResource SortIconStyle}" />
-                </StackPanel>
-              </Button>
-              <Button
-                Grid.Column="4"
-                Style="{StaticResource SortableColumnHeaderButtonStyle}"
-                Click="SortByStatus_Click">
-                <StackPanel Orientation="Horizontal" Spacing="4">
-                  <TextBlock Text="Status" FontWeight="SemiBold" />
-                  <FontIcon x:Name="StatusSortIcon" Style="{StaticResource SortIconStyle}" />
-                </StackPanel>
-              </Button>
-            </Grid>
-
-            <!-- Files ListView -->
-            <ListView
-              x:Name="FilesListView"
-              Grid.Row="1"
-              SelectionMode="Single"
-              Style="{StaticResource FileListViewStyle}"
-              SelectionChanged="FilesListView_SelectionChanged"
-              ItemTemplateSelector="{StaticResource ListTemplateSelector}" />
-          </Grid>
-        </Border>
-
-        <!-- Empty state when no directory selected -->
-        <Border
-          x:Name="EmptyStatePanel"
-          Grid.Column="0"
-          VerticalAlignment="Stretch"
-          Style="{StaticResource CardBorderStyle}">
-          <StackPanel HorizontalAlignment="Center"
-                      VerticalAlignment="Center"
-                      Spacing="16">
-            <FontIcon FontSize="64"
-                      Glyph="&#xEB9F;"
-                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            <TextBlock
-              Text="No directory selected"
-              FontSize="18"
-              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-              TextAlignment="Center" />
-            <TextBlock
-              Text="Select an input directory containing .psx files to get started"
-              Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-              TextAlignment="Center" />
-            <Button
+      <TextBlock Grid.Row="0" Grid.Column="0"
+                 Text="Input:"
+                 Style="{StaticResource IoLabelStyle}" />
+      <TextBox x:Name="InputPathText"
+               Grid.Row="0" Grid.Column="1"
+               IsReadOnly="True"
+               Style="{StaticResource IoTextBoxStyle}" />
+      <Button Grid.Row="0" Grid.Column="2"
               Content="Browse..."
-              HorizontalAlignment="Center"
-              Click="InputBrowse_Click"
-              Style="{StaticResource AccentButtonStyle}" />
-          </StackPanel>
-        </Border>
+              MinWidth="120"
+              Click="InputBrowse_Click" />
 
-        <!-- Preview panel -->
-        <Border
-          x:Name="PreviewPanel"
-          Grid.Column="1"
-          VerticalAlignment="Top"
-          Style="{StaticResource CardBorderStyle}"
-          Visibility="Collapsed">
-          <StackPanel Spacing="8" Margin="4">
-            <Border Background="#FF1E1E1E"
-                    CornerRadius="4"
-                    MinHeight="200"
-                    Padding="4"
-                    HorizontalAlignment="Stretch">
-              <Grid>
-                <Image x:Name="TexturePreview"
-                       MaxWidth="264"
-                       MaxHeight="264"
-                       Stretch="Uniform"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center" />
-                <FontIcon x:Name="NoPreviewIcon"
-                          FontSize="48"
-                          Glyph="&#xE8B9;"
-                          Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                          HorizontalAlignment="Center"
-                          VerticalAlignment="Center"
-                          Visibility="Collapsed" />
-                <ProgressRing x:Name="PreviewLoading"
-                              IsActive="False"
-                              Width="32" Height="32"
-                              HorizontalAlignment="Center"
-                              VerticalAlignment="Center" />
-              </Grid>
-            </Border>
-            <TextBlock x:Name="PreviewDimensionsText"
-                       HorizontalAlignment="Center"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                       FontSize="11" />
-            <TextBlock x:Name="PreviewInfoText"
-                       HorizontalAlignment="Center"
-                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                       FontSize="11"
-                       TextWrapping="Wrap"
-                       TextAlignment="Center"
-                       MaxWidth="264" />
-          </StackPanel>
-        </Border>
-      </Grid>
-
-      <!-- I/O Section -->
-      <Grid Grid.Row="3"
-            Style="{StaticResource IoSectionGridStyle}">
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto" />
-          <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="Auto" />
-          <ColumnDefinition Width="*" />
-          <ColumnDefinition Width="Auto" />
-        </Grid.ColumnDefinitions>
-
-        <TextBlock Grid.Row="0" Grid.Column="0"
-                   Text="Input:"
-                   Style="{StaticResource IoLabelStyle}" />
-        <TextBox x:Name="InputPathText"
-                 Grid.Row="0" Grid.Column="1"
-                 IsReadOnly="True"
-                 Style="{StaticResource IoTextBoxStyle}" />
-        <Button Grid.Row="0" Grid.Column="2"
-                Content="Browse..."
-                MinWidth="120"
-                Click="InputBrowse_Click" />
-
-        <TextBlock Grid.Row="1" Grid.Column="0"
-                   Text="Output:"
-                   Style="{StaticResource IoLabelStyle}" />
-        <TextBox x:Name="OutputPathText"
-                 Grid.Row="1" Grid.Column="1"
-                 IsReadOnly="True"
-                 Style="{StaticResource IoTextBoxStyle}" />
-        <Button Grid.Row="1" Grid.Column="2"
-                Content="Browse..."
-                MinWidth="120"
-                Click="OutputBrowse_Click" />
-      </Grid>
-
-      <!-- Progress Bar -->
-      <ProgressBar
-        x:Name="ExtractionProgress"
-        Grid.Row="2"
-        Maximum="100"
-        Style="{StaticResource TabProgressBarStyle}" />
-
-      <!-- Action Row -->
-      <Grid Grid.Row="4" Margin="0,8,0,0">
-        <StackPanel Orientation="Horizontal" Spacing="16"
-                    HorizontalAlignment="Left" VerticalAlignment="Center">
-          <CheckBox
-            x:Name="CreateSubDirsCheckbox"
-            Content="Create Subdirectories"
-            MinWidth="0"
-            IsChecked="False" />
-          <CheckBox
-            x:Name="WriteDdsCheckbox"
-            Content="Include DDS"
-            MinWidth="0"
-            IsChecked="False" />
-          <CheckBox
-            x:Name="WriteMipAtlasCheckbox"
-            Content="Include Mip Atlas"
-            MinWidth="0"
-            IsChecked="False" />
-        </StackPanel>
-        <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
-          <Button
-            x:Name="CancelButton"
-            Content="Cancel"
-            MinWidth="80"
-            Click="CancelButton_Click"
-            Visibility="Collapsed" />
-          <Button
-            x:Name="ExtractButton"
-            Content="Extract"
-            MinWidth="120"
-            Click="ExtractButton_Click"
-            IsEnabled="False"
-            Style="{StaticResource AccentButtonStyle}" />
-        </StackPanel>
-      </Grid>
+      <TextBlock Grid.Row="1" Grid.Column="0"
+                 Text="Output:"
+                 Style="{StaticResource IoLabelStyle}" />
+      <TextBox x:Name="OutputPathText"
+               Grid.Row="1" Grid.Column="1"
+               IsReadOnly="True"
+               Style="{StaticResource IoTextBoxStyle}" />
+      <Button Grid.Row="1" Grid.Column="2"
+              Content="Browse..."
+              MinWidth="120"
+              Click="OutputBrowse_Click" />
     </Grid>
+
+    <!-- Progress Bar -->
+    <ProgressBar
+      x:Name="ExtractionProgress"
+      Grid.Row="2"
+      Maximum="100"
+      Style="{StaticResource TabProgressBarStyle}" />
+
+    <!-- Action Row -->
+    <Grid Grid.Row="4" Margin="0,8,0,0">
+      <StackPanel Orientation="Horizontal" Spacing="16"
+                  HorizontalAlignment="Left" VerticalAlignment="Center">
+        <CheckBox
+          x:Name="CreateSubDirsCheckbox"
+          Content="Create Subdirectories"
+          MinWidth="0"
+          IsChecked="False" />
+        <CheckBox
+          x:Name="WriteDdsCheckbox"
+          Content="Include DDS"
+          MinWidth="0"
+          IsChecked="False" />
+        <CheckBox
+          x:Name="WriteMipAtlasCheckbox"
+          Content="Include Mip Atlas"
+          MinWidth="0"
+          IsChecked="False" />
+      </StackPanel>
+      <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+        <Button
+          x:Name="CancelButton"
+          Content="Cancel"
+          MinWidth="80"
+          Click="CancelButton_Click"
+          Visibility="Collapsed" />
+        <Button
+          x:Name="ExtractButton"
+          Content="Extract"
+          MinWidth="120"
+          Click="ExtractButton_Click"
+          IsEnabled="False"
+          Style="{StaticResource AccentButtonStyle}" />
+      </StackPanel>
+    </Grid>
+  </Grid>
 </UserControl>

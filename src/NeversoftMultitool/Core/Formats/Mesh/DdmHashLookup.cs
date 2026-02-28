@@ -1,14 +1,14 @@
 namespace NeversoftMultitool.Core.Formats.Mesh;
 
 /// <summary>
-/// Shared hash lookup for mapping PSX mesh name hashes to DDM object indices.
-/// Supports duplicate DDM objects (same name/hash) via occurrence-based resolution.
+///     Shared hash lookup for mapping PSX mesh name hashes to DDM object indices.
+///     Supports duplicate DDM objects (same name/hash) via occurrence-based resolution.
 /// </summary>
 public static class DdmHashLookup
 {
     /// <summary>
-    /// Builds a hash → DDM indices map. Each hash maps to a list of DDM object
-    /// indices in file order, supporting duplicate-named objects.
+    ///     Builds a hash → DDM indices map. Each hash maps to a list of DDM object
+    ///     indices in file order, supporting duplicate-named objects.
     /// </summary>
     public static Dictionary<uint, List<int>> Build(DdmFile ddm)
     {
@@ -24,6 +24,7 @@ public static class DdmHashLookup
                 list = [];
                 lookup[nameHash] = list;
             }
+
             list.Add(i);
 
             // Also register by checksum if it differs from name hash
@@ -34,6 +35,7 @@ public static class DdmHashLookup
                     checksumList = [];
                     lookup[obj.Checksum] = checksumList;
                 }
+
                 checksumList.Add(i);
             }
         }
@@ -42,10 +44,10 @@ public static class DdmHashLookup
     }
 
     /// <summary>
-    /// Pre-resolves each PSX mesh index slot to a specific DDM object index.
-    /// When multiple mesh slots share the same hash, the Nth occurrence maps
-    /// to the Nth DDM object with that hash (by file order). Clamps to the
-    /// last DDM object if PSX has more occurrences than DDM objects for a hash.
+    ///     Pre-resolves each PSX mesh index slot to a specific DDM object index.
+    ///     When multiple mesh slots share the same hash, the Nth occurrence maps
+    ///     to the Nth DDM object with that hash (by file order). Clamps to the
+    ///     last DDM object if PSX has more occurrences than DDM objects for a hash.
     /// </summary>
     public static Dictionary<int, int> ResolveMeshIndices(
         PsxLayoutFile psxFile, Dictionary<uint, List<int>> ddmByHash)

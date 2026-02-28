@@ -7,7 +7,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 
-
 namespace NeversoftMultitool;
 
 public sealed partial class MainWindow : Window
@@ -57,10 +56,7 @@ public sealed partial class MainWindow : Window
             SystemBackdrop = new DesktopAcrylicBackdrop();
             // Acrylic fallback
         }
-        else
-        {
-            // No system backdrop supported
-        }
+        // No system backdrop supported
     }
 
     private void SetupTitleBar()

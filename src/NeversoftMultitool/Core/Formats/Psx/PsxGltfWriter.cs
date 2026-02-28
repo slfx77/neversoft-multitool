@@ -10,19 +10,19 @@ namespace NeversoftMultitool.Core.Formats.Psx;
 using VERTEX = VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>;
 
 /// <summary>
-/// Writes parsed PSX mesh data to glTF 2.0 (.glb) files.
-/// Texture embedding is handled via a callback to keep the mesh and texture pipelines decoupled.
+///     Writes parsed PSX mesh data to glTF 2.0 (.glb) files.
+///     Texture embedding is handled via a callback to keep the mesh and texture pipelines decoupled.
 /// </summary>
 public static class PsxGltfWriter
 {
     /// <summary>
-    /// Delegate that resolves a texture hash to PNG bytes for embedding in glTF.
-    /// Returns null if the texture cannot be resolved.
+    ///     Delegate that resolves a texture hash to PNG bytes for embedding in glTF.
+    ///     Returns null if the texture cannot be resolved.
     /// </summary>
     public delegate byte[]? TextureProvider(uint textureHash);
 
     /// <summary>
-    /// Writes a parsed PSX file to a .glb file.
+    ///     Writes a parsed PSX file to a .glb file.
     /// </summary>
     /// <param name="psxFile">Parsed PSX mesh data.</param>
     /// <param name="outputPath">Output .glb file path.</param>
@@ -53,8 +53,8 @@ public static class PsxGltfWriter
     }
 
     /// <summary>
-    /// Writes non-hierarchical models (levels, standalone objects).
-    /// Each object is placed independently at its world-space position.
+    ///     Writes non-hierarchical models (levels, standalone objects).
+    ///     Each object is placed independently at its world-space position.
     /// </summary>
     private static int WriteFlat(PsxMeshFile psxFile, SceneBuilder scene,
         Dictionary<uint, MaterialBuilder> materialCache, MaterialBuilder untexturedMaterial,
@@ -73,7 +73,8 @@ public static class PsxGltfWriter
             totalTriangles += triangles;
 
             // PS1 is left-handed; glTF is right-handed Y-up. Negate Y and Z.
-            var translation = new Vector3(obj.X(psxFile.TranslationDivisor), -obj.Y(psxFile.TranslationDivisor), -obj.Z(psxFile.TranslationDivisor));
+            var translation = new Vector3(obj.X(psxFile.TranslationDivisor), -obj.Y(psxFile.TranslationDivisor),
+                -obj.Z(psxFile.TranslationDivisor));
             scene.AddRigidMesh(gltfMesh, Matrix4x4.CreateTranslation(translation));
         }
 
@@ -81,8 +82,8 @@ public static class PsxGltfWriter
     }
 
     /// <summary>
-    /// Writes hierarchical models (humanoid characters, skeletons).
-    /// Builds a parent-child node tree so body parts are assembled correctly.
+    ///     Writes hierarchical models (humanoid characters, skeletons).
+    ///     Builds a parent-child node tree so body parts are assembled correctly.
     /// </summary>
     private static int WriteHierarchical(PsxMeshFile psxFile, SceneBuilder scene,
         Dictionary<uint, MaterialBuilder> materialCache, MaterialBuilder untexturedMaterial,
@@ -96,7 +97,8 @@ public static class PsxGltfWriter
         for (var i = 0; i < objectCount; i++)
         {
             var obj = psxFile.Objects[i];
-            absolutePositions[i] = new Vector3(obj.X(psxFile.TranslationDivisor), -obj.Y(psxFile.TranslationDivisor), -obj.Z(psxFile.TranslationDivisor));
+            absolutePositions[i] = new Vector3(obj.X(psxFile.TranslationDivisor), -obj.Y(psxFile.TranslationDivisor),
+                -obj.Z(psxFile.TranslationDivisor));
         }
 
         var nodes = BuildNodeHierarchy(psxFile, absolutePositions, pshFile);
@@ -120,9 +122,9 @@ public static class PsxGltfWriter
     }
 
     /// <summary>
-    /// Builds the glTF node hierarchy from PSX objects. Parent indices can reference
-    /// higher-index objects, so we iterate: roots first, then children whose parents
-    /// already exist, repeating until all nodes are placed.
+    ///     Builds the glTF node hierarchy from PSX objects. Parent indices can reference
+    ///     higher-index objects, so we iterate: roots first, then children whose parents
+    ///     already exist, repeating until all nodes are placed.
     /// </summary>
     private static NodeBuilder?[] BuildNodeHierarchy(PsxMeshFile psxFile, Vector3[] absolutePositions,
         PshFile? pshFile)
@@ -139,7 +141,7 @@ public static class PsxGltfWriter
                 if (nodes[i] != null) continue;
                 var obj = psxFile.Objects[i];
                 var name = pshFile?.GetBoneName(i)
-                    ?? ResolveMeshName(psxFile, obj.MeshIndex, $"obj_{i}");
+                           ?? ResolveMeshName(psxFile, obj.MeshIndex, $"obj_{i}");
                 var parentIdx = obj.ParentIndex;
                 var isRoot = parentIdx < 0 || parentIdx >= objectCount || parentIdx == i;
 
@@ -168,15 +170,16 @@ public static class PsxGltfWriter
 
         if (created < objectCount)
         {
-            Console.Error.WriteLine($"WARNING: Hierarchy has cycles or invalid parent indices — placed {created}/{objectCount} nodes");
+            Console.Error.WriteLine(
+                $"WARNING: Hierarchy has cycles or invalid parent indices — placed {created}/{objectCount} nodes");
         }
 
         return nodes;
     }
 
     /// <summary>
-    /// Builds a glTF mesh for a single PSX object. Returns null if the object has no renderable geometry.
-    /// Uses obj.MeshIndex to select the mesh (confirmed by Ghidra decompilation of M3dInit_ParsePSX).
+    ///     Builds a glTF mesh for a single PSX object. Returns null if the object has no renderable geometry.
+    ///     Uses obj.MeshIndex to select the mesh (confirmed by Ghidra decompilation of M3dInit_ParsePSX).
     /// </summary>
     private static (MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>? Mesh, int Triangles)
         BuildObjectMesh(PsxMeshFile psxFile, PsxMeshObject obj,
@@ -204,7 +207,7 @@ public static class PsxGltfWriter
 
             // Get texture dimensions for UV normalization (default 256 for untextured/unknown)
             var texDims = face.IsTextured && face.TextureHash != 0
-                && textureDimensions.TryGetValue(face.TextureHash, out var dims)
+                                          && textureDimensions.TryGetValue(face.TextureHash, out var dims)
                 ? dims
                 : (Width: 256, Height: 256);
 
@@ -237,7 +240,8 @@ public static class PsxGltfWriter
             c1 = face.G < gouraudPalette.Length ? gouraudPalette[face.G] : Vector4.One;
             c2 = face.B < gouraudPalette.Length ? gouraudPalette[face.B] : Vector4.One;
             c3 = face.IsQuad && face.Mode < gouraudPalette.Length
-                ? gouraudPalette[face.Mode] : c0;
+                ? gouraudPalette[face.Mode]
+                : c0;
         }
         else
         {
@@ -354,8 +358,8 @@ public static class PsxGltfWriter
     }
 
     /// <summary>
-    /// Extracts width and height from a PNG file's IHDR chunk header.
-    /// PNG layout: 8-byte signature + 4-byte chunk length + 4-byte "IHDR" + 4-byte width + 4-byte height.
+    ///     Extracts width and height from a PNG file's IHDR chunk header.
+    ///     PNG layout: 8-byte signature + 4-byte chunk length + 4-byte "IHDR" + 4-byte width + 4-byte height.
     /// </summary>
     private static (int Width, int Height)? ExtractPngDimensions(byte[] pngBytes)
     {

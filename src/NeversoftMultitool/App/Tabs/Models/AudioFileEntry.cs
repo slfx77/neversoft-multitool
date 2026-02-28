@@ -1,22 +1,17 @@
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
-using Microsoft.UI.Xaml.Media;
-
 namespace NeversoftMultitool;
 
-public sealed class AudioFileEntry : IListEntry, INotifyPropertyChanged
+public class AudioFileEntry : BaseFileEntry, IListEntry
 {
-    private ExtractionStatus _status = ExtractionStatus.Pending;
-    private int _sampleCount;
     private bool _isExpanded;
-
-    public bool IsChildEntry => false;
+    private int _sampleCount;
 
     public required string FileName { get; init; }
     public required string AudioFormat { get; init; }
 
+    protected override string ProcessingVerb => "Converting...";
+
     /// <summary>
-    /// Whether this format supports expand/collapse (VAB, KAT have multiple samples).
+    ///     Whether this format supports expand/collapse (VAB, KAT have multiple samples).
     /// </summary>
     public bool IsExpandable => AudioFormat is "VAB" or "KAT";
 
@@ -31,10 +26,14 @@ public sealed class AudioFileEntry : IListEntry, INotifyPropertyChanged
         }
     }
 
-    public string ChevronGlyph => !IsExpandable ? "" : _isExpanded ? "\uE70D" : "\uE76C";
+    public string ChevronGlyph => IsExpandable switch
+    {
+        false => "",
+        true => _isExpanded ? "\uE70D" : "\uE76C"
+    };
 
     /// <summary>
-    /// Cached child sample entries, populated on first expand.
+    ///     Cached child sample entries, populated on first expand.
     /// </summary>
     internal List<AudioSampleEntry>? CachedChildren { get; set; }
 
@@ -51,41 +50,5 @@ public sealed class AudioFileEntry : IListEntry, INotifyPropertyChanged
 
     public string SampleCountDisplay => _sampleCount > 0 ? _sampleCount.ToString() : "";
 
-    public ExtractionStatus Status
-    {
-        get => _status;
-        set
-        {
-            _status = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(StatusDisplay));
-            OnPropertyChanged(nameof(StatusColor));
-        }
-    }
-
-    public string StatusDisplay => _status switch
-    {
-        ExtractionStatus.Pending => "",
-        ExtractionStatus.Processing => "Converting...",
-        ExtractionStatus.Done => "OK",
-        ExtractionStatus.Error => "ERROR",
-        ExtractionStatus.Skipped => "SKIPPED",
-        _ => ""
-    };
-
-    public SolidColorBrush StatusColor => _status switch
-    {
-        ExtractionStatus.Processing => new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0xD7, 0x00)),
-        ExtractionStatus.Done => new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x00, 0xA6, 0x00)),
-        ExtractionStatus.Error => new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0x00, 0x00)),
-        ExtractionStatus.Skipped => new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0xA5, 0x00)),
-        _ => new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88))
-    };
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
+    public bool IsChildEntry => false;
 }

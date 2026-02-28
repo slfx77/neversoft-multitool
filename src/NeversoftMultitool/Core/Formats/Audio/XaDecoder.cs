@@ -1,9 +1,9 @@
 namespace NeversoftMultitool.Core.Formats.Audio;
 
 /// <summary>
-/// Decodes PS1 CD-ROM XA ADPCM audio files to PCM WAV.
-/// Handles both sectored (2336-byte sectors with subheaders) and raw (continuous sound groups) formats.
-/// Sectored files with multiple interleaved channels produce one WAV per channel in a subdirectory.
+///     Decodes PS1 CD-ROM XA ADPCM audio files to PCM WAV.
+///     Handles both sectored (2336-byte sectors with subheaders) and raw (continuous sound groups) formats.
+///     Sectored files with multiple interleaved channels produce one WAV per channel in a subdirectory.
 /// </summary>
 public static class XaDecoder
 {
@@ -142,9 +142,9 @@ public static class XaDecoder
     }
 
     /// <summary>
-    /// Decodes a single 128-byte sound group into interleaved PCM samples.
-    /// Each sound group contains 8 sound units with 28 samples each.
-    /// For stereo: units 0,2,4,6 = left; units 1,3,5,7 = right.
+    ///     Decodes a single 128-byte sound group into interleaved PCM samples.
+    ///     Each sound group contains 8 sound units with 28 samples each.
+    ///     For stereo: units 0,2,4,6 = left; units 1,3,5,7 = right.
     /// </summary>
     private static void DecodeSoundGroup(byte[] data, int offset, double[,] hist,
         bool isStereo, List<short> output)
@@ -203,7 +203,7 @@ public static class XaDecoder
 
         foreach (var n in unitOrder)
         {
-            var ch = isStereo ? (n & 1) : 0;
+            var ch = isStereo ? n & 1 : 0;
             var range = ranges[n];
             var filter = filters[n];
 
@@ -225,7 +225,7 @@ public static class XaDecoder
             {
                 for (var s = 0; s < SamplesPerUnit; s++)
                 {
-                    output.Add(unitSamples[pair * 2, s]);     // left
+                    output.Add(unitSamples[pair * 2, s]); // left
                     output.Add(unitSamples[pair * 2 + 1, s]); // right
                 }
             }

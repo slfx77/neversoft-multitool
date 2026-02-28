@@ -3,7 +3,7 @@ namespace NeversoftMultitool.Core.Formats.Psx;
 public static class Ps1TextureDecoder
 {
     /// <summary>
-    /// Extracts a 4-bit (16-color) texture from a PSX file.
+    ///     Extracts a 4-bit (16-color) texture from a PSX file.
     /// </summary>
     public static byte[]? Extract4BitTexture(BinaryReader reader, PsxTextureHeader header,
         List<PsxPalette> palette4Bit)
@@ -50,7 +50,7 @@ public static class Ps1TextureDecoder
     }
 
     /// <summary>
-    /// Extracts an 8-bit (256-color) texture from a PSX file.
+    ///     Extracts an 8-bit (256-color) texture from a PSX file.
     /// </summary>
     public static byte[]? Extract8BitTexture(BinaryReader reader, PsxTextureHeader header,
         List<PsxPalette> palette8Bit)
@@ -100,12 +100,13 @@ public static class Ps1TextureDecoder
         {
             return padWidth % 4 != 0 ? 2 : 0;
         }
+
         return 0;
     }
 }
 
 /// <summary>
-/// Represents a color palette entry for PS1 textures.
+///     Represents a color palette entry for PS1 textures.
 /// </summary>
 public sealed class PsxPalette
 {

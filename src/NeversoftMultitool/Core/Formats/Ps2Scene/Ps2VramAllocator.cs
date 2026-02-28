@@ -3,11 +3,11 @@ using System.Buffers.Binary;
 namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
 /// <summary>
-/// Simulates PS2 GS VRAM allocation for texture dictionaries.
-/// Replicates the algorithm from THUG texture.cpp LoadTextureGroup() to compute
-/// TBP (Texture Base Pointer) addresses for each texture. Used to map GEOM DMA
-/// chain TEX0_1 register values back to texture checksums in THPS4 where
-/// CGeomNode.texture_checksum is always 0.
+///     Simulates PS2 GS VRAM allocation for texture dictionaries.
+///     Replicates the algorithm from THUG texture.cpp LoadTextureGroup() to compute
+///     TBP (Texture Base Pointer) addresses for each texture. Used to map GEOM DMA
+///     chain TEX0_1 register values back to texture checksums in THPS4 where
+///     CGeomNode.texture_checksum is always 0.
 /// </summary>
 public static class Ps2VramAllocator
 {
@@ -24,17 +24,19 @@ public static class Ps2VramAllocator
     private const uint VramToggle = 0x1E20;
 
     /// <summary>
-    /// Builds a mapping from (GroupChecksum, TBP, CBP) triples to texture checksums
-    /// by parsing a TEX file and simulating the PS2 VRAM allocation algorithm.
-    /// Group-aware keying prevents collisions from double-buffered VRAM banks
-    /// where different groups reuse the same TBP/CBP addresses.
+    ///     Builds a mapping from (GroupChecksum, TBP, CBP) triples to texture checksums
+    ///     by parsing a TEX file and simulating the PS2 VRAM allocation algorithm.
+    ///     Group-aware keying prevents collisions from double-buffered VRAM banks
+    ///     where different groups reuse the same TBP/CBP addresses.
     /// </summary>
     /// <returns>Dictionary mapping (GroupChecksum, TBP, CBP) → texture checksum.</returns>
     public static Dictionary<(uint Group, uint Tbp, uint Cbp), uint> BuildMapping(string texFilePath)
-        => BuildMapping(File.ReadAllBytes(texFilePath));
+    {
+        return BuildMapping(File.ReadAllBytes(texFilePath));
+    }
 
     /// <summary>
-    /// Builds a mapping from (GroupChecksum, TBP, CBP) triples to texture checksums.
+    ///     Builds a mapping from (GroupChecksum, TBP, CBP) triples to texture checksums.
     /// </summary>
     public static Dictionary<(uint Group, uint Tbp, uint Cbp), uint> BuildMapping(byte[] data)
     {
@@ -54,6 +56,13 @@ public static class Ps2VramAllocator
             ReadU32(data, ref offset); // totalTextures
 
         var vramBufferBase = VramBufferBaseInit;
+
+        // Max mip levels: 12 (4096→1 = 12 levels). Pre-allocate outside loops (CA2014).
+        const int MaxMipLevels = 13;
+#pragma warning disable S1481 // SonarAnalyzer false positive: Span<T> usage through indexing not tracked
+        Span<uint> tbp = stackalloc uint[MaxMipLevels];
+        Span<uint> numVramBytes = stackalloc uint[MaxMipLevels];
+#pragma warning restore S1481
 
         for (var g = 0; g < numGroups; g++)
         {
@@ -96,13 +105,13 @@ public static class Ps2VramAllocator
 
                 // Duplicate reference — skip VRAM allocation but still skip file data
                 var isDuplicate = mxlRaw < 0;
-                var mxl = isDuplicate ? 0 : (mxlRaw & 0xFF);
+                var mxl = isDuplicate ? 0 : mxlRaw & 0xFF;
 
                 // Skip past texture data in file
                 if (!isDuplicate)
                 {
                     offset = Align16(offset);
-                    SkipTextureData(data, ref offset, (int)(1u << (int)tw), (int)(1u << (int)th),
+                    SkipTextureData(ref offset, (int)(1u << (int)tw), (int)(1u << (int)th),
                         psm, cpsm, mxl);
                 }
 
@@ -114,8 +123,8 @@ public static class Ps2VramAllocator
                 var adjBpp = bpp == 24 ? 32u : bpp;
                 var (pageW, pageH) = GetPageSize(psm);
 
-                Span<uint> tbp = stackalloc uint[mxl + 1];
-                Span<uint> numVramBytes = stackalloc uint[mxl + 1];
+                tbp.Clear();
+                numVramBytes.Clear();
 
                 for (var j = 0; j <= mxl; j++)
                 {
@@ -129,9 +138,9 @@ public static class Ps2VramAllocator
                     var ah = h;
                     if (aw < pageW && ah > pageH) aw = pageW;
                     if (aw > pageW && ah < pageH) ah = pageH;
-                    if ((tbw << 6) > aw) aw = tbw << 6;
+                    if (tbw << 6 > aw) aw = tbw << 6;
 
-                    numVramBytes[j] = aw * ah * adjBpp >> 3;
+                    numVramBytes[j] = (aw * ah * adjBpp) >> 3;
                 }
 
                 // Calculate TBP (texture.cpp lines 591-594)
@@ -165,12 +174,13 @@ public static class Ps2VramAllocator
                         var w = Math.Max((1u << (int)tw) >> j, 1u);
                         var h = Math.Max((1u << (int)th) >> j, 1u);
 
-                        if (((bpp == 32 || bpp == 8) && w <= (pageW >> 1) && h <= pageH)
-                            || ((bpp == 16 || bpp == 4) && w <= pageW && h <= (pageH >> 1)))
+                        if (((bpp == 32 || bpp == 8) && w <= pageW >> 1 && h <= pageH)
+                            || ((bpp == 16 || bpp == 4) && w <= pageW && h <= pageH >> 1))
                         {
                             tbp[j] += 16;
                         }
                     }
+
                     texCount++;
                 }
 
@@ -182,8 +192,8 @@ public static class Ps2VramAllocator
     }
 
     /// <summary>
-    /// Extracts (GroupChecksum, TBP, CBP) lookup key from a raw TEX0 GS register
-    /// value and the leaf's group checksum.
+    ///     Extracts (GroupChecksum, TBP, CBP) lookup key from a raw TEX0 GS register
+    ///     value and the leaf's group checksum.
     /// </summary>
     public static (uint Group, uint Tbp, uint Cbp) DecodeTex0Key(ulong tex0, uint groupChecksum)
     {
@@ -192,26 +202,32 @@ public static class Ps2VramAllocator
         return (groupChecksum, tbp, cbp);
     }
 
-    private static uint GetBitsPerPixel(uint psm) => psm switch
+    private static uint GetBitsPerPixel(uint psm)
     {
-        PSMCT32 => 32,
-        PSMCT24 => 24,
-        PSMCT16 => 16,
-        PSMT8 => 8,
-        PSMT4 => 4,
-        _ => 32,
-    };
+        return psm switch
+        {
+            PSMCT32 => 32,
+            PSMCT24 => 24,
+            PSMCT16 => 16,
+            PSMT8 => 8,
+            PSMT4 => 4,
+            _ => 32
+        };
+    }
 
-    private static (uint Width, uint Height) GetPageSize(uint psm) => psm switch
+    private static (uint Width, uint Height) GetPageSize(uint psm)
     {
-        PSMCT32 or PSMCT24 => (64, 32),
-        PSMCT16 => (64, 64),
-        PSMT8 => (128, 64),
-        PSMT4 => (128, 128),
-        _ => (64, 32),
-    };
+        return psm switch
+        {
+            PSMCT32 or PSMCT24 => (64, 32),
+            PSMCT16 => (64, 64),
+            PSMT8 => (128, 64),
+            PSMT4 => (128, 128),
+            _ => (64, 32)
+        };
+    }
 
-    private static void SkipTextureData(byte[] data, ref int offset, int width, int height,
+    private static void SkipTextureData(ref int offset, int width, int height,
         uint psm, uint cpsm, int mxl)
     {
         var bpp = GetBitsPerPixel(psm);
@@ -242,5 +258,8 @@ public static class Ps2VramAllocator
         return value;
     }
 
-    private static int Align16(int offset) => (offset + 15) & ~15;
+    private static int Align16(int offset)
+    {
+        return (offset + 15) & ~15;
+    }
 }

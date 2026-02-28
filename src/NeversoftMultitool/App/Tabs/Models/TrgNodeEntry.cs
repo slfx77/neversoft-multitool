@@ -4,8 +4,6 @@ namespace NeversoftMultitool;
 
 public sealed class TrgNodeEntry : IListEntry
 {
-    public bool IsChildEntry => true;
-
     public required string ParentFileName { get; init; }
     public required int NodeIndex { get; init; }
     public required TrgNode Node { get; init; }
@@ -29,4 +27,6 @@ public sealed class TrgNodeEntry : IListEntry
             return parts.Count > 0 ? string.Join(" | ", parts) : "";
         }
     }
+
+    public bool IsChildEntry => true;
 }

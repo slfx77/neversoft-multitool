@@ -3,15 +3,15 @@ using System.Text;
 namespace NeversoftMultitool.Core.Formats.Archives;
 
 /// <summary>
-/// Extracts DDS textures from Neversoft DDX texture archives (original Xbox).
-/// DDX files contain a table of contents followed by concatenated standard DDS files.
+///     Extracts DDS textures from Neversoft DDX texture archives (original Xbox).
+///     DDX files contain a table of contents followed by concatenated standard DDS files.
 /// </summary>
 public static class DdxArchive
 {
     private const int NameFieldSize = 256;
 
     /// <summary>
-    /// Reads the file list from a DDX archive.
+    ///     Reads the file list from a DDX archive.
     /// </summary>
     public static List<ArchiveEntry> GetFileList(string ddxPath)
     {
@@ -45,8 +45,8 @@ public static class DdxArchive
     }
 
     /// <summary>
-    /// Reads all entries from a DDX archive into memory.
-    /// Returns a dictionary keyed by filename stem (no extension, case-insensitive).
+    ///     Reads all entries from a DDX archive into memory.
+    ///     Returns a dictionary keyed by filename stem (no extension, case-insensitive).
     /// </summary>
     public static Dictionary<string, byte[]> ReadAllEntries(string ddxPath)
     {
@@ -67,7 +67,7 @@ public static class DdxArchive
     }
 
     /// <summary>
-    /// Extracts all DDS textures from a DDX archive.
+    ///     Extracts all DDS textures from a DDX archive.
     /// </summary>
     public static void ExtractFiles(string ddxPath, string outputDir,
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)

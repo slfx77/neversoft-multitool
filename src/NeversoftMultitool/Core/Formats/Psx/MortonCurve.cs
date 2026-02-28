@@ -3,7 +3,7 @@ namespace NeversoftMultitool.Core.Formats.Psx;
 public static class MortonCurve
 {
     /// <summary>
-    /// Calculates the Morton index for a texture.
+    ///     Calculates the Morton index for a texture.
     /// </summary>
     public static int Morton(int index, int textureWidth, int textureHeight)
     {
@@ -32,8 +32,8 @@ public static class MortonCurve
     }
 
     /// <summary>
-    /// Standard 2D Z-order curve interleave.
-    /// Replaces pymorton.interleave(x, y) for VQ textures.
+    ///     Standard 2D Z-order curve interleave.
+    ///     Replaces pymorton.interleave(x, y) for VQ textures.
     /// </summary>
     public static int Interleave(int x, int y)
     {
@@ -43,6 +43,7 @@ public static class MortonCurve
             result |= ((x >> i) & 1) << (2 * i);
             result |= ((y >> i) & 1) << (2 * i + 1);
         }
+
         return result;
     }
 
@@ -55,6 +56,7 @@ public static class MortonCurve
             n >>= 1;
             bits++;
         }
+
         return bits;
     }
 }

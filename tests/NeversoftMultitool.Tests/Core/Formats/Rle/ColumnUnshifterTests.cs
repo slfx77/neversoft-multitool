@@ -1,13 +1,16 @@
-using NeversoftMultitool.Core.Formats.Rle;
 using System.Reflection;
+using NeversoftMultitool.Core.Formats.Rle;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Rle;
 
 public class ColumnUnshifterTests
 {
     // Access internal types via reflection since ColumnUnshifter and RgbColor are internal
-    private static readonly Type RgbColorType = typeof(RleImage).Assembly.GetType("NeversoftMultitool.Core.Formats.Rle.RgbColor")!;
-    private static readonly Type UnshifterType = typeof(RleImage).Assembly.GetType("NeversoftMultitool.Core.Formats.Rle.ColumnUnshifter")!;
+    private static readonly Type RgbColorType =
+        typeof(RleImage).Assembly.GetType("NeversoftMultitool.Core.Formats.Rle.RgbColor")!;
+
+    private static readonly Type UnshifterType =
+        typeof(RleImage).Assembly.GetType("NeversoftMultitool.Core.Formats.Rle.ColumnUnshifter")!;
 
     private static object MakeColor(byte r, byte g, byte b)
     {
@@ -77,6 +80,7 @@ public class ColumnUnshifterTests
             {
                 addPixel.Invoke(row, [MakeColor(fill.r, fill.g, fill.b)]);
             }
+
             addRow.Invoke(canvas, [row]);
         }
 
@@ -102,6 +106,7 @@ public class ColumnUnshifterTests
                 else
                     addPixel.Invoke(row, [MakeColor(128, 128, 128)]);
             }
+
             addRow.Invoke(canvas, [row]);
         }
 

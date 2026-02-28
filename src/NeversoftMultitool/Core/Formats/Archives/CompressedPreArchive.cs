@@ -4,15 +4,14 @@ using NeversoftMultitool.Core.BinaryIO;
 namespace NeversoftMultitool.Core.Formats.Archives;
 
 /// <summary>
-/// Extracts files from Neversoft PRE v2/v3 archives with LZSS compression.
-/// Used in THPS3, THPS4, THUG, THUG2, and THAW (PS2, Xbox, GameCube).
-/// Xbox variant uses .prx extension. Format documented in THUG source: Sys/File/PRE.cpp.
-///
-/// Header (12 bytes): totalFileSize(i32) + version(i32) + numEntries(i32)
-/// V2 per entry: dataSize(i32) + compressedDataSize(i32) + nameSize(i16) + reserved(i16)
-///               + name(nameSize bytes) + data(pad4(actualSize))
-/// V3 per entry: dataSize(i32) + compressedDataSize(i32) + nameSize(i16) + reserved(i16)
-///               + checksum(u32) + name(nameSize bytes) + data(pad4(actualSize))
+///     Extracts files from Neversoft PRE v2/v3 archives with LZSS compression.
+///     Used in THPS3, THPS4, THUG, THUG2, and THAW (PS2, Xbox, GameCube).
+///     Xbox variant uses .prx extension. Format documented in THUG source: Sys/File/PRE.cpp.
+///     Header (12 bytes): totalFileSize(i32) + version(i32) + numEntries(i32)
+///     V2 per entry: dataSize(i32) + compressedDataSize(i32) + nameSize(i16) + reserved(i16)
+///     + name(nameSize bytes) + data(pad4(actualSize))
+///     V3 per entry: dataSize(i32) + compressedDataSize(i32) + nameSize(i16) + reserved(i16)
+///     + checksum(u32) + name(nameSize bytes) + data(pad4(actualSize))
 /// </summary>
 public static class CompressedPreArchive
 {
@@ -21,7 +20,7 @@ public static class CompressedPreArchive
     private const int HeaderSize = 12;
 
     /// <summary>
-    /// Returns true if the file is a compressed PRE archive (v2/v3, has 0xABCDxxxx version).
+    ///     Returns true if the file is a compressed PRE archive (v2/v3, has 0xABCDxxxx version).
     /// </summary>
     public static bool IsCompressedPre(string filePath)
     {
@@ -38,7 +37,7 @@ public static class CompressedPreArchive
         using var stream = File.OpenRead(prePath);
         using var reader = new BinaryReader(stream);
 
-        var totalFileSize = reader.ReadInt32();
+        _ = reader.ReadInt32(); // totalFileSize (not needed for parsing)
         var version = reader.ReadUInt32();
         if (version is not VersionV2 and not VersionV3)
             throw new InvalidDataException(
@@ -50,12 +49,10 @@ public static class CompressedPreArchive
 
         for (var i = 0; i < numEntries; i++)
         {
-            var entryStart = stream.Position;
-
             var dataSize = reader.ReadInt32();
             var compressedDataSize = reader.ReadInt32();
             var nameSize = reader.ReadInt16();
-            var reserved = reader.ReadInt16(); // usage count slot, unused on disk
+            _ = reader.ReadInt16(); // reserved: usage count slot, unused on disk
             var checksum = hasChecksum ? reader.ReadUInt32() : 0u;
 
             var nameBytes = reader.ReadBytes(nameSize);

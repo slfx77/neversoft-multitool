@@ -1,13 +1,13 @@
 namespace NeversoftMultitool.Core.Formats.Audio;
 
 /// <summary>
-/// Decodes CRI ADX ADPCM audio files to PCM WAV.
-/// ADX is a lossy audio format used in many Dreamcast and PS2 games.
+///     Decodes CRI ADX ADPCM audio files to PCM WAV.
+///     ADX is a lossy audio format used in many Dreamcast and PS2 games.
 /// </summary>
 public static class AdxDecoder
 {
     /// <summary>
-    /// Converts an ADX file to a WAV file in the specified output directory.
+    ///     Converts an ADX file to a WAV file in the specified output directory.
     /// </summary>
     public static AudioConvertResult ConvertToWav(string inputPath, string outputDir)
     {
@@ -101,7 +101,8 @@ public static class AdxDecoder
             channelBuffers[ch] = new List<short>(header.TotalSamples);
 
         var framesDecoded = 0;
-        while (framesDecoded < totalInterleavedFrames && reader.BaseStream.Position + header.BlockSize <= reader.BaseStream.Length)
+        while (framesDecoded < totalInterleavedFrames &&
+               reader.BaseStream.Position + header.BlockSize <= reader.BaseStream.Length)
         {
             var ch = framesDecoded % header.ChannelCount;
 

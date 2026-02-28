@@ -1,9 +1,9 @@
 namespace NeversoftMultitool.Core.BinaryIO;
 
 /// <summary>
-/// Decodes LZSS (Lempel-Ziv-Storer-Szymanski) compressed data.
-/// Ported from Neversoft's THUG source: Core/compress.cpp and Sys/File/PRE.cpp.
-/// Used in PRE v3 archives (THPS3 through THAW, 2001–2005).
+///     Decodes LZSS (Lempel-Ziv-Storer-Szymanski) compressed data.
+///     Ported from Neversoft's THUG source: Core/compress.cpp and Sys/File/PRE.cpp.
+///     Used in PRE v3 archives (THPS3 through THAW, 2001–2005).
 /// </summary>
 public static class LzssDecoder
 {
@@ -12,11 +12,11 @@ public static class LzssDecoder
     private const int Threshold = 2;
 
     /// <summary>
-    /// Decompresses LZSS-encoded data.
+    ///     Decompresses LZSS-encoded data.
     /// </summary>
     /// <param name="compressed">The compressed input bytes.</param>
     /// <param name="decompressedSize">Expected output size in bytes.</param>
-    /// <returns>Decompressed byte array of exactly <paramref name="decompressedSize"/> bytes.</returns>
+    /// <returns>Decompressed byte array of exactly <paramref name="decompressedSize" /> bytes.</returns>
     public static byte[] Decode(ReadOnlySpan<byte> compressed, int decompressedSize)
     {
         var output = new byte[decompressedSize];
@@ -25,15 +25,16 @@ public static class LzssDecoder
         // Initialize ring buffer with spaces (matches Neversoft's implementation)
         textBuf.AsSpan(0, RingBufferSize - MatchLimit).Fill(0x20);
 
-        int r = RingBufferSize - MatchLimit;
-        int inPos = 0;
-        int outPos = 0;
-        int len = compressed.Length;
+        var r = RingBufferSize - MatchLimit;
+        var inPos = 0;
+        var outPos = 0;
+        var len = compressed.Length;
         uint flags = 0;
 
         while (outPos < decompressedSize)
         {
-            if (((flags >>= 1) & 256) == 0)
+            flags >>= 1;
+            if ((flags & 256) == 0)
             {
                 if (len <= 0) break;
                 len--;
@@ -45,7 +46,7 @@ public static class LzssDecoder
                 // Literal byte
                 if (len <= 0) break;
                 len--;
-                byte c = compressed[inPos++];
+                var c = compressed[inPos++];
                 output[outPos++] = c;
                 textBuf[r++] = c;
                 r &= RingBufferSize - 1;
@@ -60,12 +61,12 @@ public static class LzssDecoder
                 len--;
                 int j = compressed[inPos++];
 
-                i |= (j & 0xF0) << 4;       // 12-bit offset
-                j = (j & 0x0F) + Threshold;  // 4-bit length + threshold
+                i |= (j & 0xF0) << 4; // 12-bit offset
+                j = (j & 0x0F) + Threshold; // 4-bit length + threshold
 
-                for (int k = 0; k <= j; k++)
+                for (var k = 0; k <= j; k++)
                 {
-                    byte c = textBuf[(i + k) & (RingBufferSize - 1)];
+                    var c = textBuf[(i + k) & (RingBufferSize - 1)];
                     if (outPos >= decompressedSize) break;
                     output[outPos++] = c;
                     textBuf[r++] = c;

@@ -7,7 +7,6 @@ namespace NeversoftMultitool.CLI;
 
 public static class Ps2TexCommand
 {
-
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
@@ -115,14 +114,14 @@ public static class Ps2TexCommand
     }
 
     /// <summary>
-    /// Detects PS2 texture files by extension (.tex, .img) or compound extension (.tex.ps2, .img.ps2).
+    ///     Detects PS2 texture files by extension (.tex, .img) or compound extension (.tex.ps2, .img.ps2).
     /// </summary>
     private static bool IsPs2TextureFile(string path)
     {
         var name = Path.GetFileName(path);
         return name.EndsWith(".tex", StringComparison.OrdinalIgnoreCase)
-            || name.EndsWith(".img", StringComparison.OrdinalIgnoreCase)
-            || name.EndsWith(".tex.ps2", StringComparison.OrdinalIgnoreCase)
-            || name.EndsWith(".img.ps2", StringComparison.OrdinalIgnoreCase);
+               || name.EndsWith(".img", StringComparison.OrdinalIgnoreCase)
+               || name.EndsWith(".tex.ps2", StringComparison.OrdinalIgnoreCase)
+               || name.EndsWith(".img.ps2", StringComparison.OrdinalIgnoreCase);
     }
 }

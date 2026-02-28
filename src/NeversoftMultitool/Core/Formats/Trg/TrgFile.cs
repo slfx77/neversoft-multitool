@@ -5,12 +5,20 @@ using System.Text.Json.Serialization.Metadata;
 namespace NeversoftMultitool.Core.Formats.Trg;
 
 /// <summary>
-/// Parses Neversoft TRG (trigger/script) files used in Apocalypse, Spider-Man, and THPS series.
-/// Format: _TRG magic, version 2.0 (Apocalypse/THPS) or 2.1 (Spider-Man), node offset table, typed nodes.
+///     Parses Neversoft TRG (trigger/script) files used in Apocalypse, Spider-Man, and THPS series.
+///     Format: _TRG magic, version 2.0 (Apocalypse/THPS) or 2.1 (Spider-Man), node offset table, typed nodes.
 /// </summary>
 public sealed class TrgFile
 {
     private const uint Magic = 0x4752545F; // "_TRG" as little-endian uint32
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+    };
 
     public string FileName { get; init; } = "";
     public int VersionMajor { get; init; }
@@ -19,8 +27,8 @@ public sealed class TrgFile
     public List<TrgNode> Nodes { get; init; } = [];
 
     /// <summary>
-    /// True if this is a Spider-Man variant (minor version 1).
-    /// Affects parsing of certain node types (POWERUP terminators, RAILDEF extra data, etc.).
+    ///     True if this is a Spider-Man variant (minor version 1).
+    ///     Affects parsing of certain node types (POWERUP terminators, RAILDEF extra data, etc.).
     /// </summary>
     [JsonIgnore]
     public bool IsSpiderMan => VersionMinor == 1;
@@ -81,15 +89,10 @@ public sealed class TrgFile
         };
     }
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    public string ToJson()
     {
-        WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        TypeInfoResolver = new DefaultJsonTypeInfoResolver()
-    };
-
-    public string ToJson() => JsonSerializer.Serialize(this, JsonOptions);
+        return JsonSerializer.Serialize(this, JsonOptions);
+    }
 
     public void WriteJson(string outputPath)
     {

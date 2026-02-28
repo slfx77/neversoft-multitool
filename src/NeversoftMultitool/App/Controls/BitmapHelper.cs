@@ -4,12 +4,12 @@ using Microsoft.UI.Xaml.Media.Imaging;
 namespace NeversoftMultitool;
 
 /// <summary>
-/// Converts raw pixel data to WinUI 3 WriteableBitmap for display.
+///     Converts raw pixel data to WinUI 3 WriteableBitmap for display.
 /// </summary>
 internal static class BitmapHelper
 {
     /// <summary>
-    /// Creates a WriteableBitmap from RGBA pixel data (converts to BGRA).
+    ///     Creates a WriteableBitmap from RGBA pixel data (converts to BGRA).
     /// </summary>
     internal static WriteableBitmap CreateFromRgba(int width, int height, byte[] rgba)
     {
@@ -17,9 +17,9 @@ internal static class BitmapHelper
         var bgra = new byte[rgba.Length];
         for (var i = 0; i < rgba.Length; i += 4)
         {
-            bgra[i] = rgba[i + 2];     // B
+            bgra[i] = rgba[i + 2]; // B
             bgra[i + 1] = rgba[i + 1]; // G
-            bgra[i + 2] = rgba[i];     // R
+            bgra[i + 2] = rgba[i]; // R
             bgra[i + 3] = rgba[i + 3]; // A
         }
 
@@ -33,7 +33,7 @@ internal static class BitmapHelper
     }
 
     /// <summary>
-    /// Creates a WriteableBitmap from RGB pixel data (converts to BGRA with full opacity).
+    ///     Creates a WriteableBitmap from RGB pixel data (converts to BGRA with full opacity).
     /// </summary>
     internal static WriteableBitmap CreateFromRgb(int width, int height, byte[] rgb)
     {
@@ -42,10 +42,10 @@ internal static class BitmapHelper
         var rgbIndex = 0;
         for (var i = 0; i < bgra.Length; i += 4)
         {
-            bgra[i] = rgb[rgbIndex + 2];     // B
+            bgra[i] = rgb[rgbIndex + 2]; // B
             bgra[i + 1] = rgb[rgbIndex + 1]; // G
-            bgra[i + 2] = rgb[rgbIndex];     // R
-            bgra[i + 3] = 0xFF;              // A
+            bgra[i + 2] = rgb[rgbIndex]; // R
+            bgra[i + 3] = 0xFF; // A
             rgbIndex += 3;
         }
 

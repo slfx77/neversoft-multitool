@@ -1,9 +1,9 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using Windows.Storage.Pickers;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core.Formats.Archives;
-using Windows.Storage.Pickers;
 using WinRT.Interop;
 
 namespace NeversoftMultitool;
@@ -12,9 +12,9 @@ public sealed partial class ArchiveExtractorTab : UserControl
 {
     private readonly ObservableCollection<ArchiveFileEntry> _files = [];
     private string _archivePath = "";
-    private string _outputDir = "";
     private string _archiveType = "";
     private CancellationTokenSource? _cts;
+    private string _outputDir = "";
 
     public ArchiveExtractorTab()
     {
@@ -117,15 +117,10 @@ public sealed partial class ArchiveExtractorTab : UserControl
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        _outputDir = folder.Path;
+        _outputDir = path;
         OutputPathText.Text = _outputDir;
         UpdateUiState();
     }

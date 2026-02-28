@@ -1,15 +1,23 @@
-using Xunit;
+using NeversoftMultitool.Tests.Helpers;
 
-[assembly: AssemblyFixture(typeof(NeversoftMultitool.Tests.Helpers.TestPaths))]
+[assembly: AssemblyFixture(typeof(TestPaths))]
 
 namespace NeversoftMultitool.Tests.Helpers;
 
 /// <summary>
-/// Assembly-level fixture that locates test data and golden files once per test run.
-/// Tests inject this via constructor and call Assert.SkipWhen() when data is absent.
+///     Assembly-level fixture that locates test data and golden files once per test run.
+///     Tests inject this via constructor and call Assert.SkipWhen() when data is absent.
 /// </summary>
 public class TestPaths
 {
+    public TestPaths()
+    {
+        TestDataDir = FindDirectory("tests", "TestData");
+        GoldenFilesDir = FindDirectory("tests", "NeversoftMultitool.Tests", "GoldenFiles");
+        SampleBuildsDir = FindDirectory("Sample", "Builds");
+        TestOutputDir = FindDirectory("tests", "TestOutput");
+    }
+
     public string? TestDataDir { get; }
     public string? GoldenFilesDir { get; }
 
@@ -28,8 +36,12 @@ public class TestPaths
     public string? GoldenPsxXboxDir => GoldenFilesDir != null ? Path.Combine(GoldenFilesDir, "Psx", "Xbox") : null;
     public string? GoldenPsxPs1Dir => GoldenFilesDir != null ? Path.Combine(GoldenFilesDir, "Psx", "Ps1") : null;
     public string? GoldenRleDir => GoldenFilesDir != null ? Path.Combine(GoldenFilesDir, "Rle") : null;
-    public string? GoldenWadManifest => GoldenFilesDir != null ? Path.Combine(GoldenFilesDir, "Archives", "Wad", "manifest.json") : null;
-    public string? GoldenPkrManifest => GoldenFilesDir != null ? Path.Combine(GoldenFilesDir, "Archives", "Pkr", "manifest.json") : null;
+
+    public string? GoldenWadManifest =>
+        GoldenFilesDir != null ? Path.Combine(GoldenFilesDir, "Archives", "Wad", "manifest.json") : null;
+
+    public string? GoldenPkrManifest =>
+        GoldenFilesDir != null ? Path.Combine(GoldenFilesDir, "Archives", "Pkr", "manifest.json") : null;
 
     // Sample builds (for formats without dedicated TestData, e.g. TRG)
     public string? SampleBuildsDir { get; }
@@ -40,14 +52,6 @@ public class TestPaths
 
     public bool HasTestData => TestDataDir != null && Directory.Exists(TestDataDir);
     public bool HasGoldenFiles => GoldenFilesDir != null && Directory.Exists(GoldenFilesDir);
-
-    public TestPaths()
-    {
-        TestDataDir = FindDirectory("tests", "TestData");
-        GoldenFilesDir = FindDirectory("tests", "NeversoftMultitool.Tests", "GoldenFiles");
-        SampleBuildsDir = FindDirectory("Sample", "Builds");
-        TestOutputDir = FindDirectory("tests", "TestOutput");
-    }
 
     private static string? FindDirectory(params string[] relativeParts)
     {
@@ -60,6 +64,7 @@ public class TestPaths
 
             dir = Path.GetDirectoryName(dir)!;
         }
+
         return null;
     }
 }

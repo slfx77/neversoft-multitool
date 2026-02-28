@@ -1,13 +1,11 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using Windows.Media.Core;
+using Windows.Media.Playback;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using NeversoftMultitool.Core.Formats.Audio;
-using Windows.Media.Core;
-using Windows.Media.Playback;
-using Windows.Storage.Pickers;
-using WinRT.Interop;
 
 namespace NeversoftMultitool;
 
@@ -17,19 +15,19 @@ public sealed partial class AudioConverterTab : UserControl
 
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<AudioFileEntry> _parentFiles = [];
-    private string _inputDir = "";
-    private string _outputDir = "";
-    private CancellationTokenSource? _cts;
-
-    // Playback
-    private MediaPlayer? _mediaPlayer;
-    private DispatcherTimer? _positionTimer;
-    private CancellationTokenSource? _previewCts;
-    private bool _updatingSlider;
+    private readonly Dictionary<string, string> _previewCache = [];
 
     // Temp file cache
     private readonly string _tempDir = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "AudioPreview");
-    private readonly Dictionary<string, string> _previewCache = [];
+    private CancellationTokenSource? _cts;
+    private string _inputDir = "";
+
+    // Playback
+    private MediaPlayer? _mediaPlayer;
+    private string _outputDir = "";
+    private DispatcherTimer? _positionTimer;
+    private CancellationTokenSource? _previewCts;
+    private bool _updatingSlider;
 
     public AudioConverterTab()
     {
@@ -39,15 +37,10 @@ public sealed partial class AudioConverterTab : UserControl
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        _inputDir = folder.Path;
+        _inputDir = path;
         InputPathText.Text = _inputDir;
 
         ClearPreview();
@@ -84,15 +77,10 @@ public sealed partial class AudioConverterTab : UserControl
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        _outputDir = folder.Path;
+        _outputDir = path;
         OutputPathText.Text = _outputDir;
         UpdateUiState();
     }
@@ -276,16 +264,19 @@ public sealed partial class AudioConverterTab : UserControl
         MainWindow.Instance?.SetStatus("Conversion cancelled");
     }
 
-    private static string DetectFormat(string extension) => extension switch
+    private static string DetectFormat(string extension)
     {
-        ".adx" => "ADX",
-        ".xa" => "XA",
-        ".vab" => "VAB",
-        ".vag" or ".pss" => "VAG",
-        ".kat" => "KAT",
-        "" => "VAG",
-        _ => "Unknown"
-    };
+        return extension switch
+        {
+            ".adx" => "ADX",
+            ".xa" => "XA",
+            ".vab" => "VAB",
+            ".vag" or ".pss" => "VAG",
+            ".kat" => "KAT",
+            "" => "VAG",
+            _ => "Unknown"
+        };
+    }
 
     // ── Audio Preview ────────────────────────────────────────────────────
 
@@ -483,7 +474,7 @@ public sealed partial class AudioConverterTab : UserControl
         _positionTimer.Start();
         PlayPauseButton.IsEnabled = true;
         StopButton.IsEnabled = true;
-        UpdatePlayPauseIcon(isPlaying: true);
+        UpdatePlayPauseIcon(true);
     }
 
     private void StopPlayback()
@@ -499,7 +490,7 @@ public sealed partial class AudioConverterTab : UserControl
             _mediaPlayer = null;
         }
 
-        UpdatePlayPauseIcon(isPlaying: false);
+        UpdatePlayPauseIcon(false);
         _updatingSlider = true;
         PlaybackSlider.Value = 0;
         _updatingSlider = false;
@@ -515,13 +506,13 @@ public sealed partial class AudioConverterTab : UserControl
         {
             _mediaPlayer.Pause();
             _positionTimer?.Stop();
-            UpdatePlayPauseIcon(isPlaying: false);
+            UpdatePlayPauseIcon(false);
         }
         else
         {
             _mediaPlayer.Play();
             _positionTimer?.Start();
-            UpdatePlayPauseIcon(isPlaying: true);
+            UpdatePlayPauseIcon(true);
         }
     }
 
@@ -531,7 +522,7 @@ public sealed partial class AudioConverterTab : UserControl
         _mediaPlayer.Pause();
         _mediaPlayer.PlaybackSession.Position = TimeSpan.Zero;
         _positionTimer?.Stop();
-        UpdatePlayPauseIcon(isPlaying: false);
+        UpdatePlayPauseIcon(false);
         _updatingSlider = true;
         PlaybackSlider.Value = 0;
         _updatingSlider = false;
@@ -543,7 +534,7 @@ public sealed partial class AudioConverterTab : UserControl
         DispatcherQueue.TryEnqueue(() =>
         {
             _positionTimer?.Stop();
-            UpdatePlayPauseIcon(isPlaying: false);
+            UpdatePlayPauseIcon(false);
             _updatingSlider = true;
             PlaybackSlider.Value = 100;
             _updatingSlider = false;
@@ -555,7 +546,7 @@ public sealed partial class AudioConverterTab : UserControl
         DispatcherQueue.TryEnqueue(() =>
         {
             _positionTimer?.Stop();
-            UpdatePlayPauseIcon(isPlaying: false);
+            UpdatePlayPauseIcon(false);
             PreviewErrorText.Text = $"Playback error: {args.ErrorMessage}";
             PreviewErrorText.Visibility = Visibility.Visible;
         });
@@ -609,8 +600,10 @@ public sealed partial class AudioConverterTab : UserControl
         PlaybackSlider.Value = 0;
     }
 
-    private static string FormatTime(TimeSpan ts) =>
-        ts.TotalMinutes >= 60
+    private static string FormatTime(TimeSpan ts)
+    {
+        return ts.TotalMinutes >= 60
             ? $"{(int)ts.TotalHours}:{ts.Minutes:D2}:{ts.Seconds:D2}"
             : $"{(int)ts.TotalMinutes}:{ts.Seconds:D2}";
+    }
 }

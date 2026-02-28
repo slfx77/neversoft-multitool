@@ -1,33 +1,31 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using Windows.Media.Core;
+using Windows.Media.Playback;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using NeversoftMultitool.Core.Formats.Video;
-using Windows.Media.Core;
-using Windows.Media.Playback;
-using Windows.Storage.Pickers;
-using WinRT.Interop;
 
 namespace NeversoftMultitool;
 
 public sealed partial class SfdConverterTab : UserControl
 {
     private readonly ObservableCollection<SfdFileEntry> _items = [];
-    private string _inputDir = "";
-    private string _outputDir = "";
-    private CancellationTokenSource? _cts;
-    private bool _ffmpegAvailable;
-
-    // Playback
-    private MediaPlayer? _mediaPlayer;
-    private DispatcherTimer? _positionTimer;
-    private CancellationTokenSource? _previewCts;
-    private bool _updatingSlider;
+    private readonly Dictionary<string, string> _previewCache = [];
 
     // Temp file cache for preview
     private readonly string _tempDir = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "VideoPreview");
-    private readonly Dictionary<string, string> _previewCache = [];
+    private CancellationTokenSource? _cts;
+    private bool _ffmpegAvailable;
+    private string _inputDir = "";
+
+    // Playback
+    private MediaPlayer? _mediaPlayer;
+    private string _outputDir = "";
+    private DispatcherTimer? _positionTimer;
+    private CancellationTokenSource? _previewCts;
+    private bool _updatingSlider;
 
     public SfdConverterTab()
     {
@@ -44,15 +42,10 @@ public sealed partial class SfdConverterTab : UserControl
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        _inputDir = folder.Path;
+        _inputDir = path;
         InputPathText.Text = _inputDir;
 
         ClearPreview();
@@ -88,15 +81,10 @@ public sealed partial class SfdConverterTab : UserControl
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        _outputDir = folder.Path;
+        _outputDir = path;
         OutputPathText.Text = _outputDir;
         UpdateUiState();
     }
@@ -306,7 +294,7 @@ public sealed partial class SfdConverterTab : UserControl
         _positionTimer.Start();
         PlayPauseButton.IsEnabled = true;
         StopButton.IsEnabled = true;
-        UpdatePlayPauseIcon(isPlaying: true);
+        UpdatePlayPauseIcon(true);
     }
 
     private void StopPlayback()
@@ -328,7 +316,7 @@ public sealed partial class SfdConverterTab : UserControl
             _mediaPlayer = null;
         }
 
-        UpdatePlayPauseIcon(isPlaying: false);
+        UpdatePlayPauseIcon(false);
         _updatingSlider = true;
         PlaybackSlider.Value = 0;
         _updatingSlider = false;
@@ -344,13 +332,13 @@ public sealed partial class SfdConverterTab : UserControl
         {
             _mediaPlayer.Pause();
             _positionTimer?.Stop();
-            UpdatePlayPauseIcon(isPlaying: false);
+            UpdatePlayPauseIcon(false);
         }
         else
         {
             _mediaPlayer.Play();
             _positionTimer?.Start();
-            UpdatePlayPauseIcon(isPlaying: true);
+            UpdatePlayPauseIcon(true);
         }
     }
 
@@ -360,7 +348,7 @@ public sealed partial class SfdConverterTab : UserControl
         _mediaPlayer.Pause();
         _mediaPlayer.PlaybackSession.Position = TimeSpan.Zero;
         _positionTimer?.Stop();
-        UpdatePlayPauseIcon(isPlaying: false);
+        UpdatePlayPauseIcon(false);
         _updatingSlider = true;
         PlaybackSlider.Value = 0;
         _updatingSlider = false;
@@ -372,7 +360,7 @@ public sealed partial class SfdConverterTab : UserControl
         DispatcherQueue.TryEnqueue(() =>
         {
             _positionTimer?.Stop();
-            UpdatePlayPauseIcon(isPlaying: false);
+            UpdatePlayPauseIcon(false);
             _updatingSlider = true;
             PlaybackSlider.Value = 100;
             _updatingSlider = false;
@@ -384,7 +372,7 @@ public sealed partial class SfdConverterTab : UserControl
         DispatcherQueue.TryEnqueue(() =>
         {
             _positionTimer?.Stop();
-            UpdatePlayPauseIcon(isPlaying: false);
+            UpdatePlayPauseIcon(false);
             PreviewErrorText.Text = $"Playback error: {args.ErrorMessage}";
             PreviewErrorText.Visibility = Visibility.Visible;
         });
@@ -439,23 +427,30 @@ public sealed partial class SfdConverterTab : UserControl
         PlaybackSlider.Value = 0;
     }
 
-    private static string FormatTime(TimeSpan ts) =>
-        ts.TotalMinutes >= 60
+    private static string FormatTime(TimeSpan ts)
+    {
+        return ts.TotalMinutes >= 60
             ? $"{(int)ts.TotalHours}:{ts.Minutes:D2}:{ts.Seconds:D2}"
             : $"{(int)ts.TotalMinutes}:{ts.Seconds:D2}";
+    }
 
-    private static string FormatFileSize(long bytes) => bytes switch
+    private static string FormatFileSize(long bytes)
     {
-        >= 1_073_741_824 => $"{bytes / 1_073_741_824.0:F1} GB",
-        >= 1_048_576 => $"{bytes / 1_048_576.0:F1} MB",
-        >= 1_024 => $"{bytes / 1_024.0:F1} KB",
-        _ => $"{bytes} B"
-    };
+        return bytes switch
+        {
+            >= 1_073_741_824 => $"{bytes / 1_073_741_824.0:F1} GB",
+            >= 1_048_576 => $"{bytes / 1_048_576.0:F1} MB",
+            >= 1_024 => $"{bytes / 1_024.0:F1} KB",
+            _ => $"{bytes} B"
+        };
+    }
 
     // ── Format dispatch ──────────────────────────────────────────────────
 
-    private static bool IsStrFormat(string path) =>
-        Path.GetExtension(path).Equals(".str", StringComparison.OrdinalIgnoreCase);
+    private static bool IsStrFormat(string path)
+    {
+        return Path.GetExtension(path).Equals(".str", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static bool IsStrVideoFile(string path)
     {
@@ -467,7 +462,10 @@ public sealed partial class SfdConverterTab : UserControl
             // Reject AFS archives (DC SPEECH.STR)
             return !(header[0] == 'A' && header[1] == 'F' && header[2] == 'S' && header[3] == 0);
         }
-        catch { return false; }
+        catch
+        {
+            return false;
+        }
     }
 
     private static (string duration, string resolution) ProbeFile(string path)

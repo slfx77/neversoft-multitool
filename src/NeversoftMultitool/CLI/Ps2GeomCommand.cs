@@ -85,12 +85,12 @@ public static class Ps2GeomCommand
 
         // Build texture lookup if requested
         Ps2SceneGltfWriter.TextureProvider? textureProvider = null;
-        Ps2SceneGltfWriter.Tex0Resolver? tex0Resolver = null;
+        Ps2GeomGltfWriter.Tex0Resolver? tex0Resolver = null;
         Dictionary<uint, Ps2Texture>? textureCache = null;
 
         if (embedTextures || texPath != null)
         {
-            textureCache = BuildTextureCache(files, texPath, verbose);
+            textureCache = Ps2TextureLoader.BuildTextureCache(files, texPath, verbose);
             if (textureCache.Count > 0)
             {
                 AnsiConsole.MarkupLine(
@@ -144,7 +144,7 @@ public static class Ps2GeomCommand
                 var provider = textureProvider;
                 if (provider == null && embedTextures)
                 {
-                    var perFileCache = TryLoadCompanionTex(file, stem);
+                    var perFileCache = Ps2TextureLoader.TryLoadCompanionTex(file, stem);
                     if (perFileCache != null && perFileCache.Count > 0)
                     {
                         provider = checksum =>
@@ -156,7 +156,7 @@ public static class Ps2GeomCommand
                     }
                 }
 
-                var tris = Ps2SceneGltfWriter.Write(scene, outputPath, provider, tex0Resolver);
+                var tris = Ps2GeomGltfWriter.Write(scene, outputPath, provider, tex0Resolver);
                 if (tris == 0)
                 {
                     skipped++;
@@ -198,91 +198,11 @@ public static class Ps2GeomCommand
         return 0;
     }
 
-    private static Dictionary<uint, Ps2Texture> BuildTextureCache(
-        List<string> geomFiles, string? texPath, bool verbose)
-    {
-        var cache = new Dictionary<uint, Ps2Texture>();
-        var parsedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        if (texPath != null)
-        {
-            foreach (var tf in GetTexFiles(texPath))
-                ParseTexIntoCache(tf, cache, parsedFiles, verbose);
-            return cache;
-        }
-
-        // Auto-detect: scan from common root of all GEOM files
-        var commonRoot = CompanionSearch.GetCommonRoot(geomFiles);
-        if (commonRoot != null)
-        {
-            var texFiles = CompanionSearch.FindAllByExtension(
-                commonRoot, [".tex.ps2", ".tex"]);
-            foreach (var tf in texFiles)
-                ParseTexIntoCache(tf, cache, parsedFiles, verbose);
-        }
-
-        return cache;
-    }
-
-    private static Dictionary<uint, Ps2Texture>? TryLoadCompanionTex(string geomFile, string stem)
-    {
-        var dir = Path.GetDirectoryName(geomFile);
-        if (dir == null) return null;
-
-        var texFile = CompanionSearch.FindCompanion(
-            dir, stem, [".tex.ps2", ".tex"], ["TEX", "Textures"]);
-        if (texFile == null) return null;
-
-        try
-        {
-            var result = Ps2TexFile.Parse(texFile);
-            if (!result.Success) return null;
-
-            var perCache = new Dictionary<uint, Ps2Texture>();
-            foreach (var tex in result.Textures)
-            {
-                if (tex.Pixels != null)
-                    perCache.TryAdd(tex.Checksum, tex);
-            }
-            return perCache;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static void ParseTexIntoCache(string texFile,
-        Dictionary<uint, Ps2Texture> cache, HashSet<string> parsedFiles, bool verbose)
-    {
-        if (!parsedFiles.Add(texFile)) return;
-
-        try
-        {
-            var result = Ps2TexFile.Parse(texFile);
-            if (!result.Success) return;
-
-            foreach (var tex in result.Textures)
-            {
-                if (tex.Pixels != null)
-                    cache.TryAdd(tex.Checksum, tex);
-            }
-        }
-        catch (Exception ex)
-        {
-            if (verbose)
-            {
-                AnsiConsole.MarkupLine(
-                    $"  TEX {Path.GetFileName(texFile)}: [yellow]{ex.Message.EscapeMarkup()}[/]");
-            }
-        }
-    }
-
     /// <summary>
-    /// Builds a VRAM (GroupChecksum,TBP,CBP)→checksum mapping from all TEX files.
-    /// Used for THPS4 GEOM texture resolution where CGeomNode.texture_checksum is 0
-    /// and texture references are encoded as TEX0_1 GS register values in the DMA chain.
-    /// Group-aware keying prevents collisions from double-buffered VRAM banks.
+    ///     Builds a VRAM (GroupChecksum,TBP,CBP)→checksum mapping from all TEX files.
+    ///     Used for THPS4 GEOM texture resolution where CGeomNode.texture_checksum is 0
+    ///     and texture references are encoded as TEX0_1 GS register values in the DMA chain.
+    ///     Group-aware keying prevents collisions from double-buffered VRAM banks.
     /// </summary>
     private static Dictionary<(uint, uint, uint), uint> BuildVramMapping(
         List<string> geomFiles, string? texPath, bool verbose)
@@ -292,7 +212,7 @@ public static class Ps2GeomCommand
 
         if (texPath != null)
         {
-            foreach (var tf in GetTexFiles(texPath))
+            foreach (var tf in Ps2TextureLoader.GetTexFiles(texPath))
                 MergeVramMapping(tf, mapping, parsedFiles, verbose);
             return mapping;
         }
@@ -331,21 +251,4 @@ public static class Ps2GeomCommand
         }
     }
 
-    private static List<string> GetTexFiles(string path)
-    {
-        if (File.Exists(path))
-            return [path];
-
-        if (!Directory.Exists(path))
-            return [];
-
-        return Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
-            .Where(f =>
-            {
-                var name = Path.GetFileName(f);
-                return name.EndsWith(".tex", StringComparison.OrdinalIgnoreCase)
-                    || name.EndsWith(".tex.ps2", StringComparison.OrdinalIgnoreCase);
-            })
-            .ToList();
-    }
 }

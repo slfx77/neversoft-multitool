@@ -1,10 +1,10 @@
 namespace NeversoftMultitool.Core.Formats.Video;
 
 /// <summary>
-/// Demuxes PS1 STR (MDEC) video files into video frames and audio sectors.
-/// STR files contain 2336-byte sectors (CD-ROM Mode 2 Form 2 without sync header).
-/// Each sector has an 8-byte XA subheader followed by 2328 bytes of payload.
-/// Video sectors (type 0x8001) carry MDEC bitstream chunks; audio sectors carry XA-ADPCM data.
+///     Demuxes PS1 STR (MDEC) video files into video frames and audio sectors.
+///     STR files contain 2336-byte sectors (CD-ROM Mode 2 Form 2 without sync header).
+///     Each sector has an 8-byte XA subheader followed by 2328 bytes of payload.
+///     Video sectors (type 0x8001) carry MDEC bitstream chunks; audio sectors carry XA-ADPCM data.
 /// </summary>
 public static class StrDemuxer
 {
@@ -13,19 +13,7 @@ public static class StrDemuxer
     private const int VideoHeaderSize = 32;
 
     /// <summary>
-    /// A single assembled video frame from the STR bitstream.
-    /// </summary>
-    public sealed class StrFrame
-    {
-        public required int FrameNumber { get; init; }
-        public required int Width { get; init; }
-        public required int Height { get; init; }
-        public required int QuantizationScale { get; init; }
-        public required byte[] Data { get; init; }
-    }
-
-    /// <summary>
-    /// Checks if a file looks like a valid PS1 STR video (not an AFS archive or other format).
+    ///     Checks if a file looks like a valid PS1 STR video (not an AFS archive or other format).
     /// </summary>
     public static bool IsStrFile(byte[] data)
     {
@@ -60,17 +48,17 @@ public static class StrDemuxer
     }
 
     /// <summary>
-    /// Enumerates complete video frames from the STR file.
-    /// Each frame is assembled from consecutive video sector chunks.
+    ///     Enumerates complete video frames from the STR file.
+    ///     Each frame is assembled from consecutive video sector chunks.
     /// </summary>
     public static IEnumerable<StrFrame> EnumerateFrames(byte[] data)
     {
         var sectorCount = data.Length / SectorSize;
 
         // Current frame being assembled
-        int currentFrameNum = -1;
+        var currentFrameNum = -1;
         int frameWidth = 0, frameHeight = 0, frameQscale = 0;
-        int expectedChunks = 0;
+        var expectedChunks = 0;
         var frameChunks = new SortedDictionary<int, byte[]>();
 
         for (var s = 0; s < sectorCount; s++)
@@ -173,8 +161,8 @@ public static class StrDemuxer
     }
 
     /// <summary>
-    /// Extracts audio sectors as concatenated 2336-byte sectors, ready to be written
-    /// as a .xa file for XaDecoder.
+    ///     Extracts audio sectors as concatenated 2336-byte sectors, ready to be written
+    ///     as a .xa file for XaDecoder.
     /// </summary>
     public static byte[] ExtractAudioSectors(byte[] data)
     {
@@ -206,7 +194,7 @@ public static class StrDemuxer
     }
 
     /// <summary>
-    /// Quick scan: counts total video frames without fully assembling them.
+    ///     Quick scan: counts total video frames without fully assembling them.
     /// </summary>
     public static int CountFrames(byte[] data)
     {
@@ -234,7 +222,7 @@ public static class StrDemuxer
     }
 
     /// <summary>
-    /// Checks if the STR file contains audio sectors.
+    ///     Checks if the STR file contains audio sectors.
     /// </summary>
     public static bool HasAudio(byte[] data)
     {
@@ -247,5 +235,17 @@ public static class StrDemuxer
         }
 
         return false;
+    }
+
+    /// <summary>
+    ///     A single assembled video frame from the STR bitstream.
+    /// </summary>
+    public sealed class StrFrame
+    {
+        public required int FrameNumber { get; init; }
+        public required int Width { get; init; }
+        public required int Height { get; init; }
+        public required int QuantizationScale { get; init; }
+        public required byte[] Data { get; init; }
     }
 }

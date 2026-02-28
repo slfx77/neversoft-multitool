@@ -4,8 +4,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Psx;
-using Windows.Storage.Pickers;
-using WinRT.Interop;
 
 namespace NeversoftMultitool;
 
@@ -13,12 +11,12 @@ public sealed partial class PsxTextureTab : UserControl
 {
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<PsxFileEntry> _parentFiles = [];
+    private CancellationTokenSource? _cts;
     private string _inputDir = "";
     private string _outputDir = "";
-    private CancellationTokenSource? _cts;
     private CancellationTokenSource? _previewCts;
-    private string _sortColumn = "";
     private bool _sortAscending = true;
+    private string _sortColumn = "";
 
     public PsxTextureTab()
     {
@@ -28,22 +26,17 @@ public sealed partial class PsxTextureTab : UserControl
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        _inputDir = folder.Path;
+        _inputDir = path;
         InputPathText.Text = _inputDir;
 
         _items.Clear();
         _parentFiles.Clear();
         var textureFiles = Directory.GetFiles(_inputDir)
             .Where(f => Path.GetExtension(f).Equals(".psx", StringComparison.OrdinalIgnoreCase)
-                    || IsPs2TextureFile(f))
+                        || IsPs2TextureFile(f))
             .Select(Path.GetFileName)
             .Where(f => f != null)
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
@@ -97,15 +90,10 @@ public sealed partial class PsxTextureTab : UserControl
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        _outputDir = folder.Path;
+        _outputDir = path;
         OutputPathText.Text = _outputDir;
         UpdateUiState();
     }
@@ -245,7 +233,8 @@ public sealed partial class PsxTextureTab : UserControl
                             var stem = Path.GetFileNameWithoutExtension(entry.FileName);
                             var outDir = createSubDirs ? outputDir : Path.Combine(outputDir, stem);
                             totalTex = ps2Result.Textures.Count;
-                            writtenTex = Ps2TexFile.SaveAllAsPng(ps2Result, createSubDirs ? outputDir : Path.GetDirectoryName(outputDir)!, stem);
+                            writtenTex = Ps2TexFile.SaveAllAsPng(ps2Result,
+                                createSubDirs ? outputDir : Path.GetDirectoryName(outputDir)!, stem);
                             skipped = false;
                             success = true;
                         }
@@ -259,7 +248,8 @@ public sealed partial class PsxTextureTab : UserControl
                     }
                     else
                     {
-                        var result = PsxLibrary.ExtractTextures(inputFile, outputDir, createSubDirs, writeDds, writeMipAtlas);
+                        var result = PsxLibrary.ExtractTextures(inputFile, outputDir, createSubDirs, writeDds,
+                            writeMipAtlas);
                         totalTex = result.TotalTextures;
                         writtenTex = result.TexturesWritten;
                         skipped = result.Skipped;
@@ -270,9 +260,12 @@ public sealed partial class PsxTextureTab : UserControl
                     {
                         entry.TextureCount = totalTex;
                         entry.ExtractedCount = writtenTex;
-                        entry.Status = skipped ? ExtractionStatus.Skipped
-                            : success ? ExtractionStatus.Done
-                            : ExtractionStatus.Error;
+                        entry.Status = (skipped, success) switch
+                        {
+                            (true, _) => ExtractionStatus.Skipped,
+                            (_, true) => ExtractionStatus.Done,
+                            _ => ExtractionStatus.Error
+                        };
 
                         filesProcessed++;
                         ExtractionProgress.Value = (double)filesProcessed / totalFiles * 100;
@@ -302,17 +295,25 @@ public sealed partial class PsxTextureTab : UserControl
         MainWindow.Instance?.SetStatus("Extraction cancelled");
     }
 
-    private void SortByFileName_Click(object sender, RoutedEventArgs e) =>
+    private void SortByFileName_Click(object sender, RoutedEventArgs e)
+    {
         SortFiles("FileName", f => f.FileName);
+    }
 
-    private void SortByTextures_Click(object sender, RoutedEventArgs e) =>
+    private void SortByTextures_Click(object sender, RoutedEventArgs e)
+    {
         SortFiles("Textures", f => f.TextureCount);
+    }
 
-    private void SortByExtracted_Click(object sender, RoutedEventArgs e) =>
+    private void SortByExtracted_Click(object sender, RoutedEventArgs e)
+    {
         SortFiles("Extracted", f => f.ExtractedCount);
+    }
 
-    private void SortByStatus_Click(object sender, RoutedEventArgs e) =>
+    private void SortByStatus_Click(object sender, RoutedEventArgs e)
+    {
         SortFiles("Status", f => (int)f.Status);
+    }
 
     private void SortFiles<T>(string column, Func<PsxFileEntry, T> keySelector)
     {
@@ -435,8 +436,8 @@ public sealed partial class PsxTextureTab : UserControl
     private static bool IsPs2TextureFile(string fileName)
     {
         return fileName.EndsWith(".tex", StringComparison.OrdinalIgnoreCase)
-            || fileName.EndsWith(".img", StringComparison.OrdinalIgnoreCase)
-            || fileName.EndsWith(".tex.ps2", StringComparison.OrdinalIgnoreCase)
-            || fileName.EndsWith(".img.ps2", StringComparison.OrdinalIgnoreCase);
+               || fileName.EndsWith(".img", StringComparison.OrdinalIgnoreCase)
+               || fileName.EndsWith(".tex.ps2", StringComparison.OrdinalIgnoreCase)
+               || fileName.EndsWith(".img.ps2", StringComparison.OrdinalIgnoreCase);
     }
 }

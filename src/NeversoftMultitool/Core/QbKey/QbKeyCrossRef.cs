@@ -5,244 +5,11 @@ using NeversoftMultitool.Core.Formats.Psx;
 namespace NeversoftMultitool.Core;
 
 /// <summary>
-/// Source type for a discovered name-to-hash mapping.
-/// </summary>
-public enum QbKeyMappingSource
-{
-    ObjectName,
-    TextureName,
-    MaterialName,
-    DetailTextureName,
-    CubemapName,
-    ArchiveFilename,
-    PshPartName,
-}
-
-/// <summary>
-/// A single discovered name-to-hash mapping from DDM/PSX cross-reference.
-/// </summary>
-public sealed class QbKeyMapping
-{
-    public required string Name { get; init; }
-    public required uint Hash { get; init; }
-    public required string SourceFile { get; init; }
-    public required QbKeyMappingSource Source { get; init; }
-}
-
-/// <summary>
-/// Result of cross-referencing one DDM/PSX file pair.
-/// </summary>
-public sealed class CrossRefFileResult
-{
-    public required string DdmFile { get; init; }
-    public required string PsxFile { get; init; }
-    public required List<QbKeyMapping> Matches { get; init; }
-    public required List<string> UnmatchedDdmNames { get; init; }
-    public required List<uint> UnmatchedPsxHashes { get; init; }
-    public int DdmNameCount { get; init; }
-    public int PsxHashCount { get; init; }
-    public int MeshHashCount { get; init; }
-    public int TextureHashCount { get; init; }
-    public int MeshMatches { get; init; }
-    public int TextureMatches { get; init; }
-}
-
-/// <summary>
-/// Aggregate result of a cross-reference run across all file pairs.
-/// </summary>
-public sealed class CrossRefResult
-{
-    public required List<CrossRefFileResult> FileResults { get; init; }
-    public required Dictionary<string, uint> AllDiscoveredMappings { get; init; }
-    public int TotalDdmFiles { get; init; }
-    public int TotalPsxFiles { get; init; }
-    public int MatchedFilePairs { get; init; }
-    public int TotalDdmNames { get; init; }
-    public int TotalPsxHashes { get; init; }
-    public int TotalMatches { get; init; }
-    public int NewDiscoveries { get; init; }
-    public int TotalMeshHashes { get; init; }
-    public int TotalTextureHashes { get; init; }
-    public int TotalMeshMatches { get; init; }
-    public int TotalTextureMatches { get; init; }
-}
-
-/// <summary>
-/// Result of scanning archive filenames against PSX texture hashes.
-/// </summary>
-public sealed class ArchiveScanResult
-{
-    public required List<QbKeyMapping> TextureMatches { get; init; }
-    public required List<QbKeyMapping> MeshMatches { get; init; }
-    public int TotalCandidateNames { get; init; }
-    public int TotalTextureHashes { get; init; }
-    public int TotalMeshHashes { get; init; }
-    public int NewDiscoveries { get; init; }
-    public int ArchivesScanned { get; init; }
-    public int ArchiveErrors { get; init; }
-
-    public List<QbKeyMapping> AllMatches
-    {
-        get
-        {
-            var all = new List<QbKeyMapping>(TextureMatches);
-            all.AddRange(MeshMatches);
-            return all;
-        }
-    }
-}
-
-/// <summary>
-/// Result of scanning .psh header files for mesh part names.
-/// </summary>
-public sealed class PshScanResult
-{
-    public required List<QbKeyMapping> Matches { get; init; }
-    public int TotalPshFiles { get; init; }
-    public int TotalCandidateNames { get; init; }
-    public int TotalMeshHashes { get; init; }
-    public int NewDiscoveries { get; init; }
-}
-
-/// <summary>
-/// Cross-references DDM plaintext names against PSX QBKey hashes
-/// to discover name-to-hash mappings.
+///     Cross-references DDM plaintext names against PSX QBKey hashes
+///     to discover name-to-hash mappings.
 /// </summary>
 public static class QbKeyCrossRef
 {
-    private sealed record PshEntry(string DefineName, string? ParentName);
-
-    /// <summary>
-    /// Scans .psh header files under a builds directory for mesh part names,
-    /// then matches them against PSX mesh hashes.
-    /// </summary>
-    public static PshScanResult ScanPshNames(string buildsPath, string psxDir)
-    {
-        var meshHashes = CollectAllPsxHashes(psxDir).MeshHashes;
-        return ScanPshNames(buildsPath, meshHashes);
-    }
-
-    /// <summary>
-    /// Scans .psh header files under a builds directory for mesh part names,
-    /// then matches them against the provided mesh hash pool.
-    /// </summary>
-    public static PshScanResult ScanPshNames(string buildsPath, HashSet<uint> meshHashes)
-    {
-        var pshFiles = Directory.GetFiles(buildsPath, "*.psh",
-            new EnumerationOptions
-            {
-                MatchCasing = MatchCasing.CaseInsensitive,
-                RecurseSubdirectories = true,
-            });
-
-        // Collect all candidate names across all .psh files
-        var candidates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var pshFile in pshFiles)
-        {
-            var entries = ParsePshFile(pshFile);
-            foreach (var entry in entries)
-                AddPshCandidates(candidates, entry);
-        }
-
-        // Match candidates against mesh hash pool
-        var matches = new List<QbKeyMapping>();
-        foreach (var (_, name) in candidates)
-        {
-            var hash = QbKey.Hash(name);
-            if (meshHashes.Contains(hash))
-            {
-                matches.Add(new QbKeyMapping
-                {
-                    Name = name,
-                    Hash = hash,
-                    SourceFile = "psh-scan",
-                    Source = QbKeyMappingSource.PshPartName,
-                });
-            }
-        }
-
-        var newDiscoveries = matches.Count(m => QbKey.TryResolve(m.Hash) == null);
-
-        return new PshScanResult
-        {
-            Matches = matches,
-            TotalPshFiles = pshFiles.Length,
-            TotalCandidateNames = candidates.Count,
-            TotalMeshHashes = meshHashes.Count,
-            NewDiscoveries = newDiscoveries,
-        };
-    }
-
-    private static List<PshEntry> ParsePshFile(string path)
-    {
-        var entries = new List<PshEntry>();
-        var lines = File.ReadAllLines(path);
-
-        for (var i = 0; i < lines.Length; i++)
-        {
-            var line = lines[i].TrimStart();
-
-            if (!line.StartsWith("#define ", StringComparison.Ordinal))
-                continue;
-
-            // Extract part name after PART_ prefix
-            var partIdx = line.IndexOf("PART_", StringComparison.Ordinal);
-            if (partIdx < 0) continue;
-            var afterPart = line[(partIdx + 5)..];
-            var endIdx = afterPart.IndexOfAny([' ', '\t']);
-            var defineName = endIdx > 0 ? afterPart[..endIdx] : afterPart;
-
-            var parentName = i + 1 < lines.Length
-                ? TryExtractParentName(lines[i + 1])
-                : null;
-
-            entries.Add(new PshEntry(defineName, parentName));
-        }
-
-        return entries;
-    }
-
-    private static string? TryExtractParentName(string line)
-    {
-        const string prefix = "//   parent: ";
-        var trimmed = line.TrimStart();
-        if (!trimmed.StartsWith(prefix, StringComparison.Ordinal))
-            return null;
-
-        var candidate = trimmed[prefix.Length..].Trim();
-        return candidate.Equals("Scene Root", StringComparison.OrdinalIgnoreCase)
-            ? null
-            : candidate;
-    }
-
-    /// <summary>
-    /// Adds candidate names from a PshEntry to the dictionary.
-    /// Parent names take priority for case recovery.
-    /// </summary>
-    private static void AddPshCandidates(Dictionary<string, string> candidates, PshEntry entry)
-    {
-        // Parent name is the authoritative case source
-        if (entry.ParentName != null)
-        {
-            // Parent name always wins for case
-            candidates[entry.ParentName.ToLowerInvariant()] = entry.ParentName;
-        }
-
-        var lowerDefine = entry.DefineName.ToLowerInvariant();
-
-        // Only add define-derived names if no parent name already covers this key
-        if (!candidates.ContainsKey(lowerDefine))
-        {
-            // Try lowercased form (THPS convention: hawk_pelvis)
-            candidates[lowerDefine] = lowerDefine;
-        }
-
-        // Also try the uppercase form as a separate candidate
-        // (in case some PSX files hash uppercase names)
-        if (!candidates.ContainsKey(entry.DefineName))
-            candidates.TryAdd(entry.DefineName, entry.DefineName);
-    }
-
     public static CrossRefResult Run(string ddmDir, string psxDir)
     {
         var ddmFiles = Directory.GetFiles(ddmDir, "*.ddm",
@@ -305,13 +72,13 @@ public static class QbKeyCrossRef
             TotalMeshHashes = totalMeshHashes,
             TotalTextureHashes = totalTextureHashes,
             TotalMeshMatches = totalMeshMatches,
-            TotalTextureMatches = totalTextureMatches,
+            TotalTextureMatches = totalTextureMatches
         };
     }
 
     /// <summary>
-    /// Scans archive-sourced candidate names against PSX hashes.
-    /// Focuses on texture hash matching (the 0% coverage gap).
+    ///     Scans archive-sourced candidate names against PSX hashes.
+    ///     Focuses on texture hash matching (the 0% coverage gap).
     /// </summary>
     public static ArchiveScanResult ScanArchiveNames(string buildsPath, string psxDir)
     {
@@ -334,7 +101,7 @@ public static class QbKeyCrossRef
             TotalMeshHashes = meshHashes.Count,
             NewDiscoveries = newDiscoveries,
             ArchivesScanned = archivesScanned,
-            ArchiveErrors = errors,
+            ArchiveErrors = errors
         };
     }
 
@@ -352,16 +119,17 @@ public static class QbKeyCrossRef
                     Name = name,
                     Hash = hash,
                     SourceFile = "archive-scan",
-                    Source = QbKeyMappingSource.ArchiveFilename,
+                    Source = QbKeyMappingSource.ArchiveFilename
                 });
             }
         }
+
         return matches;
     }
 
     /// <summary>
-    /// Collects plaintext filenames from all supported archive formats under a builds directory.
-    /// Returns filenames and stems as candidate names for QBKey matching.
+    ///     Collects plaintext filenames from all supported archive formats under a builds directory.
+    ///     Returns filenames and stems as candidate names for QBKey matching.
     /// </summary>
     public static HashSet<string> CollectNamesFromArchives(string buildsPath,
         out int archivesScanned, out int errors)
@@ -373,7 +141,7 @@ public static class QbKeyCrossRef
         var searchOptions = new EnumerationOptions
         {
             MatchCasing = MatchCasing.CaseInsensitive,
-            RecurseSubdirectories = true,
+            RecurseSubdirectories = true
         };
 
         ScanArchiveType(buildsPath, "*.WAD", searchOptions, WadArchive.GetFileList,
@@ -403,13 +171,16 @@ public static class QbKeyCrossRef
                     AddCandidateNames(candidates, entry.Name);
                 archivesScanned++;
             }
-            catch { errors++; }
+            catch
+            {
+                errors++;
+            }
         }
     }
 
     /// <summary>
-    /// Collects all unique mesh and texture name hashes from PSX files in a directory.
-    /// Searches recursively to support builds directory structures.
+    ///     Collects all unique mesh and texture name hashes from PSX files in a directory.
+    ///     Searches recursively to support builds directory structures.
     /// </summary>
     public static (HashSet<uint> TextureHashes, HashSet<uint> MeshHashes) CollectAllPsxHashes(string psxDir)
     {
@@ -417,21 +188,24 @@ public static class QbKeyCrossRef
         var meshHashes = new HashSet<uint>();
 
         foreach (var psxFile in Directory.EnumerateFiles(psxDir, "*.psx",
-            new EnumerationOptions
-            {
-                MatchCasing = MatchCasing.CaseInsensitive,
-                RecurseSubdirectories = true,
-            }))
+                     new EnumerationOptions
+                     {
+                         MatchCasing = MatchCasing.CaseInsensitive,
+                         RecurseSubdirectories = true
+                     }))
         {
             try
             {
-                var hashes = PsxLibrary.EnumerateAllHashes(psxFile);
+                var hashes = PsxHashEnumerator.EnumerateAllHashes(psxFile);
                 if (hashes == null) continue;
 
                 textureHashes.UnionWith(hashes.TextureNameHashes);
                 meshHashes.UnionWith(hashes.MeshNameHashes);
             }
-            catch { /* Skip unreadable files */ }
+            catch
+            {
+                /* Skip unreadable files */
+            }
         }
 
         return (textureHashes, meshHashes);
@@ -459,7 +233,7 @@ public static class QbKeyCrossRef
     private static CrossRefFileResult CrossReferenceFilePair(string ddmPath, string psxPath)
     {
         var ddm = DdmFile.Parse(ddmPath);
-        var psxHashes = PsxLibrary.EnumerateAllHashes(psxPath);
+        var psxHashes = PsxHashEnumerator.EnumerateAllHashes(psxPath);
 
         // Collect all unique plaintext names from DDM with their source types
         var nameToSource = new Dictionary<string, QbKeyMappingSource>(StringComparer.Ordinal);
@@ -488,6 +262,7 @@ public static class QbKeyCrossRef
             foreach (var h in psxHashes.TextureNameHashes)
                 textureHashes.Add(h);
         }
+
         var allPsxHashes = new HashSet<uint>(meshHashes);
         allPsxHashes.UnionWith(textureHashes);
 
@@ -528,7 +303,7 @@ public static class QbKeyCrossRef
                     Name = name,
                     Hash = hash,
                     SourceFile = ddmFile,
-                    Source = source,
+                    Source = source
                 });
                 matchedPsxHashes.Add(hash);
 
@@ -558,7 +333,7 @@ public static class QbKeyCrossRef
             MeshHashCount = meshHashes.Count,
             TextureHashCount = textureHashes.Count,
             MeshMatches = matchedMeshCount,
-            TextureMatches = matchedTextureCount,
+            TextureMatches = matchedTextureCount
         };
     }
 }

@@ -3,9 +3,9 @@ using System.Numerics;
 namespace NeversoftMultitool.Core.Formats.Psx;
 
 /// <summary>
-/// Parsed PSX model file containing mesh geometry, objects, and texture references.
-/// Supports versions 0x03 (Apocalypse/THPS1, uint32 fields), 0x04 (Spider-Man PS1/THPS2 PS1),
-/// and 0x06 (DC/PC/Xbox, layout stubs). v4 and v6 use uint16 fields.
+///     Parsed PSX model file containing mesh geometry, objects, and texture references.
+///     Supports versions 0x03 (Apocalypse/THPS1, uint32 fields), 0x04 (Spider-Man PS1/THPS2 PS1),
+///     and 0x06 (DC/PC/Xbox, layout stubs). v4 and v6 use uint16 fields.
 /// </summary>
 public sealed class PsxMeshFile
 {
@@ -20,8 +20,8 @@ public sealed class PsxMeshFile
     public float TranslationDivisor { get; init; }
 
     /// <summary>
-    /// Parses a PSX file for mesh geometry.
-    /// Returns null if the file has no mesh data (texture-only library).
+    ///     Parses a PSX file for mesh geometry.
+    ///     Returns null if the file has no mesh data (texture-only library).
     /// </summary>
     public static PsxMeshFile? Parse(string filePath)
     {
@@ -31,8 +31,8 @@ public sealed class PsxMeshFile
     }
 
     /// <summary>
-    /// Parses a PSX file for mesh geometry from an existing reader.
-    /// Returns null if the file has no mesh data or is invalid.
+    ///     Parses a PSX file for mesh geometry from an existing reader.
+    ///     Returns null if the file has no mesh data or is invalid.
     /// </summary>
     public static PsxMeshFile? Parse(BinaryReader reader)
     {
@@ -40,10 +40,12 @@ public sealed class PsxMeshFile
         if (header == null)
             return null;
 
-        // Build mesh→first-object mapping for stitch vertex coordinate transforms.
-        // Each type-2 (stitched) vertex references a type-1 vertex in a DIFFERENT mesh;
+#pragma warning disable S125 // Sections of code should not be commented out (false positive: design comment)
+        // Build mesh-to-first-object mapping for stitch vertex coordinate transforms.
+        // Each type-2 (stitched) vertex references a type-1 vertex in a different mesh;
         // we need to convert from the source mesh's local space to the target mesh's local
         // space by accounting for their object position offsets.
+#pragma warning restore S125
         var meshToObjIdx = new int[header.MeshTopPointers.Length];
         Array.Fill(meshToObjIdx, -1);
         for (var oi = 0; oi < header.Objects.Count; oi++)
@@ -61,7 +63,7 @@ public sealed class PsxMeshFile
             header.Objects, meshToObjIdx, header.TranslationDivisor);
 
         // Second pass: read meshes with type-2 vertex resolution
-        var meshes = new List<PsxMesh>((int)header.MeshTopPointers.Length);
+        var meshes = new List<PsxMesh>(header.MeshTopPointers.Length);
         for (var i = 0; i < header.MeshTopPointers.Length; i++)
         {
             // Compute this mesh's object offset for converting type-2 world positions to local
@@ -90,15 +92,15 @@ public sealed class PsxMeshFile
             GouraudPalette = header.GouraudPalette,
             HasHierarchy = header.HasHierarchy,
             ScaleDivisor = header.ScaleDivisor,
-            TranslationDivisor = header.TranslationDivisor,
+            TranslationDivisor = header.TranslationDivisor
         };
     }
 
     /// <summary>
-    /// Parses only the header data (objects, mesh name hashes, texture hashes) without
-    /// reading mesh geometry. Use this when you need object positions and name hashes
-    /// but don't need vertex/face data (e.g. DDM world placement).
-    /// Returns null if the file is invalid or has no objects/meshes.
+    ///     Parses only the header data (objects, mesh name hashes, texture hashes) without
+    ///     reading mesh geometry. Use this when you need object positions and name hashes
+    ///     but don't need vertex/face data (e.g. DDM world placement).
+    ///     Returns null if the file is invalid or has no objects/meshes.
     /// </summary>
     public static PsxMeshFile? ParseHeaderOnly(string filePath)
     {
@@ -119,26 +121,13 @@ public sealed class PsxMeshFile
             GouraudPalette = header.GouraudPalette,
             HasHierarchy = header.HasHierarchy,
             ScaleDivisor = header.ScaleDivisor,
-            TranslationDivisor = header.TranslationDivisor,
+            TranslationDivisor = header.TranslationDivisor
         };
     }
 
-    private sealed class PsxHeader
-    {
-        public required ushort Version { get; init; }
-        public required List<PsxMeshObject> Objects { get; init; }
-        public required uint[] MeshTopPointers { get; init; }
-        public required uint[] MeshNameHashes { get; init; }
-        public required uint[] TextureHashes { get; init; }
-        public Vector4[]? GouraudPalette { get; init; }
-        public bool HasHierarchy { get; init; }
-        public float ScaleDivisor { get; init; }
-        public float TranslationDivisor { get; init; }
-    }
-
     /// <summary>
-    /// Reads the PSX file header: objects, mesh pointers, tagged chunks, name hashes,
-    /// and texture hashes. Does NOT read mesh geometry data.
+    ///     Reads the PSX file header: objects, mesh pointers, tagged chunks, name hashes,
+    ///     and texture hashes. Does NOT read mesh geometry data.
     /// </summary>
     private static PsxHeader? ParseHeader(BinaryReader reader)
     {
@@ -205,7 +194,7 @@ public sealed class PsxMeshFile
         {
             for (var i = 0; i < Math.Min(hierarchyParents.Length, objects.Count); i++)
             {
-                objects[i].ParentIndex = hierarchyParents[i] != i ? (int)hierarchyParents[i] : -1;
+                objects[i].ParentIndex = hierarchyParents[i] != i ? hierarchyParents[i] : -1;
             }
         }
 
@@ -219,7 +208,7 @@ public sealed class PsxMeshFile
             GouraudPalette = gouraudPalette,
             HasHierarchy = hasHierarchy,
             ScaleDivisor = scaleDivisor,
-            TranslationDivisor = baseScale,
+            TranslationDivisor = baseScale
         };
     }
 
@@ -243,7 +232,7 @@ public sealed class PsxMeshFile
             RawX = rawX,
             RawY = rawY,
             RawZ = rawZ,
-            MeshIndex = meshIndex,
+            MeshIndex = meshIndex
         };
     }
 
@@ -251,8 +240,8 @@ public sealed class PsxMeshFile
         out bool hasHierarchy, out Vector4[]? gouraudPalette)
     {
         const uint TagStop = 0xFFFFFFFF;
-        const uint TagHIER = (uint)'H' | ((uint)'I' << 8) | ((uint)'E' << 16) | ((uint)'R' << 24);
-        const uint TagRGBs = (uint)'R' | ((uint)'G' << 8) | ((uint)'B' << 16) | ((uint)'s' << 24);
+        const uint TagHIER = 'H' | ((uint)'I' << 8) | ((uint)'E' << 16) | ((uint)'R' << 24);
+        const uint TagRGBs = 'R' | ((uint)'G' << 8) | ((uint)'B' << 16) | ((uint)'s' << 24);
 
         hasHierarchy = false;
         gouraudPalette = null;
@@ -314,15 +303,15 @@ public sealed class PsxMeshFile
     }
 
     /// <summary>
-    /// First pass: scans all meshes to collect type-1 (attachable) vertices.
-    /// These are joint anchor vertices at body part boundaries. Each type-1 vertex
-    /// gets a file-wide sequential index used by type-2 vertices for stitching.
-    /// For hierarchical models (characters), positions are stored in WORLD space
-    /// (local + object offset) so type-2 vertices in other meshes can be correctly
-    /// placed regardless of their different object offsets.
-    /// Confirmed by Ghidra decompilation: M3dInit_ParsePSX iterates meshes in order,
-    /// incrementing a global counter for type-1 vertices. The stitch buffer is
-    /// populated at render time by M3dAsm_TransformAndOutcodeSuperVertices.
+    ///     First pass: scans all meshes to collect type-1 (attachable) vertices.
+    ///     These are joint anchor vertices at body part boundaries. Each type-1 vertex
+    ///     gets a file-wide sequential index used by type-2 vertices for stitching.
+    ///     For hierarchical models (characters), positions are stored in WORLD space
+    ///     (local + object offset) so type-2 vertices in other meshes can be correctly
+    ///     placed regardless of their different object offsets.
+    ///     Confirmed by Ghidra decompilation: M3dInit_ParsePSX iterates meshes in order,
+    ///     incrementing a global counter for type-1 vertices. The stitch buffer is
+    ///     populated at render time by M3dAsm_TransformAndOutcodeSuperVertices.
     /// </summary>
     private static Dictionary<uint, Vector3> CollectAttachableVertices(
         BinaryReader reader, uint[] meshTopPointers, ushort version, float scaleDivisor,
@@ -350,7 +339,7 @@ public sealed class PsxMeshFile
             // Read mesh header (same structure as ReadMesh)
             // v3 uses uint32 header fields; v4/v6 use uint16.
             _ = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16(); // meshFlags
-            var vertexCount = version == 0x03 ? reader.ReadUInt32() : (uint)reader.ReadUInt16();
+            var vertexCount = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
             _ = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16(); // normalCount
             _ = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16(); // faceCount
 
@@ -407,9 +396,9 @@ public sealed class PsxMeshFile
         // v3 uses uint32 header fields; v4/v6 use uint16.
         // meshFlags is read but not used (contains LOD/rendering hints)
         _ = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
-        var vertexCount = version == 0x03 ? reader.ReadUInt32() : (uint)reader.ReadUInt16();
-        var normalCount = version == 0x03 ? reader.ReadUInt32() : (uint)reader.ReadUInt16();
-        var faceCount = version == 0x03 ? reader.ReadUInt32() : (uint)reader.ReadUInt16();
+        var vertexCount = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
+        var normalCount = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
+        var faceCount = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
 
         // Radius (uint32) + bounding box (6 x int16) = 16 bytes
         reader.ReadUInt32(); // radius
@@ -417,8 +406,8 @@ public sealed class PsxMeshFile
 
         // v4/v6 always have LOD fields. v3 varies: THPS1 Proto (1999) has them,
         // Apocalypse (1998) does not. Probe by checking vertex type validity.
-        short lodDepth = short.MaxValue;
-        ushort lodNextMeshIndex = ushort.MaxValue;
+        var lodDepth = short.MaxValue;
+        var lodNextMeshIndex = ushort.MaxValue;
         if (version != 0x03 || ProbeV3HasLod(reader))
         {
             lodDepth = reader.ReadInt16();
@@ -450,13 +439,17 @@ public sealed class PsxMeshFile
                 if (attachableVertices.TryGetValue(attachIdx, out var worldPos))
                 {
                     var localPos = worldPos - objectOffset;
-                    vx = localPos.X; vy = localPos.Y; vz = localPos.Z;
+                    vx = localPos.X;
+                    vy = localPos.Y;
+                    vz = localPos.Z;
                 }
                 else
                 {
                     // Unresolved — game would read uninitialized stitch buffer.
                     // Place at object origin rather than treating the index as a coordinate.
-                    vx = 0; vy = 0; vz = 0;
+                    vx = 0;
+                    vy = 0;
+                    vz = 0;
                     stitchFailures++;
                 }
             }
@@ -465,13 +458,15 @@ public sealed class PsxMeshFile
                 // Normal, stitch source (bit 0), and sprite (bit 4) vertices all use real coordinates.
                 // M3dInit_ParsePSX only flags sprite meshes (0x100); sprite vertices go through
                 // normal GTE transforms — their positions are not zeroed.
-                vx = x / scaleDivisor; vy = y / scaleDivisor; vz = z / scaleDivisor;
+                vx = x / scaleDivisor;
+                vy = y / scaleDivisor;
+                vz = z / scaleDivisor;
             }
 
             vertices.Add(new PsxVertex
             {
                 X = vx, Y = vy, Z = vz,
-                Type = type, RawX = x, RawY = y, RawZ = z,
+                Type = type, RawX = x, RawY = y, RawZ = z
             });
         }
 
@@ -487,7 +482,7 @@ public sealed class PsxMeshFile
             {
                 X = x / 4096f,
                 Y = y / 4096f,
-                Z = z / 4096f,
+                Z = z / 4096f
             });
         }
 
@@ -509,14 +504,14 @@ public sealed class PsxMeshFile
             LodNextMeshIndex = lodNextMeshIndex,
             HasPerVertexNormals = normalCount == vertexCount + faceCount,
             VertexCount = vertexCount,
-            StitchFailureCount = stitchFailures,
+            StitchFailureCount = stitchFailures
         };
     }
 
     /// <summary>
-    /// Probes whether a v3 mesh header has a 4-byte LOD field between the bounding box and
-    /// vertex data. THPS1 Proto (1999) v3 files have it (sentinel 0x7FFF/0xFFFF);
-    /// Apocalypse (1998) v3 files do not. Peeks ahead without advancing the stream.
+    ///     Probes whether a v3 mesh header has a 4-byte LOD field between the bounding box and
+    ///     vertex data. THPS1 Proto (1999) v3 files have it (sentinel 0x7FFF/0xFFFF);
+    ///     Apocalypse (1998) v3 files do not. Peeks ahead without advancing the stream.
     /// </summary>
     private static bool ProbeV3HasLod(BinaryReader reader)
     {
@@ -537,7 +532,7 @@ public sealed class PsxMeshFile
         var validB = (typeB & ~0x13) == 0;
 
         if (validA && !validB) return false; // No LOD — vertices start here
-        if (!validA && validB) return true;  // Has LOD — 4 bytes to skip
+        if (!validA && validB) return true; // Has LOD — 4 bytes to skip
 
         // Ambiguous (both valid or both invalid): check for LOD sentinel 0x7FFF
         var peekValue = reader.ReadInt16();
@@ -679,113 +674,20 @@ public sealed class PsxMeshFile
             U0 = u0, V0 = v0,
             U1 = u1, V1 = v1,
             U2 = u2, V2 = v2,
-            U3 = u3, V3 = v3,
+            U3 = u3, V3 = v3
         };
     }
-}
 
-/// <summary>
-/// A PSX object entry (36 bytes). Contains world-space position and mesh index.
-/// </summary>
-public sealed class PsxMeshObject
-{
-    public uint Flags { get; init; }
-    public int RawX { get; init; }
-    public int RawY { get; init; }
-    public int RawZ { get; init; }
-    public ushort MeshIndex { get; init; }
-    public int ParentIndex { get; set; } = -1;
-
-    /// <summary>
-    /// Item flag bit 1 (0x02) = character ("Super"). The game uses this to select
-    /// M3dAsm_TransformAndOutcodeSuperVertices (which divides vertices by 16)
-    /// vs M3dAsm_TransformAndOutcodeItemVertices (no division).
-    /// </summary>
-    public bool IsCharacter => (Flags & 0x02) != 0;
-
-    public float X(float translationDivisor) => RawX / (4096f * translationDivisor);
-    public float Y(float translationDivisor) => RawY / (4096f * translationDivisor);
-    public float Z(float translationDivisor) => RawZ / (4096f * translationDivisor);
-}
-
-/// <summary>
-/// A parsed mesh within a PSX file. Contains vertices, normals, and faces.
-/// </summary>
-public sealed class PsxMesh
-{
-    public required List<PsxVertex> Vertices { get; init; }
-    public required List<PsxNormal> Normals { get; init; }
-    public required List<PsxFace> Faces { get; init; }
-    public short LodDepth { get; init; }
-    public ushort LodNextMeshIndex { get; init; }
-
-    /// <summary>
-    /// True when normalCount == vertexCount + faceCount, meaning the first VertexCount
-    /// normals are per-vertex (for smooth shading) and the rest are per-face.
-    /// Confirmed by M3dInit_ParsePSX decompilation (stitch flag propagation to per-vertex normals).
-    /// </summary>
-    public bool HasPerVertexNormals { get; init; }
-
-    /// <summary>Number of vertices in this mesh (needed to index per-vertex normals).</summary>
-    public uint VertexCount { get; init; }
-
-    /// <summary>
-    /// Number of type-2 (stitched) vertices whose attachment index could not be resolved.
-    /// Non-zero indicates stitch source ordering mismatch. These vertices are placed at (0,0,0).
-    /// </summary>
-    public int StitchFailureCount { get; init; }
-}
-
-/// <summary>
-/// A vertex in a PSX mesh. Coordinates are pre-divided by scale divisor.
-/// </summary>
-public sealed class PsxVertex
-{
-    public float X { get; init; }
-    public float Y { get; init; }
-    public float Z { get; init; }
-    public ushort Type { get; init; }
-    public short RawX { get; init; }
-    public short RawY { get; init; }
-    public short RawZ { get; init; }
-}
-
-/// <summary>
-/// A normal vector in a PSX mesh. Pre-divided by 4096.
-/// </summary>
-public sealed class PsxNormal
-{
-    public float X { get; init; }
-    public float Y { get; init; }
-    public float Z { get; init; }
-}
-
-/// <summary>
-/// A face (primitive) in a PSX mesh. Can be a triangle or quad.
-/// </summary>
-public sealed class PsxFace
-{
-    public ushort Flags { get; init; }
-    public bool IsQuad { get; init; }
-    public bool IsTextured { get; init; }
-    public bool IsGouraud { get; init; }
-    public bool IsSemiTransparent { get; init; }
-    public uint Index0 { get; init; }
-    public uint Index1 { get; init; }
-    public uint Index2 { get; init; }
-    public uint Index3 { get; init; }
-    public uint NormalIndex { get; init; }
-    public byte R { get; init; }
-    public byte G { get; init; }
-    public byte B { get; init; }
-    public byte Mode { get; init; }
-    public uint TextureHash { get; init; }
-    public byte U0 { get; init; }
-    public byte V0 { get; init; }
-    public byte U1 { get; init; }
-    public byte V1 { get; init; }
-    public byte U2 { get; init; }
-    public byte V2 { get; init; }
-    public byte U3 { get; init; }
-    public byte V3 { get; init; }
+    private sealed class PsxHeader
+    {
+        public required ushort Version { get; init; }
+        public required List<PsxMeshObject> Objects { get; init; }
+        public required uint[] MeshTopPointers { get; init; }
+        public required uint[] MeshNameHashes { get; init; }
+        public required uint[] TextureHashes { get; init; }
+        public Vector4[]? GouraudPalette { get; init; }
+        public bool HasHierarchy { get; init; }
+        public float ScaleDivisor { get; init; }
+        public float TranslationDivisor { get; init; }
+    }
 }

@@ -44,7 +44,7 @@
 
   <!-- Embedded data files -->
   <ItemGroup>
-    <EmbeddedResource Include="Core\QbKeyNames.txt" LogicalName="QbKeyNames.txt" />
+    <EmbeddedResource Include="Core\QbKey\QbKeyNames.txt" LogicalName="QbKeyNames.txt" />
   </ItemGroup>
 
   <!-- Shared packages -->

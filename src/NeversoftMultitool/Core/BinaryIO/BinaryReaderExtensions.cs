@@ -5,7 +5,7 @@ namespace NeversoftMultitool.Core;
 public static class BinaryReaderExtensions
 {
     /// <summary>
-    /// Reads a null-terminated string from the stream.
+    ///     Reads a null-terminated string from the stream.
     /// </summary>
     public static string ReadNullTerminatedString(this BinaryReader reader)
     {
@@ -28,7 +28,7 @@ public static class BinaryReaderExtensions
     }
 
     /// <summary>
-    /// Reads a fixed-length string, stopping at the first null byte.
+    ///     Reads a fixed-length string, stopping at the first null byte.
     /// </summary>
     public static string ReadFixedString(this BinaryReader reader, int length)
     {
@@ -47,7 +47,7 @@ public static class BinaryReaderExtensions
     }
 
     /// <summary>
-    /// Aligns the stream position to the next multiple of n.
+    ///     Aligns the stream position to the next multiple of n.
     /// </summary>
     public static void Align(this BinaryReader reader, int alignment)
     {
@@ -60,7 +60,7 @@ public static class BinaryReaderExtensions
     }
 
     /// <summary>
-    /// Custom Neversoft CRC32 (NOT standard zlib CRC32).
+    ///     Custom Neversoft CRC32 (NOT standard zlib CRC32).
     /// </summary>
     public static uint Crc32Neversoft(byte[] data, uint start = 0xFFFFFFFF)
     {
@@ -75,9 +75,11 @@ public static class BinaryReaderExtensions
                 {
                     result ^= 0xEDB88320;
                 }
+
                 mask >>= 1;
             }
         }
+
         return result;
     }
 }

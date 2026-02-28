@@ -1,23 +1,25 @@
 namespace NeversoftMultitool.Core;
 
 /// <summary>
-/// Finds companion files (textures, skeletons) relative to a source file.
-/// Handles both organized layouts (sibling TEX/SKE/ directories) and real game
-/// disc layouts (per-entity bundles, WAD-root Textures/Skeletons/ directories).
+///     Finds companion files (textures, skeletons) relative to a source file.
+///     Handles both organized layouts (sibling TEX/SKE/ directories) and real game
+///     disc layouts (per-entity bundles, WAD-root Textures/Skeletons/ directories).
 /// </summary>
 public static class CompanionSearch
 {
-    const int MaxAncestorDepth = 5;
+    private const int MaxAncestorDepth = 5;
 
     /// <summary>
-    /// Finds a companion file by stem matching with ancestor directory walk.
-    /// Search order: same directory → sibling known dirs → ancestor walk.
+    ///     Finds a companion file by stem matching with ancestor directory walk.
+    ///     Search order: same directory → sibling known dirs → ancestor walk.
     /// </summary>
     /// <param name="startDir">Directory of the source file.</param>
     /// <param name="stem">File stem to match (e.g., "Anl_Chicken").</param>
     /// <param name="extensions">Extensions to try, in priority order (e.g., [".tex.ps2", ".tex"]).</param>
-    /// <param name="knownDirNames">Directory names to check at each ancestor level
-    /// (e.g., ["TEX", "Textures"] or ["SKE", "Skeletons"]).</param>
+    /// <param name="knownDirNames">
+    ///     Directory names to check at each ancestor level
+    ///     (e.g., ["TEX", "Textures"] or ["SKE", "Skeletons"]).
+    /// </param>
     /// <returns>Full path of the first matching file, or null.</returns>
     public static string? FindCompanion(string startDir, string stem,
         ReadOnlySpan<string> extensions, ReadOnlySpan<string> knownDirNames)
@@ -62,7 +64,7 @@ public static class CompanionSearch
     }
 
     /// <summary>
-    /// Recursively finds all files matching any of the given extensions under a root directory.
+    ///     Recursively finds all files matching any of the given extensions under a root directory.
     /// </summary>
     public static List<string> FindAllByExtension(string rootDir, ReadOnlySpan<string> extensions)
     {
@@ -82,10 +84,10 @@ public static class CompanionSearch
     }
 
     /// <summary>
-    /// Computes a search root directory for batch scanning. Finds the common
-    /// directory prefix of all file paths, then widens it by walking up to
-    /// a game/WAD root (detected by landmark directories like Models/, Textures/,
-    /// Levels/). Falls back to walking up 3 levels from the common root.
+    ///     Computes a search root directory for batch scanning. Finds the common
+    ///     directory prefix of all file paths, then widens it by walking up to
+    ///     a game/WAD root (detected by landmark directories like Models/, Textures/,
+    ///     Levels/). Falls back to walking up 3 levels from the common root.
     /// </summary>
     public static string? GetCommonRoot(IEnumerable<string> filePaths)
     {
@@ -132,13 +134,16 @@ public static class CompanionSearch
     }
 
     /// <summary>
-    /// Checks if a directory looks like a game/WAD root by containing
-    /// known landmark subdirectories.
+    ///     Checks if a directory looks like a game/WAD root by containing
+    ///     known landmark subdirectories.
     /// </summary>
     private static bool IsGameRoot(string dir)
     {
-        string[] landmarks = ["Models", "Textures", "Levels", "Skeletons", "pre", "Pre",
-            "TEX", "SKE", "SKIN", "MDL", "GEOM"];
+        string[] landmarks =
+        [
+            "Models", "Textures", "Levels", "Skeletons", "pre", "Pre",
+            "TEX", "SKE", "SKIN", "MDL", "GEOM"
+        ];
 
         var matchCount = 0;
         foreach (var landmark in landmarks)
@@ -147,6 +152,7 @@ public static class CompanionSearch
                 matchCount++;
             if (matchCount >= 2) return true;
         }
+
         return false;
     }
 

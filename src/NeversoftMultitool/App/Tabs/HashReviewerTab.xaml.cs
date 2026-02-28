@@ -1,11 +1,11 @@
 using System.Text;
 using System.Text.Json;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage.Pickers;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Psx;
-using Windows.ApplicationModel.DataTransfer;
-using Windows.Storage.Pickers;
 using WinRT.Interop;
 
 namespace NeversoftMultitool;
@@ -14,15 +14,15 @@ public sealed partial class HashReviewerTab : UserControl
 {
     private const int PageSize = 10;
     private const string SessionFileName = "review_session.json";
+    private List<HashReviewEntry> _allEntries = [];
 
     private string _buildsDir = "";
+    private string _candidateFilter = "";
+    private int _candidatePage;
     private string _candidatesPath = "";
-    private List<HashReviewEntry> _allEntries = [];
+    private int _currentIndex = -1;
     private List<HashReviewEntry> _reviewQueue = [];
     private ReviewSession _session = new();
-    private int _currentIndex = -1;
-    private int _candidatePage;
-    private string _candidateFilter = "";
 
     public HashReviewerTab()
     {
@@ -33,15 +33,10 @@ public sealed partial class HashReviewerTab : UserControl
 
     private async void BuildsBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        _buildsDir = folder.Path;
+        _buildsDir = path;
         BuildsDirText.Text = _buildsDir;
         _session.BuildsDir = _buildsDir;
 
@@ -109,7 +104,7 @@ public sealed partial class HashReviewerTab : UserControl
                     {
                         Name = c.GetProperty("name").GetString() ?? "",
                         Score = c.GetProperty("score").GetInt32(),
-                        Length = c.GetProperty("length").GetInt32(),
+                        Length = c.GetProperty("length").GetInt32()
                     });
                 }
             }
@@ -128,7 +123,7 @@ public sealed partial class HashReviewerTab : UserControl
                 HashValue = Convert.ToUInt32(hashHex.Replace("0x", ""), 16),
                 Type = entry.TryGetProperty("type", out var t) ? t.GetString() ?? "unknown" : "unknown",
                 Files = files,
-                Candidates = candidates,
+                Candidates = candidates
             });
         }
 
@@ -143,7 +138,7 @@ public sealed partial class HashReviewerTab : UserControl
             _session = new ReviewSession
             {
                 BuildsDir = _buildsDir,
-                CandidatesPath = _candidatesPath,
+                CandidatesPath = _candidatesPath
             };
             return;
         }
@@ -160,7 +155,7 @@ public sealed partial class HashReviewerTab : UserControl
             _session = new ReviewSession
             {
                 BuildsDir = _buildsDir,
-                CandidatesPath = _candidatesPath,
+                CandidatesPath = _candidatesPath
             };
         }
     }

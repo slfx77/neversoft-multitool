@@ -1,13 +1,12 @@
 namespace NeversoftMultitool.Core.Formats.Mesh;
 
 /// <summary>
-/// Minimal PSX layout parser for DDM world placement.
-/// Reads only object positions and mesh name hashes — no mesh geometry.
-/// Completely isolated from PsxMeshFile to prevent PS1 mesh conversion
-/// changes from breaking DDM level assembly.
-///
-/// Position conversion: raw 20.12 fixed-point → float via raw/4096.
-/// No additional scaling (TranslationDivisor, WorldScale, etc.).
+///     Minimal PSX layout parser for DDM world placement.
+///     Reads only object positions and mesh name hashes — no mesh geometry.
+///     Completely isolated from PsxMeshFile to prevent PS1 mesh conversion
+///     changes from breaking DDM level assembly.
+///     Position conversion: raw 20.12 fixed-point → float via raw/4096.
+///     No additional scaling (TranslationDivisor, WorldScale, etc.).
 /// </summary>
 public sealed class PsxLayoutFile
 {
@@ -15,8 +14,8 @@ public sealed class PsxLayoutFile
     public required uint[] MeshNameHashes { get; init; }
 
     /// <summary>
-    /// Parses a PSX file for layout data (object positions + mesh name hashes).
-    /// Returns null if the file is invalid or has no objects.
+    ///     Parses a PSX file for layout data (object positions + mesh name hashes).
+    ///     Returns null if the file is invalid or has no objects.
     /// </summary>
     public static PsxLayoutFile? Parse(string filePath)
     {
@@ -48,8 +47,8 @@ public sealed class PsxLayoutFile
             reader.ReadUInt32(); // unk1
             reader.ReadUInt16(); // unk2
             var meshIndex = reader.ReadUInt16();
-            reader.ReadInt16();  // tx
-            reader.ReadInt16();  // ty
+            reader.ReadInt16(); // tx
+            reader.ReadInt16(); // ty
             reader.ReadUInt32(); // unk3
             reader.ReadUInt32(); // paletteTop
 
@@ -59,7 +58,7 @@ public sealed class PsxLayoutFile
                 RawX = rawX,
                 RawY = rawY,
                 RawZ = rawZ,
-                MeshIndex = meshIndex,
+                MeshIndex = meshIndex
             });
         }
 
@@ -84,12 +83,12 @@ public sealed class PsxLayoutFile
         return new PsxLayoutFile
         {
             Objects = objects,
-            MeshNameHashes = meshNameHashes,
+            MeshNameHashes = meshNameHashes
         };
     }
 
     /// <summary>
-    /// Skips tagged chunks (HIER, RGBs, etc.) until the stop sentinel.
+    ///     Skips tagged chunks (HIER, RGBs, etc.) until the stop sentinel.
     /// </summary>
     private static void SkipTaggedChunks(BinaryReader reader)
     {
@@ -106,8 +105,8 @@ public sealed class PsxLayoutFile
 }
 
 /// <summary>
-/// A PSX layout object entry (36 bytes). Contains world-space position and mesh index.
-/// Positions are raw 20.12 fixed-point values, converted to float via raw/4096.
+///     A PSX layout object entry (36 bytes). Contains world-space position and mesh index.
+///     Positions are raw 20.12 fixed-point values, converted to float via raw/4096.
 /// </summary>
 public sealed class PsxLayoutObject
 {
@@ -119,6 +118,7 @@ public sealed class PsxLayoutObject
 
     /// <summary>Raw 20.12 fixed-point → float. No additional scaling.</summary>
     public float X => RawX / 4096f;
+
     public float Y => RawY / 4096f;
     public float Z => RawZ / 4096f;
 }

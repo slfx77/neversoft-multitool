@@ -4,18 +4,16 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Rle;
-using Windows.Storage.Pickers;
-using WinRT.Interop;
 
 namespace NeversoftMultitool;
 
 public sealed partial class RleBitmapTab : UserControl
 {
     private readonly ObservableCollection<RleFileEntry> _files = [];
+    private CancellationTokenSource? _debounceCts;
     private string _inputDir = "";
     private string _outputDir = "";
     private CancellationTokenSource? _previewCts;
-    private CancellationTokenSource? _debounceCts;
     private bool _suppressWidthEvents;
 
     public RleBitmapTab()
@@ -26,15 +24,10 @@ public sealed partial class RleBitmapTab : UserControl
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        _inputDir = folder.Path;
+        _inputDir = path;
         InputPathText.Text = _inputDir;
 
         _files.Clear();
@@ -57,15 +50,10 @@ public sealed partial class RleBitmapTab : UserControl
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
+        var path = await FolderPickerHelper.PickFolderAsync();
+        if (path == null) return;
 
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder == null) return;
-
-        _outputDir = folder.Path;
+        _outputDir = path;
         OutputPathText.Text = _outputDir;
         UpdateUiState();
     }
@@ -98,6 +86,7 @@ public sealed partial class RleBitmapTab : UserControl
         {
             entry.WidthOverride = (int)WidthNumberBox.Value;
         }
+
         _suppressWidthEvents = false;
 
         await LoadBitmapPreview(entry);
@@ -177,6 +166,7 @@ public sealed partial class RleBitmapTab : UserControl
                 WidthNumberBox.IsEnabled = false;
                 WidthNumberBox.Value = entry.DetectedWidth;
             }
+
             _suppressWidthEvents = false;
 
             await LoadBitmapPreview(entry);

@@ -5,14 +5,14 @@ using System.Text;
 namespace NeversoftMultitool.Core.Formats.Archives;
 
 /// <summary>
-/// Extracts files from Neversoft PKR3 archives.
+///     Extracts files from Neversoft PKR3 archives.
 /// </summary>
 public static class PkrArchive
 {
     private const uint FileCompressed = 0x00000002;
 
     /// <summary>
-    /// Reads the file list from a PKR archive.
+    ///     Reads the file list from a PKR archive.
     /// </summary>
     public static List<ArchiveEntry> GetFileList(string pkrPath)
     {
@@ -24,7 +24,7 @@ public static class PkrArchive
     }
 
     /// <summary>
-    /// Extracts all files from a PKR archive.
+    ///     Extracts all files from a PKR archive.
     /// </summary>
     public static void ExtractFiles(string pkrPath, string outputDir,
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)
@@ -171,5 +171,6 @@ public static class PkrArchive
     }
 
     private sealed record PkrDirHeader(uint Unk, int NumDirs, int NumFiles);
+
     private sealed record PkrDir(string Name, uint Unk, int NumFiles);
 }

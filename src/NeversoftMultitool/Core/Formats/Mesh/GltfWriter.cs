@@ -1,28 +1,29 @@
 using System.Numerics;
-using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.Formats.Archives;
-using Pfim;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
 using SharpGLTF.Memory;
 using SharpGLTF.Scenes;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace NeversoftMultitool.Core.Formats.Mesh;
 
 using VERTEX = VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>;
 
 /// <summary>
-/// Writes DDM mesh data to glTF 2.0 (.glb) files using SharpGLTF.
+///     Writes DDM mesh data to glTF 2.0 (.glb) files using SharpGLTF.
 /// </summary>
 public static class GltfWriter
 {
     /// <summary>
-    /// Writes a parsed DDM file to a .glb file without PSX placement.
-    /// Objects are placed at their local vertex positions (no world transforms).
-    /// For level assembly with world placement, use WritePlacedLevel instead.
+    ///     Small offset applied along vertex normals for non-opaque geometry (decals, graffiti,
+    ///     signs) to prevent z-fighting with coplanar walls in glTF viewers that lack depth bias.
+    /// </summary>
+    private const float DecalNormalOffset = 0.1f;
+
+    /// <summary>
+    ///     Writes a parsed DDM file to a .glb file without PSX placement.
+    ///     Objects are placed at their local vertex positions (no world transforms).
+    ///     For level assembly with world placement, use WritePlacedLevel instead.
     /// </summary>
     /// <param name="ddm">Parsed DDM data.</param>
     /// <param name="outputPath">Output .glb file path.</param>
@@ -40,7 +41,7 @@ public static class GltfWriter
             Directory.CreateDirectory(directory);
 
         // Build list of texture search directories
-        var textureDirs = BuildTextureSearchPaths(texturePath, ddmName);
+        var textureDirs = GltfTextureHelper.BuildTextureSearchPaths(texturePath, ddmName);
 
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<string, MaterialBuilder>();
@@ -59,7 +60,7 @@ public static class GltfWriter
         }
 
         if (lights != null)
-            AddLightsToScene(scene, lights);
+            GltfLightWriter.AddLightsToScene(scene, lights);
 
         var model = scene.ToGltf2();
         model.SaveGLB(outputPath);
@@ -68,15 +69,14 @@ public static class GltfWriter
     }
 
     /// <summary>
-    /// Writes a placed level: combines level DDM + objects DDM with PSX layout placement.
-    /// Produces up to three output files:
-    ///   {name}_level.glb  — placed level geometry
-    ///   {name}_objects.glb — placed objects
-    ///   {name}.glb         — combined (all in one)
-    ///
-    /// Coordinate mapping confirmed via THPS2X Xbox decompilation:
-    ///   world_pos = psx_raw_int32 / 4096.0 (direct, no axis negation)
-    ///   glTF output uses (-X, -Y, +Z) conversion matching MakeVertex.
+    ///     Writes a placed level: combines level DDM + objects DDM with PSX layout placement.
+    ///     Produces up to three output files:
+    ///     {name}_level.glb  — placed level geometry
+    ///     {name}_objects.glb — placed objects
+    ///     {name}.glb         — combined (all in one)
+    ///     Coordinate mapping confirmed via THPS2X Xbox decompilation:
+    ///     world_pos = psx_raw_int32 / 4096.0 (direct, no axis negation)
+    ///     glTF output uses (-X, -Y, +Z) conversion matching MakeVertex.
     /// </summary>
     public static (int LevelTriangles, int ObjectTriangles) WritePlacedLevel(
         string levelDdmPath, string levelPsxPath,
@@ -90,19 +90,19 @@ public static class GltfWriter
         var levelPsx = PsxLayoutFile.Parse(levelPsxPath);
 
         // Load DDX textures for both level and objects
-        var ddxTextures = LoadDdxTextures(ddxPath, levelName);
+        var ddxTextures = GltfTextureHelper.LoadDdxTextures(ddxPath, levelName);
 
         // Load .lit lights
-        var lights = FindAndParseLitFile(levelName, ddxPath)
-                  ?? FindAndParseLitFile(levelName, Path.GetDirectoryName(levelDdmPath));
+        var lights = GltfLightWriter.FindAndParseLitFile(levelName, ddxPath)
+                     ?? GltfLightWriter.FindAndParseLitFile(levelName, Path.GetDirectoryName(levelDdmPath));
 
-        var textureDirs = BuildTextureSearchPaths(null, null);
+        var textureDirs = GltfTextureHelper.BuildTextureSearchPaths(null, null);
 
         // Level geometry
         var levelScene = new SceneBuilder();
         var levelMats = new Dictionary<string, MaterialBuilder>();
         var levelTriangles = AddDdmToScene(levelScene, levelDdm, levelPsx, textureDirs, levelMats, ddxTextures);
-        if (lights != null) AddLightsToScene(levelScene, lights);
+        if (lights != null) GltfLightWriter.AddLightsToScene(levelScene, lights);
         levelScene.ToGltf2().SaveGLB(Path.Combine(outputDir, levelName + "_level.glb"));
 
         // Objects
@@ -126,15 +126,15 @@ public static class GltfWriter
         AddDdmToScene(combinedScene, levelDdm, levelPsx, textureDirs, combinedMats, ddxTextures);
         if (objectsDdm != null)
             AddDdmToScene(combinedScene, objectsDdm, objectsPsx, textureDirs, combinedMats, ddxTextures);
-        if (lights != null) AddLightsToScene(combinedScene, lights);
+        if (lights != null) GltfLightWriter.AddLightsToScene(combinedScene, lights);
         combinedScene.ToGltf2().SaveGLB(Path.Combine(outputDir, levelName + ".glb"));
 
         return (levelTriangles, objectTriangles);
     }
 
     /// <summary>
-    /// Adds a DDM file to a scene, optionally placing objects via PSX layout.
-    /// Returns the number of triangles added.
+    ///     Adds a DDM file to a scene, optionally placing objects via PSX layout.
+    ///     Returns the number of triangles added.
     /// </summary>
     private static int AddDdmToScene(
         SceneBuilder scene, DdmFile ddm, PsxLayoutFile? psx,
@@ -154,8 +154,8 @@ public static class GltfWriter
     }
 
     /// <summary>
-    /// Places DDM objects using PSX layout positions.
-    /// Position mapping: PSX raw int32 / 4096 → float, then (-X, -Y, +Z) for glTF.
+    ///     Places DDM objects using PSX layout positions.
+    ///     Position mapping: PSX raw int32 / 4096 → float, then (-X, -Y, +Z) for glTF.
     /// </summary>
     private static (int Triangles, HashSet<int> PlacedIndices) AddPlacedObjects(
         SceneBuilder scene, DdmFile ddm, PsxLayoutFile psxFile,
@@ -196,7 +196,7 @@ public static class GltfWriter
     }
 
     /// <summary>
-    /// Adds DDM objects that were not matched by PSX placement (fallback at local origin).
+    ///     Adds DDM objects that were not matched by PSX placement (fallback at local origin).
     /// </summary>
     private static void AddUnplacedObjects(
         SceneBuilder scene, DdmFile ddm, HashSet<int> placedIndices,
@@ -216,77 +216,6 @@ public static class GltfWriter
             var node = new NodeBuilder(obj.Name);
             scene.AddRigidMesh(mesh, node);
         }
-    }
-
-    /// <summary>
-    /// Loads DDX texture archives for a level (both base and _o variant).
-    /// </summary>
-    private static Dictionary<string, byte[]>? LoadDdxTextures(string? ddxPath, string levelName)
-    {
-        if (string.IsNullOrEmpty(ddxPath) || !Directory.Exists(ddxPath))
-            return null;
-
-        var result = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-
-        // Try level DDX
-        var levelDdx = FindCompanionFile(ddxPath, levelName, ".ddx");
-        if (levelDdx != null)
-            MergeDdxEntries(result, DdxArchive.ReadAllEntries(levelDdx));
-
-        // Try objects DDX
-        var objectsDdx = FindCompanionFile(ddxPath, levelName + "_o", ".ddx");
-        if (objectsDdx != null)
-            MergeDdxEntries(result, DdxArchive.ReadAllEntries(objectsDdx));
-
-        return result.Count > 0 ? result : null;
-    }
-
-    private static void MergeDdxEntries(Dictionary<string, byte[]> target, Dictionary<string, byte[]> source)
-    {
-        foreach (var (name, bytes) in source)
-            target.TryAdd(name, bytes);
-    }
-
-    private static List<LitLight>? FindAndParseLitFile(string levelName, string? searchDir)
-    {
-        if (string.IsNullOrEmpty(searchDir)) return null;
-        var litPath = FindCompanionFile(searchDir, levelName, ".lit");
-        if (litPath == null) return null;
-        try { return LitFile.Parse(litPath); }
-        catch { return null; }
-    }
-
-    private static string? FindCompanionFile(string directory, string stem, string extension)
-    {
-        var files = Directory.GetFiles(directory, stem + extension,
-            new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
-        return files.Length > 0 ? files[0] : null;
-    }
-
-    private static List<string> BuildTextureSearchPaths(string? texturePath, string? ddmName)
-    {
-        var dirs = new List<string>();
-        if (string.IsNullOrEmpty(texturePath))
-            return dirs;
-
-        // DDX extraction creates subdirectories matching DDM name (e.g. textures/skware/)
-        if (!string.IsNullOrEmpty(ddmName))
-        {
-            // DDX archive extraction nests: DDX/<name>/<name>/*.DDS
-            var nestedDir = Path.Combine(texturePath, ddmName, ddmName);
-            if (Directory.Exists(nestedDir))
-                dirs.Add(nestedDir);
-
-            var subDir = Path.Combine(texturePath, ddmName);
-            if (Directory.Exists(subDir))
-                dirs.Add(subDir);
-        }
-
-        // Also search the root texture directory
-        if (Directory.Exists(texturePath))
-            dirs.Add(texturePath);
-
-        return dirs;
     }
 
     private static MaterialBuilder GetOrCreateMaterial(
@@ -313,10 +242,10 @@ public static class GltfWriter
         if ((textureDirs.Count > 0 || ddxTextures?.Count > 0) &&
             !mat.TextureName.Equals("No_Texture_Map", StringComparison.OrdinalIgnoreCase))
         {
-            var loaded = LoadTexture(textureDirs, mat.TextureName, ddxTextures);
+            var loaded = GltfTextureHelper.LoadTexture(textureDirs, mat.TextureName, ddxTextures);
             if (loaded != null)
             {
-                byte[] pngBytes = loaded.Value.Bytes;
+                var pngBytes = loaded.Value.Bytes;
                 hasTextureAlpha = loaded.Value.HasAlpha;
 
                 // For additive blend modes (light cones, flares, glows), convert
@@ -329,7 +258,7 @@ public static class GltfWriter
                 // and uses luminance only. Existing alpha is used as a multiplier.
                 if (isAdditive)
                 {
-                    pngBytes = ConvertLuminanceToAlpha(pngBytes);
+                    pngBytes = GltfTextureHelper.ConvertLuminanceToAlpha(pngBytes);
                     hasTextureAlpha = true;
                 }
 
@@ -345,156 +274,14 @@ public static class GltfWriter
         if (isAdditive || hasTextureAlpha)
             builder.WithAlpha(AlphaMode.BLEND);
         else if (mat.BlendMode == 2)
-            builder.WithAlpha(AlphaMode.MASK, 0.5f);
+            builder.WithAlpha(AlphaMode.MASK);
 
         cache[key] = builder;
         return builder;
     }
 
     /// <summary>
-    /// Converts a texture for additive blend approximation in glTF.
-    /// Converts texture to white RGB with luminance-derived alpha.
-    /// Dark pixels become transparent (invisible, like additive black)
-    /// and bright pixels become white with proportional opacity.
-    /// Existing alpha is used as a multiplier (for DXT3/DXT5 textures
-    /// where alpha may mask out parts of the glow independently).
-    /// </summary>
-    private static byte[] ConvertLuminanceToAlpha(byte[] pngBytes)
-    {
-        using var img = Image.Load<Rgba32>(pngBytes);
-        img.ProcessPixelRows(accessor =>
-        {
-            for (var y = 0; y < accessor.Height; y++)
-            {
-                var row = accessor.GetRowSpan(y);
-                for (var x = 0; x < row.Length; x++)
-                {
-                    ref var pixel = ref row[x];
-                    var lum = (pixel.R * 77 + pixel.G * 150 + pixel.B * 29) >> 8;
-                    var alpha = (lum * pixel.A) >> 8;
-                    pixel = new Rgba32(255, 255, 255, (byte)alpha);
-                }
-            }
-        });
-
-        using var ms = new MemoryStream();
-        img.SaveAsPng(ms);
-        return ms.ToArray();
-    }
-
-    /// <summary>
-    /// Searches DDX cache and texture directories for a matching texture.
-    /// DDS files are decoded and converted to PNG bytes in memory.
-    /// </summary>
-    private static (byte[] Bytes, bool HasAlpha)? LoadTexture(
-        List<string> textureDirs, string textureName,
-        Dictionary<string, byte[]>? ddxTextures)
-    {
-        // Check DDX in-memory cache first
-        if (ddxTextures != null && ddxTextures.TryGetValue(textureName, out var ddsBytes))
-        {
-            using var ms = new MemoryStream(ddsBytes);
-            return DecodeDdsToPng(ms);
-        }
-
-        // Search directories
-        foreach (var dir in textureDirs)
-        {
-            // Try PNG first (native glTF format)
-            var pngFiles = Directory.GetFiles(dir, textureName + ".png",
-                new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
-            if (pngFiles.Length > 0)
-                return (File.ReadAllBytes(pngFiles[0]), false);
-
-            // Try DDS (decode to PNG)
-            var ddsFiles = Directory.GetFiles(dir, textureName + ".dds",
-                new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
-            if (ddsFiles.Length > 0)
-                return DecodeDdsToPng(ddsFiles[0]);
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Decodes a DDS file to PNG bytes using Pfim for DXT decompression
-    /// and ImageSharp for PNG encoding.
-    /// </summary>
-    private static (byte[] Bytes, bool HasAlpha)? DecodeDdsToPng(string ddsPath)
-    {
-        try
-        {
-            using var image = Pfimage.FromFile(ddsPath);
-            return EncodePfimToPng(image);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Decodes DDS bytes from a stream to PNG bytes.
-    /// </summary>
-    private static (byte[] Bytes, bool HasAlpha)? DecodeDdsToPng(Stream ddsStream)
-    {
-        try
-        {
-            using var image = Pfimage.FromStream(ddsStream);
-            return EncodePfimToPng(image);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static (byte[] Bytes, bool HasAlpha)? EncodePfimToPng(IImage image)
-    {
-        using var ms = new MemoryStream();
-
-        if (image.Format == ImageFormat.Rgba32)
-        {
-            // Check if any pixel actually has non-opaque alpha (BGRA layout: alpha at offset 3)
-            var hasAlpha = false;
-            var data = image.Data;
-            var stride = image.Stride;
-            for (var y = 0; y < image.Height && !hasAlpha; y++)
-            {
-                var rowStart = y * stride;
-                for (var x = 0; x < image.Width; x++)
-                {
-                    if (data[rowStart + x * 4 + 3] < 255)
-                    {
-                        hasAlpha = true;
-                        break;
-                    }
-                }
-            }
-
-            using var img = Image.LoadPixelData<Bgra32>(image.Data, image.Width, image.Height);
-            img.SaveAsPng(ms);
-            return (ms.ToArray(), hasAlpha);
-        }
-
-        if (image.Format == ImageFormat.Rgb24)
-        {
-            using var img = Image.LoadPixelData<Bgr24>(image.Data, image.Width, image.Height);
-            img.SaveAsPng(ms);
-            return (ms.ToArray(), false);
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Small offset applied along vertex normals for non-opaque geometry (decals, graffiti,
-    /// signs) to prevent z-fighting with coplanar walls in glTF viewers that lack depth bias.
-    /// </summary>
-    private const float DecalNormalOffset = 0.1f;
-
-    /// <summary>
-    /// Converts a triangle strip segment to individual triangles and adds them to the primitive.
+    ///     Converts a triangle strip segment to individual triangles and adds them to the primitive.
     /// </summary>
     private static int AddTriangleStrip(
         PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexEmpty> prim,
@@ -548,7 +335,7 @@ public static class GltfWriter
     }
 
     /// <summary>
-    /// Builds a glTF mesh from a DDM object's geometry in local space.
+    ///     Builds a glTF mesh from a DDM object's geometry in local space.
     /// </summary>
     private static MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty> BuildDdmMesh(
         DdmObject obj,
@@ -587,107 +374,11 @@ public static class GltfWriter
             // Higher drawOrder rank = overlay (graffiti, decals) pushed outward along normals.
             var rank = drawOrderRanks.IndexOf(mat.DrawOrder);
             var drawOrderOffset = rank * DecalNormalOffset;
-            var materialOffset = (isFlat || mat.BlendMode != 0) ? DecalNormalOffset : 0f;
+            var materialOffset = isFlat || mat.BlendMode != 0 ? DecalNormalOffset : 0f;
             var offset = Math.Max(drawOrderOffset, materialOffset);
             triangleCount += AddTriangleStrip(prim, obj, split, offset);
         }
 
         return mesh;
     }
-
-
-    /// <summary>
-    /// Adds parsed .lit lights to a glTF scene using KHR_lights_punctual.
-    /// Coordinates are converted from 3ds Max space to glTF space (-X, -Y, +Z).
-    /// </summary>
-    private static void AddLightsToScene(SceneBuilder scene, List<LitLight> lights)
-    {
-        foreach (var lit in lights)
-        {
-            var gltfLight = CreateGltfLight(lit);
-            if (gltfLight == null) continue;
-
-            var pos = new Vector3(-lit.Position.X, -lit.Position.Y, lit.Position.Z);
-            var node = new NodeBuilder(lit.Name);
-            node.LocalTransform = CreateLightTransform(pos, lit.Direction, lit.Type);
-
-            scene.AddLight(gltfLight, node);
-        }
-    }
-
-    private static LightBuilder? CreateGltfLight(LitLight lit)
-    {
-        var (color, intensity) = NormalizeHdrColor(lit.Color);
-        var range = lit.Atten2 > 0 ? lit.Atten2 : float.PositiveInfinity;
-
-        return lit.Type switch
-        {
-            LitLightType.Point => new LightBuilder.Point
-            {
-                Color = color, Intensity = intensity, Range = range,
-            },
-            LitLightType.Spot => CreateSpotLight(color, intensity, range, lit),
-            // DirLights with small Radius are bounded area lights — approximate as spot.
-            // Large or negative Radius means unbounded directional.
-            LitLightType.Directional when lit.Radius is > 0 and < 100 =>
-                CreateSpotLight(color, intensity, range, lit),
-            LitLightType.Directional => new LightBuilder.Directional
-            {
-                Color = color, Intensity = intensity,
-            },
-            _ => null,
-        };
-    }
-
-    private static LightBuilder.Spot CreateSpotLight(
-        Vector3 color, float intensity, float range, LitLight lit) => new()
-    {
-        Color = color,
-        Intensity = intensity,
-        Range = range,
-        InnerConeAngle = lit.Hotspot > 0 ? lit.Hotspot / 2f : 0f,
-        OuterConeAngle = lit.Radius > 0 ? lit.Radius / 2f : 0.785f,
-    };
-
-    private static (Vector3 Color, float Intensity) NormalizeHdrColor(Vector3 color)
-    {
-        var max = MathF.Max(color.X, MathF.Max(color.Y, color.Z));
-        return max > 1f ? (color / max, max) : (color, 1f);
-    }
-
-    /// <summary>
-    /// Creates a node transform that positions the light and orients it so that
-    /// the glTF local -Z axis points in the light's direction.
-    /// </summary>
-    private static Matrix4x4 CreateLightTransform(Vector3 position, Vector3? direction, LitLightType type)
-    {
-        if (direction == null || type == LitLightType.Point)
-            return Matrix4x4.CreateTranslation(position);
-
-        // Convert direction from .lit space to glTF space: (-X, -Y, +Z)
-        var dir = direction.Value;
-        var gltfDir = Vector3.Normalize(new Vector3(-dir.X, -dir.Y, dir.Z));
-
-        // Build rotation: glTF lights point along local -Z, so rotate -Z to gltfDir
-        var rotation = RotationFromTo(-Vector3.UnitZ, gltfDir);
-        return Matrix4x4.CreateFromQuaternion(rotation)
-             * Matrix4x4.CreateTranslation(position);
-    }
-
-    private static Quaternion RotationFromTo(Vector3 from, Vector3 to)
-    {
-        var dot = Vector3.Dot(from, to);
-        if (dot > 0.999999f)
-            return Quaternion.Identity;
-        if (dot < -0.999999f)
-        {
-            // 180-degree rotation around any perpendicular axis
-            var perp = MathF.Abs(from.X) < 0.9f ? Vector3.UnitX : Vector3.UnitY;
-            var axis = Vector3.Normalize(Vector3.Cross(from, perp));
-            return new Quaternion(axis, 0);
-        }
-        var cross = Vector3.Cross(from, to);
-        return Quaternion.Normalize(new Quaternion(cross.X, cross.Y, cross.Z, 1 + dot));
-    }
-
 }

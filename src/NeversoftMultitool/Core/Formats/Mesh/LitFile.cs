@@ -4,7 +4,7 @@ using System.Numerics;
 namespace NeversoftMultitool.Core.Formats.Mesh;
 
 /// <summary>
-/// Parses Neversoft .lit light definition files (3ds Max AdvLights export).
+///     Parses Neversoft .lit light definition files (3ds Max AdvLights export).
 /// </summary>
 public static class LitFile
 {
@@ -43,7 +43,11 @@ public static class LitFile
     {
         var header = lines[i].Trim();
         var spaceIdx = header.IndexOf(' ');
-        if (spaceIdx < 0) { i++; return null; }
+        if (spaceIdx < 0)
+        {
+            i++;
+            return null;
+        }
 
         var typeName = header[..spaceIdx];
         var name = header[(spaceIdx + 1)..].Trim();
@@ -74,13 +78,14 @@ public static class LitFile
                 i++;
                 return;
             }
+
             i++;
         }
     }
 
     /// <summary>
-    /// Collects tokens from the current block depth until the closing brace.
-    /// Nested blocks (BoxGradShadow, LensFlare, LightProjMap) are skipped.
+    ///     Collects tokens from the current block depth until the closing brace.
+    ///     Nested blocks (BoxGradShadow, LensFlare, LightProjMap) are skipped.
     /// </summary>
     private static List<string> CollectBlockTokens(string[] lines, ref int i)
     {
@@ -178,14 +183,20 @@ public static class LitFile
         light.Direction = Vector3.Normalize(new Vector3(-m[6], -m[7], -m[8]));
     }
 
-    private static float DequeueFloat(Queue<string> q) =>
-        q.Count > 0 ? ParseFloat(q.Dequeue()) : 0f;
+    private static float DequeueFloat(Queue<string> q)
+    {
+        return q.Count > 0 ? ParseFloat(q.Dequeue()) : 0f;
+    }
 
-    private static Vector3 DequeueVector3(Queue<string> q) =>
-        new(DequeueFloat(q), DequeueFloat(q), DequeueFloat(q));
+    private static Vector3 DequeueVector3(Queue<string> q)
+    {
+        return new Vector3(DequeueFloat(q), DequeueFloat(q), DequeueFloat(q));
+    }
 
-    private static float ParseFloat(string s) =>
-        float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : 0f;
+    private static float ParseFloat(string s)
+    {
+        return float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : 0f;
+    }
 }
 
 public enum LitLightType

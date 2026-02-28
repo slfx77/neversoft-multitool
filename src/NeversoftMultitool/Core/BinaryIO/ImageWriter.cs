@@ -6,8 +6,8 @@ namespace NeversoftMultitool.Core;
 public static class ImageWriter
 {
     /// <summary>
-    /// Writes a flat RGBA byte array to a PNG file.
-    /// Used for PSX textures (which produce RGBA output).
+    ///     Writes a flat RGBA byte array to a PNG file.
+    ///     Used for PSX textures (which produce RGBA output).
     /// </summary>
     public static void WritePng(string outputPath, int width, int height, byte[] rgbaPixels)
     {
@@ -22,8 +22,8 @@ public static class ImageWriter
     }
 
     /// <summary>
-    /// Encodes a flat RGBA byte array to PNG bytes in memory.
-    /// Used for embedding textures in glTF files.
+    ///     Encodes a flat RGBA byte array to PNG bytes in memory.
+    ///     Used for embedding textures in glTF files.
     /// </summary>
     public static byte[] WritePngToMemory(int width, int height, byte[] rgbaPixels)
     {
@@ -34,8 +34,8 @@ public static class ImageWriter
     }
 
     /// <summary>
-    /// Writes a flat RGB byte array to a PNG file.
-    /// Used for RLE/BMR bitmaps (which produce RGB output).
+    ///     Writes a flat RGB byte array to a PNG file.
+    ///     Used for RLE/BMR bitmaps (which produce RGB output).
     /// </summary>
     public static void WritePngRgb(string outputPath, int width, int height, byte[] rgbPixels)
     {

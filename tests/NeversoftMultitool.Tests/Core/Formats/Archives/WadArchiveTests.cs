@@ -47,10 +47,8 @@ public class WadArchiveTests(TestPaths paths)
             var expectedEntries = WadArchive.GetFileList(wadPath);
 
             var extractedCount = 0;
-            WadArchive.ExtractFiles(wadPath, tempDir, (current, total) =>
-            {
-                extractedCount = current;
-            }, TestContext.Current.CancellationToken);
+            WadArchive.ExtractFiles(wadPath, tempDir, (current, total) => { extractedCount = current; },
+                TestContext.Current.CancellationToken);
 
             Assert.Equal(expectedEntries.Count, extractedCount);
 

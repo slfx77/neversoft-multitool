@@ -116,7 +116,8 @@ public static class ArchiveCommand
                             filesExtracted = current;
                             if (verbose)
                             {
-                                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {compressedPreEntries[current - 1].FullName}");
+                                AnsiConsole.MarkupLine(
+                                    $"  [[{current}/{total}]] {compressedPreEntries[current - 1].FullName}");
                             }
                         }, cancellationToken);
                         break;

@@ -3,17 +3,17 @@ using System.Text;
 namespace NeversoftMultitool.Core.Formats.Archives;
 
 /// <summary>
-/// Extracts files from Neversoft WAD archives using companion HED files.
-/// Supports three HED variants:
-///   - PS1 plaintext: name(null-term, align4) → offset(u32) → size(u32) ... 0xFF sentinel
-///   - THUG plaintext: offset(u32) → size(u32) → name(null-term, align4) ... 0xFFFFFFFF sentinel
-///   - Hashed: hash(u32) → offset(u32) → size(u32) ... all-zeros sentinel
-/// Credit to JayRedFox: https://github.com/JayFoxRox/thps2-tools/blob/master/extract-hed-wad.py
+///     Extracts files from Neversoft WAD archives using companion HED files.
+///     Supports three HED variants:
+///     - PS1 plaintext: name(null-term, align4) → offset(u32) → size(u32) ... 0xFF sentinel
+///     - THUG plaintext: offset(u32) → size(u32) → name(null-term, align4) ... 0xFFFFFFFF sentinel
+///     - Hashed: hash(u32) → offset(u32) → size(u32) ... all-zeros sentinel
+///     Credit to JayRedFox: https://github.com/JayFoxRox/thps2-tools/blob/master/extract-hed-wad.py
 /// </summary>
 public static class WadArchive
 {
     /// <summary>
-    /// Gets the companion HED file path for a WAD file.
+    ///     Gets the companion HED file path for a WAD file.
     /// </summary>
     public static string GetHedPath(string wadPath)
     {
@@ -23,9 +23,9 @@ public static class WadArchive
     }
 
     /// <summary>
-    /// Reads the file list from the HED companion file.
-    /// Supports both plaintext HED (null-terminated names) and hashed HED
-    /// (12-byte entries: uint32 hash, uint32 offset, uint32 size).
+    ///     Reads the file list from the HED companion file.
+    ///     Supports both plaintext HED (null-terminated names) and hashed HED
+    ///     (12-byte entries: uint32 hash, uint32 offset, uint32 size).
     /// </summary>
     public static List<ArchiveEntry> GetFileList(string wadPath)
     {
@@ -43,17 +43,15 @@ public static class WadArchive
         {
             HedFormat.Ps1Plaintext => ReadPlaintextEntries(reader, stream.Length),
             HedFormat.ThugPlaintext => ReadThugPlaintextEntries(reader, stream.Length),
-            _ => ReadHashedEntries(reader, stream.Length),
+            _ => ReadHashedEntries(reader, stream.Length)
         };
     }
 
-    private enum HedFormat { Ps1Plaintext, ThugPlaintext, Hashed }
-
     /// <summary>
-    /// Detects HED format by probing the first bytes:
-    ///   - PS1: bytes 0+ are printable ASCII (a filename first)
-    ///   - THUG: bytes 0-7 are numeric (offset+size), byte 8+ is printable ASCII (a filename)
-    ///   - Hashed: first 12 bytes are all numeric (hash+offset+size)
+    ///     Detects HED format by probing the first bytes:
+    ///     - PS1: bytes 0+ are printable ASCII (a filename first)
+    ///     - THUG: bytes 0-7 are numeric (offset+size), byte 8+ is printable ASCII (a filename)
+    ///     - Hashed: first 12 bytes are all numeric (hash+offset+size)
     /// </summary>
     private static HedFormat DetectHedFormat(Stream stream)
     {
@@ -64,8 +62,17 @@ public static class WadArchive
         var firstBytesAscii = true;
         for (var i = 0; i < Math.Min(8, probe.Length); i++)
         {
-            if (probe[i] == 0) { firstBytesAscii = i >= 2; break; }
-            if (probe[i] is < 0x20 or > 0x7E) { firstBytesAscii = false; break; }
+            if (probe[i] == 0)
+            {
+                firstBytesAscii = i >= 2;
+                break;
+            }
+
+            if (probe[i] is < 0x20 or > 0x7E)
+            {
+                firstBytesAscii = false;
+                break;
+            }
         }
 
         if (firstBytesAscii)
@@ -78,8 +85,17 @@ public static class WadArchive
             var byte8Ascii = true;
             for (var i = 8; i < Math.Min(16, probe.Length); i++)
             {
-                if (probe[i] == 0) { byte8Ascii = i > 8; break; } // null after at least 1 char
-                if (probe[i] is < 0x20 or > 0x7E) { byte8Ascii = false; break; }
+                if (probe[i] == 0)
+                {
+                    byte8Ascii = i > 8;
+                    break;
+                } // null after at least 1 char
+
+                if (probe[i] is < 0x20 or > 0x7E)
+                {
+                    byte8Ascii = false;
+                    break;
+                }
             }
 
             if (byte8Ascii)
@@ -117,8 +133,8 @@ public static class WadArchive
     }
 
     /// <summary>
-    /// THUG-era HED: offset(u32) → size(u32) → name(null-term, align4), sentinel 0xFFFFFFFF.
-    /// Size bit 31 = NO_WAD flag (external file, not in WAD). Names may include directory paths.
+    ///     THUG-era HED: offset(u32) → size(u32) → name(null-term, align4), sentinel 0xFFFFFFFF.
+    ///     Size bit 31 = NO_WAD flag (external file, not in WAD). Names may include directory paths.
     /// </summary>
     private static List<ArchiveEntry> ReadThugPlaintextEntries(BinaryReader reader, long fileSize)
     {
@@ -197,7 +213,7 @@ public static class WadArchive
     }
 
     /// <summary>
-    /// Extracts all files from a WAD archive.
+    ///     Extracts all files from a WAD archive.
     /// </summary>
     public static void ExtractFiles(string wadPath, string outputDir,
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)
@@ -253,6 +269,7 @@ public static class WadArchive
             if (b == 0) break;
             bytes.Add(b);
         }
+
         return Encoding.ASCII.GetString(bytes.ToArray());
     }
 
@@ -261,5 +278,12 @@ public static class WadArchive
         var remainder = stream.Position % alignment;
         if (remainder != 0)
             stream.Position += alignment - remainder;
+    }
+
+    private enum HedFormat
+    {
+        Ps1Plaintext,
+        ThugPlaintext,
+        Hashed
     }
 }
