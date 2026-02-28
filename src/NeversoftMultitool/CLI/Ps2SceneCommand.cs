@@ -268,7 +268,7 @@ public static class Ps2SceneCommand
 
     /// <summary>
     /// Builds a combined texture cache from an explicit TEX path or by scanning
-    /// sibling TEX directories relative to the scene files.
+    /// from the common root directory of all scene files.
     /// </summary>
     private static Dictionary<uint, Ps2Texture> BuildTextureCache(
         List<string> sceneFiles, string? texPath, bool verbose)
@@ -285,27 +285,13 @@ public static class Ps2SceneCommand
             return cache;
         }
 
-        // Auto-detect: find sibling TEX/ directories relative to scene files
-        var dirsChecked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in sceneFiles)
+        // Auto-detect: scan from common root of all scene files
+        var commonRoot = CompanionSearch.GetCommonRoot(sceneFiles);
+        if (commonRoot != null)
         {
-            var dir = Path.GetDirectoryName(file);
-            if (dir == null || !dirsChecked.Add(dir)) continue;
-
-            // Check for sibling TEX/ directory (e.g., SKIN/ → ../TEX/)
-            var parent = Path.GetDirectoryName(dir);
-            if (parent != null)
-            {
-                var siblingTex = Path.Combine(parent, "TEX");
-                if (Directory.Exists(siblingTex) && dirsChecked.Add(siblingTex))
-                {
-                    foreach (var tf in GetTexFiles(siblingTex))
-                        ParseTexIntoCache(tf, cache, parsedFiles, verbose);
-                }
-            }
-
-            // Also check same directory for .tex/.tex.ps2 files
-            foreach (var tf in GetTexFiles(dir))
+            var texFiles = CompanionSearch.FindAllByExtension(
+                commonRoot, [".tex.ps2", ".tex"]);
+            foreach (var tf in texFiles)
                 ParseTexIntoCache(tf, cache, parsedFiles, verbose);
         }
 
@@ -314,50 +300,34 @@ public static class Ps2SceneCommand
 
     /// <summary>
     /// Try to load a companion TEX file for a specific scene file.
-    /// Searches: same directory, sibling TEX/ directory.
+    /// Searches: same directory → sibling TEX/ → ancestor walk (Textures/, TEX/).
     /// </summary>
     private static Dictionary<uint, Ps2Texture>? TryLoadCompanionTex(string sceneFile, string stem)
     {
         var dir = Path.GetDirectoryName(sceneFile);
         if (dir == null) return null;
 
-        // Search locations for companion TEX
-        string?[] searchDirs = [dir, null];
-        var parent = Path.GetDirectoryName(dir);
-        if (parent != null)
-            searchDirs[1] = Path.Combine(parent, "TEX");
+        var texFile = CompanionSearch.FindCompanion(
+            dir, stem, [".tex.ps2", ".tex"], ["TEX", "Textures"]);
+        if (texFile == null) return null;
 
-        foreach (var searchDir in searchDirs)
+        try
         {
-            if (searchDir == null || !Directory.Exists(searchDir)) continue;
+            var result = Ps2TexFile.Parse(texFile);
+            if (!result.Success) return null;
 
-            // Try stem.tex.ps2 then stem.tex
-            foreach (var ext in new[] { ".tex.ps2", ".tex" })
+            var cache = new Dictionary<uint, Ps2Texture>();
+            foreach (var tex in result.Textures)
             {
-                var texFile = Path.Combine(searchDir, stem + ext);
-                if (!File.Exists(texFile)) continue;
-
-                try
-                {
-                    var result = Ps2TexFile.Parse(texFile);
-                    if (!result.Success) continue;
-
-                    var cache = new Dictionary<uint, Ps2Texture>();
-                    foreach (var tex in result.Textures)
-                    {
-                        if (tex.Pixels != null)
-                            cache.TryAdd(tex.Checksum, tex);
-                    }
-                    return cache;
-                }
-                catch
-                {
-                    // Skip unparseable TEX files
-                }
+                if (tex.Pixels != null)
+                    cache.TryAdd(tex.Checksum, tex);
             }
+            return cache;
         }
-
-        return null;
+        catch
+        {
+            return null;
+        }
     }
 
     private static void ParseTexIntoCache(string texFile,
@@ -405,36 +375,27 @@ public static class Ps2SceneCommand
     }
 
     /// <summary>
-    /// Auto-discover a companion .ske.ps2 file for a .skin.ps2 file.
-    /// Searches: same directory, sibling SKE/ directory.
+    /// Auto-discover a companion skeleton file for a .skin.ps2 file.
+    /// Searches: same directory → sibling SKE/ → ancestor walk (Skeletons/, SKE/).
+    /// Tries .ske.ps2 first, then .ske (THPS4 uses .ske without .ps2 suffix).
     /// </summary>
     private static Ps2Skeleton? TryDiscoverSkeleton(string skinFile, string stem)
     {
         var dir = Path.GetDirectoryName(skinFile);
         if (dir == null) return null;
 
-        // Search locations: same directory, sibling SKE/ directory
-        var parent = Path.GetDirectoryName(dir);
-        string?[] searchDirs = [dir, parent != null ? Path.Combine(parent, "SKE") : null];
+        var skeFile = CompanionSearch.FindCompanion(
+            dir, stem, [".ske.ps2", ".ske"], ["SKE", "Skeletons"]);
+        if (skeFile == null) return null;
 
-        foreach (var searchDir in searchDirs)
+        try
         {
-            if (searchDir == null || !Directory.Exists(searchDir)) continue;
-
-            var skeFile = Path.Combine(searchDir, stem + ".ske.ps2");
-            if (!File.Exists(skeFile)) continue;
-
-            try
-            {
-                return Ps2SkeletonFile.Parse(skeFile);
-            }
-            catch
-            {
-                // Skip unparseable skeleton files
-            }
+            return Ps2SkeletonFile.Parse(skeFile);
         }
-
-        return null;
+        catch
+        {
+            return null;
+        }
     }
 
     private static bool IsPs2SceneFile(string path)

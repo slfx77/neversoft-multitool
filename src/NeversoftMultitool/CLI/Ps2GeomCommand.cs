@@ -211,25 +211,13 @@ public static class Ps2GeomCommand
             return cache;
         }
 
-        // Auto-detect: find sibling TEX/ directories
-        var dirsChecked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in geomFiles)
+        // Auto-detect: scan from common root of all GEOM files
+        var commonRoot = CompanionSearch.GetCommonRoot(geomFiles);
+        if (commonRoot != null)
         {
-            var dir = Path.GetDirectoryName(file);
-            if (dir == null || !dirsChecked.Add(dir)) continue;
-
-            var parent = Path.GetDirectoryName(dir);
-            if (parent != null)
-            {
-                var siblingTex = Path.Combine(parent, "TEX");
-                if (Directory.Exists(siblingTex) && dirsChecked.Add(siblingTex))
-                {
-                    foreach (var tf in GetTexFiles(siblingTex))
-                        ParseTexIntoCache(tf, cache, parsedFiles, verbose);
-                }
-            }
-
-            foreach (var tf in GetTexFiles(dir))
+            var texFiles = CompanionSearch.FindAllByExtension(
+                commonRoot, [".tex.ps2", ".tex"]);
+            foreach (var tf in texFiles)
                 ParseTexIntoCache(tf, cache, parsedFiles, verbose);
         }
 
@@ -241,38 +229,27 @@ public static class Ps2GeomCommand
         var dir = Path.GetDirectoryName(geomFile);
         if (dir == null) return null;
 
-        string?[] searchDirs = [dir, null];
-        var parent = Path.GetDirectoryName(dir);
-        if (parent != null)
-            searchDirs[1] = Path.Combine(parent, "TEX");
+        var texFile = CompanionSearch.FindCompanion(
+            dir, stem, [".tex.ps2", ".tex"], ["TEX", "Textures"]);
+        if (texFile == null) return null;
 
-        foreach (var searchDir in searchDirs)
+        try
         {
-            if (searchDir == null || !Directory.Exists(searchDir)) continue;
+            var result = Ps2TexFile.Parse(texFile);
+            if (!result.Success) return null;
 
-            foreach (var ext in new[] { ".tex.ps2", ".tex" })
+            var perCache = new Dictionary<uint, Ps2Texture>();
+            foreach (var tex in result.Textures)
             {
-                var texFile = Path.Combine(searchDir, stem + ext);
-                if (!File.Exists(texFile)) continue;
-
-                try
-                {
-                    var result = Ps2TexFile.Parse(texFile);
-                    if (!result.Success) continue;
-
-                    var perCache = new Dictionary<uint, Ps2Texture>();
-                    foreach (var tex in result.Textures)
-                    {
-                        if (tex.Pixels != null)
-                            perCache.TryAdd(tex.Checksum, tex);
-                    }
-                    return perCache;
-                }
-                catch { }
+                if (tex.Pixels != null)
+                    perCache.TryAdd(tex.Checksum, tex);
             }
+            return perCache;
         }
-
-        return null;
+        catch
+        {
+            return null;
+        }
     }
 
     private static void ParseTexIntoCache(string texFile,
@@ -320,25 +297,13 @@ public static class Ps2GeomCommand
             return mapping;
         }
 
-        // Auto-detect: find sibling TEX/ directories (same as BuildTextureCache)
-        var dirsChecked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in geomFiles)
+        // Auto-detect: scan from common root of all GEOM files
+        var commonRoot = CompanionSearch.GetCommonRoot(geomFiles);
+        if (commonRoot != null)
         {
-            var dir = Path.GetDirectoryName(file);
-            if (dir == null || !dirsChecked.Add(dir)) continue;
-
-            var parent = Path.GetDirectoryName(dir);
-            if (parent != null)
-            {
-                var siblingTex = Path.Combine(parent, "TEX");
-                if (Directory.Exists(siblingTex) && dirsChecked.Add(siblingTex))
-                {
-                    foreach (var tf in GetTexFiles(siblingTex))
-                        MergeVramMapping(tf, mapping, parsedFiles, verbose);
-                }
-            }
-
-            foreach (var tf in GetTexFiles(dir))
+            var texFiles = CompanionSearch.FindAllByExtension(
+                commonRoot, [".tex.ps2", ".tex"]);
+            foreach (var tf in texFiles)
                 MergeVramMapping(tf, mapping, parsedFiles, verbose);
         }
 
