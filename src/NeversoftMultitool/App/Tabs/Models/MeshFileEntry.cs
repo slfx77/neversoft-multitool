@@ -21,6 +21,9 @@ public class MeshFileEntry : BaseFileEntry
     internal bool IsPlacedLevel => CompanionPsxPath != null;
 
     internal bool IsPsx => Format == "PSX";
+    internal bool IsRwDff => Format == "RW DFF";
+    internal bool IsRwBsp => Format == "RW BSP";
+    internal bool IsCol => Format == "COL";
 
     public string FormatDisplay => Format;
     public string ObjectsDisplay => ObjectCount.ToString("N0");

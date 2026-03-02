@@ -5,6 +5,7 @@ using Windows.Media.Playback;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Audio;
 
 namespace NeversoftMultitool;
@@ -59,7 +60,26 @@ public sealed partial class AudioConverterTab : UserControl
             .Where(f => string.IsNullOrEmpty(Path.GetExtension(f)))
             .Where(f => VagDecoder.Probe(f) != null));
 
-        foreach (var filePath in audioFiles.OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase))
+        // Probe audio files for unsupported variants (e.g. ADX encoding type)
+        var unsupported = new List<ScanSummaryDialog.UnsupportedFile>();
+        var supported = new List<string>();
+        foreach (var filePath in audioFiles)
+        {
+            var probe = FormatProbe.ProbeAudio(filePath);
+            if (probe.Support == FormatProbe.FormatSupport.Unsupported)
+                unsupported.Add(new(Path.GetFileName(filePath)!, probe.UnsupportedReason ?? "Unknown format"));
+            else
+                supported.Add(filePath);
+        }
+
+        if (unsupported.Count > 0)
+        {
+            var proceed = await ScanSummaryDialog.ShowIfNeeded(
+                XamlRoot, supported.Count, unsupported);
+            if (!proceed) return;
+        }
+
+        foreach (var filePath in supported.OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase))
         {
             var fileName = Path.GetFileName(filePath)!;
             var ext = Path.GetExtension(filePath).ToLowerInvariant();

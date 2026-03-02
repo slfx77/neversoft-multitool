@@ -79,6 +79,15 @@
           </NavigationViewItem.Icon>
         </NavigationViewItem>
 
+        <!--  Game Unpacker  -->
+        <NavigationViewItem
+          Content="Game Unpacker"
+          Tag="Unpack">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE74C;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+
         <NavigationViewItemSeparator />
 
         <NavigationViewItemHeader Content="Audio" />
@@ -172,6 +181,10 @@
               Visibility="Collapsed" />
             <tabs:ArchiveExtractorTab
               x:Name="ArchiveExtractorTabContent"
+              VerticalAlignment="Stretch"
+              Visibility="Collapsed" />
+            <tabs:UnpackTab
+              x:Name="UnpackTabContent"
               VerticalAlignment="Stretch"
               Visibility="Collapsed" />
             <tabs:AudioConverterTab

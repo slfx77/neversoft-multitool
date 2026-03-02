@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Windows.Storage.Pickers;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
 using WinRT.Interop;
 
@@ -31,6 +32,7 @@ public sealed partial class ArchiveExtractorTab : UserControl
         picker.FileTypeFilter.Add(".prx");
         picker.FileTypeFilter.Add(".ddx");
         picker.FileTypeFilter.Add(".bon");
+        picker.FileTypeFilter.Add(".pak");
         var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
         InitializeWithWindow.Initialize(picker, hwnd);
 
@@ -75,7 +77,9 @@ public sealed partial class ArchiveExtractorTab : UserControl
                     entries = BonArchive.GetFileList(_archivePath);
                     break;
                 default:
-                    MainWindow.Instance?.SetStatus($"Unsupported archive format: {ext}");
+                    var probe = FormatProbe.ProbeArchive(_archivePath);
+                    var reason = probe.UnsupportedReason ?? $"Unsupported archive format: {ext}";
+                    MainWindow.Instance?.SetStatus(reason);
                     return;
             }
 

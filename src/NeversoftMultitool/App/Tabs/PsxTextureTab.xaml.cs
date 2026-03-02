@@ -34,16 +34,34 @@ public sealed partial class PsxTextureTab : UserControl
 
         _items.Clear();
         _parentFiles.Clear();
-        var textureFiles = Directory.GetFiles(_inputDir)
+        var candidateFiles = Directory.GetFiles(_inputDir)
             .Where(f => Path.GetExtension(f).Equals(".psx", StringComparison.OrdinalIgnoreCase)
                         || IsPs2TextureFile(f))
-            .Select(Path.GetFileName)
-            .Where(f => f != null)
-            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+            .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        foreach (var file in textureFiles)
+        // Probe files for format support
+        var unsupported = new List<ScanSummaryDialog.UnsupportedFile>();
+        var supported = new List<string>();
+        foreach (var file in candidateFiles)
         {
-            var entry = new PsxFileEntry { FileName = file! };
+            var probe = FormatProbe.ProbeTexture(file);
+            if (probe.Support == FormatProbe.FormatSupport.Unsupported)
+                unsupported.Add(new(Path.GetFileName(file)!, probe.UnsupportedReason ?? "Unknown format"));
+            else
+                supported.Add(file);
+        }
+
+        if (unsupported.Count > 0)
+        {
+            var proceed = await ScanSummaryDialog.ShowIfNeeded(
+                XamlRoot, supported.Count, unsupported);
+            if (!proceed) return;
+        }
+
+        foreach (var file in supported)
+        {
+            var entry = new PsxFileEntry { FileName = Path.GetFileName(file)! };
             _parentFiles.Add(entry);
             _items.Add(entry);
         }

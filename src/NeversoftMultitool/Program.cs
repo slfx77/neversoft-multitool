@@ -48,6 +48,10 @@ public static class Program
         rootCommand.Subcommands.Add(Ps2TexCommand.Create());
         rootCommand.Subcommands.Add(Ps2SceneCommand.Create());
         rootCommand.Subcommands.Add(Ps2GeomCommand.Create());
+        rootCommand.Subcommands.Add(RwDffCommand.Create());
+        rootCommand.Subcommands.Add(RwBspCommand.Create());
+        rootCommand.Subcommands.Add(ColCommand.Create());
+        rootCommand.Subcommands.Add(UnpackCommand.Create());
 
         return rootCommand.Parse(args).Invoke();
     }
@@ -96,6 +100,11 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]str[/]       Convert PS1 STR (MDEC) video files to MP4");
         AnsiConsole.MarkupLine("  [green]psx-mesh[/]  Convert PSX model files to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]ps2tex[/]    Extract textures from PS2 TEX/IMG files to PNG");
+        AnsiConsole.MarkupLine("  [green]ps2scene[/]  Convert PS2 scene files (MDL/SKIN) to glTF (.glb)");
+        AnsiConsole.MarkupLine("  [green]ps2geom[/]   Convert PS2 GEOM level geometry to glTF (.glb)");
+        AnsiConsole.MarkupLine("  [green]rwdff[/]     Convert RenderWare DFF mesh files (.SKN) to glTF (.glb)");
+        AnsiConsole.MarkupLine("  [green]col[/]       Convert collision (.col) files to glTF (.glb)");
+        AnsiConsole.MarkupLine("  [green]unpack[/]    Recursively extract all archives in-place");
 #if WINDOWS_GUI
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]For GUI mode:[/]");
@@ -120,7 +129,12 @@ public static class Program
             args.Any(a => a.Equals("sfd", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("str", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("psx-mesh", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("ps2tex", StringComparison.OrdinalIgnoreCase)));
+            args.Any(a => a.Equals("ps2tex", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("ps2scene", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("ps2geom", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("rwdff", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("col", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("unpack", StringComparison.OrdinalIgnoreCase)));
     }
 #endif
 }

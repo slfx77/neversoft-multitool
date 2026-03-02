@@ -1,6 +1,6 @@
-using System.Text;
-
 namespace NeversoftMultitool.Core.Formats.Psx;
+
+using static RwChunkReader;
 
 /// <summary>
 ///     Parses RenderWare 3.x Texture Dictionary (TXD) files to extract textures as RGBA pixel data.
@@ -10,12 +10,6 @@ namespace NeversoftMultitool.Core.Formats.Psx;
 /// </summary>
 public static class RwTxdFile
 {
-    // RenderWare chunk types
-    private const uint RW_STRUCT = 0x0001;
-    private const uint RW_STRING = 0x0002;
-    private const uint RW_TEX_DICT = 0x0016;
-    private const uint RW_TEX_NATIVE = 0x0015;
-
     // RW rasterFormat flags
     private const int FMT_PAL4 = 0x4000;
     private const int FMT_PAL8 = 0x2000;
@@ -347,54 +341,6 @@ public static class RwTxdFile
 
         for (var i = 3; i < pixels.Length; i += 4)
             pixels[i] = 255;
-    }
-
-    // ── RW chunk reading helpers ──
-
-    private static (uint type, uint size, uint version) ReadChunkHeader(byte[] data, ref int offset)
-    {
-        var type = BitConverter.ToUInt32(data, offset);
-        var size = BitConverter.ToUInt32(data, offset + 4);
-        var version = BitConverter.ToUInt32(data, offset + 8);
-        offset += 12;
-        return (type, size, version);
-    }
-
-    private static bool TryReadStruct(byte[] data, ref int offset, int endOffset,
-        out uint type, out uint size)
-    {
-        type = 0;
-        size = 0;
-        if (offset + 12 > endOffset || offset + 12 > data.Length) return false;
-
-        type = BitConverter.ToUInt32(data, offset);
-        size = BitConverter.ToUInt32(data, offset + 4);
-        offset += 12;
-        return type == RW_STRUCT;
-    }
-
-    private static bool TryReadChunk(byte[] data, ref int offset, int endOffset,
-        uint expectedType, out uint size)
-    {
-        size = 0;
-        if (offset + 12 > endOffset || offset + 12 > data.Length) return false;
-
-        var type = BitConverter.ToUInt32(data, offset);
-        size = BitConverter.ToUInt32(data, offset + 4);
-        offset += 12;
-        return type == expectedType;
-    }
-
-    private static string ReadNullTerminatedString(byte[] data, int offset, int maxLength)
-    {
-        var end = offset + maxLength;
-        if (end > data.Length) end = data.Length;
-
-        var len = 0;
-        while (offset + len < end && data[offset + len] != 0)
-            len++;
-
-        return Encoding.ASCII.GetString(data, offset, len);
     }
 
     private static uint DepthToPsm(int depth, int rasterFormat)

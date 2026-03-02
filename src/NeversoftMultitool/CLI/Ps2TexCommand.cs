@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Diagnostics;
+using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Psx;
 using Spectre.Console;
 
@@ -66,8 +67,26 @@ public static class Ps2TexCommand
             return 0;
         }
 
+        // Probe for unsupported files
+        var (supported, unsupported) = FormatProbe.PartitionFiles(files, FormatProbe.ProbeTexture);
+        if (unsupported.Count > 0)
+        {
+            AnsiConsole.MarkupLine(
+                $"Found [green]{files.Count}[/] files " +
+                $"([green]{supported.Count}[/] supported, [yellow]{unsupported.Count}[/] unsupported)");
+            foreach (var (fileName, reason) in unsupported)
+                AnsiConsole.MarkupLine($"  [yellow]\u26a0[/] {Markup.Escape(fileName)}: {Markup.Escape(reason)}");
+            files = supported;
+        }
+
+        if (files.Count == 0)
+        {
+            AnsiConsole.MarkupLine("[yellow]No supported TEX/IMG files to process.[/]");
+            return 0;
+        }
+
         Directory.CreateDirectory(output);
-        AnsiConsole.MarkupLine($"Found [green]{files.Count}[/] TEX/IMG file(s)");
+        AnsiConsole.MarkupLine($"Processing [green]{files.Count}[/] TEX/IMG file(s)");
 
         var stopwatch = Stopwatch.StartNew();
         var converted = 0;

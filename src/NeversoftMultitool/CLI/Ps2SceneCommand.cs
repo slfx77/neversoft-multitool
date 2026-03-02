@@ -34,7 +34,7 @@ public static class Ps2SceneCommand
         };
         var skeletonOption = new Option<string?>("--ske")
         {
-            Description = "Skeleton file (.ske.ps2) or directory. Auto-discovered for .skin.ps2 files if not specified."
+            Description = "Skeleton file (.ske.ps2 or .ske) or directory. Auto-discovered for .skin.ps2 files if not specified."
         };
 
         var command = new Command("ps2scene", "Convert PS2 scene files (MDL/SKIN) to glTF (.glb)");
@@ -87,6 +87,24 @@ public static class Ps2SceneCommand
             return 0;
         }
 
+        // Probe for unsupported files (THAW .skin.ps2, Xbox/PC scene files)
+        var (supported, unsupported) = FormatProbe.PartitionFiles(files, FormatProbe.ProbeMesh);
+        if (unsupported.Count > 0)
+        {
+            AnsiConsole.MarkupLine(
+                $"Found [green]{files.Count}[/] files " +
+                $"([green]{supported.Count}[/] supported, [yellow]{unsupported.Count}[/] unsupported)");
+            foreach (var (fileName, reason) in unsupported)
+                AnsiConsole.MarkupLine($"  [yellow]\u26a0[/] {Markup.Escape(fileName)}: {Markup.Escape(reason)}");
+            files = supported;
+        }
+
+        if (files.Count == 0)
+        {
+            AnsiConsole.MarkupLine("[yellow]No supported PS2 scene files to process.[/]");
+            return 0;
+        }
+
         // Build texture lookup if requested
         Ps2SceneGltfWriter.TextureProvider? textureProvider = null;
         Dictionary<uint, Ps2Texture>? textureCache = null;
@@ -117,19 +135,40 @@ public static class Ps2SceneCommand
         {
             if (File.Exists(skePath))
             {
-                explicitSkeleton = Ps2SkeletonFile.Parse(skePath);
+                explicitSkeleton = ParseSkeletonFile(skePath);
                 AnsiConsole.MarkupLine(
                     $"Loaded skeleton: [green]{explicitSkeleton.Bones.Length} bones[/]");
             }
             else if (Directory.Exists(skePath))
             {
                 skeletonCache = new Dictionary<string, Ps2Skeleton>(StringComparer.OrdinalIgnoreCase);
+
+                // Load .ske.ps2 files (PS2-specific format)
                 foreach (var skeFile in Directory.GetFiles(skePath, "*.ske.ps2"))
                 {
                     var skeStem = Path.GetFileName(skeFile).Replace(".ske.ps2", "", StringComparison.OrdinalIgnoreCase);
                     try
                     {
                         skeletonCache[skeStem] = Ps2SkeletonFile.Parse(skeFile);
+                    }
+                    catch
+                    {
+                        // Skip unparseable skeleton files
+                    }
+                }
+
+                // Load .ske files (cross-platform format, used by THPS4)
+                // Only add if no .ske.ps2 already loaded for same stem
+                foreach (var skeFile in Directory.GetFiles(skePath, "*.ske"))
+                {
+                    if (skeFile.EndsWith(".ske.ps2", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    var skeStem = Path.GetFileName(skeFile).Replace(".ske", "", StringComparison.OrdinalIgnoreCase);
+                    if (skeletonCache.ContainsKey(skeStem))
+                        continue;
+                    try
+                    {
+                        skeletonCache[skeStem] = SkeletonFile.Parse(skeFile);
                     }
                     catch
                     {
@@ -265,7 +304,7 @@ public static class Ps2SceneCommand
     /// <summary>
     ///     Auto-discover a companion skeleton file for a .skin.ps2 file.
     ///     Searches: same directory → sibling SKE/ → ancestor walk (Skeletons/, SKE/).
-    ///     Tries .ske.ps2 first, then .ske (THPS4 uses .ske without .ps2 suffix).
+    ///     Tries .ske.ps2 first (PS2-specific), then .ske (cross-platform, used by THPS4).
     /// </summary>
     private static Ps2Skeleton? TryDiscoverSkeleton(string skinFile, string stem)
     {
@@ -278,12 +317,24 @@ public static class Ps2SceneCommand
 
         try
         {
-            return Ps2SkeletonFile.Parse(skeFile);
+            return ParseSkeletonFile(skeFile);
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>
+    ///     Parse a skeleton file, routing to the correct parser based on extension.
+    /// </summary>
+    private static Ps2Skeleton ParseSkeletonFile(string path)
+    {
+        if (path.EndsWith(".ske.ps2", StringComparison.OrdinalIgnoreCase))
+            return Ps2SkeletonFile.Parse(path);
+
+        // Cross-platform .ske format (THPS4/THUG/THUG2)
+        return SkeletonFile.Parse(path);
     }
 
     private static bool IsPs2SceneFile(string path)
