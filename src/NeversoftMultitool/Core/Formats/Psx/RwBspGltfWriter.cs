@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -36,44 +37,7 @@ public static class RwBspGltfWriter
 
         // Merge all sections into a single mesh, grouped by material
         foreach (var section in world.Sections)
-        {
-            if (section.Vertices.Length == 0 || section.Triangles.Length == 0)
-                continue;
-
-            // Group triangles by material index
-            var trisByMaterial = new Dictionary<int, List<RwTriangle>>();
-            foreach (var tri in section.Triangles)
-            {
-                if (!trisByMaterial.TryGetValue(tri.MaterialIndex, out var list))
-                {
-                    list = [];
-                    trisByMaterial[tri.MaterialIndex] = list;
-                }
-
-                list.Add(tri);
-            }
-
-            foreach (var (matIndex, triangles) in trisByMaterial)
-            {
-                // Resolve material from the World's shared list (with matListWindowBase offset)
-                var globalMatIndex = section.MatListWindowBase + matIndex;
-                var material = globalMatIndex >= 0 && globalMatIndex < world.Materials.Length
-                    ? GetOrCreateMaterial(world.Materials[globalMatIndex], materialCache, textureProvider)
-                    : GetDefaultMaterial(materialCache);
-
-                var prim = gltfMesh.UsePrimitive(material);
-
-                foreach (var tri in triangles)
-                {
-                    var va = MakeVertex(section, tri.V0);
-                    var vb = MakeVertex(section, tri.V1);
-                    var vc = MakeVertex(section, tri.V2);
-                    prim.AddTriangle(va, vb, vc);
-                }
-
-                totalTriangles += triangles.Count;
-            }
-        }
+            totalTriangles += AddSection(section, world.Materials, gltfMesh, materialCache, textureProvider);
 
         if (totalTriangles == 0)
             return 0;
@@ -85,6 +49,62 @@ public static class RwBspGltfWriter
         model.SaveGLB(outputPath);
 
         return totalTriangles;
+    }
+
+    private static int AddSection(RwBspSection section, RwMaterial[] materials,
+        MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty> gltfMesh,
+        Dictionary<string, MaterialBuilder> materialCache,
+        RwDffGltfWriter.TextureProvider? textureProvider)
+    {
+        if (section.Vertices.Length == 0 || section.Triangles.Length == 0)
+            return 0;
+
+        // Group triangles by material index
+        var trisByMaterial = new Dictionary<int, List<RwTriangle>>();
+        foreach (var tri in section.Triangles)
+        {
+            if (!trisByMaterial.TryGetValue(tri.MaterialIndex, out var list))
+            {
+                list = [];
+                trisByMaterial[tri.MaterialIndex] = list;
+            }
+
+            list.Add(tri);
+        }
+
+        var triangleCount = 0;
+        foreach (var (matIndex, triangles) in trisByMaterial)
+        {
+            // Resolve material from the World's shared list (with matListWindowBase offset)
+            var globalMatIndex = section.MatListWindowBase + matIndex;
+            if (globalMatIndex < 0 || globalMatIndex >= materials.Length)
+                continue;
+
+            var rwMat = materials[globalMatIndex];
+
+            // Skip untextured materials (collision/triggers) and debug wireframe textures.
+            if (string.IsNullOrEmpty(rwMat.TextureName))
+                continue;
+
+            var texBaseName = Path.GetFileNameWithoutExtension(rwMat.TextureName);
+            if (string.Equals(texBaseName, "wire", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var material = GetOrCreateMaterial(rwMat, materialCache, textureProvider);
+            var prim = gltfMesh.UsePrimitive(material);
+
+            foreach (var tri in triangles)
+            {
+                var va = MakeVertex(section, tri.V0);
+                var vb = MakeVertex(section, tri.V1);
+                var vc = MakeVertex(section, tri.V2);
+                prim.AddTriangle(va, vb, vc);
+            }
+
+            triangleCount += triangles.Count;
+        }
+
+        return triangleCount;
     }
 
     private static VERTEX MakeVertex(RwBspSection section, int index)
@@ -122,7 +142,10 @@ public static class RwBspGltfWriter
         Dictionary<string, MaterialBuilder> cache,
         RwDffGltfWriter.TextureProvider? textureProvider)
     {
+        // Cache key includes GsAlpha so the same texture with different blend modes gets separate materials
         var key = material.TextureName ?? $"mat_{material.R}_{material.G}_{material.B}_{material.A}";
+        if (material.GsAlpha != 0)
+            key += $"_gs{material.GsAlpha:X2}";
 
         if (cache.TryGetValue(key, out var existing))
             return existing;
@@ -138,33 +161,44 @@ public static class RwBspGltfWriter
             material.A / 255f);
         builder.WithBaseColor(baseColor);
 
+        var textureHasAlpha = false;
         if (textureProvider != null && !string.IsNullOrEmpty(material.TextureName))
         {
             var pngBytes = textureProvider(material.TextureName);
             if (pngBytes != null)
             {
-                var memImage = new MemoryImage(pngBytes);
-                builder.WithChannelImage(KnownChannel.BaseColor, memImage);
+                // Texture processing depends on blend mode:
+                // - Additive: dark pixels → transparent, bright → opaque white overlay
+                // - Subtractive: dark pixels → transparent, bright → opaque black shadow
+                // - Other: color-key magenta (255,0,255) backgrounds to alpha transparency
+                if (material.IsAdditive)
+                {
+                    pngBytes = GltfTextureHelper.ConvertBlendTexture(pngBytes, 255, 255, 255);
+                    textureHasAlpha = true;
+                }
+                else if (material.IsSubtractive)
+                {
+                    pngBytes = GltfTextureHelper.ConvertBlendTexture(pngBytes, 0, 0, 0);
+                    textureHasAlpha = true;
+                }
+                else
+                {
+                    (pngBytes, textureHasAlpha) = GltfTextureHelper.ApplyColorKey(pngBytes);
+                }
+
+                builder.WithChannelImage(KnownChannel.BaseColor, new MemoryImage(pngBytes));
             }
         }
 
-        if (material.A < 255)
+        // Alpha mode based on decoded PS2 GS ALPHA blend formula:
+        // - 0x44 (alpha blend), additive, subtractive → BLEND (real blending operations)
+        // - Translucent material color (A < 255) → BLEND
+        // - Texture has alpha (from TXD palette, magenta color-key, or blend conversion) → MASK
+        // - Degenerate values (0x0A, 0x20, 0x2A etc. → formula = Cs = opaque) → OPAQUE
+        if (material.A < 255 || material.GsAlpha == 0x44 || material.IsAdditive || material.IsSubtractive)
             builder.WithAlpha(AlphaMode.BLEND);
-
-        cache[key] = builder;
-        return builder;
-    }
-
-    private static MaterialBuilder GetDefaultMaterial(Dictionary<string, MaterialBuilder> cache)
-    {
-        const string key = "__default__";
-        if (cache.TryGetValue(key, out var existing))
-            return existing;
-
-        var builder = new MaterialBuilder(key)
-            .WithUnlitShader()
-            .WithBaseColor(Vector4.One)
-            .WithDoubleSide(true);
+        else if (textureHasAlpha)
+            builder.WithAlpha(AlphaMode.MASK);
 
         cache[key] = builder;
         return builder;

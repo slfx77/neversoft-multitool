@@ -1,3 +1,5 @@
+using NeversoftMultitool.Core.Formats.XbxScene;
+
 namespace NeversoftMultitool.Core;
 
 /// <summary>
@@ -21,16 +23,20 @@ public static class FormatProbe
         var lower = name.ToLowerInvariant();
 
         // Multi-part extensions first
-        if (lower.EndsWith(".tex.xbx") || lower.EndsWith(".tex.wpc") ||
-            lower.EndsWith(".tex.xen") || lower.EndsWith(".tex.ngc") ||
+        if (lower.EndsWith(".tex.xbx") || lower.EndsWith(".tex.wpc"))
+            return ProbeXbxTexFile(filePath);
+
+        if (lower.EndsWith(".img.xbx") || lower.EndsWith(".img.wpc"))
+            return ProbeXbxImgFile(filePath);
+
+        if (lower.EndsWith(".tex.xen") || lower.EndsWith(".tex.ngc") ||
             lower.EndsWith(".tex.ps3") || lower.EndsWith(".tex.dat"))
             return new(FormatSupport.Unsupported, "Cross-Platform TEX",
-                "Xbox/PC/GameCube TEX textures are not yet supported");
+                "GameCube/PS3 TEX textures are not yet supported");
 
-        if (lower.EndsWith(".img.xbx") || lower.EndsWith(".img.wpc") ||
-            lower.EndsWith(".img.xen") || lower.EndsWith(".img.ps3"))
+        if (lower.EndsWith(".img.xen") || lower.EndsWith(".img.ps3"))
             return new(FormatSupport.Unsupported, "Cross-Platform IMG",
-                "Xbox/PC IMG single textures are not yet supported");
+                "Xenon/PS3 IMG single textures are not yet supported");
 
         // PS2 compound extensions
         if (lower.EndsWith(".tex.ps2") || lower.EndsWith(".img.ps2"))
@@ -80,6 +86,77 @@ public static class FormatProbe
         }
     }
 
+    private static FormatProbeResult ProbeXbxTexFile(string filePath)
+    {
+        try
+        {
+            var data = new byte[4];
+            using var fs = File.OpenRead(filePath);
+            var bytesRead = fs.Read(data, 0, 4);
+            if (bytesRead < 4)
+                return new(FormatSupport.Unsupported, "Unknown", "File too small");
+
+            var version = BitConverter.ToUInt32(data, 0);
+            if (version == 1)
+                return new(FormatSupport.Supported, "Xbox TEX");
+
+            return new(FormatSupport.Unsupported, $"Xbox TEX (v{version})",
+                $"Unsupported Xbox TEX version {version} (expected 1)");
+        }
+        catch
+        {
+            return new(FormatSupport.Unsupported, "Unknown", "Failed to read file header");
+        }
+    }
+
+    private static FormatProbeResult ProbeXbxImgFile(string filePath)
+    {
+        try
+        {
+            var data = new byte[4];
+            using var fs = File.OpenRead(filePath);
+            var bytesRead = fs.Read(data, 0, 4);
+            if (bytesRead < 4)
+                return new(FormatSupport.Unsupported, "Unknown", "File too small");
+
+            var version = BitConverter.ToUInt32(data, 0);
+            if (version == 2)
+                return new(FormatSupport.Supported, "Xbox IMG");
+
+            return new(FormatSupport.Unsupported, $"Xbox IMG (v{version})",
+                $"Unsupported Xbox IMG version {version} (expected 2)");
+        }
+        catch
+        {
+            return new(FormatSupport.Unsupported, "Unknown", "Failed to read file header");
+        }
+    }
+
+    private static FormatProbeResult ProbeXbxSceneFile(string filePath)
+    {
+        try
+        {
+            var data = new byte[12];
+            using var fs = File.OpenRead(filePath);
+            var bytesRead = fs.Read(data, 0, 12);
+            if (bytesRead < 12)
+                return new(FormatSupport.Unsupported, "Unknown", "File too small");
+
+            if (XbxSceneFile.IsXbxScene(data))
+                return new(FormatSupport.Supported, "Xbox Scene");
+
+            var v0 = BitConverter.ToUInt32(data, 0);
+            var v1 = BitConverter.ToUInt32(data, 4);
+            var v2 = BitConverter.ToUInt32(data, 8);
+            return new(FormatSupport.Unsupported, "Xbox Scene",
+                $"Unsupported version ({v0},{v1},{v2}), expected (1,1,1)");
+        }
+        catch
+        {
+            return new(FormatSupport.Unsupported, "Unknown", "Failed to read file header");
+        }
+    }
+
     // --- Mesh probing ---
 
     public static FormatProbeResult ProbeMesh(string filePath)
@@ -88,13 +165,19 @@ public static class FormatProbe
         var lower = name.ToLowerInvariant();
 
         // Cross-platform scene extensions (Xbox/PC)
-        if (lower.EndsWith(".skin.xbx") || lower.EndsWith(".mdl.xbx") || lower.EndsWith(".scn.xbx"))
-            return new(FormatSupport.Unsupported, "Xbox Scene",
-                "Xbox scene files (.xbx) are not yet supported");
+        if (lower.EndsWith(".skin.xbx") || lower.EndsWith(".mdl.xbx"))
+            return ProbeXbxSceneFile(filePath);
 
-        if (lower.EndsWith(".skin.wpc") || lower.EndsWith(".mdl.wpc") || lower.EndsWith(".scn.wpc"))
-            return new(FormatSupport.Unsupported, "PC Scene (THAW)",
-                "THAW PC scene files (.wpc) are not yet supported");
+        if (lower.EndsWith(".scn.xbx"))
+            return new(FormatSupport.Unsupported, "Xbox Scene (SCN)",
+                "Xbox SCN scene files are not yet supported");
+
+        if (lower.EndsWith(".skin.wpc") || lower.EndsWith(".mdl.wpc"))
+            return ProbeXbxSceneFile(filePath);
+
+        if (lower.EndsWith(".scn.wpc"))
+            return new(FormatSupport.Unsupported, "PC Scene (SCN)",
+                "PC SCN scene files are not yet supported");
 
         // PS2 scene extensions
         if (lower.EndsWith(".skin.ps2") || lower.EndsWith(".mdl.ps2") || lower.EndsWith(".iskin.ps2"))

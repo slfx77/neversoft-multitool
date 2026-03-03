@@ -28,8 +28,8 @@ public static class ColGltfWriter
         var gltfScene = new SceneBuilder();
         var material = new MaterialBuilder("collision")
             .WithDoubleSide(true)
-            .WithMetallicRoughnessShader()
-            .WithChannelParam(KnownChannel.BaseColor, KnownProperty.RGBA, new Vector4(0.7f, 0.7f, 0.7f, 1.0f));
+            .WithUnlitShader()
+            .WithBaseColor(new Vector4(0.7f, 0.7f, 0.7f, 1.0f));
 
         var mesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>("collision");
         var prim = mesh.UsePrimitive(material);

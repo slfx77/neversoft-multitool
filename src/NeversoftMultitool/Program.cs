@@ -51,6 +51,8 @@ public static class Program
         rootCommand.Subcommands.Add(RwDffCommand.Create());
         rootCommand.Subcommands.Add(RwBspCommand.Create());
         rootCommand.Subcommands.Add(ColCommand.Create());
+        rootCommand.Subcommands.Add(XbxTexCommand.Create());
+        rootCommand.Subcommands.Add(XbxSceneCommand.Create());
         rootCommand.Subcommands.Add(UnpackCommand.Create());
 
         return rootCommand.Parse(args).Invoke();
@@ -104,6 +106,8 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]ps2geom[/]   Convert PS2 GEOM level geometry to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]rwdff[/]     Convert RenderWare DFF mesh files (.SKN) to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]col[/]       Convert collision (.col) files to glTF (.glb)");
+        AnsiConsole.MarkupLine("  [green]xbxtex[/]    Extract textures from Xbox/PC TEX/IMG files to PNG");
+        AnsiConsole.MarkupLine("  [green]xbxscene[/]  Convert Xbox/PC scene files (SKIN/MDL) to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]unpack[/]    Recursively extract all archives in-place");
 #if WINDOWS_GUI
         AnsiConsole.WriteLine();
@@ -134,6 +138,8 @@ public static class Program
             args.Any(a => a.Equals("ps2geom", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("rwdff", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("col", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("xbxtex", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("xbxscene", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("unpack", StringComparison.OrdinalIgnoreCase)));
     }
 #endif

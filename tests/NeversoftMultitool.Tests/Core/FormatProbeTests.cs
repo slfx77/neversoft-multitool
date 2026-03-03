@@ -98,27 +98,27 @@ public sealed class FormatProbeTests
     }
 
     [Fact]
-    public void ProbeTexture_CrossPlatformTexXbx_Unsupported()
+    public void ProbeTexture_XboxTexV1_Supported()
     {
-        var tempFile = CreateTempFile(".tex.xbx", [0x00]);
+        var tempFile = CreateTempFile(".tex.xbx", BitConverter.GetBytes(1u));
         try
         {
             var result = FormatProbe.ProbeTexture(tempFile);
-            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
-            Assert.Contains("Xbox/PC", result.UnsupportedReason!);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Equal("Xbox TEX", result.FormatName);
         }
         finally { File.Delete(tempFile); }
     }
 
     [Fact]
-    public void ProbeTexture_CrossPlatformImgWpc_Unsupported()
+    public void ProbeTexture_XboxImgV2_Supported()
     {
-        var tempFile = CreateTempFile(".img.wpc", [0x00]);
+        var tempFile = CreateTempFile(".img.wpc", BitConverter.GetBytes(2u));
         try
         {
             var result = FormatProbe.ProbeTexture(tempFile);
-            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
-            Assert.Contains("Xbox/PC", result.UnsupportedReason!);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Equal("Xbox IMG", result.FormatName);
         }
         finally { File.Delete(tempFile); }
     }
@@ -211,40 +211,50 @@ public sealed class FormatProbeTests
     }
 
     [Fact]
-    public void ProbeMesh_XboxScene_Unsupported()
+    public void ProbeMesh_XboxScene_Supported()
     {
-        var tempFile = CreateTempFile(".skin.xbx", [0x00]);
+        // Version triple (1,1,1)
+        var data = new byte[12];
+        BitConverter.GetBytes(1u).CopyTo(data, 0);
+        BitConverter.GetBytes(1u).CopyTo(data, 4);
+        BitConverter.GetBytes(1u).CopyTo(data, 8);
+        var tempFile = CreateTempFile(".skin.xbx", data);
         try
         {
             var result = FormatProbe.ProbeMesh(tempFile);
-            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
             Assert.Contains("Xbox", result.FormatName);
         }
         finally { File.Delete(tempFile); }
     }
 
     [Fact]
-    public void ProbeMesh_PcScene_Unsupported()
+    public void ProbeMesh_PcScene_Supported()
     {
-        var tempFile = CreateTempFile(".mdl.wpc", [0x00]);
+        // Version triple (1,1,1)
+        var data = new byte[12];
+        BitConverter.GetBytes(1u).CopyTo(data, 0);
+        BitConverter.GetBytes(1u).CopyTo(data, 4);
+        BitConverter.GetBytes(1u).CopyTo(data, 8);
+        var tempFile = CreateTempFile(".mdl.wpc", data);
         try
         {
             var result = FormatProbe.ProbeMesh(tempFile);
-            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
-            Assert.Contains("THAW", result.UnsupportedReason!);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Contains("Xbox", result.FormatName);
         }
         finally { File.Delete(tempFile); }
     }
 
     [Fact]
-    public void ProbeMesh_ColFile_Unsupported()
+    public void ProbeMesh_ColFileV9_Supported()
     {
-        var tempFile = CreateTempFile(".col.xbx", [0x00]);
+        var tempFile = CreateTempFile(".col.xbx", BitConverter.GetBytes(9));
         try
         {
             var result = FormatProbe.ProbeMesh(tempFile);
-            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
-            Assert.Contains("Collision", result.FormatName);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Contains("COL", result.FormatName);
         }
         finally { File.Delete(tempFile); }
     }

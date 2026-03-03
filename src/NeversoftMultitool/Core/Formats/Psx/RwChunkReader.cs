@@ -28,6 +28,7 @@ internal static class RwChunkReader
     internal const uint RW_WORLD = 0x000B;
     internal const uint RW_SKIN_PLG = 0x0116;
     internal const uint RW_BINMESH_PLG = 0x050E;
+    internal const uint RW_NS_MATERIAL_PLG = 0x0294AF01;
 
     internal static (uint type, uint size, uint version) ReadChunkHeader(byte[] data, ref int offset)
     {

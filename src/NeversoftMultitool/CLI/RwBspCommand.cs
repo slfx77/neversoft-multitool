@@ -184,7 +184,7 @@ public static class RwBspCommand
             else if (Directory.Exists(texPath))
             {
                 var stem = Path.GetFileNameWithoutExtension(bspFile);
-                texFile = CompanionSearch.FindCompanion(texPath, stem, [".tex"], ["TEX", "Textures"]);
+                texFile = FindTexWithFallback(texPath, stem);
             }
             else
             {
@@ -196,7 +196,7 @@ public static class RwBspCommand
             var dir = Path.GetDirectoryName(bspFile);
             if (dir == null) return null;
             var stem = Path.GetFileNameWithoutExtension(bspFile);
-            texFile = CompanionSearch.FindCompanion(dir, stem, [".tex"], ["TEX", "Textures"]);
+            texFile = FindTexWithFallback(dir, stem);
         }
 
         if (texFile == null) return null;
@@ -230,5 +230,25 @@ public static class RwBspCommand
                     $"  TEX {Path.GetFileName(texFile)}: [yellow]{ex.Message.EscapeMarkup()}[/]");
             return null;
         }
+    }
+
+    /// <summary>
+    ///     Finds a .tex companion file, with fallback: if "Ware_Ware.tex" isn't found,
+    ///     tries stripping the last underscore suffix to find "Ware.tex".
+    ///     Handles BSP naming where the detail level (Ware_Ware.bsp) shares
+    ///     textures with the base name (Ware.tex).
+    /// </summary>
+    private static string? FindTexWithFallback(string searchDir, string stem)
+    {
+        var texFile = CompanionSearch.FindCompanion(searchDir, stem, [".tex"], ["TEX", "Textures"]);
+        if (texFile != null)
+            return texFile;
+
+        // Fallback: strip last _suffix and retry (e.g. Ware_Ware → Ware)
+        var lastUnderscore = stem.LastIndexOf('_');
+        if (lastUnderscore > 0)
+            return CompanionSearch.FindCompanion(searchDir, stem[..lastUnderscore], [".tex"], ["TEX", "Textures"]);
+
+        return null;
     }
 }

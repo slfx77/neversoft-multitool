@@ -130,8 +130,9 @@ public static class RwBspFile
 
     /// <summary>
     ///     Parse an AtomicSection's STRUCT to extract geometry data.
-    ///     Layout: header(36B) + positions(N×12) + 8-byte gap + normals(N×4 if NORMALS) +
-    ///     colors(N×4 if PRELIT) + UV0(N×8) + UV1(N×8 if TEXTURED2) + triangles(M×8).
+    ///     Layout: header(44B: matBase+tris+verts+bbox+reserved) + positions(N×12) +
+    ///     normals(N×4 if NORMALS) + colors(N×4 if PRELIT) + UV0(N×8) +
+    ///     UV1(N×8 if TEXTURED2) + triangles(M×8).
     /// </summary>
     private static RwBspSection? ParseAtomicSection(byte[] data, int offset, int endOffset,
         int formatFlags)
@@ -140,7 +141,7 @@ public static class RwBspFile
             return null;
 
         var pos = offset;
-        if (pos + 36 > data.Length) return null;
+        if (pos + 44 > data.Length) return null;
 
         var matListWindowBase = BitConverter.ToInt32(data, pos);
         var numTriangles = BitConverter.ToInt32(data, pos + 4);
@@ -154,6 +155,9 @@ public static class RwBspFile
         // Bounding box (6 floats = 24 bytes) — skip
         pos += 24;
 
+        // Reserved/unknown (8 bytes, always zero in THPS3) — skip
+        pos += 8;
+
         // Positions: N × 12 bytes (3 floats)
         var vertices = new Vector3[numVertices];
         for (var i = 0; i < numVertices; i++)
@@ -165,9 +169,6 @@ public static class RwBspFile
                 BitConverter.ToSingle(data, pos + 8));
             pos += 12;
         }
-
-        // 8-byte gap (unknown purpose — possibly sector centroid or light reference)
-        pos += 8;
 
         // Normals: N × 4 bytes (packed: nx:i8, ny:i8, nz:i8, flags:u8)
         Vector3[]? normals = null;
@@ -211,7 +212,7 @@ public static class RwBspFile
             {
                 if (pos + 8 > data.Length) break;
                 var u = BitConverter.ToSingle(data, pos);
-                var v = 1f - BitConverter.ToSingle(data, pos + 4); // V-flip for glTF
+                var v = BitConverter.ToSingle(data, pos + 4);
                 uvs[i] = new Vector2(u, v);
                 pos += 8;
             }
@@ -222,6 +223,9 @@ public static class RwBspFile
         }
 
         // Triangles: M × 8 bytes (matId:u16, v0:u16, v1:u16, v2:u16)
+        // THPS3 BSP: global material index first, then vertex indices.
+        // Confirmed via hex analysis: field[0] values (17-117) match material indices,
+        // fields[1-3] are always valid vertex indices (<numVertices).
         var triangles = new RwTriangle[numTriangles];
         for (var i = 0; i < numTriangles; i++)
         {
@@ -324,6 +328,41 @@ public static class RwBspFile
             }
         }
 
+        // Parse Extension chunk for Neversoft material plugin (blend mode)
+        byte gsAlpha = 0;
+        byte gsAlphaFix = 0;
+        while (offset < endOffset && offset + 12 <= data.Length)
+        {
+            if (!TryReadAnyChunk(data, ref offset, endOffset, out var extType, out var extSize))
+                break;
+
+            var extEnd = offset + (int)extSize;
+            if (extType == RW_EXTENSION)
+            {
+                // Walk extension children looking for NS material plugin
+                var extOffset = offset;
+                while (extOffset + 12 <= extEnd)
+                {
+                    if (!TryReadAnyChunk(data, ref extOffset, extEnd, out var plgType, out var plgSize))
+                        break;
+
+                    if (plgType == RW_NS_MATERIAL_PLG && plgSize >= 44)
+                    {
+                        // NS plugin header: word[9] byte 1 = GS ALPHA blend mode,
+                        // word[10] byte 1 = FIX value
+                        gsAlpha = data[extOffset + 37];
+                        gsAlphaFix = data[extOffset + 41];
+                    }
+
+                    extOffset += (int)plgSize;
+                }
+
+                break;
+            }
+
+            offset = extEnd;
+        }
+
         return new RwMaterial
         {
             R = r, G = g, B = b, A = a,
@@ -331,7 +370,9 @@ public static class RwBspFile
             MaskName = maskName,
             Ambient = ambient,
             Specular = specular,
-            Diffuse = diffuse
+            Diffuse = diffuse,
+            GsAlpha = gsAlpha,
+            GsAlphaFix = gsAlphaFix
         };
     }
 

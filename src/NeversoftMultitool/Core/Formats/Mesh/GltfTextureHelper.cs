@@ -129,6 +129,103 @@ internal static class GltfTextureHelper
         return ms.ToArray();
     }
 
+    /// <summary>
+    ///     Detects magenta (255, 0, 255) color-key backgrounds in textures and converts
+    ///     them to alpha transparency. Uses Manhattan distance from magenta so antialiased
+    ///     edges get smooth alpha gradients instead of hard pink fringing.
+    ///     Only modifies textures that contain at least one exact magenta pixel.
+    /// </summary>
+    /// <returns>Processed PNG bytes and whether the texture has any alpha content.</returns>
+    internal static (byte[] Bytes, bool HasAlpha) ApplyColorKey(byte[] pngBytes)
+    {
+        using var img = Image.Load<Rgba32>(pngBytes);
+        var (hasMagenta, hasExistingAlpha) = ScanForColorKey(img);
+
+        if (!hasMagenta)
+            return (pngBytes, hasExistingAlpha);
+
+        // Conversion pass: compute alpha from distance to magenta (255, 0, 255).
+        // Manhattan distance: dist = (255 - R) + G + (255 - B).
+        // Scale ×4 → full opacity at dist ≥ 64, covering the DXT antialiasing zone.
+        img.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    ref var pixel = ref row[x];
+                    var dist = (255 - pixel.R) + pixel.G + (255 - pixel.B);
+                    var alpha = Math.Clamp(dist * 4, 0, 255);
+                    alpha = Math.Min(alpha, pixel.A);
+
+                    if (alpha == 0)
+                        pixel = new Rgba32(0, 0, 0, 0);
+                    else
+                        pixel = new Rgba32(pixel.R, pixel.G, pixel.B, (byte)alpha);
+                }
+            }
+        });
+
+        using var ms = new MemoryStream();
+        img.SaveAsPng(ms);
+        return (ms.ToArray(), true);
+    }
+
+    /// <summary>Scans an image for exact magenta pixels and any existing alpha content.</summary>
+    private static (bool HasMagenta, bool HasExistingAlpha) ScanForColorKey(Image<Rgba32> img)
+    {
+        var hasMagenta = false;
+        var hasExistingAlpha = false;
+        img.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height && !hasMagenta; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var pixel = row[x];
+                    hasExistingAlpha |= pixel.A < 255;
+                    if (pixel.R == 255 && pixel.G == 0 && pixel.B == 255)
+                    {
+                        hasMagenta = true;
+                        break;
+                    }
+                }
+            }
+        });
+
+        return (hasMagenta, hasExistingAlpha);
+    }
+
+    /// <summary>
+    ///     Converts a texture for additive/subtractive blend approximation in glTF.
+    ///     Sets alpha = max(R,G,B) (luminance) and RGB = specified color.
+    ///     Additive (r=255,g=255,b=255): bright areas render as opaque white overlay, dark = transparent.
+    ///     Subtractive (r=0,g=0,b=0): bright areas render as dark shadow overlay, dark = transparent.
+    /// </summary>
+    internal static byte[] ConvertBlendTexture(byte[] pngBytes, byte r, byte g, byte b)
+    {
+        using var image = Image.Load<Rgba32>(pngBytes);
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var p = row[x];
+                    var luminance = Math.Max(p.R, Math.Max(p.G, p.B));
+                    row[x] = new Rgba32(r, g, b, (byte)(luminance * p.A / 255));
+                }
+            }
+        });
+
+        using var ms = new MemoryStream();
+        image.SaveAsPng(ms);
+        return ms.ToArray();
+    }
+
     internal static string? FindCompanionFile(string directory, string stem, string extension)
     {
         var files = Directory.GetFiles(directory, stem + extension,

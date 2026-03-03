@@ -209,7 +209,7 @@ public static class RwDffFile
             for (var i = 0; i < numVertices && pos + 8 <= data.Length; i++)
             {
                 var u = BitConverter.ToSingle(data, pos);
-                var v = 1f - BitConverter.ToSingle(data, pos + 4); // V-flip for glTF
+                var v = BitConverter.ToSingle(data, pos + 4);
                 uvs[i] = new Vector2(u, v);
                 pos += 8;
             }
