@@ -86,6 +86,24 @@ public sealed class RwMaterial
 
     /// <summary>True if GsAlpha indicates subtractive blending (Cd - Cs*factor).</summary>
     public bool IsSubtractive => GsAlpha is 0x42 or 0x62;
+
+    /// <summary>
+    ///     True if the GS ALPHA formula involves Cd (destination color), meaning it's a real
+    ///     blending operation. Decoded from A(2)|B(2)|C(2)|D(2) where A,B,D∈{Cs=0,Cd=1,0=2}.
+    ///     False for degenerate values like 0x0A/0x20/0x2A (formula = Cs = opaque)
+    ///     and invisible values like 0x80/0x8A/0xA0 (formula = 0).
+    /// </summary>
+    public bool IsBlend
+    {
+        get
+        {
+            if (GsAlpha == 0) return false;
+            int fieldA = GsAlpha & 0x03;
+            int fieldB = (GsAlpha >> 2) & 0x03;
+            int fieldD = (GsAlpha >> 6) & 0x03;
+            return fieldA == 1 || fieldB == 1 || fieldD == 1;
+        }
+    }
 }
 
 /// <summary>
@@ -96,4 +114,29 @@ public sealed class RwAtomic
     public required int FrameIndex { get; init; }
     public required int GeometryIndex { get; init; }
     public required int Flags { get; init; }
+    public RwSkinData? SkinData { get; init; }
+}
+
+/// <summary>
+///     Single bone from RW Skin PLG (0x0116).
+///     76 bytes: id(u32) + index(u32) + flags(u32) + 4×4 inverse bind matrix.
+/// </summary>
+public readonly struct RwSkinBone(int id, int index, int flags, Matrix4x4 inverseBindMatrix)
+{
+    public readonly int Id = id, Index = index, Flags = flags;
+    public readonly Matrix4x4 InverseBindMatrix = inverseBindMatrix;
+}
+
+/// <summary>
+///     Skinning data from RW Skin PLG (0x0116).
+///     Per-vertex bone indices (4×u8) and weights (4×f32), plus per-bone inverse bind matrices.
+///     THPS3 PS2 layout: header(8B) + boneIndices(N×4) + boneWeights(N×16) + bones(B×76).
+/// </summary>
+public sealed class RwSkinData
+{
+    public required int NumBones { get; init; }
+    public required int NumVertices { get; init; }
+    public required byte[] BoneIndices { get; init; }
+    public required float[] BoneWeights { get; init; }
+    public required RwSkinBone[] Bones { get; init; }
 }

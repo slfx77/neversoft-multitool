@@ -467,9 +467,88 @@ public static class RwDffFile
         var frameIndex = BitConverter.ToInt32(data, offset);
         var geomIndex = BitConverter.ToInt32(data, offset + 4);
         var flags = BitConverter.ToInt32(data, offset + 8);
-
         offset += (int)structSize;
-        return new RwAtomic { FrameIndex = frameIndex, GeometryIndex = geomIndex, Flags = flags };
+
+        // Scan Extension child for Skin PLG (0x0116)
+        RwSkinData? skinData = null;
+        if (TryReadChunk(data, ref offset, endOffset, RW_EXTENSION, out var extSize))
+        {
+            var extEnd = offset + (int)extSize;
+            while (offset < extEnd && offset + 12 <= data.Length)
+            {
+                if (!TryReadAnyChunk(data, ref offset, extEnd, out var plgType, out var plgSize))
+                    break;
+                if (plgType == RW_SKIN_PLG)
+                    skinData = ParseSkinPlg(data, offset, (int)plgSize);
+                offset += (int)plgSize;
+            }
+        }
+
+        return new RwAtomic
+        {
+            FrameIndex = frameIndex, GeometryIndex = geomIndex,
+            Flags = flags, SkinData = skinData
+        };
+    }
+
+    /// <summary>
+    ///     Parses RW Skin PLG (0x0116) data from an Atomic Extension.
+    ///     THPS3 PS2 layout: numBones(u32) + numVerts(u32) + boneIndices(N×4B) +
+    ///     boneWeights(N×16B) + bones(B×76B: 3×u32 + 4×4 f32 inverse bind matrix).
+    /// </summary>
+    private static RwSkinData? ParseSkinPlg(byte[] data, int offset, int size)
+    {
+        if (size < 8) return null;
+
+        var numBones = BitConverter.ToInt32(data, offset);
+        var numVerts = BitConverter.ToInt32(data, offset + 4);
+
+        var expectedSize = 8 + numVerts * 4 + numVerts * 16 + numBones * 76;
+        if (numBones <= 0 || numBones > 256 || numVerts <= 0 || size < expectedSize)
+            return null;
+
+        var pos = offset + 8;
+
+        // Bone indices: numVerts × 4 bytes (4 bone indices per vertex)
+        var boneIndices = new byte[numVerts * 4];
+        Buffer.BlockCopy(data, pos, boneIndices, 0, numVerts * 4);
+        pos += numVerts * 4;
+
+        // Bone weights: numVerts × 4 floats (4 weights per vertex, sum to 1.0)
+        var boneWeights = new float[numVerts * 4];
+        Buffer.BlockCopy(data, pos, boneWeights, 0, numVerts * 16);
+        pos += numVerts * 16;
+
+        // Bones: numBones × 76 bytes (id:u32 + index:u32 + flags:u32 + 4×4 f32 matrix)
+        var bones = new RwSkinBone[numBones];
+        for (var i = 0; i < numBones; i++)
+        {
+            var id = BitConverter.ToInt32(data, pos);
+            var index = BitConverter.ToInt32(data, pos + 4);
+            var boneFlags = BitConverter.ToInt32(data, pos + 8);
+
+            // Inverse bind matrix (4×4, row-major in file → Matrix4x4).
+            // Column 4 (file floats 3,7,11,15) contains garbage from the export tool's
+            // heap — NaN, huge values, non-1.0 in M44. Force to (0,0,0,1) for valid affine.
+            var m = new Matrix4x4(
+                BitConverter.ToSingle(data, pos + 12), BitConverter.ToSingle(data, pos + 16),
+                BitConverter.ToSingle(data, pos + 20), 0f,
+                BitConverter.ToSingle(data, pos + 28), BitConverter.ToSingle(data, pos + 32),
+                BitConverter.ToSingle(data, pos + 36), 0f,
+                BitConverter.ToSingle(data, pos + 44), BitConverter.ToSingle(data, pos + 48),
+                BitConverter.ToSingle(data, pos + 52), 0f,
+                BitConverter.ToSingle(data, pos + 60), BitConverter.ToSingle(data, pos + 64),
+                BitConverter.ToSingle(data, pos + 68), 1f);
+
+            bones[i] = new RwSkinBone(id, index, boneFlags, m);
+            pos += 76;
+        }
+
+        return new RwSkinData
+        {
+            NumBones = numBones, NumVertices = numVerts,
+            BoneIndices = boneIndices, BoneWeights = boneWeights, Bones = bones
+        };
     }
 
     private static RwGeometry EmptyGeometry() => new()

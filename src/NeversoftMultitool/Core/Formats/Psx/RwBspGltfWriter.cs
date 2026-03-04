@@ -87,7 +87,7 @@ public static class RwBspGltfWriter
                 continue;
 
             var texBaseName = Path.GetFileNameWithoutExtension(rwMat.TextureName);
-            if (string.Equals(texBaseName, "wire", StringComparison.OrdinalIgnoreCase))
+            if (IsDevTexture(texBaseName))
                 continue;
 
             var material = GetOrCreateMaterial(rwMat, materialCache, textureProvider);
@@ -191,11 +191,11 @@ public static class RwBspGltfWriter
         }
 
         // Alpha mode based on decoded PS2 GS ALPHA blend formula:
-        // - 0x44 (alpha blend), additive, subtractive → BLEND (real blending operations)
+        // - IsBlend (formula uses Cd): 0x44, 0x64, additive, subtractive → BLEND
         // - Translucent material color (A < 255) → BLEND
         // - Texture has alpha (from TXD palette, magenta color-key, or blend conversion) → MASK
         // - Degenerate values (0x0A, 0x20, 0x2A etc. → formula = Cs = opaque) → OPAQUE
-        if (material.A < 255 || material.GsAlpha == 0x44 || material.IsAdditive || material.IsSubtractive)
+        if (material.A < 255 || material.IsBlend)
             builder.WithAlpha(AlphaMode.BLEND);
         else if (textureHasAlpha)
             builder.WithAlpha(AlphaMode.MASK);
@@ -203,6 +203,17 @@ public static class RwBspGltfWriter
         cache[key] = builder;
         return builder;
     }
+
+    /// <summary>
+    ///     Returns true for dev/debug textures that should be excluded from glTF output
+    ///     (collision volumes, trigger planes, wireframe placeholders).
+    /// </summary>
+    private static bool IsDevTexture(string name) =>
+        string.Equals(name, "wire", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(name, "transparent", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("_CR_Collision_", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("_CR_TriggerPlane_", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("_CR_VertPoly", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     ///     Builds a texture provider from an RW TXD file.
