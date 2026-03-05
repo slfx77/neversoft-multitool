@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <UserControl
-  x:Class="NeversoftMultitool.TrgViewerTab"
+  x:Class="NeversoftMultitool.ScriptDecompilerTab"
   xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
   xmlns:local="using:NeversoftMultitool">
@@ -9,9 +9,9 @@
   <UserControl.Resources>
     <local:ExpandableListTemplateSelector x:Key="ListTemplateSelector">
 
-      <!-- Parent row: TRG file -->
+      <!-- Parent row: script file (TRG or QB) -->
       <local:ExpandableListTemplateSelector.ParentTemplate>
-        <DataTemplate x:DataType="local:TrgFileEntry">
+        <DataTemplate>
           <Grid Style="{StaticResource ListItemRowGridStyle}">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="28" />
@@ -29,40 +29,40 @@
               Background="Transparent"
               BorderThickness="0"
               Click="ExpandCollapse_Click"
-              Tag="{x:Bind}"
+              Tag="{Binding}"
               VerticalAlignment="Center">
               <FontIcon
                 FontSize="10"
-                Glyph="{x:Bind ChevronGlyph, Mode=OneWay}" />
+                Glyph="{Binding ChevronGlyph}" />
             </Button>
             <TextBlock
               Grid.Column="1"
               VerticalAlignment="Center"
-              Text="{x:Bind FileName}"
+              Text="{Binding FileName}"
               TextTrimming="CharacterEllipsis"
-              ToolTipService.ToolTip="{x:Bind FileName}" />
+              ToolTipService.ToolTip="{Binding FileName}" />
             <TextBlock
               Grid.Column="2"
               VerticalAlignment="Center"
               HorizontalAlignment="Center"
-              Text="{x:Bind VersionDisplay, Mode=OneWay}" />
+              Text="{Binding VersionDisplay}" />
             <TextBlock
               Grid.Column="3"
               VerticalAlignment="Center"
               HorizontalAlignment="Center"
-              Text="{x:Bind NodeCountDisplay, Mode=OneWay}" />
+              Text="{Binding NodeCountDisplay}" />
             <TextBlock
               Grid.Column="4"
               VerticalAlignment="Center"
-              Foreground="{x:Bind StatusColor, Mode=OneWay}"
-              Text="{x:Bind StatusDisplay, Mode=OneWay}" />
+              Foreground="{Binding StatusColor}"
+              Text="{Binding StatusDisplay}" />
           </Grid>
         </DataTemplate>
       </local:ExpandableListTemplateSelector.ParentTemplate>
 
-      <!-- Child row: TRG node -->
+      <!-- Child row: TRG node or QB item -->
       <local:ExpandableListTemplateSelector.ChildTemplate>
-        <DataTemplate x:DataType="local:TrgNodeEntry">
+        <DataTemplate>
           <Grid Style="{StaticResource ListItemRowGridStyle}"
                 Padding="28,0,0,0">
             <Grid.ColumnDefinitions>
@@ -74,17 +74,17 @@
               Grid.Column="0"
               VerticalAlignment="Center"
               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-              Text="{x:Bind IndexDisplay}" />
+              Text="{Binding IndexDisplay}" />
             <TextBlock
               Grid.Column="1"
               VerticalAlignment="Center"
               FontWeight="SemiBold"
-              Text="{x:Bind TypeDisplay}" />
+              Text="{Binding TypeDisplay}" />
             <TextBlock
               Grid.Column="2"
               VerticalAlignment="Center"
               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-              Text="{x:Bind SummaryDisplay}"
+              Text="{Binding SummaryDisplay}"
               TextTrimming="CharacterEllipsis" />
           </Grid>
         </DataTemplate>
@@ -107,10 +107,10 @@
           Margin="0,0,0,8">
       <StackPanel Style="{StaticResource TabHeaderStackPanelStyle}">
         <TextBlock
-          Text="TRG Viewer"
+          Text="Script Decompiler"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="View and export Neversoft TRG level trigger/script files"
+          Text="View and export Neversoft TRG trigger files and QB compiled scripts"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>
@@ -146,8 +146,8 @@
               <ColumnDefinition Width="100" />
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="1" Text="File Name" FontWeight="SemiBold" />
-            <TextBlock Grid.Column="2" Text="Version" FontWeight="SemiBold" HorizontalAlignment="Center" />
-            <TextBlock Grid.Column="3" Text="Nodes" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            <TextBlock Grid.Column="2" Text="Format" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            <TextBlock Grid.Column="3" Text="Items" FontWeight="SemiBold" HorizontalAlignment="Center" />
             <TextBlock Grid.Column="4" Text="Status" FontWeight="SemiBold" />
           </Grid>
 
@@ -180,7 +180,7 @@
             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
             TextAlignment="Center" />
           <TextBlock
-            Text="Open a .trg file or browse to a directory containing .trg files"
+            Text="Open a .trg or .qb file, or browse a directory"
             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
             TextAlignment="Center" />
           <Button
@@ -191,7 +191,7 @@
         </StackPanel>
       </Border>
 
-      <!-- Node detail panel -->
+      <!-- Detail panel -->
       <Border
         x:Name="DetailPanel"
         Grid.Column="1"
@@ -201,7 +201,7 @@
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel Spacing="8" Margin="4">
 
-            <!-- Node header: type badge + index -->
+            <!-- Header: type badge + index -->
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
@@ -223,13 +223,13 @@
             <Border Height="1"
                     Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-            <!-- Properties section -->
+            <!-- Properties section (TRG) -->
             <StackPanel x:Name="PropertiesSection" Spacing="4">
               <TextBlock Text="Properties" FontWeight="SemiBold" FontSize="12" />
               <Grid x:Name="PropertiesGrid" RowSpacing="4" ColumnSpacing="8" />
             </StackPanel>
 
-            <!-- Position section -->
+            <!-- Position section (TRG) -->
             <StackPanel x:Name="PositionSection" Spacing="4"
                         Visibility="Collapsed">
               <TextBlock Text="Position" FontWeight="SemiBold" FontSize="12" />
@@ -237,7 +237,7 @@
                          Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
 
-            <!-- Angles section -->
+            <!-- Angles section (TRG) -->
             <StackPanel x:Name="AnglesSection" Spacing="4"
                         Visibility="Collapsed">
               <TextBlock Text="Angles" FontWeight="SemiBold" FontSize="12" />
@@ -245,7 +245,7 @@
                          Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
 
-            <!-- Links section -->
+            <!-- Links section (TRG) -->
             <StackPanel x:Name="LinksSection" Spacing="4"
                         Visibility="Collapsed">
               <TextBlock Text="Links" FontWeight="SemiBold" FontSize="12" />
@@ -254,7 +254,7 @@
                          TextWrapping="Wrap" />
             </StackPanel>
 
-            <!-- Commands section -->
+            <!-- Commands section (TRG) -->
             <StackPanel x:Name="CommandsSection" Spacing="4"
                         Visibility="Collapsed">
               <TextBlock x:Name="CommandsHeaderText" FontWeight="SemiBold"
@@ -265,7 +265,7 @@
               </ItemsRepeater>
             </StackPanel>
 
-            <!-- Script section -->
+            <!-- Script section (TRG) -->
             <StackPanel x:Name="ScriptSection" Spacing="4"
                         Visibility="Collapsed">
               <TextBlock x:Name="ScriptHeaderText" FontWeight="SemiBold"
@@ -276,13 +276,24 @@
               </ItemsRepeater>
             </StackPanel>
 
-            <!-- Raw hex section -->
+            <!-- Raw hex section (TRG) -->
             <StackPanel x:Name="RawHexSection" Spacing="4"
                         Visibility="Collapsed">
               <TextBlock Text="Raw Hex" FontWeight="SemiBold" FontSize="12" />
               <TextBlock x:Name="DetailRawHexText" FontSize="11"
                          FontFamily="Consolas"
                          Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                         TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+            </StackPanel>
+
+            <!-- Source section (QB decompiled output) -->
+            <StackPanel x:Name="SourceSection" Spacing="4"
+                        Visibility="Collapsed">
+              <TextBlock x:Name="SourceHeaderText" FontWeight="SemiBold"
+                         FontSize="12" />
+              <TextBlock x:Name="DetailSourceText" FontSize="11"
+                         FontFamily="Consolas"
+                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                          TextWrapping="Wrap" IsTextSelectionEnabled="True" />
             </StackPanel>
           </StackPanel>
@@ -349,7 +360,7 @@
           Visibility="Collapsed" />
         <Button
           x:Name="ExportButton"
-          Content="Export JSON"
+          Content="Export"
           MinWidth="120"
           Click="ExportButton_Click"
           IsEnabled="False"

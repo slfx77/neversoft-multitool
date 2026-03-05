@@ -388,14 +388,14 @@ public sealed class FormatProbeTests
     }
 
     [Fact]
-    public void ProbeArchive_PakFile_Unsupported()
+    public void ProbeArchive_PakRawDataFile_Unsupported()
     {
         var tempFile = CreateTempFile(".pak", [0x00]);
         try
         {
             var result = FormatProbe.ProbeArchive(tempFile);
             Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
-            Assert.Contains("opaque", result.UnsupportedReason!);
+            Assert.Contains("not an archive", result.UnsupportedReason!);
         }
         finally { File.Delete(tempFile); }
     }

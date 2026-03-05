@@ -40,7 +40,9 @@ public static class XbxSceneGltfWriter
                 var meshBuilder = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>("mesh");
                 var prim = meshBuilder.UsePrimitive(mat);
 
-                totalTriangles += AddTriangleStrip(prim, mesh);
+                totalTriangles += mesh.IsPreTriangulated
+                    ? AddIndexedTriangles(prim, mesh)
+                    : AddTriangleStrip(prim, mesh);
 
                 if (totalTriangles > 0 || meshBuilder.Primitives.Count > 0)
                     sceneBuilder.AddRigidMesh(meshBuilder, Matrix4x4.Identity);
@@ -50,6 +52,37 @@ public static class XbxSceneGltfWriter
         var model = sceneBuilder.ToGltf2();
         model.SaveGLB(outputPath);
         return totalTriangles;
+    }
+
+    /// <summary>
+    ///     Add pre-triangulated indexed triangles (every 3 indices = one triangle).
+    ///     Used for THAW meshes where strips are pre-triangulated during parsing.
+    /// </summary>
+    private static int AddIndexedTriangles(
+        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexEmpty> prim,
+        XbxMesh mesh)
+    {
+        var indices = mesh.FaceIndices;
+        var verts = mesh.Vertices;
+        var count = 0;
+
+        for (var i = 0; i + 2 < indices.Length; i += 3)
+        {
+            var i0 = indices[i];
+            var i1 = indices[i + 1];
+            var i2 = indices[i + 2];
+
+            if (i0 >= verts.Length || i1 >= verts.Length || i2 >= verts.Length)
+                continue;
+
+            prim.AddTriangle(
+                MakeVertex(verts[i0]),
+                MakeVertex(verts[i1]),
+                MakeVertex(verts[i2]));
+            count++;
+        }
+
+        return count;
     }
 
     /// <summary>

@@ -98,15 +98,19 @@ public sealed class XbxMesh
     // Per-mesh vertex data (from LOD 0 vertex buffer)
     public required XbxVertex[] Vertices { get; init; }
 
-    /// <summary>Face indices from LOD 0 (degenerate triangle strip).</summary>
+    /// <summary>Face indices from LOD 0 (degenerate triangle strip or pre-triangulated).</summary>
     public required ushort[] FaceIndices { get; init; }
 
-    /// <summary>Triangle count from the highest-detail LOD (degenerate strip).</summary>
+    /// <summary>True if FaceIndices are pre-triangulated (every 3 = one triangle). THAW format.</summary>
+    public bool IsPreTriangulated { get; init; }
+
+    /// <summary>Triangle count from the highest-detail LOD.</summary>
     public int TriangleCount
     {
         get
         {
             if (FaceIndices.Length < 3) return 0;
+            if (IsPreTriangulated) return FaceIndices.Length / 3;
             var count = 0;
             for (var i = 2; i < FaceIndices.Length; i++)
             {

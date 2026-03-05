@@ -5,19 +5,22 @@ using Windows.Storage.Pickers;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using NeversoftMultitool.Core.Formats.Qb;
 using NeversoftMultitool.Core.Formats.Trg;
 using WinRT.Interop;
 
 namespace NeversoftMultitool;
 
-public sealed partial class TrgViewerTab : UserControl
+public sealed partial class ScriptDecompilerTab : UserControl
 {
+    private static readonly string[] ScriptExtensions = [".trg", ".qb"];
+
     private readonly ObservableCollection<IListEntry> _items = [];
-    private readonly List<TrgFileEntry> _parentFiles = [];
+    private readonly List<IListEntry> _parentFiles = [];
     private CancellationTokenSource? _cts;
     private string _outputDir = "";
 
-    public TrgViewerTab()
+    public ScriptDecompilerTab()
     {
         InitializeComponent();
         FilesListView.ItemsSource = _items;
@@ -27,6 +30,7 @@ public sealed partial class TrgViewerTab : UserControl
     {
         var picker = new FileOpenPicker();
         picker.FileTypeFilter.Add(".trg");
+        picker.FileTypeFilter.Add(".qb");
         var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
         InitializeWithWindow.Initialize(picker, hwnd);
 
@@ -38,17 +42,12 @@ public sealed partial class TrgViewerTab : UserControl
         _items.Clear();
         _parentFiles.Clear();
 
+        var ext = Path.GetExtension(file.Path).ToLowerInvariant();
         try
         {
-            var trg = TrgFile.Parse(file.Path);
-            var entry = new TrgFileEntry
-            {
-                FileName = Path.GetFileName(file.Path),
-                FilePath = file.Path
-            };
-            entry.CachedParsedFile = trg;
-            entry.NodeCount = trg.NodeCount;
-            entry.VersionDisplay = $"{trg.VersionMajor}.{trg.VersionMinor}";
+            IListEntry entry = ext == ".qb"
+                ? ParseQbFileEntry(file.Path)
+                : ParseTrgFileEntry(file.Path);
             _parentFiles.Add(entry);
             _items.Add(entry);
         }
@@ -70,46 +69,115 @@ public sealed partial class TrgViewerTab : UserControl
         _items.Clear();
         _parentFiles.Clear();
 
-        var trgFiles = Directory.GetFiles(path)
-            .Where(f => Path.GetExtension(f).Equals(".trg", StringComparison.OrdinalIgnoreCase))
+        var scriptFiles = Directory.GetFiles(path)
+            .Where(f => ScriptExtensions.Contains(
+                Path.GetExtension(f).ToLowerInvariant()))
             .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase);
 
-        foreach (var filePath in trgFiles)
+        foreach (var filePath in scriptFiles)
         {
-            var entry = new TrgFileEntry
-            {
-                FileName = Path.GetFileName(filePath),
-                FilePath = filePath
-            };
+            var ext = Path.GetExtension(filePath).ToLowerInvariant();
+            IListEntry entry = ext == ".qb"
+                ? new QbFileEntry
+                {
+                    FileName = Path.GetFileName(filePath),
+                    FilePath = filePath
+                }
+                : new TrgFileEntry
+                {
+                    FileName = Path.GetFileName(filePath),
+                    FilePath = filePath
+                };
             _parentFiles.Add(entry);
             _items.Add(entry);
         }
 
         UpdateUiState();
 
-        // Background parse to get version + node counts
+        // Background parse to populate metadata
         var entries = _parentFiles.ToList();
         var dispatcher = DispatcherQueue;
         _ = Task.Run(() =>
         {
             foreach (var entry in entries)
             {
-                try
+                switch (entry)
                 {
-                    var trg = TrgFile.Parse(entry.FilePath);
-                    entry.CachedParsedFile = trg;
-                    dispatcher.TryEnqueue(() =>
-                    {
-                        entry.NodeCount = trg.NodeCount;
-                        entry.VersionDisplay = $"{trg.VersionMajor}.{trg.VersionMinor}";
-                    });
-                }
-                catch
-                {
-                    dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Error);
+                    case TrgFileEntry trg:
+                        BackgroundParseTrg(trg, dispatcher);
+                        break;
+                    case QbFileEntry qb:
+                        BackgroundParseQb(qb, dispatcher);
+                        break;
                 }
             }
         });
+    }
+
+    private static void BackgroundParseTrg(TrgFileEntry entry,
+        Microsoft.UI.Dispatching.DispatcherQueue dispatcher)
+    {
+        try
+        {
+            var trg = TrgFile.Parse(entry.FilePath);
+            entry.CachedParsedFile = trg;
+            dispatcher.TryEnqueue(() =>
+            {
+                entry.NodeCount = trg.NodeCount;
+                entry.VersionDisplay = $"{trg.VersionMajor}.{trg.VersionMinor}";
+            });
+        }
+        catch
+        {
+            dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Error);
+        }
+    }
+
+    private static void BackgroundParseQb(QbFileEntry entry,
+        Microsoft.UI.Dispatching.DispatcherQueue dispatcher)
+    {
+        try
+        {
+            var qb = QbFile.Parse(entry.FilePath);
+            entry.CachedParsedFile = qb;
+            dispatcher.TryEnqueue(() =>
+            {
+                entry.NodeCount = qb.Items.Count;
+                entry.VersionDisplay = "QB";
+            });
+        }
+        catch
+        {
+            dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Error);
+        }
+    }
+
+    private static TrgFileEntry ParseTrgFileEntry(string filePath)
+    {
+        var trg = TrgFile.Parse(filePath);
+        var entry = new TrgFileEntry
+        {
+            FileName = Path.GetFileName(filePath),
+            FilePath = filePath
+        };
+        entry.CachedParsedFile = trg;
+        entry.NodeCount = trg.NodeCount;
+        entry.VersionDisplay = $"{trg.VersionMajor}.{trg.VersionMinor}";
+        return entry;
+    }
+
+    private static QbFileEntry ParseQbFileEntry(string filePath)
+    {
+        var qb = QbFile.Parse(filePath);
+        var entry = new QbFileEntry
+        {
+            FileName = Path.GetFileName(filePath),
+            FilePath = filePath
+        };
+        entry.CachedParsedFile = qb;
+        entry.NodeCount = qb.Items.Count;
+        entry.VersionDisplay = "QB";
+        return entry;
     }
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
@@ -134,9 +202,22 @@ public sealed partial class TrgViewerTab : UserControl
 
     private void ExpandCollapse_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: TrgFileEntry parent }) return;
-        if (parent.NodeCount == 0) return;
+        if (sender is not Button button) return;
 
+        switch (button.Tag)
+        {
+            case TrgFileEntry trgParent:
+                ExpandCollapseTrg(trgParent);
+                break;
+            case QbFileEntry qbParent:
+                ExpandCollapseQb(qbParent);
+                break;
+        }
+    }
+
+    private void ExpandCollapseTrg(TrgFileEntry parent)
+    {
+        if (parent.NodeCount == 0) return;
         var parentIndex = _items.IndexOf(parent);
         if (parentIndex < 0) return;
 
@@ -182,6 +263,53 @@ public sealed partial class TrgViewerTab : UserControl
         }
     }
 
+    private void ExpandCollapseQb(QbFileEntry parent)
+    {
+        if (parent.NodeCount == 0) return;
+        var parentIndex = _items.IndexOf(parent);
+        if (parentIndex < 0) return;
+
+        if (parent.IsExpanded)
+        {
+            parent.IsExpanded = false;
+            var removeIndex = parentIndex + 1;
+            while (removeIndex < _items.Count && _items[removeIndex].IsChildEntry)
+                _items.RemoveAt(removeIndex);
+        }
+        else
+        {
+            if (parent.CachedChildren == null)
+            {
+                if (parent.CachedParsedFile == null)
+                {
+                    try
+                    {
+                        parent.CachedParsedFile = QbFile.Parse(parent.FilePath);
+                        parent.NodeCount = parent.CachedParsedFile.Items.Count;
+                    }
+                    catch
+                    {
+                        parent.CachedChildren = [];
+                        return;
+                    }
+                }
+
+                parent.CachedChildren = parent.CachedParsedFile.Items
+                    .Select((item, i) => new QbItemEntry
+                    {
+                        ParentFileName = parent.FileName,
+                        ItemIndex = i,
+                        Item = item,
+                        QbFile = parent.CachedParsedFile
+                    }).ToList();
+            }
+
+            parent.IsExpanded = true;
+            for (var i = 0; i < parent.CachedChildren.Count; i++)
+                _items.Insert(parentIndex + 1 + i, parent.CachedChildren[i]);
+        }
+    }
+
     // ── Selection and Detail Panel ──────────────────────────────────────
 
     private void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -191,8 +319,14 @@ public sealed partial class TrgViewerTab : UserControl
             case TrgNodeEntry nodeEntry:
                 ShowNodeDetail(nodeEntry);
                 break;
-            case TrgFileEntry fileEntry:
-                ShowFileDetail(fileEntry);
+            case TrgFileEntry trgFileEntry:
+                ShowTrgFileDetail(trgFileEntry);
+                break;
+            case QbItemEntry qbItemEntry:
+                ShowQbItemDetail(qbItemEntry);
+                break;
+            case QbFileEntry qbFileEntry:
+                ShowQbFileDetail(qbFileEntry);
                 break;
             default:
                 ClearDetail();
@@ -200,15 +334,14 @@ public sealed partial class TrgViewerTab : UserControl
         }
     }
 
-    private void ShowFileDetail(TrgFileEntry entry)
+    private void ShowTrgFileDetail(TrgFileEntry entry)
     {
         DetailPanel.Visibility = Visibility.Visible;
         DetailColumn.Width = new GridLength(320);
 
-        DetailTypeText.Text = "FILE";
+        DetailTypeText.Text = "TRG FILE";
         DetailIndexText.Text = entry.FileName;
 
-        // Build type distribution summary
         var props = new List<(string Label, string Value)>
         {
             ("Version", entry.VersionDisplay),
@@ -226,13 +359,46 @@ public sealed partial class TrgViewerTab : UserControl
         }
 
         PopulateProperties(props);
+        HideTrgSections();
+        HideQbSections();
+    }
 
-        PositionSection.Visibility = Visibility.Collapsed;
-        AnglesSection.Visibility = Visibility.Collapsed;
-        LinksSection.Visibility = Visibility.Collapsed;
-        CommandsSection.Visibility = Visibility.Collapsed;
-        ScriptSection.Visibility = Visibility.Collapsed;
-        RawHexSection.Visibility = Visibility.Collapsed;
+    private void ShowQbFileDetail(QbFileEntry entry)
+    {
+        DetailPanel.Visibility = Visibility.Visible;
+        DetailColumn.Width = new GridLength(400);
+
+        DetailTypeText.Text = "QB FILE";
+        DetailIndexText.Text = entry.FileName;
+
+        var qb = entry.CachedParsedFile;
+        var props = new List<(string Label, string Value)>
+        {
+            ("Format", "QB (compiled script)")
+        };
+
+        if (qb != null)
+        {
+            props.Add(("Scripts", qb.ScriptCount.ToString()));
+            props.Add(("Globals", qb.GlobalCount.ToString()));
+            props.Add(("Tokens", qb.Tokens.Count.ToString()));
+            props.Add(("Local Names", qb.LocalNames.Count.ToString()));
+        }
+
+        PopulateProperties(props);
+        HideTrgSections();
+
+        // Show full file decompilation
+        if (qb != null)
+        {
+            SourceSection.Visibility = Visibility.Visible;
+            SourceHeaderText.Text = "Decompiled Source";
+            DetailSourceText.Text = QbDecompiler.Decompile(qb);
+        }
+        else
+        {
+            HideQbSections();
+        }
     }
 
     private void ShowNodeDetail(TrgNodeEntry entry)
@@ -280,6 +446,7 @@ public sealed partial class TrgViewerTab : UserControl
         }
 
         PopulateProperties(props);
+        HideQbSections();
 
         // Position
         if (node.Position != null)
@@ -350,6 +517,44 @@ public sealed partial class TrgViewerTab : UserControl
         {
             RawHexSection.Visibility = Visibility.Collapsed;
         }
+    }
+
+    private void ShowQbItemDetail(QbItemEntry entry)
+    {
+        DetailPanel.Visibility = Visibility.Visible;
+        DetailColumn.Width = new GridLength(400);
+
+        DetailTypeText.Text = entry.TypeDisplay;
+        DetailIndexText.Text = $"Item #{entry.ItemIndex}  |  {entry.SummaryDisplay}";
+
+        var props = new List<(string Label, string Value)>
+        {
+            ("Kind", entry.Item.Kind.ToString()),
+            ("Name", entry.SummaryDisplay),
+            ("Checksum", $"0x{entry.Item.NameChecksum:X8}")
+        };
+        PopulateProperties(props);
+        HideTrgSections();
+
+        // Show decompiled source for this single item
+        SourceSection.Visibility = Visibility.Visible;
+        SourceHeaderText.Text = "Decompiled Source";
+        DetailSourceText.Text = QbDecompiler.DecompileItem(entry.QbFile, entry.Item);
+    }
+
+    private void HideTrgSections()
+    {
+        PositionSection.Visibility = Visibility.Collapsed;
+        AnglesSection.Visibility = Visibility.Collapsed;
+        LinksSection.Visibility = Visibility.Collapsed;
+        CommandsSection.Visibility = Visibility.Collapsed;
+        ScriptSection.Visibility = Visibility.Collapsed;
+        RawHexSection.Visibility = Visibility.Collapsed;
+    }
+
+    private void HideQbSections()
+    {
+        SourceSection.Visibility = Visibility.Collapsed;
     }
 
     private void PopulateProperties(List<(string Label, string Value)> props)
@@ -450,7 +655,10 @@ public sealed partial class TrgViewerTab : UserControl
         _cts = new CancellationTokenSource();
 
         foreach (var file in _parentFiles)
-            file.Status = ExtractionStatus.Pending;
+        {
+            if (file is BaseFileEntry bf)
+                bf.Status = ExtractionStatus.Pending;
+        }
 
         ExportButton.IsEnabled = false;
         CancelButton.Visibility = Visibility.Visible;
@@ -475,32 +683,14 @@ public sealed partial class TrgViewerTab : UserControl
                 {
                     if (token.IsCancellationRequested) break;
 
-                    dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
-
-                    try
+                    switch (entry)
                     {
-                        var trg = entry.CachedParsedFile ?? TrgFile.Parse(entry.FilePath);
-                        entry.CachedParsedFile ??= trg;
-
-                        var outputPath = Path.Combine(outputDir,
-                            Path.GetFileNameWithoutExtension(entry.FileName) + ".json");
-                        trg.WriteJson(outputPath);
-
-                        var processed = Interlocked.Increment(ref filesProcessed);
-                        dispatcher.TryEnqueue(() =>
-                        {
-                            entry.Status = ExtractionStatus.Done;
-                            ExportProgress.Value = (double)processed / totalFiles * 100;
-                        });
-                    }
-                    catch
-                    {
-                        var processed = Interlocked.Increment(ref filesProcessed);
-                        dispatcher.TryEnqueue(() =>
-                        {
-                            entry.Status = ExtractionStatus.Error;
-                            ExportProgress.Value = (double)processed / totalFiles * 100;
-                        });
+                        case TrgFileEntry trg:
+                            ExportTrgFile(trg, outputDir, dispatcher, ref filesProcessed, totalFiles);
+                            break;
+                        case QbFileEntry qb:
+                            ExportQbFile(qb, outputDir, dispatcher, ref filesProcessed, totalFiles);
+                            break;
                     }
                 }
             }, token);
@@ -518,6 +708,73 @@ public sealed partial class TrgViewerTab : UserControl
         {
             CancelButton.Visibility = Visibility.Collapsed;
             ExportButton.IsEnabled = true;
+        }
+    }
+
+    private void ExportTrgFile(TrgFileEntry entry, string outputDir,
+        Microsoft.UI.Dispatching.DispatcherQueue dispatcher,
+        ref int filesProcessed, int totalFiles)
+    {
+        dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
+
+        try
+        {
+            var trg = entry.CachedParsedFile ?? TrgFile.Parse(entry.FilePath);
+            entry.CachedParsedFile ??= trg;
+
+            var outputPath = Path.Combine(outputDir,
+                Path.GetFileNameWithoutExtension(entry.FileName) + ".json");
+            trg.WriteJson(outputPath);
+
+            var processed = Interlocked.Increment(ref filesProcessed);
+            dispatcher.TryEnqueue(() =>
+            {
+                entry.Status = ExtractionStatus.Done;
+                ExportProgress.Value = (double)processed / totalFiles * 100;
+            });
+        }
+        catch
+        {
+            var processed = Interlocked.Increment(ref filesProcessed);
+            dispatcher.TryEnqueue(() =>
+            {
+                entry.Status = ExtractionStatus.Error;
+                ExportProgress.Value = (double)processed / totalFiles * 100;
+            });
+        }
+    }
+
+    private void ExportQbFile(QbFileEntry entry, string outputDir,
+        Microsoft.UI.Dispatching.DispatcherQueue dispatcher,
+        ref int filesProcessed, int totalFiles)
+    {
+        dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
+
+        try
+        {
+            var qb = entry.CachedParsedFile ?? QbFile.Parse(entry.FilePath);
+            entry.CachedParsedFile ??= qb;
+
+            var outputPath = Path.Combine(outputDir,
+                Path.GetFileNameWithoutExtension(entry.FileName) + ".q");
+            var source = QbDecompiler.Decompile(qb);
+            File.WriteAllText(outputPath, source);
+
+            var processed = Interlocked.Increment(ref filesProcessed);
+            dispatcher.TryEnqueue(() =>
+            {
+                entry.Status = ExtractionStatus.Done;
+                ExportProgress.Value = (double)processed / totalFiles * 100;
+            });
+        }
+        catch
+        {
+            var processed = Interlocked.Increment(ref filesProcessed);
+            dispatcher.TryEnqueue(() =>
+            {
+                entry.Status = ExtractionStatus.Error;
+                ExportProgress.Value = (double)processed / totalFiles * 100;
+            });
         }
     }
 

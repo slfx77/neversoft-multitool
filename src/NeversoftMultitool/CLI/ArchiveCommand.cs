@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Diagnostics;
+using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
 using Spectre.Console;
 
@@ -11,7 +12,7 @@ public static class ArchiveCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to archive file (WAD, PKR, PRE, PRX, DDX, or BON)"
+            Description = "Path to archive file (WAD, PKR, PRE, PRX, DDX, BON, or PAK)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -23,7 +24,7 @@ public static class ArchiveCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("archive", "Extract files from WAD/PKR/PRE/PRX/DDX/BON archives");
+        var command = new Command("archive", "Extract files from WAD/PKR/PRE/PRX/DDX/BON/PAK archives");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -40,7 +41,7 @@ public static class ArchiveCommand
                 return Task.FromResult(1);
             }
 
-            var ext = Path.GetExtension(input).ToLowerInvariant();
+            var ext = RecursiveUnpacker.GetArchiveExtension(input);
             Directory.CreateDirectory(output);
 
             var stopwatch = Stopwatch.StartNew();
@@ -135,6 +136,26 @@ public static class ArchiveCommand
                             }
                         }, cancellationToken);
                         break;
+
+                    case ".pak" when PakArchive.IsPakArchive(input):
+                        AnsiConsole.MarkupLine("[blue]PAK[/] archive detected");
+                        var pakEntries = PakArchive.GetFileList(input);
+                        AnsiConsole.MarkupLine($"Found [green]{pakEntries.Count}[/] files");
+                        PakArchive.ExtractFiles(input, output, (current, total) =>
+                        {
+                            filesExtracted = current;
+                            if (verbose)
+                            {
+                                AnsiConsole.MarkupLine(
+                                    $"  [[{current}/{total}]] {pakEntries[current - 1].FullName}");
+                            }
+                        }, cancellationToken);
+                        break;
+
+                    case ".pak":
+                        AnsiConsole.MarkupLine(
+                            "[red]PAK raw data file[/] (no entry table, not an extractable archive)");
+                        return Task.FromResult(1);
 
                     default:
                         AnsiConsole.MarkupLine($"[red]Unsupported archive format:[/] {ext}");

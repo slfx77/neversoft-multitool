@@ -32,7 +32,7 @@ public static class XbxSceneCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("xbxscene", "Convert Xbox/PC scene files (SKIN/MDL) to glTF (.glb)");
+        var command = new Command("xbxscene", "Convert Xbox/PC scene files (SKIN/MDL) to glTF (.glb) — THUG2 + THAW");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(texturesOption);
@@ -101,8 +101,12 @@ public static class XbxSceneCommand
 
         if (Directory.Exists(input))
         {
+            var allExts = XbxSceneFile.SupportedExtensions
+                .Concat(ThawSceneFile.SupportedExtensions)
+                .Distinct()
+                .ToArray();
             return Directory.GetFiles(input, "*.*", SearchOption.AllDirectories)
-                .Where(p => XbxSceneFile.SupportedExtensions.Any(
+                .Where(p => allExts.Any(
                     ext => Path.GetFileName(p).EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
         }
@@ -132,13 +136,19 @@ public static class XbxSceneCommand
         string file, string output, XbxSceneGltfWriter.TextureProvider? textureProvider, bool verbose)
     {
         var filename = Path.GetFileName(file);
-        var matchedExt = XbxSceneFile.SupportedExtensions
+        var allExts = XbxSceneFile.SupportedExtensions
+            .Concat(ThawSceneFile.SupportedExtensions)
+            .Distinct();
+        var matchedExt = allExts
             .FirstOrDefault(ext => filename.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
         var stem = matchedExt != null ? filename[..^matchedExt.Length] : filename;
 
         try
         {
-            var scene = XbxSceneFile.Parse(file);
+            var fileData = File.ReadAllBytes(file);
+            var scene = ThawSceneFile.IsThawScene(fileData)
+                ? ThawSceneFile.Parse(fileData)
+                : XbxSceneFile.Parse(fileData);
             var outputPath = Path.Combine(output, stem + ".glb");
             var triangles = XbxSceneGltfWriter.Write(scene, outputPath, textureProvider);
             var textured = scene.Materials.Any(m => m.Passes.Length > 0 && m.Passes[0].TextureChecksum != 0);

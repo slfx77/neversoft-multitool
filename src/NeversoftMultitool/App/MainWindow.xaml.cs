@@ -118,7 +118,7 @@ public sealed partial class MainWindow : Window
             AudioConverterTabContent.Visibility = Visibility.Collapsed;
             SfdConverterTabContent.Visibility = Visibility.Collapsed;
             HashReviewerTabContent.Visibility = Visibility.Collapsed;
-            TrgViewerTabContent.Visibility = Visibility.Collapsed;
+            ScriptDecompilerTabContent.Visibility = Visibility.Collapsed;
             MeshConverterTabContent.Visibility = Visibility.Collapsed;
 
             // Clear status bar when switching tabs
@@ -148,8 +148,8 @@ public sealed partial class MainWindow : Window
                 case "HashReviewer":
                     HashReviewerTabContent.Visibility = Visibility.Visible;
                     break;
-                case "TrgViewer":
-                    TrgViewerTabContent.Visibility = Visibility.Visible;
+                case "ScriptDecompiler":
+                    ScriptDecompilerTabContent.Visibility = Visibility.Visible;
                     break;
                 case "MeshConverter":
                     MeshConverterTabContent.Visibility = Visibility.Visible;

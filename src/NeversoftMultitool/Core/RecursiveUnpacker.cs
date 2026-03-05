@@ -11,7 +11,7 @@ namespace NeversoftMultitool.Core;
 public static class RecursiveUnpacker
 {
     private static readonly string[] ArchiveExtensions =
-        [".wad", ".pre", ".prx", ".pkr", ".ddx", ".bon"];
+        [".wad", ".pre", ".prx", ".pkr", ".ddx", ".bon", ".pak"];
 
     public sealed class ArchiveInfo
     {
@@ -35,10 +35,16 @@ public static class RecursiveUnpacker
             if (!IsArchiveFile(file))
                 continue;
 
+            var archiveType = ClassifyArchive(file);
+
+            // Skip PAK raw data files (no entry table)
+            if (archiveType == "PAK (raw)")
+                continue;
+
             results.Add(new ArchiveInfo
             {
                 FilePath = file,
-                ArchiveType = ClassifyArchive(file),
+                ArchiveType = archiveType,
                 Pass = pass,
                 AlreadyExtracted = IsAlreadyExtracted(file)
             });
@@ -70,7 +76,7 @@ public static class RecursiveUnpacker
     public static void ExtractArchive(string archivePath, CancellationToken ct = default)
     {
         var parentDir = Path.GetDirectoryName(archivePath)!;
-        var ext = Path.GetExtension(archivePath).ToLowerInvariant();
+        var ext = GetArchiveExtension(archivePath);
 
         // PKR uses internal directory names directly under outputDir (no stem subdir),
         // so wrap it in a stem subdirectory for consistency.
@@ -107,6 +113,9 @@ public static class RecursiveUnpacker
             case ".bon":
                 BonArchive.ExtractFiles(archivePath, outputDir, null, ct);
                 break;
+            case ".pak" when PakArchive.IsPakArchive(archivePath):
+                PakArchive.ExtractFiles(archivePath, outputDir, null, ct);
+                break;
         }
     }
 
@@ -115,7 +124,7 @@ public static class RecursiveUnpacker
     /// </summary>
     public static string ClassifyArchive(string filePath)
     {
-        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        var ext = GetArchiveExtension(filePath);
         return ext switch
         {
             ".wad" => "WAD",
@@ -124,6 +133,7 @@ public static class RecursiveUnpacker
             ".pkr" => "PKR",
             ".ddx" => "DDX",
             ".bon" => "BON",
+            ".pak" => PakArchive.IsPakArchive(filePath) ? "PAK" : "PAK (raw)",
             _ => "?"
         };
     }
@@ -133,8 +143,27 @@ public static class RecursiveUnpacker
     /// </summary>
     public static bool IsArchiveFile(string filePath)
     {
-        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        var ext = GetArchiveExtension(filePath);
         return ArchiveExtensions.Contains(ext);
+    }
+
+    /// <summary>
+    ///     Gets the archive-relevant extension, handling double extensions like .pak.ps2.
+    /// </summary>
+    public static string GetArchiveExtension(string filePath)
+    {
+        var name = Path.GetFileName(filePath).ToLowerInvariant();
+
+        // Check for double extensions (e.g. .pak.ps2, .pak.xen)
+        foreach (var archiveExt in ArchiveExtensions)
+        {
+            var pattern = archiveExt + ".";
+            var idx = name.IndexOf(pattern, StringComparison.Ordinal);
+            if (idx >= 0 && idx > 0)
+                return archiveExt;
+        }
+
+        return Path.GetExtension(filePath).ToLowerInvariant();
     }
 
     /// <summary>

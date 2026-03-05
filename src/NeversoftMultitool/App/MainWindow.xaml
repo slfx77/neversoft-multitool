@@ -142,12 +142,12 @@
 
         <NavigationViewItemSeparator />
 
-        <NavigationViewItemHeader Content="Level Data" />
+        <NavigationViewItemHeader Content="Scripts" />
 
-        <!--  TRG Viewer  -->
+        <!--  Script Decompiler  -->
         <NavigationViewItem
-          Content="TRG Viewer"
-          Tag="TrgViewer">
+          Content="Script Decompiler"
+          Tag="ScriptDecompiler">
           <NavigationViewItem.Icon>
             <FontIcon Glyph="&#xE81E;" />
           </NavigationViewItem.Icon>
@@ -199,8 +199,8 @@
               x:Name="SfdConverterTabContent"
               VerticalAlignment="Stretch"
               Visibility="Collapsed" />
-            <tabs:TrgViewerTab
-              x:Name="TrgViewerTabContent"
+            <tabs:ScriptDecompilerTab
+              x:Name="ScriptDecompilerTabContent"
               VerticalAlignment="Stretch"
               Visibility="Collapsed" />
             <tabs:MeshConverterTab

@@ -135,6 +135,7 @@ public static class WadArchive
     /// <summary>
     ///     THUG-era HED: offset(u32) → size(u32) → name(null-term, align4), sentinel 0xFFFFFFFF.
     ///     Size bit 31 = NO_WAD flag (external file, not in WAD). Names may include directory paths.
+    ///     THAW uses sector-based offsets (×2048) with disc region flags in the upper byte.
     /// </summary>
     private static List<ArchiveEntry> ReadThugPlaintextEntries(BinaryReader reader, long fileSize)
     {
@@ -179,7 +180,57 @@ public static class WadArchive
             });
         }
 
+        // Detect THAW sector-based offsets: if consecutive entries overlap when treated as
+        // byte offsets but make sense as sector offsets, convert to byte offsets.
+        // THAW HED stores disc sector numbers with region flags in the upper byte;
+        // the lower 24 bits are the sector offset within the WAD (sector × 2048 = byte offset).
+        if (IsSectorBased(entries))
+        {
+            for (var i = 0; i < entries.Count; i++)
+                entries[i].Offset = (entries[i].Offset & 0x00FFFFFF) * 2048;
+        }
+
         return entries;
+    }
+
+    /// <summary>
+    ///     Detects THAW-style sector-based offsets by checking if consecutive entries
+    ///     overlap when treated as byte offsets but are valid as sector offsets.
+    /// </summary>
+    private static bool IsSectorBased(List<ArchiveEntry> entries)
+    {
+        for (var i = 0; i < Math.Min(entries.Count - 1, 20); i++)
+        {
+            var curr = entries[i];
+            var next = entries[i + 1];
+
+            // Skip zero-size or NO_WAD entries
+            if (curr.Size == 0 || next.Size == 0 || curr.IsCompressed || next.IsCompressed)
+                continue;
+
+            // Strip upper byte (disc region flags) for comparison
+            var currSector = curr.Offset & 0x00FFFFFF;
+            var nextSector = next.Offset & 0x00FFFFFF;
+
+            // Entries must be in increasing order
+            if (nextSector <= currSector)
+                continue;
+
+            // If next entry starts before current entry's data ends → byte offsets overlap
+            if (nextSector < currSector + curr.Size)
+            {
+                // Verify it makes sense as sectors: next sector >= current + ceil(size/2048)
+                var sectorsNeeded = (curr.Size + 2047) / 2048;
+                if (nextSector >= currSector + sectorsNeeded)
+                    return true;
+            }
+
+            // If we found a valid pair without overlap, byte offsets are fine
+            if (nextSector >= currSector + curr.Size)
+                return false;
+        }
+
+        return false;
     }
 
     private static List<ArchiveEntry> ReadHashedEntries(BinaryReader reader, long fileSize)

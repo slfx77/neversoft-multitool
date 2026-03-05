@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.XbxScene;
 
 namespace NeversoftMultitool.Core;
@@ -136,12 +137,17 @@ public static class FormatProbe
     {
         try
         {
-            var data = new byte[12];
+            var data = new byte[48];
             using var fs = File.OpenRead(filePath);
-            var bytesRead = fs.Read(data, 0, 12);
+            var bytesRead = fs.Read(data, 0, Math.Min(48, (int)fs.Length));
             if (bytesRead < 12)
                 return new(FormatSupport.Unsupported, "Unknown", "File too small");
 
+            // Check THAW first (no version triple — different header format)
+            if (ThawSceneFile.IsThawScene(data))
+                return new(FormatSupport.Supported, "THAW Scene");
+
+            // THUG2 Xbox/PC: version triple (1,1,1)
             if (XbxSceneFile.IsXbxScene(data))
                 return new(FormatSupport.Supported, "Xbox Scene");
 
@@ -149,7 +155,7 @@ public static class FormatProbe
             var v1 = BitConverter.ToUInt32(data, 4);
             var v2 = BitConverter.ToUInt32(data, 8);
             return new(FormatSupport.Unsupported, "Xbox Scene",
-                $"Unsupported version ({v0},{v1},{v2}), expected (1,1,1)");
+                $"Unsupported version ({v0},{v1},{v2}), expected (1,1,1) or THAW");
         }
         catch
         {
@@ -345,7 +351,7 @@ public static class FormatProbe
 
     public static FormatProbeResult ProbeArchive(string filePath)
     {
-        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        var ext = RecursiveUnpacker.GetArchiveExtension(filePath);
 
         return ext switch
         {
@@ -355,11 +361,18 @@ public static class FormatProbe
             ".pre" => ProbePreArchive(filePath),
             ".ddx" => new(FormatSupport.Supported, "DDX Archive"),
             ".bon" => ProbeBonArchive(filePath),
-            ".pak" => new(FormatSupport.Unsupported, "PAK Bundle",
-                "PAK files are opaque level bundles, not traditional archives"),
+            ".pak" => ProbePakArchive(filePath),
             _ => new(FormatSupport.Unsupported, "Unknown",
                 $"Unrecognized archive format: {ext}")
         };
+    }
+
+    private static FormatProbeResult ProbePakArchive(string filePath)
+    {
+        return PakArchive.IsPakArchive(filePath)
+            ? new(FormatSupport.Supported, "PAK Archive")
+            : new(FormatSupport.Unsupported, "PAK Raw Data",
+                "PAK file without entry table (raw data, not an archive)");
     }
 
     private static FormatProbeResult ProbePreArchive(string filePath)

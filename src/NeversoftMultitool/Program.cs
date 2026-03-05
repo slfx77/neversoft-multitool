@@ -54,6 +54,7 @@ public static class Program
         rootCommand.Subcommands.Add(XbxTexCommand.Create());
         rootCommand.Subcommands.Add(XbxSceneCommand.Create());
         rootCommand.Subcommands.Add(UnpackCommand.Create());
+        rootCommand.Subcommands.Add(QbCommand.Create());
 
         return rootCommand.Parse(args).Invoke();
     }
@@ -92,7 +93,7 @@ public static class Program
         AnsiConsole.MarkupLine("[bold]Commands:[/]");
         AnsiConsole.MarkupLine("  [green]psx[/]       Extract textures from PSX model files");
         AnsiConsole.MarkupLine("  [green]rle[/]       Convert RLE/BMR bitmap files to PNG");
-        AnsiConsole.MarkupLine("  [green]archive[/]   Extract files from WAD/PKR/PRE/DDX/BON archives");
+        AnsiConsole.MarkupLine("  [green]archive[/]   Extract files from WAD/PKR/PRE/DDX/BON/PAK archives");
         AnsiConsole.MarkupLine("  [green]pvr[/]       Convert Dreamcast PVR texture files to PNG");
         AnsiConsole.MarkupLine("  [green]ddm[/]       Convert DDM mesh files to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]audio[/]     Convert ADX/XA/VAB/KAT audio files to WAV");
@@ -105,10 +106,12 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]ps2scene[/]  Convert PS2 scene files (MDL/SKIN) to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]ps2geom[/]   Convert PS2 GEOM level geometry to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]rwdff[/]     Convert RenderWare DFF mesh files (.SKN) to glTF (.glb)");
+        AnsiConsole.MarkupLine("  [green]rwbsp[/]     Convert RenderWare BSP level files to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]col[/]       Convert collision (.col) files to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]xbxtex[/]    Extract textures from Xbox/PC TEX/IMG files to PNG");
         AnsiConsole.MarkupLine("  [green]xbxscene[/]  Convert Xbox/PC scene files (SKIN/MDL) to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]unpack[/]    Recursively extract all archives in-place");
+        AnsiConsole.MarkupLine("  [green]qb[/]        Decompile QB compiled script files to source text");
 #if WINDOWS_GUI
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]For GUI mode:[/]");
@@ -140,7 +143,8 @@ public static class Program
             args.Any(a => a.Equals("col", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("xbxtex", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("xbxscene", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("unpack", StringComparison.OrdinalIgnoreCase)));
+            args.Any(a => a.Equals("unpack", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("qb", StringComparison.OrdinalIgnoreCase)));
     }
 #endif
 }

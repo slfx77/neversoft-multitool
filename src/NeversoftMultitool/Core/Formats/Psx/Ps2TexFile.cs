@@ -4,6 +4,7 @@ namespace NeversoftMultitool.Core.Formats.Psx;
 ///     Parses PS2 TEX and IMG texture files to extract textures as RGBA pixel data.
 ///     TEX files (versions 3-5): Multi-texture dictionary with groups (THPS4, THUG, THUG2).
 ///     IMG files (version 2): Single-texture loadscreen format (THPS4, THUG, THUG2).
+///     IMG files (version 4): THAW single-texture format with embedded GIF transfer packets.
 ///     Format from THUG source: Gfx/NGPS/NX/texture.cpp, gs.h.
 /// </summary>
 public static class Ps2TexFile
@@ -24,6 +25,12 @@ public static class Ps2TexFile
                 return Ps2TexResult.Fail("File too small");
 
             var version = BitConverter.ToUInt32(data, 0);
+
+            // Version 4 is shared between THUG TEX dictionaries and THAW IMG files.
+            // THAW IMG v4 has a 96-byte header with constant 97 at offset 0x38 and an
+            // embedded GS TEX0 register at 0x30. Detect and route before TEX dispatch.
+            if (version == 4 && IsThawImg(data))
+                return ParseThawImg(data);
 
             return version switch
             {
@@ -67,6 +74,166 @@ public static class Ps2TexFile
         }
 
         return count;
+    }
+
+    /// <summary>
+    ///     Detects THAW .img.ps2 format (version 4) by checking for the constant 97 at offset 0x38
+    ///     and minimum file size of 96 bytes (the fixed header size).
+    /// </summary>
+    private static bool IsThawImg(byte[] data)
+    {
+        return data.Length >= 96 && BitConverter.ToUInt32(data, 0x38) == 97;
+    }
+
+    /// <summary>
+    ///     Parses a THAW .img.ps2 single-texture file (version 4).
+    ///     96-byte header with embedded GS TEX0 register, followed by GIF A+D transfer blocks
+    ///     and pixel data. PSMs: PSMT4, PSMT8, PSMCT16, PSMCT32.
+    ///     Layout: Header(96) + [CLUT_GIF(96) + palette + TEX_GIF(96)] + pixel_data.
+    /// </summary>
+    private static Ps2TexResult ParseThawImg(byte[] data)
+    {
+        if (data.Length < 96) return Ps2TexResult.Fail("THAW IMG too small");
+
+        var checksum = BitConverter.ToUInt32(data, 0x04);
+        var dataRegionSize = BitConverter.ToUInt32(data, 0x14);
+        var clutGifFlag = BitConverter.ToUInt32(data, 0x18);
+        var pixelDataSize = BitConverter.ToUInt32(data, 0x1C);
+
+        // Parse GS TEX0 register at offset 0x30 (8 bytes) for texture format
+        var tex0 = BitConverter.ToUInt64(data, 0x30);
+        var psm = (uint)((tex0 >> 20) & 0x3F);
+        var tw = (int)((tex0 >> 26) & 0xF);
+        var th = (int)((tex0 >> 30) & 0xF);
+        var cpsm = (uint)((tex0 >> 51) & 0xF);
+
+        if (!Ps2TexPixelDecoder.IsValidPsm(psm))
+            return Ps2TexResult.Fail($"Invalid PSM 0x{psm:X2} in THAW IMG TEX0");
+
+        // Actual image dimensions from packed u16 pair at offset 0x48 (may be non-power-of-2)
+        var origWidth = (int)BitConverter.ToUInt16(data, 0x48);
+        var origHeight = (int)BitConverter.ToUInt16(data, 0x4A);
+
+        // Resolve pixel buffer dimensions (orig vs VRAM-padded)
+        var vramWidth = tw > 0 ? 1 << tw : origWidth;
+        var vramHeight = th > 0 ? 1 << th : origHeight;
+        var bpp = Ps2TexPixelDecoder.GetBitsPerPixel(psm);
+        var (width, height) = ResolveThawDimensions(
+            origWidth, origHeight, vramWidth, vramHeight, bpp, pixelDataSize);
+
+        // Read CLUT and pixel data
+        var clut = ReadThawClut(data, psm, clutGifFlag, dataRegionSize);
+
+        var pixelOffset = 0x60 + (int)dataRegionSize;
+        if (pixelOffset + pixelDataSize > data.Length)
+            return Ps2TexResult.Fail($"Pixel data truncated: need {pixelOffset + pixelDataSize}, have {data.Length}");
+
+        var texBytes = Math.Min(width * height * bpp / 8, (int)pixelDataSize);
+        ReadOnlySpan<byte> texData = data.AsSpan(pixelOffset, texBytes);
+
+        // For non-POT textures: pixel data is stored at VRAM-padded stride (width) but only
+        // origWidth×origHeight pixels are valid. De-stride the raw pixel data BEFORE decoding
+        // so that DecodePixels (which flips vertically) works on the correct dimensions.
+        if ((width > origWidth || height > origHeight)
+            && origWidth > 0 && origHeight > 0 && origWidth <= width && origHeight <= height)
+        {
+            texData = DestridePixelData(texData, width, height, origWidth, origHeight, bpp);
+            width = origWidth;
+            height = origHeight;
+        }
+
+        var pixels = Ps2TexPixelDecoder.DecodePixels(texData, width, height, psm, cpsm, clut);
+        if (pixels == null)
+            return Ps2TexResult.Fail("Failed to decode THAW IMG pixel data");
+
+        return new Ps2TexResult([new Ps2Texture(checksum, width, height, psm, cpsm, pixels)]);
+    }
+
+    /// <summary>
+    ///     Resolves pixel buffer dimensions for THAW IMG. Non-POT textures (loadscreens, cutscenes)
+    ///     may store pixel data at orig or VRAM-padded dimensions.
+    /// </summary>
+    private static (int Width, int Height) ResolveThawDimensions(
+        int origW, int origH, int vramW, int vramH, int bpp, uint pixelDataSize)
+    {
+        var origBytes = origW * origH * bpp / 8;
+        if (origBytes == pixelDataSize)
+            return (origW, origH);
+
+        var vramBytes = vramW * vramH * bpp / 8;
+        if (vramBytes == pixelDataSize)
+            return (vramW, vramH);
+
+        // Fallback: prefer orig if available
+        return (origW > 0 ? origW : vramW, origH > 0 ? origH : vramH);
+    }
+
+    /// <summary>
+    ///     Reads CLUT (palette) data from between the two GIF A+D blocks in a THAW IMG file.
+    ///     THAW IMG CLUTs are stored in GS VRAM order (pre-swizzled for GIF transfer upload).
+    ///     For PSMT8 (256 entries), applies CSM1 unswizzle: within each group of 32 entries,
+    ///     entries 8-15 and 16-23 are swapped. PSMT4 (16 entries) has no CLUT swizzle.
+    /// </summary>
+    private static byte[]? ReadThawClut(byte[] data, uint psm, uint clutGifFlag, uint dataRegionSize)
+    {
+        if (Ps2TexPixelDecoder.GetPaletteSize(psm) == 0 || clutGifFlag == 0)
+            return null;
+
+        // CLUT data sits between two 96-byte GIF blocks within the data region
+        var paletteBytes = (int)dataRegionSize - 192;
+        var paletteOffset = 0x60 + 96; // after first GIF A+D + IMAGE tag
+        if (paletteBytes <= 0 || paletteOffset + paletteBytes > data.Length)
+            return null;
+
+        var clut = new byte[paletteBytes];
+        Array.Copy(data, paletteOffset, clut, 0, paletteBytes);
+
+        // PSMT8 CLUTs need CSM1 unswizzle (GS VRAM stores entries in interleaved order).
+        // TEX files store CLUTs in sequential order (engine swizzles before upload), but
+        // THAW IMG files have pre-swizzled CLUTs for direct GIF transfer to VRAM.
+        if (psm == Ps2TexPixelDecoder.PSMT8)
+            UnswizzleClutCsm1(clut, paletteBytes / 256);
+
+        return clut;
+    }
+
+    /// <summary>
+    ///     Applies CSM1 CLUT unswizzle for PSMT8 (256 entries).
+    ///     Within each group of 32 entries, swaps entries at positions 8-15 with 16-23.
+    ///     This reverses the PS2 GS VRAM interleave for 256-entry palettes.
+    /// </summary>
+    private static void UnswizzleClutCsm1(byte[] clut, int entrySize)
+    {
+        for (var group = 0; group < 8; group++)
+        {
+            for (var i = 0; i < 8; i++)
+            {
+                var posA = (group * 32 + 8 + i) * entrySize;
+                var posB = (group * 32 + 16 + i) * entrySize;
+                if (posA + entrySize > clut.Length || posB + entrySize > clut.Length)
+                    return;
+                for (var j = 0; j < entrySize; j++)
+                    (clut[posA + j], clut[posB + j]) = (clut[posB + j], clut[posA + j]);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Extracts origW×origH raw pixel data from a VRAM-padded buffer with stride=srcW.
+    ///     PS2 stores textures bottom-up, so for non-POT images the actual content occupies the
+    ///     LAST origH rows of the srcH-tall VRAM buffer (bottom of the texture = end of file data).
+    ///     Operates on raw indexed/direct pixel data (before RGBA decoding and vertical flip).
+    /// </summary>
+    private static byte[] DestridePixelData(ReadOnlySpan<byte> src, int srcW, int srcH,
+        int origW, int origH, int bpp)
+    {
+        var srcStride = srcW * bpp / 8;
+        var dstStride = origW * bpp / 8;
+        var startRow = srcH - origH; // image is at the bottom of the VRAM buffer
+        var dst = new byte[dstStride * origH];
+        for (var y = 0; y < origH; y++)
+            src.Slice((startRow + y) * srcStride, dstStride).CopyTo(dst.AsSpan(y * dstStride, dstStride));
+        return dst;
     }
 
     /// <summary>
