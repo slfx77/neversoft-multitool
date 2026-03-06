@@ -27,7 +27,7 @@ public static class Ps2SceneFile
     private const float SkinUvScale = 1f / 4096f;
 
     public static readonly string[] SupportedExtensions =
-        [".mdl.ps2", ".skin.ps2", ".iskin.ps2"];
+        [".mdl.ps2", ".skin.ps2", ".iskin.ps2", ".skin", ".mdl"];
 
     public static bool IsPs2Scene(byte[] data)
     {

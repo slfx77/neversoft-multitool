@@ -432,7 +432,8 @@ public static class ThawSceneFile
             {
                 var u = r.ReadSingle();
                 var vCoord = r.ReadSingle();
-                v.TexCoord = new Vector2(u, vCoord);
+                // THAW textures are stored bottom-up (PS2 heritage); flip V to match flipped PNGs
+                v.TexCoord = new Vector2(u, 1.0f - vCoord);
             }
 
             vertices[i] = v;

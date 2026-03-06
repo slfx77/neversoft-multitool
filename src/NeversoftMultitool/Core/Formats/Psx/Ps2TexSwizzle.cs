@@ -171,14 +171,22 @@ internal static class Ps2TexSwizzle
     }
 
     /// <summary>
-    ///     Checks the CanConv4to32 table from texturemem.cpp.
+    ///     Checks whether dimensions support Conv8to32 (PSMCT32 layout for PSMT8).
+    ///     Same dimension table as sCanConvert8to32 in texturemem.cpp:
+    ///     32x32, 64x64, >=128x128 (both dimensions must be >=128).
     /// </summary>
-    private static bool CanConv4to32(int width, int height)
+    internal static bool CanConv8to32(int width, int height)
     {
         var tw = NumBits(width) - 1;
         var th = NumBits(height) - 1;
+        // Conv8to32 uses same dimension table as Conv4to32
         return tw >= 0 && tw < 10 && th >= 0 && th < 10 && CanConv4to32Table[th, tw];
     }
+
+    /// <summary>
+    ///     Checks the CanConv4to32 table from texturemem.cpp (same table as Conv8to32).
+    /// </summary>
+    private static bool CanConv4to32(int width, int height) => CanConv8to32(width, height);
 
     /// <summary>
     ///     Checks the CanConv4to16 table from texturemem.cpp.

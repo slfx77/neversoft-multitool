@@ -6,7 +6,9 @@ using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Collision;
 using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.XbxScene;
 
 namespace NeversoftMultitool;
 
@@ -59,6 +61,12 @@ public sealed partial class MeshConverterTab : UserControl
                 if (probe.Support == FormatProbe.FormatSupport.Unsupported)
                     unsupported.Add(new(Path.GetFileName(file)!, probe.UnsupportedReason ?? "Unknown format"));
             }
+            else if (Path.GetExtension(lower) is ".skin" or ".mdl")
+            {
+                var probe = FormatProbe.ProbeMesh(file);
+                if (probe.Support == FormatProbe.FormatSupport.Unsupported)
+                    unsupported.Add(new(Path.GetFileName(file)!, probe.UnsupportedReason ?? "Unknown format"));
+            }
         }
 
         if (unsupported.Count > 0)
@@ -70,7 +78,13 @@ public sealed partial class MeshConverterTab : UserControl
                 var ext = Path.GetExtension(f).ToLowerInvariant();
                 return ext is ".ddm" or ".psx" or ".skn" or ".bsp" ||
                        lower.EndsWith(".col.xbx") || lower.EndsWith(".col.wpc") ||
-                       lower.EndsWith(".col.ps2") || ext == ".col";
+                       lower.EndsWith(".col.ps2") || ext == ".col" ||
+                       lower.EndsWith(".skin.ps2") || lower.EndsWith(".mdl.ps2") ||
+                       lower.EndsWith(".iskin.ps2") || lower.EndsWith(".geom.ps2") ||
+                       lower.EndsWith(".skin.xbx") || lower.EndsWith(".mdl.xbx") ||
+                       lower.EndsWith(".skin.wpc") || lower.EndsWith(".mdl.wpc") ||
+                       (ext is ".skin" or ".mdl" && !lower.EndsWith(".ps2") &&
+                        !lower.EndsWith(".xbx") && !lower.EndsWith(".wpc"));
             });
             var proceed = await ScanSummaryDialog.ShowIfNeeded(
                 XamlRoot, supportedCount, unsupported);
@@ -150,6 +164,82 @@ public sealed partial class MeshConverterTab : UserControl
             foreach (var file in colFiles)
             {
                 var entry = ScanColFile(file);
+                if (entry != null)
+                    dispatcher.TryEnqueue(() => _items.Add(entry));
+            }
+
+            // Build set of .iskin.ps2 stems to skip pre-compiled .skin.ps2 when higher-quality exists
+            var iskinStems = Directory.GetFiles(inputDir, "*",
+                    new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive })
+                .Where(f => Path.GetFileName(f).EndsWith(".iskin.ps2", StringComparison.OrdinalIgnoreCase))
+                .Select(f => StripCompoundExtension(Path.GetFileName(f)))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            // Scan PS2 scene files (.skin.ps2, .mdl.ps2, .iskin.ps2)
+            var ps2SceneFiles = Directory.GetFiles(inputDir, "*",
+                    new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive })
+                .Where(f =>
+                {
+                    var fn = Path.GetFileName(f);
+                    return fn.EndsWith(".skin.ps2", StringComparison.OrdinalIgnoreCase) ||
+                           fn.EndsWith(".mdl.ps2", StringComparison.OrdinalIgnoreCase) ||
+                           fn.EndsWith(".iskin.ps2", StringComparison.OrdinalIgnoreCase);
+                })
+                .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var file in ps2SceneFiles)
+            {
+                var entry = ScanPs2SceneFile(file, iskinStems);
+                if (entry != null)
+                    dispatcher.TryEnqueue(() => _items.Add(entry));
+            }
+
+            // Scan PS2 GEOM files (.geom.ps2)
+            var ps2GeomFiles = Directory.GetFiles(inputDir, "*",
+                    new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive })
+                .Where(f => Path.GetFileName(f).EndsWith(".geom.ps2", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var file in ps2GeomFiles)
+            {
+                var entry = ScanPs2GeomFile(file);
+                if (entry != null)
+                    dispatcher.TryEnqueue(() => _items.Add(entry));
+            }
+
+            // Scan Xbox/PC scene files (.skin.xbx, .mdl.xbx, .skin.wpc, .mdl.wpc)
+            var xbxSceneFiles = Directory.GetFiles(inputDir, "*",
+                    new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive })
+                .Where(f =>
+                {
+                    var fn = Path.GetFileName(f);
+                    return fn.EndsWith(".skin.xbx", StringComparison.OrdinalIgnoreCase) ||
+                           fn.EndsWith(".mdl.xbx", StringComparison.OrdinalIgnoreCase) ||
+                           fn.EndsWith(".skin.wpc", StringComparison.OrdinalIgnoreCase) ||
+                           fn.EndsWith(".mdl.wpc", StringComparison.OrdinalIgnoreCase);
+                })
+                .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var file in xbxSceneFiles)
+            {
+                var entry = ScanXbxSceneFile(file);
+                if (entry != null)
+                    dispatcher.TryEnqueue(() => _items.Add(entry));
+            }
+
+            // Scan PAK-extracted bare scene files (.skin, .mdl — no compound extension)
+            var pakSceneFiles = Directory.GetFiles(inputDir, "*",
+                    new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive })
+                .Where(f =>
+                {
+                    var ext = Path.GetExtension(f).ToLowerInvariant();
+                    return ext is ".skin" or ".mdl";
+                })
+                .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var file in pakSceneFiles)
+            {
+                var entry = ScanPs2SceneFile(file);
                 if (entry != null)
                     dispatcher.TryEnqueue(() => _items.Add(entry));
             }
@@ -291,6 +381,12 @@ public sealed partial class MeshConverterTab : UserControl
                     int triangles;
                     if (entry.IsCol)
                         triangles = ConvertColFile(entry, outputDir);
+                    else if (entry.IsPs2Scene)
+                        triangles = ConvertPs2SceneFile(entry, outputDir, embedTextures);
+                    else if (entry.IsPs2Geom)
+                        triangles = ConvertPs2GeomFile(entry, outputDir, embedTextures);
+                    else if (entry.IsXbxScene)
+                        triangles = ConvertXbxSceneFile(entry, outputDir, embedTextures);
                     else if (entry.IsRwBsp)
                         triangles = ConvertRwBspFile(entry, outputDir, embedTextures);
                     else if (entry.IsRwDff)
@@ -433,6 +529,316 @@ public sealed partial class MeshConverterTab : UserControl
         {
             return null;
         }
+    }
+
+    private static MeshFileEntry? ScanPs2SceneFile(string file, HashSet<string>? iskinStems = null)
+    {
+        try
+        {
+            var data = File.ReadAllBytes(file);
+            var fileName = Path.GetFileName(file);
+            var lower = fileName.ToLowerInvariant();
+            var dir = Path.GetDirectoryName(file)!;
+            var stem = StripCompoundExtension(fileName);
+
+            Ps2SceneSubFormat subFormat;
+            string format;
+            int objectCount;
+            int meshCount;
+
+            if (ThawPs2SkinFile.IsPakSkin(data))
+            {
+                subFormat = Ps2SceneSubFormat.PakSkin;
+                format = "PS2 (THAW)";
+                var scene = ThawPs2SkinFile.ParsePakSkin(data);
+                objectCount = scene.MeshGroups.Count;
+                meshCount = scene.MeshGroups.Sum(g => g.Meshes.Count);
+            }
+            else if (Ps2GeomFile.IsPakMdl(data))
+            {
+                subFormat = Ps2SceneSubFormat.PakMdl;
+                format = "PS2 (THAW)";
+                var scene = Ps2GeomFile.ParsePakMdl(data);
+                objectCount = scene.Leaves.Count;
+                meshCount = scene.Leaves.Count;
+            }
+            else if (ThawPs2SkinFile.IsThawPs2Skin(data, data.Length))
+            {
+                // Pre-compiled .skin.ps2: skip if .iskin.ps2 exists (higher quality)
+                if (lower.EndsWith(".skin.ps2") && iskinStems != null &&
+                    iskinStems.Contains(stem))
+                    return null;
+
+                subFormat = Ps2SceneSubFormat.ThawSkin;
+                format = "PS2 (THAW)";
+                var scene = ThawPs2SkinFile.Parse(data);
+                objectCount = scene.MeshGroups.Count;
+                meshCount = scene.MeshGroups.Sum(g => g.Meshes.Count);
+            }
+            else if (Ps2SceneFile.IsPs2Scene(data))
+            {
+                subFormat = Ps2SceneSubFormat.Standard;
+                var matVer = BitConverter.ToUInt32(data, 0);
+                format = matVer switch
+                {
+                    3 => "PS2 (THPS4)",
+                    5 => "PS2 (THUG)",
+                    6 => "PS2 (THUG2)",
+                    _ => "PS2 (pre-compiled)"
+                };
+                var scene = Ps2SceneFile.Parse(data);
+                objectCount = scene.MeshGroups.Count;
+                meshCount = scene.MeshGroups.Sum(g => g.Meshes.Count);
+            }
+            else
+            {
+                return null;
+            }
+
+            // Auto-discover skeleton for .skin files
+            string? skeletonPath = null;
+            if (lower.Contains(".skin"))
+                skeletonPath = CompanionSearch.FindCompanion(
+                    dir, stem, [".ske.ps2", ".ske"], ["SKE", "Skeletons"]);
+
+            // Auto-discover companion texture
+            var texPath = CompanionSearch.FindCompanion(
+                dir, stem, [".tex.ps2", ".tex", ".img.ps2"], ["TEX", "Textures", "IMG"]);
+
+            return new MeshFileEntry
+            {
+                FileName = fileName,
+                FilePath = file,
+                Format = format,
+                ObjectCount = objectCount,
+                MeshCount = meshCount,
+                Ps2SubFormat = subFormat,
+                CompanionSkeletonPath = skeletonPath,
+                CompanionTexPath = texPath
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static MeshFileEntry? ScanPs2GeomFile(string file)
+    {
+        try
+        {
+            var scene = Ps2GeomFile.Parse(file);
+            var fileName = Path.GetFileName(file);
+            var dir = Path.GetDirectoryName(file)!;
+            var stem = StripCompoundExtension(fileName);
+
+            var texPath = CompanionSearch.FindCompanion(
+                dir, stem, [".tex.ps2", ".tex", ".img.ps2"], ["TEX", "Textures", "IMG"]);
+
+            return new MeshFileEntry
+            {
+                FileName = fileName,
+                FilePath = file,
+                Format = "PS2 GEOM",
+                ObjectCount = scene.Leaves.Count,
+                MeshCount = scene.Leaves.Count,
+                Ps2SubFormat = Ps2SceneSubFormat.Geom,
+                CompanionTexPath = texPath
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static MeshFileEntry? ScanXbxSceneFile(string file)
+    {
+        try
+        {
+            var data = File.ReadAllBytes(file);
+            var fileName = Path.GetFileName(file);
+            var dir = Path.GetDirectoryName(file)!;
+            var stem = StripCompoundExtension(fileName);
+
+            XbxScene scene;
+            string format;
+            if (ThawSceneFile.IsThawScene(data))
+            {
+                scene = ThawSceneFile.Parse(data);
+                format = fileName.EndsWith(".wpc", StringComparison.OrdinalIgnoreCase)
+                    ? "PC (THAW)" : "Xbox (THAW)";
+            }
+            else if (XbxSceneFile.IsXbxScene(data))
+            {
+                scene = XbxSceneFile.Parse(data);
+                format = fileName.EndsWith(".wpc", StringComparison.OrdinalIgnoreCase)
+                    ? "PC (THUG2)" : "Xbox (THUG2)";
+            }
+            else
+            {
+                return null;
+            }
+
+            var texPath = CompanionSearch.FindCompanion(
+                dir, stem, [".tex.xbx", ".tex.wpc"], ["TEX", "Textures"]);
+
+            return new MeshFileEntry
+            {
+                FileName = fileName,
+                FilePath = file,
+                Format = format,
+                ObjectCount = scene.Sectors.Length,
+                MeshCount = scene.Materials.Length,
+                CompanionTexPath = texPath
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static int ConvertPs2SceneFile(MeshFileEntry entry, string outputDir, bool embedTextures)
+    {
+        var data = File.ReadAllBytes(entry.FilePath);
+        var stem = StripCompoundExtension(entry.FileName);
+        var outputPath = Path.Combine(outputDir, stem + ".glb");
+
+        // Build texture provider from companion TEX
+        Ps2SceneGltfWriter.TextureProvider? textureProvider = null;
+        if (embedTextures && entry.CompanionTexPath != null)
+        {
+            var texResult = Ps2TexFile.Parse(entry.CompanionTexPath);
+            if (!texResult.Success)
+                texResult = ThawSceneTexFile.Parse(entry.CompanionTexPath);
+            if (texResult.Success)
+            {
+                var cache = new Dictionary<uint, Ps2Texture>();
+                foreach (var tex in texResult.Textures)
+                    if (tex.Pixels != null) cache.TryAdd(tex.Checksum, tex);
+                textureProvider = checksum =>
+                {
+                    if (!cache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
+                        return null;
+                    return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
+                };
+            }
+        }
+
+        // PAK-extracted MDL: GEOM-style VIF
+        if (entry.Ps2SubFormat == Ps2SceneSubFormat.PakMdl)
+        {
+            var geomScene = Ps2GeomFile.ParsePakMdl(data);
+            return Ps2GeomGltfWriter.Write(geomScene, outputPath, textureProvider);
+        }
+
+        // Parse scene based on sub-format
+        Ps2Scene scene = entry.Ps2SubFormat switch
+        {
+            Ps2SceneSubFormat.ThawSkin => ThawPs2SkinFile.Parse(data),
+            Ps2SceneSubFormat.PakSkin => ThawPs2SkinFile.ParsePakSkin(data),
+            _ => Ps2SceneFile.Parse(data)
+        };
+
+        // Try to load skeleton for skinned meshes
+        Ps2Skeleton? skeleton = null;
+        if (entry.CompanionSkeletonPath != null)
+        {
+            try
+            {
+                skeleton = entry.CompanionSkeletonPath.EndsWith(".ske.ps2", StringComparison.OrdinalIgnoreCase)
+                    ? Ps2SkeletonFile.Parse(entry.CompanionSkeletonPath)
+                    : SkeletonFile.Parse(entry.CompanionSkeletonPath);
+            }
+            catch { /* proceed without skeleton */ }
+        }
+
+        return skeleton != null
+            ? Ps2SceneGltfWriter.WriteSkinned(scene, skeleton, outputPath, textureProvider)
+            : Ps2SceneGltfWriter.Write(scene, outputPath, textureProvider);
+    }
+
+    private static int ConvertPs2GeomFile(MeshFileEntry entry, string outputDir, bool embedTextures)
+    {
+        var scene = Ps2GeomFile.Parse(entry.FilePath);
+        var stem = StripCompoundExtension(entry.FileName);
+        var outputPath = Path.Combine(outputDir, stem + ".glb");
+
+        Ps2SceneGltfWriter.TextureProvider? textureProvider = null;
+        if (embedTextures && entry.CompanionTexPath != null)
+        {
+            var texResult = Ps2TexFile.Parse(entry.CompanionTexPath);
+            if (!texResult.Success)
+                texResult = ThawSceneTexFile.Parse(entry.CompanionTexPath);
+            if (texResult.Success)
+            {
+                var cache = new Dictionary<uint, Ps2Texture>();
+                foreach (var tex in texResult.Textures)
+                    if (tex.Pixels != null) cache.TryAdd(tex.Checksum, tex);
+                textureProvider = checksum =>
+                {
+                    if (!cache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
+                        return null;
+                    return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
+                };
+            }
+        }
+
+        // Note: THPS4 VRAM-based texture resolution requires directory-wide TEX scan
+        // which is CLI-only for now. THUG/THUG2 GEOM files use direct checksums and work fine.
+        return Ps2GeomGltfWriter.Write(scene, outputPath, textureProvider);
+    }
+
+    private static int ConvertXbxSceneFile(MeshFileEntry entry, string outputDir, bool embedTextures)
+    {
+        var data = File.ReadAllBytes(entry.FilePath);
+        var stem = StripCompoundExtension(entry.FileName);
+        var outputPath = Path.Combine(outputDir, stem + ".glb");
+
+        var scene = ThawSceneFile.IsThawScene(data)
+            ? ThawSceneFile.Parse(data)
+            : XbxSceneFile.Parse(data);
+
+        XbxSceneGltfWriter.TextureProvider? textureProvider = null;
+        if (embedTextures && entry.CompanionTexPath != null)
+        {
+            var texResult = XbxTexFile.Parse(entry.CompanionTexPath);
+            if (!texResult.Success)
+                texResult = ThawTexFile.Parse(entry.CompanionTexPath);
+            if (texResult.Success)
+            {
+                var cache = new Dictionary<uint, Ps2Texture>();
+                foreach (var tex in texResult.Textures)
+                    if (tex.Pixels != null) cache.TryAdd(tex.Checksum, tex);
+                textureProvider = checksum =>
+                {
+                    if (!cache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
+                        return null;
+                    return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
+                };
+            }
+        }
+
+        return XbxSceneGltfWriter.Write(scene, outputPath, textureProvider);
+    }
+
+    private static string StripCompoundExtension(string filename)
+    {
+        var lower = filename.ToLowerInvariant();
+        string[] compoundExts =
+        [
+            ".iskin.ps2", ".skin.ps2", ".mdl.ps2", ".geom.ps2",
+            ".skin.xbx", ".mdl.xbx", ".skin.wpc", ".mdl.wpc",
+            ".col.xbx", ".col.wpc", ".col.ps2"
+        ];
+        foreach (var ext in compoundExts)
+        {
+            if (lower.EndsWith(ext))
+                return filename[..^ext.Length];
+        }
+
+        return Path.GetFileNameWithoutExtension(filename);
     }
 
     private static int ConvertColFile(MeshFileEntry entry, string outputDir)

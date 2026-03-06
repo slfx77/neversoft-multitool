@@ -24,7 +24,7 @@
           Text="Mesh Conversion"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Convert PSX and DDM mesh files to glTF (.glb)"
+          Text="Convert mesh files to glTF (.glb)"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>

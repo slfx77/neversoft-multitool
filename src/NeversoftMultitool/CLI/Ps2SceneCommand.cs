@@ -201,27 +201,7 @@ public static class Ps2SceneCommand
 
             try
             {
-                // Detect THUG2 pre-compiled DMA .skin.ps2 files before parsing
                 var fileData = File.ReadAllBytes(file);
-                if (fileData.Length >= 4 && BitConverter.ToInt32(fileData, 0) == 1
-                                         && filename.EndsWith(".skin.ps2", StringComparison.OrdinalIgnoreCase))
-                {
-                    skipped++;
-                    if (verbose)
-                    {
-                        var iskinFile = file.Replace(".skin.ps2", ".iskin.ps2",
-                            StringComparison.OrdinalIgnoreCase);
-                        var iskinHint = File.Exists(iskinFile)
-                            ? " (matching .iskin.ps2 exists)"
-                            : "";
-                        AnsiConsole.MarkupLine(
-                            $"  {filename}: [yellow]pre-compiled VIF/DMA format, skipped{iskinHint}[/]");
-                    }
-
-                    continue;
-                }
-
-                var scene = Ps2SceneFile.Parse(fileData);
 
                 // Use per-file texture provider if we have a cache,
                 // or try auto-detecting a companion TEX file for this specific scene
@@ -240,22 +220,59 @@ public static class Ps2SceneCommand
                     }
                 }
 
-                // Resolve skeleton: explicit > cache > auto-discover
-                var skeleton = explicitSkeleton;
-                if (skeleton == null && skeletonCache != null)
-                    skeletonCache.TryGetValue(stem, out skeleton);
-                if (skeleton == null && filename.Contains(".skin.", StringComparison.OrdinalIgnoreCase))
-                    skeleton = TryDiscoverSkeleton(file, stem);
-
                 int tris;
-                if (skeleton != null)
+
+                // PAK-extracted MDL: GEOM-style VIF → Ps2GeomGltfWriter
+                if (Ps2GeomFile.IsPakMdl(fileData))
                 {
-                    tris = Ps2SceneGltfWriter.WriteSkinned(scene, skeleton, outputPath, provider);
-                    if (tris > 0) skinnedCount++;
+                    var geomScene = Ps2GeomFile.ParsePakMdl(fileData);
+                    tris = Ps2GeomGltfWriter.Write(geomScene, outputPath, provider);
                 }
                 else
                 {
-                    tris = Ps2SceneGltfWriter.Write(scene, outputPath, provider);
+                    // Detect pre-compiled VIF/DMA .skin.ps2 (THAW or THUG2)
+                    Ps2Scene scene;
+                    if (ThawPs2SkinFile.IsThawPs2Skin(fileData))
+                    {
+                        // THUG2 pre-compiled: skip if .iskin.ps2 exists (higher quality)
+                        var iskinFile = file.Replace(".skin.ps2", ".iskin.ps2",
+                            StringComparison.OrdinalIgnoreCase);
+                        if (File.Exists(iskinFile))
+                        {
+                            skipped++;
+                            if (verbose)
+                                AnsiConsole.MarkupLine(
+                                    $"  {filename}: [yellow]pre-compiled VIF, skipped (.iskin.ps2 exists)[/]");
+                            continue;
+                        }
+
+                        scene = ThawPs2SkinFile.Parse(fileData);
+                    }
+                    else if (ThawPs2SkinFile.IsPakSkin(fileData))
+                    {
+                        scene = ThawPs2SkinFile.ParsePakSkin(fileData);
+                    }
+                    else
+                    {
+                        scene = Ps2SceneFile.Parse(fileData);
+                    }
+
+                    // Resolve skeleton: explicit > cache > auto-discover
+                    var skeleton = explicitSkeleton;
+                    if (skeleton == null && skeletonCache != null)
+                        skeletonCache.TryGetValue(stem, out skeleton);
+                    if (skeleton == null && filename.Contains(".skin.", StringComparison.OrdinalIgnoreCase))
+                        skeleton = TryDiscoverSkeleton(file, stem);
+
+                    if (skeleton != null)
+                    {
+                        tris = Ps2SceneGltfWriter.WriteSkinned(scene, skeleton, outputPath, provider);
+                        if (tris > 0) skinnedCount++;
+                    }
+                    else
+                    {
+                        tris = Ps2SceneGltfWriter.Write(scene, outputPath, provider);
+                    }
                 }
 
                 if (tris == 0)
@@ -275,10 +292,8 @@ public static class Ps2SceneCommand
                 if (verbose)
                 {
                     var texInfo = provider != null ? ", textured" : "";
-                    var skelInfo = skeleton != null ? $", {skeleton.Bones.Length} bones" : "";
                     AnsiConsole.MarkupLine(
-                        $"  {filename}: [green]{scene.MeshGroups.Count} groups, " +
-                        $"{tris:N0} triangles{texInfo}{skelInfo}[/]");
+                        $"  {filename}: [green]{tris:N0} triangles{texInfo}[/]");
                 }
             }
             catch (Exception ex)

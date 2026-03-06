@@ -47,11 +47,11 @@
       <NavigationView.MenuItems>
         <NavigationViewItemHeader Content="Textures" />
 
-        <!--  PSX Texture Extraction  -->
+        <!--  Texture Extraction  -->
         <NavigationViewItem
-          Content="PSX Textures"
+          Content="Textures"
           IsSelected="True"
-          Tag="PsxTextures">
+          Tag="Textures">
           <NavigationViewItem.Icon>
             <FontIcon Glyph="&#xEB9F;" />
           </NavigationViewItem.Icon>
@@ -171,8 +171,8 @@
           Background="{ThemeResource LayerOnMicaBaseAltFillColorDefaultBrush}"
           CornerRadius="8,0,0,8">
           <Grid VerticalAlignment="Stretch">
-            <tabs:PsxTextureTab
-              x:Name="PsxTextureTabContent"
+            <tabs:TextureTab
+              x:Name="TextureTabContent"
               VerticalAlignment="Stretch"
               Visibility="Visible" />
             <tabs:RleBitmapTab
@@ -195,8 +195,8 @@
               x:Name="HashReviewerTabContent"
               VerticalAlignment="Stretch"
               Visibility="Collapsed" />
-            <tabs:SfdConverterTab
-              x:Name="SfdConverterTabContent"
+            <tabs:VideoConverterTab
+              x:Name="VideoConverterTabContent"
               VerticalAlignment="Stretch"
               Visibility="Collapsed" />
             <tabs:ScriptDecompilerTab

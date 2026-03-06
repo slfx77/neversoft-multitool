@@ -111,12 +111,12 @@ public sealed partial class MainWindow : Window
             var tag = selectedItem.Tag?.ToString();
 
             // Hide all content
-            PsxTextureTabContent.Visibility = Visibility.Collapsed;
+            TextureTabContent.Visibility = Visibility.Collapsed;
             RleBitmapTabContent.Visibility = Visibility.Collapsed;
             ArchiveExtractorTabContent.Visibility = Visibility.Collapsed;
             UnpackTabContent.Visibility = Visibility.Collapsed;
             AudioConverterTabContent.Visibility = Visibility.Collapsed;
-            SfdConverterTabContent.Visibility = Visibility.Collapsed;
+            VideoConverterTabContent.Visibility = Visibility.Collapsed;
             HashReviewerTabContent.Visibility = Visibility.Collapsed;
             ScriptDecompilerTabContent.Visibility = Visibility.Collapsed;
             MeshConverterTabContent.Visibility = Visibility.Collapsed;
@@ -127,8 +127,8 @@ public sealed partial class MainWindow : Window
             // Show selected content
             switch (tag)
             {
-                case "PsxTextures":
-                    PsxTextureTabContent.Visibility = Visibility.Visible;
+                case "Textures":
+                    TextureTabContent.Visibility = Visibility.Visible;
                     break;
                 case "RleBitmaps":
                     RleBitmapTabContent.Visibility = Visibility.Visible;
@@ -143,7 +143,7 @@ public sealed partial class MainWindow : Window
                     AudioConverterTabContent.Visibility = Visibility.Visible;
                     break;
                 case "VideoConverter":
-                    SfdConverterTabContent.Visibility = Visibility.Visible;
+                    VideoConverterTabContent.Visibility = Visibility.Visible;
                     break;
                 case "HashReviewer":
                     HashReviewerTabContent.Visibility = Visibility.Visible;

@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.Formats.Archives;
+using NeversoftMultitool.Core.Formats.Ps2Scene;
 using NeversoftMultitool.Core.Formats.XbxScene;
 
 namespace NeversoftMultitool.Core;
@@ -69,6 +70,16 @@ public static class FormatProbe
                 return new(FormatSupport.Unsupported, "Unknown", "File too small");
 
             var version = BitConverter.ToUInt32(data, 0);
+
+            // THAW scene tex: version field is u16=6 (u32 reads as 0x00010006 due to h1=1)
+            var version16 = (ushort)(version & 0xFFFF);
+            if (version16 == 6 && bytesRead >= 12)
+            {
+                var numTex = BitConverter.ToUInt32(data, 4);
+                if (numTex > 0 && numTex <= 100)
+                    return new(FormatSupport.Supported, "THAW Scene TEX (v6)");
+            }
+
             return version switch
             {
                 2 => new(FormatSupport.Supported, "PS2 IMG (v2)"),
@@ -100,6 +111,8 @@ public static class FormatProbe
             var version = BitConverter.ToUInt32(data, 0);
             if (version == 1)
                 return new(FormatSupport.Supported, "Xbox TEX");
+            if (version == 0xABADD00D)
+                return new(FormatSupport.Supported, "THAW PC TEX");
 
             return new(FormatSupport.Unsupported, $"Xbox TEX (v{version})",
                 $"Unsupported Xbox TEX version {version} (expected 1)");
@@ -198,6 +211,12 @@ public static class FormatProbe
             lower.EndsWith(".col.ps2") || lower.EndsWith(".col.psp"))
             return ProbeColFile(filePath);
 
+        // PAK-extracted bare extensions (.skin, .mdl)
+        if (lower.EndsWith(".skin") && !lower.EndsWith(".ps2") && !lower.EndsWith(".xbx") && !lower.EndsWith(".wpc"))
+            return ProbePakSkinFile(filePath);
+        if (lower.EndsWith(".mdl") && !lower.EndsWith(".ps2") && !lower.EndsWith(".xbx") && !lower.EndsWith(".wpc"))
+            return ProbePakMdlFile(filePath);
+
         var ext = Path.GetExtension(filePath).ToLowerInvariant();
 
         return ext switch
@@ -215,9 +234,9 @@ public static class FormatProbe
     {
         try
         {
-            var data = new byte[12];
+            var data = new byte[32];
             using var fs = File.OpenRead(filePath);
-            var bytesRead = fs.Read(data, 0, 12);
+            var bytesRead = fs.Read(data, 0, 32);
             if (bytesRead < 12)
                 return new(FormatSupport.Unsupported, "Unknown", "File too small");
 
@@ -238,14 +257,59 @@ public static class FormatProbe
                 return new(FormatSupport.Supported, $"PS2 Scene ({game})");
             }
 
-            // THUG2 pre-compiled VIF/DMA format
-            if (matVer == 1)
-                return new(FormatSupport.PartiallySupported, "THUG2 Pre-compiled",
-                    "Pre-compiled VIF/DMA format — use matching .iskin.ps2 file instead");
+            // Pre-compiled VIF/DMA format (THAW or THUG2 without .iskin.ps2)
+            var fullData = bytesRead < 32 ? data[..bytesRead] : data;
+            if (ThawPs2SkinFile.IsThawPs2Skin(fullData, fs.Length))
+                return new(FormatSupport.Supported, "THAW/Pre-compiled PS2 Scene");
 
-            // THAW .skin.ps2 — version triples read as garbage
-            return new(FormatSupport.Unsupported, "THAW Scene",
-                $"THAW .skin.ps2 format not yet supported (version {matVer},{meshVer},{vertVer})");
+            return new(FormatSupport.Unsupported, "Unknown PS2 Scene",
+                $"Unrecognized version triple ({matVer},{meshVer},{vertVer})");
+        }
+        catch
+        {
+            return new(FormatSupport.Unsupported, "Unknown", "Failed to read file header");
+        }
+    }
+
+    private static FormatProbeResult ProbePakSkinFile(string filePath)
+    {
+        try
+        {
+            var data = new byte[8192];
+            using var fs = File.OpenRead(filePath);
+            var bytesRead = fs.Read(data, 0, Math.Min(data.Length, (int)fs.Length));
+            if (bytesRead < 256)
+                return new(FormatSupport.Unsupported, "Unknown", "File too small");
+
+            var actual = data[..bytesRead];
+            if (ThawPs2SkinFile.IsPakSkin(actual))
+                return new(FormatSupport.Supported, "PAK Skin (THAW PS2)");
+
+            return new(FormatSupport.Unsupported, "Unknown .skin",
+                "Not a recognized PAK-extracted skin file");
+        }
+        catch
+        {
+            return new(FormatSupport.Unsupported, "Unknown", "Failed to read file header");
+        }
+    }
+
+    private static FormatProbeResult ProbePakMdlFile(string filePath)
+    {
+        try
+        {
+            var data = new byte[2048];
+            using var fs = File.OpenRead(filePath);
+            var bytesRead = fs.Read(data, 0, Math.Min(data.Length, (int)fs.Length));
+            if (bytesRead < 256)
+                return new(FormatSupport.Unsupported, "Unknown", "File too small");
+
+            var actual = data[..bytesRead];
+            if (Ps2GeomFile.IsPakMdl(actual))
+                return new(FormatSupport.Supported, "PAK MDL (THAW PS2)");
+
+            return new(FormatSupport.Unsupported, "Unknown .mdl",
+                "Not a recognized PAK-extracted MDL file");
         }
         catch
         {

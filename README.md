@@ -183,6 +183,11 @@ This project contains code derived from or informed by:
 - [RLE-GIMP-Plugin](https://github.com/Daniel-McCarthy/RLE-GIMP-Plugin) — GIMP plugin for Neversoft RLE/BMR files, used as reference for the PS1 RLE format.
 - [jPSXdec](https://github.com/m35/jpsxdec) — PlayStation 1 media decoder/converter in Java, used as reference for XA ADPCM audio decoding.
 - [KAT2WAV](https://github.com/DCxDemo/KAT2WAV) — Dreamcast KAT soundbank extractor, used as reference for KAT format understanding.
+- [Hed-Extract](https://github.com/Daniel-McCarthy/Hed-Extract) — PSP Tony Hawk's Project 8 HED/WAD extractor/packer, used as format reference for HED archive extraction.
+- [thps2-tools](https://github.com/JayFoxRox/thps2-tools) — THPS2 WAD/HED extraction script, used as reference for WAD archive format.
+- [NxTools](https://gitgud.io/Fretworks/NxTools) — Blender plugin for Neversoft game assets, used as format reference for Xbox/THAW scene and texture parsing.
+- [Queen-Bee](https://github.com/Nanook/Queen-Bee) — Guitar Hero/Tony Hawk PAK/QB editor, used as reference for PAK archive entry format.
+- [librw](https://github.com/aap/librw) — RenderWare engine re-implementation, used as reference for RW TXD texture dictionary format.
 
 ### Previous Versions
 

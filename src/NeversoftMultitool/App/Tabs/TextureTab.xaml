@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <UserControl
-  x:Class="NeversoftMultitool.PsxTextureTab"
+  x:Class="NeversoftMultitool.TextureTab"
   xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
   xmlns:local="using:NeversoftMultitool">
@@ -115,10 +115,10 @@
       </Grid.ColumnDefinitions>
       <StackPanel Style="{StaticResource TabHeaderStackPanelStyle}">
         <TextBlock
-          Text="PSX Texture Extraction"
+          Text="Texture Extraction"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Extract textures from Neversoft PSX model files"
+          Text="Extract textures from Neversoft game files"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>
@@ -220,7 +220,7 @@
             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
             TextAlignment="Center" />
           <TextBlock
-            Text="Select an input directory containing .psx files to get started"
+            Text="Select an input directory containing texture files to get started"
             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
             TextAlignment="Center" />
           <Button

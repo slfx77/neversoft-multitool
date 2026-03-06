@@ -55,6 +55,8 @@ public static class XbxTextureLoader
         try
         {
             var result = XbxTexFile.Parse(texFile);
+            if (!result.Success)
+                result = ThawTexFile.Parse(texFile);
             if (!result.Success) return null;
 
             var cache = new Dictionary<uint, Ps2Texture>();
@@ -80,6 +82,8 @@ public static class XbxTextureLoader
         try
         {
             var result = XbxTexFile.Parse(texFile);
+            if (!result.Success)
+                result = ThawTexFile.Parse(texFile); // Try THAW 0xABADD00D format
             if (!result.Success) return;
 
             foreach (var tex in result.Textures)

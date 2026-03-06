@@ -175,9 +175,9 @@ public sealed class FormatProbeTests
     }
 
     [Fact]
-    public void ProbeMesh_Thug2PreCompiled_PartiallySupported()
+    public void ProbeMesh_Thug2PreCompiled_Unsupported()
     {
-        // matVersion = 1 means pre-compiled VIF/DMA
+        // matVersion = 1 with only 12 bytes: too small for ThawPs2Skin detection
         var data = new byte[12];
         BitConverter.GetBytes(1u).CopyTo(data, 0);
         BitConverter.GetBytes(100u).CopyTo(data, 4);
@@ -186,16 +186,15 @@ public sealed class FormatProbeTests
         try
         {
             var result = FormatProbe.ProbeMesh(tempFile);
-            Assert.Equal(FormatProbe.FormatSupport.PartiallySupported, result.Support);
-            Assert.Contains("iskin", result.UnsupportedReason!);
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
         }
         finally { File.Delete(tempFile); }
     }
 
     [Fact]
-    public void ProbeMesh_ThawSkinPs2_Unsupported()
+    public void ProbeMesh_ThawSkinPs2_TooSmallForDetection()
     {
-        // THAW version triples are garbage values
+        // THAW header values but only 12 bytes — not enough for detection
         var data = new byte[12];
         BitConverter.GetBytes(65536u).CopyTo(data, 0);
         BitConverter.GetBytes(2496u).CopyTo(data, 4);
@@ -205,7 +204,6 @@ public sealed class FormatProbeTests
         {
             var result = FormatProbe.ProbeMesh(tempFile);
             Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
-            Assert.Contains("THAW", result.FormatName);
         }
         finally { File.Delete(tempFile); }
     }

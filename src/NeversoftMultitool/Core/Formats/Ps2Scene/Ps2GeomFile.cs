@@ -4,8 +4,10 @@ using System.Numerics;
 namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
 /// <summary>
-///     Parser for PS2 GEOM files (.geom.ps2).
-///     These contain pre-compiled CGeomNode rendering trees with embedded VIF/DMA chains.
+///     Parser for PS2 GEOM files (.geom.ps2) and PAK-extracted MDL files.
+///     GEOM files contain pre-compiled CGeomNode rendering trees with embedded VIF/DMA chains.
+///     PAK MDL files contain the same VIF vertex format but with a variable-length preamble
+///     instead of the CGeomNode tree header.
 ///     Vertex data is extracted by walking VIF opcodes and decoding UNPACK instructions.
 ///     File format (from THUG source geomnode.cpp sProcessInPlace):
 ///     [0x00] u32: data_section_offset
@@ -44,6 +46,112 @@ public static class Ps2GeomFile
 
         var leaves = new List<Ps2GeomLeaf>();
         WalkNodeTree(data, baseOffset, rootNodeOffset, leaves);
+
+        return new Ps2GeomScene { Leaves = leaves };
+    }
+
+    /// <summary>
+    ///     Detect PAK-extracted .mdl files from THAW PS2 level _main PAK archives.
+    ///     These files contain GEOM-style VIF vertex data (CL=4, MSCAL-delimited batches)
+    ///     with a variable-length preamble instead of CGeomNode tree headers.
+    ///     Detection: NOT a known format + contains STCYCL CL=1 WL=1 followed by UNPACK V4_32 NUM=1
+    ///     in the first 2KB (the batch entry pattern).
+    /// </summary>
+    public static bool IsPakMdl(byte[] data)
+    {
+        if (data.Length < 256) return false;
+
+        // Must NOT be a known format
+        if (ThawPs2SkinFile.IsThawPs2Skin(data, data.Length)) return false;
+        if (Ps2SceneFile.IsPs2Scene(data)) return false;
+        if (ThawPs2SkinFile.IsPakSkin(data)) return false;
+
+        // Scan for batch entry: STCYCL CL=1 WL=1 (0x01000101) + UNPACK V4_32 NUM=1
+        var searchEnd = Math.Min(data.Length, 2048);
+        for (var i = 0; i < searchEnd - 7; i += 4)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(i)) != 0x01000101)
+                continue;
+
+            // Next VIF code should be UNPACK V4_32 NUM=1
+            var next = i + 4; // STCYCL is 4 bytes
+            if (next + 4 > data.Length) continue;
+            if ((data[next + 3] & 0x7F) == 0x6C && data[next + 2] == 1)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    ///     Parse a PAK-extracted .mdl file from THAW PS2 level _main PAK archives.
+    ///     MDL files use GEOM-style VIF (CL=4 WL=1, MSCAL-delimited batches) with
+    ///     a variable-length preamble. Mesh boundaries are identified by batches whose
+    ///     V3_32 UNPACK has NUM>1 (GS A+D register writes that change texture/blend state).
+    ///     Some batches start directly with STCYCL CL=4 (no CL=1 preamble).
+    ///     Interstitial non-vertex data (shadow maps etc.) appears between mesh segments.
+    /// </summary>
+    public static Ps2GeomScene ParsePakMdl(byte[] data)
+    {
+        // Find VIF data start: STCYCL CL=1 WL=1 (0x01000101) followed by UNPACK V4_32 NUM=1
+        var vifStart = FindMdlVifStart(data);
+        if (vifStart < 0)
+            return new Ps2GeomScene { Leaves = [] };
+
+        // Single-pass walk: scan for MSCAL-terminated vertex batches.
+        // Track GS context (from V3_32 NUM>1) and per-batch center (from V3_32 NUM=1).
+        // New GS context = new mesh segment. Each batch extracts vertices via the standard
+        // GEOM-style VIF walker (STMOD=1 positions, format-code attribute identification).
+        var leaves = new List<Ps2GeomLeaf>();
+        var currentVertices = new List<Ps2Vertex>();
+        var currentGsCtx = new GsContext();
+        var currentCenter = Vector3.Zero;
+        var hasMesh = false;
+
+        // Find all MSCAL positions to delimit batches, then process each batch range
+        var batchRanges = FindMscalBatchRanges(data, vifStart, data.Length);
+
+        foreach (var (batchStart, batchEnd) in batchRanges)
+        {
+            // Pre-scan this batch for GS context and center vector
+            var gsCtx = ScanBatchForGsContext(data, batchStart, batchEnd);
+            var center = ScanBatchForCenter(data, batchStart, batchEnd);
+
+            if (gsCtx.HasValue)
+            {
+                // New GS context → emit previous mesh, start new one
+                if (hasMesh && currentVertices.Count > 0)
+                {
+                    leaves.Add(MakeLeafFromMdlMesh(currentVertices, currentGsCtx));
+                    currentVertices.Clear();
+                }
+
+                currentGsCtx = gsCtx.Value;
+                hasMesh = true;
+                currentCenter = center ?? Vector3.Zero;
+            }
+            else if (center.HasValue)
+            {
+                currentCenter = center.Value;
+            }
+
+            // Extract vertices from this batch using the GEOM-style VIF walker
+            var batchVerts = ExtractVerticesFromVif(data, batchStart, batchEnd, currentCenter);
+            if (batchVerts.Length > 0)
+            {
+                if (!hasMesh)
+                {
+                    // Batch with vertices but no GS context yet — create default mesh
+                    hasMesh = true;
+                }
+
+                currentVertices.AddRange(batchVerts);
+            }
+        }
+
+        // Emit final mesh segment
+        if (hasMesh && currentVertices.Count > 0)
+            leaves.Add(MakeLeafFromMdlMesh(currentVertices, currentGsCtx));
 
         return new Ps2GeomScene { Leaves = leaves };
     }
@@ -103,7 +211,7 @@ public static class Ps2GeomFile
                 {
                     var center = new Vector3(sphereX, sphereY, sphereZ);
                     var vertices = ExtractVerticesFromDma(data, dmaAbs, center);
-                    var gsCtx = ExtractGsContext(data, dmaAbs);
+                    var gsCtx = ExtractGsContextFromDma(data, dmaAbs);
 
                     if (vertices.Length > 0)
                     {
@@ -133,8 +241,7 @@ public static class Ps2GeomFile
 
     /// <summary>
     ///     Extract vertex data from a DMA/VIF chain at the given absolute offset.
-    ///     Scans for STMOD(1) + UNPACK patterns to find position data,
-    ///     and identifies UV/color/normal UNPACKs by their format code.
+    ///     Unwraps the DMA tag header, then delegates to ExtractVerticesFromVif.
     /// </summary>
     private static Ps2Vertex[] ExtractVerticesFromDma(byte[] data, int dmaOffset, Vector3 center)
     {
@@ -145,6 +252,18 @@ public static class Ps2GeomFile
         if (pEnd > data.Length)
             return [];
 
+        return ExtractVerticesFromVif(data, pStart, pEnd, center);
+    }
+
+    /// <summary>
+    ///     Extract vertex data from a raw VIF opcode stream (no DMA tag wrapper).
+    ///     Scans for STMOD(1) + UNPACK patterns to find position data,
+    ///     and identifies UV/color/normal UNPACKs by their format code.
+    ///     Each MSCAL boundary starts a new batch.
+    /// </summary>
+    internal static Ps2Vertex[] ExtractVerticesFromVif(byte[] data, int pStart, int pEnd,
+        Vector3 center)
+    {
         // First pass: collect all vertex batches
         // Each batch is a set of UNPACKs between MSCAL boundaries.
         // Within each batch, STMOD(1) marks the position UNPACK.
@@ -211,10 +330,18 @@ public static class Ps2GeomFile
                         currentBatch.NormalOffset = unpackDataOffset;
                         currentBatch.NormalCount = num;
                     }
-                    else if (vn == 3 && vl == 2) // V4_8 = colors
+                    else if (vn == 3 && vl == 2) // V4_8 = colors (RGBA)
                     {
                         currentBatch.ColorOffset = unpackDataOffset;
                         currentBatch.ColorCount = num;
+                        currentBatch.ColorIs3Byte = false;
+                    }
+                    else if (vn == 2 && vl == 2 && currentBatch.NormalOffset >= 0) // V3_8 = colors (RGB, no alpha)
+                    {
+                        // V3_8 after normals already assigned → pre-baked lighting colors
+                        currentBatch.ColorOffset = unpackDataOffset;
+                        currentBatch.ColorCount = num;
+                        currentBatch.ColorIs3Byte = true;
                     }
                 }
             }
@@ -287,9 +414,7 @@ public static class Ps2GeomFile
                     }
                     else if (batch.UvIs32Bit)
                     {
-                        // GEOM V2_32 UVs are sint32 fixed-point scaled by 4096, not IEEE float.
-                        // Built via immediate.cpp/dma.h pipeline (ConvertSTToFloat divides by 4096).
-                        // Distinct from MDL/SKIN which writes actual IEEE floats via VertexSTFloat.
+                        // GEOM/MDL V2_32 UVs are sint32 fixed-point scaled by 4096, not IEEE float.
                         var off = batch.UvOffset + i * 8; // 2×s32 = 8 bytes
                         if (off + 8 <= data.Length)
                         {
@@ -305,14 +430,29 @@ public static class Ps2GeomFile
                 var hasColor = false;
                 if (batch.ColorOffset >= 0 && i < batch.ColorCount)
                 {
-                    var off = batch.ColorOffset + i * 4; // 4×u8 = 4 bytes
-                    if (off + 4 <= data.Length)
+                    if (batch.ColorIs3Byte)
                     {
-                        cr = data[off];
-                        cg = data[off + 1];
-                        cb = data[off + 2];
-                        ca = data[off + 3];
-                        hasColor = true;
+                        var off = batch.ColorOffset + i * 3; // 3×u8 = 3 bytes (RGB)
+                        if (off + 3 <= data.Length)
+                        {
+                            cr = data[off];
+                            cg = data[off + 1];
+                            cb = data[off + 2];
+                            ca = 128; // No alpha channel; use default
+                            hasColor = true;
+                        }
+                    }
+                    else
+                    {
+                        var off = batch.ColorOffset + i * 4; // 4×u8 = 4 bytes (RGBA)
+                        if (off + 4 <= data.Length)
+                        {
+                            cr = data[off];
+                            cg = data[off + 1];
+                            cb = data[off + 2];
+                            ca = data[off + 3];
+                            hasColor = true;
+                        }
                     }
                 }
 
@@ -353,10 +493,8 @@ public static class Ps2GeomFile
         return allVertices.ToArray();
     }
 
-    /// <summary>
-    ///     Advance past one VIF opcode. Port of vif::NextCode from vif.cpp.
-    /// </summary>
-    private static int VifNextCode(byte[] data, int offset, int end)
+    /// <summary>Advance past one VIF opcode. Port of vif::NextCode from vif.cpp.</summary>
+    internal static int VifNextCode(byte[] data, int offset, int end)
     {
         if (offset >= end || offset + 4 > data.Length)
             return end;
@@ -393,22 +531,31 @@ public static class Ps2GeomFile
 
     /// <summary>
     ///     Extract GS register values from a DMA chain's GS context.
-    ///     The GS context is encoded as: UNPACK V4_32 NUM=1 (GIF tag) followed by
-    ///     UNPACK V3_32 NUM=N (register writes as data_lo32, data_hi32, reg_addr triplets).
-    ///     Extracts TEX0_1 (0x06), CLAMP_1 (0x08), ALPHA_1 (0x42), TEST_1 (0x47).
+    ///     Unwraps the DMA tag header, then delegates to ExtractGsContextFromVif.
     /// </summary>
-    private static GsContext ExtractGsContext(byte[] data, int dmaOffset)
+    private static GsContext ExtractGsContextFromDma(byte[] data, int dmaOffset)
     {
-        var ctx = new GsContext();
-
         if (dmaOffset + 16 > data.Length)
-            return ctx;
+            return new GsContext();
 
         var qwc = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(dmaOffset));
         var pStart = dmaOffset + 16;
         var pEnd = dmaOffset + 16 + (qwc << 4);
         if (pEnd > data.Length)
-            return ctx;
+            return new GsContext();
+
+        return ExtractGsContextFromVif(data, pStart, pEnd);
+    }
+
+    /// <summary>
+    ///     Extract GS register values from a raw VIF opcode stream.
+    ///     The GS context is encoded as: UNPACK V4_32 NUM=1 (GIF tag) followed by
+    ///     UNPACK V3_32 NUM=N (register writes as data_lo32, data_hi32, reg_addr triplets).
+    ///     Extracts TEX0_1 (0x06), CLAMP_1 (0x08), ALPHA_1 (0x42), TEST_1 (0x47).
+    /// </summary>
+    internal static GsContext ExtractGsContextFromVif(byte[] data, int pStart, int pEnd)
+    {
+        var ctx = new GsContext();
 
         var pCode = pStart;
         while (pCode < pEnd && pCode + 4 <= data.Length)
@@ -461,7 +608,144 @@ public static class Ps2GeomFile
         return ctx;
     }
 
-    private struct GsContext
+    /// <summary>
+    ///     Find the VIF data start in a PAK-extracted MDL file.
+    ///     Scans for STCYCL CL=1 WL=1 (0x01000101) followed by UNPACK V4_32 NUM=1.
+    /// </summary>
+    private static int FindMdlVifStart(byte[] data)
+    {
+        var searchEnd = Math.Min(data.Length, 4096);
+        for (var i = 0; i < searchEnd - 7; i += 4)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(i)) != 0x01000101)
+                continue;
+
+            var next = i + 4;
+            if (next + 4 > data.Length) continue;
+            if ((data[next + 3] & 0x7F) == 0x6C && data[next + 2] == 1)
+                return i;
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    ///     Find all MSCAL-terminated batch ranges in the VIF stream.
+    ///     Each batch starts after the previous MSCAL (or at vifStart) and ends at the next MSCAL.
+    ///     Non-vertex interstitial data (shadow maps etc.) is included in ranges but produces
+    ///     no vertices when passed through ExtractVerticesFromVif.
+    /// </summary>
+    private static List<(int Start, int End)> FindMscalBatchRanges(byte[] data, int vifStart,
+        int vifEnd)
+    {
+        var ranges = new List<(int, int)>();
+        var batchStart = vifStart;
+
+        var pCode = vifStart;
+        while (pCode < vifEnd && pCode + 4 <= data.Length)
+        {
+            var cmd = data[pCode + 3];
+
+            if ((cmd & 0x7F) == 0x14) // MSCAL
+            {
+                var batchEnd = VifNextCode(data, pCode, vifEnd);
+                ranges.Add((batchStart, batchEnd));
+                batchStart = batchEnd;
+                pCode = batchEnd;
+                continue;
+            }
+
+            pCode = VifNextCode(data, pCode, vifEnd);
+        }
+
+        return ranges;
+    }
+
+    /// <summary>
+    ///     Scan a batch range for GS register writes (V4_32 NUM=1 + V3_32 NUM>1 pattern).
+    ///     Returns the GS context if found, null otherwise.
+    /// </summary>
+    private static GsContext? ScanBatchForGsContext(byte[] data, int batchStart, int batchEnd)
+    {
+        var pCode = batchStart;
+        while (pCode < batchEnd && pCode + 4 <= data.Length)
+        {
+            var cmd = data[pCode + 3];
+            var num = data[pCode + 2];
+
+            // Look for UNPACK V4_32 NUM=1 (potential GIF tag)
+            if ((cmd & 0x7F) == 0x6C && num == 1)
+            {
+                var nextP = VifNextCode(data, pCode, batchEnd);
+                if (nextP + 4 <= data.Length && (data[nextP + 3] & 0x7F) == 0x68 &&
+                    data[nextP + 2] > 1)
+                {
+                    // V3_32 NUM>1 = GS register writes
+                    return ExtractGsContextFromVif(data, pCode, batchEnd);
+                }
+            }
+
+            pCode = VifNextCode(data, pCode, batchEnd);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Scan a batch range for a center vector (V4_32 NUM=1 + V3_32 NUM=1 pattern).
+    ///     Returns the center if found, null otherwise.
+    /// </summary>
+    private static Vector3? ScanBatchForCenter(byte[] data, int batchStart, int batchEnd)
+    {
+        var pCode = batchStart;
+        while (pCode < batchEnd && pCode + 4 <= data.Length)
+        {
+            var cmd = data[pCode + 3];
+            var num = data[pCode + 2];
+
+            // Look for UNPACK V4_32 NUM=1 (kickaddr)
+            if ((cmd & 0x7F) == 0x6C && num == 1)
+            {
+                var nextP = VifNextCode(data, pCode, batchEnd);
+                if (nextP + 4 <= data.Length && (data[nextP + 3] & 0x7F) == 0x68 &&
+                    data[nextP + 2] == 1)
+                {
+                    // V3_32 NUM=1 = center vector (3×f32)
+                    var centerOff = nextP + 4;
+                    if (centerOff + 12 <= data.Length)
+                    {
+                        return new Vector3(
+                            BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(centerOff)),
+                            BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(centerOff + 4)),
+                            BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(centerOff + 8)));
+                    }
+                }
+            }
+
+            pCode = VifNextCode(data, pCode, batchEnd);
+        }
+
+        return null;
+    }
+
+    private static Ps2GeomLeaf MakeLeafFromMdlMesh(List<Ps2Vertex> vertices, GsContext gsCtx)
+    {
+        return new Ps2GeomLeaf
+        {
+            Checksum = 0,
+            TextureChecksum = 0, // Resolved via DmaTex0
+            GroupChecksum = 0,
+            Colour = 0,
+            BoundingSphere = Vector4.Zero,
+            Vertices = vertices.ToArray(),
+            DmaTex0 = gsCtx.Tex0,
+            DmaClamp1 = gsCtx.Clamp1,
+            DmaAlpha1 = gsCtx.Alpha1,
+            DmaTest1 = gsCtx.Test1
+        };
+    }
+
+    internal struct GsContext
     {
         public ulong Tex0;
         public ulong Clamp1;
@@ -488,6 +772,7 @@ public static class Ps2GeomFile
 
         public int ColorOffset;
         public int ColorCount;
+        public bool ColorIs3Byte;
 
         public VifBatch()
         {
@@ -497,4 +782,5 @@ public static class Ps2GeomFile
             ColorOffset = -1;
         }
     }
+
 }

@@ -8,6 +8,7 @@ public class PsxFileEntry : BaseFileEntry, IListEntry
     private int _textureCount;
 
     public required string FileName { get; init; }
+    internal TextureFileFormat Format { get; init; }
 
     public int TextureCount
     {

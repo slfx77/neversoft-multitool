@@ -35,7 +35,7 @@ internal static class Ps2TextureLoader
         if (commonRoot != null)
         {
             var texFiles = CompanionSearch.FindAllByExtension(
-                commonRoot, [".tex.ps2", ".tex"]);
+                commonRoot, [".tex.ps2", ".tex", ".img.ps2"]);
             foreach (var tf in texFiles)
                 ParseTexIntoCache(tf, cache, parsedFiles, verbose);
         }
@@ -53,12 +53,14 @@ internal static class Ps2TextureLoader
         if (dir == null) return null;
 
         var texFile = CompanionSearch.FindCompanion(
-            dir, stem, [".tex.ps2", ".tex"], ["TEX", "Textures"]);
+            dir, stem, [".tex.ps2", ".tex", ".img.ps2"], ["TEX", "Textures", "IMG"]);
         if (texFile == null) return null;
 
         try
         {
             var result = Ps2TexFile.Parse(texFile);
+            if (!result.Success)
+                result = ThawSceneTexFile.Parse(texFile);
             if (!result.Success) return null;
 
             var cache = new Dictionary<uint, Ps2Texture>();
@@ -84,6 +86,8 @@ internal static class Ps2TextureLoader
         try
         {
             var result = Ps2TexFile.Parse(texFile);
+            if (!result.Success)
+                result = ThawSceneTexFile.Parse(texFile);
             if (!result.Success) return;
 
             foreach (var tex in result.Textures)
@@ -115,7 +119,8 @@ internal static class Ps2TextureLoader
             {
                 var name = Path.GetFileName(f);
                 return name.EndsWith(".tex", StringComparison.OrdinalIgnoreCase)
-                       || name.EndsWith(".tex.ps2", StringComparison.OrdinalIgnoreCase);
+                       || name.EndsWith(".tex.ps2", StringComparison.OrdinalIgnoreCase)
+                       || name.EndsWith(".img.ps2", StringComparison.OrdinalIgnoreCase);
             })
             .ToList();
     }

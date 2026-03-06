@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Psx;
 using Spectre.Console;
 
@@ -103,6 +104,8 @@ public static class Ps2TexCommand
                 stem = stem[..^4];
 
             var result = Ps2TexFile.Parse(file);
+            if (!result.Success)
+                result = ThawSceneTexFile.Parse(file);
 
             if (!result.Success)
             {

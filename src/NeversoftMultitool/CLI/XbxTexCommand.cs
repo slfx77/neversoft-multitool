@@ -128,6 +128,8 @@ public static class XbxTexCommand
             {
                 var result = XbxTexFile.Parse(file);
                 if (!result.Success)
+                    result = ThawTexFile.Parse(file); // Try THAW 0xABADD00D format
+                if (!result.Success)
                 {
                     failed++;
                     if (verbose)

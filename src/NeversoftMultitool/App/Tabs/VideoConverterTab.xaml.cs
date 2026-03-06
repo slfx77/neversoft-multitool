@@ -10,7 +10,7 @@ using NeversoftMultitool.Core.Formats.Video;
 
 namespace NeversoftMultitool;
 
-public sealed partial class SfdConverterTab : UserControl
+public sealed partial class VideoConverterTab : UserControl
 {
     private readonly ObservableCollection<SfdFileEntry> _items = [];
     private readonly Dictionary<string, string> _previewCache = [];
@@ -28,7 +28,7 @@ public sealed partial class SfdConverterTab : UserControl
     private CancellationTokenSource? _previewCts;
     private bool _updatingSlider;
 
-    public SfdConverterTab()
+    public VideoConverterTab()
     {
         InitializeComponent();
         FilesListView.ItemsSource = _items;
