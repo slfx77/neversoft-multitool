@@ -13,7 +13,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     private string ThawPcSkinDir =>
         Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2006-2-6, PC - Final)", "SKIN");
 
-    [Fact(Skip = "Replay trace parity for skater_lasek is not locked yet; keep this pending until the semantic port reaches batch-reference parity.")]
+    [Fact]
     public void ReplayBatches_SkaterLasek_HasReplayBatchMetadata()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -23,13 +23,16 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
 
-        Assert.True(batches.Count > 1, "Expected multiple replay batches");
+        Assert.True(batches.Count > 10, "Expected multiple replay batches");
 
         var first = batches[0];
-        Assert.False(first.IsPreambleBatch);
+        Assert.True(first.IsPreambleBatch);
         Assert.Equal(0, first.SetupIndex);
-        Assert.True(first.VertexCount > 0);
+        Assert.Equal(0x0004BC, first.FirstCommandOffset);
+        Assert.Equal(51, first.VertexCount);
         Assert.Equal(first.VertexCount, first.VertexSources.Length);
+        Assert.Equal(first.VertexCount, first.RawVertexSources.Length);
+        Assert.True(first.EmittedVertices.Length > first.VertexSources.Length);
         Assert.NotEqual(GifKickPacketKind.None, first.OutputKickPacket.Kind);
         Assert.True(first.OutputKickPacket.Nloop > 0);
         Assert.True(first.OutputKickPacket.Address > 0);
@@ -43,7 +46,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     }
 
     [Fact]
-    public void ReplayBatches_SkaterLasek_IncludesInitialPreambleStateBatch()
+    public void ReplayBatches_SkaterLasek_IncludesInitialMeshZeroPreambleBatch()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
         var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
@@ -57,14 +60,16 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         var first = batches[0];
         Assert.True(first.IsPreambleBatch);
         Assert.Equal(0, first.SetupIndex);
-        Assert.Equal(0, first.VertexCount);
-        Assert.Equal(0x000230, first.FirstCommandOffset);
+        Assert.Equal(51, first.VertexCount);
+        Assert.Equal(0x0004BC, first.FirstCommandOffset);
         Assert.Equal(0x000BE4, first.CommandTrace[^1].CommandOffset);
+        Assert.True(first.CommandTrace.Any(command => command.Kind == VifReplayCommandKind.Direct));
         Assert.Contains(first.CommandTrace, command => command.Kind == VifReplayCommandKind.Offset);
         Assert.Contains(first.CommandTrace, command => command.Kind == VifReplayCommandKind.Base);
         Assert.Equal(VifReplayCommandKind.Mscnt, first.CommandTrace[^1].Kind);
-        Assert.Equal(668, first.Snapshot.Xtop);
-        Assert.Equal(321, first.Snapshot.PostTops);
+        Assert.True(first.ContextWrites.Length > 0);
+        Assert.True(first.OutputKickPacket.Nloop > 0);
+        Assert.Contains(first.OutputKickPacket.Address, new[] { 280, 652 });
     }
 
     [Fact]
@@ -272,6 +277,23 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     }
 
     [Fact]
+    public void ReplayBatches_ProVallelyHead_UsesEarlierRawBoundary()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var file = Path.Combine(ThawSkinDir, "pro_vallely_head.skin.ps2");
+        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+
+        var data = File.ReadAllBytes(file);
+        var batches = ThawPs2SkinFile.ReplayBatches(data);
+
+        Assert.True(batches.Count > 1, "Expected replay batches");
+        Assert.Equal(0x00015C, batches[0].FirstCommandOffset);
+        Assert.True(batches[0].IsPreambleBatch);
+        Assert.Equal(45, batches[0].VertexCount);
+        Assert.Contains(batches, batch => batch.FirstCommandOffset == 0x00217C && batch.SetupIndex == 1);
+    }
+
+    [Fact]
     public void ReplayExtractKicks_SkaterLasek_EmitsValidKickWindows()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -291,7 +313,23 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
             Assert.Equal(kick.OutputWindow.Length, kick.Events.Length);
         });
 
-        Assert.Equal(2930, kicks.Sum(kick => kick.TriangleCount)); // PC: 3070; gaps from cross-buffer post-batch copies
+        Assert.All(kicks, kick => Assert.DoesNotContain(kick.Events, evt => evt.Kind == GsVertexEventKind.Gap));
+        Assert.Equal(3070, kicks.Sum(kick => kick.TriangleCount));
+    }
+
+    [Fact]
+    public void ReplayExtractKicks_ProVallelyHead_HasGapFreeKicks()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var file = Path.Combine(ThawSkinDir, "pro_vallely_head.skin.ps2");
+        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+
+        var data = File.ReadAllBytes(file);
+        var kicks = ThawPs2SkinFile.ReplayExtractKicks(data);
+
+        Assert.True(kicks.Count > 0, "Expected replay kicks");
+        Assert.All(kicks, kick => Assert.DoesNotContain(kick.Events, evt => evt.Kind == GsVertexEventKind.Gap));
+        Assert.Equal(605, kicks.Sum(kick => kick.TriangleCount));
     }
 
     [Fact]

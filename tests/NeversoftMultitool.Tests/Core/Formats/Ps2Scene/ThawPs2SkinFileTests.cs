@@ -1,6 +1,9 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Ps2Scene;
+using NeversoftMultitool.Core.Formats.XbxScene;
 using NeversoftMultitool.Tests.Helpers;
+using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Ps2Scene.Ps2Scene;
+using ParsedXbxScene = NeversoftMultitool.Core.Formats.XbxScene.XbxScene;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Ps2Scene;
 
@@ -8,6 +11,9 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
 {
     private string ThawSkinDir =>
         Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)", "SKIN");
+
+    private string ThawPcSkinDir =>
+        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2006-2-6, PC - Final)", "SKIN");
 
     // ── Detection ──
 
@@ -46,9 +52,9 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     [Theory]
     [InlineData("acc_backpack01.skin.ps2", 1, 168)]    // PC: 168 — exact match
     [InlineData("skater_hawk.skin.ps2", 1, 3460)]      // PC: 3463 (3 degenerate); unique non-degen: 3460 — exact
-    [InlineData("skater_lasek.skin.ps2", 2, 2930)]     // PC: 3070; gaps from cross-buffer post-batch copies
+    [InlineData("skater_lasek.skin.ps2", 2, 3070)]     // PC: 3070 — exact replay parity
     [InlineData("body_f_torso.skin.ps2", 1, 318)]      // PC: 318 — exact match
-    [InlineData("pro_vallely_head.skin.ps2", 1, 531)]   // PC: 710; gaps from cross-buffer post-batch copies
+    [InlineData("pro_vallely_head.skin.ps2", 1, 605)]  // PC-only mesh split remains divergent; entry-backed replay improved
     [InlineData("sec_jimbo_xen.skin.ps2", 1, 7088)]    // PC: 7094 (6 degenerate); unique non-degen: 7088 — exact
     public void Parse_ThawSkinFile_MatchesPcTriangleCounts(string filename, int minGroups, int expectedTriangles)
     {
@@ -66,6 +72,44 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         // Use dedup set across all meshes, matching the glTF writer's behavior
         var triangles = CountUniqueTriangles(scene.MeshGroups.SelectMany(g => g.Meshes));
         Assert.Equal(expectedTriangles, triangles);
+    }
+
+    [Fact]
+    public void Parse_SkaterLasek_MatchesPcUniquePositions()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var ps2File = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
+        var pcFile = Path.Combine(ThawPcSkinDir, "skater_lasek.skin.wpc");
+        Assert.SkipWhen(!File.Exists(ps2File), "PS2 file not found");
+        Assert.SkipWhen(!File.Exists(pcFile), "PC file not found");
+
+        var ps2Scene = ThawPs2SkinFile.Parse(ps2File);
+        var pcScene = ThawSceneFile.Parse(pcFile);
+
+        Assert.Equal(1652, CountUniquePositions(ps2Scene));
+        Assert.Equal(CountUniquePositions(pcScene), CountUniquePositions(ps2Scene));
+    }
+
+    [Fact]
+    public void Parse_ProVallelyHead_DocumentsPcOnlyMaterialDivergence()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var ps2File = Path.Combine(ThawSkinDir, "pro_vallely_head.skin.ps2");
+        var pcFile = Path.Combine(ThawPcSkinDir, "pro_vallely_head.skin.wpc");
+        Assert.SkipWhen(!File.Exists(ps2File), "PS2 file not found");
+        Assert.SkipWhen(!File.Exists(pcFile), "PC file not found");
+
+        var ps2Scene = ThawPs2SkinFile.Parse(ps2File);
+        var pcScene = ThawSceneFile.Parse(pcFile);
+        var ps2ByMaterial = BuildPs2PositionMap(ps2Scene);
+        var pcByMaterial = BuildPcPositionMap(pcScene);
+
+        Assert.DoesNotContain(ps2Scene.Materials, material => material.Checksum == 0x02EA21B0);
+        Assert.Equal(326, CountUniquePositions(ps2Scene));
+        Assert.Equal(400, CountUniquePositions(pcScene));
+        Assert.Equal(0, CountMissingPositions(pcByMaterial[0xCFF2FEB9], ps2ByMaterial[0xCFF2FEB9]));
+        Assert.Equal(22, CountMissingPositions(pcByMaterial[0x488D5A5B], ps2ByMaterial[0x488D5A5B]));
+        Assert.Equal(54, CountMissingPositions(pcByMaterial[0x02EA21B0], new HashSet<Vector3>()));
     }
 
     [Fact]
@@ -166,6 +210,75 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         foreach (var mesh in meshes)
             count += CountStripTriangles(mesh.Vertices, mesh.StartsOnOddOutputSlot, seen);
         return count;
+    }
+
+    private static int CountUniquePositions(ParsedPs2Scene scene)
+    {
+        return scene.MeshGroups
+            .SelectMany(group => group.Meshes)
+            .SelectMany(mesh => mesh.Vertices)
+            .Select(vertex => vertex.Position)
+            .Distinct()
+            .Count();
+    }
+
+    private static int CountUniquePositions(ParsedXbxScene scene)
+    {
+        return scene.Sectors
+            .SelectMany(sector => sector.Meshes)
+            .SelectMany(mesh => mesh.Vertices)
+            .Select(vertex => vertex.Position)
+            .Distinct()
+            .Count();
+    }
+
+    private static Dictionary<uint, HashSet<Vector3>> BuildPs2PositionMap(ParsedPs2Scene scene)
+    {
+        var map = new Dictionary<uint, HashSet<Vector3>>();
+        foreach (var group in scene.MeshGroups)
+        {
+            foreach (var mesh in group.Meshes)
+            {
+                if (!map.TryGetValue(mesh.MaterialChecksum, out var positions))
+                {
+                    positions = [];
+                    map[mesh.MaterialChecksum] = positions;
+                }
+
+                foreach (var vertex in mesh.Vertices)
+                    positions.Add(vertex.Position);
+            }
+        }
+
+        return map;
+    }
+
+    private static Dictionary<uint, HashSet<Vector3>> BuildPcPositionMap(ParsedXbxScene scene)
+    {
+        var map = new Dictionary<uint, HashSet<Vector3>>();
+        foreach (var sector in scene.Sectors)
+        {
+            foreach (var mesh in sector.Meshes)
+            {
+                if (!map.TryGetValue(mesh.MaterialChecksum, out var positions))
+                {
+                    positions = [];
+                    map[mesh.MaterialChecksum] = positions;
+                }
+
+                foreach (var vertex in mesh.Vertices)
+                    positions.Add(vertex.Position);
+            }
+        }
+
+        return map;
+    }
+
+    private static int CountMissingPositions(
+        IReadOnlyCollection<Vector3> expected,
+        IReadOnlySet<Vector3> actual)
+    {
+        return expected.Count(position => !actual.Contains(position));
     }
 
     private static int CountStripTriangles(Ps2Mesh mesh)

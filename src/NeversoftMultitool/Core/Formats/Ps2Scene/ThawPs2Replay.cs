@@ -70,6 +70,16 @@ internal readonly record struct ReplayVertexSource(
     bool OutputNoKick,
     bool DuplicateNoKick);
 
+internal sealed class ReplayEmittedVertex
+{
+    public required int SourceIndex { get; init; }
+    public required ReplayVertexSource Source { get; init; }
+    public required int FullOutputAddress { get; init; }
+    public required byte OutputAddress { get; init; }
+    public required bool IsNoKick { get; init; }
+    public required bool IsDuplicate { get; init; }
+}
+
 internal sealed class GifKickPacket
 {
     public static GifKickPacket None { get; } = new()
@@ -145,6 +155,8 @@ internal sealed class ThawReplayBatch
     public required int VertexCount { get; init; }
     public required int OutputVertexCount { get; init; }
     public required ReplayVertexSource[] VertexSources { get; init; }
+    public required ReplayVertexSource[] RawVertexSources { get; init; }
+    public required ReplayEmittedVertex[] EmittedVertices { get; init; }
     public required ReplayContextWrite[] ContextWrites { get; init; }
     public required PostBatchElement[] PostBatchElements { get; init; }
     public required GifKickPacket OutputKickPacket { get; init; }
@@ -434,26 +446,29 @@ internal static class ThawPs2ReplayEngine
                 {
                     if (unpack.Vn == 2 && unpack.Vl == 1)
                     {
-                builder.PositionOffset = unpack.DataOffset;
-                builder.VertexCount = unpack.Num;
-            }
-            else if (unpack.Vn == 2 && unpack.Vl == 2)
-            {
+                        builder.PositionOffset = unpack.DataOffset;
+                        builder.PositionUnpack = unpack;
+                        builder.VertexCount = unpack.Num;
+                    }
+                    else if (unpack.Vn == 2 && unpack.Vl == 2)
+                    {
                         builder.NormalOffset = unpack.DataOffset;
+                        builder.NormalUnpack = unpack;
                     }
                     else if (unpack.Vn == 3 && unpack.Vl == 1)
-                {
-                    builder.UvAdcOffset = unpack.DataOffset;
+                    {
+                        builder.UvAdcOffset = unpack.DataOffset;
+                        builder.UvAdcUnpack = unpack;
+                    }
                 }
-            }
-            else if (!collectingPostBatch && unpack.Usn && unpack.Num > 0)
-            {
-                builder.ContextWrites.Add(CreateContextWrite(memory, unpack));
-            }
-            else if (collectingPostBatch && unpack.Vn == 3 && unpack.Vl == 1 && unpack.Num > 0)
-            {
-                for (var i = 0; i < unpack.Num; i++)
+                else if (!collectingPostBatch && unpack.Usn && unpack.Num > 0)
                 {
+                    builder.ContextWrites.Add(CreateContextWrite(memory, unpack));
+                }
+                else if (collectingPostBatch && unpack.Vn == 3 && unpack.Vl == 1 && unpack.Num > 0)
+                {
+                    for (var i = 0; i < unpack.Num; i++)
+                    {
                         var elementOffset = unpack.DataOffset + i * 8;
                         if (elementOffset + 8 > data.Length)
                             break;
@@ -498,6 +513,7 @@ internal static class ThawPs2ReplayEngine
                 {
                     batches.Add(builder.Build(
                         data,
+                        memory,
                         currentSetupIndex,
                         snapshot,
                         builder.FirstCommandOffset >= 0 && builder.FirstCommandOffset < firstSetupStart));
@@ -526,6 +542,7 @@ internal static class ThawPs2ReplayEngine
                 builder.Unpacks);
             batches.Add(builder.Build(
                 data,
+                memory,
                 currentSetupIndex,
                 snapshot,
                 builder.FirstCommandOffset >= 0 && builder.FirstCommandOffset < firstSetupStart));
@@ -591,18 +608,101 @@ internal static class ThawPs2ReplayEngine
     }
 
     private static ReplayVertexSource[] DecodeVertexSources(
+        Vu1Memory memory,
+        VifUnpackCommand? positionUnpack,
+        VifUnpackCommand? normalUnpack,
+        VifUnpackCommand? uvAdcUnpack,
+        int count)
+    {
+        if (count <= 0 || positionUnpack is null)
+            return [];
+
+        var sources = new ReplayVertexSource[count];
+        for (var i = 0; i < count; i++)
+        {
+            var position = Vector3.Zero;
+            if (i < positionUnpack.WriteAddresses.Length)
+            {
+                var word = memory.ReadQword(positionUnpack.WriteAddresses[i]);
+                position = new Vector3(
+                    unchecked((int)word.X) * PositionScale,
+                    unchecked((int)word.Y) * PositionScale,
+                    unchecked((int)word.Z) * PositionScale);
+            }
+
+            var normal = Vector3.UnitY;
+            var hasNormal = false;
+            if (normalUnpack is not null && i < normalUnpack.WriteAddresses.Length)
+            {
+                var word = memory.ReadQword(normalUnpack.WriteAddresses[i]);
+                var rawNormal = new Vector3(
+                    unchecked((sbyte)(byte)word.X) * NormalScale,
+                    unchecked((sbyte)(byte)word.Y) * NormalScale,
+                    unchecked((sbyte)(byte)word.Z) * NormalScale);
+                var length = rawNormal.Length();
+                normal = length > 0.001f ? rawNormal / length : Vector3.UnitY;
+                hasNormal = true;
+            }
+
+            var u = 0f;
+            var v = 0f;
+            var hasUv = false;
+            var outputFullAddress = 0;
+            var duplicateFullAddress = 0;
+            byte outputAddress = 0;
+            byte duplicateAddress = 0;
+            var outputNoKick = false;
+            var duplicateNoKick = false;
+            if (uvAdcUnpack is not null && i < uvAdcUnpack.WriteAddresses.Length)
+            {
+                var word = memory.ReadQword(uvAdcUnpack.WriteAddresses[i]);
+                var outputWord = unchecked((ushort)word.Z);
+                var duplicateWord = unchecked((ushort)word.W);
+                u = unchecked((short)word.X) * UvScale;
+                v = unchecked((short)word.Y) * UvScale;
+                outputFullAddress = outputWord & 0x3FF;
+                duplicateFullAddress = duplicateWord & 0x3FF;
+                outputAddress = (byte)outputWord;
+                duplicateAddress = (byte)duplicateWord;
+                outputNoKick = (outputWord & 0x8000) != 0;
+                duplicateNoKick = (duplicateWord & 0x8000) != 0;
+                hasUv = true;
+            }
+
+            sources[i] = new ReplayVertexSource(
+                position,
+                normal,
+                hasNormal,
+                u,
+                v,
+                hasUv,
+                outputFullAddress,
+                duplicateFullAddress,
+                outputAddress,
+                duplicateAddress,
+                outputNoKick,
+                duplicateNoKick);
+        }
+
+        return sources;
+    }
+
+    private static ReplayVertexSource[] DecodeRawVertexSources(
         byte[] data,
         int positionOffset,
         int normalOffset,
         int uvAdcOffset,
         int count)
     {
+        if (count <= 0)
+            return [];
+
         var sources = new ReplayVertexSource[count];
         for (var i = 0; i < count; i++)
         {
             var position = Vector3.Zero;
             var posOffset = positionOffset + i * 6;
-            if (posOffset + 6 <= data.Length)
+            if (positionOffset >= 0 && posOffset + 6 <= data.Length)
             {
                 position = new Vector3(
                     BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(posOffset)) * PositionScale,
@@ -630,6 +730,8 @@ internal static class ThawPs2ReplayEngine
             var u = 0f;
             var v = 0f;
             var hasUv = false;
+            var outputFullAddress = 0;
+            var duplicateFullAddress = 0;
             byte outputAddress = 0;
             byte duplicateAddress = 0;
             var outputNoKick = false;
@@ -643,28 +745,13 @@ internal static class ThawPs2ReplayEngine
                     v = BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(uvOffset + 2)) * UvScale;
                     var outputWord = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(uvOffset + 4));
                     var duplicateWord = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(uvOffset + 6));
-                    var outputFullAddress = outputWord & 0x3FF;
-                    var duplicateFullAddress = duplicateWord & 0x3FF;
+                    outputFullAddress = outputWord & 0x3FF;
+                    duplicateFullAddress = duplicateWord & 0x3FF;
                     outputAddress = (byte)outputWord;
                     duplicateAddress = (byte)duplicateWord;
                     outputNoKick = (outputWord & 0x8000) != 0;
                     duplicateNoKick = (duplicateWord & 0x8000) != 0;
                     hasUv = true;
-
-                    sources[i] = new ReplayVertexSource(
-                        position,
-                        normal,
-                        hasNormal,
-                        u,
-                        v,
-                        hasUv,
-                        outputFullAddress,
-                        duplicateFullAddress,
-                        outputAddress,
-                        duplicateAddress,
-                        outputNoKick,
-                        duplicateNoKick);
-                    continue;
                 }
             }
 
@@ -675,8 +762,8 @@ internal static class ThawPs2ReplayEngine
                 u,
                 v,
                 hasUv,
-                0,
-                0,
+                outputFullAddress,
+                duplicateFullAddress,
                 outputAddress,
                 duplicateAddress,
                 outputNoKick,
@@ -684,6 +771,46 @@ internal static class ThawPs2ReplayEngine
         }
 
         return sources;
+    }
+
+    private static ReplayEmittedVertex[] BuildEmittedVertices(IReadOnlyList<ReplayVertexSource> vertexSources)
+    {
+        if (vertexSources.Count == 0)
+            return [];
+
+        var emitted = new List<ReplayEmittedVertex>(vertexSources.Count * 2);
+        for (var i = 0; i < vertexSources.Count; i++)
+        {
+            var source = vertexSources[i];
+            if (!source.HasUv)
+                continue;
+
+            emitted.Add(new ReplayEmittedVertex
+            {
+                SourceIndex = i,
+                Source = source,
+                FullOutputAddress = source.OutputFullAddress,
+                OutputAddress = source.OutputAddress,
+                IsNoKick = source.OutputNoKick,
+                IsDuplicate = false
+            });
+
+            if (source.DuplicateFullAddress != source.OutputFullAddress ||
+                source.DuplicateAddress != source.OutputAddress)
+            {
+                emitted.Add(new ReplayEmittedVertex
+                {
+                    SourceIndex = i,
+                    Source = source,
+                    FullOutputAddress = source.DuplicateFullAddress,
+                    OutputAddress = source.DuplicateAddress,
+                    IsNoKick = source.DuplicateNoKick,
+                    IsDuplicate = true
+                });
+            }
+        }
+
+        return [.. emitted];
     }
 
     private static VifUnpackCommand ApplyUnpack(
@@ -847,17 +974,23 @@ internal static class ThawPs2ReplayEngine
         public int NormalOffset { get; set; } = -1;
         public int UvAdcOffset { get; set; } = -1;
         public int VertexCount { get; set; }
+        public VifUnpackCommand? PositionUnpack { get; set; }
+        public VifUnpackCommand? NormalUnpack { get; set; }
+        public VifUnpackCommand? UvAdcUnpack { get; set; }
 
         public bool HasReplayActivity => Commands.Count > 0 || Unpacks.Count > 0 || PostBatchElements.Count > 0;
         public bool HasVertices => PositionOffset >= 0 && VertexCount > 0;
 
         public ThawReplayBatch Build(
             byte[] data,
+            Vu1Memory memory,
             int setupIndex,
             Vu1BatchSnapshot snapshot,
             bool isPreambleBatch)
         {
             var outputKickPacket = DecodeOutputKickPacket(PostBatchElements);
+            var vertexSources = DecodeVertexSources(memory, PositionUnpack, NormalUnpack, UvAdcUnpack, VertexCount);
+            var rawVertexSources = DecodeRawVertexSources(data, PositionOffset, NormalOffset, UvAdcOffset, VertexCount);
             return new ThawReplayBatch
             {
                 SetupIndex = setupIndex,
@@ -868,8 +1001,10 @@ internal static class ThawPs2ReplayEngine
                 UvAdcOffset = UvAdcOffset,
                 VertexCount = VertexCount,
                 OutputVertexCount = outputKickPacket.Nloop,
-                VertexSources = DecodeVertexSources(data, PositionOffset, NormalOffset, UvAdcOffset, VertexCount),
-                ContextWrites = HasVertices ? [.. ContextWrites] : [],
+                VertexSources = vertexSources,
+                RawVertexSources = rawVertexSources,
+                EmittedVertices = BuildEmittedVertices(vertexSources),
+                ContextWrites = [.. ContextWrites],
                 PostBatchElements = [.. PostBatchElements],
                 OutputKickPacket = outputKickPacket,
                 CommandTrace = [.. Commands],

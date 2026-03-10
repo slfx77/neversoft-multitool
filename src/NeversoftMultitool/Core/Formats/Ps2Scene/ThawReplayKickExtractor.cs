@@ -55,7 +55,7 @@ internal static class ThawReplayKickExtractor
         for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
         {
             var batch = batches[batchIndex];
-            if (batch.VertexSources.Length == 0)
+            if (batch.EmittedVertices.Length == 0)
                 continue;
 
             if (!IsValidKick(batch.OutputKickPacket))
@@ -68,16 +68,9 @@ internal static class ThawReplayKickExtractor
                     setupSlotBufferBySetup[batch.SetupIndex] = preambleBuffer;
                 }
 
-                foreach (var source in batch.VertexSources)
-                {
-                    preambleBuffer[source.OutputFullAddress] =
-                        new ReplayOutputSlot(source, source.OutputNoKick);
-                    if (source.DuplicateAddress != source.OutputAddress)
-                    {
-                        preambleBuffer[source.DuplicateFullAddress] =
-                            new ReplayOutputSlot(source, source.DuplicateNoKick);
-                    }
-                }
+                foreach (var emitted in batch.EmittedVertices)
+                    preambleBuffer[emitted.FullOutputAddress] =
+                        new ReplayOutputSlot(emitted.Source, emitted.IsNoKick);
 
                 continue;
             }
@@ -87,7 +80,7 @@ internal static class ThawReplayKickExtractor
             setupSlotBufferBySetup.TryGetValue(batch.SetupIndex, out var setupSlotBuffer);
 
             var fullOutputWindow = BuildOutputWindow(batch.OutputKickPacket);
-            var resolvedBatchSlots = BuildCurrentSlotMap(batch.VertexSources, fullOutputWindow);
+            var resolvedBatchSlots = BuildCurrentSlotMap(batch.EmittedVertices, fullOutputWindow);
             if (resolvedBatchSlots.Count == 0)
                 continue;
 
@@ -167,7 +160,7 @@ internal static class ThawReplayKickExtractor
         for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
         {
             var batch = batches[batchIndex];
-            if (batch.VertexSources.Length == 0)
+            if (batch.EmittedVertices.Length == 0)
                 continue;
 
             if (!IsValidKick(batch.OutputKickPacket))
@@ -178,16 +171,9 @@ internal static class ThawReplayKickExtractor
                     setupSlotBufferBySetup[batch.SetupIndex] = preambleBuffer;
                 }
 
-                foreach (var source in batch.VertexSources)
-                {
-                    preambleBuffer[source.OutputFullAddress] =
-                        new ReplayOutputSlot(source, source.OutputNoKick);
-                    if (source.DuplicateAddress != source.OutputAddress)
-                    {
-                        preambleBuffer[source.DuplicateFullAddress] =
-                            new ReplayOutputSlot(source, source.DuplicateNoKick);
-                    }
-                }
+                foreach (var emitted in batch.EmittedVertices)
+                    preambleBuffer[emitted.FullOutputAddress] =
+                        new ReplayOutputSlot(emitted.Source, emitted.IsNoKick);
 
                 continue;
             }
@@ -197,7 +183,7 @@ internal static class ThawReplayKickExtractor
             setupSlotBufferBySetup.TryGetValue(batch.SetupIndex, out var setupSlotBuffer);
 
             var fullOutputWindow = BuildOutputWindow(batch.OutputKickPacket);
-            var resolvedBatchSlots = BuildCurrentSlotMap(batch.VertexSources, fullOutputWindow);
+            var resolvedBatchSlots = BuildCurrentSlotMap(batch.EmittedVertices, fullOutputWindow);
             if (resolvedBatchSlots.Count == 0)
                 continue;
 
@@ -279,7 +265,7 @@ internal static class ThawReplayKickExtractor
     }
 
     private static Dictionary<int, ReplayOutputSlot> BuildCurrentSlotMap(
-        IReadOnlyList<ReplayVertexSource> vertexSources,
+        IReadOnlyList<ReplayEmittedVertex> emittedVertices,
         IReadOnlyList<int> outputWindow)
     {
         var outputWindowSet = outputWindow.ToHashSet();
@@ -288,16 +274,19 @@ internal static class ThawReplayKickExtractor
             fullAddressByLowByte[(byte)fullAddress] = fullAddress;
 
         var slotMap = new Dictionary<int, ReplayOutputSlot>();
-        foreach (var source in vertexSources)
+        foreach (var emitted in emittedVertices)
         {
-            if (TryResolveOutputAddress(source.OutputFullAddress, source.OutputAddress, outputWindowSet, fullAddressByLowByte, out var outputAddress))
-                slotMap[outputAddress] = new ReplayOutputSlot(source, source.OutputNoKick);
-
-            if (source.DuplicateAddress != source.OutputAddress &&
-                TryResolveOutputAddress(source.DuplicateFullAddress, source.DuplicateAddress, outputWindowSet, fullAddressByLowByte, out var duplicateAddress))
+            if (!TryResolveOutputAddress(
+                    emitted.FullOutputAddress,
+                    emitted.OutputAddress,
+                    outputWindowSet,
+                    fullAddressByLowByte,
+                    out var outputAddress))
             {
-                slotMap[duplicateAddress] = new ReplayOutputSlot(source, source.DuplicateNoKick);
+                continue;
             }
+
+            slotMap[outputAddress] = new ReplayOutputSlot(emitted.Source, emitted.IsNoKick);
         }
 
         return slotMap;

@@ -556,14 +556,15 @@ public static class ThawPs2SkinFile
         int searchEnd)
     {
         var setupStarts = FindSetupBoundaries(data, searchStart, searchEnd);
-        if (setupStarts.Count > 0)
-            return (searchStart, setupStarts);
-
         var rawFlushOffsets = FindRawSetupBoundaryFlushOffsets(data, searchStart, searchEnd);
         if (rawFlushOffsets.Count == 0)
             return (searchStart, setupStarts);
 
         var fallbackVifStart = rawFlushOffsets[0] + 4;
+        var needsFallbackStart = setupStarts.Count == 0 || fallbackVifStart < setupStarts[0];
+        if (!needsFallbackStart)
+            return (searchStart, setupStarts);
+
         var rescannedSetupStarts = FindSetupBoundaries(data, fallbackVifStart, searchEnd);
         if (rescannedSetupStarts.Count > 0)
             return (fallbackVifStart, rescannedSetupStarts);
