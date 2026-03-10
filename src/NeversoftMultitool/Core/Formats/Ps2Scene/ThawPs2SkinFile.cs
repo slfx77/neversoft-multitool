@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using NeversoftMultitool.Core.Formats.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
@@ -63,7 +64,13 @@ public static class ThawPs2SkinFile
 
     public static Ps2Scene Parse(string filePath) => Parse(File.ReadAllBytes(filePath));
 
-    public static Ps2Scene Parse(byte[] data)
+    /// <summary>
+    ///     Parse a THAW PS2 .skin.ps2 file. When companionTexData is provided,
+    ///     uses DIRECT block TEX0 register values to correctly map VIF sections
+    ///     to entry table materials (the VIF rendering order doesn't match the
+    ///     entry table order).
+    /// </summary>
+    public static Ps2Scene Parse(byte[] data, byte[]? companionTexData = null)
     {
         // Read header and entry table for material/grouping info
         var numObjects = BitConverter.ToUInt32(data, 0);
@@ -80,16 +87,29 @@ public static class ThawPs2SkinFile
         for (var i = 0; i < totalMeshes2; i++)
             entries[i] = ReadEntry(r);
 
-        // Build materials from entry table
+        // Build section→textureChecksum remapping from DIRECT block TEX0 registers.
+        // The VIF rendering order doesn't match the entry table order for textures —
+        // each DIRECT block's TEX0 register specifies which texture the GS should use,
+        // and this is matched to texture checksums via the companion .tex.ps2 file.
+        var sectionTextures = BuildSectionTextureMapping(data, companionTexData);
+
+        // Build materials from entry table, applying texture remapping if available
         var materialMap = new Dictionary<uint, Ps2Material>();
-        foreach (var entry in entries)
+        for (var i = 0; i < entries.Length; i++)
         {
+            var entry = entries[i];
+            var texCk = entry.TextureChecksum;
+
+            // Override texture from DIRECT block mapping if available
+            if (sectionTextures != null && sectionTextures.TryGetValue(i, out var directTexCk))
+                texCk = directTexCk;
+
             if (!materialMap.ContainsKey(entry.MaterialChecksum))
             {
                 materialMap[entry.MaterialChecksum] = new Ps2Material
                 {
                     Checksum = entry.MaterialChecksum,
-                    TextureChecksum = entry.TextureChecksum,
+                    TextureChecksum = texCk,
                     RegAlpha = entry.GsAlphaLow | ((ulong)entry.GsAlphaHigh << 32),
                     Flags = entry.MaterialFlags
                 };
@@ -390,6 +410,138 @@ public static class ThawPs2SkinFile
         }
 
         return result;
+    }
+
+    /// <summary>
+    ///     Build a mapping from VIF section index to correct texture checksum using DIRECT block
+    ///     TEX0 register values matched against companion .tex.ps2 data.
+    ///     The VIF rendering order doesn't match the entry table order for textures.
+    ///     Each DIRECT block's TEX0 register contains TBP/CBP values that identify which
+    ///     texture the GS should use. The companion .tex.ps2 maps (TBP,CBP) → checksum.
+    /// </summary>
+    private static Dictionary<int, uint>? BuildSectionTextureMapping(
+        byte[] data, byte[]? companionTexData)
+    {
+        if (companionTexData is null) return null;
+
+        var numObjects = BitConverter.ToUInt32(data, 0);
+        var totalMeshes2 = BitConverter.ToUInt32(data, 8);
+        var dataSize = BitConverter.ToUInt32(data, 12);
+        var entryTableEnd = (int)(32 + numObjects * 8 + totalMeshes2 * 64);
+        var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
+
+        // Find ALL FLUSH+DIRECT pairs by raw dword scan (including the first one,
+        // which ResolveThawSetupBoundaries consumes as vifStart)
+        var allDirectOffsets = new List<int>();
+        for (var offset = entryTableEnd; offset + 8 <= vifEnd && offset + 8 <= data.Length; offset += 4)
+        {
+            var word = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(offset));
+            if (word is not (0x10000000 or 0x11000000))
+                continue;
+            if (data[offset + 7] is 0x50 or 0x51 || (data[offset + 7] & 0x7F) is 0x50 or 0x51)
+                allDirectOffsets.Add(offset + 4); // DIRECT opcode position
+        }
+
+        if (allDirectOffsets.Count == 0) return null;
+
+        // Build (TBP,CBP) → textureChecksum from companion .tex.ps2
+        var tbpCbpToChecksum = BuildTbpCbpMap(companionTexData);
+        if (tbpCbpToChecksum.Count == 0) return null;
+
+        // Extract TEX0 from each DIRECT block and resolve texture checksum
+        var mapping = new Dictionary<int, uint>();
+        for (var sectionIdx = 0; sectionIdx < allDirectOffsets.Count; sectionIdx++)
+        {
+            var tex0 = ExtractTex0FromDirect(data, allDirectOffsets[sectionIdx]);
+            if (tex0 is null) continue;
+
+            var (tbp, cbp) = tex0.Value;
+            if (tbpCbpToChecksum.TryGetValue((tbp, cbp), out var texChecksum))
+                mapping[sectionIdx] = texChecksum;
+        }
+
+        return mapping.Count > 0 ? mapping : null;
+    }
+
+    /// <summary>
+    ///     Extract TEX0 TBP and CBP values from a DIRECT VIF block's GIF A+D register writes.
+    /// </summary>
+    private static (uint Tbp, uint Cbp)? ExtractTex0FromDirect(byte[] data, int directOffset)
+    {
+        if (directOffset + 4 > data.Length) return null;
+
+        var qwc = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(directOffset));
+        var gifStart = directOffset + 4;
+        var gifEnd = gifStart + (qwc << 4);
+        if (gifEnd > data.Length || qwc == 0) return null;
+        if (gifStart + 16 > data.Length) return null;
+
+        var gifLo = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(gifStart));
+        var nloop = (int)(gifLo & 0x7FFF);
+        var flg = (int)((gifLo >> 58) & 3);
+        var nreg = (int)((gifLo >> 60) & 0xF);
+        if (nreg == 0) nreg = 16;
+        var gifHi = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(gifStart + 8));
+
+        // Expect PACKED mode (FLG=0), single register descriptor A+D (0x0E)
+        if (flg != 0 || nreg != 1 || (gifHi & 0xFF) != 0x0E) return null;
+
+        for (var i = 0; i < nloop; i++)
+        {
+            var off = gifStart + 16 + i * 16;
+            if (off + 16 > data.Length) break;
+            var dataVal = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(off));
+            var regHi = BinaryPrimitives.ReadUInt64LittleEndian(data.AsSpan(off + 8));
+            if ((regHi & 0xFF) == 0x06) // TEX0_1
+            {
+                var tbp = (uint)(dataVal & 0x3FFF);
+                var cbp = (uint)((dataVal >> 37) & 0x3FFF);
+                return (tbp, cbp);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Build (TBP,CBP) → texture checksum mapping from companion .tex.ps2 metadata.
+    ///     Scans for TEX0 register values at 8-byte intervals with valid PSM/TBP/TBW fields.
+    ///     Texture checksum is at TEX0_offset - 0x10 (same layout as ThawSceneTexFile.ScanTex0Entries).
+    /// </summary>
+    private static Dictionary<(uint, uint), uint> BuildTbpCbpMap(byte[] texData)
+    {
+        var map = new Dictionary<(uint, uint), uint>();
+        if (texData.Length < 0x40) return map;
+
+        var version = BitConverter.ToUInt16(texData, 0);
+        if (version != 6) return map;
+
+        var off1 = (int)BitConverter.ToUInt32(texData, 8);
+        if (off1 <= 0x40 || off1 >= texData.Length) return map;
+
+        for (var off = 0x40; off + 8 <= off1; off += 8)
+        {
+            var val = BitConverter.ToUInt64(texData, off);
+            var tbp = (uint)(val & 0x3FFF);
+            var tbw = (uint)((val >> 14) & 0x3F);
+            var psm = (uint)((val >> 20) & 0x3F);
+            var tw = (int)((val >> 26) & 0xF);
+            var th = (int)((val >> 30) & 0xF);
+
+            if (!Ps2TexPixelDecoder.IsValidPsm(psm)) continue;
+            if (tw < 1 || tw > 10 || th < 1 || th > 10) continue;
+            if (tbp < 0x2BC0 || tbw < 1) continue;
+
+            var ckOff = off - 0x10;
+            if (ckOff < 0x40) continue;
+            var checksum = BitConverter.ToUInt32(texData, ckOff);
+            if (checksum <= 0xFFFF) continue;
+
+            var cbp = (uint)((val >> 37) & 0x3FFF);
+            map[(tbp, cbp)] = checksum;
+        }
+
+        return map;
     }
 
     /// <summary>

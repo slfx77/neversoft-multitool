@@ -97,11 +97,119 @@ internal static class ThawReplayKickExtractor
 
             var bufferKey = (batch.SetupIndex, batch.OutputKickPacket.Address);
             kickBufferBySetupAndAddress.TryGetValue(bufferKey, out var previousKickBuffer);
-            var resetKickBuffer = batch.Snapshot.ParserTag.IsPresent ||
-                                  previousKickBuffer is null;
-            var kickBuffer = resetKickBuffer
+            // Buffer isolation is already handled by (SetupIndex, BufferAddress) key.
+            // ParserTag changes within the same key don't invalidate vertex data.
+            var kickBuffer = previousKickBuffer is null
                 ? new Dictionary<int, ReplayOutputSlot>()
-                : new Dictionary<int, ReplayOutputSlot>(previousKickBuffer!);
+                : new Dictionary<int, ReplayOutputSlot>(previousKickBuffer);
+
+            foreach (var (addr, source) in resolvedBatchSlots)
+                kickBuffer[addr] = source;
+
+            if (!batch.OutputKickPacket.Eop)
+            {
+                kickBufferBySetupAndAddress[bufferKey] = new Dictionary<int, ReplayOutputSlot>(kickBuffer);
+                continue;
+            }
+
+            var events = BuildKickEvents(fullOutputWindow, kickBuffer, resolvedBatchSlots);
+            var meshes = BuildMeshesFromEvents(events, entry.MaterialChecksum, entry.HasVertexColors);
+            kickBufferBySetupAndAddress[bufferKey] = CaptureKickBufferWindow(kickBuffer, fullOutputWindow);
+
+            extracted.Add(new ExtractedKick
+            {
+                KickIndex = extracted.Count,
+                BatchIndex = batchIndex,
+                SetupIndex = batch.SetupIndex,
+                EntryIndex = entryIndex,
+                IsPreambleBatch = batch.IsPreambleBatch,
+                FirstCommandOffset = batch.FirstCommandOffset,
+                KickPacket = batch.OutputKickPacket,
+                FullOutputWindow = fullOutputWindow,
+                OutputWindow = [.. fullOutputWindow.Select(address => (byte)address)],
+                Events = events,
+                Meshes = [.. meshes],
+                TriangleCount = meshes.Sum(CountStripTriangles)
+            });
+        }
+
+        // Second pass: if any kicks have gaps, re-run with pre-populated setup buffers.
+        // On real PS2, the VU1 output buffer persists across frames. The first kick at each
+        // address has gaps because post-batch copies reference source addresses in the OTHER
+        // buffer (e.g., addr=280 kick copies from 653-869 range), which hasn't been populated yet.
+        // After the first pass, setupSlotBufferBySetup contains vertices from BOTH address ranges.
+        // Re-running with this pre-populated buffer lets post-batch copies resolve cross-buffer
+        // sources. We do NOT seed kickBufferBySetupAndAddress to avoid carry-forward contamination
+        // (which previously caused inward-facing spikes from wrong-body-part vertices).
+        if (extracted.Any(k => k.Events.Any(e => e.Kind == GsVertexEventKind.Gap)))
+        {
+            return ExtractKicksWithSetupSeed(entries, batches, setupSlotBufferBySetup);
+        }
+
+        return extracted;
+    }
+
+    private static List<ExtractedKick> ExtractKicksWithSetupSeed(
+        IReadOnlyList<(uint MaterialChecksum, bool HasVertexColors)> entries,
+        IReadOnlyList<ThawReplayBatch> batches,
+        Dictionary<int, Dictionary<int, ReplayOutputSlot>> seedSetupBuffers)
+    {
+        var extracted = new List<ExtractedKick>();
+
+        // Deep-copy the first-pass setup buffers as the starting state.
+        var setupSlotBufferBySetup = new Dictionary<int, Dictionary<int, ReplayOutputSlot>>();
+        foreach (var (setupIdx, buffer) in seedSetupBuffers)
+            setupSlotBufferBySetup[setupIdx] = new Dictionary<int, ReplayOutputSlot>(buffer);
+
+        // Kick buffers start fresh — no carry-forward seeding.
+        var kickBufferBySetupAndAddress = new Dictionary<(int SetupIndex, int BufferAddress), Dictionary<int, ReplayOutputSlot>>();
+
+        for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
+        {
+            var batch = batches[batchIndex];
+            if (batch.VertexSources.Length == 0)
+                continue;
+
+            if (!IsValidKick(batch.OutputKickPacket))
+            {
+                if (!setupSlotBufferBySetup.TryGetValue(batch.SetupIndex, out var preambleBuffer))
+                {
+                    preambleBuffer = new Dictionary<int, ReplayOutputSlot>();
+                    setupSlotBufferBySetup[batch.SetupIndex] = preambleBuffer;
+                }
+
+                foreach (var source in batch.VertexSources)
+                {
+                    preambleBuffer[source.OutputFullAddress] =
+                        new ReplayOutputSlot(source, source.OutputNoKick);
+                    if (source.DuplicateAddress != source.OutputAddress)
+                    {
+                        preambleBuffer[source.DuplicateFullAddress] =
+                            new ReplayOutputSlot(source, source.DuplicateNoKick);
+                    }
+                }
+
+                continue;
+            }
+
+            var entryIndex = Math.Min(batch.SetupIndex, entries.Count - 1);
+            var entry = entries[entryIndex];
+            setupSlotBufferBySetup.TryGetValue(batch.SetupIndex, out var setupSlotBuffer);
+
+            var fullOutputWindow = BuildOutputWindow(batch.OutputKickPacket);
+            var resolvedBatchSlots = BuildCurrentSlotMap(batch.VertexSources, fullOutputWindow);
+            if (resolvedBatchSlots.Count == 0)
+                continue;
+
+            ApplyPostBatchCopies(resolvedBatchSlots, fullOutputWindow, batch.PostBatchElements, setupSlotBuffer);
+
+            setupSlotBufferBySetup[batch.SetupIndex] = MergeSlotBuffer(setupSlotBuffer, resolvedBatchSlots);
+
+            var bufferKey = (batch.SetupIndex, batch.OutputKickPacket.Address);
+            kickBufferBySetupAndAddress.TryGetValue(bufferKey, out var previousKickBuffer);
+            var kickBuffer = previousKickBuffer is null
+                ? new Dictionary<int, ReplayOutputSlot>()
+                : new Dictionary<int, ReplayOutputSlot>(previousKickBuffer);
 
             foreach (var (addr, source) in resolvedBatchSlots)
                 kickBuffer[addr] = source;

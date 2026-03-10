@@ -60,6 +60,24 @@ public sealed class Ps2Material
             return null;
         }
     }
+
+    /// <summary>
+    ///     True when the GS ALPHA blend equation resolves to an identity (fully opaque).
+    ///     This happens when A==B, making the blend numerator (A-B) always zero:
+    ///     Output = (A-B)*C + D = 0 + D, and with D=Cs (source), result = Cs.
+    ///     Common in THAW PS2 .skin.ps2 where RegAlpha=0x00000F8000000120
+    ///     (A=Cs,B=Cs,C=FIX,D=Cs) — materials use the Transparent flag for alpha-tested
+    ///     texture cutout (hair, clothing edges) but the blend equation itself is opaque.
+    /// </summary>
+    public bool IsOpaqueBlend
+    {
+        get
+        {
+            var a = (int)(RegAlpha & 0x3);
+            var b = (int)((RegAlpha >> 2) & 0x3);
+            return a == b;
+        }
+    }
 }
 
 /// <summary>

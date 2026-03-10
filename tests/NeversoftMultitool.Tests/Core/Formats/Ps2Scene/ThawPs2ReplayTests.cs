@@ -1,4 +1,6 @@
+using System.Numerics;
 using NeversoftMultitool.Core.Formats.Ps2Scene;
+using NeversoftMultitool.Core.Formats.XbxScene;
 using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Ps2Scene;
@@ -7,6 +9,9 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
 {
     private string ThawSkinDir =>
         Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)", "SKIN");
+
+    private string ThawPcSkinDir =>
+        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2006-2-6, PC - Final)", "SKIN");
 
     [Fact(Skip = "Replay trace parity for skater_lasek is not locked yet; keep this pending until the semantic port reaches batch-reference parity.")]
     public void ReplayBatches_SkaterLasek_HasReplayBatchMetadata()
@@ -286,7 +291,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
             Assert.Equal(kick.OutputWindow.Length, kick.Events.Length);
         });
 
-        Assert.Equal(2930, kicks.Sum(kick => kick.TriangleCount)); // PS2 VIF has 49 fewer vertices than PC (3070)
+        Assert.Equal(2930, kicks.Sum(kick => kick.TriangleCount)); // PC: 3070; gaps from cross-buffer post-batch copies
     }
 
     [Fact]
@@ -502,5 +507,494 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.True(kicks.Count > 0);
         Assert.True(addr280Kicks.Count > 0, "Expected some ADDR=280 kicks");
         Assert.True(addr652Kicks.Count > 0, "Expected some ADDR=652 kicks");
+    }
+
+    // ── Per-Triangle PS2 vs PC Diagnostic ──
+
+    [Theory]
+    [InlineData("skater_lasek", 3070)]
+    [InlineData("pro_vallely_head", 710)]  // PC has 711 raw, 1 degenerate
+    public void Diagnostic_Ps2VsPc_TriangleComparison(string stem, int expectedPcTriangles)
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        Assert.SkipWhen(paths.TestOutputDir is null, "TestOutput not available");
+
+        var ps2File = Path.Combine(ThawSkinDir, $"{stem}.skin.ps2");
+        var pcFile = Path.Combine(ThawPcSkinDir, $"{stem}.skin.wpc");
+        Assert.SkipWhen(!File.Exists(ps2File), $"PS2 file not found: {stem}");
+        Assert.SkipWhen(!File.Exists(pcFile), $"PC file not found: {stem}");
+
+        // --- Parse PC ground truth ---
+        var pcScene = ThawSceneFile.Parse(pcFile);
+        var pcTriangles = new HashSet<(Vector3, Vector3, Vector3)>();
+        var pcPositions = new HashSet<Vector3>();
+        var pcTrisBySector = new Dictionary<int, int>();
+        var pcVertsBySector = new Dictionary<int, int>();
+        for (var si = 0; si < pcScene.Sectors.Length; si++)
+        {
+            var sector = pcScene.Sectors[si];
+            var sectorTris = 0;
+            var sectorVerts = new HashSet<Vector3>();
+            foreach (var mesh in sector.Meshes)
+            {
+                for (var i = 0; i + 2 < mesh.FaceIndices.Length; i += 3)
+                {
+                    var p0 = mesh.Vertices[mesh.FaceIndices[i]].Position;
+                    var p1 = mesh.Vertices[mesh.FaceIndices[i + 1]].Position;
+                    var p2 = mesh.Vertices[mesh.FaceIndices[i + 2]].Position;
+                    pcPositions.Add(p0); pcPositions.Add(p1); pcPositions.Add(p2);
+                    sectorVerts.Add(p0); sectorVerts.Add(p1); sectorVerts.Add(p2);
+
+                    if (p0 == p1 || p1 == p2 || p0 == p2) continue;
+                    pcTriangles.Add(SortedTriKey(p0, p1, p2));
+                    sectorTris++;
+                }
+            }
+            pcTrisBySector[si] = sectorTris;
+            pcVertsBySector[si] = sectorVerts.Count;
+        }
+
+        // --- Parse PS2 kicks ---
+        var ps2Data = File.ReadAllBytes(ps2File);
+        var kicks = ThawPs2SkinFile.ReplayExtractKicks(ps2Data);
+
+        // Build PS2 triangle set from kick meshes
+        var ps2Triangles = new HashSet<(Vector3, Vector3, Vector3)>();
+        var ps2TriByKick = new Dictionary<int, List<(Vector3, Vector3, Vector3)>>();
+        var ps2Positions = new HashSet<Vector3>();
+
+        foreach (var kick in kicks)
+        {
+            var kickTris = new List<(Vector3, Vector3, Vector3)>();
+            ps2TriByKick[kick.KickIndex] = kickTris;
+
+            foreach (var mesh in kick.Meshes)
+            {
+                var verts = mesh.Vertices;
+                var stripStart = 0;
+                var parityBias = mesh.StartsOnOddOutputSlot ? 1 : 0;
+
+                for (var i = 0; i < verts.Length; i++)
+                {
+                    ps2Positions.Add(verts[i].Position);
+                    if (verts[i].IsStripRestart) continue;
+                    if (i - stripStart < 2) continue;
+
+                    Vector3 a, b, c;
+                    if (((i - stripStart + parityBias) & 1) == 0)
+                    { a = verts[i - 2].Position; b = verts[i - 1].Position; c = verts[i].Position; }
+                    else
+                    { a = verts[i - 1].Position; b = verts[i - 2].Position; c = verts[i].Position; }
+
+                    if (a == b || b == c || a == c) continue;
+                    var key = SortedTriKey(a, b, c);
+                    ps2Triangles.Add(key);
+                    kickTris.Add(key);
+                }
+            }
+        }
+
+        // --- Build position lookup: PS2 position → which kicks contain it ---
+        var posToKicks = new Dictionary<Vector3, List<int>>();
+        foreach (var kick in kicks)
+        foreach (var mesh in kick.Meshes)
+        foreach (var v in mesh.Vertices)
+        {
+            if (!posToKicks.TryGetValue(v.Position, out var kickList))
+            {
+                kickList = [];
+                posToKicks[v.Position] = kickList;
+            }
+            if (!kickList.Contains(kick.KickIndex))
+                kickList.Add(kick.KickIndex);
+        }
+
+        // --- Compare ---
+        var matched = pcTriangles.Intersect(ps2Triangles).Count();
+        var pcOnly = pcTriangles.Except(ps2Triangles).ToList();
+        var ps2Only = ps2Triangles.Except(pcTriangles).ToList();
+
+        var lines = new List<string>();
+        lines.Add($"=== PS2 vs PC Triangle Diagnostic: {stem} ===");
+        lines.Add($"PC triangles (non-degenerate): {pcTriangles.Count}");
+        lines.Add($"PS2 triangles (non-degenerate): {ps2Triangles.Count}");
+        lines.Add($"Matched: {matched}");
+        lines.Add($"PC-only (missing from PS2): {pcOnly.Count}");
+        lines.Add($"PS2-only (phantom): {ps2Only.Count}");
+        lines.Add($"PC unique positions: {pcPositions.Count}");
+        lines.Add($"PS2 unique positions: {ps2Positions.Count}");
+        lines.Add("");
+
+        // --- Analyze missing PC triangles ---
+        lines.Add("=== Missing PC Triangles Analysis ===");
+        var allVertsInPs2 = 0;
+        var twoVertsInPs2 = 0;
+        var oneVertInPs2 = 0;
+        var noVertsInPs2 = 0;
+
+        // Track which kicks are involved in missing triangles
+        var kickGapCounts = new Dictionary<int, int>();
+
+        foreach (var (p0, p1, p2) in pcOnly)
+        {
+            var has0 = ps2Positions.Contains(p0);
+            var has1 = ps2Positions.Contains(p1);
+            var has2 = ps2Positions.Contains(p2);
+            var count = (has0 ? 1 : 0) + (has1 ? 1 : 0) + (has2 ? 1 : 0);
+
+            switch (count)
+            {
+                case 3: allVertsInPs2++; break;
+                case 2: twoVertsInPs2++; break;
+                case 1: oneVertInPs2++; break;
+                case 0: noVertsInPs2++; break;
+            }
+
+            // For triangles with all 3 verts in PS2: find which kicks contain them
+            if (count == 3)
+            {
+                var k0 = posToKicks.GetValueOrDefault(p0, []);
+                var k1 = posToKicks.GetValueOrDefault(p1, []);
+                var k2 = posToKicks.GetValueOrDefault(p2, []);
+                var sharedKicks = k0.Intersect(k1).Intersect(k2).ToList();
+                foreach (var ki in sharedKicks)
+                    kickGapCounts[ki] = kickGapCounts.GetValueOrDefault(ki) + 1;
+            }
+        }
+
+        lines.Add($"Missing triangles with 3/3 verts in PS2: {allVertsInPs2} (topology diff)");
+        lines.Add($"Missing triangles with 2/3 verts in PS2: {twoVertsInPs2} (1 vert missing)");
+        lines.Add($"Missing triangles with 1/3 verts in PS2: {oneVertInPs2}");
+        lines.Add($"Missing triangles with 0/3 verts in PS2: {noVertsInPs2}");
+        lines.Add("");
+
+        // --- Per-kick gap analysis ---
+        lines.Add("=== Per-Kick Gap Analysis ===");
+        foreach (var kick in kicks)
+        {
+            var gaps = kick.Events.Count(e => e.Kind == GsVertexEventKind.Gap);
+            var carries = kick.Events.Count(e => e.IsBufferedCarry);
+            var noKicks = kick.Events.Count(e => e.IsNoKick);
+            var missingTrisInKick = kickGapCounts.GetValueOrDefault(kick.KickIndex);
+
+            if (gaps == 0 && missingTrisInKick == 0) continue;
+
+            lines.Add($"Kick {kick.KickIndex}: setup={kick.SetupIndex} addr={kick.KickPacket.Address} nloop={kick.KickPacket.Nloop}");
+            lines.Add($"  gaps={gaps} carries={carries} noKicks={noKicks} tris={kick.TriangleCount} meshes={kick.Meshes.Length}");
+            lines.Add($"  missingPcTris (all 3 verts in this kick): {missingTrisInKick}");
+
+            // Show gap positions in the output window
+            if (gaps > 0)
+            {
+                var gapAddrs = kick.Events
+                    .Where(e => e.Kind == GsVertexEventKind.Gap)
+                    .Select(e => e.FullOutputAddress)
+                    .ToList();
+                lines.Add($"  gap addresses: [{string.Join(",", gapAddrs)}]");
+
+                // Classify gap runs (consecutive gaps vs isolated)
+                var gapRuns = new List<(int Start, int Length)>();
+                for (var g = 0; g < gapAddrs.Count; g++)
+                {
+                    if (g == 0 || gapAddrs[g] - gapAddrs[g - 1] != 3)
+                        gapRuns.Add((gapAddrs[g], 1));
+                    else
+                        gapRuns[^1] = (gapRuns[^1].Start, gapRuns[^1].Length + 1);
+                }
+                lines.Add($"  gap runs: {gapRuns.Count} (sizes: {string.Join(",", gapRuns.Select(r => r.Length))})");
+            }
+            lines.Add("");
+        }
+
+        // --- Cross-kick missing triangles (verts in different kicks) ---
+        lines.Add("=== Cross-Kick Missing Triangles ===");
+        var crossKickCount = 0;
+        var sameKickCount = 0;
+        foreach (var (p0, p1, p2) in pcOnly)
+        {
+            if (!ps2Positions.Contains(p0) || !ps2Positions.Contains(p1) || !ps2Positions.Contains(p2))
+                continue;
+
+            var k0 = posToKicks.GetValueOrDefault(p0, []);
+            var k1 = posToKicks.GetValueOrDefault(p1, []);
+            var k2 = posToKicks.GetValueOrDefault(p2, []);
+            var sharedKicks = k0.Intersect(k1).Intersect(k2).ToList();
+
+            if (sharedKicks.Count > 0)
+                sameKickCount++;
+            else
+                crossKickCount++;
+        }
+        lines.Add($"All 3 verts in same kick(s): {sameKickCount}");
+        lines.Add($"Verts spread across kicks: {crossKickCount}");
+        lines.Add("");
+
+        // --- Phantom PS2 triangles ---
+        if (ps2Only.Count > 0)
+        {
+            lines.Add($"=== Phantom PS2 Triangles (first 20) ===");
+            foreach (var (p0, p1, p2) in ps2Only.Take(20))
+            {
+                var k0 = posToKicks.GetValueOrDefault(p0, []);
+                lines.Add($"  ({p0.X:F2},{p0.Y:F2},{p0.Z:F2})-({p1.X:F2},{p1.Y:F2},{p1.Z:F2})-({p2.X:F2},{p2.Y:F2},{p2.Z:F2}) kicks=[{string.Join(",", k0)}]");
+            }
+            lines.Add("");
+        }
+
+        // --- Summary by kick address ---
+        lines.Add("=== Summary by Kick Address ===");
+        foreach (var addr in new[] { 280, 652 })
+        {
+            var addrKicks = kicks.Where(k => k.KickPacket.Address == addr).ToList();
+            var totalGaps = addrKicks.Sum(k => k.Events.Count(e => e.Kind == GsVertexEventKind.Gap));
+            var totalTris = addrKicks.Sum(k => k.TriangleCount);
+            var totalMissing = addrKicks.Sum(k => kickGapCounts.GetValueOrDefault(k.KickIndex));
+            lines.Add($"ADDR={addr}: {addrKicks.Count} kicks, {totalTris} tris, {totalGaps} gaps, {totalMissing} missing PC tris in same kick");
+        }
+        lines.Add("");
+
+        // --- Raw VIF batch vertex count vs kicked vertex count ---
+        var batches = ThawPs2SkinFile.ReplayBatches(ps2Data);
+        var allBatchPositions = new HashSet<Vector3>();
+        var totalBatchVerts = 0;
+        foreach (var batch in batches)
+        {
+            totalBatchVerts += batch.VertexCount;
+            foreach (var vs in batch.VertexSources)
+                allBatchPositions.Add(vs.Position);
+        }
+        lines.Add("=== VIF Batch Vertex Analysis ===");
+        lines.Add($"Total VIF batches: {batches.Count}");
+        lines.Add($"Total VIF vertices (raw): {totalBatchVerts}");
+        lines.Add($"Unique VIF positions (all batches): {allBatchPositions.Count}");
+        lines.Add($"Unique kicked positions: {ps2Positions.Count}");
+        lines.Add($"VIF positions not in kicks: {allBatchPositions.Except(ps2Positions).Count()}");
+        lines.Add($"PC positions not in VIF: {pcPositions.Except(allBatchPositions).Count()}");
+        lines.Add($"PC positions found in VIF: {pcPositions.Intersect(allBatchPositions).Count()}");
+        lines.Add("");
+
+        // --- PC sector breakdown ---
+        lines.Add("=== PC Sector Breakdown ===");
+        lines.Add($"PC sectors: {pcScene.Sectors.Length}");
+        for (var si = 0; si < pcScene.Sectors.Length; si++)
+        {
+            var sector = pcScene.Sectors[si];
+            var sectorPositions = new HashSet<Vector3>();
+            foreach (var mesh in sector.Meshes)
+            foreach (var v in mesh.Vertices)
+                sectorPositions.Add(v.Position);
+            var inPs2 = sectorPositions.Intersect(allBatchPositions).Count();
+            lines.Add($"  Sector {si}: ck=0x{sector.Checksum:X8} meshes={sector.Meshes.Length} " +
+                       $"tris={pcTrisBySector[si]} verts={pcVertsBySector[si]} " +
+                       $"ps2_match={inPs2}/{sectorPositions.Count} ({100.0 * inPs2 / Math.Max(1, sectorPositions.Count):F0}%)");
+
+            // Per-mesh breakdown
+            for (var mi = 0; mi < sector.Meshes.Length; mi++)
+            {
+                var mesh = sector.Meshes[mi];
+                var meshPositions = new HashSet<Vector3>();
+                foreach (var v in mesh.Vertices)
+                    meshPositions.Add(v.Position);
+                var meshInPs2 = meshPositions.Intersect(allBatchPositions).Count();
+                var meshTris = mesh.IsPreTriangulated ? mesh.FaceIndices.Length / 3 : mesh.TriangleCount;
+                lines.Add($"    Mesh {mi}: mat=0x{mesh.MaterialChecksum:X8} tris={meshTris} verts={meshPositions.Count} " +
+                           $"ps2_match={meshInPs2}/{meshPositions.Count} ({100.0 * meshInPs2 / Math.Max(1, meshPositions.Count):F0}%)");
+            }
+        }
+        lines.Add("");
+
+        // --- PS2 entry table breakdown ---
+        lines.Add("=== PS2 Entry Table ===");
+        lines.Add($"PS2 kicks: {kicks.Count}");
+        var ps2Header = BitConverter.ToUInt32(ps2Data, 0);
+        var ps2TotalMeshes2 = BitConverter.ToUInt32(ps2Data, 8);
+        lines.Add($"PS2 numObjects: {ps2Header}");
+        lines.Add($"PS2 totalMeshes2 (entry table entries): {ps2TotalMeshes2}");
+        lines.Add($"PS2 setup indices used: [{string.Join(",", kicks.Select(k => k.SetupIndex).Distinct().OrderBy(x => x))}]");
+        lines.Add("");
+
+        // --- Missing PC positions detail ---
+        var missingPcPositions = pcPositions.Except(allBatchPositions).ToList();
+        lines.Add($"=== Missing PC Positions ({missingPcPositions.Count}) ===");
+        // Show which PC sectors contain these missing positions
+        for (var si = 0; si < pcScene.Sectors.Length; si++)
+        {
+            var sector = pcScene.Sectors[si];
+            var sectorPositions = new HashSet<Vector3>();
+            foreach (var mesh in sector.Meshes)
+            foreach (var v in mesh.Vertices)
+                sectorPositions.Add(v.Position);
+            var sectorMissing = sectorPositions.Intersect(missingPcPositions.ToHashSet()).Count();
+            if (sectorMissing > 0)
+                lines.Add($"  Sector {si} contributes {sectorMissing} missing positions");
+        }
+        lines.Add("");
+        foreach (var pos in missingPcPositions.OrderBy(p => p.X).ThenBy(p => p.Y).ThenBy(p => p.Z).Take(30))
+        {
+            var nearest = allBatchPositions
+                .OrderBy(p => Vector3.DistanceSquared(p, pos))
+                .First();
+            var dist = Vector3.Distance(nearest, pos);
+            lines.Add($"  ({pos.X:F2},{pos.Y:F2},{pos.Z:F2}) nearest PS2=({nearest.X:F2},{nearest.Y:F2},{nearest.Z:F2}) dist={dist:F4}");
+        }
+
+        var outputPath = Path.Combine(paths.TestOutputDir!, $"{stem}_tri_diagnostic.txt");
+        File.WriteAllLines(outputPath, lines);
+
+        Assert.Equal(expectedPcTriangles, pcTriangles.Count);
+    }
+
+    [Theory]
+    [InlineData("skater_lasek")]
+    [InlineData("pro_vallely_head")]
+    public void Diagnostic_GapTrace(string stem)
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        Assert.SkipWhen(paths.TestOutputDir is null, "TestOutput not available");
+
+        var ps2File = Path.Combine(ThawSkinDir, $"{stem}.skin.ps2");
+        Assert.SkipWhen(!File.Exists(ps2File), $"PS2 file not found: {stem}");
+
+        var ps2Data = File.ReadAllBytes(ps2File);
+        var batches = ThawPs2SkinFile.ReplayBatches(ps2Data);
+        var kicks = ThawPs2SkinFile.ReplayExtractKicks(ps2Data);
+
+        var lines = new List<string>();
+        lines.Add($"=== Gap Trace Diagnostic: {stem} ===");
+        lines.Add($"Total batches: {batches.Count}");
+        lines.Add($"Total kicks: {kicks.Count}");
+        lines.Add("");
+
+        // Build a map of ALL vertex source addresses across ALL batches (including preamble)
+        var allSourceAddresses = new Dictionary<int, List<(int BatchIdx, ReplayVertexSource Source)>>();
+        for (var bi = 0; bi < batches.Count; bi++)
+        {
+            foreach (var src in batches[bi].VertexSources)
+            {
+                var addr = src.OutputFullAddress;
+                if (!allSourceAddresses.TryGetValue(addr, out var list))
+                {
+                    list = [];
+                    allSourceAddresses[addr] = list;
+                }
+                list.Add((bi, src));
+
+                if (src.DuplicateAddress != src.OutputAddress)
+                {
+                    var dupAddr = src.DuplicateFullAddress;
+                    if (!allSourceAddresses.TryGetValue(dupAddr, out var dupList))
+                    {
+                        dupList = [];
+                        allSourceAddresses[dupAddr] = dupList;
+                    }
+                    dupList.Add((bi, src));
+                }
+            }
+        }
+
+        // For each kick with gaps, trace each gap
+        foreach (var kick in kicks)
+        {
+            var gaps = kick.Events.Where(e => e.Kind == GsVertexEventKind.Gap).ToList();
+            if (gaps.Count == 0) continue;
+
+            lines.Add($"--- Kick {kick.KickIndex}: setup={kick.SetupIndex} entry={kick.EntryIndex} " +
+                       $"batch={kick.BatchIndex} addr={kick.KickPacket.Address} nloop={kick.KickPacket.Nloop} " +
+                       $"tris={kick.TriangleCount} gaps={gaps.Count} meshes={kick.Meshes.Length} " +
+                       $"preamble={kick.IsPreambleBatch} ---");
+
+            var batch = batches[kick.BatchIndex];
+            lines.Add($"  Batch info: vtxCount={batch.VertexCount} outputVtxCount={batch.OutputVertexCount}");
+            lines.Add($"  Batch offsets: pos=0x{batch.PositionOffset:X} nrm=0x{batch.NormalOffset:X} uvadc=0x{batch.UvAdcOffset:X}");
+            lines.Add($"  PostBatch elements: {batch.PostBatchElements.Length}");
+            lines.Add($"  ParserTag: {batch.Snapshot.ParserTag.Kind} nloop={batch.Snapshot.ParserTag.Nloop} addr={batch.Snapshot.ParserTag.Address}");
+            lines.Add($"  Snapshot: xtop={batch.Snapshot.Xtop} preTops={batch.Snapshot.PreTops} postTops={batch.Snapshot.PostTops} dbf={batch.Snapshot.Dbf}");
+            lines.Add("");
+
+            // Log all vertex source addresses in this batch
+            lines.Add($"  Vertex source output addresses ({batch.VertexSources.Length}):");
+            foreach (var src in batch.VertexSources)
+            {
+                var dupInfo = src.DuplicateAddress != src.OutputAddress
+                    ? $" dup={src.DuplicateFullAddress}(noKick={src.DuplicateNoKick})"
+                    : "";
+                lines.Add($"    addr={src.OutputFullAddress} noKick={src.OutputNoKick}{dupInfo} pos=({src.Position.X:F2},{src.Position.Y:F2},{src.Position.Z:F2})");
+            }
+            lines.Add("");
+
+            // Log post-batch copy pairs
+            if (batch.PostBatchElements.Length > 0)
+            {
+                lines.Add($"  Post-batch copy pairs:");
+                var firstC0Tag = (batch.PostBatchElements[0].C0 & 0x8000) != 0;
+                var firstC2Tag = (batch.PostBatchElements[0].C2 & 0x8000) != 0;
+                for (var i = 0; i < batch.PostBatchElements.Length; i++)
+                {
+                    var el = batch.PostBatchElements[i];
+                    var c0Active = !(i == 0 && firstC0Tag);
+                    var c2Active = !(i == 0 && firstC2Tag);
+                    if (c0Active)
+                        lines.Add($"    C0→C1: src={el.C0 & 0x3FF}(raw=0x{el.C0:X4}) → dst={el.C1 & 0x3FF}(raw=0x{el.C1:X4})");
+                    else
+                        lines.Add($"    C0→C1: [TAG] raw=0x{el.C0:X4},0x{el.C1:X4}");
+                    if (c2Active)
+                        lines.Add($"    C2→C3: src={el.C2 & 0x3FF}(raw=0x{el.C2:X4}) → dst={el.C3 & 0x3FF}(raw=0x{el.C3:X4})");
+                    else
+                        lines.Add($"    C2→C3: [TAG] raw=0x{el.C2:X4},0x{el.C3:X4}");
+                }
+                lines.Add("");
+            }
+
+            // Output window
+            lines.Add($"  Output window ({kick.FullOutputWindow.Length} slots):");
+            for (var i = 0; i < kick.Events.Length; i++)
+            {
+                var evt = kick.Events[i];
+                var marker = evt.Kind == GsVertexEventKind.Gap ? "GAP" :
+                             evt.IsNoKick ? "NOK" :
+                             evt.IsBufferedCarry ? "CAR" : "VTX";
+                var posInfo = evt.VertexSource != null
+                    ? $" pos=({evt.VertexSource.Value.Position.X:F2},{evt.VertexSource.Value.Position.Y:F2},{evt.VertexSource.Value.Position.Z:F2})"
+                    : "";
+
+                // Check if any batch ever wrote to this address
+                var anySource = allSourceAddresses.ContainsKey(evt.FullOutputAddress);
+                var nearbyHits = new List<int>();
+                for (var delta = -3; delta <= 3; delta++)
+                {
+                    var testAddr = (evt.FullOutputAddress + delta + 1024) % 1024;
+                    if (allSourceAddresses.ContainsKey(testAddr))
+                        nearbyHits.Add(testAddr);
+                }
+
+                var extra = evt.Kind == GsVertexEventKind.Gap
+                    ? $" anyBatchWrote={anySource} nearby=[{string.Join(",", nearbyHits)}]"
+                    : "";
+
+                lines.Add($"    [{i:D3}] addr={evt.FullOutputAddress:D4} {marker}{posInfo}{extra}");
+            }
+            lines.Add("");
+        }
+
+        var outputPath = Path.Combine(paths.TestOutputDir!, $"{stem}_gap_trace.txt");
+        File.WriteAllLines(outputPath, lines);
+
+        Assert.True(kicks.Count > 0);
+    }
+
+    private static (Vector3, Vector3, Vector3) SortedTriKey(Vector3 a, Vector3 b, Vector3 c)
+    {
+        if (Compare(a, b) > 0) (a, b) = (b, a);
+        if (Compare(b, c) > 0) (b, c) = (c, b);
+        if (Compare(a, b) > 0) (a, b) = (b, a);
+        return (a, b, c);
+
+        static int Compare(Vector3 x, Vector3 y)
+        {
+            var cmp = x.X.CompareTo(y.X);
+            if (cmp != 0) return cmp;
+            cmp = x.Y.CompareTo(y.Y);
+            return cmp != 0 ? cmp : x.Z.CompareTo(y.Z);
+        }
     }
 }

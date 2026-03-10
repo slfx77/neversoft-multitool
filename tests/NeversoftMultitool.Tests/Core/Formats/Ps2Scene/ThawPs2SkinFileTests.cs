@@ -46,9 +46,9 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     [Theory]
     [InlineData("acc_backpack01.skin.ps2", 1, 168)]    // PC: 168 — exact match
     [InlineData("skater_hawk.skin.ps2", 1, 3460)]      // PC: 3463 (3 degenerate); unique non-degen: 3460 — exact
-    [InlineData("skater_lasek.skin.ps2", 2, 2930)]     // PC: 3070; PS2 VIF has 49 fewer vertices (-140 tris)
+    [InlineData("skater_lasek.skin.ps2", 2, 2930)]     // PC: 3070; gaps from cross-buffer post-batch copies
     [InlineData("body_f_torso.skin.ps2", 1, 318)]      // PC: 318 — exact match
-    [InlineData("pro_vallely_head.skin.ps2", 1, 531)]   // PC: 711; PS2 VIF has 104 fewer vertices (-180 tris)
+    [InlineData("pro_vallely_head.skin.ps2", 1, 531)]   // PC: 710; gaps from cross-buffer post-batch copies
     [InlineData("sec_jimbo_xen.skin.ps2", 1, 7088)]    // PC: 7094 (6 degenerate); unique non-degen: 7088 — exact
     public void Parse_ThawSkinFile_MatchesPcTriangleCounts(string filename, int minGroups, int expectedTriangles)
     {

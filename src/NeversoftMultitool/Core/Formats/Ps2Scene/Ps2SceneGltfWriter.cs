@@ -51,7 +51,7 @@ public static class Ps2SceneGltfWriter
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<uint, MaterialBuilder>();
         var totalTriangles = 0;
-        var dedup = new HashSet<(Vector3, Vector3, Vector3)>();
+        var dedupByMaterial = new Dictionary<uint, HashSet<(Vector3, Vector3, Vector3)>>();
 
         foreach (var group in ps2Scene.MeshGroups)
         {
@@ -62,6 +62,12 @@ public static class Ps2SceneGltfWriter
             foreach (var mesh in group.Meshes)
             {
                 if (mesh.Vertices.Length < 3) continue;
+
+                if (!dedupByMaterial.TryGetValue(mesh.MaterialChecksum, out var dedup))
+                {
+                    dedup = new HashSet<(Vector3, Vector3, Vector3)>();
+                    dedupByMaterial[mesh.MaterialChecksum] = dedup;
+                }
 
                 var gltfMesh = BuildMesh(groupName, mesh,
                     ps2Scene.Materials, materialCache, textureProvider, out var tris, dedup);
@@ -430,35 +436,45 @@ public static class Ps2SceneGltfWriter
         // MATFLAG_TRANSPARENT + RegALPHA: true blending (glass, shadows, ghosts).
         // RegALPHA FIXED_BLEND: (Cs-Cd)*FIX/128+Cd → apply FIX/128 as material opacity.
         if (mat != null)
-        {
-            var isTransparent = (mat.Flags & (uint)Ps2MaterialFlags.Transparent) != 0;
-            if (isTransparent)
-            {
-                // Check if this is a high-opacity fixed-blend that should be OPAQUE.
-                var fixedOpacity = mat.FixedBlendOpacity;
-                if (fixedOpacity.HasValue && fixedOpacity.Value >= FixBlendOpaqueThreshold / 128f)
-                {
-                    // Near-opaque fixed blend: leave as default OPAQUE to avoid z-sorting artifacts.
-                }
-                else
-                {
-                    builder.WithAlpha(AlphaMode.BLEND);
-
-                    // Apply fixed-blend opacity from RegALPHA if available.
-                    // E.g., ghost models use FIX=50 → 39% opacity.
-                    if (fixedOpacity.HasValue)
-                    {
-                        builder.WithBaseColor(new Vector4(1f, 1f, 1f, fixedOpacity.Value));
-                    }
-                }
-            }
-            else if (mat.AlphaRef >= 1)
-            {
-                builder.WithAlpha(AlphaMode.MASK, mat.AlphaRef / 255f);
-            }
-        }
+            ApplyAlphaMode(builder, mat);
 
         cache[matChecksum] = builder;
         return builder;
+    }
+
+    /// <summary>
+    ///     Apply the correct glTF alpha mode based on PS2 material flags and GS ALPHA register.
+    /// </summary>
+    private static void ApplyAlphaMode(MaterialBuilder builder, Ps2Material mat)
+    {
+        var isTransparent = (mat.Flags & (uint)Ps2MaterialFlags.Transparent) != 0;
+        if (!isTransparent)
+        {
+            if (mat.AlphaRef >= 1)
+                builder.WithAlpha(AlphaMode.MASK, mat.AlphaRef / 255f);
+            return;
+        }
+
+        // GS ALPHA blend equation is identity (A==B → numerator zero → output = source).
+        // These materials use the Transparent flag for alpha-tested texture cutout (hair,
+        // clothing edges) but the blend equation itself is opaque. Use MASK(0.5) to get
+        // correct z-ordering while preserving alpha-tested cutout behavior.
+        if (mat.IsOpaqueBlend)
+        {
+            builder.WithAlpha(AlphaMode.MASK, 0.5f);
+            return;
+        }
+
+        // Check if this is a high-opacity fixed-blend that should be OPAQUE.
+        var fixedOpacity = mat.FixedBlendOpacity;
+        if (fixedOpacity.HasValue && fixedOpacity.Value >= FixBlendOpaqueThreshold / 128f)
+            return;
+
+        builder.WithAlpha(AlphaMode.BLEND);
+
+        // Apply fixed-blend opacity from RegALPHA if available.
+        // E.g., ghost models use FIX=50 → 39% opacity.
+        if (fixedOpacity.HasValue)
+            builder.WithBaseColor(new Vector4(1f, 1f, 1f, fixedOpacity.Value));
     }
 }
