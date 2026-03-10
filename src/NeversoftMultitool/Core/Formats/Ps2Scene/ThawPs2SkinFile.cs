@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Ps2Scene;
@@ -62,7 +63,9 @@ public static class ThawPs2SkinFile
         return true;
     }
 
-    public static Ps2Scene Parse(string filePath) => Parse(File.ReadAllBytes(filePath));
+    public static Ps2Scene Parse(string filePath) => Parse(
+        File.ReadAllBytes(filePath),
+        TryLoadCompanionTexData(filePath));
 
     /// <summary>
     ///     Parse a THAW PS2 .skin.ps2 file. When companionTexData is provided,
@@ -75,6 +78,10 @@ public static class ThawPs2SkinFile
         // Read header and entry table for material/grouping info
         var numObjects = BitConverter.ToUInt32(data, 0);
         var totalMeshes2 = BitConverter.ToUInt32(data, 8);
+        var dataSize = BitConverter.ToUInt32(data, 12);
+        var entryTableEnd = (int)(32 + numObjects * 8 + totalMeshes2 * 64);
+        var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
+        var (_, setupStarts) = ResolveThawSetupBoundaries(data, entryTableEnd, vifEnd);
 
         using var ms = new MemoryStream(data);
         using var r = new BinaryReader(ms);
@@ -87,37 +94,40 @@ public static class ThawPs2SkinFile
         for (var i = 0; i < totalMeshes2; i++)
             entries[i] = ReadEntry(r);
 
-        // Build section→textureChecksum remapping from DIRECT block TEX0 registers.
-        // The VIF rendering order doesn't match the entry table order for textures —
-        // each DIRECT block's TEX0 register specifies which texture the GS should use,
-        // and this is matched to texture checksums via the companion .tex.ps2 file.
-        var sectionTextures = BuildSectionTextureMapping(data, companionTexData);
+        var mappingInfo = BuildSetupMappingInfo(data, companionTexData, entries, setupStarts);
+        var entryTextureOverrides = mappingInfo.EntryTextureOverrides;
+        var entryAlphaRefs = mappingInfo.EntryAlphaRefs;
 
-        // Build materials from entry table, applying texture remapping if available
+        // Build materials from the raw entry table, applying DIRECT-derived overrides after
+        // remapping section order back onto the actual entry indices.
         var materialMap = new Dictionary<uint, Ps2Material>();
         for (var i = 0; i < entries.Length; i++)
         {
             var entry = entries[i];
             var texCk = entry.TextureChecksum;
 
-            // Override texture from DIRECT block mapping if available
-            if (sectionTextures != null && sectionTextures.TryGetValue(i, out var directTexCk))
+            if (entryTextureOverrides != null && entryTextureOverrides.TryGetValue(i, out var directTexCk))
                 texCk = directTexCk;
 
             if (!materialMap.ContainsKey(entry.MaterialChecksum))
             {
+                var alphaRef = 0;
+                if (entryAlphaRefs != null && entryAlphaRefs.TryGetValue(i, out var directAlphaRef))
+                    alphaRef = directAlphaRef;
+
                 materialMap[entry.MaterialChecksum] = new Ps2Material
                 {
                     Checksum = entry.MaterialChecksum,
                     TextureChecksum = texCk,
                     RegAlpha = entry.GsAlphaLow | ((ulong)entry.GsAlphaHigh << 32),
-                    Flags = entry.MaterialFlags
+                    Flags = entry.MaterialFlags,
+                    AlphaRef = alphaRef
                 };
             }
         }
 
         // Extract meshes via replay kick path (full VIF/VU1 simulation)
-        var kicks = ReplayExtractKicks(data);
+        var kicks = ReplayExtractKicks(data, companionTexData);
 
         // Group kick meshes by owner object checksum
         var groupMap = new Dictionary<uint, List<Ps2Mesh>>();
@@ -170,7 +180,8 @@ public static class ThawPs2SkinFile
         return ThawPs2ReplayEngine.ReplayBatches(data, vifStart, vifEnd, setupStarts);
     }
 
-    internal static IReadOnlyList<ThawReplayKickExtractor.ExtractedKick> ReplayExtractKicks(byte[] data)
+    internal static IReadOnlyList<ThawReplayKickExtractor.ExtractedKick> ReplayExtractKicks(
+        byte[] data, byte[]? companionTexData = null)
     {
         if (!IsThawPs2Skin(data, data.Length))
             return [];
@@ -189,14 +200,16 @@ public static class ThawPs2SkinFile
         for (var i = 0; i < numObjects; i++)
             r.ReadBytes(8);
 
-        var replayEntries = new (uint MaterialChecksum, bool HasVertexColors)[totalMeshes2];
+        var entries = new EntryRecord[totalMeshes2];
         for (var i = 0; i < totalMeshes2; i++)
-        {
-            var entry = ReadEntry(r);
-            replayEntries[i] = (entry.MaterialChecksum, entry.HasVertexColors);
-        }
+            entries[i] = ReadEntry(r);
 
-        return ThawReplayKickExtractor.ExtractKicks(replayEntries, replayBatches);
+        var mappingInfo = BuildSetupMappingInfo(data, companionTexData, entries, setupStarts);
+        var replayEntries = new (uint MaterialChecksum, bool HasVertexColors)[entries.Length];
+        for (var i = 0; i < entries.Length; i++)
+            replayEntries[i] = (entries[i].MaterialChecksum, entries[i].HasVertexColors);
+
+        return ThawReplayKickExtractor.ExtractKicks(replayEntries, mappingInfo.SetupEntryIndices, replayBatches);
     }
 
     private static EntryRecord ReadEntry(BinaryReader r)
@@ -313,7 +326,8 @@ public static class ThawPs2SkinFile
                     Checksum = matChecksum,
                     TextureChecksum = gsRegs.Tex0Cbp,
                     RegAlpha = gsRegs.Alpha1,
-                    Flags = 0
+                    Flags = 0,
+                    AlphaRef = gsRegs.AlphaRef
                 };
             }
         }
@@ -327,7 +341,13 @@ public static class ThawPs2SkinFile
             replayEntries[i] = (setupMaterialChecksums[i], false);
 
         // Extract kicks via replay path
-        var kicks = ThawReplayKickExtractor.ExtractKicks(replayEntries, replayBatches);
+        var setupEntryIndices = new int[setupStarts.Count + 1];
+        if (setupEntryIndices.Length > 0)
+            setupEntryIndices[0] = 0;
+        for (var i = 0; i < setupStarts.Count; i++)
+            setupEntryIndices[i + 1] = i;
+
+        var kicks = ThawReplayKickExtractor.ExtractKicks(replayEntries, setupEntryIndices, replayBatches);
 
         // Collect all meshes from kicks
         var allMeshes = new List<Ps2Mesh>();
@@ -406,53 +426,101 @@ public static class ThawPs2SkinFile
                 case 0x42: // ALPHA_1
                     result.Alpha1 = dataVal;
                     break;
+                case 0x47: // TEST_1
+                    if ((dataVal & 1) != 0)
+                        result.AlphaRef = (byte)((dataVal >> 4) & 0xFF);
+                    break;
             }
         }
 
         return result;
     }
 
-    /// <summary>
-    ///     Build a mapping from VIF section index to correct texture checksum using DIRECT block
-    ///     TEX0 register values matched against companion .tex.ps2 data.
-    ///     The VIF rendering order doesn't match the entry table order for textures.
-    ///     Each DIRECT block's TEX0 register contains TBP/CBP values that identify which
-    ///     texture the GS should use. The companion .tex.ps2 maps (TBP,CBP) → checksum.
-    /// </summary>
-    private static Dictionary<int, uint>? BuildSectionTextureMapping(
-        byte[] data, byte[]? companionTexData)
+    private readonly record struct SetupMappingInfo(
+        int[] SetupEntryIndices,
+        Dictionary<int, uint>? EntryTextureOverrides,
+        Dictionary<int, int>? EntryAlphaRefs);
+
+    private static SetupMappingInfo BuildSetupMappingInfo(
+        byte[] data,
+        byte[]? companionTexData,
+        IReadOnlyList<EntryRecord> entries,
+        IReadOnlyList<int> setupStarts)
     {
-        if (companionTexData is null) return null;
+        var rawDirectOffsets = FindRawDirectOffsets(data);
+        var setupSectionAlphaRefs = BuildSectionAlphaRefMapping(data, setupStarts);
 
-        var numObjects = BitConverter.ToUInt32(data, 0);
-        var totalMeshes2 = BitConverter.ToUInt32(data, 8);
-        var dataSize = BitConverter.ToUInt32(data, 12);
-        var entryTableEnd = (int)(32 + numObjects * 8 + totalMeshes2 * 64);
-        var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
-
-        // Find ALL FLUSH+DIRECT pairs by raw dword scan (including the first one,
-        // which ResolveThawSetupBoundaries consumes as vifStart)
-        var allDirectOffsets = new List<int>();
-        for (var offset = entryTableEnd; offset + 8 <= vifEnd && offset + 8 <= data.Length; offset += 4)
+        if (HasLeadingRawDirectPreamble(rawDirectOffsets, setupStarts))
         {
-            var word = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(offset));
-            if (word is not (0x10000000 or 0x11000000))
-                continue;
-            if (data[offset + 7] is 0x50 or 0x51 || (data[offset + 7] & 0x7F) is 0x50 or 0x51)
-                allDirectOffsets.Add(offset + 4); // DIRECT opcode position
+            var rawSectionTextures = BuildSectionTextureMapping(data, companionTexData, rawDirectOffsets);
+            if (rawSectionTextures != null && rawSectionTextures.Count > 0)
+            {
+                var rawSectionEntryIndices = BuildSectionEntryIndices(entries, rawDirectOffsets.Count, rawSectionTextures);
+                var setupEntryIndices = BuildDirectAlignedSetupEntryIndices(
+                    rawSectionEntryIndices,
+                    setupStarts.Count + 1,
+                    entries.Count);
+                var rawSectionAlphaRefs = BuildSectionAlphaRefMapping(data, rawDirectOffsets);
+                var entryAlphaRefs = BuildEntryAlphaRefOverrides(rawSectionAlphaRefs, setupEntryIndices, 0);
+                return new SetupMappingInfo(setupEntryIndices, null, entryAlphaRefs);
+            }
         }
 
-        if (allDirectOffsets.Count == 0) return null;
+        if (RawDirectOffsetsMatchSetupStarts(rawDirectOffsets, setupStarts))
+        {
+            var sectionTextures = BuildSectionTextureMapping(data, companionTexData, setupStarts);
+            var setupEntryIndices = BuildSetupEntryIndices(entries, setupStarts.Count, sectionTextures, setupSectionAlphaRefs);
+            var entryTextureOverrides = BuildEntryTextureOverrides(sectionTextures, setupEntryIndices, 1);
+            var entryAlphaRefs = BuildEntryAlphaRefOverrides(setupSectionAlphaRefs, setupEntryIndices, 1);
+            return new SetupMappingInfo(setupEntryIndices, entryTextureOverrides, entryAlphaRefs);
+        }
 
-        // Build (TBP,CBP) → textureChecksum from companion .tex.ps2
+        var identitySetupEntryIndices = BuildIdentitySetupEntryIndices(setupStarts.Count + 1, entries.Count);
+        var identityAlphaRefs = BuildEntryAlphaRefOverrides(setupSectionAlphaRefs, identitySetupEntryIndices, 1);
+        return new SetupMappingInfo(identitySetupEntryIndices, null, identityAlphaRefs);
+    }
+
+    /// <summary>
+    ///     Build a mapping from DIRECT block index to TEST_1 alpha-reference values.
+    ///     THAW skin entry records do not carry Aref, but the DIRECT setup blocks do.
+    /// </summary>
+    private static Dictionary<int, int>? BuildSectionAlphaRefMapping(
+        byte[] data,
+        IReadOnlyList<int> directOffsets)
+    {
+        if (directOffsets.Count == 0)
+            return null;
+
+        var mapping = new Dictionary<int, int>();
+        for (var sectionIdx = 0; sectionIdx < directOffsets.Count; sectionIdx++)
+        {
+            var regs = ParseDirectBlockRegisters(data, directOffsets[sectionIdx]);
+            if (regs.AlphaRef > 0)
+                mapping[sectionIdx] = regs.AlphaRef;
+        }
+
+        return mapping.Count > 0 ? mapping : null;
+    }
+
+    /// <summary>
+    ///     Build a mapping from DIRECT block index to texture checksum using DIRECT TEX0 values
+    ///     matched against companion .tex.ps2 data.
+    /// </summary>
+    private static Dictionary<int, uint>? BuildSectionTextureMapping(
+        byte[] data,
+        byte[]? companionTexData,
+        IReadOnlyList<int> directOffsets)
+    {
+        if (companionTexData is null) return null;
+        if (directOffsets.Count == 0) return null;
+
         var tbpCbpToChecksum = BuildTbpCbpMap(companionTexData);
         if (tbpCbpToChecksum.Count == 0) return null;
 
-        // Extract TEX0 from each DIRECT block and resolve texture checksum
         var mapping = new Dictionary<int, uint>();
-        for (var sectionIdx = 0; sectionIdx < allDirectOffsets.Count; sectionIdx++)
+        for (var sectionIdx = 0; sectionIdx < directOffsets.Count; sectionIdx++)
         {
-            var tex0 = ExtractTex0FromDirect(data, allDirectOffsets[sectionIdx]);
+            var tex0 = ExtractTex0FromDirect(data, directOffsets[sectionIdx]);
             if (tex0 is null) continue;
 
             var (tbp, cbp) = tex0.Value;
@@ -461,6 +529,38 @@ public static class ThawPs2SkinFile
         }
 
         return mapping.Count > 0 ? mapping : null;
+    }
+
+    private static bool RawDirectOffsetsMatchSetupStarts(
+        IReadOnlyList<int> rawDirectOffsets,
+        IReadOnlyList<int> setupStarts)
+    {
+        if (rawDirectOffsets.Count != setupStarts.Count)
+            return false;
+
+        for (var i = 0; i < rawDirectOffsets.Count; i++)
+        {
+            if (rawDirectOffsets[i] != setupStarts[i])
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool HasLeadingRawDirectPreamble(
+        IReadOnlyList<int> rawDirectOffsets,
+        IReadOnlyList<int> setupStarts)
+    {
+        if (rawDirectOffsets.Count != setupStarts.Count + 1)
+            return false;
+
+        for (var i = 0; i < setupStarts.Count; i++)
+        {
+            if (rawDirectOffsets[i + 1] != setupStarts[i])
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -542,6 +642,229 @@ public static class ThawPs2SkinFile
         }
 
         return map;
+    }
+
+    /// <summary>
+    ///     Build a replay-setup to entry-table mapping.
+    ///     Replay batches use setup index 0 for preamble, then 1..N for DIRECT setup sections 0..N-1.
+    ///     Some skins (e.g. sec_jimbo) permute the entry table relative to DIRECT setup order, so
+    ///     we resolve the DIRECT section sequence back onto raw entry indices using TEX0-derived textures.
+    /// </summary>
+    private static int[] BuildSetupEntryIndices(
+        IReadOnlyList<EntryRecord> entries,
+        int setupCount,
+        IReadOnlyDictionary<int, uint>? sectionTextures,
+        IReadOnlyDictionary<int, int>? sectionAlphaRefs)
+    {
+        if (entries.Count == 0)
+            return [];
+
+        var sectionCount = setupCount;
+        if (sectionTextures != null && sectionTextures.Count > 0)
+            sectionCount = Math.Max(sectionCount, sectionTextures.Keys.Max() + 1);
+        if (sectionAlphaRefs != null && sectionAlphaRefs.Count > 0)
+            sectionCount = Math.Max(sectionCount, sectionAlphaRefs.Keys.Max() + 1);
+
+        var sectionEntryIndices = BuildSectionEntryIndices(entries, sectionCount, sectionTextures);
+        var setupEntryIndices = new int[sectionCount + 1];
+        setupEntryIndices[0] = 0;
+
+        for (var sectionIndex = 0; sectionIndex < sectionCount; sectionIndex++)
+        {
+            var fallbackEntryIndex = Math.Min(sectionIndex + 1, entries.Count - 1);
+            var entryIndex = sectionEntryIndices[sectionIndex];
+            setupEntryIndices[sectionIndex + 1] = entryIndex >= 0
+                ? entryIndex
+                : fallbackEntryIndex;
+        }
+
+        return setupEntryIndices;
+    }
+
+    private static int[] BuildIdentitySetupEntryIndices(int setupSlotCount, int entryCount)
+    {
+        if (entryCount == 0 || setupSlotCount <= 0)
+            return [];
+
+        var setupEntryIndices = new int[setupSlotCount];
+        for (var setupIndex = 0; setupIndex < setupSlotCount; setupIndex++)
+            setupEntryIndices[setupIndex] = Math.Min(setupIndex, entryCount - 1);
+
+        return setupEntryIndices;
+    }
+
+    private static int[] BuildDirectAlignedSetupEntryIndices(
+        IReadOnlyList<int> sectionEntryIndices,
+        int setupSlotCount,
+        int entryCount)
+    {
+        if (entryCount == 0 || setupSlotCount <= 0)
+            return [];
+
+        var setupEntryIndices = new int[setupSlotCount];
+        for (var setupIndex = 0; setupIndex < setupSlotCount; setupIndex++)
+        {
+            if ((uint)setupIndex < (uint)sectionEntryIndices.Count)
+            {
+                var entryIndex = sectionEntryIndices[setupIndex];
+                if ((uint)entryIndex < (uint)entryCount)
+                {
+                    setupEntryIndices[setupIndex] = entryIndex;
+                    continue;
+                }
+            }
+
+            setupEntryIndices[setupIndex] = Math.Min(setupIndex, entryCount - 1);
+        }
+
+        return setupEntryIndices;
+    }
+
+    private static int[] BuildSectionEntryIndices(
+        IReadOnlyList<EntryRecord> entries,
+        int sectionCount,
+        IReadOnlyDictionary<int, uint>? sectionTextures)
+    {
+        var sectionEntryIndices = Enumerable.Repeat(-1, sectionCount).ToArray();
+        if (entries.Count == 0)
+            return sectionEntryIndices;
+
+        if (sectionTextures is null || sectionTextures.Count == 0)
+        {
+            for (var sectionIndex = 0; sectionIndex < sectionCount; sectionIndex++)
+                sectionEntryIndices[sectionIndex] = Math.Min(sectionIndex + 1, entries.Count - 1);
+
+            return sectionEntryIndices;
+        }
+
+        var entryAssigned = new bool[entries.Count];
+        for (var sectionIndex = 0; sectionIndex < sectionCount; sectionIndex++)
+        {
+            if (!sectionTextures.TryGetValue(sectionIndex, out var sectionTexture))
+                continue;
+
+            var entryIndex = ResolveSectionEntryIndex(entries, sectionTexture, sectionIndex, entryAssigned);
+            if (entryIndex < 0)
+                continue;
+
+            sectionEntryIndices[sectionIndex] = entryIndex;
+            entryAssigned[entryIndex] = true;
+        }
+
+        // Preserve original order for unresolved sections while keeping the mapping unique.
+        for (var sectionIndex = 0; sectionIndex < sectionCount; sectionIndex++)
+        {
+            if (sectionEntryIndices[sectionIndex] >= 0)
+                continue;
+
+            if (sectionIndex < entries.Count && !entryAssigned[sectionIndex])
+            {
+                sectionEntryIndices[sectionIndex] = sectionIndex;
+                entryAssigned[sectionIndex] = true;
+                continue;
+            }
+
+            var fallbackIndex = Array.FindIndex(entryAssigned, assigned => !assigned);
+            if (fallbackIndex >= 0)
+            {
+                sectionEntryIndices[sectionIndex] = fallbackIndex;
+                entryAssigned[fallbackIndex] = true;
+            }
+        }
+
+        return sectionEntryIndices;
+    }
+
+    private static Dictionary<int, uint>? BuildEntryTextureOverrides(
+        IReadOnlyDictionary<int, uint>? sectionTextures,
+        IReadOnlyList<int> setupEntryIndices,
+        int setupIndexBase)
+    {
+        if (sectionTextures is null || sectionTextures.Count == 0)
+            return null;
+
+        var overrides = new Dictionary<int, uint>();
+        foreach (var (sectionIndex, textureChecksum) in sectionTextures)
+        {
+            var setupIndex = sectionIndex + setupIndexBase;
+            if ((uint)setupIndex >= (uint)setupEntryIndices.Count)
+                continue;
+
+            overrides[setupEntryIndices[setupIndex]] = textureChecksum;
+        }
+
+        return overrides.Count > 0 ? overrides : null;
+    }
+
+    private static Dictionary<int, int>? BuildEntryAlphaRefOverrides(
+        IReadOnlyDictionary<int, int>? sectionAlphaRefs,
+        IReadOnlyList<int> setupEntryIndices,
+        int setupIndexBase)
+    {
+        if (sectionAlphaRefs is null || sectionAlphaRefs.Count == 0)
+            return null;
+
+        var overrides = new Dictionary<int, int>();
+        foreach (var (sectionIndex, alphaRef) in sectionAlphaRefs)
+        {
+            var setupIndex = sectionIndex + setupIndexBase;
+            if ((uint)setupIndex >= (uint)setupEntryIndices.Count)
+                continue;
+
+            overrides[setupEntryIndices[setupIndex]] = alphaRef;
+        }
+
+        return overrides.Count > 0 ? overrides : null;
+    }
+
+    private static byte[]? TryLoadCompanionTexData(string filePath)
+    {
+        var dir = Path.GetDirectoryName(filePath);
+        if (dir == null)
+            return null;
+
+        var stem = Path.GetFileName(filePath);
+        if (stem.EndsWith(".skin.ps2", StringComparison.OrdinalIgnoreCase))
+            stem = stem[..^".skin.ps2".Length];
+        else if (stem.EndsWith(".mdl.ps2", StringComparison.OrdinalIgnoreCase))
+            stem = stem[..^".mdl.ps2".Length];
+        else if (stem.EndsWith(".iskin.ps2", StringComparison.OrdinalIgnoreCase))
+            stem = stem[..^".iskin.ps2".Length];
+        else
+            stem = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(stem));
+
+        var texPath = CompanionSearch.FindCompanion(dir, stem, [".tex.ps2"], ["TEX", "Textures"]);
+        return texPath != null && File.Exists(texPath)
+            ? File.ReadAllBytes(texPath)
+            : null;
+    }
+
+    private static int ResolveSectionEntryIndex(
+        IReadOnlyList<EntryRecord> entries,
+        uint sectionTexture,
+        int sectionIndex,
+        IReadOnlyList<bool> entryAssigned)
+    {
+        var bestIndex = -1;
+        var bestDistance = int.MaxValue;
+
+        for (var entryIndex = 0; entryIndex < entries.Count; entryIndex++)
+        {
+            if (entryAssigned[entryIndex] || entries[entryIndex].TextureChecksum != sectionTexture)
+                continue;
+
+            if (entryIndex == sectionIndex)
+                return entryIndex;
+
+            var distance = Math.Abs(entryIndex - sectionIndex);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                bestIndex = entryIndex;
+            }
+        }
+
+        return bestIndex;
     }
 
     /// <summary>
@@ -631,6 +954,29 @@ public static class ThawPs2SkinFile
         return flushOffsets;
     }
 
+    private static List<int> FindRawDirectOffsets(byte[] data)
+    {
+        var numObjects = BitConverter.ToUInt32(data, 0);
+        var totalMeshes2 = BitConverter.ToUInt32(data, 8);
+        var dataSize = BitConverter.ToUInt32(data, 12);
+        var entryTableEnd = (int)(32 + numObjects * 8 + totalMeshes2 * 64);
+        var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
+
+        var directOffsets = new List<int>();
+        for (var offset = entryTableEnd; offset + 8 <= vifEnd && offset + 8 <= data.Length; offset += 4)
+        {
+            var word = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(offset));
+            if (word is not (0x10000000 or 0x11000000))
+                continue;
+
+            var nextCommand = data[offset + 7] & 0x7F;
+            if (nextCommand is 0x50 or 0x51)
+                directOffsets.Add(offset + 4);
+        }
+
+        return directOffsets;
+    }
+
     /// <summary>Advance past one VIF opcode. Port of vif::NextCode from vif.cpp.</summary>
     internal static int VifNextCode(byte[] data, int offset, int end)
     {
@@ -679,5 +1025,6 @@ public static class ThawPs2SkinFile
     {
         public uint Tex0Cbp;  // CLUT base pointer — unique per texture binding
         public ulong Alpha1;  // GS blend mode register
+        public byte AlphaRef; // TEST_1 AREF when alpha test is enabled
     }
 }

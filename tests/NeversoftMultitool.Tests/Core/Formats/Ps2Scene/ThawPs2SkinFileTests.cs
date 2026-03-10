@@ -91,6 +91,36 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     }
 
     [Fact]
+    public void Parse_SkaterLasek_MatchesPcMaterialPositionCoverage()
+    {
+        AssertPs2MaterialPositionParity("skater_lasek");
+    }
+
+    [Fact]
+    public void Parse_SkaterHawk_DocumentsLegacySiblingMaterialSplitDivergence()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var ps2File = Path.Combine(ThawSkinDir, "skater_hawk.skin.ps2");
+        var pcFile = Path.Combine(ThawPcSkinDir, "skater_hawk.skin.wpc");
+        Assert.SkipWhen(!File.Exists(ps2File), "PS2 file not found");
+        Assert.SkipWhen(!File.Exists(pcFile), "PC file not found");
+
+        var ps2Scene = ThawPs2SkinFile.Parse(ps2File);
+        var pcScene = ThawSceneFile.Parse(pcFile);
+        var ps2ByMaterial = BuildPs2PositionMap(ps2Scene);
+        var pcByMaterial = BuildPcPositionMap(pcScene);
+        var sharedMaterials = ps2ByMaterial.Keys.Intersect(pcByMaterial.Keys).OrderBy(k => k).ToArray();
+        var pcOnlyMaterials = pcByMaterial.Keys.Except(ps2ByMaterial.Keys).OrderBy(k => k).ToArray();
+        var ps2OnlyMaterials = ps2ByMaterial.Keys.Except(pcByMaterial.Keys).OrderBy(k => k).ToArray();
+
+        foreach (var materialChecksum in sharedMaterials)
+            Assert.Equal(0, CountMissingPositions(pcByMaterial[materialChecksum], ps2ByMaterial[materialChecksum]));
+
+        Assert.Equal([0x18717436u, 0x18717444u, 0x4D6C149Eu, 0x9F1F8202u], pcOnlyMaterials);
+        Assert.Equal([0x18717437u, 0x18717445u, 0x4D6C149Fu, 0x9F1F8203u], ps2OnlyMaterials);
+    }
+
+    [Fact]
     public void Parse_ProVallelyHead_DocumentsPcOnlyMaterialDivergence()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -103,13 +133,50 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         var pcScene = ThawSceneFile.Parse(pcFile);
         var ps2ByMaterial = BuildPs2PositionMap(ps2Scene);
         var pcByMaterial = BuildPcPositionMap(pcScene);
+        var combinedPs2Positions = ps2ByMaterial.Values.SelectMany(set => set).ToHashSet();
 
         Assert.DoesNotContain(ps2Scene.Materials, material => material.Checksum == 0x02EA21B0);
+        Assert.Contains(ps2Scene.Materials, material => material.Checksum == 0x488D5A5B);
+        Assert.Contains(ps2Scene.Materials, material => material.Checksum == 0xCFF2FEB9);
         Assert.Equal(326, CountUniquePositions(ps2Scene));
         Assert.Equal(400, CountUniquePositions(pcScene));
-        Assert.Equal(0, CountMissingPositions(pcByMaterial[0xCFF2FEB9], ps2ByMaterial[0xCFF2FEB9]));
+        Assert.Equal(0, CountMissingPositions(pcByMaterial[0xCFF2FEB9], combinedPs2Positions));
         Assert.Equal(22, CountMissingPositions(pcByMaterial[0x488D5A5B], ps2ByMaterial[0x488D5A5B]));
         Assert.Equal(54, CountMissingPositions(pcByMaterial[0x02EA21B0], new HashSet<Vector3>()));
+    }
+
+    [Fact]
+    public void Parse_SecJimbo_MatchesPcMaterialPositionCoverage()
+    {
+        AssertPs2MaterialPositionParity("sec_jimbo");
+    }
+
+    [Fact]
+    public void Parse_SecJimboXen_MatchesPcMaterialPositionCoverage()
+    {
+        AssertPs2MaterialPositionParity("sec_jimbo_xen");
+    }
+
+    [Fact]
+    public void Parse_ThawSkinFiles_PopulatesAlphaRefsFromDirectTestRegisters()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var jimboFile = Path.Combine(ThawSkinDir, "sec_jimbo_xen.skin.ps2");
+        var hawkFile = Path.Combine(ThawSkinDir, "skater_hawk.skin.ps2");
+        Assert.SkipWhen(!File.Exists(jimboFile), "Jimbo file not found");
+        Assert.SkipWhen(!File.Exists(hawkFile), "Hawk file not found");
+
+        var jimboByChecksum = ThawPs2SkinFile.Parse(jimboFile).Materials.ToDictionary(mat => mat.Checksum);
+        var hawkByChecksum = ThawPs2SkinFile.Parse(hawkFile).Materials.ToDictionary(mat => mat.Checksum);
+
+        Assert.Equal(1, jimboByChecksum[0x96820C03].AlphaRef);
+        Assert.Equal(1, jimboByChecksum[0x8448A70A].AlphaRef);
+        Assert.Equal(1, jimboByChecksum[0x4936422A].AlphaRef);
+        Assert.Equal(10, jimboByChecksum[0x6C8A2B17].AlphaRef);
+        Assert.Equal(10, jimboByChecksum[0x4B685E6C].AlphaRef);
+
+        Assert.Equal(1, hawkByChecksum[0xC9B52576].AlphaRef);
     }
 
     [Fact]
@@ -272,6 +339,24 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         }
 
         return map;
+    }
+
+    private void AssertPs2MaterialPositionParity(string stem)
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var ps2File = Path.Combine(ThawSkinDir, $"{stem}.skin.ps2");
+        var pcFile = Path.Combine(ThawPcSkinDir, $"{stem}.skin.wpc");
+        Assert.SkipWhen(!File.Exists(ps2File), $"PS2 file not found: {stem}");
+        Assert.SkipWhen(!File.Exists(pcFile), $"PC file not found: {stem}");
+
+        var ps2Scene = ThawPs2SkinFile.Parse(ps2File);
+        var pcScene = ThawSceneFile.Parse(pcFile);
+        var ps2ByMaterial = BuildPs2PositionMap(ps2Scene);
+        var pcByMaterial = BuildPcPositionMap(pcScene);
+
+        Assert.Equal(pcByMaterial.Keys.OrderBy(k => k), ps2ByMaterial.Keys.OrderBy(k => k));
+        foreach (var (materialChecksum, pcPositions) in pcByMaterial)
+            Assert.Equal(0, CountMissingPositions(pcPositions, ps2ByMaterial[materialChecksum]));
     }
 
     private static int CountMissingPositions(

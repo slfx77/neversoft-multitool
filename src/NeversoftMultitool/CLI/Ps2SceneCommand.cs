@@ -246,18 +246,15 @@ public static class Ps2SceneCommand
                             continue;
                         }
 
-                        // Load companion .tex.ps2 raw bytes for DIRECT block texture remapping
+                        // Load companion .tex.ps2 raw bytes for DIRECT block setup/material mapping.
                         byte[]? companionTexData = null;
-                        if (embedTextures)
+                        var texDir = Path.GetDirectoryName(file);
+                        if (texDir != null)
                         {
-                            var texDir = Path.GetDirectoryName(file);
-                            if (texDir != null)
-                            {
-                                var companionTex = CompanionSearch.FindCompanion(
-                                    texDir, stem, [".tex.ps2"], ["TEX", "Textures"]);
-                                if (companionTex != null)
-                                    companionTexData = File.ReadAllBytes(companionTex);
-                            }
+                            var companionTex = CompanionSearch.FindCompanion(
+                                texDir, stem, [".tex.ps2"], ["TEX", "Textures"]);
+                            if (companionTex != null)
+                                companionTexData = File.ReadAllBytes(companionTex);
                         }
 
                         scene = ThawPs2SkinFile.Parse(fileData, companionTexData);

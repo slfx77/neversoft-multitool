@@ -43,6 +43,7 @@ internal static class ThawReplayKickExtractor
 
     public static List<ExtractedKick> ExtractKicks(
         IReadOnlyList<(uint MaterialChecksum, bool HasVertexColors)> entries,
+        IReadOnlyList<int> setupEntryIndices,
         IReadOnlyList<ThawReplayBatch> batches)
     {
         var extracted = new List<ExtractedKick>();
@@ -75,7 +76,7 @@ internal static class ThawReplayKickExtractor
                 continue;
             }
 
-            var entryIndex = Math.Min(batch.SetupIndex, entries.Count - 1);
+            var entryIndex = ResolveEntryIndex(batch.SetupIndex, setupEntryIndices, entries.Count);
             var entry = entries[entryIndex];
             setupSlotBufferBySetup.TryGetValue(batch.SetupIndex, out var setupSlotBuffer);
 
@@ -136,7 +137,7 @@ internal static class ThawReplayKickExtractor
         // (which previously caused inward-facing spikes from wrong-body-part vertices).
         if (extracted.Any(k => k.Events.Any(e => e.Kind == GsVertexEventKind.Gap)))
         {
-            return ExtractKicksWithSetupSeed(entries, batches, setupSlotBufferBySetup);
+            return ExtractKicksWithSetupSeed(entries, setupEntryIndices, batches, setupSlotBufferBySetup);
         }
 
         return extracted;
@@ -144,6 +145,7 @@ internal static class ThawReplayKickExtractor
 
     private static List<ExtractedKick> ExtractKicksWithSetupSeed(
         IReadOnlyList<(uint MaterialChecksum, bool HasVertexColors)> entries,
+        IReadOnlyList<int> setupEntryIndices,
         IReadOnlyList<ThawReplayBatch> batches,
         Dictionary<int, Dictionary<int, ReplayOutputSlot>> seedSetupBuffers)
     {
@@ -178,7 +180,7 @@ internal static class ThawReplayKickExtractor
                 continue;
             }
 
-            var entryIndex = Math.Min(batch.SetupIndex, entries.Count - 1);
+            var entryIndex = ResolveEntryIndex(batch.SetupIndex, setupEntryIndices, entries.Count);
             var entry = entries[entryIndex];
             setupSlotBufferBySetup.TryGetValue(batch.SetupIndex, out var setupSlotBuffer);
 
@@ -228,6 +230,21 @@ internal static class ThawReplayKickExtractor
         }
 
         return extracted;
+    }
+
+    private static int ResolveEntryIndex(int setupIndex, IReadOnlyList<int> setupEntryIndices, int entryCount)
+    {
+        if (entryCount == 0)
+            return -1;
+
+        if ((uint)setupIndex < (uint)setupEntryIndices.Count)
+        {
+            var entryIndex = setupEntryIndices[setupIndex];
+            if ((uint)entryIndex < (uint)entryCount)
+                return entryIndex;
+        }
+
+        return Math.Min(Math.Max(setupIndex, 0), entryCount - 1);
     }
 
     private static Dictionary<int, ReplayOutputSlot> CaptureKickBufferWindow(

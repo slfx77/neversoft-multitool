@@ -704,6 +704,9 @@ public sealed partial class MeshConverterTab : UserControl
         var data = File.ReadAllBytes(entry.FilePath);
         var stem = StripCompoundExtension(entry.FileName);
         var outputPath = Path.Combine(outputDir, stem + ".glb");
+        byte[]? companionTexData = null;
+        if (entry.CompanionTexPath != null && File.Exists(entry.CompanionTexPath))
+            companionTexData = File.ReadAllBytes(entry.CompanionTexPath);
 
         // Build texture provider from companion TEX
         Ps2SceneGltfWriter.TextureProvider? textureProvider = null;
@@ -736,7 +739,7 @@ public sealed partial class MeshConverterTab : UserControl
         // Parse scene based on sub-format
         Ps2Scene scene = entry.Ps2SubFormat switch
         {
-            Ps2SceneSubFormat.ThawSkin => ThawPs2SkinFile.Parse(data),
+            Ps2SceneSubFormat.ThawSkin => ThawPs2SkinFile.Parse(data, companionTexData),
             Ps2SceneSubFormat.PakSkin => ThawPs2SkinFile.ParsePakSkin(data),
             _ => Ps2SceneFile.Parse(data)
         };
