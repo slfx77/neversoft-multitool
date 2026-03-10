@@ -36,7 +36,6 @@ public static class Ps2SceneCommand
         {
             Description = "Skeleton file (.ske.ps2 or .ske) or directory. Auto-discovered for .skin.ps2 files if not specified."
         };
-
         var command = new Command("ps2scene", "Convert PS2 scene files (MDL/SKIN) to glTF (.glb)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
@@ -202,6 +201,7 @@ public static class Ps2SceneCommand
             try
             {
                 var fileData = File.ReadAllBytes(file);
+                var isThawSkin = ThawPs2SkinFile.IsThawPs2Skin(fileData);
 
                 // Use per-file texture provider if we have a cache,
                 // or try auto-detecting a companion TEX file for this specific scene
@@ -232,7 +232,7 @@ public static class Ps2SceneCommand
                 {
                     // Detect pre-compiled VIF/DMA .skin.ps2 (THAW or THUG2)
                     Ps2Scene scene;
-                    if (ThawPs2SkinFile.IsThawPs2Skin(fileData))
+                    if (isThawSkin)
                     {
                         // THUG2 pre-compiled: skip if .iskin.ps2 exists (higher quality)
                         var iskinFile = file.Replace(".skin.ps2", ".iskin.ps2",

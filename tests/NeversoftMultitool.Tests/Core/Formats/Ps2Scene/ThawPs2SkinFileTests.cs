@@ -1,3 +1,4 @@
+using System.Numerics;
 using NeversoftMultitool.Core.Formats.Ps2Scene;
 using NeversoftMultitool.Tests.Helpers;
 
@@ -43,9 +44,13 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     // ── Parsing ──
 
     [Theory]
-    [InlineData("acc_backpack01.skin.ps2", 1, 157)]
-    [InlineData("skater_hawk.skin.ps2", 1, 2491)]
-    public void Parse_ThawSkinFile_ProducesExpectedTriangles(string filename, int minGroups, int expectedTriangles)
+    [InlineData("acc_backpack01.skin.ps2", 1, 168)]    // PC: 168 — exact match
+    [InlineData("skater_hawk.skin.ps2", 1, 3460)]      // PC: 3463 (3 degenerate); unique non-degen: 3460 — exact
+    [InlineData("skater_lasek.skin.ps2", 2, 2930)]     // PC: 3070; PS2 VIF has 49 fewer vertices (-140 tris)
+    [InlineData("body_f_torso.skin.ps2", 1, 318)]      // PC: 318 — exact match
+    [InlineData("pro_vallely_head.skin.ps2", 1, 531)]   // PC: 711; PS2 VIF has 104 fewer vertices (-180 tris)
+    [InlineData("sec_jimbo_xen.skin.ps2", 1, 7088)]    // PC: 7094 (6 degenerate); unique non-degen: 7088 — exact
+    public void Parse_ThawSkinFile_MatchesPcTriangleCounts(string filename, int minGroups, int expectedTriangles)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
         var file = Path.Combine(ThawSkinDir, filename);
@@ -53,14 +58,13 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
 
         var scene = ThawPs2SkinFile.Parse(file);
 
-        Assert.True(scene.MeshGroups.Count >= minGroups);
+        Assert.True(scene.MeshGroups.SelectMany(g => g.Meshes).Count() >= minGroups);
         var totalVerts = scene.MeshGroups.SelectMany(g => g.Meshes).Sum(m => m.Vertices.Length);
         Assert.True(totalVerts > 0, "Scene should have vertices");
 
-        // Count triangles using the same strip logic as the glTF writer
-        var triangles = scene.MeshGroups
-            .SelectMany(g => g.Meshes)
-            .Sum(m => CountStripTriangles(m.Vertices));
+        // Target: match PC (.skin.wpc) triangle counts exactly
+        // Use dedup set across all meshes, matching the glTF writer's behavior
+        var triangles = CountUniqueTriangles(scene.MeshGroups.SelectMany(g => g.Meshes));
         Assert.Equal(expectedTriangles, triangles);
     }
 
@@ -111,9 +115,8 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
                     continue;
 
                 var scene = ThawPs2SkinFile.Parse(data);
-                totalTriangles += scene.MeshGroups
-                    .SelectMany(g => g.Meshes)
-                    .Sum(m => CountStripTriangles(m.Vertices));
+                totalTriangles += CountUniqueTriangles(
+                    scene.MeshGroups.SelectMany(g => g.Meshes));
             }
             catch (Exception ex)
             {
@@ -123,18 +126,141 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
 
         Assert.True(failures.Count == 0,
             $"{failures.Count} failures:\n{string.Join("\n", failures)}");
-        Assert.True(totalTriangles > 100_000,
-            $"Expected >100K triangles, got {totalTriangles}");
+        Assert.True(totalTriangles > 208_000,
+            $"Expected >208K triangles, got {totalTriangles}");
     }
 
-    private static int CountStripTriangles(Ps2Vertex[] verts)
+    [Fact]
+    public void CountStripTriangles_RestartVertex_SkipsCurrentTriangleWithoutResettingStrip()
+    {
+        var verts = new[]
+        {
+            MakeVertex(0, 0),
+            MakeVertex(1, 0),
+            MakeVertex(0, 1),
+            MakeVertex(2, 0, isStripRestart: true),
+            MakeVertex(3, 0),
+            MakeVertex(2, 1)
+        };
+
+        Assert.Equal(3, CountStripTriangles(verts));
+    }
+
+    [Fact]
+    public void CountStripTriangles_DegenerateTriangles_AreSkipped()
+    {
+        var verts = new[]
+        {
+            MakeVertex(0, 0),
+            MakeVertex(1, 0),
+            MakeVertex(2, 0)
+        };
+
+        Assert.Equal(0, CountStripTriangles(verts));
+    }
+
+    private static int CountUniqueTriangles(IEnumerable<Ps2Mesh> meshes)
+    {
+        var seen = new HashSet<(Vector3, Vector3, Vector3)>();
+        var count = 0;
+        foreach (var mesh in meshes)
+            count += CountStripTriangles(mesh.Vertices, mesh.StartsOnOddOutputSlot, seen);
+        return count;
+    }
+
+    private static int CountStripTriangles(Ps2Mesh mesh)
+    {
+        return CountStripTriangles(mesh.Vertices, mesh.StartsOnOddOutputSlot);
+    }
+
+    private static int CountStripTriangles(Ps2Vertex[] verts, bool startsOnOddOutputSlot = false,
+        HashSet<(Vector3, Vector3, Vector3)>? dedup = null)
     {
         var count = 0;
-        for (var i = 2; i < verts.Length; i++)
+        var stripStart = 0;
+        var parityBias = startsOnOddOutputSlot ? 1 : 0;
+
+        for (var i = 0; i < verts.Length; i++)
         {
-            if (!verts[i].IsStripRestart)
-                count++;
+            if (verts[i].IsStripRestart)
+            {
+                continue;
+            }
+
+            if (i - stripStart < 2)
+                continue;
+
+            Ps2Vertex a, b, c;
+            if (((i - stripStart + parityBias) & 1) == 0)
+            {
+                a = verts[i - 2];
+                b = verts[i - 1];
+                c = verts[i];
+            }
+            else
+            {
+                a = verts[i - 1];
+                b = verts[i - 2];
+                c = verts[i];
+            }
+
+            if (IsDegenerate(a, b, c))
+                continue;
+
+            if (dedup is not null)
+            {
+                var key = SortedTriangleKey(a.Position, b.Position, c.Position);
+                if (!dedup.Add(key))
+                    continue;
+            }
+
+            count++;
         }
+
         return count;
+    }
+
+    private static (Vector3, Vector3, Vector3) SortedTriangleKey(Vector3 a, Vector3 b, Vector3 c)
+    {
+        if (Compare(a, b) > 0) (a, b) = (b, a);
+        if (Compare(b, c) > 0) (b, c) = (c, b);
+        if (Compare(a, b) > 0) (a, b) = (b, a);
+        return (a, b, c);
+
+        static int Compare(Vector3 x, Vector3 y)
+        {
+            var cmp = x.X.CompareTo(y.X);
+            if (cmp != 0) return cmp;
+            cmp = x.Y.CompareTo(y.Y);
+            return cmp != 0 ? cmp : x.Z.CompareTo(y.Z);
+        }
+    }
+
+    private static bool IsDegenerate(in Ps2Vertex a, in Ps2Vertex b, in Ps2Vertex c)
+    {
+        const float epsilon = 1e-8f;
+
+        if (Vector3.DistanceSquared(a.Position, b.Position) <= epsilon ||
+            Vector3.DistanceSquared(b.Position, c.Position) <= epsilon ||
+            Vector3.DistanceSquared(a.Position, c.Position) <= epsilon)
+        {
+            return true;
+        }
+
+        var cross = Vector3.Cross(b.Position - a.Position, c.Position - a.Position);
+        return cross.LengthSquared() <= epsilon;
+    }
+
+    private static Ps2Vertex MakeVertex(float x, float y, bool isStripRestart = false)
+    {
+        return new Ps2Vertex(
+            new Vector3(x, y, 0),
+            Vector3.UnitY,
+            128, 128, 128, 128,
+            0f, 0f,
+            hasNormal: true,
+            hasColor: false,
+            hasUV: false,
+            isStripRestart);
     }
 }

@@ -51,6 +51,7 @@ public static class Ps2SceneGltfWriter
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<uint, MaterialBuilder>();
         var totalTriangles = 0;
+        var dedup = new HashSet<(Vector3, Vector3, Vector3)>();
 
         foreach (var group in ps2Scene.MeshGroups)
         {
@@ -63,7 +64,7 @@ public static class Ps2SceneGltfWriter
                 if (mesh.Vertices.Length < 3) continue;
 
                 var gltfMesh = BuildMesh(groupName, mesh,
-                    ps2Scene.Materials, materialCache, textureProvider, out var tris);
+                    ps2Scene.Materials, materialCache, textureProvider, out var tris, dedup);
                 if (tris == 0) continue;
 
                 totalTriangles += tris;
@@ -132,7 +133,7 @@ public static class Ps2SceneGltfWriter
                 materialCache, textureProvider);
             var prim = gltfMesh.UsePrimitive(material);
 
-            var tris = AddSkinnedTriangleStrip(prim, mesh.Vertices);
+            var tris = AddSkinnedTriangleStrip(prim, mesh.Vertices, mesh.StartsOnOddOutputSlot);
             totalTriangles += tris;
         }
 
@@ -153,26 +154,48 @@ public static class Ps2SceneGltfWriter
     /// </summary>
     private static int AddSkinnedTriangleStrip(
         PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexJoints4> prim,
-        Ps2Vertex[] verts)
+        Ps2Vertex[] verts,
+        bool startsOnOddOutputSlot = false)
     {
         var count = 0;
-        for (var i = 2; i < verts.Length; i++)
+        var stripStart = 0;
+        var parityBias = startsOnOddOutputSlot ? 1 : 0;
+
+        for (var i = 0; i < verts.Length; i++)
         {
-            if (verts[i].IsStripRestart) continue;
+            if (verts[i].IsStripRestart)
+            {
+                // ADC/no-kick vertices suppress the current triangle but remain in the strip queue.
+                continue;
+            }
+
+            var localIndex = i - stripStart;
+            if (localIndex < 2)
+                continue;
 
             VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4> va, vb, vc;
-            if (i % 2 == 0)
+            Ps2Vertex pa, pb, pc;
+            if (((localIndex + parityBias) & 1) == 0)
             {
+                pa = verts[i - 2];
+                pb = verts[i - 1];
+                pc = verts[i];
                 va = MakeSkinnedVertex(verts[i - 2]);
                 vb = MakeSkinnedVertex(verts[i - 1]);
                 vc = MakeSkinnedVertex(verts[i]);
             }
             else
             {
+                pa = verts[i - 1];
+                pb = verts[i - 2];
+                pc = verts[i];
                 va = MakeSkinnedVertex(verts[i - 1]);
                 vb = MakeSkinnedVertex(verts[i - 2]);
                 vc = MakeSkinnedVertex(verts[i]);
             }
+
+            if (IsDegenerate(pa, pb, pc))
+                continue;
 
             prim.AddTriangle(va, vb, vc);
             count++;
@@ -222,25 +245,55 @@ public static class Ps2SceneGltfWriter
     /// </summary>
     internal static int AddTriangleStrip(
         PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexEmpty> prim,
-        Ps2Vertex[] verts)
+        Ps2Vertex[] verts,
+        bool startsOnOddOutputSlot = false,
+        HashSet<(Vector3, Vector3, Vector3)>? dedup = null)
     {
         var count = 0;
-        for (var i = 2; i < verts.Length; i++)
+        var stripStart = 0;
+        var parityBias = startsOnOddOutputSlot ? 1 : 0;
+
+        for (var i = 0; i < verts.Length; i++)
         {
-            if (verts[i].IsStripRestart) continue;
+            if (verts[i].IsStripRestart)
+            {
+                // ADC/no-kick vertices suppress the current triangle but remain in the strip queue.
+                continue;
+            }
+
+            var localIndex = i - stripStart;
+            if (localIndex < 2)
+                continue;
 
             VERTEX va, vb, vc;
-            if (i % 2 == 0)
+            Ps2Vertex pa, pb, pc;
+            if (((localIndex + parityBias) & 1) == 0)
             {
+                pa = verts[i - 2];
+                pb = verts[i - 1];
+                pc = verts[i];
                 va = MakeVertex(verts[i - 2]);
                 vb = MakeVertex(verts[i - 1]);
                 vc = MakeVertex(verts[i]);
             }
             else
             {
+                pa = verts[i - 1];
+                pb = verts[i - 2];
+                pc = verts[i];
                 va = MakeVertex(verts[i - 1]);
                 vb = MakeVertex(verts[i - 2]);
                 vc = MakeVertex(verts[i]);
+            }
+
+            if (IsDegenerate(pa, pb, pc))
+                continue;
+
+            if (dedup is not null)
+            {
+                var key = SortedTriangleKey(pa.Position, pb.Position, pc.Position);
+                if (!dedup.Add(key))
+                    continue;
             }
 
             prim.AddTriangle(va, vb, vc);
@@ -250,21 +303,53 @@ public static class Ps2SceneGltfWriter
         return count;
     }
 
+    private static (Vector3, Vector3, Vector3) SortedTriangleKey(Vector3 a, Vector3 b, Vector3 c)
+    {
+        if (Compare(a, b) > 0) (a, b) = (b, a);
+        if (Compare(b, c) > 0) (b, c) = (c, b);
+        if (Compare(a, b) > 0) (a, b) = (b, a);
+        return (a, b, c);
+
+        static int Compare(Vector3 x, Vector3 y)
+        {
+            var cmp = x.X.CompareTo(y.X);
+            if (cmp != 0) return cmp;
+            cmp = x.Y.CompareTo(y.Y);
+            return cmp != 0 ? cmp : x.Z.CompareTo(y.Z);
+        }
+    }
+
     private static MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty> BuildMesh(
         string name,
         Ps2Mesh mesh,
         List<Ps2Material> materials,
         Dictionary<uint, MaterialBuilder> materialCache,
         TextureProvider? textureProvider,
-        out int triangleCount)
+        out int triangleCount,
+        HashSet<(Vector3, Vector3, Vector3)>? dedup = null)
     {
         var gltfMesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>(name);
         var material = GetOrCreateMaterial(materials, mesh.MaterialChecksum, materialCache, textureProvider);
         var prim = gltfMesh.UsePrimitive(material);
 
-        triangleCount = AddTriangleStrip(prim, mesh.Vertices);
+        triangleCount = AddTriangleStrip(prim, mesh.Vertices, mesh.StartsOnOddOutputSlot, dedup);
 
         return gltfMesh;
+    }
+
+    private static bool IsDegenerate(in Ps2Vertex a, in Ps2Vertex b, in Ps2Vertex c)
+    {
+        const float epsilon = 1e-8f;
+
+        if (Vector3.DistanceSquared(a.Position, b.Position) <= epsilon ||
+            Vector3.DistanceSquared(b.Position, c.Position) <= epsilon ||
+            Vector3.DistanceSquared(a.Position, c.Position) <= epsilon)
+        {
+            return true;
+        }
+
+        var cross = Vector3.Cross(b.Position - a.Position, c.Position - a.Position);
+        return cross.LengthSquared() <= epsilon;
     }
 
     private static VERTEX MakeVertex(Ps2Vertex v)

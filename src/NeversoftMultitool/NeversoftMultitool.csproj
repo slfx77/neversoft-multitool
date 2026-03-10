@@ -40,6 +40,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="NeversoftMultitool.Tests" />
     <InternalsVisibleTo Include="PsxAnalyzer" />
+    <InternalsVisibleTo Include="ThawPs2ReplayTrace" />
   </ItemGroup>
 
   <!-- Embedded data files -->

@@ -139,10 +139,11 @@ public static class ThawSceneTexFile
                 }
 
                 // Apply GS cross-format pixel unswizzle (Conv8to32/Conv4to32/Conv4to16).
-                // Only dimensions in the sCanConvert tables qualify — others are linear.
-                // PSMT8: Conv8to32 for 32×32, 64×64, >=128×128; else linear.
+                // THAW scene tex applies Conv8to32 to PSMT8 when width >= height (landscape/square).
+                // Tall textures (height > width) are stored linearly without Conv8to32.
+                // This differs from standard Ps2TexFile which uses the sCanConvert dimension table.
                 // PSMT4: Conv4to32 or Conv4to16 (handled internally by UnswizzlePsmt4).
-                if (psm == Ps2TexPixelDecoder.PSMT8 && Ps2TexSwizzle.CanConv8to32(width, height))
+                if (psm == Ps2TexPixelDecoder.PSMT8 && width >= height)
                     texData = Ps2TexSwizzle.UnswizzlePsmt8(texData, width, height);
                 else if (psm == Ps2TexPixelDecoder.PSMT4)
                     texData = Ps2TexSwizzle.UnswizzlePsmt4(texData, width, height);

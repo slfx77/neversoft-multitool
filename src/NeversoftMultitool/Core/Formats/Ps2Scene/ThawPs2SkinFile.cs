@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
@@ -7,10 +6,13 @@ namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 ///     Parser for THAW PS2 .skin.ps2 files (pre-compiled VIF/DMA rendering chains).
 ///     Also handles THUG2 pre-compiled .skin.ps2 files that have no .iskin.ps2 companion.
 ///     Binary layout: 32B header + object table (8B×N) + entry table (64B×M) + gap chunks + DMA/VIF data.
-///     Each mesh starts with FLUSH+DIRECT (GIF register setup) followed by STCYCL(CL=3,WL=1)
-///     interleaved batches: V3_16 positions, V3_8 normals, V4_16 UVs+bone data.
-///     Each VIF batch is a continuous triangle strip with no internal strip restarts.
-///     The PS2 VU1 microprogram processes each batch as one unbroken strip.
+///     FLUSH+DIRECT pairs mark material/setup changes inside the rendering chain, not true mesh starts.
+///     The VIF stream before the first FLUSH+DIRECT pair can already contain vertex batches for the
+///     first material. THAW parsing now routes through a replay layer that ports the needed VIF/VU1
+///     state handling into C#: STCYCL/BASE/OFFSET/ITOP/STMOD/STMASK, UNPACK addressing, double
+///     buffering, and batch snapshots at MSCAL/MSCNT. Mesh extraction still consumes the decoded
+///     interleaved vertex payload plus post-batch kick words, but it does so from replay batches
+///     rather than from a separate bespoke VIF walk.
 ///
 ///     Also handles PAK-extracted .skin files from THAW PS2 level _main PAKs.
 ///     These have the same VIF vertex format but a different preamble (no 32B header/entry table).
@@ -18,10 +20,6 @@ namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 /// </summary>
 public static class ThawPs2SkinFile
 {
-    private const float PositionScale = 1f / 16f; // SUB_INCH_PRECISION
-    private const float NormalScale = 1f / 127f;
-    private const float UvScale = 1f / 4096f;
-
     /// <summary>
     ///     Detect pre-compiled VIF/DMA .skin.ps2 (THAW or THUG2).
     ///     Works with partial data (32-byte header from FormatProbe) or full file data.
@@ -67,26 +65,17 @@ public static class ThawPs2SkinFile
 
     public static Ps2Scene Parse(byte[] data)
     {
+        // Read header and entry table for material/grouping info
+        var numObjects = BitConverter.ToUInt32(data, 0);
+        var totalMeshes2 = BitConverter.ToUInt32(data, 8);
+
         using var ms = new MemoryStream(data);
         using var r = new BinaryReader(ms);
-
-        // Header (32 bytes)
-        r.ReadUInt32(); // numObjects
-        var numObjects = BitConverter.ToUInt32(data, 0);
-        r.ReadUInt32(); // totalMeshes1
-        var totalMeshes2 = r.ReadUInt32();
-        var dataSize = r.ReadUInt32();
-        r.ReadSingle(); r.ReadSingle(); r.ReadSingle(); r.ReadSingle(); // bsphere
-
-        // Re-read numObjects from data directly (we already advanced past it)
         ms.Position = 0x20;
 
-        // Object table (8B × numObjects)
-        var objects = new (uint checksum, uint meshCount)[numObjects];
         for (var i = 0; i < numObjects; i++)
-            objects[i] = (r.ReadUInt32(), r.ReadUInt32());
+            r.ReadBytes(8);
 
-        // Entry table (64B × totalMeshes2)
         var entries = new EntryRecord[totalMeshes2];
         for (var i = 0; i < totalMeshes2; i++)
             entries[i] = ReadEntry(r);
@@ -107,46 +96,28 @@ public static class ThawPs2SkinFile
             }
         }
 
-        // Find mesh boundaries in VIF data.
-        // After the entry table there are variable-length 80-byte material/bounding descriptor
-        // chunks, then DMA/VIF rendering chains. Each mesh starts with a FLUSH+DIRECT pair.
-        var entryTableEnd = (int)(32 + numObjects * 8 + totalMeshes2 * 64);
-        var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
+        // Extract meshes via replay kick path (full VIF/VU1 simulation)
+        var kicks = ReplayExtractKicks(data);
 
-        // Find all mesh start positions (FLUSH+DIRECT pairs)
-        var meshStarts = FindMeshBoundaries(data, entryTableEnd, vifEnd);
-
-        // Extract vertex batches from each mesh's VIF range
-        var allBatches = new List<VifBatchRecord>();
-        for (var meshIdx = 0; meshIdx < meshStarts.Count; meshIdx++)
-        {
-            var meshStart = meshStarts[meshIdx];
-            var meshEnd = meshIdx + 1 < meshStarts.Count ? meshStarts[meshIdx + 1] : vifEnd;
-
-            var meshBatches = WalkMeshVif(data, meshStart, meshEnd);
-            foreach (var batch in meshBatches)
-            {
-                var b = batch;
-                b.SetupIndex = meshIdx;
-                allBatches.Add(b);
-            }
-        }
-
-        // Map batches to entry table rows → build meshes
-        var meshes = BuildMeshes(data, entries, allBatches);
-
-        // Group meshes by owner object checksum
+        // Group kick meshes by owner object checksum
         var groupMap = new Dictionary<uint, List<Ps2Mesh>>();
-        foreach (var (mesh, entryIdx) in meshes)
+        foreach (var kick in kicks)
         {
-            var ownerCk = entryIdx < entries.Length ? entries[entryIdx].OwnerObjectChecksum : 0u;
+            var ownerCk = kick.EntryIndex < entries.Length
+                ? entries[kick.EntryIndex].OwnerObjectChecksum
+                : 0u;
+
             if (!groupMap.TryGetValue(ownerCk, out var list))
             {
                 list = [];
                 groupMap[ownerCk] = list;
             }
 
-            list.Add(mesh);
+            foreach (var mesh in kick.Meshes)
+            {
+                if (mesh.Vertices.Length >= 3)
+                    list.Add(mesh);
+            }
         }
 
         var meshGroups = groupMap.Select(kv => new Ps2MeshGroup
@@ -163,6 +134,49 @@ public static class ThawPs2SkinFile
             Materials = [.. materialMap.Values],
             MeshGroups = meshGroups
         };
+    }
+
+    internal static IReadOnlyList<ThawReplayBatch> ReplayBatches(byte[] data)
+    {
+        if (!IsThawPs2Skin(data, data.Length))
+            return [];
+
+        var numObjects = BitConverter.ToUInt32(data, 0);
+        var totalMeshes2 = BitConverter.ToUInt32(data, 8);
+        var dataSize = BitConverter.ToUInt32(data, 12);
+        var entryTableEnd = (int)(32 + numObjects * 8 + totalMeshes2 * 64);
+        var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
+        var (vifStart, setupStarts) = ResolveThawSetupBoundaries(data, entryTableEnd, vifEnd);
+        return ThawPs2ReplayEngine.ReplayBatches(data, vifStart, vifEnd, setupStarts);
+    }
+
+    internal static IReadOnlyList<ThawReplayKickExtractor.ExtractedKick> ReplayExtractKicks(byte[] data)
+    {
+        if (!IsThawPs2Skin(data, data.Length))
+            return [];
+
+        var numObjects = BitConverter.ToUInt32(data, 0);
+        var totalMeshes2 = BitConverter.ToUInt32(data, 8);
+        var dataSize = BitConverter.ToUInt32(data, 12);
+        var entryTableEnd = (int)(32 + numObjects * 8 + totalMeshes2 * 64);
+        var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
+        var (vifStart, setupStarts) = ResolveThawSetupBoundaries(data, entryTableEnd, vifEnd);
+        var replayBatches = ThawPs2ReplayEngine.ReplayBatches(data, vifStart, vifEnd, setupStarts);
+
+        using var ms = new MemoryStream(data);
+        using var r = new BinaryReader(ms);
+        r.ReadBytes(32);
+        for (var i = 0; i < numObjects; i++)
+            r.ReadBytes(8);
+
+        var replayEntries = new (uint MaterialChecksum, bool HasVertexColors)[totalMeshes2];
+        for (var i = 0; i < totalMeshes2; i++)
+        {
+            var entry = ReadEntry(r);
+            replayEntries[i] = (entry.MaterialChecksum, entry.HasVertexColors);
+        }
+
+        return ThawReplayKickExtractor.ExtractKicks(replayEntries, replayBatches);
     }
 
     private static EntryRecord ReadEntry(BinaryReader r)
@@ -229,10 +243,19 @@ public static class ThawPs2SkinFile
     /// <summary>
     ///     Parse a PAK-extracted .skin file from THAW PS2 level _main PAK archives.
     ///     These files have a variable-length preamble before VIF data. Material info
-    ///     is extracted from GS registers (TEX0_1, ALPHA_1) in each mesh's DIRECT block.
+    ///     is extracted from GS registers (TEX0_1, ALPHA_1) in each setup block's DIRECT block.
     /// </summary>
     public static Ps2Scene ParsePakSkin(byte[] data)
     {
+        var emptyScene = new Ps2Scene
+        {
+            MaterialVersion = 0,
+            MeshVersion = 0,
+            VertexVersion = 0,
+            Materials = [],
+            MeshGroups = []
+        };
+
         // Find VIF data start by scanning for first FLUSH opcode
         var vifStart = -1;
         for (var i = 0; i < data.Length - 3; i += 4)
@@ -245,42 +268,24 @@ public static class ThawPs2SkinFile
         }
 
         if (vifStart < 0)
-            return new Ps2Scene
-            {
-                MaterialVersion = 0,
-                MeshVersion = 0,
-                VertexVersion = 0,
-                Materials = [],
-                MeshGroups = []
-            };
+            return emptyScene;
 
-        // Find all mesh boundaries (FLUSH+DIRECT pairs)
-        var meshStarts = FindMeshBoundaries(data, vifStart, data.Length);
-        if (meshStarts.Count == 0)
-            return new Ps2Scene
-            {
-                MaterialVersion = 0,
-                MeshVersion = 0,
-                VertexVersion = 0,
-                Materials = [],
-                MeshGroups = []
-            };
+        // Find all setup boundaries (FLUSH+DIRECT pairs)
+        var setupStarts = FindSetupBoundaries(data, vifStart, data.Length);
+        if (setupStarts.Count == 0)
+            return emptyScene;
 
-        // For each mesh: extract GS registers from DIRECT block, then walk VIF for vertices
+        // Build material info from GS registers in each setup's DIRECT block
         var materialMap = new Dictionary<uint, Ps2Material>();
-        var allMeshes = new List<Ps2Mesh>();
+        var setupMaterialChecksums = new uint[setupStarts.Count];
 
-        for (var meshIdx = 0; meshIdx < meshStarts.Count; meshIdx++)
+        for (var setupIdx = 0; setupIdx < setupStarts.Count; setupIdx++)
         {
-            var meshStart = meshStarts[meshIdx];
-            var meshEnd = meshIdx + 1 < meshStarts.Count ? meshStarts[meshIdx + 1] : data.Length;
-
-            // Parse GS registers from the DIRECT block immediately after FLUSH
-            var directOffset = VifNextCode(data, meshStart, data.Length);
+            var directOffset = VifNextCode(data, setupStarts[setupIdx], data.Length);
             var gsRegs = ParseDirectBlockRegisters(data, directOffset);
+            var matChecksum = gsRegs.Tex0Cbp;
+            setupMaterialChecksums[setupIdx] = matChecksum;
 
-            // Create material from GS register data
-            var matChecksum = gsRegs.Tex0Cbp; // CBP is unique per texture binding
             if (!materialMap.ContainsKey(matChecksum))
             {
                 materialMap[matChecksum] = new Ps2Material
@@ -291,26 +296,30 @@ public static class ThawPs2SkinFile
                     Flags = 0
                 };
             }
+        }
 
-            // Walk VIF batches for vertices
-            var batches = WalkMeshVif(data, meshStart, meshEnd);
-            foreach (var batch in batches)
+        // Run replay engine on the VIF data
+        var replayBatches = ThawPs2ReplayEngine.ReplayBatches(data, vifStart, data.Length, setupStarts);
+
+        // Build entry-like tuples from GS-derived material checksums
+        var replayEntries = new (uint MaterialChecksum, bool HasVertexColors)[setupStarts.Count];
+        for (var i = 0; i < setupStarts.Count; i++)
+            replayEntries[i] = (setupMaterialChecksums[i], false);
+
+        // Extract kicks via replay path
+        var kicks = ThawReplayKickExtractor.ExtractKicks(replayEntries, replayBatches);
+
+        // Collect all meshes from kicks
+        var allMeshes = new List<Ps2Mesh>();
+        foreach (var kick in kicks)
+        {
+            foreach (var mesh in kick.Meshes)
             {
-                if (batch.VertexCount == 0 || batch.PositionOffset < 0) continue;
-
-                var vertices = ExtractBatchVertices(data, batch, false);
-                if (vertices.Length == 0) continue;
-
-                allMeshes.Add(new Ps2Mesh
-                {
-                    Checksum = matChecksum,
-                    MaterialChecksum = matChecksum,
-                    Vertices = vertices
-                });
+                if (mesh.Vertices.Length >= 3)
+                    allMeshes.Add(mesh);
             }
         }
 
-        // Group all meshes into a single mesh group (one object per .skin file)
         var meshGroups = new List<Ps2MeshGroup>();
         if (allMeshes.Count > 0)
         {
@@ -384,196 +393,93 @@ public static class ThawPs2SkinFile
     }
 
     /// <summary>
-    ///     Find all mesh boundary positions by scanning for FLUSH+DIRECT VIF opcode pairs.
-    ///     Each mesh's DMA rendering chain starts with FLUSH (0x10/0x11) immediately followed
-    ///     by DIRECT (0x50/0x51) for GS register setup. This pattern is distinctive and does
-    ///     not appear in gap chunk data (which contains floats and checksums).
+    ///     Resolve the real THAW VIF-chain lower bound plus command-stepped setup boundaries.
+    ///     Some files have descriptor/gap data between the entry table and the first DMA/VIF chain.
+    ///     If the stepped scan from the header-derived lower bound finds nothing, fall back to the
+    ///     first raw FLUSH+DIRECT pair as the chain lower bound and rescan from there.
     /// </summary>
-    private static List<int> FindMeshBoundaries(byte[] data, int searchStart, int searchEnd)
+    private static (int VifStart, List<int> SetupStarts) ResolveThawSetupBoundaries(
+        byte[] data,
+        int searchStart,
+        int searchEnd)
     {
-        var meshStarts = new List<int>();
-        for (var i = searchStart; i + 8 <= searchEnd; i += 4)
-        {
-            var c1 = data[i + 3] & 0x7F;
-            var c2 = data[i + 7] & 0x7F;
-            if (c1 is 0x10 or 0x11 && c2 is 0x50 or 0x51)
-                meshStarts.Add(i);
-        }
+        var setupStarts = FindSetupBoundaries(data, searchStart, searchEnd);
+        if (setupStarts.Count > 0)
+            return (searchStart, setupStarts);
 
-        return meshStarts;
+        var rawFlushOffsets = FindRawSetupBoundaryFlushOffsets(data, searchStart, searchEnd);
+        if (rawFlushOffsets.Count == 0)
+            return (searchStart, setupStarts);
+
+        var fallbackVifStart = rawFlushOffsets[0] + 4;
+        var rescannedSetupStarts = FindSetupBoundaries(data, fallbackVifStart, searchEnd);
+        if (rescannedSetupStarts.Count > 0)
+            return (fallbackVifStart, rescannedSetupStarts);
+
+        var rawDirectOffsets = rawFlushOffsets
+            .Select(flushOffset => flushOffset + 4)
+            .ToList();
+        return (fallbackVifStart, rawDirectOffsets);
     }
 
     /// <summary>
-    ///     Walk VIF opcodes within a single mesh's range and extract vertex batches.
-    ///     Each batch = one STCYCL(CL=3,WL=1) block with V3_16 positions + V3_8 normals + V4_16 UVs.
+    ///     Find all material/setup boundary positions by scanning for FLUSH+DIRECT VIF opcode pairs.
+    ///     These mark GS register setup changes inside the rendering chain. The first material can
+    ///     begin in the VIF preamble before the first FLUSH+DIRECT pair, so callers must keep the
+    ///     preamble range if present. Step the stream with VIF semantics instead of raw dword scans:
+    ///     large UNPACK payloads can contain byte patterns that look like FLUSH/DIRECT but are only
+    ///     uploaded VU1 data, not real VIF commands.
     /// </summary>
-    private static List<VifBatchRecord> WalkMeshVif(byte[] data, int start, int end)
+    private static List<int> FindSetupBoundaries(byte[] data, int searchStart, int searchEnd)
     {
-        var batches = new List<VifBatchRecord>();
-        var pCode = start;
-        var inInterleaved = false;
-        var currentBatch = new VifBatchRecord();
+        var setupStarts = new List<int>();
+        var position = searchStart;
+        var previousWasFlush = false;
 
-        while (pCode < end && pCode + 4 <= data.Length)
+        while (position + 4 <= searchEnd && position + 4 <= data.Length)
         {
-            var cmd = data[pCode + 3];
-
-            // STCYCL
-            if ((cmd & 0x7F) == 0x01)
+            var command = data[position + 3] & 0x7F;
+            if (command is 0x10 or 0x11)
             {
-                var cl = data[pCode];
-                var wl = data[pCode + 1];
-                if (cl == 3 && wl == 1) // CL=3, WL=1 → interleaved 3-attribute mode
-                    inInterleaved = true;
-                else if (cl == 1 && wl == 1)
-                    inInterleaved = false;
+                previousWasFlush = true;
+            }
+            else if (command is 0x50 or 0x51)
+            {
+                if (previousWasFlush)
+                    setupStarts.Add(position);
 
-                pCode = VifNextCode(data, pCode, end);
+                previousWasFlush = false;
+            }
+            else
+            {
+                previousWasFlush = false;
+            }
+
+            position = VifNextCode(data, position, searchEnd);
+        }
+
+        return setupStarts;
+    }
+
+    private static List<int> FindRawSetupBoundaryFlushOffsets(byte[] data, int searchStart, int searchEnd)
+    {
+        var flushOffsets = new List<int>();
+        for (var offset = searchStart; offset + 8 <= searchEnd && offset + 8 <= data.Length; offset += 4)
+        {
+            var word = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(offset));
+            if (word is not (0x10000000 or 0x11000000))
                 continue;
-            }
 
-            // MSCNT (0x17) or MSCAL (0x14/0x15) — VU kick, ends batch
-            if ((cmd & 0x7F) is 0x17 or 0x14 or 0x15)
-            {
-                if (currentBatch.PositionOffset >= 0 && currentBatch.VertexCount > 0)
-                    batches.Add(currentBatch);
-
-                currentBatch = new VifBatchRecord();
-                inInterleaved = false;
-                pCode = VifNextCode(data, pCode, end);
-                continue;
-            }
-
-            // UNPACK
-            if ((cmd & 0x60) == 0x60)
-            {
-                var vn = (cmd >> 2) & 3;
-                var vl = cmd & 3;
-                var num = data[pCode + 2];
-                var unpackDataOff = pCode + 4;
-
-                if (inInterleaved && num > 1)
-                {
-                    if (vn == 2 && vl == 1) // V3_16 = positions
-                    {
-                        currentBatch.PositionOffset = unpackDataOff;
-                        currentBatch.VertexCount = num;
-                    }
-                    else if (vn == 2 && vl == 2) // V3_8 = normals
-                    {
-                        currentBatch.NormalOffset = unpackDataOff;
-                    }
-                    else if (vn == 3 && vl == 1) // V4_16 = UVs + ADC
-                    {
-                        currentBatch.UvAdcOffset = unpackDataOff;
-                    }
-                }
-            }
-
-            pCode = VifNextCode(data, pCode, end);
+            var nextCommand = data[offset + 7] & 0x7F;
+            if (nextCommand is 0x50 or 0x51)
+                flushOffsets.Add(offset);
         }
 
-        // Flush any remaining batch
-        if (currentBatch.PositionOffset >= 0 && currentBatch.VertexCount > 0)
-            batches.Add(currentBatch);
-
-        return batches;
-    }
-
-    /// <summary>
-    ///     Build Ps2Mesh objects by mapping VIF batches to entry table rows.
-    ///     Each VIF batch becomes a separate mesh with a continuous triangle strip.
-    /// </summary>
-    private static List<(Ps2Mesh mesh, int entryIndex)> BuildMeshes(
-        byte[] data, EntryRecord[] entries, List<VifBatchRecord> batches)
-    {
-        var result = new List<(Ps2Mesh, int)>();
-
-        foreach (var batch in batches)
-        {
-            if (batch.VertexCount == 0 || batch.PositionOffset < 0) continue;
-
-            var entryIdx = Math.Min(batch.SetupIndex, entries.Length - 1);
-            var entry = entries[entryIdx];
-            var vertices = ExtractBatchVertices(data, batch, entry.HasVertexColors);
-
-            if (vertices.Length == 0) continue;
-
-            result.Add((new Ps2Mesh
-            {
-                Checksum = entry.MaterialChecksum,
-                MaterialChecksum = entry.MaterialChecksum,
-                Vertices = vertices
-            }, entryIdx));
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    ///     Extract vertices from a single VIF batch.
-    ///     Each batch is a continuous triangle strip — no per-vertex strip restart flags.
-    ///     The VU1 microprogram processes the entire batch as one unbroken strip via XGKICK.
-    /// </summary>
-    private static Ps2Vertex[] ExtractBatchVertices(byte[] data, VifBatchRecord batch, bool hasColors)
-    {
-        var count = batch.VertexCount;
-        if (count == 0) return [];
-
-        var vertices = new Ps2Vertex[count];
-        var written = 0;
-
-        for (var i = 0; i < count; i++)
-        {
-            var posOff = batch.PositionOffset + i * 6;
-            if (posOff + 6 > data.Length) break;
-            var x = BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(posOff)) * PositionScale;
-            var y = BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(posOff + 2)) * PositionScale;
-            var z = BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(posOff + 4)) * PositionScale;
-
-            var normal = Vector3.UnitY;
-            var hasNormal = false;
-            if (batch.NormalOffset >= 0)
-            {
-                var nrmOff = batch.NormalOffset + i * 3;
-                if (nrmOff + 3 <= data.Length)
-                {
-                    var n = new Vector3(
-                        (sbyte)data[nrmOff] * NormalScale,
-                        (sbyte)data[nrmOff + 1] * NormalScale,
-                        (sbyte)data[nrmOff + 2] * NormalScale);
-                    var len = n.Length();
-                    normal = len > 0.001f ? n / len : Vector3.UnitY;
-                    hasNormal = true;
-                }
-            }
-
-            var u = 0f;
-            var v = 0f;
-            var hasUv = false;
-            if (batch.UvAdcOffset >= 0)
-            {
-                var uvOff = batch.UvAdcOffset + i * 8;
-                if (uvOff + 4 <= data.Length)
-                {
-                    u = BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(uvOff)) * UvScale;
-                    v = BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(uvOff + 2)) * UvScale;
-                    hasUv = true;
-                }
-            }
-
-            vertices[written++] = new Ps2Vertex(
-                new Vector3(x, y, z), normal,
-                128, 128, 128, 128, u, v,
-                hasNormal, hasColors, hasUv,
-                isStripRestart: false);
-        }
-
-        return written == count ? vertices : vertices[..written];
+        return flushOffsets;
     }
 
     /// <summary>Advance past one VIF opcode. Port of vif::NextCode from vif.cpp.</summary>
-    private static int VifNextCode(byte[] data, int offset, int end)
+    internal static int VifNextCode(byte[] data, int offset, int end)
     {
         if (offset >= end || offset + 4 > data.Length)
             return end;
@@ -614,24 +520,6 @@ public static class ThawPs2SkinFile
         public uint TextureChecksum;
         public uint OwnerObjectChecksum;
         public bool HasVertexColors;
-    }
-
-    private struct VifBatchRecord
-    {
-        public int PositionOffset;
-        public int NormalOffset;
-        public int UvAdcOffset;
-        public int VertexCount;
-        public int SetupIndex;
-
-        public VifBatchRecord()
-        {
-            PositionOffset = -1;
-            NormalOffset = -1;
-            UvAdcOffset = -1;
-            VertexCount = 0;
-            SetupIndex = -1;
-        }
     }
 
     private struct GsRegisters

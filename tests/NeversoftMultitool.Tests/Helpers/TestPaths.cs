@@ -15,7 +15,7 @@ public class TestPaths
         TestDataDir = FindDirectory("tests", "TestData");
         GoldenFilesDir = FindDirectory("tests", "NeversoftMultitool.Tests", "GoldenFiles");
         SampleBuildsDir = FindDirectory("Sample", "Builds");
-        TestOutputDir = FindDirectory("tests", "TestOutput");
+        TestOutputDir = FindDirectory("TestOutput");
     }
 
     public string? TestDataDir { get; }

@@ -83,6 +83,7 @@ public sealed class Ps2Mesh
     public uint MaterialChecksum { get; init; }
     public Ps2MeshFlags MeshFlags { get; init; }
     public Vector4 BoundingSphere { get; init; }
+    public bool StartsOnOddOutputSlot { get; init; }
     public required Ps2Vertex[] Vertices { get; init; }
 }
 
@@ -120,8 +121,8 @@ public readonly struct Ps2Vertex(
     public readonly bool HasUV = hasUV;
 
     /// <summary>
-    ///     ADC strip restart flag. When true, the GS does not draw a triangle
-    ///     at this vertex, effectively starting a new triangle strip.
+    ///     ADC/no-kick flag. When true, the GS updates the vertex queue with this
+    ///     vertex but suppresses the draw kick for the current step.
     /// </summary>
     public readonly bool IsStripRestart = isStripRestart;
 
