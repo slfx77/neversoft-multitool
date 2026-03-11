@@ -34,6 +34,16 @@ public class QbKeyCrossRefTests(TestPaths paths)
     }
 
     [Theory]
+    [InlineData("Anl_MBF_PitBull.png", 0xB90A3A81u)]
+    [InlineData("Anl_MBF_PitBull_Chain.png", 0x877B7B3Fu)]
+    [InlineData("Body_M_Torso.png", 0xFBA05359u)]
+    public void QbKeyResolve_LoadsGameCubeTextureNameMappings(string name, uint expectedHash)
+    {
+        Assert.Equal(expectedHash, QbKey.HashLower(name));
+        Assert.Equal(name, QbKey.TryResolve(expectedHash));
+    }
+
+    [Theory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     public void EnumerateAllHashes_ReturnsNonEmptyMeshAndTextureHashes(string filename)

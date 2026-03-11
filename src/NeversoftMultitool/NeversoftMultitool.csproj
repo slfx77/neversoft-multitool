@@ -46,6 +46,7 @@
   <!-- Embedded data files -->
   <ItemGroup>
     <EmbeddedResource Include="Core\QbKey\QbKeyNames.txt" LogicalName="QbKeyNames.txt" />
+    <EmbeddedResource Include="Core\QbKey\QbKeyNames.ThawGcTextures.txt" LogicalName="QbKeyNames.ThawGcTextures.txt" />
   </ItemGroup>
 
   <!-- Shared packages -->

@@ -69,23 +69,31 @@ public static class QbKey
     private static FrozenDictionary<uint, string> LoadKnownNames()
     {
         var dict = new Dictionary<uint, string>();
+        var assembly = typeof(QbKey).Assembly;
+        var resources = assembly.GetManifestResourceNames()
+            .Where(name => name.StartsWith("QbKeyNames", StringComparison.Ordinal))
+            .OrderBy(name => name.Equals("QbKeyNames.txt", StringComparison.Ordinal) ? 0 : 1)
+            .ThenBy(name => name, StringComparer.Ordinal);
 
-        using var stream = typeof(QbKey).Assembly.GetManifestResourceStream("QbKeyNames.txt");
-        if (stream == null)
-            return dict.ToFrozenDictionary();
-
-        using var reader = new StreamReader(stream);
-        while (reader.ReadLine() is { } line)
+        foreach (var resourceName in resources)
         {
-            // Format: name=0xHASH
-            var eq = line.IndexOf('=');
-            if (eq < 1 || eq >= line.Length - 1)
+            using var stream = assembly.GetManifestResourceStream(resourceName);
+            if (stream == null)
                 continue;
 
-            var name = line[..eq];
-            var hashStr = line[(eq + 1)..];
-            if (uint.TryParse(hashStr.AsSpan(2), NumberStyles.HexNumber, null, out var hash))
-                dict.TryAdd(hash, name);
+            using var reader = new StreamReader(stream);
+            while (reader.ReadLine() is { } line)
+            {
+                // Format: name=0xHASH
+                var eq = line.IndexOf('=');
+                if (eq < 1 || eq >= line.Length - 1)
+                    continue;
+
+                var name = line[..eq];
+                var hashStr = line[(eq + 1)..];
+                if (uint.TryParse(hashStr.AsSpan(2), NumberStyles.HexNumber, null, out var hash))
+                    dict.TryAdd(hash, name);
+            }
         }
 
         return dict.ToFrozenDictionary();
