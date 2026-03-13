@@ -11,7 +11,7 @@ public static class TrgCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to TRG file or directory containing .trg files"
+            Description = "Path to TRG file or directory containing TRG-like files"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -57,8 +57,10 @@ public static class TrgCommand
                 try
                 {
                     var trg = TrgFile.Parse(file);
-                    var outputPath = Path.Combine(output,
-                        Path.GetFileNameWithoutExtension(file) + ".json");
+                    var outputPath = GetOutputPath(input, file, output, ".json");
+                    var outputDir = Path.GetDirectoryName(outputPath);
+                    if (!string.IsNullOrEmpty(outputDir))
+                        Directory.CreateDirectory(outputDir);
                     trg.WriteJson(outputPath);
 
                     totalParsed++;
@@ -100,20 +102,39 @@ public static class TrgCommand
 
     private static string[] GetTrgFiles(string input)
     {
-        if (File.Exists(input) &&
-            Path.GetExtension(input).Equals(".trg", StringComparison.OrdinalIgnoreCase))
+        if (File.Exists(input) && IsTrgFile(input))
         {
             return [input];
         }
 
         if (Directory.Exists(input))
         {
-            return Directory.GetFiles(input)
-                .Where(f => Path.GetExtension(f).Equals(".trg", StringComparison.OrdinalIgnoreCase))
+            return Directory.GetFiles(input, "*", SearchOption.AllDirectories)
+                .Where(IsTrgFile)
                 .ToArray();
         }
 
         AnsiConsole.MarkupLine($"[red]Error:[/] Path not found: {input}");
         return [];
+    }
+
+    private static bool IsTrgFile(string path)
+    {
+        var filename = Path.GetFileName(path);
+        return filename.EndsWith(".trg", StringComparison.OrdinalIgnoreCase) ||
+               filename.Contains(".trg.", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetOutputPath(string inputRoot, string filePath, string outputRoot, string outputExtension)
+    {
+        var relativePath = Directory.Exists(inputRoot)
+            ? Path.GetRelativePath(inputRoot, filePath)
+            : Path.GetFileName(filePath);
+        var relativeDir = Path.GetDirectoryName(relativePath);
+        var outputName = Path.GetFileNameWithoutExtension(relativePath) + outputExtension;
+
+        return string.IsNullOrEmpty(relativeDir)
+            ? Path.Combine(outputRoot, outputName)
+            : Path.Combine(outputRoot, relativeDir, outputName);
     }
 }

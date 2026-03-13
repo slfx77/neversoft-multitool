@@ -12,7 +12,7 @@ public static class QbCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to QB file or directory containing .qb files"
+            Description = "Path to QB file or directory containing QB-like files"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -62,8 +62,10 @@ public static class QbCommand
                 {
                     var qb = QbFile.Parse(file);
                     var source = QbDecompiler.Decompile(qb);
-                    var outputPath = Path.Combine(output,
-                        Path.GetFileNameWithoutExtension(file) + ".q");
+                    var outputPath = GetOutputPath(input, file, output, ".q");
+                    var outputDir = Path.GetDirectoryName(outputPath);
+                    if (!string.IsNullOrEmpty(outputDir))
+                        Directory.CreateDirectory(outputDir);
                     File.WriteAllText(outputPath, source);
 
                     totalParsed++;
@@ -117,18 +119,39 @@ public static class QbCommand
 
     private static string[] GetQbFiles(string input)
     {
-        if (File.Exists(input) &&
-            Path.GetExtension(input).Equals(".qb", StringComparison.OrdinalIgnoreCase))
+        if (File.Exists(input) && IsQbFile(input))
         {
             return [input];
         }
 
         if (Directory.Exists(input))
         {
-            return Directory.GetFiles(input, "*.qb", SearchOption.AllDirectories);
+            return Directory.GetFiles(input, "*", SearchOption.AllDirectories)
+                .Where(IsQbFile)
+                .ToArray();
         }
 
         AnsiConsole.MarkupLine($"[red]Error:[/] Path not found: {input}");
         return [];
+    }
+
+    private static bool IsQbFile(string path)
+    {
+        var filename = Path.GetFileName(path);
+        return filename.EndsWith(".qb", StringComparison.OrdinalIgnoreCase) ||
+               filename.Contains(".qb.", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetOutputPath(string inputRoot, string filePath, string outputRoot, string outputExtension)
+    {
+        var relativePath = Directory.Exists(inputRoot)
+            ? Path.GetRelativePath(inputRoot, filePath)
+            : Path.GetFileName(filePath);
+        var relativeDir = Path.GetDirectoryName(relativePath);
+        var outputName = Path.GetFileNameWithoutExtension(relativePath) + outputExtension;
+
+        return string.IsNullOrEmpty(relativeDir)
+            ? Path.Combine(outputRoot, outputName)
+            : Path.Combine(outputRoot, relativeDir, outputName);
     }
 }
