@@ -273,12 +273,31 @@ public static class Ps2SceneCommand
                     if (skeleton == null && skeletonCache != null)
                         skeletonCache.TryGetValue(stem, out skeleton);
                     if (skeleton == null && filename.Contains(".skin.", StringComparison.OrdinalIgnoreCase))
-                        skeleton = TryDiscoverSkeleton(file, stem);
+                        skeleton = TryDiscoverSkeleton(file, stem, isThawSkin);
 
                     if (skeleton != null)
                     {
-                        tris = Ps2SceneGltfWriter.WriteSkinned(scene, skeleton, outputPath, provider);
-                        if (tris > 0) skinnedCount++;
+                        var useSkinnedExport = true;
+                        if (isThawSkin)
+                        {
+                            var transferred = ThawPs2SkinningTransfer.TryApplyFromCompanion(scene, file, skeleton);
+                            if (transferred is { SkinnedVertexCount: > 0 })
+                            {
+                                scene = transferred.Scene;
+                            }
+                            else
+                            {
+                                useSkinnedExport = false;
+                                if (verbose)
+                                    AnsiConsole.MarkupLine(
+                                        $"  {filename}: [yellow]skeleton found but no THAW PC skin weights were discovered; exporting rigid[/]");
+                            }
+                        }
+
+                        tris = useSkinnedExport
+                            ? Ps2SceneGltfWriter.WriteSkinned(scene, skeleton, outputPath, provider)
+                            : Ps2SceneGltfWriter.Write(scene, outputPath, provider);
+                        if (useSkinnedExport && tris > 0) skinnedCount++;
                     }
                     else
                     {
@@ -332,13 +351,12 @@ public static class Ps2SceneCommand
     ///     Searches: same directory → sibling SKE/ → ancestor walk (Skeletons/, SKE/).
     ///     Tries .ske.ps2 first (PS2-specific), then .ske (cross-platform, used by THPS4).
     /// </summary>
-    private static Ps2Skeleton? TryDiscoverSkeleton(string skinFile, string stem)
+    private static Ps2Skeleton? TryDiscoverSkeleton(string skinFile, string stem, bool isThawSkin)
     {
-        var dir = Path.GetDirectoryName(skinFile);
-        if (dir == null) return null;
-
-        var skeFile = CompanionSearch.FindCompanion(
-            dir, stem, [".ske.ps2", ".ske"], ["SKE", "Skeletons"]);
+        var skeFile = ThawSkeletonDiscovery.FindSkeletonPath(
+            skinFile,
+            stem,
+            isThawSkin);
         if (skeFile == null) return null;
 
         try

@@ -89,6 +89,31 @@ public sealed class ThawSceneFileTests(TestPaths paths)
         Assert.True(scene.Materials.Length > 3, $"Skater should have >3 materials, got {scene.Materials.Length}");
     }
 
+    [Fact]
+    public void Parse_SkinnedSkater_PreservesSkinWeightsAndBoneIndices()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var file = Path.Combine(SkinDir, "skater_lasek.skin.wpc");
+        Assert.SkipWhen(!File.Exists(file), "skater_lasek.skin.wpc not found");
+
+        var scene = ThawSceneFile.Parse(file);
+        var skinnedVertices = scene.Sectors
+            .Where(sector => sector.IsSkinned)
+            .SelectMany(sector => sector.Meshes)
+            .SelectMany(mesh => mesh.Vertices)
+            .Where(vertex => vertex.HasSkinData)
+            .ToArray();
+
+        Assert.NotEmpty(skinnedVertices);
+        Assert.Contains(skinnedVertices, vertex =>
+            vertex.BoneIndex0 != 0 || vertex.BoneIndex1 != 0 || vertex.BoneIndex2 != 0 || vertex.BoneIndex3 != 0);
+        Assert.All(skinnedVertices.Take(256), vertex =>
+        {
+            var sum = vertex.BoneWeight0 + vertex.BoneWeight1 + vertex.BoneWeight2 + vertex.BoneWeight3;
+            Assert.InRange(sum, 0.999f, 1.001f);
+        });
+    }
+
     // ── Batch parse ──
 
     [Fact]

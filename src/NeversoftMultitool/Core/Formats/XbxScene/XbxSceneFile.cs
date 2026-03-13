@@ -363,7 +363,7 @@ public static class XbxSceneFile
 
     /// <summary>
     ///     Decode interleaved vertex buffer based on sector flags.
-    ///     Skinned: pos(3f) + weights(u32) + bones(4×u16) + packed_normal(u32) + [color(4B)] + UVs.
+    ///     Skinned vertices preserve packed weight/index data when present.
     ///     Non-skinned: pos(3f) + [normal(3f)] + [color(4B)] + UVs.
     /// </summary>
     private static XbxVertex[] ReadVertexBuffer(
@@ -384,9 +384,7 @@ public static class XbxSceneFile
 
             if (isSkinned)
             {
-                // Packed weights + bone indices + packed normal
-                r.ReadUInt32(); // packed weights (skip for now)
-                r.BaseStream.Position += 8; // 4 × u16 bone indices (skip for now)
+                XbxSkinVertexCodec.ReadSkinningData(r, ref v);
 
                 if (hasNormals)
                 {

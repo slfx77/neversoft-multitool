@@ -364,8 +364,8 @@ public static class ThawSceneFile
     // ── Vertex reading (same layout as THUG2 base class) ────────────────────
 
     /// <summary>
-    ///     Decode interleaved vertex buffer. Same format as THUG2 (XbxSceneFile).
-    ///     Skinned: pos(3f) + weights(u32) + bones(4×u16) + packed_normal(u32) + [color(4B)] + UVs.
+    ///     Decode interleaved vertex buffer. Same format family as THUG2 (XbxSceneFile).
+    ///     Skinned vertices preserve packed weight/index data for later skeleton transfer.
     ///     Non-skinned: pos(3f) + [normal(3f)] + [color(4B)] + UVs.
     /// </summary>
     private static XbxVertex[] ReadVertexBuffer(
@@ -385,8 +385,7 @@ public static class ThawSceneFile
             if (isSkinned)
             {
                 v.Position = ReadVec3(r);
-                r.ReadUInt32(); // packed_weights (skip)
-                r.BaseStream.Position += 8; // 4×u16 bone indices
+                XbxSkinVertexCodec.ReadSkinningData(r, ref v);
 
                 if (hasNormals)
                 {

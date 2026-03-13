@@ -598,8 +598,10 @@ public sealed partial class MeshConverterTab : UserControl
             // Auto-discover skeleton for .skin files
             string? skeletonPath = null;
             if (lower.Contains(".skin"))
-                skeletonPath = CompanionSearch.FindCompanion(
-                    dir, stem, [".ske.ps2", ".ske"], ["SKE", "Skeletons"]);
+                skeletonPath = ThawSkeletonDiscovery.FindSkeletonPath(
+                    file,
+                    stem,
+                    subFormat == Ps2SceneSubFormat.ThawSkin);
 
             // Auto-discover companion texture
             var texPath = CompanionSearch.FindCompanion(
@@ -755,6 +757,15 @@ public sealed partial class MeshConverterTab : UserControl
                     : SkeletonFile.Parse(entry.CompanionSkeletonPath);
             }
             catch { /* proceed without skeleton */ }
+        }
+
+        if (skeleton != null && entry.Ps2SubFormat == Ps2SceneSubFormat.ThawSkin)
+        {
+            var transferred = ThawPs2SkinningTransfer.TryApplyFromCompanion(scene, entry.FilePath, skeleton);
+            if (transferred is { SkinnedVertexCount: > 0 })
+                scene = transferred.Scene;
+            else
+                skeleton = null;
         }
 
         return skeleton != null

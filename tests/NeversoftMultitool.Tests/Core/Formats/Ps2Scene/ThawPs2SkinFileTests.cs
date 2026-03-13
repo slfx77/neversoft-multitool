@@ -15,6 +15,9 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     private string ThawPcSkinDir =>
         Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2006-2-6, PC - Final)", "SKIN");
 
+    private string Thug2SkeDir =>
+        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Underground 2 (2004-8-22, PS2 - Final)", "SKE");
+
     // ── Detection ──
 
     [Fact]
@@ -94,6 +97,64 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     public void Parse_SkaterLasek_MatchesPcMaterialPositionCoverage()
     {
         AssertPs2MaterialPositionParity("skater_lasek");
+    }
+
+    [Fact]
+    public void DiscoverThawSkeleton_SkaterLasek_FindsThps6Human()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var ps2File = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(!File.Exists(ps2File), "PS2 file not found");
+
+        var skeletonPath = ThawSkeletonDiscovery.FindSkeletonPath(ps2File, "skater_lasek", isThawSkin: true);
+
+        Assert.NotNull(skeletonPath);
+        Assert.EndsWith("thps6_human.ske.ps2", skeletonPath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void DiscoverThawSkeleton_ProVallelyHead_FindsLegacyHeadSkeleton()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var ps2File = Path.Combine(ThawSkinDir, "pro_vallely_head.skin.ps2");
+        Assert.SkipWhen(!File.Exists(ps2File), "PS2 file not found");
+
+        var skeletonPath = ThawSkeletonDiscovery.FindSkeletonPath(ps2File, "pro_vallely_head", isThawSkin: true);
+
+        Assert.NotNull(skeletonPath);
+        Assert.EndsWith("vallely_head.ske.ps2", skeletonPath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ApplyPcSkinning_SkaterLasek_TransfersSkinDataOntoPs2Vertices()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var ps2File = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
+        var pcFile = Path.Combine(ThawPcSkinDir, "skater_lasek.skin.wpc");
+        var skeletonFile = Path.Combine(Thug2SkeDir, "thps6_human.ske.ps2");
+        Assert.SkipWhen(!File.Exists(ps2File), "PS2 file not found");
+        Assert.SkipWhen(!File.Exists(pcFile), "PC file not found");
+        Assert.SkipWhen(!File.Exists(skeletonFile), "THUG2 human skeleton not found");
+
+        var ps2Scene = ThawPs2SkinFile.Parse(ps2File);
+        var pcScene = ThawSceneFile.Parse(pcFile);
+        var skeleton = Ps2SkeletonFile.Parse(skeletonFile);
+        var transferred = ThawPs2SkinningTransfer.Apply(ps2Scene, pcScene, skeleton);
+        var skinnedVertices = transferred.Scene.MeshGroups
+            .SelectMany(group => group.Meshes)
+            .SelectMany(mesh => mesh.Vertices)
+            .Where(vertex => vertex.HasSkinData)
+            .ToArray();
+
+        Assert.NotEmpty(skinnedVertices);
+        Assert.True(transferred.SkinnedVertexCount >= transferred.TotalVertexCount * 0.95f,
+            $"Expected >=95% skinning coverage, got {transferred.SkinnedVertexCount}/{transferred.TotalVertexCount}");
+        Assert.All(skinnedVertices.Take(256), vertex =>
+        {
+            var sum = vertex.BoneWeight0 + vertex.BoneWeight1 + vertex.BoneWeight2;
+            Assert.InRange(sum, 0.999f, 1.001f);
+            Assert.InRange(vertex.BoneIndex0, 0, skeleton.Bones.Length - 1);
+        });
     }
 
     [Fact]
