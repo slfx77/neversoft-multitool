@@ -69,7 +69,8 @@ internal static class ThawReplayDebugGltfWriter
     internal static string FormatKickReport(IReadOnlyList<ThawReplayKickExtractor.ExtractedKick> kicks)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("KickIndex\tBatchIndex\tSetupIndex\tFirstCommandOffset\tAddress\tNloop\tFullStart\tFullEnd\tTriangles\tMeshes\tColor\tName");
+        sb.AppendLine(
+            "KickIndex\tBatchIndex\tSetupIndex\tFirstCommandOffset\tAddress\tNloop\tFullStart\tFullEnd\tTriangles\tMeshes\tColor\tName");
         foreach (var kick in kicks)
         {
             var colorHex = GetKickColorHex(kick.KickIndex);
@@ -93,7 +94,8 @@ internal static class ThawReplayDebugGltfWriter
 
     internal static string GetKickName(ThawReplayKickExtractor.ExtractedKick kick)
     {
-        return $"kick_{kick.KickIndex:D3}_batch_{kick.BatchIndex:D3}_setup_{kick.SetupIndex:D2}_0x{kick.FirstCommandOffset:X6}_addr_{kick.KickPacket.Address}";
+        return
+            $"kick_{kick.KickIndex:D3}_batch_{kick.BatchIndex:D3}_setup_{kick.SetupIndex:D2}_0x{kick.FirstCommandOffset:X6}_addr_{kick.KickPacket.Address}";
     }
 
     internal static string GetKickColorHex(int kickIndex)
@@ -107,7 +109,7 @@ internal static class ThawReplayDebugGltfWriter
 
     private static Vector4 GetKickColor(int kickIndex)
     {
-        var hue = (float)((kickIndex * 0.6180339887498949) % 1.0);
+        var hue = (float)(kickIndex * 0.6180339887498949 % 1.0);
         var rgb = HsvToRgb(hue, 0.72f, 1.0f);
         return new Vector4(rgb, 1f);
     }

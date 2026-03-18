@@ -2,45 +2,8 @@ using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
-internal enum GsVertexEventKind
-{
-    Vertex = 0,
-    Gap = 1
-}
-
-internal sealed class GsVertexEvent
-{
-    public required int OutputIndex { get; init; }
-    public required int FullOutputAddress { get; init; }
-    public required byte OutputAddress { get; init; }
-    public required GsVertexEventKind Kind { get; init; }
-    public required ReplayVertexSource? VertexSource { get; init; }
-    public required bool IsNoKick { get; init; }
-    public required bool IsBufferedCarry { get; init; }
-}
-
-internal readonly record struct ReplayOutputSlot(
-    ReplayVertexSource Source,
-    bool IsNoKick);
-
 internal static class ThawReplayKickExtractor
 {
-    public sealed class ExtractedKick
-    {
-        public required int KickIndex { get; init; }
-        public required int BatchIndex { get; init; }
-        public required int SetupIndex { get; init; }
-        public required int EntryIndex { get; init; }
-        public required bool IsPreambleBatch { get; init; }
-        public required int FirstCommandOffset { get; init; }
-        public required GifKickPacket KickPacket { get; init; }
-        public required int[] FullOutputWindow { get; init; }
-        public required byte[] OutputWindow { get; init; }
-        public required GsVertexEvent[] Events { get; init; }
-        public required Ps2Mesh[] Meshes { get; init; }
-        public required int TriangleCount { get; init; }
-    }
-
     public static List<ExtractedKick> ExtractKicks(
         IReadOnlyList<(uint MaterialChecksum, bool HasVertexColors)> entries,
         IReadOnlyList<int> setupEntryIndices,
@@ -51,7 +14,8 @@ internal static class ThawReplayKickExtractor
             return extracted;
 
         var setupSlotBufferBySetup = new Dictionary<int, Dictionary<int, ReplayOutputSlot>>();
-        var kickBufferBySetupAndAddress = new Dictionary<(int SetupIndex, int BufferAddress), Dictionary<int, ReplayOutputSlot>>();
+        var kickBufferBySetupAndAddress =
+            new Dictionary<(int SetupIndex, int BufferAddress), Dictionary<int, ReplayOutputSlot>>();
 
         for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
         {
@@ -106,8 +70,11 @@ internal static class ThawReplayKickExtractor
                 continue;
             }
 
-            var events = BuildKickEvents(fullOutputWindow, kickBuffer, resolvedBatchSlots);
-            var meshes = BuildMeshesFromEvents(events, entry.MaterialChecksum, entry.HasVertexColors);
+            var events = ThawReplayKickMeshBuilder.BuildKickEvents(fullOutputWindow, kickBuffer, resolvedBatchSlots);
+            var meshes = ThawReplayKickMeshBuilder.BuildMeshesFromEvents(
+                events,
+                entry.MaterialChecksum,
+                entry.HasVertexColors);
             kickBufferBySetupAndAddress[bufferKey] = CaptureKickBufferWindow(kickBuffer, fullOutputWindow);
 
             extracted.Add(new ExtractedKick
@@ -123,7 +90,7 @@ internal static class ThawReplayKickExtractor
                 OutputWindow = [.. fullOutputWindow.Select(address => (byte)address)],
                 Events = events,
                 Meshes = [.. meshes],
-                TriangleCount = meshes.Sum(CountStripTriangles)
+                TriangleCount = meshes.Sum(ThawReplayKickMeshBuilder.CountStripTriangles)
             });
         }
 
@@ -157,7 +124,8 @@ internal static class ThawReplayKickExtractor
             setupSlotBufferBySetup[setupIdx] = new Dictionary<int, ReplayOutputSlot>(buffer);
 
         // Kick buffers start fresh — no carry-forward seeding.
-        var kickBufferBySetupAndAddress = new Dictionary<(int SetupIndex, int BufferAddress), Dictionary<int, ReplayOutputSlot>>();
+        var kickBufferBySetupAndAddress =
+            new Dictionary<(int SetupIndex, int BufferAddress), Dictionary<int, ReplayOutputSlot>>();
 
         for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
         {
@@ -208,8 +176,11 @@ internal static class ThawReplayKickExtractor
                 continue;
             }
 
-            var events = BuildKickEvents(fullOutputWindow, kickBuffer, resolvedBatchSlots);
-            var meshes = BuildMeshesFromEvents(events, entry.MaterialChecksum, entry.HasVertexColors);
+            var events = ThawReplayKickMeshBuilder.BuildKickEvents(fullOutputWindow, kickBuffer, resolvedBatchSlots);
+            var meshes = ThawReplayKickMeshBuilder.BuildMeshesFromEvents(
+                events,
+                entry.MaterialChecksum,
+                entry.HasVertexColors);
             kickBufferBySetupAndAddress[bufferKey] = CaptureKickBufferWindow(kickBuffer, fullOutputWindow);
 
             extracted.Add(new ExtractedKick
@@ -225,7 +196,7 @@ internal static class ThawReplayKickExtractor
                 OutputWindow = [.. fullOutputWindow.Select(address => (byte)address)],
                 Events = events,
                 Meshes = [.. meshes],
-                TriangleCount = meshes.Sum(CountStripTriangles)
+                TriangleCount = meshes.Sum(ThawReplayKickMeshBuilder.CountStripTriangles)
             });
         }
 
@@ -400,170 +371,6 @@ internal static class ThawReplayKickExtractor
         return existingBuffer;
     }
 
-    private static GsVertexEvent[] BuildKickEvents(
-        IReadOnlyList<int> outputWindow,
-        IReadOnlyDictionary<int, ReplayOutputSlot> kickBuffer,
-        IReadOnlyDictionary<int, ReplayOutputSlot> currentBatchSlots)
-    {
-        var events = new GsVertexEvent[outputWindow.Count];
-        for (var i = 0; i < outputWindow.Count; i++)
-        {
-            var addr = outputWindow[i];
-            if (kickBuffer.TryGetValue(addr, out var source))
-            {
-                events[i] = new GsVertexEvent
-                {
-                    OutputIndex = i,
-                    FullOutputAddress = addr,
-                    OutputAddress = (byte)addr,
-                    Kind = GsVertexEventKind.Vertex,
-                    VertexSource = source.Source,
-                    IsNoKick = source.IsNoKick,
-                    IsBufferedCarry = !currentBatchSlots.ContainsKey(addr)
-                };
-            }
-            else
-            {
-                events[i] = new GsVertexEvent
-                {
-                    OutputIndex = i,
-                    FullOutputAddress = addr,
-                    OutputAddress = (byte)addr,
-                    Kind = GsVertexEventKind.Gap,
-                    VertexSource = null,
-                    IsNoKick = false,
-                    IsBufferedCarry = false
-                };
-            }
-        }
-
-        return events;
-    }
-
-    private static List<Ps2Mesh> BuildMeshesFromEvents(
-        IReadOnlyList<GsVertexEvent> events,
-        uint materialChecksum,
-        bool hasColors)
-    {
-        var subStrips = new List<(Ps2Vertex[] Vertices, bool StartsOnOddOutputSlot)>();
-        var currentStrip = new List<Ps2Vertex>();
-        var stripStartIndex = -1;
-
-        for (var i = 0; i < events.Count; i++)
-        {
-            var evt = events[i];
-            if (evt.Kind != GsVertexEventKind.Vertex || evt.VertexSource is not ReplayVertexSource source)
-            {
-                AddSubStrip(subStrips, currentStrip, stripStartIndex);
-                currentStrip.Clear();
-                stripStartIndex = -1;
-                continue;
-            }
-
-            if (currentStrip.Count == 0)
-                stripStartIndex = i;
-
-            currentStrip.Add(ToPs2Vertex(source, hasColors, evt.IsNoKick));
-        }
-
-        AddSubStrip(subStrips, currentStrip, stripStartIndex);
-
-        var meshes = new List<Ps2Mesh>(subStrips.Count);
-        foreach (var (vertices, startsOnOddOutputSlot) in subStrips)
-        {
-            meshes.Add(new Ps2Mesh
-            {
-                Checksum = materialChecksum,
-                MaterialChecksum = materialChecksum,
-                StartsOnOddOutputSlot = startsOnOddOutputSlot,
-                Vertices = vertices
-            });
-        }
-
-        return meshes;
-    }
-
-    private static void AddSubStrip(
-        List<(Ps2Vertex[] Vertices, bool StartsOnOddOutputSlot)> subStrips,
-        List<Ps2Vertex> currentStrip,
-        int stripStartIndex)
-    {
-        if (currentStrip.Count < 3 || stripStartIndex < 0)
-            return;
-
-        subStrips.Add(([.. currentStrip], (stripStartIndex & 1) != 0));
-    }
-
-    private static Ps2Vertex ToPs2Vertex(ReplayVertexSource source, bool hasColors, bool isNoKick)
-    {
-        return new Ps2Vertex(
-            source.Position,
-            source.Normal,
-            128,
-            128,
-            128,
-            128,
-            source.U,
-            source.V,
-            source.HasNormal,
-            hasColors,
-            source.HasUv,
-            isStripRestart: isNoKick);
-    }
-
-    private static int CountStripTriangles(Ps2Mesh mesh)
-    {
-        var verts = mesh.Vertices;
-        var count = 0;
-        var stripStart = 0;
-        var parityBias = mesh.StartsOnOddOutputSlot ? 1 : 0;
-
-        for (var i = 0; i < verts.Length; i++)
-        {
-            if (verts[i].IsStripRestart)
-                continue;
-
-            if (i - stripStart < 2)
-                continue;
-
-            Ps2Vertex a, b, c;
-            if (((i - stripStart + parityBias) & 1) == 0)
-            {
-                a = verts[i - 2];
-                b = verts[i - 1];
-                c = verts[i];
-            }
-            else
-            {
-                a = verts[i - 1];
-                b = verts[i - 2];
-                c = verts[i];
-            }
-
-            if (IsDegenerate(a, b, c))
-                continue;
-
-            count++;
-        }
-
-        return count;
-    }
-
-    private static bool IsDegenerate(in Ps2Vertex a, in Ps2Vertex b, in Ps2Vertex c)
-    {
-        const float epsilon = 1e-8f;
-
-        if (Vector3.DistanceSquared(a.Position, b.Position) <= epsilon ||
-            Vector3.DistanceSquared(b.Position, c.Position) <= epsilon ||
-            Vector3.DistanceSquared(a.Position, c.Position) <= epsilon)
-        {
-            return true;
-        }
-
-        var cross = Vector3.Cross(b.Position - a.Position, c.Position - a.Position);
-        return cross.LengthSquared() <= epsilon;
-    }
-
     private static int DecodeFullAddress(ushort word)
     {
         return word & 0x3FF;
@@ -573,5 +380,21 @@ internal static class ThawReplayKickExtractor
     {
         var wrapped = address % Vu1Memory.SizeQwords;
         return wrapped < 0 ? wrapped + Vu1Memory.SizeQwords : wrapped;
+    }
+
+    public sealed class ExtractedKick
+    {
+        public required int KickIndex { get; init; }
+        public required int BatchIndex { get; init; }
+        public required int SetupIndex { get; init; }
+        public required int EntryIndex { get; init; }
+        public required bool IsPreambleBatch { get; init; }
+        public required int FirstCommandOffset { get; init; }
+        public required GifKickPacket KickPacket { get; init; }
+        public required int[] FullOutputWindow { get; init; }
+        public required byte[] OutputWindow { get; init; }
+        public required GsVertexEvent[] Events { get; init; }
+        public required Ps2Mesh[] Meshes { get; init; }
+        public required int TriangleCount { get; init; }
     }
 }

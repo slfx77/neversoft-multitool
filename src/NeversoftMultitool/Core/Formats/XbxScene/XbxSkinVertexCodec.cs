@@ -33,6 +33,7 @@ internal static class XbxSkinVertexCodec
         vertex.BoneWeight1 = weight1;
         vertex.BoneWeight2 = weight2;
         vertex.BoneWeight3 = weight3;
-        vertex.HasSkinData = packedWeights != 0 || boneIndex0 != 0 || boneIndex1 != 0 || boneIndex2 != 0 || boneIndex3 != 0;
+        vertex.HasSkinData = packedWeights != 0 || boneIndex0 != 0 || boneIndex1 != 0 || boneIndex2 != 0 ||
+                             boneIndex3 != 0;
     }
 }

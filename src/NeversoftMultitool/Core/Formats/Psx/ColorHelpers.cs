@@ -1,12 +1,5 @@
 namespace NeversoftMultitool.Core.Formats.Psx;
 
-public enum ColorFormat
-{
-    Argb1555,
-    Rgb565,
-    Argb4444
-}
-
 public static class ColorHelpers
 {
     // ARGB1555: alpha is either 0 or 128

@@ -111,8 +111,8 @@ public static class XbxImgFile
     }
 
     /// <summary>
-    /// Decode paletted pixels with Xbox morton (Z-order) swizzle.
-    /// The pixel data is stored in morton order for GPU-efficient access.
+    ///     Decode paletted pixels with Xbox morton (Z-order) swizzle.
+    ///     The pixel data is stored in morton order for GPU-efficient access.
     /// </summary>
     private static byte[] DecodePalettedSwizzle(ReadOnlySpan<byte> data,
         int width, int height, int pitchW, int pitchH, byte[] palette)
@@ -133,9 +133,9 @@ public static class XbxImgFile
 
                 var pi = idx * 4;
                 var oi = (y * width + x) * 4;
-                output[oi]     = palette[pi + 2]; // B→R
+                output[oi] = palette[pi + 2]; // B→R
                 output[oi + 1] = palette[pi + 1]; // G→G
-                output[oi + 2] = palette[pi];     // R→B
+                output[oi + 2] = palette[pi]; // R→B
                 output[oi + 3] = palette[pi + 3]; // A→A
             }
         }
@@ -144,14 +144,14 @@ public static class XbxImgFile
     }
 
     /// <summary>
-    /// Calculate morton (Z-order) index by interleaving bits of x and y.
-    /// This is the standard Xbox texture swizzle pattern.
+    ///     Calculate morton (Z-order) index by interleaving bits of x and y.
+    ///     This is the standard Xbox texture swizzle pattern.
     /// </summary>
     private static int MortonIndex(int x, int y, int width, int height)
     {
         // Build bit masks for x and y based on the smaller dimension
-        int index = 0;
-        int bit = 1;
+        var index = 0;
+        var bit = 1;
         int maskX = 0, maskY = 0;
         int w = width, h = height;
 
@@ -163,6 +163,7 @@ public static class XbxImgFile
                 bit <<= 1;
                 w >>= 1;
             }
+
             if (h > 1)
             {
                 maskY |= bit;
@@ -172,23 +173,23 @@ public static class XbxImgFile
         }
 
         // Spread x bits into maskX positions
-        int spreadX = SpreadBits(x, maskX);
-        int spreadY = SpreadBits(y, maskY);
+        var spreadX = SpreadBits(x, maskX);
+        var spreadY = SpreadBits(y, maskY);
         index = spreadX | spreadY;
 
         return index;
     }
 
     /// <summary>
-    /// Spread the bits of value into the positions indicated by mask.
-    /// E.g., if mask = 0b010101 and value = 0b111, result = 0b010101.
+    ///     Spread the bits of value into the positions indicated by mask.
+    ///     E.g., if mask = 0b010101 and value = 0b111, result = 0b010101.
     /// </summary>
     private static int SpreadBits(int value, int mask)
     {
-        int result = 0;
-        int valueBit = 1;
+        var result = 0;
+        var valueBit = 1;
 
-        for (int bit = 1; bit != 0 && mask != 0; bit <<= 1)
+        for (var bit = 1; bit != 0 && mask != 0; bit <<= 1)
         {
             if ((mask & bit) != 0)
             {
@@ -208,11 +209,12 @@ public static class XbxImgFile
         {
             var si = i * 4;
             var oi = i * 4;
-            output[oi]     = data[si + 2]; // B→R
+            output[oi] = data[si + 2]; // B→R
             output[oi + 1] = data[si + 1]; // G→G
-            output[oi + 2] = data[si];     // R→B
+            output[oi + 2] = data[si]; // R→B
             output[oi + 3] = data[si + 3]; // A→A
         }
+
         return output;
     }
 }

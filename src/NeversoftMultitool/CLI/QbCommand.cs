@@ -107,6 +107,7 @@ public static class QbCommand
                 var pct = (double)totalResolved / totalNames * 100;
                 summary += $" — [dim]{pct:F1}% names resolved[/]";
             }
+
             if (errors > 0)
                 summary += $" ([red]{errors} errors[/])";
             AnsiConsole.MarkupLine(summary);

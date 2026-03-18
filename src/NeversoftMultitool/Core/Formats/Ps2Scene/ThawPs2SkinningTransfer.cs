@@ -6,8 +6,6 @@ namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
 internal static class ThawPs2SkinningTransfer
 {
-    internal sealed record Result(Ps2Scene Scene, int SkinnedVertexCount, int TotalVertexCount);
-
     public static Result Apply(Ps2Scene ps2Scene, ParsedXbxScene pcScene, Ps2Skeleton skeleton)
     {
         var pcLookup = BuildPcVertexLookup(pcScene);
@@ -55,7 +53,7 @@ internal static class ThawPs2SkinningTransfer
                         skinning.BoneWeight0,
                         skinning.BoneWeight1,
                         skinning.BoneWeight2,
-                        hasSkinData: true);
+                        true);
                     skinnedVertexCount++;
                 }
 
@@ -99,7 +97,8 @@ internal static class ThawPs2SkinningTransfer
         return Apply(ps2Scene, ThawSceneFile.Parse(companionPath), skeleton);
     }
 
-    private static Dictionary<uint, Dictionary<QuantizedPositionKey, List<XbxVertex>>> BuildPcVertexLookup(ParsedXbxScene pcScene)
+    private static Dictionary<uint, Dictionary<QuantizedPositionKey, List<XbxVertex>>> BuildPcVertexLookup(
+        ParsedXbxScene pcScene)
     {
         var lookup = new Dictionary<uint, Dictionary<QuantizedPositionKey, List<XbxVertex>>>();
         foreach (var sector in pcScene.Sectors)
@@ -154,7 +153,7 @@ internal static class ThawPs2SkinningTransfer
             if (ps2Vertex.HasUV)
             {
                 var du = MathF.Abs(ps2Vertex.U - candidate.TexCoord.X);
-                var dv = MathF.Abs((1f - ps2Vertex.V) - candidate.TexCoord.Y);
+                var dv = MathF.Abs(1f - ps2Vertex.V - candidate.TexCoord.Y);
                 score -= du + dv;
             }
 
@@ -210,7 +209,8 @@ internal static class ThawPs2SkinningTransfer
         return true;
     }
 
-    private static void AddInfluence(List<(int BoneIndex, float Weight)> influences, int boneIndex, float weight, int boneCount)
+    private static void AddInfluence(List<(int BoneIndex, float Weight)> influences, int boneIndex, float weight,
+        int boneCount)
     {
         if ((uint)boneIndex >= (uint)boneCount || weight <= 0.0001f)
             return;
@@ -223,25 +223,6 @@ internal static class ThawPs2SkinningTransfer
         var length = value.Length();
         return length > 0.0001f ? value / length : Vector3.UnitY;
     }
-
-    private readonly record struct QuantizedPositionKey(int X, int Y, int Z)
-    {
-        private const float Scale = 1024f;
-
-        public static QuantizedPositionKey From(Vector3 position) =>
-            new(
-                (int)MathF.Round(position.X * Scale),
-                (int)MathF.Round(position.Y * Scale),
-                (int)MathF.Round(position.Z * Scale));
-    }
-
-    private readonly record struct ReducedSkinning(
-        int BoneIndex0,
-        int BoneIndex1,
-        int BoneIndex2,
-        float BoneWeight0,
-        float BoneWeight1,
-        float BoneWeight2);
 
     private static string? TryFindPcSkinCompanion(string ps2SkinPath)
     {
@@ -277,4 +258,27 @@ internal static class ThawPs2SkinningTransfer
 
         return null;
     }
+
+    internal sealed record Result(Ps2Scene Scene, int SkinnedVertexCount, int TotalVertexCount);
+
+    private readonly record struct QuantizedPositionKey(int X, int Y, int Z)
+    {
+        private const float Scale = 1024f;
+
+        public static QuantizedPositionKey From(Vector3 position)
+        {
+            return new QuantizedPositionKey(
+                (int)MathF.Round(position.X * Scale),
+                (int)MathF.Round(position.Y * Scale),
+                (int)MathF.Round(position.Z * Scale));
+        }
+    }
+
+    private readonly record struct ReducedSkinning(
+        int BoneIndex0,
+        int BoneIndex1,
+        int BoneIndex2,
+        float BoneWeight0,
+        float BoneWeight1,
+        float BoneWeight2);
 }

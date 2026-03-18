@@ -6,21 +6,18 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.Formats.Audio;
 
 namespace NeversoftMultitool;
 
 public sealed partial class AudioConverterTab : UserControl
 {
-    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".vag", ".kat", ".pss"];
-
+    private readonly AudioConverterTabConversionController _conversionController = new();
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<AudioFileEntry> _parentFiles = [];
     private readonly Dictionary<string, string> _previewCache = [];
 
     // Temp file cache
     private readonly string _tempDir = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "AudioPreview");
-    private CancellationTokenSource? _cts;
     private string _inputDir = "";
 
     // Playback
@@ -49,16 +46,7 @@ public sealed partial class AudioConverterTab : UserControl
 
         _items.Clear();
         _parentFiles.Clear();
-        var allFiles = Directory.GetFiles(_inputDir);
-        var audioFiles = allFiles
-            .Where(f => SupportedExtensions.Contains(
-                Path.GetExtension(f).ToLowerInvariant()))
-            .ToList();
-
-        // Probe extensionless files for SPU-ADPCM audio
-        audioFiles.AddRange(allFiles
-            .Where(f => string.IsNullOrEmpty(Path.GetExtension(f)))
-            .Where(f => VagDecoder.Probe(f) != null));
+        var audioFiles = AudioConverterTabOperations.FindAudioFiles(_inputDir);
 
         // Probe audio files for unsupported variants (e.g. ADX encoding type)
         var unsupported = new List<ScanSummaryDialog.UnsupportedFile>();
@@ -86,7 +74,7 @@ public sealed partial class AudioConverterTab : UserControl
             var entry = new AudioFileEntry
             {
                 FileName = fileName,
-                AudioFormat = DetectFormat(ext)
+                AudioFormat = AudioConverterTabOperations.DetectFormat(ext)
             };
             _parentFiles.Add(entry);
             _items.Add(entry);
@@ -136,30 +124,10 @@ public sealed partial class AudioConverterTab : UserControl
                 var inputFile = Path.Combine(_inputDir, parent.FileName);
                 try
                 {
-                    parent.CachedChildren = parent.AudioFormat switch
-                    {
-                        "VAB" => VabExtractor.EnumerateSamples(inputFile)
-                            .Select(s => new AudioSampleEntry
-                            {
-                                ParentFileName = parent.FileName,
-                                SampleIndex = s.Index,
-                                Encoding = "SPU-ADPCM",
-                                SampleRate = 0, // user-selected, not in header
-                                Channels = 1,
-                                DataSize = s.DataSize
-                            }).ToList(),
-                        "KAT" => KatExtractor.EnumerateSamples(inputFile)
-                            .Select(s => new AudioSampleEntry
-                            {
-                                ParentFileName = parent.FileName,
-                                SampleIndex = s.Index,
-                                Encoding = s.Encoding,
-                                SampleRate = s.SampleRate,
-                                Channels = s.Channels,
-                                DataSize = s.DataSize
-                            }).ToList(),
-                        _ => []
-                    };
+                    parent.CachedChildren = AudioConverterTabOperations.EnumerateChildren(
+                        inputFile,
+                        parent.FileName,
+                        parent.AudioFormat);
                 }
                 catch
                 {
@@ -186,116 +154,20 @@ public sealed partial class AudioConverterTab : UserControl
 
     private async void ConvertButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_parentFiles.Count == 0 || string.IsNullOrEmpty(_outputDir)) return;
-
-        _cts = new CancellationTokenSource();
-
-        foreach (var file in _parentFiles)
-        {
-            file.SampleCount = 0;
-            file.Status = ExtractionStatus.Pending;
-        }
-
-        ConvertButton.IsEnabled = false;
-        CancelButton.Visibility = Visibility.Visible;
-        ConversionProgress.Visibility = Visibility.Visible;
-        ConversionProgress.Value = 0;
-
-        var stopwatch = Stopwatch.StartNew();
-        var filesProcessed = 0;
-        var totalFiles = _parentFiles.Count;
-        var token = _cts.Token;
-        var dispatcher = DispatcherQueue;
-        var inputDir = _inputDir;
-        var outputDir = _outputDir;
-        var vabSampleRate = GetSelectedVabSampleRate();
-
-        // Snapshot parent entries for iteration
-        var entries = _parentFiles.ToList();
-
-        try
-        {
-            await Task.Run(() =>
-            {
-                foreach (var entry in entries)
-                {
-                    if (token.IsCancellationRequested) break;
-
-                    dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
-
-                    var inputFile = Path.Combine(inputDir, entry.FileName);
-
-                    try
-                    {
-                        var result = entry.AudioFormat switch
-                        {
-                            "ADX" => AdxDecoder.ConvertToWav(inputFile, outputDir),
-                            "XA" => XaDecoder.ConvertToWav(inputFile, outputDir),
-                            "VAB" => VabExtractor.ExtractToWav(inputFile, outputDir, vabSampleRate),
-                            "VAG" => VagDecoder.ConvertToWav(inputFile, outputDir),
-                            "KAT" => KatExtractor.ExtractToWav(inputFile, outputDir),
-                            _ => new AudioConvertResult { ErrorMessage = "Unknown format" }
-                        };
-
-                        var processed = Interlocked.Increment(ref filesProcessed);
-
-                        dispatcher.TryEnqueue(() =>
-                        {
-                            entry.SampleCount = result.SamplesWritten;
-                            entry.Status = result.Success
-                                ? ExtractionStatus.Done
-                                : ExtractionStatus.Error;
-                            ConversionProgress.Value = (double)processed / totalFiles * 100;
-                        });
-                    }
-                    catch
-                    {
-                        var processed = Interlocked.Increment(ref filesProcessed);
-                        dispatcher.TryEnqueue(() =>
-                        {
-                            entry.Status = ExtractionStatus.Error;
-                            ConversionProgress.Value = (double)processed / totalFiles * 100;
-                        });
-                    }
-                }
-            }, token);
-
-            stopwatch.Stop();
-            ConversionProgress.Value = 100;
-            MainWindow.Instance?.SetStatus(
-                $"Converted {filesProcessed} files in {stopwatch.Elapsed.TotalSeconds:F2}s");
-        }
-        catch (OperationCanceledException)
-        {
-            MainWindow.Instance?.SetStatus("Conversion cancelled");
-        }
-        finally
-        {
-            CancelButton.Visibility = Visibility.Collapsed;
-            ConvertButton.IsEnabled = true;
-        }
+        await _conversionController.ConvertAsync(
+            _parentFiles,
+            _inputDir,
+            _outputDir,
+            GetSelectedVabSampleRate(),
+            DispatcherQueue,
+            ConvertButton,
+            CancelButton,
+            ConversionProgress);
     }
 
     private void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        _cts?.Cancel();
-        CancelButton.Visibility = Visibility.Collapsed;
-        ConvertButton.IsEnabled = true;
-        MainWindow.Instance?.SetStatus("Conversion cancelled");
-    }
-
-    private static string DetectFormat(string extension)
-    {
-        return extension switch
-        {
-            ".adx" => "ADX",
-            ".xa" => "XA",
-            ".vab" => "VAB",
-            ".vag" or ".pss" => "VAG",
-            ".kat" => "KAT",
-            "" => "VAG",
-            _ => "Unknown"
-        };
+        _conversionController.Cancel(ConvertButton, CancelButton);
     }
 
     // ── Audio Preview ────────────────────────────────────────────────────
@@ -394,7 +266,14 @@ public sealed partial class AudioConverterTab : UserControl
             try
             {
                 var vabSampleRate = GetSelectedVabSampleRate();
-                wavPath = await Task.Run(() => ConvertForPreview(item, vabSampleRate), cts.Token);
+                wavPath = await Task.Run(
+                    () => AudioConverterTabOperations.ConvertForPreview(
+                        item,
+                        _inputDir,
+                        _tempDir,
+                        _parentFiles,
+                        vabSampleRate),
+                    cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -429,53 +308,6 @@ public sealed partial class AudioConverterTab : UserControl
             PreviewErrorText.Text = "Failed to decode audio";
             PreviewErrorText.Visibility = Visibility.Visible;
         }
-    }
-
-    private string? ConvertForPreview(IListEntry item, int vabSampleRate)
-    {
-        Directory.CreateDirectory(_tempDir);
-
-        if (item is AudioFileEntry parent)
-        {
-            var inputFile = Path.Combine(_inputDir, parent.FileName);
-            var result = parent.AudioFormat switch
-            {
-                "ADX" => AdxDecoder.ConvertToWav(inputFile, _tempDir),
-                "XA" => XaDecoder.ConvertToWav(inputFile, _tempDir),
-                "VAG" => VagDecoder.ConvertToWav(inputFile, _tempDir),
-                _ => null
-            };
-
-            if (result is not { Success: true }) return null;
-
-            var stem = Path.GetFileNameWithoutExtension(parent.FileName);
-
-            // ADX produces {stem}.wav directly; XA may produce {stem}.wav or {stem}/ch00.wav
-            var wavPath = Path.Combine(_tempDir, stem + ".wav");
-            if (File.Exists(wavPath)) return wavPath;
-
-            // XA multi-channel: pick first channel
-            var channelPath = Path.Combine(_tempDir, stem, "ch00.wav");
-            return File.Exists(channelPath) ? channelPath : null;
-        }
-
-        if (item is AudioSampleEntry sample)
-        {
-            var inputFile = Path.Combine(_inputDir, sample.ParentFileName);
-            var parentEntry = _parentFiles.FirstOrDefault(p => p.FileName == sample.ParentFileName);
-            if (parentEntry == null) return null;
-
-            return parentEntry.AudioFormat switch
-            {
-                "VAB" => VabExtractor.ExtractSingleToWav(
-                    inputFile, sample.SampleIndex, _tempDir, vabSampleRate),
-                "KAT" => KatExtractor.ExtractSingleToWav(
-                    inputFile, sample.SampleIndex, _tempDir),
-                _ => null
-            };
-        }
-
-        return null;
     }
 
     private void StartPlayback(string wavPath)
@@ -622,8 +454,6 @@ public sealed partial class AudioConverterTab : UserControl
 
     private static string FormatTime(TimeSpan ts)
     {
-        return ts.TotalMinutes >= 60
-            ? $"{(int)ts.TotalHours}:{ts.Minutes:D2}:{ts.Seconds:D2}"
-            : $"{(int)ts.TotalMinutes}:{ts.Seconds:D2}";
+        return AudioConverterTabOperations.FormatTime(ts);
     }
 }

@@ -198,25 +198,3 @@ public static class LitFile
         return float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : 0f;
     }
 }
-
-public enum LitLightType
-{
-    Directional,
-    Spot,
-    Point
-}
-
-public sealed class LitLight
-{
-    public required string Name { get; init; }
-    public required LitLightType Type { get; init; }
-    public Vector3 Position { get; set; }
-    public Vector3? Direction { get; set; }
-    public Vector3 Color { get; set; } = Vector3.One;
-    public float Ambient { get; set; }
-    public float Atten1 { get; set; } = -1;
-    public float Atten2 { get; set; } = -1;
-    public float Radius { get; set; } = -1;
-    public float Hotspot { get; set; } = -1;
-    public float HeightAspect { get; set; } = 1;
-}

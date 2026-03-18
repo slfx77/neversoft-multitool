@@ -10,11 +10,6 @@ namespace NeversoftMultitool.Core.Formats.XbxScene;
 /// </summary>
 public static class XbxSceneFile
 {
-    // Material pass flags (from material.h)
-    private const uint MATFLAG_UV_WIBBLE = 1 << 0;
-    private const uint MATFLAG_VC_WIBBLE = 1 << 1;
-    private const uint MATFLAG_PASS_TEXTURE_ANIMATES = 1 << 11;
-
     // Sector flags (from nxtools constants.py)
     private const int SECFLAG_HAS_COLORS = 1 << 1;
     private const int SECFLAG_HAS_NORMALS = 1 << 2;
@@ -59,7 +54,7 @@ public static class XbxSceneFile
         var numMaterials = r.ReadInt32();
         var materials = new XbxMaterial[numMaterials];
         for (var i = 0; i < numMaterials; i++)
-            materials[i] = ReadMaterial(r);
+            materials[i] = XbxSceneMaterialReader.ReadMaterial(r);
 
         // CScene: sector_count then sectors
         var numSectors = r.ReadInt32();
@@ -72,141 +67,6 @@ public static class XbxSceneFile
 
         return new XbxScene { Materials = materials, Sectors = sectors, Links = links };
     }
-
-    // ── Materials ──────────────────────────────────────────────────────────
-
-    /// <summary>
-    ///     Read a single material with all passes.
-    ///     Layout from material.cpp LoadMaterialsFromMemory lines 581-854.
-    /// </summary>
-    private static XbxMaterial ReadMaterial(BinaryReader r)
-    {
-        var checksum = r.ReadUInt32();
-        var nameChecksum = r.ReadUInt32();
-        var numPasses = r.ReadInt32();
-        var alphaCutoff = r.ReadInt32();
-        var sorted = r.ReadByte() != 0;          // bool = 1 byte on Xbox MSVC
-        var drawOrder = r.ReadSingle();
-        var singleSided = r.ReadByte() != 0;
-        var noBfc = r.ReadByte() != 0;
-        var zbias = r.ReadInt32();                // int, NOT byte
-        var grassify = r.ReadByte() != 0;
-
-        float grassHeight = 0;
-        int grassLayers = 0;
-        if (grassify)
-        {
-            grassHeight = r.ReadSingle();
-            grassLayers = r.ReadInt32();
-        }
-
-        // specular_color[3] is the power term
-        var specularPower = r.ReadSingle();
-        var specularColor = Vector3.Zero;
-        if (specularPower > 0)
-        {
-            specularColor = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
-        }
-
-        // Per-pass data
-        var passes = new XbxPass[numPasses];
-        for (var p = 0; p < numPasses; p++)
-            passes[p] = ReadPass(r, p);
-
-        return new XbxMaterial
-        {
-            Checksum = checksum,
-            NameChecksum = nameChecksum,
-            NumPasses = numPasses,
-            AlphaCutoff = alphaCutoff,
-            Sorted = sorted,
-            DrawOrder = drawOrder,
-            SingleSided = singleSided,
-            NoBfc = noBfc,
-            ZBias = zbias,
-            Grassify = grassify,
-            GrassHeight = grassHeight,
-            GrassLayers = grassLayers,
-            SpecularPower = specularPower,
-            SpecularColor = specularColor,
-            Passes = passes,
-        };
-    }
-
-    /// <summary>
-    ///     Read a single material pass.
-    ///     Layout from material.cpp lines 639-818.
-    /// </summary>
-    private static XbxPass ReadPass(BinaryReader r, int passIndex)
-    {
-        var texChecksum = r.ReadUInt32();
-        var flags = r.ReadUInt32();
-
-        // has_color is bool (1 byte), but color is ALWAYS read (3×float)
-        var hasColor = r.ReadByte() != 0;
-        var color = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
-
-        // reg_alpha: u64 → low 24 bits = blend mode, bits 32+ = fixed alpha
-        var regAlpha = r.ReadUInt64();
-        var blendMode = (uint)(regAlpha & 0x00FFFFFFUL);
-        var fixedAlpha = (uint)(regAlpha >> 32);
-
-        // UV addressing
-        var uAddressing = r.ReadUInt32();
-        var vAddressing = r.ReadUInt32();
-
-        // Environment map tiling
-        var envmapTiling = new Vector2(r.ReadSingle(), r.ReadSingle());
-
-        // Filtering mode
-        var filteringMode = r.ReadUInt32();
-
-        // UV wibble (8 floats = 32 bytes) if flagged
-        if ((flags & MATFLAG_UV_WIBBLE) != 0)
-            r.BaseStream.Position += 32; // 8 × float
-
-        // VC wibble (pass 0 only) — num_seqs, then per seq: num_keys + phase + keys
-        if (passIndex == 0 && (flags & MATFLAG_VC_WIBBLE) != 0)
-        {
-            var numSeqs = r.ReadInt32();
-            for (var seq = 0; seq < numSeqs; seq++)
-            {
-                var numKeys = r.ReadInt32();
-                r.ReadInt32(); // phase
-                // sVCWibbleKeyframe = int(4) + RGBA(4) = 8 bytes each
-                r.BaseStream.Position += numKeys * 8;
-            }
-        }
-
-        // Texture animate data if flagged
-        if ((flags & MATFLAG_PASS_TEXTURE_ANIMATES) != 0)
-        {
-            var numKeyframes = r.ReadInt32();
-            r.ReadInt32(); // period
-            r.ReadInt32(); // iterations
-            r.ReadInt32(); // phase
-            // Per keyframe: time(u32) + checksum(u32) = 8 bytes
-            r.BaseStream.Position += numKeyframes * 8;
-        }
-
-        // Mipmap data: always 16 bytes (MMAG, MMIN, K, L)
-        r.BaseStream.Position += 16;
-
-        return new XbxPass
-        {
-            TextureChecksum = texChecksum,
-            Flags = flags,
-            HasColor = hasColor,
-            Color = color,
-            BlendMode = blendMode,
-            FixedAlpha = fixedAlpha,
-            UAddressing = uAddressing,
-            VAddressing = vAddressing,
-            EnvmapTiling = envmapTiling,
-            FilteringMode = filteringMode,
-        };
-    }
-
     // ── Sectors (CGeom + per-mesh vertex data) ────────────────────────────
 
     /// <summary>
@@ -247,7 +107,7 @@ public static class XbxSceneFile
             BboxMax = bboxMax,
             BsphereCenter = bsphereCenter,
             BsphereRadius = bsphereRadius,
-            Meshes = meshes,
+            Meshes = meshes
         };
     }
 
@@ -294,7 +154,7 @@ public static class XbxSceneFile
             MeshFlags = meshFlags,
             MaterialChecksum = materialChecksum,
             Vertices = vertices,
-            FaceIndices = faceIndices,
+            FaceIndices = faceIndices
         };
     }
 
@@ -444,7 +304,13 @@ public static class XbxSceneFile
         var ny = iy / 1023f;
         var nz = iz / 511f;
         var len = MathF.Sqrt(nx * nx + ny * ny + nz * nz);
-        if (len > 0) { nx /= len; ny /= len; nz /= len; }
+        if (len > 0)
+        {
+            nx /= len;
+            ny /= len;
+            nz /= len;
+        }
+
         return new Vector3(nx, ny, nz);
     }
 
@@ -514,7 +380,7 @@ public static class XbxSceneFile
                 SectorChecksum = sectorChecksum,
                 ParentChecksum = parentChecksum,
                 Index = index,
-                Transform = m,
+                Transform = m
             };
         }
 
@@ -530,6 +396,7 @@ public static class XbxSceneFile
             if (mat.Checksum == materialChecksum)
                 return mat.NumPasses;
         }
+
         return 1; // fallback
     }
 

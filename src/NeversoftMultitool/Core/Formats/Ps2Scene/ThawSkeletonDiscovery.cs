@@ -115,10 +115,13 @@ internal static class ThawSkeletonDiscovery
         if (path.Contains("Tony Hawk's Pro Skater 4", StringComparison.OrdinalIgnoreCase) &&
             path.Contains("PS2", StringComparison.OrdinalIgnoreCase))
             score += 100;
-        if (path.Contains($"{Path.DirectorySeparatorChar}Extracted{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+        if (path.Contains($"{Path.DirectorySeparatorChar}Extracted{Path.DirectorySeparatorChar}",
+                StringComparison.OrdinalIgnoreCase))
             score += 40;
-        if (path.Contains($"{Path.DirectorySeparatorChar}pre{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains($"{Path.DirectorySeparatorChar}Pre{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+        if (path.Contains($"{Path.DirectorySeparatorChar}pre{Path.DirectorySeparatorChar}",
+                StringComparison.OrdinalIgnoreCase) ||
+            path.Contains($"{Path.DirectorySeparatorChar}Pre{Path.DirectorySeparatorChar}",
+                StringComparison.OrdinalIgnoreCase))
             score -= 25;
         if (candidateStem.EndsWith("_head", StringComparison.OrdinalIgnoreCase))
             score += 50;

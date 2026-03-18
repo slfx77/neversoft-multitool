@@ -6,6 +6,8 @@ namespace NeversoftMultitool.Core.Formats.Archives;
 ///     Extracts files from Neversoft PAK archives used in THAW, THUG2, and Guitar Hero series (PS2).
 ///     Format: variable-size entry table terminated by QbKey("last") = 0xB524565F sentinel.
 ///     Entry sizes: 32 bytes (compact, no filename) or 192 bytes (full, with 160-byte filename field).
+///     THAW shell/Create-A-Park archives use the same table shape but set an extra 0x10 flag bit and
+///     store size before offset in the entry payload.
 ///     A single .pak file may contain multiple concatenated sub-PAKs, each with its own entry table.
 ///     Companion .pab files hold data when offsets exceed the .pak file size.
 ///     File types identified by QbKey hash of extension (e.g. QbKey(".ska") = 0x745DCD45).
@@ -25,27 +27,31 @@ public static class PakArchive
     /// <summary>Flag bit indicating the entry has an embedded filename.</summary>
     private const uint HasFilenameFlag = 0x20;
 
+    /// <summary>THAW shell/Create-A-Park entry variant bit.</summary>
+    private const uint ThawShellFieldOrderFlag = 0x10;
+
     /// <summary>Known file type QbKey hashes → extension strings.</summary>
     private static readonly Dictionary<uint, string> KnownTypes = new()
     {
-        [0x745DCD45] = ".ska",     // QbKey(".ska")
-        [0x5D796624] = ".sqb",     // QbKey(".sqb")
-        [0xA7F505C4] = ".qb",      // QbKey(".qb")
-        [0x9BCC234D] = ".mdl",     // QbKey(".mdl")
-        [0x64112E85] = ".skin",    // QbKey(".skin")
-        [0x8BFA5E8E] = ".tex",     // QbKey(".tex")
-        [0xDAD5E950] = ".img",     // QbKey(".img")
-        [0x72A6D78C] = ".col",     // QbKey(".col")
+        [0x745DCD45] = ".ska", // QbKey(".ska")
+        [0x5D796624] = ".sqb", // QbKey(".sqb")
+        [0xA7F505C4] = ".qb", // QbKey(".qb")
+        [0x9BCC234D] = ".mdl", // QbKey(".mdl")
+        [0x64112E85] = ".skin", // QbKey(".skin")
+        [0x8BFA5E8E] = ".tex", // QbKey(".tex")
+        [0xDAD5E950] = ".img", // QbKey(".img")
+        [0x72A6D78C] = ".col", // QbKey(".col")
         [0x365318B2] = ".scripts", // QbKey(".scripts")
-        [0x559566CC] = ".dbg",     // QbKey(".dbg")
-        [0x7330095C] = ".ske",     // QbKey(".ske")
-        [0x1F3E0235] = ".anm",     // QbKey(".anm")
-        [0x9B22CA94] = ".cam",     // QbKey(".cam")
-        [0x98F2AA1D] = ".ped",     // QbKey(".ped")
-        [0x2C3B5ADC] = ".scn",     // QbKey(".scn")
-        [0x6C217288] = ".pak",     // QbKey(".pak")
-        [0x2B0A3095] = ".stex",    // QbKey(".stex")
-        [0x2F1A6A09] = ".shd",     // QbKey(".shd")
+        [0x559566CC] = ".dbg", // QbKey(".dbg")
+        [0x7330095C] = ".ske", // QbKey(".ske")
+        [0x1F3E0235] = ".anm", // QbKey(".anm")
+        [0x9B22CA94] = ".cam", // QbKey(".cam")
+        [0x98F2AA1D] = ".ped", // QbKey(".ped")
+        [0x2C3B5ADC] = ".scn", // QbKey(".scn")
+        [0x6C217288] = ".pak", // QbKey(".pak")
+        [0x2B0A3095] = ".stex", // QbKey(".stex")
+        [0x2F1A6A09] = ".shd", // QbKey(".shd")
+        [0x7EA7357B] = ".mdl" // THAW shell/Create-A-Park geometry chunk
     };
 
     /// <summary>
@@ -66,22 +72,13 @@ public static class PakArchive
                 if (BitConverter.ToUInt32(data, i) != LastSentinel)
                     continue;
 
-                // Check for a valid compact entry immediately before (flags == 0x00)
-                var prevPos = i - CompactEntrySize;
-                var prevType = BitConverter.ToUInt32(data, prevPos);
-                var prevFlags = BitConverter.ToUInt32(data, prevPos + 0x1C);
-                if (prevType != 0 && prevType != LastSentinel && prevFlags == 0)
+                // Check for a valid compact entry immediately before.
+                if (LooksLikeEntryAt(data, i - CompactEntrySize, false))
                     return true;
 
-                // Check for a valid full entry (flags == 0x20)
-                if (i >= FullEntrySize)
-                {
-                    prevPos = i - FullEntrySize;
-                    prevType = BitConverter.ToUInt32(data, prevPos);
-                    prevFlags = BitConverter.ToUInt32(data, prevPos + 0x1C);
-                    if (prevType != 0 && prevType != LastSentinel && prevFlags == HasFilenameFlag)
-                        return true;
-                }
+                // Check for a valid full entry.
+                if (LooksLikeEntryAt(data, i - FullEntrySize, true))
+                    return true;
             }
 
             return false;
@@ -222,71 +219,77 @@ public static class PakArchive
     /// <summary>
     ///     Walks backward from a "last" sentinel to find the entry table start,
     ///     then parses forward to collect all entries.
-    ///     Flags are strictly validated (only 0x00 or 0x20) to avoid false positives from
+    ///     Flags are strictly validated (0x00/0x20 and the THAW shell 0x10/0x30 variants) to avoid false positives from
     ///     filename text data (e.g. "cutscenes\..." being misinterpreted as entries).
     /// </summary>
     private static List<ArchiveEntry> WalkBackward(byte[] data, int sentinelPos)
     {
-        var tableStart = FindTableStart(data, sentinelPos);
-        return ParseEntries(data, tableStart, sentinelPos);
+        var (tableStart, usesAltFieldOrder) = FindTableStart(data, sentinelPos);
+        return ParseEntries(data, tableStart, sentinelPos, usesAltFieldOrder);
     }
 
-    private static int FindTableStart(byte[] data, int sentinelPos)
+    private static (int Start, bool UsesAltFieldOrder) FindTableStart(byte[] data, int sentinelPos)
     {
         var pos = sentinelPos;
+        var usesAltFieldOrder = false;
 
         while (pos > 0)
         {
-            if (TryStepBack(data, pos, FullEntrySize, HasFilenameFlag, out var newPos) ||
-                TryStepBack(data, pos, CompactEntrySize, 0, out newPos))
+            if (TryStepBack(data, pos, FullEntrySize, true, out var newPos, out var altFieldOrder) ||
+                TryStepBack(data, pos, CompactEntrySize, false, out newPos, out altFieldOrder))
             {
                 pos = newPos;
+                usesAltFieldOrder |= altFieldOrder;
                 continue;
             }
 
             break;
         }
 
-        return pos;
+        return (pos, usesAltFieldOrder);
     }
 
-    private static bool TryStepBack(byte[] data, int pos, int entrySize, uint expectedFlags, out int newPos)
+    private static bool TryStepBack(byte[] data, int pos, int entrySize, bool hasFilename, out int newPos,
+        out bool usesAltFieldOrder)
     {
         newPos = pos;
+        usesAltFieldOrder = false;
         if (pos < entrySize)
             return false;
 
         var candidatePos = pos - entrySize;
-        var candidateType = BitConverter.ToUInt32(data, candidatePos);
+        if (!LooksLikeEntryAt(data, candidatePos, hasFilename))
+            return false;
+
         var candidateFlags = BitConverter.ToUInt32(data, candidatePos + 0x1C);
-
-        if (candidateType != 0 && candidateType != LastSentinel && candidateFlags == expectedFlags)
-        {
-            newPos = candidatePos;
-            return true;
-        }
-
-        return false;
+        newPos = candidatePos;
+        usesAltFieldOrder = UsesAltFieldOrder(candidateFlags);
+        return true;
     }
 
-    private static List<ArchiveEntry> ParseEntries(byte[] data, int start, int sentinelPos)
+    private static List<ArchiveEntry> ParseEntries(byte[] data, int start, int sentinelPos, bool usesAltFieldOrder)
     {
         var entries = new List<ArchiveEntry>();
         var current = start;
 
-        while (current < sentinelPos)
+        while (current < sentinelPos && current + CompactEntrySize <= data.Length)
         {
             var fileType = BitConverter.ToUInt32(data, current);
             if (fileType == LastSentinel)
                 break;
 
-            var offset = BitConverter.ToUInt32(data, current + 0x04);
-            var length = BitConverter.ToUInt32(data, current + 0x08);
+            var flags = BitConverter.ToUInt32(data, current + 0x1C);
+            if (!IsValidPakFlags(flags))
+                break;
+
+            var fieldA = BitConverter.ToUInt32(data, current + 0x04);
+            var fieldB = BitConverter.ToUInt32(data, current + 0x08);
+            var length = usesAltFieldOrder ? fieldA : fieldB;
+            var offset = usesAltFieldOrder ? fieldB : fieldA;
             var fullQbKey = BitConverter.ToUInt32(data, current + 0x10);
             var nameOnlyCrc = BitConverter.ToUInt32(data, current + 0x14);
-            var flags = BitConverter.ToUInt32(data, current + 0x1C);
 
-            var hasFilename = (flags & HasFilenameFlag) != 0;
+            var hasFilename = HasEmbeddedFilename(flags);
             var entrySize = hasFilename ? FullEntrySize : CompactEntrySize;
 
             var (name, directory) = hasFilename && current + CompactEntrySize + 160 <= data.Length
@@ -306,6 +309,35 @@ public static class PakArchive
         }
 
         return entries;
+    }
+
+    private static bool LooksLikeEntryAt(byte[] data, int pos, bool hasFilename)
+    {
+        if (pos < 0 || pos + CompactEntrySize > data.Length)
+            return false;
+
+        var candidateType = BitConverter.ToUInt32(data, pos);
+        var candidateFlags = BitConverter.ToUInt32(data, pos + 0x1C);
+        return candidateType != 0 &&
+               candidateType != LastSentinel &&
+               IsValidPakFlags(candidateFlags) &&
+               HasEmbeddedFilename(candidateFlags) == hasFilename;
+    }
+
+    private static bool IsValidPakFlags(uint flags)
+    {
+        return flags is 0 or ThawShellFieldOrderFlag or HasFilenameFlag
+            or (ThawShellFieldOrderFlag | HasFilenameFlag);
+    }
+
+    private static bool HasEmbeddedFilename(uint flags)
+    {
+        return (flags & HasFilenameFlag) != 0;
+    }
+
+    private static bool UsesAltFieldOrder(uint flags)
+    {
+        return (flags & ThawShellFieldOrderFlag) != 0;
     }
 
     private static (string Name, string Directory) ParseFilename(byte[] data, int filenameOffset)

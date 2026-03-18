@@ -1,5 +1,4 @@
 using System.Numerics;
-using NeversoftMultitool.Core.BinaryIO;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;

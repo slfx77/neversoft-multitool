@@ -14,11 +14,46 @@ namespace NeversoftMultitool.Core.Formats.XbxScene;
 public static class ThawTexFile
 {
     private const uint Magic = 0xABADD00D;
+    private const ushort MaxPlausibleTextureCount = 4096;
 
     /// <summary>Returns true if the data begins with the THAW TEX magic 0xABADD00D.</summary>
     public static bool IsThawTex(ReadOnlySpan<byte> data)
     {
         return data.Length >= 8 && BitConverter.ToUInt32(data) == Magic;
+    }
+
+    /// <summary>
+    ///     Locate an embedded THAW TEX dictionary inside a larger container.
+    ///     PAK-extracted THAW PC world texture blobs prepend a small header before the real dictionary.
+    /// </summary>
+    public static bool TryFindEmbeddedDictionaryOffset(ReadOnlySpan<byte> data, out int offset)
+    {
+        offset = 0;
+
+        if (IsThawTex(data))
+            return true;
+
+        if (data.Length < 12)
+            return false;
+
+        for (var i = 0; i <= data.Length - 12; i += 4)
+        {
+            if (BitConverter.ToUInt32(data[i..]) != Magic)
+                continue;
+
+            var textureCount = BitConverter.ToUInt16(data[(i + 6)..]);
+            if (textureCount == 0 || textureCount > MaxPlausibleTextureCount)
+                continue;
+
+            // A valid THAW dictionary begins immediately with a per-texture header.
+            if (BitConverter.ToUInt32(data[(i + 8)..]) != Magic)
+                continue;
+
+            offset = i;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>Parse a THAW .tex.wpc file from disk.</summary>
@@ -42,21 +77,48 @@ public static class ThawTexFile
             if (data.Length < 8)
                 return Ps2TexResult.Fail("File too small");
 
-            var magic = BitConverter.ToUInt32(data);
-            if (magic != Magic)
-                return Ps2TexResult.Fail($"Bad magic 0x{magic:X8} (expected 0xABADD00D)");
+            var offset = 0;
+            var allowPartial = false;
+            if (!IsThawTex(data))
+            {
+                if (!TryFindEmbeddedDictionaryOffset(data, out offset))
+                {
+                    var magic = BitConverter.ToUInt32(data);
+                    return Ps2TexResult.Fail($"Bad magic 0x{magic:X8} (expected 0xABADD00D)");
+                }
 
-            // version (u8) + flag (u8) + textureCount (u16)
-            // var version = data[4];
-            // var flag = data[5];
-            var textureCount = BitConverter.ToUInt16(data[6..]);
-            var textures = new List<Ps2Texture>();
-            var offset = 8;
+                allowPartial = true;
+                data = data[offset..];
+            }
 
+            return ParseDictionary(data, allowPartial);
+        }
+        catch (Exception ex)
+        {
+            return Ps2TexResult.Fail(ex.Message);
+        }
+    }
+
+    private static Ps2TexResult ParseDictionary(ReadOnlySpan<byte> data, bool allowPartial)
+    {
+        var textureCount = BitConverter.ToUInt16(data[6..]);
+        var textures = new List<Ps2Texture>();
+        var offset = 8;
+
+        Ps2TexResult FailOrPartial(string message)
+        {
+            if (allowPartial && textures.Count > 0)
+                return new Ps2TexResult(textures);
+
+            return Ps2TexResult.Fail(message);
+        }
+
+        try
+        {
             for (var i = 0; i < textureCount; i++)
             {
                 if (offset + 24 > data.Length)
-                    return Ps2TexResult.Fail($"Truncated texture header at index {i}");
+                    return FailOrPartial($"Truncated texture header at index {i}");
 
                 // Per-texture header: magic(u32) + unknown(u32) = 8 bytes skip
                 offset += 8;
@@ -83,14 +145,14 @@ public static class ThawTexFile
                 if (compression == 0 && paletteDepth > 0)
                 {
                     if (offset + 4 > data.Length)
-                        return Ps2TexResult.Fail($"Truncated palette header at texture {i}");
+                        return FailOrPartial($"Truncated palette header at texture {i}");
 
                     var paletteColorCount = (int)BitConverter.ToUInt32(data[offset..]);
                     offset += 4;
 
                     var paletteBytes = paletteColorCount * 4; // RGBA
                     if (offset + paletteBytes > data.Length)
-                        return Ps2TexResult.Fail($"Truncated palette data at texture {i}");
+                        return FailOrPartial($"Truncated palette data at texture {i}");
 
                     palette = data.Slice(offset, paletteBytes).ToArray();
                     offset += paletteBytes;
@@ -108,7 +170,7 @@ public static class ThawTexFile
                     {
                         // DXT compressed: dataSize as u32
                         if (offset + 4 > data.Length)
-                            return Ps2TexResult.Fail($"Truncated mip header at texture {i}, mip {m}");
+                            return FailOrPartial($"Truncated mip header at texture {i}, mip {m}");
                         dataSize = (int)BitConverter.ToUInt32(data[offset..]);
                         offset += 4;
                     }
@@ -116,7 +178,7 @@ public static class ThawTexFile
                     {
                         // Uncompressed/paletted: bytesPerLine(u16) + numLines(u16)
                         if (offset + 4 > data.Length)
-                            return Ps2TexResult.Fail($"Truncated mip header at texture {i}, mip {m}");
+                            return FailOrPartial($"Truncated mip header at texture {i}, mip {m}");
                         var bytesPerLine = (int)BitConverter.ToUInt16(data[offset..]);
                         var numLines = (int)BitConverter.ToUInt16(data[(offset + 2)..]);
                         dataSize = bytesPerLine * numLines;
@@ -124,7 +186,7 @@ public static class ThawTexFile
                     }
 
                     if (offset + dataSize > data.Length)
-                        return Ps2TexResult.Fail($"Truncated mip data at texture {i}, mip {m}");
+                        return FailOrPartial($"Truncated mip data at texture {i}, mip {m}");
 
                     if (m == 0)
                     {
@@ -150,7 +212,7 @@ public static class ThawTexFile
         }
         catch (Exception ex)
         {
-            return Ps2TexResult.Fail(ex.Message);
+            return FailOrPartial(ex.Message);
         }
     }
 
@@ -162,7 +224,7 @@ public static class ThawTexFile
             1 => DxtDecoder.DecodeDxt1(data, width, height),
             5 => DxtDecoder.DecodeDxt5(data, width, height),
             0 when palette != null => DecodePaletted(data, width, height, texelDepth, palette),
-            0 when texelDepth == 32 => DecodeRgba32(data, width, height),
+            0 when texelDepth == 32 => DecodeBgra32(data, width, height),
             _ => null
         };
     }
@@ -182,7 +244,7 @@ public static class ThawTexFile
                 {
                     var pi = idx * 4;
                     var oi = i * 4;
-                    output[oi]     = palette[pi];     // R
+                    output[oi] = palette[pi]; // R
                     output[oi + 1] = palette[pi + 1]; // G
                     output[oi + 2] = palette[pi + 2]; // B
                     output[oi + 3] = palette[pi + 3]; // A
@@ -195,12 +257,12 @@ public static class ThawTexFile
             {
                 var byteIdx = i / 2;
                 if (byteIdx >= data.Length) break;
-                var idx = (i & 1) == 0 ? (data[byteIdx] & 0x0F) : (data[byteIdx] >> 4);
+                var idx = (i & 1) == 0 ? data[byteIdx] & 0x0F : data[byteIdx] >> 4;
                 if (idx < paletteEntries)
                 {
                     var pi = idx * 4;
                     var oi = i * 4;
-                    output[oi]     = palette[pi];     // R
+                    output[oi] = palette[pi]; // R
                     output[oi + 1] = palette[pi + 1]; // G
                     output[oi + 2] = palette[pi + 2]; // B
                     output[oi + 3] = palette[pi + 3]; // A
@@ -225,11 +287,19 @@ public static class ThawTexFile
         }
     }
 
-    private static byte[] DecodeRgba32(ReadOnlySpan<byte> data, int width, int height)
+    private static byte[] DecodeBgra32(ReadOnlySpan<byte> data, int width, int height)
     {
         var output = new byte[width * height * 4];
-        var count = Math.Min(width * height * 4, data.Length);
-        data[..count].CopyTo(output);
+        for (var i = 0; i < width * height && (i + 1) * 4 <= data.Length; i++)
+        {
+            var si = i * 4;
+            var oi = i * 4;
+            output[oi] = data[si + 2];
+            output[oi + 1] = data[si + 1];
+            output[oi + 2] = data[si];
+            output[oi + 3] = data[si + 3];
+        }
+
         return output;
     }
 }

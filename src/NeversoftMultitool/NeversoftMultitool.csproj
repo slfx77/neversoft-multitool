@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <!-- Multi-target: cross-platform CLI + Windows GUI -->
     <TargetFrameworks>net10.0;net10.0-windows10.0.19041.0</TargetFrameworks>
@@ -40,6 +39,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="NeversoftMultitool.Tests" />
     <InternalsVisibleTo Include="PsxAnalyzer" />
+    <InternalsVisibleTo Include="ThawZoneTexAnalyzer" />
     <InternalsVisibleTo Include="ThawPs2ReplayTrace" />
   </ItemGroup>
 
@@ -79,5 +79,4 @@
     <Compile Remove="App.xaml.cs" />
     <None Remove="app.manifest" />
   </ItemGroup>
-
 </Project>

@@ -1,3 +1,4 @@
+using System.Numerics;
 using NeversoftMultitool.Core.Formats.Ps2Scene;
 using NeversoftMultitool.Tests.Helpers;
 
@@ -46,9 +47,9 @@ public sealed class SkeletonFileTests(TestPaths paths)
         // THPS4 format has no neutral poses — all should be identity
         foreach (var bone in skeleton.Bones)
         {
-            Assert.Equal(System.Numerics.Quaternion.Identity, bone.LocalRotation);
-            Assert.Equal(System.Numerics.Vector3.Zero, bone.LocalTranslation);
-            Assert.Equal(System.Numerics.Matrix4x4.Identity, bone.InverseBindMatrix);
+            Assert.Equal(Quaternion.Identity, bone.LocalRotation);
+            Assert.Equal(Vector3.Zero, bone.LocalTranslation);
+            Assert.Equal(Matrix4x4.Identity, bone.InverseBindMatrix);
         }
     }
 
@@ -123,8 +124,8 @@ public sealed class SkeletonFileTests(TestPaths paths)
 
         // THUG format has neutral poses — at least some bones should have non-identity transforms
         var nonIdentityCount = skeleton.Bones.Count(b =>
-            b.LocalRotation != System.Numerics.Quaternion.Identity ||
-            b.LocalTranslation != System.Numerics.Vector3.Zero);
+            b.LocalRotation != Quaternion.Identity ||
+            b.LocalTranslation != Vector3.Zero);
 
         Assert.True(nonIdentityCount > 0,
             "Expected at least some bones with non-identity poses");

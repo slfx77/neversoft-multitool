@@ -104,7 +104,7 @@ public static class Ps2GeomCommand
             }
 
             // Build VRAM mapping for THPS4 (where CGeomNode.texture_checksum is always 0)
-            var vramMapping = BuildVramMapping(files, texPath, verbose);
+            var vramMapping = Ps2TextureLoader.BuildTex0Mapping(files, texPath, verbose);
             if (vramMapping.Count > 0)
             {
                 AnsiConsole.MarkupLine(
@@ -197,58 +197,4 @@ public static class Ps2GeomCommand
 
         return 0;
     }
-
-    /// <summary>
-    ///     Builds a VRAM (GroupChecksum,TBP,CBP)→checksum mapping from all TEX files.
-    ///     Used for THPS4 GEOM texture resolution where CGeomNode.texture_checksum is 0
-    ///     and texture references are encoded as TEX0_1 GS register values in the DMA chain.
-    ///     Group-aware keying prevents collisions from double-buffered VRAM banks.
-    /// </summary>
-    private static Dictionary<(uint, uint, uint), uint> BuildVramMapping(
-        List<string> geomFiles, string? texPath, bool verbose)
-    {
-        var mapping = new Dictionary<(uint, uint, uint), uint>();
-        var parsedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        if (texPath != null)
-        {
-            foreach (var tf in Ps2TextureLoader.GetTexFiles(texPath))
-                MergeVramMapping(tf, mapping, parsedFiles, verbose);
-            return mapping;
-        }
-
-        // Auto-detect: scan from common root of all GEOM files
-        var commonRoot = CompanionSearch.GetCommonRoot(geomFiles);
-        if (commonRoot != null)
-        {
-            var texFiles = CompanionSearch.FindAllByExtension(
-                commonRoot, [".tex.ps2", ".tex"]);
-            foreach (var tf in texFiles)
-                MergeVramMapping(tf, mapping, parsedFiles, verbose);
-        }
-
-        return mapping;
-    }
-
-    private static void MergeVramMapping(string texFile,
-        Dictionary<(uint, uint, uint), uint> mapping, HashSet<string> parsedFiles, bool verbose)
-    {
-        if (!parsedFiles.Add(texFile)) return;
-
-        try
-        {
-            var fileMapping = Ps2VramAllocator.BuildMapping(texFile);
-            foreach (var (key, checksum) in fileMapping)
-                mapping.TryAdd(key, checksum);
-        }
-        catch (Exception ex)
-        {
-            if (verbose)
-            {
-                AnsiConsole.MarkupLine(
-                    $"  VRAM {Path.GetFileName(texFile)}: [yellow]{ex.Message.EscapeMarkup()}[/]");
-            }
-        }
-    }
-
 }

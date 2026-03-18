@@ -13,16 +13,6 @@ public static class RecursiveUnpacker
     private static readonly string[] ArchiveExtensions =
         [".wad", ".pre", ".prx", ".pkr", ".ddx", ".bon", ".pak"];
 
-    public sealed class ArchiveInfo
-    {
-        public required string FilePath { get; init; }
-        public required string ArchiveType { get; init; }
-        public required int Pass { get; init; }
-        public bool AlreadyExtracted { get; init; }
-        public bool Extracted { get; set; }
-        public string? Error { get; set; }
-    }
-
     /// <summary>
     ///     Scans a directory tree for all archive files, returning them with already-extracted status.
     /// </summary>
@@ -219,5 +209,15 @@ public static class RecursiveUnpacker
         }
 
         return allArchives;
+    }
+
+    public sealed class ArchiveInfo
+    {
+        public required string FilePath { get; init; }
+        public required string ArchiveType { get; init; }
+        public required int Pass { get; init; }
+        public bool AlreadyExtracted { get; init; }
+        public bool Extracted { get; set; }
+        public string? Error { get; set; }
     }
 }

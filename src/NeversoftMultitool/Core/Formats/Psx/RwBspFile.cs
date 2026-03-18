@@ -400,9 +400,12 @@ public static class RwBspFile
         return (name, mask);
     }
 
-    private static RwMaterial DefaultMaterial() => new()
+    private static RwMaterial DefaultMaterial()
     {
-        R = 255, G = 255, B = 255, A = 255,
-        TextureName = null, MaskName = null
-    };
+        return new RwMaterial
+        {
+            R = 255, G = 255, B = 255, A = 255,
+            TextureName = null, MaskName = null
+        };
+    }
 }

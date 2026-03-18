@@ -54,7 +54,7 @@ public static class UnpackCommand
             {
                 var results = RecursiveUnpacker.ExtractAll(
                     input,
-                    onArchiveStarted: archive =>
+                    archive =>
                     {
                         if (verbose)
                         {
@@ -63,17 +63,17 @@ public static class UnpackCommand
                                 $"  [blue]{archive.ArchiveType}[/] {Markup.Escape(rel)}");
                         }
                     },
-                    onArchiveCompleted: archive =>
+                    archive =>
                     {
                         if (verbose && archive.Error != null)
                             AnsiConsole.MarkupLine($"    [red]Error:[/] {Markup.Escape(archive.Error)}");
                     },
-                    onPassDiscovered: (pass, newArchives) =>
+                    (pass, newArchives) =>
                     {
                         AnsiConsole.MarkupLine(
                             $"Pass {pass}: [green]{newArchives.Count}[/] archives to extract");
                     },
-                    ct: cancellationToken);
+                    cancellationToken);
 
                 stopwatch.Stop();
                 var extracted = results.Count(a => a.Extracted);

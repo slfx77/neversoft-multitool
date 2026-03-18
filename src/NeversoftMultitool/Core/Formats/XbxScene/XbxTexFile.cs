@@ -157,9 +157,9 @@ public static class XbxTexFile
                 {
                     var pi = idx * 4;
                     var oi = i * 4;
-                    output[oi]     = palette[pi + 2]; // B→R
+                    output[oi] = palette[pi + 2]; // B→R
                     output[oi + 1] = palette[pi + 1]; // G→G
-                    output[oi + 2] = palette[pi];     // R→B
+                    output[oi + 2] = palette[pi]; // R→B
                     output[oi + 3] = palette[pi + 3]; // A→A
                 }
             }
@@ -170,14 +170,14 @@ public static class XbxTexFile
             {
                 var byteIdx = i / 2;
                 if (byteIdx >= data.Length) break;
-                var idx = (i & 1) == 0 ? (data[byteIdx] & 0x0F) : (data[byteIdx] >> 4);
+                var idx = (i & 1) == 0 ? data[byteIdx] & 0x0F : data[byteIdx] >> 4;
                 if (idx < paletteEntries)
                 {
                     var pi = idx * 4;
                     var oi = i * 4;
-                    output[oi]     = palette[pi + 2]; // B→R
+                    output[oi] = palette[pi + 2]; // B→R
                     output[oi + 1] = palette[pi + 1]; // G→G
-                    output[oi + 2] = palette[pi];     // R→B
+                    output[oi + 2] = palette[pi]; // R→B
                     output[oi + 3] = palette[pi + 3]; // A→A
                 }
             }
@@ -193,11 +193,12 @@ public static class XbxTexFile
         {
             var si = i * 4;
             var oi = i * 4;
-            output[oi]     = data[si + 2]; // B→R
+            output[oi] = data[si + 2]; // B→R
             output[oi + 1] = data[si + 1]; // G→G
-            output[oi + 2] = data[si];     // R→B
+            output[oi + 2] = data[si]; // R→B
             output[oi + 3] = data[si + 3]; // A→A
         }
+
         return output;
     }
 
@@ -212,11 +213,12 @@ public static class XbxTexFile
             var g = (val >> 5) & 0x1F;
             var b = val & 0x1F;
             var a = (val >> 15) & 1;
-            output[oi]     = (byte)((r << 3) | (r >> 2));
+            output[oi] = (byte)((r << 3) | (r >> 2));
             output[oi + 1] = (byte)((g << 3) | (g >> 2));
             output[oi + 2] = (byte)((b << 3) | (b >> 2));
             output[oi + 3] = (byte)(a * 255);
         }
+
         return output;
     }
 }

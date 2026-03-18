@@ -78,8 +78,16 @@ public static class XbxSceneCommand
         foreach (var file in files)
         {
             var (tris, textured, success) = ConvertFile(file, output, textureProvider, verbose);
-            if (success) { converted++; totalTriangles += tris; if (textured) texturedCount++; }
-            else { failed++; }
+            if (success)
+            {
+                converted++;
+                totalTriangles += tris;
+                if (textured) texturedCount++;
+            }
+            else
+            {
+                failed++;
+            }
         }
 
         stopwatch.Stop();
@@ -106,8 +114,7 @@ public static class XbxSceneCommand
                 .Distinct()
                 .ToArray();
             return Directory.GetFiles(input, "*.*", SearchOption.AllDirectories)
-                .Where(p => allExts.Any(
-                    ext => Path.GetFileName(p).EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+                .Where(p => allExts.Any(ext => Path.GetFileName(p).EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
         }
 

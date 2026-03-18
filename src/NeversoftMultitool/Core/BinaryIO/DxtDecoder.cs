@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 namespace NeversoftMultitool.Core.BinaryIO;
 
 /// <summary>
-/// Decodes DXT1, DXT3, and DXT5 (S3TC) compressed texture blocks to RGBA32.
+///     Decodes DXT1, DXT3, and DXT5 (S3TC) compressed texture blocks to RGBA32.
 /// </summary>
 public static class DxtDecoder
 {
@@ -20,7 +20,7 @@ public static class DxtDecoder
             for (var bx = 0; bx < blocksX; bx++)
             {
                 if (offset + 8 > data.Length) return output;
-                DecodeDxt1Block(data.Slice(offset, 8), output, bx * 4, by * 4, width, height, hasAlpha: true);
+                DecodeDxt1Block(data.Slice(offset, 8), output, bx * 4, by * 4, width, height, true);
                 offset += 8;
             }
         }
@@ -44,7 +44,7 @@ public static class DxtDecoder
 
                 // 8 bytes explicit alpha + 8 bytes color block
                 DecodeExplicitAlphaBlock(data.Slice(offset, 8), output, bx * 4, by * 4, width, height);
-                DecodeDxt1Block(data.Slice(offset + 8, 8), output, bx * 4, by * 4, width, height, hasAlpha: false);
+                DecodeDxt1Block(data.Slice(offset + 8, 8), output, bx * 4, by * 4, width, height, false);
                 offset += 16;
             }
         }
@@ -68,7 +68,7 @@ public static class DxtDecoder
 
                 // 8 bytes alpha block + 8 bytes color block
                 DecodeAlphaBlock(data.Slice(offset, 8), output, bx * 4, by * 4, width, height);
-                DecodeDxt1Block(data.Slice(offset + 8, 8), output, bx * 4, by * 4, width, height, hasAlpha: false);
+                DecodeDxt1Block(data.Slice(offset + 8, 8), output, bx * 4, by * 4, width, height, false);
                 offset += 16;
             }
         }
@@ -92,8 +92,8 @@ public static class DxtDecoder
         if (c0 > c1)
         {
             // 4-color mode: c2 = 2/3*c0 + 1/3*c1, c3 = 1/3*c0 + 2/3*c1
-            colors[8]  = (byte)((2 * colors[0] + colors[4] + 1) / 3);
-            colors[9]  = (byte)((2 * colors[1] + colors[5] + 1) / 3);
+            colors[8] = (byte)((2 * colors[0] + colors[4] + 1) / 3);
+            colors[9] = (byte)((2 * colors[1] + colors[5] + 1) / 3);
             colors[10] = (byte)((2 * colors[2] + colors[6] + 1) / 3);
             colors[11] = 255;
             colors[12] = (byte)((colors[0] + 2 * colors[4] + 1) / 3);
@@ -104,8 +104,8 @@ public static class DxtDecoder
         else
         {
             // 3-color + transparent: c2 = 1/2*c0 + 1/2*c1, c3 = transparent black
-            colors[8]  = (byte)((colors[0] + colors[4] + 1) / 2);
-            colors[9]  = (byte)((colors[1] + colors[5] + 1) / 2);
+            colors[8] = (byte)((colors[0] + colors[4] + 1) / 2);
+            colors[9] = (byte)((colors[1] + colors[5] + 1) / 2);
             colors[10] = (byte)((colors[2] + colors[6] + 1) / 2);
             colors[11] = 255;
             colors[12] = 0;
@@ -124,7 +124,7 @@ public static class DxtDecoder
                 if (ox >= width) continue;
                 var idx = (int)((lut >> (2 * (y * 4 + x))) & 0x03);
                 var dest = (oy * width + ox) * 4;
-                output[dest]     = colors[idx * 4];
+                output[dest] = colors[idx * 4];
                 output[dest + 1] = colors[idx * 4 + 1];
                 output[dest + 2] = colors[idx * 4 + 2];
                 if (hasAlpha)
@@ -162,7 +162,7 @@ public static class DxtDecoder
         var a1 = block[1];
 
         // 48-bit alpha LUT (6 bytes, 3 bits per pixel for 16 pixels)
-        var bits = (ulong)block[2] | ((ulong)block[3] << 8) | ((ulong)block[4] << 16) |
+        var bits = block[2] | ((ulong)block[3] << 8) | ((ulong)block[4] << 16) |
                    ((ulong)block[5] << 24) | ((ulong)block[6] << 32) | ((ulong)block[7] << 40);
 
         Span<byte> alphas = stackalloc byte[8];

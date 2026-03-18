@@ -139,7 +139,7 @@ public static class Ps2SceneGltfWriter
                 materialCache, textureProvider);
             var prim = gltfMesh.UsePrimitive(material);
 
-            var tris = AddSkinnedTriangleStrip(prim, mesh.Vertices, mesh.StartsOnOddOutputSlot);
+            var tris = Ps2SceneGltfSkinningSupport.AddSkinnedTriangleStrip(prim, mesh.Vertices, mesh.StartsOnOddOutputSlot);
             totalTriangles += tris;
         }
 
@@ -156,96 +156,6 @@ public static class Ps2SceneGltfWriter
     }
 
     /// <summary>
-    ///     Converts ADC-flagged triangle strips to individual triangles with joint/weight data.
-    /// </summary>
-    private static int AddSkinnedTriangleStrip(
-        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexJoints4> prim,
-        Ps2Vertex[] verts,
-        bool startsOnOddOutputSlot = false)
-    {
-        var count = 0;
-        var stripStart = 0;
-        var parityBias = startsOnOddOutputSlot ? 1 : 0;
-
-        for (var i = 0; i < verts.Length; i++)
-        {
-            if (verts[i].IsStripRestart)
-            {
-                // ADC/no-kick vertices suppress the current triangle but remain in the strip queue.
-                continue;
-            }
-
-            var localIndex = i - stripStart;
-            if (localIndex < 2)
-                continue;
-
-            VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4> va, vb, vc;
-            Ps2Vertex pa, pb, pc;
-            if (((localIndex + parityBias) & 1) == 0)
-            {
-                pa = verts[i - 2];
-                pb = verts[i - 1];
-                pc = verts[i];
-                va = MakeSkinnedVertex(verts[i - 2]);
-                vb = MakeSkinnedVertex(verts[i - 1]);
-                vc = MakeSkinnedVertex(verts[i]);
-            }
-            else
-            {
-                pa = verts[i - 1];
-                pb = verts[i - 2];
-                pc = verts[i];
-                va = MakeSkinnedVertex(verts[i - 1]);
-                vb = MakeSkinnedVertex(verts[i - 2]);
-                vc = MakeSkinnedVertex(verts[i]);
-            }
-
-            if (IsDegenerate(pa, pb, pc))
-                continue;
-
-            prim.AddTriangle(va, vb, vc);
-            count++;
-        }
-
-        return count;
-    }
-
-    /// <summary>
-    ///     Creates a glTF vertex with skinning data from a PS2 vertex.
-    /// </summary>
-    private static VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4> MakeSkinnedVertex(
-        in Ps2Vertex v)
-    {
-        // Position and normal (same as rigid MakeVertex)
-        var pos = v.Position;
-        var normal = Vector3.UnitY;
-        if (v.HasNormal)
-        {
-            var len = v.Normal.Length();
-            normal = len > 0.001f ? v.Normal / len : Vector3.UnitY;
-        }
-
-        var r = Math.Min(v.R / 128f, 1f);
-        var g = Math.Min(v.G / 128f, 1f);
-        var b = Math.Min(v.B / 128f, 1f);
-        var a = Math.Min(v.A / 128f, 1f);
-        var uv = v.HasUV ? new Vector2(v.U, 1f - v.V) : Vector2.Zero;
-
-        // Build joint weights — up to 3 bone influences
-        var skinning = v.HasSkinData
-            ? new VertexJoints4(
-                (v.BoneIndex0, v.BoneWeight0),
-                (v.BoneIndex1, v.BoneWeight1),
-                (v.BoneIndex2, v.BoneWeight2))
-            : new VertexJoints4((0, 1f)); // fallback: 100% bone 0
-
-        return new VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4>(
-            new VertexPositionNormal(pos, normal),
-            new VertexColor1Texture1(new Vector4(r, g, b, a), uv),
-            skinning);
-    }
-
-    /// <summary>
     ///     Converts ADC-flagged triangle strips to individual triangles.
     ///     Shared between MDL/SKIN and GEOM pipelines.
     /// </summary>
@@ -253,19 +163,30 @@ public static class Ps2SceneGltfWriter
         PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexEmpty> prim,
         Ps2Vertex[] verts,
         bool startsOnOddOutputSlot = false,
-        HashSet<(Vector3, Vector3, Vector3)>? dedup = null)
+        HashSet<(Vector3, Vector3, Vector3)>? dedup = null,
+        float maxTriangleEdgeLength = float.PositiveInfinity,
+        bool resetOnRestart = false)
     {
         var count = 0;
         var stripStart = 0;
         var parityBias = startsOnOddOutputSlot ? 1 : 0;
+        var lastWasRestart = false;
 
         for (var i = 0; i < verts.Length; i++)
         {
             if (verts[i].IsStripRestart)
             {
-                // ADC/no-kick vertices suppress the current triangle but remain in the strip queue.
+                // World-zone GEOM streams use restart-flagged vertices to seed a fresh strip.
+                // PS2 ADC pattern: consecutive restart vertices [R, R, n, n, ...] prime a new
+                // sub-strip. Only reset stripStart on the FIRST restart in a consecutive sequence
+                // so the second restart vertex still counts toward the 2-vertex strip lead-in.
+                if (resetOnRestart && !lastWasRestart)
+                    stripStart = i;
+                lastWasRestart = true;
                 continue;
             }
+
+            lastWasRestart = false;
 
             var localIndex = i - stripStart;
             if (localIndex < 2)
@@ -295,6 +216,12 @@ public static class Ps2SceneGltfWriter
             if (IsDegenerate(pa, pb, pc))
                 continue;
 
+            if (!float.IsPositiveInfinity(maxTriangleEdgeLength) &&
+                MaxTriangleEdgeLength(pa, pb, pc) > maxTriangleEdgeLength)
+            {
+                continue;
+            }
+
             if (dedup is not null)
             {
                 var key = SortedTriangleKey(pa.Position, pb.Position, pc.Position);
@@ -307,6 +234,14 @@ public static class Ps2SceneGltfWriter
         }
 
         return count;
+    }
+
+    private static float MaxTriangleEdgeLength(in Ps2Vertex a, in Ps2Vertex b, in Ps2Vertex c)
+    {
+        var ab = Vector3.Distance(a.Position, b.Position);
+        var bc = Vector3.Distance(b.Position, c.Position);
+        var ca = Vector3.Distance(c.Position, a.Position);
+        return Math.Max(ab, Math.Max(bc, ca));
     }
 
     private static (Vector3, Vector3, Vector3) SortedTriangleKey(Vector3 a, Vector3 b, Vector3 c)
@@ -343,7 +278,7 @@ public static class Ps2SceneGltfWriter
         return gltfMesh;
     }
 
-    private static bool IsDegenerate(in Ps2Vertex a, in Ps2Vertex b, in Ps2Vertex c)
+    internal static bool IsDegenerate(in Ps2Vertex a, in Ps2Vertex b, in Ps2Vertex c)
     {
         const float epsilon = 1e-8f;
 
@@ -461,7 +396,7 @@ public static class Ps2SceneGltfWriter
         // correct z-ordering while preserving alpha-tested cutout behavior.
         if (mat.IsOpaqueBlend)
         {
-            builder.WithAlpha(AlphaMode.MASK, 0.5f);
+            builder.WithAlpha(AlphaMode.MASK);
             return;
         }
 

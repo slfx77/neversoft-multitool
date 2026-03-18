@@ -173,6 +173,11 @@ src/NeversoftMultitool/
   App/                     # WinUI 3 GUI (Windows only)
 ```
 
+## Code Guardrails
+
+- C# files should stay under a soft 500-line limit. Existing exceptions are tracked in repo-policy tests and should be reduced over time instead of adding new ones.
+- `partial class` usage should stay limited to UI XAML code-behind and cases where source generation requires it, such as `[GeneratedRegex]`.
+
 ## Acknowledgements
 
 This project contains code derived from or informed by:

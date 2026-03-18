@@ -320,39 +320,7 @@ public sealed partial class HashReviewerTab : UserControl
     private (byte[] Rgba, int Width, int Height)? TryExtractFromAllFiles(
         HashReviewEntry entry, List<string> diagnostics)
     {
-        var filesFound = 0;
-        foreach (var psxPath in FindPsxFiles(entry.Files))
-        {
-            filesFound++;
-            var result = PsxLibrary.ExtractTextureByHash(psxPath, entry.HashValue, diagnostics);
-            if (result != null)
-                return result;
-        }
-
-        if (filesFound == 0)
-            diagnostics.Insert(0, $"No PSX files found for: {string.Join(", ", entry.Files)}");
-
-        return null;
-    }
-
-    private IEnumerable<string> FindPsxFiles(string[] fileNames)
-    {
-        // Search builds directory for all matching PSX filenames
-        foreach (var fileName in fileNames)
-        {
-            string[] matches;
-            try
-            {
-                matches = Directory.GetFiles(_buildsDir, fileName, SearchOption.AllDirectories);
-            }
-            catch
-            {
-                continue;
-            }
-
-            foreach (var match in matches)
-                yield return match;
-        }
+        return HashReviewerTextureLookup.TryExtractFromAllFiles(_buildsDir, entry, diagnostics);
     }
 
     // ── Actions ─────────────────────────────────────────────────────────

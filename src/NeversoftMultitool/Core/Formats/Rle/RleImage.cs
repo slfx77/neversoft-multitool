@@ -3,19 +3,6 @@ using System.Text;
 namespace NeversoftMultitool.Core.Formats.Rle;
 
 /// <summary>
-///     Result of converting a single RLE/BMR file.
-/// </summary>
-public sealed class RleConversionResult
-{
-    public int Width { get; set; }
-    public int Height { get; set; }
-    public byte[] RgbPixels { get; set; } = [];
-    public bool Success => RgbPixels.Length > 0;
-    public bool WidthAutoDetected { get; set; }
-    public string? ErrorMessage { get; set; }
-}
-
-/// <summary>
 ///     Converts Neversoft RLE and BMR bitmap files to RGB pixel data.
 /// </summary>
 public static class RleImage
@@ -430,8 +417,3 @@ public static class RleImage
         return pixels;
     }
 }
-
-/// <summary>
-///     Simple RGB color value.
-/// </summary>
-internal readonly record struct RgbColor(byte R, byte G, byte B);

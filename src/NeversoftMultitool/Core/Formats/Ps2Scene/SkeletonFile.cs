@@ -7,7 +7,7 @@ namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 ///     Two sub-formats confirmed via binary analysis of 154 files:
 ///     THPS4: checksum(u32) + numBones(u32) + 3 name tables. Size = 8 + N×12. No neutral poses.
 ///     THUG/THUG2: checksum(u32) + version(u32) + flags(u32) + numBones(u32) + 3 name tables + neutral poses.
-///       Size = 16 + N×44, with optional trailing null-terminated build timestamp string.
+///     Size = 16 + N×44, with optional trailing null-terminated build timestamp string.
 ///     Unlike Ps2SkeletonFile (.ske.ps2) which starts directly with version,
 ///     the cross-platform format prepends a name checksum.
 ///     Discrimination: THUG/THUG2 have checksum=0x222756D5, version=2, flags=0 (constant).

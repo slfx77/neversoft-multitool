@@ -138,7 +138,8 @@ public class Ps2TexSwizzleTests
         // The result should differ from the input (the swizzle should change positions)
         var differences = 0;
         for (var i = 0; i < input.Length; i++)
-            if (input[i] != result[i]) differences++;
+            if (input[i] != result[i])
+                differences++;
 
         Assert.True(differences > input.Length / 2,
             $"Expected significant reordering, but only {differences}/{input.Length} bytes changed");
@@ -157,7 +158,8 @@ public class Ps2TexSwizzleTests
 
         var differences = 0;
         for (var i = 0; i < bytes; i++)
-            if (input[i] != result[i]) differences++;
+            if (input[i] != result[i])
+                differences++;
 
         Assert.True(differences > bytes / 2,
             $"Expected significant reordering, but only {differences}/{bytes} bytes changed");

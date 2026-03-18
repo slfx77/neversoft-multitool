@@ -48,7 +48,7 @@ public static class QbDecompiler
         var last = sb[^1];
         // No space needed after whitespace, opening brackets/parens, or operators that already include space
         return last != ' ' && last != '\t' && last != '\n' && last != '\r'
-            && last != '(' && last != '<' && last != '[';
+               && last != '(' && last != '<' && last != '[';
     }
 
     /// <summary>
@@ -386,9 +386,13 @@ public static class QbDecompiler
         }
     }
 
-    private static string FormatFloat(float f) =>
-        f.ToString("G", CultureInfo.InvariantCulture);
+    private static string FormatFloat(float f)
+    {
+        return f.ToString("G", CultureInfo.InvariantCulture);
+    }
 
-    private static string EscapeString(string s) =>
-        s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r");
+    private static string EscapeString(string s)
+    {
+        return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r");
+    }
 }

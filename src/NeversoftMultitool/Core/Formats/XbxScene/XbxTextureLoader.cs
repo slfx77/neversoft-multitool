@@ -8,7 +8,7 @@ namespace NeversoftMultitool.Core.Formats.XbxScene;
 /// </summary>
 public static class XbxTextureLoader
 {
-    private static readonly string[] TexExtensions = [".tex.xbx", ".tex.wpc"];
+    private static readonly string[] TexExtensions = [".tex.xbx", ".tex.wpc", ".tex", ".stex"];
     private static readonly string[] TexDirNames = ["TEX", "Textures"];
 
     /// <summary>
@@ -110,7 +110,9 @@ public static class XbxTextureLoader
                 {
                     var name = Path.GetFileName(f);
                     return name.EndsWith(".tex.xbx", StringComparison.OrdinalIgnoreCase) ||
-                           name.EndsWith(".tex.wpc", StringComparison.OrdinalIgnoreCase);
+                           name.EndsWith(".tex.wpc", StringComparison.OrdinalIgnoreCase) ||
+                           name.EndsWith(".tex", StringComparison.OrdinalIgnoreCase) ||
+                           name.EndsWith(".stex", StringComparison.OrdinalIgnoreCase);
                 })
                 .ToList();
         }

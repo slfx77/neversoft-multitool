@@ -1,0 +1,102 @@
+using System.Numerics;
+using NeversoftMultitool.Core.Formats.Archives;
+using NeversoftMultitool.Core.Formats.Ps2Scene;
+using NeversoftMultitool.Tests.Helpers;
+
+namespace NeversoftMultitool.Tests.Core.Formats.Ps2Scene;
+
+public sealed class Ps2GeomFileTests(TestPaths paths)
+{
+    private string? GetThawPakDir()
+    {
+        if (!paths.HasSampleBuilds) return null;
+        var dir = Path.Combine(paths.SampleBuildsDir!,
+            "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)", "PAK");
+        return Directory.Exists(dir) ? dir : null;
+    }
+
+    [Fact]
+    public void ParsePakMdl_ExtractedHollywoodZoneModel_ParsesSubstantialGeometry()
+    {
+        var pakDir = GetThawPakDir();
+        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
+
+        var pakPath = Path.Combine(pakDir!, "z_ho.pak.ps2");
+        Assert.SkipWhen(!File.Exists(pakPath), "z_ho.pak.ps2 not found");
+
+        var tempDir = Path.Combine(Path.GetTempPath(),
+            "NsMultitool_Test_ZHo_" + Guid.NewGuid().ToString("N")[..8]);
+
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            PakArchive.ExtractFiles(pakPath, tempDir, token: TestContext.Current.CancellationToken);
+
+            var extractedDir = Path.Combine(tempDir, "z_ho.pak");
+            var mdlPath = Directory.GetFiles(extractedDir, "*.mdl", SearchOption.TopDirectoryOnly)
+                .Single(path => Path.GetFileName(path).Equals("003B9540.mdl", StringComparison.OrdinalIgnoreCase));
+
+            var data = File.ReadAllBytes(mdlPath);
+            Assert.True(Ps2GeomFile.IsPakMdl(data));
+
+            var scene = Ps2GeomFile.ParsePakMdl(data);
+            var totalVertices = scene.Leaves.Sum(leaf => leaf.Vertices.Length);
+            var giantLeaves = scene.Leaves.Count(leaf =>
+            {
+                var min = new Vector3(float.MaxValue);
+                var max = new Vector3(float.MinValue);
+                foreach (var vertex in leaf.Vertices)
+                {
+                    min = Vector3.Min(min, vertex.Position);
+                    max = Vector3.Max(max, vertex.Position);
+                }
+
+                var size = max - min;
+                return Math.Max(size.X, Math.Max(size.Y, size.Z)) > 20_000f;
+            });
+
+            Assert.True(scene.Leaves.Count > 100, $"Expected >100 mesh leaves, found {scene.Leaves.Count}");
+            Assert.True(totalVertices > 20_000, $"Expected >20K vertices, found {totalVertices}");
+            Assert.True(giantLeaves == 0, $"Expected no giant world-zone leaves, found {giantLeaves}");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ParsePakMdl_ExtractedHollywoodZoneModel_PreservesMipRegisters()
+    {
+        var pakDir = GetThawPakDir();
+        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
+
+        var pakPath = Path.Combine(pakDir!, "z_ho.pak.ps2");
+        Assert.SkipWhen(!File.Exists(pakPath), "z_ho.pak.ps2 not found");
+
+        var tempDir = Path.Combine(Path.GetTempPath(),
+            "NsMultitool_Test_ZHoMip_" + Guid.NewGuid().ToString("N")[..8]);
+
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            PakArchive.ExtractFiles(pakPath, tempDir, token: TestContext.Current.CancellationToken);
+
+            var extractedDir = Path.Combine(tempDir, "z_ho.pak");
+            var mdlPath = Directory.GetFiles(extractedDir, "*.mdl", SearchOption.TopDirectoryOnly)
+                .Single(path => Path.GetFileName(path).Equals("003B9540.mdl", StringComparison.OrdinalIgnoreCase));
+
+            var scene = Ps2GeomFile.ParsePakMdl(File.ReadAllBytes(mdlPath));
+
+            Assert.Contains(scene.Leaves, static leaf => leaf.DmaTex1 != 0);
+            Assert.Contains(scene.Leaves, static leaf => leaf.DmaMipTbp1 != 0);
+            Assert.Contains(scene.Leaves, static leaf => ((leaf.DmaTex1 >> 2) & 0x7) != 0);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+}

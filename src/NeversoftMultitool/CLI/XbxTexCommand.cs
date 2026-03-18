@@ -1,6 +1,5 @@
 using System.CommandLine;
 using System.Diagnostics;
-using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.XbxScene;
 using Spectre.Console;
 
@@ -12,7 +11,8 @@ public static class XbxTexCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to an Xbox/PC TEX or IMG file (.tex.xbx, .img.xbx) or directory"
+            Description =
+                "Path to an Xbox/PC TEX/IMG file (.tex.xbx, .img.xbx, .tex.wpc, .img.wpc, .stex, extracted .tex) or directory"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -24,7 +24,7 @@ public static class XbxTexCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("xbxtex", "Extract textures from Xbox/PC TEX/IMG files (.xbx) to PNG");
+        var command = new Command("xbxtex", "Extract textures from Xbox/PC TEX/IMG files to PNG");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -67,24 +67,6 @@ public static class XbxTexCommand
             return 0;
         }
 
-        // Probe for unsupported files
-        var (supported, unsupported) = FormatProbe.PartitionFiles(files, FormatProbe.ProbeTexture);
-        if (unsupported.Count > 0)
-        {
-            AnsiConsole.MarkupLine(
-                $"Found [green]{files.Count}[/] files " +
-                $"([green]{supported.Count}[/] supported, [yellow]{unsupported.Count}[/] unsupported)");
-            foreach (var (fileName, reason) in unsupported)
-                AnsiConsole.MarkupLine($"  [yellow]\u26a0[/] {Markup.Escape(fileName)}: {Markup.Escape(reason)}");
-            files = supported;
-        }
-
-        if (files.Count == 0)
-        {
-            AnsiConsole.MarkupLine("[yellow]No supported Xbox TEX/IMG files to process.[/]");
-            return 0;
-        }
-
         Directory.CreateDirectory(output);
         AnsiConsole.MarkupLine($"Processing [green]{files.Count}[/] Xbox TEX/IMG file(s)");
 
@@ -103,11 +85,15 @@ public static class XbxTexCommand
                 stem = stem[..^4];
 
             var lower = filename.ToLowerInvariant();
-            var isImg = lower.EndsWith(".img.xbx") || lower.EndsWith(".img.wpc");
+            var isImg = lower.EndsWith(".img.xbx") ||
+                        lower.EndsWith(".img.wpc") ||
+                        lower.EndsWith(".img");
 
             if (isImg)
             {
                 var result = XbxImgFile.Parse(file);
+                if (!result.Success)
+                    result = ThawImgFile.Parse(file);
                 if (!result.Success)
                 {
                     failed++;
@@ -164,6 +150,9 @@ public static class XbxTexCommand
         return name.EndsWith(".tex.xbx", StringComparison.OrdinalIgnoreCase)
                || name.EndsWith(".img.xbx", StringComparison.OrdinalIgnoreCase)
                || name.EndsWith(".tex.wpc", StringComparison.OrdinalIgnoreCase)
-               || name.EndsWith(".img.wpc", StringComparison.OrdinalIgnoreCase);
+               || name.EndsWith(".img.wpc", StringComparison.OrdinalIgnoreCase)
+               || name.EndsWith(".stex", StringComparison.OrdinalIgnoreCase)
+               || name.EndsWith(".tex", StringComparison.OrdinalIgnoreCase)
+               || name.EndsWith(".img", StringComparison.OrdinalIgnoreCase);
     }
 }

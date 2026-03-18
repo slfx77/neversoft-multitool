@@ -208,12 +208,14 @@ public static class RwBspGltfWriter
     ///     Returns true for dev/debug textures that should be excluded from glTF output
     ///     (collision volumes, trigger planes, wireframe placeholders).
     /// </summary>
-    private static bool IsDevTexture(string name) =>
-        string.Equals(name, "wire", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(name, "transparent", StringComparison.OrdinalIgnoreCase)
-        || name.Contains("_CR_Collision_", StringComparison.OrdinalIgnoreCase)
-        || name.Contains("_CR_TriggerPlane_", StringComparison.OrdinalIgnoreCase)
-        || name.Contains("_CR_VertPoly", StringComparison.OrdinalIgnoreCase);
+    private static bool IsDevTexture(string name)
+    {
+        return string.Equals(name, "wire", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(name, "transparent", StringComparison.OrdinalIgnoreCase)
+               || name.Contains("_CR_Collision_", StringComparison.OrdinalIgnoreCase)
+               || name.Contains("_CR_TriggerPlane_", StringComparison.OrdinalIgnoreCase)
+               || name.Contains("_CR_VertPoly", StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     ///     Builds a texture provider from an RW TXD file.

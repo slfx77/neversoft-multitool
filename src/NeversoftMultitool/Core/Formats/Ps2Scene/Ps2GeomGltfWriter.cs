@@ -46,11 +46,17 @@ public static class Ps2GeomGltfWriter
 
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<GeomMaterialKey, MaterialBuilder>();
+        var buckets = new Dictionary<GeomMaterialKey, GeomMeshBucket>();
         var totalTriangles = 0;
+        var isWorldZoneScene = IsWorldZoneScene(geomScene);
+        var triangleEdgeLimit = GetWorldZoneTriangleEdgeLimit(geomScene, isWorldZoneScene);
 
         foreach (var leaf in geomScene.Leaves)
         {
             if (leaf.Vertices.Length < 3) continue;
+
+            if (isWorldZoneScene && ShouldSkipWorldZoneLeaf(leaf))
+                continue;
 
             // Resolve texture checksum: use node field if non-zero (THUG/THUG2),
             // otherwise fall back to DMA TEX0 VRAM lookup (THPS4)
@@ -58,19 +64,29 @@ public static class Ps2GeomGltfWriter
             if (texChecksum == 0 && leaf.DmaTex0 != 0 && tex0Resolver != null)
                 texChecksum = tex0Resolver(leaf.DmaTex0, leaf.GroupChecksum);
 
-            var name = QbKey.TryResolve(leaf.Checksum) ?? $"node_{leaf.Checksum:X8}";
-            var material = GetOrCreateGeomMaterial(texChecksum, leaf.DmaClamp1,
-                leaf.DmaAlpha1, leaf.DmaTest1, materialCache, textureProvider);
-
-            var gltfMesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>(name);
-            var prim = gltfMesh.UsePrimitive(material);
-            var tris = Ps2SceneGltfWriter.AddTriangleStrip(prim, leaf.Vertices);
+            var key = CreateGeomMaterialKey(texChecksum, leaf.DmaClamp1, leaf.DmaAlpha1, leaf.DmaTest1);
+            var bucket = GetOrCreateBucket(key, materialCache, buckets, textureProvider);
+            var leafEdgeLimit = !float.IsPositiveInfinity(triangleEdgeLimit) && leaf.Vertices.All(v => !v.HasNormal)
+                ? triangleEdgeLimit
+                : float.PositiveInfinity;
+            var tris = Ps2SceneGltfWriter.AddTriangleStrip(bucket.Primitive, leaf.Vertices,
+                dedup: bucket.Dedup,
+                maxTriangleEdgeLength: leafEdgeLimit,
+                resetOnRestart: isWorldZoneScene);
 
             if (tris == 0) continue;
 
             totalTriangles += tris;
-            var node = new NodeBuilder(name);
-            scene.AddRigidMesh(gltfMesh, node);
+            bucket.TriangleCount += tris;
+        }
+
+        foreach (var bucket in buckets.Values)
+        {
+            if (bucket.TriangleCount == 0)
+                continue;
+
+            var node = new NodeBuilder(bucket.Name);
+            scene.AddRigidMesh(bucket.Mesh, node);
         }
 
         if (totalTriangles == 0)
@@ -82,20 +98,107 @@ public static class Ps2GeomGltfWriter
         return totalTriangles;
     }
 
+    private static GeomMeshBucket GetOrCreateBucket(
+        GeomMaterialKey key,
+        Dictionary<GeomMaterialKey, MaterialBuilder> materialCache,
+        Dictionary<GeomMaterialKey, GeomMeshBucket> buckets,
+        Ps2SceneGltfWriter.TextureProvider? textureProvider)
+    {
+        if (buckets.TryGetValue(key, out var existing))
+            return existing;
+
+        var material = GetOrCreateGeomMaterial(key, materialCache, textureProvider);
+        var name = key.TextureChecksum != 0
+            ? QbKey.TryResolve(key.TextureChecksum) ?? $"tex_{key.TextureChecksum:X8}"
+            : $"geom_{buckets.Count:D4}";
+        var mesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>(name);
+        var bucket = new GeomMeshBucket(name, mesh, mesh.UsePrimitive(material),
+            new HashSet<(Vector3, Vector3, Vector3)>());
+        buckets[key] = bucket;
+        return bucket;
+    }
+
+    private static bool IsWorldZoneScene(Ps2GeomScene geomScene)
+    {
+        return geomScene.Leaves.Count >= 500 && geomScene.Leaves.All(leaf => leaf.Checksum == 0);
+    }
+
+    private static float GetWorldZoneTriangleEdgeLimit(Ps2GeomScene geomScene, bool isWorldZoneScene)
+    {
+        if (!isWorldZoneScene)
+            return float.PositiveInfinity;
+
+        var min = new Vector3(float.MaxValue);
+        var max = new Vector3(float.MinValue);
+        foreach (var leaf in geomScene.Leaves)
+        foreach (var vertex in leaf.Vertices)
+        {
+            min = Vector3.Min(min, vertex.Position);
+            max = Vector3.Max(max, vertex.Position);
+        }
+
+        var size = max - min;
+        var sceneMaxDimension = Math.Max(size.X, Math.Max(size.Y, size.Z));
+        if (sceneMaxDimension <= 0)
+            return float.PositiveInfinity;
+
+        return sceneMaxDimension * 0.10f;
+    }
+
+    private static bool ShouldSkipWorldZoneLeaf(Ps2GeomLeaf leaf)
+    {
+        if (leaf.Vertices.Length < 4)
+            return false;
+
+        if (leaf.Vertices.Any(v => v.HasNormal))
+            return false;
+
+        var min = new Vector3(float.MaxValue);
+        var max = new Vector3(float.MinValue);
+        var restartCount = 0;
+        foreach (var vertex in leaf.Vertices)
+        {
+            min = Vector3.Min(min, vertex.Position);
+            max = Vector3.Max(max, vertex.Position);
+            if (vertex.IsStripRestart)
+                restartCount++;
+        }
+
+        var size = max - min;
+        var maxDimension = Math.Max(size.X, Math.Max(size.Y, size.Z));
+        if (maxDimension < 1000f)
+            return false;
+
+        var center = (min + max) * 0.5f;
+        if (Math.Abs(center.X) > 10f || Math.Abs(center.Y) > 10f || Math.Abs(center.Z) > 10f)
+            return false;
+
+        return restartCount >= Math.Max(2, leaf.Vertices.Length / 5);
+    }
+
+    private static GeomMaterialKey CreateGeomMaterialKey(uint textureChecksum, ulong clamp1, ulong alpha1, ulong test1)
+    {
+        var clampBits = (byte)(clamp1 & 0x0F);
+        var alphaBlend = (byte)(alpha1 & 0xFF);
+        var fix = (byte)((alpha1 >> 32) & 0xFF);
+        var ate = (test1 & 1) != 0;
+        var aref = (byte)((test1 >> 4) & 0xFF);
+        return new GeomMaterialKey(textureChecksum, clampBits, alphaBlend, ate ? aref : (byte)0, fix);
+    }
+
     private static MaterialBuilder GetOrCreateGeomMaterial(
-        uint textureChecksum, ulong clamp1, ulong alpha1, ulong test1,
+        GeomMaterialKey key,
         Dictionary<GeomMaterialKey, MaterialBuilder> cache,
         Ps2SceneGltfWriter.TextureProvider? textureProvider)
     {
-        // Decode GS register fields for material key
-        var clampBits = (byte)(clamp1 & 0x0F); // WMS (bits 0-1) + WMT (bits 2-3)
-        var alphaBlend = (byte)(alpha1 & 0xFF); // A,B,C,D fields
-        var ate = (test1 & 1) != 0;
-        var aref = (byte)((test1 >> 4) & 0xFF);
-
-        var key = new GeomMaterialKey(textureChecksum, clampBits, alphaBlend, aref);
         if (cache.TryGetValue(key, out var existing))
             return existing;
+
+        var textureChecksum = key.TextureChecksum;
+        var clampBits = key.ClampBits;
+        var alphaBlend = key.AlphaBlend;
+        var aref = key.AlphaRef;
+        var fixValue = key.FixValue;
 
         var matName = textureChecksum != 0
             ? QbKey.TryResolve(textureChecksum) ?? $"tex_{textureChecksum:X8}"
@@ -168,8 +271,7 @@ public static class Ps2GeomGltfWriter
             // For FIX-mode additive (Cs*FIX/128 + Cd), scale brightness
             if (cField == 2)
             {
-                var fix = (byte)((alpha1 >> 32) & 0xFF);
-                var intensity = Math.Min(fix / 128f, 1f);
+                var intensity = Math.Min(fixValue / 128f, 1f);
                 builder.WithBaseColor(new Vector4(intensity, intensity, intensity, 1f));
             }
         }
@@ -181,8 +283,7 @@ public static class Ps2GeomGltfWriter
 
             if (cField == 2)
             {
-                var fix = (byte)((alpha1 >> 32) & 0xFF);
-                var opacity = Math.Min(fix / 128f, 1f);
+                var opacity = Math.Min(fixValue / 128f, 1f);
                 builder.WithBaseColor(new Vector4(0f, 0f, 0f, opacity));
             }
             else
@@ -198,11 +299,10 @@ public static class Ps2GeomGltfWriter
             // z-sorting artifacts in glTF viewers that don't depth-sort BLEND.
             if (cField == 2)
             {
-                var fix = (byte)((alpha1 >> 32) & 0xFF);
-                if (fix < Ps2SceneGltfWriter.FixBlendOpaqueThreshold)
+                if (fixValue < Ps2SceneGltfWriter.FixBlendOpaqueThreshold)
                 {
                     builder.WithAlpha(AlphaMode.BLEND);
-                    builder.WithBaseColor(new Vector4(1f, 1f, 1f, fix / 128f));
+                    builder.WithBaseColor(new Vector4(1f, 1f, 1f, fixValue / 128f));
                 }
                 // else: fix >= threshold -> leave as default OPAQUE
             }
@@ -212,7 +312,7 @@ public static class Ps2GeomGltfWriter
                 builder.WithAlpha(AlphaMode.BLEND);
             }
         }
-        else if (ate && aref >= 1)
+        else if (aref >= 1)
         {
             builder.WithAlpha(AlphaMode.MASK, aref / 255f);
         }
@@ -257,5 +357,24 @@ public static class Ps2GeomGltfWriter
         uint TextureChecksum,
         byte ClampBits,
         byte AlphaBlend,
-        byte AlphaRef);
+        byte AlphaRef,
+        byte FixValue);
+
+    private sealed class GeomMeshBucket(
+        string name,
+        MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty> mesh,
+        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexEmpty> primitive,
+        HashSet<(Vector3, Vector3, Vector3)> dedup)
+    {
+        public string Name { get; } = name;
+        public MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty> Mesh { get; } = mesh;
+
+        public PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexEmpty> Primitive
+        {
+            get;
+        } = primitive;
+
+        public HashSet<(Vector3, Vector3, Vector3)> Dedup { get; } = dedup;
+        public int TriangleCount { get; set; }
+    }
 }

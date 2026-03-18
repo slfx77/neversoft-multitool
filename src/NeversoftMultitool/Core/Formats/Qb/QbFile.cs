@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace NeversoftMultitool.Core.Formats.Qb;
 
 /// <summary>
@@ -216,7 +218,8 @@ public sealed class QbFile
                         pos++;
                         continue; // Corrupted — resync
                     }
-                    token.StringValue = System.Text.Encoding.ASCII.GetString(
+
+                    token.StringValue = Encoding.ASCII.GetString(
                         data, pos + 5, strLen).TrimEnd('\0');
                     tokens.Add(token);
                     pos += 5 + strLen;
@@ -232,7 +235,8 @@ public sealed class QbFile
                         pos++;
                         continue; // Corrupted — resync
                     }
-                    token.StringValue = System.Text.Encoding.ASCII.GetString(
+
+                    token.StringValue = Encoding.ASCII.GetString(
                         data, pos + 5, nullPos - (pos + 5));
                     tokens.Add(token);
                     pos = nullPos + 1;
@@ -250,6 +254,7 @@ public sealed class QbFile
                         pos++;
                         continue; // Corrupted
                     }
+
                     var randomSize = 5 + 2 * numItems + 4 * numItems;
                     if (pos + randomSize > length) return tokens;
 
@@ -264,6 +269,7 @@ public sealed class QbFile
                             BitConverter.ToInt32(data, offsetBase + 4 * i)
                         );
                     }
+
                     token.RandomItems = items;
                     tokens.Add(token);
                     pos += randomSize;
@@ -290,14 +296,15 @@ public sealed class QbFile
             if (t.Type == QbTokenType.ChecksumName && t.StringValue != null)
                 names.TryAdd(t.NameChecksum, t.StringValue);
         }
+
         return names;
     }
 
     /// <summary>
     ///     Pass 2: Index top-level items (scripts and global assignments).
     ///     Top-level structure from ParseQB in parse.cpp:
-    ///       NAME EQUALS value... ENDOFLINE  → Global
-    ///       KEYWORD_SCRIPT NAME body... KEYWORD_ENDSCRIPT → Script
+    ///     NAME EQUALS value... ENDOFLINE  → Global
+    ///     KEYWORD_SCRIPT NAME body... KEYWORD_ENDSCRIPT → Script
     /// </summary>
     private static List<QbItem> IndexTopLevelItems(
         List<QbToken> tokens, Dictionary<uint, string> localNames)
@@ -343,6 +350,7 @@ public sealed class QbFile
                     }
                     else if (ct.Type == QbTokenType.EndOfFile)
                         break;
+
                     i++;
                 }
 
@@ -401,40 +409,4 @@ public sealed class QbFile
             return local;
         return QbKey.TryResolve(checksum);
     }
-}
-
-public enum QbItemKind { Script, Global }
-
-/// <summary>
-///     A top-level item in a QB file: either a script definition or a global assignment.
-/// </summary>
-public sealed class QbItem
-{
-    public required QbItemKind Kind { get; init; }
-    public uint NameChecksum { get; init; }
-    public string? Name { get; init; }
-    public int StartTokenIndex { get; init; }
-    public int EndTokenIndex { get; init; }
-}
-
-/// <summary>
-///     A single parsed token from a QB file.
-/// </summary>
-public sealed class QbToken
-{
-    public required QbTokenType Type { get; init; }
-    public long Offset { get; init; }
-
-    // Payload fields — populated based on Type
-    public uint NameChecksum { get; set; }
-    public int IntValue { get; set; }
-    public uint HexValue { get; set; }
-    public float FloatValue { get; set; }
-    public string? StringValue { get; set; }
-    public float FloatX { get; set; }
-    public float FloatY { get; set; }
-    public float FloatZ { get; set; }
-    public int JumpOffset { get; set; }
-    public int RandomItemCount { get; set; }
-    public (ushort Weight, int JumpOffset)[]? RandomItems { get; set; }
 }

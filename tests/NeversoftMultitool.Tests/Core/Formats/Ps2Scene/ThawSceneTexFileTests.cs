@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Ps2Scene;
 using NeversoftMultitool.Tests.Helpers;
 
@@ -26,7 +27,10 @@ public sealed class ThawSceneTexFileTests(TestPaths paths)
     {
         // Version 3 (standard Ps2TexFile)
         Assert.False(ThawSceneTexFile.IsThawSceneTex(
-            new byte[] { 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00 }));
+            new byte[]
+            {
+                0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00
+            }));
     }
 
     [Fact]
@@ -133,5 +137,41 @@ public sealed class ThawSceneTexFileTests(TestPaths paths)
             $"{failures.Count}/{files.Length} files failed:\n" +
             string.Join("\n", failures.Take(20)));
         Assert.True(totalTextures > 0, "Should have extracted textures");
+    }
+
+    [Fact]
+    public void ParsePermissive_ExtractedHollywoodZoneTex_ExtractsTexturesAndTex0Map()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var pakDir = Path.Combine(paths.SampleBuildsDir!, ThawBuild, "PAK");
+        var pakPath = Path.Combine(pakDir, "z_ho.pak.ps2");
+        Assert.SkipWhen(!File.Exists(pakPath), "z_ho.pak.ps2 not found");
+
+        var tempDir = Path.Combine(Path.GetTempPath(),
+            "NsMultitool_Test_ZHoTex_" + Guid.NewGuid().ToString("N")[..8]);
+
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            PakArchive.ExtractFiles(pakPath, tempDir, token: TestContext.Current.CancellationToken);
+
+            var extractedDir = Path.Combine(tempDir, "z_ho.pak");
+            var texPath = Directory.GetFiles(extractedDir, "*.tex", SearchOption.TopDirectoryOnly)
+                .Single(path => Path.GetFileName(path).Equals("0009BF70.tex", StringComparison.OrdinalIgnoreCase));
+
+            var texData = File.ReadAllBytes(texPath);
+            var result = ThawSceneTexFile.ParsePermissive(texData);
+            var tex0Map = ThawSceneTexFile.BuildTbpCbpMap(texData);
+
+            Assert.True(result.Success, result.ErrorMessage);
+            Assert.NotEmpty(result.Textures);
+            Assert.NotEmpty(tex0Map);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
     }
 }

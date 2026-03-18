@@ -34,7 +34,8 @@ public static class Ps2SceneCommand
         };
         var skeletonOption = new Option<string?>("--ske")
         {
-            Description = "Skeleton file (.ske.ps2 or .ske) or directory. Auto-discovered for .skin.ps2 files if not specified."
+            Description =
+                "Skeleton file (.ske.ps2 or .ske) or directory. Auto-discovered for .skin.ps2 files if not specified."
         };
         var command = new Command("ps2scene", "Convert PS2 scene files (MDL/SKIN) to glTF (.glb)");
         command.Arguments.Add(inputArgument);
@@ -106,21 +107,44 @@ public static class Ps2SceneCommand
 
         // Build texture lookup if requested
         Ps2SceneGltfWriter.TextureProvider? textureProvider = null;
+        Ps2GeomGltfWriter.Tex0Resolver? tex0Resolver = null;
         Dictionary<uint, Ps2Texture>? textureCache = null;
 
         if (embedTextures || texPath != null)
         {
-            textureCache = Ps2TextureLoader.BuildTextureCache(files, texPath, verbose);
-            if (textureCache.Count > 0)
+            // Try THAW world-zone TEX format first (GIF A+D VRAM uploads)
+            if (!Ps2TextureLoader.TryBuildZoneTexProviders(
+                    texPath, out textureProvider, out tex0Resolver, verbose))
             {
-                AnsiConsole.MarkupLine(
-                    $"Loaded [green]{textureCache.Count}[/] textures for embedding");
-                textureProvider = checksum =>
+                // Fall back to standard TEX formats
+                textureCache = Ps2TextureLoader.BuildTextureCache(files, texPath, verbose);
+                if (textureCache.Count > 0)
                 {
-                    if (!textureCache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
-                        return null;
-                    return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
-                };
+                    AnsiConsole.MarkupLine(
+                        $"Loaded [green]{textureCache.Count}[/] textures for embedding");
+                    textureProvider = checksum =>
+                    {
+                        if (!textureCache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
+                            return null;
+                        return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
+                    };
+                }
+
+                var tex0Mapping = Ps2TextureLoader.BuildTex0Mapping(files, texPath, verbose);
+                if (tex0Mapping.Count > 0)
+                {
+                    if (verbose)
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"Built TEX0 mapping with [green]{tex0Mapping.Count}[/] entries");
+                    }
+
+                    tex0Resolver = (dmaTex0, groupChecksum) =>
+                    {
+                        var key = Ps2VramAllocator.DecodeTex0Key(dmaTex0, groupChecksum);
+                        return tex0Mapping.GetValueOrDefault(key);
+                    };
+                }
             }
         }
 
@@ -226,7 +250,7 @@ public static class Ps2SceneCommand
                 if (Ps2GeomFile.IsPakMdl(fileData))
                 {
                     var geomScene = Ps2GeomFile.ParsePakMdl(fileData);
-                    tris = Ps2GeomGltfWriter.Write(geomScene, outputPath, provider);
+                    tris = Ps2GeomGltfWriter.Write(geomScene, outputPath, provider, tex0Resolver);
                 }
                 else
                 {

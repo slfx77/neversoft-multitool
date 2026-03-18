@@ -13,12 +13,12 @@ namespace NeversoftMultitool.Core.Formats.Collision;
 /// </summary>
 public static class ColFile
 {
-    private const int SizeofHeader = 32;       // 8 × i32
-    private const int SizeofObject = 64;       // per-object header
-    private const int SizeofFloatVert = 12;    // 3 × f32
-    private const int SizeofFixedVert = 6;     // 3 × u16
-    private const int SizeofSmallFace = 8;     // flags:u16 + terrain:u16 + 3×u8 + pad:u8
-    private const int SizeofLargeFace = 10;    // flags:u16 + terrain:u16 + 3×u16
+    private const int SizeofHeader = 32; // 8 × i32
+    private const int SizeofObject = 64; // per-object header
+    private const int SizeofFloatVert = 12; // 3 × f32
+    private const int SizeofFixedVert = 6; // 3 × u16
+    private const int SizeofSmallFace = 8; // flags:u16 + terrain:u16 + 3×u8 + pad:u8
+    private const int SizeofLargeFace = 10; // flags:u16 + terrain:u16 + 3×u16
 
     /// <summary>Returns true if the data looks like a valid COL file (version 9 or 10).</summary>
     public static bool IsColFile(ReadOnlySpan<byte> data)
@@ -28,9 +28,15 @@ public static class ColFile
         return version is 9 or 10;
     }
 
-    public static ColScene Parse(string filePath) => Parse(File.ReadAllBytes(filePath));
+    public static ColScene Parse(string filePath)
+    {
+        return Parse(File.ReadAllBytes(filePath));
+    }
 
-    public static ColScene Parse(byte[] data) => Parse(data.AsSpan());
+    public static ColScene Parse(byte[] data)
+    {
+        return Parse(data.AsSpan());
+    }
 
     public static ColScene Parse(ReadOnlySpan<byte> data)
     {
@@ -55,8 +61,8 @@ public static class ColFile
         // ── Offset calculations ──
         var baseVertOffset = Align16(SizeofHeader + SizeofObject * numObjects);
         var baseIntensityOffset = baseVertOffset +
-            totalLargeVerts * SizeofFloatVert +
-            totalSmallVerts * SizeofFixedVert;
+                                  totalLargeVerts * SizeofFloatVert +
+                                  totalSmallVerts * SizeofFixedVert;
         var baseFaceOffset = Align4(baseIntensityOffset + totalVerts);
 
         // ── Parse per-object headers + geometry ──
@@ -72,7 +78,7 @@ public static class ColFile
         return new ColScene
         {
             Version = version,
-            Objects = objects,
+            Objects = objects
         };
     }
 
@@ -183,10 +189,17 @@ public static class ColFile
             BBoxMax = bboxMax,
             Vertices = vertices,
             Faces = faces,
-            Intensities = intensities,
+            Intensities = intensities
         };
     }
 
-    private static int Align16(int value) => (value + 15) & ~15;
-    private static int Align4(int value) => (value + 3) & ~3;
+    private static int Align16(int value)
+    {
+        return (value + 15) & ~15;
+    }
+
+    private static int Align4(int value)
+    {
+        return (value + 3) & ~3;
+    }
 }

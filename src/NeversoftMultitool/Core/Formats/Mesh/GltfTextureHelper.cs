@@ -155,7 +155,7 @@ internal static class GltfTextureHelper
                 for (var x = 0; x < row.Length; x++)
                 {
                     ref var pixel = ref row[x];
-                    var dist = (255 - pixel.R) + pixel.G + (255 - pixel.B);
+                    var dist = 255 - pixel.R + pixel.G + (255 - pixel.B);
                     var alpha = Math.Clamp(dist * 4, 0, 255);
                     alpha = Math.Min(alpha, pixel.A);
 

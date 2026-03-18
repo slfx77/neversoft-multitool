@@ -1,5 +1,8 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Ps2Scene;
+using SharpGLTF.Geometry;
+using SharpGLTF.Geometry.VertexTypes;
+using SharpGLTF.Materials;
 using SharpGLTF.Schema2;
 using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Ps2Scene.Ps2Scene;
 
@@ -47,7 +50,8 @@ public sealed class Ps2SceneGltfWriterTests
             ]
         };
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "NsMultitool_Test_Ps2Parity_" + Guid.NewGuid().ToString("N")[..8]);
+        var tempDir = Path.Combine(Path.GetTempPath(),
+            "NsMultitool_Test_Ps2Parity_" + Guid.NewGuid().ToString("N")[..8]);
         try
         {
             Directory.CreateDirectory(tempDir);
@@ -79,16 +83,36 @@ public sealed class Ps2SceneGltfWriterTests
         }
     }
 
-    private static Ps2Vertex MakeVertex(float x, float y)
+    [Fact]
+    public void AddTriangleStrip_ResetOnRestart_SuppressesCrossStripTriangles()
+    {
+        var mesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>("restart_test");
+        var prim = mesh.UsePrimitive(new MaterialBuilder("mat"));
+        var verts = new[]
+        {
+            MakeVertex(0, 0, true),
+            MakeVertex(1, 0),
+            MakeVertex(0, 1),
+            MakeVertex(100, 100, true),
+            MakeVertex(101, 100),
+            MakeVertex(100, 101)
+        };
+
+        var triangles = Ps2SceneGltfWriter.AddTriangleStrip(prim, verts, resetOnRestart: true);
+
+        Assert.Equal(2, triangles);
+    }
+
+    private static Ps2Vertex MakeVertex(float x, float y, bool isRestart = false)
     {
         return new Ps2Vertex(
             new Vector3(x, y, 0),
             Vector3.UnitZ,
             128, 128, 128, 128,
             0f, 0f,
-            hasNormal: true,
-            hasColor: false,
-            hasUV: false,
-            isStripRestart: false);
+            true,
+            false,
+            false,
+            isRestart);
     }
 }
