@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -35,23 +36,30 @@ public static class RwDffGltfWriter
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
+        var (model, triangles) = Build(clump, textureProvider);
+        if (triangles == 0) return 0;
+        GltfNormalSmoother.SmoothNormals(model);
+        model.SaveGLB(outputPath);
+        return triangles;
+    }
+
+    internal static (SharpGLTF.Schema2.ModelRoot Model, int Triangles) Build(
+        RwDffClump clump, TextureProvider? textureProvider = null)
+    {
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<string, MaterialBuilder>(StringComparer.OrdinalIgnoreCase);
         var totalTriangles = 0;
 
-        // Build frame hierarchy as NodeBuilder tree
         var frameNodes = BuildFrameHierarchy(clump.Frames);
 
-        // Check if any Atomic has skin data → skinned mesh path
         var skinnedAtomic = clump.Atomics.FirstOrDefault(a => a.SkinData != null);
         if (skinnedAtomic?.SkinData != null && frameNodes.Length >= skinnedAtomic.SkinData.NumBones)
         {
-            totalTriangles = WriteSkinned(clump, frameNodes, skinnedAtomic.SkinData,
+            totalTriangles = WriteSkinned(clump, skinnedAtomic.SkinData,
                 materialCache, textureProvider, scene);
         }
         else
         {
-            // Rigid mesh path: each Atomic links a frame to a geometry
             foreach (var atomic in clump.Atomics)
             {
                 if (atomic.GeometryIndex < 0 || atomic.GeometryIndex >= clump.Geometries.Length)
@@ -73,13 +81,7 @@ public static class RwDffGltfWriter
             }
         }
 
-        if (totalTriangles == 0)
-            return 0;
-
-        var model = scene.ToGltf2();
-        model.SaveGLB(outputPath);
-
-        return totalTriangles;
+        return (scene.ToGltf2(), totalTriangles);
     }
 
     /// <summary>
@@ -87,8 +89,8 @@ public static class RwDffGltfWriter
     ///     Merges all skinned Atomics into a single mesh with joint/weight attributes.
     ///     Builds bone hierarchy from Skin PLG push/pop flags (frame hierarchy is flat in THPS3 DFF).
     /// </summary>
-    private static int WriteSkinned(RwDffClump clump, NodeBuilder[] frameNodes,
-        RwSkinData skinRef, Dictionary<string, MaterialBuilder> materialCache,
+    private static int WriteSkinned(RwDffClump clump, RwSkinData skinRef,
+        Dictionary<string, MaterialBuilder> materialCache,
         TextureProvider? textureProvider, SceneBuilder scene)
     {
         // Build joint nodes from Skin PLG bone data.

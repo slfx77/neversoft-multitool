@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Text;
+using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -51,7 +52,9 @@ internal static class ThawReplayDebugGltfWriter
         if (totalTriangles == 0)
             return 0;
 
-        scene.ToGltf2().SaveGLB(outputPath);
+        var model = scene.ToGltf2();
+        GltfNormalSmoother.SmoothNormals(model);
+        model.SaveGLB(outputPath);
         return totalTriangles;
     }
 

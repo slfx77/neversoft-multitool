@@ -40,7 +40,16 @@ public static class GltfWriter
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        // Build list of texture search directories
+        var (model, triangles) = BuildDdmModel(ddm, texturePath, ddmName, ddxTextures, lights);
+        GltfNormalSmoother.SmoothNormals(model);
+        model.SaveGLB(outputPath);
+        return triangles;
+    }
+
+    internal static (SharpGLTF.Schema2.ModelRoot Model, int Triangles) BuildDdmModel(
+        DdmFile ddm, string? texturePath = null, string? ddmName = null,
+        Dictionary<string, byte[]>? ddxTextures = null, List<LitLight>? lights = null)
+    {
         var textureDirs = GltfTextureHelper.BuildTextureSearchPaths(texturePath, ddmName);
 
         var scene = new SceneBuilder();
@@ -62,10 +71,7 @@ public static class GltfWriter
         if (lights != null)
             GltfLightWriter.AddLightsToScene(scene, lights);
 
-        var model = scene.ToGltf2();
-        model.SaveGLB(outputPath);
-
-        return totalTriangles;
+        return (scene.ToGltf2(), totalTriangles);
     }
 
     /// <summary>
@@ -103,7 +109,9 @@ public static class GltfWriter
         var levelMats = new Dictionary<string, MaterialBuilder>();
         var levelTriangles = AddDdmToScene(levelScene, levelDdm, levelPsx, textureDirs, levelMats, ddxTextures);
         if (lights != null) GltfLightWriter.AddLightsToScene(levelScene, lights);
-        levelScene.ToGltf2().SaveGLB(Path.Combine(outputDir, levelName + "_level.glb"));
+        var levelModel = levelScene.ToGltf2();
+        GltfNormalSmoother.SmoothNormals(levelModel);
+        levelModel.SaveGLB(Path.Combine(outputDir, levelName + "_level.glb"));
 
         // Objects
         var objectTriangles = 0;
@@ -117,7 +125,9 @@ public static class GltfWriter
             var objScene = new SceneBuilder();
             var objMats = new Dictionary<string, MaterialBuilder>();
             objectTriangles = AddDdmToScene(objScene, objectsDdm, objectsPsx, textureDirs, objMats, ddxTextures);
-            objScene.ToGltf2().SaveGLB(Path.Combine(outputDir, levelName + "_objects.glb"));
+            var objModel = objScene.ToGltf2();
+            GltfNormalSmoother.SmoothNormals(objModel);
+            objModel.SaveGLB(Path.Combine(outputDir, levelName + "_objects.glb"));
         }
 
         // Combined
@@ -127,7 +137,9 @@ public static class GltfWriter
         if (objectsDdm != null)
             AddDdmToScene(combinedScene, objectsDdm, objectsPsx, textureDirs, combinedMats, ddxTextures);
         if (lights != null) GltfLightWriter.AddLightsToScene(combinedScene, lights);
-        combinedScene.ToGltf2().SaveGLB(Path.Combine(outputDir, levelName + ".glb"));
+        var combinedModel = combinedScene.ToGltf2();
+        GltfNormalSmoother.SmoothNormals(combinedModel);
+        combinedModel.SaveGLB(Path.Combine(outputDir, levelName + ".glb"));
 
         return (levelTriangles, objectTriangles);
     }

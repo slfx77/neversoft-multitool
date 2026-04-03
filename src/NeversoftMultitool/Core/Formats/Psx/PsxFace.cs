@@ -28,4 +28,17 @@ public sealed class PsxFace
     public byte V2 { get; init; }
     public byte U3 { get; init; }
     public byte V3 { get; init; }
+
+    internal PsxTextureCoordinate[] TextureCoordinates { get; init; } =
+    [
+        default,
+        default,
+        default,
+        default
+    ];
+
+    internal PsxTextureCoordinate GetTextureCoordinate(int slot)
+    {
+        return TextureCoordinates[slot];
+    }
 }

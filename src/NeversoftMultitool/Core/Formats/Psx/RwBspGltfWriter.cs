@@ -29,26 +29,32 @@ public static class RwBspGltfWriter
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
+        var (model, triangles) = Build(world, textureProvider);
+        if (triangles == 0) return 0;
+        GltfNormalSmoother.SmoothNormals(model);
+        model.SaveGLB(outputPath);
+        return triangles;
+    }
+
+    internal static (SharpGLTF.Schema2.ModelRoot Model, int Triangles) Build(
+        RwBspWorld world, RwDffGltfWriter.TextureProvider? textureProvider = null)
+    {
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<string, MaterialBuilder>(StringComparer.OrdinalIgnoreCase);
         var totalTriangles = 0;
 
         var gltfMesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>("level");
 
-        // Merge all sections into a single mesh, grouped by material
         foreach (var section in world.Sections)
             totalTriangles += AddSection(section, world.Materials, gltfMesh, materialCache, textureProvider);
 
-        if (totalTriangles == 0)
-            return 0;
+        if (totalTriangles > 0)
+        {
+            var rootNode = new NodeBuilder("world");
+            scene.AddRigidMesh(gltfMesh, rootNode);
+        }
 
-        var rootNode = new NodeBuilder("world");
-        scene.AddRigidMesh(gltfMesh, rootNode);
-
-        var model = scene.ToGltf2();
-        model.SaveGLB(outputPath);
-
-        return totalTriangles;
+        return (scene.ToGltf2(), totalTriangles);
     }
 
     private static int AddSection(RwBspSection section, RwMaterial[] materials,

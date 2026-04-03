@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -25,6 +26,17 @@ public static class ColGltfWriter
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
+        var (model, triangles) = Build(scene);
+        if (triangles > 0)
+        {
+            GltfNormalSmoother.SmoothNormals(model);
+            model.SaveGLB(outputPath);
+        }
+        return triangles;
+    }
+
+    internal static (SharpGLTF.Schema2.ModelRoot Model, int Triangles) Build(ColScene scene)
+    {
         var gltfScene = new SceneBuilder();
         var material = new MaterialBuilder("collision")
             .WithDoubleSide(true)
@@ -57,13 +69,9 @@ public static class ColGltfWriter
         }
 
         if (totalTriangles > 0)
-        {
             gltfScene.AddRigidMesh(mesh, Matrix4x4.Identity);
-            var model = gltfScene.ToGltf2();
-            model.SaveGLB(outputPath);
-        }
 
-        return totalTriangles;
+        return (gltfScene.ToGltf2(), totalTriangles);
     }
 
     private static VERTEX MakeVertex(ColObject obj, int index)

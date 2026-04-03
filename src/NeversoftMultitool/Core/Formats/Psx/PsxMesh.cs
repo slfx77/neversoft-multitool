@@ -26,4 +26,6 @@ public sealed class PsxMesh
     ///     Non-zero indicates stitch source ordering mismatch. These vertices are placed at (0,0,0).
     /// </summary>
     public int StitchFailureCount { get; init; }
+
+    internal IReadOnlyList<PsxFaceReadInfo> FaceReadInfos { get; init; } = [];
 }

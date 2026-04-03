@@ -6,6 +6,8 @@ namespace NeversoftMultitool.Core.Formats.Psx;
 /// </summary>
 public readonly struct RwTriangle(int v0, int v1, int v2, int materialIndex)
 {
-    public readonly int V0 = v0, V1 = v1, V2 = v2;
-    public readonly int MaterialIndex = materialIndex;
+    public int V0 { get; } = v0;
+    public int V1 { get; } = v1;
+    public int V2 { get; } = v2;
+    public int MaterialIndex { get; } = materialIndex;
 }

@@ -19,6 +19,12 @@ public sealed class PsxMeshFile
     public float ScaleDivisor { get; init; }
     public float TranslationDivisor { get; init; }
 
+    internal IReadOnlyList<PsxAttachmentVertex> AttachmentVertices { get; init; } = [];
+    internal IReadOnlyDictionary<uint, PsxAttachmentVertex> AttachmentVertexMap { get; init; } =
+        new Dictionary<uint, PsxAttachmentVertex>();
+
+    internal IReadOnlyList<int> MeshToObjectIndex { get; init; } = [];
+
     /// <summary>
     ///     Parses a PSX file for mesh geometry.
     ///     Returns null if the file has no mesh data (texture-only library).
@@ -48,44 +54,55 @@ public sealed class PsxMeshFile
 #pragma warning restore S125
         var meshToObjectIndex = new int[header.MeshTopPointers.Length];
         Array.Fill(meshToObjectIndex, -1);
-        for (var objectIndex = 0; objectIndex < header.Objects.Count; objectIndex++)
+        if (header.HasHierarchy)
         {
-            var meshIndex = header.Objects[objectIndex].MeshIndex;
-            if (meshIndex < meshToObjectIndex.Length && meshToObjectIndex[meshIndex] == -1)
-                meshToObjectIndex[meshIndex] = objectIndex;
+            // Hierarchical (character) models: mesh pointer N belongs to object N.
+            // Extra mesh pointers beyond Objects.Count are LOD variants with no object.
+            for (var objectIndex = 0; objectIndex < header.Objects.Count; objectIndex++)
+            {
+                if (objectIndex < meshToObjectIndex.Length)
+                    meshToObjectIndex[objectIndex] = objectIndex;
+            }
+        }
+        else
+        {
+            for (var objectIndex = 0; objectIndex < header.Objects.Count; objectIndex++)
+            {
+                var meshIndex = header.Objects[objectIndex].MeshIndex;
+                if (meshIndex < meshToObjectIndex.Length && meshToObjectIndex[meshIndex] == -1)
+                    meshToObjectIndex[meshIndex] = objectIndex;
+            }
         }
 
-        var attachableVertices = PsxMeshGeometryReader.CollectAttachableVertices(
+        var attachmentVertices = PsxMeshGeometryReader.CollectAttachableVertices(
             reader,
             header.MeshTopPointers,
             header.Version,
             header.ScaleDivisor,
-            header.HasHierarchy,
             header.Objects,
             meshToObjectIndex,
             header.TranslationDivisor);
+        var attachmentVertexMap = attachmentVertices.ToDictionary(a => a.AttachmentIndex);
 
         var meshes = new List<PsxMesh>(header.MeshTopPointers.Length);
         for (var meshIndex = 0; meshIndex < header.MeshTopPointers.Length; meshIndex++)
         {
-            var objectOffset = Vector3.Zero;
-            if (header.HasHierarchy && meshToObjectIndex[meshIndex] >= 0)
-            {
-                var obj = header.Objects[meshToObjectIndex[meshIndex]];
-                objectOffset = new Vector3(
-                    obj.X(header.TranslationDivisor),
-                    obj.Y(header.TranslationDivisor),
-                    obj.Z(header.TranslationDivisor));
-            }
-
             reader.BaseStream.Seek(header.MeshTopPointers[meshIndex], SeekOrigin.Begin);
             meshes.Add(PsxMeshGeometryReader.ReadMesh(
                 reader,
                 header.Version,
                 header.ScaleDivisor,
                 header.TextureHashes,
-                attachableVertices,
-                objectOffset));
+                attachmentVertexMap));
+        }
+
+        foreach (var attachment in attachmentVertices)
+        {
+            if (attachment.MeshIndex >= meshes.Count) continue;
+            if (attachment.VertexIndex >= meshes[attachment.MeshIndex].Vertices.Count) continue;
+
+            meshes[attachment.MeshIndex].Vertices[attachment.VertexIndex].AttachmentIndex =
+                attachment.AttachmentIndex;
         }
 
         return new PsxMeshFile
@@ -98,7 +115,10 @@ public sealed class PsxMeshFile
             GouraudPalette = header.GouraudPalette,
             HasHierarchy = header.HasHierarchy,
             ScaleDivisor = header.ScaleDivisor,
-            TranslationDivisor = header.TranslationDivisor
+            TranslationDivisor = header.TranslationDivisor,
+            AttachmentVertices = attachmentVertices,
+            AttachmentVertexMap = attachmentVertexMap,
+            MeshToObjectIndex = meshToObjectIndex
         };
     }
 

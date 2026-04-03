@@ -12,24 +12,43 @@ internal static class PsxMeshGeometryReader
     ///     (local + object offset) so type-2 vertices in other meshes can be correctly
     ///     placed regardless of their different object offsets.
     /// </summary>
-    internal static Dictionary<uint, Vector3> CollectAttachableVertices(
+    internal static List<PsxAttachmentVertex> CollectAttachableVertices(
         BinaryReader reader, uint[] meshTopPointers, ushort version, float scaleDivisor,
-        bool hasHierarchy, List<PsxMeshObject> objects, int[] meshToObjectIndex,
+        List<PsxMeshObject> objects, int[] meshToObjectIndex,
         float translationDivisor)
     {
-        var attachableVertices = new Dictionary<uint, Vector3>();
-        uint attachmentIndex = 0;
+        var attachmentVertices = new List<PsxAttachmentVertex>();
+
+        // Build LOD variant set: any mesh pointed to by another mesh's LodNextMeshIndex
+        // is a lower-detail duplicate and must be excluded from attachment collection,
+        // otherwise sequential attachment indices get shifted by the extra type-1 vertices.
+        var lodVariants = new HashSet<int>();
+        for (var mi = 0; mi < meshTopPointers.Length; mi++)
+        {
+            reader.BaseStream.Seek(meshTopPointers[mi], SeekOrigin.Begin);
+            if (version == 0x03) reader.ReadBytes(16); else reader.ReadBytes(8);
+            reader.ReadBytes(16); // bbox
+            if (version != 0x03 || ProbeV3HasLod(reader))
+            {
+                reader.ReadInt16(); // lodDepth
+                var lodNext = reader.ReadUInt16();
+                if (lodNext != ushort.MaxValue && lodNext < meshTopPointers.Length)
+                    lodVariants.Add(lodNext);
+            }
+        }
 
         for (var meshIndex = 0; meshIndex < meshTopPointers.Length; meshIndex++)
         {
+            if (lodVariants.Contains(meshIndex))
+                continue;
+
             var objectOffset = Vector3.Zero;
-            if (hasHierarchy && meshToObjectIndex[meshIndex] >= 0)
+            var objectIndex = -1;
+            if (meshToObjectIndex[meshIndex] >= 0)
             {
-                var obj = objects[meshToObjectIndex[meshIndex]];
-                objectOffset = new Vector3(
-                    obj.X(translationDivisor),
-                    obj.Y(translationDivisor),
-                    obj.Z(translationDivisor));
+                objectIndex = meshToObjectIndex[meshIndex];
+                var obj = objects[objectIndex];
+                objectOffset = PsxMeshSemantics.GetObjectOffset(obj, translationDivisor);
             }
 
             reader.BaseStream.Seek(meshTopPointers[meshIndex], SeekOrigin.Begin);
@@ -51,34 +70,27 @@ internal static class PsxMeshGeometryReader
                 var z = reader.ReadInt16();
                 var type = reader.ReadUInt16();
 
-                Vector3 position;
-                if ((type & 0x02) != 0)
+                if (PsxMeshSemantics.IsExactStitchSource(type))
                 {
-                    var attachIndex = (uint)(ushort)y;
-                    if (attachableVertices.TryGetValue(attachIndex, out var resolvedWorld))
-                        position = resolvedWorld;
-                    else
-                        position = objectOffset;
-                }
-                else
-                {
-                    position = new Vector3(x / scaleDivisor, y / scaleDivisor, z / scaleDivisor) + objectOffset;
-                }
-
-                if ((type & 0x01) != 0)
-                {
-                    attachableVertices[attachmentIndex] = position;
-                    attachmentIndex++;
+                    var localPosition = new Vector3(x / scaleDivisor, y / scaleDivisor, z / scaleDivisor);
+                    attachmentVertices.Add(new PsxAttachmentVertex
+                    {
+                        AttachmentIndex = (uint)attachmentVertices.Count,
+                        MeshIndex = meshIndex,
+                        ObjectIndex = objectIndex,
+                        VertexIndex = (int)vertexIndex,
+                        LocalPosition = localPosition,
+                        WorldPosition = localPosition + objectOffset
+                    });
                 }
             }
         }
 
-        return attachableVertices;
+        return attachmentVertices;
     }
 
     internal static PsxMesh ReadMesh(BinaryReader reader, ushort version, float scaleDivisor,
-        uint[] textureHashes, Dictionary<uint, Vector3>? attachableVertices = null,
-        Vector3 objectOffset = default)
+        uint[] textureHashes, IReadOnlyDictionary<uint, PsxAttachmentVertex>? attachmentVertices = null)
     {
         _ = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
         var vertexCount = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
@@ -105,45 +117,22 @@ internal static class PsxMeshGeometryReader
             var z = reader.ReadInt16();
             var type = reader.ReadUInt16();
 
-            float vx;
-            float vy;
-            float vz;
-
-            if ((type & 0x02) != 0 && attachableVertices != null)
-            {
-                var attachIndex = (uint)(ushort)y;
-                if (attachableVertices.TryGetValue(attachIndex, out var worldPos))
-                {
-                    var localPos = worldPos - objectOffset;
-                    vx = localPos.X;
-                    vy = localPos.Y;
-                    vz = localPos.Z;
-                }
-                else
-                {
-                    vx = 0;
-                    vy = 0;
-                    vz = 0;
-                    stitchFailures++;
-                }
-            }
-            else
-            {
-                vx = x / scaleDivisor;
-                vy = y / scaleDivisor;
-                vz = z / scaleDivisor;
-            }
-
             vertices.Add(new PsxVertex
             {
-                X = vx,
-                Y = vy,
-                Z = vz,
+                X = x / scaleDivisor,
+                Y = y / scaleDivisor,
+                Z = z / scaleDivisor,
                 Type = type,
                 RawX = x,
                 RawY = y,
                 RawZ = z
             });
+
+            if (PsxMeshSemantics.IsExactStitchedReference(type)
+                && (attachmentVertices == null || !attachmentVertices.ContainsKey((uint)(ushort)y)))
+            {
+                stitchFailures++;
+            }
         }
 
         var normals = new List<PsxNormal>((int)normalCount);
@@ -162,11 +151,18 @@ internal static class PsxMeshGeometryReader
         }
 
         var faces = new List<PsxFace>((int)faceCount);
+        var faceReadInfos = new List<PsxFaceReadInfo>((int)faceCount);
         for (uint faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
-            var face = ReadFace(reader, version, vertexCount, normalCount, textureHashes);
+            var (face, faceReadInfo) = ReadFace(reader, version, vertexCount, normalCount, textureHashes, (int)faceIndex);
             if (face != null)
+            {
+                faceReadInfo.IsAccepted = true;
+                faceReadInfo.AcceptedFaceIndex = faces.Count;
                 faces.Add(face);
+            }
+
+            faceReadInfos.Add(faceReadInfo);
         }
 
         return new PsxMesh
@@ -178,7 +174,8 @@ internal static class PsxMeshGeometryReader
             LodNextMeshIndex = lodNextMeshIndex,
             HasPerVertexNormals = normalCount == vertexCount + faceCount,
             VertexCount = vertexCount,
-            StitchFailureCount = stitchFailures
+            StitchFailureCount = stitchFailures,
+            FaceReadInfos = faceReadInfos
         };
     }
 
@@ -187,7 +184,7 @@ internal static class PsxMeshGeometryReader
     ///     vertex data. THPS1 Proto (1999) v3 files have it (sentinel 0x7FFF/0xFFFF);
     ///     Apocalypse (1998) v3 files do not. Peeks ahead without advancing the stream.
     /// </summary>
-    private static bool ProbeV3HasLod(BinaryReader reader)
+    internal static bool ProbeV3HasLod(BinaryReader reader)
     {
         var savedPos = reader.BaseStream.Position;
         if (savedPos + 12 > reader.BaseStream.Length)
@@ -210,31 +207,23 @@ internal static class PsxMeshGeometryReader
         return peekValue == 0x7FFF;
     }
 
-    private static PsxFace? ReadFace(BinaryReader reader, ushort version,
-        uint vertexCount, uint normalCount, uint[] textureHashes)
+    private static (PsxFace? Face, PsxFaceReadInfo Info) ReadFace(BinaryReader reader, ushort version,
+        uint vertexCount, uint normalCount, uint[] textureHashes, int rawFaceIndex)
     {
         var facePosition = reader.BaseStream.Position;
 
         var faceFlags = reader.ReadUInt16();
         var faceLength = reader.ReadUInt16();
-
-        if ((faceFlags & 0x0040) == 0)
-            faceFlags ^= 0x0080;
-
-        if ((faceFlags & 0x00C0) == 0)
-        {
-            reader.BaseStream.Seek(facePosition + (faceLength & 0xFFFC), SeekOrigin.Begin);
-            return null;
-        }
-
-        var hasTextureIndex = (faceFlags & 0x0001) != 0;
-        var hasTextureCoords = (faceFlags & 0x0003) == 0x0003;
-        var isTextured = (faceFlags & 0x0003) != 0;
+        var hasTexturePayload = (faceFlags & 0x0003) != 0;
+        var isTextured = hasTexturePayload;
         var quad = (faceFlags & 0x0010) == 0;
         var semiTrans = (faceFlags & 0x0040) != 0;
         var gouraud = (faceFlags & 0x0800) != 0;
-        var flag0008 = (faceFlags & 0x0008) != 0;
-        var flag0020 = (faceFlags & 0x0020) != 0;
+
+        // M3dInit_ParsePSX STP toggle: if not semi-transparent, flip bit 0x0080.
+        // After toggle, face is invisible when both 0x0040 and 0x0080 are clear.
+        var effectiveFlags = !semiTrans ? (ushort)(faceFlags ^ 0x0080) : faceFlags;
+        var invisible = (effectiveFlags & 0x00C0) == 0;
 
         uint i0;
         uint i1;
@@ -264,43 +253,86 @@ internal static class PsxMeshGeometryReader
         reader.ReadInt16();
 
         uint textureIndex = 0;
-        byte u0 = 0, v0 = 0, u1 = 0, v1 = 0, u2 = 0, v2 = 0, u3 = 0, v3 = 0;
-        if (hasTextureIndex)
+        var textureCoordinates = new PsxTextureCoordinate[]
+        {
+            default,
+            default,
+            default,
+            default
+        };
+
+        if (hasTexturePayload)
         {
             textureIndex = reader.ReadUInt32();
-            if (hasTextureCoords)
+
+            if (version == 0x06)
             {
-                u0 = reader.ReadByte();
-                v0 = reader.ReadByte();
-                u1 = reader.ReadByte();
-                v1 = reader.ReadByte();
-                u2 = reader.ReadByte();
-                v2 = reader.ReadByte();
-                u3 = reader.ReadByte();
-                v3 = reader.ReadByte();
+                var xs = new int[4];
+                var ys = new int[4];
+
+                for (var i = 0; i < 4; i++)
+                    xs[i] = reader.ReadUInt16();
+                for (var i = 0; i < 4; i++)
+                    ys[i] = reader.ReadInt16();
+
+                for (var i = 0; i < 4; i++)
+                    textureCoordinates[i] = new PsxTextureCoordinate(xs[i], ys[i]);
+            }
+            else
+            {
+                for (var i = 0; i < 4; i++)
+                    textureCoordinates[i] = new PsxTextureCoordinate(reader.ReadByte(), reader.ReadByte());
             }
         }
 
-        if (flag0008)
-            reader.ReadBytes(8);
+        var expectedFaceEnd = facePosition + faceLength;
+        var bytesConsumed = (int)(reader.BaseStream.Position - facePosition);
+        var underreadBytes = Math.Max(faceLength - bytesConsumed, 0);
+        var overreadBytes = Math.Max(bytesConsumed - faceLength, 0);
+        if (reader.BaseStream.Position < expectedFaceEnd)
+            reader.BaseStream.Seek(expectedFaceEnd, SeekOrigin.Begin);
 
-        if (hasTextureIndex && flag0020)
-            reader.ReadUInt32();
+        var faceReadInfo = new PsxFaceReadInfo
+        {
+            RawFaceIndex = rawFaceIndex,
+            Offset = facePosition,
+            Flags = faceFlags,
+            Length = faceLength,
+            BytesConsumed = bytesConsumed,
+            UnderreadBytes = underreadBytes,
+            OverreadBytes = overreadBytes,
+            IsLengthAligned = (faceLength & 0x0003) == 0
+        };
 
-        reader.BaseStream.Seek(facePosition + (faceLength & 0xFFFC), SeekOrigin.Begin);
+        if (invisible)
+        {
+            faceReadInfo.RejectionReason = "invisible (M3dInit STP toggle)";
+            return (null, faceReadInfo);
+        }
 
         if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
-            return null;
+        {
+            faceReadInfo.RejectionReason = "vertex index out of range";
+            return (null, faceReadInfo);
+        }
+
         if (quad && i3 >= vertexCount)
-            return null;
+        {
+            faceReadInfo.RejectionReason = "quad vertex index out of range";
+            return (null, faceReadInfo);
+        }
+
         if (normalIndex >= normalCount)
-            return null;
+        {
+            faceReadInfo.RejectionReason = "normal index out of range";
+            return (null, faceReadInfo);
+        }
 
         uint textureHash = 0;
-        if (hasTextureIndex && textureIndex < (uint)textureHashes.Length)
+        if (hasTexturePayload && textureIndex < (uint)textureHashes.Length)
             textureHash = textureHashes[textureIndex];
 
-        return new PsxFace
+        return (new PsxFace
         {
             Flags = faceFlags,
             IsQuad = quad,
@@ -317,14 +349,20 @@ internal static class PsxMeshGeometryReader
             B = b,
             Mode = mode,
             TextureHash = textureHash,
-            U0 = u0,
-            V0 = v0,
-            U1 = u1,
-            V1 = v1,
-            U2 = u2,
-            V2 = v2,
-            U3 = u3,
-            V3 = v3
-        };
+            U0 = ToLegacyByte(textureCoordinates[0].U),
+            V0 = ToLegacyByte(textureCoordinates[0].V),
+            U1 = ToLegacyByte(textureCoordinates[1].U),
+            V1 = ToLegacyByte(textureCoordinates[1].V),
+            U2 = ToLegacyByte(textureCoordinates[2].U),
+            V2 = ToLegacyByte(textureCoordinates[2].V),
+            U3 = ToLegacyByte(textureCoordinates[3].U),
+            V3 = ToLegacyByte(textureCoordinates[3].V),
+            TextureCoordinates = textureCoordinates
+        }, faceReadInfo);
+    }
+
+    private static byte ToLegacyByte(int value)
+    {
+        return (byte)Math.Clamp(value, byte.MinValue, byte.MaxValue);
     }
 }

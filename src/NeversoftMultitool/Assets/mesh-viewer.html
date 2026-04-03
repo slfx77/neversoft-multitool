@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <script type="module" src="model-viewer.min.js"></script>
+    <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #202020; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+    model-viewer {
+      width: 100vw;
+      height: 100vh;
+      --poster-color: transparent;
+      --progress-bar-color: #60cdff;
+    }
+    #status {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #ffffff;
+      font-size: 13px;
+      pointer-events: none;
+      transition: opacity 0.3s;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 8px 16px;
+      border-radius: 6px;
+    }
+    #status.hidden { opacity: 0; }
+  </style>
+</head>
+<body>
+<model-viewer id="viewer"
+              camera-controls
+              camera-orbit="0deg 90deg auto"
+              shadow-intensity="0.5"
+              exposure="1.0"
+              environment-image="neutral"
+              interaction-prompt="none">
+</model-viewer>
+<div id="status">Select a file to preview</div>
+<script>
+    const viewer = document.getElementById('viewer');
+    const status = document.getElementById('status');
+    let currentBlobUrl = null;
+
+    function loadModel(base64Glb) {
+      status.textContent = 'Loading model...';
+      status.classList.remove('hidden');
+
+      if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = null;
+      }
+
+      try {
+        const binary = atob(base64Glb);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'model/gltf-binary' });
+        currentBlobUrl = URL.createObjectURL(blob);
+        viewer.src = currentBlobUrl;
+
+        viewer.addEventListener('load', () => {
+          status.classList.add('hidden');
+        }, { once: true });
+
+        viewer.addEventListener('error', () => {
+          status.textContent = 'Failed to load model';
+          status.classList.remove('hidden');
+        }, { once: true });
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+        status.classList.remove('hidden');
+      }
+    }
+
+    function clearModel() {
+      if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = null;
+      }
+      viewer.src = '';
+      status.textContent = 'Select a file to preview';
+      status.classList.remove('hidden');
+    }
+
+    function setStatus(text) {
+      status.textContent = text;
+      status.classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>

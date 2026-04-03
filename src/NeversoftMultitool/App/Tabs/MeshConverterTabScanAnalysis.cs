@@ -4,39 +4,42 @@ namespace NeversoftMultitool;
 
 internal static class MeshConverterTabScanAnalysis
 {
+    private static readonly string[] MeshFormatsWithPartialWarnings =
+    [
+        ".skin.xbx", ".mdl.xbx", ".scn.xbx",
+        ".skin.wpc", ".mdl.wpc", ".scn.wpc",
+        ".col.xbx", ".col.wpc", ".col.ps2", ".col.psp",
+        ".bsp"
+    ];
+
+    private static readonly string[] Ps2SceneSuffixes = [".skin.ps2", ".mdl.ps2", ".iskin.ps2"];
+
+    private static readonly string[] SupportedMeshSuffixes =
+    [
+        ".bsp",
+        ".col.xbx", ".col.wpc", ".col.ps2",
+        ".skin.ps2", ".mdl.ps2", ".iskin.ps2", ".geom.ps2",
+        ".skin.xbx", ".mdl.xbx",
+        ".skin.wpc", ".mdl.wpc"
+    ];
+
+    private static readonly string[] PlatformSuffixes = [".ps2", ".xbx", ".wpc"];
+
     public static List<ScanSummaryDialog.UnsupportedFile> FindUnsupportedFiles(IEnumerable<string> allFiles)
     {
         var unsupported = new List<ScanSummaryDialog.UnsupportedFile>();
         foreach (var file in allFiles)
         {
-            var lower = Path.GetFileName(file).ToLowerInvariant();
-            if (lower.EndsWith(".skin.xbx") || lower.EndsWith(".mdl.xbx") || lower.EndsWith(".scn.xbx")
-                || lower.EndsWith(".skin.wpc") || lower.EndsWith(".mdl.wpc") || lower.EndsWith(".scn.wpc")
-                || lower.EndsWith(".col.xbx") || lower.EndsWith(".col.wpc")
-                || lower.EndsWith(".col.ps2") || lower.EndsWith(".col.psp")
-                || lower.EndsWith(".bsp"))
+            var fileName = Path.GetFileName(file);
+            if (OrdinalFileName.HasAnySuffix(fileName, MeshFormatsWithPartialWarnings))
             {
-                var probe = FormatProbe.ProbeMesh(file);
-                if (probe.Support != FormatProbe.FormatSupport.Supported)
-                    unsupported.Add(new ScanSummaryDialog.UnsupportedFile(
-                        Path.GetFileName(file)!,
-                        probe.UnsupportedReason ?? "Unknown format"));
+                AddUnsupportedIfNeeded(unsupported, fileName, file, includePartial: true);
             }
-            else if (lower.EndsWith(".skin.ps2") || lower.EndsWith(".mdl.ps2") || lower.EndsWith(".iskin.ps2"))
+            else if (OrdinalFileName.HasAnySuffix(fileName, Ps2SceneSuffixes)
+                     || OrdinalFileName.HasExtension(file, ".skin")
+                     || OrdinalFileName.HasExtension(file, ".mdl"))
             {
-                var probe = FormatProbe.ProbeMesh(file);
-                if (probe.Support == FormatProbe.FormatSupport.Unsupported)
-                    unsupported.Add(new ScanSummaryDialog.UnsupportedFile(
-                        Path.GetFileName(file)!,
-                        probe.UnsupportedReason ?? "Unknown format"));
-            }
-            else if (Path.GetExtension(lower) is ".skin" or ".mdl")
-            {
-                var probe = FormatProbe.ProbeMesh(file);
-                if (probe.Support == FormatProbe.FormatSupport.Unsupported)
-                    unsupported.Add(new ScanSummaryDialog.UnsupportedFile(
-                        Path.GetFileName(file)!,
-                        probe.UnsupportedReason ?? "Unknown format"));
+                AddUnsupportedIfNeeded(unsupported, fileName, file, includePartial: false);
             }
         }
 
@@ -47,17 +50,32 @@ internal static class MeshConverterTabScanAnalysis
     {
         return allFiles.Count(static file =>
         {
-            var lower = Path.GetFileName(file).ToLowerInvariant();
-            var extension = Path.GetExtension(file).ToLowerInvariant();
-            return extension is ".ddm" or ".psx" or ".skn" or ".bsp" ||
-                   lower.EndsWith(".col.xbx") || lower.EndsWith(".col.wpc") ||
-                   lower.EndsWith(".col.ps2") || extension == ".col" ||
-                   lower.EndsWith(".skin.ps2") || lower.EndsWith(".mdl.ps2") ||
-                   lower.EndsWith(".iskin.ps2") || lower.EndsWith(".geom.ps2") ||
-                   lower.EndsWith(".skin.xbx") || lower.EndsWith(".mdl.xbx") ||
-                   lower.EndsWith(".skin.wpc") || lower.EndsWith(".mdl.wpc") ||
-                   (extension is ".skin" or ".mdl" && !lower.EndsWith(".ps2") &&
-                    !lower.EndsWith(".xbx") && !lower.EndsWith(".wpc"));
+            var fileName = Path.GetFileName(file);
+            return OrdinalFileName.HasExtension(file, ".ddm")
+                   || OrdinalFileName.HasExtension(file, ".psx")
+                   || OrdinalFileName.HasExtension(file, ".skn")
+                   || OrdinalFileName.HasExtension(file, ".col")
+                   || OrdinalFileName.HasAnySuffix(fileName, SupportedMeshSuffixes)
+                   || ((OrdinalFileName.HasExtension(file, ".skin")
+                        || OrdinalFileName.HasExtension(file, ".mdl"))
+                       && !OrdinalFileName.HasAnySuffix(fileName, PlatformSuffixes));
         });
+    }
+
+    private static void AddUnsupportedIfNeeded(
+        List<ScanSummaryDialog.UnsupportedFile> unsupported,
+        string fileName,
+        string filePath,
+        bool includePartial)
+    {
+        var probe = FormatProbe.ProbeMesh(filePath);
+        var isUnsupported = probe.Support == FormatProbe.FormatSupport.Unsupported
+                            || (includePartial && probe.Support == FormatProbe.FormatSupport.PartiallySupported);
+        if (!isUnsupported)
+            return;
+
+        unsupported.Add(new ScanSummaryDialog.UnsupportedFile(
+            fileName,
+            probe.UnsupportedReason ?? "Unknown format"));
     }
 }

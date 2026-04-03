@@ -5,17 +5,19 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace NeversoftMultitool;
 
-public sealed partial class MeshConverterTab : UserControl
+public sealed partial class MeshConverterTab : UserControl, IDisposable
 {
     private readonly ObservableCollection<MeshFileEntry> _items = [];
     private CancellationTokenSource? _cts;
     private string _inputDir = "";
     private string _outputDir = "";
+    private MeshConverterTabPreview? _preview;
 
     public MeshConverterTab()
     {
         InitializeComponent();
         FilesListView.ItemsSource = _items;
+        Unloaded += MeshConverterTab_Unloaded;
     }
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
@@ -71,7 +73,16 @@ public sealed partial class MeshConverterTab : UserControl
     {
         if (_items.Count == 0 || string.IsNullOrEmpty(_outputDir)) return;
 
-        _cts = new CancellationTokenSource();
+        var previousCts = _cts;
+        if (previousCts != null)
+        {
+            _cts = null;
+            await previousCts.CancelAsync();
+            previousCts.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        _cts = cts;
 
         foreach (var file in _items)
         {
@@ -91,8 +102,7 @@ public sealed partial class MeshConverterTab : UserControl
         var totalFiles = _items.Count;
         var dispatcher = DispatcherQueue;
         var outputDir = _outputDir;
-        var embedTextures = EmbedTexturesCheckbox.IsChecked == true;
-        var token = _cts.Token;
+        var token = cts.Token;
         var entries = _items.ToList();
 
         await Task.Run(() =>
@@ -106,7 +116,7 @@ public sealed partial class MeshConverterTab : UserControl
 
                 try
                 {
-                    var triangles = MeshConverterTabFileConverter.ConvertFile(entry, outputDir, embedTextures);
+                    var triangles = MeshConverterTabFileConverter.ConvertFile(entry, outputDir);
                     Interlocked.Add(ref totalTriangles, triangles);
                     Interlocked.Increment(ref totalConverted);
 
@@ -139,11 +149,66 @@ public sealed partial class MeshConverterTab : UserControl
             $"({totalTriangles:N0} triangles) in {stopwatch.Elapsed.TotalSeconds:F2}s");
     }
 
-    private void CancelButton_Click(object sender, RoutedEventArgs e)
+    private async void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        _cts?.Cancel();
+        var cts = _cts;
+        if (cts != null)
+        {
+            _cts = null;
+            await cts.CancelAsync();
+            cts.Dispose();
+        }
+
         CancelButton.Visibility = Visibility.Collapsed;
         ConvertButton.IsEnabled = true;
         MainWindow.Instance?.SetStatus("Conversion cancelled");
+    }
+
+    private async void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (FilesListView.SelectedItem is not MeshFileEntry entry)
+        {
+            // Deselected — hide preview
+            if (_preview != null)
+                await _preview.ClearAsync();
+
+            PreviewPanel.Visibility = Visibility.Collapsed;
+            PreviewSplitter.Visibility = Visibility.Collapsed;
+            SplitterColumn.Width = new GridLength(0);
+            PreviewColumn.Width = new GridLength(0);
+            return;
+        }
+
+        // Lazy-init the preview helper
+        _preview ??= new MeshConverterTabPreview(
+            ModelViewer,
+            PreviewLoadingRing,
+            PreviewInfoText,
+            PreviewErrorText,
+            DispatcherQueue);
+
+        // Show the preview column
+        PreviewPanel.Visibility = Visibility.Visible;
+        PreviewSplitter.Visibility = Visibility.Visible;
+        SplitterColumn.Width = new GridLength(8);
+        if (PreviewColumn.Width.Value <= 0)
+            PreviewColumn.Width = new GridLength(400);
+
+        await _preview.InitializeAsync();
+        await _preview.LoadPreviewAsync(entry);
+    }
+
+    public void Dispose()
+    {
+        Unloaded -= MeshConverterTab_Unloaded;
+        _cts?.Dispose();
+        _cts = null;
+        _preview?.Dispose();
+        _preview = null;
+    }
+
+    private void MeshConverterTab_Unloaded(object sender, RoutedEventArgs e)
+    {
+        Dispose();
     }
 }

@@ -19,10 +19,6 @@ public static class PsxMeshCommand
             Description = "Output directory for glTF (.glb) files",
             DefaultValueFactory = _ => "TestOutput/PsxMesh"
         };
-        var texturesOption = new Option<bool>("-t", "--textures")
-        {
-            Description = "Embed textures from the PSX file into the glTF output"
-        };
         var verboseOption = new Option<bool>("-v", "--verbose")
         {
             Description = "Enable verbose output"
@@ -31,23 +27,21 @@ public static class PsxMeshCommand
         var command = new Command("psx-mesh", "Convert PSX model files to glTF (.glb)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
-        command.Options.Add(texturesOption);
         command.Options.Add(verboseOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
-            var textures = parseResult.GetValue(texturesOption);
             var verbose = parseResult.GetValue(verboseOption);
 
-            return Task.FromResult(Execute(input, output, textures, verbose));
+            return Task.FromResult(Execute(input, output, verbose));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string output, bool embedTextures, bool verbose)
+    private static int Execute(string input, string output, bool verbose)
     {
         List<string> psxFiles;
 
@@ -98,32 +92,28 @@ public static class PsxMeshCommand
                     continue;
                 }
 
-                PsxGltfWriter.TextureProvider? textureProvider = null;
-                if (embedTextures)
+                // For level geometry files (*_g.psx), textures are in
+                // the companion library file (*_l.psx)
+                string? companionLibPath = null;
+                if (stem.EndsWith("_g", StringComparison.OrdinalIgnoreCase))
                 {
-                    // For level geometry files (*_g.psx), textures are in
-                    // the companion library file (*_l.psx)
-                    string? companionLibPath = null;
-                    if (stem.EndsWith("_g", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var libStem = stem[..^2] + "_l";
-                        var dir = Path.GetDirectoryName(file)!;
-                        var candidates = Directory.GetFiles(dir, libStem + ".psx",
-                            new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
-                        if (candidates.Length > 0)
-                            companionLibPath = candidates[0];
-                    }
-
-                    textureProvider = hash =>
-                    {
-                        var result = PsxLibrary.ExtractTextureByHash(file, hash);
-                        if (result == null && companionLibPath != null)
-                            result = PsxLibrary.ExtractTextureByHash(companionLibPath, hash);
-                        if (result == null) return null;
-                        var (rgba, w, h) = result.Value;
-                        return ImageWriter.WritePngToMemory(w, h, rgba);
-                    };
+                    var libStem = stem[..^2] + "_l";
+                    var dir = Path.GetDirectoryName(file)!;
+                    var candidates = Directory.GetFiles(dir, libStem + ".psx",
+                        new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
+                    if (candidates.Length > 0)
+                        companionLibPath = candidates[0];
                 }
+
+                PsxGltfWriter.TextureProvider textureProvider = hash =>
+                {
+                    var result = PsxLibrary.ExtractTextureByHash(file, hash);
+                    if (result == null && companionLibPath != null)
+                        result = PsxLibrary.ExtractTextureByHash(companionLibPath, hash);
+                    if (result == null) return null;
+                    var (rgba, w, h) = result.Value;
+                    return ImageWriter.WritePngToMemory(w, h, rgba);
+                };
 
                 // Auto-detect companion PSH for bone names in character models
                 var pshFile = psxFile.HasHierarchy ? PshFile.FindCompanion(file) : null;
@@ -146,7 +136,7 @@ public static class PsxMeshCommand
             catch (Exception ex)
             {
                 if (verbose)
-                    AnsiConsole.MarkupLine($"  {filename}: [red]error: {ex.Message}[/]");
+                    AnsiConsole.MarkupLine($"  {Markup.Escape(filename)}: [red]error: {Markup.Escape(ex.Message)}[/]");
             }
         }
 

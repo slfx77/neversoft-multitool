@@ -13,6 +13,13 @@ internal sealed record MeshScanSummary(IReadOnlyList<ScanSummaryDialog.Unsupport
 internal static class MeshConverterTabFileScanner
 {
     private static readonly EnumerationOptions CaseInsensitiveEnumeration = new() { MatchCasing = MatchCasing.CaseInsensitive };
+    private static readonly string[] CompoundExtensions =
+    [
+        ".iskin.ps2", ".skin.ps2", ".mdl.ps2", ".geom.ps2",
+        ".skin.xbx", ".mdl.xbx", ".skin.wpc", ".mdl.wpc",
+        ".col.xbx", ".col.wpc", ".col.ps2"
+    ];
+    private static readonly string[] ColSuffixes = [".col.xbx", ".col.wpc", ".col.ps2"];
 
     public static MeshScanSummary AnalyzeDirectory(string inputDir)
     {
@@ -101,11 +108,7 @@ internal static class MeshConverterTabFileScanner
             AddEntry(entries, ScanXbxSceneFile(file));
 
         var pakSceneFiles = Directory.GetFiles(inputDir, "*", CaseInsensitiveEnumeration)
-            .Where(static file =>
-            {
-                var extension = Path.GetExtension(file).ToLowerInvariant();
-                return extension is ".skin" or ".mdl";
-            })
+            .Where(static file => OrdinalFileName.HasExtension(file, ".skin") || OrdinalFileName.HasExtension(file, ".mdl"))
             .OrderBy(static file => Path.GetFileName(file), StringComparer.OrdinalIgnoreCase);
         foreach (var file in pakSceneFiles)
             AddEntry(entries, ScanPs2SceneFile(file));
@@ -121,24 +124,10 @@ internal static class MeshConverterTabFileScanner
 
     internal static string StripCompoundExtension(string filename)
     {
-        var lower = filename.ToLowerInvariant();
-        string[] compoundExtensions =
-        [
-            ".iskin.ps2", ".skin.ps2", ".mdl.ps2", ".geom.ps2",
-            ".skin.xbx", ".mdl.xbx", ".skin.wpc", ".mdl.wpc",
-            ".col.xbx", ".col.wpc", ".col.ps2"
-        ];
-
-        foreach (var extension in compoundExtensions)
-        {
-            if (lower.EndsWith(extension, StringComparison.Ordinal))
-                return filename[..^extension.Length];
-        }
-
-        return Path.GetFileNameWithoutExtension(filename);
+        return OrdinalFileName.StripCompoundSuffix(filename, CompoundExtensions);
     }
 
-    private static void AddEntry(ICollection<MeshFileEntry> entries, MeshFileEntry? entry)
+    private static void AddEntry(List<MeshFileEntry> entries, MeshFileEntry? entry)
     {
         if (entry != null)
             entries.Add(entry);
@@ -146,11 +135,8 @@ internal static class MeshConverterTabFileScanner
 
     private static bool IsColFilePath(string file)
     {
-        var lower = file.ToLowerInvariant();
-        return lower.EndsWith(".col.xbx") ||
-               lower.EndsWith(".col.wpc") ||
-               lower.EndsWith(".col.ps2") ||
-               Path.GetExtension(file).Equals(".col", StringComparison.OrdinalIgnoreCase);
+        var fileName = Path.GetFileName(file);
+        return OrdinalFileName.HasAnySuffix(fileName, ColSuffixes) || OrdinalFileName.HasExtension(file, ".col");
     }
 
     private static MeshFileEntry? ScanDdmFile(string file)

@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -23,6 +24,15 @@ public static class XbxSceneGltfWriter
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
+        var (model, triangles) = Build(scene, textureProvider);
+        GltfNormalSmoother.SmoothNormals(model);
+        model.SaveGLB(outputPath);
+        return triangles;
+    }
+
+    internal static (SharpGLTF.Schema2.ModelRoot Model, int Triangles) Build(
+        XbxScene scene, TextureProvider? textureProvider = null)
+    {
         var sceneBuilder = new SceneBuilder();
         var materialCache = new Dictionary<uint, MaterialBuilder>();
         var totalTriangles = 0;
@@ -49,9 +59,7 @@ public static class XbxSceneGltfWriter
             }
         }
 
-        var model = sceneBuilder.ToGltf2();
-        model.SaveGLB(outputPath);
-        return totalTriangles;
+        return (sceneBuilder.ToGltf2(), totalTriangles);
     }
 
     /// <summary>

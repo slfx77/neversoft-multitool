@@ -152,14 +152,11 @@ public sealed class PsxMeshGltfTests(TestPaths paths)
             Assert.True(File.Exists(outputFile), "GLB file was not created");
             Assert.True(triangles > 0, "No triangles written");
 
-            // Character models use hierarchical node tree with parent-child relationships
             var model = ModelRoot.Load(outputFile);
-            Assert.True(model.LogicalNodes.Count > 0, "GLB should have nodes");
-
-            // Verify hierarchy: at least some nodes should have children
-            var nodesWithChildren = model.LogicalNodes.Count(n => n.VisualChildren.Any());
-            Assert.True(nodesWithChildren > 0,
-                "Hierarchical model should have parent-child node relationships");
+            Assert.True(model.LogicalMeshes.Count > 0, "GLB should have meshes");
+            Assert.True(model.LogicalSkins.Count > 0, "Character GLB should include a skin");
+            Assert.True(model.LogicalNodes.Any(node => node.Skin != null),
+                "Character GLB should have a node bound to the exported skin");
         }
         finally
         {

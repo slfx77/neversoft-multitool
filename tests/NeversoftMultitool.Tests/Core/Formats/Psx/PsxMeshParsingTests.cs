@@ -244,7 +244,7 @@ public sealed class PsxMeshParsingTests(TestPaths paths)
     }
 
     [Fact]
-    public void Parse_Xbox_Hawk2_StitchedVerticesHaveReasonablePositions()
+    public void Parse_Xbox_Hawk2_StitchedVerticesUseDeferredResolution()
     {
         Assert.SkipWhen(!paths.HasTestData, "Test data not available");
 
@@ -255,39 +255,28 @@ public sealed class PsxMeshParsingTests(TestPaths paths)
         Assert.SkipWhen(psxFile == null, "hawk2.PSX has no mesh data");
 
         var stitchedCount = 0;
-        var fallbackCount = 0;
 
         foreach (var mesh in psxFile.Meshes)
         {
             foreach (var v in mesh.Vertices)
             {
-                if ((v.Type & 0x02) == 0) continue; // only stitched
+                if (!PsxMeshSemantics.IsExactStitchedReference(v.Type)) continue;
                 stitchedCount++;
 
-                // Detect failed attachment lookups: if the vertex fell through to the
-                // fallback path, Y = rawY / scaleDivisor. For a valid stitch attachment
-                // index (small number 0-50), this produces Y ≈ 0.0-1.4 when scaleDivisor=36.
-                // A successfully resolved stitch vertex will almost never have Y == rawY/36
-                // exactly, so we check for this signature.
-                var fallbackY = v.RawY / psxFile.ScaleDivisor;
-                if (Math.Abs(v.Y - fallbackY) < 0.001f)
-                {
-                    var fallbackX = v.RawX / psxFile.ScaleDivisor;
-                    var fallbackZ = v.RawZ / psxFile.ScaleDivisor;
-                    if (Math.Abs(v.X - fallbackX) < 0.001f && Math.Abs(v.Z - fallbackZ) < 0.001f)
-                        fallbackCount++;
-                }
-
-                // All stitched vertices should have finite positions (not NaN/Infinity)
                 Assert.True(float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z),
                     $"Stitched vertex has non-finite position: ({v.X},{v.Y},{v.Z})");
+                Assert.True(v.AttachmentTargetIndex.HasValue,
+                    "Exact type-2 stitched vertices should expose an attachment target index");
+
+                Assert.True(Math.Abs(v.X - (v.RawX / psxFile.ScaleDivisor)) < 0.001f);
+                Assert.True(Math.Abs(v.Y - (v.RawY / psxFile.ScaleDivisor)) < 0.001f);
+                Assert.True(Math.Abs(v.Z - (v.RawZ / psxFile.ScaleDivisor)) < 0.001f);
             }
+
+            Assert.True(mesh.StitchFailureCount == 0,
+                $"Mesh has unresolved stitched vertices: {mesh.StitchFailureCount}");
         }
 
         Assert.True(stitchedCount > 0, "Character model should have stitched vertices");
-        // All stitched vertices should resolve from the attachment dictionary, not fall through
-        Assert.True(fallbackCount == 0,
-            $"{fallbackCount}/{stitchedCount} stitched vertices fell through to fallback " +
-            "(attachment lookup failed — indices may not match stitch source ordering)");
     }
 }

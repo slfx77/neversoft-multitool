@@ -53,7 +53,13 @@ internal static class PsxMeshHeaderReader
             textureHashes[i] = reader.ReadUInt32();
 
         const float baseScale = 2.25f;
-        var scaleDivisor = hasHierarchy ? baseScale * 16f : baseScale;
+
+        // Apocalypse (1998) v3 models use raw vertex coordinates (no /16 scaling).
+        // Other hierarchical models (THPS1+) divide vertices by 16. Detect by probing
+        // the first mesh's header: Apocalypse v3 lacks the m_gunkl2/LOD field after bbox.
+        var isApocalypse = version == 0x03 && hasHierarchy && meshTopPointers.Length > 0
+                           && !ProbeFirstMeshHasLod(reader, meshTopPointers[0]);
+        var scaleDivisor = hasHierarchy && !isApocalypse ? baseScale * 16f : baseScale;
 
         if (hierarchyParents != null)
         {
@@ -73,6 +79,28 @@ internal static class PsxMeshHeaderReader
             ScaleDivisor = scaleDivisor,
             TranslationDivisor = baseScale
         };
+    }
+
+    /// <summary>
+    ///     Probes whether a v3 mesh at the given file offset has a 4-byte LOD/m_gunkl2 field
+    ///     between the bounding box and vertex data. Apocalypse (1998) v3 files lack this field.
+    ///     Uses the same logic as PsxMeshGeometryReader.ProbeV3HasLod but seeks to the mesh first.
+    /// </summary>
+    private static bool ProbeFirstMeshHasLod(BinaryReader reader, uint meshOffset)
+    {
+        var savedPos = reader.BaseStream.Position;
+        // v3 mesh header: 4×u32(16) + u32 gunkl1(4) + 6×i16 bbox(12) = 32 bytes to the probe point
+        var probePos = meshOffset + 32;
+        if (probePos + 12 > reader.BaseStream.Length)
+        {
+            reader.BaseStream.Seek(savedPos, SeekOrigin.Begin);
+            return false;
+        }
+
+        reader.BaseStream.Seek(probePos, SeekOrigin.Begin);
+        var result = PsxMeshGeometryReader.ProbeV3HasLod(reader);
+        reader.BaseStream.Seek(savedPos, SeekOrigin.Begin);
+        return result;
     }
 
     private static PsxMeshObject ReadObject(BinaryReader reader)
@@ -129,25 +157,17 @@ internal static class PsxMeshHeaderReader
             {
                 var count = Math.Min(length / 4, 256u);
                 gouraudPalette = new Vector4[count];
-                var specialStarted = false;
                 for (uint i = 0; i < count; i++)
                 {
                     var r = reader.ReadByte();
                     var g = reader.ReadByte();
                     var b = reader.ReadByte();
                     reader.ReadByte();
-
-                    if (r == 0 && g == 0 && b == 0)
-                    {
-                        gouraudPalette[i] = specialStarted
-                            ? new Vector4(0.5f, 0.5f, 0.5f, 1f)
-                            : new Vector4(0f, 0f, 0f, 1f);
-                        specialStarted = true;
-                    }
-                    else
-                    {
-                        gouraudPalette[i] = new Vector4(r / 255f, g / 255f, b / 255f, 1f);
-                    }
+                    gouraudPalette[i] = new Vector4(
+                        Math.Min(r / 128f, 1f),
+                        Math.Min(g / 128f, 1f),
+                        Math.Min(b / 128f, 1f),
+                        1f);
                 }
             }
 

@@ -8,6 +8,8 @@ namespace NeversoftMultitool.Core.Formats.Psx;
 /// </summary>
 public readonly struct RwSkinBone(int id, int index, int flags, Matrix4x4 inverseBindMatrix)
 {
-    public readonly int Id = id, Index = index, Flags = flags;
-    public readonly Matrix4x4 InverseBindMatrix = inverseBindMatrix;
+    public int Id { get; } = id;
+    public int Index { get; } = index;
+    public int Flags { get; } = flags;
+    public Matrix4x4 InverseBindMatrix { get; } = inverseBindMatrix;
 }

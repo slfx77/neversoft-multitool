@@ -63,7 +63,12 @@ public static class StrConverter
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var data = File.ReadAllBytes(inputPath);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!StrDemuxer.IsStrFile(data))
                 return new SfdConvertResult { ErrorMessage = "Not a valid PS1 STR file" };
 
@@ -71,14 +76,19 @@ public static class StrConverter
             if (frames.Count == 0)
                 return new SfdConvertResult { ErrorMessage = "No video frames found in STR file" };
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             var width = frames[0].Width;
             var height = frames[0].Height;
 
             // Prepare audio track if present
             (tempXaPath, tempWavPath) = PrepareAudio(data, inputPath);
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Build ffmpeg args and run
-            var ffmpegArgs = BuildFfmpegArgs(width, height, tempWavPath, outputPath);
+            var frameRate = StrDemuxer.GetFrameRate(data);
+            var ffmpegArgs = BuildFfmpegArgs(width, height, frameRate, tempWavPath, outputPath);
             return RunFfmpegPipeline(ffmpeg, ffmpegArgs, frames,
                 outputPath, progress, cancellationToken);
         }
@@ -131,9 +141,9 @@ public static class StrConverter
         return (tempXaPath, null);
     }
 
-    private static string BuildFfmpegArgs(int width, int height, string? audioPath, string outputPath)
+    private static string BuildFfmpegArgs(int width, int height, double frameRate, string? audioPath, string outputPath)
     {
-        var videoInput = $"-y -f rawvideo -pix_fmt rgb24 -s {width}x{height} -r 15 -i pipe:0";
+        var videoInput = $"-y -f rawvideo -pix_fmt rgb24 -s {width}x{height} -r {frameRate:F2} -i pipe:0";
 
         return audioPath != null
             ? $"{videoInput} -i \"{audioPath}\" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -shortest \"{outputPath}\""
@@ -164,15 +174,21 @@ public static class StrConverter
                 stderrOutput.AppendLine(e.Data);
         };
 
+        // Register cancellation to kill the process if it's still running
+        using var processKillRegistration = cancellationToken.Register(() =>
+        {
+            try { process.Kill(); } catch { /* process may have already exited */ }
+        });
+
         process.Start();
         process.BeginErrorReadLine();
 
         PipeFrames(process.StandardInput.BaseStream, frames,
             width, height, progress, cancellationToken, out var cancelled);
 
-        if (cancelled)
+        if (cancelled || cancellationToken.IsCancellationRequested)
         {
-            process.Kill();
+            try { process.Kill(); } catch { /* already dead */ }
             TryDeleteFile(outputPath);
             return new SfdConvertResult { ErrorMessage = "Cancelled" };
         }
