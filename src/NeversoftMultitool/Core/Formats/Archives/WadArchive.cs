@@ -180,10 +180,8 @@ public static class WadArchive
             });
         }
 
-        // Detect THAW sector-based offsets: if consecutive entries overlap when treated as
-        // byte offsets but make sense as sector offsets, convert to byte offsets.
-        // THAW HED stores disc sector numbers with region flags in the upper byte;
-        // the lower 24 bits are the sector offset within the WAD (sector × 2048 = byte offset).
+        // Some THAW HEDs store lower-24-bit sector indices plus region flags in the upper byte.
+        // Convert those sector-addressed offsets into byte offsets when the table layout matches.
         if (IsSectorBased(entries))
         {
             for (var i = 0; i < entries.Count; i++)

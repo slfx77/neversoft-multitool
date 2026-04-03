@@ -35,66 +35,57 @@ internal static class FormatProbeArchive
 
     private static FormatProbe.FormatProbeResult ProbePreArchive(string filePath)
     {
-        try
-        {
-            var data = new byte[8];
-            using var fs = File.OpenRead(filePath);
-            var bytesRead = fs.Read(data, 0, data.Length);
-            if (bytesRead < data.Length)
-                return FileTooSmall();
-
-            var version = BitConverter.ToUInt32(data, 4);
-            return version switch
-            {
-                0xABCD0002 or 0xABCD0003 => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Compressed PRE"),
-                _ => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PRE Archive")
-            };
-        }
-        catch
-        {
+        if (!BinaryProbeReader.TryReadHeader(filePath, 8, out var header, out var bytesRead))
             return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PRE Archive");
-        }
+
+        if (bytesRead < 8)
+            return FileTooSmall();
+
+        var version = BinaryProbeReader.ReadUInt32(header, 4);
+        return version switch
+        {
+            0xABCD0002 or 0xABCD0003 => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Compressed PRE"),
+            _ => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PRE Archive")
+        };
     }
 
     private static FormatProbe.FormatProbeResult ProbeBonArchive(string filePath)
     {
-        try
-        {
-            var data = new byte[8];
-            using var fs = File.OpenRead(filePath);
-            var bytesRead = fs.Read(data, 0, data.Length);
-            if (bytesRead < data.Length)
-                return FileTooSmall();
+        if (!BinaryProbeReader.TryReadHeader(filePath, 8, out var header, out var bytesRead))
+            return HeaderReadFailure();
 
-            if (data[0] != (byte)'B' || data[1] != (byte)'o' || data[2] != (byte)'n' || data[3] != 0)
-            {
-                return new FormatProbe.FormatProbeResult(
-                    FormatProbe.FormatSupport.Unsupported,
-                    "Unknown",
-                    "Invalid BON magic");
-            }
+        if (bytesRead < 8)
+            return FileTooSmall();
 
-            var version = BitConverter.ToUInt32(data, 4);
-            return version switch
-            {
-                1 or 3 or 4 => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, $"BON Archive (v{version})"),
-                _ => new FormatProbe.FormatProbeResult(
-                    FormatProbe.FormatSupport.Unsupported,
-                    $"BON (v{version})",
-                    $"Unsupported BON version {version} (supported: 1, 3, 4)")
-            };
-        }
-        catch
+        if (header[0] != (byte)'B' || header[1] != (byte)'o' || header[2] != (byte)'n' || header[3] != 0)
         {
             return new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
                 "Unknown",
-                "Failed to read file header");
+                "Invalid BON magic");
         }
+
+        var version = BinaryProbeReader.ReadUInt32(header, 4);
+        return version switch
+        {
+            1 or 3 or 4 => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, $"BON Archive (v{version})"),
+            _ => new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                $"BON (v{version})",
+                $"Unsupported BON version {version} (supported: 1, 3, 4)")
+        };
     }
 
     private static FormatProbe.FormatProbeResult FileTooSmall()
     {
         return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Unsupported, "Unknown", "File too small");
+    }
+
+    private static FormatProbe.FormatProbeResult HeaderReadFailure()
+    {
+        return new FormatProbe.FormatProbeResult(
+            FormatProbe.FormatSupport.Unsupported,
+            "Unknown",
+            "Failed to read file header");
     }
 }

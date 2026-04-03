@@ -6,16 +6,17 @@ using NeversoftMultitool.Core;
 
 namespace NeversoftMultitool;
 
-public sealed partial class UnpackTab : UserControl
+public sealed partial class UnpackTab : UserControl, IDisposable
 {
     private readonly ObservableCollection<UnpackArchiveEntry> _archives = [];
-    private string _rootDir = "";
     private CancellationTokenSource? _cts;
+    private string _rootDir = "";
 
     public UnpackTab()
     {
         InitializeComponent();
         ArchivesListView.ItemsSource = _archives;
+        Unloaded += UnpackTab_Unloaded;
     }
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
@@ -75,14 +76,23 @@ public sealed partial class UnpackTab : UserControl
     {
         if (_archives.Count == 0 || string.IsNullOrEmpty(_rootDir)) return;
 
-        _cts = new CancellationTokenSource();
+        var previousCts = _cts;
+        if (previousCts != null)
+        {
+            _cts = null;
+            await previousCts.CancelAsync();
+            previousCts.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        _cts = cts;
         UnpackButton.IsEnabled = false;
         CancelButton.Visibility = Visibility.Visible;
         UnpackProgress.Visibility = Visibility.Visible;
         UnpackProgress.Value = 0;
 
         var rootDir = _rootDir;
-        var token = _cts.Token;
+        var token = cts.Token;
         var dispatcher = DispatcherQueue;
         var stopwatch = Stopwatch.StartNew();
 
@@ -161,6 +171,7 @@ public sealed partial class UnpackTab : UserControl
         }
         finally
         {
+            DisposeCancellationTokenSource();
             CancelButton.Visibility = Visibility.Collapsed;
             UpdateUiState();
         }
@@ -194,11 +205,35 @@ public sealed partial class UnpackTab : UserControl
         UnpackProgress.Value = total > 0 ? (double)done / total * 100 : 0;
     }
 
-    private void CancelButton_Click(object sender, RoutedEventArgs e)
+    private async void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        _cts?.Cancel();
+        var cts = _cts;
+        if (cts != null)
+        {
+            _cts = null;
+            await cts.CancelAsync();
+            cts.Dispose();
+        }
+
         CancelButton.Visibility = Visibility.Collapsed;
         UpdateUiState();
         MainWindow.Instance?.SetStatus("Unpack cancelled");
+    }
+
+    public void Dispose()
+    {
+        Unloaded -= UnpackTab_Unloaded;
+        DisposeCancellationTokenSource();
+    }
+
+    private void UnpackTab_Unloaded(object sender, RoutedEventArgs e)
+    {
+        Dispose();
+    }
+
+    private void DisposeCancellationTokenSource()
+    {
+        _cts?.Dispose();
+        _cts = null;
     }
 }

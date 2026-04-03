@@ -36,15 +36,22 @@ public static class MdecDecoder
 
         var block = new int[64];
         var idctOut = new int[64];
+        var corrupted = false;
 
-        for (var mbY = 0; mbY < mbHeight; mbY++)
+        // Column-major macroblock order (X outer, Y inner — matching PS1 MDEC / jpsxdec)
+        for (var mbX = 0; mbX < mbWidth && !corrupted; mbX++)
         {
-            for (var mbX = 0; mbX < mbWidth; mbX++)
+            for (var mbY = 0; mbY < mbHeight && !corrupted; mbY++)
             {
                 // Each macroblock: Cr, Cb, Y0, Y1, Y2, Y3
                 for (var blockIdx = 0; blockIdx < 6; blockIdx++)
                 {
-                    DecodeBlock(ref reader, block, qscale);
+                    if (!DecodeBlock(ref reader, block, qscale))
+                    {
+                        corrupted = true;
+                        break;
+                    }
+
                     Idct(block, idctOut);
 
                     switch (blockIdx)
@@ -76,21 +83,19 @@ public static class MdecDecoder
         return YCbCrToRgb(lumaBuffer, crBuffer, cbBuffer, width, height, mbWidth * 8);
     }
 
-    private static void DecodeBlock(ref MdecBitReader reader, int[] block, int qscale)
+    /// <summary>
+    ///     Decodes a single MDEC block from the bitstream into dequantized coefficients.
+    /// </summary>
+    /// <returns>true if block decoded successfully, false on corruption or exhaustion.</returns>
+    private static bool DecodeBlock(ref MdecBitReader reader, int[] block, int qscale)
     {
         Array.Clear(block);
 
-        if (reader.IsExhausted) return;
+        if (reader.IsExhausted) return false;
 
-        // First code: top 6 bits = quantization scale (overrides frame qscale), bottom 10 bits = DC coefficient
-        var firstCode = (int)reader.ReadBits(16);
-        var blockQscale = (firstCode >> 10) & 0x3F;
-        var dc = firstCode & 0x3FF;
-
-        // Sign-extend DC (10-bit signed)
-        if (dc >= 512) dc -= 1024;
-
-        if (blockQscale == 0) blockQscale = qscale;
+        // STR v2: DC coefficient is 10 signed bits from bitstream.
+        // Quantization scale is frame-level (from the 8-byte header), not per-block.
+        var dc = reader.ReadSignedBits(10);
 
         // DC: multiply by quantization table[0] only (no qscale factor)
         if (dc != 0)
@@ -105,11 +110,7 @@ public static class MdecDecoder
             var entry = MdecTables.VlcTable[peek];
 
             if (entry.BitLength == 0)
-            {
-                // Invalid/unrecognized code -- skip a bit and try to recover
-                reader.SkipBits(1);
-                continue;
-            }
+                return false; // Unrecognized VLC code = corruption
 
             reader.SkipBits(entry.BitLength);
 
@@ -120,9 +121,11 @@ public static class MdecDecoder
 
             if (entry.IsEscape)
             {
-                // Escape: read 6-bit run + 10-bit signed level
-                run = (int)reader.ReadBits(6);
-                level = reader.ReadSignedBits(10);
+                // Escape: read 6-bit run + 10-bit signed level as a 16-bit MDEC code
+                var escapeCode = (int)reader.ReadBits(16);
+                run = (escapeCode >> 10) & 0x3F;
+                level = escapeCode & 0x3FF;
+                if (level >= 512) level -= 1024; // sign-extend 10 bits
             }
             else
             {
@@ -131,16 +134,18 @@ public static class MdecDecoder
             }
 
             vectorPos += run + 1;
-            if (vectorPos >= 64) break;
+            if (vectorPos >= 64) return false; // RLC out of bounds = corruption
 
             var matrixPos = MdecTables.ReverseZigZag[vectorPos];
 
             if (level != 0)
             {
                 // Dequantize AC: (level * quantTable[pos] * qscale + 4) >> 3
-                block[matrixPos] = (level * MdecTables.QuantizationMatrix[matrixPos] * blockQscale + 4) >> 3;
+                block[matrixPos] = (level * MdecTables.QuantizationMatrix[matrixPos] * qscale + 4) >> 3;
             }
         }
+
+        return true;
     }
 
     // ── IDCT (simple_idct from FFmpeg, LGPL) ─────────────────────────────

@@ -43,7 +43,8 @@ public static class ScanSummaryDialog
             item.Children.Add(new TextBlock
             {
                 Text = file.Reason,
-                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                Foreground =
+ (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
                 TextTrimming = TextTrimming.CharacterEllipsis
             });
             listItems.Children.Add(item);

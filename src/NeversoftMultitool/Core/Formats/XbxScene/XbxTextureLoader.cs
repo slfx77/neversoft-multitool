@@ -25,7 +25,7 @@ public static class XbxTextureLoader
         {
             var texFiles = GetTexFiles(texPath);
             foreach (var tf in texFiles)
-                ParseTexIntoCache(tf, cache, parsedFiles, verbose);
+                ParseTexIntoCache(tf, cache, parsedFiles);
             return cache;
         }
 
@@ -35,7 +35,7 @@ public static class XbxTextureLoader
         {
             var texFiles = CompanionSearch.FindAllByExtension(commonRoot, TexExtensions);
             foreach (var tf in texFiles)
-                ParseTexIntoCache(tf, cache, parsedFiles, verbose);
+                ParseTexIntoCache(tf, cache, parsedFiles);
         }
 
         return cache;
@@ -75,7 +75,7 @@ public static class XbxTextureLoader
     }
 
     private static void ParseTexIntoCache(string texFile,
-        Dictionary<uint, Ps2Texture> cache, HashSet<string> parsedFiles, bool verbose)
+        Dictionary<uint, Ps2Texture> cache, HashSet<string> parsedFiles)
     {
         if (!parsedFiles.Add(texFile)) return;
 

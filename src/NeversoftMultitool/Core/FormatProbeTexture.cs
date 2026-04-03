@@ -5,19 +5,23 @@ namespace NeversoftMultitool.Core;
 
 internal static class FormatProbeTexture
 {
+    private static readonly string[] XboxTexSuffixes = [".tex.xbx", ".tex.wpc", ".stex"];
+    private static readonly string[] XboxImgSuffixes = [".img.xbx", ".img.wpc"];
+    private static readonly string[] CrossPlatformTexSuffixes = [".tex.xen", ".tex.ngc", ".tex.ps3", ".tex.dat"];
+    private static readonly string[] CrossPlatformImgSuffixes = [".img.xen", ".img.ps3"];
+    private static readonly string[] Ps2TextureSuffixes = [".tex.ps2", ".img.ps2"];
+
     public static FormatProbe.FormatProbeResult Probe(string filePath)
     {
         var name = Path.GetFileName(filePath);
-        var lower = name.ToLowerInvariant();
 
-        if (lower.EndsWith(".tex.xbx") || lower.EndsWith(".tex.wpc") || lower.EndsWith(".stex"))
+        if (OrdinalFileName.HasAnySuffix(name, XboxTexSuffixes))
             return ProbeXbxTexFile(filePath);
 
-        if (lower.EndsWith(".img.xbx") || lower.EndsWith(".img.wpc"))
+        if (OrdinalFileName.HasAnySuffix(name, XboxImgSuffixes))
             return ProbeXbxImgFile(filePath);
 
-        if (lower.EndsWith(".tex.xen") || lower.EndsWith(".tex.ngc") ||
-            lower.EndsWith(".tex.ps3") || lower.EndsWith(".tex.dat"))
+        if (OrdinalFileName.HasAnySuffix(name, CrossPlatformTexSuffixes))
         {
             return new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
@@ -25,7 +29,7 @@ internal static class FormatProbeTexture
                 "GameCube/PS3 TEX textures are not yet supported");
         }
 
-        if (lower.EndsWith(".img.xen") || lower.EndsWith(".img.ps3"))
+        if (OrdinalFileName.HasAnySuffix(name, CrossPlatformImgSuffixes))
         {
             return new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
@@ -33,10 +37,10 @@ internal static class FormatProbeTexture
                 "Xenon/PS3 IMG single textures are not yet supported");
         }
 
-        if (lower.EndsWith(".tex.ps2") || lower.EndsWith(".img.ps2"))
+        if (OrdinalFileName.HasAnySuffix(name, Ps2TextureSuffixes))
             return ProbePs2TexFile(filePath);
 
-        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        var ext = Path.GetExtension(filePath);
         return ext switch
         {
             ".psx" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PSX Texture"),
@@ -56,114 +60,97 @@ internal static class FormatProbeTexture
 
     private static FormatProbe.FormatProbeResult ProbePs2TexFile(string filePath)
     {
-        try
+        if (!BinaryProbeReader.TryReadHeader(filePath, 12, out var header, out var bytesRead))
+            return HeaderReadFailure();
+
+        if (bytesRead < 4)
+            return FileTooSmall();
+
+        var version = BinaryProbeReader.ReadUInt32(header);
+        var version16 = (ushort)(version & 0xFFFF);
+        if (version16 == 6 && bytesRead >= 12)
         {
-            var data = new byte[12];
-            using var fs = File.OpenRead(filePath);
-            var bytesRead = fs.Read(data, 0, data.Length);
-            if (bytesRead < 4)
-                return FileTooSmall();
+            var numTex = BinaryProbeReader.ReadUInt32(header, 4);
+            if (numTex > 0 && numTex <= 100)
+                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "THAW Scene TEX (v6)");
+        }
 
-            var version = BitConverter.ToUInt32(data, 0);
-            var version16 = (ushort)(version & 0xFFFF);
-            if (version16 == 6 && bytesRead >= 12)
-            {
-                var numTex = BitConverter.ToUInt32(data, 4);
-                if (numTex > 0 && numTex <= 100)
-                    return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "THAW Scene TEX (v6)");
-            }
+        if (version is 2)
+            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PS2 IMG (v2)");
 
-            if (version is 2)
-                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PS2 IMG (v2)");
+        if (version is 3 or 4 or 5)
+            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, $"PS2 TEX (v{version})");
 
-            if (version is 3 or 4 or 5)
-                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, $"PS2 TEX (v{version})");
+        if (version == 0x0016)
+            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "RenderWare TXD");
 
-            if (version == 0x0016)
-                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "RenderWare TXD");
-
-            if (version == 256)
-            {
-                return new FormatProbe.FormatProbeResult(
-                    FormatProbe.FormatSupport.Unsupported,
-                    "THAW QB Data",
-                    "THAW .tex.ps2 files contain script data, not textures");
-            }
-
-            if (ThawZoneTexFile.IsThawZoneTex(File.ReadAllBytes(filePath)))
-                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "THAW Zone TEX");
-
+        if (version == 256)
+        {
             return new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
-                $"PS2 TEX (v{version})",
-                $"Unsupported TEX version {version} (supported: 2-5)");
+                "THAW QB Data",
+                "THAW .tex.ps2 files contain script data, not textures");
         }
-        catch
-        {
+
+        if (!BinaryProbeReader.TryReadAllBytes(filePath, out var data))
             return HeaderReadFailure();
-        }
+
+        if (ThawZoneTexFile.IsThawZoneTex(data))
+            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "THAW Zone TEX");
+
+        return new FormatProbe.FormatProbeResult(
+            FormatProbe.FormatSupport.Unsupported,
+            $"PS2 TEX (v{version})",
+            $"Unsupported TEX version {version} (supported: 2-5)");
     }
 
     private static FormatProbe.FormatProbeResult ProbeXbxTexFile(string filePath)
     {
-        try
-        {
-            var data = new byte[4];
-            using var fs = File.OpenRead(filePath);
-            var bytesRead = fs.Read(data, 0, data.Length);
-            if (bytesRead < 4)
-                return FileTooSmall();
-
-            var version = BitConverter.ToUInt32(data, 0);
-            if (version == 1)
-                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Xbox TEX");
-
-            if (version == 0xABADD00D)
-                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "THAW PC TEX");
-
-            if (ThawTexFile.TryFindEmbeddedDictionaryOffset(File.ReadAllBytes(filePath), out var offset))
-            {
-                var formatName = offset == 0 ? "THAW PC TEX" : "THAW PC TEX (embedded)";
-                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, formatName);
-            }
-
-            return new FormatProbe.FormatProbeResult(
-                FormatProbe.FormatSupport.Unsupported,
-                $"Xbox TEX (v{version})",
-                $"Unsupported Xbox TEX version {version} (expected 1)");
-        }
-        catch
-        {
+        if (!BinaryProbeReader.TryReadHeader(filePath, 4, out var header, out var bytesRead))
             return HeaderReadFailure();
+
+        if (bytesRead < 4)
+            return FileTooSmall();
+
+        var version = BinaryProbeReader.ReadUInt32(header);
+        if (version == 1)
+            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Xbox TEX");
+
+        if (version == 0xABADD00D)
+            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "THAW PC TEX");
+
+        if (BinaryProbeReader.TryReadAllBytes(filePath, out var data)
+            && ThawTexFile.TryFindEmbeddedDictionaryOffset(data, out var offset))
+        {
+            var formatName = offset == 0 ? "THAW PC TEX" : "THAW PC TEX (embedded)";
+            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, formatName);
         }
+
+        return new FormatProbe.FormatProbeResult(
+            FormatProbe.FormatSupport.Unsupported,
+            $"Xbox TEX (v{version})",
+            $"Unsupported Xbox TEX version {version} (expected 1)");
     }
 
     private static FormatProbe.FormatProbeResult ProbeXbxImgFile(string filePath)
     {
-        try
-        {
-            var data = new byte[8];
-            using var fs = File.OpenRead(filePath);
-            var bytesRead = fs.Read(data, 0, data.Length);
-            if (bytesRead < 4)
-                return FileTooSmall();
-
-            var version = BitConverter.ToUInt32(data, 0);
-            if (version == 2)
-                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Xbox IMG");
-
-            if (version == 0xABADD00D)
-                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "THAW PC IMG");
-
-            return new FormatProbe.FormatProbeResult(
-                FormatProbe.FormatSupport.Unsupported,
-                $"Xbox IMG (v{version})",
-                $"Unsupported Xbox/PC IMG version {version} (expected 2 or 0xABADD00D)");
-        }
-        catch
-        {
+        if (!BinaryProbeReader.TryReadHeader(filePath, 8, out var header, out var bytesRead))
             return HeaderReadFailure();
-        }
+
+        if (bytesRead < 4)
+            return FileTooSmall();
+
+        var version = BinaryProbeReader.ReadUInt32(header);
+        if (version == 2)
+            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Xbox IMG");
+
+        if (version == 0xABADD00D)
+            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "THAW PC IMG");
+
+        return new FormatProbe.FormatProbeResult(
+            FormatProbe.FormatSupport.Unsupported,
+            $"Xbox IMG (v{version})",
+            $"Unsupported Xbox/PC IMG version {version} (expected 2 or 0xABADD00D)");
     }
 
     private static FormatProbe.FormatProbeResult FileTooSmall()

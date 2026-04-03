@@ -18,8 +18,12 @@ public static class QbDecompiler
         var sb = new StringBuilder();
         var indent = 0;
 
-        for (var i = 0; i < file.Tokens.Count; i++)
+        var i = 0;
+        while (i < file.Tokens.Count)
+        {
             i = EmitToken(file, file.Tokens, i, sb, ref indent);
+            i++;
+        }
 
         return sb.ToString();
     }
@@ -32,8 +36,12 @@ public static class QbDecompiler
         var sb = new StringBuilder();
         var indent = 0;
 
-        for (var i = item.StartTokenIndex; i < item.EndTokenIndex && i < file.Tokens.Count; i++)
+        var i = item.StartTokenIndex;
+        while (i < item.EndTokenIndex && i < file.Tokens.Count)
+        {
             i = EmitToken(file, file.Tokens, i, sb, ref indent);
+            i++;
+        }
 
         return sb.ToString();
     }
@@ -185,6 +193,8 @@ public static class QbDecompiler
             // Data types — word tokens that need space separation
             case QbTokenType.Name:
             case QbTokenType.Enum:
+            case QbTokenType.RuntimeCFunction:
+            case QbTokenType.RuntimeMemberFunction:
                 WordSpace(sb);
                 sb.Append(file.ResolveName(t.NameChecksum));
                 break;
@@ -358,13 +368,6 @@ public static class QbDecompiler
                 if (t.RandomItemCount > 0)
                     sb.Append($"({t.RandomItemCount})");
                 indent++;
-                break;
-
-            // Runtime functions (resolved at load time, shouldn't appear in .qb files)
-            case QbTokenType.RuntimeCFunction:
-            case QbTokenType.RuntimeMemberFunction:
-                WordSpace(sb);
-                sb.Append(file.ResolveName(t.NameChecksum));
                 break;
 
             default:

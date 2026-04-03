@@ -1,8 +1,9 @@
 using NeversoftMultitool.Core.Formats.Psx;
-using static NeversoftMultitool.Core.Formats.Ps2Scene.ThawZoneTexCoreDecoder;
 using static NeversoftMultitool.Core.Formats.Ps2Scene.ThawZoneTexFile;
+using static NeversoftMultitool.Core.Formats.Ps2Scene.ThawZoneTexHeaderClutSupport;
 using static NeversoftMultitool.Core.Formats.Ps2Scene.ThawZoneTexHeaderSourceResolver;
 using static NeversoftMultitool.Core.Formats.Ps2Scene.ThawZoneTexTextureCache;
+using static NeversoftMultitool.Core.Formats.Ps2Scene.ThawZoneTexVramSupport;
 
 namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
@@ -153,73 +154,58 @@ internal static class ThawZoneTexHeaderDataSupport
         if (FindUploadIndexForOffset(uploads, entry.UploadOffset) is var uploadIndex && uploadIndex.HasValue)
             matchedUpload = uploads[uploadIndex.Value];
 
-        var useAutoPsmt4SlotDecode = forceAutoPsmt4SlotDecode;
-
         byte[]? clut = null;
         var paletteEntries = Ps2TexPixelDecoder.GetPaletteSize(psm);
         var dataPos = 0;
 
         if (paletteEntries > 0)
         {
-            var clutBpp = Ps2TexPixelDecoder.GetBitsPerPixel(cpsm);
-            var clutBytes = paletteEntries * clutBpp / 8;
-            if (entry.PaletteBytes < clutBytes || dataPos + clutBytes > slot.Length)
+            var sourceCpsm = clutSource.HasValue
+                ? InferHeaderClutSourceCpsm(
+                    clutSource.Value.Entry.PaletteBytes,
+                    paletteEntries,
+                    GetTex0Cpsm(clutSource.Value.Entry.Tex0))
+                : InferHeaderClutSourceCpsm(entry.PaletteBytes, paletteEntries, cpsm);
+            var sourceClutBpp = Ps2TexPixelDecoder.GetBitsPerPixel(sourceCpsm);
+            var sourceClutBytes = paletteEntries * sourceClutBpp / 8;
+            if (entry.PaletteBytes < sourceClutBytes || dataPos + sourceClutBytes > slot.Length)
                 return null;
 
-            paletteScore = ScorePaletteBytes(slot.Slice(dataPos, clutBytes));
+            paletteScore = ScorePaletteBytes(slot.Slice(dataPos, sourceClutBytes));
             dataPos += (int)entry.PaletteBytes;
 
             clut = psm == Ps2TexPixelDecoder.PSMT4 && clutSource.HasValue
-                ? TryReadHeaderClutBytes(fileData, dataBaseOffset, clutSource.Value, clutBytes)
-                : slot.Slice(0, clutBytes).ToArray();
+                ? TryReadHeaderClutBytes(fileData, dataBaseOffset, clutSource.Value, sourceClutBytes)
+                : slot.Slice(0, sourceClutBytes).ToArray();
             if (clut == null)
                 return null;
 
-            if (psm == Ps2TexPixelDecoder.PSMT8)
-            {
-                UnswizzleClutCsm1(clut, clutBpp / 8);
-            }
-            else if (psm == Ps2TexPixelDecoder.PSMT4)
-            {
-                var clutLayout = clutSource?.Entry.LayoutMode ?? entry.LayoutMode;
-                clut = useAutoPsmt4SlotDecode
-                    ? cpsm switch
-                    {
-                        Ps2TexPixelDecoder.PSMCT16 => ThawZoneTexHeaderLayoutSupport.ReorderClut(clut, ClutTableT32I4, 2),
-                        Ps2TexPixelDecoder.PSMCT32 => ThawZoneTexHeaderLayoutSupport.ReorderClut(clut, ClutTableT32I4, 4),
-                        _ => clut
-                    }
-                    : ReorderClutPsmt4ForLayout(clut, cpsm, clutLayout);
-            }
+            var clutLayout = clutSource?.Entry.LayoutMode ?? entry.LayoutMode;
+            clut = NormalizeHeaderClutBytes(
+                clut,
+                sourceCpsm,
+                cpsm,
+                psm,
+                clutLayout,
+                forceAutoPsmt4SlotDecode);
+            if (clut == null)
+                return null;
         }
 
         if (dataPos + pixelBytes > slot.Length)
             return null;
 
-        var texData = slot.Slice(dataPos, pixelBytes);
-        if (psm == Ps2TexPixelDecoder.PSMT8 && width >= height)
-            texData = Ps2TexSwizzle.UnswizzlePsmt8(texData, width, height);
-        else if (psm == Ps2TexPixelDecoder.PSMT4)
-        {
-            var unswizzled = matchedUpload.HasValue
-                ? Ps2TexSwizzle.UnswizzlePsmt4WithUploadDpsm(texData, width, height, matchedUpload.Value.Dpsm)
-                : Ps2TexSwizzle.UnswizzlePsmt4(texData, width, height);
-            texData = !useAutoPsmt4SlotDecode && ThawZoneTexHeaderLayoutSupport.ShouldApplyPsmt4SlotLayoutTransform(entry.LayoutMode, dataOffsetBias)
-                ? ThawZoneTexHeaderLayoutSupport.TransformPsmt4SlotBlocksForLayout(unswizzled, width, height, entry.LayoutMode)
-                : unswizzled;
-
-            if (ThawZoneTexHeaderLayoutSupport.ShouldApplyPsmt4SlotTileTransform(entry, dataOffsetBias, matchedUpload))
-            {
-                texData = ThawZoneTexHeaderLayoutSupport.TransformPsmt4LinearBlocks(
-                    texData,
-                    width,
-                    height,
-                    16,
-                    16,
-                    Layout02000005TilePermutation,
-                    0x05);
-            }
-        }
+        var texData = PrepareHeaderPixelBytes(
+            slot.Slice(dataPos, pixelBytes),
+            width,
+            height,
+            psm,
+            entry,
+            dataOffsetBias,
+            forceAutoPsmt4SlotDecode,
+            matchedUpload);
+        if (texData == null)
+            return null;
 
         var pixels = Ps2TexPixelDecoder.DecodePixels(texData, width, height, psm, cpsm, clut);
         return pixels == null
@@ -227,127 +213,195 @@ internal static class ThawZoneTexHeaderDataSupport
             : new Ps2Texture(entry.Checksum, width, height, psm, cpsm, pixels);
     }
 
-    internal static double ScorePaletteBytes(ReadOnlySpan<byte> paletteBytes)
-    {
-        if (paletteBytes.IsEmpty)
-            return 0;
-
-        Span<int> histogram = stackalloc int[256];
-        foreach (var value in paletteBytes)
-            histogram[value]++;
-
-        double entropy = 0;
-        foreach (var count in histogram)
-        {
-            if (count == 0)
-                continue;
-
-            var probability = (double)count / paletteBytes.Length;
-            entropy -= probability * Math.Log2(probability);
-        }
-
-        return entropy;
-    }
-
-    internal static Dictionary<ZoneTexHeaderEntry, HeaderClutSourceContext> BuildSameCbpClutSourceMap(
-        ReadOnlySpan<byte> fileData,
-        int dataBaseOffset,
-        int dataOffsetBias,
-        IReadOnlyList<ZoneTexHeaderEntry> headerEntries)
-    {
-        var contexts = new List<HeaderClutEntropyContext>(headerEntries.Count);
-        foreach (var entry in headerEntries)
-        {
-            var bias = SelectHeaderDataSlotBias(fileData, dataBaseOffset, dataOffsetBias, entry) ?? 0;
-            contexts.Add(new HeaderClutEntropyContext(
-                entry,
-                bias,
-                ComputeHeaderClutEntropy(fileData, dataBaseOffset, entry, bias)));
-        }
-
-        var map = new Dictionary<ZoneTexHeaderEntry, HeaderClutSourceContext>();
-        foreach (var group in contexts.GroupBy(context =>
-                     (GetTex0Cbp(context.Entry.Tex0), GetTex0Cpsm(context.Entry.Tex0))))
-        {
-            var orderedGroup = group.OrderBy(static context => context.Entry.DataOffset).ToList();
-            if (orderedGroup.Count <= 1)
-                continue;
-
-            var bestEntropy = orderedGroup
-                .OrderByDescending(static context => context.ClutEntropy)
-                .ThenBy(static context => context.Entry.DataOffset)
-                .First();
-
-            foreach (var context in orderedGroup)
-            {
-                if (!ShouldPreferSameCbpEntropyClut(context.Entry))
-                    continue;
-
-                map[context.Entry] = new HeaderClutSourceContext(bestEntropy.Entry, bestEntropy.Bias);
-            }
-        }
-
-        return map;
-    }
-
-    internal static bool ShouldPreferSameCbpEntropyClut(ZoneTexHeaderEntry entry)
-    {
-        if (GetTex0Psm(entry.Tex0) != Ps2TexPixelDecoder.PSMT4)
-            return false;
-
-        return entry.LayoutMode == 0x02000005;
-    }
-
-    internal static double ComputeHeaderClutEntropy(
-        ReadOnlySpan<byte> fileData,
-        int dataBaseOffset,
+    private static byte[]? PrepareHeaderPixelBytes(
+        ReadOnlySpan<byte> rawPixelData,
+        int width,
+        int height,
+        uint psm,
         ZoneTexHeaderEntry entry,
-        int selectedBias)
+        int selectedBias,
+        bool forceAutoPsmt4SlotDecode,
+        VramUpload? matchedUpload)
     {
-        if (GetTex0Psm(entry.Tex0) != Ps2TexPixelDecoder.PSMT4)
-            return double.NegativeInfinity;
+        if (Ps2TexPixelDecoder.GetPaletteSize(psm) == 0)
+            return rawPixelData.ToArray();
 
-        var cpsm = GetTex0Cpsm(entry.Tex0);
-        var clutBytes = 16 * Ps2TexPixelDecoder.GetBitsPerPixel(cpsm) / 8;
-        if (entry.PaletteBytes < clutBytes)
-            return double.NegativeInfinity;
-
-        var slotOffset = (long)dataBaseOffset + selectedBias + entry.DataOffset;
-        if (slotOffset < 0 || slotOffset + clutBytes > fileData.Length)
-            return double.NegativeInfinity;
-
-        return ScorePaletteBytes(fileData.Slice((int)slotOffset, clutBytes));
-    }
-
-    internal static byte[]? TryReadHeaderClutBytes(
-        ReadOnlySpan<byte> fileData,
-        int dataBaseOffset,
-        HeaderClutSourceContext clutSource,
-        int clutBytes)
-    {
-        var slotOffset = (long)dataBaseOffset + clutSource.Bias + clutSource.Entry.DataOffset;
-        if (slotOffset < 0 || slotOffset + clutBytes > fileData.Length)
-            return null;
-        if (clutSource.Entry.PaletteBytes < clutBytes)
-            return null;
-
-        return fileData.Slice((int)slotOffset, clutBytes).ToArray();
-    }
-
-    internal static byte[] ReorderClutPsmt4ForLayout(byte[] clut, uint cpsm, uint layoutMode)
-    {
-        if (layoutMode == 0x02000001 && cpsm == Ps2TexPixelDecoder.PSMCT16)
-            return clut;
-        if (layoutMode == 0x02000005 && cpsm == Ps2TexPixelDecoder.PSMCT32)
-            return clut;
-
-        return cpsm switch
+        return psm switch
         {
-            // Packed slot data stores CT16 CLUTs as 16 compact entries rather than the
-            // full 32-halfword GS block, so the logical reorder matches the CT32 16-entry permutation.
-            Ps2TexPixelDecoder.PSMCT16 => ThawZoneTexHeaderLayoutSupport.ReorderClut(clut, ClutTableT32I4, 2),
-            Ps2TexPixelDecoder.PSMCT32 => ThawZoneTexHeaderLayoutSupport.ReorderClut(clut, ClutTableT32I4, 4),
-            _ => clut
+            Ps2TexPixelDecoder.PSMT8 => PreparePsmt8HeaderPixelBytes(rawPixelData, width, height),
+            Ps2TexPixelDecoder.PSMT4 => PreparePsmt4HeaderPixelBytes(
+                rawPixelData,
+                width,
+                height,
+                entry,
+                selectedBias,
+                forceAutoPsmt4SlotDecode,
+                matchedUpload),
+            _ => rawPixelData.ToArray()
         };
     }
+
+    private static byte[]? PreparePsmt8HeaderPixelBytes(
+        ReadOnlySpan<byte> rawPixelData,
+        int width,
+        int height)
+    {
+        // The extracted public slot bytes still behave like a GS-layout payload rather than
+        // the runtime prepared-source buffer. Keep the public-file unswizzle path here, but
+        // use the decompiled 8-bit eligibility gate instead of sharing the 4-bit table.
+        if (Ps2TexSwizzle.CanConv8to32(width, height))
+            return Ps2TexSwizzle.UnswizzlePsmt8(rawPixelData, width, height);
+
+        return rawPixelData.ToArray();
+    }
+
+    private static byte[]? PreparePsmt4HeaderPixelBytes(
+        ReadOnlySpan<byte> rawPixelData,
+        int width,
+        int height,
+        ZoneTexHeaderEntry entry,
+        int selectedBias,
+        bool forceAutoPsmt4SlotDecode,
+        VramUpload? matchedUpload)
+    {
+        // The decompiled high-bit family dispatch applies to the runtime prepared-source buffer,
+        // but the extracted public slot bytes still line up with the older GS-layout path plus
+        // a small heuristic block-permutation layer more closely. Preserve that public-file
+        // baseline until the owner-blob/public-file bridge is resolved.
+        var texData = matchedUpload.HasValue
+            ? Ps2TexSwizzle.UnswizzlePsmt4WithUploadDpsm(rawPixelData, width, height, matchedUpload.Value.Dpsm)
+            : Ps2TexSwizzle.UnswizzlePsmt4(rawPixelData, width, height);
+
+        if (!forceAutoPsmt4SlotDecode &&
+            ThawZoneTexHeaderLayoutSupport.ShouldApplyPsmt4SlotLayoutTransform(entry.LayoutMode, selectedBias))
+        {
+            texData = ThawZoneTexHeaderLayoutSupport.TransformPsmt4SlotBlocksForLayout(
+                texData,
+                width,
+                height,
+                entry.LayoutMode);
+        }
+
+        if (ThawZoneTexHeaderLayoutSupport.ShouldApplyPsmt4SlotTileTransform(entry, selectedBias, matchedUpload))
+        {
+            texData = ThawZoneTexHeaderLayoutSupport.TransformPsmt4LinearBlocks(
+                texData,
+                width,
+                height,
+                16,
+                16,
+                Layout02000005TilePermutation,
+                0x05);
+        }
+
+        return texData;
+    }
+
+    private static uint InferHeaderClutSourceCpsm(uint paletteBytes, int paletteEntries, uint fallbackCpsm)
+    {
+        var ct16Bytes = paletteEntries * (Ps2TexPixelDecoder.GetBitsPerPixel(Ps2TexPixelDecoder.PSMCT16) / 8);
+        var ct32Bytes = paletteEntries * (Ps2TexPixelDecoder.GetBitsPerPixel(Ps2TexPixelDecoder.PSMCT32) / 8);
+
+        return paletteBytes switch
+        {
+            var bytes when bytes == ct16Bytes => Ps2TexPixelDecoder.PSMCT16,
+            var bytes when bytes == ct32Bytes => Ps2TexPixelDecoder.PSMCT32,
+            _ => fallbackCpsm
+        };
+    }
+
+    private static byte[]? NormalizeHeaderClutBytes(
+        byte[] clutBytes,
+        uint sourceCpsm,
+        uint targetCpsm,
+        uint psm,
+        uint layoutMode,
+        bool forceAutoPsmt4SlotDecode)
+    {
+        var normalized = ConvertHeaderClutStorage(clutBytes, sourceCpsm, targetCpsm);
+        if (normalized == null)
+            return null;
+
+        if (psm == Ps2TexPixelDecoder.PSMT8)
+        {
+            var clutEntrySize = Ps2TexPixelDecoder.GetBitsPerPixel(targetCpsm) / 8;
+            UnswizzleClutCsm1(normalized, clutEntrySize);
+        }
+        else if (psm == Ps2TexPixelDecoder.PSMT4)
+        {
+            // The decompiled runtime prepared-source path does not reorder the CLUT after
+            // FUN_001e6818 binds it, but the public extracted slot bytes still behave like
+            // the older packed-slot representation rather than that runtime buffer.
+            normalized = forceAutoPsmt4SlotDecode
+                ? targetCpsm switch
+                {
+                    Ps2TexPixelDecoder.PSMCT16 =>
+                        ThawZoneTexHeaderLayoutSupport.ReorderClut(normalized, ClutTableT32I4, 2),
+                    Ps2TexPixelDecoder.PSMCT32 =>
+                        ThawZoneTexHeaderLayoutSupport.ReorderClut(normalized, ClutTableT32I4, 4),
+                    _ => normalized
+                }
+                : ThawZoneTexHeaderClutSupport.ReorderClutPsmt4ForLayout(normalized, targetCpsm, layoutMode);
+        }
+
+        return normalized;
+    }
+
+    private static byte[]? ConvertHeaderClutStorage(byte[] clutBytes, uint sourceCpsm, uint targetCpsm)
+    {
+        if (sourceCpsm == targetCpsm)
+            return clutBytes;
+
+        return (sourceCpsm, targetCpsm) switch
+        {
+            (Ps2TexPixelDecoder.PSMCT16, Ps2TexPixelDecoder.PSMCT32) => ConvertClut16To32(clutBytes),
+            (Ps2TexPixelDecoder.PSMCT32, Ps2TexPixelDecoder.PSMCT16) => ConvertClut32To16(clutBytes),
+            _ => null
+        };
+    }
+
+    private static byte[]? ConvertClut16To32(ReadOnlySpan<byte> clutBytes)
+    {
+        if ((clutBytes.Length & 1) != 0)
+            return null;
+
+        var converted = new byte[clutBytes.Length * 2];
+        for (var i = 0; i < clutBytes.Length; i += 2)
+        {
+            var pixel = (ushort)(clutBytes[i] | (clutBytes[i + 1] << 8));
+            var di = i * 2;
+            converted[di] = Expand5To8(pixel & 0x1F);
+            converted[di + 1] = Expand5To8((pixel >> 5) & 0x1F);
+            converted[di + 2] = Expand5To8((pixel >> 10) & 0x1F);
+            converted[di + 3] = 0x80;
+        }
+
+        return converted;
+    }
+
+    private static byte[]? ConvertClut32To16(ReadOnlySpan<byte> clutBytes)
+    {
+        if ((clutBytes.Length & 3) != 0)
+            return null;
+
+        var converted = new byte[clutBytes.Length / 2];
+        for (var i = 0; i < clutBytes.Length; i += 4)
+        {
+            var r = (ushort)(clutBytes[i] >> 3);
+            var g = (ushort)(clutBytes[i + 1] >> 3);
+            var b = (ushort)(clutBytes[i + 2] >> 3);
+            var pixel = (ushort)(0x8000 | r | (g << 5) | (b << 10));
+            var di = i / 2;
+            converted[di] = (byte)(pixel & 0xFF);
+            converted[di + 1] = (byte)(pixel >> 8);
+        }
+
+        return converted;
+    }
+
+    private static byte Expand5To8(int value)
+    {
+        return (byte)((value << 3) | (value >> 2));
+    }
+
 }

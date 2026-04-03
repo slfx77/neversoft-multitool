@@ -7,7 +7,7 @@ using NeversoftMultitool.Core.Formats.Rle;
 
 namespace NeversoftMultitool;
 
-public sealed partial class RleBitmapTab : UserControl
+public sealed partial class RleBitmapTab : UserControl, IDisposable
 {
     private readonly ObservableCollection<RleFileEntry> _files = [];
     private CancellationTokenSource? _debounceCts;
@@ -20,6 +20,7 @@ public sealed partial class RleBitmapTab : UserControl
     {
         InitializeComponent();
         FilesListView.ItemsSource = _files;
+        Unloaded += RleBitmapTab_Unloaded;
     }
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
@@ -148,7 +149,13 @@ public sealed partial class RleBitmapTab : UserControl
 
     private async void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        _debounceCts?.Cancel();
+        var previousDebounceCts = _debounceCts;
+        if (previousDebounceCts != null)
+        {
+            _debounceCts = null;
+            await previousDebounceCts.CancelAsync();
+            previousDebounceCts.Dispose();
+        }
 
         if (FilesListView.SelectedItem is RleFileEntry entry)
         {
@@ -179,13 +186,23 @@ public sealed partial class RleBitmapTab : UserControl
 
     private async Task LoadBitmapPreview(RleFileEntry entry)
     {
-        _previewCts?.Cancel();
+        var previousPreviewCts = _previewCts;
+        if (previousPreviewCts != null)
+        {
+            _previewCts = null;
+            await previousPreviewCts.CancelAsync();
+            previousPreviewCts.Dispose();
+        }
+
         var cts = new CancellationTokenSource();
         _previewCts = cts;
 
         // Show the preview panel and loading state
         PreviewPanel.Visibility = Visibility.Visible;
-        PreviewColumn.Width = new GridLength(280);
+        PreviewSplitter.Visibility = Visibility.Visible;
+        SplitterColumn.Width = new GridLength(8);
+        if (PreviewColumn.Width.Value <= 0)
+            PreviewColumn.Width = new GridLength(280);
         BitmapPreview.Source = null;
         NoPreviewIcon.Visibility = Visibility.Collapsed;
         PreviewLoading.IsActive = true;
@@ -224,7 +241,14 @@ public sealed partial class RleBitmapTab : UserControl
         entry.WidthOverride = (int)args.NewValue;
 
         // Debounce preview re-rendering
-        _debounceCts?.Cancel();
+        var previousDebounceCts = _debounceCts;
+        if (previousDebounceCts != null)
+        {
+            _debounceCts = null;
+            await previousDebounceCts.CancelAsync();
+            previousDebounceCts.Dispose();
+        }
+
         var cts = new CancellationTokenSource();
         _debounceCts = cts;
 
@@ -243,12 +267,30 @@ public sealed partial class RleBitmapTab : UserControl
     private void ClearPreview()
     {
         _previewCts?.Cancel();
+        _previewCts?.Dispose();
+        _previewCts = null;
         PreviewPanel.Visibility = Visibility.Collapsed;
+        PreviewSplitter.Visibility = Visibility.Collapsed;
+        SplitterColumn.Width = new GridLength(0);
         PreviewColumn.Width = new GridLength(0);
         BitmapPreview.Source = null;
         PreviewLoading.IsActive = false;
         NoPreviewIcon.Visibility = Visibility.Collapsed;
         PreviewDimensionsText.Text = "";
         PreviewInfoText.Text = "";
+    }
+
+    public void Dispose()
+    {
+        Unloaded -= RleBitmapTab_Unloaded;
+        _debounceCts?.Dispose();
+        _debounceCts = null;
+        _previewCts?.Dispose();
+        _previewCts = null;
+    }
+
+    private void RleBitmapTab_Unloaded(object sender, RoutedEventArgs e)
+    {
+        Dispose();
     }
 }

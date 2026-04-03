@@ -9,7 +9,7 @@ using WinRT.Interop;
 
 namespace NeversoftMultitool;
 
-public sealed partial class ArchiveExtractorTab : UserControl
+public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
 {
     private readonly ObservableCollection<ArchiveFileEntry> _files = [];
     private string _archivePath = "";
@@ -21,6 +21,7 @@ public sealed partial class ArchiveExtractorTab : UserControl
     {
         InitializeComponent();
         FilesListView.ItemsSource = _files;
+        Unloaded += ArchiveExtractorTab_Unloaded;
     }
 
     private async void OpenArchiveButton_Click(object sender, RoutedEventArgs e)
@@ -142,7 +143,16 @@ public sealed partial class ArchiveExtractorTab : UserControl
         if (_files.Count == 0 || string.IsNullOrEmpty(_outputDir) || string.IsNullOrEmpty(_archivePath))
             return;
 
-        _cts = new CancellationTokenSource();
+        var previousCts = _cts;
+        if (previousCts != null)
+        {
+            _cts = null;
+            await previousCts.CancelAsync();
+            previousCts.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        _cts = cts;
 
         // Reset state
         foreach (var file in _files)
@@ -159,7 +169,7 @@ public sealed partial class ArchiveExtractorTab : UserControl
         var archivePath = _archivePath;
         var outputDir = _outputDir;
         var archiveType = _archiveType;
-        var token = _cts.Token;
+        var token = cts.Token;
         var dispatcher = DispatcherQueue;
         var fileEntries = _files;
 
@@ -225,16 +235,41 @@ public sealed partial class ArchiveExtractorTab : UserControl
         }
         finally
         {
+            DisposeCancellationTokenSource();
             CancelButton.Visibility = Visibility.Collapsed;
             ExtractButton.IsEnabled = true;
         }
     }
 
-    private void CancelButton_Click(object sender, RoutedEventArgs e)
+    private async void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        _cts?.Cancel();
+        var cts = _cts;
+        if (cts != null)
+        {
+            _cts = null;
+            await cts.CancelAsync();
+            cts.Dispose();
+        }
+
         CancelButton.Visibility = Visibility.Collapsed;
         ExtractButton.IsEnabled = true;
         MainWindow.Instance?.SetStatus("Extraction cancelled");
+    }
+
+    public void Dispose()
+    {
+        Unloaded -= ArchiveExtractorTab_Unloaded;
+        DisposeCancellationTokenSource();
+    }
+
+    private void ArchiveExtractorTab_Unloaded(object sender, RoutedEventArgs e)
+    {
+        Dispose();
+    }
+
+    private void DisposeCancellationTokenSource()
+    {
+        _cts?.Dispose();
+        _cts = null;
     }
 }

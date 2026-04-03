@@ -163,7 +163,7 @@ internal static class ThawPs2SkinSetupMapping
     }
 
     private static bool RawDirectOffsetsMatchSetupStarts(
-        IReadOnlyList<int> rawDirectOffsets,
+        List<int> rawDirectOffsets,
         IReadOnlyList<int> setupStarts)
     {
         if (rawDirectOffsets.Count != setupStarts.Count)
@@ -179,7 +179,7 @@ internal static class ThawPs2SkinSetupMapping
     }
 
     private static bool HasLeadingRawDirectPreamble(
-        IReadOnlyList<int> rawDirectOffsets,
+        List<int> rawDirectOffsets,
         IReadOnlyList<int> setupStarts)
     {
         if (rawDirectOffsets.Count != setupStarts.Count + 1)
@@ -316,7 +316,7 @@ internal static class ThawPs2SkinSetupMapping
     }
 
     private static int[] BuildDirectAlignedSetupEntryIndices(
-        IReadOnlyList<int> sectionEntryIndices,
+        int[] sectionEntryIndices,
         int setupSlotCount,
         int entryCount)
     {
@@ -326,7 +326,7 @@ internal static class ThawPs2SkinSetupMapping
         var setupEntryIndices = new int[setupSlotCount];
         for (var setupIndex = 0; setupIndex < setupSlotCount; setupIndex++)
         {
-            if ((uint)setupIndex < (uint)sectionEntryIndices.Count)
+            if ((uint)setupIndex < (uint)sectionEntryIndices.Length)
             {
                 var entryIndex = sectionEntryIndices[setupIndex];
                 if ((uint)entryIndex < (uint)entryCount)
@@ -397,8 +397,8 @@ internal static class ThawPs2SkinSetupMapping
     }
 
     private static Dictionary<int, uint>? BuildEntryTextureOverrides(
-        IReadOnlyDictionary<int, uint>? sectionTextures,
-        IReadOnlyList<int> setupEntryIndices,
+        Dictionary<int, uint>? sectionTextures,
+        int[] setupEntryIndices,
         int setupIndexBase)
     {
         if (sectionTextures is null || sectionTextures.Count == 0)
@@ -408,7 +408,7 @@ internal static class ThawPs2SkinSetupMapping
         foreach (var (sectionIndex, textureChecksum) in sectionTextures)
         {
             var setupIndex = sectionIndex + setupIndexBase;
-            if ((uint)setupIndex >= (uint)setupEntryIndices.Count)
+            if ((uint)setupIndex >= (uint)setupEntryIndices.Length)
                 continue;
 
             overrides[setupEntryIndices[setupIndex]] = textureChecksum;
@@ -418,8 +418,8 @@ internal static class ThawPs2SkinSetupMapping
     }
 
     private static Dictionary<int, int>? BuildEntryAlphaRefOverrides(
-        IReadOnlyDictionary<int, int>? sectionAlphaRefs,
-        IReadOnlyList<int> setupEntryIndices,
+        Dictionary<int, int>? sectionAlphaRefs,
+        int[] setupEntryIndices,
         int setupIndexBase)
     {
         if (sectionAlphaRefs is null || sectionAlphaRefs.Count == 0)
@@ -429,7 +429,7 @@ internal static class ThawPs2SkinSetupMapping
         foreach (var (sectionIndex, alphaRef) in sectionAlphaRefs)
         {
             var setupIndex = sectionIndex + setupIndexBase;
-            if ((uint)setupIndex >= (uint)setupEntryIndices.Count)
+            if ((uint)setupIndex >= (uint)setupEntryIndices.Length)
                 continue;
 
             overrides[setupEntryIndices[setupIndex]] = alphaRef;
@@ -442,7 +442,7 @@ internal static class ThawPs2SkinSetupMapping
         IReadOnlyList<EntryRecord> entries,
         uint sectionTexture,
         int sectionIndex,
-        IReadOnlyList<bool> entryAssigned)
+        bool[] entryAssigned)
     {
         var bestIndex = -1;
         var bestDistance = int.MaxValue;

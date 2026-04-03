@@ -118,12 +118,12 @@ public sealed class ThawPs2ReplayTriangleDiagnosticTests(TestPaths paths)
         {
             foreach (var mesh in kick.Meshes)
             {
-                foreach (var vertex in mesh.Vertices)
+                foreach (var position in mesh.Vertices.Select(static vertex => vertex.Position))
                 {
-                    if (!posToKicks.TryGetValue(vertex.Position, out var kickList))
+                    if (!posToKicks.TryGetValue(position, out var kickList))
                     {
                         kickList = [];
-                        posToKicks[vertex.Position] = kickList;
+                        posToKicks[position] = kickList;
                     }
 
                     if (!kickList.Contains(kick.KickIndex))

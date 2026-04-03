@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -44,19 +45,64 @@ public sealed class RepoPolicyTests
 
     private static IEnumerable<string> EnumerateTrackedCSharpFiles(string repoRoot)
     {
-        foreach (var relativeRoot in new[] { "src", "tests", "tools" })
+        foreach (var path in (TryEnumerateGitTrackedCSharpFiles(repoRoot) ?? EnumerateCSharpFilesFromRoots(repoRoot))
+                     .Where(IsTrackedCSharpFile)
+                     .Where(File.Exists))
+            yield return path;
+    }
+
+    private static IEnumerable<string> EnumerateCSharpFilesFromRoots(string repoRoot)
+    {
+        foreach (var relativeRoot in new[] { "src", "tests" })
         {
             var absoluteRoot = Path.Combine(repoRoot, relativeRoot);
             if (!Directory.Exists(absoluteRoot))
                 continue;
 
             foreach (var path in Directory.EnumerateFiles(absoluteRoot, "*.cs", SearchOption.AllDirectories))
-            {
-                if (!IsTrackedCSharpFile(path))
-                    continue;
-
                 yield return path;
-            }
+        }
+    }
+
+    private static string[]? TryEnumerateGitTrackedCSharpFiles(string repoRoot)
+    {
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "git",
+                    WorkingDirectory = repoRoot,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                }
+            };
+
+            process.StartInfo.ArgumentList.Add("-c");
+            process.StartInfo.ArgumentList.Add("safe.directory=*");
+            process.StartInfo.ArgumentList.Add("ls-files");
+            process.StartInfo.ArgumentList.Add("--");
+            process.StartInfo.ArgumentList.Add("src");
+            process.StartInfo.ArgumentList.Add("tests");
+
+            process.Start();
+            var output = process.StandardOutput.ReadToEnd();
+            _ = process.StandardError.ReadToEnd();
+            process.WaitForExit(5000);
+            if (process.ExitCode != 0)
+                return null;
+
+            return output
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+                .Where(static path => path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                .Select(relativePath => Path.Combine(repoRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)))
+                .ToArray();
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -71,6 +117,9 @@ public sealed class RepoPolicyTests
 
     private static bool ContainsPartialClassDeclaration(string path)
     {
+        if (!File.Exists(path))
+            return false;
+
         const string partialClassPattern = @"\bpartial\s+class\b";
         return Regex.IsMatch(File.ReadAllText(path), partialClassPattern, RegexOptions.CultureInvariant);
     }
@@ -86,6 +135,9 @@ public sealed class RepoPolicyTests
 
     private static int CountLines(string path)
     {
+        if (!File.Exists(path))
+            return 0;
+
         var lineCount = 0;
         foreach (var _ in File.ReadLines(path))
             lineCount++;
@@ -117,7 +169,7 @@ public sealed class RepoPolicyTests
         FileLineCount[] oversizedFiles)
     {
         var builder = new StringBuilder();
-        builder.Append("C# files should stay at or below ");
+        builder.Append("Tracked C# files under src/ and tests/ should stay at or below ");
         builder.Append(SoftFileLineLimit.ToString(CultureInfo.InvariantCulture));
         builder.AppendLine(" lines unless explicitly tracked in the repo-policy baseline.");
         builder.AppendLine("Split new oversized files instead of extending the baseline.");

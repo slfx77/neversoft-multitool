@@ -7,18 +7,18 @@ internal readonly record struct SetupMappingInfo(
 
 internal struct EntryRecord
 {
-    public uint MaterialChecksum;
-    public uint MaterialFlags;
-    public uint GsAlphaLow;
-    public uint GsAlphaHigh;
-    public uint TextureChecksum;
-    public uint OwnerObjectChecksum;
-    public bool HasVertexColors;
+    public uint MaterialChecksum { get; set; }
+    public uint MaterialFlags { get; set; }
+    public uint GsAlphaLow { get; set; }
+    public uint GsAlphaHigh { get; set; }
+    public uint TextureChecksum { get; set; }
+    public uint OwnerObjectChecksum { get; set; }
+    public bool HasVertexColors { get; set; }
 }
 
 internal struct GsRegisters
 {
-    public uint Tex0Cbp;
-    public ulong Alpha1;
-    public byte AlphaRef;
+    public uint Tex0Cbp { get; set; }
+    public ulong Alpha1 { get; set; }
+    public byte AlphaRef { get; set; }
 }

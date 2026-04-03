@@ -19,6 +19,43 @@ public static class XaDecoder
     private static readonly double[] K0 = [0.0, 60.0 / 64.0, 115.0 / 64.0, 98.0 / 64.0];
     private static readonly double[] K1 = [0.0, 0.0, -52.0 / 64.0, -55.0 / 64.0];
 
+    /// <summary>
+    ///     Decodes sectored XA audio data (as extracted by
+    ///     <see cref="NeversoftMultitool.Core.Formats.Video.StrDemuxer.ExtractAudioSectors(byte[])" />)
+    ///     to raw PCM16 samples in memory. Returns null if the data is not valid sectored XA audio.
+    /// </summary>
+    public static (short[] Samples, int SampleRate, int Channels)? DecodeToSamples(byte[] sectoredData)
+    {
+        if (!IsSectored(sectoredData))
+            return null;
+
+        var sectorCount = sectoredData.Length / SectorSize;
+
+        // Use the first sector's coding byte to determine format
+        var coding = sectoredData[3];
+        var isStereo = (coding & 0x01) != 0;
+        var sampleRate = (coding & 0x04) != 0 ? 18900 : 37800;
+
+        var pcmSamples = new List<short>();
+        var hist = new double[isStereo ? 2 : 1, 2];
+
+        for (var s = 0; s < sectorCount; s++)
+        {
+            var sectorOffset = s * SectorSize;
+            var audioStart = sectorOffset + SubheaderSize;
+
+            for (var g = 0; g < SoundGroupsPerSector; g++)
+            {
+                var groupOffset = audioStart + g * SoundGroupSize;
+                if (groupOffset + SoundGroupSize > sectoredData.Length) break;
+
+                DecodeSoundGroup(sectoredData, groupOffset, hist, isStereo, pcmSamples);
+            }
+        }
+
+        return (pcmSamples.ToArray(), sampleRate, isStereo ? 2 : 1);
+    }
+
     public static AudioConvertResult ConvertToWav(string inputPath, string outputDir)
     {
         try

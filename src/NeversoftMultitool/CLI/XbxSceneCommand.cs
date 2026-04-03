@@ -19,10 +19,6 @@ public static class XbxSceneCommand
             Description = "Output directory for .glb files",
             DefaultValueFactory = _ => "TestOutput"
         };
-        var texturesOption = new Option<bool>("-t", "--textures")
-        {
-            Description = "Embed textures from companion .tex.xbx files"
-        };
         var texPathOption = new Option<string?>("--tex")
         {
             Description = "Explicit TEX file or directory to use for texture lookup"
@@ -35,7 +31,6 @@ public static class XbxSceneCommand
         var command = new Command("xbxscene", "Convert Xbox/PC scene files (SKIN/MDL) to glTF (.glb) — THUG2 + THAW");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
-        command.Options.Add(texturesOption);
         command.Options.Add(texPathOption);
         command.Options.Add(verboseOption);
 
@@ -43,17 +38,16 @@ public static class XbxSceneCommand
         {
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
-            var textures = parseResult.GetValue(texturesOption);
             var texPath = parseResult.GetValue(texPathOption);
             var verbose = parseResult.GetValue(verboseOption);
 
-            return Task.FromResult(Execute(input, output, textures, texPath, verbose));
+            return Task.FromResult(Execute(input, output, texPath, verbose));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string output, bool embedTextures,
+    private static int Execute(string input, string output,
         string? texPath, bool verbose)
     {
         var files = CollectFiles(input);
@@ -64,7 +58,7 @@ public static class XbxSceneCommand
             return 0;
         }
 
-        var textureProvider = BuildTextureProvider(files, embedTextures, texPath, verbose);
+        var textureProvider = BuildTextureProvider(files, texPath, verbose);
 
         Directory.CreateDirectory(output);
         AnsiConsole.MarkupLine($"Found [green]{files.Count}[/] Xbox scene file(s)");
@@ -123,10 +117,8 @@ public static class XbxSceneCommand
     }
 
     private static XbxSceneGltfWriter.TextureProvider? BuildTextureProvider(
-        List<string> files, bool embedTextures, string? texPath, bool verbose)
+        List<string> files, string? texPath, bool verbose)
     {
-        if (!embedTextures && texPath == null) return null;
-
         var texCache = XbxTextureLoader.BuildTextureCache(files, texPath, verbose);
         if (texCache.Count == 0) return null;
 

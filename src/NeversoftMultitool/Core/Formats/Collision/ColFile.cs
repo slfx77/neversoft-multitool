@@ -50,7 +50,7 @@ public static class ColFile
 
         var numObjects = BinaryPrimitives.ReadInt32LittleEndian(data[4..]);
         var totalVerts = BinaryPrimitives.ReadInt32LittleEndian(data[8..]);
-        var totalLargeFaces = BinaryPrimitives.ReadInt32LittleEndian(data[12..]);
+        _ = BinaryPrimitives.ReadInt32LittleEndian(data[12..]);
         // totalSmallFaces @ 16 (not needed)
         var totalLargeVerts = BinaryPrimitives.ReadInt32LittleEndian(data[20..]);
         var totalSmallVerts = BinaryPrimitives.ReadInt32LittleEndian(data[24..]);

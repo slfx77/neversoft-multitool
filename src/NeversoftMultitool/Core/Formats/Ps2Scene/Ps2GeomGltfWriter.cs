@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -44,6 +45,17 @@ public static class Ps2GeomGltfWriter
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
+        var (model, triangles) = Build(geomScene, textureProvider, tex0Resolver);
+        if (triangles == 0) return 0;
+        GltfNormalSmoother.SmoothNormals(model);
+        model.SaveGLB(outputPath);
+        return triangles;
+    }
+
+    internal static (ModelRoot Model, int Triangles) Build(Ps2GeomScene geomScene,
+        Ps2SceneGltfWriter.TextureProvider? textureProvider = null,
+        Tex0Resolver? tex0Resolver = null)
+    {
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<GeomMaterialKey, MaterialBuilder>();
         var buckets = new Dictionary<GeomMaterialKey, GeomMeshBucket>();
@@ -58,8 +70,6 @@ public static class Ps2GeomGltfWriter
             if (isWorldZoneScene && ShouldSkipWorldZoneLeaf(leaf))
                 continue;
 
-            // Resolve texture checksum: use node field if non-zero (THUG/THUG2),
-            // otherwise fall back to DMA TEX0 VRAM lookup (THPS4)
             var texChecksum = leaf.TextureChecksum;
             if (texChecksum == 0 && leaf.DmaTex0 != 0 && tex0Resolver != null)
                 texChecksum = tex0Resolver(leaf.DmaTex0, leaf.GroupChecksum);
@@ -89,13 +99,7 @@ public static class Ps2GeomGltfWriter
             scene.AddRigidMesh(bucket.Mesh, node);
         }
 
-        if (totalTriangles == 0)
-            return 0;
-
-        var model = scene.ToGltf2();
-        model.SaveGLB(outputPath);
-
-        return totalTriangles;
+        return (scene.ToGltf2(), totalTriangles);
     }
 
     private static GeomMeshBucket GetOrCreateBucket(
@@ -130,11 +134,10 @@ public static class Ps2GeomGltfWriter
 
         var min = new Vector3(float.MaxValue);
         var max = new Vector3(float.MinValue);
-        foreach (var leaf in geomScene.Leaves)
-        foreach (var vertex in leaf.Vertices)
+        foreach (var position in geomScene.Leaves.SelectMany(static leaf => leaf.Vertices.Select(static vertex => vertex.Position)))
         {
-            min = Vector3.Min(min, vertex.Position);
-            max = Vector3.Max(max, vertex.Position);
+            min = Vector3.Min(min, position);
+            max = Vector3.Max(max, position);
         }
 
         var size = max - min;

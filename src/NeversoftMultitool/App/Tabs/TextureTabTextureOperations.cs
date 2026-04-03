@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Psx;
 using NeversoftMultitool.Core.Formats.XbxScene;
 
@@ -5,16 +6,21 @@ namespace NeversoftMultitool;
 
 internal static class TextureTabTextureOperations
 {
+    private static readonly string[] CompoundTextureExtensions =
+    [
+        ".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc",
+        ".tex.ps2", ".img.ps2"
+    ];
+
+    private static readonly string[] XboxTexExtensions = [".tex.xbx", ".tex.wpc"];
+    private static readonly string[] XboxImgExtensions = [".img.xbx", ".img.wpc"];
+    private static readonly string[] Ps2TexExtensions = [".tex.ps2", ".img.ps2", ".tex", ".img"];
+
     public static bool IsTextureFile(string path)
     {
-        var name = Path.GetFileName(path).ToLowerInvariant();
-
-        if (name.EndsWith(".tex.xbx") || name.EndsWith(".img.xbx") ||
-            name.EndsWith(".tex.wpc") || name.EndsWith(".img.wpc") ||
-            name.EndsWith(".tex.ps2") || name.EndsWith(".img.ps2"))
-        {
+        var name = Path.GetFileName(path);
+        if (OrdinalFileName.HasAnySuffix(name, CompoundTextureExtensions))
             return true;
-        }
 
         var ext = Path.GetExtension(path);
         return ext.Equals(".psx", StringComparison.OrdinalIgnoreCase)
@@ -25,19 +31,14 @@ internal static class TextureTabTextureOperations
 
     public static TextureFileFormat ClassifyFormat(string fileName)
     {
-        var lower = fileName.ToLowerInvariant();
-
-        if (lower.EndsWith(".tex.xbx") || lower.EndsWith(".tex.wpc"))
+        if (OrdinalFileName.HasAnySuffix(fileName, XboxTexExtensions))
             return TextureFileFormat.XbxTex;
-        if (lower.EndsWith(".img.xbx") || lower.EndsWith(".img.wpc"))
+        if (OrdinalFileName.HasAnySuffix(fileName, XboxImgExtensions))
             return TextureFileFormat.XbxImg;
-        if (lower.EndsWith(".tex.ps2") || lower.EndsWith(".img.ps2") ||
-            lower.EndsWith(".tex") || lower.EndsWith(".img"))
-        {
+        if (OrdinalFileName.HasAnySuffix(fileName, Ps2TexExtensions))
             return TextureFileFormat.Ps2Tex;
-        }
 
-        if (lower.EndsWith(".pvr"))
+        if (OrdinalFileName.HasSuffix(fileName, ".pvr"))
             return TextureFileFormat.Pvr;
 
         return TextureFileFormat.Psx;
@@ -298,18 +299,6 @@ internal static class TextureTabTextureOperations
 
     private static string StripCompoundExtension(string filename)
     {
-        string[] compoundExts =
-        [
-            ".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc",
-            ".tex.ps2", ".img.ps2"
-        ];
-
-        foreach (var ext in compoundExts)
-        {
-            if (filename.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
-                return filename[..^ext.Length];
-        }
-
-        return Path.GetFileNameWithoutExtension(filename);
+        return OrdinalFileName.StripCompoundSuffix(filename, CompoundTextureExtensions);
     }
 }

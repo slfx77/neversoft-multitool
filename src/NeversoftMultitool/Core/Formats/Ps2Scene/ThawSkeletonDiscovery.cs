@@ -4,6 +4,8 @@ namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
 internal static class ThawSkeletonDiscovery
 {
+    private static readonly string[] DefaultCandidateStems = ["thps6_human", "thps5_human", "human", "test_skater_m"];
+    private static readonly string[] HeadPrefixCandidates = ["pro_", "skater_", "sec_"];
     private static readonly ConcurrentDictionary<string, IReadOnlyDictionary<string, List<string>>> SkeletonIndexCache =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -83,7 +85,7 @@ internal static class ThawSkeletonDiscovery
 
         if (stem.EndsWith("_head", StringComparison.OrdinalIgnoreCase))
         {
-            foreach (var prefix in new[] { "pro_", "skater_", "sec_" })
+            foreach (var prefix in HeadPrefixCandidates)
             {
                 if (!stem.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                     continue;
@@ -94,11 +96,8 @@ internal static class ThawSkeletonDiscovery
             }
         }
 
-        foreach (var candidate in new[] { "thps6_human", "thps5_human", "human", "test_skater_m" })
-        {
-            if (Yield(candidate))
-                yield return candidate;
-        }
+        foreach (var candidate in DefaultCandidateStems.Where(Yield))
+            yield return candidate;
     }
 
     private static int ScoreCandidate(string path, string candidateStem, string extension)

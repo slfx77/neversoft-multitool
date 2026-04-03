@@ -5,6 +5,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Ps2Scene;
 
 public sealed class ThawPs2ReplayTests(TestPaths paths)
 {
+    private static readonly int[] ValidKickAddresses = [280, 652];
+
     private string ThawSkinDir =>
         Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)", "SKIN");
 
@@ -58,13 +60,13 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.Equal(51, first.VertexCount);
         Assert.Equal(0x0004BC, first.FirstCommandOffset);
         Assert.True(first.CommandTrace[^1].CommandOffset > first.FirstCommandOffset);
-        Assert.True(first.CommandTrace.Any(command => command.Kind == VifReplayCommandKind.Direct));
+        Assert.Contains(first.CommandTrace, command => command.Kind == VifReplayCommandKind.Direct);
         Assert.Contains(first.CommandTrace, command => command.Kind == VifReplayCommandKind.Offset);
         Assert.Contains(first.CommandTrace, command => command.Kind == VifReplayCommandKind.Base);
         Assert.Equal(VifReplayCommandKind.Mscnt, first.CommandTrace[^1].Kind);
         Assert.True(first.ContextWrites.Length > 0);
         Assert.True(first.OutputKickPacket.Nloop > 0);
-        Assert.Contains(first.OutputKickPacket.Address, new[] { 280, 652 });
+        Assert.Contains(first.OutputKickPacket.Address, ValidKickAddresses);
     }
 
     [Fact]
@@ -76,17 +78,17 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
-        var firstMaterialKick = Assert.Single(batches.Where(batch =>
+        var firstMaterialKick = Assert.Single(batches, batch =>
             batch.FirstCommandOffset == 0x001F3C &&
             batch.CommandTrace.Length > 0 &&
-            batch.CommandTrace[^1].CommandOffset == 0x0022EC));
+            batch.CommandTrace[^1].CommandOffset == 0x0022EC);
 
         Assert.Equal(0x001F3C, firstMaterialKick.FirstCommandOffset);
-        Assert.True(firstMaterialKick.CommandTrace.Any(command => command.Kind == VifReplayCommandKind.Direct));
+        Assert.Contains(firstMaterialKick.CommandTrace, command => command.Kind == VifReplayCommandKind.Direct);
         Assert.Equal(652, firstMaterialKick.Snapshot.Xtop);
         Assert.Equal(0, firstMaterialKick.Snapshot.PostTops);
         Assert.Equal(firstMaterialKick.OutputKickPacket.Nloop, firstMaterialKick.OutputVertexCount);
-        Assert.Contains(firstMaterialKick.OutputKickPacket.Address, new[] { 280, 652 });
+        Assert.Contains(firstMaterialKick.OutputKickPacket.Address, ValidKickAddresses);
         Assert.True(firstMaterialKick.Snapshot.XtopWindow.Length > 0);
     }
 
@@ -99,7 +101,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
-        var firstMaterialKick = Assert.Single(batches.Where(batch => batch.FirstCommandOffset == 0x001F3C));
+        var firstMaterialKick = Assert.Single(batches, batch => batch.FirstCommandOffset == 0x001F3C);
 
         Assert.Equal(2, firstMaterialKick.ContextWrites.Length);
 
@@ -154,7 +156,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
-        var batch = Assert.Single(batches.Where(candidate => candidate.FirstCommandOffset == 0x0038A0));
+        var batch = Assert.Single(batches, candidate => candidate.FirstCommandOffset == 0x0038A0);
 
         Assert.Equal(0, batch.Snapshot.Xtop);
         Assert.Equal(892, batch.Snapshot.MinWrittenAddress);
@@ -176,7 +178,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
-        var batch = Assert.Single(batches.Where(candidate => candidate.FirstCommandOffset == 0x0038A0));
+        var batch = Assert.Single(batches, candidate => candidate.FirstCommandOffset == 0x0038A0);
 
         var context = Assert.Single(batch.ContextWrites);
         Assert.Equal(2, context.Unpack.Vn);
@@ -194,7 +196,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
-        var batch = Assert.Single(batches.Where(candidate => candidate.FirstCommandOffset == 0x004568));
+        var batch = Assert.Single(batches, candidate => candidate.FirstCommandOffset == 0x004568);
 
         Assert.Equal(0, batch.Snapshot.Xtop);
         Assert.Equal(890, batch.Snapshot.MinWrittenAddress);
@@ -218,8 +220,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
-        var setup02ShoeKick = Assert.Single(batches.Where(candidate => candidate.FirstCommandOffset == 0x006004));
-        var setup04ShoeKick = Assert.Single(batches.Where(candidate => candidate.FirstCommandOffset == 0x0079A8));
+        var setup02ShoeKick = Assert.Single(batches, candidate => candidate.FirstCommandOffset == 0x006004);
+        var setup04ShoeKick = Assert.Single(batches, candidate => candidate.FirstCommandOffset == 0x0079A8);
 
         Assert.Equal(280, setup02ShoeKick.OutputKickPacket.Address);
         Assert.Equal(280, setup04ShoeKick.OutputKickPacket.Address);
@@ -291,7 +293,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.All(kicks, kick =>
         {
             Assert.True(kick.KickPacket.Eop);
-            Assert.Contains(kick.KickPacket.Address, new[] { 280, 652 });
+            Assert.Contains(kick.KickPacket.Address, ValidKickAddresses);
             Assert.Equal(kick.KickPacket.Nloop, kick.OutputWindow.Length);
             Assert.Equal(kick.KickPacket.Nloop, kick.FullOutputWindow.Length);
             Assert.Equal(kick.OutputWindow.Length, kick.Events.Length);
@@ -325,7 +327,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
 
         var data = File.ReadAllBytes(file);
         var kicks = ThawPs2SkinFile.ReplayExtractKicks(data);
-        var firstMaterialKick = Assert.Single(kicks.Where(kick => kick.FirstCommandOffset == 0x001F3C));
+        var firstMaterialKick = Assert.Single(kicks, kick => kick.FirstCommandOffset == 0x001F3C);
 
         Assert.Equal(280, firstMaterialKick.KickPacket.Address);
         Assert.Equal(75, firstMaterialKick.OutputWindow.Length);
@@ -342,7 +344,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
 
         var data = File.ReadAllBytes(file);
         var kicks = ThawPs2SkinFile.ReplayExtractKicks(data);
-        var firstMaterialKick = Assert.Single(kicks.Where(kick => kick.FirstCommandOffset == 0x001F3C));
+        var firstMaterialKick = Assert.Single(kicks, kick => kick.FirstCommandOffset == 0x001F3C);
         var report = ThawReplayDebugGltfWriter.FormatKickReport(kicks);
 
         Assert.Contains("KickIndex\tBatchIndex\tSetupIndex", report);

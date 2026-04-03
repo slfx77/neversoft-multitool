@@ -99,10 +99,10 @@ internal static class ThawZoneTexHeaderSourceResolver
 
         foreach (var headers in headerLists)
         {
-            foreach (var entry in headers)
+            foreach (var tex0 in headers.Select(static entry => entry.Tex0))
             {
-                var tbp = (uint)(entry.Tex0 & 0x3FFF);
-                var cbp = (uint)((entry.Tex0 >> 37) & 0x3FFF);
+                var tbp = (uint)(tex0 & 0x3FFF);
+                var cbp = (uint)((tex0 >> 37) & 0x3FFF);
                 map.TryAdd((tbp, cbp), sourceIndex);
             }
 

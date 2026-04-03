@@ -20,10 +20,6 @@ public static class Ps2SceneCommand
             Description = "Output directory for .glb files",
             DefaultValueFactory = _ => "TestOutput"
         };
-        var texturesOption = new Option<bool>("-t", "--textures")
-        {
-            Description = "Embed textures from companion .tex/.tex.ps2 files"
-        };
         var texPathOption = new Option<string?>("--tex")
         {
             Description = "Explicit TEX file or directory to use for texture lookup"
@@ -40,7 +36,6 @@ public static class Ps2SceneCommand
         var command = new Command("ps2scene", "Convert PS2 scene files (MDL/SKIN) to glTF (.glb)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
-        command.Options.Add(texturesOption);
         command.Options.Add(texPathOption);
         command.Options.Add(verboseOption);
         command.Options.Add(skeletonOption);
@@ -49,18 +44,17 @@ public static class Ps2SceneCommand
         {
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
-            var textures = parseResult.GetValue(texturesOption);
             var texPath = parseResult.GetValue(texPathOption);
             var verbose = parseResult.GetValue(verboseOption);
             var skePath = parseResult.GetValue(skeletonOption);
 
-            return Task.FromResult(Execute(input, output, textures, texPath, verbose, skePath));
+            return Task.FromResult(Execute(input, output, texPath, verbose, skePath));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string output, bool embedTextures,
+    private static int Execute(string input, string output,
         string? texPath, bool verbose, string? skePath = null)
     {
         List<string> files;
@@ -110,41 +104,38 @@ public static class Ps2SceneCommand
         Ps2GeomGltfWriter.Tex0Resolver? tex0Resolver = null;
         Dictionary<uint, Ps2Texture>? textureCache = null;
 
-        if (embedTextures || texPath != null)
+        // Try THAW world-zone TEX format first (GIF A+D VRAM uploads)
+        if (!Ps2TextureLoader.TryBuildZoneTexProviders(
+                texPath, out textureProvider, out tex0Resolver, verbose))
         {
-            // Try THAW world-zone TEX format first (GIF A+D VRAM uploads)
-            if (!Ps2TextureLoader.TryBuildZoneTexProviders(
-                    texPath, out textureProvider, out tex0Resolver, verbose))
+            // Fall back to standard TEX formats
+            textureCache = Ps2TextureLoader.BuildTextureCache(files, texPath, verbose);
+            if (textureCache.Count > 0)
             {
-                // Fall back to standard TEX formats
-                textureCache = Ps2TextureLoader.BuildTextureCache(files, texPath, verbose);
-                if (textureCache.Count > 0)
+                AnsiConsole.MarkupLine(
+                    $"Loaded [green]{textureCache.Count}[/] textures for embedding");
+                textureProvider = checksum =>
+                {
+                    if (!textureCache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
+                        return null;
+                    return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
+                };
+            }
+
+            var tex0Mapping = Ps2TextureLoader.BuildTex0Mapping(files, texPath, verbose);
+            if (tex0Mapping.Count > 0)
+            {
+                if (verbose)
                 {
                     AnsiConsole.MarkupLine(
-                        $"Loaded [green]{textureCache.Count}[/] textures for embedding");
-                    textureProvider = checksum =>
-                    {
-                        if (!textureCache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
-                            return null;
-                        return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
-                    };
+                        $"Built TEX0 mapping with [green]{tex0Mapping.Count}[/] entries");
                 }
 
-                var tex0Mapping = Ps2TextureLoader.BuildTex0Mapping(files, texPath, verbose);
-                if (tex0Mapping.Count > 0)
+                tex0Resolver = (dmaTex0, groupChecksum) =>
                 {
-                    if (verbose)
-                    {
-                        AnsiConsole.MarkupLine(
-                            $"Built TEX0 mapping with [green]{tex0Mapping.Count}[/] entries");
-                    }
-
-                    tex0Resolver = (dmaTex0, groupChecksum) =>
-                    {
-                        var key = Ps2VramAllocator.DecodeTex0Key(dmaTex0, groupChecksum);
-                        return tex0Mapping.GetValueOrDefault(key);
-                    };
-                }
+                    var key = Ps2VramAllocator.DecodeTex0Key(dmaTex0, groupChecksum);
+                    return tex0Mapping.GetValueOrDefault(key);
+                };
             }
         }
 
@@ -230,7 +221,7 @@ public static class Ps2SceneCommand
                 // Use per-file texture provider if we have a cache,
                 // or try auto-detecting a companion TEX file for this specific scene
                 var provider = textureProvider;
-                if (provider == null && embedTextures)
+                if (provider == null)
                 {
                     var perFileCache = Ps2TextureLoader.TryLoadCompanionTex(file, stem);
                     if (perFileCache != null && perFileCache.Count > 0)

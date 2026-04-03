@@ -116,8 +116,8 @@ public sealed class RecursiveUnpackerTests
             var result = RecursiveUnpacker.Scan(tempDir);
 
             Assert.Equal(2, result.Count);
-            Assert.Contains(result, a => a.FilePath.EndsWith("game.wad"));
-            Assert.Contains(result, a => a.FilePath.EndsWith("data.pre"));
+            Assert.Contains(result, a => a.FilePath.EndsWith("game.wad", StringComparison.Ordinal));
+            Assert.Contains(result, a => a.FilePath.EndsWith("data.pre", StringComparison.Ordinal));
         }
         finally
         {

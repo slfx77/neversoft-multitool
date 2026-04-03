@@ -16,11 +16,34 @@ internal static class Ps2TexSwizzlePageMappingBuilder
         { false, false, false, false, false, false, false, true, true, true }
     };
 
-    internal static bool CanConv8to32(int width, int height)
+    // Decompiled from DAT_0049a968 / FUN_001c8ac8. THAW PS2 does not use the same
+    // sparse eligibility gate for the 8-bit family as the 4-bit Conv4-to-32 path.
+    private static readonly bool[,] CanConv8to32Table =
+    {
+        { false, false, false, false, false, false, false, false, false, false },
+        { false, false, false, false, false, false, false, false, false, false },
+        { false, false, false, false, false, false, false, false, false, false },
+        { false, false, false, false, true, true, true, true, true, false },
+        { false, false, false, false, true, true, true, true, true, false },
+        { false, false, false, false, true, true, true, true, true, false },
+        { false, false, false, false, true, true, true, true, true, false },
+        { false, false, false, false, true, true, true, true, true, true },
+        { false, false, false, false, false, false, false, true, true, true },
+        { false, false, false, false, false, false, false, true, true, true }
+    };
+
+    internal static bool CanConv4to32(int width, int height)
     {
         var tw = NumBits(width) - 1;
         var th = NumBits(height) - 1;
         return tw >= 0 && tw < 10 && th >= 0 && th < 10 && CanConv4to32Table[th, tw];
+    }
+
+    internal static bool CanConv8to32(int width, int height)
+    {
+        var tw = NumBits(width) - 1;
+        var th = NumBits(height) - 1;
+        return tw >= 0 && tw < 10 && th >= 0 && th < 10 && CanConv8to32Table[th, tw];
     }
 
     internal static int[] BuildConv8to32Mapping(int width, int height)
@@ -222,11 +245,13 @@ internal static class Ps2TexSwizzlePageMappingBuilder
         var index32V = new int[32];
         var idx = 0;
         for (var i = 0; i < 4; i++)
-        for (var j = 0; j < 8; j++)
         {
-            index32H[blockTable32[idx]] = j;
-            index32V[blockTable32[idx]] = i;
-            idx++;
+            for (var j = 0; j < 8; j++)
+            {
+                index32H[blockTable32[idx]] = j;
+                index32V[blockTable32[idx]] = i;
+                idx++;
+            }
         }
 
         var outputPage = new int[outputPageLineSize * psmct32BlockH * 4];
@@ -252,11 +277,13 @@ internal static class Ps2TexSwizzlePageMappingBuilder
                 var outBaseRow = psmct32BlockH * index32V[inBlockNb];
                 var outBaseCol = index32H[inBlockNb] * psmct32BlockW * 4;
                 for (var k = 0; k < psmct32BlockH; k++)
-                for (var c = 0; c < psmct32BlockW * 4; c++)
                 {
-                    var outOff = (outBaseRow + k) * outputPageLineSize + outBaseCol + c;
-                    if (outOff < outputPage.Length)
-                        outputPage[outOff] = outputBlock[k * psmct32BlockW * 4 + c];
+                    for (var c = 0; c < psmct32BlockW * 4; c++)
+                    {
+                        var outOff = (outBaseRow + k) * outputPageLineSize + outBaseCol + c;
+                        if (outOff < outputPage.Length)
+                            outputPage[outOff] = outputBlock[k * psmct32BlockW * 4 + c];
+                    }
                 }
             }
         }
@@ -285,8 +312,10 @@ internal static class Ps2TexSwizzlePageMappingBuilder
             var index0 = k % 2 * 64;
             var inputBase = k * 64;
             for (var i = 0; i < 16; i++)
-            for (var j = 0; j < 4; j++)
-                output[index1++] = input[inputBase + lut[index0++]];
+            {
+                for (var j = 0; j < 4; j++)
+                    output[index1++] = input[inputBase + lut[index0++]];
+            }
         }
 
         return output;
@@ -319,11 +348,13 @@ internal static class Ps2TexSwizzlePageMappingBuilder
         var index32V = new int[32];
         var idx = 0;
         for (var i = 0; i < 4; i++)
-        for (var j = 0; j < 8; j++)
         {
-            index32H[blockTable32[idx]] = j;
-            index32V[blockTable32[idx]] = i;
-            idx++;
+            for (var j = 0; j < 8; j++)
+            {
+                index32H[blockTable32[idx]] = j;
+                index32V[blockTable32[idx]] = i;
+                idx++;
+            }
         }
 
         var outputPage = new int[outputPageLineNibbles * psmct32BlockH * 4];
@@ -349,11 +380,13 @@ internal static class Ps2TexSwizzlePageMappingBuilder
                 var outBaseRow = psmct32BlockH * index32V[inBlockNb];
                 var outBaseCol = index32H[inBlockNb] * outputBlockRowNibbles;
                 for (var k = 0; k < psmct32BlockH; k++)
-                for (var c = 0; c < outputBlockRowNibbles; c++)
                 {
-                    var outOff = (outBaseRow + k) * outputPageLineNibbles + outBaseCol + c;
-                    if (outOff < outputPage.Length)
-                        outputPage[outOff] = outputBlock[k * outputBlockRowNibbles + c];
+                    for (var c = 0; c < outputBlockRowNibbles; c++)
+                    {
+                        var outOff = (outBaseRow + k) * outputPageLineNibbles + outBaseCol + c;
+                        if (outOff < outputPage.Length)
+                            outputPage[outOff] = outputBlock[k * outputBlockRowNibbles + c];
+                    }
                 }
             }
         }
@@ -406,10 +439,12 @@ internal static class Ps2TexSwizzlePageMappingBuilder
             var index0 = k % 2 * 128;
             var inputBase = k * 128;
             for (var i = 0; i < 16; i++)
-            for (var j = 0; j < 4; j++)
             {
-                output[outIdx++] = input[inputBase + lut[index0++]];
-                output[outIdx++] = input[inputBase + lut[index0++]];
+                for (var j = 0; j < 4; j++)
+                {
+                    output[outIdx++] = input[inputBase + lut[index0++]];
+                    output[outIdx++] = input[inputBase + lut[index0++]];
+                }
             }
         }
 

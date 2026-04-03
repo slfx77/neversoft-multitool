@@ -58,8 +58,10 @@ public sealed class ThawSceneFileTests(TestPaths paths)
 
         // THAW meshes are pre-triangulated
         foreach (var sector in scene.Sectors)
-        foreach (var mesh in sector.Meshes)
-            Assert.True(mesh.IsPreTriangulated);
+        {
+            foreach (var mesh in sector.Meshes)
+                Assert.True(mesh.IsPreTriangulated);
+        }
     }
 
     [Fact]

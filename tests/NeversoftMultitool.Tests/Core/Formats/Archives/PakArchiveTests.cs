@@ -40,6 +40,18 @@ public class PakArchiveTests(TestPaths paths)
     }
 
     [Fact]
+    public void IsPakArchive_WithSkyPak_ReturnsTrue()
+    {
+        var pakDir = GetPakDir();
+        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
+
+        var pakPath = Path.Combine(pakDir!, "cap_shell1_sky.pak.ps2");
+        Assert.SkipWhen(!File.Exists(pakPath), "cap_shell1_sky.pak.ps2 not found");
+
+        Assert.True(PakArchive.IsPakArchive(pakPath));
+    }
+
+    [Fact]
     public void IsPakArchive_WithRawDataPak_ReturnsFalse()
     {
         var pakDir = GetPakDir();
@@ -52,7 +64,7 @@ public class PakArchiveTests(TestPaths paths)
     }
 
     [Fact]
-    public void GetFileList_QbPak_Returns241Entries()
+    public void GetFileList_QbPak_Returns266Entries()
     {
         var pakDir = GetPakDir();
         Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
@@ -61,12 +73,15 @@ public class PakArchiveTests(TestPaths paths)
         Assert.SkipWhen(!File.Exists(pakPath), "qb.pak.ps2 not found");
 
         var entries = PakArchive.GetFileList(pakPath);
-        Assert.Equal(241, entries.Count);
+        Assert.Equal(266, entries.Count);
         Assert.All(entries, e => Assert.True(e.Size > 0, $"Entry {e.Name} has zero size"));
 
-        // At least one named entry should exist
-        var namedEntries = entries.Where(e => e.Directory.Length > 0).ToList();
-        Assert.True(namedEntries.Count > 0, "Expected at least one named entry");
+        Assert.Contains(entries, e =>
+            e.FullName.Equals("scripts/zone_sizes_ps2.qb.ps2", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(entries, e =>
+            e.FullName.Equals("scripts/game/game.qb.ps2", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(entries, e =>
+            e.FullName.Equals("scripts/plugin/plugin.qb.ps2", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -90,6 +105,49 @@ public class PakArchiveTests(TestPaths paths)
     }
 
     [Fact]
+    public void GetFileList_CapShellSkyPak_ReturnsSkyEntries()
+    {
+        var pakDir = GetPakDir();
+        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
+
+        var pakPath = Path.Combine(pakDir!, "cap_shell1_sky.pak.ps2");
+        Assert.SkipWhen(!File.Exists(pakPath), "cap_shell1_sky.pak.ps2 not found");
+
+        var entries = PakArchive.GetFileList(pakPath);
+        Assert.Equal(4, entries.Count);
+
+        Assert.Contains(entries, e =>
+            e.FullName.Equals("skies/cap_shell1_sky/cap_shell1_sky.qb.ps2",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(entries, e => e.Name.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(entries, e => e.Name.EndsWith(".tex", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void GetFileList_CapShellPak_UsesNormalOffsetSizeOrder()
+    {
+        var pakDir = GetPakDir();
+        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
+
+        var pakPath = Path.Combine(pakDir!, "cap_shell1.pak.ps2");
+        Assert.SkipWhen(!File.Exists(pakPath), "cap_shell1.pak.ps2 not found");
+
+        var entries = PakArchive.GetFileList(pakPath);
+
+        var texEntry = Assert.Single(entries, e => e.Name.EndsWith(".tex", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(0x00000990u, texEntry.Offset);
+        Assert.Equal(0x00041BF0u, texEntry.Size);
+
+        var mdlEntry = Assert.Single(entries, e => e.Name.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(0x00042560u, mdlEntry.Offset);
+        Assert.Equal(0x0007DF80u, mdlEntry.Size);
+
+        var colEntry = Assert.Single(entries, e => e.Name.EndsWith(".col", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(0x000C04C0u, colEntry.Offset);
+        Assert.Equal(0x0002901Au, colEntry.Size);
+    }
+
+    [Fact]
     public void ExtractFiles_QbPak_AllFilesExtracted()
     {
         var pakDir = GetPakDir();
@@ -105,7 +163,6 @@ public class PakArchiveTests(TestPaths paths)
             Directory.CreateDirectory(tempDir);
 
             var extractedCount = 0;
-            var entries = PakArchive.GetFileList(pakPath);
             PakArchive.ExtractFiles(pakPath, tempDir, (current, total) => { extractedCount = current; },
                 TestContext.Current.CancellationToken);
 

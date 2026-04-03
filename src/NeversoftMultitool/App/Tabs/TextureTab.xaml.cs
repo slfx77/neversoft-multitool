@@ -6,7 +6,7 @@ using NeversoftMultitool.Core;
 
 namespace NeversoftMultitool;
 
-public sealed partial class TextureTab : UserControl
+public sealed partial class TextureTab : UserControl, IDisposable
 {
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<PsxFileEntry> _parentFiles = [];
@@ -21,6 +21,7 @@ public sealed partial class TextureTab : UserControl
     {
         InitializeComponent();
         FilesListView.ItemsSource = _items;
+        Unloaded += TextureTab_Unloaded;
     }
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
@@ -163,7 +164,16 @@ public sealed partial class TextureTab : UserControl
     {
         if (_parentFiles.Count == 0 || string.IsNullOrEmpty(_outputDir)) return;
 
-        _cts = new CancellationTokenSource();
+        var previousCts = _cts;
+        if (previousCts != null)
+        {
+            _cts = null;
+            await previousCts.CancelAsync();
+            previousCts.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        _cts = cts;
         var createSubDirs = CreateSubDirsCheckbox.IsChecked == true;
         var writeDds = WriteDdsCheckbox.IsChecked == true;
         var writeMipAtlas = WriteMipAtlasCheckbox.IsChecked == true;
@@ -184,7 +194,7 @@ public sealed partial class TextureTab : UserControl
         var stopwatch = Stopwatch.StartNew();
         var filesProcessed = 0;
         var totalFiles = _parentFiles.Count;
-        var token = _cts.Token;
+        var token = cts.Token;
         var dispatcher = DispatcherQueue;
         var inputDir = _inputDir;
         var outputDir = _outputDir;
@@ -246,9 +256,16 @@ public sealed partial class TextureTab : UserControl
         MainWindow.Instance?.SetStatus($"Completed in {stopwatch.Elapsed.TotalSeconds:F2}s");
     }
 
-    private void CancelButton_Click(object sender, RoutedEventArgs e)
+    private async void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        _cts?.Cancel();
+        var cts = _cts;
+        if (cts != null)
+        {
+            _cts = null;
+            await cts.CancelAsync();
+            cts.Dispose();
+        }
+
         CancelButton.Visibility = Visibility.Collapsed;
         ExtractButton.IsEnabled = true;
         MainWindow.Instance?.SetStatus("Extraction cancelled");
@@ -323,12 +340,22 @@ public sealed partial class TextureTab : UserControl
 
     private async Task LoadTexturePreview(PsxTextureEntry texture)
     {
-        _previewCts?.Cancel();
+        var previousPreviewCts = _previewCts;
+        if (previousPreviewCts != null)
+        {
+            _previewCts = null;
+            await previousPreviewCts.CancelAsync();
+            previousPreviewCts.Dispose();
+        }
+
         var cts = new CancellationTokenSource();
         _previewCts = cts;
 
         PreviewPanel.Visibility = Visibility.Visible;
-        PreviewColumn.Width = new GridLength(280);
+        PreviewSplitter.Visibility = Visibility.Visible;
+        SplitterColumn.Width = new GridLength(8);
+        if (PreviewColumn.Width.Value <= 0)
+            PreviewColumn.Width = new GridLength(280);
         TexturePreview.Source = null;
         NoPreviewIcon.Visibility = Visibility.Collapsed;
         PreviewLoading.IsActive = true;
@@ -364,12 +391,30 @@ public sealed partial class TextureTab : UserControl
     private void ClearPreview()
     {
         _previewCts?.Cancel();
+        _previewCts?.Dispose();
+        _previewCts = null;
         PreviewPanel.Visibility = Visibility.Collapsed;
+        PreviewSplitter.Visibility = Visibility.Collapsed;
+        SplitterColumn.Width = new GridLength(0);
         PreviewColumn.Width = new GridLength(0);
         TexturePreview.Source = null;
         PreviewLoading.IsActive = false;
         NoPreviewIcon.Visibility = Visibility.Collapsed;
         PreviewDimensionsText.Text = "";
         PreviewInfoText.Text = "";
+    }
+
+    public void Dispose()
+    {
+        Unloaded -= TextureTab_Unloaded;
+        _cts?.Dispose();
+        _cts = null;
+        _previewCts?.Dispose();
+        _previewCts = null;
+    }
+
+    private void TextureTab_Unloaded(object sender, RoutedEventArgs e)
+    {
+        Dispose();
     }
 }

@@ -271,9 +271,15 @@ public sealed class ThawPs2ReplayDiagnosticTests(TestPaths paths)
             for (var i = 0; i < kick.Events.Length; i++)
             {
                 var evt = kick.Events[i];
-                var marker = evt.Kind == GsVertexEventKind.Gap ? "GAP" :
-                    evt.IsNoKick ? "NOK" :
-                    evt.IsBufferedCarry ? "CAR" : "VTX";
+                string marker;
+                if (evt.Kind == GsVertexEventKind.Gap)
+                    marker = "GAP";
+                else if (evt.IsNoKick)
+                    marker = "NOK";
+                else if (evt.IsBufferedCarry)
+                    marker = "CAR";
+                else
+                    marker = "VTX";
                 var posInfo = evt.VertexSource != null
                     ? $" pos=({evt.VertexSource.Value.Position.X:F2},{evt.VertexSource.Value.Position.Y:F2},{evt.VertexSource.Value.Position.Z:F2})"
                     : "";

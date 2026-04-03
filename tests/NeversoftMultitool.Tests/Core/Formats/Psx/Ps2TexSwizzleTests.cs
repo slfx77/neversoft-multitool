@@ -5,6 +5,17 @@ namespace NeversoftMultitool.Tests.Core.Formats.Psx;
 public class Ps2TexSwizzleTests
 {
     [Theory]
+    [InlineData(32, 64, true)]
+    [InlineData(128, 32, true)]
+    [InlineData(256, 32, true)]
+    [InlineData(32, 256, false)]
+    [InlineData(8, 8, false)]
+    public void CanConv8to32_UsesDecompiledEligibilityMatrix(int width, int height, bool expected)
+    {
+        Assert.Equal(expected, Ps2TexSwizzle.CanConv8to32(width, height));
+    }
+
+    [Theory]
     [InlineData(128, 64)]
     [InlineData(256, 256)]
     [InlineData(128, 128)]
@@ -23,7 +34,6 @@ public class Ps2TexSwizzleTests
         Assert.Equal(size, result.Length);
 
         // All non-zero bytes should be present (mapping is bijective)
-        var inputNonZero = input.Count(b => b != 0);
         var resultNonZero = result.Count(b => b != 0);
         Assert.True(resultNonZero > 0, "Result should contain non-zero bytes");
     }

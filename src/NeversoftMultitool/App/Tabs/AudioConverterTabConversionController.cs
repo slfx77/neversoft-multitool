@@ -5,7 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace NeversoftMultitool;
 
-internal sealed class AudioConverterTabConversionController
+internal sealed class AudioConverterTabConversionController : IDisposable
 {
     private CancellationTokenSource? _cts;
 
@@ -22,7 +22,16 @@ internal sealed class AudioConverterTabConversionController
         if (parentFiles.Count == 0 || string.IsNullOrEmpty(outputDir))
             return;
 
-        _cts = new CancellationTokenSource();
+        var previousCts = _cts;
+        if (previousCts != null)
+        {
+            _cts = null;
+            await previousCts.CancelAsync();
+            previousCts.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        _cts = cts;
 
         foreach (var file in parentFiles)
         {
@@ -38,7 +47,7 @@ internal sealed class AudioConverterTabConversionController
         var stopwatch = Stopwatch.StartNew();
         var filesProcessed = 0;
         var totalFiles = parentFiles.Count;
-        var token = _cts.Token;
+        var token = cts.Token;
         var entries = parentFiles.ToList();
 
         try
@@ -92,16 +101,35 @@ internal sealed class AudioConverterTabConversionController
         }
         finally
         {
+            DisposeCancellationTokenSource();
             cancelButton.Visibility = Visibility.Collapsed;
             convertButton.IsEnabled = true;
         }
     }
 
-    public void Cancel(Button convertButton, Button cancelButton)
+    public async Task CancelAsync(Button convertButton, Button cancelButton)
     {
-        _cts?.Cancel();
+        var cts = _cts;
+        if (cts != null)
+        {
+            _cts = null;
+            await cts.CancelAsync();
+            cts.Dispose();
+        }
+
         cancelButton.Visibility = Visibility.Collapsed;
         convertButton.IsEnabled = true;
         MainWindow.Instance?.SetStatus("Conversion cancelled");
+    }
+
+    public void Dispose()
+    {
+        DisposeCancellationTokenSource();
+    }
+
+    private void DisposeCancellationTokenSource()
+    {
+        _cts?.Dispose();
+        _cts = null;
     }
 }

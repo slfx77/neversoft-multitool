@@ -13,7 +13,8 @@ internal static class ThawZoneTexHeaderParser
             return [];
 
         var entries = new List<ThawZoneTexFile.ZoneTexHeaderEntry>();
-        for (var entryBase = 0x40; entryBase + HeaderEntrySize <= firstGif; entryBase += 8)
+        var entryBase = 0x40;
+        while (entryBase + HeaderEntrySize <= firstGif)
         {
             var tex0 = BitConverter.ToUInt64(data[(entryBase + 0x10)..]);
             var tbp = (uint)(tex0 & 0x3FFF);
@@ -37,7 +38,10 @@ internal static class ThawZoneTexHeaderParser
 
             var checksum = BitConverter.ToUInt32(data[entryBase..]);
             if (checksum <= 0xFFFF)
+            {
+                entryBase += 8;
                 continue;
+            }
 
             entries.Add(new ThawZoneTexFile.ZoneTexHeaderEntry(
                 checksum,
@@ -50,7 +54,7 @@ internal static class ThawZoneTexHeaderParser
                 BitConverter.ToUInt32(data[(entryBase + 0x3C)..]) >> 12,
                 BitConverter.ToUInt32(data[(entryBase + 0x0C)..])));
 
-            entryBase += HeaderEntrySize - 8;
+            entryBase += HeaderEntrySize;
         }
 
         return entries;

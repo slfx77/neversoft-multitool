@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Diagnostics;
+using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.XbxScene;
 using Spectre.Console;
 
@@ -7,6 +8,10 @@ namespace NeversoftMultitool.CLI;
 
 public static class XbxTexCommand
 {
+    private static readonly string[] ImageSuffixes = [".img.xbx", ".img.wpc", ".img"];
+    private static readonly string[] SupportedSuffixes =
+        [".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc", ".stex", ".tex", ".img"];
+
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
@@ -84,10 +89,7 @@ public static class XbxTexCommand
                 stem.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
                 stem = stem[..^4];
 
-            var lower = filename.ToLowerInvariant();
-            var isImg = lower.EndsWith(".img.xbx") ||
-                        lower.EndsWith(".img.wpc") ||
-                        lower.EndsWith(".img");
+            var isImg = OrdinalFileName.HasAnySuffix(filename, ImageSuffixes);
 
             if (isImg)
             {
@@ -147,12 +149,6 @@ public static class XbxTexCommand
     private static bool IsXbxTextureFile(string path)
     {
         var name = Path.GetFileName(path);
-        return name.EndsWith(".tex.xbx", StringComparison.OrdinalIgnoreCase)
-               || name.EndsWith(".img.xbx", StringComparison.OrdinalIgnoreCase)
-               || name.EndsWith(".tex.wpc", StringComparison.OrdinalIgnoreCase)
-               || name.EndsWith(".img.wpc", StringComparison.OrdinalIgnoreCase)
-               || name.EndsWith(".stex", StringComparison.OrdinalIgnoreCase)
-               || name.EndsWith(".tex", StringComparison.OrdinalIgnoreCase)
-               || name.EndsWith(".img", StringComparison.OrdinalIgnoreCase);
+        return OrdinalFileName.HasAnySuffix(name, SupportedSuffixes);
     }
 }

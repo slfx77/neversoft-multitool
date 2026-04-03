@@ -41,13 +41,18 @@ internal sealed class ScriptDecompilerDetailPresenter
     public void Clear()
     {
         _view.DetailPanel.Visibility = Visibility.Collapsed;
+        _view.DetailSplitter.Visibility = Visibility.Collapsed;
+        _view.DetailSplitterColumn.Width = new GridLength(0);
         _view.DetailColumn.Width = new GridLength(0);
     }
 
     private void ShowTrgFileDetail(TrgFileEntry entry)
     {
         _view.DetailPanel.Visibility = Visibility.Visible;
-        _view.DetailColumn.Width = new GridLength(320);
+        _view.DetailSplitter.Visibility = Visibility.Visible;
+        _view.DetailSplitterColumn.Width = new GridLength(8);
+        if (_view.DetailColumn.Width.Value <= 0)
+            _view.DetailColumn.Width = new GridLength(320);
 
         _view.DetailTypeText.Text = "TRG FILE";
         _view.DetailIndexText.Text = entry.FileName;
@@ -76,7 +81,10 @@ internal sealed class ScriptDecompilerDetailPresenter
     private void ShowQbFileDetail(QbFileEntry entry)
     {
         _view.DetailPanel.Visibility = Visibility.Visible;
-        _view.DetailColumn.Width = new GridLength(400);
+        _view.DetailSplitter.Visibility = Visibility.Visible;
+        _view.DetailSplitterColumn.Width = new GridLength(8);
+        if (_view.DetailColumn.Width.Value <= 0)
+            _view.DetailColumn.Width = new GridLength(400);
 
         _view.DetailTypeText.Text = "QB FILE";
         _view.DetailIndexText.Text = entry.FileName;
@@ -115,7 +123,10 @@ internal sealed class ScriptDecompilerDetailPresenter
         var node = entry.Node;
 
         _view.DetailPanel.Visibility = Visibility.Visible;
-        _view.DetailColumn.Width = new GridLength(320);
+        _view.DetailSplitter.Visibility = Visibility.Visible;
+        _view.DetailSplitterColumn.Width = new GridLength(8);
+        if (_view.DetailColumn.Width.Value <= 0)
+            _view.DetailColumn.Width = new GridLength(320);
 
         _view.DetailTypeText.Text = node.Type;
         _view.DetailIndexText.Text = $"Node #{node.Index}  |  Offset 0x{node.Offset:X}";
@@ -224,7 +235,10 @@ internal sealed class ScriptDecompilerDetailPresenter
     private void ShowQbItemDetail(QbItemEntry entry)
     {
         _view.DetailPanel.Visibility = Visibility.Visible;
-        _view.DetailColumn.Width = new GridLength(400);
+        _view.DetailSplitter.Visibility = Visibility.Visible;
+        _view.DetailSplitterColumn.Width = new GridLength(8);
+        if (_view.DetailColumn.Width.Value <= 0)
+            _view.DetailColumn.Width = new GridLength(400);
 
         _view.DetailTypeText.Text = entry.TypeDisplay;
         _view.DetailIndexText.Text = $"Item #{entry.ItemIndex}  |  {entry.SummaryDisplay}";
@@ -344,6 +358,8 @@ internal sealed class ScriptDecompilerDetailPresenter
 
 internal sealed class ScriptDecompilerDetailView(
     Border detailPanel,
+    ColumnDefinition detailSplitterColumn,
+    CommunityToolkit.WinUI.Controls.GridSplitter detailSplitter,
     ColumnDefinition detailColumn,
     TextBlock detailTypeText,
     TextBlock detailIndexText,
@@ -368,6 +384,8 @@ internal sealed class ScriptDecompilerDetailView(
     TextBlock detailSourceText)
 {
     public Border DetailPanel { get; } = detailPanel;
+    public ColumnDefinition DetailSplitterColumn { get; } = detailSplitterColumn;
+    public CommunityToolkit.WinUI.Controls.GridSplitter DetailSplitter { get; } = detailSplitter;
     public ColumnDefinition DetailColumn { get; } = detailColumn;
     public TextBlock DetailTypeText { get; } = detailTypeText;
     public TextBlock DetailIndexText { get; } = detailIndexText;

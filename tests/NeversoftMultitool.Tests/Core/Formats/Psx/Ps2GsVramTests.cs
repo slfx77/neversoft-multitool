@@ -1,4 +1,3 @@
-using System.Reflection;
 using NeversoftMultitool.Core.Formats.Psx;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Psx;
@@ -221,9 +220,12 @@ public class Ps2GsVramTests
 
     private static int[] GetPrivateMapping(string methodName, int width, int height)
     {
-        var method = typeof(Ps2TexSwizzle).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        return (int[])(method.Invoke(null, [width, height]) ?? throw new InvalidOperationException());
+        return methodName switch
+        {
+            "BuildConv4to32Mapping" => Ps2TexSwizzlePageMappingBuilder.BuildConv4to32Mapping(width, height),
+            "BuildConv4to16Mapping" => Ps2TexSwizzleVramMappingBuilder.BuildConv4to16Mapping(width, height),
+            "BuildConv8to32Mapping" => Ps2TexSwizzlePageMappingBuilder.BuildConv8to32Mapping(width, height),
+            _ => throw new InvalidOperationException($"Unsupported mapping method: {methodName}")
+        };
     }
 }

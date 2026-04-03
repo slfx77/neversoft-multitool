@@ -9,7 +9,7 @@ using NeversoftMultitool.Core;
 
 namespace NeversoftMultitool;
 
-public sealed partial class AudioConverterTab : UserControl
+public sealed partial class AudioConverterTab : UserControl, IDisposable
 {
     private readonly AudioConverterTabConversionController _conversionController = new();
     private readonly ObservableCollection<IListEntry> _items = [];
@@ -31,6 +31,7 @@ public sealed partial class AudioConverterTab : UserControl
     {
         InitializeComponent();
         FilesListView.ItemsSource = _items;
+        Unloaded += AudioConverterTab_Unloaded;
     }
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
@@ -165,9 +166,9 @@ public sealed partial class AudioConverterTab : UserControl
             ConversionProgress);
     }
 
-    private void CancelButton_Click(object sender, RoutedEventArgs e)
+    private async void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        _conversionController.Cancel(ConvertButton, CancelButton);
+        await _conversionController.CancelAsync(ConvertButton, CancelButton);
     }
 
     // ── Audio Preview ────────────────────────────────────────────────────
@@ -197,7 +198,10 @@ public sealed partial class AudioConverterTab : UserControl
     {
         StopPlayback();
         PreviewPanel.Visibility = Visibility.Visible;
-        PreviewColumn.Width = new GridLength(280);
+        PreviewSplitter.Visibility = Visibility.Visible;
+        SplitterColumn.Width = new GridLength(8);
+        if (PreviewColumn.Width.Value <= 0)
+            PreviewColumn.Width = new GridLength(280);
         PreviewFileNameText.Text = parent.FileName;
         PreviewInfoText.Text = $"{parent.AudioFormat} soundbank\nSelect a sample to preview";
         PreviewLoading.IsActive = false;
@@ -212,7 +216,14 @@ public sealed partial class AudioConverterTab : UserControl
 
     private async Task LoadAudioPreview(IListEntry item)
     {
-        _previewCts?.Cancel();
+        var previousPreviewCts = _previewCts;
+        if (previousPreviewCts != null)
+        {
+            _previewCts = null;
+            await previousPreviewCts.CancelAsync();
+            previousPreviewCts.Dispose();
+        }
+
         var cts = new CancellationTokenSource();
         _previewCts = cts;
 
@@ -220,7 +231,10 @@ public sealed partial class AudioConverterTab : UserControl
 
         // Show preview panel with loading state
         PreviewPanel.Visibility = Visibility.Visible;
-        PreviewColumn.Width = new GridLength(280);
+        PreviewSplitter.Visibility = Visibility.Visible;
+        SplitterColumn.Width = new GridLength(8);
+        if (PreviewColumn.Width.Value <= 0)
+            PreviewColumn.Width = new GridLength(280);
         PreviewLoading.IsActive = true;
         AudioIcon.Visibility = Visibility.Collapsed;
         PreviewErrorText.Visibility = Visibility.Collapsed;
@@ -312,9 +326,12 @@ public sealed partial class AudioConverterTab : UserControl
 
     private void StartPlayback(string wavPath)
     {
-        _mediaPlayer?.Dispose();
-        _mediaPlayer = new MediaPlayer();
-        _mediaPlayer.Source = MediaSource.CreateFromUri(new Uri(wavPath));
+        StopPlayback();
+
+        _mediaPlayer = new MediaPlayer
+        {
+            Source = MediaSource.CreateFromUri(new Uri(wavPath))
+        };
         _mediaPlayer.MediaEnded += MediaPlayer_MediaEnded;
         _mediaPlayer.MediaFailed += MediaPlayer_MediaFailed;
 
@@ -331,7 +348,13 @@ public sealed partial class AudioConverterTab : UserControl
 
     private void StopPlayback()
     {
-        _positionTimer?.Stop();
+        if (_positionTimer != null)
+        {
+            _positionTimer.Stop();
+            _positionTimer.Tick -= PositionTimer_Tick;
+            _positionTimer = null;
+        }
+
         if (_mediaPlayer != null)
         {
             _mediaPlayer.MediaEnded -= MediaPlayer_MediaEnded;
@@ -441,7 +464,11 @@ public sealed partial class AudioConverterTab : UserControl
     {
         StopPlayback();
         _previewCts?.Cancel();
+        _previewCts?.Dispose();
+        _previewCts = null;
         PreviewPanel.Visibility = Visibility.Collapsed;
+        PreviewSplitter.Visibility = Visibility.Collapsed;
+        SplitterColumn.Width = new GridLength(0);
         PreviewColumn.Width = new GridLength(0);
         PreviewLoading.IsActive = false;
         PreviewFileNameText.Text = "";
@@ -455,5 +482,17 @@ public sealed partial class AudioConverterTab : UserControl
     private static string FormatTime(TimeSpan ts)
     {
         return AudioConverterTabOperations.FormatTime(ts);
+    }
+
+    public void Dispose()
+    {
+        Unloaded -= AudioConverterTab_Unloaded;
+        ClearPreview();
+        _conversionController.Dispose();
+    }
+
+    private void AudioConverterTab_Unloaded(object sender, RoutedEventArgs e)
+    {
+        Dispose();
     }
 }

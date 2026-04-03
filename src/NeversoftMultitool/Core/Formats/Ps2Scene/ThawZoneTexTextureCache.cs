@@ -211,13 +211,27 @@ internal static class ThawZoneTexTextureCache
     {
         for (var i = 0; i < uploads.Count; i++)
         {
+            if (uploads[i].SourceDataOffset == uploadOffset || uploads[i].RelativeDataOffset == uploadOffset)
+                return i;
+        }
+
+        for (var i = 0; i < uploads.Count; i++)
+        {
             var upload = uploads[i];
-            var uploadStart = upload.RelativeDataOffset;
-            var uploadEnd = uploadStart + (uint)upload.PixelData.Length;
-            if (uploadOffset >= uploadStart && uploadOffset < uploadEnd)
+            if (UploadContainsOffset(upload.SourceDataOffset, upload.PixelData.Length, uploadOffset) ||
+                UploadContainsOffset(upload.RelativeDataOffset, upload.PixelData.Length, uploadOffset))
                 return i;
         }
 
         return null;
+    }
+
+    private static bool UploadContainsOffset(uint uploadStart, int pixelDataLength, uint uploadOffset)
+    {
+        if (uploadStart == 0 || pixelDataLength <= 0)
+            return false;
+
+        var uploadEnd = uploadStart + (uint)pixelDataLength;
+        return uploadOffset > uploadStart && uploadOffset < uploadEnd;
     }
 }

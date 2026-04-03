@@ -19,10 +19,6 @@ public static class RwBspCommand
             Description = "Output directory for .glb files",
             DefaultValueFactory = _ => "TestOutput"
         };
-        var texturesOption = new Option<bool>("-t", "--textures")
-        {
-            Description = "Embed textures from companion RW TXD (.tex) files"
-        };
         var texPathOption = new Option<string?>("--tex")
         {
             Description = "Explicit TEX file or directory to use for texture lookup"
@@ -35,7 +31,6 @@ public static class RwBspCommand
         var command = new Command("rwbsp", "Convert RenderWare BSP level files to glTF (.glb)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
-        command.Options.Add(texturesOption);
         command.Options.Add(texPathOption);
         command.Options.Add(verboseOption);
 
@@ -43,17 +38,16 @@ public static class RwBspCommand
         {
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
-            var textures = parseResult.GetValue(texturesOption);
             var texPath = parseResult.GetValue(texPathOption);
             var verbose = parseResult.GetValue(verboseOption);
 
-            return Task.FromResult(Execute(input, output, textures, texPath, verbose));
+            return Task.FromResult(Execute(input, output, texPath, verbose));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string output, bool embedTextures,
+    private static int Execute(string input, string output,
         string? texPath, bool verbose)
     {
         List<string> files;
@@ -129,12 +123,9 @@ public static class RwBspCommand
 
                 // Resolve texture provider
                 RwDffGltfWriter.TextureProvider? textureProvider = null;
-                if (embedTextures || texPath != null)
-                {
-                    textureProvider = GetTextureProvider(file, texPath, textureCaches, verbose);
-                    if (textureProvider != null)
-                        texturedCount++;
-                }
+                textureProvider = GetTextureProvider(file, texPath, textureCaches, verbose);
+                if (textureProvider != null)
+                    texturedCount++;
 
                 var outputFile = Path.Combine(output, stem + ".glb");
                 var triangles = RwBspGltfWriter.Write(world, outputFile, textureProvider);

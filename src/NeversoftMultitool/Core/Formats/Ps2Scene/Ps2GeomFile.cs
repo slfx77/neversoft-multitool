@@ -195,10 +195,10 @@ public static class Ps2GeomFile
 
         var min = new Vector3(float.MaxValue);
         var max = new Vector3(float.MinValue);
-        foreach (var vertex in vertices)
+        foreach (var position in vertices.Select(static vertex => vertex.Position))
         {
-            min = Vector3.Min(min, vertex.Position);
-            max = Vector3.Max(max, vertex.Position);
+            min = Vector3.Min(min, position);
+            max = Vector3.Max(max, position);
         }
 
         var size = max - min;

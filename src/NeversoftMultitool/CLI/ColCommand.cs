@@ -8,6 +8,8 @@ namespace NeversoftMultitool.CLI;
 
 public static class ColCommand
 {
+    private static readonly string[] ColSuffixes = [".col.xbx", ".col.wpc", ".col.ps2"];
+
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
@@ -52,12 +54,11 @@ public static class ColCommand
         else if (Directory.Exists(input))
         {
             files = Directory.GetFiles(input, "*", SearchOption.AllDirectories)
-                .Where(f =>
+                .Where(static file =>
                 {
-                    var lower = f.ToLowerInvariant();
-                    return lower.EndsWith(".col.xbx") || lower.EndsWith(".col.wpc") ||
-                           lower.EndsWith(".col.ps2") ||
-                           Path.GetExtension(f).Equals(".col", StringComparison.OrdinalIgnoreCase);
+                    var fileName = Path.GetFileName(file);
+                    return OrdinalFileName.HasAnySuffix(fileName, ColSuffixes)
+                           || OrdinalFileName.HasExtension(file, ".col");
                 })
                 .ToList();
         }

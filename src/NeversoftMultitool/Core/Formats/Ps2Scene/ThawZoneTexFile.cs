@@ -1,65 +1,27 @@
-using System.Numerics;
 using NeversoftMultitool.Core.Formats.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
 /// <summary>
-///     Parser for THAW PS2 world-zone TEX files extracted from PAK archives.
-///     Unlike version-6 scene tex files (ThawSceneTexFile), these files contain
-///     raw GIF A+D register blocks that upload texture data to PS2 GS VRAM.
-///     The MDL companion file references textures by TEX0 VRAM addresses (TBP/CBP),
-///     not by checksums. This class builds a VRAM map from the uploads, then
-///     decodes textures on demand given a TEX0 register value.
+///     Parser for THAW PS2 world-zone .tex files extracted from PAK archives.
+///     These files contain a record table plus CPU-side source slots plus a DMA upload stream.
+///     Public decode paths prefer the prepared source-slot path seen in the decompiled runtime
+///     and fall back to upload-snapshot GS VRAM decode when source-slot decode cannot resolve
+///     an entry.
+///     Format documented in tools/ghidra/thaw-ps2/output/zone_tex_format.md.
 /// </summary>
 public static class ThawZoneTexFile
 {
-    internal static readonly int[] ClutTableT16I4 =
-    {
-        0, 2, 8, 10, 16, 18, 24, 26,
-        4, 6, 12, 14, 20, 22, 28, 30
-    };
-
-    internal static readonly int[] ClutTableT32I4 =
-    {
-        0, 1, 4, 5, 8, 9, 12, 13,
-        2, 3, 6, 7, 10, 11, 14, 15
-    };
-
-    internal static readonly int[] Layout02000001BlockPermutation =
-    [
-        0, 3, 1, 2, 4
-    ];
-
-    internal static readonly int[] Layout02000005BlockPermutation =
-    [
-        0, 2, 1, 3, 4
-    ];
-
-    internal static readonly int[] Layout02000005TilePermutation =
-    [
-        1, 5, 0, 4, 2, 3
-    ];
-
     /// <summary>
-    ///     Detect world-zone TEX files. These start with a non-zero u32 checksum
-    ///     (not version 6), contain no standard TEX header, and have GIF A+D blocks.
+    ///     Detect world-zone TEX files by discovering the record table.
     /// </summary>
     public static bool IsThawZoneTex(ReadOnlySpan<byte> data)
     {
-        if (data.Length < 0x200) return false;
-
-        // Must NOT be a standard format
-        var version = BitConverter.ToUInt16(data);
-        if (version is >= 2 and <= 6) return false;
-
-        // Scan for at least one GIF A+D block with BITBLTBUF
-        return FindFirstGifAdBlock(data) >= 0;
+        return ThawZoneTexCoreDecoder.IsZoneTex(data);
     }
 
     /// <summary>
-    ///     Parse the TEX file and build both a texture cache (synthetic checksum -> decoded pixels)
-    ///     and a TEX0 mapping ((Group, TBP, CBP) -> synthetic checksum).
-    ///     The synthetic checksum is derived from TBP+CBP so the existing pipeline can match.
+    ///     Parse the zone .tex file and return the upload list (for backward compatibility).
     /// </summary>
     public static ZoneTexResult Parse(ReadOnlySpan<byte> data)
     {
@@ -68,39 +30,106 @@ public static class ThawZoneTexFile
     }
 
     /// <summary>
-    ///     Parse the fixed-size texture metadata entries that precede the GIF upload stream.
-    ///     These entries carry the real texture checksums and TEX0 values used by zone MDLs.
+    ///     Parse the fixed-size texture metadata records from the record table.
+    ///     Uses the DMA-chain-based discovery algorithm to find and parse all records.
     /// </summary>
     public static List<ZoneTexHeaderEntry> ParseHeaderEntries(ReadOnlySpan<byte> data)
     {
-        return ThawZoneTexHeaderParser.ParseHeaderEntries(data);
+        return ThawZoneTexCoreDecoder.DiscoverAndParseRecords(data);
     }
 
     /// <summary>
-    ///     Parse all GIF A+D upload blocks from the file.
-    ///     Each upload records the VRAM destination (DBP), pixel format, dimensions,
-    ///     and the raw pixel data bytes.
+    ///     Parse all GIF A+D upload blocks from the DMA chain.
+    ///     Kept for backward compatibility with analyzer tools and VRAM-based decode paths.
     /// </summary>
-
     internal static List<VramUpload> ParseVramUploads(ReadOnlySpan<byte> data)
     {
-        return ThawZoneTexCoreDecoder.ParseVramUploads(data);
+        return ThawZoneTexVramSupport.ParseVramUploads(data);
     }
 
-    internal static byte[]? DecodeFromTex0(Ps2GsVram vram, ulong tex0)
+    /// <summary>
+    ///     Decode all textures from a zone .tex file by preferring the CPU-side prepared source
+    ///     slots described by the record table, with upload-snapshot VRAM decode as fallback.
+    /// </summary>
+    public static List<Ps2Texture> DecodeAllFromFile(ReadOnlySpan<byte> data,
+        Ps2GifQwordWordOrder? gifQwordWordOrder = null)
     {
-        return ThawZoneTexCoreDecoder.DecodeFromTex0(vram, tex0);
+        return ThawZoneTexCoreDecoder.DecodeAllRecords(data, gifQwordWordOrder);
     }
 
-    internal static byte[]? ReadClutPsmt4Csm1(Ps2GsVram vram, uint cbp, uint cpsm)
+    /// <summary>
+    ///     Decode specific header entries from a zone .tex file by preferring the file-backed
+    ///     prepared source slots. If uploads are not supplied, they are derived from the file's
+    ///     DMA chain and used as fallback snapshots.
+    /// </summary>
+    public static List<Ps2Texture> DecodeFromHeaderEntries(
+        ReadOnlySpan<byte> fileData,
+        IReadOnlyList<VramUpload> uploads,
+        IEnumerable<ZoneTexHeaderEntry> headerEntries,
+        Ps2GifQwordWordOrder? gifQwordWordOrder = null)
     {
-        return ThawZoneTexCoreDecoder.ReadClutPsmt4Csm1(vram, cbp, cpsm);
+        var entryList = headerEntries as IReadOnlyList<ZoneTexHeaderEntry> ?? headerEntries.ToList();
+        if (entryList.Count == 0)
+            return [];
+
+        var effectiveUploads = uploads.Count > 0 ? uploads : ParseVramUploads(fileData);
+        return ThawZoneTexCoreDecoder.DecodeEntriesFromPreparedSourcesOrUploadSnapshots(
+            fileData, effectiveUploads, entryList, gifQwordWordOrder);
     }
 
+    /// <summary>
+    ///     Decode textures from header entries using upload snapshots (no file data).
+    ///     Kept for backward compatibility with analyzer tools.
+    /// </summary>
+    public static List<Ps2Texture> DecodeFromHeaderEntries(
+        IReadOnlyList<VramUpload> uploads, IEnumerable<ZoneTexHeaderEntry> headerEntries,
+        Ps2GifQwordWordOrder? gifQwordWordOrder = null)
+    {
+        var entryList = headerEntries as IReadOnlyList<ZoneTexHeaderEntry> ?? headerEntries.ToList();
+        return ThawZoneTexCoreDecoder.DecodeEntriesFromUploadSnapshots(uploads, entryList, gifQwordWordOrder);
+    }
+
+    /// <summary>
+    ///     Decode textures by matching TEX0 values to header entries via TBP/CBP.
+    /// </summary>
+    public static List<Ps2Texture> DecodeFromTex0Values(
+        IReadOnlyList<VramUpload> uploads, IEnumerable<ulong> tex0Values,
+        IReadOnlyDictionary<(uint Tbp, uint Cbp), uint>? checksumMap = null,
+        Ps2GifQwordWordOrder? gifQwordWordOrder = null)
+    {
+        // Fall back to VRAM-based decode since we don't have the file data here
+        var vram = ThawZoneTexVramSupport.BuildVram(uploads, gifQwordWordOrder);
+        var textures = new List<Ps2Texture>();
+
+        foreach (var tex0 in tex0Values)
+        {
+            var tbp = (uint)(tex0 & 0x3FFF);
+            var cbp = (uint)((tex0 >> 37) & 0x3FFF);
+            var checksum = checksumMap != null && checksumMap.TryGetValue((tbp, cbp), out var ck)
+                ? ck
+                : (tbp << 16) | cbp;
+            if (checksum == 0)
+                continue;
+
+            if (textures.Any(t => t.Checksum == checksum))
+                continue;
+
+            var decoded = ThawZoneTexVramSupport.DecodeFromTex0(vram, tex0);
+            if (decoded == null)
+                continue;
+
+            var psm = (uint)((tex0 >> 20) & 0x3F);
+            var cpsm = (uint)((tex0 >> 51) & 0xF);
+            var tw = 1 << (int)((tex0 >> 26) & 0xF);
+            var th = 1 << (int)((tex0 >> 30) & 0xF);
+            textures.Add(new Ps2Texture(checksum, tw, th, psm, cpsm, decoded));
+        }
+
+        return textures;
+    }
 
     /// <summary>
     ///     Build a texture provider and TEX0 mapping for integration with the existing pipeline.
-    ///     Creates synthetic checksums from TBP+CBP pairs.
     /// </summary>
     public static (Dictionary<uint, Ps2Texture> TextureCache,
         Dictionary<(uint Group, uint Tbp, uint Cbp), uint> Tex0Map)
@@ -114,82 +143,120 @@ public static class ThawZoneTexFile
         if (knownTex0Values == null)
             return (textureCache, tex0Map);
 
-        var requests = BuildDecodeRequests(uploads, knownTex0Values, checksumMap);
-        textureCache = DecodeTextureCache(uploads, requests, gifQwordWordOrder);
+        var textures = DecodeFromTex0Values(uploads, knownTex0Values, checksumMap, gifQwordWordOrder);
+        foreach (var tex in textures)
+            textureCache.TryAdd(tex.Checksum, tex);
 
-        foreach (var request in requests)
-            tex0Map.TryAdd((0, request.Tbp, request.Cbp), request.Checksum);
+        foreach (var tex0 in knownTex0Values)
+        {
+            var tbp = (uint)(tex0 & 0x3FFF);
+            var cbp = (uint)((tex0 >> 37) & 0x3FFF);
+            var checksum = checksumMap != null && checksumMap.TryGetValue((tbp, cbp), out var ck)
+                ? ck
+                : (tbp << 16) | cbp;
+            if (checksum != 0)
+                tex0Map.TryAdd((0, tbp, cbp), checksum);
+        }
 
         return (textureCache, tex0Map);
     }
 
+    // ── MDL support ─────────────────────────────────────────────────────
+
+    public static List<MdlGsTextureState> ExtractTextureStatesFromMdl(byte[] mdlData)
+    {
+        return ThawZoneTexMdlSupport.ExtractTextureStatesFromMdl(mdlData);
+    }
+
+    public static HashSet<ulong> ExtractTex0ValuesFromMdl(byte[] mdlData)
+    {
+        return ThawZoneTexMdlSupport.ExtractTex0ValuesFromMdl(mdlData);
+    }
+
+    // ── Header source resolution (used by Ps2TexCommand, Ps2TextureLoader) ──
+
+    public static Dictionary<(uint Tbp, uint Cbp), uint> BuildChecksumMapFromHeaders(
+        IEnumerable<ReadOnlyMemory<byte>> fileData)
+    {
+        return ThawZoneTexHeaderSourceResolver.BuildChecksumMapFromHeaders(fileData);
+    }
+
+    public static Dictionary<ulong, ZoneTexHeaderSourceEntry> BuildHeaderSourceEntryMapByTex0FromHeaderLists(
+        IEnumerable<IReadOnlyList<ZoneTexHeaderEntry>> headerLists)
+    {
+        return ThawZoneTexHeaderSourceResolver.BuildHeaderSourceEntryMapByTex0FromHeaderLists(headerLists);
+    }
+
+    public static Dictionary<(uint Tbp, uint Cbp), List<ZoneTexHeaderSourceEntry>>
+        BuildHeaderSourceEntryGroupsFromHeaderLists(
+            IEnumerable<IReadOnlyList<ZoneTexHeaderEntry>> headerLists)
+    {
+        return ThawZoneTexHeaderSourceResolver.BuildHeaderSourceEntryGroupsFromHeaderLists(headerLists);
+    }
+
+    public static bool TryResolveHeaderSourceEntry(
+        ulong tex0,
+        ulong tex1,
+        IReadOnlyDictionary<ulong, ZoneTexHeaderSourceEntry> exactMap,
+        IReadOnlyDictionary<(uint Tbp, uint Cbp), List<ZoneTexHeaderSourceEntry>> candidateGroups,
+        out ZoneTexHeaderSourceEntry resolved)
+    {
+        return ThawZoneTexHeaderSourceResolver.TryResolveHeaderSourceEntry(
+            tex0, tex1, exactMap, candidateGroups, out resolved);
+    }
+
+    public static Dictionary<(uint Tbp, uint Cbp), int> BuildSourceIndexMapFromHeaderLists(
+        IEnumerable<IReadOnlyList<ZoneTexHeaderEntry>> headerLists)
+    {
+        return ThawZoneTexHeaderSourceResolver.BuildSourceIndexMapFromHeaderLists(headerLists);
+    }
+
+    public static Dictionary<(uint Tbp, uint Cbp), ZoneTexHeaderEntry> BuildHeaderEntryMapFromHeaderLists(
+        IEnumerable<IReadOnlyList<ZoneTexHeaderEntry>> headerLists)
+    {
+        return ThawZoneTexHeaderSourceResolver.BuildHeaderEntryMapFromHeaderLists(headerLists);
+    }
+
+    // ── Backward-compatible internal methods (used by ThawZoneTexAnalyzer) ──
 
     internal static int FindFirstGifAdBlock(ReadOnlySpan<byte> data)
     {
-        return ThawZoneTexCoreDecoder.FindFirstGifAdBlock(data);
+        return ThawZoneTexVramSupport.FindFirstGifAdBlock(data);
     }
 
     internal static Ps2GsVram BuildVram(IEnumerable<VramUpload> uploads,
         Ps2GifQwordWordOrder? gifQwordWordOrder = null)
     {
-        return ThawZoneTexCoreDecoder.BuildVram(uploads, gifQwordWordOrder);
+        return ThawZoneTexVramSupport.BuildVram(uploads, gifQwordWordOrder);
     }
 
-    public static List<Ps2Texture> DecodeFromTex0Values(
-        IReadOnlyList<VramUpload> uploads, IEnumerable<ulong> tex0Values,
-        IReadOnlyDictionary<(uint Tbp, uint Cbp), uint>? checksumMap = null,
-        Ps2GifQwordWordOrder? gifQwordWordOrder = null)
+    internal static byte[]? DecodeFromTex0(Ps2GsVram vram, ulong tex0)
     {
-        var requests = BuildDecodeRequests(uploads, tex0Values, checksumMap);
-        var textureCache = DecodeTextureCache(uploads, requests, gifQwordWordOrder);
-
-        var textures = new List<Ps2Texture>();
-        foreach (var request in requests)
-            if (textureCache.TryGetValue(request.Checksum, out var texture))
-                textures.Add(texture);
-
-        return textures;
+        return ThawZoneTexVramSupport.DecodeFromTex0(vram, tex0);
     }
 
-    public static List<Ps2Texture> DecodeFromHeaderEntries(
-        ReadOnlySpan<byte> fileData,
-        IReadOnlyList<VramUpload> uploads,
-        IEnumerable<ZoneTexHeaderEntry> headerEntries,
-        Ps2GifQwordWordOrder? gifQwordWordOrder = null)
+    internal static byte[]? ReadClutPsmt4Csm1(Ps2GsVram vram, uint cbp, uint cpsm)
     {
-        var headerList = headerEntries.ToList();
-        var textures = DecodeFromHeaderDataSlots(fileData, uploads, headerList);
-        if (textures.Count == headerList.Count)
-            return textures;
-
-        var decodedChecksums = textures.Select(static texture => texture.Checksum).ToHashSet();
-        var unresolvedHeaders = headerList
-            .Where(entry => !decodedChecksums.Contains(entry.Checksum))
-            .ToList();
-        if (unresolvedHeaders.Count == 0)
-            return textures;
-
-        foreach (var texture in DecodeFromHeaderEntries(uploads, unresolvedHeaders, gifQwordWordOrder))
-            if (decodedChecksums.Add(texture.Checksum))
-                textures.Add(texture);
-
-        return textures;
+        return ThawZoneTexVramSupport.ReadClutPsmt4Csm1(vram, cbp, cpsm);
     }
 
-    public static List<Ps2Texture> DecodeFromHeaderEntries(
-        IReadOnlyList<VramUpload> uploads, IEnumerable<ZoneTexHeaderEntry> headerEntries,
-        Ps2GifQwordWordOrder? gifQwordWordOrder = null)
-    {
-        var requests = BuildDecodeRequests(uploads, headerEntries);
-        var textureCache = DecodeTextureCache(uploads, requests, gifQwordWordOrder);
+    // ── Analyzer-compat: CLUT reorder tables ────────────────────────────
 
-        var textures = new List<Ps2Texture>();
-        foreach (var request in requests)
-            if (textureCache.TryGetValue(request.Checksum, out var texture))
-                textures.Add(texture);
+    internal static readonly int[] ClutTableT16I4 =
+    [
+        0, 2, 8, 10, 16, 18, 24, 26,
+        4, 6, 12, 14, 20, 22, 28, 30
+    ];
 
-        return textures;
-    }
+    internal static readonly int[] ClutTableT32I4 =
+    [
+        0, 1, 4, 5, 8, 9, 12, 13,
+        2, 3, 6, 7, 10, 11, 14, 15
+    ];
+
+    // ── Analyzer-compat: stub methods for heuristic-based decode paths ──
+    // These methods are retained so the ThawZoneTexAnalyzer project compiles.
+    // They delegate to the old support files which are kept for this purpose.
 
     internal static List<Ps2Texture> DecodeFromHeaderDataSlots(
         ReadOnlySpan<byte> fileData,
@@ -203,20 +270,14 @@ public static class ThawZoneTexFile
         if (!TryGetHeaderDataLayout(fileData, out var dataBaseOffset, out var dataOffsetBias))
             return textures;
 
-        var sameCbpClutSources = BuildSameCbpClutSourceMap(fileData, dataBaseOffset, dataOffsetBias, headerEntries);
         var decodedChecksums = new HashSet<uint>();
         foreach (var entry in headerEntries)
         {
             if (!decodedChecksums.Add(entry.Checksum))
                 continue;
 
-            var texture = DecodeBestHeaderDataSlot(
-                fileData,
-                uploads,
-                dataBaseOffset,
-                dataOffsetBias,
-                entry,
-                sameCbpClutSources);
+            var texture = ThawZoneTexHeaderDataSupport.DecodeBestHeaderDataSlot(
+                fileData, uploads, dataBaseOffset, dataOffsetBias, entry);
             if (texture?.Pixels != null)
                 textures.Add(texture);
         }
@@ -252,29 +313,6 @@ public static class ThawZoneTexFile
         return dataBaseOffset >= 0;
     }
 
-
-    private static Ps2Texture? DecodeBestHeaderDataSlot(
-        ReadOnlySpan<byte> fileData,
-        IReadOnlyList<VramUpload> uploads,
-        int dataBaseOffset,
-        int dataOffsetBias,
-        ZoneTexHeaderEntry entry,
-        IReadOnlyDictionary<ZoneTexHeaderEntry, HeaderClutSourceContext>? sameCbpClutSources = null)
-    {
-        return ThawZoneTexHeaderDataSupport.DecodeBestHeaderDataSlot(
-            fileData, uploads, dataBaseOffset, dataOffsetBias, entry, sameCbpClutSources);
-    }
-
-    private static Dictionary<ZoneTexHeaderEntry, HeaderClutSourceContext> BuildSameCbpClutSourceMap(
-        ReadOnlySpan<byte> fileData,
-        int dataBaseOffset,
-        int dataOffsetBias,
-        IReadOnlyList<ZoneTexHeaderEntry> headerEntries)
-    {
-        return ThawZoneTexHeaderDataSupport.BuildSameCbpClutSourceMap(
-            fileData, dataBaseOffset, dataOffsetBias, headerEntries);
-    }
-
     internal static int? SelectHeaderDataSlotBias(
         ReadOnlySpan<byte> fileData,
         int dataBaseOffset,
@@ -286,7 +324,7 @@ public static class ThawZoneTexFile
 
     internal static bool ShouldPreferSameCbpEntropyClut(ZoneTexHeaderEntry entry)
     {
-        return ThawZoneTexHeaderDataSupport.ShouldPreferSameCbpEntropyClut(entry);
+        return ThawZoneTexHeaderClutSupport.ShouldPreferSameCbpEntropyClut(entry);
     }
 
     internal static double ComputeHeaderClutEntropy(
@@ -295,12 +333,12 @@ public static class ThawZoneTexFile
         ZoneTexHeaderEntry entry,
         int selectedBias)
     {
-        return ThawZoneTexHeaderDataSupport.ComputeHeaderClutEntropy(fileData, dataBaseOffset, entry, selectedBias);
+        return ThawZoneTexHeaderClutSupport.ComputeHeaderClutEntropy(fileData, dataBaseOffset, entry, selectedBias);
     }
 
     internal static byte[] ReorderClutPsmt4ForLayout(byte[] clut, uint cpsm, uint layoutMode)
     {
-        return ThawZoneTexHeaderDataSupport.ReorderClutPsmt4ForLayout(clut, cpsm, layoutMode);
+        return ThawZoneTexHeaderClutSupport.ReorderClutPsmt4ForLayout(clut, cpsm, layoutMode);
     }
 
     internal static byte[] TransformPsmt4LinearBlocks(
@@ -354,7 +392,8 @@ public static class ThawZoneTexFile
         int selectedBias,
         VramUpload? matchedUpload)
     {
-        return ThawZoneTexHeaderLayoutSupport.ShouldPreferPsmt4BiasedAutoSlotCandidate(entry, selectedBias, matchedUpload);
+        return ThawZoneTexHeaderLayoutSupport.ShouldPreferPsmt4BiasedAutoSlotCandidate(entry, selectedBias,
+            matchedUpload);
     }
 
     internal static bool ShouldPreferNobiasForBias32Bucket(
@@ -370,81 +409,11 @@ public static class ThawZoneTexFile
         return ThawZoneTexHeaderLayoutSupport.ReorderClut(clut, table, entrySize);
     }
 
-    private static List<TextureDecodeRequest> BuildDecodeRequests(
-        IReadOnlyList<VramUpload> uploads, IEnumerable<ulong> tex0Values,
-        IReadOnlyDictionary<(uint Tbp, uint Cbp), uint>? checksumMap)
-    {
-        return ThawZoneTexTextureCache.BuildDecodeRequests(uploads, tex0Values, checksumMap);
-    }
+    internal static readonly int[] Layout02000001BlockPermutation = [0, 3, 1, 2, 4];
+    internal static readonly int[] Layout02000005BlockPermutation = [0, 2, 1, 3, 4];
+    internal static readonly int[] Layout02000005TilePermutation = [1, 5, 0, 4, 2, 3];
 
-    private static List<TextureDecodeRequest> BuildDecodeRequests(
-        IReadOnlyList<VramUpload> uploads, IEnumerable<ZoneTexHeaderEntry> headerEntries)
-    {
-        return ThawZoneTexTextureCache.BuildDecodeRequests(uploads, headerEntries);
-    }
-
-    private static Dictionary<uint, Ps2Texture> DecodeTextureCache(
-        IReadOnlyList<VramUpload> uploads, IReadOnlyList<TextureDecodeRequest> requests,
-        Ps2GifQwordWordOrder? gifQwordWordOrder)
-    {
-        return ThawZoneTexTextureCache.DecodeTextureCache(uploads, requests, gifQwordWordOrder);
-    }
-
-    public static List<MdlGsTextureState> ExtractTextureStatesFromMdl(byte[] mdlData)
-    {
-        return ThawZoneTexMdlSupport.ExtractTextureStatesFromMdl(mdlData);
-    }
-
-    /// <summary>
-    ///     Extract all unique TEX0 register values from a PAK MDL file's GS context blocks.
-    /// </summary>
-    public static HashSet<ulong> ExtractTex0ValuesFromMdl(byte[] mdlData)
-    {
-        return ThawZoneTexMdlSupport.ExtractTex0ValuesFromMdl(mdlData);
-    }
-
-
-    public static Dictionary<(uint Tbp, uint Cbp), uint> BuildChecksumMapFromHeaders(
-        IEnumerable<ReadOnlyMemory<byte>> fileData)
-    {
-        return ThawZoneTexHeaderSourceResolver.BuildChecksumMapFromHeaders(fileData);
-    }
-
-    public static Dictionary<ulong, ZoneTexHeaderSourceEntry> BuildHeaderSourceEntryMapByTex0FromHeaderLists(
-        IEnumerable<IReadOnlyList<ZoneTexHeaderEntry>> headerLists)
-    {
-        return ThawZoneTexHeaderSourceResolver.BuildHeaderSourceEntryMapByTex0FromHeaderLists(headerLists);
-    }
-
-    public static Dictionary<(uint Tbp, uint Cbp), List<ZoneTexHeaderSourceEntry>>
-        BuildHeaderSourceEntryGroupsFromHeaderLists(
-            IEnumerable<IReadOnlyList<ZoneTexHeaderEntry>> headerLists)
-    {
-        return ThawZoneTexHeaderSourceResolver.BuildHeaderSourceEntryGroupsFromHeaderLists(headerLists);
-    }
-
-    public static bool TryResolveHeaderSourceEntry(
-        ulong tex0,
-        ulong tex1,
-        IReadOnlyDictionary<ulong, ZoneTexHeaderSourceEntry> exactMap,
-        IReadOnlyDictionary<(uint Tbp, uint Cbp), List<ZoneTexHeaderSourceEntry>> candidateGroups,
-        out ZoneTexHeaderSourceEntry resolved)
-    {
-        return ThawZoneTexHeaderSourceResolver.TryResolveHeaderSourceEntry(
-            tex0, tex1, exactMap, candidateGroups, out resolved);
-    }
-
-    public static Dictionary<(uint Tbp, uint Cbp), int> BuildSourceIndexMapFromHeaderLists(
-        IEnumerable<IReadOnlyList<ZoneTexHeaderEntry>> headerLists)
-    {
-        return ThawZoneTexHeaderSourceResolver.BuildSourceIndexMapFromHeaderLists(headerLists);
-    }
-
-    public static Dictionary<(uint Tbp, uint Cbp), ZoneTexHeaderEntry> BuildHeaderEntryMapFromHeaderLists(
-        IEnumerable<IReadOnlyList<ZoneTexHeaderEntry>> headerLists)
-    {
-        return ThawZoneTexHeaderSourceResolver.BuildHeaderEntryMapFromHeaderLists(headerLists);
-    }
+    // ── Public record types ─────────────────────────────────────────────
 
     public readonly record struct VramUpload(
         uint Dbp,
@@ -453,9 +422,9 @@ public static class ThawZoneTexFile
         int Width,
         int Height,
         byte[] PixelData,
-        uint RelativeDataOffset = 0);
+        uint RelativeDataOffset = 0,
+        uint SourceDataOffset = 0);
 
-    /// <summary>Result from parsing a zone TEX file.</summary>
     public sealed class ZoneTexResult(List<VramUpload> uploads)
     {
         public List<VramUpload> Uploads { get; } = uploads;
@@ -477,10 +446,11 @@ public static class ThawZoneTexFile
         uint UploadOffset,
         uint MipLevelCount = 0,
         uint BasePixelBytes = 0,
-        uint LayoutMode = 0);
+        uint LayoutMode = 0,
+        uint GroupChecksum = 0,
+        uint CumulativeOffset = 0);
 
     public readonly record struct ZoneTexHeaderSourceEntry(
         ZoneTexHeaderEntry Entry,
         int SourceIndex);
-
 }

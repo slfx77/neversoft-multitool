@@ -45,10 +45,10 @@ public sealed class Ps2GeomFileTests(TestPaths paths)
             {
                 var min = new Vector3(float.MaxValue);
                 var max = new Vector3(float.MinValue);
-                foreach (var vertex in leaf.Vertices)
+                foreach (var position in leaf.Vertices.Select(static vertex => vertex.Position))
                 {
-                    min = Vector3.Min(min, vertex.Position);
-                    max = Vector3.Max(max, vertex.Position);
+                    min = Vector3.Min(min, position);
+                    max = Vector3.Max(max, position);
                 }
 
                 var size = max - min;

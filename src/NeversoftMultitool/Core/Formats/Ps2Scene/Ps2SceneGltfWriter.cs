@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -48,6 +49,16 @@ public static class Ps2SceneGltfWriter
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
+        var (model, triangles) = Build(ps2Scene, textureProvider);
+        if (triangles == 0) return 0;
+        GltfNormalSmoother.SmoothNormals(model);
+        model.SaveGLB(outputPath);
+        return triangles;
+    }
+
+    internal static (ModelRoot Model, int Triangles) Build(Ps2Scene ps2Scene,
+        TextureProvider? textureProvider = null)
+    {
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<uint, MaterialBuilder>();
         var totalTriangles = 0;
@@ -79,13 +90,7 @@ public static class Ps2SceneGltfWriter
             }
         }
 
-        if (totalTriangles == 0)
-            return 0;
-
-        var model = scene.ToGltf2();
-        model.SaveGLB(outputPath);
-
-        return totalTriangles;
+        return (scene.ToGltf2(), totalTriangles);
     }
 
     /// <summary>
@@ -99,6 +104,16 @@ public static class Ps2SceneGltfWriter
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
+        var (model, triangles) = BuildSkinned(ps2Scene, skeleton, textureProvider);
+        if (triangles == 0) return 0;
+        GltfNormalSmoother.SmoothNormals(model);
+        model.SaveGLB(outputPath);
+        return triangles;
+    }
+
+    internal static (ModelRoot Model, int Triangles) BuildSkinned(Ps2Scene ps2Scene,
+        Ps2Skeleton skeleton, TextureProvider? textureProvider = null)
+    {
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<uint, MaterialBuilder>();
         var totalTriangles = 0;
@@ -143,16 +158,10 @@ public static class Ps2SceneGltfWriter
             totalTriangles += tris;
         }
 
-        if (totalTriangles == 0)
-            return 0;
+        if (totalTriangles > 0)
+            scene.AddSkinnedMesh(gltfMesh, Matrix4x4.Identity, jointNodes);
 
-        // Add the skinned mesh with joint bindings
-        scene.AddSkinnedMesh(gltfMesh, Matrix4x4.Identity, jointNodes);
-
-        var model = scene.ToGltf2();
-        model.SaveGLB(outputPath);
-
-        return totalTriangles;
+        return (scene.ToGltf2(), totalTriangles);
     }
 
     /// <summary>

@@ -262,11 +262,11 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         var verts = scene.MeshGroups.SelectMany(g => g.Meshes).SelectMany(m => m.Vertices).ToArray();
 
         // Positions should be in a reasonable range for a character accessory
-        foreach (var v in verts)
+        foreach (var position in verts.Select(static vertex => vertex.Position))
         {
-            Assert.True(Math.Abs(v.Position.X) < 200, $"X position out of range: {v.Position.X}");
-            Assert.True(Math.Abs(v.Position.Y) < 200, $"Y position out of range: {v.Position.Y}");
-            Assert.True(Math.Abs(v.Position.Z) < 200, $"Z position out of range: {v.Position.Z}");
+            Assert.True(Math.Abs(position.X) < 200, $"X position out of range: {position.X}");
+            Assert.True(Math.Abs(position.Y) < 200, $"Y position out of range: {position.Y}");
+            Assert.True(Math.Abs(position.Z) < 200, $"Z position out of range: {position.Z}");
         }
 
         // Normals should be unit-length

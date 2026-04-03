@@ -322,10 +322,11 @@ internal static class ThawPs2ReplayEngine
         var currentAddress = effectiveAddress;
         var cyclePosition = 0;
         var writeAddresses = new int[num];
+        Span<uint> words = stackalloc uint[4];
 
         for (var i = 0; i < num; i++)
         {
-            Span<uint> words = stackalloc uint[4];
+            words.Clear();
             if (vl == 0)
             {
                 for (var component = 0; component < componentCount; component++)

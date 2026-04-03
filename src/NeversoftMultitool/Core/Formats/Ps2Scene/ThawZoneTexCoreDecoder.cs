@@ -1,162 +1,142 @@
 using NeversoftMultitool.Core.Formats.Psx;
 using static NeversoftMultitool.Core.Formats.Ps2Scene.ThawZoneTexFile;
+using static NeversoftMultitool.Core.Formats.Ps2Scene.ThawZoneTexVramSupport;
 
 namespace NeversoftMultitool.Core.Formats.Ps2Scene;
 
+/// <summary>
+///     Core decoder for THAW PS2 zone .tex files. Parses the record table plus DMA upload stream,
+///     prefers the prepared CPU-side source slots described by the record table, and falls back
+///     to upload-snapshot GS VRAM decode when the source-slot path cannot resolve an entry.
+///     Based on Ghidra decompilation of the THAW PS2 binary (FUN_0019cd48 pixel decode,
+///     FUN_001cfb58 blob processing). See tools/ghidra/thaw-ps2/output/zone_tex_format.md.
+/// </summary>
 internal static class ThawZoneTexCoreDecoder
 {
-    internal static List<VramUpload> ParseVramUploads(ReadOnlySpan<byte> data)
+    /// <summary>
+    ///     All data_offset and cumul_off values in records are relative to this base.
+    ///     Verified across all 3 extracted zone .tex files (z_ho, z_ho_net, z_sm).
+    /// </summary>
+    private const int PackedBase = 0x0A;
+
+    private const int RecordSize = 0x40;
+
+    /// <summary>
+    ///     Discover the record table by finding the DMA chain start and walking backwards.
+    ///     Returns the table start offset and record count, or (-1, 0) if not found.
+    /// </summary>
+    internal static (int TableStart, int RecordCount) DiscoverRecordTable(ReadOnlySpan<byte> data)
     {
-        var uploads = new List<VramUpload>();
-        var firstGif = FindFirstGifAdBlock(data);
-        var off = 0;
+        var dmaStart = FindDmaChainStart(data);
+        if (dmaStart < 0)
+            return (-1, 0);
 
-        while (off + 80 <= data.Length)
+        // Walk backwards from DMA start in 0x40-byte steps to find valid records.
+        // Each record has a TEX0 at +0x10 with plausible PSM, dimensions, and TBP values.
+        var recordEnd = dmaStart;
+        var recordStart = recordEnd;
+        while (recordStart >= RecordSize)
         {
-            // Look for GIF A+D tag: FLG=0 (PACKED), NREG=1, REGS=0x0E
-            var lo = BitConverter.ToUInt64(data[off..]);
-            var hi = BitConverter.ToUInt64(data[(off + 8)..]);
-
-            var nloop = (int)(lo & 0x7FFF);
-            var flg = (int)((lo >> 58) & 3);
-            var nreg = (int)((lo >> 60) & 0xF);
-            if (nreg == 0) nreg = 16;
-
-            if (flg == 0 && nreg == 1 && hi == 0x0E && nloop is >= 1 and <= 20)
-            {
-                var blockEnd = off + 16 + nloop * 16;
-                if (blockEnd > data.Length)
-                {
-                    off += 16;
-                    continue;
-                }
-
-                // Parse A+D register writes
-                uint dbp = 0, dbw = 0, dpsm = 0;
-                int rrw = 0, rrh = 0;
-                var hasBlt = false;
-                var hasTrx = false;
-                var hasTrxDir = false;
-
-                for (var i = 0; i < nloop; i++)
-                {
-                    var entryOff = off + 16 + i * 16;
-                    var regData = BitConverter.ToUInt64(data[entryOff..]);
-                    var regAddr = BitConverter.ToUInt64(data[(entryOff + 8)..]);
-
-                    switch (regAddr)
-                    {
-                        case 0x50: // BITBLTBUF
-                            dbp = (uint)((regData >> 32) & 0x3FFF);
-                            dbw = (uint)((regData >> 48) & 0x3F);
-                            dpsm = (uint)((regData >> 56) & 0x3F);
-                            hasBlt = true;
-                            break;
-                        case 0x52: // TRXREG
-                            rrw = (int)(regData & 0xFFF);
-                            rrh = (int)((regData >> 32) & 0xFFF);
-                            hasTrx = true;
-                            break;
-                        case 0x53: // TRXDIR
-                            hasTrxDir = true;
-                            break;
-                    }
-                }
-
-                if (hasBlt && hasTrx && hasTrxDir && rrw > 0 && rrh > 0)
-                {
-                    var dataSize = GetTransferSizeBytes(dpsm, rrw, rrh);
-                    var dataSizeAligned = (dataSize + 15) & ~15;
-                    if (!TryReadImageTag(data, blockEnd, out var imageDataSize))
-                    {
-                        off = blockEnd;
-                        continue;
-                    }
-
-                    var dataOffset = blockEnd + 16;
-                    if (imageDataSize >= dataSizeAligned && dataOffset + imageDataSize <= data.Length)
-                    {
-                        uploads.Add(new VramUpload(
-                            dbp, dbw, dpsm,
-                            rrw, rrh,
-                            data.Slice(dataOffset, dataSize).ToArray(),
-                            firstGif >= 0 ? (uint)(dataOffset - firstGif) : (uint)dataOffset));
-
-                        off = dataOffset + imageDataSize;
-                        continue;
-                    }
-                }
-
-                off = blockEnd;
-                continue;
-            }
-
-            off += 16;
+            var candidateStart = recordStart - RecordSize;
+            if (!IsPlausibleRecord(data, candidateStart))
+                break;
+            recordStart = candidateStart;
         }
 
-        return uploads;
+        var recordCount = (recordEnd - recordStart) / RecordSize;
+        if (recordCount == 0)
+            return (-1, 0);
+
+        return (recordStart, recordCount);
     }
 
     /// <summary>
-    ///     Decode a texture from the VRAM simulator given a TEX0 register value.
-    ///     Reads pixel data and CLUT from the VRAM buffer that was populated by
-    ///     writing all zone TEX uploads using their transfer format's addressing.
+    ///     Parse all records from the discovered record table.
     /// </summary>
-    internal static byte[]? DecodeFromTex0(Ps2GsVram vram, ulong tex0)
+    internal static List<ZoneTexHeaderEntry> ParseRecords(ReadOnlySpan<byte> data, int tableStart, int recordCount)
     {
-        var tbp0 = (uint)(tex0 & 0x3FFF);
-        var tbw = (uint)((tex0 >> 14) & 0x3F);
-        var psm = (uint)((tex0 >> 20) & 0x3F);
-        var tw = 1 << (int)((tex0 >> 26) & 0xF);
-        var th = 1 << (int)((tex0 >> 30) & 0xF);
-        var cbp = (uint)((tex0 >> 37) & 0x3FFF);
-        var cpsm = (uint)((tex0 >> 51) & 0xF);
-        var csm = (uint)((tex0 >> 55) & 0x1);
-
-        // Read pixel data from VRAM using the texture's PSM addressing
-        byte[] texData;
-        switch (psm)
+        var entries = new List<ZoneTexHeaderEntry>(recordCount);
+        for (var i = 0; i < recordCount; i++)
         {
-            case Ps2TexPixelDecoder.PSMT4:
-                texData = vram.ReadTexturePSMT4(tbp0, tbw, tw, th);
+            var off = tableStart + i * RecordSize;
+            if (off + RecordSize > data.Length)
                 break;
-            case Ps2TexPixelDecoder.PSMT8:
-                texData = vram.ReadTexturePSMT8(tbp0, tbw, tw, th);
-                break;
-            case Ps2TexPixelDecoder.PSMCT32:
-                texData = vram.ReadRectPSMCT32(tbp0, tbw, tw, th);
-                break;
-            default:
-                return null;
+
+            entries.Add(ParseSingleRecord(data, off));
         }
 
-        // For paletted formats, read CLUT from VRAM
-        byte[]? clut = null;
-        var paletteSize = Ps2TexPixelDecoder.GetPaletteSize(psm);
-        if (paletteSize > 0)
-        {
-            if (psm == Ps2TexPixelDecoder.PSMT4 && csm == 0)
-            {
-                clut = ReadClutPsmt4Csm1(vram, cbp, cpsm);
-            }
-            else
-            {
-                // Read the palette back using the CLUT storage format from TEX0.CPSM.
-                // PSMT8 still needs the standard 8-15 <-> 16-23 unswizzle per 32-entry group.
-                var clutW = psm == Ps2TexPixelDecoder.PSMT4 ? 8 : 16;
-                var clutH = psm == Ps2TexPixelDecoder.PSMT4 ? 2 : 16;
-                clut = cpsm switch
-                {
-                    Ps2TexPixelDecoder.PSMCT32 => vram.ReadRectPSMCT32(cbp, 1, clutW, clutH),
-                    Ps2TexPixelDecoder.PSMCT16 => vram.ReadRectPSMCT16(cbp, 1, clutW, clutH),
-                    _ => null
-                };
-            }
+        return entries;
+    }
 
-            if (clut == null)
+    /// <summary>
+    ///     Parse a single 0x40-byte record at the given offset.
+    /// </summary>
+    private static ZoneTexHeaderEntry ParseSingleRecord(ReadOnlySpan<byte> data, int off)
+    {
+        var checksum = BitConverter.ToUInt32(data[off..]);
+        var groupChecksum = BitConverter.ToUInt32(data[(off + 0x04)..]);
+        var mipCount = BitConverter.ToUInt32(data[(off + 0x08)..]);
+        var layoutMode = BitConverter.ToUInt32(data[(off + 0x0C)..]);
+        var tex0 = BitConverter.ToUInt64(data[(off + 0x10)..]);
+        var cumulOff = BitConverter.ToUInt32(data[(off + 0x28)..]);
+        var dataSize = BitConverter.ToUInt32(data[(off + 0x2C)..]);
+        var dataOffset = BitConverter.ToUInt32(data[(off + 0x30)..]);
+        var palBytes = BitConverter.ToUInt32(data[(off + 0x34)..]);
+        var uploadOff = BitConverter.ToUInt32(data[(off + 0x38)..]);
+        var pixelQwcShifted = BitConverter.ToUInt32(data[(off + 0x3C)..]);
+
+        return new ZoneTexHeaderEntry(
+            Checksum: checksum,
+            Tex0: tex0,
+            DataSize: dataSize,
+            DataOffset: dataOffset,
+            PaletteBytes: palBytes,
+            UploadOffset: uploadOff,
+            MipLevelCount: mipCount,
+            BasePixelBytes: pixelQwcShifted >> 12,
+            LayoutMode: layoutMode,
+            GroupChecksum: groupChecksum,
+            CumulativeOffset: cumulOff);
+    }
+
+    /// <summary>
+    ///     Discover and parse all records from a zone .tex file.
+    /// </summary>
+    internal static List<ZoneTexHeaderEntry> DiscoverAndParseRecords(ReadOnlySpan<byte> data)
+    {
+        var (tableStart, recordCount) = DiscoverRecordTable(data);
+        if (tableStart < 0)
+            return [];
+
+        return ParseRecords(data, tableStart, recordCount);
+    }
+
+    /// <summary>
+    ///     Legacy direct packed-data decode of a single record. Kept for analyzer paths only;
+    ///     production decode replays the DMA upload stream instead.
+    /// </summary>
+    internal static Ps2Texture? DecodeRecord(ReadOnlySpan<byte> data, ZoneTexHeaderEntry entry)
+    {
+        var tex0 = entry.Tex0;
+        var psm = (uint)((tex0 >> 20) & 0x3F);
+        var tw = (int)((tex0 >> 26) & 0xF);
+        var th = (int)((tex0 >> 30) & 0xF);
+        var cpsm = (uint)((tex0 >> 51) & 0xF);
+        var width = 1 << tw;
+        var height = 1 << th;
+
+        // Read CLUT data for paletted formats
+        byte[]? clut = null;
+        if (entry.PaletteBytes > 0 && psm is Ps2TexPixelDecoder.PSMT4 or Ps2TexPixelDecoder.PSMT8)
+        {
+            var clutStart = PackedBase + (int)entry.DataOffset;
+            var clutEnd = clutStart + (int)entry.PaletteBytes;
+            if (clutStart < 0 || clutEnd > data.Length)
                 return null;
 
-            // Apply CSM1 CLUT unswizzle for PSMT8 (256 entries)
+            clut = data.Slice(clutStart, (int)entry.PaletteBytes).ToArray();
+
+            // CSM1 CLUT unswizzle for PSMT8 with PSMCT32 CLUTs (256 entries, 4 bytes each)
             if (psm == Ps2TexPixelDecoder.PSMT8)
             {
                 var clutBpp = Ps2TexPixelDecoder.GetBitsPerPixel(cpsm) / 8;
@@ -165,156 +145,250 @@ internal static class ThawZoneTexCoreDecoder
             }
         }
 
-        return Ps2TexPixelDecoder.DecodePixels(texData, tw, th, psm, cpsm, clut);
+        // Read pixel data from cumul_off (canonical pixel location)
+        var pixelStart = PackedBase + (int)entry.CumulativeOffset;
+        var pixelEnd = pixelStart + (int)entry.DataSize;
+        if (pixelStart < 0 || pixelEnd > data.Length || entry.DataSize == 0)
+            return null;
+
+        var pixelData = data.Slice(pixelStart, (int)entry.DataSize);
+
+        // Apply unswizzle based on PSM
+        byte[] unswizzled;
+        switch (psm)
+        {
+            case Ps2TexPixelDecoder.PSMT4:
+                unswizzled = Ps2TexSwizzle.UnswizzlePsmt4(pixelData, width, height);
+                break;
+            case Ps2TexPixelDecoder.PSMT8:
+                unswizzled = Ps2TexSwizzle.UnswizzlePsmt8(pixelData, width, height);
+                break;
+            default:
+                unswizzled = pixelData.ToArray();
+                break;
+        }
+
+        // Decode to RGBA
+        var rgba = Ps2TexPixelDecoder.DecodePixels(unswizzled, width, height, psm, cpsm, clut);
+        if (rgba == null)
+            return null;
+
+        return new Ps2Texture(entry.Checksum, width, height, psm, cpsm, rgba);
     }
 
-    internal static byte[]? ReadClutPsmt4Csm1(Ps2GsVram vram, uint cbp, uint cpsm)
+    /// <summary>
+    ///     Decode all records from a zone .tex file by preferring prepared source slots and
+    ///     falling back to upload snapshots derived from the DMA chain.
+    /// </summary>
+    internal static List<Ps2Texture> DecodeAllRecords(ReadOnlySpan<byte> data,
+        Ps2GifQwordWordOrder? gifQwordWordOrder = null)
     {
-        return cpsm switch
-        {
-            Ps2TexPixelDecoder.PSMCT16 => ReadClutPsmt4Csm1Ct16(vram, cbp),
-            Ps2TexPixelDecoder.PSMCT32 => ReadClutPsmt4Csm1Ct32(vram, cbp),
-            _ => null
-        };
+        var entries = DiscoverAndParseRecords(data);
+        if (entries.Count == 0)
+            return [];
+
+        var uploads = ThawZoneTexVramSupport.ParseVramUploads(data);
+        return DecodeEntriesFromPreparedSourcesOrUploadSnapshots(data, uploads, entries, gifQwordWordOrder);
     }
 
-    internal static int FindFirstGifAdBlock(ReadOnlySpan<byte> data)
+    /// <summary>
+    ///     Decode specific records from a zone .tex file by preferring prepared source slots and
+    ///     falling back to upload snapshots derived from the DMA chain.
+    /// </summary>
+    internal static List<Ps2Texture> DecodeRecords(ReadOnlySpan<byte> data,
+        IEnumerable<ZoneTexHeaderEntry> entries,
+        Ps2GifQwordWordOrder? gifQwordWordOrder = null)
     {
-        for (var off = 0; off + 80 <= data.Length; off += 16)
-        {
-            var lo = BitConverter.ToUInt64(data[off..]);
-            var hi = BitConverter.ToUInt64(data[(off + 8)..]);
+        var entryList = entries as IReadOnlyList<ZoneTexHeaderEntry> ?? entries.ToList();
+        if (entryList.Count == 0)
+            return [];
 
-            var nloop = (int)(lo & 0x7FFF);
-            var flg = (int)((lo >> 58) & 3);
-            var nreg = (int)((lo >> 60) & 0xF);
+        var uploads = ThawZoneTexVramSupport.ParseVramUploads(data);
+        return DecodeEntriesFromPreparedSourcesOrUploadSnapshots(data, uploads, entryList, gifQwordWordOrder);
+    }
+
+    /// <summary>
+    ///     Decode header entries from the file-backed prepared source buffers first, then fall back
+    ///     to upload-snapshot VRAM decode for any entries the source-buffer path cannot resolve.
+    ///     Ghidra decompilation shows FUN_0019cd48 decoding through CPU-side pixel/clut pointers
+    ///     (set up by FUN_001e6818) rather than reading texture data back from GS VRAM.
+    /// </summary>
+    internal static List<Ps2Texture> DecodeEntriesFromPreparedSourcesOrUploadSnapshots(
+        ReadOnlySpan<byte> fileData,
+        IReadOnlyList<VramUpload> uploads,
+        IReadOnlyList<ZoneTexHeaderEntry> entries,
+        Ps2GifQwordWordOrder? gifQwordWordOrder = null)
+    {
+        if (entries.Count == 0)
+            return [];
+
+        var texturesByChecksum = new Dictionary<uint, Ps2Texture>();
+
+        if (ThawZoneTexFile.TryGetHeaderDataLayout(fileData, out _, out _))
+        {
+            foreach (var texture in ThawZoneTexFile.DecodeFromHeaderDataSlots(fileData, uploads, entries))
+                texturesByChecksum.TryAdd(texture.Checksum, texture);
+        }
+
+        if (texturesByChecksum.Count < entries.Count && uploads.Count > 0)
+        {
+            foreach (var texture in DecodeEntriesFromUploadSnapshots(uploads, entries, gifQwordWordOrder))
+                texturesByChecksum.TryAdd(texture.Checksum, texture);
+        }
+
+        if (texturesByChecksum.Count == 0)
+            return [];
+
+        var textures = new List<Ps2Texture>(Math.Min(entries.Count, texturesByChecksum.Count));
+        var decodedChecksums = new HashSet<uint>();
+        foreach (var checksum in entries.Select(static entry => entry.Checksum))
+        {
+            if (!decodedChecksums.Add(checksum))
+                continue;
+
+            if (texturesByChecksum.TryGetValue(checksum, out var texture))
+                textures.Add(texture);
+        }
+
+        return textures;
+    }
+
+    /// <summary>
+    ///     Decode header entries by replaying uploads in order and snapshotting once the target
+    ///     texture base and palette base have been populated. This remains the fallback path when
+    ///     file-backed prepared source-slot decode is unavailable.
+    /// </summary>
+    internal static List<Ps2Texture> DecodeEntriesFromUploadSnapshots(
+        IReadOnlyList<VramUpload> uploads,
+        IReadOnlyList<ZoneTexHeaderEntry> entries,
+        Ps2GifQwordWordOrder? gifQwordWordOrder = null)
+    {
+        if (uploads.Count == 0 || entries.Count == 0)
+            return [];
+
+        var requests = ThawZoneTexTextureCache.BuildDecodeRequests(uploads, entries);
+        if (requests.Count == 0)
+            return [];
+
+        var textureCache = ThawZoneTexTextureCache.DecodeTextureCache(uploads, requests, gifQwordWordOrder);
+        if (textureCache.Count == 0)
+            return [];
+
+        var textures = new List<Ps2Texture>(Math.Min(entries.Count, textureCache.Count));
+        var decodedChecksums = new HashSet<uint>();
+
+        foreach (var checksum in entries.Select(static entry => entry.Checksum))
+        {
+            if (!decodedChecksums.Add(checksum))
+                continue;
+
+            if (textureCache.TryGetValue(checksum, out var texture))
+                textures.Add(texture);
+        }
+
+        return textures;
+    }
+
+    /// <summary>
+    ///     Decode header entries using a pre-built VRAM simulation.
+    ///     Used by DecodeFromTex0Values and other VRAM-only paths.
+    /// </summary>
+    internal static List<Ps2Texture> DecodeEntriesFromVram(Ps2GsVram vram,
+        IEnumerable<ZoneTexHeaderEntry> entries)
+    {
+        var textures = new List<Ps2Texture>();
+        var decodedChecksums = new HashSet<uint>();
+
+        foreach (var entry in entries)
+        {
+            if (!decodedChecksums.Add(entry.Checksum))
+                continue;
+
+            var decoded = ThawZoneTexVramSupport.DecodeFromTex0(vram, entry.Tex0);
+            if (decoded == null)
+                continue;
+
+            var psm = (uint)((entry.Tex0 >> 20) & 0x3F);
+            var cpsm = (uint)((entry.Tex0 >> 51) & 0xF);
+            var tw = 1 << (int)((entry.Tex0 >> 26) & 0xF);
+            var th = 1 << (int)((entry.Tex0 >> 30) & 0xF);
+            textures.Add(new Ps2Texture(entry.Checksum, tw, th, psm, cpsm, decoded));
+        }
+
+        return textures;
+    }
+
+    /// <summary>
+    ///     Detect whether data looks like a zone .tex file by trying to discover the record table.
+    /// </summary>
+    internal static bool IsZoneTex(ReadOnlySpan<byte> data)
+    {
+        if (data.Length < 0x200) return false;
+
+        // Must NOT be a standard format
+        var version = BitConverter.ToUInt16(data);
+        if (version is >= 2 and <= 6) return false;
+
+        var (_, recordCount) = DiscoverRecordTable(data);
+        return recordCount > 0;
+    }
+
+    // ── DMA chain scanning ──────────────────────────────────────────────
+
+    /// <summary>
+    ///     Find the DMA chain start by scanning for the first CNT tag with QWC=6
+    ///     (0x10000006) followed by a valid GIF A+D block.
+    /// </summary>
+    private static int FindDmaChainStart(ReadOnlySpan<byte> data)
+    {
+        for (var off = 0; off + 128 <= data.Length; off += 16)
+        {
+            var tag = BitConverter.ToUInt32(data[off..]);
+            if (tag != 0x10000006)
+                continue;
+
+            // Verify next QW is a GIF A+D tag (NLOOP>=3, NREG=1, REGS=0x0E)
+            if (off + 16 + 8 > data.Length)
+                continue;
+
+            var gifLo = BitConverter.ToUInt64(data[(off + 16)..]);
+            var gifHi = BitConverter.ToUInt64(data[(off + 24)..]);
+            var nloop = (int)(gifLo & 0x7FFF);
+            var flg = (int)((gifLo >> 58) & 3);
+            var nreg = (int)((gifLo >> 60) & 0xF);
             if (nreg == 0) nreg = 16;
 
-            if (flg != 0 || nreg != 1 || hi != 0x0E || nloop is < 3 or > 20)
-                continue;
-
-            // Verify it has BITBLTBUF + TRXREG
-            var hasBlt = false;
-            var hasTrx = false;
-            for (var i = 0; i < nloop && off + 16 + (i + 1) * 16 <= data.Length; i++)
-            {
-                var regAddr = BitConverter.ToUInt64(data[(off + 16 + i * 16 + 8)..]);
-                if (regAddr == 0x50) hasBlt = true;
-                if (regAddr == 0x52) hasTrx = true;
-            }
-
-            if (!hasBlt || !hasTrx)
-                continue;
-
-            if (TryReadImageTag(data, off + 16 + nloop * 16, out _))
+            if (flg == 0 && nreg == 1 && gifHi == 0x0E && nloop is >= 3 and <= 20)
                 return off;
         }
 
         return -1;
     }
 
-    internal static int GetTransferSizeBytes(uint dpsm, int rrw, int rrh)
+    /// <summary>
+    ///     Check whether a 0x40-byte block at the given offset looks like a valid record.
+    ///     Validates TEX0 at +0x10 for plausible PSM, dimensions, and buffer pointers.
+    /// </summary>
+    private static bool IsPlausibleRecord(ReadOnlySpan<byte> data, int off)
     {
-        return dpsm switch
-        {
-            0 or 1 => rrw * rrh * 4, // PSMCT32, PSMCT24
-            2 or 10 => rrw * rrh * 2, // PSMCT16, PSMCT16S
-            19 => rrw * rrh, // PSMT8
-            20 => rrw * rrh / 2, // PSMT4
-            _ => rrw * rrh * 4
-        };
-    }
-
-    internal static bool TryReadImageTag(ReadOnlySpan<byte> data, int offset, out int imageDataSize)
-    {
-        imageDataSize = 0;
-        if (offset + 16 > data.Length)
+        if (off + RecordSize > data.Length || off < 0)
             return false;
 
-        var lo = BitConverter.ToUInt64(data[offset..]);
-        var hi = BitConverter.ToUInt64(data[(offset + 8)..]);
-        var flg = (int)((lo >> 58) & 3);
-        if (flg != 2 || hi != 0)
+        var checksum = BitConverter.ToUInt32(data[off..]);
+        if (checksum == 0)
             return false;
 
-        imageDataSize = (int)(lo & 0x7FFF) * 16;
-        return imageDataSize > 0;
+        var tex0 = BitConverter.ToUInt64(data[(off + 0x10)..]);
+        var psm = (uint)((tex0 >> 20) & 0x3F);
+        var tw = (int)((tex0 >> 26) & 0xF);
+        var th = (int)((tex0 >> 30) & 0xF);
+
+        if (!Ps2TexPixelDecoder.IsValidPsm(psm))
+            return false;
+        if (tw < 1 || tw > 10 || th < 1 || th > 10)
+            return false;
+
+        return true;
     }
 
-    internal static byte[] ReadClutPsmt4Csm1Ct16(Ps2GsVram vram, uint cbp)
-    {
-        var src = vram.ReadRawBlockHalfwords(cbp, 32);
-        var clut = new byte[16 * 2];
-
-        for (var i = 0; i < 16; i++)
-        {
-            var color = src[ClutTableT16I4[i]];
-            clut[i * 2] = (byte)color;
-            clut[i * 2 + 1] = (byte)(color >> 8);
-        }
-
-        return clut;
-    }
-
-    internal static byte[] ReadClutPsmt4Csm1Ct32(Ps2GsVram vram, uint cbp)
-    {
-        var src = vram.ReadRawBlockWords(cbp, 16);
-        var clutBytes = new byte[16 * 4];
-        for (var i = 0; i < ClutTableT32I4.Length; i++)
-        {
-            var word = src[ClutTableT32I4[i]];
-            var off = i * 4;
-            clutBytes[off] = (byte)word;
-            clutBytes[off + 1] = (byte)(word >> 8);
-            clutBytes[off + 2] = (byte)(word >> 16);
-            clutBytes[off + 3] = (byte)(word >> 24);
-        }
-
-        return clutBytes;
-    }
-
-    /// <summary>
-    ///     CSM1 CLUT unswizzle for PSMT8 (256 entries).
-    ///     Identical to ThawSceneTexFile's version.
-    /// </summary>
-    internal static void UnswizzleClutCsm1(byte[] clut, int entrySize)
-    {
-        for (var group = 0; group < 8; group++)
-        {
-            for (var i = 0; i < 8; i++)
-            {
-                var posA = (group * 32 + 8 + i) * entrySize;
-                var posB = (group * 32 + 16 + i) * entrySize;
-                if (posA + entrySize > clut.Length || posB + entrySize > clut.Length)
-                    return;
-                for (var j = 0; j < entrySize; j++)
-                    (clut[posA + j], clut[posB + j]) = (clut[posB + j], clut[posA + j]);
-            }
-        }
-    }
-
-    /// <summary>
-    ///     Populate a GS VRAM simulator with all zone TEX upload data.
-    ///     Each upload is written to VRAM using the transfer format's (DPSM) addressing,
-    ///     which may differ from the texture read format (PSM). This is critical because
-    ///     PS2 commonly uploads PSMT4 data as PSMCT32 for DMA efficiency.
-    /// </summary>
-    internal static Ps2GsVram BuildVram(IEnumerable<VramUpload> uploads,
-        Ps2GifQwordWordOrder? gifQwordWordOrder = null)
-    {
-        var vram = new Ps2GsVram(gifQwordWordOrder ?? Ps2GifQwordWordOrder.Identity);
-        foreach (var upload in uploads)
-            vram.WriteRect(upload.Dbp, upload.Dbw, upload.Dpsm,
-                upload.Width, upload.Height, upload.PixelData);
-        return vram;
-    }
-
-    /// <summary>
-    ///     Decode textures from VRAM uploads using TEX0 register values from companion MDL files.
-    ///     The TEX0 values specify the actual texture format, dimensions, and CLUT address —
-    ///     without them, the transfer format (DPSM) and dimensions don't reliably indicate
-    ///     the real texture parameters (e.g. PSMT4 data may be uploaded as PSMCT32).
-    ///     For paletted textures, decoding prefers the first upload-stream snapshot where the
-    ///     relevant CLUT base has been written, rather than the final merged VRAM state.
-    /// </summary>
 }

@@ -8,7 +8,7 @@ using WinRT.Interop;
 
 namespace NeversoftMultitool;
 
-public sealed partial class ScriptDecompilerTab : UserControl
+public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
 {
     private static readonly string[] ScriptExtensions = [".trg", ".qb"];
 
@@ -22,8 +22,11 @@ public sealed partial class ScriptDecompilerTab : UserControl
     {
         InitializeComponent();
         FilesListView.ItemsSource = _items;
+        Unloaded += ScriptDecompilerTab_Unloaded;
         _detailPresenter = new ScriptDecompilerDetailPresenter(new ScriptDecompilerDetailView(
             DetailPanel,
+            DetailSplitterColumn,
+            DetailSplitter,
             DetailColumn,
             DetailTypeText,
             DetailIndexText,
@@ -242,9 +245,9 @@ public sealed partial class ScriptDecompilerTab : UserControl
             ExportProgress);
     }
 
-    private void CancelButton_Click(object sender, RoutedEventArgs e)
+    private async void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        _exporter.Cancel(ExportButton, CancelButton);
+        await _exporter.CancelAsync(ExportButton, CancelButton);
     }
 
     private void ExpandCollapse_Click(object sender, RoutedEventArgs e)
@@ -355,5 +358,16 @@ public sealed partial class ScriptDecompilerTab : UserControl
             for (var i = 0; i < parent.CachedChildren.Count; i++)
                 _items.Insert(parentIndex + 1 + i, parent.CachedChildren[i]);
         }
+    }
+
+    public void Dispose()
+    {
+        Unloaded -= ScriptDecompilerTab_Unloaded;
+        _exporter.Dispose();
+    }
+
+    private void ScriptDecompilerTab_Unloaded(object sender, RoutedEventArgs e)
+    {
+        Dispose();
     }
 }

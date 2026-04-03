@@ -11,7 +11,7 @@ public static class SfdCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to directory containing SFD video files (.sfd)"
+            Description = "Path to directory containing video files (.sfd, .pss, .bik)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -23,7 +23,7 @@ public static class SfdCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("sfd", "Convert SFD (Sofdec) video files to MP4");
+        var command = new Command("sfd", "Convert video files to MP4 (SFD, PSS, BIK via ffmpeg)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -49,14 +49,15 @@ public static class SfdCommand
                 return Task.FromResult(1);
             }
 
-            var sfdFiles = Directory.GetFiles(input, "*.sfd", SearchOption.TopDirectoryOnly)
-                .Concat(Directory.GetFiles(input, "*.SFD", SearchOption.TopDirectoryOnly))
+            string[] videoExtensions = ["*.sfd", "*.SFD", "*.pss", "*.PSS", "*.bik", "*.BIK"];
+            var sfdFiles = videoExtensions
+                .SelectMany(ext => Directory.GetFiles(input, ext, SearchOption.TopDirectoryOnly))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
             if (sfdFiles.Length == 0)
             {
-                AnsiConsole.MarkupLine("[yellow]No .sfd files found in the specified directory.[/]");
+                AnsiConsole.MarkupLine("[yellow]No video files (.sfd, .pss, .bik) found in the specified directory.[/]");
                 return Task.FromResult(0);
             }
 

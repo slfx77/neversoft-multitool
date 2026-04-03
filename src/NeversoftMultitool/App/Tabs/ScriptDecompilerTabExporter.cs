@@ -7,7 +7,7 @@ using NeversoftMultitool.Core.Formats.Trg;
 
 namespace NeversoftMultitool;
 
-internal sealed class ScriptDecompilerTabExporter
+internal sealed class ScriptDecompilerTabExporter : IDisposable
 {
     private CancellationTokenSource? _cts;
 
@@ -22,7 +22,16 @@ internal sealed class ScriptDecompilerTabExporter
         if (parentFiles.Count == 0 || string.IsNullOrEmpty(outputDir))
             return;
 
-        _cts = new CancellationTokenSource();
+        var previousCts = _cts;
+        if (previousCts != null)
+        {
+            _cts = null;
+            await previousCts.CancelAsync();
+            previousCts.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        _cts = cts;
 
         foreach (var file in parentFiles)
         {
@@ -38,7 +47,7 @@ internal sealed class ScriptDecompilerTabExporter
         var stopwatch = Stopwatch.StartNew();
         var filesProcessed = 0;
         var totalFiles = parentFiles.Count;
-        var token = _cts.Token;
+        var token = cts.Token;
         var entries = parentFiles.ToList();
 
         try
@@ -75,17 +84,36 @@ internal sealed class ScriptDecompilerTabExporter
         }
         finally
         {
+            DisposeCancellationTokenSource();
             cancelButton.Visibility = Visibility.Collapsed;
             exportButton.IsEnabled = true;
         }
     }
 
-    public void Cancel(Button exportButton, Button cancelButton)
+    public async Task CancelAsync(Button exportButton, Button cancelButton)
     {
-        _cts?.Cancel();
+        var cts = _cts;
+        if (cts != null)
+        {
+            _cts = null;
+            await cts.CancelAsync();
+            cts.Dispose();
+        }
+
         cancelButton.Visibility = Visibility.Collapsed;
         exportButton.IsEnabled = true;
         MainWindow.Instance?.SetStatus("Export cancelled");
+    }
+
+    public void Dispose()
+    {
+        DisposeCancellationTokenSource();
+    }
+
+    private void DisposeCancellationTokenSource()
+    {
+        _cts?.Dispose();
+        _cts = null;
     }
 
     private static void ExportTrgFile(

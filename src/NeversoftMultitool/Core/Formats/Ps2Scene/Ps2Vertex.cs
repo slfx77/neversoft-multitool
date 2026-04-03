@@ -27,26 +27,34 @@ public readonly struct Ps2Vertex(
     float boneWeight2 = 0,
     bool hasSkinData = false)
 {
-    public readonly Vector3 Position = position;
-    public readonly Vector3 Normal = normal;
-    public readonly byte R = r, G = g, B = b, A = a;
-    public readonly float U = u, V = v;
-    public readonly bool HasNormal = hasNormal;
-    public readonly bool HasColor = hasColor;
-    public readonly bool HasUV = hasUV;
+    public Vector3 Position { get; } = position;
+    public Vector3 Normal { get; } = normal;
+    public byte R { get; } = r;
+    public byte G { get; } = g;
+    public byte B { get; } = b;
+    public byte A { get; } = a;
+    public float U { get; } = u;
+    public float V { get; } = v;
+    public bool HasNormal { get; } = hasNormal;
+    public bool HasColor { get; } = hasColor;
+    public bool HasUV { get; } = hasUV;
 
     /// <summary>
     ///     ADC/no-kick flag. When true, the GS updates the vertex queue with this
     ///     vertex but suppresses the draw kick for the current step.
     /// </summary>
-    public readonly bool IsStripRestart = isStripRestart;
+    public bool IsStripRestart { get; } = isStripRestart;
 
     /// <summary>Bone indices for skinned vertices (up to 3 influences).</summary>
-    public readonly int BoneIndex0 = boneIndex0, BoneIndex1 = boneIndex1, BoneIndex2 = boneIndex2;
+    public int BoneIndex0 { get; } = boneIndex0;
+    public int BoneIndex1 { get; } = boneIndex1;
+    public int BoneIndex2 { get; } = boneIndex2;
 
     /// <summary>Bone weights for skinned vertices (up to 3 influences, sum to ~1.0).</summary>
-    public readonly float BoneWeight0 = boneWeight0, BoneWeight1 = boneWeight1, BoneWeight2 = boneWeight2;
+    public float BoneWeight0 { get; } = boneWeight0;
+    public float BoneWeight1 { get; } = boneWeight1;
+    public float BoneWeight2 { get; } = boneWeight2;
 
     /// <summary>Whether this vertex has bone weight/index data for skinning.</summary>
-    public readonly bool HasSkinData = hasSkinData;
+    public bool HasSkinData { get; } = hasSkinData;
 }

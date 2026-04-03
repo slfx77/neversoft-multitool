@@ -219,10 +219,10 @@ internal static class ThawReplayKickExtractor
     }
 
     private static Dictionary<int, ReplayOutputSlot> CaptureKickBufferWindow(
-        IReadOnlyDictionary<int, ReplayOutputSlot> kickBuffer,
-        IReadOnlyList<int> outputWindow)
+        Dictionary<int, ReplayOutputSlot> kickBuffer,
+        int[] outputWindow)
     {
-        var captured = new Dictionary<int, ReplayOutputSlot>(outputWindow.Count);
+        var captured = new Dictionary<int, ReplayOutputSlot>(outputWindow.Length);
         foreach (var addr in outputWindow)
         {
             if (kickBuffer.TryGetValue(addr, out var source))
@@ -254,10 +254,10 @@ internal static class ThawReplayKickExtractor
 
     private static Dictionary<int, ReplayOutputSlot> BuildCurrentSlotMap(
         IReadOnlyList<ReplayEmittedVertex> emittedVertices,
-        IReadOnlyList<int> outputWindow)
+        int[] outputWindow)
     {
         var outputWindowSet = outputWindow.ToHashSet();
-        var fullAddressByLowByte = new Dictionary<byte, int>(outputWindow.Count);
+        var fullAddressByLowByte = new Dictionary<byte, int>(outputWindow.Length);
         foreach (var fullAddress in outputWindow)
             fullAddressByLowByte[(byte)fullAddress] = fullAddress;
 
@@ -284,7 +284,7 @@ internal static class ThawReplayKickExtractor
         int fullAddress,
         byte lowByteAddress,
         HashSet<int> outputWindowSet,
-        IReadOnlyDictionary<byte, int> fullAddressByLowByte,
+        Dictionary<byte, int> fullAddressByLowByte,
         out int resolvedAddress)
     {
         if (outputWindowSet.Contains(fullAddress))
@@ -298,18 +298,18 @@ internal static class ThawReplayKickExtractor
 
     private static void ApplyPostBatchCopies(
         Dictionary<int, ReplayOutputSlot> slotMap,
-        IReadOnlyList<int> outputWindow,
-        IReadOnlyList<PostBatchElement> postBatchElements,
+        int[] outputWindow,
+        PostBatchElement[] postBatchElements,
         IReadOnlyDictionary<int, ReplayOutputSlot>? setupSlotBuffer)
     {
-        if (postBatchElements.Count == 0)
+        if (postBatchElements.Length == 0)
             return;
 
         var outputWindowSet = outputWindow.ToHashSet();
         var firstHasTagInC0 = (postBatchElements[0].C0 & 0x8000) != 0;
         var firstHasTagInC2 = (postBatchElements[0].C2 & 0x8000) != 0;
 
-        for (var i = 0; i < postBatchElements.Count; i++)
+        for (var i = 0; i < postBatchElements.Length; i++)
         {
             if (!(i == 0 && firstHasTagInC0))
             {

@@ -68,7 +68,7 @@ public sealed class ColFileTests(TestPaths paths)
 
         var scene = ColFile.Parse(file);
         Assert.Equal(10, scene.Version);
-        Assert.Equal(1, scene.Objects.Length);
+        Assert.Single(scene.Objects);
         Assert.Equal(30, scene.TotalVertices);
         Assert.Equal(26, scene.TotalTriangles);
     }

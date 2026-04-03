@@ -86,24 +86,9 @@ internal static class Ps2TexSwizzle
         return Ps2TexSwizzlePageMappingBuilder.CanConv8to32(width, height);
     }
 
-    private static int[] BuildConv8to32Mapping(int width, int height)
+    internal static bool CanConv4to32(int width, int height)
     {
-        return Ps2TexSwizzlePageMappingBuilder.BuildConv8to32Mapping(width, height);
-    }
-
-    private static int[] BuildConv4to32Mapping(int width, int height)
-    {
-        return Ps2TexSwizzlePageMappingBuilder.BuildConv4to32Mapping(width, height);
-    }
-
-    private static int[] BuildConv4to16Mapping(int width, int height)
-    {
-        return Ps2TexSwizzleVramMappingBuilder.BuildConv4to16Mapping(width, height);
-    }
-
-    private static bool CanConv4to32(int width, int height)
-    {
-        return CanConv8to32(width, height);
+        return Ps2TexSwizzlePageMappingBuilder.CanConv4to32(width, height);
     }
 
     private static bool CanConv4to16(int width, int height)

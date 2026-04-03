@@ -4,7 +4,8 @@
   x:Class="NeversoftMultitool.ScriptDecompilerTab"
   xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-  xmlns:local="using:NeversoftMultitool">
+  xmlns:local="using:NeversoftMultitool"
+  xmlns:controls="using:CommunityToolkit.WinUI.Controls">
 
   <UserControl.Resources>
     <local:ExpandableListTemplateSelector x:Key="ListTemplateSelector">
@@ -116,11 +117,20 @@
     </Grid>
 
     <!-- Main content: file list + detail panel -->
-    <Grid Grid.Row="1" ColumnSpacing="8">
+    <Grid Grid.Row="1">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="*" MinWidth="200" />
+        <ColumnDefinition x:Name="DetailSplitterColumn" Width="0" />
         <ColumnDefinition x:Name="DetailColumn" Width="0" />
       </Grid.ColumnDefinitions>
+
+      <controls:GridSplitter
+        x:Name="DetailSplitter"
+        Grid.Column="1"
+        Width="8"
+        ResizeBehavior="PreviousAndNext"
+        ResizeDirection="Columns"
+        Visibility="Collapsed" />
 
       <!-- File list card -->
       <Border
@@ -194,7 +204,7 @@
       <!-- Detail panel -->
       <Border
         x:Name="DetailPanel"
-        Grid.Column="1"
+        Grid.Column="2"
         VerticalAlignment="Stretch"
         Style="{StaticResource CardBorderStyle}"
         Visibility="Collapsed">

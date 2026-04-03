@@ -14,6 +14,10 @@ public sealed partial class HashReviewerTab : UserControl
 {
     private const int PageSize = 10;
     private const string SessionFileName = "review_session.json";
+    private static readonly JsonSerializerOptions SessionJsonOptions = new()
+    {
+        WriteIndented = true
+    };
     private List<HashReviewEntry> _allEntries = [];
 
     private string _buildsDir = "";
@@ -220,7 +224,7 @@ public sealed partial class HashReviewerTab : UserControl
         UpdateCandidatesPage();
 
         // Load texture preview
-        LoadTexturePreview(entry);
+        _ = LoadTexturePreviewAsync(entry);
 
         EmptyStatePanel.Visibility = Visibility.Collapsed;
         ReviewCard.Visibility = Visibility.Visible;
@@ -274,63 +278,66 @@ public sealed partial class HashReviewerTab : UserControl
         NextPageButton.IsEnabled = startIdx + PageSize < totalFiltered;
     }
 
-    private async void LoadTexturePreview(HashReviewEntry entry)
+    private async Task LoadTexturePreviewAsync(HashReviewEntry entry)
     {
-        TexturePreview.Source = null;
-        TextureDimensionsText.Text = "";
-        NoPreviewIcon.Visibility = Visibility.Collapsed;
-
-        // Mesh-only hashes can't be previewed as textures
-        if (entry.Type == "mesh")
+        try
         {
-            NoPreviewIcon.Visibility = Visibility.Visible;
-            TextureDimensionsText.Text = "Mesh only";
-            return;
-        }
+            TexturePreview.Source = null;
+            TextureDimensionsText.Text = "";
+            NoPreviewIcon.Visibility = Visibility.Collapsed;
 
-        if (entry.Files.Length == 0 || string.IsNullOrEmpty(_buildsDir))
-        {
-            NoPreviewIcon.Visibility = Visibility.Visible;
-            return;
-        }
-
-        // Find all matching PSX files and try each until one decodes
-        var diagnostics = new List<string>();
-        var result = await Task.Run(() => TryExtractFromAllFiles(entry, diagnostics));
-
-        if (result == null)
-        {
-            NoPreviewIcon.Visibility = Visibility.Visible;
-            var fullDiag = string.Join("\n", diagnostics);
-            TextureDimensionsText.Text = diagnostics.Count switch
+            // Mesh-only hashes can't be previewed as textures
+            if (entry.Type == "mesh")
             {
-                0 => "No PSX files found",
-                1 => diagnostics[0],
-                _ => string.Join("; ", diagnostics)
-            };
-            TextureDimensionsText.SetValue(ToolTipService.ToolTipProperty, fullDiag);
-            return;
-        }
+                NoPreviewIcon.Visibility = Visibility.Visible;
+                TextureDimensionsText.Text = "Mesh only";
+                return;
+            }
 
-        var (rgba, width, height) = result.Value;
-        TexturePreview.Source = BitmapHelper.CreateFromRgba(width, height, rgba);
-        TextureDimensionsText.Text = $"{width} x {height}";
+            if (entry.Files.Length == 0 || string.IsNullOrEmpty(_buildsDir))
+            {
+                NoPreviewIcon.Visibility = Visibility.Visible;
+                return;
+            }
+
+            // Find all matching PSX files and try each until one decodes
+            var diagnostics = new List<string>();
+            var result = await Task.Run(() => TryExtractFromAllFiles(entry, diagnostics));
+
+            if (result == null)
+            {
+                NoPreviewIcon.Visibility = Visibility.Visible;
+                var fullDiag = string.Join("\n", diagnostics);
+                TextureDimensionsText.Text = diagnostics.Count switch
+                {
+                    0 => "No PSX files found",
+                    1 => diagnostics[0],
+                    _ => string.Join("; ", diagnostics)
+                };
+                TextureDimensionsText.SetValue(ToolTipService.ToolTipProperty, fullDiag);
+                return;
+            }
+
+            var (rgba, width, height) = result.Value;
+            TexturePreview.Source = BitmapHelper.CreateFromRgba(width, height, rgba);
+            TextureDimensionsText.Text = $"{width} x {height}";
+        }
+        catch (Exception ex)
+        {
+            NoPreviewIcon.Visibility = Visibility.Visible;
+            TextureDimensionsText.Text = $"Preview failed: {ex.Message}";
+        }
     }
 
     private (byte[] Rgba, int Width, int Height)? TryExtractFromAllFiles(
         HashReviewEntry entry, List<string> diagnostics)
-    {
-        return HashReviewerTextureLookup.TryExtractFromAllFiles(_buildsDir, entry, diagnostics);
-    }
+        => HashReviewerTextureLookup.TryExtractFromAllFiles(_buildsDir, entry, diagnostics);
 
     // ── Actions ─────────────────────────────────────────────────────────
 
     private void AcceptCandidate_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: string name })
-        {
-            AcceptName(name);
-        }
+        if (sender is Button { Tag: string name }) AcceptName(name);
     }
 
     private void ManualAccept_Click(object sender, RoutedEventArgs e)
@@ -389,29 +396,17 @@ public sealed partial class HashReviewerTab : UserControl
 
     private void PrevHash_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentIndex > 0)
-        {
-            _currentIndex--;
-            NavigateToCurrentHash();
-        }
+        if (_currentIndex > 0) { _currentIndex--; NavigateToCurrentHash(); }
     }
 
     private void NextHash_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentIndex < _reviewQueue.Count - 1)
-        {
-            _currentIndex++;
-            NavigateToCurrentHash();
-        }
+        if (_currentIndex < _reviewQueue.Count - 1) { _currentIndex++; NavigateToCurrentHash(); }
     }
 
     private void PrevPage_Click(object sender, RoutedEventArgs e)
     {
-        if (_candidatePage > 0)
-        {
-            _candidatePage--;
-            UpdateCandidatesPage();
-        }
+        if (_candidatePage > 0) { _candidatePage--; UpdateCandidatesPage(); }
     }
 
     private void NextPage_Click(object sender, RoutedEventArgs e)
@@ -458,10 +453,7 @@ public sealed partial class HashReviewerTab : UserControl
     {
         try
         {
-            var json = JsonSerializer.Serialize(_session, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
+            var json = JsonSerializer.Serialize(_session, SessionJsonOptions);
             File.WriteAllText(GetSessionPath(), json);
         }
         catch

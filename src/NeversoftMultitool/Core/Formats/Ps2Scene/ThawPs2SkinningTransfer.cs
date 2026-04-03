@@ -16,48 +16,57 @@ internal static class ThawPs2SkinningTransfer
         foreach (var group in ps2Scene.MeshGroups)
         {
             var remappedMeshes = new List<Ps2Mesh>(group.Meshes.Count);
-            foreach (var mesh in group.Meshes)
-            {
-                var remappedVertices = new Ps2Vertex[mesh.Vertices.Length];
-                for (var i = 0; i < mesh.Vertices.Length; i++)
+                foreach (var mesh in group.Meshes)
                 {
-                    totalVertexCount++;
-                    remappedVertices[i] = mesh.Vertices[i];
+                    var remappedVertices = new Ps2Vertex[mesh.Vertices.Length];
+                    for (var i = 0; i < mesh.Vertices.Length; i++)
+                    {
+                        totalVertexCount++;
+                        var sourceVertex = mesh.Vertices[i];
+                        var remappedVertex = sourceVertex;
 
-                    if (!pcLookup.TryGetValue(mesh.MaterialChecksum, out var materialVertices))
-                        continue;
+                        if (!pcLookup.TryGetValue(mesh.MaterialChecksum, out var materialVertices))
+                        {
+                            remappedVertices[i] = remappedVertex;
+                            continue;
+                        }
 
-                    var key = QuantizedPositionKey.From(mesh.Vertices[i].Position);
-                    if (!materialVertices.TryGetValue(key, out var candidates))
-                        continue;
+                        var key = QuantizedPositionKey.From(sourceVertex.Position);
+                        if (!materialVertices.TryGetValue(key, out var candidates))
+                        {
+                            remappedVertices[i] = remappedVertex;
+                            continue;
+                        }
 
-                    if (!TrySelectSkinning(mesh.Vertices[i], candidates, skeleton, out var skinning))
-                        continue;
+                        if (TrySelectSkinning(sourceVertex, candidates, skeleton, out var skinning))
+                        {
+                            remappedVertex = new Ps2Vertex(
+                                sourceVertex.Position,
+                                sourceVertex.Normal,
+                                sourceVertex.R,
+                                sourceVertex.G,
+                                sourceVertex.B,
+                                sourceVertex.A,
+                                sourceVertex.U,
+                                sourceVertex.V,
+                                sourceVertex.HasNormal,
+                                sourceVertex.HasColor,
+                                sourceVertex.HasUV,
+                                sourceVertex.IsStripRestart,
+                                skinning.BoneIndex0,
+                                skinning.BoneIndex1,
+                                skinning.BoneIndex2,
+                                skinning.BoneWeight0,
+                                skinning.BoneWeight1,
+                                skinning.BoneWeight2,
+                                true);
+                            skinnedVertexCount++;
+                        }
 
-                    remappedVertices[i] = new Ps2Vertex(
-                        mesh.Vertices[i].Position,
-                        mesh.Vertices[i].Normal,
-                        mesh.Vertices[i].R,
-                        mesh.Vertices[i].G,
-                        mesh.Vertices[i].B,
-                        mesh.Vertices[i].A,
-                        mesh.Vertices[i].U,
-                        mesh.Vertices[i].V,
-                        mesh.Vertices[i].HasNormal,
-                        mesh.Vertices[i].HasColor,
-                        mesh.Vertices[i].HasUV,
-                        mesh.Vertices[i].IsStripRestart,
-                        skinning.BoneIndex0,
-                        skinning.BoneIndex1,
-                        skinning.BoneIndex2,
-                        skinning.BoneWeight0,
-                        skinning.BoneWeight1,
-                        skinning.BoneWeight2,
-                        true);
-                    skinnedVertexCount++;
-                }
+                        remappedVertices[i] = remappedVertex;
+                    }
 
-                remappedMeshes.Add(new Ps2Mesh
+                    remappedMeshes.Add(new Ps2Mesh
                 {
                     Checksum = mesh.Checksum,
                     MaterialChecksum = mesh.MaterialChecksum,

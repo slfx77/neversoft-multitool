@@ -62,7 +62,7 @@ internal static class ThawSceneMeshSupport
             NameChecksum = nameChecksum,
             NumPasses = numPasses,
             AlphaCutoff = useOpacityCutoff ? opacityCutoff : 0,
-            Sorted = drawOrder != 0,
+            Sorted = MathF.Abs(drawOrder) > float.Epsilon,
             DrawOrder = drawOrder,
             SingleSided = !doubleSided,
             NoBfc = false,

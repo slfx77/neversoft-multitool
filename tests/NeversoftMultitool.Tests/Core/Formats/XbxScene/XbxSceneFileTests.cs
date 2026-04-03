@@ -82,15 +82,15 @@ public sealed class XbxSceneFileTests(TestPaths paths)
 
         var scene = XbxSceneFile.Parse(file);
 
-        foreach (var sector in scene.Sectors)
+        Assert.All(scene.Sectors, sector =>
         {
             Assert.NotEmpty(sector.Meshes);
-            foreach (var mesh in sector.Meshes)
+            Assert.All(sector.Meshes, mesh =>
             {
                 Assert.True(mesh.Vertices.Length > 0, "Expected vertices > 0");
                 Assert.True(mesh.FaceIndices.Length > 0, "Expected face indices > 0");
-            }
-        }
+            });
+        });
     }
 
     // ── Batch parse all SKIN files ──

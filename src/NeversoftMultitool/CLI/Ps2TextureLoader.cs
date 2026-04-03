@@ -161,10 +161,10 @@ internal static class Ps2TextureLoader
     }
 
     /// <summary>
-    ///     Try to load a THAW world-zone TEX file and build VRAM-backed providers.
-    ///     Returns true if the file is a zone TEX and providers were created.
-    ///     The tex0Resolver lazy-decodes textures from the VRAM map using the TEX0 register
-    ///     values from the MDL, and the textureProvider serves the cached results.
+    ///     Try to load THAW world-zone TEX files and build texture providers.
+    ///     Returns true if zone TEX files were found and providers were created.
+    ///     Decodes all textures upfront from the record table, then serves them
+    ///     from the cache via checksum or TEX0 TBP/CBP lookup.
     /// </summary>
     public static bool TryBuildZoneTexProviders(
         string? texPath,
@@ -178,10 +178,8 @@ internal static class Ps2TextureLoader
         if (texPath == null) return false;
 
         var texFiles = GetTexFiles(texPath);
-        var uploads = new List<ThawZoneTexFile.VramUpload>();
-        var zoneSources = new List<(ReadOnlyMemory<byte> FileData, List<ThawZoneTexFile.VramUpload> Uploads,
-            List<ThawZoneTexFile.ZoneTexHeaderEntry> Headers)>();
-        var zoneTexData = new List<ReadOnlyMemory<byte>>();
+        var textureCache = new Dictionary<uint, Ps2Texture>();
+        var checksumByTbpCbp = new Dictionary<(uint Tbp, uint Cbp), uint>();
         var zoneTexCount = 0;
 
         foreach (var tf in texFiles)
@@ -192,16 +190,24 @@ internal static class Ps2TextureLoader
                 if (!ThawZoneTexFile.IsThawZoneTex(data)) continue;
 
                 zoneTexCount++;
-                zoneTexData.Add(data);
-                var fileUploads = ThawZoneTexFile.ParseVramUploads(data);
-                var headerEntries = ThawZoneTexFile.ParseHeaderEntries(data);
-                uploads.AddRange(fileUploads);
-                zoneSources.Add((data, fileUploads, headerEntries));
+                var textures = ThawZoneTexFile.DecodeAllFromFile(data);
+                var entries = ThawZoneTexFile.ParseHeaderEntries(data);
+
+                foreach (var texture in textures)
+                    textureCache.TryAdd(texture.Checksum, texture);
+
+                // Build TBP/CBP → checksum mapping from header entries
+                foreach (var entry in entries)
+                {
+                    var tbp = (uint)(entry.Tex0 & 0x3FFF);
+                    var cbp = (uint)((entry.Tex0 >> 37) & 0x3FFF);
+                    checksumByTbpCbp.TryAdd((tbp, cbp), entry.Checksum);
+                }
 
                 if (verbose)
                 {
                     AnsiConsole.MarkupLine(
-                        $"Detected zone TEX: [green]{Path.GetFileName(tf)}[/] ({fileUploads.Count} uploads, {headerEntries.Count} header entries)");
+                        $"Detected zone TEX: [green]{Path.GetFileName(tf)}[/] ({entries.Count} records, {textures.Count} textures)");
                 }
             }
             catch
@@ -211,52 +217,27 @@ internal static class Ps2TextureLoader
         }
 
         if (zoneTexCount == 0) return false;
-        if (uploads.Count == 0) return false;
+        if (textureCache.Count == 0) return false;
 
         if (verbose)
             AnsiConsole.MarkupLine(
-                $"Merged [green]{uploads.Count}[/] VRAM uploads from {zoneTexCount} zone TEX file(s)");
+                $"Decoded [green]{textureCache.Count}[/] textures from {zoneTexCount} zone TEX file(s)");
 
-        var checksumMap = ThawZoneTexFile.BuildChecksumMapFromHeaders(zoneTexData);
-        var headerSourceEntryMapByTex0 = ThawZoneTexFile.BuildHeaderSourceEntryMapByTex0FromHeaderLists(
-            zoneSources.Select(static source => (IReadOnlyList<ThawZoneTexFile.ZoneTexHeaderEntry>)source.Headers));
-        var headerEntryMap = ThawZoneTexFile.BuildHeaderEntryMapFromHeaderLists(
-            zoneSources.Select(static source => (IReadOnlyList<ThawZoneTexFile.ZoneTexHeaderEntry>)source.Headers));
-        var sourceIndexMap = ThawZoneTexFile.BuildSourceIndexMapFromHeaderLists(
-            zoneSources.Select(static source => (IReadOnlyList<ThawZoneTexFile.ZoneTexHeaderEntry>)source.Headers));
-
-        // Lazy decode cache: synthetic checksum → PNG bytes
+        // PNG cache for texture embedding
         var pngCache = new Dictionary<uint, byte[]?>();
 
         tex0Resolver = (dmaTex0, groupChecksum) =>
         {
             var tbp = (uint)(dmaTex0 & 0x3FFF);
             var cbp = (uint)((dmaTex0 >> 37) & 0x3FFF);
-            var hasResolvedHeader = headerSourceEntryMapByTex0.TryGetValue(dmaTex0, out var resolvedHeader);
-            var checksum = hasResolvedHeader
-                ? resolvedHeader.Entry.Checksum
-                : checksumMap.TryGetValue((tbp, cbp), out var headerChecksum)
-                    ? headerChecksum
-                    : (tbp << 16) | cbp;
+            var checksum = checksumByTbpCbp.TryGetValue((tbp, cbp), out var ck)
+                ? ck
+                : (tbp << 16) | cbp;
             if (checksum == 0) return 0;
 
             if (!pngCache.ContainsKey(checksum))
             {
-                var hasSource = sourceIndexMap.TryGetValue((tbp, cbp), out var sourceIndex);
-                var sourceUploads = hasResolvedHeader
-                    ? zoneSources[resolvedHeader.SourceIndex].Uploads
-                    : hasSource
-                        ? zoneSources[sourceIndex].Uploads
-                        : uploads;
-                var textures = hasResolvedHeader
-                    ? ThawZoneTexFile.DecodeFromHeaderEntries(
-                        zoneSources[resolvedHeader.SourceIndex].FileData.Span, sourceUploads, [resolvedHeader.Entry])
-                    : hasSource && headerEntryMap.TryGetValue((tbp, cbp), out var headerEntry)
-                        ? ThawZoneTexFile.DecodeFromHeaderEntries(
-                            zoneSources[sourceIndex].FileData.Span, sourceUploads, [headerEntry])
-                        : ThawZoneTexFile.DecodeFromTex0Values(sourceUploads, [dmaTex0], checksumMap);
-                var texture = textures.FirstOrDefault();
-                if (texture?.Pixels != null)
+                if (textureCache.TryGetValue(checksum, out var texture) && texture.Pixels != null)
                 {
                     pngCache[checksum] = ImageWriter.WritePngToMemory(
                         texture.Width, texture.Height, texture.Pixels);

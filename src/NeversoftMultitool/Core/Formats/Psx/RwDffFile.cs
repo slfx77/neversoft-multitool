@@ -32,7 +32,7 @@ public static class RwDffFile
         // Struct child: numAtomics
         if (!TryReadStruct(data, ref offset, clumpEnd, out _, out var structSize))
             throw new InvalidDataException("Missing Clump Struct");
-        var numAtomics = BitConverter.ToInt32(data, offset);
+        _ = BitConverter.ToInt32(data, offset);
         offset += (int)structSize;
 
         // Parse children
@@ -51,7 +51,7 @@ public static class RwDffFile
             switch (childType)
             {
                 case RW_FRAME_LIST:
-                    frames = ParseFrameList(data, ref offset, childEnd, version);
+                    frames = ParseFrameList(data, ref offset, childEnd);
                     break;
                 case RW_GEOMETRY_LIST:
                     geometries = ParseGeometryList(data, ref offset, childEnd, version);
@@ -79,7 +79,7 @@ public static class RwDffFile
         return BitConverter.ToUInt32(data, 0) == RW_CLUMP;
     }
 
-    private static RwFrame[] ParseFrameList(byte[] data, ref int offset, int endOffset, uint version)
+    private static RwFrame[] ParseFrameList(byte[] data, ref int offset, int endOffset)
     {
         if (!TryReadStruct(data, ref offset, endOffset, out _, out var structSize))
             return [];
@@ -132,7 +132,7 @@ public static class RwDffFile
         // Skip per-frame Extension chunks
         for (var i = 0; i < numFrames && offset < endOffset; i++)
         {
-            if (!TryReadAnyChunk(data, ref offset, endOffset, out var ct, out var cs))
+            if (!TryReadAnyChunk(data, ref offset, endOffset, out _, out var cs))
                 break;
             offset += (int)cs;
         }
@@ -181,9 +181,9 @@ public static class RwDffFile
         pos += 16;
 
         // For version < 0x34000, UV count comes from flags, not texCountField
-        var numUVSets = version < 0x34000
-            ? (flags & GF_TEXTURED) != 0 ? 1 : 0
-            : texCountField;
+        int numUVSets = texCountField;
+        if (version < 0x34000)
+            numUVSets = (flags & GF_TEXTURED) != 0 ? 1 : 0;
 
         // Surface properties (ambient, specular, diffuse) for version < 0x34000
         if (version < 0x34000)
@@ -227,7 +227,10 @@ public static class RwDffFile
             var v1 = BitConverter.ToUInt16(data, pos + 2);
             var matId = BitConverter.ToUInt16(data, pos + 4);
             var v3 = BitConverter.ToUInt16(data, pos + 6);
-            triangles[i] = new RwTriangle(v1, v2, v3, matId);
+            var vertex0 = v1;
+            var vertex1 = v2;
+            var vertex2 = v3;
+            triangles[i] = new RwTriangle(vertex0, vertex1, vertex2, matId);
             pos += 8;
         }
 

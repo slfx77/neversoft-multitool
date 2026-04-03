@@ -91,6 +91,17 @@ internal static class Ps2TexSwizzleVramMappingBuilder
         return tw >= 0 && tw < 10 && th >= 0 && th < 10 && CanConv4to16Table[th, tw];
     }
 
+    internal static byte[] TransformPsmt4ViaPsmct16Staging(ReadOnlySpan<byte> swizzled, int width, int height)
+    {
+        var writePageWidth = Math.Max((width + 0x7F) >> 7, 1) << 1;
+        var readPageWidth = Math.Max((width + 0xFF) >> 8, 1) << 1;
+        var pageRows = Math.Max((height + 0x7F) >> 7, 1);
+        var stage = new byte[readPageWidth * pageRows * 0x2000];
+
+        WritePsmt4ToPsmct16Stage(stage, writePageWidth, width, height, swizzled);
+        return ReadPsmct16StageAsPsmt4(stage, readPageWidth, width, height);
+    }
+
     internal static int[] BuildConv4to16Mapping(int width, int height)
     {
         var totalNibbles = width * height;
@@ -187,6 +198,92 @@ internal static class Ps2TexSwizzleVramMappingBuilder
         }
 
         return mapping;
+    }
+
+    private static void WritePsmt4ToPsmct16Stage(
+        byte[] stage,
+        int pageWidthTwice,
+        int width,
+        int height,
+        ReadOnlySpan<byte> source)
+    {
+        var sourceNibbleIndex = 0;
+        for (var y = 0; y < height; y++)
+        {
+            var pageY = y >> 7;
+            var localY = y & 0x7F;
+            var blockY = localY >> 4;
+            var rowInBlock = localY & 0x0F;
+            var column = rowInBlock >> 2;
+            var cy = rowInBlock & 0x03;
+
+            for (var x = 0; x < width; x++)
+            {
+                var pageX = x >> 7;
+                var page = pageX + pageY * (pageWidthTwice >> 1);
+                var localX = x & 0x7F;
+                var blockX = localX >> 5;
+                var block = Block4[blockX + blockY * 4];
+                var bx = localX & 0x1F;
+                var tableIndex = bx + cy * 32;
+                var cw = ColumnWord4[column & 1, tableIndex];
+                var cb = ColumnByte4[tableIndex];
+                var stageByteIndex = (page * 0x800 + block * 0x40 + column * 0x10 + cw) * 4 + (cb >> 1);
+                if ((uint)stageByteIndex >= (uint)stage.Length)
+                    continue;
+
+                var sourceByteIndex = sourceNibbleIndex >> 1;
+                if ((uint)sourceByteIndex >= (uint)source.Length)
+                    break;
+
+                var sourceNibble = ((source[sourceByteIndex] >> ((sourceNibbleIndex & 1) * 4)) & 0x0F);
+                if ((cb & 1) == 0)
+                    stage[stageByteIndex] = (byte)((stage[stageByteIndex] & 0xF0) | sourceNibble);
+                else
+                    stage[stageByteIndex] = (byte)((stage[stageByteIndex] & 0x0F) | (sourceNibble << 4));
+
+                sourceNibbleIndex++;
+            }
+        }
+    }
+
+    private static byte[] ReadPsmct16StageAsPsmt4(byte[] stage, int pageWidthTwice, int width, int height)
+    {
+        var readWidth = width >> 1;
+        var readHeight = height >> 1;
+        var output = new byte[width * height / 2];
+        var outputIndex = 0;
+
+        for (var y = 0; y < readHeight; y++)
+        {
+            var pageY = y >> 6;
+            var localY = y & 0x3F;
+            var blockY = localY >> 3;
+            var rowInBlock = localY & 0x07;
+            var column = rowInBlock >> 1;
+            var cy = rowInBlock & 0x01;
+
+            for (var x = 0; x < readWidth && outputIndex + 1 < output.Length; x++)
+            {
+                var pageX = x >> 6;
+                var page = pageX + pageY * pageWidthTwice;
+                var localX = x & 0x3F;
+                var blockX = localX >> 4;
+                var block = Block16[blockX + blockY * 4];
+                var bx = localX & 0x0F;
+                var tableIndex = bx + cy * 16;
+                var cw = ColumnWord16[tableIndex];
+                var ch = ColumnHalf16[tableIndex];
+                var stageByteIndex = (page * 0x800 + block * 0x40 + column * 0x10 + cw) * 4 + ch * 2;
+                if ((uint)(stageByteIndex + 1) >= (uint)stage.Length)
+                    continue;
+
+                output[outputIndex++] = stage[stageByteIndex];
+                output[outputIndex++] = stage[stageByteIndex + 1];
+            }
+        }
+
+        return output;
     }
 
     private static int NumBits(int size)
