@@ -77,6 +77,13 @@ tools/qbkey_pipeline/*.exe
 # SonarQube
 .sonarqube/
 
+# Local .NET CLI/cache state
+.dotnet-home/
+.dotnet_cli/
+
+# Java diagnostic build artifacts
+tools/diagnostics/*.class
+
 # Ghidra project databases (large binary, regenerable)
 tools/ghidra/*/ghidra_project/
 
