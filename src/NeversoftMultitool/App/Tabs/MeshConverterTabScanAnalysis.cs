@@ -33,13 +33,13 @@ internal static class MeshConverterTabScanAnalysis
             var fileName = Path.GetFileName(file);
             if (OrdinalFileName.HasAnySuffix(fileName, MeshFormatsWithPartialWarnings))
             {
-                AddUnsupportedIfNeeded(unsupported, fileName, file, includePartial: true);
+                AddUnsupportedIfNeeded(unsupported, fileName, file, true);
             }
             else if (OrdinalFileName.HasAnySuffix(fileName, Ps2SceneSuffixes)
                      || OrdinalFileName.HasExtension(file, ".skin")
                      || OrdinalFileName.HasExtension(file, ".mdl"))
             {
-                AddUnsupportedIfNeeded(unsupported, fileName, file, includePartial: false);
+                AddUnsupportedIfNeeded(unsupported, fileName, file, false);
             }
         }
 

@@ -1,3 +1,5 @@
+using NeversoftMultitool.Core.BinaryIO;
+
 namespace NeversoftMultitool.Core.Formats.Audio;
 
 /// <summary>

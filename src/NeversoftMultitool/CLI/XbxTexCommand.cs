@@ -9,6 +9,7 @@ namespace NeversoftMultitool.CLI;
 public static class XbxTexCommand
 {
     private static readonly string[] ImageSuffixes = [".img.xbx", ".img.wpc", ".img"];
+
     private static readonly string[] SupportedSuffixes =
         [".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc", ".stex", ".tex", ".img"];
 

@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 using Microsoft.UI.Xaml;
@@ -34,6 +33,13 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         Unloaded += AudioConverterTab_Unloaded;
     }
 
+    public void Dispose()
+    {
+        Unloaded -= AudioConverterTab_Unloaded;
+        ClearPreview();
+        _conversionController.Dispose();
+    }
+
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
     {
         var path = await FolderPickerHelper.PickFolderAsync();
@@ -56,7 +62,8 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         {
             var probe = FormatProbe.ProbeAudio(filePath);
             if (probe.Support == FormatProbe.FormatSupport.Unsupported)
-                unsupported.Add(new(Path.GetFileName(filePath)!, probe.UnsupportedReason ?? "Unknown format"));
+                unsupported.Add(new ScanSummaryDialog.UnsupportedFile(Path.GetFileName(filePath)!,
+                    probe.UnsupportedReason ?? "Unknown format"));
             else
                 supported.Add(filePath);
         }
@@ -482,13 +489,6 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
     private static string FormatTime(TimeSpan ts)
     {
         return AudioConverterTabOperations.FormatTime(ts);
-    }
-
-    public void Dispose()
-    {
-        Unloaded -= AudioConverterTab_Unloaded;
-        ClearPreview();
-        _conversionController.Dispose();
     }
 
     private void AudioConverterTab_Unloaded(object sender, RoutedEventArgs e)

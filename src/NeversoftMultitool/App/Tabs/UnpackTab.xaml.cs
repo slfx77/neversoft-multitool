@@ -19,6 +19,12 @@ public sealed partial class UnpackTab : UserControl, IDisposable
         Unloaded += UnpackTab_Unloaded;
     }
 
+    public void Dispose()
+    {
+        Unloaded -= UnpackTab_Unloaded;
+        DisposeCancellationTokenSource();
+    }
+
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
     {
         var path = await FolderPickerHelper.PickFolderAsync();
@@ -102,7 +108,7 @@ public sealed partial class UnpackTab : UserControl, IDisposable
             {
                 RecursiveUnpacker.ExtractAll(
                     rootDir,
-                    onArchiveStarted: archive =>
+                    archive =>
                     {
                         dispatcher.TryEnqueue(() =>
                         {
@@ -110,7 +116,7 @@ public sealed partial class UnpackTab : UserControl, IDisposable
                             entry.Status = ExtractionStatus.Processing;
                         });
                     },
-                    onArchiveCompleted: archive =>
+                    archive =>
                     {
                         dispatcher.TryEnqueue(() =>
                         {
@@ -127,7 +133,7 @@ public sealed partial class UnpackTab : UserControl, IDisposable
                             UpdateStats();
                         });
                     },
-                    onPassDiscovered: (pass, newArchives) =>
+                    (pass, newArchives) =>
                     {
                         dispatcher.TryEnqueue(() =>
                         {
@@ -149,7 +155,7 @@ public sealed partial class UnpackTab : UserControl, IDisposable
                             UpdateStats();
                         });
                     },
-                    ct: token);
+                    token);
             }, token);
 
             stopwatch.Stop();
@@ -177,9 +183,11 @@ public sealed partial class UnpackTab : UserControl, IDisposable
         }
     }
 
-    private UnpackArchiveEntry? FindEntry(string filePath) =>
-        _archives.FirstOrDefault(a =>
+    private UnpackArchiveEntry? FindEntry(string filePath)
+    {
+        return _archives.FirstOrDefault(a =>
             a.FilePath.Equals(filePath, StringComparison.OrdinalIgnoreCase));
+    }
 
     private UnpackArchiveEntry FindOrAddEntry(RecursiveUnpacker.ArchiveInfo info, string rootDir)
     {
@@ -218,12 +226,6 @@ public sealed partial class UnpackTab : UserControl, IDisposable
         CancelButton.Visibility = Visibility.Collapsed;
         UpdateUiState();
         MainWindow.Instance?.SetStatus("Unpack cancelled");
-    }
-
-    public void Dispose()
-    {
-        Unloaded -= UnpackTab_Unloaded;
-        DisposeCancellationTokenSource();
     }
 
     private void UnpackTab_Unloaded(object sender, RoutedEventArgs e)

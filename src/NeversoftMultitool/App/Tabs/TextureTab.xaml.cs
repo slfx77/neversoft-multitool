@@ -24,6 +24,15 @@ public sealed partial class TextureTab : UserControl, IDisposable
         Unloaded += TextureTab_Unloaded;
     }
 
+    public void Dispose()
+    {
+        Unloaded -= TextureTab_Unloaded;
+        _cts?.Dispose();
+        _cts = null;
+        _previewCts?.Dispose();
+        _previewCts = null;
+    }
+
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
     {
         var path = await FolderPickerHelper.PickFolderAsync();
@@ -46,7 +55,8 @@ public sealed partial class TextureTab : UserControl, IDisposable
         {
             var probe = FormatProbe.ProbeTexture(file);
             if (probe.Support == FormatProbe.FormatSupport.Unsupported)
-                unsupported.Add(new(Path.GetFileName(file)!, probe.UnsupportedReason ?? "Unknown format"));
+                unsupported.Add(new ScanSummaryDialog.UnsupportedFile(Path.GetFileName(file)!,
+                    probe.UnsupportedReason ?? "Unknown format"));
             else
                 supported.Add(file);
         }
@@ -402,15 +412,6 @@ public sealed partial class TextureTab : UserControl, IDisposable
         NoPreviewIcon.Visibility = Visibility.Collapsed;
         PreviewDimensionsText.Text = "";
         PreviewInfoText.Text = "";
-    }
-
-    public void Dispose()
-    {
-        Unloaded -= TextureTab_Unloaded;
-        _cts?.Dispose();
-        _cts = null;
-        _previewCts?.Dispose();
-        _previewCts = null;
     }
 
     private void TextureTab_Unloaded(object sender, RoutedEventArgs e)

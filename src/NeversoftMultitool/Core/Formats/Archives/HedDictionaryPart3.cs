@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace NeversoftMultitool.Core.Formats.Archives;
 
 internal static class HedDictionaryPart3

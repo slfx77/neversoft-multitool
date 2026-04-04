@@ -57,7 +57,8 @@ public static class SfdCommand
 
             if (sfdFiles.Length == 0)
             {
-                AnsiConsole.MarkupLine("[yellow]No video files (.sfd, .pss, .bik) found in the specified directory.[/]");
+                AnsiConsole.MarkupLine(
+                    "[yellow]No video files (.sfd, .pss, .bik) found in the specified directory.[/]");
                 return Task.FromResult(0);
             }
 

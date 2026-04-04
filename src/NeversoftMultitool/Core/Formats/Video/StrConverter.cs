@@ -177,7 +177,14 @@ public static class StrConverter
         // Register cancellation to kill the process if it's still running
         using var processKillRegistration = cancellationToken.Register(() =>
         {
-            try { process.Kill(); } catch { /* process may have already exited */ }
+            try
+            {
+                process.Kill();
+            }
+            catch
+            {
+                /* process may have already exited */
+            }
         });
 
         process.Start();
@@ -188,7 +195,15 @@ public static class StrConverter
 
         if (cancelled || cancellationToken.IsCancellationRequested)
         {
-            try { process.Kill(); } catch { /* already dead */ }
+            try
+            {
+                process.Kill();
+            }
+            catch
+            {
+                /* already dead */
+            }
+
             TryDeleteFile(outputPath);
             return new SfdConvertResult { ErrorMessage = "Cancelled" };
         }

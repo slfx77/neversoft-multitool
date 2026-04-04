@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core;
+namespace NeversoftMultitool.Core.BinaryIO;
 
 public static class WavWriter
 {

@@ -4,6 +4,7 @@ using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
 using SharpGLTF.Scenes;
+using SharpGLTF.Schema2;
 
 namespace NeversoftMultitool.Core.Formats.Collision;
 
@@ -32,10 +33,11 @@ public static class ColGltfWriter
             GltfNormalSmoother.SmoothNormals(model);
             model.SaveGLB(outputPath);
         }
+
         return triangles;
     }
 
-    internal static (SharpGLTF.Schema2.ModelRoot Model, int Triangles) Build(ColScene scene)
+    internal static (ModelRoot Model, int Triangles) Build(ColScene scene)
     {
         var gltfScene = new SceneBuilder();
         var material = new MaterialBuilder("collision")

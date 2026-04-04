@@ -24,6 +24,12 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
         Unloaded += ArchiveExtractorTab_Unloaded;
     }
 
+    public void Dispose()
+    {
+        Unloaded -= ArchiveExtractorTab_Unloaded;
+        DisposeCancellationTokenSource();
+    }
+
     private async void OpenArchiveButton_Click(object sender, RoutedEventArgs e)
     {
         var picker = new FileOpenPicker();
@@ -254,12 +260,6 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
         CancelButton.Visibility = Visibility.Collapsed;
         ExtractButton.IsEnabled = true;
         MainWindow.Instance?.SetStatus("Extraction cancelled");
-    }
-
-    public void Dispose()
-    {
-        Unloaded -= ArchiveExtractorTab_Unloaded;
-        DisposeCancellationTokenSource();
     }
 
     private void ArchiveExtractorTab_Unloaded(object sender, RoutedEventArgs e)

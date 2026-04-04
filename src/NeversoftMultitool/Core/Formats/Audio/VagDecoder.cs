@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using NeversoftMultitool.Core.BinaryIO;
 
 namespace NeversoftMultitool.Core.Formats.Audio;
 

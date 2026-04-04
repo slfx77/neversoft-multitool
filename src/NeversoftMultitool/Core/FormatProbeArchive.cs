@@ -44,7 +44,8 @@ internal static class FormatProbeArchive
         var version = BinaryProbeReader.ReadUInt32(header, 4);
         return version switch
         {
-            0xABCD0002 or 0xABCD0003 => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Compressed PRE"),
+            0xABCD0002 or 0xABCD0003 => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported,
+                "Compressed PRE"),
             _ => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PRE Archive")
         };
     }
@@ -68,7 +69,8 @@ internal static class FormatProbeArchive
         var version = BinaryProbeReader.ReadUInt32(header, 4);
         return version switch
         {
-            1 or 3 or 4 => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, $"BON Archive (v{version})"),
+            1 or 3 or 4 => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported,
+                $"BON Archive (v{version})"),
             _ => new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
                 $"BON (v{version})",

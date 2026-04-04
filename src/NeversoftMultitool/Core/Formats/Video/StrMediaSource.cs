@@ -1,8 +1,8 @@
 #if WINDOWS_GUI
 using System.Runtime.InteropServices.WindowsRuntime;
-using NeversoftMultitool.Core.Formats.Audio;
 using Windows.Media.Core;
 using Windows.Media.MediaProperties;
+using NeversoftMultitool.Core.Formats.Audio;
 
 namespace NeversoftMultitool.Core.Formats.Video;
 
@@ -13,18 +13,17 @@ namespace NeversoftMultitool.Core.Formats.Video;
 /// </summary>
 public sealed class StrMediaSource : IDisposable
 {
-    private readonly List<StrDemuxer.StrFrame> _frames;
-    private readonly double _frameRate;
-    private readonly int _width;
-    private readonly int _height;
-
     // Audio data (null if no audio)
     private readonly byte[]? _audioBytes; // PCM16 LE interleaved
-    private readonly int _audioSampleRate;
     private readonly int _audioChannels;
+    private readonly int _audioSampleRate;
+    private readonly double _frameRate;
+    private readonly List<StrDemuxer.StrFrame> _frames;
+    private readonly int _height;
+    private readonly int _width;
+    private int _audioByteOffset;
 
     private int _frameIndex;
-    private int _audioByteOffset;
 
     private StrMediaSource(List<StrDemuxer.StrFrame> frames, double frameRate, int width, int height,
         byte[]? audioBytes, int audioSampleRate, int audioChannels)
@@ -36,6 +35,11 @@ public sealed class StrMediaSource : IDisposable
         _audioBytes = audioBytes;
         _audioSampleRate = audioSampleRate;
         _audioChannels = audioChannels;
+    }
+
+    public void Dispose()
+    {
+        _frames.Clear();
     }
 
     /// <summary>
@@ -219,18 +223,13 @@ public sealed class StrMediaSource : IDisposable
         {
             var srcIdx = i * 3;
             var dstIdx = i * 4;
-            bgra[dstIdx] = rgb[srcIdx + 2];     // B
+            bgra[dstIdx] = rgb[srcIdx + 2]; // B
             bgra[dstIdx + 1] = rgb[srcIdx + 1]; // G
-            bgra[dstIdx + 2] = rgb[srcIdx];      // R
-            bgra[dstIdx + 3] = 0xFF;             // A
+            bgra[dstIdx + 2] = rgb[srcIdx]; // R
+            bgra[dstIdx + 3] = 0xFF; // A
         }
 
         return bgra;
-    }
-
-    public void Dispose()
-    {
-        _frames.Clear();
     }
 }
 #endif

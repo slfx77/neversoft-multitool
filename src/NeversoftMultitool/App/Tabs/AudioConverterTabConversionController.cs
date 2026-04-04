@@ -9,6 +9,11 @@ internal sealed class AudioConverterTabConversionController : IDisposable
 {
     private CancellationTokenSource? _cts;
 
+    public void Dispose()
+    {
+        DisposeCancellationTokenSource();
+    }
+
     public async Task ConvertAsync(
         IReadOnlyList<AudioFileEntry> parentFiles,
         string inputDir,
@@ -120,11 +125,6 @@ internal sealed class AudioConverterTabConversionController : IDisposable
         cancelButton.Visibility = Visibility.Collapsed;
         convertButton.IsEnabled = true;
         MainWindow.Instance?.SetStatus("Conversion cancelled");
-    }
-
-    public void Dispose()
-    {
-        DisposeCancellationTokenSource();
     }
 
     private void DisposeCancellationTokenSource()

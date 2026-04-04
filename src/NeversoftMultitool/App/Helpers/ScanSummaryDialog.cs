@@ -1,7 +1,8 @@
 #if WINDOWS_GUI
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using NeversoftMultitool.Core;
+using Microsoft.UI.Xaml.Media;
 
 namespace NeversoftMultitool;
 
@@ -11,8 +12,6 @@ namespace NeversoftMultitool;
 /// </summary>
 public static class ScanSummaryDialog
 {
-    public record UnsupportedFile(string FileName, string Reason);
-
     /// <summary>
     ///     Shows the dialog if there are unsupported files. Returns true to continue, false to cancel.
     ///     If no unsupported files, returns true immediately (no dialog shown).
@@ -36,7 +35,7 @@ public static class ScanSummaryDialog
             item.Children.Add(new TextBlock
             {
                 Text = file.FileName,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                FontWeight = FontWeights.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 MaxWidth = 250
             });
@@ -44,7 +43,7 @@ public static class ScanSummaryDialog
             {
                 Text = file.Reason,
                 Foreground =
- (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                    (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
                 TextTrimming = TextTrimming.CharacterEllipsis
             });
             listItems.Children.Add(item);
@@ -72,12 +71,12 @@ public static class ScanSummaryDialog
         {
             Glyph = "\uE7BA",
             FontSize = 16,
-            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCautionBrush"]
+            Foreground = (Brush)Application.Current.Resources["SystemFillColorCautionBrush"]
         });
         warningHeader.Children.Add(new TextBlock
         {
             Text = $"Unsupported files ({unsupportedFiles.Count}):",
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            FontWeight = FontWeights.SemiBold
         });
         content.Children.Add(warningHeader);
         content.Children.Add(scrollViewer);
@@ -95,5 +94,7 @@ public static class ScanSummaryDialog
         var result = await dialog.ShowAsync();
         return result == ContentDialogResult.Primary;
     }
+
+    public record UnsupportedFile(string FileName, string Reason);
 }
 #endif

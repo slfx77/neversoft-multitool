@@ -13,15 +13,30 @@ public static class FormatProbe
         PartiallySupported
     }
 
-    public static FormatProbeResult ProbeTexture(string filePath) => FormatProbeTexture.Probe(filePath);
+    public static FormatProbeResult ProbeTexture(string filePath)
+    {
+        return FormatProbeTexture.Probe(filePath);
+    }
 
-    public static FormatProbeResult ProbeMesh(string filePath) => FormatProbeMesh.Probe(filePath);
+    public static FormatProbeResult ProbeMesh(string filePath)
+    {
+        return FormatProbeMesh.Probe(filePath);
+    }
 
-    public static FormatProbeResult ProbeArchive(string filePath) => FormatProbeArchive.Probe(filePath);
+    public static FormatProbeResult ProbeArchive(string filePath)
+    {
+        return FormatProbeArchive.Probe(filePath);
+    }
 
-    public static FormatProbeResult ProbeAudio(string filePath) => FormatProbeAudio.Probe(filePath);
+    public static FormatProbeResult ProbeAudio(string filePath)
+    {
+        return FormatProbeAudio.Probe(filePath);
+    }
 
-    public static FormatProbeResult ProbeVideo(string filePath) => FormatProbeVideo.Probe(filePath);
+    public static FormatProbeResult ProbeVideo(string filePath)
+    {
+        return FormatProbeVideo.Probe(filePath);
+    }
 
     /// <summary>
     ///     Probes a list of files, partitions into supported/unsupported, and returns counts.
