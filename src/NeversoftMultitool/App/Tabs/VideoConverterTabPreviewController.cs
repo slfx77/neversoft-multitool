@@ -1,9 +1,6 @@
-using CommunityToolkit.WinUI.Controls;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
 using NeversoftMultitool.Core.Formats.Video;
 
 namespace NeversoftMultitool;
@@ -12,15 +9,23 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
 {
     private readonly Dictionary<string, string> _previewCache = [];
     private readonly VideoPreviewView _view;
-    private CancellationTokenSource? _previewCts;
     private MediaPlayer? _mediaPlayer;
     private DispatcherTimer? _positionTimer;
+    private CancellationTokenSource? _previewCts;
     private Task? _previewTask;
     private bool _updatingSlider;
 
     public VideoConverterTabPreviewController(VideoPreviewView view)
     {
         _view = view;
+    }
+
+    public void Dispose()
+    {
+        StopPlayback();
+        _previewCts?.Dispose();
+        _previewCts = null;
+        _previewTask = null;
     }
 
     public async Task ShowPreviewAsync(SfdFileEntry entry, bool ffmpegAvailable)
@@ -347,33 +352,4 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
     {
         _view.PlayPauseIcon.Glyph = isPlaying ? "\uE769" : "\uE768";
     }
-
-    public void Dispose()
-    {
-        StopPlayback();
-        _previewCts?.Dispose();
-        _previewCts = null;
-        _previewTask = null;
-    }
-}
-
-internal sealed class VideoPreviewView
-{
-    public required Border PreviewPanel { get; init; }
-    public required GridSplitter PreviewSplitter { get; init; }
-    public required ColumnDefinition SplitterColumn { get; init; }
-    public required ColumnDefinition PreviewColumn { get; init; }
-    public required ProgressRing PreviewLoading { get; init; }
-    public required FontIcon VideoPlaceholderIcon { get; init; }
-    public required TextBlock PreviewFileNameText { get; init; }
-    public required TextBlock PreviewInfoText { get; init; }
-    public required TextBlock PreviewErrorText { get; init; }
-    public required Button PlayPauseButton { get; init; }
-    public required Button StopButton { get; init; }
-    public required Slider PlaybackSlider { get; init; }
-    public required TextBlock CurrentTimeText { get; init; }
-    public required TextBlock TotalTimeText { get; init; }
-    public required MediaPlayerElement VideoPlayer { get; init; }
-    public required FontIcon PlayPauseIcon { get; init; }
-    public required string TempDir { get; init; }
 }

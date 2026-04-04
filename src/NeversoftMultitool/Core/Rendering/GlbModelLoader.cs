@@ -1,7 +1,7 @@
 using System.Numerics;
 using SharpGLTF.Schema2;
-using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using Image = SixLabors.ImageSharp.Image;
 
 namespace NeversoftMultitool.Core.Rendering;
 
@@ -253,7 +253,7 @@ internal static class GlbModelLoader
                     var imgContent = tex.PrimaryImage?.Content;
                     if (imgContent != null && !imgContent.Value.Content.IsEmpty)
                     {
-                        using var img = SixLabors.ImageSharp.Image.Load<Rgba32>(imgContent.Value.Content.Span);
+                        using var img = Image.Load<Rgba32>(imgContent.Value.Content.Span);
                         textureWidth = img.Width;
                         textureHeight = img.Height;
                         textureData = new byte[textureWidth * textureHeight * 4];

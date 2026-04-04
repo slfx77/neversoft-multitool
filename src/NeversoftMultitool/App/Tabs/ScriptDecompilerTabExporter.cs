@@ -11,6 +11,11 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
 {
     private CancellationTokenSource? _cts;
 
+    public void Dispose()
+    {
+        DisposeCancellationTokenSource();
+    }
+
     public async Task ExportAsync(
         IReadOnlyList<IListEntry> parentFiles,
         string outputDir,
@@ -103,11 +108,6 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
         cancelButton.Visibility = Visibility.Collapsed;
         exportButton.IsEnabled = true;
         MainWindow.Instance?.SetStatus("Export cancelled");
-    }
-
-    public void Dispose()
-    {
-        DisposeCancellationTokenSource();
     }
 
     private void DisposeCancellationTokenSource()

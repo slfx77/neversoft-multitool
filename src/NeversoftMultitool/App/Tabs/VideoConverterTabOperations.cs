@@ -31,13 +31,17 @@ internal static class VideoConverterTabOperations
         };
     }
 
-    public static bool IsStrFormat(string path) =>
-        OrdinalFileName.HasExtension(path, ".str");
+    public static bool IsStrFormat(string path)
+    {
+        return OrdinalFileName.HasExtension(path, ".str");
+    }
 
-    public static bool IsFfmpegPassthroughFormat(string path) =>
-        OrdinalFileName.HasExtension(path, ".sfd")
-        || OrdinalFileName.HasExtension(path, ".pss")
-        || OrdinalFileName.HasExtension(path, ".bik");
+    public static bool IsFfmpegPassthroughFormat(string path)
+    {
+        return OrdinalFileName.HasExtension(path, ".sfd")
+               || OrdinalFileName.HasExtension(path, ".pss")
+               || OrdinalFileName.HasExtension(path, ".bik");
+    }
 
     public static bool IsStrVideoFile(string path)
     {

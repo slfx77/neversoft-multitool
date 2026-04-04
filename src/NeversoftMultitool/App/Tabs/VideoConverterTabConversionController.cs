@@ -9,6 +9,11 @@ internal sealed class VideoConverterTabConversionController : IDisposable
 {
     private CancellationTokenSource? _cts;
 
+    public void Dispose()
+    {
+        DisposeCancellationTokenSource();
+    }
+
     public async Task ConvertAsync(
         IReadOnlyList<SfdFileEntry> entries,
         string outputDir,
@@ -60,7 +65,8 @@ internal sealed class VideoConverterTabConversionController : IDisposable
                     var result = VideoConverterTabOperations.ConvertFile(
                         entry.FilePath,
                         outputDir,
-                        new Progress<double>(progress => dispatcher.TryEnqueue(() => entry.ConvertProgress = progress * 100)),
+                        new Progress<double>(progress =>
+                            dispatcher.TryEnqueue(() => entry.ConvertProgress = progress * 100)),
                         token);
 
                     var processed = Interlocked.Increment(ref filesProcessed);
@@ -105,11 +111,6 @@ internal sealed class VideoConverterTabConversionController : IDisposable
         cancelButton.Visibility = Visibility.Collapsed;
         convertButton.IsEnabled = true;
         MainWindow.Instance?.SetStatus("Conversion cancelled");
-    }
-
-    public void Dispose()
-    {
-        DisposeCancellationTokenSource();
     }
 
     private void DisposeCancellationTokenSource()

@@ -143,6 +143,7 @@ public static class GlbRenderer
                     list = [];
                     posMap[key] = list;
                 }
+
                 list.Add((si, vi));
             }
         }
@@ -163,7 +164,12 @@ public static class GlbRenderer
             }
 
             var len = MathF.Sqrt(nx * nx + ny * ny + nz * nz);
-            if (len > 0.001f) { nx /= len; ny /= len; nz /= len; }
+            if (len > 0.001f)
+            {
+                nx /= len;
+                ny /= len;
+                nz /= len;
+            }
 
             // Write averaged normal back
             foreach (var (si, vi) in group)
@@ -219,9 +225,12 @@ public static class GlbRenderer
                     var uv2 = i2 * 2;
                     if (uv0 + 1 < uv.Length && uv1 + 1 < uv.Length && uv2 + 1 < uv.Length)
                     {
-                        tri.U0 = uv[uv0]; tri.V0 = uv[uv0 + 1];
-                        tri.U1 = uv[uv1]; tri.V1 = uv[uv1 + 1];
-                        tri.U2 = uv[uv2]; tri.V2 = uv[uv2 + 1];
+                        tri.U0 = uv[uv0];
+                        tri.V0 = uv[uv0 + 1];
+                        tri.U1 = uv[uv1];
+                        tri.V1 = uv[uv1 + 1];
+                        tri.U2 = uv[uv2];
+                        tri.V2 = uv[uv2 + 1];
                     }
                 }
 
@@ -232,9 +241,15 @@ public static class GlbRenderer
                     var n2 = i2 * 3;
                     if (n0 + 2 < nrm.Length && n1 + 2 < nrm.Length && n2 + 2 < nrm.Length)
                     {
-                        tri.Nx0 = nrm[n0]; tri.Ny0 = nrm[n0 + 1]; tri.Nz0 = nrm[n0 + 2];
-                        tri.Nx1 = nrm[n1]; tri.Ny1 = nrm[n1 + 1]; tri.Nz1 = nrm[n1 + 2];
-                        tri.Nx2 = nrm[n2]; tri.Ny2 = nrm[n2 + 1]; tri.Nz2 = nrm[n2 + 2];
+                        tri.Nx0 = nrm[n0];
+                        tri.Ny0 = nrm[n0 + 1];
+                        tri.Nz0 = nrm[n0 + 2];
+                        tri.Nx1 = nrm[n1];
+                        tri.Ny1 = nrm[n1 + 1];
+                        tri.Nz1 = nrm[n1 + 2];
+                        tri.Nx2 = nrm[n2];
+                        tri.Ny2 = nrm[n2 + 1];
+                        tri.Nz2 = nrm[n2 + 2];
                         tri.HasNormals = true;
                     }
                 }
@@ -246,9 +261,18 @@ public static class GlbRenderer
                     var c2 = i2 * 4;
                     if (c0 + 3 < vcol.Length && c1 + 3 < vcol.Length && c2 + 3 < vcol.Length)
                     {
-                        tri.R0 = vcol[c0]; tri.G0 = vcol[c0 + 1]; tri.B0 = vcol[c0 + 2]; tri.A0 = vcol[c0 + 3];
-                        tri.R1 = vcol[c1]; tri.G1 = vcol[c1 + 1]; tri.B1 = vcol[c1 + 2]; tri.A1 = vcol[c1 + 3];
-                        tri.R2 = vcol[c2]; tri.G2 = vcol[c2 + 1]; tri.B2 = vcol[c2 + 2]; tri.A2 = vcol[c2 + 3];
+                        tri.R0 = vcol[c0];
+                        tri.G0 = vcol[c0 + 1];
+                        tri.B0 = vcol[c0 + 2];
+                        tri.A0 = vcol[c0 + 3];
+                        tri.R1 = vcol[c1];
+                        tri.G1 = vcol[c1 + 1];
+                        tri.B1 = vcol[c1 + 2];
+                        tri.A1 = vcol[c1 + 3];
+                        tri.R2 = vcol[c2];
+                        tri.G2 = vcol[c2 + 1];
+                        tri.B2 = vcol[c2 + 2];
+                        tri.A2 = vcol[c2 + 3];
                         tri.HasVertexColors = true;
                     }
                 }
@@ -268,7 +292,9 @@ public static class GlbRenderer
                     var len = MathF.Sqrt(nx * nx + ny * ny + nz * nz);
                     if (len > 0.0001f)
                     {
-                        nx /= len; ny /= len; nz /= len;
+                        nx /= len;
+                        ny /= len;
+                        nz /= len;
                     }
 
                     tri.FlatShade = SoftwareRasterizer.ComputeShade(nx, ny, nz, submesh.IsDoubleSided);
@@ -344,7 +370,13 @@ public static class GlbRenderer
                 var ny = ez1 * ex2 - ex1 * ez2;
                 var nz = ex1 * ey2 - ey1 * ex2;
                 var len = MathF.Sqrt(nx * nx + ny * ny + nz * nz);
-                if (len > 0.0001f) { nx /= len; ny /= len; nz /= len; }
+                if (len > 0.0001f)
+                {
+                    nx /= len;
+                    ny /= len;
+                    nz /= len;
+                }
+
                 tri.FlatShade = SoftwareRasterizer.ComputeShade(nx, ny, nz, tri.IsDoubleSided);
             }
 

@@ -20,6 +20,15 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         Unloaded += MeshConverterTab_Unloaded;
     }
 
+    public void Dispose()
+    {
+        Unloaded -= MeshConverterTab_Unloaded;
+        _cts?.Dispose();
+        _cts = null;
+        _preview?.Dispose();
+        _preview = null;
+    }
+
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
     {
         var path = await FolderPickerHelper.PickFolderAsync();
@@ -196,15 +205,6 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
         await _preview.InitializeAsync();
         await _preview.LoadPreviewAsync(entry);
-    }
-
-    public void Dispose()
-    {
-        Unloaded -= MeshConverterTab_Unloaded;
-        _cts?.Dispose();
-        _cts = null;
-        _preview?.Dispose();
-        _preview = null;
     }
 
     private void MeshConverterTab_Unloaded(object sender, RoutedEventArgs e)

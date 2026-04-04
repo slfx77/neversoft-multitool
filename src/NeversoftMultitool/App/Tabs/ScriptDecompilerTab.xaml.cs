@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Windows.Storage.Pickers;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core.Formats.Qb;
@@ -49,6 +50,12 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
             SourceSection,
             SourceHeaderText,
             DetailSourceText));
+    }
+
+    public void Dispose()
+    {
+        Unloaded -= ScriptDecompilerTab_Unloaded;
+        _exporter.Dispose();
     }
 
     private async void OpenFile_Click(object sender, RoutedEventArgs e)
@@ -139,7 +146,7 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
     }
 
     private static void BackgroundParseTrg(TrgFileEntry entry,
-        Microsoft.UI.Dispatching.DispatcherQueue dispatcher)
+        DispatcherQueue dispatcher)
     {
         try
         {
@@ -158,7 +165,7 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
     }
 
     private static void BackgroundParseQb(QbFileEntry entry,
-        Microsoft.UI.Dispatching.DispatcherQueue dispatcher)
+        DispatcherQueue dispatcher)
     {
         try
         {
@@ -358,12 +365,6 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
             for (var i = 0; i < parent.CachedChildren.Count; i++)
                 _items.Insert(parentIndex + 1 + i, parent.CachedChildren[i]);
         }
-    }
-
-    public void Dispose()
-    {
-        Unloaded -= ScriptDecompilerTab_Unloaded;
-        _exporter.Dispose();
     }
 
     private void ScriptDecompilerTab_Unloaded(object sender, RoutedEventArgs e)

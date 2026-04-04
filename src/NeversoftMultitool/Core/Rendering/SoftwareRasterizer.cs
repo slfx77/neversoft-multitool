@@ -80,10 +80,20 @@ internal static class SoftwareRasterizer
                     var ny = tri.Ny0 * w0 + tri.Ny1 * w1 + tri.Ny2 * w2;
                     var nz = tri.Nz0 * w0 + tri.Nz1 * w1 + tri.Nz2 * w2;
 
-                    if (isBackFacing) { nx = -nx; ny = -ny; nz = -nz; }
+                    if (isBackFacing)
+                    {
+                        nx = -nx;
+                        ny = -ny;
+                        nz = -nz;
+                    }
 
                     var nLen = MathF.Sqrt(nx * nx + ny * ny + nz * nz);
-                    if (nLen > 0.001f) { nx /= nLen; ny /= nLen; nz /= nLen; }
+                    if (nLen > 0.001f)
+                    {
+                        nx /= nLen;
+                        ny /= nLen;
+                        nz /= nLen;
+                    }
 
                     shade = ComputeShade(nx, ny, nz, tri.IsDoubleSided);
                 }

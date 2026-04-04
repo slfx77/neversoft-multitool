@@ -43,6 +43,13 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
         CheckFfmpeg();
     }
 
+    public void Dispose()
+    {
+        Unloaded -= VideoConverterTab_Unloaded;
+        _previewController.Dispose();
+        _conversionController.Dispose();
+    }
+
     private void CheckFfmpeg()
     {
         _ffmpegAvailable = SfdConverter.FindFfmpeg() != null;
@@ -127,13 +134,6 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
     private void PlaybackSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
         _previewController.Seek(e.NewValue);
-    }
-
-    public void Dispose()
-    {
-        Unloaded -= VideoConverterTab_Unloaded;
-        _previewController.Dispose();
-        _conversionController.Dispose();
     }
 
     private void VideoConverterTab_Unloaded(object sender, RoutedEventArgs e)

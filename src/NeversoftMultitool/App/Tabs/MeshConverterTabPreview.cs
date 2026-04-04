@@ -12,14 +12,14 @@ namespace NeversoftMultitool;
 /// </summary>
 internal sealed class MeshConverterTabPreview : IDisposable
 {
-    private readonly WebView2 _webView;
-    private readonly ProgressRing _loadingRing;
-    private readonly TextBlock _infoText;
-    private readonly TextBlock _errorText;
     private readonly DispatcherQueue _dispatcher;
+    private readonly TextBlock _errorText;
+    private readonly TextBlock _infoText;
+    private readonly ProgressRing _loadingRing;
+    private readonly WebView2 _webView;
+    private CancellationTokenSource? _previewCts;
 
     private bool _webViewInitialized;
-    private CancellationTokenSource? _previewCts;
 
     public MeshConverterTabPreview(
         WebView2 webView,
@@ -33,6 +33,12 @@ internal sealed class MeshConverterTabPreview : IDisposable
         _infoText = infoText;
         _errorText = errorText;
         _dispatcher = dispatcher;
+    }
+
+    public void Dispose()
+    {
+        _previewCts?.Dispose();
+        _previewCts = null;
     }
 
     public async Task InitializeAsync()
@@ -82,8 +88,14 @@ internal sealed class MeshConverterTabPreview : IDisposable
 
         if (_webViewInitialized)
         {
-            try { await _webView.ExecuteScriptAsync("setStatus('Converting...')"); }
-            catch { /* WebView may not be ready */ }
+            try
+            {
+                await _webView.ExecuteScriptAsync("setStatus('Converting...')");
+            }
+            catch
+            {
+                /* WebView may not be ready */
+            }
         }
 
         try
@@ -142,7 +154,10 @@ internal sealed class MeshConverterTabPreview : IDisposable
                     await _webView.ExecuteScriptAsync(
                         $"setStatus('Error: {EscapeJsString(ex.Message)}')");
                 }
-                catch { /* WebView may not be ready */ }
+                catch
+                {
+                    /* WebView may not be ready */
+                }
             }
         }
     }
@@ -164,19 +179,19 @@ internal sealed class MeshConverterTabPreview : IDisposable
 
         if (_webViewInitialized)
         {
-            try { await _webView.ExecuteScriptAsync("clearModel()"); }
-            catch { /* ignore */ }
+            try
+            {
+                await _webView.ExecuteScriptAsync("clearModel()");
+            }
+            catch
+            {
+                /* ignore */
+            }
         }
     }
 
     private static string EscapeJsString(string s)
     {
         return s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n").Replace("\r", "");
-    }
-
-    public void Dispose()
-    {
-        _previewCts?.Dispose();
-        _previewCts = null;
     }
 }
