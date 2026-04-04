@@ -84,12 +84,5 @@ tools/qbkey_pipeline/*.exe
 # Java diagnostic build artifacts
 tools/diagnostics/*.class
 
-# Ghidra project databases (large binary, regenerable)
-tools/ghidra/*/ghidra_project/
-
-# PSX cross-compiler toolchain binaries (downloadable, ~30MB)
-tools/ghidra/*/toolchain/gcc-2.8.1-psx/
-tools/ghidra/*/toolchain/gcc-2.8.1-psx.tar.gz
-tools/ghidra/*/toolchain/gcc-2.95.2-psx/
-tools/ghidra/*/toolchain/homebrew-psyq-4.4/
-tools/ghidra/*/toolchain/psyq4.6/
+# Local reverse-engineering / decompilation workspace
+tools/ghidra/
