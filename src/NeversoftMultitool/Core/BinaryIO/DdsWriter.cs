@@ -1,6 +1,7 @@
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.Texture;
+using NeversoftMultitool.Core.Formats.Texture.Pvr;
 
-namespace NeversoftMultitool.Core;
+namespace NeversoftMultitool.Core.BinaryIO;
 
 /// <summary>
 ///     Writes 16-bit pixel data to DDS (DirectDraw Surface) files.

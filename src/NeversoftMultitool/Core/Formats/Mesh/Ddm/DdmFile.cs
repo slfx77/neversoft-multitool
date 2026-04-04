@@ -1,0 +1,171 @@
+using System.Text;
+
+namespace NeversoftMultitool.Core.Formats.Mesh.Ddm;
+
+/// <summary>
+///     Parsed DDM (Xbox 3D mesh) file containing static level geometry.
+/// </summary>
+public sealed class DdmFile
+{
+    public required List<DdmObject> Objects { get; init; }
+
+    /// <summary>
+    ///     Parses a DDM file from disk.
+    /// </summary>
+    public static DdmFile Parse(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        using var reader = new BinaryReader(stream);
+
+        // File header: version (4) + dataSize (4) + objectCount (4)
+        var version = reader.ReadUInt32();
+        if (version != 1)
+            throw new InvalidDataException($"Unsupported DDM version: {version}");
+
+        reader.ReadUInt32(); // dataSize — not needed
+        var objectCount = reader.ReadUInt32();
+
+        // Object table: offset (4) + size (4) per entry
+        var objectTable = new (uint Offset, uint Size)[objectCount];
+        for (var i = 0; i < objectCount; i++)
+        {
+            objectTable[i] = (reader.ReadUInt32(), reader.ReadUInt32());
+        }
+
+        var objects = new List<DdmObject>((int)objectCount);
+
+        for (var i = 0; i < objectCount; i++)
+        {
+            stream.Seek(objectTable[i].Offset, SeekOrigin.Begin);
+            objects.Add(ReadObject(reader));
+        }
+
+        return new DdmFile { Objects = objects };
+    }
+
+    private static DdmObject ReadObject(BinaryReader reader)
+    {
+        // Object header (136 bytes)
+        reader.ReadUInt32(); // index
+        var checksum = reader.ReadUInt32();
+        var animSpeedX = reader.ReadSingle();
+        var animSpeedY = reader.ReadSingle();
+        reader.ReadSingle(); // animRate
+        reader.ReadUInt32(); // animParams
+        var flags = reader.ReadUInt32();
+
+        var nameBytes = reader.ReadBytes(64);
+        var name = Encoding.ASCII.GetString(nameBytes).TrimEnd('\0');
+
+        // Bounding box center (3 floats) + extents (3 floats) + sphere radius (1 float)
+        var bboxCenterX = reader.ReadSingle();
+        var bboxCenterY = reader.ReadSingle();
+        var bboxCenterZ = reader.ReadSingle();
+        var bboxExtentX = reader.ReadSingle();
+        var bboxExtentY = reader.ReadSingle();
+        var bboxExtentZ = reader.ReadSingle();
+        reader.ReadSingle(); // sphere radius
+
+        var materialCount = reader.ReadUInt32();
+        var vertexCount = reader.ReadUInt32();
+        var indexCount = reader.ReadUInt32();
+        var splitCount = reader.ReadUInt32();
+
+        // Materials (152 bytes each)
+        var materials = new List<DdmMaterial>((int)materialCount);
+        for (var i = 0; i < materialCount; i++)
+        {
+            materials.Add(ReadMaterial(reader));
+        }
+
+        // Vertices (36 bytes each)
+        var vertices = new List<DdmVertex>((int)vertexCount);
+        for (var i = 0; i < vertexCount; i++)
+        {
+            var x = reader.ReadSingle();
+            var y = reader.ReadSingle();
+            var z = reader.ReadSingle();
+            var nx = reader.ReadSingle();
+            var ny = reader.ReadSingle();
+            var nz = reader.ReadSingle();
+            var r = reader.ReadByte();
+            var g = reader.ReadByte();
+            var b = reader.ReadByte();
+            var a = reader.ReadByte();
+            var u = reader.ReadSingle();
+            var v = reader.ReadSingle();
+
+            vertices.Add(new DdmVertex(x, y, z, nx, ny, nz, r, g, b, a, u, v));
+        }
+
+        // Indices (2 bytes each)
+        var indices = new ushort[indexCount];
+        for (var i = 0; i < indexCount; i++)
+        {
+            indices[i] = reader.ReadUInt16();
+        }
+
+        // Material splits (6 bytes each)
+        var splits = new List<DdmSplit>((int)splitCount);
+        for (var i = 0; i < splitCount; i++)
+        {
+            var matIdx = reader.ReadUInt16();
+            var idxOffset = reader.ReadUInt16();
+            var idxCount = reader.ReadUInt16();
+            splits.Add(new DdmSplit(matIdx, idxOffset, idxCount));
+        }
+
+        return new DdmObject
+        {
+            Name = name,
+            Checksum = checksum,
+            Flags = flags,
+            AnimSpeedX = animSpeedX,
+            AnimSpeedY = animSpeedY,
+            BBoxCenterX = bboxCenterX,
+            BBoxCenterY = bboxCenterY,
+            BBoxCenterZ = bboxCenterZ,
+            BBoxExtentX = bboxExtentX,
+            BBoxExtentY = bboxExtentY,
+            BBoxExtentZ = bboxExtentZ,
+            Materials = materials,
+            Vertices = vertices,
+            Indices = indices,
+            Splits = splits
+        };
+    }
+
+    private static DdmMaterial ReadMaterial(BinaryReader reader)
+    {
+        var materialNameBytes = reader.ReadBytes(64);
+        var materialName = Encoding.ASCII.GetString(materialNameBytes).TrimEnd('\0');
+
+        var textureNameBytes = reader.ReadBytes(64);
+        var textureName = Encoding.ASCII.GetString(textureNameBytes).TrimEnd('\0');
+
+        var drawOrder = reader.ReadUInt32();
+        var diffuseR = reader.ReadByte();
+        var diffuseG = reader.ReadByte();
+        var diffuseB = reader.ReadByte();
+        var diffuseA = reader.ReadByte();
+        var emissive = reader.ReadSingle();
+        var specularLevel = reader.ReadSingle();
+        var glossiness = reader.ReadSingle();
+        var blendMode = reader.ReadUInt32();
+
+        return new DdmMaterial
+        {
+            Name = materialName,
+            TextureName = textureName,
+            DrawOrder = drawOrder,
+            DiffuseR = diffuseR,
+            DiffuseG = diffuseG,
+            DiffuseB = diffuseB,
+            DiffuseA = diffuseA,
+            Emissive = emissive,
+            SpecularLevel = specularLevel,
+            Glossiness = glossiness,
+            BlendMode = blendMode
+        };
+    }
+}

@@ -1,5 +1,5 @@
 using System.CommandLine;
-using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.QbKey;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;

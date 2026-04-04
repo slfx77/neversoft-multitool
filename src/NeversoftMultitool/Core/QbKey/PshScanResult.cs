@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core;
+namespace NeversoftMultitool.Core.QbKey;
 
 /// <summary>
 ///     Result of scanning .psh header files for mesh part names.

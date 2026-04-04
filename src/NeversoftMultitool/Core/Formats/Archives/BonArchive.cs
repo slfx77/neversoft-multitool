@@ -1,5 +1,5 @@
 using System.Text;
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.Texture.Pvr;
 
 namespace NeversoftMultitool.Core.Formats.Archives;
 

@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core;
+namespace NeversoftMultitool.Core.QbKey;
 
 /// <summary>
 ///     Result of cross-referencing one DDM/PSX file pair.

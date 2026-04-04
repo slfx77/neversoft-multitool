@@ -1,8 +1,8 @@
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Mesh;
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.Mesh.Ddm;
+using NeversoftMultitool.Core.Formats.Texture.Psx;
 
-namespace NeversoftMultitool.Core;
+namespace NeversoftMultitool.Core.QbKey;
 
 /// <summary>
 ///     Cross-references DDM plaintext names against PSX QBKey hashes

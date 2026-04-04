@@ -21,27 +21,3 @@ public sealed class HashReviewEntry : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 #pragma warning restore CS0067
 }
-
-/// <summary>
-///     A single brute-force candidate for a hash.
-/// </summary>
-public sealed class HashCandidate
-{
-    public required string Name { get; init; }
-    public required int Score { get; init; }
-    public required int Length { get; init; }
-
-    public string Display => $"{Name}  (score: {Score}, len: {Length})";
-}
-
-/// <summary>
-///     Session state for the hash reviewer, persisted to JSON.
-/// </summary>
-public sealed class ReviewSession
-{
-    public Dictionary<string, string> Confirmed { get; set; } = [];
-    public HashSet<string> Skipped { get; set; } = [];
-    public string? CurrentHash { get; set; }
-    public string? BuildsDir { get; set; }
-    public string? CandidatesPath { get; set; }
-}

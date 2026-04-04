@@ -32,7 +32,7 @@ public sealed class QbFile
     {
         if (LocalNames.TryGetValue(checksum, out var local))
             return local;
-        var global = QbKey.TryResolve(checksum);
+        var global = QbKey.QbKey.TryResolve(checksum);
         if (global != null)
             return global;
         return $"#\"0x{checksum:X8}\"";
@@ -407,6 +407,6 @@ public sealed class QbFile
         if (checksum == 0) return null;
         if (localNames.TryGetValue(checksum, out var local))
             return local;
-        return QbKey.TryResolve(checksum);
+        return QbKey.QbKey.TryResolve(checksum);
     }
 }

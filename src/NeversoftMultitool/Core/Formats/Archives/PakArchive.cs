@@ -389,7 +389,7 @@ public static class PakArchive
         var extension = KnownTypes.GetValueOrDefault(fileType, $".{fileType:X8}");
         var crc = nameOnlyCrc != 0 ? nameOnlyCrc : fullQbKey;
 
-        var resolved = QbKey.TryResolve(crc);
+        var resolved = QbKey.QbKey.TryResolve(crc);
         if (resolved != null)
             return (resolved + extension, "");
 

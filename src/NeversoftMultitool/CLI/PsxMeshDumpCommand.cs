@@ -1,5 +1,5 @@
 using System.CommandLine;
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;

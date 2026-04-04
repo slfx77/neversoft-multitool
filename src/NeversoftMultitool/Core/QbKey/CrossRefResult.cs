@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core;
+namespace NeversoftMultitool.Core.QbKey;
 
 /// <summary>
 ///     Aggregate result of a cross-reference run across all file pairs.

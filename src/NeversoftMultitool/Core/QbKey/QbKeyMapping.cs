@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core;
+namespace NeversoftMultitool.Core.QbKey;
 
 /// <summary>
 ///     A single discovered name-to-hash mapping from DDM/PSX cross-reference.

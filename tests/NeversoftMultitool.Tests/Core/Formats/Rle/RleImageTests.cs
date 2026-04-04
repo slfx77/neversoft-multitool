@@ -1,4 +1,4 @@
-using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Rle;
 using NeversoftMultitool.Tests.Helpers;
 

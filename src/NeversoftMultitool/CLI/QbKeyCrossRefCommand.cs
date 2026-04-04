@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Diagnostics;
 using System.Text;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.QbKey;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;

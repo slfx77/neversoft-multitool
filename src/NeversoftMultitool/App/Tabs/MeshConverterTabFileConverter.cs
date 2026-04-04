@@ -1,10 +1,22 @@
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh;
-using NeversoftMultitool.Core.Formats.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.Mesh.Ddm;
+using NeversoftMultitool.Core.Formats.Mesh.Lit;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
+using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
+using NeversoftMultitool.Core.Formats.Texture;
+using NeversoftMultitool.Core.Formats.Texture.Ps2;
+using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.SceneTex;
+using NeversoftMultitool.Core.Formats.Texture.Psx;
+using NeversoftMultitool.Core.Formats.Texture.RenderWare;
 using NeversoftMultitool.Core.Formats.XbxScene;
+using SharpGLTF.Schema2;
 
 namespace NeversoftMultitool;
 
@@ -273,7 +285,7 @@ internal static class MeshConverterTabFileConverter
         return levelTriangles + objectTriangles;
     }
 
-    private static byte[]? WriteGlbToMemory(SharpGLTF.Schema2.ModelRoot model)
+    private static byte[]? WriteGlbToMemory(ModelRoot model)
     {
         using var ms = new MemoryStream();
         model.WriteGLB(ms);
@@ -319,7 +331,10 @@ internal static class MeshConverterTabFileConverter
                     ? Ps2SkeletonFile.Parse(entry.CompanionSkeletonPath)
                     : SkeletonFile.Parse(entry.CompanionSkeletonPath);
             }
-            catch { /* proceed without skeleton */ }
+            catch
+            {
+                /* proceed without skeleton */
+            }
         }
 
         if (skeleton != null && entry.Ps2SubFormat == Ps2SceneSubFormat.ThawSkin)
@@ -451,8 +466,14 @@ internal static class MeshConverterTabFileConverter
         var litFile = MeshConverterTabFileScanner.FindCompanionFile(inputDir, ddmName, ".lit");
         if (litFile != null)
         {
-            try { lights = LitFile.Parse(litFile); }
-            catch { /* ignore */ }
+            try
+            {
+                lights = LitFile.Parse(litFile);
+            }
+            catch
+            {
+                /* ignore */
+            }
         }
 
         var (model, triangles) = GltfWriter.BuildDdmModel(ddm, null, ddmName, ddxTextures, lights);

@@ -1,4 +1,4 @@
-using NeversoftMultitool.Core.Formats.Ps2Scene;
+using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 using NeversoftMultitool.Core.Formats.XbxScene;
 
 namespace NeversoftMultitool.Core;

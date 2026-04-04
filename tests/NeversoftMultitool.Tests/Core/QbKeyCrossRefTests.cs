@@ -1,5 +1,5 @@
-using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.Texture.Psx;
+using NeversoftMultitool.Core.QbKey;
 using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core;

@@ -1,4 +1,4 @@
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.Texture.Psx;
 
 namespace NeversoftMultitool;
 

@@ -1,7 +1,8 @@
 using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
+using NeversoftMultitool.Core.Formats.Texture.RenderWare;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;

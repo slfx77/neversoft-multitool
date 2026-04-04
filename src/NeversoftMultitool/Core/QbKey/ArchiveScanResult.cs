@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core;
+namespace NeversoftMultitool.Core.QbKey;
 
 /// <summary>
 ///     Result of scanning archive filenames against PSX texture hashes.

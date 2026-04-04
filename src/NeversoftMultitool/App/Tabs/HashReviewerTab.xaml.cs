@@ -5,7 +5,7 @@ using Windows.Storage.Pickers;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.QbKey;
 using WinRT.Interop;
 
 namespace NeversoftMultitool;
@@ -14,10 +14,12 @@ public sealed partial class HashReviewerTab : UserControl
 {
     private const int PageSize = 10;
     private const string SessionFileName = "review_session.json";
+
     private static readonly JsonSerializerOptions SessionJsonOptions = new()
     {
         WriteIndented = true
     };
+
     private List<HashReviewEntry> _allEntries = [];
 
     private string _buildsDir = "";
@@ -331,7 +333,9 @@ public sealed partial class HashReviewerTab : UserControl
 
     private (byte[] Rgba, int Width, int Height)? TryExtractFromAllFiles(
         HashReviewEntry entry, List<string> diagnostics)
-        => HashReviewerTextureLookup.TryExtractFromAllFiles(_buildsDir, entry, diagnostics);
+    {
+        return HashReviewerTextureLookup.TryExtractFromAllFiles(_buildsDir, entry, diagnostics);
+    }
 
     // ── Actions ─────────────────────────────────────────────────────────
 
@@ -396,17 +400,29 @@ public sealed partial class HashReviewerTab : UserControl
 
     private void PrevHash_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentIndex > 0) { _currentIndex--; NavigateToCurrentHash(); }
+        if (_currentIndex > 0)
+        {
+            _currentIndex--;
+            NavigateToCurrentHash();
+        }
     }
 
     private void NextHash_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentIndex < _reviewQueue.Count - 1) { _currentIndex++; NavigateToCurrentHash(); }
+        if (_currentIndex < _reviewQueue.Count - 1)
+        {
+            _currentIndex++;
+            NavigateToCurrentHash();
+        }
     }
 
     private void PrevPage_Click(object sender, RoutedEventArgs e)
     {
-        if (_candidatePage > 0) { _candidatePage--; UpdateCandidatesPage(); }
+        if (_candidatePage > 0)
+        {
+            _candidatePage--;
+            UpdateCandidatesPage();
+        }
     }
 
     private void NextPage_Click(object sender, RoutedEventArgs e)

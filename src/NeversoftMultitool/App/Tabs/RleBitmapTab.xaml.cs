@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Rle;
 
 namespace NeversoftMultitool;
@@ -21,6 +22,15 @@ public sealed partial class RleBitmapTab : UserControl, IDisposable
         InitializeComponent();
         FilesListView.ItemsSource = _files;
         Unloaded += RleBitmapTab_Unloaded;
+    }
+
+    public void Dispose()
+    {
+        Unloaded -= RleBitmapTab_Unloaded;
+        _debounceCts?.Dispose();
+        _debounceCts = null;
+        _previewCts?.Dispose();
+        _previewCts = null;
     }
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
@@ -278,15 +288,6 @@ public sealed partial class RleBitmapTab : UserControl, IDisposable
         NoPreviewIcon.Visibility = Visibility.Collapsed;
         PreviewDimensionsText.Text = "";
         PreviewInfoText.Text = "";
-    }
-
-    public void Dispose()
-    {
-        Unloaded -= RleBitmapTab_Unloaded;
-        _debounceCts?.Dispose();
-        _debounceCts = null;
-        _previewCts?.Dispose();
-        _previewCts = null;
     }
 
     private void RleBitmapTab_Unloaded(object sender, RoutedEventArgs e)

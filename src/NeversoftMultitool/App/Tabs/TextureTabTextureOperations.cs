@@ -1,6 +1,10 @@
 using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.Texture;
+using NeversoftMultitool.Core.Formats.Texture.Ps2;
+using NeversoftMultitool.Core.Formats.Texture.Psx;
+using NeversoftMultitool.Core.Formats.Texture.Pvr;
 using NeversoftMultitool.Core.Formats.XbxScene;
+using NeversoftMultitool.Core.QbKey;
 
 namespace NeversoftMultitool;
 

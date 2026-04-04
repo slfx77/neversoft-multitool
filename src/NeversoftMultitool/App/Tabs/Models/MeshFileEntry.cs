@@ -1,15 +1,5 @@
 namespace NeversoftMultitool;
 
-internal enum Ps2SceneSubFormat
-{
-    None,
-    Standard,
-    ThawSkin,
-    PakSkin,
-    PakMdl,
-    Geom
-}
-
 public class MeshFileEntry : BaseFileEntry
 {
     private int _triangleCount;

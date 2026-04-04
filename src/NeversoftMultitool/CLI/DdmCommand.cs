@@ -1,7 +1,8 @@
 using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Ddm;
+using NeversoftMultitool.Core.Formats.Mesh.Lit;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;

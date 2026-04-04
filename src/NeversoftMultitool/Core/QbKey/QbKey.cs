@@ -1,7 +1,7 @@
 using System.Collections.Frozen;
 using System.Globalization;
 
-namespace NeversoftMultitool.Core;
+namespace NeversoftMultitool.Core.QbKey;
 
 /// <summary>
 ///     Neversoft QBKey hash algorithm (reflected CRC-32) and name resolution.

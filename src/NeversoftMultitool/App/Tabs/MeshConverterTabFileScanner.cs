@@ -1,24 +1,33 @@
 using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh;
-using NeversoftMultitool.Core.Formats.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.Mesh.Ddm;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
+using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 using NeversoftMultitool.Core.Formats.XbxScene;
 
 namespace NeversoftMultitool;
 
-internal sealed record MeshScanSummary(IReadOnlyList<ScanSummaryDialog.UnsupportedFile> UnsupportedFiles, int SupportedCount);
-
 internal static class MeshConverterTabFileScanner
 {
-    private static readonly EnumerationOptions CaseInsensitiveEnumeration = new() { MatchCasing = MatchCasing.CaseInsensitive };
+    private static readonly EnumerationOptions CaseInsensitiveEnumeration =
+        new() { MatchCasing = MatchCasing.CaseInsensitive };
+
+    private static readonly IComparer<string> FileNameComparer = Comparer<string>.Create(static (left, right) =>
+        StringComparer.OrdinalIgnoreCase.Compare(
+            Path.GetFileName(left),
+            Path.GetFileName(right)));
+
     private static readonly string[] CompoundExtensions =
     [
         ".iskin.ps2", ".skin.ps2", ".mdl.ps2", ".geom.ps2",
         ".skin.xbx", ".mdl.xbx", ".skin.wpc", ".mdl.wpc",
         ".col.xbx", ".col.wpc", ".col.ps2"
     ];
+
     private static readonly string[] ColSuffixes = [".col.xbx", ".col.wpc", ".col.ps2"];
 
     public static MeshScanSummary AnalyzeDirectory(string inputDir)
@@ -33,84 +42,38 @@ internal static class MeshConverterTabFileScanner
     {
         var entries = new List<MeshFileEntry>();
 
-        var ddmFiles = Directory.GetFiles(inputDir, "*.ddm", CaseInsensitiveEnumeration)
-            .Where(static file => !Path.GetFileNameWithoutExtension(file)
-                .EndsWith("_o", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(static file => Path.GetFileName(file), StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        foreach (var file in ddmFiles)
+        var files = ClassifyFiles(inputDir);
+        foreach (var file in files.DdmFiles)
             AddEntry(entries, ScanDdmFile(file));
 
-        var ddmStems = ddmFiles
+        var ddmStems = files.DdmFiles
             .Select(Path.GetFileNameWithoutExtension)
             .Where(static stem => stem != null)
             .Cast<string>()
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var psxFiles = Directory.GetFiles(inputDir, "*.psx", CaseInsensitiveEnumeration)
-            .Where(file => !ddmStems.Contains(Path.GetFileNameWithoutExtension(file)))
-            .OrderBy(static file => Path.GetFileName(file), StringComparer.OrdinalIgnoreCase);
-
-        foreach (var file in psxFiles)
+        foreach (var file in files.PsxFiles.Where(file => !ddmStems.Contains(Path.GetFileNameWithoutExtension(file))))
             AddEntry(entries, ScanPsxFile(file));
 
-        var sknFiles = Directory.GetFiles(inputDir, "*.SKN", CaseInsensitiveEnumeration)
-            .OrderBy(static file => Path.GetFileName(file), StringComparer.OrdinalIgnoreCase);
-        foreach (var file in sknFiles)
+        foreach (var file in files.RwDffFiles)
             AddEntry(entries, ScanRwDffFile(file));
 
-        var bspFiles = Directory.GetFiles(inputDir, "*.bsp", CaseInsensitiveEnumeration)
-            .OrderBy(static file => Path.GetFileName(file), StringComparer.OrdinalIgnoreCase);
-        foreach (var file in bspFiles)
+        foreach (var file in files.RwBspFiles)
             AddEntry(entries, ScanRwBspFile(file));
 
-        var colFiles = Directory.GetFiles(inputDir, "*", CaseInsensitiveEnumeration)
-            .Where(static file => IsColFilePath(file))
-            .OrderBy(static file => Path.GetFileName(file), StringComparer.OrdinalIgnoreCase);
-        foreach (var file in colFiles)
+        foreach (var file in files.ColFiles)
             AddEntry(entries, ScanColFile(file));
 
-        var iskinStems = Directory.GetFiles(inputDir, "*", CaseInsensitiveEnumeration)
-            .Where(static file => Path.GetFileName(file).EndsWith(".iskin.ps2", StringComparison.OrdinalIgnoreCase))
-            .Select(static file => StripCompoundExtension(Path.GetFileName(file)))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in files.Ps2SceneFiles)
+            AddEntry(entries, ScanPs2SceneFile(file, files.IskinStems));
 
-        var ps2SceneFiles = Directory.GetFiles(inputDir, "*", CaseInsensitiveEnumeration)
-            .Where(static file =>
-            {
-                var fileName = Path.GetFileName(file);
-                return fileName.EndsWith(".skin.ps2", StringComparison.OrdinalIgnoreCase) ||
-                       fileName.EndsWith(".mdl.ps2", StringComparison.OrdinalIgnoreCase) ||
-                       fileName.EndsWith(".iskin.ps2", StringComparison.OrdinalIgnoreCase);
-            })
-            .OrderBy(static file => Path.GetFileName(file), StringComparer.OrdinalIgnoreCase);
-        foreach (var file in ps2SceneFiles)
-            AddEntry(entries, ScanPs2SceneFile(file, iskinStems));
-
-        var ps2GeomFiles = Directory.GetFiles(inputDir, "*", CaseInsensitiveEnumeration)
-            .Where(static file => Path.GetFileName(file).EndsWith(".geom.ps2", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(static file => Path.GetFileName(file), StringComparer.OrdinalIgnoreCase);
-        foreach (var file in ps2GeomFiles)
+        foreach (var file in files.Ps2GeomFiles)
             AddEntry(entries, ScanPs2GeomFile(file));
 
-        var xbxSceneFiles = Directory.GetFiles(inputDir, "*", CaseInsensitiveEnumeration)
-            .Where(static file =>
-            {
-                var fileName = Path.GetFileName(file);
-                return fileName.EndsWith(".skin.xbx", StringComparison.OrdinalIgnoreCase) ||
-                       fileName.EndsWith(".mdl.xbx", StringComparison.OrdinalIgnoreCase) ||
-                       fileName.EndsWith(".skin.wpc", StringComparison.OrdinalIgnoreCase) ||
-                       fileName.EndsWith(".mdl.wpc", StringComparison.OrdinalIgnoreCase);
-            })
-            .OrderBy(static file => Path.GetFileName(file), StringComparer.OrdinalIgnoreCase);
-        foreach (var file in xbxSceneFiles)
+        foreach (var file in files.XbxSceneFiles)
             AddEntry(entries, ScanXbxSceneFile(file));
 
-        var pakSceneFiles = Directory.GetFiles(inputDir, "*", CaseInsensitiveEnumeration)
-            .Where(static file => OrdinalFileName.HasExtension(file, ".skin") || OrdinalFileName.HasExtension(file, ".mdl"))
-            .OrderBy(static file => Path.GetFileName(file), StringComparer.OrdinalIgnoreCase);
-        foreach (var file in pakSceneFiles)
+        foreach (var file in files.PakSceneFiles)
             AddEntry(entries, ScanPs2SceneFile(file));
 
         return entries;
@@ -125,6 +88,78 @@ internal static class MeshConverterTabFileScanner
     internal static string StripCompoundExtension(string filename)
     {
         return OrdinalFileName.StripCompoundSuffix(filename, CompoundExtensions);
+    }
+
+    private static MeshScanFileBuckets ClassifyFiles(string inputDir)
+    {
+        var buckets = new MeshScanFileBuckets();
+        foreach (var file in Directory.GetFiles(inputDir))
+        {
+            var fileName = Path.GetFileName(file);
+            var fileStem = Path.GetFileNameWithoutExtension(fileName);
+
+            if (OrdinalFileName.HasExtension(fileName, ".ddm") &&
+                !fileStem.EndsWith("_o", StringComparison.OrdinalIgnoreCase))
+            {
+                buckets.DdmFiles.Add(file);
+            }
+
+            if (OrdinalFileName.HasExtension(fileName, ".psx"))
+                buckets.PsxFiles.Add(file);
+
+            if (OrdinalFileName.HasExtension(fileName, ".skn"))
+                buckets.RwDffFiles.Add(file);
+
+            if (OrdinalFileName.HasExtension(fileName, ".bsp"))
+                buckets.RwBspFiles.Add(file);
+
+            if (IsColFilePath(file))
+                buckets.ColFiles.Add(file);
+
+            if (fileName.EndsWith(".iskin.ps2", StringComparison.OrdinalIgnoreCase))
+            {
+                buckets.Ps2SceneFiles.Add(file);
+                buckets.IskinStems.Add(StripCompoundExtension(fileName));
+            }
+            else if (fileName.EndsWith(".skin.ps2", StringComparison.OrdinalIgnoreCase) ||
+                     fileName.EndsWith(".mdl.ps2", StringComparison.OrdinalIgnoreCase))
+            {
+                buckets.Ps2SceneFiles.Add(file);
+            }
+
+            if (fileName.EndsWith(".geom.ps2", StringComparison.OrdinalIgnoreCase))
+                buckets.Ps2GeomFiles.Add(file);
+
+            if (fileName.EndsWith(".skin.xbx", StringComparison.OrdinalIgnoreCase) ||
+                fileName.EndsWith(".mdl.xbx", StringComparison.OrdinalIgnoreCase) ||
+                fileName.EndsWith(".skin.wpc", StringComparison.OrdinalIgnoreCase) ||
+                fileName.EndsWith(".mdl.wpc", StringComparison.OrdinalIgnoreCase))
+            {
+                buckets.XbxSceneFiles.Add(file);
+            }
+
+            if (OrdinalFileName.HasExtension(fileName, ".skin") ||
+                OrdinalFileName.HasExtension(fileName, ".mdl"))
+            {
+                buckets.PakSceneFiles.Add(file);
+            }
+        }
+
+        SortByFileName(buckets.DdmFiles);
+        SortByFileName(buckets.PsxFiles);
+        SortByFileName(buckets.RwDffFiles);
+        SortByFileName(buckets.RwBspFiles);
+        SortByFileName(buckets.ColFiles);
+        SortByFileName(buckets.Ps2SceneFiles);
+        SortByFileName(buckets.Ps2GeomFiles);
+        SortByFileName(buckets.XbxSceneFiles);
+        SortByFileName(buckets.PakSceneFiles);
+        return buckets;
+    }
+
+    private static void SortByFileName(List<string> files)
+    {
+        files.Sort(FileNameComparer);
     }
 
     private static void AddEntry(List<MeshFileEntry> entries, MeshFileEntry? entry)
@@ -448,5 +483,19 @@ internal static class MeshConverterTabFileScanner
         {
             return null;
         }
+    }
+
+    private sealed class MeshScanFileBuckets
+    {
+        public List<string> ColFiles { get; } = [];
+        public List<string> DdmFiles { get; } = [];
+        public HashSet<string> IskinStems { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public List<string> PakSceneFiles { get; } = [];
+        public List<string> Ps2GeomFiles { get; } = [];
+        public List<string> Ps2SceneFiles { get; } = [];
+        public List<string> PsxFiles { get; } = [];
+        public List<string> RwBspFiles { get; } = [];
+        public List<string> RwDffFiles { get; } = [];
+        public List<string> XbxSceneFiles { get; } = [];
     }
 }

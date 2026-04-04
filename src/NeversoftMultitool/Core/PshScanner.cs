@@ -1,3 +1,5 @@
+using NeversoftMultitool.Core.QbKey;
+
 namespace NeversoftMultitool.Core;
 
 /// <summary>
@@ -41,7 +43,7 @@ internal static class PshScanner
         var matches = new List<QbKeyMapping>();
         foreach (var (_, name) in candidates)
         {
-            var hash = QbKey.Hash(name);
+            var hash = QbKey.QbKey.Hash(name);
             if (meshHashes.Contains(hash))
             {
                 matches.Add(new QbKeyMapping
@@ -54,7 +56,7 @@ internal static class PshScanner
             }
         }
 
-        var newDiscoveries = matches.Count(m => QbKey.TryResolve(m.Hash) == null);
+        var newDiscoveries = matches.Count(m => QbKey.QbKey.TryResolve(m.Hash) == null);
 
         return new PshScanResult
         {

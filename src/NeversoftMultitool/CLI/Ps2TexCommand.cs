@@ -1,8 +1,10 @@
 using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.Formats.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.Texture;
+using NeversoftMultitool.Core.Formats.Texture.Ps2;
+using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.SceneTex;
+using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;

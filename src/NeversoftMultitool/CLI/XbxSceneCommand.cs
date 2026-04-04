@@ -1,6 +1,6 @@
 using System.CommandLine;
 using System.Diagnostics;
-using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.XbxScene;
 using Spectre.Console;
 

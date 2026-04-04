@@ -1,6 +1,6 @@
 using System.CommandLine;
 using System.Diagnostics;
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.Texture.Psx;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;

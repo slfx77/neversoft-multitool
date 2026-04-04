@@ -1,7 +1,7 @@
 using System.CommandLine;
 using System.Diagnostics;
-using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Qb;
+using NeversoftMultitool.Core.QbKey;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
