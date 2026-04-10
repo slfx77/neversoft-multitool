@@ -152,9 +152,17 @@ internal static class ThawZoneTexOwnerBlobDecoder
         var tw = 1 << (int)((tex0 >> 26) & 0xF);
         var th = 1 << (int)((tex0 >> 30) & 0xF);
 
-        if (psm != Ps2TexPixelDecoder.PSMT4 && psm != Ps2TexPixelDecoder.PSMT8)
-            return null; // This owner-blob path handles only PSMT4 / PSMT8 entries.
-        if (entry.PaletteBytes == 0 || entry.DataSize == 0)
+        if (psm != Ps2TexPixelDecoder.PSMT4 && psm != Ps2TexPixelDecoder.PSMT8
+            && psm != Ps2TexPixelDecoder.PSMCT32)
+            return null;
+        if (entry.DataSize == 0)
+            return null;
+
+        // PSMCT32 (direct color, no palette)
+        if (psm == Ps2TexPixelDecoder.PSMCT32)
+            return DecodePsmct32Record(fileData, entry, headerBase, baseB, tw, th);
+
+        if (entry.PaletteBytes == 0)
             return null;
 
         // Relocate per FUN_001e9ac0
@@ -162,8 +170,11 @@ internal static class ThawZoneTexOwnerBlobDecoder
         var clutAbs = (long)headerBase + entry.DataOffset + baseB;
         var pixelSize = psm == Ps2TexPixelDecoder.PSMT4 ? (long)tw * th / 2 : (long)tw * th;
 
-        if (pixelAbs < 0 || pixelAbs + pixelSize > fileData.Length)
+        // Clamp pixel read to available file data (last record may extend past file end)
+        if (pixelAbs < 0 || pixelAbs >= fileData.Length)
             return null;
+        if (pixelAbs + pixelSize > fileData.Length)
+            pixelSize = fileData.Length - pixelAbs;
         if (clutAbs < 0 || clutAbs + entry.PaletteBytes > fileData.Length)
             return null;
 
@@ -234,6 +245,47 @@ internal static class ThawZoneTexOwnerBlobDecoder
         }
 
         return new Ps2Texture(entry.Checksum, tw, th, psm, cpsm, rgba);
+    }
+
+    private static Ps2Texture? DecodePsmct32Record(
+        ReadOnlySpan<byte> fileData,
+        ThawZoneTexFile.ZoneTexHeaderEntry entry,
+        int headerBase,
+        int baseB,
+        int tw,
+        int th)
+    {
+        var pixelAbs = (long)headerBase + entry.CumulativeOffset + baseB;
+        var pixelSize = (long)tw * th * 4;
+
+        if (pixelAbs < 0 || pixelAbs >= fileData.Length)
+            return null;
+        if (pixelAbs + pixelSize > fileData.Length)
+            pixelSize = fileData.Length - pixelAbs;
+
+        var srcBytes = fileData.Slice((int)pixelAbs, (int)pixelSize);
+
+        // PSMCT32: 4 bytes per pixel (R, G, B, A), bottom-up
+        var rgba = new byte[tw * th * 4];
+        var srcPixels = (int)(pixelSize / 4);
+        for (var y = 0; y < th; y++)
+        {
+            var srcY = th - 1 - y;
+            for (var x = 0; x < tw; x++)
+            {
+                var srcIdx = srcY * tw + x;
+                if (srcIdx >= srcPixels) continue;
+                var srcOff = srcIdx * 4;
+                var outOff = (y * tw + x) * 4;
+                rgba[outOff] = srcBytes[srcOff];
+                rgba[outOff + 1] = srcBytes[srcOff + 1];
+                rgba[outOff + 2] = srcBytes[srcOff + 2];
+                rgba[outOff + 3] = (byte)Math.Min(srcBytes[srcOff + 3] * 2, 255);
+            }
+        }
+
+        return new Ps2Texture(entry.Checksum, tw, th,
+            Ps2TexPixelDecoder.PSMCT32, 0, rgba);
     }
 
     private static byte[] ExpandPsmct16Palette(ReadOnlySpan<byte> clutBytes, int count)
