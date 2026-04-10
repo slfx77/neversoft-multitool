@@ -224,7 +224,15 @@ internal static class ThawZoneTexCoreDecoder
 
         var texturesByChecksum = new Dictionary<uint, Ps2Texture>();
 
-        if (TryGetHeaderDataLayout(fileData, out _, out _))
+        // Authoritative path: FUN_001e9ac0 owner blob decoder.
+        // Uses the file's actual owner blob header at runtime-relocated offsets.
+        // See ThawZoneTexOwnerBlobDecoder for details.
+        foreach (var texture in ThawZoneTexOwnerBlobDecoder.DecodeAllRecords(fileData, entries))
+            texturesByChecksum.TryAdd(texture.Checksum, texture);
+
+        // Legacy heuristic path - kept as fallback for any records the owner blob path
+        // can't handle (e.g. PSMT8 records, which still need work).
+        if (texturesByChecksum.Count < entries.Count && TryGetHeaderDataLayout(fileData, out _, out _))
         {
             foreach (var texture in DecodeFromHeaderDataSlots(fileData, uploads, entries))
                 texturesByChecksum.TryAdd(texture.Checksum, texture);

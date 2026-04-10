@@ -78,26 +78,6 @@ public class ThawZoneTexFileTests
         }
     }
 
-    private static Dictionary<uint, Ps2Texture> BuildPreparedSourceExpectedTextures(
-        byte[] data,
-        IReadOnlyList<ThawZoneTexFile.VramUpload> uploads,
-        IReadOnlyList<ThawZoneTexFile.ZoneTexHeaderEntry> entries)
-    {
-        var expectedByChecksum = ThawZoneTexFile.DecodeFromHeaderDataSlots(data, uploads, entries)
-            .ToDictionary(static texture => texture.Checksum);
-
-        var unresolvedEntries = entries
-            .Where(entry => !expectedByChecksum.ContainsKey(entry.Checksum))
-            .ToList();
-        if (unresolvedEntries.Count > 0)
-        {
-            foreach (var texture in ThawZoneTexFile.DecodeFromHeaderEntries(uploads, unresolvedEntries))
-                expectedByChecksum.TryAdd(texture.Checksum, texture);
-        }
-
-        return expectedByChecksum;
-    }
-
     [Fact]
     public void IsThawZoneTex_DetectsZoneTexFile()
     {
@@ -197,20 +177,10 @@ public class ThawZoneTexFileTests
             $"Expected at least 800 unique textures, got {textures.Count}");
     }
 
-    [Fact]
-    public void DecodeAllFromFile_MatchesPreparedSourceDecode_ForRepresentativeEntries()
-    {
-        var data = LoadZoneTexData();
-        var uploads = ThawZoneTexFile.ParseVramUploads(data);
-        var entries = ThawZoneTexFile.ParseHeaderEntries(data);
-        var representativeEntries = GetRepresentativeEntries(entries);
-
-        var publicByChecksum = ThawZoneTexFile.DecodeAllFromFile(data)
-            .ToDictionary(static texture => texture.Checksum);
-        var preparedByChecksum = BuildPreparedSourceExpectedTextures(data, uploads, representativeEntries);
-
-        AssertEquivalentTextures(preparedByChecksum, publicByChecksum, representativeEntries);
-    }
+    // DecodeAllFromFile_MatchesPreparedSourceDecode_ForRepresentativeEntries was removed
+    // when the public decoder switched to the FUN_001e9ac0 owner-blob path. The legacy
+    // DecodeFromHeaderDataSlots path was a heuristic that produced different (and visibly
+    // broken) output, so a byte-exact comparison between the two no longer makes sense.
 
     [Fact]
     public void DecodeAllFromFile_Psmct32TextureDecodes()

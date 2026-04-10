@@ -292,6 +292,16 @@ public static class ThawZoneTexFile
     internal static bool TryGetHeaderDataLayout(ReadOnlySpan<byte> fileData, out int dataBaseOffset,
         out int dataOffsetBias)
     {
+        // Zone .tex files contain TWO overlapping data sections:
+        //   1. PACKED_BASE (0x0A) onwards: DMA upload source bytes (GS-swizzled, needs Conv4to32)
+        //   2. fileLength - maxEnd onwards: Prepared CPU-side source data (already linear)
+        //
+        // The runtime FUN_0019cd48 decodes from section (2) via the +0x14/+0x18 pointers
+        // (see zone_tex_format.md Phase 6+). Reading from section (2) gives decoded textures
+        // directly without needing to replay the DMA chain.
+        //
+        // We use section (2) here, computed via the legacy heuristic. Cross-verified that
+        // record 317 (A20AA4CB) decodes correctly to a smooth round shape from this location.
         dataBaseOffset = 0;
         dataOffsetBias = 0;
 
