@@ -280,7 +280,7 @@ internal static class ThawZoneTexOwnerBlobDecoder
                 rgba[outOff] = srcBytes[srcOff];
                 rgba[outOff + 1] = srcBytes[srcOff + 1];
                 rgba[outOff + 2] = srcBytes[srcOff + 2];
-                rgba[outOff + 3] = (byte)Math.Min(srcBytes[srcOff + 3] * 2, 255);
+                rgba[outOff + 3] = srcBytes[srcOff + 3] == 0 ? (byte)0 : (byte)0xFF;
             }
         }
 
@@ -320,10 +320,11 @@ internal static class ThawZoneTexOwnerBlobDecoder
             result[i * 4] = clutBytes[i * 4];
             result[i * 4 + 1] = clutBytes[i * 4 + 1];
             result[i * 4 + 2] = clutBytes[i * 4 + 2];
-            // PS2 GS alpha range is 0-128 (0x80 = fully opaque).
-            // Scale to standard 0-255 range: min(alpha * 2, 255).
-            var alpha = clutBytes[i * 4 + 3];
-            result[i * 4 + 3] = (byte)Math.Min(alpha * 2, 255);
+            // PS2 GS alpha range is 0-128 (0x80 = fully opaque). The sub-128 values
+            // are runtime blending controls (additive, material tints) rather than
+            // source texture transparency. For extraction, treat any non-zero alpha
+            // as fully opaque; only alpha==0 is truly transparent.
+            result[i * 4 + 3] = clutBytes[i * 4 + 3] == 0 ? (byte)0 : (byte)0xFF;
         }
         return result;
     }
