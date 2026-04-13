@@ -153,14 +153,16 @@ internal static class ThawZoneTexOwnerBlobDecoder
         var th = 1 << (int)((tex0 >> 30) & 0xF);
 
         if (psm != Ps2TexPixelDecoder.PSMT4 && psm != Ps2TexPixelDecoder.PSMT8
-            && psm != Ps2TexPixelDecoder.PSMCT32)
+            && psm != Ps2TexPixelDecoder.PSMCT32 && psm != Ps2TexPixelDecoder.PSMCT16)
             return null;
         if (entry.DataSize == 0)
             return null;
 
-        // PSMCT32 (direct color, no palette)
+        // Direct-color formats (no palette)
         if (psm == Ps2TexPixelDecoder.PSMCT32)
             return DecodePsmct32Record(fileData, entry, headerBase, baseB, tw, th);
+        if (psm == Ps2TexPixelDecoder.PSMCT16)
+            return DecodePsmct16Record(fileData, entry, headerBase, baseB, tw, th);
 
         if (entry.PaletteBytes == 0)
             return null;
@@ -291,6 +293,50 @@ internal static class ThawZoneTexOwnerBlobDecoder
 
         return new Ps2Texture(entry.Checksum, tw, th,
             Ps2TexPixelDecoder.PSMCT32, 0, rgba);
+    }
+
+    private static Ps2Texture? DecodePsmct16Record(
+        ReadOnlySpan<byte> fileData,
+        ThawZoneTexFile.ZoneTexHeaderEntry entry,
+        int headerBase,
+        int baseB,
+        int tw,
+        int th)
+    {
+        var pixelAbs = (long)headerBase + entry.CumulativeOffset + baseB;
+        var pixelSize = (long)tw * th * 2;
+
+        if (pixelAbs < 0 || pixelAbs >= fileData.Length)
+            return null;
+        if (pixelAbs + pixelSize > fileData.Length)
+            pixelSize = fileData.Length - pixelAbs;
+
+        var srcBytes = fileData.Slice((int)pixelAbs, (int)pixelSize);
+
+        // PSMCT16: 2 bytes per pixel (RGBA5551), bottom-up
+        var rgba = new byte[tw * th * 4];
+        var srcPixels = (int)(pixelSize / 2);
+        for (var y = 0; y < th; y++)
+        {
+            var srcY = th - 1 - y;
+            for (var x = 0; x < tw; x++)
+            {
+                var srcIdx = srcY * tw + x;
+                if (srcIdx >= srcPixels) continue;
+                var pixel = BitConverter.ToUInt16(srcBytes[(srcIdx * 2)..]);
+                var r = pixel & 0x1F;
+                var g = (pixel >> 5) & 0x1F;
+                var b = (pixel >> 10) & 0x1F;
+                var outOff = (y * tw + x) * 4;
+                rgba[outOff] = (byte)(r << 3);
+                rgba[outOff + 1] = (byte)(g << 3);
+                rgba[outOff + 2] = (byte)(b << 3);
+                rgba[outOff + 3] = pixel == 0 ? (byte)0 : (byte)0xFF;
+            }
+        }
+
+        return new Ps2Texture(entry.Checksum, tw, th,
+            Ps2TexPixelDecoder.PSMCT16, 0, rgba);
     }
 
     private static byte[] ExpandPsmct16Palette(ReadOnlySpan<byte> clutBytes, int count)
