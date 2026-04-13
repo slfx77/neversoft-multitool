@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Animation;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -25,26 +26,43 @@ public static class SkaCommand
         {
             Description = "Enable verbose output"
         };
+        var skelOption = new Option<string?>("--ske")
+        {
+            Description = "Skeleton file (.ske.ps2 or .ske) for glTF export"
+        };
 
-        var command = new Command("ska", "Parse and validate SKA animation files");
+        var command = new Command("ska", "Parse SKA animation files and optionally export to glTF");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
+        command.Options.Add(skelOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
             var verbose = parseResult.GetValue(verboseOption);
+            var skePath = parseResult.GetValue(skelOption);
 
-            return Task.FromResult(Execute(input, output, verbose));
+            return Task.FromResult(Execute(input, output, verbose, skePath));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string output, bool verbose)
+    private static int Execute(string input, string output, bool verbose, string? skePath)
     {
+        // Load skeleton if provided (enables glTF export)
+        Ps2Skeleton? skeleton = null;
+        if (skePath != null)
+        {
+            var skelData = File.ReadAllBytes(skePath);
+            skeleton = skePath.EndsWith(".ps2", StringComparison.OrdinalIgnoreCase)
+                ? Ps2SkeletonFile.Parse(skelData)
+                : SkeletonFile.Parse(skelData);
+            AnsiConsole.MarkupLine($"Loaded skeleton: [green]{skeleton.Bones.Length}[/] bones from {Path.GetFileName(skePath)}");
+        }
+
         List<string> files;
 
         if (File.Exists(input))
@@ -82,8 +100,6 @@ public static class SkaCommand
         var totalBones = 0;
         var totalQKeys = 0;
         var totalTKeys = 0;
-        var lookupQKeys = 0;
-        var lookupTKeys = 0;
 
         foreach (var file in files)
         {
@@ -115,6 +131,18 @@ public static class SkaCommand
                         $"v={anim.Version} bones={boneCount} " +
                         $"Q={qCount} T={tCount} dur={anim.Duration:F2}s " +
                         $"flags=0x{anim.Flags:X8}");
+                }
+
+                // Export to glTF if skeleton is available and bone counts match
+                if (skeleton != null && boneCount == skeleton.Bones.Length)
+                {
+                    var stem = Path.GetFileNameWithoutExtension(
+                        Path.GetFileNameWithoutExtension(file)); // strip .ska.ps2
+                    var glbPath = Path.Combine(output, stem + ".glb");
+                    var channels = SkaGltfWriter.WriteAnimatedSkeleton(
+                        skeleton, anim, glbPath, stem);
+                    if (verbose)
+                        AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] ({channels} channels)");
                 }
             }
             catch (Exception ex)
