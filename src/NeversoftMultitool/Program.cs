@@ -38,6 +38,7 @@ public static class Program
         rootCommand.Subcommands.Add(RleCommand.Create());
         rootCommand.Subcommands.Add(ArchiveCommand.Create());
         rootCommand.Subcommands.Add(PvrCommand.Create());
+        rootCommand.Subcommands.Add(NgcTexCommand.Create());
         rootCommand.Subcommands.Add(DdmCommand.Create());
         rootCommand.Subcommands.Add(AudioCommand.Create());
         rootCommand.Subcommands.Add(QbKeyCommand.Create());
@@ -57,6 +58,7 @@ public static class Program
         rootCommand.Subcommands.Add(UnpackCommand.Create());
         rootCommand.Subcommands.Add(QbCommand.Create());
         rootCommand.Subcommands.Add(GlbRenderCommand.Create());
+        rootCommand.Subcommands.Add(SkaCommand.Create());
 
         return rootCommand.Parse(args).Invoke();
     }
@@ -97,8 +99,9 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]rle[/]       Convert RLE/BMR bitmap files to PNG");
         AnsiConsole.MarkupLine("  [green]archive[/]   Extract files from WAD/PKR/PRE/DDX/BON/PAK archives");
         AnsiConsole.MarkupLine("  [green]pvr[/]       Convert Dreamcast PVR texture files to PNG");
+        AnsiConsole.MarkupLine("  [green]ngctex[/]    Extract textures from GameCube TEX dictionaries to PNG");
         AnsiConsole.MarkupLine("  [green]ddm[/]       Convert DDM mesh files to glTF (.glb)");
-        AnsiConsole.MarkupLine("  [green]audio[/]     Convert ADX/XA/VAB/KAT audio files to WAV");
+        AnsiConsole.MarkupLine("  [green]audio[/]     Convert ADX/XA/VAB/VAG/KAT/SFX/PSS/VID audio files to WAV");
         AnsiConsole.MarkupLine("  [green]qbkey[/]     QBKey hash utilities (cross-reference, lookup)");
         AnsiConsole.MarkupLine("  [green]trg[/]       Parse TRG level trigger/script files to JSON");
         AnsiConsole.MarkupLine("  [green]sfd[/]       Convert SFD (Sofdec) video files to MP4");
@@ -133,6 +136,7 @@ public static class Program
             args.Any(a => a.Equals("rle", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("archive", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("pvr", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("ngctex", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("ddm", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("audio", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("qbkey", StringComparison.OrdinalIgnoreCase)) ||
@@ -149,7 +153,8 @@ public static class Program
             args.Any(a => a.Equals("xbxtex", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("xbxscene", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("unpack", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("qb", StringComparison.OrdinalIgnoreCase)));
+            args.Any(a => a.Equals("qb", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("ska", StringComparison.OrdinalIgnoreCase)));
     }
 #endif
 }
