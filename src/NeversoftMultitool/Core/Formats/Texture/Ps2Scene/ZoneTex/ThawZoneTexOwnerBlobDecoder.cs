@@ -201,15 +201,11 @@ internal static class ThawZoneTexOwnerBlobDecoder
             return null;
         }
 
-        // Note: NO CSM1 unswizzle needed here. In zone .tex files the CLUT is stored
-        // in linear order and the pixel indices are already pre-swizzled by the build tool.
-        // Applying CSM1 would double-swizzle and produce wrong colors.
-
         // Unswizzle pixel data.
-        //   PSMT4: stored in PSMCT32-uploaded layout (Conv4to32). Apply UnswizzlePsmt4.
-        //   PSMT8: stored in Conv8to32 layout. The data_size is tw*th (the PSMT8 byte
-        //          count), while the upload was PSMCT32 at half-width × half-height.
-        //          UnswizzlePsmt8 handles this mapping correctly.
+        //   PSMT4: stored in PSMCT32-uploaded layout (Conv4to32). No CSM1.
+        //   PSMT8: stored in PSMCT32-uploaded layout (Conv8to32). CSM1 index
+        //          remap applied before palette lookup (matches runtime
+        //          DAT_005ad180 table and THUG source texture.cpp:503-522).
         byte[] unswizzled;
         if (psm == Ps2TexPixelDecoder.PSMT4)
             unswizzled = Ps2TexSwizzle.UnswizzlePsmt4(pixelBytes, tw, th);
@@ -233,7 +229,16 @@ internal static class ThawZoneTexOwnerBlobDecoder
                 }
                 else
                 {
+                    // PSMT8: apply CSM1 index remap (swap blocks [8..15] and
+                    // [16..23] within each group of 32). This matches the
+                    // runtime DAT_005ad180 lookup table and the THUG source
+                    // texture.cpp CSM1 CLUT rearrangement (lines 503-522).
                     idx = unswizzled[srcY * tw + x];
+                    var block = idx & 0x18; // bits 3-4 within group of 32
+                    if (block == 0x08) // 8..15 → 16..23
+                        idx = (idx & ~0x18) | 0x10;
+                    else if (block == 0x10) // 16..23 → 8..15
+                        idx = (idx & ~0x18) | 0x08;
                 }
                 var paletteOff = idx * 4;
                 var outOff = (y * tw + x) * 4;
