@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Animation;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using Spectre.Console;
 
@@ -30,12 +31,17 @@ public static class SkaCommand
         {
             Description = "Skeleton file (.ske.ps2 or .ske) for glTF export"
         };
+        var skinOption = new Option<string?>("--skin")
+        {
+            Description = "Skin mesh file (.skin.ps2 or .iskin.ps2) for combined mesh+animation glTF"
+        };
 
         var command = new Command("ska", "Parse SKA animation files and optionally export to glTF");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
         command.Options.Add(skelOption);
+        command.Options.Add(skinOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -43,14 +49,16 @@ public static class SkaCommand
             var output = parseResult.GetValue(outputOption)!;
             var verbose = parseResult.GetValue(verboseOption);
             var skePath = parseResult.GetValue(skelOption);
+            var skinPath = parseResult.GetValue(skinOption);
 
-            return Task.FromResult(Execute(input, output, verbose, skePath));
+            return Task.FromResult(Execute(input, output, verbose, skePath, skinPath));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string output, bool verbose, string? skePath)
+    private static int Execute(string input, string output, bool verbose, string? skePath,
+        string? skinPath)
     {
         // Load skeleton if provided (enables glTF export)
         Ps2Skeleton? skeleton = null;
@@ -61,6 +69,15 @@ public static class SkaCommand
                 ? Ps2SkeletonFile.Parse(skelData)
                 : SkeletonFile.Parse(skelData);
             AnsiConsole.MarkupLine($"Loaded skeleton: [green]{skeleton.Bones.Length}[/] bones from {Path.GetFileName(skePath)}");
+        }
+
+        // Load skin mesh if provided (enables combined mesh+animation export)
+        Ps2Scene? skinScene = null;
+        if (skinPath != null && skeleton != null)
+        {
+            var skinData = File.ReadAllBytes(skinPath);
+            skinScene = Ps2SceneFile.Parse(skinData);
+            AnsiConsole.MarkupLine($"Loaded skin: [green]{skinScene.MeshGroups.Sum(g => g.Meshes.Count)}[/] meshes from {Path.GetFileName(skinPath)}");
         }
 
         List<string> files;
@@ -139,10 +156,23 @@ public static class SkaCommand
                     var stem = Path.GetFileNameWithoutExtension(
                         Path.GetFileNameWithoutExtension(file)); // strip .ska.ps2
                     var glbPath = Path.Combine(output, stem + ".glb");
-                    var channels = SkaGltfWriter.WriteAnimatedSkeleton(
-                        skeleton, anim, glbPath, stem);
-                    if (verbose)
-                        AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] ({channels} channels)");
+
+                    if (skinScene != null)
+                    {
+                        // Combined mesh + animation
+                        var tris = Ps2SceneGltfWriter.WriteSkinnedAnimated(
+                            skinScene, skeleton, anim, glbPath, stem);
+                        if (verbose)
+                            AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] (skinned, {tris} triangles)");
+                    }
+                    else
+                    {
+                        // Skeleton-only animation
+                        var channels = SkaGltfWriter.WriteAnimatedSkeleton(
+                            skeleton, anim, glbPath, stem);
+                        if (verbose)
+                            AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] ({channels} channels)");
+                    }
                 }
             }
             catch (Exception ex)

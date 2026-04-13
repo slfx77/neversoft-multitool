@@ -39,8 +39,45 @@ internal static class SkaGltfWriter
     }
 
     /// <summary>
-    ///     Write an animated skeleton to a .glb file.
-    ///     Each bone track's rotation/translation keyframes become glTF animation channels.
+    ///     Apply animation channels to an existing joint hierarchy.
+    ///     Returns the number of channels added.
+    /// </summary>
+    internal static int ApplyAnimation(
+        NodeBuilder[] jointNodes,
+        SkaAnimation animation,
+        string? animationName = null)
+    {
+        var boneCount = Math.Min(animation.BoneTracks.Length, jointNodes.Length);
+        var name = animationName ?? "animation";
+        var channelCount = 0;
+
+        for (var i = 0; i < boneCount; i++)
+        {
+            var track = animation.BoneTracks[i];
+            var node = jointNodes[i];
+
+            if (track.RotationKeys.Length > 0)
+            {
+                var rotCurve = node.UseRotation(name);
+                foreach (var key in track.RotationKeys)
+                    rotCurve.SetPoint(key.Time, key.Rotation);
+                channelCount++;
+            }
+
+            if (track.TranslationKeys.Length > 0)
+            {
+                var transCurve = node.UseTranslation(name);
+                foreach (var key in track.TranslationKeys)
+                    transCurve.SetPoint(key.Time, key.Translation);
+                channelCount++;
+            }
+        }
+
+        return channelCount;
+    }
+
+    /// <summary>
+    ///     Write an animated skeleton (no mesh) to a .glb file.
     /// </summary>
     internal static int WriteAnimatedSkeleton(
         Ps2Skeleton skeleton,
@@ -53,36 +90,8 @@ internal static class SkaGltfWriter
             Directory.CreateDirectory(directory);
 
         var jointNodes = BuildJointHierarchy(skeleton);
-
-        // Animation bone count must match skeleton
-        var boneCount = Math.Min(animation.BoneTracks.Length, skeleton.Bones.Length);
         var name = animationName ?? Path.GetFileNameWithoutExtension(outputPath);
-
-        var channelCount = 0;
-        for (var i = 0; i < boneCount; i++)
-        {
-            var track = animation.BoneTracks[i];
-            var node = jointNodes[i];
-
-            // Rotation keyframes
-            if (track.RotationKeys.Length > 0)
-            {
-                var rotCurve = node.UseRotation(name);
-                foreach (var key in track.RotationKeys)
-                    rotCurve.SetPoint(key.Time, key.Rotation);
-                channelCount++;
-            }
-
-            // Translation keyframes
-            if (track.TranslationKeys.Length > 0)
-            {
-                var transCurve = node.UseTranslation(name);
-                foreach (var key in track.TranslationKeys)
-                    transCurve.SetPoint(key.Time, key.Translation);
-                channelCount++;
-            }
-        }
-
+        var channelCount = ApplyAnimation(jointNodes, animation, name);
         if (channelCount == 0)
             return 0;
 

@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using SharpGLTF.Geometry;
@@ -110,6 +111,76 @@ public static class Ps2SceneGltfWriter
         GltfNormalSmoother.SmoothNormals(model);
         model.SaveGLB(outputPath);
         return triangles;
+    }
+
+    /// <summary>
+    ///     Writes a skinned mesh with animation to a .glb file.
+    /// </summary>
+    internal static int WriteSkinnedAnimated(Ps2Scene ps2Scene, Ps2Skeleton skeleton,
+        SkaAnimation animation, string outputPath, string? animationName = null,
+        TextureProvider? textureProvider = null)
+    {
+        var directory = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        var (model, triangles) = BuildSkinnedAnimated(ps2Scene, skeleton, animation,
+            animationName, textureProvider);
+        if (triangles == 0) return 0;
+        GltfNormalSmoother.SmoothNormals(model);
+        model.SaveGLB(outputPath);
+        return triangles;
+    }
+
+    internal static (ModelRoot Model, int Triangles) BuildSkinnedAnimated(
+        Ps2Scene ps2Scene, Ps2Skeleton skeleton, SkaAnimation animation,
+        string? animationName = null, TextureProvider? textureProvider = null)
+    {
+        var scene = new SceneBuilder();
+        var materialCache = new Dictionary<uint, MaterialBuilder>();
+        var totalTriangles = 0;
+
+        // Build skeleton with animation channels
+        var jointNodes = BuildJointNodes(skeleton);
+        SkaGltfWriter.ApplyAnimation(jointNodes, animation, animationName ?? "animation");
+
+        // Build skinned mesh
+        var gltfMesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4>("skinned_mesh");
+        foreach (var mesh in ps2Scene.MeshGroups.SelectMany(g => g.Meshes))
+        {
+            if (mesh.Vertices.Length < 3) continue;
+            var material = GetOrCreateMaterial(ps2Scene.Materials, mesh.MaterialChecksum,
+                materialCache, textureProvider);
+            var prim = gltfMesh.UsePrimitive(material);
+            var tris = Ps2SceneGltfSkinningSupport.AddSkinnedTriangleStrip(prim, mesh.Vertices,
+                mesh.StartsOnOddOutputSlot);
+            totalTriangles += tris;
+        }
+
+        if (totalTriangles > 0)
+            scene.AddSkinnedMesh(gltfMesh, Matrix4x4.Identity, jointNodes);
+
+        return (scene.ToGltf2(), totalTriangles);
+    }
+
+    /// <summary>Build joint nodes from skeleton (shared between animated and static paths).</summary>
+    private static NodeBuilder[] BuildJointNodes(Ps2Skeleton skeleton)
+    {
+        var jointNodes = new NodeBuilder[skeleton.Bones.Length];
+        for (var i = 0; i < skeleton.Bones.Length; i++)
+        {
+            var bone = skeleton.Bones[i];
+            var boneName = QbKey.QbKey.TryResolve(bone.NameChecksum) ?? $"bone_{bone.NameChecksum:X8}";
+
+            if (bone.ParentIndex < 0)
+                jointNodes[i] = new NodeBuilder(boneName);
+            else
+                jointNodes[i] = jointNodes[bone.ParentIndex].CreateNode(boneName);
+
+            jointNodes[i].LocalTransform = new AffineTransform(
+                null, bone.LocalRotation, bone.LocalTranslation);
+        }
+        return jointNodes;
     }
 
     internal static (ModelRoot Model, int Triangles) BuildSkinned(Ps2Scene ps2Scene,
