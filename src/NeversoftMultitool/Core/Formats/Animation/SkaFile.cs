@@ -419,8 +419,12 @@ internal static class SkaFile
     }
 
     /// <summary>
-    ///     Reconstruct unit quaternion W component from X, Y, Z.
+    ///     Reconstruct unit quaternion W component from X, Y, Z, then conjugate.
     ///     W = sqrt(1 - x² - y² - z²), sign from signBit.
+    ///
+    ///     The THUG engine's QuatVecToMatrix conjugates the quaternion before
+    ///     building a rotation matrix — the file stores q but the engine uses q*.
+    ///     This matches the skeleton loader's treatment (Ps2SkeletonFile line 71).
     /// </summary>
     private static Quaternion ReconstructQuat(float x, float y, float z, bool signBit)
     {
@@ -430,7 +434,7 @@ internal static class SkaFile
         var sum = 1f - x * x - y * y - z * z;
         var w = sum > 0 ? MathF.Sqrt(sum) : 0f;
         if (signBit) w = -w;
-        return new Quaternion(x, y, z, w);
+        return Quaternion.Conjugate(new Quaternion(x, y, z, w));
     }
 }
 
