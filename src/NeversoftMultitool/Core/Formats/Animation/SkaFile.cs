@@ -206,7 +206,7 @@ internal static class SkaFile
                     var qx = BitConverter.ToSingle(data[(qOff + 2)..]);
                     var qy = BitConverter.ToSingle(data[(qOff + 6)..]);
                     var qz = BitConverter.ToSingle(data[(qOff + 10)..]);
-                    var time = isCompressedTime ? timestamp * duration / 4096f : timestamp / 60f;
+                    var time = timestamp / 60f;
                     rotKeys[k] = new SkaRotationKey(time, ReconstructQuat(qx, qy, qz, signBit));
                     qOff += 14;
                 }
@@ -218,7 +218,7 @@ internal static class SkaFile
                     var qx = BitConverter.ToInt16(data[(qOff + 2)..]) / 16384f;
                     var qy = BitConverter.ToInt16(data[(qOff + 4)..]) / 16384f;
                     var qz = BitConverter.ToInt16(data[(qOff + 6)..]) / 16384f;
-                    var time = isCompressedTime ? timestamp * duration / 4096f : timestamp / 60f;
+                    var time = timestamp / 60f;
                     rotKeys[k] = new SkaRotationKey(time, ReconstructQuat(qx, qy, qz, signBit));
                     qOff += 8;
                 }
@@ -233,7 +233,7 @@ internal static class SkaFile
                     var tx = BitConverter.ToSingle(data[(tOff + 2)..]);
                     var ty = BitConverter.ToSingle(data[(tOff + 6)..]);
                     var tz = BitConverter.ToSingle(data[(tOff + 10)..]);
-                    var time = isCompressedTime ? timestamp * duration / 4096f : timestamp / 60f;
+                    var time = timestamp / 60f;
                     transKeys[k] = new SkaTranslationKey(time, new Vector3(tx, ty, tz));
                     tOff += 14;
                 }
@@ -243,7 +243,7 @@ internal static class SkaFile
                     var tx = BitConverter.ToInt16(data[(tOff + 2)..]) / 32f;
                     var ty = BitConverter.ToInt16(data[(tOff + 4)..]) / 32f;
                     var tz = BitConverter.ToInt16(data[(tOff + 6)..]) / 32f;
-                    var time = isCompressedTime ? timestamp * duration / 4096f : timestamp / 60f;
+                    var time = timestamp / 60f;
                     transKeys[k] = new SkaTranslationKey(time, new Vector3(tx, ty, tz));
                     tOff += 8;
                 }
@@ -351,7 +351,7 @@ internal static class SkaFile
                 off += 6;
             }
 
-            var time = compressedTime ? timestamp * duration / 4096f : timestamp / 60f;
+            var time = timestamp / 60f;
             keys.Add(new SkaRotationKey(time, ReconstructQuat(qx, qy, qz, signBit)));
         }
 
@@ -411,7 +411,7 @@ internal static class SkaFile
                 off += 6;
             }
 
-            var time = compressedTime ? timestamp * duration / 4096f : timestamp / 60f;
+            var time = timestamp / 60f;
             keys.Add(new SkaTranslationKey(time, new Vector3(tx, ty, tz)));
         }
 

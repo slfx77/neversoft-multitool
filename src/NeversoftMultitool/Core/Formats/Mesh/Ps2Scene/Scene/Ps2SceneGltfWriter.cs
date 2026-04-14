@@ -249,6 +249,12 @@ public static class Ps2SceneGltfWriter
         float maxTriangleEdgeLength = float.PositiveInfinity,
         bool resetOnRestart = false)
     {
+        // Detect PS2 GS triangle-list-via-tristrip pattern: repeating {ADC=1, ADC=1, ADC=0}
+        // groups. THAW PAK MDL object meshes use this to encode independent triangles in a
+        // TRISTRIP primitive. Standard strip winding alternation must NOT be applied.
+        if (IsTriangleListPattern(verts))
+            return AddTriangleList(prim, verts, dedup, maxTriangleEdgeLength);
+
         var count = 0;
         var stripStart = 0;
         var parityBias = startsOnOddOutputSlot ? 1 : 0;
@@ -312,6 +318,73 @@ public static class Ps2SceneGltfWriter
             }
 
             prim.AddTriangle(va, vb, vc);
+            count++;
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    ///     Detect the PS2 GS triangle-list-via-tristrip pattern: repeating groups of exactly
+    ///     2 restart vertices followed by 1 draw vertex ({R, R, D}). THAW PAK MDL objects use
+    ///     this to encode individual triangles inside a TRISTRIP GS primitive.
+    /// </summary>
+    private static bool IsTriangleListPattern(Ps2Vertex[] verts)
+    {
+        if (verts.Length < 6)
+            return false;
+
+        // Check the first few groups. Pattern: vertex[3n] = restart, vertex[3n+1] = restart,
+        // vertex[3n+2] = draw. Require at least 3 consecutive groups to confirm.
+        var groupsChecked = 0;
+        var groupsMatched = 0;
+        for (var g = 0; g < verts.Length / 3 && groupsChecked < 8; g++)
+        {
+            var i = g * 3;
+            if (i + 2 >= verts.Length) break;
+            groupsChecked++;
+            if (verts[i].IsStripRestart && verts[i + 1].IsStripRestart && !verts[i + 2].IsStripRestart)
+                groupsMatched++;
+        }
+
+        return groupsChecked >= 3 && groupsMatched == groupsChecked;
+    }
+
+    /// <summary>
+    ///     Assemble independent triangles from {restart, restart, draw} vertex groups.
+    ///     No winding alternation — each 3-vertex group is an independent triangle.
+    /// </summary>
+    private static int AddTriangleList(
+        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexEmpty> prim,
+        Ps2Vertex[] verts,
+        HashSet<(Vector3, Vector3, Vector3)>? dedup = null,
+        float maxTriangleEdgeLength = float.PositiveInfinity)
+    {
+        var count = 0;
+
+        for (var i = 0; i + 2 < verts.Length; i += 3)
+        {
+            // Expect pattern: verts[i]=R, verts[i+1]=R, verts[i+2]=D
+            // But be tolerant of deviations at the end
+            var pa = verts[i];
+            var pb = verts[i + 1];
+            var pc = verts[i + 2];
+
+            if (IsDegenerate(pa, pb, pc))
+                continue;
+
+            if (!float.IsPositiveInfinity(maxTriangleEdgeLength) &&
+                MaxTriangleEdgeLength(pa, pb, pc) > maxTriangleEdgeLength)
+                continue;
+
+            if (dedup is not null)
+            {
+                var key = SortedTriangleKey(pa.Position, pb.Position, pc.Position);
+                if (!dedup.Add(key))
+                    continue;
+            }
+
+            prim.AddTriangle(MakeVertex(pa), MakeVertex(pb), MakeVertex(pc));
             count++;
         }
 

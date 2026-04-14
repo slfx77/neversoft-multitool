@@ -35,6 +35,10 @@ public static class SkaCommand
         {
             Description = "Skin mesh file (.skin.ps2 or .iskin.ps2) for combined mesh+animation glTF"
         };
+        var texOption = new Option<string?>("--tex")
+        {
+            Description = "Texture file (.tex.ps2) for embedding textures in glTF output"
+        };
 
         var command = new Command("ska", "Parse SKA animation files and optionally export to glTF");
         command.Arguments.Add(inputArgument);
@@ -42,6 +46,7 @@ public static class SkaCommand
         command.Options.Add(verboseOption);
         command.Options.Add(skelOption);
         command.Options.Add(skinOption);
+        command.Options.Add(texOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -50,15 +55,16 @@ public static class SkaCommand
             var verbose = parseResult.GetValue(verboseOption);
             var skePath = parseResult.GetValue(skelOption);
             var skinPath = parseResult.GetValue(skinOption);
+            var texPath = parseResult.GetValue(texOption);
 
-            return Task.FromResult(Execute(input, output, verbose, skePath, skinPath));
+            return Task.FromResult(Execute(input, output, verbose, skePath, skinPath, texPath));
         });
 
         return command;
     }
 
     private static int Execute(string input, string output, bool verbose, string? skePath,
-        string? skinPath)
+        string? skinPath, string? texPath)
     {
         // Load skeleton if provided (enables glTF export)
         Ps2Skeleton? skeleton = null;
@@ -78,6 +84,23 @@ public static class SkaCommand
             var skinData = File.ReadAllBytes(skinPath);
             skinScene = Ps2SceneFile.Parse(skinData);
             AnsiConsole.MarkupLine($"Loaded skin: [green]{skinScene.MeshGroups.Sum(g => g.Meshes.Count)}[/] meshes from {Path.GetFileName(skinPath)}");
+        }
+
+        // Build texture provider if TEX file provided
+        Ps2SceneGltfWriter.TextureProvider? textureProvider = null;
+        if (texPath != null)
+        {
+            var textureCache = Ps2TextureLoader.BuildTextureCache([], texPath, verbose);
+            if (textureCache.Count > 0)
+            {
+                AnsiConsole.MarkupLine($"Loaded [green]{textureCache.Count}[/] textures from {Path.GetFileName(texPath)}");
+                textureProvider = checksum =>
+                {
+                    if (!textureCache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
+                        return null;
+                    return Core.BinaryIO.ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
+                };
+            }
         }
 
         List<string> files;
@@ -161,7 +184,8 @@ public static class SkaCommand
                     {
                         // Combined mesh + animation
                         var tris = Ps2SceneGltfWriter.WriteSkinnedAnimated(
-                            skinScene, skeleton, anim, glbPath, stem);
+                            skinScene, skeleton, anim, glbPath, stem,
+                            textureProvider);
                         if (verbose)
                             AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] (skinned, {tris} triangles)");
                     }
