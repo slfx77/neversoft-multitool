@@ -167,7 +167,7 @@ src/NeversoftMultitool/
       Psx/                 # PSX/PVR texture extraction + decoding
       Rle/                 # RLE/BMR bitmap conversion
       Archives/            # WAD, PKR, PRE, DDX, BON extraction
-      Audio/               # ADX, XA, VAB, KAT audio decoding
+      Audio/               # ADX, XA, VAB, VAG, KAT, SFX audio decoding
       Mesh/                # DDM mesh extraction → glTF
   CLI/                     # Command-line interface
   App/                     # WinUI 3 GUI (Windows only)
