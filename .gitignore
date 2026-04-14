@@ -69,13 +69,6 @@ tests/NeversoftMultitool.Tests/GoldenFiles/Archives/Wad/
 FalloutXbox360Utils/
 neversoft_multitool/
 
-# QBKey pipeline data files (large, derived from copyrighted game content)
-tools/*.txt
-tools/*.json
-
-# QBKey pipeline compiled binary
-tools/qbkey_pipeline/*.exe
-
 # SonarQube
 .sonarqube/
 
@@ -83,8 +76,26 @@ tools/qbkey_pipeline/*.exe
 .dotnet-home/
 .dotnet_cli/
 
-# Java diagnostic build artifacts
-tools/diagnostics/*.class
+# tools/ is opt-in: ignore everything by default, then explicitly allow curated items.
+# Add new entries here as scripts/projects mature into something useful for the community.
+tools/*
+!tools/utilities/
+!tools/qbkey_pipeline/
+!tools/DdmAnalyzer/
+!tools/PsxAnalyzer/
+!tools/BlendModeDiag/
+!tools/diagnostics/
+tools/diagnostics/*
+!tools/diagnostics/ps2_scene_trace.py
+!tools/diagnostics/ps2_geom_trace.py
+!tools/diagnostics/ps2_geom_gscontext.py
+!tools/diagnostics/ps2_vram_sim.py
+!tools/diagnostics/thaw_ps2_vif_walk.py
+!tools/diagnostics/thaw_ps2_strip_decode.py
 
-# Local reverse-engineering / decompilation workspace
-tools/ghidra/
+# Build/runtime noise inside curated tools/
+tools/**/bin/
+tools/**/obj/
+tools/**/__pycache__/
+tools/qbkey_pipeline/*.exe
+tools/diagnostics/*.class
