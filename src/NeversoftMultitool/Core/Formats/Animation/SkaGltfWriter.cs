@@ -64,11 +64,17 @@ internal static class SkaGltfWriter
             var node = jointNodes[i];
             var bindTranslation = skeleton.Bones[i].LocalTranslation;
 
+            var bindRotation = skeleton.Bones[i].LocalRotation;
+
             if (track.RotationKeys.Length > 0)
             {
                 var rotCurve = node.UseRotation(name);
                 foreach (var key in track.RotationKeys)
-                    rotCurve.SetPoint(key.Time, key.Rotation);
+                {
+                    // Compose: final = bind * delta (same model as translation)
+                    var final = bindRotation * key.Rotation;
+                    rotCurve.SetPoint(key.Time, final);
+                }
                 channelCount++;
             }
 
