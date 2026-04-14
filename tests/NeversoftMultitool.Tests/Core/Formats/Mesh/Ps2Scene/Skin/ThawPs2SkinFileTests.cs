@@ -9,14 +9,14 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Skin;
 
 public sealed class ThawPs2SkinFileTests(TestPaths paths)
 {
-    private string ThawSkinDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)", "SKIN");
+    private string ThawSkinDir => paths.SampleBuildsDir is null ? string.Empty :
+        Path.Combine(paths.SampleBuildsDir, "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)", "SKIN");
 
-    private string ThawPcSkinDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2006-2-6, PC - Final)", "SKIN");
+    private string ThawPcSkinDir => paths.SampleBuildsDir is null ? string.Empty :
+        Path.Combine(paths.SampleBuildsDir, "Tony Hawk's American Wasteland (2006-2-6, PC - Final)", "SKIN");
 
-    private string Thug2SkeDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Underground 2 (2004-8-22, PS2 - Final)", "SKE");
+    private string Thug2SkeDir => paths.SampleBuildsDir is null ? string.Empty :
+        Path.Combine(paths.SampleBuildsDir, "Tony Hawk's Underground 2 (2004-8-22, PS2 - Final)", "SKE");
 
     // ── Detection ──
 

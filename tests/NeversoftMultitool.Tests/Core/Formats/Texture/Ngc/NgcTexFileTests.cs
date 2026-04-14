@@ -7,8 +7,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Texture.Ngc;
 public sealed class NgcTexFileTests(TestPaths paths)
 {
     private string RepresentativeSampleFile =>
-        Path.Combine(
-            paths.SampleBuildsDir!,
+        paths.SampleBuildsDir is null ? string.Empty : Path.Combine(
+            paths.SampleBuildsDir,
             "Tony Hawk's American Wasteland (2005-8-22, GC - Final)",
             "models",
             "Animals",

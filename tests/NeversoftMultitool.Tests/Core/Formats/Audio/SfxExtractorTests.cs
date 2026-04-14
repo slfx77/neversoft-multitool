@@ -8,47 +8,18 @@ namespace NeversoftMultitool.Tests.Core.Formats.Audio;
 
 public sealed class SfxExtractorTests(TestPaths paths)
 {
-    private string SpiderManSampleFile =>
-        Path.Combine(
-            paths.SampleBuildsDir!,
-            "Spider-Man (2001-2-14, DC - Prototype)",
-            "DEM1.SFX");
+    // Properties evaluate eagerly when referenced (even inside Assert.SkipWhen(!File.Exists(...))),
+    // so guard SampleBuildsDir to avoid Path.Combine throwing on CI when sample data is absent.
+    private string SampleFile(params string[] segments) =>
+        paths.SampleBuildsDir is null ? string.Empty : Path.Combine([paths.SampleBuildsDir, .. segments]);
 
-    private string SpiderManVabOnlySampleFile =>
-        Path.Combine(
-            paths.SampleBuildsDir!,
-            "Spider-Man (2001-2-14, DC - Prototype)",
-            "L8A2.SFX");
-
-    private string SpiderManAliasSampleFile =>
-        Path.Combine(
-            paths.SampleBuildsDir!,
-            "Spider-Man (2001-2-14, DC - Prototype)",
-            "LAA2.SFX");
-
-    private string SpiderManPaddedSampleFile =>
-        Path.Combine(
-            paths.SampleBuildsDir!,
-            "Spider-Man (2001-2-14, DC - Prototype)",
-            "ZART.SFX");
-
-    private string Thps2SampleFile =>
-        Path.Combine(
-            paths.SampleBuildsDir!,
-            "Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)",
-            "B1.SFX");
-
-    private string Thps2HeaderVariantSampleFile =>
-        Path.Combine(
-            paths.SampleBuildsDir!,
-            "Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)",
-            "HEAVEN.SFX");
-
-    private string SpiderManShellSampleFile =>
-        Path.Combine(
-            paths.SampleBuildsDir!,
-            "Spider-Man (2001-2-14, DC - Prototype)",
-            "SHELL.SFX");
+    private string SpiderManSampleFile => SampleFile("Spider-Man (2001-2-14, DC - Prototype)", "DEM1.SFX");
+    private string SpiderManVabOnlySampleFile => SampleFile("Spider-Man (2001-2-14, DC - Prototype)", "L8A2.SFX");
+    private string SpiderManAliasSampleFile => SampleFile("Spider-Man (2001-2-14, DC - Prototype)", "LAA2.SFX");
+    private string SpiderManPaddedSampleFile => SampleFile("Spider-Man (2001-2-14, DC - Prototype)", "ZART.SFX");
+    private string Thps2SampleFile => SampleFile("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", "B1.SFX");
+    private string Thps2HeaderVariantSampleFile => SampleFile("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", "HEAVEN.SFX");
+    private string SpiderManShellSampleFile => SampleFile("Spider-Man (2001-2-14, DC - Prototype)", "SHELL.SFX");
 
     [Fact]
     public void CanExtract_DirectKatReference_ReturnsTrue()

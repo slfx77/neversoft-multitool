@@ -9,8 +9,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Audio;
 public sealed class PssAudioExtractorTests(TestPaths paths)
 {
     private string RepresentativeSampleFile =>
-        Path.Combine(
-            paths.SampleBuildsDir!,
+        paths.SampleBuildsDir is null ? string.Empty : Path.Combine(
+            paths.SampleBuildsDir,
             "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)",
             "MOVIES",
             "ATVI.PSS");
