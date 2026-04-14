@@ -41,9 +41,16 @@ internal static class SkaGltfWriter
     /// <summary>
     ///     Apply animation channels to an existing joint hierarchy.
     ///     Returns the number of channels added.
+    ///
+    ///     SKA animation values are treated as absolute local transforms that
+    ///     replace the bind pose. However, translation keys of (0,0,0) for
+    ///     non-root bones mean "no translation change" — the bind translation
+    ///     must be preserved. We detect and skip these by adding the bind
+    ///     translation to each animation key.
     /// </summary>
     internal static int ApplyAnimation(
         NodeBuilder[] jointNodes,
+        Ps2Skeleton skeleton,
         SkaAnimation animation,
         string? animationName = null)
     {
@@ -55,6 +62,7 @@ internal static class SkaGltfWriter
         {
             var track = animation.BoneTracks[i];
             var node = jointNodes[i];
+            var bindTranslation = skeleton.Bones[i].LocalTranslation;
 
             if (track.RotationKeys.Length > 0)
             {
@@ -68,7 +76,7 @@ internal static class SkaGltfWriter
             {
                 var transCurve = node.UseTranslation(name);
                 foreach (var key in track.TranslationKeys)
-                    transCurve.SetPoint(key.Time, key.Translation);
+                    transCurve.SetPoint(key.Time, bindTranslation + key.Translation);
                 channelCount++;
             }
         }
@@ -91,7 +99,7 @@ internal static class SkaGltfWriter
 
         var jointNodes = BuildJointHierarchy(skeleton);
         var name = animationName ?? Path.GetFileNameWithoutExtension(outputPath);
-        var channelCount = ApplyAnimation(jointNodes, animation, name);
+        var channelCount = ApplyAnimation(jointNodes, skeleton, animation, name);
         if (channelCount == 0)
             return 0;
 
