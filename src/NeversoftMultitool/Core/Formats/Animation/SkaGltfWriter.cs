@@ -64,19 +64,11 @@ internal static class SkaGltfWriter
             var node = jointNodes[i];
             var bindTranslation = skeleton.Bones[i].LocalTranslation;
 
-            var bindRotation = skeleton.Bones[i].LocalRotation;
-
             if (track.RotationKeys.Length > 0)
             {
                 var rotCurve = node.UseRotation(name);
                 foreach (var key in track.RotationKeys)
-                {
-                    // Compose: final = delta * bind
-                    // Quaternion multiplication is not commutative — this order
-                    // applies the bind rotation first, then the animation delta.
-                    var final = key.Rotation * bindRotation;
-                    rotCurve.SetPoint(key.Time, final);
-                }
+                    rotCurve.SetPoint(key.Time, key.Rotation);
                 channelCount++;
             }
 
