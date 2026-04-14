@@ -59,7 +59,10 @@ internal static class GltfNormalSmoother
                         sum += normals[idx];
 
                     var len = sum.Length();
-                    if (len > 0.001f) sum /= len;
+                    if (len <= 0.001f)
+                        continue; // Opposing normals cancelled out — leave originals untouched
+
+                    sum /= len;
 
                     foreach (var idx in group)
                         normals[idx] = sum;

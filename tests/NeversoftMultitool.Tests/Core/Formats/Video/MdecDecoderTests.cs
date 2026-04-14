@@ -71,7 +71,10 @@ public class MdecDecoderTests(TestPaths paths)
             .FirstOrDefault(d => Path.GetFileName(d).Contains("DC", StringComparison.OrdinalIgnoreCase));
         Assert.SkipWhen(dcBuild == null, "No DC build found");
 
-        var speechStr = Directory.GetFiles(Path.Combine(dcBuild!, "STR"), "SPEECH.STR",
+        var strDir = Path.Combine(dcBuild!, "STR");
+        Assert.SkipWhen(!Directory.Exists(strDir), "DC build has no STR subdirectory");
+
+        var speechStr = Directory.GetFiles(strDir, "SPEECH.STR",
             SearchOption.TopDirectoryOnly).FirstOrDefault();
 
         if (speechStr == null) Assert.Skip("DC SPEECH.STR not found");

@@ -86,15 +86,36 @@ public sealed class PsxMeshFile
         var attachmentVertexMap = attachmentVertices.ToDictionary(a => a.AttachmentIndex);
 
         var meshes = new List<PsxMesh>(header.MeshTopPointers.Length);
+        var streamLength = reader.BaseStream.Length;
         for (var meshIndex = 0; meshIndex < header.MeshTopPointers.Length; meshIndex++)
         {
-            reader.BaseStream.Seek(header.MeshTopPointers[meshIndex], SeekOrigin.Begin);
-            meshes.Add(PsxMeshGeometryReader.ReadMesh(
-                reader,
-                header.Version,
-                header.ScaleDivisor,
-                header.TextureHashes,
-                attachmentVertexMap));
+            var pointer = header.MeshTopPointers[meshIndex];
+            PsxMesh? mesh = null;
+            if (pointer < streamLength)
+            {
+                reader.BaseStream.Seek(pointer, SeekOrigin.Begin);
+                try
+                {
+                    mesh = PsxMeshGeometryReader.ReadMesh(
+                        reader,
+                        header.Version,
+                        header.ScaleDivisor,
+                        header.TextureHashes,
+                        attachmentVertexMap);
+                }
+                catch (EndOfStreamException)
+                {
+                    // Truncated mesh (e.g. SkHvn.psx on THPS2X Xbox) — substitute an empty mesh
+                    // placeholder so object.MeshIndex references remain valid for downstream code.
+                }
+            }
+
+            meshes.Add(mesh ?? new PsxMesh
+            {
+                Vertices = [],
+                Normals = [],
+                Faces = []
+            });
         }
 
         foreach (var attachment in attachmentVertices)

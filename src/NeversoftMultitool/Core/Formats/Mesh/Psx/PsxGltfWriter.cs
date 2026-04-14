@@ -374,9 +374,11 @@ public static class PsxGltfWriter
         var normalVec = new Vector3(normal.X, -normal.Y, -normal.Z);
         var len = normalVec.Length();
         if (len > 0)
-            normalVec /= len;
+            return normalVec / len;
 
-        return normalVec;
+        // Degenerate source normal (all-zero or non-finite) — return a default unit normal so
+        // glTF export does not reject the accessor. GltfNormalSmoother replaces these downstream.
+        return Vector3.UnitY;
     }
 
     private static Vector2 ComputeTextureUv(

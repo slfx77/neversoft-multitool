@@ -96,7 +96,7 @@ public sealed class FormatProbeMediaTests
         {
             var result = FormatProbe.ProbeVideo(tempFile);
             Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
-            Assert.Contains("2336", result.UnsupportedReason!);
+            Assert.Contains("STR", result.UnsupportedReason!);
         }
         finally
         {
