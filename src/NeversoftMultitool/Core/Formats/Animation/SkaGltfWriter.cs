@@ -42,11 +42,15 @@ internal static class SkaGltfWriter
     ///     Apply animation channels to an existing joint hierarchy.
     ///     Returns the number of channels added.
     ///
-    ///     SKA animation values are treated as absolute local transforms that
-    ///     replace the bind pose. However, translation keys of (0,0,0) for
-    ///     non-root bones mean "no translation change" — the bind translation
-    ///     must be preserved. We detect and skip these by adding the bind
-    ///     translation to each animation key.
+    ///     Best empirical result so far: compose animation quaternion with
+    ///     the bind rotation (<c>final = bind * anim</c>). This keeps the
+    ///     character upright and the general walk shape recognisable. The
+    ///     motion is still not quite right — likely a per-bone coordinate
+    ///     frame issue — but a better model hasn't been found yet.
+    ///
+    ///     Translations use <c>final = bind + anim</c>: non-root bones in
+    ///     walk cycles typically have anim translation near zero (bone length
+    ///     is constant); treating as a delta preserves skeleton structure.
     /// </summary>
     internal static int ApplyAnimation(
         NodeBuilder[] jointNodes,
@@ -62,18 +66,14 @@ internal static class SkaGltfWriter
         {
             var track = animation.BoneTracks[i];
             var node = jointNodes[i];
-            var bindTranslation = skeleton.Bones[i].LocalTranslation;
-
             var bindRotation = skeleton.Bones[i].LocalRotation;
+            var bindTranslation = skeleton.Bones[i].LocalTranslation;
 
             if (track.RotationKeys.Length > 0)
             {
                 var rotCurve = node.UseRotation(name);
                 foreach (var key in track.RotationKeys)
-                {
-                    // Compose: final = bind * delta
                     rotCurve.SetPoint(key.Time, bindRotation * key.Rotation);
-                }
                 channelCount++;
             }
 

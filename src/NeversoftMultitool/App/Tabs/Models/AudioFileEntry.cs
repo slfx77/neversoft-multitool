@@ -11,9 +11,9 @@ public class AudioFileEntry : BaseFileEntry, IListEntry
     protected override string ProcessingVerb => "Converting...";
 
     /// <summary>
-    ///     Whether this format supports expand/collapse (VAB, KAT have multiple samples).
+    ///     Whether this format supports expand/collapse (VAB, KAT, SFX have multiple samples).
     /// </summary>
-    public bool IsExpandable => AudioFormat is "VAB" or "KAT";
+    public bool IsExpandable => AudioFormat is "VAB" or "KAT" or "SFX";
 
     public bool IsExpanded
     {

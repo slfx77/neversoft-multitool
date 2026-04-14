@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 using NeversoftMultitool.Core.Formats.XbxScene;
 
@@ -7,7 +8,8 @@ internal static class FormatProbeTexture
 {
     private static readonly string[] XboxTexSuffixes = [".tex.xbx", ".tex.wpc", ".stex"];
     private static readonly string[] XboxImgSuffixes = [".img.xbx", ".img.wpc"];
-    private static readonly string[] CrossPlatformTexSuffixes = [".tex.xen", ".tex.ngc", ".tex.ps3", ".tex.dat"];
+    private static readonly string[] NgcTexSuffixes = [".tex.ngc"];
+    private static readonly string[] CrossPlatformTexSuffixes = [".tex.xen", ".tex.ps3", ".tex.dat"];
     private static readonly string[] CrossPlatformImgSuffixes = [".img.xen", ".img.ps3"];
     private static readonly string[] Ps2TextureSuffixes = [".tex.ps2", ".img.ps2"];
 
@@ -21,12 +23,15 @@ internal static class FormatProbeTexture
         if (OrdinalFileName.HasAnySuffix(name, XboxImgSuffixes))
             return ProbeXbxImgFile(filePath);
 
+        if (OrdinalFileName.HasAnySuffix(name, NgcTexSuffixes))
+            return ProbeNgcTexFile(filePath);
+
         if (OrdinalFileName.HasAnySuffix(name, CrossPlatformTexSuffixes))
         {
             return new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
                 "Cross-Platform TEX",
-                "GameCube/PS3 TEX textures are not yet supported");
+                "Xenon/PS3 cross-platform TEX textures are not yet supported");
         }
 
         if (OrdinalFileName.HasAnySuffix(name, CrossPlatformImgSuffixes))
@@ -151,6 +156,32 @@ internal static class FormatProbeTexture
             FormatProbe.FormatSupport.Unsupported,
             $"Xbox IMG (v{version})",
             $"Unsupported Xbox/PC IMG version {version} (expected 2 or 0xABADD00D)");
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeNgcTexFile(string filePath)
+    {
+        if (!BinaryProbeReader.TryReadAllBytes(filePath, out var data))
+            return HeaderReadFailure();
+
+        if (!NgcTexFile.TryReadHeader(data, out _, out var error))
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "NGC TEX",
+                error);
+        }
+
+        if (!NgcTexFile.HasSupportedFormatsOnly(data, out error))
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "NGC TEX",
+                error);
+        }
+
+        return new FormatProbe.FormatProbeResult(
+            FormatProbe.FormatSupport.Supported,
+            "NGC TEX");
     }
 
     private static FormatProbe.FormatProbeResult FileTooSmall()

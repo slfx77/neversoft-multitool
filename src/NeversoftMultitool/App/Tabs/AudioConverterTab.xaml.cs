@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats.Audio;
 
 namespace NeversoftMultitool;
 
@@ -154,9 +155,10 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         var selected = (VabSampleRateCombo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "";
         return selected switch
         {
+            "11025 Hz" => 11025,
             "22050 Hz" => 22050,
             "44100 Hz" => 44100,
-            _ => 11025
+            _ => VabExtractor.DefaultSampleRate
         };
     }
 

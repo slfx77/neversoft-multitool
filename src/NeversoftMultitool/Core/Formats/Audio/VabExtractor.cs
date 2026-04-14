@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core.BinaryIO;
 
 namespace NeversoftMultitool.Core.Formats.Audio;
@@ -9,6 +10,8 @@ namespace NeversoftMultitool.Core.Formats.Audio;
 /// </summary>
 public static class VabExtractor
 {
+    private const int NeutralMidiNote = 60;
+    private const int RawSpuBaseRate = 44100;
     private const int HeaderSize = 0x20;
     private const int ProgramTableOffset = 0x20;
     private const int ProgramEntrySize = 16;
@@ -16,7 +19,7 @@ public static class VabExtractor
     private const int ToneEntrySize = 32;
     private const int TonesPerProgram = 16;
     private const int VagSizeTableEntries = 256;
-    private const int DefaultSampleRate = 11025;
+    public const int DefaultSampleRate = 11025;
 
     /// <summary>
     ///     Enumerates samples in a VAB file without decoding audio data.
@@ -27,22 +30,14 @@ public static class VabExtractor
         using var stream = File.OpenRead(inputPath);
         using var reader = new BinaryReader(stream);
 
-        var header = ReadHeader(reader);
-        if (header == null) return [];
-
-        stream.Position = ProgramTableOffset + ProgramSlots * ProgramEntrySize;
-        var toneTableSize = header.ProgramCount * TonesPerProgram * ToneEntrySize;
-        stream.Position += toneTableSize;
-
-        var vagSizes = new int[VagSizeTableEntries];
-        for (var i = 0; i < VagSizeTableEntries; i++)
-            vagSizes[i] = reader.ReadUInt16() * 8;
+        var layout = ReadLayout(reader);
+        if (layout == null) return [];
 
         var results = new List<VabSampleInfo>();
-        for (var v = 1; v <= header.VagCount && v < VagSizeTableEntries; v++)
+        for (var v = 1; v <= layout.Header.VagCount && v < VagSizeTableEntries; v++)
         {
-            if (vagSizes[v] > 0)
-                results.Add(new VabSampleInfo(v, vagSizes[v]));
+            if (layout.VagSizes[v] > 0)
+                results.Add(new VabSampleInfo(v, layout.VagSizes[v], GetSuggestedSampleRate(layout, v)));
         }
 
         return results;
@@ -53,35 +48,24 @@ public static class VabExtractor
     ///     Returns the output path on success, or null on failure.
     /// </summary>
     public static string? ExtractSingleToWav(string inputPath, int sampleIndex, string outputDir,
-        int sampleRate = DefaultSampleRate)
+        int sampleRate = 0)
     {
         try
         {
             using var stream = File.OpenRead(inputPath);
             using var reader = new BinaryReader(stream);
 
-            var header = ReadHeader(reader);
-            if (header == null || sampleIndex < 1 || sampleIndex > header.VagCount)
+            var layout = ReadLayout(reader);
+            if (layout == null || sampleIndex < 1 || sampleIndex > layout.Header.VagCount)
                 return null;
 
-            // Skip program table and tone table
-            stream.Position = ProgramTableOffset + ProgramSlots * ProgramEntrySize;
-            var toneTableSize = header.ProgramCount * TonesPerProgram * ToneEntrySize;
-            stream.Position += toneTableSize;
-
-            // Read VAG size table
-            var vagSizes = new int[VagSizeTableEntries];
-            for (var i = 0; i < VagSizeTableEntries; i++)
-                vagSizes[i] = reader.ReadUInt16() * 8;
-
-            var size = vagSizes[sampleIndex];
+            var size = layout.VagSizes[sampleIndex];
             if (size <= 0) return null;
 
             // Calculate offset to the target sample (sum sizes of all preceding entries)
-            var vagDataOffset = stream.Position;
-            var currentOffset = vagDataOffset;
+            var currentOffset = layout.VagDataOffset;
             for (var v = 0; v < sampleIndex; v++)
-                currentOffset += vagSizes[v];
+                currentOffset += layout.VagSizes[v];
 
             stream.Position = currentOffset;
             var vagData = reader.ReadBytes(size);
@@ -90,7 +74,8 @@ public static class VabExtractor
 
             var stem = Path.GetFileNameWithoutExtension(inputPath);
             var wavPath = Path.Combine(outputDir, $"{stem}_{sampleIndex:D3}.wav");
-            WavWriter.WritePcm16(wavPath, sampleRate, 1, pcm);
+            var resolvedSampleRate = sampleRate > 0 ? sampleRate : GetSuggestedSampleRate(layout, sampleIndex);
+            WavWriter.WritePcm16(wavPath, resolvedSampleRate, 1, pcm);
             return wavPath;
         }
         catch
@@ -107,36 +92,22 @@ public static class VabExtractor
             using var stream = File.OpenRead(inputPath);
             using var reader = new BinaryReader(stream);
 
-            var header = ReadHeader(reader);
-            if (header == null)
+            var layout = ReadLayout(reader);
+            if (layout == null)
                 return new AudioConvertResult { ErrorMessage = "Invalid VAB header (missing pBAV magic)" };
-
-            // Skip program table (128 entries × 16 bytes, always 128 slots)
-            stream.Position = ProgramTableOffset + ProgramSlots * ProgramEntrySize;
-
-            // Skip tone table (numPrograms × 16 tones × 32 bytes)
-            var toneTableSize = header.ProgramCount * TonesPerProgram * ToneEntrySize;
-            stream.Position += toneTableSize;
-
-            // Read VAG size table (256 entries × 2 bytes, sizes are in units of 8 bytes)
-            var vagSizes = new int[VagSizeTableEntries];
-            for (var i = 0; i < VagSizeTableEntries; i++)
-                vagSizes[i] = reader.ReadUInt16() * 8;
-
-            var vagDataOffset = stream.Position;
             var stem = Path.GetFileNameWithoutExtension(inputPath);
             var outDir = Path.Combine(outputDir, stem);
             var filesWritten = 0;
 
             // VAG index 0 is unused; valid indices start from 1
-            var currentOffset = vagDataOffset;
+            var currentOffset = layout.VagDataOffset;
             for (var v = 0; v < VagSizeTableEntries; v++)
             {
-                var size = vagSizes[v];
+                var size = layout.VagSizes[v];
                 if (size <= 0)
                     continue;
 
-                if (v > 0 && v <= header.VagCount)
+                if (v > 0 && v <= layout.Header.VagCount)
                 {
                     stream.Position = currentOffset;
                     var vagData = reader.ReadBytes(size);
@@ -145,7 +116,8 @@ public static class VabExtractor
                     if (pcm.Length > 0)
                     {
                         var wavPath = Path.Combine(outDir, $"{v:D3}.wav");
-                        WavWriter.WritePcm16(wavPath, sampleRate, 1, pcm);
+                        var resolvedSampleRate = sampleRate > 0 ? sampleRate : GetSuggestedSampleRate(layout, v);
+                        WavWriter.WritePcm16(wavPath, resolvedSampleRate, 1, pcm);
                         filesWritten++;
                     }
                 }
@@ -159,6 +131,104 @@ public static class VabExtractor
         {
             return new AudioConvertResult { ErrorMessage = ex.Message };
         }
+    }
+
+    private static VabLayout? ReadLayout(BinaryReader reader)
+    {
+        var header = ReadHeader(reader);
+        if (header == null)
+            return null;
+
+        var programToneCounts = ReadProgramToneCounts(reader, header.ProgramCount);
+        var toneMap = ReadToneMap(reader, header.ProgramCount, header.VagCount, programToneCounts);
+        var vagSizes = ReadVagSizes(reader);
+
+        return new VabLayout(header, vagSizes, toneMap, reader.BaseStream.Position);
+    }
+
+    private static int[] ReadProgramToneCounts(BinaryReader reader, int programCount)
+    {
+        var toneCounts = new int[programCount];
+        reader.BaseStream.Position = ProgramTableOffset;
+
+        for (var programIndex = 0; programIndex < programCount; programIndex++)
+        {
+            toneCounts[programIndex] = reader.ReadByte();
+            reader.BaseStream.Position += ProgramEntrySize - 1;
+        }
+
+        return toneCounts;
+    }
+
+    private static Dictionary<int, VabToneInfo> ReadToneMap(
+        BinaryReader reader,
+        int programCount,
+        int vagCount,
+        int[] programToneCounts)
+    {
+        var toneInfos = new Dictionary<int, List<VabToneInfo>>();
+        reader.BaseStream.Position = ProgramTableOffset + ProgramSlots * ProgramEntrySize;
+
+        for (var programIndex = 0; programIndex < programCount; programIndex++)
+        {
+            var toneCount = Math.Min(programToneCounts[programIndex], TonesPerProgram);
+            for (var toneIndex = 0; toneIndex < TonesPerProgram; toneIndex++)
+            {
+                var toneBytes = reader.ReadBytes(ToneEntrySize);
+                if (toneBytes.Length < ToneEntrySize)
+                    return [];
+
+                if (toneIndex >= toneCount)
+                    continue;
+
+                var vagIndex = BinaryPrimitives.ReadInt16LittleEndian(toneBytes.AsSpan(22, 2));
+                if (vagIndex <= 0 || vagIndex > vagCount)
+                    continue;
+
+                var center = toneBytes[4];
+                var shift = toneBytes[5];
+                if (!toneInfos.TryGetValue(vagIndex, out var infoList))
+                {
+                    infoList = [];
+                    toneInfos[vagIndex] = infoList;
+                }
+
+                infoList.Add(new VabToneInfo(center, shift, infoList.Count));
+            }
+        }
+
+        return toneInfos.ToDictionary(
+            static pair => pair.Key,
+            static pair => pair.Value
+                .GroupBy(static info => (info.Center, info.Shift))
+                .OrderByDescending(static group => group.Count())
+                .ThenBy(static group => group.Min(static info => info.Order))
+                .Select(static group => group.First() with { Order = 0 })
+                .First());
+    }
+
+    private static int[] ReadVagSizes(BinaryReader reader)
+    {
+        var vagSizes = new int[VagSizeTableEntries];
+        for (var i = 0; i < VagSizeTableEntries; i++)
+            vagSizes[i] = reader.ReadUInt16() * 8;
+
+        return vagSizes;
+    }
+
+    private static int GetSuggestedSampleRate(VabLayout layout, int sampleIndex)
+    {
+        return layout.ToneMap.TryGetValue(sampleIndex, out var toneInfo)
+            ? EstimateSampleRate(toneInfo.Center, toneInfo.Shift)
+            : DefaultSampleRate;
+    }
+
+    private static int EstimateSampleRate(byte center, byte shift)
+    {
+        var fineTuneCents = shift * 100.0 / 128.0;
+        var semitoneOffset = NeutralMidiNote - center - (fineTuneCents / 100.0);
+        var sampleRate = RawSpuBaseRate * Math.Pow(2.0, semitoneOffset / 12.0);
+        return Math.Clamp((int)Math.Round(sampleRate), 2000, 96000);
     }
 
     private static VabHeader? ReadHeader(BinaryReader reader)
@@ -187,7 +257,25 @@ public static class VabExtractor
         };
     }
 
-    public sealed record VabSampleInfo(int Index, int DataSize);
+    public sealed record VabSampleInfo(int Index, int DataSize, int SampleRate);
+
+    private readonly record struct VabToneInfo(byte Center, byte Shift, int Order);
+
+    private sealed class VabLayout
+    {
+        public VabLayout(VabHeader header, int[] vagSizes, IReadOnlyDictionary<int, VabToneInfo> toneMap, long vagDataOffset)
+        {
+            Header = header;
+            VagSizes = vagSizes;
+            ToneMap = toneMap;
+            VagDataOffset = vagDataOffset;
+        }
+
+        public VabHeader Header { get; }
+        public int[] VagSizes { get; }
+        public IReadOnlyDictionary<int, VabToneInfo> ToneMap { get; }
+        public long VagDataOffset { get; }
+    }
 
     private sealed class VabHeader
     {

@@ -310,9 +310,18 @@ public static class Ps2GeomGltfWriter
                 }
                 // else: fix >= threshold -> leave as default OPAQUE
             }
+            else if (aref >= 1)
+            {
+                // Source-alpha blend with alpha test (AREF > 0): acts as MASK cutout.
+                // PS2 games use ALPHA=0x44 (standard Cs*As+Cd*(1-As)) with alpha testing
+                // for fences, foliage, etc. — pixels below AREF are discarded, the rest
+                // are effectively opaque because PS2 textures typically have alpha=128.
+                builder.WithAlpha(AlphaMode.MASK, aref / 255f);
+            }
             else
             {
-                // Non-FIX blend modes (source-alpha, dest-alpha) -> always BLEND
+                // True transparency: source-alpha blend with no meaningful alpha test.
+                // PS2 textures with alpha=128 will still appear opaque via the texture.
                 builder.WithAlpha(AlphaMode.BLEND);
             }
         }

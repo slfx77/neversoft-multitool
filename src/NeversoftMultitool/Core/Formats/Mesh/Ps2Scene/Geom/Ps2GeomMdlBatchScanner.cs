@@ -76,6 +76,8 @@ internal static class Ps2GeomMdlBatchScanner
 
     internal static Ps2GeomGsContext? ScanBatchForGsContext(byte[] data, int batchStart, int batchEnd)
     {
+        // Primary pattern: V4_32 num=1 (GIF tag) followed by V3_32 num>1 (register writes).
+        // This is the standard GEOM/MDL GS context setup block.
         var pCode = batchStart;
         while (pCode < batchEnd && pCode + 4 <= data.Length)
         {
@@ -92,7 +94,74 @@ internal static class Ps2GeomMdlBatchScanner
             pCode = Ps2GeomVifVertexDecoder.VifNextCode(data, pCode, batchEnd);
         }
 
-        return null;
+        // Fallback: standalone V3_32 blocks with GS register writes (TEX0, ALPHA, etc.)
+        // found in THAW PAK MDL files where texture switches appear as bare register
+        // write blocks not preceded by V4_32 GIF tag setup.
+        return ScanBatchForStandaloneGsRegisters(data, batchStart, batchEnd);
+    }
+
+    /// <summary>
+    ///     Scan for standalone UNPACK V3_32 blocks containing GS register writes.
+    ///     These appear in THAW PAK MDL files between vertex data sections, where
+    ///     texture changes are encoded as bare register write blocks without the
+    ///     standard V4_32 num=1 GIF tag prefix.
+    /// </summary>
+    private static Ps2GeomGsContext? ScanBatchForStandaloneGsRegisters(byte[] data, int batchStart, int batchEnd)
+    {
+        Ps2GeomGsContext? lastCtx = null;
+        var pCode = batchStart;
+
+        while (pCode < batchEnd && pCode + 4 <= data.Length)
+        {
+            var cmd = data[pCode + 3];
+            var num = data[pCode + 2];
+
+            // V3_32 (opcode 0x68) with num >= 2: potential GS register write block.
+            // Each entry is 12 bytes: lo32 + hi32 + reg_addr.
+            // Validate by checking that at least one entry has a known GS register address.
+            if ((cmd & 0x7F) == 0x68 && num >= 2)
+            {
+                var ctx = TryExtractRegistersFromV332(data, pCode, num);
+                if (ctx.HasValue)
+                    lastCtx = ctx;
+            }
+
+            pCode = Ps2GeomVifVertexDecoder.VifNextCode(data, pCode, batchEnd);
+        }
+
+        return lastCtx;
+    }
+
+    private static Ps2GeomGsContext? TryExtractRegistersFromV332(byte[] data, int vifOffset, int num)
+    {
+        var regDataStart = vifOffset + 4;
+        var ctx = new Ps2GeomGsContext();
+        var foundKnownReg = false;
+
+        for (var i = 0; i < num; i++)
+        {
+            var off = regDataStart + i * 12;
+            if (off + 12 > data.Length)
+                return null;
+
+            var lo32 = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(off));
+            var hi32 = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(off + 4));
+            var reg = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(off + 8));
+            var value = ((ulong)hi32 << 32) | lo32;
+
+            switch (reg)
+            {
+                case 0x06: ctx.Tex0 = value; foundKnownReg = true; break;
+                case 0x14: ctx.Tex1 = value; foundKnownReg = true; break;
+                case 0x34: ctx.MipTbp1 = value; foundKnownReg = true; break;
+                case 0x36: ctx.MipTbp2 = value; foundKnownReg = true; break;
+                case 0x08: ctx.Clamp1 = value; foundKnownReg = true; break;
+                case 0x42: ctx.Alpha1 = value; foundKnownReg = true; break;
+                case 0x47: ctx.Test1 = value; foundKnownReg = true; break;
+            }
+        }
+
+        return foundKnownReg ? ctx : null;
     }
 
     internal static Vector3? ScanBatchForCenter(byte[] data, int batchStart, int batchEnd)

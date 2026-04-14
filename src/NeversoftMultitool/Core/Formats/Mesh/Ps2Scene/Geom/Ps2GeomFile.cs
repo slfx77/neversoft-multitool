@@ -60,6 +60,9 @@ public static class Ps2GeomFile
         if (vifStart < 0)
             return new Ps2GeomScene { Leaves = [] };
 
+        var preamble = Ps2MdlPreamble.TryParse(data, vifStart);
+        var bones = preamble is { Bones: { Count: > 0 } } ? preamble.Bones : null;
+
         var leaves = new List<Ps2GeomLeaf>();
         var currentGsCtx = new Ps2GeomGsContext();
         var currentCenter = Vector3.Zero;
@@ -70,8 +73,10 @@ public static class Ps2GeomFile
         if (signatureBatchRanges.Count >= 8 && signatureBatchRanges.Count > batchRanges.Count * 4)
             batchRanges = signatureBatchRanges;
 
-        foreach (var (batchStart, batchEnd) in batchRanges)
+        var placements = Ps2MdlPlacementResolver.ResolveObjectPlacements(preamble, batchRanges);
+        for (var batchIndex = 0; batchIndex < batchRanges.Count; batchIndex++)
         {
+            var (batchStart, batchEnd) = batchRanges[batchIndex];
             var gsCtx = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(data, batchStart, batchEnd);
             var center = Ps2GeomMdlBatchScanner.ScanBatchForCenter(data, batchStart, batchEnd);
 
@@ -87,13 +92,15 @@ public static class Ps2GeomFile
             }
 
             var batchVerts = Ps2GeomVifVertexDecoder.ExtractVerticesFromVif(data, batchStart, batchEnd, currentCenter);
+            if (placements.TryGetValue(batchIndex, out var placement))
+                batchVerts = Ps2MdlPlacementResolver.ApplyPlacement(batchVerts, placement);
             if (batchVerts.Length == 0 || ShouldSkipWorldZoneBatch(batchVerts))
                 continue;
 
             leaves.Add(MakeLeafFromMdlMesh(batchVerts, hasGsContext ? currentGsCtx : new Ps2GeomGsContext()));
         }
 
-        return new Ps2GeomScene { Leaves = leaves };
+        return new Ps2GeomScene { Leaves = leaves, MdlPreamble = preamble, Bones = bones };
     }
 
     private static void WalkNodeTree(byte[] data, int baseOffset, int rootNodeOffset, List<Ps2GeomLeaf> leaves)

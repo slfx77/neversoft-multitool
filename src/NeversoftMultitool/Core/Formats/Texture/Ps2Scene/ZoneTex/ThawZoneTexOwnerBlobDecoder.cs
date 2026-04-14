@@ -86,8 +86,12 @@ internal static class ThawZoneTexOwnerBlobDecoder
 
         if (dmaStart < 0) return false;
 
-        // Scan for a header that ends exactly at dmaStart
-        for (var off = 0x100; off + 0x10 < dmaStart; off += 4)
+        // Scan for a header that ends exactly at dmaStart. Start at 0x10 (after the
+        // minimal file header) to support both small .stex companion files (header
+        // near the beginning, around 0xC0) and large zone .tex files (header deeper
+        // in the file, around 0xFC0). The validation below (prim/sec ranges plus
+        // layout-end-matches-dma-start) keeps false positives out.
+        for (var off = 0x10; off + 0x10 < dmaStart; off += 4)
         {
             var prim = BitConverter.ToUInt16(data[(off + 2)..]);
             var sec = BitConverter.ToInt32(data[(off + 4)..]);

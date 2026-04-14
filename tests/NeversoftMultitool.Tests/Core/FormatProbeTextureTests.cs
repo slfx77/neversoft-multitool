@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Tests.Core.Formats.Texture.Ngc;
 
 namespace NeversoftMultitool.Tests.Core;
 
@@ -180,6 +181,54 @@ public sealed class FormatProbeTextureTests
             var result = FormatProbe.ProbeTexture(tempFile);
             Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
             Assert.Equal("THAW PC TEX", result.FormatName);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeTexture_NgcTex_Supported()
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".tex.ngc", NgcTexTestBuilder.CreateDictionary());
+        try
+        {
+            var result = FormatProbe.ProbeTexture(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Equal("NGC TEX", result.FormatName);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeTexture_XenTex_Unsupported()
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".tex.xen", [0x00]);
+        try
+        {
+            var result = FormatProbe.ProbeTexture(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            Assert.Contains("cross-platform TEX", result.UnsupportedReason!, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeTexture_NgcTexUnsupportedFormat_Unsupported()
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".tex.ngc", NgcTexTestBuilder.CreateDictionary(formatA: 0, formatB: 0));
+        try
+        {
+            var result = FormatProbe.ProbeTexture(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            Assert.Contains("Unsupported NGC texture format", result.UnsupportedReason!);
         }
         finally
         {

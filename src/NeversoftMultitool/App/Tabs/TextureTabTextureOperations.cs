@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
@@ -13,9 +14,10 @@ internal static class TextureTabTextureOperations
     private static readonly string[] CompoundTextureExtensions =
     [
         ".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc",
-        ".tex.ps2", ".img.ps2"
+        ".tex.ps2", ".img.ps2", ".tex.ngc"
     ];
 
+    private static readonly string[] NgcTexExtensions = [".tex.ngc"];
     private static readonly string[] XboxTexExtensions = [".tex.xbx", ".tex.wpc"];
     private static readonly string[] XboxImgExtensions = [".img.xbx", ".img.wpc"];
     private static readonly string[] Ps2TexExtensions = [".tex.ps2", ".img.ps2", ".tex", ".img"];
@@ -35,6 +37,8 @@ internal static class TextureTabTextureOperations
 
     public static TextureFileFormat ClassifyFormat(string fileName)
     {
+        if (OrdinalFileName.HasAnySuffix(fileName, NgcTexExtensions))
+            return TextureFileFormat.NgcTex;
         if (OrdinalFileName.HasAnySuffix(fileName, XboxTexExtensions))
             return TextureFileFormat.XbxTex;
         if (OrdinalFileName.HasAnySuffix(fileName, XboxImgExtensions))
@@ -53,6 +57,7 @@ internal static class TextureTabTextureOperations
         return format switch
         {
             TextureFileFormat.Ps2Tex => CountParsedTextures(Ps2TexFile.Parse(inputFile)),
+            TextureFileFormat.NgcTex => CountParsedTextures(NgcTexFile.Parse(inputFile)),
             TextureFileFormat.XbxTex => CountParsedTextures(ParseXbxTextures(inputFile, format)),
             TextureFileFormat.XbxImg => CountParsedTextures(ParseXbxTextures(inputFile, format)),
             TextureFileFormat.Pvr => PvrFileDecoder.DecodeToRgba(inputFile) != null ? 1 : 0,
@@ -68,6 +73,7 @@ internal static class TextureTabTextureOperations
         return format switch
         {
             TextureFileFormat.Ps2Tex => BuildPs2Entries(Ps2TexFile.Parse(inputFile), parentFileName),
+            TextureFileFormat.NgcTex => BuildNgcEntries(NgcTexFile.Parse(inputFile), parentFileName),
             TextureFileFormat.XbxTex => BuildXboxEntries(ParseXbxTextures(inputFile, format), parentFileName, format),
             TextureFileFormat.XbxImg => BuildXboxEntries(ParseXbxTextures(inputFile, format), parentFileName, format),
             TextureFileFormat.Pvr => BuildPvrEntries(inputFile, parentFileName),
@@ -88,6 +94,7 @@ internal static class TextureTabTextureOperations
         return entry.Format switch
         {
             TextureFileFormat.Ps2Tex => ExtractPs2Textures(inputFile, outputDir, stem),
+            TextureFileFormat.NgcTex => ExtractNgcTextures(inputFile, outputDir, stem),
             TextureFileFormat.XbxTex => ExtractXbxTextures(inputFile, outputDir, stem, entry.Format),
             TextureFileFormat.XbxImg => ExtractXbxImage(inputFile, outputDir, stem, createSubDirs),
             TextureFileFormat.Pvr => ExtractPvr(inputFile, outputDir, stem, createSubDirs),
@@ -104,6 +111,8 @@ internal static class TextureTabTextureOperations
         {
             case TextureFileFormat.Ps2Tex:
                 return GetPreviewTexture(Ps2TexFile.Parse(inputFile), nameHash);
+            case TextureFileFormat.NgcTex:
+                return GetPreviewTexture(NgcTexFile.Parse(inputFile), nameHash);
             case TextureFileFormat.XbxTex:
                 return GetPreviewTexture(ParseXbxTextures(inputFile, format), nameHash);
             case TextureFileFormat.XbxImg:
@@ -138,6 +147,24 @@ internal static class TextureTabTextureOperations
                     Width = texture.Width,
                     Height = texture.Height,
                     PaletteType = Ps2TexFile.DescribePsm(texture.Psm),
+                    Index = index,
+                    ResolvedName = texture.Name ?? QbKey.TryResolve(texture.Checksum)
+                })
+                .ToList()
+            : [];
+    }
+
+    private static List<PsxTextureEntry> BuildNgcEntries(Ps2TexResult result, string parentFileName)
+    {
+        return result.Success
+            ? result.Textures.Where(texture => texture.Pixels != null)
+                .Select((texture, index) => new PsxTextureEntry
+                {
+                    ParentFileName = parentFileName,
+                    NameHash = texture.Checksum,
+                    Width = texture.Width,
+                    Height = texture.Height,
+                    PaletteType = "NGC TEX",
                     Index = index,
                     ResolvedName = texture.Name ?? QbKey.TryResolve(texture.Checksum)
                 })
@@ -212,6 +239,19 @@ internal static class TextureTabTextureOperations
             return (0, 0, false, false);
 
         var written = Ps2TexFile.SaveAllAsPng(result, outputDir, stem);
+        return (result.Textures.Count, written, false, true);
+    }
+
+    private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractNgcTextures(
+        string inputFile,
+        string outputDir,
+        string stem)
+    {
+        var result = NgcTexFile.Parse(inputFile);
+        if (!result.Success)
+            return (0, 0, false, false);
+
+        var written = NgcTexFile.SaveAllAsPng(result, outputDir, stem);
         return (result.Textures.Count, written, false, true);
     }
 

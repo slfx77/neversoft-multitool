@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using NeversoftMultitool.Core.Formats.Audio;
 
 namespace NeversoftMultitool.Core.Formats.Video;
 
@@ -47,7 +48,10 @@ public static partial class SfdConverter
     public static SfdProbeResult? Probe(string inputPath)
     {
         var ffprobe = FindFfprobe();
-        if (ffprobe == null) return null;
+        var isPss = Path.GetExtension(inputPath).Equals(".pss", StringComparison.OrdinalIgnoreCase);
+        var pssAudio = isPss ? PssAudioExtractor.Probe(inputPath) : null;
+        if (ffprobe == null)
+            return null;
 
         try
         {
@@ -67,7 +71,7 @@ public static partial class SfdConverter
 
             if (process.ExitCode != 0) return null;
 
-            return ParseProbeJson(json, inputPath);
+            return ParseProbeJson(json, inputPath, pssAudio);
         }
         catch
         {
@@ -98,54 +102,26 @@ public static partial class SfdConverter
 
         try
         {
-            using var process = new Process();
-            process.StartInfo = new ProcessStartInfo
+            string? tempAudioPath = null;
+            string arguments;
+
+            if (Path.GetExtension(inputPath).Equals(".pss", StringComparison.OrdinalIgnoreCase))
             {
-                FileName = ffmpeg,
-                Arguments =
-                    $"-y -i \"{inputPath}\" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k \"{outputPath}\"",
-                UseShellExecute = false,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-
-            process.Start();
-
-            // Read stderr for progress (ffmpeg writes status there)
-            while (!process.StandardError.EndOfStream)
-            {
-                if (cancellationToken.IsCancellationRequested)
+                if (!TryBuildPssArguments(inputPath, outputPath, out arguments, out tempAudioPath, out var tempError))
                 {
-                    process.Kill();
-                    TryDeleteFile(outputPath);
-                    return new SfdConvertResult { ErrorMessage = "Cancelled" };
-                }
-
-                var line = process.StandardError.ReadLine();
-                if (line != null && totalSeconds > 0)
-                {
-                    var match = TimePattern().Match(line);
-                    if (match.Success)
-                    {
-                        var currentSeconds =
-                            double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) * 3600 +
-                            double.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture) * 60 +
-                            double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture) +
-                            double.Parse(match.Groups[4].Value, CultureInfo.InvariantCulture) / 100.0;
-                        progress?.Report(Math.Min(currentSeconds / totalSeconds, 1.0));
-                    }
+                    TryDeleteFile(tempAudioPath);
+                    throw new InvalidOperationException(tempError);
                 }
             }
-
-            process.WaitForExit(30_000);
-
-            if (process.ExitCode != 0)
+            else
             {
-                TryDeleteFile(outputPath);
-                return new SfdConvertResult { ErrorMessage = $"ffmpeg exited with code {process.ExitCode}" };
+                arguments =
+                    $"-y -i \"{inputPath}\" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k \"{outputPath}\"";
             }
 
-            return new SfdConvertResult { Success = true, OutputPath = outputPath };
+            var result = RunFfmpeg(ffmpeg, arguments, outputPath, totalSeconds, progress, cancellationToken);
+            TryDeleteFile(tempAudioPath);
+            return result;
         }
         catch (Exception ex)
         {
@@ -154,7 +130,89 @@ public static partial class SfdConverter
         }
     }
 
-    private static SfdProbeResult? ParseProbeJson(string json, string inputPath)
+    private static bool TryBuildPssArguments(
+        string inputPath,
+        string outputPath,
+        out string arguments,
+        out string? tempAudioPath,
+        out string error)
+    {
+        tempAudioPath = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "PssAudio",
+            $"{Guid.NewGuid():N}_{Path.GetFileNameWithoutExtension(inputPath)}.wav");
+
+        if (!PssAudioExtractor.TryWriteWav(inputPath, tempAudioPath, out error))
+        {
+            arguments = "";
+            tempAudioPath = null;
+            return false;
+        }
+
+        arguments =
+            $"-y -i \"{inputPath}\" -i \"{tempAudioPath}\" -map 0:v:0 -map 1:a:0 -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k -shortest \"{outputPath}\"";
+        error = "";
+        return true;
+    }
+
+    private static SfdConvertResult RunFfmpeg(
+        string ffmpeg,
+        string arguments,
+        string outputPath,
+        double totalSeconds,
+        IProgress<double>? progress,
+        CancellationToken cancellationToken)
+    {
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = ffmpeg,
+            Arguments = arguments,
+            UseShellExecute = false,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        process.Start();
+
+        while (!process.StandardError.EndOfStream)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                process.Kill();
+                TryDeleteFile(outputPath);
+                return new SfdConvertResult { ErrorMessage = "Cancelled" };
+            }
+
+            var line = process.StandardError.ReadLine();
+            if (line != null && totalSeconds > 0)
+            {
+                var match = TimePattern().Match(line);
+                if (match.Success)
+                {
+                    var currentSeconds =
+                        double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) * 3600 +
+                        double.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture) * 60 +
+                        double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture) +
+                        double.Parse(match.Groups[4].Value, CultureInfo.InvariantCulture) / 100.0;
+                    progress?.Report(Math.Min(currentSeconds / totalSeconds, 1.0));
+                }
+            }
+        }
+
+        process.WaitForExit(30_000);
+
+        if (process.ExitCode != 0)
+        {
+            TryDeleteFile(outputPath);
+            return new SfdConvertResult { ErrorMessage = $"ffmpeg exited with code {process.ExitCode}" };
+        }
+
+        return new SfdConvertResult { Success = true, OutputPath = outputPath };
+    }
+
+    private static SfdProbeResult? ParseProbeJson(
+        string json,
+        string inputPath,
+        PssAudioExtractor.PssAudioProbeResult? pssAudio)
     {
         try
         {
@@ -209,6 +267,13 @@ public static partial class SfdConverter
                 }
             }
 
+            if (audioCodec == null && pssAudio != null)
+            {
+                audioCodec = pssAudio.CodecName;
+                audioSampleRate = pssAudio.SampleRate;
+                audioChannels = pssAudio.Channels;
+            }
+
             return new SfdProbeResult
             {
                 Duration = duration,
@@ -255,11 +320,12 @@ public static partial class SfdConverter
         }
     }
 
-    private static void TryDeleteFile(string path)
+    private static void TryDeleteFile(string? path)
     {
         try
         {
-            File.Delete(path);
+            if (!string.IsNullOrWhiteSpace(path))
+                File.Delete(path);
         }
         catch
         {

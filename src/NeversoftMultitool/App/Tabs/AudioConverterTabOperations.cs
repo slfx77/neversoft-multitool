@@ -4,7 +4,7 @@ namespace NeversoftMultitool;
 
 internal static class AudioConverterTabOperations
 {
-    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".vag", ".kat", ".pss"];
+    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".pss", ".vid"];
 
     public static List<string> FindAudioFiles(string inputDir)
     {
@@ -27,8 +27,11 @@ internal static class AudioConverterTabOperations
             ".adx" => "ADX",
             ".xa" => "XA",
             ".vab" => "VAB",
-            ".vag" or ".pss" => "VAG",
+            ".vag" => "VAG",
+            ".pss" => "PSS",
+            ".vid" => "VID",
             ".kat" => "KAT",
+            ".sfx" => "SFX",
             "" => "VAG",
             _ => "Unknown"
         };
@@ -44,7 +47,7 @@ internal static class AudioConverterTabOperations
                     ParentFileName = parentFileName,
                     SampleIndex = sample.Index,
                     Encoding = "SPU-ADPCM",
-                    SampleRate = 0,
+                    SampleRate = sample.SampleRate,
                     Channels = 1,
                     DataSize = sample.DataSize
                 })
@@ -55,6 +58,17 @@ internal static class AudioConverterTabOperations
                     ParentFileName = parentFileName,
                     SampleIndex = sample.Index,
                     Encoding = sample.Encoding,
+                    SampleRate = sample.SampleRate,
+                    Channels = sample.Channels,
+                    DataSize = sample.DataSize
+                })
+                .ToList(),
+            "SFX" => SfxExtractor.EnumerateSamples(inputFile)
+                .Select(sample => new AudioSampleEntry
+                {
+                    ParentFileName = parentFileName,
+                    SampleIndex = sample.CueIndex,
+                    Encoding = $"{sample.Encoding} via {sample.BankFormat} #{sample.BankSampleIndex:D3}",
                     SampleRate = sample.SampleRate,
                     Channels = sample.Channels,
                     DataSize = sample.DataSize
@@ -76,7 +90,10 @@ internal static class AudioConverterTabOperations
             "XA" => XaDecoder.ConvertToWav(inputFile, outputDir),
             "VAB" => VabExtractor.ExtractToWav(inputFile, outputDir, vabSampleRate),
             "VAG" => VagDecoder.ConvertToWav(inputFile, outputDir),
+            "PSS" => PssAudioExtractor.ConvertToWav(inputFile, outputDir),
+            "VID" => Vid1AudioExtractor.ConvertToWav(inputFile, outputDir),
             "KAT" => KatExtractor.ExtractToWav(inputFile, outputDir),
+            "SFX" => SfxExtractor.ExtractToWav(inputFile, outputDir),
             _ => new AudioConvertResult { ErrorMessage = "Unknown format" }
         };
     }
@@ -114,6 +131,8 @@ internal static class AudioConverterTabOperations
             "ADX" => AdxDecoder.ConvertToWav(inputFile, tempDir),
             "XA" => XaDecoder.ConvertToWav(inputFile, tempDir),
             "VAG" => VagDecoder.ConvertToWav(inputFile, tempDir),
+            "PSS" => PssAudioExtractor.ConvertToWav(inputFile, tempDir),
+            "VID" => Vid1AudioExtractor.ConvertToWav(inputFile, tempDir),
             _ => null
         };
 
@@ -145,6 +164,7 @@ internal static class AudioConverterTabOperations
         {
             "VAB" => VabExtractor.ExtractSingleToWav(inputFile, sample.SampleIndex, tempDir, vabSampleRate),
             "KAT" => KatExtractor.ExtractSingleToWav(inputFile, sample.SampleIndex, tempDir),
+            "SFX" => SfxExtractor.ExtractSingleToWav(inputFile, sample.SampleIndex, tempDir),
             _ => null
         };
     }

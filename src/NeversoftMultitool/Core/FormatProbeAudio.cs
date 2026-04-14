@@ -1,3 +1,5 @@
+using NeversoftMultitool.Core.Formats.Audio;
+
 namespace NeversoftMultitool.Core;
 
 internal static class FormatProbeAudio
@@ -12,7 +14,9 @@ internal static class FormatProbeAudio
             ".vab" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "VAB Sound Bank"),
             ".vag" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "VAG Audio"),
             ".kat" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "KAT Sound Bank"),
-            ".pss" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PSS Audio"),
+            ".sfx" => ProbeSfxFile(filePath),
+            ".pss" => ProbePssFile(filePath),
+            ".vid" => ProbeVidFile(filePath),
             _ => ProbeHeaderlessAudio(filePath)
         };
     }
@@ -40,6 +44,30 @@ internal static class FormatProbeAudio
             FormatProbe.FormatSupport.Unsupported,
             "Unknown",
             "Not a valid ADX file (missing 0x8000 magic)");
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeSfxFile(string filePath)
+    {
+        return SfxExtractor.CanExtract(filePath, out var error)
+            ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "SFX Cue Bank")
+            : new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Unsupported, "SFX Cue Bank", error);
+    }
+
+    private static FormatProbe.FormatProbeResult ProbePssFile(string filePath)
+    {
+        return PssAudioExtractor.Probe(filePath) != null
+            ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PSS Audio")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "PSS Audio",
+                "PSS private-stream audio was not found");
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeVidFile(string filePath)
+    {
+        return Vid1AudioExtractor.TryProbe(filePath, out _, out var error)
+            ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "VID1 Audio")
+            : new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Unsupported, "VID1 Audio", error);
     }
 
     private static FormatProbe.FormatProbeResult ProbeHeaderlessAudio(string filePath)

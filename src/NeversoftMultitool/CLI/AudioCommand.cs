@@ -7,13 +7,13 @@ namespace NeversoftMultitool.CLI;
 
 public static class AudioCommand
 {
-    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".kat", ".vag", ".pss"];
+    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".kat", ".sfx", ".vag", ".pss", ".vid"];
 
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to directory containing audio files (.adx, .xa, .vab, .vag, .kat, .pss)"
+            Description = "Path to directory containing audio files (.adx, .xa, .vab, .vag, .kat, .sfx, .pss, .vid)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -30,7 +30,7 @@ public static class AudioCommand
             DefaultValueFactory = _ => 0
         };
 
-        var command = new Command("audio", "Convert ADX/XA/VAB/VAG/KAT/PSS audio files to WAV");
+        var command = new Command("audio", "Convert ADX/XA/VAB/VAG/KAT/SFX/PSS/VID audio files to WAV");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -89,9 +89,12 @@ public static class AudioCommand
                 {
                     ".adx" => AdxDecoder.ConvertToWav(file, output),
                     ".xa" => XaDecoder.ConvertToWav(file, output),
-                    ".vab" => VabExtractor.ExtractToWav(file, output, sampleRate > 0 ? sampleRate : 11025),
-                    ".vag" or ".pss" => VagDecoder.ConvertToWav(file, output, sampleRate),
+                    ".vab" => VabExtractor.ExtractToWav(file, output, sampleRate > 0 ? sampleRate : VabExtractor.DefaultSampleRate),
+                    ".vag" => VagDecoder.ConvertToWav(file, output, sampleRate),
+                    ".pss" => PssAudioExtractor.ConvertToWav(file, output),
+                    ".vid" => Vid1AudioExtractor.ConvertToWav(file, output),
                     ".kat" => KatExtractor.ExtractToWav(file, output),
+                    ".sfx" => SfxExtractor.ExtractToWav(file, output),
                     "" => VagDecoder.ConvertToWav(file, output, sampleRate),
                     _ => new AudioConvertResult { ErrorMessage = "Unsupported format" }
                 };

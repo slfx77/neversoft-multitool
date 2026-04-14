@@ -1,7 +1,7 @@
 namespace NeversoftMultitool;
 
 /// <summary>
-///     Child row representing a single audio sample within a VAB or KAT soundbank.
+///     Child row representing a single audio sample within a VAB, KAT, or SFX-backed bank.
 /// </summary>
 public sealed class AudioSampleEntry : IListEntry
 {
