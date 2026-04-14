@@ -419,14 +419,14 @@ internal static class SkaFile
     }
 
     /// <summary>
-    ///     Reconstruct unit quaternion W component from X, Y, Z.
+    ///     Reconstruct unit quaternion W component from X, Y, Z, then conjugate.
     ///     W = sqrt(1 - x² - y² - z²), sign from signBit.
     ///
-    ///     Returns the raw (non-conjugated) quaternion. The SKELETON parser
-    ///     conjugates its bind rotations to convert THUG's "file stores q,
-    ///     engine uses q*" convention to glTF-standard rotations. For
-    ///     animations we hold off on that — testing will tell us whether
-    ///     animation quats need the same conjugation.
+    ///     The THUG engine's QuatVecToMatrix conjugates the quaternion before
+    ///     building a rotation matrix — the file stores q but the engine uses q*.
+    ///     This matches Ps2SkeletonFile.cs:71 so animation and skeleton live in
+    ///     the same convention. Tested: not conjugating produces visibly worse
+    ///     motion (sideways/stretched character).
     /// </summary>
     private static Quaternion ReconstructQuat(float x, float y, float z, bool signBit)
     {
@@ -436,7 +436,7 @@ internal static class SkaFile
         var sum = 1f - x * x - y * y - z * z;
         var w = sum > 0 ? MathF.Sqrt(sum) : 0f;
         if (signBit) w = -w;
-        return new Quaternion(x, y, z, w);
+        return Quaternion.Conjugate(new Quaternion(x, y, z, w));
     }
 }
 

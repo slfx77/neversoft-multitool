@@ -42,15 +42,34 @@ internal static class SkaGltfWriter
     ///     Apply animation channels to an existing joint hierarchy.
     ///     Returns the number of channels added.
     ///
-    ///     Best empirical result so far: compose animation quaternion with
-    ///     the bind rotation (<c>final = bind * anim</c>). This keeps the
-    ///     character upright and the general walk shape recognisable. The
-    ///     motion is still not quite right — likely a per-bone coordinate
-    ///     frame issue — but a better model hasn't been found yet.
+    ///     KNOWN LIMITATION: motion direction is not fully correct. The current
+    ///     formula keeps the character upright and produces recognisable walk-
+    ///     cycle motion (limbs swing, arms move counter to legs) but legs swing
+    ///     somewhat sideways instead of cleanly forward-back, and bones deep in
+    ///     long FK chains (e.g. fingers) compound small errors.
     ///
-    ///     Translations use <c>final = bind + anim</c>: non-root bones in
-    ///     walk cycles typically have anim translation near zero (bone length
-    ///     is constant); treating as a delta preserves skeleton structure.
+    ///     Empirically tested approaches (THUG1 PS2 Walk1 anim + human.ske + testped):
+    ///     - <c>bind * anim</c>  → upright, recognisable but imperfect motion (CURRENT)
+    ///     - <c>anim * bind</c>  → same imperfect motion, different sway direction
+    ///     - <c>anim</c> alone   → character falls face-down (root rotation lost)
+    ///     - <c>inverse(parent_world_bind) * anim</c> (FK approach) → contortion
+    ///     - 48 axis-permutation variants tested → best was (-x,+y,-z) on raw
+    ///       quat, still imperfect
+    ///     - Without conjugating animation quat → sideways/stretched character
+    ///
+    ///     The THUG source in <c>Sample/thug/Code/Gfx/Skeleton.cpp</c> reveals an
+    ///     asymmetry: skeleton bind uses <c>Mth::QuatVecToMatrix</c> (which
+    ///     conjugates internally) while skeleton update uses
+    ///     <c>sQuatVecToMatrix</c> (which does NOT conjugate). The PS2 inline
+    ///     VU0 assembly version exists with a <c>flip</c> mode that negates X
+    ///     for handedness conversion. Resolving the exact convention requires
+    ///     decompiling the THAW PS2 binary's actual skeleton update — see
+    ///     <c>tools/ghidra/thaw-ps2/run_phase_skeleton_anim.sh</c> and
+    ///     <c>run_phase_vu0_decomp.sh</c> for the in-progress investigation.
+    ///
+    ///     Translations use <c>final = bind + anim</c>: non-root bones in walk
+    ///     cycles typically have anim translation near zero (bone length is
+    ///     constant); treating as a delta preserves skeleton structure.
     /// </summary>
     internal static int ApplyAnimation(
         NodeBuilder[] jointNodes,
