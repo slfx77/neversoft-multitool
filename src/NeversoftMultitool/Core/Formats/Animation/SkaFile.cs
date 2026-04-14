@@ -419,9 +419,11 @@ internal static class SkaFile
     }
 
     /// <summary>
-    ///     Reconstruct unit quaternion W component from X, Y, Z.
-    ///     W = sqrt(1 - x² - y² - z²), sign from signBit.
-    ///     Returned raw (not conjugated).
+    ///     Reconstruct unit quaternion from SKA-file components and apply axis
+    ///     remap from the nxtools FromSKAQuat helper:
+    ///     <c>(x, y, z) → (-z, -x, -y)</c>.
+    ///     SKA stores rotations in a (yaw-x, roll-y, pitch-z) axis convention;
+    ///     glTF (and standard math) use (pitch-x, yaw-y, roll-z) with flipped signs.
     /// </summary>
     private static Quaternion ReconstructQuat(float x, float y, float z, bool signBit)
     {
@@ -431,7 +433,9 @@ internal static class SkaFile
         var sum = 1f - x * x - y * y - z * z;
         var w = sum > 0 ? MathF.Sqrt(sum) : 0f;
         if (signBit) w = -w;
-        return new Quaternion(x, y, z, w);
+
+        // Axis remap: file(x,y,z) → out(-z, -x, -y)
+        return new Quaternion(-z, -x, -y, w);
     }
 }
 
