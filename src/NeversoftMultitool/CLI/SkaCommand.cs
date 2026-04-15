@@ -154,7 +154,8 @@ public static class SkaCommand
                     continue;
                 }
 
-                var anim = SkaFile.Parse(data);
+                var compressTable = FindCompressTable(file);
+                var anim = SkaFile.Parse(data, compressTable);
                 success++;
 
                 var boneCount = anim.BoneTracks.Length;
@@ -217,5 +218,44 @@ public static class SkaCommand
             $"across {totalBones:N0} bone tracks");
 
         return failed > 0 ? 1 : 0;
+    }
+
+    // Q48/T48 compression tables (standardkeyQ.bin / standardkeyT.bin) are required to
+    // decode quantised rotation/translation keys. Without them, table-lookup keys fall
+    // back to identity, causing visible "snap to bind pose" stutter at those frames.
+    // Cache by directory since tables apply to every SKA in the same build.
+    private static readonly Dictionary<string, SkaCompressTable?> _tableCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private static SkaCompressTable? FindCompressTable(string skaFilePath)
+    {
+        var dir = Path.GetDirectoryName(Path.GetFullPath(skaFilePath));
+        while (!string.IsNullOrEmpty(dir))
+        {
+            if (_tableCache.TryGetValue(dir, out var cached))
+                return cached;
+
+            // Standard locations: ../BIN/standardkey{Q,T}.bin (THPS4/THUG/THUG2/THAW PS2),
+            // ../anims/standardkey{Q,T}.bin (THAW GC).
+            foreach (var subdir in new[] { "BIN", "bin", "anims" })
+            {
+                var qPath = Path.Combine(dir, subdir, "standardkeyQ.bin");
+                var tPath = Path.Combine(dir, subdir, "standardkeyT.bin");
+                if (!File.Exists(qPath))
+                {
+                    qPath = Path.Combine(dir, subdir, "standardkeyq.bin");
+                    tPath = Path.Combine(dir, subdir, "standardkeyt.bin");
+                }
+                if (File.Exists(qPath) && File.Exists(tPath))
+                {
+                    var table = SkaCompressTable.TryLoad(qPath, tPath);
+                    _tableCache[dir] = table;
+                    return table;
+                }
+            }
+
+            dir = Path.GetDirectoryName(dir);
+        }
+        return null;
     }
 }
