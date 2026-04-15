@@ -15,8 +15,15 @@ internal static class Ps2MdlPlacementResolver
             return new Dictionary<int, BatchPlacement>();
 
         // Current object samples expose the trailer header/count/index array, but the render-time
-        // mapping from those entries to batch indices has not been proven yet. Leave placement
-        // disabled until the resolver can derive an explicit batch map from decompiled evidence.
+        // mapping from those entries to batch indices has not been proven yet.
+        //
+        // Current decomp anchor:
+        // - FUN_001d09e8 / FUN_001d3388 consume relocated 0x50-byte render nodes
+        // - those nodes carry an explicit signed matrix index at node + 0x41
+        // - the runtime applies matrix_index * 0x40 into the array at *(DAT_0049abf8 + 0x44)
+        //
+        // Placement stays disabled until the converter can recover that render-node matrix index
+        // from the raw MDL side data deterministically.
         return new Dictionary<int, BatchPlacement>();
     }
 

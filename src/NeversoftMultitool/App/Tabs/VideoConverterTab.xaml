@@ -24,7 +24,7 @@
           Text="Video Conversion"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Convert SFD (Sofdec) and STR (PS1 MDEC) video files to MP4"
+          Text="Convert SFD, PSS, BIK, VID1 (.vid), and STR (PS1 MDEC) video files to MP4"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>
@@ -144,7 +144,7 @@
             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
             TextAlignment="Center" />
           <TextBlock
-            Text="Select a directory containing .sfd or .str video files"
+            Text="Select a directory containing .sfd, .pss, .bik, .vid, or .str video files"
             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
             TextAlignment="Center" />
           <Button

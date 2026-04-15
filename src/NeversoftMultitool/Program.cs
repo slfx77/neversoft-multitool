@@ -44,6 +44,7 @@ public static class Program
         rootCommand.Subcommands.Add(QbKeyCommand.Create());
         rootCommand.Subcommands.Add(TrgCommand.Create());
         rootCommand.Subcommands.Add(SfdCommand.Create());
+        rootCommand.Subcommands.Add(VidCommand.Create());
         rootCommand.Subcommands.Add(StrCommand.Create());
         rootCommand.Subcommands.Add(PsxMeshCommand.Create());
         rootCommand.Subcommands.Add(PsxMeshDumpCommand.Create());
@@ -105,6 +106,7 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]qbkey[/]     QBKey hash utilities (cross-reference, lookup)");
         AnsiConsole.MarkupLine("  [green]trg[/]       Parse TRG level trigger/script files to JSON");
         AnsiConsole.MarkupLine("  [green]sfd[/]       Convert SFD (Sofdec) video files to MP4");
+        AnsiConsole.MarkupLine("  [green]vid[/]       Convert THAW GameCube VID1 video files to MP4");
         AnsiConsole.MarkupLine("  [green]str[/]       Convert PS1 STR (MDEC) video files to MP4");
         AnsiConsole.MarkupLine("  [green]psx-mesh[/]  Convert PSX model files to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]psx-mesh-dump[/] Dump PSX mesh parse diagnostics to JSON");
@@ -142,6 +144,7 @@ public static class Program
             args.Any(a => a.Equals("qbkey", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("trg", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("sfd", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("vid", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("str", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("psx-mesh", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("psx-mesh-dump", StringComparison.OrdinalIgnoreCase)) ||

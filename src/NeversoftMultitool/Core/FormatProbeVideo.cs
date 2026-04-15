@@ -1,3 +1,5 @@
+using NeversoftMultitool.Core.Formats.Video;
+
 namespace NeversoftMultitool.Core;
 
 internal static class FormatProbeVideo
@@ -10,12 +12,24 @@ internal static class FormatProbeVideo
             ".sfd" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "SFD Video"),
             ".pss" or ".PSS" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PSS Video"),
             ".bik" or ".BIK" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "BIK Video"),
+            ".vid" or ".VID" => ProbeVidFile(filePath),
             ".str" => ProbeStrFile(filePath),
             _ => new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
                 "Unknown",
                 $"Unrecognized video format: {ext}")
         };
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeVidFile(string filePath)
+    {
+        var probe = Vid1VideoConverter.Probe(filePath);
+        return probe != null
+            ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "VID1 Video")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "VID1 Video",
+                "Not a valid VID1 video");
     }
 
     private static FormatProbe.FormatProbeResult ProbeStrFile(string filePath)

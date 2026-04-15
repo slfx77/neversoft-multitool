@@ -11,6 +11,7 @@ internal static class VideoConverterTabOperations
             .Where(static path => OrdinalFileName.HasExtension(path, ".sfd")
                                   || OrdinalFileName.HasExtension(path, ".pss")
                                   || OrdinalFileName.HasExtension(path, ".bik")
+                                  || (OrdinalFileName.HasExtension(path, ".vid") && IsVidVideoFile(path))
                                   || (OrdinalFileName.HasExtension(path, ".str") && IsStrVideoFile(path)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(static path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase);
@@ -51,11 +52,22 @@ internal static class VideoConverterTabOperations
         return !(header[0] == 'A' && header[1] == 'F' && header[2] == 'S' && header[3] == 0);
     }
 
+    public static bool IsVidVideoFile(string path)
+    {
+        return Vid1VideoConverter.Probe(path) != null;
+    }
+
     public static (string duration, string resolution) ProbeFile(string path)
     {
         if (IsStrFormat(path))
         {
             var probe = StrConverter.Probe(path);
+            return (probe?.DurationDisplay ?? string.Empty, probe?.ResolutionDisplay ?? string.Empty);
+        }
+
+        if (OrdinalFileName.HasExtension(path, ".vid"))
+        {
+            var probe = Vid1VideoConverter.Probe(path);
             return (probe?.DurationDisplay ?? string.Empty, probe?.ResolutionDisplay ?? string.Empty);
         }
 
@@ -70,10 +82,13 @@ internal static class VideoConverterTabOperations
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        // STR uses custom MDEC decoder; SFD/PSS/BIK use ffmpeg passthrough
-        return IsStrFormat(path)
-            ? StrConverter.ConvertToMp4(path, outputDir, progress, cancellationToken)
-            : SfdConverter.ConvertToMp4(path, outputDir, progress, cancellationToken);
+        if (IsStrFormat(path))
+            return StrConverter.ConvertToMp4(path, outputDir, progress, cancellationToken);
+
+        if (OrdinalFileName.HasExtension(path, ".vid"))
+            return Vid1VideoConverter.ConvertToMp4(path, outputDir, progress, cancellationToken);
+
+        return SfdConverter.ConvertToMp4(path, outputDir, progress, cancellationToken);
     }
 
     public static string FormatTime(TimeSpan ts)

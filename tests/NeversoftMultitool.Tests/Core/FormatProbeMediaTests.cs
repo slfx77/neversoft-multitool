@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Tests.Core.Formats.Video;
 
 namespace NeversoftMultitool.Tests.Core;
 
@@ -112,6 +113,22 @@ public sealed class FormatProbeMediaTests
         {
             var result = FormatProbe.ProbeVideo(tempFile);
             Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeVideo_Vid1File_Supported()
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".vid", Vid1VideoTestBuilder.CreateVideoVid1());
+        try
+        {
+            var result = FormatProbe.ProbeVideo(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Equal("VID1 Video", result.FormatName);
         }
         finally
         {

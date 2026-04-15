@@ -7,6 +7,17 @@ namespace NeversoftMultitool.CLI;
 
 public static class GlbRenderCommand
 {
+    private readonly record struct RenderView(string Name, float Azimuth, float Elevation);
+
+    private static readonly IReadOnlyList<RenderView> ObjectReviewViews =
+    [
+        new("front_left", -45f, 20f),
+        new("front_right", 45f, 20f),
+        new("rear_right", 135f, 20f),
+        new("rear_left", -135f, 20f),
+        new("top", -45f, 75f)
+    ];
+
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
@@ -32,6 +43,10 @@ public static class GlbRenderCommand
             Description = "Camera elevation in degrees above horizontal",
             DefaultValueFactory = _ => 10f
         };
+        var presetOption = new Option<string?>("--preset")
+        {
+            Description = "Named camera preset. object-review renders five fixed views for placement checks"
+        };
         var verboseOption = new Option<bool>("-v", "--verbose")
         {
             Description = "Enable verbose output"
@@ -43,6 +58,7 @@ public static class GlbRenderCommand
         command.Options.Add(sizeOption);
         command.Options.Add(azimuthOption);
         command.Options.Add(elevationOption);
+        command.Options.Add(presetOption);
         command.Options.Add(verboseOption);
 
         command.SetAction((parseResult, cancellationToken) =>
@@ -52,16 +68,17 @@ public static class GlbRenderCommand
             var size = parseResult.GetValue(sizeOption);
             var azimuth = parseResult.GetValue(azimuthOption);
             var elevation = parseResult.GetValue(elevationOption);
+            var preset = parseResult.GetValue(presetOption);
             var verbose = parseResult.GetValue(verboseOption);
 
-            return Task.FromResult(Execute(input, output, size, azimuth, elevation, verbose));
+            return Task.FromResult(Execute(input, output, size, azimuth, elevation, preset, verbose));
         });
 
         return command;
     }
 
     private static int Execute(string input, string? output, int longEdge,
-        float azimuth, float elevation, bool verbose)
+        float azimuth, float elevation, string? preset, bool verbose)
     {
         List<string> files;
 
@@ -80,25 +97,41 @@ public static class GlbRenderCommand
             return 1;
         }
 
+        if (!TryGetViews(preset, azimuth, elevation, out var views))
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Unknown preset:[/] {Markup.Escape(preset!)} ([grey]supported: object-review[/])");
+            return 1;
+        }
+
         var sw = Stopwatch.StartNew();
         var success = 0;
         var fail = 0;
+        var useViewSuffix = views.Count > 1;
 
         foreach (var file in files)
         {
-            var pngPath = GetOutputPath(file, output);
-            if (verbose)
-                AnsiConsole.MarkupLine($"Rendering [cyan]{Path.GetFileName(file)}[/] -> [cyan]{pngPath}[/]");
+            foreach (var view in views)
+            {
+                var pngPath = GetOutputPath(file, output, view, useViewSuffix);
+                if (verbose)
+                {
+                    var angleLabel = $"az={view.Azimuth:0.##}, el={view.Elevation:0.##}";
+                    AnsiConsole.MarkupLine(
+                        $"Rendering [cyan]{Path.GetFileName(file)}[/] ({Markup.Escape(view.Name)}, {angleLabel}) -> [cyan]{pngPath}[/]");
+                }
 
-            try
-            {
-                GlbRenderer.RenderToFile(file, pngPath, longEdge, azimuth, elevation);
-                success++;
-            }
-            catch (Exception ex)
-            {
-                AnsiConsole.MarkupLine($"[red]FAIL[/] {Path.GetFileName(file)}: {ex.Message}");
-                fail++;
+                try
+                {
+                    GlbRenderer.RenderToFile(file, pngPath, longEdge, view.Azimuth, view.Elevation);
+                    success++;
+                }
+                catch (Exception ex)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"[red]FAIL[/] {Path.GetFileName(file)} ({Markup.Escape(view.Name)}): {ex.Message}");
+                    fail++;
+                }
             }
         }
 
@@ -109,17 +142,38 @@ public static class GlbRenderCommand
         return fail > 0 ? 1 : 0;
     }
 
-    private static string GetOutputPath(string inputFile, string? outputDir)
+    private static bool TryGetViews(string? preset, float azimuth, float elevation,
+        out IReadOnlyList<RenderView> views)
+    {
+        if (string.IsNullOrWhiteSpace(preset))
+        {
+            views = [new RenderView("default", azimuth, elevation)];
+            return true;
+        }
+
+        if (string.Equals(preset, "object-review", StringComparison.OrdinalIgnoreCase))
+        {
+            views = ObjectReviewViews;
+            return true;
+        }
+
+        views = [];
+        return false;
+    }
+
+    private static string GetOutputPath(string inputFile, string? outputDir,
+        RenderView view, bool useViewSuffix)
     {
         var stem = Path.GetFileNameWithoutExtension(inputFile);
+        var suffix = useViewSuffix ? "_" + view.Name : "";
         if (outputDir != null)
         {
             Directory.CreateDirectory(outputDir);
-            return Path.Combine(outputDir, stem + ".png");
+            return Path.Combine(outputDir, stem + suffix + ".png");
         }
 
         // Default: .png next to the .glb file
         var dir = Path.GetDirectoryName(inputFile) ?? ".";
-        return Path.Combine(dir, stem + ".png");
+        return Path.Combine(dir, stem + suffix + ".png");
     }
 }
