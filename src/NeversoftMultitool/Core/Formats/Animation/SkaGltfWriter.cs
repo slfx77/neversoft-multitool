@@ -42,34 +42,22 @@ internal static class SkaGltfWriter
     ///     Apply animation channels to an existing joint hierarchy.
     ///     Returns the number of channels added.
     ///
-    ///     KNOWN LIMITATION: motion direction is not fully correct. The current
-    ///     formula keeps the character upright and produces recognisable walk-
-    ///     cycle motion (limbs swing, arms move counter to legs) but legs swing
-    ///     somewhat sideways instead of cleanly forward-back, and bones deep in
-    ///     long FK chains (e.g. fingers) compound small errors.
+    ///     SKA stores absolute local rotations and translations per bone; the
+    ///     THUG runtime (<c>CSkeleton::Update</c> in <c>Sample/thug/Code/Gfx/Skeleton.cpp</c>)
+    ///     hands these directly to <c>sQuatVecToMatrix</c> as the bone's local
+    ///     transform. We mirror that — no composition with bind pose.
     ///
-    ///     Empirically tested approaches (THUG1 PS2 Walk1 anim + human.ske + testped):
-    ///     - <c>bind * anim</c>  → upright, recognisable but imperfect motion (CURRENT)
-    ///     - <c>anim * bind</c>  → same imperfect motion, different sway direction
-    ///     - <c>anim</c> alone   → character falls face-down (root rotation lost)
-    ///     - <c>inverse(parent_world_bind) * anim</c> (FK approach) → contortion
-    ///     - 48 axis-permutation variants tested → best was (-x,+y,-z) on raw
-    ///       quat, still imperfect
-    ///     - Without conjugating animation quat → sideways/stretched character
+    ///     SKA encodes "no animation for this bone" as a single placeholder key:
+    ///     identity rotation <c>(0,0,0,1)</c> or zero translation. The runtime
+    ///     leaves the pose entry at its bind value when this happens; emitting
+    ///     a glTF channel with the placeholder would instead force the bone to
+    ///     identity and collapse the skin. <see cref="IsRotationPlaceholder"/>
+    ///     and <see cref="IsTranslationPlaceholder"/> suppress those channels.
     ///
-    ///     The THUG source in <c>Sample/thug/Code/Gfx/Skeleton.cpp</c> reveals an
-    ///     asymmetry: skeleton bind uses <c>Mth::QuatVecToMatrix</c> (which
-    ///     conjugates internally) while skeleton update uses
-    ///     <c>sQuatVecToMatrix</c> (which does NOT conjugate). The PS2 inline
-    ///     VU0 assembly version exists with a <c>flip</c> mode that negates X
-    ///     for handedness conversion. Resolving the exact convention requires
-    ///     decompiling the THAW PS2 binary's actual skeleton update — see
-    ///     <c>tools/ghidra/thaw-ps2/run_phase_skeleton_anim.sh</c> and
-    ///     <c>run_phase_vu0_decomp.sh</c> for the in-progress investigation.
-    ///
-    ///     Translations use <c>final = bind + anim</c>: non-root bones in walk
-    ///     cycles typically have anim translation near zero (bone length is
-    ///     constant); treating as a delta preserves skeleton structure.
+    ///     Requires the joint nodes' <c>LocalTransform</c> to be the bind pose
+    ///     (so bones with suppressed channels stay at bind), and the skin to be
+    ///     attached via <c>AddSkinnedMesh(mesh, (joint, IBM)[])</c> with explicit
+    ///     IBMs from <c>Ps2Skeleton.InverseBindMatrix</c>.
     /// </summary>
     internal static int ApplyAnimation(
         NodeBuilder[] jointNodes,
@@ -85,28 +73,36 @@ internal static class SkaGltfWriter
         {
             var track = animation.BoneTracks[i];
             var node = jointNodes[i];
-            var bindRotation = skeleton.Bones[i].LocalRotation;
-            var bindTranslation = skeleton.Bones[i].LocalTranslation;
 
-            if (track.RotationKeys.Length > 0)
+            if (track.RotationKeys.Length > 0 && !IsRotationPlaceholder(track.RotationKeys))
             {
                 var rotCurve = node.UseRotation(name);
                 foreach (var key in track.RotationKeys)
-                    rotCurve.SetPoint(key.Time, bindRotation * key.Rotation);
+                    rotCurve.SetPoint(key.Time, key.Rotation);
                 channelCount++;
             }
 
-            if (track.TranslationKeys.Length > 0)
+            if (track.TranslationKeys.Length > 0 && !IsTranslationPlaceholder(track.TranslationKeys))
             {
                 var transCurve = node.UseTranslation(name);
                 foreach (var key in track.TranslationKeys)
-                    transCurve.SetPoint(key.Time, bindTranslation + key.Translation);
+                    transCurve.SetPoint(key.Time, key.Translation);
                 channelCount++;
             }
         }
 
         return channelCount;
     }
+
+    // SKA encodes "no animation" for a bone as a single identity rotation key
+    // or a single zero translation key. The runtime initializes the pose to bind
+    // and only overwrites entries with real motion. For glTF, suppress these
+    // placeholder channels so the joint node keeps its bind-pose rest transform.
+    private static bool IsRotationPlaceholder(SkaRotationKey[] keys)
+        => keys.Length == 1 && keys[0].Rotation == Quaternion.Identity;
+
+    private static bool IsTranslationPlaceholder(SkaTranslationKey[] keys)
+        => keys.Length == 1 && keys[0].Translation == Vector3.Zero;
 
     /// <summary>
     ///     Write an animated skeleton (no mesh) to a .glb file.

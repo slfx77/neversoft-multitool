@@ -158,7 +158,12 @@ public static class Ps2SceneGltfWriter
         }
 
         if (totalTriangles > 0)
-            scene.AddSkinnedMesh(gltfMesh, Matrix4x4.Identity, jointNodes);
+        {
+            var joints = new (NodeBuilder, Matrix4x4)[skeleton.Bones.Length];
+            for (var i = 0; i < skeleton.Bones.Length; i++)
+                joints[i] = (jointNodes[i], skeleton.Bones[i].InverseBindMatrix);
+            scene.AddSkinnedMesh(gltfMesh, joints);
+        }
 
         return (scene.ToGltf2(), totalTriangles);
     }
