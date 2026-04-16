@@ -14,6 +14,11 @@ internal static class GlbModelLoader
     public static RenderScene Load(string glbPath)
     {
         var model = ModelRoot.Load(glbPath);
+        return Load(model, null, 0f);
+    }
+
+    public static RenderScene Load(ModelRoot model, Animation? animation, float time)
+    {
         var scene = new RenderScene();
 
         foreach (var node in model.LogicalNodes)
@@ -36,7 +41,9 @@ internal static class GlbModelLoader
                 for (var j = 0; j < jointCount; j++)
                 {
                     var (jointNode, ibm) = skin.GetJoint(j);
-                    jointWorldTransforms[j] = GetWorldTransform(jointNode);
+                    jointWorldTransforms[j] = animation != null
+                        ? jointNode.GetWorldMatrix(animation, time)
+                        : GetWorldTransform(jointNode);
                     inverseBindMatrices[j] = ibm;
                 }
             }
@@ -318,4 +325,5 @@ internal static class GlbModelLoader
 
         return transform;
     }
+
 }

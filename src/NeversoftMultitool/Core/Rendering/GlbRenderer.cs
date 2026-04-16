@@ -42,8 +42,19 @@ public static class GlbRenderer
         float azimuthDeg = -90f, float elevationDeg = 10f)
     {
         var scene = GlbModelLoader.Load(glbPath);
+        return RenderScene(scene, longEdge, azimuthDeg, elevationDeg);
+    }
+
+    internal static Image<Rgba32> RenderScene(RenderScene scene,
+        int longEdge = 512,
+        float azimuthDeg = -90f, float elevationDeg = 10f,
+        int fixedWidth = 0, int fixedHeight = 0,
+        float referenceWidth = 0f, float referenceHeight = 0f)
+    {
         if (!scene.HasGeometry)
-            return CreateBackground(longEdge, longEdge);
+            return CreateBackground(
+                fixedWidth > 0 ? fixedWidth : longEdge,
+                fixedHeight > 0 ? fixedHeight : longEdge);
 
         SmoothNormals(scene);
 
@@ -59,9 +70,14 @@ public static class GlbRenderer
         if (projWidth < 0.001f && projHeight < 0.001f)
             return CreateBackground(longEdge, longEdge);
 
-        // Compute output dimensions from model aspect ratio
+        // Compute output dimensions from model aspect ratio (or use fixed size)
         int width, height;
-        if (projWidth >= projHeight)
+        if (fixedWidth > 0 && fixedHeight > 0)
+        {
+            width = fixedWidth;
+            height = fixedHeight;
+        }
+        else if (projWidth >= projHeight)
         {
             width = longEdge;
             height = Math.Max(1, (int)(longEdge * projHeight / projWidth));
@@ -76,11 +92,17 @@ public static class GlbRenderer
         var ssWidth = width * SsaaFactor;
         var ssHeight = height * SsaaFactor;
 
-        // Compute effective pixels-per-unit to fit model with 10% margin
+        // Compute effective pixels-per-unit to fit model with 10% margin.
+        // When reference bounds are supplied (animation pre-pass), scale by those
+        // so every frame uses a consistent units-per-pixel and centers correctly.
+        var scaleW = referenceWidth > 0 ? referenceWidth : projWidth;
+        var scaleH = referenceHeight > 0 ? referenceHeight : projHeight;
         var marginFactor = 1.0f;
-        var effPpu = ssWidth * marginFactor / Math.Max(projWidth, 0.001f);
+        var effPpuX = ssWidth * marginFactor / Math.Max(scaleW, 0.001f);
+        var effPpuY = ssHeight * marginFactor / Math.Max(scaleH, 0.001f);
+        var effPpu = Math.Min(effPpuX, effPpuY);
 
-        // Center model in canvas
+        // Center model in canvas based on its current frame's bounds
         var offsetX = (ssWidth - projWidth * effPpu) / 2f - projMinX * effPpu;
         var offsetY = (ssHeight - projHeight * effPpu) / 2f - projMinY * effPpu;
 
@@ -112,6 +134,17 @@ public static class GlbRenderer
 
         // Convert to ImageSharp image
         return PixelsToImage(pixels, width, height);
+    }
+
+    internal static (float MinX, float MinY, float Width, float Height) ComputeProjectedBounds(
+        RenderScene scene, float azimuthDeg, float elevationDeg)
+    {
+        if (!scene.HasGeometry)
+            return (0, 0, 0, 0);
+
+        SmoothNormals(scene);
+        var triangles = CollectTriangles(scene);
+        return ApplyViewRotation(triangles, azimuthDeg, elevationDeg);
     }
 
     /// <summary>

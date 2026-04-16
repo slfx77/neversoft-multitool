@@ -59,6 +59,7 @@ public static class Program
         rootCommand.Subcommands.Add(UnpackCommand.Create());
         rootCommand.Subcommands.Add(QbCommand.Create());
         rootCommand.Subcommands.Add(GlbRenderCommand.Create());
+        rootCommand.Subcommands.Add(GlbGifCommand.Create());
         rootCommand.Subcommands.Add(SkaCommand.Create());
 
         return rootCommand.Parse(args).Invoke();
@@ -121,6 +122,7 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]unpack[/]    Recursively extract all archives in-place");
         AnsiConsole.MarkupLine("  [green]qb[/]        Decompile QB compiled script files to source text");
         AnsiConsole.MarkupLine("  [green]glb-render[/] Render .glb files to .png images");
+        AnsiConsole.MarkupLine("  [green]glb-gif[/]    Render animated .glb files to .gif images");
 #if WINDOWS_GUI
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]For GUI mode:[/]");
