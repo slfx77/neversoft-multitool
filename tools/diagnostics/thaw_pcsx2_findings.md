@@ -95,6 +95,33 @@ Changes, record-by-record:
   textures, bbox 20,717 × 3,452 × 20,236 world units, 0 glTF validator
   errors or warnings.
 
+## GS dump — ground-truth render stats (2026-04-20)
+
+Captured two PCSX2 GS dumps from the same BH spawn with slightly different
+camera angles (`Tony Hawk's American Wasteland ..._SLUS-21295_2026042003*.gs.xz`).
+Parsed with `thaw_gsdump_parser.py --gif`.
+
+Both dumps yield nearly identical totals in one frame:
+
+| Dump | XYZ writes | TRIANGLE_STRIP | Unique TEX0 values | GIF tags |
+|---|---|---|---|---|
+| 034044 | 175,672 | 168,236 (95.8%) | 491 | 36,102 |
+| 034156 | 178,632 | 170,548 (95.5%) | 491 | 36,634 |
+
+Register-write mix is typical for a textured, coloured strip renderer:
+RGBAQ and ST writes roughly equal XYZ writes, confirming every vertex
+carries per-vertex colour + texcoord. Primary primitive is
+`TRIANGLE_STRIP` (~96%); the remainder is `SPRITE` (billboards/UI) and
+`TRIANGLE_FAN`.
+
+**Our converter produces 10,989 tris (~32,967 vertex writes) across 3
+MDLs — roughly 19% of the engine's per-frame vertex output and 10% of the
+unique TEX0 values.** Translation: the engine draws ~3,977 strip primitives
+per frame while our scanner extracts ~938 coarse batches, each of which
+emits geometry for only one sub-chunk. The remaining ~80% of sub-chunks
+are skipped because they don't match the `STCYCL + GIF-tag + STMOD +
+UNPACK-V4_32` opening pattern our decoder requires for positions.
+
 ## Remaining caveat (batch subdivision)
 
 Our VIF scanner (`FindRepeatedBatchSignatureRanges` /
