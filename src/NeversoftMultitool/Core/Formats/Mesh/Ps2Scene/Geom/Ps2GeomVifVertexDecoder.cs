@@ -26,6 +26,13 @@ internal static class Ps2GeomVifVertexDecoder
         var batches = new List<VifBatch>();
         var currentBatch = new VifBatch();
         var stmodActive = false;
+        // Level-MDL sub-chunks share one VU1 setup and emit position-only UNPACKs
+        // between MSCALs. Once we've seen ONE position UNPACK (cmd byte X), later
+        // UNPACKs with the same cmd byte at the START of a new sub-chunk are also
+        // positions — even without a fresh STMOD. Tracking the cmd byte keeps us
+        // safe for car MDLs where positions are always V4_32 and subsequent
+        // UNPACKs of different cmd bytes (colors/UVs/normals) still fall through.
+        byte lastPositionUnpackCmd = 0;
 
         var pCode = pStart;
         while (pCode < pEnd && pCode + 4 <= data.Length)
@@ -57,12 +64,37 @@ internal static class Ps2GeomVifVertexDecoder
                 var num = data[pCode + 2];
                 var unpackDataOffset = pCode + 4;
 
+                // Primary path: STMOD-gated position UNPACK.
+                // Continuation path: a sub-chunk after the first MSCAL that inherits
+                // the VU1 setup. Recognised when (a) we've previously decoded a
+                // position UNPACK in this VIF range (so we know it's a mesh chain),
+                // (b) the current UNPACK is V4_32/V4_16 (cmd & 0x7E == 0x6C) with
+                // num > 1, and (c) this sub-chunk has no other attributes yet —
+                // meaning the V4_16 is almost certainly positions, not UVs.
+                var matchesLastPositionCmd =
+                    lastPositionUnpackCmd != 0 &&
+                    (cmd & 0x7E) == 0x6C &&
+                    currentBatch.PositionOffset < 0 &&
+                    currentBatch.ColorOffset < 0 &&
+                    currentBatch.UvOffset < 0 &&
+                    currentBatch.NormalOffset < 0 &&
+                    num > 1;
+
                 if (stmodActive && (cmd & 0x7E) == 0x6C)
                 {
                     currentBatch.PositionOffset = unpackDataOffset;
                     currentBatch.PositionCount = num;
                     currentBatch.PositionIs16Bit = (cmd & 0x01) != 0;
+                    lastPositionUnpackCmd = cmd;
                     stmodActive = false;
+                }
+                else if (matchesLastPositionCmd)
+                {
+                    // Continuation sub-chunk: same UNPACK cmd as the last
+                    // STMOD-gated position upload, no other attributes yet.
+                    currentBatch.PositionOffset = unpackDataOffset;
+                    currentBatch.PositionCount = num;
+                    currentBatch.PositionIs16Bit = (cmd & 0x01) != 0;
                 }
                 else if (num > 1)
                 {

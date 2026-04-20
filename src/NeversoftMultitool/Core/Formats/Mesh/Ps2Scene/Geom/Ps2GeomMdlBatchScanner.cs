@@ -199,21 +199,24 @@ internal static class Ps2GeomMdlBatchScanner
         if (offset + 8 > data.Length || offset + 8 > end)
             return false;
 
+        // Signature: STCYCL (0x01) followed by UNPACK-V4_32 NUM=1 (0x6C ~ GIF tag upload).
         if ((data[offset + 3] & 0x7F) != 0x01)
             return false;
 
         if ((data[offset + 7] & 0x7F) != 0x6C || data[offset + 6] != 1)
             return false;
 
+        // Either a full setup batch (STMOD-gated position UNPACK + other attribs + MSCAL)
+        // or a minimal continuation sub-chunk (STMOD=1 + V4_32/V4_16 position UNPACK
+        // + MSCAL, no extra attributes). Both are valid boundaries for glTF extraction.
         var pCode = Ps2GeomVifVertexDecoder.VifNextCode(data, offset + 4, end);
-        var sawVertexAttrib = false;
         var sawPosition = false;
+        var sawAnyUnpack = false;
 
-        for (var step = 0; step < 12 && pCode + 4 <= data.Length && pCode < end && pCode < offset + 0x200; step++)
+        for (var step = 0; step < 16 && pCode + 4 <= data.Length && pCode < end && pCode < offset + 0x400; step++)
         {
             var cmd = data[pCode + 3];
             var op = cmd & 0x7F;
-            var num = data[pCode + 2];
 
             if (op == 0x01 && !sawPosition)
                 return false;
@@ -228,6 +231,7 @@ internal static class Ps2GeomMdlBatchScanner
                 if ((nextCmd & 0x60) == 0x60 && (nextCmd & 0x7E) == 0x6C)
                 {
                     sawPosition = true;
+                    sawAnyUnpack = true;
                     pCode = Ps2GeomVifVertexDecoder.VifNextCode(data, next, end);
                     continue;
                 }
@@ -235,11 +239,11 @@ internal static class Ps2GeomMdlBatchScanner
                 return false;
             }
 
-            if ((cmd & 0x60) == 0x60 && num > 0 && (op & 0x7E) != 0x6C)
-                sawVertexAttrib = true;
+            if ((cmd & 0x60) == 0x60)
+                sawAnyUnpack = true;
 
             if (op == 0x14)
-                return sawVertexAttrib && sawPosition;
+                return sawAnyUnpack;
 
             pCode = Ps2GeomVifVertexDecoder.VifNextCode(data, pCode, end);
         }

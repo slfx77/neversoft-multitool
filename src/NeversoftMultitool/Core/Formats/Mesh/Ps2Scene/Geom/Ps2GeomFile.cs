@@ -70,7 +70,10 @@ public static class Ps2GeomFile
 
         var batchRanges = Ps2GeomMdlBatchScanner.FindMscalBatchRanges(data, vifStart, data.Length);
         var signatureBatchRanges = Ps2GeomMdlBatchScanner.FindRepeatedBatchSignatureRanges(data, vifStart, data.Length);
-        if (signatureBatchRanges.Count >= 8 && signatureBatchRanges.Count > batchRanges.Count * 4)
+        // Prefer whichever scanner gives more batches — level MDLs emit one
+        // signature per strip (thousands), while per-MSCAL fallback captures
+        // minimal continuation chunks. For car MDLs the two are similar.
+        if (signatureBatchRanges.Count >= 8 && signatureBatchRanges.Count > batchRanges.Count)
             batchRanges = signatureBatchRanges;
 
         var placements = Ps2MdlPlacementResolver.ResolveObjectPlacements(preamble, batchRanges);
