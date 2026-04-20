@@ -92,6 +92,8 @@ tools/diagnostics/*
 !tools/diagnostics/ps2_vram_sim.py
 !tools/diagnostics/thaw_ps2_vif_walk.py
 !tools/diagnostics/thaw_ps2_strip_decode.py
+!tools/diagnostics/thaw_pcsx2_mdl_locator.py
+!tools/diagnostics/thaw_pcsx2_runbook.md
 
 # Build/runtime noise inside curated tools/
 tools/**/bin/
