@@ -49,6 +49,12 @@ internal static class Ps2GeomMdlBatchScanner
 
     internal static List<(int Start, int End)> FindRepeatedBatchSignatureRanges(byte[] data, int vifStart, int vifEnd)
     {
+        // 4-byte-aligned brute-force scan: this catches more real batch starts
+        // than walking via VifNextCode (the walker skips over large blocks of
+        // raw vertex data it mis-interprets as UNPACK-V4_5 NUM=255, missing real
+        // MSCALs embedded in that data). The cost is false positives, but the
+        // per-batch sanity filter in Ps2GeomVifVertexDecoder drops batches whose
+        // decoded positions land outside a sane world-space envelope.
         var starts = new List<int>();
         for (var i = vifStart; i + 8 <= vifEnd && i + 8 <= data.Length; i += 4)
         {

@@ -70,10 +70,15 @@ public static class Ps2GeomFile
 
         var batchRanges = Ps2GeomMdlBatchScanner.FindMscalBatchRanges(data, vifStart, data.Length);
         var signatureBatchRanges = Ps2GeomMdlBatchScanner.FindRepeatedBatchSignatureRanges(data, vifStart, data.Length);
-        // Prefer whichever scanner gives more batches — level MDLs emit one
-        // signature per strip (thousands), while per-MSCAL fallback captures
-        // minimal continuation chunks. For car MDLs the two are similar.
-        if (signatureBatchRanges.Count >= 8 && signatureBatchRanges.Count > batchRanges.Count)
+        // For level MDLs we prefer signature-based ranges even when fewer than
+        // MSCAL ranges: each signature range aligns to a VU1 setup boundary and
+        // contains multiple MSCAL-delimited sub-chunks, which the stateful
+        // decoder in Ps2GeomVifVertexDecoder can traverse to extract all
+        // continuation strips. MSCAL-only ranges lose that continuity.
+        // Car MDLs (<50 signatures) keep the MSCAL path.
+        if (signatureBatchRanges.Count >= 64)
+            batchRanges = signatureBatchRanges;
+        else if (signatureBatchRanges.Count >= 8 && signatureBatchRanges.Count > batchRanges.Count)
             batchRanges = signatureBatchRanges;
 
         var placements = Ps2MdlPlacementResolver.ResolveObjectPlacements(preamble, batchRanges);
