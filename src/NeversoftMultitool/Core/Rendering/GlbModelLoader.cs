@@ -38,6 +38,7 @@ internal static class GlbModelLoader
                 var jointCount = skin.JointsCount;
                 jointWorldTransforms = new Matrix4x4[jointCount];
                 inverseBindMatrices = new Matrix4x4[jointCount];
+
                 for (var j = 0; j < jointCount; j++)
                 {
                     var (jointNode, ibm) = skin.GetJoint(j);
@@ -61,6 +62,13 @@ internal static class GlbModelLoader
         }
 
         return scene;
+    }
+
+    internal static Matrix4x4 EvaluateAnimatedWorldMatrixForTesting(
+        Node node, Animation animation, float time)
+    {
+        var cache = AnimationKeyframeCache.Build(animation);
+        return EvaluateWorldMatrix(node, cache, time);
     }
 
     private static RenderSubmesh? LoadPrimitive(MeshPrimitive prim, Matrix4x4 worldMatrix,
@@ -326,4 +334,122 @@ internal static class GlbModelLoader
         return transform;
     }
 
+    private static Matrix4x4 EvaluateWorldMatrix(
+        Node node, AnimationKeyframeCache cache, float time)
+    {
+        var localMatrix = EvaluateLocalMatrix(node, cache, time);
+        var current = node.VisualParent;
+        while (current != null)
+        {
+            localMatrix *= EvaluateLocalMatrix(current, cache, time);
+            current = current.VisualParent;
+        }
+
+        return localMatrix;
+    }
+
+    private static Matrix4x4 EvaluateLocalMatrix(
+        Node node, AnimationKeyframeCache cache, float time)
+    {
+        var idx = node.LogicalIndex;
+
+        var translation = cache.SampleTranslation(idx, time) ?? node.LocalTransform.Translation;
+        var rotation = cache.SampleRotation(idx, time) ?? node.LocalTransform.Rotation;
+        var scale = cache.SampleScale(idx, time) ?? node.LocalTransform.Scale;
+
+        return Matrix4x4.CreateScale(scale)
+               * Matrix4x4.CreateFromQuaternion(rotation)
+               * Matrix4x4.CreateTranslation(translation);
+    }
+
+    /// <summary>
+    ///     Pre-cached animation keyframe arrays indexed by node LogicalIndex.
+    ///     Provides SLERP for rotation and LERP for translation/scale,
+    ///     replacing SharpGLTF's built-in NLERP quaternion interpolation.
+    /// </summary>
+    private sealed class AnimationKeyframeCache
+    {
+        private readonly Dictionary<int, (float Time, Quaternion Value)[]> _rotations = new();
+        private readonly Dictionary<int, (float Time, Vector3 Value)[]> _translations = new();
+        private readonly Dictionary<int, (float Time, Vector3 Value)[]> _scales = new();
+
+        public static AnimationKeyframeCache Build(Animation animation)
+        {
+            var cache = new AnimationKeyframeCache();
+            foreach (var channel in animation.Channels)
+            {
+                var nodeIdx = channel.TargetNode.LogicalIndex;
+                switch (channel.TargetNodePath)
+                {
+                    case PropertyPath.rotation:
+                        cache._rotations[nodeIdx] = channel.GetRotationSampler()
+                            .GetLinearKeys().ToArray();
+                        break;
+                    case PropertyPath.translation:
+                        cache._translations[nodeIdx] = channel.GetTranslationSampler()
+                            .GetLinearKeys().ToArray();
+                        break;
+                    case PropertyPath.scale:
+                        cache._scales[nodeIdx] = channel.GetScaleSampler()
+                            .GetLinearKeys().ToArray();
+                        break;
+                }
+            }
+
+            return cache;
+        }
+
+        public Quaternion? SampleRotation(int nodeIdx, float time)
+        {
+            if (!_rotations.TryGetValue(nodeIdx, out var keys) || keys.Length == 0)
+                return null;
+            if (keys.Length == 1) return keys[0].Value;
+
+            if (time <= keys[0].Time) return keys[0].Value;
+            if (time >= keys[^1].Time) return keys[^1].Value;
+
+            for (var i = 0; i < keys.Length - 1; i++)
+            {
+                if (time < keys[i + 1].Time)
+                {
+                    var t = (time - keys[i].Time) / (keys[i + 1].Time - keys[i].Time);
+                    return Quaternion.Slerp(keys[i].Value, keys[i + 1].Value, t);
+                }
+            }
+
+            return keys[^1].Value;
+        }
+
+        public Vector3? SampleTranslation(int nodeIdx, float time)
+        {
+            if (!_translations.TryGetValue(nodeIdx, out var keys) || keys.Length == 0)
+                return null;
+            return SampleVector3(keys, time);
+        }
+
+        public Vector3? SampleScale(int nodeIdx, float time)
+        {
+            if (!_scales.TryGetValue(nodeIdx, out var keys) || keys.Length == 0)
+                return null;
+            return SampleVector3(keys, time);
+        }
+
+        private static Vector3 SampleVector3((float Time, Vector3 Value)[] keys, float time)
+        {
+            if (keys.Length == 1) return keys[0].Value;
+            if (time <= keys[0].Time) return keys[0].Value;
+            if (time >= keys[^1].Time) return keys[^1].Value;
+
+            for (var i = 0; i < keys.Length - 1; i++)
+            {
+                if (time < keys[i + 1].Time)
+                {
+                    var t = (time - keys[i].Time) / (keys[i + 1].Time - keys[i].Time);
+                    return Vector3.Lerp(keys[i].Value, keys[i + 1].Value, t);
+                }
+            }
+
+            return keys[^1].Value;
+        }
+    }
 }
