@@ -187,6 +187,12 @@ internal static class Ps2TextureLoader
         var texFiles = GetTexFiles(texPath);
         var textureCache = new Dictionary<uint, Ps2Texture>();
         var checksumByTbpCbp = new Dictionary<(uint Tbp, uint Cbp), uint>();
+        // Higher-fidelity map keyed on TEX0 bits that affect the actual texture
+        // lookup: TBP (0-13), PSM (20-25), TW (26-29), TH (30-33), CBP (37-50),
+        // CPSM (51-54). Excludes TBW (stride) and TCC/TFX/CSM/CSA/CLD which are
+        // rendering-state bits, not identity. This catches dimension + format
+        // differences that a bare (TBP, CBP) key collapses together.
+        var checksumByKey = new Dictionary<ulong, uint>();
         var zoneTexCount = 0;
 
         foreach (var tf in texFiles)
@@ -213,17 +219,17 @@ internal static class Ps2TextureLoader
                         var entryBytes = new byte[size];
                         Array.Copy(data, off, entryBytes, 0, (int)size);
                         ParseZoneTexBytes(entryBytes, $"{Path.GetFileName(tf)}::{off:X8}",
-                            textureCache, checksumByTbpCbp, ref zoneTexCount, verbose);
+                            textureCache, checksumByTbpCbp, checksumByKey, ref zoneTexCount, verbose);
                     }
                     // Also try the whole-PAK path in case there's top-level zone TEX data.
                     if (ThawZoneTexFile.IsThawZoneTex(data))
                         ParseZoneTexBytes(data, Path.GetFileName(tf),
-                            textureCache, checksumByTbpCbp, ref zoneTexCount, verbose);
+                            textureCache, checksumByTbpCbp, checksumByKey, ref zoneTexCount, verbose);
                 }
                 else if (ThawZoneTexFile.IsThawZoneTex(data))
                 {
                     ParseZoneTexBytes(data, Path.GetFileName(tf),
-                        textureCache, checksumByTbpCbp, ref zoneTexCount, verbose);
+                        textureCache, checksumByTbpCbp, checksumByKey, ref zoneTexCount, verbose);
                 }
             }
             catch
@@ -246,9 +252,15 @@ internal static class Ps2TextureLoader
         {
             var tbp = (uint)(dmaTex0 & 0x3FFF);
             var cbp = (uint)((dmaTex0 >> 37) & 0x3FFF);
-            var checksum = checksumByTbpCbp.TryGetValue((tbp, cbp), out var ck)
-                ? ck
-                : (tbp << 16) | cbp;
+            // Prefer the higher-fidelity key (TBP+PSM+TW+TH+CBP+CPSM) so that two
+            // textures sharing the same (TBP, CBP) but differing in size or format
+            // resolve to the correct entry. Fall back to the coarse (TBP, CBP)
+            // lookup when the full key misses (e.g. if the MDL's TEX0 specifies
+            // attributes the zone-TEX catalog doesn't enumerate).
+            var fullKey = MakeTex0IdentityKey(dmaTex0);
+            var mapped = checksumByKey.TryGetValue(fullKey, out var ck)
+                         || checksumByTbpCbp.TryGetValue((tbp, cbp), out ck);
+            var checksum = mapped ? ck : (tbp << 16) | cbp;
             if (checksum == 0) return 0;
 
             if (!pngCache.ContainsKey(checksum))
@@ -304,11 +316,31 @@ internal static class Ps2TextureLoader
             .ToList();
     }
 
+    /// <summary>
+    ///     Keep the TEX0 bits that identify a texture instance: TBP (base pointer
+    ///     0-13), PSM (pixel format 20-25), TW (width exp 26-29), TH (height exp
+    ///     30-33), CBP (CLUT pointer 37-50), CPSM (CLUT format 51-54). Strip the
+    ///     rendering-state bits (TBW stride, TCC, TFX, CSM, CSA, CLD) so two TEX0
+    ///     writes that reference the same texture under different render state
+    ///     collapse to one key.
+    /// </summary>
+    private static ulong MakeTex0IdentityKey(ulong tex0)
+    {
+        var tbp   =  tex0        & 0x3FFFUL;
+        var psm   = (tex0 >> 20) & 0x3FUL;
+        var tw    = (tex0 >> 26) & 0xFUL;
+        var th    = (tex0 >> 30) & 0xFUL;
+        var cbp   = (tex0 >> 37) & 0x3FFFUL;
+        var cpsm  = (tex0 >> 51) & 0xFUL;
+        return tbp | (psm << 14) | (tw << 20) | (th << 24) | (cbp << 28) | (cpsm << 42);
+    }
+
     private static void ParseZoneTexBytes(
         byte[] data,
         string label,
         Dictionary<uint, Ps2Texture> textureCache,
         Dictionary<(uint Tbp, uint Cbp), uint> checksumByTbpCbp,
+        Dictionary<ulong, uint> checksumByKey,
         ref int zoneTexCount,
         bool verbose)
     {
@@ -327,6 +359,7 @@ internal static class Ps2TextureLoader
             var tbp = (uint)(entry.Tex0 & 0x3FFF);
             var cbp = (uint)((entry.Tex0 >> 37) & 0x3FFF);
             checksumByTbpCbp.TryAdd((tbp, cbp), entry.Checksum);
+            checksumByKey.TryAdd(MakeTex0IdentityKey(entry.Tex0), entry.Checksum);
         }
 
         if (verbose)
