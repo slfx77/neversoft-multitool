@@ -12,8 +12,21 @@ public sealed class Ps2Material
     public uint TextureChecksum { get; init; }
     public uint GroupChecksum { get; init; }
     public int AlphaRef { get; init; }
-    public bool ClampU { get; init; }
-    public bool ClampV { get; init; }
+
+    /// <summary>
+    ///     Raw GS WMS/WMT wrap-mode codes per the PS2 GS_CLAMP register:
+    ///     0 = REPEAT, 1 = CLAMP, 2 = REGION_CLAMP, 3 = REGION_REPEAT.
+    ///     Only values 1 and 2 represent true edge-clamping; 0 and 3 are tiled.
+    /// </summary>
+    public uint ClampUMode { get; init; }
+
+    public uint ClampVMode { get; init; }
+
+    /// <summary>True when WMS resolves to a clamping mode (CLAMP or REGION_CLAMP).</summary>
+    public bool ClampU => ClampUMode == 1 || ClampUMode == 2;
+
+    /// <summary>True when WMT resolves to a clamping mode (CLAMP or REGION_CLAMP).</summary>
+    public bool ClampV => ClampVMode == 1 || ClampVMode == 2;
 
     /// <summary>
     ///     Raw GS ALPHA register (u64). Encodes blend equation: Output = (A-B)*C + D.

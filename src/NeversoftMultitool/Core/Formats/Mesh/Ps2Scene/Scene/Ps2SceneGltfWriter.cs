@@ -62,7 +62,7 @@ public static class Ps2SceneGltfWriter
         TextureProvider? textureProvider = null)
     {
         var scene = new SceneBuilder();
-        var materialCache = new Dictionary<uint, MaterialBuilder>();
+        var materialCache = new Dictionary<uint, MaterialBuilder?>();
         var totalTriangles = 0;
         var dedupByMaterial = new Dictionary<uint, HashSet<(Vector3, Vector3, Vector3)>>();
 
@@ -137,11 +137,11 @@ public static class Ps2SceneGltfWriter
         string? animationName = null, TextureProvider? textureProvider = null)
     {
         var scene = new SceneBuilder();
-        var materialCache = new Dictionary<uint, MaterialBuilder>();
+        var materialCache = new Dictionary<uint, MaterialBuilder?>();
         var totalTriangles = 0;
 
         // Build skeleton with animation channels
-        var jointNodes = BuildJointNodes(skeleton);
+        var jointNodes = SkaGltfWriter.BuildJointHierarchy(skeleton);
         SkaGltfWriter.ApplyAnimation(jointNodes, skeleton, animation, animationName ?? "animation");
 
         // Build skinned mesh
@@ -151,6 +151,7 @@ public static class Ps2SceneGltfWriter
             if (mesh.Vertices.Length < 3) continue;
             var material = GetOrCreateMaterial(ps2Scene.Materials, mesh.MaterialChecksum,
                 materialCache, textureProvider);
+            if (material == null) continue;
             var prim = gltfMesh.UsePrimitive(material);
             var tris = Ps2SceneGltfSkinningSupport.AddSkinnedTriangleStrip(prim, mesh.Vertices,
                 mesh.StartsOnOddOutputSlot);
@@ -159,6 +160,12 @@ public static class Ps2SceneGltfWriter
 
         if (totalTriangles > 0)
         {
+            // Use the explicit-IBM overload for both V1 and V2 skeletons. V1 skeletons
+            // get their neutral pose populated from companion default.ska.ps2 files by
+            // Ps2SkeletonDefaultPose.EnrichWithDefaultPose before reaching this writer,
+            // so InverseBindMatrix is valid in both cases. SharpGLTF's auto-IBM overload
+            // strips identity node transforms and produces wrong results when a real
+            // bind pose exists (see RwDffGltfWriter for the same approach).
             var joints = new (NodeBuilder, Matrix4x4)[skeleton.Bones.Length];
             for (var i = 0; i < skeleton.Bones.Length; i++)
                 joints[i] = (jointNodes[i], skeleton.Bones[i].InverseBindMatrix);
@@ -168,31 +175,11 @@ public static class Ps2SceneGltfWriter
         return (scene.ToGltf2(), totalTriangles);
     }
 
-    /// <summary>Build joint nodes from skeleton (shared between animated and static paths).</summary>
-    private static NodeBuilder[] BuildJointNodes(Ps2Skeleton skeleton)
-    {
-        var jointNodes = new NodeBuilder[skeleton.Bones.Length];
-        for (var i = 0; i < skeleton.Bones.Length; i++)
-        {
-            var bone = skeleton.Bones[i];
-            var boneName = QbKey.QbKey.TryResolve(bone.NameChecksum) ?? $"bone_{bone.NameChecksum:X8}";
-
-            if (bone.ParentIndex < 0)
-                jointNodes[i] = new NodeBuilder(boneName);
-            else
-                jointNodes[i] = jointNodes[bone.ParentIndex].CreateNode(boneName);
-
-            jointNodes[i].LocalTransform = new AffineTransform(
-                null, bone.LocalRotation, bone.LocalTranslation);
-        }
-        return jointNodes;
-    }
-
     internal static (ModelRoot Model, int Triangles) BuildSkinned(Ps2Scene ps2Scene,
         Ps2Skeleton skeleton, TextureProvider? textureProvider = null)
     {
         var scene = new SceneBuilder();
-        var materialCache = new Dictionary<uint, MaterialBuilder>();
+        var materialCache = new Dictionary<uint, MaterialBuilder?>();
         var totalTriangles = 0;
 
         // Build skeleton hierarchy as NodeBuilder tree
@@ -229,6 +216,7 @@ public static class Ps2SceneGltfWriter
 
             var material = GetOrCreateMaterial(ps2Scene.Materials, mesh.MaterialChecksum,
                 materialCache, textureProvider);
+            if (material == null) continue;
             var prim = gltfMesh.UsePrimitive(material);
 
             var tris = Ps2SceneGltfSkinningSupport.AddSkinnedTriangleStrip(prim, mesh.Vertices,
@@ -351,13 +339,18 @@ public static class Ps2SceneGltfWriter
         string name,
         Ps2Mesh mesh,
         List<Ps2Material> materials,
-        Dictionary<uint, MaterialBuilder> materialCache,
+        Dictionary<uint, MaterialBuilder?> materialCache,
         TextureProvider? textureProvider,
         out int triangleCount,
         HashSet<(Vector3, Vector3, Vector3)>? dedup = null)
     {
         var gltfMesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>(name);
         var material = GetOrCreateMaterial(materials, mesh.MaterialChecksum, materialCache, textureProvider);
+        if (material == null)
+        {
+            triangleCount = 0;
+            return gltfMesh;
+        }
         var prim = gltfMesh.UsePrimitive(material);
 
         triangleCount = AddTriangleStrip(prim, mesh.Vertices, mesh.StartsOnOddOutputSlot, dedup);
@@ -405,10 +398,10 @@ public static class Ps2SceneGltfWriter
             new VertexColor1Texture1(new Vector4(r, g, b, a), uv));
     }
 
-    private static MaterialBuilder GetOrCreateMaterial(
+    private static MaterialBuilder? GetOrCreateMaterial(
         List<Ps2Material> materials,
         uint matChecksum,
-        Dictionary<uint, MaterialBuilder> cache,
+        Dictionary<uint, MaterialBuilder?> cache,
         TextureProvider? textureProvider)
     {
         if (cache.TryGetValue(matChecksum, out var existing))
@@ -424,44 +417,65 @@ public static class Ps2SceneGltfWriter
             .WithBaseColor(Vector4.One)
             .WithDoubleSide(true);
 
-        // Embed texture if provider is available and material has a texture reference
         if (textureProvider != null && mat?.TextureChecksum is > 0)
         {
-            var pngBytes = textureProvider(mat.TextureChecksum);
-            if (pngBytes != null)
+            var result = TryEmbedTexture(builder, mat, textureProvider);
+            if (result == TextureResult.Placeholder)
             {
-                var memImage = new MemoryImage(pngBytes);
-                builder.WithChannelImage(KnownChannel.BaseColor, memImage);
-
-                // Set texture wrap mode from material clamp flags.
-                // PS2: 0=repeat, non-zero=clamp. glTF defaults to REPEAT.
-                if (mat.ClampU || mat.ClampV)
-                {
-                    var wrapS = mat.ClampU
-                        ? TextureWrapMode.CLAMP_TO_EDGE
-                        : TextureWrapMode.REPEAT;
-                    var wrapT = mat.ClampV
-                        ? TextureWrapMode.CLAMP_TO_EDGE
-                        : TextureWrapMode.REPEAT;
-                    builder.GetChannel(KnownChannel.BaseColor)
-                        .Texture
-                        .WithSampler(wrapS, wrapT);
-                }
+                cache[matChecksum] = null;
+                return null;
             }
         }
 
-        // Alpha handling (from THUG mesh.cpp line 402):
-        // PS2 GS always runs alpha test: PackTEST(1,AGEQUAL,Aref,KEEP,0,0,1,ZGEQUAL)
-        //   Aref=0: alpha >= 0 always passes → truly OPAQUE.
-        //   Aref=1: discards alpha=0 pixels → MASK cutout (fences, foliage, etc.)
-        //   Aref>=2: higher-threshold cutout → MASK with visible cutoff.
-        // MATFLAG_TRANSPARENT + RegALPHA: true blending (glass, shadows, ghosts).
-        // RegALPHA FIXED_BLEND: (Cs-Cd)*FIX/128+Cd → apply FIX/128 as material opacity.
         if (mat != null)
             ApplyAlphaMode(builder, mat);
 
         cache[matChecksum] = builder;
         return builder;
+    }
+
+    private enum TextureResult { None, Embedded, Placeholder }
+
+    private static TextureResult TryEmbedTexture(
+        MaterialBuilder builder, Ps2Material mat, TextureProvider textureProvider)
+    {
+        var pngBytes = textureProvider(mat.TextureChecksum);
+        if (pngBytes == null)
+            return TextureResult.None;
+
+        if (IsSolidColorTexture(pngBytes))
+            return TextureResult.Placeholder;
+
+        builder.WithChannelImage(KnownChannel.BaseColor, new MemoryImage(pngBytes));
+
+        if (mat.ClampU || mat.ClampV)
+        {
+            var wrapS = mat.ClampU ? TextureWrapMode.CLAMP_TO_EDGE : TextureWrapMode.REPEAT;
+            var wrapT = mat.ClampV ? TextureWrapMode.CLAMP_TO_EDGE : TextureWrapMode.REPEAT;
+            builder.GetChannel(KnownChannel.BaseColor).Texture.WithSampler(wrapS, wrapT);
+        }
+
+        return TextureResult.Embedded;
+    }
+
+    /// <summary>
+    ///     Detects solid-color placeholder textures used by the PS2 character creator
+    ///     for multi-pass overlay slots. These are typically tiny (16x16 to 64x64) with
+    ///     every pixel identical. Meshes using these should be skipped — they're runtime-
+    ///     replaced overlay passes, not standalone geometry.
+    /// </summary>
+    private static bool IsSolidColorTexture(byte[] pngBytes)
+    {
+        if (pngBytes.Length > 1024)
+            return false;
+
+        using var img = SixLabors.ImageSharp.Image.Load<SixLabors.ImageSharp.PixelFormats.Rgba32>(pngBytes);
+        var firstPixel = img[0, 0];
+        for (var y = 0; y < img.Height; y++)
+            for (var x = 0; x < img.Width; x++)
+                if (img[x, y] != firstPixel)
+                    return false;
+        return true;
     }
 
     /// <summary>

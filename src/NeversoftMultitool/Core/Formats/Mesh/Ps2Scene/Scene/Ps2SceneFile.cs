@@ -197,8 +197,8 @@ public static class Ps2SceneFile
             GroupChecksum = groupChecksum,
             AlphaRef = alphaRef,
             RegAlpha = regAlpha,
-            ClampU = clampU != 0,
-            ClampV = clampV != 0
+            ClampUMode = clampU,
+            ClampVMode = clampV
         };
     }
 
