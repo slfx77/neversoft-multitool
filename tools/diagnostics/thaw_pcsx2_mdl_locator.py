@@ -135,7 +135,11 @@ def main() -> None:
     print(f"  Disk preamble record table starts at file offset 0x{disk_table_off:X}")
 
     hits = find_table_in_ee(ee, min_run=args.min_run)
+    # Filter to our target MDL's record count to avoid false positives from
+    # other loaded MDLs' tables floating nearby in EE RAM.
+    disk_record_count = (len(mdl) - disk_table_off) // PREAMBLE_STRIDE
     print(f"\nEE RAM scan: found {len(hits)} record-table location(s) with >= {args.min_run} consecutive signatures")
+    print(f"  Disk MDL has {disk_record_count} records (target for exact match)")
     for hit in hits:
         # PS2 EE RAM usually starts at virtual address 0x00000000 (cached/kseg).
         # Savestate eeMemory.bin is the raw 32 MB, so offset == physical address

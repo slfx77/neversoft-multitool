@@ -94,6 +94,7 @@ tools/diagnostics/*
 !tools/diagnostics/thaw_ps2_strip_decode.py
 !tools/diagnostics/thaw_pcsx2_mdl_locator.py
 !tools/diagnostics/thaw_pcsx2_runbook.md
+!tools/diagnostics/thaw_pcsx2_findings.md
 
 # Build/runtime noise inside curated tools/
 tools/**/bin/
