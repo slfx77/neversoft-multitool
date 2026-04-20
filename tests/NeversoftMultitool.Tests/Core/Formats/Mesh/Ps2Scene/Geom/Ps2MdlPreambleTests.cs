@@ -114,6 +114,41 @@ public sealed class Ps2MdlPreambleTests(TestPaths paths)
     }
 
     [Fact]
+    public void TryParse_WorldzoneMdl_RecoversPreambleRecordsWithValidQuaternions()
+    {
+        // z_bh MDL at offset 0x1D990 in the PAK is the paired .mdl for the .91E1028D at 0x15410+0x4E8.
+        // Phase400 RE found 11 records at 0x50 stride starting at MDL+0x9030.
+        // Record 0 is the zone header (class_hash=0), angle ~13.2° (normalized qw ~0.993).
+        var data = LoadPakMdlData("z_bh", "0001D990.mdl");
+
+        var vifStart = Ps2GeomMdlBatchScanner.FindMdlVifStart(data);
+        var preamble = Ps2MdlPreamble.TryParse(data, vifStart);
+        Assert.NotNull(preamble);
+        Assert.True(preamble!.Records.Count >= 10,
+            $"Expected at least 10 preamble records, found {preamble.Records.Count}");
+        Assert.True(preamble.Records.ContainsKey(0x9030),
+            "Expected rec 0 at MDL offset 0x9030 (zone header)");
+        Assert.True(preamble.Records.ContainsKey(0x9120),
+            "Expected rec 3 at MDL offset 0x9120 (referenced by 00026D20 item 0 +0x44)");
+
+        var rec0 = preamble.Records[0x9030];
+        Assert.Equal(0u, rec0.ClassHash);
+        // Unit-quaternion qw component for ~13° rotation is ~0.993.
+        Assert.InRange(rec0.Rotation.W, 0.98f, 1.00f);
+
+        // All recovered rotations should be unit quaternions.
+        foreach (var rotation in preamble.Records.Values.Select(record => record.Rotation))
+        {
+            var mag = MathF.Sqrt(
+                rotation.X * rotation.X +
+                rotation.Y * rotation.Y +
+                rotation.Z * rotation.Z +
+                rotation.W * rotation.W);
+            Assert.InRange(mag, 0.999f, 1.001f);
+        }
+    }
+
+    [Fact]
     public void ParsePakMdl_ObjectMdl_DoesNotApplySpeculativePlacement()
     {
         var scene = Ps2GeomFile.ParsePakMdl(LoadPakMdlData("z_bh", "0000BED0.mdl"));

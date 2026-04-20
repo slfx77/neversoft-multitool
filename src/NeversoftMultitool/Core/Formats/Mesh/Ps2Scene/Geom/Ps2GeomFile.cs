@@ -74,6 +74,13 @@ public static class Ps2GeomFile
             batchRanges = signatureBatchRanges;
 
         var placements = Ps2MdlPlacementResolver.ResolveObjectPlacements(preamble, batchRanges);
+
+        // Level MDLs (no bones, many preamble records) encode each batch's world-space centre
+        // in the preamble records' +0x20 (x,y,z) field. Record 0 is the scene bbox; records 1..N
+        // map 1:1 onto batches 0..N-1. Object MDLs (with bones, few records) keep the prior
+        // behaviour — centres come from in-VIF ScanBatchForCenter.
+        var recordCentres = TryGetLevelBatchCentres(preamble, batchRanges.Count);
+
         for (var batchIndex = 0; batchIndex < batchRanges.Count; batchIndex++)
         {
             var (batchStart, batchEnd) = batchRanges[batchIndex];
@@ -90,6 +97,9 @@ public static class Ps2GeomFile
             {
                 currentCenter = center.Value;
             }
+
+            if (recordCentres != null && batchIndex < recordCentres.Count)
+                currentCenter = recordCentres[batchIndex];
 
             var batchVerts = Ps2GeomVifVertexDecoder.ExtractVerticesFromVif(data, batchStart, batchEnd, currentCenter);
             if (placements.TryGetValue(batchIndex, out var placement))
@@ -176,6 +186,7 @@ public static class Ps2GeomFile
 
     private static Ps2GeomLeaf MakeLeafFromMdlMesh(IReadOnlyList<Ps2Vertex> vertices, Ps2GeomGsContext gsCtx)
     {
+        var (min, max) = ComputeBbox(vertices);
         return new Ps2GeomLeaf
         {
             Checksum = 0,
@@ -190,8 +201,95 @@ public static class Ps2GeomFile
             DmaMipTbp2 = gsCtx.MipTbp2,
             DmaClamp1 = gsCtx.Clamp1,
             DmaAlpha1 = gsCtx.Alpha1,
-            DmaTest1 = gsCtx.Test1
+            DmaTest1 = gsCtx.Test1,
+            IsLocalSpace = IsLocalSpaceBatch(vertices.Count, min, max),
+            IsLodPlane = IsLodPlaneBatch(vertices.Count, min, max)
         };
+    }
+
+    private static (Vector3 Min, Vector3 Max) ComputeBbox(IReadOnlyList<Ps2Vertex> vertices)
+    {
+        if (vertices.Count == 0)
+            return (Vector3.Zero, Vector3.Zero);
+
+        var min = new Vector3(float.MaxValue);
+        var max = new Vector3(float.MinValue);
+        foreach (var vertex in vertices)
+        {
+            var pos = vertex.Position;
+            min = Vector3.Min(min, pos);
+            max = Vector3.Max(max, pos);
+        }
+        return (min, max);
+    }
+
+    /// <summary>
+    ///     Classify a batch as "local-space" (single-sector geometry centred at origin, meant
+    ///     to be instanced per non-root bone) vs "world-space" (shared/infrastructure geometry
+    ///     already positioned). Empirical thresholds calibrated against THAW z_bh/z_ho car MDLs:
+    ///     car-sized batches are ~12×28×28 units centred within ±5 of origin.
+    /// </summary>
+    private static bool IsLocalSpaceBatch(int vertexCount, Vector3 min, Vector3 max)
+    {
+        if (vertexCount < 3)
+            return false;
+        var size = max - min;
+        var center = (min + max) * 0.5f;
+        var maxDim = Math.Max(size.X, Math.Max(size.Y, size.Z));
+        const float MaxLocalDimension = 50f;
+        const float MaxOriginOffset = 8f;
+        return maxDim < MaxLocalDimension
+               && Math.Abs(center.X) < MaxOriginOffset
+               && Math.Abs(center.Y) < MaxOriginOffset
+               && Math.Abs(center.Z) < MaxOriginOffset;
+    }
+
+    /// <summary>
+    ///     Classify a batch as a billboard/LOD plane. Heuristic: very flat (thinnest axis &lt;
+    ///     20% of widest), few vertices (&lt;= 16), and not a tiny detail (widest axis &gt; 20
+    ///     units). These produce thin flat polygons cutting through nearby geometry when
+    ///     rendered in the final glb.
+    /// </summary>
+    private static bool IsLodPlaneBatch(int vertexCount, Vector3 min, Vector3 max)
+    {
+        if (vertexCount < 3 || vertexCount > 16)
+            return false;
+        var size = max - min;
+        var minDim = Math.Min(size.X, Math.Min(size.Y, size.Z));
+        var maxDim = Math.Max(size.X, Math.Max(size.Y, size.Z));
+        if (maxDim < 20f)
+            return false;
+        var ratio = minDim / maxDim;
+        const float LodAspectThreshold = 0.2f;
+        return ratio < LodAspectThreshold;
+    }
+
+    /// <summary>
+    ///     Extract per-batch world-space centres from preamble records for THAW level MDLs (the
+    ///     `0x7EA7357B` geometry-chunk variant). Record 0 is the scene bbox (class_hash == 0);
+    ///     records 1..N align 1:1 with VIF batches 0..N-1. Returns null for object MDLs, which
+    ///     use in-VIF centres and per-bone placement instead.
+    /// </summary>
+    private static IReadOnlyList<Vector3>? TryGetLevelBatchCentres(
+        Ps2MdlPreamble.Preamble? preamble, int batchCount)
+    {
+        if (preamble is null || preamble.Bones.Count > 0 || preamble.Records.Count < 2)
+            return null;
+
+        // Require enough records to cover all batches (plus the scene-header record 0).
+        // Object MDLs have ~10-15 records; level MDLs have thousands.
+        if (preamble.Records.Count < batchCount + 1)
+            return null;
+
+        var sorted = preamble.Records.Values.OrderBy(r => r.Offset).ToList();
+        // Skip record 0 (scene header with class_hash == 0); map records[1..] → batches[0..].
+        if (sorted[0].ClassHash != 0)
+            return null;
+
+        var centres = new Vector3[batchCount];
+        for (var i = 0; i < batchCount && i + 1 < sorted.Count; i++)
+            centres[i] = sorted[i + 1].Centre;
+        return centres;
     }
 
     private static bool ShouldSkipWorldZoneBatch(Ps2Vertex[] vertices)

@@ -41,14 +41,72 @@ public static class Ps2GeomGltfWriter
         Ps2SceneGltfWriter.TextureProvider? textureProvider = null,
         Tex0Resolver? tex0Resolver = null)
     {
+        return Write(geomScene, outputPath, placements: null, textureProvider, tex0Resolver);
+    }
+
+    /// <summary>
+    ///     Writes a parsed PS2 GEOM scene to a .glb file with one scene node per placement.
+    ///     When <paramref name="placements"/> is null or empty, a single identity-transform node
+    ///     is emitted (matches the default <see cref="Write(Ps2GeomScene,string,Ps2SceneGltfWriter.TextureProvider?,Tex0Resolver?)"/> behaviour).
+    /// </summary>
+    public static int Write(Ps2GeomScene geomScene, string outputPath,
+        IReadOnlyList<(Vector3 Position, Quaternion Rotation)>? placements,
+        Ps2SceneGltfWriter.TextureProvider? textureProvider = null,
+        Tex0Resolver? tex0Resolver = null)
+    {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        var (model, triangles) = Build(geomScene, textureProvider, tex0Resolver);
+        var scene = new SceneBuilder();
+        var triangles = AppendToScene(scene, geomScene, placements, textureProvider, tex0Resolver);
         if (triangles == 0) return 0;
+
+        var model = scene.ToGltf2();
         GltfNormalSmoother.SmoothNormals(model);
         model.SaveGLB(outputPath);
+        return triangles;
+    }
+
+    /// <summary>
+    ///     Appends a parsed PS2 GEOM scene to a SharpGLTF <see cref="SceneBuilder"/>, emitting
+    ///     one scene node per placement (or a single identity node when placements is null/empty).
+    ///     Use this for combined worldzone .glbs where multiple MDLs are stitched into one scene.
+    ///     Optional <paramref name="leafFilter"/> selects which leaves participate; used by the
+    ///     worldzone object flow to emit world-space batches and local-space (per-bone) batches
+    ///     separately.
+    /// </summary>
+    public static int AppendToScene(SceneBuilder scene, Ps2GeomScene geomScene,
+        IReadOnlyList<(Vector3 Position, Quaternion Rotation)>? placements,
+        Ps2SceneGltfWriter.TextureProvider? textureProvider = null,
+        Tex0Resolver? tex0Resolver = null,
+        Func<Ps2GeomLeaf, bool>? leafFilter = null)
+    {
+        var (buckets, triangles) = BuildMeshBuckets(geomScene, textureProvider, tex0Resolver, leafFilter);
+        if (triangles == 0) return 0;
+
+        var instances = placements is { Count: > 0 }
+            ? placements
+            : [(Vector3.Zero, Quaternion.Identity)];
+
+        foreach (var bucket in buckets.Values)
+        {
+            if (bucket.TriangleCount == 0)
+                continue;
+
+            for (var i = 0; i < instances.Count; i++)
+            {
+                var (pos, rot) = instances[i];
+                var nodeName = instances.Count == 1
+                    ? bucket.Name
+                    : $"{bucket.Name}_p{i:D4}";
+                var node = new NodeBuilder(nodeName)
+                    .WithLocalTranslation(pos)
+                    .WithLocalRotation(rot);
+                scene.AddRigidMesh(bucket.Mesh, node);
+            }
+        }
+
         return triangles;
     }
 
@@ -57,6 +115,16 @@ public static class Ps2GeomGltfWriter
         Tex0Resolver? tex0Resolver = null)
     {
         var scene = new SceneBuilder();
+        var triangles = AppendToScene(scene, geomScene, placements: null, textureProvider, tex0Resolver);
+        return (scene.ToGltf2(), triangles);
+    }
+
+    private static (Dictionary<GeomMaterialKey, GeomMeshBucket> Buckets, int Triangles) BuildMeshBuckets(
+        Ps2GeomScene geomScene,
+        Ps2SceneGltfWriter.TextureProvider? textureProvider,
+        Tex0Resolver? tex0Resolver,
+        Func<Ps2GeomLeaf, bool>? leafFilter = null)
+    {
         var materialCache = new Dictionary<GeomMaterialKey, MaterialBuilder>();
         var buckets = new Dictionary<GeomMaterialKey, GeomMeshBucket>();
         var totalTriangles = 0;
@@ -66,6 +134,9 @@ public static class Ps2GeomGltfWriter
         foreach (var leaf in geomScene.Leaves)
         {
             if (leaf.Vertices.Length < 3) continue;
+
+            if (leafFilter != null && !leafFilter(leaf))
+                continue;
 
             if (isWorldZoneScene && ShouldSkipWorldZoneLeaf(leaf))
                 continue;
@@ -90,16 +161,7 @@ public static class Ps2GeomGltfWriter
             bucket.TriangleCount += tris;
         }
 
-        foreach (var bucket in buckets.Values)
-        {
-            if (bucket.TriangleCount == 0)
-                continue;
-
-            var node = new NodeBuilder(bucket.Name);
-            scene.AddRigidMesh(bucket.Mesh, node);
-        }
-
-        return (scene.ToGltf2(), totalTriangles);
+        return (buckets, totalTriangles);
     }
 
     private static GeomMeshBucket GetOrCreateBucket(

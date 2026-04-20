@@ -1,5 +1,6 @@
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.BinaryIO;
+using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Texture;
@@ -193,27 +194,36 @@ internal static class Ps2TextureLoader
             try
             {
                 var data = File.ReadAllBytes(tf);
-                if (!ThawZoneTexFile.IsThawZoneTex(data)) continue;
 
-                zoneTexCount++;
-                var textures = ThawZoneTexFile.DecodeAllFromFile(data);
-                var entries = ThawZoneTexFile.ParseHeaderEntries(data);
-
-                foreach (var texture in textures)
-                    textureCache.TryAdd(texture.Checksum, texture);
-
-                // Build TBP/CBP → checksum mapping from header entries
-                foreach (var entry in entries)
+                // A .pak.ps2 file is an archive containing many .stex/.tex entries. Extracting
+                // each entry separately yields far more textures than parsing the whole PAK as
+                // a single ThawZoneTex blob (z_bh.pak.ps2 has 9 tex-ish entries but only 3 are
+                // findable when the whole PAK is treated as one blob).
+                if (tf.EndsWith(".pak.ps2", StringComparison.OrdinalIgnoreCase)
+                    && PakArchive.IsPakArchive(tf))
                 {
-                    var tbp = (uint)(entry.Tex0 & 0x3FFF);
-                    var cbp = (uint)((entry.Tex0 >> 37) & 0x3FFF);
-                    checksumByTbpCbp.TryAdd((tbp, cbp), entry.Checksum);
+                    foreach (var entry in PakArchive.GetTypedEntries(tf))
+                    {
+                        if (entry.TypeHash is not (0x2B0A3095u /* .stex */ or 0x8BFA5E8Eu /* .tex */))
+                            continue;
+                        var off = entry.Entry.Offset;
+                        var size = entry.Entry.Size;
+                        if (off < 0 || size <= 0 || off + size > data.Length)
+                            continue;
+                        var entryBytes = new byte[size];
+                        Array.Copy(data, off, entryBytes, 0, (int)size);
+                        ParseZoneTexBytes(entryBytes, $"{Path.GetFileName(tf)}::{off:X8}",
+                            textureCache, checksumByTbpCbp, ref zoneTexCount, verbose);
+                    }
+                    // Also try the whole-PAK path in case there's top-level zone TEX data.
+                    if (ThawZoneTexFile.IsThawZoneTex(data))
+                        ParseZoneTexBytes(data, Path.GetFileName(tf),
+                            textureCache, checksumByTbpCbp, ref zoneTexCount, verbose);
                 }
-
-                if (verbose)
+                else if (ThawZoneTexFile.IsThawZoneTex(data))
                 {
-                    AnsiConsole.MarkupLine(
-                        $"Detected zone TEX: [green]{Path.GetFileName(tf)}[/] ({entries.Count} records, {textures.Count} textures)");
+                    ParseZoneTexBytes(data, Path.GetFileName(tf),
+                        textureCache, checksumByTbpCbp, ref zoneTexCount, verbose);
                 }
             }
             catch
@@ -269,7 +279,15 @@ internal static class Ps2TextureLoader
     public static List<string> GetTexFiles(string path)
     {
         if (File.Exists(path))
+        {
+            // THAW worldzone PAKs carry textures in the main PAK plus several sibling PAKs
+            // (z_bh.pak.ps2 + z_bh_*.pak.ps2). Including them broadens the zone-TEX texture pool
+            // from ~3 to potentially dozens. Non-zone-TEX sibling PAKs parse as empty and are
+            // cheaply filtered downstream via ThawZoneTexFile.IsThawZoneTex.
+            if (path.EndsWith(".pak.ps2", StringComparison.OrdinalIgnoreCase))
+                return GetSiblingPakFiles(path);
             return [path];
+        }
 
         if (!Directory.Exists(path))
             return [];
@@ -284,6 +302,84 @@ internal static class Ps2TextureLoader
                        || name.EndsWith(".stex", StringComparison.OrdinalIgnoreCase);
             })
             .ToList();
+    }
+
+    private static void ParseZoneTexBytes(
+        byte[] data,
+        string label,
+        Dictionary<uint, Ps2Texture> textureCache,
+        Dictionary<(uint Tbp, uint Cbp), uint> checksumByTbpCbp,
+        ref int zoneTexCount,
+        bool verbose)
+    {
+        if (!ThawZoneTexFile.IsThawZoneTex(data))
+            return;
+
+        zoneTexCount++;
+        var textures = ThawZoneTexFile.DecodeAllFromFile(data);
+        var entries = ThawZoneTexFile.ParseHeaderEntries(data);
+
+        foreach (var texture in textures)
+            textureCache.TryAdd(texture.Checksum, texture);
+
+        foreach (var entry in entries)
+        {
+            var tbp = (uint)(entry.Tex0 & 0x3FFF);
+            var cbp = (uint)((entry.Tex0 >> 37) & 0x3FFF);
+            checksumByTbpCbp.TryAdd((tbp, cbp), entry.Checksum);
+        }
+
+        if (verbose)
+        {
+            AnsiConsole.MarkupLine(
+                $"Detected zone TEX: [green]{label}[/] ({entries.Count} records, {textures.Count} textures)");
+        }
+    }
+
+    private static List<string> GetSiblingPakFiles(string pakPath)
+    {
+        var dir = Path.GetDirectoryName(pakPath);
+        if (dir == null || !Directory.Exists(dir))
+            return [pakPath];
+
+        var stem = GetZoneStem(Path.GetFileName(pakPath));
+        if (stem == null)
+            return [pakPath];
+
+        // Dedupe by canonical full path since the user-provided pakPath and the paths returned
+        // by EnumerateFiles may differ in slash direction and casing.
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>();
+        void Add(string p)
+        {
+            var canonical = Path.GetFullPath(p);
+            if (seen.Add(canonical))
+                result.Add(p);
+        }
+
+        Add(pakPath);
+        foreach (var candidate in Directory.EnumerateFiles(dir, $"{stem}*.pak.ps2"))
+            Add(candidate);
+        return result;
+    }
+
+    private static string? GetZoneStem(string fileName)
+    {
+        // Match THAW worldzone naming: stem is the leading "z_<code>" or "z_<code>_<suffix>" token
+        // before the first '.' or first underscore beyond the zone code. For "z_bh.pak.ps2" the
+        // stem is "z_bh"; for "z_bhped.pak.ps2" it's "z_bhped"; for "z_bh_net.pak.ps2" it's "z_bh"
+        // so sibling scans group all z_bh* PAKs together.
+        var dot = fileName.IndexOf('.');
+        if (dot <= 0) return null;
+        var stem = fileName[..dot];
+        // If stem contains an underscore past the "z_" prefix, truncate to that prefix group.
+        if (stem.StartsWith("z_", StringComparison.OrdinalIgnoreCase))
+        {
+            var underscore = stem.IndexOf('_', 2);
+            if (underscore > 0)
+                stem = stem[..underscore];
+        }
+        return stem.Length > 0 ? stem : null;
     }
 
     private static Ps2TexResult ParseTextureFile(string texFile)

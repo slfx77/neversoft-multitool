@@ -120,6 +120,85 @@ public static class PakArchive
     }
 
     /// <summary>
+    ///     Reads all entries with their raw file-type QbKey hash, preserving PAK-entry-table order.
+    ///     Callers that need neighbor relationships between entries (e.g. pairing a .91E1028D
+    ///     worldzone placement file with the preceding .mdl) should use this method.
+    /// </summary>
+    public static List<(uint TypeHash, ArchiveEntry Entry)> GetTypedEntries(string pakPath)
+    {
+        var data = File.ReadAllBytes(pakPath);
+        var typedEntries = new List<(uint TypeHash, ArchiveEntry Entry)>();
+
+        var sentinelPositions = FindSentinelPositions(data);
+        if (sentinelPositions.Count == 0)
+            return typedEntries;
+
+        var hasPab = File.Exists(GetPabPath(pakPath));
+
+        foreach (var sentinelPos in sentinelPositions)
+        {
+            var tableStart = FindTableStart(data, sentinelPos);
+            ParseTypedEntries(data, tableStart, sentinelPos, hasPab, typedEntries);
+        }
+
+        return typedEntries;
+    }
+
+    private static void ParseTypedEntries(
+        byte[] data, int tableStart, int sentinelPos, bool hasPab,
+        List<(uint TypeHash, ArchiveEntry Entry)> output)
+    {
+        var current = tableStart;
+        while (current < sentinelPos && current + CompactEntrySize <= data.Length)
+        {
+            var parsed = TryReadTypedEntry(data, current, sentinelPos, hasPab);
+            if (parsed is null)
+                break;
+
+            output.Add(parsed.Value.Typed);
+            current += parsed.Value.EntrySize;
+        }
+    }
+
+    private static ((uint TypeHash, ArchiveEntry Entry) Typed, int EntrySize)? TryReadTypedEntry(
+        byte[] data, int current, int sentinelPos, bool hasPab)
+    {
+        var fileType = BitConverter.ToUInt32(data, current);
+        if (fileType == LastSentinel)
+            return null;
+
+        var flags = BitConverter.ToUInt32(data, current + 0x1C);
+        if (!IsValidPakFlags(flags))
+            return null;
+
+        var offset = BitConverter.ToUInt32(data, current + 0x04);
+        var length = BitConverter.ToUInt32(data, current + 0x08);
+        if (length == 0 || offset <= sentinelPos)
+            return null;
+
+        var hasFilename = HasEmbeddedFilename(flags);
+        var entrySize = hasFilename ? FullEntrySize : CompactEntrySize;
+        var fullQbKey = BitConverter.ToUInt32(data, current + 0x10);
+        var nameOnlyCrc = BitConverter.ToUInt32(data, current + 0x14);
+
+        var (name, directory) = hasFilename && current + CompactEntrySize + 160 <= data.Length
+            ? ParseFilename(data, current + CompactEntrySize)
+            : GenerateName(fileType, nameOnlyCrc, fullQbKey, offset);
+
+        var entry = new ArchiveEntry
+        {
+            Name = name,
+            Directory = directory,
+            Size = length,
+            Offset = offset,
+            Crc = nameOnlyCrc,
+            IsCompressed = hasPab
+        };
+
+        return ((fileType, entry), entrySize);
+    }
+
+    /// <summary>
     ///     Extracts all files from a PAK archive.
     /// </summary>
     public static void ExtractFiles(string pakPath, string outputDir,

@@ -20,6 +20,37 @@ public static class Ps2MdlPreamble
         public uint? BoneSectionPadding { get; init; }
         public IReadOnlyList<MdlBone> Bones { get; init; } = Array.Empty<MdlBone>();
         public ObjectTrailer? Trailer { get; init; }
+
+        /// <summary>
+        ///     0x50-byte preamble records that carry per-class rotation + local size for worldzone
+        ///     object placement. Keyed by byte offset within the MDL so worldzone placement items
+        ///     (Ps2ObjectPlacementFile.PlacementItem.Field_44) can look up records directly.
+        /// </summary>
+        public IReadOnlyDictionary<int, PreambleRecord> Records { get; init; }
+            = new Dictionary<int, PreambleRecord>();
+    }
+
+    /// <summary>
+    ///     Per-class record stored in the MDL preamble at a 0x50-byte stride. Signature
+    ///     0x4B189680 sits at record+0x18. The 4-floats at +0x20..+0x2C form a unit quaternion
+    ///     multiplied by a scalar magnitude; normalizing yields the object's rotation.
+    ///     Full format reference: tools/ghidra/thaw-ps2/output/phase400_91e1028d_full_layout.md
+    /// </summary>
+    public sealed record PreambleRecord
+    {
+        public required int Offset { get; init; }
+        public required uint ClassHash { get; init; }
+        public required byte Sequence { get; init; }
+        public required Quaternion Rotation { get; init; }
+        public required Vector3 Size { get; init; }
+        public required uint Flags { get; init; }
+
+        /// <summary>
+        ///     Raw (x, y, z) floats at record +0x20. For object MDLs this is a rotation quaternion
+        ///     (see <see cref="Rotation" />); for level MDLs (worldzone shell/CAP geometry chunks)
+        ///     it's a world-space bounding sphere centre used as per-batch placement.
+        /// </summary>
+        public required Vector3 Centre { get; init; }
     }
 
     public sealed record ObjectTrailer
@@ -49,6 +80,10 @@ public static class Ps2MdlPreamble
     private const int BoneMatrixOffset = 16;
     private const int MaxSentinelScan = 0x10000;
 
+    private const uint PreambleRecordSig = 0x4B189680;
+    private const int PreambleRecordSigOffset = 0x18;
+    private const int PreambleRecordStride = 0x50;
+
     /// <summary>
     ///     Parse the THAW MDL preamble metadata. Returns null only for invalid inputs.
     ///     Valid world-zone MDLs return a preamble with no sentinel, no trailer, and no bones.
@@ -58,13 +93,15 @@ public static class Ps2MdlPreamble
         if (data.Length == 0 || vifStart < 0 || vifStart > data.Length)
             return null;
 
+        var records = ParsePreambleRecords(data);
         var (sentinelStart, sentinelEnd) = FindSentinel(data, Math.Min(vifStart, MaxSentinelScan));
         if (sentinelStart < 0 || sentinelEnd < 0)
         {
             return new Preamble
             {
                 VifStart = vifStart,
-                Bones = Array.Empty<MdlBone>()
+                Bones = Array.Empty<MdlBone>(),
+                Records = records
             };
         }
 
@@ -88,7 +125,81 @@ public static class Ps2MdlPreamble
             BoneSectionSize = boneSectionSize,
             BoneSectionPadding = boneSectionPadding,
             Bones = bones,
-            Trailer = trailer
+            Trailer = trailer,
+            Records = records
+        };
+    }
+
+    /// <summary>
+    ///     Scan the MDL for 0x50-byte preamble records. Each record starts at an offset where
+    ///     the 0x4B189680 signature appears at +0x18 and another signature follows at +0x50
+    ///     relative to the previous record start.
+    /// </summary>
+    private static Dictionary<int, PreambleRecord> ParsePreambleRecords(byte[] data)
+    {
+        var records = new Dictionary<int, PreambleRecord>();
+
+        // Collect all signature hits at 4-byte alignment, then group adjacent ones that are
+        // exactly PreambleRecordStride apart.
+        var firstSig = -1;
+        for (var i = 0; i + 4 <= data.Length; i += 4)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(i)) != PreambleRecordSig)
+                continue;
+            firstSig = i;
+            break;
+        }
+
+        if (firstSig < PreambleRecordSigOffset)
+            return records;
+
+        var recStart = firstSig - PreambleRecordSigOffset;
+        while (recStart >= 0 && recStart + PreambleRecordStride <= data.Length)
+        {
+            var sigAt = recStart + PreambleRecordSigOffset;
+            if (BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(sigAt)) != PreambleRecordSig)
+                break;
+
+            records[recStart] = ReadPreambleRecord(data, recStart);
+            recStart += PreambleRecordStride;
+        }
+
+        return records;
+    }
+
+    private static PreambleRecord ReadPreambleRecord(byte[] data, int offset)
+    {
+        var span = data.AsSpan(offset);
+
+        var classHash = BinaryPrimitives.ReadUInt32LittleEndian(span);
+        var seqWord = BinaryPrimitives.ReadUInt32LittleEndian(span[0x10..]);
+        var sequence = (byte)((seqWord >> 8) & 0xFF);
+
+        // 4 floats at +0x20..+0x2C = unit quaternion * scalar magnitude (in qx, qy, qz, qw order).
+        var qx = BinaryPrimitives.ReadSingleLittleEndian(span[0x20..]);
+        var qy = BinaryPrimitives.ReadSingleLittleEndian(span[0x24..]);
+        var qz = BinaryPrimitives.ReadSingleLittleEndian(span[0x28..]);
+        var qw = BinaryPrimitives.ReadSingleLittleEndian(span[0x2C..]);
+        var mag = MathF.Sqrt(qx * qx + qy * qy + qz * qz + qw * qw);
+        var rotation = mag > 0f
+            ? new Quaternion(qx / mag, qy / mag, qz / mag, qw / mag)
+            : Quaternion.Identity;
+
+        var sx = BinaryPrimitives.ReadSingleLittleEndian(span[0x30..]);
+        var sy = BinaryPrimitives.ReadSingleLittleEndian(span[0x34..]);
+        var sz = BinaryPrimitives.ReadSingleLittleEndian(span[0x38..]);
+
+        var flags = BinaryPrimitives.ReadUInt32LittleEndian(span[0x3C..]);
+
+        return new PreambleRecord
+        {
+            Offset = offset,
+            ClassHash = classHash,
+            Sequence = sequence,
+            Rotation = rotation,
+            Size = new Vector3(sx, sy, sz),
+            Flags = flags,
+            Centre = new Vector3(qx, qy, qz)
         };
     }
 

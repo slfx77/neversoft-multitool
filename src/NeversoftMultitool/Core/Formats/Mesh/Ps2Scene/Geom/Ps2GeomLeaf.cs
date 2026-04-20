@@ -60,4 +60,22 @@ public sealed class Ps2GeomLeaf
     ///     bits 4-11: AREF (alpha reference value).
     /// </summary>
     public ulong DmaTest1 { get; init; }
+
+    /// <summary>
+    ///     THAW worldzone-object MDLs interleave two kinds of batches:
+    ///     large "world"/infrastructure batches (shared geometry in world coordinates)
+    ///     and small "local" batches (per-sector car mesh in bone-local coordinates,
+    ///     meant to be rendered once per non-root bone). This flag is set by
+    ///     <see cref="Ps2GeomFile.ParsePakMdl" /> when the leaf's vertex bbox
+    ///     is small and centred near the origin.
+    /// </summary>
+    public bool IsLocalSpace { get; init; }
+
+    /// <summary>
+    ///     Heuristic flag for billboard/LOD-plane batches in worldzone object MDLs. Set when a
+    ///     batch is flat (min bbox dimension &lt;&lt; max), has few vertices (typical 4-16), and is
+    ///     not a tiny detail patch. Writers can skip these leaves to suppress "LOD planes cutting
+    ///     through geometry" artifacts in the final glb.
+    /// </summary>
+    public bool IsLodPlane { get; init; }
 }
