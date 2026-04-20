@@ -134,6 +134,41 @@ public static class SkaCommand
 
         AnsiConsole.MarkupLine($"Found [green]{files.Count}[/] SKA files");
 
+        // THPS4 V1 skeletons have no bind-pose data in the .ske file — the engine
+        // loaded it from a "default animation" per archetype. Try to find + apply it.
+        if (skeleton is { Version: 1 } && skePath != null)
+        {
+            var defaultSkaPath = FindDefaultPoseFile(skePath, files[0]);
+            if (defaultSkaPath != null)
+            {
+                var defaultData = File.ReadAllBytes(defaultSkaPath);
+                if (SkaFile.IsSkaFile(defaultData))
+                {
+                    var table = FindCompressTable(defaultSkaPath);
+                    var defaultAnim = SkaFile.Parse(defaultData, table);
+                    if (defaultAnim.BoneTracks.Length == skeleton.Bones.Length)
+                    {
+                        skeleton = Ps2SkeletonDefaultPose.EnrichWithDefaultPose(skeleton, defaultAnim);
+                        var relPath = Path.GetFileName(Path.GetDirectoryName(defaultSkaPath))
+                                      + "/" + Path.GetFileName(defaultSkaPath);
+                        AnsiConsole.MarkupLine(
+                            $"Enriched V1 skeleton bind pose from [green]{relPath}[/]");
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"[yellow]Found default anim {Path.GetFileName(defaultSkaPath)} but bone counts differ" +
+                            $" ({defaultAnim.BoneTracks.Length} vs {skeleton.Bones.Length}); skipping enrichment[/]");
+                    }
+                }
+            }
+            else
+            {
+                AnsiConsole.MarkupLine(
+                    "[yellow]V1 skeleton with no default.ska.ps2 found; bind pose will be identity (mesh may be distorted)[/]");
+            }
+        }
+
         var sw = Stopwatch.StartNew();
         var success = 0;
         var failed = 0;
@@ -227,7 +262,78 @@ public static class SkaCommand
     private static readonly Dictionary<string, SkaCompressTable?> _tableCache =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private static SkaCompressTable? FindCompressTable(string skaFilePath)
+    // THPS4 V1 skeletons (pre-2003) stored no bind pose in the .ske file; the engine
+    // instead loaded a single-frame "default animation" per skeleton archetype
+    // (e.g. pre/anims/anims/skater_basics/Default.ska.ps2 for the human rig) and used
+    // its frame-0 rotations+translations as the bind. THUG source deprecated this and
+    // moved neutral poses into .ske V2 (see Gfx/Skeleton.cpp:1147-1152).
+    //
+    // Defaults are scattered across level-specific subfolders (pre/Alc/, pre/zoo/,
+    // pre/cnv/, pre/hof/, pre/jnk/, pre/lon/, pre/sf2/, etc.) — the archetype
+    // directory name matches the skeleton filename stem, with one exception: the
+    // human 50-bone rig (skeletons/human.ske, Ped_F.ske, Ped_M.ske) maps to
+    // archetype "skater_basics".
+    //
+    // Strategy: walk up from any nearby file path, then recursively search for
+    // "{archetype}/default.ska.ps2" (case-insensitive) under each ancestor.
+    internal static string? FindDefaultPoseFile(string skeletonPath, string anySkaFilePath)
+    {
+        var archetype = DeriveArchetypeName(skeletonPath);
+        if (archetype == null) return null;
+
+        var searchRoots = new List<string>();
+        AddAncestorsToSearch(Path.GetFullPath(skeletonPath), searchRoots);
+        AddAncestorsToSearch(Path.GetFullPath(anySkaFilePath), searchRoots);
+
+        foreach (var root in searchRoots)
+        {
+            if (!Directory.Exists(root)) continue;
+
+            try
+            {
+                foreach (var candidate in Directory.EnumerateFiles(root, "default.ska.ps2",
+                             SearchOption.AllDirectories))
+                {
+                    var parentName = Path.GetFileName(Path.GetDirectoryName(candidate) ?? "");
+                    if (string.Equals(parentName, archetype, StringComparison.OrdinalIgnoreCase))
+                        return candidate;
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Skip directories we can't read.
+            }
+        }
+
+        return null;
+    }
+
+    private static string? DeriveArchetypeName(string skeletonPath)
+    {
+        var stem = Path.GetFileNameWithoutExtension(skeletonPath);
+        if (string.IsNullOrEmpty(stem)) return null;
+
+        // The 50-bone human skeleton is shipped under several names (human, Ped_F, Ped_M, etc.)
+        // all pointing to byte-identical .ske data. Its default anim lives under "skater_basics".
+        if (stem.Equals("human", StringComparison.OrdinalIgnoreCase) ||
+            stem.StartsWith("ped_", StringComparison.OrdinalIgnoreCase))
+            return "skater_basics";
+
+        return stem;
+    }
+
+    private static void AddAncestorsToSearch(string absolutePath, List<string> results)
+    {
+        var dir = Path.GetDirectoryName(absolutePath);
+        while (!string.IsNullOrEmpty(dir))
+        {
+            if (!results.Contains(dir, StringComparer.OrdinalIgnoreCase))
+                results.Add(dir);
+            dir = Path.GetDirectoryName(dir);
+        }
+    }
+
+    internal static SkaCompressTable? FindCompressTable(string skaFilePath)
     {
         var dir = Path.GetDirectoryName(Path.GetFullPath(skaFilePath));
         while (!string.IsNullOrEmpty(dir))
@@ -235,9 +341,12 @@ public static class SkaCommand
             if (_tableCache.TryGetValue(dir, out var cached))
                 return cached;
 
-            // Standard locations: ../BIN/standardkey{Q,T}.bin (THPS4/THUG/THUG2/THAW PS2),
-            // ../anims/standardkey{Q,T}.bin (THAW GC).
-            foreach (var subdir in new[] { "BIN", "bin", "anims" })
+            // Standard locations (path conventions differ per game/platform):
+            //   ../Bits/anims/standardkey{Q,T}.bin  (THPS4 PS2: pre/Bits/anims/, THUG PS2: Pre/Bits/anims/)
+            //   ../anims/standardkey{Q,T}.bin       (THUG2/THAW/P8/PG PS2: DATAP/anims/, THAW GC)
+            //   ../bits/anims/standardkey{Q,T}.bin  (THUG2 nested: DATAP/pre/bits/anims/)
+            //   ../BIN/standardkey{Q,T}.bin         (reserved for future builds if any use it)
+            foreach (var subdir in new[] { "BIN", "bin", "anims", "Bits/anims", "bits/anims" })
             {
                 var qPath = Path.Combine(dir, subdir, "standardkeyQ.bin");
                 var tPath = Path.Combine(dir, subdir, "standardkeyT.bin");
