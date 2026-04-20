@@ -140,6 +140,29 @@ internal static class Ps2GeomVifVertexDecoder
             if (batch.PositionCount == 0)
                 continue;
 
+            // Continuation-sub-chunk decoding occasionally mis-classifies a non-
+            // position UNPACK as positions and emits garbage coordinates far outside
+            // any level's bbox. Reject batches whose decoded positions land outside
+            // a generous sanity envelope (THAW levels are ~20k units wide; a 1M cap
+            // leaves ample margin while catching 10M+ outliers).
+            const float SanityLimit = 1_000_000f;
+            var anyInvalid = false;
+            for (var i = 0; i < batch.PositionCount; i++)
+            {
+                var preview = ReadPosition(data, batch, i, center);
+                if (!preview.HasValue)
+                    break;
+                var (px0, py0, pz0, _) = preview.Value;
+                if (!float.IsFinite(px0) || !float.IsFinite(py0) || !float.IsFinite(pz0) ||
+                    Math.Abs(px0) > SanityLimit || Math.Abs(py0) > SanityLimit || Math.Abs(pz0) > SanityLimit)
+                {
+                    anyInvalid = true;
+                    break;
+                }
+            }
+            if (anyInvalid)
+                continue;
+
             for (var i = 0; i < batch.PositionCount; i++)
             {
                 var position = ReadPosition(data, batch, i, center);
