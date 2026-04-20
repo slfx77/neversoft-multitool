@@ -51,6 +51,29 @@ public static class Ps2MdlPreamble
         ///     it's a world-space bounding sphere centre used as per-batch placement.
         /// </summary>
         public required Vector3 Centre { get; init; }
+
+        /// <summary>
+        ///     u32 at record +0x40. For level MDL leaves (<see cref="IsLeaf" />) this is a file
+        ///     offset into the VIF region pointing at the leaf's vertex data chunk. For internal
+        ///     tree nodes (non-leaf) it is a child record offset. The THAW engine rebases this
+        ///     field from file-offset to EE-absolute pointer on load, but pre-relocation (our
+        ///     case) it is a plain byte offset into the MDL file.
+        /// </summary>
+        public required uint Field40 { get; init; }
+
+        /// <summary>
+        ///     u32 at record +0x48. Empirically always either 0xFFFFFFFF (no sibling) or a file
+        ///     offset pointing into the preamble-record table, so interpreted as a sibling
+        ///     reference in the CGeomNode-style tree.
+        /// </summary>
+        public required uint Field48 { get; init; }
+
+        /// <summary>
+        ///     Leaf test derived from <see cref="Flags" /> bit 1 (0x02). Verified against the
+        ///     BH sample: ~3,977/5,649 records are leaves, all with <see cref="Field40" />
+        ///     pointing into the VIF region.
+        /// </summary>
+        public bool IsLeaf => (Flags & 0x2u) != 0;
     }
 
     public sealed record ObjectTrailer
@@ -190,6 +213,8 @@ public static class Ps2MdlPreamble
         var sz = BinaryPrimitives.ReadSingleLittleEndian(span[0x38..]);
 
         var flags = BinaryPrimitives.ReadUInt32LittleEndian(span[0x3C..]);
+        var field40 = BinaryPrimitives.ReadUInt32LittleEndian(span[0x40..]);
+        var field48 = BinaryPrimitives.ReadUInt32LittleEndian(span[0x48..]);
 
         return new PreambleRecord
         {
@@ -199,7 +224,9 @@ public static class Ps2MdlPreamble
             Rotation = rotation,
             Size = new Vector3(sx, sy, sz),
             Flags = flags,
-            Centre = new Vector3(qx, qy, qz)
+            Centre = new Vector3(qx, qy, qz),
+            Field40 = field40,
+            Field48 = field48
         };
     }
 

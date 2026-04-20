@@ -76,10 +76,11 @@ public static class Ps2GeomFile
         var placements = Ps2MdlPlacementResolver.ResolveObjectPlacements(preamble, batchRanges);
 
         // Level MDLs (no bones, many preamble records) encode each batch's world-space centre
-        // in the preamble records' +0x20 (x,y,z) field. Record 0 is the scene bbox; records 1..N
-        // map 1:1 onto batches 0..N-1. Object MDLs (with bones, few records) keep the prior
-        // behaviour — centres come from in-VIF ScanBatchForCenter.
-        var recordCentres = TryGetLevelBatchCentres(preamble, batchRanges.Count);
+        // in the preamble leaf records' +0x20 (x,y,z) field. Leaves are identified by
+        // flag bit 1 (0x02); each leaf's +0x40 is a file offset into the VIF region that
+        // identifies which batch the leaf drives. Object MDLs (with bones, few records)
+        // keep the prior behaviour — centres come from in-VIF ScanBatchForCenter.
+        var recordCentres = TryGetLevelBatchCentres(preamble, batchRanges);
 
         for (var batchIndex = 0; batchIndex < batchRanges.Count; batchIndex++)
         {
@@ -265,31 +266,77 @@ public static class Ps2GeomFile
     }
 
     /// <summary>
-    ///     Extract per-batch world-space centres from preamble records for THAW level MDLs (the
-    ///     `0x7EA7357B` geometry-chunk variant). Record 0 is the scene bbox (class_hash == 0);
-    ///     records 1..N align 1:1 with VIF batches 0..N-1. Returns null for object MDLs, which
-    ///     use in-VIF centres and per-bone placement instead.
+    ///     Extract per-batch world-space centres from preamble leaf records for THAW level MDLs
+    ///     (the `0x7EA7357B` geometry-chunk variant). Matches each batch to the leaf records whose
+    ///     <see cref="Ps2MdlPreamble.PreambleRecord.Field40" /> file offset falls inside the
+    ///     batch's VIF range; the first matching leaf's <see cref="Ps2MdlPreamble.PreambleRecord.Centre" />
+    ///     (verified world-space, mirrors the position the engine keeps in EE RAM) becomes the
+    ///     batch placement. Returns null for object MDLs (which use bones) or when no leaves
+    ///     cover the given batches.
     /// </summary>
     private static IReadOnlyList<Vector3>? TryGetLevelBatchCentres(
-        Ps2MdlPreamble.Preamble? preamble, int batchCount)
+        Ps2MdlPreamble.Preamble? preamble, List<(int Start, int End)> batchRanges)
     {
-        if (preamble is null || preamble.Bones.Count > 0 || preamble.Records.Count < 2)
+        if (preamble is null || preamble.Bones.Count > 0 || preamble.Records.Count < 2 ||
+            batchRanges.Count == 0)
             return null;
 
-        // Require enough records to cover all batches (plus the scene-header record 0).
-        // Object MDLs have ~10-15 records; level MDLs have thousands.
-        if (preamble.Records.Count < batchCount + 1)
+        // Object MDLs have ~10-15 records; level MDLs have thousands. Require an order-of-
+        // magnitude count difference to avoid triggering on small object MDLs whose records
+        // happen to include a couple of leaves.
+        if (preamble.Records.Count < 100)
             return null;
 
-        var sorted = preamble.Records.Values.OrderBy(r => r.Offset).ToList();
-        // Skip record 0 (scene header with class_hash == 0); map records[1..] → batches[0..].
-        if (sorted[0].ClassHash != 0)
+        var leaves = preamble.Records.Values
+            .Where(r => r.IsLeaf)
+            .OrderBy(r => r.Field40)
+            .ToArray();
+        if (leaves.Length == 0)
             return null;
 
-        var centres = new Vector3[batchCount];
-        for (var i = 0; i < batchCount && i + 1 < sorted.Count; i++)
-            centres[i] = sorted[i + 1].Centre;
-        return centres;
+        var centres = new Vector3[batchRanges.Count];
+        var found = false;
+        for (var i = 0; i < batchRanges.Count; i++)
+        {
+            var (start, end) = batchRanges[i];
+            var match = FindFirstLeafInRange(leaves, (uint)start, (uint)end);
+            if (match.HasValue)
+            {
+                centres[i] = match.Value;
+                found = true;
+            }
+        }
+
+        return found ? centres : null;
+    }
+
+    /// <summary>
+    ///     Binary-search variant: returns the centre of the first leaf whose
+    ///     <see cref="Ps2MdlPreamble.PreambleRecord.Field40" /> falls in [start, end).
+    /// </summary>
+    private static Vector3? FindFirstLeafInRange(
+        Ps2MdlPreamble.PreambleRecord[] leavesSortedByField40, uint start, uint end)
+    {
+        var lo = 0;
+        var hi = leavesSortedByField40.Length - 1;
+        var first = -1;
+        while (lo <= hi)
+        {
+            var mid = (lo + hi) >>> 1;
+            if (leavesSortedByField40[mid].Field40 >= start)
+            {
+                first = mid;
+                hi = mid - 1;
+            }
+            else
+            {
+                lo = mid + 1;
+            }
+        }
+
+        if (first < 0 || leavesSortedByField40[first].Field40 >= end)
+            return null;
+        return leavesSortedByField40[first].Centre;
     }
 
     private static bool ShouldSkipWorldZoneBatch(Ps2Vertex[] vertices)

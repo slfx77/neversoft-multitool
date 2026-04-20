@@ -78,20 +78,48 @@ Changes, record-by-record:
    but apply **no additional transform** — just the root-axis-swap if the
    engine's coordinate system differs from glTF's.
 
-## Followups
+## Followups / what's been done
 
-- Determine which bit in `+0x3C` flags identifies a leaf. Candidates in
-  order of likelihood: bit 0 (`0x01`), bit 1 (`0x02`), bit 2 (`0x04`).
-  Record 0 on disk has `0x05` (bits 0+2), EE has `0x15` (bits 0+2+4) — bit
-  4 is the relocated marker, so leaf flag is probably bit 0 or bit 2.
-- Implement a record-tree walker that starts at record[0] (likely root),
-  follows `+0x40` to the first child, and uses `+0x48` as sibling pointer
-  to enumerate the tree. File-offset format (both are file-relative byte
-  offsets as shown by the disk→EE rebase).
-- Match tree leaves to VIF batches: the record count (5,649) is much
-  larger than the batch count (938), suggesting many internal nodes per
-  leaf. A leaf's `+0x40` probably points to the VIF batch start (values
-  like `0x002C69A0` fall inside the VIF region at `0x604C – 0x2A6F40`).
-- The 938 batches being pre-positioned means `Ps2MdlPlacementResolver`
-  should return identity placements for 0x7EA7357B MDLs and just use the
-  record tree to select which batches to emit, not how to move them.
+- **Leaf flag confirmed = bit 1 (`0x02`)**. Empirically: 3,977 of 5,649
+  records have bit 1 set; all 3,977 have a non-zero `+0x40` file offset
+  inside the VIF region `[0x604C, 0x2A6F40)`, and records without bit 1
+  always have `+0x40 = 0xFFFFFFFF`. Wired up as `PreambleRecord.IsLeaf`
+  in commit on 2026-04-20.
+- **Implemented leaf-range-to-batch centre matching**. `Ps2GeomFile.TryGetLevelBatchCentres`
+  was rewritten to sort leaves by `Field40` and binary-search the first
+  leaf whose `Field40` falls inside each MSCAL batch's range; that leaf's
+  `Centre` (verified world-space) becomes the batch placement. Replaces
+  the old sequential sorted-record → batch mapping.
+- **Converter result for z_bh.pak.ps2** after the fix: 3/9 MDLs → one
+  combined `z_bh_worldzone.glb`, 10,989 triangles, 50 materials, 48
+  textures, bbox 20,717 × 3,452 × 20,236 world units, 0 glTF validator
+  errors or warnings.
+
+## Remaining caveat (batch subdivision)
+
+Our VIF scanner (`FindRepeatedBatchSignatureRanges` /
+`FindMscalBatchRanges`) only detects 938 coarse batch boundaries, but the
+file contains 3,977 leaves / fine-grained sub-chunks (also: a raw sweep
+finds 4,578 MSCAL-like tags in the VIF region, close to the leaf count).
+This means our current per-batch primitives are ~4× too coarse — each
+glTF mesh spans several leaves' worth of geometry under a single
+placement.
+
+Two plausible next steps:
+
+1. **Subdivide batches by leaf `Field40` boundaries** — for each coarse
+   batch, split at each leaf's `+0x40` file-offset. The bytes starting at
+   `+0x40` aren't a clean VIF tag stream (first bytes look like packed
+   vertex data, not STCYCL/UNPACK opcodes), so we'd probably need a
+   smaller-granularity VIF decoder that tolerates partial / mid-chain
+   entry points.
+2. **Loosen the MSCAL scanner** — `FindMscalBatchRanges` currently walks
+   via `VifNextCode`, skipping data that happens to share the MSCAL high
+   byte. The real file has 4,578 MSCAL-family tags; if we can distinguish
+   real MSCALs from false positives, we'd get one-batch-per-MSCAL which
+   should align with the 3,977 leaves.
+
+Either path involves non-trivial VIF-decoder work. The incremental
+improvement already in place correctly places each coarse batch at
+a plausible in-sector position, which is a substantial improvement over
+the previous sequential-record heuristic.
