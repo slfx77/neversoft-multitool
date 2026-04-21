@@ -63,6 +63,85 @@ public static class Ps2GeomFile
         var preamble = Ps2MdlPreamble.TryParse(data, vifStart);
         var bones = preamble is { Bones: { Count: > 0 } } ? preamble.Bones : null;
 
+        // Level MDLs (0x7EA7357B) carry no bone section but thousands of preamble records; the
+        // leaves among them drive the authoritative sub-chunk list (see ParseLevelMdlFromLeaves
+        // for the field-by-field derivation). Object MDLs take the scanner path below.
+        if (IsLevelMdl(preamble))
+            return ParseLevelMdlFromLeaves(data, preamble!, vifStart);
+
+        return ParseObjectMdl(data, preamble, bones, vifStart);
+    }
+
+    /// <summary>
+    ///     Level-MDL identification: no bones, thousands of preamble records. Object MDLs have
+    ///     ~5-15 records; level MDLs have thousands (5,649 for z_bh's 003B1940.mdl).
+    /// </summary>
+    private static bool IsLevelMdl(Ps2MdlPreamble.Preamble? preamble)
+    {
+        return preamble is not null
+            && preamble.Bones.Count == 0
+            && preamble.Records.Count >= 100;
+    }
+
+    /// <summary>
+    ///     Level MDL path: iterate preamble leaves as authoritative sub-chunks. Each leaf has
+    ///     Field40 (VIF-stream start offset) and Centre (world-space bounding-sphere centre).
+    ///     The sub-chunk ends where the next leaf starts, or at the VIF region end.
+    /// </summary>
+    private static Ps2GeomScene ParseLevelMdlFromLeaves(byte[] data, Ps2MdlPreamble.Preamble preamble, int vifStart)
+    {
+        var vifEnd = preamble.SentinelStart ?? data.Length;
+        // Collect and sort leaves by Field40 (monotonic in record order per savestate verification,
+        // but sort defensively to guarantee the sub-chunk extent computation).
+        var sortedLeaves = preamble.Records.Values
+            .Where(r => r.IsLeaf && r.Field40 >= (uint)vifStart && r.Field40 < (uint)vifEnd)
+            .OrderBy(r => r.Field40)
+            .ToList();
+
+        var outLeaves = new List<Ps2GeomLeaf>(sortedLeaves.Count);
+        var currentGsCtx = new Ps2GeomGsContext();
+        var hasGsContext = false;
+
+        for (var i = 0; i < sortedLeaves.Count; i++)
+        {
+            var leaf = sortedLeaves[i];
+            var start = (int)leaf.Field40;
+            var end = i + 1 < sortedLeaves.Count ? (int)sortedLeaves[i + 1].Field40 : vifEnd;
+            if (end <= start)
+                continue;
+
+            // Update GS context from any register writes in this sub-chunk.
+            var gsCtx = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(data, start, end);
+            if (gsCtx.HasValue)
+            {
+                currentGsCtx = gsCtx.Value;
+                hasGsContext = true;
+            }
+
+            var batchVerts = Ps2GeomVifVertexDecoder.ExtractVerticesFromVif(data, start, end, leaf.Centre);
+            if (batchVerts.Length == 0 || ShouldSkipWorldZoneBatch(batchVerts))
+                continue;
+
+            // Coherence check: a correctly-paired sub-chunk's centroid should sit within the
+            // leaf's (Centre ± Size) bbox. Rejects sub-chunks that decoded nonsense positions.
+            var placement = new LeafPlacement(leaf.Centre, leaf.Size, Matched: true);
+            if (!IsBatchCoherent(batchVerts, placement))
+                continue;
+
+            outLeaves.Add(MakeLeafFromMdlMesh(batchVerts, hasGsContext ? currentGsCtx : new Ps2GeomGsContext()));
+        }
+
+        return new Ps2GeomScene { Leaves = outLeaves, MdlPreamble = preamble, Bones = null };
+    }
+
+    /// <summary>
+    ///     Object-MDL path (THAW worldzone object MDLs — cars etc., 0x9BCC234D). These have
+    ///     explicit bone sections and few preamble records; the scanner + ScanBatchForCenter
+    ///     combo has historically worked for them.
+    /// </summary>
+    private static Ps2GeomScene ParseObjectMdl(byte[] data, Ps2MdlPreamble.Preamble? preamble,
+        IReadOnlyList<Ps2MdlPreamble.MdlBone>? bones, int vifStart)
+    {
         var leaves = new List<Ps2GeomLeaf>();
         var currentGsCtx = new Ps2GeomGsContext();
         var currentCenter = Vector3.Zero;
@@ -70,25 +149,10 @@ public static class Ps2GeomFile
 
         var batchRanges = Ps2GeomMdlBatchScanner.FindMscalBatchRanges(data, vifStart, data.Length);
         var signatureBatchRanges = Ps2GeomMdlBatchScanner.FindRepeatedBatchSignatureRanges(data, vifStart, data.Length);
-        // For level MDLs we prefer signature-based ranges even when fewer than
-        // MSCAL ranges: each signature range aligns to a VU1 setup boundary and
-        // contains multiple MSCAL-delimited sub-chunks, which the stateful
-        // decoder in Ps2GeomVifVertexDecoder can traverse to extract all
-        // continuation strips. MSCAL-only ranges lose that continuity.
-        // Car MDLs (<50 signatures) keep the MSCAL path.
-        if (signatureBatchRanges.Count >= 64)
-            batchRanges = signatureBatchRanges;
-        else if (signatureBatchRanges.Count >= 8 && signatureBatchRanges.Count > batchRanges.Count)
+        if (signatureBatchRanges.Count >= 8 && signatureBatchRanges.Count > batchRanges.Count)
             batchRanges = signatureBatchRanges;
 
         var placements = Ps2MdlPlacementResolver.ResolveObjectPlacements(preamble, batchRanges);
-
-        // Level MDLs (no bones, many preamble records) encode each batch's world-space centre
-        // in the preamble leaf records' +0x20 (x,y,z) field. Leaves are identified by
-        // flag bit 1 (0x02); each leaf's +0x40 is a file offset into the VIF region that
-        // identifies which batch the leaf drives. Object MDLs (with bones, few records)
-        // keep the prior behaviour — centres come from in-VIF ScanBatchForCenter.
-        var recordCentres = TryGetLevelBatchCentres(preamble, batchRanges);
 
         for (var batchIndex = 0; batchIndex < batchRanges.Count; batchIndex++)
         {
@@ -106,9 +170,6 @@ public static class Ps2GeomFile
             {
                 currentCenter = center.Value;
             }
-
-            if (recordCentres != null && batchIndex < recordCentres.Count)
-                currentCenter = recordCentres[batchIndex];
 
             var batchVerts = Ps2GeomVifVertexDecoder.ExtractVerticesFromVif(data, batchStart, batchEnd, currentCenter);
             if (placements.TryGetValue(batchIndex, out var placement))
@@ -274,90 +335,39 @@ public static class Ps2GeomFile
     }
 
     /// <summary>
-    ///     Extract per-batch world-space centres from preamble leaf records for THAW level MDLs
-    ///     (the `0x7EA7357B` geometry-chunk variant). Matches each batch to the leaf records whose
-    ///     <see cref="Ps2MdlPreamble.PreambleRecord.Field40" /> file offset falls inside the
-    ///     batch's VIF range; the first matching leaf's <see cref="Ps2MdlPreamble.PreambleRecord.Centre" />
-    ///     (verified world-space, mirrors the position the engine keeps in EE RAM) becomes the
-    ///     batch placement. Returns null for object MDLs (which use bones) or when no leaves
-    ///     cover the given batches.
+    ///     Placement information for one preamble-leaf sub-chunk: world-space centre (added to
+    ///     each decoded sint16 position) and half-extent used by the coherence filter to reject
+    ///     sub-chunks that decoded to positions far outside the expected bbox.
     /// </summary>
-    private static IReadOnlyList<Vector3>? TryGetLevelBatchCentres(
-        Ps2MdlPreamble.Preamble? preamble, List<(int Start, int End)> batchRanges)
-    {
-        if (preamble is null || preamble.Bones.Count > 0 || preamble.Records.Count < 2 ||
-            batchRanges.Count == 0)
-            return null;
-
-        // Object MDLs have ~10-15 records; level MDLs have thousands. Require an order-of-
-        // magnitude count difference to avoid triggering on small object MDLs whose records
-        // happen to include a couple of leaves.
-        if (preamble.Records.Count < 100)
-            return null;
-
-        var leaves = preamble.Records.Values
-            .Where(r => r.IsLeaf)
-            .OrderBy(r => r.Field40)
-            .ToArray();
-        if (leaves.Length == 0)
-            return null;
-
-        var centres = new Vector3[batchRanges.Count];
-        var found = false;
-        Vector3? lastCentre = null;
-        for (var i = 0; i < batchRanges.Count; i++)
-        {
-            var (start, end) = batchRanges[i];
-            var match = FindFirstLeafInRange(leaves, (uint)start, (uint)end);
-            if (match.HasValue)
-            {
-                centres[i] = match.Value;
-                lastCentre = match.Value;
-                found = true;
-            }
-            else if (lastCentre.HasValue)
-            {
-                // No leaf owns this batch range. The engine issues the setup
-                // (including TRANSLATION for sub-inch-precision scaling) once
-                // per leaf and reuses it across subsequent continuation strips,
-                // so an unmatched continuation batch should inherit the last
-                // matched leaf's centre. Without this, the batch falls back to
-                // Vector3.Zero and its vertices scatter around the origin
-                // instead of sitting inside the current sector.
-                centres[i] = lastCentre.Value;
-            }
-        }
-
-        return found ? centres : null;
-    }
+    private readonly record struct LeafPlacement(Vector3 Centre, Vector3 Size, bool Matched);
 
     /// <summary>
-    ///     Binary-search variant: returns the centre of the first leaf whose
-    ///     <see cref="Ps2MdlPreamble.PreambleRecord.Field40" /> falls in [start, end).
+    ///     Coherence filter. Decoded positions for a correctly-paired batch should cluster
+    ///     inside the leaf's [centre ± size] bounding box. False-positive scanner hits — brute-
+    ///     force batch starts whose data happens to contain valid-looking VIF opcodes — produce
+    ///     garbage vertices that still pass the ±1M sanity envelope but land hundreds of units
+    ///     away from the matched leaf's sector. Those are what generate the scattered polygons
+    ///     piercing the scene. Reject any batch whose centroid is further than
+    ///     max(leaf.Size * <paramref name="inflate" />, <paramref name="minMargin" />) from the
+    ///     leaf centre.
     /// </summary>
-    private static Vector3? FindFirstLeafInRange(
-        Ps2MdlPreamble.PreambleRecord[] leavesSortedByField40, uint start, uint end)
+    private static bool IsBatchCoherent(Ps2Vertex[] vertices, LeafPlacement placement)
     {
-        var lo = 0;
-        var hi = leavesSortedByField40.Length - 1;
-        var first = -1;
-        while (lo <= hi)
-        {
-            var mid = (lo + hi) >>> 1;
-            if (leavesSortedByField40[mid].Field40 >= start)
-            {
-                first = mid;
-                hi = mid - 1;
-            }
-            else
-            {
-                lo = mid + 1;
-            }
-        }
+        if (vertices.Length == 0)
+            return true;
 
-        if (first < 0 || leavesSortedByField40[first].Field40 >= end)
-            return null;
-        return leavesSortedByField40[first].Centre;
+        var sum = Vector3.Zero;
+        foreach (var vertex in vertices)
+            sum += vertex.Position;
+        var centroid = sum / vertices.Length;
+
+        // Matched leaves use the leaf's own Size; inherited (fill-forward) placements
+        // widen the tolerance because the true sector extent is unknown.
+        var inflate = placement.Matched ? 2.5f : 6f;
+        var minMargin = placement.Matched ? 30f : 150f;
+        var margin = Vector3.Max(placement.Size * inflate, new Vector3(minMargin));
+        var delta = Vector3.Abs(centroid - placement.Centre);
+        return delta.X <= margin.X && delta.Y <= margin.Y && delta.Z <= margin.Z;
     }
 
     private static bool ShouldSkipWorldZoneBatch(Ps2Vertex[] vertices)
