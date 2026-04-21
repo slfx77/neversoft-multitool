@@ -304,6 +304,7 @@ public static class Ps2GeomFile
 
         var centres = new Vector3[batchRanges.Count];
         var found = false;
+        Vector3? lastCentre = null;
         for (var i = 0; i < batchRanges.Count; i++)
         {
             var (start, end) = batchRanges[i];
@@ -311,7 +312,19 @@ public static class Ps2GeomFile
             if (match.HasValue)
             {
                 centres[i] = match.Value;
+                lastCentre = match.Value;
                 found = true;
+            }
+            else if (lastCentre.HasValue)
+            {
+                // No leaf owns this batch range. The engine issues the setup
+                // (including TRANSLATION for sub-inch-precision scaling) once
+                // per leaf and reuses it across subsequent continuation strips,
+                // so an unmatched continuation batch should inherit the last
+                // matched leaf's centre. Without this, the batch falls back to
+                // Vector3.Zero and its vertices scatter around the origin
+                // instead of sitting inside the current sector.
+                centres[i] = lastCentre.Value;
             }
         }
 
