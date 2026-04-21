@@ -4,6 +4,7 @@ obj/
 out/
 publish/
 %TEMP%/
+TempBuild/
 
 # IDE
 .vs/

@@ -22,7 +22,7 @@ public sealed class Vid1VideoFileTests(TestPaths paths)
             frames:
             [
                 new Vid1SyntheticVideoFrameSpec(
-                    0x4014,
+                    0x61AB,
                     PreambleClass: 1,
                     IntraDcThresholdIndex: 5,
                     Quantizer: 11,
@@ -31,7 +31,7 @@ public sealed class Vid1VideoFileTests(TestPaths paths)
                     HasSpecialCallerGate: true,
                     CodedPayload: [0x01, 0x02, 0x03, 0x04]),
                 new Vid1SyntheticVideoFrameSpec(
-                    0x5014,
+                    0xA0CD,
                     PreambleClass: 2,
                     IntraDcThresholdIndex: 6,
                     Quantizer: 13,
@@ -53,7 +53,7 @@ public sealed class Vid1VideoFileTests(TestPaths paths)
         Assert.Equal(30000 / 1001.0, file.FrameRate, 5);
 
         var frame0 = file.Frames[0];
-        Assert.Equal(0x4014, frame0.Tag16);
+        Assert.Equal(0x61AB, frame0.Tag16);
         Assert.Equal(1, frame0.PreambleClass);
         Assert.Equal(5, frame0.IntraDcThresholdIndex);
         Assert.Equal(11, frame0.Quantizer);
@@ -62,7 +62,7 @@ public sealed class Vid1VideoFileTests(TestPaths paths)
         Assert.True(frame0.HasSpecialCallerGate);
 
         var frame1 = file.Frames[1];
-        Assert.Equal(0x5014, frame1.Tag16);
+        Assert.Equal(0xA0CD, frame1.Tag16);
         Assert.Equal(2, frame1.PreambleClass);
         Assert.Equal(6, frame1.IntraDcThresholdIndex);
         Assert.Equal(13, frame1.Quantizer);
@@ -89,7 +89,7 @@ public sealed class Vid1VideoFileTests(TestPaths paths)
         var rootChunk = Vid1VideoTestBuilder.BuildChunk("VID1", new byte[0x18]);
         var frameChunk = Vid1VideoTestBuilder.CreateFrameChunk(
             new Vid1SyntheticVideoFrameSpec(
-                0x4014,
+                0x2107,
                 PreambleClass: 0,
                 Quantizer: 7,
                 CurrentFrameStateWord: 0x11223344,

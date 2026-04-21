@@ -31,7 +31,7 @@ internal static class Vid1VideoTestBuilder
             : new[]
             {
                 new Vid1SyntheticVideoFrameSpec(
-                    0x4014,
+                    0x2107,
                     PreambleClass: 0,
                     Quantizer: 7,
                     CurrentFrameStateWord: 0x11223344,
@@ -90,13 +90,15 @@ internal static class Vid1VideoTestBuilder
 
     private static byte[] CreateViddPayload(Vid1SyntheticVideoFrameSpec frame)
     {
-        var header = new byte[12];
-        BinaryPrimitives.WriteUInt16BigEndian(header.AsSpan(6, 2), frame.Tag16);
-
         var writer = new TestBitWriter();
         writer.WriteBits(0, 16);
         writer.WriteBits((uint)frame.PreambleClass, 2);
-        writer.WriteFlag(false);
+        // DOL header layout (FUN_8029C2F8): usesCQM / stateFlag3c / discard
+        // all live INSIDE the outerFlag1 (hasOptionalHeader) block. The
+        // synthetic builder always emits outerFlag1=true so these fields are
+        // present; a separate 1-bit param_1[0] flag sits outside.
+        writer.WriteFlag(true);  // hasOptionalHeader / outerFlag1
+        writer.WriteFlag(false); // spriteConfigPresent / innerFlag1
         writer.WriteFlag(frame.UsesCustomQuantMatrices);
 
         if (frame.UsesCustomQuantMatrices)
@@ -107,7 +109,8 @@ internal static class Vid1VideoTestBuilder
         }
 
         writer.WriteFlag(frame.StateFlag3c);
-        writer.WriteFlag(false);
+        writer.WriteFlag(false); // 1 bit discard at end of outerFlag1 block
+        writer.WriteFlag(frame.HasSpecialCallerGate); // param_1[0] — outside outerFlag1
         writer.WriteBits((uint)frame.IntraDcThresholdIndex, 3);
         writer.WriteBits((uint)frame.Quantizer, 5);
 
@@ -129,15 +132,15 @@ internal static class Vid1VideoTestBuilder
 
         var metadata = writer.ToBytes();
         var codedPayload = frame.CodedPayload?.ToArray() ?? [0x10, 0x20, 0x30, 0x40];
-        if (codedPayload.Length > 0)
-        {
-            if (frame.HasSpecialCallerGate)
-                codedPayload[0] |= 0x80;
-            else
-                codedPayload[0] &= 0x7F;
-        }
 
-        return [.. header, .. metadata, .. codedPayload, .. new byte[8]];
+        // The DOL seeds the VID1 bitreader from VIDD payload+0x04. The 16-bit
+        // Tag16 field at payload+0x06 is therefore not separate metadata; it is
+        // the second 16 bits of the frame header consumed by FUN_8029C2F8.
+        var payload = new byte[4 + metadata.Length + codedPayload.Length + 8];
+        metadata.CopyTo(payload.AsSpan(4));
+        BinaryPrimitives.WriteUInt16BigEndian(payload.AsSpan(6, 2), frame.Tag16);
+        codedPayload.CopyTo(payload.AsSpan(4 + metadata.Length));
+        return payload;
     }
 
     private static void WriteTerminatedMatrix(TestBitWriter writer)

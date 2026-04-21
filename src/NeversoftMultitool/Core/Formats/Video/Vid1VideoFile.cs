@@ -18,14 +18,26 @@ public sealed record Vid1VideoFrame(
     bool UsesCustomQuantMatrices,
     bool IsPartial,
     byte[] CodedPayload,
+    byte[] Bitstream,
     int IntraDcThresholdIndex,
     int Quantizer,
     int? ForwardCode,
     int? BackwardCode,
     uint? CurrentFrameStateWord,
     uint? AlternateFrameStateWord,
-    bool HasSpecialCallerGate)
+    bool HasSpecialCallerGate,
+    byte[]? CustomIntraMatrix,
+    byte[]? CustomInterMatrix)
 {
+    internal int FlagBitOffset { get; init; }
+    internal int VlcBitOffset { get; init; }
+
+    internal int? SpritePointCount { get; init; }
+
+    internal int? SpriteWarpAccuracy { get; init; }
+
+    internal int[]? SpriteTrajectoryDeltas { get; init; }
+
     internal int GetFallbackVopType()
     {
         return PreambleClass switch
@@ -43,7 +55,8 @@ public sealed class Vid1VideoFile
 {
     private const int HeadChildOffset = 0x0C;
     private const int FrameChildOffset = 0x20;
-    private const int ViddCustomHeaderOffset = 12;
+    private const int ViddFlagSeedOffset = 4;
+    private const int ViddTag16Offset = 6;
     private const int ViddTailSize = 8;
 
     private Vid1VideoFile(
@@ -184,6 +197,12 @@ public sealed class Vid1VideoFile
             return Vid1VideoVariant.ThawAtvi;
         }
 
+        if (!string.IsNullOrWhiteSpace(sourceName) &&
+            Path.GetFileNameWithoutExtension(sourceName).Equals("intro", StringComparison.OrdinalIgnoreCase))
+        {
+            return Vid1VideoVariant.ThawLongForm;
+        }
+
         var tag16Values = frames.Select(static frame => frame.Tag16).ToArray();
         var longFormCount = tag16Values.Count(static tag16 => tag16 is 0x2002 or 0x4014 or 0x4024 or 0x5014 or 0x5024 or 0x5044);
         var atviCount = tag16Values.Count(static tag16 => tag16 is 0x4016 or 0x5016 or 0x8026 or 0x8029 or 0x8046);
@@ -258,6 +277,7 @@ public sealed class Vid1VideoFile
         error = "";
         var offset = firstFrameOffset;
         int? spritePointCount = null;
+        int? spriteWarpAccuracy = null;
 
         while (offset + 8 <= data.Length)
         {
@@ -280,7 +300,14 @@ public sealed class Vid1VideoFile
                 if (childChunk.Tag != "VIDD")
                     continue;
 
-                if (!TryParseVideoFrame(data, childChunk, frames.Count, ref spritePointCount, out var frame, out error))
+                if (!TryParseVideoFrame(
+                        data,
+                        childChunk,
+                        frames.Count,
+                        ref spritePointCount,
+                        ref spriteWarpAccuracy,
+                        out var frame,
+                        out error))
                     return false;
 
                 frames.Add(frame);
@@ -297,22 +324,24 @@ public sealed class Vid1VideoFile
         Vid1Chunk chunk,
         int frameIndex,
         ref int? spritePointCount,
+        ref int? spriteWarpAccuracy,
         out Vid1VideoFrame frame,
         out string error)
     {
         error = "";
         var payload = data.AsSpan(chunk.Offset + 8, chunk.EndOffset - (chunk.Offset + 8)).ToArray();
-        if (payload.Length < ViddCustomHeaderOffset + ViddTailSize)
+        if (payload.Length < ViddTag16Offset + 2)
         {
             error = "VIDD payload is too small";
             frame = default!;
             return false;
         }
 
-        var tag16 = ReadUInt16BigEndian(payload, 6);
+        var tag16 = ReadUInt16BigEndian(payload, ViddTag16Offset);
         var usesCustomQuantMatrices = false;
         var isPartial = false;
         var codedPayload = Array.Empty<byte>();
+        var bitstream = Array.Empty<byte>();
         var intraDcThresholdIndex = 0;
         var quantizer = 0;
         int? forwardCode = null;
@@ -320,37 +349,57 @@ public sealed class Vid1VideoFile
         uint? currentFrameStateWord = null;
         uint? alternateFrameStateWord = null;
         var preambleClass = -1;
+        var specialCallerGate = false;
+        var flagBitOffset = 0;
+        var vlcBitOffset = 0;
+        byte[]? customIntraMatrix = null;
+        byte[]? customInterMatrix = null;
+        int[]? spriteTrajectoryDeltas = null;
 
         try
         {
-            var bitstream = payload.AsSpan(ViddCustomHeaderOffset, payload.Length - ViddCustomHeaderOffset - ViddTailSize).ToArray();
+            // FUN_80166C80 passes VIDD+0x0C to FUN_8029978C, which is payload+0x04
+            // in this parser. FUN_8029BFAC then stores ctx+0x8C = ctx+0x30, so
+            // the frame header and macroblock VLC/control reads advance one shared
+            // four-word reader. Tag16 at payload+0x06 is part of that bitstream.
+            if (payload.Length < ViddFlagSeedOffset + ViddTailSize)
+                throw new EndOfStreamException("VIDD payload is too small");
+
+            bitstream = payload.AsSpan(ViddFlagSeedOffset, payload.Length - ViddFlagSeedOffset - ViddTailSize).ToArray();
             var reader = new Vid1BitReader(bitstream);
 
+            // Layout ported from FUN_8029C2F8. The outer optional-header flag
+            // gates the sprite config, quant_type + matrix flags, stateFlag3c,
+            // and the trailing discard bit. A separate 1-bit caller gate then
+            // sits outside that block before threshold/quantizer.
             _ = reader.ReadBits(16);
             preambleClass = reader.ReadBits(2);
             var hasOptionalHeader = reader.ReadFlag();
 
+            var stateFlag3c = false;
             if (hasOptionalHeader)
             {
                 var spriteConfigPresent = reader.ReadFlag();
                 if (spriteConfigPresent)
                 {
                     spritePointCount = reader.ReadBits(2);
-                    _ = reader.ReadBits(2);
+                    spriteWarpAccuracy = reader.ReadBits(2);
                 }
+
+                usesCustomQuantMatrices = reader.ReadFlag();
+                if (usesCustomQuantMatrices)
+                {
+                    if (reader.ReadFlag())
+                        customIntraMatrix = ParseMatrix(reader);
+                    if (reader.ReadFlag())
+                        customInterMatrix = ParseMatrix(reader);
+                }
+
+                stateFlag3c = reader.ReadFlag();
+                _ = reader.ReadFlag();
             }
 
-            usesCustomQuantMatrices = reader.ReadFlag();
-            if (usesCustomQuantMatrices)
-            {
-                if (reader.ReadFlag())
-                    ParseMatrix(reader);
-                if (reader.ReadFlag())
-                    ParseMatrix(reader);
-            }
-
-            var stateFlag3c = reader.ReadFlag();
-            _ = reader.ReadFlag();
+            specialCallerGate = reader.ReadFlag();
             intraDcThresholdIndex = reader.ReadBits(3);
             quantizer = reader.ReadBits(5);
 
@@ -366,12 +415,19 @@ public sealed class Vid1VideoFile
 
             if (preambleClass == 3 && spritePointCount.HasValue)
             {
+                spriteTrajectoryDeltas = new int[spritePointCount.Value * 2];
                 for (var i = 0; i < spritePointCount.Value; i++)
                 {
-                    _ = reader.ReadBits(14);
-                    _ = reader.ReadFlag();
-                    _ = reader.ReadBits(14);
-                    _ = reader.ReadFlag();
+                    var dx = reader.ReadBits(14);
+                    if (reader.ReadFlag())
+                        dx = -dx;
+
+                    var dy = reader.ReadBits(14);
+                    if (reader.ReadFlag())
+                        dy = -dy;
+
+                    spriteTrajectoryDeltas[i * 2] = dx;
+                    spriteTrajectoryDeltas[i * 2 + 1] = dy;
                 }
             }
 
@@ -382,11 +438,17 @@ public sealed class Vid1VideoFile
             }
 
             reader.AlignToNextByte();
-            var codedDataOffset = ViddCustomHeaderOffset + reader.BytesConsumed;
+            vlcBitOffset = reader.BitPosition;
+            var codedDataOffset = ViddFlagSeedOffset + reader.BytesConsumed;
             var codedDataEnd = payload.Length - ViddTailSize;
             if (codedDataOffset > codedDataEnd)
                 throw new EndOfStreamException("VIDD coded payload is truncated");
 
+            // Macroblock decoding resumes from the same reader after the header.
+            // CodedPayload is therefore the post-header window, not a separate
+            // second stream.
+            flagBitOffset = 0;
+            vlcBitOffset = 0;
             codedPayload = payload.AsSpan(codedDataOffset, codedDataEnd - codedDataOffset).ToArray();
         }
         catch (EndOfStreamException)
@@ -401,23 +463,59 @@ public sealed class Vid1VideoFile
             usesCustomQuantMatrices,
             isPartial,
             codedPayload,
+            bitstream,
             intraDcThresholdIndex,
             quantizer,
             forwardCode,
             backwardCode,
             currentFrameStateWord,
             alternateFrameStateWord,
-            codedPayload.Length > 0 && (codedPayload[0] & 0x80) != 0);
+            specialCallerGate,
+            customIntraMatrix,
+            customInterMatrix)
+        {
+            FlagBitOffset = flagBitOffset,
+            VlcBitOffset = vlcBitOffset,
+            SpritePointCount = spritePointCount,
+            SpriteWarpAccuracy = spriteWarpAccuracy,
+            SpriteTrajectoryDeltas = spriteTrajectoryDeltas
+        };
         return true;
     }
 
-    private static void ParseMatrix(Vid1BitReader reader)
+    // Custom quant matrix layout per FUN_8029C2F8 (m4decoder_decompiled.c:8754-8824):
+    // entries read 8 bits each, written through the MPEG-4 zigzag scan, zero-
+    // terminated. After a zero, the last-non-zero value fills the remaining
+    // (scan-ordered) positions. See vid1_fun_8029c650_sprite.md memory and
+    // MPEG-4 §7.4.7 (load_intra_quant_mat).
+    private static byte[] ParseMatrix(Vid1BitReader reader)
     {
-        while (reader.ReadBits(8) != 0)
+        var zigzag = ZigzagScan;
+        var output = new byte[64];
+        int prev = 0;
+        int i = 0;
+        for (; i < 64; i++)
         {
-            // Matrix entries are zero-terminated; the deterministic parser only needs to consume them.
+            var value = reader.ReadBits(8);
+            output[zigzag[i]] = (byte)value;
+            if (value == 0)
+                break;
+            prev = value;
         }
+
+        for (; i < 64; i++)
+            output[zigzag[i]] = (byte)prev;
+
+        return output;
     }
+
+    private static readonly byte[] ZigzagScan =
+    [
+        0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5,
+        12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
+        35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+        58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
+    ];
 
     private static bool TryFindChunk(
         byte[] data,
@@ -517,56 +615,4 @@ public sealed class Vid1VideoFile
         int Size,
         int EndOffset);
 
-    private sealed class Vid1BitReader(byte[] data)
-    {
-        private int _bitPosition;
-
-        public int BytesConsumed => (_bitPosition + 7) / 8;
-
-        public int ReadBits(int bitCount)
-        {
-            if (bitCount < 0 || _bitPosition + bitCount > data.Length * 8)
-                throw new EndOfStreamException("VID1 bitstream is truncated");
-
-            var value = 0;
-            for (var i = 0; i < bitCount; i++)
-            {
-                var byteIndex = _bitPosition >> 3;
-                var bitIndex = 7 - (_bitPosition & 7);
-                value = (value << 1) | ((data[byteIndex] >> bitIndex) & 1);
-                _bitPosition++;
-            }
-
-            return value;
-        }
-
-        public uint ReadBitsUInt32()
-        {
-            const int bitCount = 32;
-            if (_bitPosition + bitCount > data.Length * 8)
-                throw new EndOfStreamException("VID1 bitstream is truncated");
-
-            uint value = 0;
-            for (var i = 0; i < bitCount; i++)
-            {
-                var byteIndex = _bitPosition >> 3;
-                var bitIndex = 7 - (_bitPosition & 7);
-                value = (value << 1) | (uint)((data[byteIndex] >> bitIndex) & 1);
-                _bitPosition++;
-            }
-
-            return value;
-        }
-
-        public bool ReadFlag()
-        {
-            return ReadBits(1) != 0;
-        }
-
-        public void AlignToNextByte()
-        {
-            if ((_bitPosition & 7) != 0)
-                _bitPosition += 8 - (_bitPosition & 7);
-        }
-    }
 }

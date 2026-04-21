@@ -28,7 +28,7 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
                 frames:
                 [
                     new Vid1SyntheticVideoFrameSpec(
-                        0x4014,
+                        0x2107,
                         PreambleClass: 0,
                         Quantizer: 7,
                         CurrentFrameStateWord: 0x11223344,
@@ -45,7 +45,7 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
             Assert.Equal(240, probe.Height);
             Assert.Equal(1, probe.FrameCount);
             Assert.Equal(30.0, probe.FrameRate, 5);
-            Assert.Equal(Vid1VideoVariant.ThawLongForm, probe.Variant);
+            Assert.Equal(Vid1VideoVariant.Unknown, probe.Variant);
             Assert.False(probe.HasAudio);
         }
         finally

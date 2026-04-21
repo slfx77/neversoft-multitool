@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using NeversoftMultitool.Core.Formats.Audio;
 
@@ -40,19 +41,16 @@ public static partial class Vid1VideoConverter
             Directory.CreateDirectory(tempAudioDir);
             progress?.Report(0.05);
 
-            if (!TryWriteDeterministicVideoStream(inputPath, tempVideoPath, out error))
+            if (!Vid1VideoFile.TryParse(inputPath, out var file, out error))
                 return new SfdConvertResult { ErrorMessage = error };
-
-            progress?.Report(0.35);
 
             var audioResult = Vid1AudioExtractor.ConvertToWav(inputPath, tempAudioDir);
             var hasAudio = audioResult.Success && File.Exists(tempAudioPath);
 
-            var arguments = hasAudio
-                ? $"-y -err_detect ignore_err -i \"{tempVideoPath}\" -i \"{tempAudioPath}\" -map 0:v:0 -map 1:a:0 -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k -shortest \"{outputPath}\""
-                : $"-y -err_detect ignore_err -i \"{tempVideoPath}\" -c:v libx264 -preset fast -crf 23 -an \"{outputPath}\"";
+            progress?.Report(0.10);
 
-            if (!RunFfmpeg(ffmpeg, arguments, outputPath, probe!.Duration.TotalSeconds, progress, cancellationToken, out error))
+            if (!RunNativeDecodePipeline(ffmpeg, file!, hasAudio ? tempAudioPath : null, outputPath,
+                    progress, cancellationToken, out error))
                 return new SfdConvertResult { ErrorMessage = error };
 
             progress?.Report(1.0);
@@ -222,6 +220,125 @@ public static partial class Vid1VideoConverter
             error = ex.Message;
             return false;
         }
+    }
+
+    private static bool RunNativeDecodePipeline(
+        string ffmpegPath,
+        Vid1VideoFile file,
+        string? audioPath,
+        string outputPath,
+        IProgress<double>? progress,
+        CancellationToken cancellationToken,
+        out string error)
+    {
+        error = "";
+
+        var videoInput = $"-y -f rawvideo -pix_fmt rgb24 -s {file.Width}x{file.Height} " +
+                         $"-r {file.FrameRate.ToString("F2", CultureInfo.InvariantCulture)} -i pipe:0";
+        var args = audioPath != null
+            ? $"{videoInput} -i \"{audioPath}\" -map 0:v:0 -map 1:a:0 -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k -shortest \"{outputPath}\""
+            : $"{videoInput} -c:v libx264 -preset fast -crf 23 -an \"{outputPath}\"";
+
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            Arguments = args,
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+
+        var stderrBuf = new StringBuilder();
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data != null) stderrBuf.AppendLine(e.Data);
+        };
+
+        using var killOnCancel = cancellationToken.Register(() =>
+        {
+            try { process.Kill(); } catch { /* already dead */ }
+        });
+
+        process.Start();
+        process.BeginErrorReadLine();
+
+        var decoder = new Vid1Decoder(file);
+        var frameLimit = GetDebugFrameLimit(file.Frames.Count);
+        var totalFrames = frameLimit;
+        var decodeProgressBase = 0.10;
+        var decodeProgressSpan = 0.85;
+
+        try
+        {
+            using var stdin = process.StandardInput.BaseStream;
+            for (var i = 0; i < frameLimit; i++)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    try { process.Kill(); } catch { /* already dead */ }
+                    TryDeleteFile(outputPath);
+                    error = "Cancelled";
+                    return false;
+                }
+
+                var decoded = decoder.DecodeFrame(file.Frames[i]);
+                try
+                {
+                    stdin.Write(decoded.Rgb24, 0, decoded.Rgb24.Length);
+                }
+                catch (IOException)
+                {
+                    // ffmpeg exited early — stop piping.
+                    break;
+                }
+
+                if (totalFrames > 0)
+                {
+                    progress?.Report(decodeProgressBase + (decodeProgressSpan * (i + 1) / totalFrames));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            try { process.Kill(); } catch { /* already dead */ }
+            TryDeleteFile(outputPath);
+            error = $"native decode failed: {ex.Message}";
+            return false;
+        }
+
+        if (!process.WaitForExit(60_000))
+        {
+            try { process.Kill(); } catch { /* already dead */ }
+            TryDeleteFile(outputPath);
+            error = "ffmpeg timed out";
+            return false;
+        }
+
+        if (process.ExitCode != 0)
+        {
+            TryDeleteFile(outputPath);
+            var tail = stderrBuf.ToString();
+            error = string.IsNullOrWhiteSpace(tail)
+                ? $"ffmpeg exited with code {process.ExitCode}"
+                : $"ffmpeg exited with code {process.ExitCode}: {tail.Trim()}";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static int GetDebugFrameLimit(int availableFrames)
+    {
+        var value = Environment.GetEnvironmentVariable("VID1_MAX_FRAMES");
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var requested) ||
+            requested <= 0)
+        {
+            return availableFrames;
+        }
+
+        return Math.Min(requested, availableFrames);
     }
 
     private static bool RunFfmpeg(
