@@ -140,8 +140,13 @@ public static class Ps2SceneGltfWriter
         var materialCache = new Dictionary<uint, MaterialBuilder?>();
         var totalTriangles = 0;
 
-        // Build skeleton with animation channels
-        var jointNodes = SkaGltfWriter.BuildJointHierarchy(skeleton);
+        // Build skeleton seeded from SkaPoseEvaluator.Evaluate(0f) so each joint's
+        // rest transform exactly matches what a renderer would compute from the
+        // animation at t=0. V1 (THPS4) content has no native bind pose in the .ske
+        // file, so this is the only way to produce a meaningful rest pose; V2+
+        // content gets the animation's first keyframe (typically == bind) with the
+        // same evaluator fallback semantics.
+        var jointNodes = SkaGltfWriter.BuildJointHierarchySeededFromEvaluator(skeleton, animation);
         SkaGltfWriter.ApplyAnimation(jointNodes, skeleton, animation, animationName ?? "animation");
 
         // Build skinned mesh

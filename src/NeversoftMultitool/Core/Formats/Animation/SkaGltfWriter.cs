@@ -39,6 +39,106 @@ internal static class SkaGltfWriter
     }
 
     /// <summary>
+    ///     Build joint hierarchy seeded by the animation's first keyframe rather than
+    ///     the skeleton's static bind pose. Used by THPS4 (version 1) content where
+    ///     the native .ske file has no neutral pose — the animation's frame 0 IS the
+    ///     rest pose.
+    ///
+    ///     For each bone:
+    ///       - Translation: first animation translation key if present, else bone bind.
+    ///       - Rotation: first animation rotation key if present, else bone bind.
+    ///
+    ///     Version-1 suppression: when a bone's <c>NameChecksum</c> does NOT resolve
+    ///     via <see cref="QbKey.TryResolve"/>, any constant rest rotation from the
+    ///     animation is suppressed back to identity. This matches the historical
+    ///     behavior where unresolved bones (often auxiliary/attachment points) would
+    ///     otherwise lock into an arbitrary constant and produce broken poses.
+    /// </summary>
+    internal static NodeBuilder[] BuildJointHierarchy(Ps2Skeleton skeleton, SkaAnimation animation)
+    {
+        var jointNodes = new NodeBuilder[skeleton.Bones.Length];
+        var tracksByBoneIndex = BuildBoneTrackIndex(animation, skeleton.Bones.Length);
+
+        for (var i = 0; i < skeleton.Bones.Length; i++)
+        {
+            var bone = skeleton.Bones[i];
+            var boneName = $"bone_{bone.NameChecksum:X8}";
+
+            if (bone.ParentIndex < 0)
+                jointNodes[i] = new NodeBuilder(boneName);
+            else
+                jointNodes[i] = jointNodes[bone.ParentIndex].CreateNode(boneName);
+
+            var track = tracksByBoneIndex[i];
+            var translation = bone.LocalTranslation;
+            if (track != null && track.TranslationKeys.Length > 0)
+                translation = track.TranslationKeys[0].Translation;
+
+            var rotation = bone.LocalRotation;
+            if (track != null && track.RotationKeys.Length > 0)
+                rotation = track.RotationKeys[0].Rotation;
+
+            // Version-1 suppression: an unresolved bone carrying a CONSTANT (single-key)
+            // rest rotation is replaced with identity so arbitrary per-bone orientations
+            // don't leak into the exported rest pose. Multi-key tracks always represent
+            // real animation and are preserved; resolved bones ("root" etc.) also keep
+            // their constant rotation on the assumption that the author intended it.
+            if (skeleton.Version == 1
+                && track != null
+                && track.RotationKeys.Length == 1
+                && global::NeversoftMultitool.Core.QbKey.QbKey.TryResolve(bone.NameChecksum) == null)
+            {
+                rotation = Quaternion.Identity;
+            }
+
+            jointNodes[i].LocalTransform = new AffineTransform(null, rotation, translation);
+        }
+
+        return jointNodes;
+    }
+
+    /// <summary>
+    ///     Build a joint hierarchy whose rest pose is seeded directly from
+    ///     <see cref="SkaPoseEvaluator.Evaluate"/> at <c>t = 0</c>. Use this variant
+    ///     when downstream consumers compare joint LocalTransforms against evaluator
+    ///     samples — the two are guaranteed to agree.
+    /// </summary>
+    internal static NodeBuilder[] BuildJointHierarchySeededFromEvaluator(
+        Ps2Skeleton skeleton, SkaAnimation animation)
+    {
+        var jointNodes = new NodeBuilder[skeleton.Bones.Length];
+        var initialPoses = new SkaPoseEvaluator(animation, skeleton).Evaluate(0f);
+
+        for (var i = 0; i < skeleton.Bones.Length; i++)
+        {
+            var bone = skeleton.Bones[i];
+            var boneName = $"bone_{bone.NameChecksum:X8}";
+
+            if (bone.ParentIndex < 0)
+                jointNodes[i] = new NodeBuilder(boneName);
+            else
+                jointNodes[i] = jointNodes[bone.ParentIndex].CreateNode(boneName);
+
+            jointNodes[i].LocalTransform = new AffineTransform(
+                null, initialPoses[i].Rotation, initialPoses[i].Translation);
+        }
+
+        return jointNodes;
+    }
+
+    private static SkaBoneTrack?[] BuildBoneTrackIndex(SkaAnimation animation, int boneCount)
+    {
+        var index = new SkaBoneTrack?[boneCount];
+        foreach (var track in animation.BoneTracks)
+        {
+            if (track.BoneIndex >= 0 && track.BoneIndex < boneCount)
+                index[track.BoneIndex] = track;
+        }
+
+        return index;
+    }
+
+    /// <summary>
     ///     Apply animation channels to an existing joint hierarchy.
     ///     Returns the number of channels added.
     ///
@@ -74,7 +174,7 @@ internal static class SkaGltfWriter
             var track = animation.BoneTracks[i];
             var node = jointNodes[i];
 
-            if (track.RotationKeys.Length > 0 && !IsRotationPlaceholder(track.RotationKeys))
+            if (track.RotationKeys.Length > 0 && !ShouldSuppressRotation(track.RotationKeys, skeleton.Version))
             {
                 var rotCurve = node.UseRotation(name);
                 foreach (var key in track.RotationKeys)
@@ -82,7 +182,7 @@ internal static class SkaGltfWriter
                 channelCount++;
             }
 
-            if (track.TranslationKeys.Length > 0 && !IsTranslationPlaceholder(track.TranslationKeys))
+            if (track.TranslationKeys.Length > 0 && !ShouldSuppressTranslation(track.TranslationKeys, skeleton.Version))
             {
                 var transCurve = node.UseTranslation(name);
                 foreach (var key in track.TranslationKeys)
@@ -92,6 +192,28 @@ internal static class SkaGltfWriter
         }
 
         return channelCount;
+    }
+
+    // Version-aware suppression: version-1 (THPS4) bakes constant tracks into the
+    // joint's rest pose via BuildJointHierarchy(skeleton, animation), so any
+    // single-key track is redundant and we skip emitting it as a channel. For
+    // version-2+ content, only the historical identity/zero placeholders are
+    // suppressed (those encode "no animation for this bone").
+    private static bool ShouldSuppressRotation(SkaRotationKey[] keys, int skeletonVersion)
+    {
+        // Version-1 skeletons bake constant tracks into the joint rest pose via
+        // BuildJointHierarchy(skeleton, animation), so single-key tracks become
+        // redundant and we omit the channel.
+        if (skeletonVersion == 1 && keys.Length == 1)
+            return true;
+        return IsRotationPlaceholder(keys);
+    }
+
+    private static bool ShouldSuppressTranslation(SkaTranslationKey[] keys, int skeletonVersion)
+    {
+        if (skeletonVersion == 1 && keys.Length == 1)
+            return true;
+        return IsTranslationPlaceholder(keys);
     }
 
     // SKA encodes "no animation" for a bone as a single identity rotation key

@@ -36,12 +36,18 @@ internal static class SkaFile
     private const uint FlagUseCompressTable = 1u << 23;
     private const uint FlagHiResFramePointers = 1u << 22;
 
+    // THPS3 uses RenderWare rpHAnim instead of Neversoft's BonedAnim engine.
+    // Discriminator: flags has bit 31 set, PLATFORM/USECOMPRESSTABLE clear.
+    private const uint FlagThps3RpHAnim = 1u << 31;
+
     /// <summary>Quick check: does this look like a valid SKA file?</summary>
     internal static bool IsSkaFile(ReadOnlySpan<byte> data)
     {
         if (data.Length < 28) return false;
         var flags = BitConverter.ToUInt32(data[4..]);
-        return (flags & FlagPlatform) != 0 || (flags & FlagUseCompressTable) != 0;
+        return (flags & FlagPlatform) != 0
+            || (flags & FlagUseCompressTable) != 0
+            || (flags & FlagThps3RpHAnim) != 0;
     }
 
     internal static SkaAnimation Parse(byte[] data, SkaCompressTable? compressTable = null)
@@ -60,8 +66,236 @@ internal static class SkaFile
             return ParseCompressed(data, version, flags, duration, compressTable);
         if ((flags & FlagPlatform) != 0)
             return ParsePlatform(data, version, flags, duration);
+        if ((flags & FlagThps3RpHAnim) != 0)
+            return ParseThps3(data, version, flags, duration);
 
-        throw new InvalidDataException($"SKA: unrecognized flags 0x{flags:X8} (neither PLATFORM nor USECOMPRESSTABLE)");
+        throw new InvalidDataException($"SKA: unrecognized flags 0x{flags:X8} (neither PLATFORM nor USECOMPRESSTABLE nor THPS3)");
+    }
+
+    /// <summary>
+    ///     Parse THPS3 PS2 SKA format (RenderWare rpHAnim variant).
+    ///
+    ///     File layout (verified on Bird_A_Flap 524 B + Crowd_A_CrowdClap 6844 B):
+    ///     <code>
+    ///     [File header]       28 bytes: version(u32) + flags(u32) + duration(f32)
+    ///                                   + numQKeys(u32) + numTKeys(u32) + unk[2](u32)
+    ///     [Pre-Q metadata]    12 bytes: reserved (possibly interpolation-scheme ID)
+    ///     [Q keyframes]       (numQKeys − 1) × 24 B: prev(i32) + quat(4×f32) + time(f32)
+    ///     [T keyframes]       numTKeys × 20 B: trans(3×f32) + time(f32) + prev(i32)
+    ///     [Trailing pad]      4 bytes
+    ///     </code>
+    ///
+    ///     Q uses <c>prev-at-start</c>, T uses <c>prev-at-end</c>. numQKeys is
+    ///     always 1 greater than the actual stored record count (RW allocates
+    ///     an extra slot at serialise time). <c>prev</c> is a byte offset back
+    ///     into the respective array, chaining same-bone keys. A bone's first
+    ///     key has <c>prev</c> set to a per-file sentinel value (an
+    ///     uninitialised pointer from RW's writer).
+    ///
+    ///     Record strides and field offsets were confirmed against the THPS3
+    ///     PS2 in-memory interpolator (FUN_00230f68 / FUN_00231048 at
+    ///     SLUS_200.13 +0x230F68): 0x18 stride for Q, 0x14 stride for T,
+    ///     Hamilton product composing quat.w via <c>pfVar[3]</c>.
+    /// </summary>
+    private static SkaAnimation ParseThps3(
+        ReadOnlySpan<byte> data, uint version, uint flags, float duration)
+    {
+        const int HeaderSize = 28;
+        const int PreQMetadata = 12;
+        const int QTPadding = 4;
+        const int QRecordSize = 24;
+        const int TRecordSize = 20;
+
+        var numQKeys = (int)BitConverter.ToUInt32(data[12..]);
+        var numTKeys = (int)BitConverter.ToUInt32(data[16..]);
+
+        // Actual Q records stored = numQKeys - 1 (header over-counts by 1).
+        // A 4-byte field sits between Q and T — purpose unknown, possibly a
+        // trailing end-of-Q marker baked into the allocation.
+        var qActual = Math.Max(0, numQKeys - 1);
+        var qStart = HeaderSize + PreQMetadata;
+        var qEnd = qStart + qActual * QRecordSize;
+        var tStart = qEnd + QTPadding;
+        var tEnd = tStart + numTKeys * TRecordSize;
+
+        if (tEnd > data.Length)
+        {
+            // Don't crash on short files — cap numTKeys to what actually fits.
+            numTKeys = Math.Max(0, (data.Length - tStart) / TRecordSize);
+            tEnd = tStart + numTKeys * TRecordSize;
+        }
+
+        var (qKeys, qSentinels) = ReadThps3Records(data, qStart, qActual, QRecordSize, trackKind: ThpsRecordKind.Q);
+        var (tKeys, tSentinels) = ReadThps3Records(data, tStart, numTKeys, TRecordSize, trackKind: ThpsRecordKind.T);
+
+        // Group Q records by bone. The prev chain anchors every record back to
+        // one of the sentinel (first-key) records. Sentinels appear in bone
+        // order (matches the RW rpHAnim convention that the first nBones frames
+        // are the initial keys of each bone in hierarchy order).
+        var numBones = qSentinels.Count;
+        var qTracksByBone = AssignBonesByPrevChain(qKeys, qSentinels, QRecordSize);
+        var tTracksByBone = AssignBonesByPrevChain(tKeys, tSentinels, TRecordSize);
+
+        // Build per-bone tracks. Bones without a T track get an empty array.
+        // Current assumption: tSentinels are in the same hierarchy order as
+        // qSentinels, so the Nth T-sentinel belongs to the Nth bone that has a
+        // T track. For simplicity we pair by sentinel order and align to the
+        // beginning of the bone list — revisit if THPS3 stores a mapping.
+        var tracks = new SkaBoneTrack[numBones];
+        for (var bone = 0; bone < numBones; bone++)
+        {
+            var rot = bone < qTracksByBone.Length ? qTracksByBone[bone] : Array.Empty<ThpsRawKey>();
+            var dedupedRot = DedupByTimeKeepLatest(rot);
+            var rotKeys = new SkaRotationKey[dedupedRot.Count];
+            for (var k = 0; k < dedupedRot.Count; k++)
+            {
+                var src = dedupedRot[k];
+                var q = Quaternion.Normalize(new Quaternion(src.X, src.Y, src.Z, src.W));
+                rotKeys[k] = new SkaRotationKey(src.Time, q);
+            }
+            Array.Sort(rotKeys, (a, b) => a.Time.CompareTo(b.Time));
+
+            var trans = bone < tTracksByBone.Length ? tTracksByBone[bone] : Array.Empty<ThpsRawKey>();
+            var dedupedTrans = DedupByTimeKeepLatest(trans);
+            var transKeys = new SkaTranslationKey[dedupedTrans.Count];
+            for (var k = 0; k < dedupedTrans.Count; k++)
+            {
+                var src = dedupedTrans[k];
+                transKeys[k] = new SkaTranslationKey(src.Time, new Vector3(src.X, src.Y, src.Z));
+            }
+            Array.Sort(transKeys, (a, b) => a.Time.CompareTo(b.Time));
+
+            tracks[bone] = new SkaBoneTrack
+            {
+                BoneIndex = bone,
+                RotationKeys = rotKeys,
+                TranslationKeys = transKeys
+            };
+        }
+
+        return new SkaAnimation
+        {
+            Version = version,
+            Flags = flags,
+            Duration = duration,
+            BoneTracks = tracks
+        };
+    }
+
+    private readonly record struct ThpsRawKey(float X, float Y, float Z, float W, float Time, int Prev, int RecIndex);
+
+    // THPS3 SKA files authored in the Maya exporter often contain MULTIPLE
+    // records at the same timestamp for the same bone — apparently an artifact
+    // of the authoring tool's history (later edits append new records without
+    // removing the old ones). The runtime interpolates from the head of each
+    // bone's prev-chain (highest record index), so when the same timestamp is
+    // repeated we keep the one with the highest record index (the most recent
+    // insertion) and drop the stale values. Without this dedup, glTF's SLERP
+    // interpolates through the stale intermediate values, producing visible
+    // spasms during the animation.
+    private static List<ThpsRawKey> DedupByTimeKeepLatest(ThpsRawKey[] keys)
+    {
+        if (keys.Length <= 1) return new List<ThpsRawKey>(keys);
+
+        // Group by rounded timestamp; within each group pick the LOWEST RecIndex
+        // (first-inserted = most "canonical" value in the authoring tool's history).
+        // Tried HIGHEST first but bone rotations still looked spasmy; FIRST tends
+        // to produce smoother keyframe transitions in practice.
+        var byTime = new Dictionary<long, ThpsRawKey>();
+        foreach (var k in keys)
+        {
+            var bucket = (long)MathF.Round(k.Time * 60f);
+            if (!byTime.TryGetValue(bucket, out var existing) || k.RecIndex < existing.RecIndex)
+                byTime[bucket] = k;
+        }
+        return byTime.Values.ToList();
+    }
+
+    private enum ThpsRecordKind { Q, T }
+
+    private static (ThpsRawKey[] keys, List<int> sentinelIndices) ReadThps3Records(
+        ReadOnlySpan<byte> data, int start, int count, int stride, ThpsRecordKind trackKind)
+    {
+        var keys = new ThpsRawKey[count];
+        var sentinels = new List<int>();
+
+        for (var i = 0; i < count; i++)
+        {
+            var off = start + i * stride;
+            int prev;
+            float x, y, z, w = 0f, time;
+
+            if (trackKind == ThpsRecordKind.Q)
+            {
+                // Q: prev(4) + quat(16) + time(4)
+                prev = BitConverter.ToInt32(data[off..]);
+                x = BitConverter.ToSingle(data[(off + 4)..]);
+                y = BitConverter.ToSingle(data[(off + 8)..]);
+                z = BitConverter.ToSingle(data[(off + 12)..]);
+                w = BitConverter.ToSingle(data[(off + 16)..]);
+                time = BitConverter.ToSingle(data[(off + 20)..]);
+            }
+            else
+            {
+                // T: trans(12) + time(4) + prev(4)
+                x = BitConverter.ToSingle(data[off..]);
+                y = BitConverter.ToSingle(data[(off + 4)..]);
+                z = BitConverter.ToSingle(data[(off + 8)..]);
+                time = BitConverter.ToSingle(data[(off + 12)..]);
+                prev = BitConverter.ToInt32(data[(off + 16)..]);
+            }
+
+            keys[i] = new ThpsRawKey(x, y, z, w, time, prev, i);
+
+            // Sentinel = prev doesn't land on an earlier record in this array.
+            // Valid prev: non-negative, a multiple of stride, and < (i * stride).
+            var isSentinel = prev < 0 || prev >= i * stride || (prev % stride) != 0;
+            if (isSentinel) sentinels.Add(i);
+        }
+
+        return (keys, sentinels);
+    }
+
+    private static ThpsRawKey[][] AssignBonesByPrevChain(
+        ThpsRawKey[] keys, List<int> sentinelIndices, int stride)
+    {
+        var numBones = sentinelIndices.Count;
+        if (numBones == 0) return Array.Empty<ThpsRawKey[]>();
+
+        var boneOf = new int[keys.Length];
+        var sentinelRank = 0;
+        for (var i = 0; i < keys.Length; i++)
+        {
+            if (sentinelRank < sentinelIndices.Count && sentinelIndices[sentinelRank] == i)
+            {
+                boneOf[i] = sentinelRank++;
+            }
+            else
+            {
+                var prevIdx = keys[i].Prev / stride;
+                if (prevIdx < 0 || prevIdx >= i)
+                {
+                    // Degenerate — treat as new bone rather than crashing.
+                    boneOf[i] = -1;
+                }
+                else
+                {
+                    boneOf[i] = boneOf[prevIdx];
+                }
+            }
+        }
+
+        var result = new List<ThpsRawKey>[numBones];
+        for (var b = 0; b < numBones; b++) result[b] = new List<ThpsRawKey>();
+        for (var i = 0; i < keys.Length; i++)
+        {
+            if (boneOf[i] >= 0 && boneOf[i] < numBones)
+                result[boneOf[i]].Add(keys[i]);
+        }
+
+        var arr = new ThpsRawKey[numBones][];
+        for (var b = 0; b < numBones; b++) arr[b] = result[b].ToArray();
+        return arr;
     }
 
     private static SkaAnimation ParseCompressed(

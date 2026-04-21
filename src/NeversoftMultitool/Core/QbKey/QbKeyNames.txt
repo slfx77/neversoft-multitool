@@ -10978,6 +10978,7 @@ rope11=0xA115BCD5
 rope13=0x4F1BDDF9
 ropepart2=0xD480DD32
 ropeside=0x5163BB22
+root=0xE90B06A4
 rowley_board=0xA3E2F50B
 runway01=0xE5D6EE72
 runway02=0x7CDFBFC8

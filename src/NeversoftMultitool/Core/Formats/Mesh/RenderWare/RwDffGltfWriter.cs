@@ -1,5 +1,6 @@
 using System.Numerics;
 using NeversoftMultitool.Core.BinaryIO;
+using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Texture;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
@@ -40,6 +41,52 @@ public static class RwDffGltfWriter
 
         var (model, triangles) = Build(clump, textureProvider);
         if (triangles == 0) return 0;
+        GltfNormalSmoother.SmoothNormals(model);
+        model.SaveGLB(outputPath);
+        return triangles;
+    }
+
+    /// <summary>
+    ///     Writes a parsed DFF clump animated by a THPS3 SKA file to a .glb file.
+    ///     Requires the clump to have a Skin PLG and the animation's bone count
+    ///     to match the skeleton.
+    /// </summary>
+    /// <returns>Total number of triangles written; 0 if the clump isn't skinned
+    /// or the bone counts disagree.</returns>
+    internal static int WriteAnimated(
+        RwDffClump clump,
+        SkaAnimation animation,
+        string outputPath,
+        TextureProvider? textureProvider = null,
+        Thps3SkaAnimationMode? animationMode = null)
+    {
+        var directory = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        var skinnedAtomic = clump.Atomics.FirstOrDefault(a => a.SkinData != null);
+        if (skinnedAtomic?.SkinData == null)
+            return 0;
+
+        var skin = skinnedAtomic.SkinData;
+        if (animation.BoneTracks.Length != skin.NumBones)
+            return 0;
+
+        var scene = new SceneBuilder();
+        var materialCache = new Dictionary<string, MaterialBuilder>(StringComparer.OrdinalIgnoreCase);
+        var boneNodes = BuildBoneHierarchy(skin);
+
+        var animationName = Path.GetFileNameWithoutExtension(outputPath);
+        Thps3SkaPoseApplier.ApplyAnimationChannels(
+            boneNodes,
+            animation,
+            animationName,
+            animationMode ?? Thps3SkaAnimationMode.Default);
+
+        var triangles = WriteSkinned(clump, skin, materialCache, textureProvider, scene, boneNodes);
+        if (triangles == 0) return 0;
+
+        var model = scene.ToGltf2();
         GltfNormalSmoother.SmoothNormals(model);
         model.SaveGLB(outputPath);
         return triangles;
@@ -93,7 +140,8 @@ public static class RwDffGltfWriter
     /// </summary>
     private static int WriteSkinned(RwDffClump clump, RwSkinData skinRef,
         Dictionary<string, MaterialBuilder> materialCache,
-        TextureProvider? textureProvider, SceneBuilder scene)
+        TextureProvider? textureProvider, SceneBuilder scene,
+        NodeBuilder[]? prebuiltBoneNodes = null)
     {
         // Build joint nodes from Skin PLG bone data.
         // The frame hierarchy in THPS3 DFF is flat (most bones are direct children of the pelvis)
@@ -101,7 +149,7 @@ public static class RwDffGltfWriter
         // jointMatrix = IBM * globalNodeTransform = Identity at bind pose.
         // Instead: derive each joint's global bind-pose transform as inverse(IBM), then compute
         // local transforms from the bone hierarchy encoded in push/pop flags.
-        var boneNodes = BuildBoneHierarchy(skinRef);
+        var boneNodes = prebuiltBoneNodes ?? BuildBoneHierarchy(skinRef);
         var joints = new (NodeBuilder Joint, Matrix4x4 InverseBindMatrix)[skinRef.NumBones];
         for (var i = 0; i < skinRef.NumBones; i++)
             joints[i] = (boneNodes[i], skinRef.Bones[i].InverseBindMatrix);

@@ -86,6 +86,11 @@ tools/*
 !tools/PsxAnalyzer/
 !tools/BlendModeDiag/
 !tools/diagnostics/
+!tools/ghidra/
+tools/ghidra/*
+!tools/ghidra/thps3_ps2/
+tools/ghidra/thps3_ps2/*
+!tools/ghidra/thps3_ps2/DumpSkaCallGraph.java
 tools/diagnostics/*
 !tools/diagnostics/ps2_scene_trace.py
 !tools/diagnostics/ps2_geom_trace.py
@@ -97,6 +102,16 @@ tools/diagnostics/*
 !tools/diagnostics/thaw_pcsx2_runbook.md
 !tools/diagnostics/thaw_pcsx2_findings.md
 !tools/diagnostics/thaw_gsdump_parser.py
+!tools/diagnostics/thps3_variant_sweep.py
+!tools/diagnostics/thps3_pcsx2_runbook.md
+!tools/diagnostics/thps3_matrix_dump.py
+!tools/diagnostics/thps3_matrix_compare.py
+!tools/diagnostics/thps3_pose_dump.py
+!tools/diagnostics/thps3_pose_scan.py
+!tools/diagnostics/thps3_pose_compare.py
+!tools/diagnostics/thps3_matrix_palette_scan.py
+!tools/diagnostics/thps3_ska_runtime_compare.py
+!tools/diagnostics/thps3_runtime_qblob_dump.py
 
 # Build/runtime noise inside curated tools/
 tools/**/bin/
