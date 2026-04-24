@@ -57,6 +57,19 @@ public class Vid1IdctTests
     }
 
     [Fact]
+    public void Transform_SingleVerticalFrequencyCoefficient_MatchesDolColumnPass()
+    {
+        var block = new short[64];
+        block[16] = 256; // AC(2,0)
+
+        Vid1Idct.Transform(block);
+
+        short[] expectedFirstColumn = [42, 17, -17, -42, -42, -17, 17, 42];
+        for (var y = 0; y < 8; y++)
+            Assert.Equal(expectedFirstColumn[y], block[y * 8]);
+    }
+
+    [Fact]
     public void Transform_RoundTrip_DcPreserved()
     {
         // Verify the DC coefficient value is plausible after transform

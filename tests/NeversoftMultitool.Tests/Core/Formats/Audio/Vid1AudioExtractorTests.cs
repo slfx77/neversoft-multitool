@@ -17,6 +17,36 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
             "vid",
             "atvi.vid");
 
+    private static string? FindRepoAtviVid()
+    {
+        var current = AppContext.BaseDirectory;
+        while (!string.IsNullOrEmpty(current))
+        {
+            var candidate = Path.Combine(current, "TestOutput", "session7_atvi_src", "atvi.vid");
+            if (File.Exists(candidate))
+                return candidate;
+
+            if (File.Exists(Path.Combine(current, "NeversoftMultitool.slnx")))
+                break;
+
+            var parent = Directory.GetParent(current);
+            if (parent == null)
+                break;
+
+            current = parent.FullName;
+        }
+
+        return null;
+    }
+
+    private string? FindRepresentativeVid()
+    {
+        if (File.Exists(RepresentativeSampleFile))
+            return RepresentativeSampleFile;
+
+        return FindRepoAtviVid();
+    }
+
     [Fact]
     public void TryReadPacketHeader_BitPackedHeader_DecodesPacketBounds()
     {
@@ -111,6 +141,29 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
         {
             Directory.Delete(outputDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public void DecodeToPcm16_RepresentativeSample_MatchesVideoDuration()
+    {
+        var vidPath = FindRepresentativeVid();
+        Assert.SkipWhen(vidPath == null, "Representative THAW GameCube VID sample not found");
+        Assert.SkipWhen(SfdConverter.FindFfmpeg() == null, "ffmpeg not found on PATH");
+
+        var video = Vid1VideoFile.Parse(vidPath!);
+
+        var success = Vid1AudioExtractor.TryDecodeToPcm16(vidPath!, out var audio, out var error);
+
+        Assert.True(success, error);
+        Assert.NotNull(audio);
+        Assert.NotEmpty(audio!.Pcm16);
+        Assert.Equal(44100, audio.SampleRate);
+        Assert.Equal(2, audio.Channels);
+        Assert.True(audio.Duration > TimeSpan.Zero);
+        Assert.InRange(
+            Math.Abs((audio.Duration - video.Duration).TotalSeconds),
+            0.0,
+            0.5);
     }
 }
 

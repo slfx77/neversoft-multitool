@@ -24,20 +24,33 @@ public static class Vid1AudioExtractor
 
     public static AudioConvertResult ConvertToWav(string inputPath, string outputDir)
     {
+        try
+        {
+            return ConvertToWav(File.ReadAllBytes(inputPath), Path.GetFileNameWithoutExtension(inputPath), outputDir);
+        }
+        catch (Exception ex)
+        {
+            return new AudioConvertResult { ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string)"/>.</summary>
+    public static AudioConvertResult ConvertToWav(byte[] data, string stem, string outputDir)
+    {
         var ffmpeg = SfdConverter.FindFfmpeg();
         if (ffmpeg == null)
             return new AudioConvertResult { ErrorMessage = "ffmpeg not found on PATH" };
 
-        if (!TryReadStream(inputPath, out var stream, out var error))
+        if (!TryParseVid1(data, out var stream, out var error))
             return new AudioConvertResult { ErrorMessage = error };
 
         Directory.CreateDirectory(outputDir);
-        var outputPath = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(inputPath) + ".wav");
+        var outputPath = Path.Combine(outputDir, stem + ".wav");
         var tempOggPath = Path.Combine(
             Path.GetTempPath(),
             "NeversoftMultitool",
             "Vid1Audio",
-            $"{Guid.NewGuid():N}_{Path.GetFileNameWithoutExtension(inputPath)}.ogg");
+            $"{Guid.NewGuid():N}_{stem}.ogg");
 
         try
         {
@@ -59,6 +72,47 @@ public static class Vid1AudioExtractor
         finally
         {
             TryDeleteFile(tempOggPath);
+        }
+    }
+
+    internal static bool TryDecodeToPcm16(string inputPath, out Vid1PcmAudio? audio, out string error)
+    {
+        audio = null;
+
+        var ffmpeg = SfdConverter.FindFfmpeg();
+        if (ffmpeg == null)
+        {
+            error = "ffmpeg not found on PATH";
+            return false;
+        }
+
+        if (!TryReadStream(inputPath, out var stream, out error))
+            return false;
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "Vid1Audio");
+        var tempStem = $"{Guid.NewGuid():N}_{Path.GetFileNameWithoutExtension(inputPath)}";
+        var tempOggPath = Path.Combine(tempRoot, tempStem + ".ogg");
+        var tempPcmPath = Path.Combine(tempRoot, tempStem + ".s16le");
+
+        try
+        {
+            Directory.CreateDirectory(tempRoot);
+
+            if (!TryWriteOggStream(stream, tempOggPath, out error))
+                return false;
+
+            if (!TryDecodeOggToPcm16(ffmpeg, tempOggPath, tempPcmPath, out error))
+                return false;
+
+            var pcm = File.ReadAllBytes(tempPcmPath);
+            audio = new Vid1PcmAudio(pcm, stream.SampleRate, stream.Channels, stream.TotalSamples);
+            error = "";
+            return true;
+        }
+        finally
+        {
+            TryDeleteFile(tempOggPath);
+            TryDeleteFile(tempPcmPath);
         }
     }
 
@@ -587,6 +641,34 @@ public static class Vid1AudioExtractor
         return false;
     }
 
+    private static bool TryDecodeOggToPcm16(string ffmpeg, string oggPath, string pcmPath, out string error)
+    {
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = ffmpeg,
+            Arguments = $"-y -loglevel error -i \"{oggPath}\" -f s16le -acodec pcm_s16le \"{pcmPath}\"",
+            UseShellExecute = false,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        process.Start();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit(120_000);
+
+        if (process.ExitCode == 0 && File.Exists(pcmPath))
+        {
+            error = "";
+            return true;
+        }
+
+        error = string.IsNullOrWhiteSpace(stderr)
+            ? $"ffmpeg exited with code {process.ExitCode}"
+            : stderr.Trim();
+        return false;
+    }
+
     private static bool LooksLikeFramePayloadTag(byte[] data, int offset)
     {
         return offset + 4 <= data.Length &&
@@ -670,6 +752,19 @@ public static class Vid1AudioExtractor
         byte[] IdPacket,
         byte[] SetupPacket,
         List<byte[]> AudioPackets);
+
+    internal sealed record Vid1PcmAudio(
+        byte[] Pcm16,
+        int SampleRate,
+        int Channels,
+        int TotalSamples)
+    {
+        public int BytesPerSecond => SampleRate * Channels * 2;
+
+        public TimeSpan Duration => TotalSamples > 0 && SampleRate > 0
+            ? TimeSpan.FromSeconds((double)TotalSamples / SampleRate)
+            : TimeSpan.FromSeconds(BytesPerSecond > 0 ? (double)Pcm16.Length / BytesPerSecond : 0);
+    }
 
     public sealed record Vid1AudioProbeResult(
         string CodecName,

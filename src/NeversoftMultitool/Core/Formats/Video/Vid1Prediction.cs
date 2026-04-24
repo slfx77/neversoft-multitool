@@ -132,9 +132,9 @@ internal static class Vid1Prediction
 
         // Read DC values from each predictor (or 1024 = neutral when missing,
         // matching the &DAT_802A078C default block).
-        var leftDc = leftPred >= 0 ? ReadShort(mbState, leftPred) : DefaultDcPredictor;
-        var topDc = topPred >= 0 ? ReadShort(mbState, topPred) : DefaultDcPredictor;
-        var topLeftDc = topLeftPred >= 0 ? ReadShort(mbState, topLeftPred) : DefaultDcPredictor;
+        var leftDc = leftPred >= 0 ? ReadDcPredictor(mbState, leftPred) : DefaultDcPredictor;
+        var topDc = topPred >= 0 ? ReadDcPredictor(mbState, topPred) : DefaultDcPredictor;
+        var topLeftDc = topLeftPred >= 0 ? ReadDcPredictor(mbState, topLeftPred) : DefaultDcPredictor;
 
         // Gradient comparison: |left - topLeft| vs |topLeft - top|.
         // Smaller horizontal gradient → predict from top; else predict from left.
@@ -152,7 +152,7 @@ internal static class Vid1Prediction
                 predictions[i + 1] = ScalePredictionComponent(
                     topQuant,
                     quantizer,
-                    topPred >= 0 ? ReadShort(mbState, topPred + 2 + (i * 2)) : (short)0);
+                    topPred >= 0 ? ReadAcPredictor(mbState, topPred + 2 + (i * 2)) : (short)0);
             }
         }
         else
@@ -164,7 +164,7 @@ internal static class Vid1Prediction
                 predictions[i + 1] = ScalePredictionComponent(
                     leftQuant,
                     quantizer,
-                    leftPred >= 0 ? ReadShort(mbState, leftPred + 0x10 + (i * 2)) : (short)0);
+                    leftPred >= 0 ? ReadAcPredictor(mbState, leftPred + 0x10 + (i * 2)) : (short)0);
             }
         }
 
@@ -267,8 +267,11 @@ internal static class Vid1Prediction
     private static int OffsetForBlock(int mbBase, int blockIndex)
         => mbBase + Vid1FrameContext.MbBlockOffsetBase + blockIndex * Vid1FrameContext.MbBlockStride;
 
-    private static short ReadShort(byte[] buffer, int offset)
-        => (short)((buffer[offset] << 8) | buffer[offset + 1]);
+    private static int ReadDcPredictor(byte[] buffer, int offset)
+        => (buffer[offset] << 8) | buffer[offset + 1];
+
+    private static short ReadAcPredictor(byte[] buffer, int offset)
+        => (short)ReadDcPredictor(buffer, offset);
 
     private static void WriteShort(byte[] buffer, int offset, short value)
     {

@@ -16,23 +16,172 @@ public sealed class Vid1Decoder
     private readonly Vid1FrameContext _context;
     private readonly byte[] _defaultIntraMatrix;
     private readonly byte[] _defaultInterMatrix;
+    private readonly FrameDecodeSnapshot _recoverySnapshot;
 
-    private sealed class FrameDecodeSnapshot(
-        byte[] outputY,
-        byte[] outputCb,
-        byte[] outputCr,
-        byte[] mbState,
-        int currentQuantizer,
-        Vid1BitReader vlcReader,
-        Vid1BitReader flagReader)
+    private sealed class FrameDecodeSnapshot(int maxMacroblocks)
     {
-        public byte[] OutputY { get; } = outputY;
-        public byte[] OutputCb { get; } = outputCb;
-        public byte[] OutputCr { get; } = outputCr;
-        public byte[] MbState { get; } = mbState;
-        public int CurrentQuantizer { get; } = currentQuantizer;
-        public Vid1BitReader VlcReader { get; } = vlcReader;
-        public Vid1BitReader FlagReader { get; } = flagReader;
+        private readonly byte[] _outputY = new byte[maxMacroblocks * 16 * 16];
+        private readonly byte[] _outputCb = new byte[maxMacroblocks * 8 * 8];
+        private readonly byte[] _outputCr = new byte[maxMacroblocks * 8 * 8];
+        private readonly byte[] _mbState = new byte[maxMacroblocks * Vid1FrameContext.MbStateStride];
+
+        private int _count;
+        private int _flagBitPosition;
+        private int _macroblockIndex;
+        private int _vlcBitPosition;
+
+        public int CurrentQuantizer { get; private set; }
+
+        public void Capture(
+            Vid1FrameContext context,
+            int macroblockIndex,
+            int totalMacroblocks,
+            Vid1BitReader vlcReader,
+            Vid1BitReader flagReader)
+        {
+            _macroblockIndex = macroblockIndex;
+            _count = Math.Min(maxMacroblocks, Math.Max(0, totalMacroblocks - macroblockIndex));
+            CurrentQuantizer = context.CurrentQuantizer;
+            _vlcBitPosition = vlcReader.BitPosition;
+            _flagBitPosition = flagReader.BitPosition;
+
+            Buffer.BlockCopy(
+                context.MbState,
+                macroblockIndex * Vid1FrameContext.MbStateStride,
+                _mbState,
+                0,
+                _count * Vid1FrameContext.MbStateStride);
+
+            for (var i = 0; i < _count; i++)
+            {
+                var index = macroblockIndex + i;
+                CopyPlaneBlockToSnapshot(
+                    context.OutputY,
+                    context.Width,
+                    context.Height,
+                    context.MbCols,
+                    index,
+                    16,
+                    _outputY,
+                    i * 16 * 16);
+                CopyPlaneBlockToSnapshot(
+                    context.OutputCb,
+                    context.ChromaWidth,
+                    context.ChromaHeight,
+                    context.MbCols,
+                    index,
+                    8,
+                    _outputCb,
+                    i * 8 * 8);
+                CopyPlaneBlockToSnapshot(
+                    context.OutputCr,
+                    context.ChromaWidth,
+                    context.ChromaHeight,
+                    context.MbCols,
+                    index,
+                    8,
+                    _outputCr,
+                    i * 8 * 8);
+            }
+        }
+
+        public void Restore(Vid1FrameContext context, Vid1BitReader vlcReader, Vid1BitReader flagReader)
+        {
+            Buffer.BlockCopy(
+                _mbState,
+                0,
+                context.MbState,
+                _macroblockIndex * Vid1FrameContext.MbStateStride,
+                _count * Vid1FrameContext.MbStateStride);
+
+            for (var i = 0; i < _count; i++)
+            {
+                var index = _macroblockIndex + i;
+                CopyPlaneBlockFromSnapshot(
+                    _outputY,
+                    i * 16 * 16,
+                    context.OutputY,
+                    context.Width,
+                    context.Height,
+                    context.MbCols,
+                    index,
+                    16);
+                CopyPlaneBlockFromSnapshot(
+                    _outputCb,
+                    i * 8 * 8,
+                    context.OutputCb,
+                    context.ChromaWidth,
+                    context.ChromaHeight,
+                    context.MbCols,
+                    index,
+                    8);
+                CopyPlaneBlockFromSnapshot(
+                    _outputCr,
+                    i * 8 * 8,
+                    context.OutputCr,
+                    context.ChromaWidth,
+                    context.ChromaHeight,
+                    context.MbCols,
+                    index,
+                    8);
+            }
+
+            context.CurrentQuantizer = CurrentQuantizer;
+            vlcReader.SetBitPosition(_vlcBitPosition);
+            flagReader.SetBitPosition(_flagBitPosition);
+        }
+
+        private static void CopyPlaneBlockToSnapshot(
+            byte[] source,
+            int planeWidth,
+            int planeHeight,
+            int mbCols,
+            int macroblockIndex,
+            int blockSize,
+            byte[] destination,
+            int destinationOffset)
+        {
+            var blockX = (macroblockIndex % mbCols) * blockSize;
+            var blockY = (macroblockIndex / mbCols) * blockSize;
+            var copyWidth = Math.Min(blockSize, Math.Max(0, planeWidth - blockX));
+            var copyHeight = Math.Min(blockSize, Math.Max(0, planeHeight - blockY));
+
+            for (var row = 0; row < copyHeight; row++)
+            {
+                Buffer.BlockCopy(
+                    source,
+                    ((blockY + row) * planeWidth) + blockX,
+                    destination,
+                    destinationOffset + row * blockSize,
+                    copyWidth);
+            }
+        }
+
+        private static void CopyPlaneBlockFromSnapshot(
+            byte[] source,
+            int sourceOffset,
+            byte[] destination,
+            int planeWidth,
+            int planeHeight,
+            int mbCols,
+            int macroblockIndex,
+            int blockSize)
+        {
+            var blockX = (macroblockIndex % mbCols) * blockSize;
+            var blockY = (macroblockIndex / mbCols) * blockSize;
+            var copyWidth = Math.Min(blockSize, Math.Max(0, planeWidth - blockX));
+            var copyHeight = Math.Min(blockSize, Math.Max(0, planeHeight - blockY));
+
+            for (var row = 0; row < copyHeight; row++)
+            {
+                Buffer.BlockCopy(
+                    source,
+                    sourceOffset + row * blockSize,
+                    destination,
+                    ((blockY + row) * planeWidth) + blockX,
+                    copyWidth);
+            }
+        }
     }
 
     public Vid1Decoder(Vid1VideoFile container)
@@ -44,6 +193,7 @@ public sealed class Vid1Decoder
         _defaultInterMatrix = BuildDefaultInterMatrix();
 
         _context = new Vid1FrameContext(container.Width, container.Height, _defaultIntraMatrix, _defaultInterMatrix);
+        _recoverySnapshot = new FrameDecodeSnapshot(RecoveryLookaheadMacroblocks);
         Reset();
     }
 
@@ -52,6 +202,8 @@ public sealed class Vid1Decoder
     public int Height => _container.Height;
 
     public int FrameCount => _container.FrameCount;
+
+    internal Vid1FrameDecodeStats LastFrameStats { get; private set; }
 
     /// <summary>
     ///     Forget any accumulated reference frame; the next DecodeFrame call
@@ -66,9 +218,43 @@ public sealed class Vid1Decoder
         Array.Fill(_context.ReferenceY, (byte)128);
         Array.Fill(_context.ReferenceCb, (byte)128);
         Array.Fill(_context.ReferenceCr, (byte)128);
+        Array.Fill(_context.PreviousReferenceY, (byte)128);
+        Array.Fill(_context.PreviousReferenceCb, (byte)128);
+        Array.Fill(_context.PreviousReferenceCr, (byte)128);
+        Array.Clear(_context.ReferenceMbState);
+        Array.Clear(_context.PreviousReferenceMbState);
+        _context.PreviousReferenceStateWord = 0;
+        _context.ReferenceStateWord = 0;
     }
 
     public Vid1DecodedFrame DecodeFrame(Vid1VideoFrame frame)
+    {
+        DecodeFrameToPlanes(frame);
+        var rgb = new byte[Width * Height * 3];
+        Vid1YuvToRgb.ConvertToRgb(_context.OutputY, _context.OutputCb, _context.OutputCr, Width, Height, rgb);
+        return new Vid1DecodedFrame(frame.Index, Width, Height, rgb);
+    }
+
+    internal Vid1DecodedBgraFrame DecodeFrameToBgraFrame(Vid1VideoFrame frame)
+    {
+        var bgra = new byte[Width * Height * 4];
+        DecodeFrameToBgra(frame, bgra);
+        return new Vid1DecodedBgraFrame(frame.Index, Width, Height, bgra);
+    }
+
+    internal void DecodeFrameToBgra(Vid1VideoFrame frame, Span<byte> destination)
+    {
+        DecodeFrameToPlanes(frame);
+        Vid1YuvToRgb.ConvertToBgra(_context.OutputY, _context.OutputCb, _context.OutputCr, Width, Height, destination);
+    }
+
+    internal void DecodeFrameToRgb(Vid1VideoFrame frame, Span<byte> destination)
+    {
+        DecodeFrameToPlanes(frame);
+        Vid1YuvToRgb.ConvertToRgb(_context.OutputY, _context.OutputCb, _context.OutputCr, Width, Height, destination);
+    }
+
+    private void DecodeFrameToPlanes(Vid1VideoFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
         // Reset output planes to neutral YUV so that macroblocks the decoder
@@ -77,20 +263,47 @@ public sealed class Vid1Decoder
         Array.Fill(_context.OutputCb, (byte)128);
         Array.Fill(_context.OutputCr, (byte)128);
 
+        var mbCols = (Width + 15) / 16;
+        var mbRows = (Height + 15) / 16;
+        var totalMacroblocks = mbCols * mbRows;
+
         if (frame.IsPartial || frame.CodedPayload.Length == 0)
-            return BuildFrame(frame.Index);
+        {
+            LastFrameStats = new Vid1FrameDecodeStats(
+                frame.Index,
+                frame.PreambleClass,
+                0,
+                0,
+                0,
+                0,
+                totalMacroblocks,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0);
+            return;
+        }
 
         // Current validated wiring keeps macroblock control bits and VLC tokens
         // on the post-header payload reader. VID1_READER_MODE is diagnostic;
         // forcing a separate bitstream flag reader is not score-correct yet.
         var readerMode = Environment.GetEnvironmentVariable("VID1_READER_MODE");
-        var legacyHeaderPayload = frame.Bitstream.Length > 8
-            ? frame.Bitstream.AsSpan(8).ToArray()
-            : frame.CodedPayload;
+        var skipFlagBitOffset = true;
+        byte[]? legacyHeaderPayload = null;
+        byte[] GetLegacyHeaderPayload()
+        {
+            return legacyHeaderPayload ??= frame.Bitstream.Length > 8
+                ? frame.Bitstream.AsSpan(8).ToArray()
+                : frame.CodedPayload;
+        }
+
         var vlcReader = readerMode switch
         {
             "bitstream" => new Vid1BitReader(frame.Bitstream),
-            "header" or "legacy-header" or "header-split" => new Vid1BitReader(legacyHeaderPayload),
+            "header" or "legacy-header" or "header-split" => new Vid1BitReader(GetLegacyHeaderPayload()),
             _ => new Vid1BitReader(frame.CodedPayload),
         };
         var flagReader = readerMode switch
@@ -98,17 +311,21 @@ public sealed class Vid1Decoder
             null or "" => vlcReader,
             "coded-flags" => new Vid1BitReader(frame.CodedPayload),
             "shared-coded" => vlcReader,
+            "split-no-flagskip" => new Vid1BitReader(frame.Bitstream),
             "bitstream" => new Vid1BitReader(frame.Bitstream),
-            "header" or "legacy-header" => new Vid1BitReader(legacyHeaderPayload),
+            "header" or "legacy-header" => new Vid1BitReader(GetLegacyHeaderPayload()),
             _ => new Vid1BitReader(frame.Bitstream),
         };
-        if (frame.FlagBitOffset > 0)
+        if (string.Equals(readerMode, "split-no-flagskip", StringComparison.OrdinalIgnoreCase))
+            skipFlagBitOffset = false;
+
+        if (!ReferenceEquals(vlcReader, flagReader) && skipFlagBitOffset && frame.FlagBitOffset > 0)
             flagReader.SkipBits(frame.FlagBitOffset);
 
         _context.CurrentQuantizer = frame.Quantizer;
         _context.ForwardFCode = Math.Max(frame.ForwardCode ?? 1, 1);
         _context.GmcEnabled = frame.PreambleClass == 3;
-        _context.SubpixelRoundingBias = frame.HasSpecialCallerGate ? 1 : 0;
+        _context.SubpixelRoundingBias = GetRoundingBias(frame);
         _context.IntraDcThreshold = IntraDcThresholdTable[Math.Clamp(frame.IntraDcThresholdIndex, 0, 7)];
         _context.UseIntraDequant = frame.UsesCustomQuantMatrices;
         // Keep matrix capture conservative: when quant_type is set but custom
@@ -120,23 +337,47 @@ public sealed class Vid1Decoder
         // from the previous frame don't leak into this frame's predictions.
         _context.ClearMbState();
 
-        var mbCols = (Width + 15) / 16;
-        var mbRows = (Height + 15) / 16;
-        var totalMacroblocks = mbCols * mbRows;
-
         var mbOk = 0;
         var mbFail = 0;
         var implicitSkips = 0;
         var recoveryCount = 0;
+        var unsupportedClass2Branches = 0;
+        var class2FieldOrGmcBranches = 0;
+        var intraMacroblocks = 0;
+        var motionMacroblocks = 0;
+        var fourMotionMacroblocks = 0;
+        var fieldPredictionMacroblocks = 0;
+        var spriteWarpMacroblocks = 0;
+        if (frame.PreambleClass == 2)
+        {
+            var stats = Vid1BFrameDecoder.DecodeFrame(frame, vlcReader, flagReader, _context);
+            mbOk = stats.DecodedMacroblocks;
+            implicitSkips = stats.FallbackMacroblocks;
+            unsupportedClass2Branches = stats.UnsupportedBranches;
+            class2FieldOrGmcBranches = stats.FieldOrGmcBranches;
+            goto done;
+        }
+
         for (var mbIndex = 0; mbIndex < totalMacroblocks;)
         {
             var mbX = mbIndex % mbCols;
             var mbY = mbIndex / mbCols;
-            var snapshot = CaptureSnapshot(vlcReader, flagReader);
+            CaptureSnapshot(mbIndex, totalMacroblocks, vlcReader, flagReader);
 
             try
             {
-                DecodeMacroblock(frame, vlcReader, flagReader, mbX, mbY);
+                DecodeMacroblock(
+                    frame,
+                    vlcReader,
+                    flagReader,
+                    mbX,
+                    mbY,
+                    collectStats: true,
+                    ref intraMacroblocks,
+                    ref motionMacroblocks,
+                    ref fourMotionMacroblocks,
+                    ref fieldPredictionMacroblocks,
+                    ref spriteWarpMacroblocks);
                 mbOk++;
                 mbIndex++;
             }
@@ -157,7 +398,6 @@ public sealed class Vid1Decoder
                         mbIndex,
                         mbCols,
                         totalMacroblocks,
-                        snapshot,
                         vlcReader,
                         flagReader,
                         out var recoveredCount,
@@ -173,7 +413,7 @@ public sealed class Vid1Decoder
                     continue;
                 }
 
-                RestoreSnapshot(snapshot, vlcReader, flagReader);
+                RestoreSnapshot(vlcReader, flagReader);
                 mbFail++;
                 if (ShouldLogFrame(frame.Index) && mbFail <= 5)
                     Console.Error.WriteLine(
@@ -197,16 +437,42 @@ public sealed class Vid1Decoder
             }
         }
     done:
+        LastFrameStats = new Vid1FrameDecodeStats(
+            frame.Index,
+            frame.PreambleClass,
+            mbOk,
+            mbFail,
+            implicitSkips,
+            recoveryCount,
+            totalMacroblocks,
+            unsupportedClass2Branches,
+            class2FieldOrGmcBranches,
+            intraMacroblocks,
+            motionMacroblocks,
+            fourMotionMacroblocks,
+            fieldPredictionMacroblocks,
+            spriteWarpMacroblocks);
+
         if (ShouldLogFrame(frame.Index))
             Console.Error.WriteLine(
                 $"Vid1Decoder frame {frame.Index}: {mbOk} ok, {mbFail} fail, implicitSkips={implicitSkips}, recoveries={recoveryCount}, total={totalMacroblocks}, vlc@{vlcReader.BitPosition}/{frame.CodedPayload.Length * 8}, flag@{flagReader.BitPosition}/{frame.Bitstream.Length * 8}");
 
-        var result = BuildFrame(frame.Index);
-        _context.PromoteOutputToReference();
-        return result;
+        if (ShouldPromoteOutputToReference(frame))
+            _context.PromoteOutputToReference(frame.CurrentFrameStateWord);
     }
 
-    private void DecodeMacroblock(Vid1VideoFrame frame, Vid1BitReader vlcReader, Vid1BitReader flagReader, int mbX, int mbY)
+    private void DecodeMacroblock(
+        Vid1VideoFrame frame,
+        Vid1BitReader vlcReader,
+        Vid1BitReader flagReader,
+        int mbX,
+        int mbY,
+        bool collectStats,
+        ref int intraMacroblocks,
+        ref int motionMacroblocks,
+        ref int fourMotionMacroblocks,
+        ref int fieldPredictionMacroblocks,
+        ref int spriteWarpMacroblocks)
     {
         Vid1ControlProbe control = frame.PreambleClass switch
         {
@@ -218,13 +484,47 @@ public sealed class Vid1Decoder
                 _context.CurrentQuantizer,
                 callerCr4: 1,
                 gmcEnabled: (frame.SpritePointCount ?? 0) > 0),
-            // B-VOP/class-2 dispatch is still unported (FUN_80299DC0).
-            // Keep the last known class-1 style probe as a fallback
-            // instead of silently rerouting through the old gate bit.
+            // Unknown preamble classes retain the last known class-1 style
+            // probe instead of silently rerouting through the old gate bit.
             _ => Vid1ControlPrefix.Probe99A38(vlcReader, flagReader, _context.CurrentQuantizer, callerCr4: 0, gmcEnabled: false),
         };
 
+        if (collectStats)
+            AccumulateControlStats(
+                control,
+                ref intraMacroblocks,
+                ref motionMacroblocks,
+                ref fourMotionMacroblocks,
+                ref fieldPredictionMacroblocks,
+                ref spriteWarpMacroblocks);
+
         Vid1MacroblockDecoder.Decode(vlcReader, flagReader, control, _context, mbX, mbY);
+    }
+
+    private static void AccumulateControlStats(
+        Vid1ControlProbe control,
+        ref int intraMacroblocks,
+        ref int motionMacroblocks,
+        ref int fourMotionMacroblocks,
+        ref int fieldPredictionMacroblocks,
+        ref int spriteWarpMacroblocks)
+    {
+        switch (control.Stage)
+        {
+            case Vid1ControlStage.A878:
+                intraMacroblocks++;
+                break;
+            case Vid1ControlStage.Motion:
+                motionMacroblocks++;
+                if (control.MacroblockType == 2)
+                    fourMotionMacroblocks++;
+                if ((control.BlockFlags & 0x08) != 0)
+                    fieldPredictionMacroblocks++;
+                break;
+            case Vid1ControlStage.SpriteWarp:
+                spriteWarpMacroblocks++;
+                break;
+        }
     }
 
     private bool TryRecoverMacroblocks(
@@ -232,7 +532,6 @@ public sealed class Vid1Decoder
         int macroblockIndex,
         int mbCols,
         int totalMacroblocks,
-        FrameDecodeSnapshot snapshot,
         Vid1BitReader vlcReader,
         Vid1BitReader flagReader,
         out int recoveredCount,
@@ -246,7 +545,7 @@ public sealed class Vid1Decoder
 
         foreach (var candidate in EnumerateRecoveryCandidates())
         {
-            RestoreSnapshot(snapshot, vlcReader, flagReader);
+            RestoreSnapshot(vlcReader, flagReader);
             if (!TryApplyReaderDelta(vlcReader, flagReader, candidate.VlcDelta, candidate.FlagDelta))
                 continue;
 
@@ -274,17 +573,17 @@ public sealed class Vid1Decoder
 
         if (recoveredCount < 2)
         {
-            RestoreSnapshot(snapshot, vlcReader, flagReader);
+            RestoreSnapshot(vlcReader, flagReader);
             recoveredCount = 0;
             bestVlcDelta = 0;
             bestFlagDelta = 0;
             return false;
         }
 
-        RestoreSnapshot(snapshot, vlcReader, flagReader);
+        RestoreSnapshot(vlcReader, flagReader);
         if (!TryApplyReaderDelta(vlcReader, flagReader, bestVlcDelta, bestFlagDelta))
         {
-            RestoreSnapshot(snapshot, vlcReader, flagReader);
+            RestoreSnapshot(vlcReader, flagReader);
             recoveredCount = 0;
             bestVlcDelta = 0;
             bestFlagDelta = 0;
@@ -302,7 +601,7 @@ public sealed class Vid1Decoder
 
         if (appliedCount != recoveredCount)
         {
-            RestoreSnapshot(snapshot, vlcReader, flagReader);
+            RestoreSnapshot(vlcReader, flagReader);
             recoveredCount = 0;
             bestVlcDelta = 0;
             bestFlagDelta = 0;
@@ -328,7 +627,23 @@ public sealed class Vid1Decoder
         {
             try
             {
-                DecodeMacroblock(frame, vlcReader, flagReader, index % mbCols, index / mbCols);
+                var intraMacroblocks = 0;
+                var motionMacroblocks = 0;
+                var fourMotionMacroblocks = 0;
+                var fieldPredictionMacroblocks = 0;
+                var spriteWarpMacroblocks = 0;
+                DecodeMacroblock(
+                    frame,
+                    vlcReader,
+                    flagReader,
+                    index % mbCols,
+                    index / mbCols,
+                    collectStats: false,
+                    ref intraMacroblocks,
+                    ref motionMacroblocks,
+                    ref fourMotionMacroblocks,
+                    ref fieldPredictionMacroblocks,
+                    ref spriteWarpMacroblocks);
                 successCount++;
             }
             catch (InvalidDataException)
@@ -344,28 +659,15 @@ public sealed class Vid1Decoder
         return successCount;
     }
 
-    private FrameDecodeSnapshot CaptureSnapshot(Vid1BitReader vlcReader, Vid1BitReader flagReader)
-    {
-        return new FrameDecodeSnapshot(
-            _context.OutputY.ToArray(),
-            _context.OutputCb.ToArray(),
-            _context.OutputCr.ToArray(),
-            _context.MbState.ToArray(),
-            _context.CurrentQuantizer,
-            vlcReader.Clone(),
-            flagReader.Clone());
-    }
+    private void CaptureSnapshot(
+        int macroblockIndex,
+        int totalMacroblocks,
+        Vid1BitReader vlcReader,
+        Vid1BitReader flagReader)
+        => _recoverySnapshot.Capture(_context, macroblockIndex, totalMacroblocks, vlcReader, flagReader);
 
-    private void RestoreSnapshot(FrameDecodeSnapshot snapshot, Vid1BitReader vlcReader, Vid1BitReader flagReader)
-    {
-        Buffer.BlockCopy(snapshot.OutputY, 0, _context.OutputY, 0, snapshot.OutputY.Length);
-        Buffer.BlockCopy(snapshot.OutputCb, 0, _context.OutputCb, 0, snapshot.OutputCb.Length);
-        Buffer.BlockCopy(snapshot.OutputCr, 0, _context.OutputCr, 0, snapshot.OutputCr.Length);
-        Buffer.BlockCopy(snapshot.MbState, 0, _context.MbState, 0, snapshot.MbState.Length);
-        _context.CurrentQuantizer = snapshot.CurrentQuantizer;
-        vlcReader.Restore(snapshot.VlcReader);
-        flagReader.Restore(snapshot.FlagReader);
-    }
+    private void RestoreSnapshot(Vid1BitReader vlcReader, Vid1BitReader flagReader)
+        => _recoverySnapshot.Restore(_context, vlcReader, flagReader);
 
     private static bool TryApplyReaderDelta(Vid1BitReader vlcReader, Vid1BitReader flagReader, int vlcDelta, int flagDelta)
     {
@@ -438,10 +740,18 @@ public sealed class Vid1Decoder
     private static bool ShouldTreatEndOfStreamAsImplicitSkips(Vid1VideoFrame frame)
         => !frame.IsPartial && frame.PreambleClass != 0;
 
-    private Vid1DecodedFrame BuildFrame(int frameIndex)
+    private static bool ShouldPromoteOutputToReference(Vid1VideoFrame frame)
+        // FUN_8029978C routes class-2 frames through the B-frame display path
+        // without making that output the future prediction reference.
+        => frame.PreambleClass != 2;
+
+    private static int GetRoundingBias(Vid1VideoFrame frame)
     {
-        var rgb = Vid1YuvToRgb.Convert(_context.OutputY, _context.OutputCb, _context.OutputCr, Width, Height);
-        return new Vid1DecodedFrame(frameIndex, Width, Height, rgb);
+        var overrideValue = Environment.GetEnvironmentVariable("VID1_ROUNDING_BIAS");
+        if (int.TryParse(overrideValue, out var bias))
+            return bias & 1;
+
+        return frame.HasSpecialCallerGate ? 1 : 0;
     }
 
     private static bool ShouldLogFrame(int frameIndex)
@@ -450,7 +760,7 @@ public sealed class Vid1Decoder
         if (int.TryParse(value, out var frameLimit))
             return frameIndex < frameLimit;
 
-        return frameIndex < 3;
+        return false;
     }
 
     // MPEG-4 intra_dc_vlc_thr table (ISO/IEC 14496-2 Table 6-21)

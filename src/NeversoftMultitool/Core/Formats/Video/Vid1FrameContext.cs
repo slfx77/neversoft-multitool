@@ -35,6 +35,9 @@ internal sealed class Vid1FrameContext
         ReferenceY = new byte[lumaSize];
         ReferenceCb = new byte[chromaSize];
         ReferenceCr = new byte[chromaSize];
+        PreviousReferenceY = new byte[lumaSize];
+        PreviousReferenceCb = new byte[chromaSize];
+        PreviousReferenceCr = new byte[chromaSize];
 
         IntraMatrix = intraMatrix;
         InterMatrix = interMatrix;
@@ -42,6 +45,8 @@ internal sealed class Vid1FrameContext
         MbCols = (width + 15) / 16;
         MbRows = (height + 15) / 16;
         MbState = new byte[MbCols * MbRows * MbStateStride];
+        ReferenceMbState = new byte[MbState.Length];
+        PreviousReferenceMbState = new byte[MbState.Length];
 
         SpriteAnchor0X = 0;
         SpriteAnchor0Y = 0;
@@ -86,6 +91,20 @@ internal sealed class Vid1FrameContext
     public byte[] ReferenceCb { get; private set; }
 
     public byte[] ReferenceCr { get; private set; }
+
+    public byte[] PreviousReferenceY { get; }
+
+    public byte[] PreviousReferenceCb { get; }
+
+    public byte[] PreviousReferenceCr { get; }
+
+    public byte[] ReferenceMbState { get; }
+
+    public byte[] PreviousReferenceMbState { get; }
+
+    public uint PreviousReferenceStateWord { get; set; }
+
+    public uint ReferenceStateWord { get; set; }
 
     public byte[] IntraMatrix { get; set; }
 
@@ -177,10 +196,19 @@ internal sealed class Vid1FrameContext
     ///     Copy the just-decoded output planes into the reference buffers
     ///     so the next frame can use them as prediction source.
     /// </summary>
-    public void PromoteOutputToReference()
+    public void PromoteOutputToReference(uint? stateWord)
     {
+        Buffer.BlockCopy(ReferenceY, 0, PreviousReferenceY, 0, ReferenceY.Length);
+        Buffer.BlockCopy(ReferenceCb, 0, PreviousReferenceCb, 0, ReferenceCb.Length);
+        Buffer.BlockCopy(ReferenceCr, 0, PreviousReferenceCr, 0, ReferenceCr.Length);
+        Buffer.BlockCopy(ReferenceMbState, 0, PreviousReferenceMbState, 0, ReferenceMbState.Length);
+        PreviousReferenceStateWord = ReferenceStateWord;
+
         Buffer.BlockCopy(OutputY, 0, ReferenceY, 0, OutputY.Length);
         Buffer.BlockCopy(OutputCb, 0, ReferenceCb, 0, OutputCb.Length);
         Buffer.BlockCopy(OutputCr, 0, ReferenceCr, 0, OutputCr.Length);
+        Buffer.BlockCopy(MbState, 0, ReferenceMbState, 0, MbState.Length);
+        if (stateWord.HasValue)
+            ReferenceStateWord = stateWord.Value;
     }
 }

@@ -50,6 +50,27 @@ internal static class Vid1MotionComp
         }
     }
 
+    public static void PredictInterBlockToSpan(
+        byte[] refPlane, int refStride, int refWidth, int refHeight,
+        int srcX, int srcY, int halfX, int halfY,
+        ReadOnlySpan<short> residual,
+        Span<byte> output, int outputStride,
+        int roundingBias = 0)
+    {
+        var bias = roundingBias & 1;
+        for (var y = 0; y < 8; y++)
+        {
+            for (var x = 0; x < 8; x++)
+            {
+                var predicted = FetchPredictionPixel(
+                    refPlane, refStride, refWidth, refHeight,
+                    srcX + x, srcY + y, halfX, halfY, bias);
+                var combined = predicted + residual[(y * 8) + x];
+                output[(y * outputStride) + x] = ClampByte(combined);
+            }
+        }
+    }
+
     /// <summary>
     ///     Write an intra 8×8 block — MPEG-4 reconstructs intra samples by
     ///     adding 128 (the DC-offset used during encoding) and clamping.

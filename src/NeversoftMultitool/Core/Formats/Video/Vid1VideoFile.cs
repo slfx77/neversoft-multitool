@@ -57,8 +57,6 @@ public sealed class Vid1VideoFile
     private const int FrameChildOffset = 0x20;
     private const int ViddFlagSeedOffset = 4;
     private const int ViddTag16Offset = 6;
-    private const int ViddTailSize = 8;
-
     private Vid1VideoFile(
         string? sourcePath,
         int width,
@@ -362,10 +360,15 @@ public sealed class Vid1VideoFile
             // in this parser. FUN_8029BFAC then stores ctx+0x8C = ctx+0x30, so
             // the frame header and macroblock VLC/control reads advance one shared
             // four-word reader. Tag16 at payload+0x06 is part of that bitstream.
-            if (payload.Length < ViddFlagSeedOffset + ViddTailSize)
+            //
+            // Keep the trailing VIDD bytes in both Bitstream and CodedPayload.
+            // The GameCube reader is a multiword prefetch reader, and stripping
+            // those bytes causes early EOF/implicit-skip behavior near the tail
+            // of some frames (most visibly credits.vid motion text).
+            if (payload.Length < ViddFlagSeedOffset)
                 throw new EndOfStreamException("VIDD payload is too small");
 
-            bitstream = payload.AsSpan(ViddFlagSeedOffset, payload.Length - ViddFlagSeedOffset - ViddTailSize).ToArray();
+            bitstream = payload.AsSpan(ViddFlagSeedOffset).ToArray();
             var reader = new Vid1BitReader(bitstream);
 
             // Layout ported from FUN_8029C2F8. The outer optional-header flag
@@ -438,16 +441,15 @@ public sealed class Vid1VideoFile
             }
 
             reader.AlignToNextByte();
+            flagBitOffset = reader.BitPosition;
             vlcBitOffset = reader.BitPosition;
             var codedDataOffset = ViddFlagSeedOffset + reader.BytesConsumed;
-            var codedDataEnd = payload.Length - ViddTailSize;
+            var codedDataEnd = payload.Length;
             if (codedDataOffset > codedDataEnd)
                 throw new EndOfStreamException("VIDD coded payload is truncated");
 
-            // Macroblock decoding resumes from the same reader after the header.
-            // CodedPayload is therefore the post-header window, not a separate
-            // second stream.
-            flagBitOffset = 0;
+            // CodedPayload is the post-header VLC window. A separate flag
+            // reader starts from Bitstream at the same post-header bit offset.
             vlcBitOffset = 0;
             codedPayload = payload.AsSpan(codedDataOffset, codedDataEnd - codedDataOffset).ToArray();
         }

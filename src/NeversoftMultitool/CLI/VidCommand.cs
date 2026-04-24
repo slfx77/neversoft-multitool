@@ -22,17 +22,23 @@ public static class VidCommand
         {
             Description = "Enable verbose output"
         };
+        var framesOption = new Option<bool>("--frames")
+        {
+            Description = "Write native decoded PNG frames instead of MP4 files"
+        };
 
         var command = new Command("vid", "Convert THAW GameCube VID1 video files to MP4");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
+        command.Options.Add(framesOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
             var verbose = parseResult.GetValue(verboseOption);
+            var writeFrames = parseResult.GetValue(framesOption);
 
             if (SfdConverter.FindFfmpeg() == null)
             {
@@ -80,7 +86,9 @@ public static class VidCommand
                         $"  {fileName}: {probe.ResolutionDisplay}, {probe.DurationDisplay}, {probe.VariantDisplay}{audioInfo}");
                 }
 
-                var result = Vid1VideoConverter.ConvertToMp4(file, output, cancellationToken: cancellationToken);
+                var result = writeFrames
+                    ? Vid1VideoConverter.DecodeNativeFrames(file, output, cancellationToken: cancellationToken)
+                    : Vid1VideoConverter.ConvertToMp4(file, output, cancellationToken: cancellationToken);
                 if (result.Success)
                 {
                     totalConverted++;
@@ -95,7 +103,7 @@ public static class VidCommand
 
             stopwatch.Stop();
             AnsiConsole.MarkupLine(
-                $"Converted [green]{totalConverted}[/]/{vidFiles.Length} files " +
+                $"{(writeFrames ? "Exported frames from" : "Converted")} [green]{totalConverted}[/]/{vidFiles.Length} files " +
                 $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
 
             return Task.FromResult(0);

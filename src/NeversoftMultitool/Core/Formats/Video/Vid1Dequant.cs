@@ -28,7 +28,7 @@ internal static class Vid1Dequant
             if (coeff > 0)
                 output[i] = Clamp(coeff * step + offset);
             else
-                output[i] = (short)-Clamp(-coeff * step + offset);
+                output[i] = ClampNegativeMagnitude((-coeff * step) + offset);
         }
     }
 
@@ -51,7 +51,7 @@ internal static class Vid1Dequant
             if (coeff > 0)
                 output[i] = (short)Math.Min((coeff * scale) >> 3, 0x7FF);
             else
-                output[i] = (short)Math.Max(-((-coeff * scale) >> 3), -0x800);
+                output[i] = ClampNegativeMagnitude((-coeff * scale) >> 3);
         }
     }
 
@@ -73,7 +73,7 @@ internal static class Vid1Dequant
             if (coeff > 0)
                 output[i] = Clamp(coeff * step + offset);
             else
-                output[i] = (short)-Clamp(-coeff * step + offset);
+                output[i] = ClampNegativeMagnitude((-coeff * step) + offset);
         }
     }
 
@@ -97,7 +97,7 @@ internal static class Vid1Dequant
             if (coeff > 0)
                 value = Clamp(((coeff * 2 + 1) * scale) >> 4);
             else
-                value = (short)-Clamp(((-coeff * 2 + 1) * scale) >> 4);
+                value = ClampNegativeMagnitude(((-coeff * 2 + 1) * scale) >> 4);
 
             output[i] = value;
             parity ^= unchecked((uint)(ushort)value);
@@ -108,4 +108,6 @@ internal static class Vid1Dequant
     }
 
     private static short Clamp(int value) => (short)Math.Clamp(value, -0x800, 0x7FF);
+
+    private static short ClampNegativeMagnitude(int magnitude) => (short)Math.Max(-magnitude, -0x800);
 }

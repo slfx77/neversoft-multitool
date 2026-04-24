@@ -66,6 +66,8 @@ internal static class Vid1MacroblockDecoder
 
     internal static void CopyMacroblockFromReference(Vid1FrameContext ctx, int mbX, int mbY)
     {
+        MarkSkippedMacroblock(ctx, mbX, mbY);
+
         // 16×16 luma
         var lumaX = mbX * 16;
         var lumaY = mbY * 16;
@@ -84,6 +86,14 @@ internal static class Vid1MacroblockDecoder
             Buffer.BlockCopy(ctx.ReferenceCb, srcOffset, ctx.OutputCb, srcOffset, 8);
             Buffer.BlockCopy(ctx.ReferenceCr, srcOffset, ctx.OutputCr, srcOffset, 8);
         }
+    }
+
+    private static void MarkSkippedMacroblock(Vid1FrameContext ctx, int mbX, int mbY)
+    {
+        var mbBase = GetMbStateOffset(ctx, mbX, mbY);
+        Array.Clear(ctx.MbState, mbBase, Vid1FrameContext.MbStateStride);
+        ctx.MbState[mbBase] = 0x10;
+        ctx.MbState[mbBase + 1] = (byte)(ctx.CurrentQuantizer & 0xFF);
     }
 
     private static void DecodeBlockPipeline(
@@ -183,13 +193,12 @@ internal static class Vid1MacroblockDecoder
             else
                 Vid1Dequant.DequantInter(dequant, quant, ctx.CurrentQuantizer, dcScale);
 
-            var workingBlock = ToShortArray(dequant);
-            Vid1Idct.Transform(workingBlock);
+            Vid1Idct.Transform(dequant);
 
             // Intra/inter reconstruction is a macroblock-type decision, not a
             // side effect of whether DC arrived through the pre-decode path.
             var intraWriteOffset = configuredIntraOffset ?? 0;
-            WriteBlockToPlane(ctx, workingBlock, mbX, mbY, block, intra: isIntraMacroblock, intraWriteOffset);
+            WriteBlockToPlane(ctx, dequant, mbX, mbY, block, intra: isIntraMacroblock, intraWriteOffset);
         }
     }
 
@@ -204,14 +213,18 @@ internal static class Vid1MacroblockDecoder
         InitializeMacroblockState(ctx, mbX, mbY, control.MacroblockType, control.Quantizer);
 
         var mbBase = GetMbStateOffset(ctx, mbX, mbY);
-        ctx.MbState[mbBase + MbFlagsOffset] = (byte)(control.BlockFlags & 0xFF);
-
         // The DOL routes mb[0xDC] & 0x08 through BACC/A1410 field prediction.
-        // The diagnostic port is kept below, but it is not exact enough to
-        // enable in production yet; preserving the previous one-MV path scores
-        // better until the tiled field writer is fully matched.
-        var fieldPrediction = false;
-        DecodeMotionVectors(vlcReader, ctx, mbX, mbY, control.MacroblockType, control.BlockFlags & ~0x08);
+        // Keep this opt-in until the linear-plane port is score-validated.
+        var fieldPrediction = ShouldEnableFieldPrediction() && (control.BlockFlags & 0x08) != 0;
+        var effectiveBlockFlags = fieldPrediction ? control.BlockFlags : control.BlockFlags & ~0x08;
+        ctx.MbState[mbBase + MbFlagsOffset] = (byte)(effectiveBlockFlags & 0xFF);
+        DecodeMotionVectors(
+            vlcReader,
+            ctx,
+            mbX,
+            mbY,
+            control.MacroblockType,
+            effectiveBlockFlags);
 
         if (fieldPrediction)
             PredictFieldMotionMacroblock(ctx, mbX, mbY);
@@ -234,12 +247,11 @@ internal static class Vid1MacroblockDecoder
             else
                 Vid1Dequant.DequantInterResidual(dequant, quant, ctx.CurrentQuantizer);
 
-            var workingBlock = ToShortArray(dequant);
-            Vid1Idct.Transform(workingBlock);
+            Vid1Idct.Transform(dequant);
             if (fieldPrediction)
-                AddResidualToWarpedBlock(ctx, workingBlock, mbX, mbY, block);
+                AddResidualToWarpedBlock(ctx, dequant, mbX, mbY, block);
             else
-                WriteMotionBlockToPlane(ctx, workingBlock, mbX, mbY, block, control.MacroblockType);
+                WriteMotionBlockToPlane(ctx, dequant, mbX, mbY, block, control.MacroblockType);
         }
     }
 
@@ -276,14 +288,13 @@ internal static class Vid1MacroblockDecoder
             else
                 Vid1Dequant.DequantInterResidual(dequant, quant, ctx.CurrentQuantizer);
 
-            var workingBlock = ToShortArray(dequant);
-            Vid1Idct.Transform(workingBlock);
-            AddResidualToWarpedBlock(ctx, workingBlock, mbX, mbY, block);
+            Vid1Idct.Transform(dequant);
+            AddResidualToWarpedBlock(ctx, dequant, mbX, mbY, block);
         }
     }
 
     private static void WriteBlockToPlane(
-        Vid1FrameContext ctx, short[] residual, int mbX, int mbY, int blockIndex, bool intra, int intraWriteOffset)
+        Vid1FrameContext ctx, ReadOnlySpan<short> residual, int mbX, int mbY, int blockIndex, bool intra, int intraWriteOffset)
     {
         byte[] refPlane;
         byte[] outPlane;
@@ -343,7 +354,7 @@ internal static class Vid1MacroblockDecoder
 
     private static void WriteMotionBlockToPlane(
         Vid1FrameContext ctx,
-        short[] residual,
+        ReadOnlySpan<short> residual,
         int mbX,
         int mbY,
         int blockIndex,
@@ -602,7 +613,7 @@ internal static class Vid1MacroblockDecoder
 
     private static void AddResidualToWarpedBlock(
         Vid1FrameContext ctx,
-        short[] residual,
+        ReadOnlySpan<short> residual,
         int mbX,
         int mbY,
         int blockIndex)
@@ -926,6 +937,8 @@ internal static class Vid1MacroblockDecoder
 
     private static byte[] GetScanTable(int scanTableIndex) => scanTableIndex switch
     {
+        // FUN_8029BFAC installs ctx+0x94 as zigzag, ctx+0x98 as the
+        // horizontal scan, and ctx+0x9C as the vertical scan.
         1 => HorizontalScan,
         2 => VerticalScan,
         _ => ZigzagScan,
@@ -936,6 +949,9 @@ internal static class Vid1MacroblockDecoder
 
     private static string GetA878ScanMode()
         => Environment.GetEnvironmentVariable("VID1_A878_SCAN_MODE")?.ToLowerInvariant() ?? "auto";
+
+    private static bool ShouldEnableFieldPrediction()
+        => Environment.GetEnvironmentVariable("VID1_FIELD_PREDICTION") == "1";
 
     private static bool ShouldApplyA878Prediction(string predictionMode, bool isIntraMacroblock, int blockIndex)
     {
@@ -1038,10 +1054,4 @@ internal static class Vid1MacroblockDecoder
         return qp - 6;
     }
 
-    private static short[] ToShortArray(Span<short> source)
-    {
-        var result = new short[64];
-        source.CopyTo(result);
-        return result;
-    }
 }

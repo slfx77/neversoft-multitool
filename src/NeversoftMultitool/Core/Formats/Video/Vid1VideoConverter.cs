@@ -108,6 +108,37 @@ public static partial class Vid1VideoConverter
         }
     }
 
+    internal static SfdConvertResult DecodeNativeFrames(
+        string inputPath,
+        string outputDir,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryProbe(inputPath, out _, out var error))
+            return new SfdConvertResult { ErrorMessage = error };
+
+        var ffmpeg = SfdConverter.FindFfmpeg();
+        if (ffmpeg == null)
+            return new SfdConvertResult { ErrorMessage = "ffmpeg not found on PATH" };
+
+        Directory.CreateDirectory(outputDir);
+
+        try
+        {
+            if (!Vid1VideoFile.TryParse(inputPath, out var file, out error))
+                return new SfdConvertResult { ErrorMessage = error };
+
+            var framePattern = Path.Combine(outputDir, $"{Path.GetFileNameWithoutExtension(inputPath)}_%04d.png");
+            if (!RunNativeFrameExport(ffmpeg, file!, framePattern, cancellationToken, out error))
+                return new SfdConvertResult { ErrorMessage = error };
+
+            return new SfdConvertResult { Success = true, OutputPath = outputDir };
+        }
+        catch (Exception ex)
+        {
+            return new SfdConvertResult { ErrorMessage = ex.Message };
+        }
+    }
+
     internal static bool TryProbe(string inputPath, out Vid1VideoProbeResult? probe, out string error)
     {
         probe = null;
@@ -264,7 +295,7 @@ public static partial class Vid1VideoConverter
         process.Start();
         process.BeginErrorReadLine();
 
-        var decoder = new Vid1Decoder(file);
+        var provider = new Vid1PresentationFrameProvider(file);
         var frameLimit = GetDebugFrameLimit(file.Frames.Count);
         var totalFrames = frameLimit;
         var decodeProgressBase = 0.10;
@@ -283,7 +314,10 @@ public static partial class Vid1VideoConverter
                     return false;
                 }
 
-                var decoded = decoder.DecodeFrame(file.Frames[i]);
+                var decoded = provider.DecodeNextFrame();
+                if (decoded == null)
+                    break;
+
                 try
                 {
                     stdin.Write(decoded.Rgb24, 0, decoded.Rgb24.Length);
@@ -327,6 +361,90 @@ public static partial class Vid1VideoConverter
         }
 
         return true;
+    }
+
+    private static bool RunNativeFrameExport(
+        string ffmpegPath,
+        Vid1VideoFile file,
+        string framePattern,
+        CancellationToken cancellationToken,
+        out string error)
+    {
+        error = "";
+
+        var args = $"-y -f rawvideo -pix_fmt rgb24 -s {file.Width}x{file.Height} " +
+                   $"-r {file.FrameRate.ToString("F2", CultureInfo.InvariantCulture)} -i pipe:0 " +
+                   $"-vsync 0 \"{framePattern}\"";
+
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            Arguments = args,
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+
+        var stderrBuf = new StringBuilder();
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data != null) stderrBuf.AppendLine(e.Data);
+        };
+
+        using var killOnCancel = cancellationToken.Register(() =>
+        {
+            try { process.Kill(); } catch { /* already dead */ }
+        });
+
+        process.Start();
+        process.BeginErrorReadLine();
+
+        var provider = new Vid1PresentationFrameProvider(file);
+        var frameLimit = GetDebugFrameLimit(file.Frames.Count);
+
+        try
+        {
+            using var stdin = process.StandardInput.BaseStream;
+            for (var i = 0; i < frameLimit; i++)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    try { process.Kill(); } catch { /* already dead */ }
+                    error = "Cancelled";
+                    return false;
+                }
+
+                var decoded = provider.DecodeNextFrame();
+                if (decoded == null)
+                    break;
+
+                stdin.Write(decoded.Rgb24, 0, decoded.Rgb24.Length);
+            }
+        }
+        catch (Exception ex)
+        {
+            try { process.Kill(); } catch { /* already dead */ }
+            error = $"native frame export failed: {ex.Message}";
+            return false;
+        }
+
+        if (!process.WaitForExit(120_000))
+        {
+            try { process.Kill(); } catch { /* already dead */ }
+            error = "ffmpeg timed out";
+            return false;
+        }
+
+        if (process.ExitCode == 0)
+            return true;
+
+        var tail = stderrBuf.ToString();
+        error = string.IsNullOrWhiteSpace(tail)
+            ? $"ffmpeg exited with code {process.ExitCode}"
+            : $"ffmpeg exited with code {process.ExitCode}: {tail.Trim()}";
+        return false;
     }
 
     private static int GetDebugFrameLimit(int availableFrames)

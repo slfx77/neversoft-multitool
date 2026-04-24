@@ -281,10 +281,18 @@ internal static class Vid1CoefficientDecoder
         Span<short> output)
     {
         var coefficientIndex = 0;
+        var useBundleB = string.Equals(
+            Environment.GetEnvironmentVariable("VID1_INTER_RESIDUAL_BUNDLE"),
+            "B",
+            StringComparison.OrdinalIgnoreCase);
 
         while (true)
         {
-            DecodeInterBundleAToken(reader, out var last, out var run, out var level);
+            int last, run, level;
+            if (useBundleB)
+                DecodeInterBundleBToken(reader, out last, out run, out level);
+            else
+                DecodeInterBundleAToken(reader, out last, out run, out level);
 
             coefficientIndex += run;
             if (coefficientIndex < 64)

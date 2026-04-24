@@ -10,16 +10,21 @@ namespace NeversoftMultitool.Core.Formats.Video;
 /// </summary>
 internal static class Vid1Idct
 {
-    private const double Sqrt2Inv = 0.70710678118654752; // 1/√2
-    private const double C1 = 0.49039264020161522;  // cos(1π/16) / 2
-    private const double C2 = 0.46193976625564337;  // cos(2π/16) / 2
-    private const double C3 = 0.41573480615127262;  // cos(3π/16) / 2
-    private const double C4 = 0.35355339059327373;  // cos(4π/16) / 2 = 1/(2√2)
-    private const double C5 = 0.27778511650980114;  // cos(5π/16) / 2
-    private const double C6 = 0.19134171618254492;  // cos(6π/16) / 2
-    private const double C7 = 0.09754516100806417;  // cos(7π/16) / 2
+    // FUN_8029E8A0 uses single-precision constants from the DOL, then the
+    // paired-single pipeline widens them during arithmetic. Keep those exact
+    // float values rather than recomputing ideal cosine constants.
+    private const double Sqrt2Inv = 0.7071068286895752;
+    private const double C1 = 0.4903925955295563;
+    private const double C2 = 0.461939811706543;
+    private const double C3 = 0.415734797716141;
+    private const double C4 = 0.353553414344788;
+    private const double C5 = 0.277785092592239;
+    private const double C6 = 0.191341698169708;
+    private const double C7 = 0.097545199096203;
 
-    public static void Transform(short[] coefficients)
+    public static void Transform(short[] coefficients) => Transform(coefficients.AsSpan());
+
+    public static void Transform(Span<short> coefficients)
     {
         Span<float> temp = stackalloc float[64];
         RowPass(coefficients, temp);
@@ -91,8 +96,8 @@ internal static class Vid1Idct
             var a3 = x3 * C3 + x5 * C5;
             var a4 = (x0 + x4) * C4;
             var a5 = (x0 - x4) * C4;
-            var a6 = x2 * C6 + x6 * C2;
-            var a7 = x6 * C6 - x2 * C2;
+            var a6 = x6 * C6 + x2 * C2;
+            var a7 = x2 * C6 - x6 * C2;
 
             var b0 = a1 + a3;
             var b1 = a0 + a2;

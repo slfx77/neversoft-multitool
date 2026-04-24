@@ -32,6 +32,22 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         return File.Exists(candidate) ? candidate : null;
     }
 
+    private string? FindCreditsVid()
+    {
+        var repoCandidate = Path.Combine(GetRepoRoot(), "TestOutput", "credits_slice_src", "credits.vid");
+        if (File.Exists(repoCandidate))
+            return repoCandidate;
+
+        if (!paths.HasSampleBuilds) return null;
+        var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
+            .FirstOrDefault(d => Path.GetFileName(d).Contains("American Wasteland", StringComparison.OrdinalIgnoreCase)
+                              && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
+        if (buildDir == null) return null;
+
+        var candidate = Path.Combine(buildDir, "movies", "vid", "credits.vid");
+        return File.Exists(candidate) ? candidate : null;
+    }
+
     private static byte[] BuildDefaultIntraMatrix() =>
     [
         8, 17, 18, 19, 21, 23, 25, 27,
@@ -97,6 +113,13 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
     private static string FormatFirstPixels(ReadOnlySpan<byte> values)
     {
         return string.Join(",", values.Slice(0, Math.Min(8, values.Length)).ToArray());
+    }
+
+    private static string FormatByteRow(ReadOnlySpan<byte> plane, int stride, int x, int y)
+    {
+        Span<byte> row = stackalloc byte[8];
+        plane.Slice(y * stride + x, 8).CopyTo(row);
+        return string.Join(",", row.ToArray());
     }
 
     private static byte[] ReadFramePayload(string path, int frameIndex)
@@ -194,6 +217,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         if (string.IsNullOrWhiteSpace(readerMode))
             readerMode = Environment.GetEnvironmentVariable("VID1_READER_MODE");
         readerMode = string.IsNullOrWhiteSpace(readerMode) ? "" : readerMode.Trim();
+        var skipFlagBitOffset = !string.Equals(readerMode, "split-no-flagskip", StringComparison.OrdinalIgnoreCase);
 
         var legacyHeaderPayload = frame.Bitstream.Length > 8
             ? frame.Bitstream.AsSpan(8).ToArray()
@@ -210,12 +234,13 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             "" => vlcReader,
             "coded-flags" => new Vid1BitReader(frame.CodedPayload),
             "shared-coded" => vlcReader,
+            "split-no-flagskip" => new Vid1BitReader(frame.Bitstream),
             "bitstream" => new Vid1BitReader(frame.Bitstream),
             "header" or "legacy-header" => new Vid1BitReader(legacyHeaderPayload),
             _ => new Vid1BitReader(frame.Bitstream),
         };
 
-        if (frame.FlagBitOffset > 0)
+        if (!ReferenceEquals(vlcReader, flagReader) && skipFlagBitOffset && frame.FlagBitOffset > 0)
             flagReader.SkipBits(frame.FlagBitOffset);
 
         return new DiagnosticReaders(vlcReader, flagReader, string.IsNullOrEmpty(readerMode) ? "default" : readerMode);
@@ -316,6 +341,491 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         {
             return null;
         }
+    }
+
+    [Fact]
+    public void Diagnostic_CreditsFrame100_MotionResidualBlocks()
+    {
+        if (Environment.GetEnvironmentVariable("VID1_RUN_CREDITS_DIAG") != "1")
+            return;
+
+        var path = FindCreditsVid();
+        if (path == null) return;
+
+        var frameIndex = int.TryParse(Environment.GetEnvironmentVariable("VID1_CREDITS_DIAG_FRAME"), out var requestedFrame)
+            ? requestedFrame
+            : 100;
+        var file = Vid1VideoFile.Parse(path);
+        var decoder = new Vid1Decoder(file);
+        for (var index = 0; index < frameIndex; index++)
+            decoder.DecodeFrame(file.Frames[index]);
+
+        var contextField = typeof(Vid1Decoder).GetField("_context", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(contextField);
+        var context = Assert.IsType<Vid1FrameContext>(contextField.GetValue(decoder));
+        var frame = file.Frames[frameIndex];
+
+        Array.Fill(context.OutputY, (byte)128);
+        Array.Fill(context.OutputCb, (byte)128);
+        Array.Fill(context.OutputCr, (byte)128);
+        context.CurrentQuantizer = frame.Quantizer;
+        context.ForwardFCode = Math.Max(frame.ForwardCode ?? 1, 1);
+        context.GmcEnabled = frame.PreambleClass == 3;
+        context.SubpixelRoundingBias = frame.HasSpecialCallerGate ? 1 : 0;
+        context.IntraDcThreshold = IntraDcThresholdTable[Math.Clamp(frame.IntraDcThresholdIndex, 0, 7)];
+        context.UseIntraDequant = frame.UsesCustomQuantMatrices;
+        context.ClearMbState();
+        Vid1SpriteWarp.ApplyFrame(context, frame);
+
+        var readers = CreateDiagnosticReaders(frame);
+        var vlcReader = readers.VlcReader;
+        var flagReader = readers.FlagReader;
+
+        var targets = new HashSet<(int X, int Y)>();
+        for (var y = 15; y <= 20; y++)
+        {
+            for (var x = 18; x <= 24; x++)
+                targets.Add((x, y));
+        }
+        var log = new List<string>
+        {
+            "=== credits.vid frame 100 motion residual diagnostic ===",
+            $"path={path}",
+            $"frame={frame.Index} class={frame.PreambleClass} q={frame.Quantizer} fcode={frame.ForwardCode} gate={frame.HasSpecialCallerGate} flagOffset={frame.FlagBitOffset} readers={readers.Mode}",
+        };
+
+        var totalMacroblocks = context.MbCols * context.MbRows;
+        for (var mbIndex = 0; mbIndex < totalMacroblocks; mbIndex++)
+        {
+            var mbX = mbIndex % context.MbCols;
+            var mbY = mbIndex / context.MbCols;
+            var vlcStart = vlcReader.BitPosition;
+            var flagStart = flagReader.BitPosition;
+            var control = ProbeControl(frame, vlcReader, flagReader, context.CurrentQuantizer);
+
+            if (targets.Contains((mbX, mbY)))
+            {
+                log.Add("");
+                log.Add($"MB {mbIndex} ({mbX},{mbY}) control vlc@{vlcStart}->{vlcReader.BitPosition} flag@{flagStart}->{flagReader.BitPosition}");
+                log.Add($"  stage={control.Stage} type={control.MacroblockType} cp=0x{control.ControlPrefix:X} sel={control.Selector} cbp=0x{control.ControlWord & 0x3F:X2} q={control.Quantizer} flags=0x{control.BlockFlags:X2}");
+                if (control.Stage == Vid1ControlStage.Motion && control.MacroblockType < 2 && (control.BlockFlags & 0x0C) == 0)
+                    TraceAndDecodeSimpleMotionMacroblock(vlcReader, control, context, mbX, mbY, log);
+                else
+                    Vid1MacroblockDecoder.Decode(vlcReader, flagReader, control, context, mbX, mbY);
+                continue;
+            }
+
+            Vid1MacroblockDecoder.Decode(vlcReader, flagReader, control, context, mbX, mbY);
+        }
+
+        var message = string.Join("\n", log);
+        Console.WriteLine(message);
+        File.WriteAllText(Path.Combine(GetDiagnosticOutputDir(), "credits_frame100_motion_residual.txt"), message);
+        Assert.NotEmpty(log);
+    }
+
+    [Fact]
+    public void Diagnostic_CreditsA878_StripeWindow()
+    {
+        if (Environment.GetEnvironmentVariable("VID1_RUN_CREDITS_A878_DIAG") != "1")
+            return;
+
+        var path = FindCreditsVid();
+        if (path == null) return;
+
+        var frameIndex = int.TryParse(Environment.GetEnvironmentVariable("VID1_CREDITS_A878_FRAME"), out var requestedFrame)
+            ? requestedFrame
+            : 26;
+        var minMbX = int.TryParse(Environment.GetEnvironmentVariable("VID1_CREDITS_A878_MIN_X"), out var requestedMinX)
+            ? requestedMinX
+            : 19;
+        var maxMbX = int.TryParse(Environment.GetEnvironmentVariable("VID1_CREDITS_A878_MAX_X"), out var requestedMaxX)
+            ? requestedMaxX
+            : 23;
+        var minMbY = int.TryParse(Environment.GetEnvironmentVariable("VID1_CREDITS_A878_MIN_Y"), out var requestedMinY)
+            ? requestedMinY
+            : 17;
+        var maxMbY = int.TryParse(Environment.GetEnvironmentVariable("VID1_CREDITS_A878_MAX_Y"), out var requestedMaxY)
+            ? requestedMaxY
+            : 20;
+
+        var file = Vid1VideoFile.Parse(path);
+        var decoder = new Vid1Decoder(file);
+        for (var index = 0; index < frameIndex; index++)
+            decoder.DecodeFrame(file.Frames[index]);
+
+        var contextField = typeof(Vid1Decoder).GetField("_context", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(contextField);
+        var context = Assert.IsType<Vid1FrameContext>(contextField.GetValue(decoder));
+        var frame = file.Frames[frameIndex];
+
+        Array.Fill(context.OutputY, (byte)128);
+        Array.Fill(context.OutputCb, (byte)128);
+        Array.Fill(context.OutputCr, (byte)128);
+        context.CurrentQuantizer = frame.Quantizer;
+        context.ForwardFCode = Math.Max(frame.ForwardCode ?? 1, 1);
+        context.GmcEnabled = frame.PreambleClass == 3;
+        context.SubpixelRoundingBias = frame.HasSpecialCallerGate ? 1 : 0;
+        context.IntraDcThreshold = IntraDcThresholdTable[Math.Clamp(frame.IntraDcThresholdIndex, 0, 7)];
+        context.UseIntraDequant = frame.UsesCustomQuantMatrices;
+        context.IntraMatrix = frame.CustomIntraMatrix ?? BuildDefaultIntraMatrix();
+        context.InterMatrix = frame.CustomInterMatrix ?? BuildDefaultInterMatrix();
+        context.ClearMbState();
+        Vid1SpriteWarp.ApplyFrame(context, frame);
+
+        var readers = CreateDiagnosticReaders(frame);
+        var vlcReader = readers.VlcReader;
+        var flagReader = readers.FlagReader;
+        var log = new List<string>
+        {
+            "=== credits.vid A878 stripe window diagnostic ===",
+            $"path={path}",
+            $"frame={frame.Index} class={frame.PreambleClass} q={frame.Quantizer} flagOffset={frame.FlagBitOffset} readers={readers.Mode}",
+            $"window=mbX[{minMbX}..{maxMbX}] mbY[{minMbY}..{maxMbY}]",
+        };
+
+        var totalMacroblocks = context.MbCols * context.MbRows;
+        try
+        {
+            for (var mbIndex = 0; mbIndex < totalMacroblocks; mbIndex++)
+            {
+                var mbX = mbIndex % context.MbCols;
+                var mbY = mbIndex / context.MbCols;
+                if (mbY > maxMbY)
+                    break;
+
+                var controlVlcStart = vlcReader.BitPosition;
+                var controlFlagStart = flagReader.BitPosition;
+                var control = ProbeControl(frame, vlcReader, flagReader, context.CurrentQuantizer);
+                var inWindow = mbX >= minMbX && mbX <= maxMbX && mbY >= minMbY && mbY <= maxMbY;
+                if (inWindow)
+                {
+                    TraceCreditsA878Macroblock(
+                        path,
+                        frame,
+                        vlcReader,
+                        flagReader,
+                        control,
+                        context,
+                        mbX,
+                        mbY,
+                        controlVlcStart,
+                        controlFlagStart,
+                        log);
+                    continue;
+                }
+
+                Vid1MacroblockDecoder.Decode(vlcReader, flagReader, control, context, mbX, mbY);
+            }
+        }
+        catch (Exception ex)
+        {
+            log.Add($"FAIL: {ex.GetType().Name}: {ex.Message} vlc@{vlcReader.BitPosition} flag@{flagReader.BitPosition}");
+        }
+
+        var message = string.Join("\n", log);
+        Console.WriteLine(message);
+        File.WriteAllText(Path.Combine(GetDiagnosticOutputDir(), "credits_a878_window.txt"), message);
+        Assert.NotEmpty(log);
+    }
+
+    private static void TraceAndDecodeSimpleMotionMacroblock(
+        Vid1BitReader vlcReader,
+        Vid1ControlProbe control,
+        Vid1FrameContext context,
+        int mbX,
+        int mbY,
+        List<string> log)
+    {
+        var mbBase = ((mbY * context.MbCols) + mbX) * Vid1FrameContext.MbStateStride;
+        context.CurrentQuantizer = control.Quantizer;
+        context.MbState[mbBase] = (byte)(control.MacroblockType & 0xFF);
+        context.MbState[mbBase + 1] = (byte)(control.Quantizer & 0xFF);
+        context.MbState[mbBase + 0xDC] = (byte)(control.BlockFlags & 0xFF);
+
+        var decodeMotionVectors = typeof(Vid1MacroblockDecoder).GetMethod(
+            "DecodeMotionVectors",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(decodeMotionVectors);
+        var mvStart = vlcReader.BitPosition;
+        decodeMotionVectors.Invoke(null, [vlcReader, context, mbX, mbY, control.MacroblockType, control.BlockFlags]);
+        log.Add($"  mv bits={mvStart}->{vlcReader.BitPosition}");
+        for (var block = 0; block < 4; block++)
+        {
+            var offset = mbBase + 0x08 + block * 0x08;
+            log.Add($"  mv{block}=({ReadInt32BigEndian(context.MbState, offset)},{ReadInt32BigEndian(context.MbState, offset + 4)})");
+        }
+
+        var cbp = control.ControlWord & 0x3F;
+        var scan = Vid1CoefficientDecoder.GetScanTable("zigzag");
+        Span<short> quant = stackalloc short[64];
+        Span<short> dequant = stackalloc short[64];
+
+        for (var block = 0; block < 6; block++)
+        {
+            quant.Clear();
+            dequant.Clear();
+            var coded = (cbp & (1 << (5 - block))) != 0;
+            var residualStart = vlcReader.BitPosition;
+            if (coded)
+                Vid1CoefficientDecoder.DecodeInterBlock(vlcReader, scan, quant);
+            var residualEnd = vlcReader.BitPosition;
+
+            if (context.UseIntraDequant)
+                Vid1Dequant.DequantInterResidual(dequant, quant, context.CurrentQuantizer, context.InterMatrix);
+            else
+                Vid1Dequant.DequantInterResidual(dequant, quant, context.CurrentQuantizer);
+
+            var idct = dequant.ToArray();
+            Vid1Idct.Transform(idct);
+            DecodeSimpleMotionBlockToOutput(context, idct, mbX, mbY, block);
+
+            if (block < 4)
+            {
+                var dstX = mbX * 16 + ((block & 1) * 8);
+                var dstY = mbY * 16 + ((block >> 1) * 8);
+                log.Add(
+                    $"  block{block} coded={coded} bits={residualStart}->{residualEnd} " +
+                    $"raw={FormatNonZero(quant)} deq={FormatNonZero(dequant)} " +
+                    $"idctRange={idct.Min()}..{idct.Max()} idct0={FormatFirstRow(idct)} " +
+                    $"out0={FormatByteRow(context.OutputY, context.Width, dstX, dstY)}");
+            }
+        }
+    }
+
+    private static void DecodeSimpleMotionBlockToOutput(
+        Vid1FrameContext context,
+        ReadOnlySpan<short> residual,
+        int mbX,
+        int mbY,
+        int block)
+    {
+        var mbBase = ((mbY * context.MbCols) + mbX) * Vid1FrameContext.MbStateStride;
+        if (block < 4)
+        {
+            var dstX = mbX * 16 + ((block & 1) * 8);
+            var dstY = mbY * 16 + ((block >> 1) * 8);
+            var mvOffset = mbBase + 0x08 + block * 0x08;
+            var mvX = ReadInt32BigEndian(context.MbState, mvOffset);
+            var mvY = ReadInt32BigEndian(context.MbState, mvOffset + 4);
+            Vid1MotionComp.PredictInterBlock(
+                context.ReferenceY, context.Width, context.Width, context.Height,
+                dstX + (mvX >> 1), dstY + (mvY >> 1), mvX & 1, mvY & 1,
+                residual,
+                context.OutputY, context.Width,
+                dstX, dstY,
+                context.SubpixelRoundingBias);
+            return;
+        }
+
+        var firstMvX = ReadInt32BigEndian(context.MbState, mbBase + 0x08);
+        var firstMvY = ReadInt32BigEndian(context.MbState, mbBase + 0x0C);
+        var chromaMvX = RoundHalfChromaForDiagnostic(firstMvX);
+        var chromaMvY = RoundHalfChromaForDiagnostic(firstMvY);
+        var chromaX = mbX * 8;
+        var chromaY = mbY * 8;
+        var refPlane = block == 4 ? context.ReferenceCb : context.ReferenceCr;
+        var outPlane = block == 4 ? context.OutputCb : context.OutputCr;
+        Vid1MotionComp.PredictInterBlock(
+            refPlane, context.ChromaWidth, context.ChromaWidth, context.ChromaHeight,
+            chromaX + (chromaMvX >> 1), chromaY + (chromaMvY >> 1), chromaMvX & 1, chromaMvY & 1,
+            residual,
+            outPlane, context.ChromaWidth,
+            chromaX, chromaY,
+            context.SubpixelRoundingBias);
+    }
+
+    private static int ReadInt32BigEndian(byte[] buffer, int offset)
+        => (buffer[offset] << 24) |
+           (buffer[offset + 1] << 16) |
+           (buffer[offset + 2] << 8) |
+           buffer[offset + 3];
+
+    private static int RoundHalfChromaForDiagnostic(int value)
+        => (value & 3) == 0 ? value / 2 : (value >> 1) | 1;
+
+    private static void TraceCreditsA878Macroblock(
+        string path,
+        Vid1VideoFrame frame,
+        Vid1BitReader vlcReader,
+        Vid1BitReader flagReader,
+        Vid1ControlProbe control,
+        Vid1FrameContext context,
+        int mbX,
+        int mbY,
+        int controlVlcStart,
+        int controlFlagStart,
+        List<string> log)
+    {
+        log.Add("");
+        log.Add($"MB ({mbX},{mbY}) control vlc@{controlVlcStart}->{vlcReader.BitPosition} flag@{controlFlagStart}->{flagReader.BitPosition}");
+        log.Add($"  stage={control.Stage} type={control.MacroblockType} cp=0x{control.ControlPrefix:X} sel={control.Selector} cw=0x{control.ControlWord:X2} feat={control.FeatureBit} q={control.Quantizer}");
+
+        if (control.Stage != Vid1ControlStage.A878)
+        {
+            Vid1MacroblockDecoder.Decode(vlcReader, flagReader, control, context, mbX, mbY);
+            log.Add("  non-A878 in target window");
+            return;
+        }
+
+        context.CurrentQuantizer = control.Quantizer;
+        var mbBase = ((mbY * context.MbCols) + mbX) * Vid1FrameContext.MbStateStride;
+        context.MbState[mbBase] = (byte)(control.MacroblockType & 0xFF);
+        context.MbState[mbBase + 1] = (byte)(control.Quantizer & 0xFF);
+
+        var cbp = control.ControlWord & 0x3F;
+        var dcPreDecode = control.Quantizer < context.IntraDcThreshold;
+        var predictionMode = Environment.GetEnvironmentVariable("VID1_A878_PREDICT")?.ToLowerInvariant() ?? "all";
+        var scanMode = Environment.GetEnvironmentVariable("VID1_A878_SCAN_MODE")?.ToLowerInvariant() ?? "auto";
+        var configuredOffset = Environment.GetEnvironmentVariable("VID1_A878_WRITE_OFFSET");
+        var intraWriteOffset = int.TryParse(configuredOffset, out var parsedOffset) ? parsedOffset : 0;
+
+        Span<short> quant = stackalloc short[64];
+        Span<short> dequant = stackalloc short[64];
+        Span<short> predictions = stackalloc short[8];
+        for (var block = 0; block < 6; block++)
+        {
+            quant.Clear();
+            dequant.Clear();
+            predictions.Clear();
+
+            var isLuma = block < 4;
+            var dcScale = Vid1MacroblockDecoder.ComputeDcScale(control.Quantizer, isLuma);
+            var usePrediction = predictionMode switch
+            {
+                "all" => true,
+                "luma" => block < 4,
+                "chroma" => block >= 4,
+                _ => false,
+            };
+
+            var scanTableIndex = 0;
+            if (usePrediction)
+            {
+                scanTableIndex = Vid1Prediction.ComputePredictions(
+                    context,
+                    mbX,
+                    mbY,
+                    block,
+                    control.Quantizer,
+                    dcScale,
+                    predictions);
+                if (control.FeatureBit == 0)
+                {
+                    Vid1Prediction.ForceZigzagScan(context, mbX, mbY, block);
+                    scanTableIndex = 0;
+                }
+
+                scanTableIndex = scanMode switch
+                {
+                    "horizontal" => 1,
+                    "vertical" => 2,
+                    "zigzag" => 0,
+                    _ => scanTableIndex,
+                };
+                context.MbState[mbBase + 2 + block] = (byte)scanTableIndex;
+            }
+
+            var scanName = scanTableIndex switch
+            {
+                1 => "horizontal",
+                2 => "vertical",
+                _ => "zigzag",
+            };
+
+            var startIndex = 0;
+            var dcStart = vlcReader.BitPosition;
+            var dcSize = 0;
+            var dcValue = 0;
+            if (dcPreDecode)
+            {
+                dcSize = Vid1IntraDc.DecodeSize(vlcReader, isLuma);
+                dcValue = dcSize == 0 ? 0 : Vid1IntraDc.DecodeValue(vlcReader, dcSize);
+                if (dcSize > 8)
+                    flagReader.SkipBits(1);
+                quant[0] = (short)dcValue;
+                startIndex = 1;
+            }
+
+            var coded = (cbp & (1 << (5 - block))) != 0;
+            var residualStart = vlcReader.BitPosition;
+            if (coded)
+            {
+                Vid1CoefficientDecoder.DecodeBlock(
+                    vlcReader,
+                    useBundleB: true,
+                    Vid1CoefficientDecoder.GetScanTable(scanName),
+                    quant,
+                    startIndex);
+            }
+            var residualEnd = vlcReader.BitPosition;
+
+            if (usePrediction)
+            {
+                Vid1Prediction.ApplyAndStorePredictions(
+                    context,
+                    mbX,
+                    mbY,
+                    block,
+                    dcScale,
+                    predictions,
+                    quant);
+            }
+
+            if (frame.UsesCustomQuantMatrices)
+                Vid1Dequant.DequantIntra(dequant, quant, control.Quantizer, dcScale, context.IntraMatrix);
+            else
+                Vid1Dequant.DequantInter(dequant, quant, control.Quantizer, dcScale);
+
+            var idct = dequant.ToArray();
+            Vid1Idct.Transform(idct);
+            WriteDiagnosticIntraBlock(context, idct, mbX, mbY, block, intraWriteOffset);
+
+            log.Add(
+                $"  block{block} coded={coded} scan={scanName} dc@{dcStart} size={dcSize} val={dcValue} ac={residualStart}->{residualEnd} " +
+                $"pred={FormatFirstRow(predictions)} raw={FormatNonZero(quant)} deq={FormatNonZero(dequant)} idct0={FormatFirstRow(idct)} out0={FormatDiagnosticBlockRow(context, mbX, mbY, block)}");
+
+            var groundTruth = TryRunPythonGroundTruth(path, frame.Index, residualStart, "B", scanName, startIndex, dcValue);
+            if (groundTruth is { Summary: not null } python)
+                log.Add($"    python_raw={python.Summary} match={string.Equals(FormatNonZero(quant), python.Summary, StringComparison.Ordinal)}");
+        }
+    }
+
+    private static void WriteDiagnosticIntraBlock(
+        Vid1FrameContext context,
+        ReadOnlySpan<short> samples,
+        int mbX,
+        int mbY,
+        int blockIndex,
+        int intraWriteOffset)
+    {
+        if (blockIndex < 4)
+        {
+            var dstX = mbX * 16 + ((blockIndex & 1) * 8);
+            var dstY = mbY * 16 + ((blockIndex >> 1) * 8);
+            Vid1MotionComp.WriteIntraBlock(samples, context.OutputY, context.Width, dstX, dstY, intraWriteOffset);
+            return;
+        }
+
+        var chromaX = mbX * 8;
+        var chromaY = mbY * 8;
+        var plane = blockIndex == 4 ? context.OutputCb : context.OutputCr;
+        Vid1MotionComp.WriteIntraBlock(samples, plane, context.ChromaWidth, chromaX, chromaY, intraWriteOffset);
+    }
+
+    private static string FormatDiagnosticBlockRow(Vid1FrameContext context, int mbX, int mbY, int blockIndex)
+    {
+        if (blockIndex < 4)
+        {
+            var dstX = mbX * 16 + ((blockIndex & 1) * 8);
+            var dstY = mbY * 16 + ((blockIndex >> 1) * 8);
+            return FormatByteRow(context.OutputY, context.Width, dstX, dstY);
+        }
+
+        var chromaX = mbX * 8;
+        var chromaY = mbY * 8;
+        var plane = blockIndex == 4 ? context.OutputCb : context.OutputCr;
+        return FormatByteRow(plane, context.ChromaWidth, chromaX, chromaY);
     }
 
     private static void AdvanceMacroblockBitsOnly(

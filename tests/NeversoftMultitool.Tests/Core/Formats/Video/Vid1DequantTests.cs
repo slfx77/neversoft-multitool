@@ -65,6 +65,16 @@ public class Vid1DequantTests
     }
 
     [Fact]
+    public void DequantInter_AcNegative_ClampsToDolMinimum()
+    {
+        var input = new short[64];
+        var output = new short[64];
+        input[1] = -200;
+        Vid1Dequant.DequantInter(output, input, 8, 1);
+        Assert.Equal(-2048, output[1]);
+    }
+
+    [Fact]
     public void DequantIntra_DcScaling()
     {
         var input = new short[64];
@@ -99,5 +109,39 @@ public class Vid1DequantTests
         input[1] = -10;
         Vid1Dequant.DequantIntra(output, input, 4, 1, matrix);
         Assert.Equal(-80, output[1]);
+    }
+
+    [Fact]
+    public void DequantIntra_AcNegativeWithMatrix_ClampsToDolMinimum()
+    {
+        var input = new short[64];
+        var output = new short[64];
+        var matrix = new byte[64];
+        matrix[1] = 255;
+        input[1] = -200;
+        Vid1Dequant.DequantIntra(output, input, 16, 1, matrix);
+        Assert.Equal(-2048, output[1]);
+    }
+
+    [Fact]
+    public void DequantInterResidual_Negative_ClampsToDolMinimum()
+    {
+        var input = new short[64];
+        var output = new short[64];
+        input[0] = -200;
+        Vid1Dequant.DequantInterResidual(output, input, 8);
+        Assert.Equal(-2048, output[0]);
+    }
+
+    [Fact]
+    public void DequantInterResidualWithMatrix_Negative_ClampsToDolMinimum()
+    {
+        var input = new short[64];
+        var output = new short[64];
+        var matrix = new byte[64];
+        matrix[0] = 255;
+        input[0] = -200;
+        Vid1Dequant.DequantInterResidual(output, input, 16, matrix);
+        Assert.Equal(-2048, output[0]);
     }
 }
