@@ -1,17 +1,16 @@
 using System.CommandLine;
 using System.Diagnostics;
-using System.Numerics;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
-using SharpGLTF.Scenes;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -79,28 +78,6 @@ public static class Ps2SceneCommand
         return command;
     }
 
-    private const uint WorldzoneMdlTypeHash = 0x9BCC234D;   // QbKey(".mdl") — standard object MDL
-    private const uint WorldzoneLevelMdlTypeHash = 0x7EA7357B; // THAW shell/CAP level-geometry chunk
-    private const uint WorldzonePlacementTypeHash = 0x91E1028D;
-
-    private sealed class WorldzoneRunStats
-    {
-        public int Converted;
-        public int Failed;
-        public int Skipped;
-        public int TotalTriangles;
-        public int TotalPlacements;
-    }
-
-    private sealed record WorldzoneContext(
-        byte[] PakBytes,
-        string OutputDir,
-        bool Combined,
-        SceneBuilder? CombinedScene,
-        Ps2SceneGltfWriter.TextureProvider? TextureProvider,
-        Ps2GeomGltfWriter.Tex0Resolver? Tex0Resolver,
-        bool Verbose);
-
     private static int ExecuteWorldzone(string input, string output,
         string? texPath, bool combined, bool verbose)
     {
@@ -110,178 +87,59 @@ public static class Ps2SceneCommand
             return 1;
         }
 
-        var typedEntries = PakArchive.GetTypedEntries(input);
-        if (typedEntries.Count == 0)
-        {
-            AnsiConsole.MarkupLine($"[red]Error:[/] no PAK entries found in {input}");
-            return 1;
-        }
-
-        var mdlEntries = FindWorldzoneMdls(typedEntries);
-        if (mdlEntries.Count == 0)
+        if (!Ps2WorldzoneConverter.IsWorldzonePak(input))
         {
             AnsiConsole.MarkupLine($"[yellow]No .mdl entries found in {input}.[/]");
             return 0;
         }
 
+        var mdlCount = CountMdlEntries(input);
         AnsiConsole.MarkupLine(
             $"Worldzone [green]{Path.GetFileName(input)}[/]: " +
-            $"{mdlEntries.Count} .mdl entrie(s){(combined ? ", emitting combined .glb" : "")}");
-
-        // Build texture providers (same strategy as non-worldzone path: THAW zone TEX first, fall back to standard)
-        Ps2TextureLoader.TryBuildZoneTexProviders(
-            texPath,
-            out var textureProvider,
-            out var tex0Resolver,
-            verbose);
-
-        Directory.CreateDirectory(output);
-        var context = new WorldzoneContext(
-            PakBytes: File.ReadAllBytes(input),
-            OutputDir: output,
-            Combined: combined,
-            CombinedScene: combined ? new SceneBuilder() : null,
-            TextureProvider: textureProvider,
-            Tex0Resolver: tex0Resolver,
-            Verbose: verbose);
+            $"{mdlCount} .mdl entrie(s){(combined ? ", emitting combined .glb" : "")}");
 
         var stopwatch = Stopwatch.StartNew();
-        var stats = new WorldzoneRunStats();
+        Action<string> log = line => AnsiConsole.MarkupLine(Markup.Escape(line));
 
-        foreach (var mdlEntry in mdlEntries)
-            ProcessWorldzoneMdl(context, mdlEntry, stats);
-
-        if (combined && context.CombinedScene != null && stats.TotalTriangles > 0)
-            SaveCombinedWorldzone(input, output, context.CombinedScene);
+        var result = Ps2WorldzoneConverter.Convert(
+            input, output,
+            new Ps2WorldzoneConverter.WorldzoneOptions(
+                TexPath: texPath,
+                Combined: combined,
+                Log: verbose ? log : null));
 
         stopwatch.Stop();
-        var skipMsg = stats.Skipped > 0 ? $", {stats.Skipped} skipped" : "";
+
+        if (combined)
+        {
+            var combinedOut = result.OutputPaths.FirstOrDefault(
+                p => p.EndsWith("_worldzone.glb", StringComparison.OrdinalIgnoreCase));
+            if (combinedOut != null)
+                AnsiConsole.MarkupLine($"Wrote combined worldzone: [green]{combinedOut}[/]");
+        }
+
+        var skipMsg = result.Skipped > 0 ? $", {result.Skipped} skipped" : "";
         AnsiConsole.MarkupLine(
-            $"Worldzone: [green]{stats.Converted}[/]/{mdlEntries.Count} MDL(s), " +
-            $"[green]{stats.TotalPlacements}[/] placements, " +
-            $"{stats.TotalTriangles:N0} triangles, {stats.Failed} failed{skipMsg} " +
+            $"Worldzone: [green]{result.Converted}[/]/{result.MdlEntries} MDL(s), " +
+            $"[green]{result.Placements}[/] placements, " +
+            $"{result.Triangles:N0} triangles, {result.Failed} failed{skipMsg} " +
             $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
         return 0;
     }
 
-    private static List<ArchiveEntry> FindWorldzoneMdls(
-        List<(uint TypeHash, ArchiveEntry Entry)> typedEntries)
+    private static int CountMdlEntries(string pakPath)
     {
-        // Include both QbKey(".mdl") = 0x9BCC234D (standard object MDLs) and the THAW
-        // shell/CAP geometry-chunk variant 0x7EA7357B, which is how z_bh's 3.2 MB level
-        // geometry entry is tagged in the PAK table.
-        return typedEntries
-            .Where(e => e.TypeHash == WorldzoneMdlTypeHash
-                        || e.TypeHash == WorldzoneLevelMdlTypeHash)
-            .Select(e => e.Entry)
-            .ToList();
-    }
-
-    private static void ProcessWorldzoneMdl(
-        WorldzoneContext ctx, ArchiveEntry mdlEntry, WorldzoneRunStats stats)
-    {
-        var mdlName = $"{mdlEntry.Offset:X8}";
         try
         {
-            var mdlData = new byte[mdlEntry.Size];
-            Array.Copy(ctx.PakBytes, mdlEntry.Offset, mdlData, 0, (int)mdlEntry.Size);
-
-            if (!Ps2GeomFile.IsPakMdl(mdlData))
-            {
-                stats.Skipped++;
-                if (ctx.Verbose)
-                    AnsiConsole.MarkupLine($"  {mdlName}.mdl: [yellow]not a PAK MDL, skipped[/]");
-                return;
-            }
-
-            var geomScene = Ps2GeomFile.ParsePakMdl(mdlData);
-
-            // Two cases:
-            //   Object MDL: has bones → split world/local leaves, instance per non-root bone.
-            //   Level MDL: no bones (e.g. 003B1940 — 3.2 MB street/building geometry) →
-            //              emit all leaves at a PS2→glTF axis-swap identity node.
-            var hasBones = geomScene.MdlPreamble?.Bones.Count > 0;
-            var placements = hasBones
-                ? Ps2MdlPlacementResolver.ResolveWorldzonePlacements(geomScene.MdlPreamble!)
-                : [];
-
-            var rootPlacement = new List<(Vector3, Quaternion)>(1);
-            var bonePlacements = new List<(Vector3, Quaternion)>();
-            if (placements.Count > 0)
-            {
-                rootPlacement.Add((placements[0].Position, placements[0].Rotation));
-                bonePlacements.AddRange(placements.Skip(1).Select(p => (p.Position, p.Rotation)));
-            }
-            else
-            {
-                // Level MDLs lack a root bone. Their raw vertex data appears to already be in a
-                // Y-up (glTF-friendly) convention — object MDLs' bone-driven swap rotates them
-                // 90° toward the camera, so identity is the right fallback here.
-                rootPlacement.Add((Vector3.Zero, Quaternion.Identity));
-            }
-
-            var scene = ctx.Combined ? ctx.CombinedScene! : new SceneBuilder();
-
-            // Pass 1: world-space leaves (shared infrastructure) at root axis-swap only.
-            // LOD-plane billboards are dropped here (Problem B) — they're thin polygons that
-            // the engine would swap in at distance, but they just cut through our final mesh.
-            var worldTris = Ps2GeomGltfWriter.AppendToScene(
-                scene, geomScene, rootPlacement, ctx.TextureProvider, ctx.Tex0Resolver,
-                leafFilter: leaf => !leaf.IsLocalSpace && !leaf.IsLodPlane);
-
-            // Pass 2: local-space leaves (car sectors) duplicated per non-root bone.
-            var localTris = bonePlacements.Count > 0
-                ? Ps2GeomGltfWriter.AppendToScene(
-                    scene, geomScene, bonePlacements, ctx.TextureProvider, ctx.Tex0Resolver,
-                    leafFilter: leaf => leaf.IsLocalSpace)
-                : 0;
-
-            var tris = worldTris + localTris;
-            var instancesCount = rootPlacement.Count + bonePlacements.Count;
-
-            if (tris == 0)
-            {
-                stats.Skipped++;
-                if (ctx.Verbose)
-                    AnsiConsole.MarkupLine($"  {mdlName}.mdl: [yellow]empty (0 triangles)[/]");
-                return;
-            }
-
-            if (!ctx.Combined)
-            {
-                var model = scene.ToGltf2();
-                GltfNormalSmoother.SmoothNormals(model);
-                model.SaveGLB(Path.Combine(ctx.OutputDir, $"{mdlName}.glb"));
-            }
-
-            stats.Converted++;
-            stats.TotalTriangles += tris;
-            stats.TotalPlacements += instancesCount;
-            if (ctx.Verbose)
-                AnsiConsole.MarkupLine(
-                    $"  {mdlName}.mdl: [green]{instancesCount} placements "
-                    + $"(world={worldTris} + bones={localTris}) = {tris:N0} tris[/]");
+            var typed = PakArchive.GetTypedEntries(pakPath);
+            return typed.Count(e =>
+                e.TypeHash == Ps2WorldzoneConverter.WorldzoneMdlTypeHash
+                || e.TypeHash == Ps2WorldzoneConverter.WorldzoneLevelMdlTypeHash);
         }
-        catch (Exception ex)
+        catch
         {
-            stats.Failed++;
-            if (ctx.Verbose)
-                AnsiConsole.MarkupLine($"  {mdlName}.mdl: [red]{ex.Message.EscapeMarkup()}[/]");
+            return 0;
         }
-    }
-
-    private static void SaveCombinedWorldzone(string input, string output, SceneBuilder combinedScene)
-    {
-        var name = Path.GetFileName(input);
-        var strippedExt = new[] { ".pak.ps2", ".pak" }
-            .FirstOrDefault(ext => name.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
-        var stem = strippedExt != null ? name[..^strippedExt.Length] : name;
-
-        var combinedPath = Path.Combine(output, $"{stem}_worldzone.glb");
-        var model = combinedScene.ToGltf2();
-        GltfNormalSmoother.SmoothNormals(model);
-        model.SaveGLB(combinedPath);
-        AnsiConsole.MarkupLine($"Wrote combined worldzone: [green]{combinedPath}[/]");
     }
 
     private static int Execute(string input, string output,

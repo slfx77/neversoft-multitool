@@ -62,9 +62,19 @@ public static class XaDecoder
     {
         try
         {
-            var data = File.ReadAllBytes(inputPath);
-            var stem = Path.GetFileNameWithoutExtension(inputPath);
+            return ConvertToWav(File.ReadAllBytes(inputPath), Path.GetFileNameWithoutExtension(inputPath), outputDir);
+        }
+        catch (Exception ex)
+        {
+            return new AudioConvertResult { ErrorMessage = ex.Message };
+        }
+    }
 
+    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string)"/>.</summary>
+    public static AudioConvertResult ConvertToWav(byte[] data, string stem, string outputDir)
+    {
+        try
+        {
             if (IsSectored(data))
                 return DecodeSectored(data, stem, outputDir);
 

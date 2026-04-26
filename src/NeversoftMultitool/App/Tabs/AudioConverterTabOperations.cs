@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Audio;
 
 namespace NeversoftMultitool;
@@ -5,6 +6,12 @@ namespace NeversoftMultitool;
 internal static class AudioConverterTabOperations
 {
     private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".pss", ".vid"];
+
+    public static bool IsAudioFile(string path)
+    {
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        return SupportedExtensions.Contains(ext);
+    }
 
     public static List<string> FindAudioFiles(string inputDir)
     {
@@ -37,11 +44,12 @@ internal static class AudioConverterTabOperations
         };
     }
 
-    public static List<AudioSampleEntry> EnumerateChildren(string inputFile, string parentFileName, string audioFormat)
+    public static List<AudioSampleEntry> EnumerateChildren(AssetSource source, string parentFileName, string audioFormat)
     {
+        var data = source.ReadBytes();
         return audioFormat switch
         {
-            "VAB" => VabExtractor.EnumerateSamples(inputFile)
+            "VAB" => VabExtractor.EnumerateSamples(data)
                 .Select(sample => new AudioSampleEntry
                 {
                     ParentFileName = parentFileName,
@@ -52,7 +60,7 @@ internal static class AudioConverterTabOperations
                     DataSize = sample.DataSize
                 })
                 .ToList(),
-            "KAT" => KatExtractor.EnumerateSamples(inputFile)
+            "KAT" => KatExtractor.EnumerateSamples(data)
                 .Select(sample => new AudioSampleEntry
                 {
                     ParentFileName = parentFileName,
@@ -63,44 +71,86 @@ internal static class AudioConverterTabOperations
                     DataSize = sample.DataSize
                 })
                 .ToList(),
-            "SFX" => SfxExtractor.EnumerateSamples(inputFile)
-                .Select(sample => new AudioSampleEntry
-                {
-                    ParentFileName = parentFileName,
-                    SampleIndex = sample.CueIndex,
-                    Encoding = $"{sample.Encoding} via {sample.BankFormat} #{sample.BankSampleIndex:D3}",
-                    SampleRate = sample.SampleRate,
-                    Channels = sample.Channels,
-                    DataSize = sample.DataSize
-                })
-                .ToList(),
+            "SFX" => EnumerateSfxSamples(source, data, parentFileName),
             _ => []
         };
     }
 
+    private static List<AudioSampleEntry> EnumerateSfxSamples(AssetSource source, byte[] data, string parentFileName)
+    {
+        var bankBytes = TryResolveSfxBankFromSource(source);
+        var filesystemPath = source.FileSystemPath;
+
+        var samples = bankBytes is { } bb
+            ? SfxExtractor.EnumerateSamples(data, bb)
+            : (filesystemPath != null ? SfxExtractor.EnumerateSamples(filesystemPath) : []);
+
+        return samples.Select(sample => new AudioSampleEntry
+        {
+            ParentFileName = parentFileName,
+            SampleIndex = sample.CueIndex,
+            Encoding = $"{sample.Encoding} via {sample.BankFormat} #{sample.BankSampleIndex:D3}",
+            SampleRate = sample.SampleRate,
+            Channels = sample.Channels,
+            DataSize = sample.DataSize
+        }).ToList();
+    }
+
+    /// <summary>
+    ///     Try to pull a companion KAT/VAB from the same <see cref="AssetSource"/>
+    ///     (works for both filesystem and archive sources because of how
+    ///     <see cref="AssetSource.TryReadCompanion(string)"/> resolves siblings).
+    /// </summary>
+    private static SfxExtractor.SfxBankBytes? TryResolveSfxBankFromSource(AssetSource source)
+    {
+        var stem = Path.GetFileNameWithoutExtension(source.EntryName);
+
+        var katBytes = source.TryReadCompanion(stem + ".kat") ?? source.TryReadCompanion(stem + ".KAT");
+        if (katBytes != null) return new SfxExtractor.SfxBankBytes(katBytes, "KAT");
+
+        var vabBytes = source.TryReadCompanion(stem + ".vab") ?? source.TryReadCompanion(stem + ".VAB");
+        if (vabBytes != null) return new SfxExtractor.SfxBankBytes(vabBytes, "VAB");
+
+        return null;
+    }
+
     public static AudioConvertResult ConvertFile(
-        string inputFile,
+        AudioFileEntry entry,
         string outputDir,
-        string audioFormat,
         int vabSampleRate)
     {
-        return audioFormat switch
+        var source = entry.Source;
+        var data = source.ReadBytes();
+        var stem = Path.GetFileNameWithoutExtension(entry.FileName);
+
+        return entry.AudioFormat switch
         {
-            "ADX" => AdxDecoder.ConvertToWav(inputFile, outputDir),
-            "XA" => XaDecoder.ConvertToWav(inputFile, outputDir),
-            "VAB" => VabExtractor.ExtractToWav(inputFile, outputDir, vabSampleRate),
-            "VAG" => VagDecoder.ConvertToWav(inputFile, outputDir),
-            "PSS" => PssAudioExtractor.ConvertToWav(inputFile, outputDir),
-            "VID" => Vid1AudioExtractor.ConvertToWav(inputFile, outputDir),
-            "KAT" => KatExtractor.ExtractToWav(inputFile, outputDir),
-            "SFX" => SfxExtractor.ExtractToWav(inputFile, outputDir),
+            "ADX" => AdxDecoder.ConvertToWav(data, stem, outputDir),
+            "XA" => XaDecoder.ConvertToWav(data, stem, outputDir),
+            "VAB" => VabExtractor.ExtractToWav(data, stem, outputDir, vabSampleRate),
+            "VAG" => VagDecoder.ConvertToWav(data, stem, outputDir),
+            "PSS" => PssAudioExtractor.ConvertToWav(data, stem, outputDir),
+            "VID" => Vid1AudioExtractor.ConvertToWav(data, stem, outputDir),
+            "KAT" => KatExtractor.ExtractToWav(data, stem, outputDir),
+            "SFX" => ConvertSfxFile(source, data, stem, outputDir),
             _ => new AudioConvertResult { ErrorMessage = "Unknown format" }
         };
     }
 
+    private static AudioConvertResult ConvertSfxFile(AssetSource source, byte[] data, string stem, string outputDir)
+    {
+        var bankBytes = TryResolveSfxBankFromSource(source);
+        if (bankBytes is { } bb)
+            return SfxExtractor.ExtractToWav(data, stem, bb, outputDir);
+
+        // Filesystem fallback so the cross-sibling alias search still runs
+        return source.FileSystemPath != null
+            ? SfxExtractor.ExtractToWav(source.FileSystemPath, outputDir)
+            : new AudioConvertResult { ErrorMessage = "SFX companion KAT/VAB not found in archive" };
+    }
+
     public static string? ConvertForPreview(
         IListEntry item,
-        string inputDir,
         string tempDir,
         IReadOnlyList<AudioFileEntry> parentFiles,
         int vabSampleRate)
@@ -108,10 +158,10 @@ internal static class AudioConverterTabOperations
         Directory.CreateDirectory(tempDir);
 
         if (item is AudioFileEntry parent)
-            return ConvertFilePreview(parent, inputDir, tempDir);
+            return ConvertFilePreview(parent, tempDir);
 
         if (item is AudioSampleEntry sample)
-            return ConvertSamplePreview(sample, inputDir, tempDir, parentFiles, vabSampleRate);
+            return ConvertSamplePreview(sample, tempDir, parentFiles, vabSampleRate);
 
         return null;
     }
@@ -123,23 +173,24 @@ internal static class AudioConverterTabOperations
             : $"{(int)ts.TotalMinutes}:{ts.Seconds:D2}";
     }
 
-    private static string? ConvertFilePreview(AudioFileEntry parent, string inputDir, string tempDir)
+    private static string? ConvertFilePreview(AudioFileEntry parent, string tempDir)
     {
-        var inputFile = Path.Combine(inputDir, parent.FileName);
+        var data = parent.Source.ReadBytes();
+        var stem = Path.GetFileNameWithoutExtension(parent.FileName);
+
         var result = parent.AudioFormat switch
         {
-            "ADX" => AdxDecoder.ConvertToWav(inputFile, tempDir),
-            "XA" => XaDecoder.ConvertToWav(inputFile, tempDir),
-            "VAG" => VagDecoder.ConvertToWav(inputFile, tempDir),
-            "PSS" => PssAudioExtractor.ConvertToWav(inputFile, tempDir),
-            "VID" => Vid1AudioExtractor.ConvertToWav(inputFile, tempDir),
+            "ADX" => AdxDecoder.ConvertToWav(data, stem, tempDir),
+            "XA" => XaDecoder.ConvertToWav(data, stem, tempDir),
+            "VAG" => VagDecoder.ConvertToWav(data, stem, tempDir),
+            "PSS" => PssAudioExtractor.ConvertToWav(data, stem, tempDir),
+            "VID" => Vid1AudioExtractor.ConvertToWav(data, stem, tempDir),
             _ => null
         };
 
         if (result is not { Success: true })
             return null;
 
-        var stem = Path.GetFileNameWithoutExtension(parent.FileName);
         var wavPath = Path.Combine(tempDir, stem + ".wav");
         if (File.Exists(wavPath))
             return wavPath;
@@ -150,22 +201,36 @@ internal static class AudioConverterTabOperations
 
     private static string? ConvertSamplePreview(
         AudioSampleEntry sample,
-        string inputDir,
         string tempDir,
         IReadOnlyList<AudioFileEntry> parentFiles,
         int vabSampleRate)
     {
-        var inputFile = Path.Combine(inputDir, sample.ParentFileName);
-        var parentEntry = parentFiles.FirstOrDefault(parent => parent.FileName == sample.ParentFileName);
+        var parentEntry = parentFiles.FirstOrDefault(parent =>
+            parent.FileName.Equals(sample.ParentFileName, StringComparison.OrdinalIgnoreCase));
         if (parentEntry == null)
             return null;
 
+        var data = parentEntry.Source.ReadBytes();
+        var stem = Path.GetFileNameWithoutExtension(parentEntry.FileName);
+
         return parentEntry.AudioFormat switch
         {
-            "VAB" => VabExtractor.ExtractSingleToWav(inputFile, sample.SampleIndex, tempDir, vabSampleRate),
-            "KAT" => KatExtractor.ExtractSingleToWav(inputFile, sample.SampleIndex, tempDir),
-            "SFX" => SfxExtractor.ExtractSingleToWav(inputFile, sample.SampleIndex, tempDir),
+            "VAB" => VabExtractor.ExtractSingleToWav(data, stem, sample.SampleIndex, tempDir, vabSampleRate),
+            "KAT" => KatExtractor.ExtractSingleToWav(data, stem, sample.SampleIndex, tempDir),
+            "SFX" => ConvertSfxSamplePreview(parentEntry.Source, data, stem, sample.SampleIndex, tempDir),
             _ => null
         };
+    }
+
+    private static string? ConvertSfxSamplePreview(
+        AssetSource source, byte[] data, string stem, int cueIndex, string tempDir)
+    {
+        var bankBytes = TryResolveSfxBankFromSource(source);
+        if (bankBytes is { } bb)
+            return SfxExtractor.ExtractSingleToWav(data, stem, cueIndex, bb, tempDir);
+
+        return source.FileSystemPath != null
+            ? SfxExtractor.ExtractSingleToWav(source.FileSystemPath, cueIndex, tempDir)
+            : null;
     }
 }

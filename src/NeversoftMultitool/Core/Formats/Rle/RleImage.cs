@@ -1,9 +1,12 @@
+using System.IO.Compression;
 using System.Text;
 
 namespace NeversoftMultitool.Core.Formats.Rle;
 
 /// <summary>
 ///     Converts Neversoft RLE and BMR bitmap files to RGB pixel data.
+///     Also handles <c>.zlb</c> — a thin gzip wrapper around an RLE or BMR
+///     payload used in THPS1 PSX (e.g. <c>title_h.zlb</c>).
 /// </summary>
 public static class RleImage
 {
@@ -18,7 +21,24 @@ public static class RleImage
     public static int DetectWidth(string filePath)
     {
         var ext = Path.GetExtension(filePath);
-        var totalPixels = GetTotalPixelCount(filePath, ext);
+        if (IsZlbExtension(ext))
+            return DetectWidth(File.ReadAllBytes(filePath), filePath);
+
+        using var stream = File.OpenRead(filePath);
+        var totalPixels = GetTotalPixelCount(stream, ext);
+        return GuessWidth(totalPixels);
+    }
+
+    /// <summary>
+    ///     In-memory width detection for an RLE or BMR buffer. <paramref name="extensionOrName"/>
+    ///     may be a bare extension (<c>.rle</c>, <c>.bmr</c>, <c>.zlb</c>) or a filename.
+    /// </summary>
+    public static int DetectWidth(byte[] data, string extensionOrName)
+    {
+        var ext = Path.GetExtension(extensionOrName);
+        (data, ext) = UnwrapIfZlb(data, ext);
+        using var stream = new MemoryStream(data, writable: false);
+        var totalPixels = GetTotalPixelCount(stream, ext);
         return GuessWidth(totalPixels);
     }
 
@@ -29,17 +49,13 @@ public static class RleImage
     {
         var ext = Path.GetExtension(filePath);
 
-        if (!ext.Equals(".rle", StringComparison.OrdinalIgnoreCase) &&
-            !ext.Equals(".bmr", StringComparison.OrdinalIgnoreCase))
-        {
+        if (!IsSupportedExtension(ext))
             return new RleConversionResult { ErrorMessage = $"Unsupported file extension: {ext}" };
-        }
 
-        var totalPixels = GetTotalPixelCount(filePath, ext);
-        var width = GuessWidth(totalPixels);
-        var result = Convert(filePath, width);
-        result.WidthAutoDetected = true;
-        return result;
+        using var stream = File.OpenRead(filePath);
+        var data = new byte[stream.Length];
+        stream.ReadExactly(data);
+        return ConvertCore(data, ext, width: null);
     }
 
     /// <summary>
@@ -47,33 +63,101 @@ public static class RleImage
     /// </summary>
     public static RleConversionResult Convert(string filePath, int width)
     {
-        var result = new RleConversionResult { Width = width };
         var ext = Path.GetExtension(filePath);
 
-        if (!ext.Equals(".rle", StringComparison.OrdinalIgnoreCase) &&
-            !ext.Equals(".bmr", StringComparison.OrdinalIgnoreCase))
+        if (!IsSupportedExtension(ext))
+            return new RleConversionResult { Width = width, ErrorMessage = $"Unsupported file extension: {ext}" };
+
+        using var stream = File.OpenRead(filePath);
+        var data = new byte[stream.Length];
+        stream.ReadExactly(data);
+        return ConvertCore(data, ext, width);
+    }
+
+    /// <summary>
+    ///     In-memory conversion. <paramref name="extensionOrName"/> may be a bare
+    ///     extension (<c>.rle</c>, <c>.bmr</c>) or a filename. When
+    ///     <paramref name="width"/> is null, width is auto-detected.
+    /// </summary>
+    public static RleConversionResult Convert(byte[] data, string extensionOrName, int? width = null)
+    {
+        var ext = Path.GetExtension(extensionOrName);
+        if (!IsSupportedExtension(ext))
+            return new RleConversionResult { ErrorMessage = $"Unsupported file extension: {ext}" };
+
+        return ConvertCore(data, ext, width);
+    }
+
+    private static bool IsSupportedExtension(string ext)
+        => ext.Equals(".rle", StringComparison.OrdinalIgnoreCase)
+           || ext.Equals(".bmr", StringComparison.OrdinalIgnoreCase)
+           || IsZlbExtension(ext);
+
+    private static bool IsZlbExtension(string ext)
+        => ext.Equals(".zlb", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Unwraps a <c>.zlb</c> payload (gzip-wrapped RLE/BMR) into its inner
+    ///     format. For non-<c>.zlb</c> extensions, returns the inputs unchanged.
+    /// </summary>
+    private static (byte[] data, string ext) UnwrapIfZlb(byte[] data, string ext)
+    {
+        if (!IsZlbExtension(ext)) return (data, ext);
+
+        var decompressed = Gunzip(data);
+        var innerExt = LooksLikeRleMagic(decompressed) ? ".rle" : ".bmr";
+        return (decompressed, innerExt);
+    }
+
+    private static byte[] Gunzip(byte[] data)
+    {
+        using var src = new MemoryStream(data, writable: false);
+        using var gz = new GZipStream(src, CompressionMode.Decompress);
+        using var dst = new MemoryStream();
+        gz.CopyTo(dst);
+        return dst.ToArray();
+    }
+
+    private static bool LooksLikeRleMagic(byte[] data)
+        => data.Length >= 8
+           && data[0] == '_' && data[1] == 'R' && data[2] == 'L' && data[3] == 'E'
+           && data[4] == '_' && data[5] == '1' && data[6] == '6' && data[7] == '_';
+
+    private static RleConversionResult ConvertCore(byte[] data, string ext, int? width)
+    {
+        (data, ext) = UnwrapIfZlb(data, ext);
+
+        var autoDetected = false;
+        if (width is null)
         {
-            result.ErrorMessage = $"Unsupported file extension: {ext}";
-            return result;
+            using var sizeProbe = new MemoryStream(data, writable: false);
+            width = GuessWidth(GetTotalPixelCount(sizeProbe, ext));
+            autoDetected = true;
         }
+
+        var result = new RleConversionResult { Width = width.Value, WidthAutoDetected = autoDetected };
 
         try
         {
-            using var stream = File.OpenRead(filePath);
+            using var stream = new MemoryStream(data, writable: false);
             using var reader = new BinaryReader(stream);
 
             List<List<RgbColor>> canvas;
 
             if (ext.Equals(".bmr", StringComparison.OrdinalIgnoreCase))
             {
-                canvas = LoadBmr(reader, width);
+                canvas = LoadBmr(reader, width.Value);
             }
             else if (VerifyFileIsRle(reader))
             {
                 if (IsBmpWrappedRle(reader))
-                    return LoadRleAsBmp(reader);
+                {
+                    var bmpResult = LoadRleAsBmp(reader);
+                    bmpResult.WidthAutoDetected = autoDetected;
+                    return bmpResult;
+                }
 
-                canvas = LoadRle(reader, width);
+                canvas = LoadRle(reader, width.Value);
             }
             else
             {
@@ -84,7 +168,7 @@ public static class RleImage
             canvas = ColumnUnshifter.Unshift(canvas);
 
             result.Height = canvas.Count;
-            result.RgbPixels = FlattenToRgb(canvas, width);
+            result.RgbPixels = FlattenToRgb(canvas, width.Value);
         }
         catch (Exception ex)
         {
@@ -209,12 +293,11 @@ public static class RleImage
     }
 
     /// <summary>
-    ///     Reads total pixel count from an RLE or BMR file without fully decoding it.
+    ///     Reads total pixel count from an RLE or BMR stream without fully decoding it.
     /// </summary>
-    private static long GetTotalPixelCount(string filePath, string ext)
+    private static long GetTotalPixelCount(Stream stream, string ext)
     {
-        using var stream = File.OpenRead(filePath);
-        using var reader = new BinaryReader(stream);
+        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
 
         if (ext.Equals(".bmr", StringComparison.OrdinalIgnoreCase))
         {
@@ -224,6 +307,7 @@ public static class RleImage
 
         // RLE: skip 8-byte magic, read decompressed size at offset 8
         if (stream.Length < 12) return 0;
+        stream.Position = 0;
         reader.ReadBytes(8); // skip magic
         var decompressedFileSize = reader.ReadUInt32();
         return (decompressedFileSize - 8) / 2;

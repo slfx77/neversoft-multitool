@@ -16,7 +16,21 @@ public static class DdxArchive
     public static List<ArchiveEntry> GetFileList(string ddxPath)
     {
         using var stream = File.OpenRead(ddxPath);
-        using var reader = new BinaryReader(stream);
+        return ReadFileList(stream);
+    }
+
+    /// <summary>
+    ///     Reads the file list from an in-memory DDX archive buffer.
+    /// </summary>
+    public static List<ArchiveEntry> GetFileList(byte[] data)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        return ReadFileList(stream);
+    }
+
+    private static List<ArchiveEntry> ReadFileList(Stream stream)
+    {
+        using var reader = new BinaryReader(stream, Encoding.ASCII, leaveOpen: true);
 
         // Header: 4 reserved + 4 fileSize + 4 dataOffset + 4 entryCount
         reader.ReadUInt32(); // reserved (always 0)
@@ -50,10 +64,24 @@ public static class DdxArchive
     /// </summary>
     public static Dictionary<string, byte[]> ReadAllEntries(string ddxPath)
     {
-        var entries = GetFileList(ddxPath);
+        using var stream = File.OpenRead(ddxPath);
+        return ReadAllEntriesFromStream(stream);
+    }
+
+    /// <summary>
+    ///     In-memory variant of <see cref="ReadAllEntries(string)"/>.
+    /// </summary>
+    public static Dictionary<string, byte[]> ReadAllEntries(byte[] data)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        return ReadAllEntriesFromStream(stream);
+    }
+
+    private static Dictionary<string, byte[]> ReadAllEntriesFromStream(Stream stream)
+    {
+        var entries = ReadFileList(stream);
         var result = new Dictionary<string, byte[]>(entries.Count, StringComparer.OrdinalIgnoreCase);
 
-        using var stream = File.OpenRead(ddxPath);
         foreach (var entry in entries)
         {
             stream.Seek(entry.Offset, SeekOrigin.Begin);

@@ -8,6 +8,8 @@ namespace NeversoftMultitool;
 internal sealed class VideoConverterTabPreviewController : IDisposable
 {
     private readonly Dictionary<string, string> _previewCache = [];
+    // Temp files written for archive-sourced previews; cleaned up on tab unload.
+    private readonly List<string> _archivePreviewTempFiles = [];
     private readonly VideoPreviewView _view;
     private MediaPlayer? _mediaPlayer;
     private DispatcherTimer? _positionTimer;
@@ -26,6 +28,31 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
         _previewCts?.Dispose();
         _previewCts = null;
         _previewTask = null;
+
+        foreach (var tempFile in _archivePreviewTempFiles)
+        {
+            try { if (File.Exists(tempFile)) File.Delete(tempFile); }
+            catch { /* ignore */ }
+        }
+        _archivePreviewTempFiles.Clear();
+    }
+
+    /// <summary>
+    ///     Archive-sourced video preview needs a real path for MediaPlayerElement
+    ///     and for the STR/VID decoders. Write bytes to a uniquely-named temp file
+    ///     and track it for cleanup on tab unload.
+    /// </summary>
+    private string EnsurePreviewPath(SfdFileEntry entry)
+    {
+        if (entry.Source.FileSystemPath is { } filesystemPath)
+            return filesystemPath;
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "VideoPreview");
+        Directory.CreateDirectory(tempDir);
+        var tempPath = Path.Combine(tempDir, $"{Guid.NewGuid():N}_{entry.FileName}");
+        File.WriteAllBytes(tempPath, entry.Source.ReadBytes());
+        _archivePreviewTempFiles.Add(tempPath);
+        return tempPath;
     }
 
     public async Task ShowPreviewAsync(SfdFileEntry entry, bool ffmpegAvailable)
@@ -56,8 +83,25 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
         StopPlayback();
         ShowPreviewShell(entry);
 
-        if (VideoConverterTabOperations.IsStrFormat(entry.FilePath)
-            && await TryStartDirectStrPlaybackAsync(entry.FilePath, cts.Token))
+        string previewPath;
+        try
+        {
+            previewPath = EnsurePreviewPath(entry);
+        }
+        catch (Exception ex)
+        {
+            ShowPreviewError($"Preview prep failed: {ex.Message}");
+            return;
+        }
+
+        if (OrdinalIsStr(entry.FileName)
+            && await TryStartDirectStrPlaybackAsync(previewPath, cts.Token))
+        {
+            return;
+        }
+
+        if (OrdinalIsVid(entry.FileName)
+            && await TryStartDirectVidPlaybackAsync(previewPath, cts.Token))
         {
             return;
         }
@@ -69,7 +113,7 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
         }
 
         string? mp4Path = null;
-        if (_previewCache.TryGetValue(entry.FilePath, out var cachedPath) && File.Exists(cachedPath))
+        if (_previewCache.TryGetValue(previewPath, out var cachedPath) && File.Exists(cachedPath))
         {
             mp4Path = cachedPath;
         }
@@ -79,7 +123,7 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
             {
                 Directory.CreateDirectory(_view.TempDir);
                 var result = VideoConverterTabOperations.ConvertFile(
-                    entry.FilePath,
+                    previewPath,
                     _view.TempDir,
                     cancellationToken: cts.Token);
                 return result.Success ? result.OutputPath : null;
@@ -104,7 +148,7 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
             }
 
             if (mp4Path != null)
-                _previewCache[entry.FilePath] = mp4Path;
+                _previewCache[previewPath] = mp4Path;
         }
 
         if (cts.Token.IsCancellationRequested)
@@ -181,6 +225,12 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
         ResetPlaybackPosition();
     }
 
+    private static bool OrdinalIsStr(string fileName)
+        => fileName.EndsWith(".str", StringComparison.OrdinalIgnoreCase);
+
+    private static bool OrdinalIsVid(string fileName)
+        => fileName.EndsWith(".vid", StringComparison.OrdinalIgnoreCase);
+
     private async Task<bool> TryStartDirectStrPlaybackAsync(string filePath, CancellationToken cancellationToken)
     {
         try
@@ -190,6 +240,28 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
                 return false;
 
             var mediaSource = await Task.Run(() => StrMediaSource.Create(strData), cancellationToken);
+            if (cancellationToken.IsCancellationRequested || mediaSource == null)
+                return false;
+
+            _view.PreviewLoading.IsActive = false;
+            StartPlayback(mediaSource);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<bool> TryStartDirectVidPlaybackAsync(string filePath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var mediaSource = await Task.Run(() => Vid1MediaSource.Create(filePath), cancellationToken);
             if (cancellationToken.IsCancellationRequested || mediaSource == null)
                 return false;
 

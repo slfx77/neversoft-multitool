@@ -20,7 +20,8 @@ public static class PssAudioExtractor
 
     public static PssAudioProbeResult? Probe(string inputPath)
     {
-        return TryReadAdsStream(inputPath, out var adsStream, out _)
+        using var stream = File.OpenRead(inputPath);
+        return TryReadAdsStream(stream, out var adsStream, out _)
             ? new PssAudioProbeResult(
                 GetCodecName(adsStream.Codec),
                 adsStream.SampleRate,
@@ -34,14 +35,35 @@ public static class PssAudioExtractor
         Directory.CreateDirectory(outputDir);
         var outputPath = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(inputPath) + ".wav");
 
-        return TryWriteWav(inputPath, outputPath, out var error)
+        using var stream = File.OpenRead(inputPath);
+        return WriteWavFromStream(stream, outputPath);
+    }
+
+    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string)"/>.</summary>
+    public static AudioConvertResult ConvertToWav(byte[] data, string stem, string outputDir)
+    {
+        Directory.CreateDirectory(outputDir);
+        var outputPath = Path.Combine(outputDir, stem + ".wav");
+        using var stream = new MemoryStream(data, writable: false);
+        return WriteWavFromStream(stream, outputPath);
+    }
+
+    private static AudioConvertResult WriteWavFromStream(Stream stream, string outputPath)
+    {
+        return TryWriteWav(stream, outputPath, out var error)
             ? new AudioConvertResult { Success = true, SamplesWritten = 1 }
             : new AudioConvertResult { ErrorMessage = error };
     }
 
     internal static bool TryWriteWav(string inputPath, string outputPath, out string error)
     {
-        if (!TryReadAdsStream(inputPath, out var adsStream, out error))
+        using var stream = File.OpenRead(inputPath);
+        return TryWriteWav(stream, outputPath, out error);
+    }
+
+    internal static bool TryWriteWav(Stream stream, string outputPath, out string error)
+    {
+        if (!TryReadAdsStream(stream, out var adsStream, out error))
             return false;
 
         if (!TryDecodeAdsStream(adsStream, out var pcmSamples, out error))
@@ -51,13 +73,12 @@ public static class PssAudioExtractor
         return true;
     }
 
-    private static bool TryReadAdsStream(string inputPath, out AdsStream adsStream, out string error)
+    private static bool TryReadAdsStream(Stream stream, out AdsStream adsStream, out string error)
     {
         adsStream = default;
 
         try
         {
-            using var stream = File.OpenRead(inputPath);
             using var adsBytes = new MemoryStream();
             byte? audioStreamId = null;
             var sawAdsHeader = false;

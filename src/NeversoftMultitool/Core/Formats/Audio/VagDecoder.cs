@@ -25,7 +25,23 @@ public static class VagDecoder
     {
         try
         {
-            var data = File.ReadAllBytes(inputPath);
+            return ConvertToWav(
+                File.ReadAllBytes(inputPath),
+                Path.GetFileNameWithoutExtension(inputPath),
+                outputDir,
+                overrideSampleRate);
+        }
+        catch (Exception ex)
+        {
+            return new AudioConvertResult { ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string, int)"/>.</summary>
+    public static AudioConvertResult ConvertToWav(byte[] data, string stem, string outputDir, int overrideSampleRate = 0)
+    {
+        try
+        {
             if (data.Length < SpuAdpcm.BlockSize)
                 return new AudioConvertResult { ErrorMessage = "File too small to contain audio data" };
 
@@ -49,7 +65,6 @@ public static class VagDecoder
             if (pcm.Length == 0)
                 return new AudioConvertResult { ErrorMessage = "No audio samples decoded" };
 
-            var stem = Path.GetFileNameWithoutExtension(inputPath);
             var wavPath = Path.Combine(outputDir, $"{stem}.wav");
             WavWriter.WritePcm16(wavPath, sampleRate, 1, pcm);
 
@@ -58,6 +73,35 @@ public static class VagDecoder
         catch (Exception ex)
         {
             return new AudioConvertResult { ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>In-memory variant of <see cref="Probe(string)"/>.</summary>
+    public static VagProbeResult? Probe(byte[] data)
+    {
+        try
+        {
+            if (data.Length < SpuAdpcm.BlockSize) return null;
+
+            if (TryParseVagHeader(data, out var header))
+            {
+                var totalBlocks = header.DataSize / SpuAdpcm.BlockSize;
+                var totalSamples = totalBlocks * SpuAdpcm.SamplesPerBlock;
+                return new VagProbeResult(
+                    header.SampleRate,
+                    totalSamples / (double)header.SampleRate,
+                    true,
+                    header.Name);
+            }
+
+            var blocks = data.Length / SpuAdpcm.BlockSize;
+            var samples = blocks * SpuAdpcm.SamplesPerBlock;
+            var duration = samples / (double)DefaultSampleRate;
+            return new VagProbeResult(DefaultSampleRate, duration, false, null);
+        }
+        catch
+        {
+            return null;
         }
     }
 

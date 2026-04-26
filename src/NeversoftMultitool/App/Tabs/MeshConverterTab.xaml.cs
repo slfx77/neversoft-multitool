@@ -9,6 +9,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 {
     private readonly ObservableCollection<MeshFileEntry> _items = [];
     private CancellationTokenSource? _cts;
+    private CancellationTokenSource? _scanCts;
     private string _inputDir = "";
     private string _outputDir = "";
     private MeshConverterTabPreview? _preview;
@@ -25,6 +26,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         Unloaded -= MeshConverterTab_Unloaded;
         _cts?.Dispose();
         _cts = null;
+        _scanCts?.Dispose();
+        _scanCts = null;
         _preview?.Dispose();
         _preview = null;
     }
@@ -36,26 +39,142 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
         _inputDir = path;
         InputPathText.Text = _inputDir;
+        await RunRecursiveScan(path);
+    }
+
+    private async void SelectArchive_Click(object sender, RoutedEventArgs e)
+    {
+        var path = await FilePickerHelper.PickFileAsync(
+            [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr"]);
+        if (path == null) return;
+
+        _inputDir = Path.GetDirectoryName(path) ?? "";
+        InputPathText.Text = path;
+
+        await CancelInFlightScan();
 
         _items.Clear();
         ConvertButton.IsEnabled = false;
 
-        var scanSummary = await Task.Run(() => MeshConverterTabFileScanner.AnalyzeDirectory(_inputDir));
-        if (scanSummary.UnsupportedFiles.Count > 0)
+        var cts = new CancellationTokenSource();
+        _scanCts = cts;
+        var token = cts.Token;
+
+        try
         {
-            var proceed = await ScanSummaryDialog.ShowIfNeeded(
-                XamlRoot,
-                scanSummary.SupportedCount,
-                [.. scanSummary.UnsupportedFiles]);
-            if (!proceed)
-                return;
+            MainWindow.Instance?.SetStatus($"Scanning {Path.GetFileName(path)}...");
+
+            var entries = await Task.Run(
+                () => MeshConverterTabFileScanner.ScanArchive(path, token),
+                token);
+
+            token.ThrowIfCancellationRequested();
+
+            foreach (var entry in entries)
+                _items.Add(entry);
+
+            if (entries.Count == 0)
+                MainWindow.Instance?.SetStatus(
+                    $"{Path.GetFileName(path)}: no supported mesh entries found.");
+            else
+                MainWindow.Instance?.SetStatus(
+                    $"Found {entries.Count} mesh entrie(s) in {Path.GetFileName(path)}.");
         }
+        catch (OperationCanceledException)
+        {
+            MainWindow.Instance?.SetStatus("Scan cancelled");
+        }
+        catch (Exception ex)
+        {
+            MainWindow.Instance?.SetStatus($"Scan failed: {ex.Message}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_scanCts, cts))
+                _scanCts = null;
+            cts.Dispose();
+            UpdateUiState();
+        }
+    }
 
-        var entries = await Task.Run(() => MeshConverterTabFileScanner.ScanDirectory(_inputDir));
-        foreach (var entry in entries)
-            _items.Add(entry);
+    private async Task RunRecursiveScan(string rootDir)
+    {
+        await CancelInFlightScan();
 
-        UpdateUiState();
+        _items.Clear();
+        ConvertButton.IsEnabled = false;
+
+        var cts = new CancellationTokenSource();
+        _scanCts = cts;
+        var token = cts.Token;
+        var dispatcher = DispatcherQueue;
+
+        MainWindow.Instance?.SetStatus("Scanning directory...");
+
+        try
+        {
+            var scanSummary = await Task.Run(
+                () => MeshConverterTabFileScanner.AnalyzeDirectory(rootDir, token),
+                token);
+
+            if (scanSummary.UnsupportedFiles.Count > 0)
+            {
+                var proceed = await ScanSummaryDialog.ShowIfNeeded(
+                    XamlRoot,
+                    scanSummary.SupportedCount,
+                    [.. scanSummary.UnsupportedFiles]);
+                if (!proceed)
+                {
+                    MainWindow.Instance?.SetStatus("Scan cancelled");
+                    return;
+                }
+            }
+
+            var progress = new Progress<int>(count =>
+                MainWindow.Instance?.SetStatus($"Scanning: {count} files probed..."));
+
+            var entries = await Task.Run(
+                () => MeshConverterTabFileScanner.ScanDirectory(rootDir, progress, token),
+                token);
+
+            token.ThrowIfCancellationRequested();
+
+            foreach (var entry in entries)
+                _items.Add(entry);
+
+            MainWindow.Instance?.SetStatus($"Found {entries.Count} mesh file(s).");
+        }
+        catch (OperationCanceledException)
+        {
+            MainWindow.Instance?.SetStatus("Scan cancelled");
+        }
+        catch (Exception ex)
+        {
+            MainWindow.Instance?.SetStatus($"Scan failed: {ex.Message}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_scanCts, cts))
+                _scanCts = null;
+            cts.Dispose();
+            UpdateUiState();
+        }
+    }
+
+    private async Task CancelInFlightScan()
+    {
+        var existing = _scanCts;
+        if (existing == null) return;
+        _scanCts = null;
+        try
+        {
+            await existing.CancelAsync();
+        }
+        catch
+        {
+            // swallow
+        }
+        existing.Dispose();
     }
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)

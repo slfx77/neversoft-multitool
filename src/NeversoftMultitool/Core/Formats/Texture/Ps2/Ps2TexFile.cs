@@ -23,15 +23,25 @@ public static class Ps2TexFile
     {
         try
         {
-            var data = File.ReadAllBytes(filePath);
+            return Parse(File.ReadAllBytes(filePath));
+        }
+        catch (Exception ex)
+        {
+            return Ps2TexResult.Fail(ex.Message);
+        }
+    }
+
+    /// <summary>In-memory variant of <see cref="Parse(string)"/>.</summary>
+    public static Ps2TexResult Parse(byte[] data)
+    {
+        try
+        {
             if (data.Length < 8)
                 return Ps2TexResult.Fail("File too small");
 
             var version = BitConverter.ToUInt32(data, 0);
 
             // Version 4 is shared between THUG TEX dictionaries and THAW IMG files.
-            // THAW IMG v4 has a 96-byte header with constant 97 at offset 0x38 and an
-            // embedded GS TEX0 register at 0x30. Detect and route before TEX dispatch.
             if (version == 4 && IsThawImg(data))
                 return ParseThawImg(data);
 

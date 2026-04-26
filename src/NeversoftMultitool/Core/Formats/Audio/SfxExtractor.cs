@@ -15,9 +15,26 @@ public static class SfxExtractor
     private const int AliasScoreThreshold = 24;
     private const int AliasMarginThreshold = 8;
 
+    /// <summary>
+    ///     Explicit companion-bank bytes. Used by archive-sourced SFX extraction
+    ///     where the path-based cross-sibling alias fallback isn't available.
+    /// </summary>
+    public readonly record struct SfxBankBytes(byte[] Data, string Format); // Format = "KAT" | "VAB"
+
     public static List<SfxSampleInfo> EnumerateSamples(string inputPath)
     {
         return TryResolvePlan(inputPath, out var plan, out _)
+            ? plan.Mappings.Select(static mapping => mapping.ToSampleInfo()).ToList()
+            : [];
+    }
+
+    /// <summary>
+    ///     In-memory variant: caller supplies SFX bytes plus optional companion KAT/VAB bytes.
+    ///     Cross-sibling alias fallback is skipped (only the explicit companion is tried).
+    /// </summary>
+    public static List<SfxSampleInfo> EnumerateSamples(byte[] sfxData, SfxBankBytes? bankBytes)
+    {
+        return TryResolvePlanFromBytes(sfxData, bankBytes, out var plan, out _)
             ? plan.Mappings.Select(static mapping => mapping.ToSampleInfo()).ToList()
             : [];
     }
@@ -38,12 +55,45 @@ public static class SfxExtractor
             mapping.BankSample.SampleRate);
     }
 
+    /// <summary>In-memory variant of <see cref="ExtractSingleToWav(string, int, string)"/>.</summary>
+    public static string? ExtractSingleToWav(
+        byte[] sfxData, string stem, int cueIndex, SfxBankBytes? bankBytes, string outputDir)
+    {
+        if (!TryResolvePlanFromBytes(sfxData, bankBytes, out var plan, out _))
+            return null;
+
+        var mapping = plan.Mappings.FirstOrDefault(candidate => candidate.CueIndex == cueIndex);
+        if (mapping == null) return null;
+
+        return ExtractBankSampleToWav(
+            plan.BankSource,
+            mapping.BankSample.ExternalIndex,
+            outputDir,
+            mapping.BankSample.SampleRate,
+            stem);
+    }
+
     public static AudioConvertResult ExtractToWav(string inputPath, string outputDir)
     {
         if (!TryResolvePlan(inputPath, out var plan, out var error))
             return new AudioConvertResult { ErrorMessage = error };
 
         var stem = Path.GetFileNameWithoutExtension(inputPath);
+        return ExtractToWavCore(plan, stem, outputDir);
+    }
+
+    /// <summary>In-memory variant of <see cref="ExtractToWav(string, string)"/>.</summary>
+    public static AudioConvertResult ExtractToWav(
+        byte[] sfxData, string stem, SfxBankBytes? bankBytes, string outputDir)
+    {
+        if (!TryResolvePlanFromBytes(sfxData, bankBytes, out var plan, out var error))
+            return new AudioConvertResult { ErrorMessage = error };
+
+        return ExtractToWavCore(plan, stem, outputDir);
+    }
+
+    private static AudioConvertResult ExtractToWavCore(SfxExtractionPlan plan, string stem, string outputDir)
+    {
         var outDir = Path.Combine(outputDir, stem);
         var tempDir = Path.Combine(outDir, "__sfx_tmp");
         Directory.CreateDirectory(tempDir);
@@ -58,7 +108,8 @@ public static class SfxExtractor
                     plan.BankSource,
                     mapping.BankSample.ExternalIndex,
                     tempDir,
-                    mapping.BankSample.SampleRate);
+                    mapping.BankSample.SampleRate,
+                    stem);
                 if (tempPath == null || !File.Exists(tempPath))
                     continue;
 
@@ -297,14 +348,157 @@ public static class SfxExtractor
         SfxBankSource bankSource,
         int sampleIndex,
         string outputDir,
-        int sampleRate)
+        int sampleRate,
+        string? stemOverride = null)
     {
+        if (bankSource.BankData != null)
+        {
+            var stem = stemOverride ?? "sfx";
+            return bankSource.BankFormat switch
+            {
+                "KAT" => KatExtractor.ExtractSingleToWav(bankSource.BankData, stem, sampleIndex, outputDir),
+                "VAB" => VabExtractor.ExtractSingleToWav(bankSource.BankData, stem, sampleIndex, outputDir, sampleRate),
+                _ => null
+            };
+        }
+
         return bankSource.BankFormat switch
         {
             "KAT" => KatExtractor.ExtractSingleToWav(bankSource.BankPath, sampleIndex, outputDir),
             "VAB" => VabExtractor.ExtractSingleToWav(bankSource.BankPath, sampleIndex, outputDir, sampleRate),
             _ => null
         };
+    }
+
+    private static bool TryResolvePlanFromBytes(
+        byte[] sfxData, SfxBankBytes? bankBytes, out SfxExtractionPlan plan, out string error)
+    {
+        plan = new SfxExtractionPlan(new SfxBankSource("", "", 0, []), []);
+
+        if (!TryParseEntriesFromData(sfxData, out var entries, out error))
+            return false;
+
+        if (bankBytes is not { } bb)
+        {
+            error = "Companion KAT/VAB soundbank not found (archive source)";
+            return false;
+        }
+
+        if (!TryCreateBankSourceFromBytes(bb, out var bankSource, out error))
+            return false;
+
+        if (TryCreateDirectReferenceMappings(entries, bankSource, out var mappings))
+        {
+            plan = new SfxExtractionPlan(bankSource, mappings);
+            error = "";
+            return true;
+        }
+
+        mappings = CreateFullBankMappings(bankSource);
+        if (mappings.Count == 0)
+        {
+            error = $"Companion {bankSource.BankFormat} soundbank could not be parsed";
+            return false;
+        }
+
+        plan = new SfxExtractionPlan(bankSource, mappings);
+        error = "";
+        return true;
+    }
+
+    private static bool TryCreateBankSourceFromBytes(
+        SfxBankBytes bankBytes, out SfxBankSource bankSource, out string error)
+    {
+        switch (bankBytes.Format)
+        {
+            case "KAT":
+            {
+                var samples = KatExtractor.EnumerateSamples(bankBytes.Data)
+                    .Select(static sample => new SfxBankSample(
+                        sample.Index, sample.DataSize, sample.SampleRate, sample.Channels, sample.Encoding))
+                    .ToList();
+
+                if (samples.Count == 0)
+                {
+                    bankSource = new SfxBankSource("", "", 0, []);
+                    error = "Companion KAT soundbank could not be parsed";
+                    return false;
+                }
+
+                bankSource = new SfxBankSource("", "KAT", 0, samples, bankBytes.Data);
+                error = "";
+                return true;
+            }
+
+            case "VAB":
+            {
+                var samples = VabExtractor.EnumerateSamples(bankBytes.Data)
+                    .Select(static sample => new SfxBankSample(
+                        sample.Index, sample.DataSize, sample.SampleRate, 1, "SPU-ADPCM"))
+                    .ToList();
+
+                if (samples.Count == 0)
+                {
+                    bankSource = new SfxBankSource("", "", 0, []);
+                    error = "Companion VAB soundbank could not be parsed";
+                    return false;
+                }
+
+                bankSource = new SfxBankSource("", "VAB", 1, samples, bankBytes.Data);
+                error = "";
+                return true;
+            }
+
+            default:
+                bankSource = new SfxBankSource("", "", 0, []);
+                error = $"Unsupported SFX companion bank type: {bankBytes.Format}";
+                return false;
+        }
+    }
+
+    private static bool TryParseEntriesFromData(byte[] data, out List<SfxEntry> entries, out string error)
+    {
+        entries = [];
+
+        if (data.Length < HeaderSize + EntrySize)
+        {
+            error = "Invalid SFX file layout";
+            return false;
+        }
+
+        var headerValue = ReadUInt32BigEndian(data, 0);
+        if ((headerValue & 0x000000FF) != ExpectedHeaderSuffix)
+        {
+            error = $"Unsupported SFX header value 0x{headerValue:X8}";
+            return false;
+        }
+
+        entries = new List<SfxEntry>();
+        for (var offset = HeaderSize; offset + EntrySize <= data.Length; offset += EntrySize)
+        {
+            if (IsZeroedEntry(data, offset))
+                break;
+
+            var entry = new SfxEntry(
+                ReadUInt32LittleEndian(data, offset),
+                ReadUInt32LittleEndian(data, offset + 4),
+                ReadUInt32LittleEndian(data, offset + 8),
+                ReadUInt32LittleEndian(data, offset + 12));
+
+            if (entry.PackedId == TerminatorPackedId)
+                break;
+
+            entries.Add(entry);
+        }
+
+        if (entries.Count == 0)
+        {
+            error = "SFX file contains no cue entries";
+            return false;
+        }
+
+        error = "";
+        return true;
     }
 
     private static bool TryFindCompanionBank(string inputPath, out string bankPath)
@@ -451,11 +645,17 @@ public static class SfxExtractor
 
     private sealed record SfxBankSample(int ExternalIndex, int DataSize, int SampleRate, int Channels, string Encoding);
 
+    /// <summary>
+    ///     Where a resolved companion bank lives. <c>BankPath</c> is the real on-disk
+    ///     path when the SFX was loaded from the filesystem; <c>BankData</c> is the
+    ///     companion bytes when loaded from an archive. Exactly one is non-empty.
+    /// </summary>
     private sealed record SfxBankSource(
         string BankPath,
         string BankFormat,
         int IndexBase,
-        IReadOnlyList<SfxBankSample> Samples);
+        IReadOnlyList<SfxBankSample> Samples,
+        byte[]? BankData = null);
 
     private sealed record SfxCueMapping(int CueIndex, SfxEntry? Entry, SfxBankSample BankSample, string BankFormat)
     {

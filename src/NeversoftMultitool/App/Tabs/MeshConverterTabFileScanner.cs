@@ -1,9 +1,13 @@
+using System.Collections.Concurrent;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats;
+using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Collision;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
@@ -13,76 +17,168 @@ namespace NeversoftMultitool;
 
 internal static class MeshConverterTabFileScanner
 {
-    private static readonly EnumerationOptions CaseInsensitiveEnumeration =
-        new() { MatchCasing = MatchCasing.CaseInsensitive };
-
-    private static readonly IComparer<string> FileNameComparer = Comparer<string>.Create(static (left, right) =>
-        StringComparer.OrdinalIgnoreCase.Compare(
-            Path.GetFileName(left),
-            Path.GetFileName(right)));
+    private static readonly IComparer<MeshFileEntry> RelativePathComparer =
+        Comparer<MeshFileEntry>.Create(static (left, right) =>
+            StringComparer.OrdinalIgnoreCase.Compare(left.RelativePath, right.RelativePath));
 
     private static readonly string[] CompoundExtensions =
     [
         ".iskin.ps2", ".skin.ps2", ".mdl.ps2", ".geom.ps2",
         ".skin.xbx", ".mdl.xbx", ".skin.wpc", ".mdl.wpc",
-        ".col.xbx", ".col.wpc", ".col.ps2"
+        ".col.xbx", ".col.wpc", ".col.ps2",
+        ".pak.ps2"
     ];
 
     private static readonly string[] ColSuffixes = [".col.xbx", ".col.wpc", ".col.ps2"];
 
-    public static MeshScanSummary AnalyzeDirectory(string inputDir)
+    public static MeshScanSummary AnalyzeDirectory(string inputDir, CancellationToken ct = default)
     {
-        var allFiles = Directory.GetFiles(inputDir);
+        var allFiles = EnumerateFiles(inputDir, ct);
         return new MeshScanSummary(
             MeshConverterTabScanAnalysis.FindUnsupportedFiles(allFiles),
             MeshConverterTabScanAnalysis.CountPotentiallySupportedFiles(allFiles));
     }
 
-    public static List<MeshFileEntry> ScanDirectory(string inputDir)
+    public static List<MeshFileEntry> ScanDirectory(
+        string inputDir,
+        IProgress<int>? progress = null,
+        CancellationToken ct = default)
     {
-        var entries = new List<MeshFileEntry>();
+        var buckets = ClassifyFiles(inputDir, ct);
 
-        var files = ClassifyFiles(inputDir);
-        foreach (var file in files.DdmFiles)
-            AddEntry(entries, ScanDdmFile(file));
-
-        var ddmStems = files.DdmFiles
+        var ddmStems = buckets.DdmFiles
             .Select(Path.GetFileNameWithoutExtension)
             .Where(static stem => stem != null)
             .Cast<string>()
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var file in files.PsxFiles.Where(file => !ddmStems.Contains(Path.GetFileNameWithoutExtension(file))))
-            AddEntry(entries, ScanPsxFile(file));
+        var results = new ConcurrentBag<MeshFileEntry>();
+        var processed = 0;
 
-        foreach (var file in files.RwDffFiles)
-            AddEntry(entries, ScanRwDffFile(file));
+        void Report()
+        {
+            if (progress == null) return;
+            var count = Interlocked.Increment(ref processed);
+            progress.Report(count);
+        }
 
-        foreach (var file in files.RwBspFiles)
-            AddEntry(entries, ScanRwBspFile(file));
+        var parallelOptions = new ParallelOptions
+        {
+            CancellationToken = ct,
+            MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount)
+        };
 
-        foreach (var file in files.ColFiles)
-            AddEntry(entries, ScanColFile(file));
+        Parallel.ForEach(buckets.DdmFiles, parallelOptions, file =>
+        {
+            AddIfNotNull(results, ScanDdmFile(new FileSystemAssetSource(file), file, inputDir));
+            Report();
+        });
 
-        foreach (var file in files.Ps2SceneFiles)
-            AddEntry(entries, ScanPs2SceneFile(file, files.IskinStems));
+        Parallel.ForEach(
+            buckets.PsxFiles.Where(file => !ddmStems.Contains(Path.GetFileNameWithoutExtension(file))),
+            parallelOptions,
+            file =>
+            {
+                AddIfNotNull(results, ScanPsxFile(new FileSystemAssetSource(file), file, inputDir));
+                Report();
+            });
 
-        foreach (var file in files.Ps2GeomFiles)
-            AddEntry(entries, ScanPs2GeomFile(file));
+        Parallel.ForEach(buckets.RwDffFiles, parallelOptions, file =>
+        {
+            AddIfNotNull(results, ScanRwDffFile(new FileSystemAssetSource(file), file, inputDir));
+            Report();
+        });
 
-        foreach (var file in files.XbxSceneFiles)
-            AddEntry(entries, ScanXbxSceneFile(file));
+        Parallel.ForEach(buckets.RwBspFiles, parallelOptions, file =>
+        {
+            AddIfNotNull(results, ScanRwBspFile(new FileSystemAssetSource(file), file, inputDir));
+            Report();
+        });
 
-        foreach (var file in files.PakSceneFiles)
-            AddEntry(entries, ScanPs2SceneFile(file));
+        Parallel.ForEach(buckets.ColFiles, parallelOptions, file =>
+        {
+            AddIfNotNull(results, ScanColFile(new FileSystemAssetSource(file), file, inputDir));
+            Report();
+        });
 
-        return entries;
+        Parallel.ForEach(buckets.Ps2SceneFiles, parallelOptions, file =>
+        {
+            AddIfNotNull(results, ScanPs2SceneFile(new FileSystemAssetSource(file), file, inputDir, buckets.IskinStems));
+            Report();
+        });
+
+        Parallel.ForEach(buckets.Ps2GeomFiles, parallelOptions, file =>
+        {
+            AddIfNotNull(results, ScanPs2GeomFile(new FileSystemAssetSource(file), file, inputDir));
+            Report();
+        });
+
+        Parallel.ForEach(buckets.XbxSceneFiles, parallelOptions, file =>
+        {
+            AddIfNotNull(results, ScanXbxSceneFile(new FileSystemAssetSource(file), file, inputDir));
+            Report();
+        });
+
+        Parallel.ForEach(buckets.PakSceneFiles, parallelOptions, file =>
+        {
+            AddIfNotNull(results, ScanPs2SceneFile(new FileSystemAssetSource(file), file, inputDir, iskinStems: null));
+            Report();
+        });
+
+        Parallel.ForEach(buckets.PakWorldzoneFiles, parallelOptions, file =>
+        {
+            AddIfNotNull(results, ScanPakWorldzoneFile(new FileSystemAssetSource(file), file, inputDir));
+            Report();
+        });
+
+        var list = results.ToList();
+        list.Sort(RelativePathComparer);
+        return list;
     }
 
-    internal static string? FindCompanionFile(string directory, string stem, string extension)
+    /// <summary>
+    ///     Entry point used when the user picks a single archive file. Routes THAW
+    ///     worldzone PAKs to the single-entry worldzone path; for other archive
+    ///     types (WAD, PRE, PRE3/PRX, PKR, non-worldzone PAK), opens the archive
+    ///     in-memory and enumerates every entry that looks like a supported mesh
+    ///     file. Every returned entry carries an <see cref="ArchiveAssetSource"/>.
+    /// </summary>
+    public static List<MeshFileEntry> ScanArchive(string archivePath, CancellationToken ct = default)
     {
-        var files = Directory.GetFiles(directory, stem + extension, CaseInsensitiveEnumeration);
-        return files.Length > 0 ? files[0] : null;
+        // Worldzone PAKs stay on their dedicated single-entry path.
+        if (Ps2WorldzoneConverter.IsWorldzonePak(archivePath))
+        {
+            var worldzone = ScanPakWorldzoneFile(new FileSystemAssetSource(archivePath), archivePath, rootDir: "");
+            return worldzone != null ? [worldzone] : [];
+        }
+
+        var backend = ArchiveAssetBackend.TryOpen(archivePath);
+        if (backend == null)
+            return [];
+
+        var archiveName = Path.GetFileName(archivePath);
+        var results = new List<MeshFileEntry>();
+        foreach (var archiveEntry in backend.Entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            var source = new ArchiveAssetSource(backend, archiveEntry);
+            var virtualPath = $"{archiveName}::{archiveEntry.Name}";
+            var entry = TryScanEntry(source, virtualPath, rootDir: "", iskinStems: null);
+            if (entry != null)
+                results.Add(entry);
+        }
+
+        results.Sort(RelativePathComparer);
+        return results;
+    }
+
+    /// <summary>
+    ///     Single-file picker for a worldzone PAK. Kept for backwards compat with
+    ///     the existing SelectArchive_Click handler.
+    /// </summary>
+    public static MeshFileEntry? ScanSingleArchiveAsWorldzone(string pakFile)
+    {
+        return ScanPakWorldzoneFile(new FileSystemAssetSource(pakFile), pakFile, rootDir: Path.GetDirectoryName(pakFile) ?? "");
     }
 
     internal static string StripCompoundExtension(string filename)
@@ -90,10 +186,73 @@ internal static class MeshConverterTabFileScanner
         return OrdinalFileName.StripCompoundSuffix(filename, CompoundExtensions);
     }
 
-    private static MeshScanFileBuckets ClassifyFiles(string inputDir)
+    private static IReadOnlyList<string> EnumerateFiles(string inputDir, CancellationToken ct)
+    {
+        var list = new List<string>();
+        foreach (var file in Directory.EnumerateFiles(inputDir, "*", SearchOption.AllDirectories))
+        {
+            ct.ThrowIfCancellationRequested();
+            list.Add(file);
+        }
+        return list;
+    }
+
+    /// <summary>
+    ///     Tries each per-format scan in suffix-priority order for a single entry
+    ///     (used by archive enumeration where one entry can only match one format).
+    /// </summary>
+    private static MeshFileEntry? TryScanEntry(
+        AssetSource source, string displayPath, string rootDir, HashSet<string>? iskinStems)
+    {
+        var name = source.EntryName;
+
+        if (EndsWith(name, ".iskin.ps2") ||
+            EndsWith(name, ".skin.ps2") ||
+            EndsWith(name, ".mdl.ps2"))
+        {
+            return ScanPs2SceneFile(source, displayPath, rootDir, iskinStems);
+        }
+
+        if (EndsWith(name, ".geom.ps2"))
+            return ScanPs2GeomFile(source, displayPath, rootDir);
+
+        if (EndsWith(name, ".skin.xbx") || EndsWith(name, ".mdl.xbx") ||
+            EndsWith(name, ".skin.wpc") || EndsWith(name, ".mdl.wpc"))
+        {
+            return ScanXbxSceneFile(source, displayPath, rootDir);
+        }
+
+        if (OrdinalFileName.HasAnySuffix(name, ColSuffixes) || EndsWith(name, ".col"))
+            return ScanColFile(source, displayPath, rootDir);
+
+        if (EndsWith(name, ".skn"))
+            return ScanRwDffFile(source, displayPath, rootDir);
+
+        if (EndsWith(name, ".bsp"))
+            return ScanRwBspFile(source, displayPath, rootDir);
+
+        if (OrdinalFileName.HasExtension(name, ".ddm") &&
+            !Path.GetFileNameWithoutExtension(name).EndsWith("_o", StringComparison.OrdinalIgnoreCase))
+        {
+            return ScanDdmFile(source, displayPath, rootDir);
+        }
+
+        if (OrdinalFileName.HasExtension(name, ".psx"))
+            return ScanPsxFile(source, displayPath, rootDir);
+
+        if (OrdinalFileName.HasExtension(name, ".skin") || OrdinalFileName.HasExtension(name, ".mdl"))
+            return ScanPs2SceneFile(source, displayPath, rootDir, iskinStems: null);
+
+        return null;
+    }
+
+    private static bool EndsWith(string name, string suffix)
+        => name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase);
+
+    private static MeshScanFileBuckets ClassifyFiles(string inputDir, CancellationToken ct)
     {
         var buckets = new MeshScanFileBuckets();
-        foreach (var file in Directory.GetFiles(inputDir))
+        foreach (var file in EnumerateFiles(inputDir, ct))
         {
             var fileName = Path.GetFileName(file);
             var fileStem = Path.GetFileNameWithoutExtension(fileName);
@@ -143,29 +302,18 @@ internal static class MeshConverterTabFileScanner
             {
                 buckets.PakSceneFiles.Add(file);
             }
+
+            if (fileName.EndsWith(".pak.ps2", StringComparison.OrdinalIgnoreCase))
+                buckets.PakWorldzoneFiles.Add(file);
         }
 
-        SortByFileName(buckets.DdmFiles);
-        SortByFileName(buckets.PsxFiles);
-        SortByFileName(buckets.RwDffFiles);
-        SortByFileName(buckets.RwBspFiles);
-        SortByFileName(buckets.ColFiles);
-        SortByFileName(buckets.Ps2SceneFiles);
-        SortByFileName(buckets.Ps2GeomFiles);
-        SortByFileName(buckets.XbxSceneFiles);
-        SortByFileName(buckets.PakSceneFiles);
         return buckets;
     }
 
-    private static void SortByFileName(List<string> files)
-    {
-        files.Sort(FileNameComparer);
-    }
-
-    private static void AddEntry(List<MeshFileEntry> entries, MeshFileEntry? entry)
+    private static void AddIfNotNull(ConcurrentBag<MeshFileEntry> bag, MeshFileEntry? entry)
     {
         if (entry != null)
-            entries.Add(entry);
+            bag.Add(entry);
     }
 
     private static bool IsColFilePath(string file)
@@ -174,27 +322,38 @@ internal static class MeshConverterTabFileScanner
         return OrdinalFileName.HasAnySuffix(fileName, ColSuffixes) || OrdinalFileName.HasExtension(file, ".col");
     }
 
-    private static MeshFileEntry? ScanDdmFile(string file)
+    private static string MakeRelativePath(string displayPath, string rootDir)
+    {
+        if (string.IsNullOrEmpty(rootDir))
+            return Path.GetFileName(displayPath);
+        try
+        {
+            return Path.GetRelativePath(rootDir, displayPath);
+        }
+        catch
+        {
+            return Path.GetFileName(displayPath);
+        }
+    }
+
+    private static MeshFileEntry? ScanDdmFile(AssetSource source, string displayPath, string rootDir)
     {
         try
         {
-            var ddm = DdmFile.Parse(file);
-            var directory = Path.GetDirectoryName(file)!;
-            var stem = Path.GetFileNameWithoutExtension(file);
-            var companionPsx = FindCompanionFile(directory, stem, ".psx");
-            var companionObjectsDdm = companionPsx != null
-                ? FindCompanionFile(directory, stem + "_o", ".ddm")
-                : null;
+            var ddm = DdmFile.Parse(source.ReadBytes());
+            var stem = Path.GetFileNameWithoutExtension(source.EntryName);
+            var companionPsxExists = source.CompanionExists(stem + ".psx");
 
             return new MeshFileEntry
             {
-                FileName = Path.GetFileName(file),
-                FilePath = file,
-                Format = companionPsx != null ? "DDM (placed)" : "DDM",
+                FileName = source.EntryName,
+                FilePath = displayPath,
+                RelativePath = MakeRelativePath(displayPath, rootDir),
+                Format = companionPsxExists ? "DDM (placed)" : "DDM",
                 ObjectCount = ddm.Objects.Count,
                 MeshCount = ddm.Objects.Count,
-                CompanionPsxPath = companionPsx,
-                CompanionObjectsDdmPath = companionObjectsDdm
+                Source = source,
+                HasPlacedPsxCompanion = companionPsxExists
             };
         }
         catch
@@ -203,30 +362,23 @@ internal static class MeshConverterTabFileScanner
         }
     }
 
-    private static MeshFileEntry? ScanPsxFile(string file)
+    private static MeshFileEntry? ScanPsxFile(AssetSource source, string displayPath, string rootDir)
     {
         try
         {
-            var psxFile = PsxMeshFile.Parse(file);
+            var psxFile = PsxMeshFile.Parse(source.ReadBytes());
             if (psxFile == null)
                 return null;
 
-            string? companionLibraryPath = null;
-            var stem = Path.GetFileNameWithoutExtension(file);
-            if (stem.EndsWith("_g", StringComparison.OrdinalIgnoreCase))
-            {
-                var libraryStem = stem[..^2] + "_l";
-                companionLibraryPath = FindCompanionFile(Path.GetDirectoryName(file)!, libraryStem, ".psx");
-            }
-
             return new MeshFileEntry
             {
-                FileName = Path.GetFileName(file),
-                FilePath = file,
+                FileName = source.EntryName,
+                FilePath = displayPath,
+                RelativePath = MakeRelativePath(displayPath, rootDir),
                 Format = "PSX",
                 ObjectCount = psxFile.Objects.Count,
                 MeshCount = psxFile.Meshes.Count,
-                CompanionLibraryPsxPath = companionLibraryPath
+                Source = source
             };
         }
         catch
@@ -235,22 +387,24 @@ internal static class MeshConverterTabFileScanner
         }
     }
 
-    private static MeshFileEntry? ScanRwDffFile(string file)
+    private static MeshFileEntry? ScanRwDffFile(AssetSource source, string displayPath, string rootDir)
     {
         try
         {
-            var data = File.ReadAllBytes(file);
+            var data = source.ReadBytes();
             if (!RwDffFile.IsDffFile(data))
                 return null;
 
             var clump = RwDffFile.Parse(data);
             return new MeshFileEntry
             {
-                FileName = Path.GetFileName(file),
-                FilePath = file,
+                FileName = source.EntryName,
+                FilePath = displayPath,
+                RelativePath = MakeRelativePath(displayPath, rootDir),
                 Format = "RW DFF",
                 ObjectCount = clump.Atomics.Length,
-                MeshCount = clump.Geometries.Length
+                MeshCount = clump.Geometries.Length,
+                Source = source
             };
         }
         catch
@@ -259,22 +413,24 @@ internal static class MeshConverterTabFileScanner
         }
     }
 
-    private static MeshFileEntry? ScanRwBspFile(string file)
+    private static MeshFileEntry? ScanRwBspFile(AssetSource source, string displayPath, string rootDir)
     {
         try
         {
-            var data = File.ReadAllBytes(file);
+            var data = source.ReadBytes();
             if (!RwBspFile.IsBspFile(data))
                 return null;
 
             var world = RwBspFile.Parse(data);
             return new MeshFileEntry
             {
-                FileName = Path.GetFileName(file),
-                FilePath = file,
+                FileName = source.EntryName,
+                FilePath = displayPath,
+                RelativePath = MakeRelativePath(displayPath, rootDir),
                 Format = "RW BSP",
                 ObjectCount = world.Sections.Length,
-                MeshCount = world.Materials.Length
+                MeshCount = world.Materials.Length,
+                Source = source
             };
         }
         catch
@@ -283,22 +439,24 @@ internal static class MeshConverterTabFileScanner
         }
     }
 
-    private static MeshFileEntry? ScanColFile(string file)
+    private static MeshFileEntry? ScanColFile(AssetSource source, string displayPath, string rootDir)
     {
         try
         {
-            var data = File.ReadAllBytes(file);
+            var data = source.ReadBytes();
             if (!ColFile.IsColFile(data))
                 return null;
 
             var scene = ColFile.Parse(data);
             return new MeshFileEntry
             {
-                FileName = Path.GetFileName(file),
-                FilePath = file,
+                FileName = source.EntryName,
+                FilePath = displayPath,
+                RelativePath = MakeRelativePath(displayPath, rootDir),
                 Format = "COL",
                 ObjectCount = scene.Objects.Length,
-                MeshCount = scene.Objects.Length
+                MeshCount = scene.Objects.Length,
+                Source = source
             };
         }
         catch
@@ -307,14 +465,14 @@ internal static class MeshConverterTabFileScanner
         }
     }
 
-    private static MeshFileEntry? ScanPs2SceneFile(string file, HashSet<string>? iskinStems = null)
+    private static MeshFileEntry? ScanPs2SceneFile(
+        AssetSource source, string displayPath, string rootDir, HashSet<string>? iskinStems)
     {
         try
         {
-            var data = File.ReadAllBytes(file);
-            var fileName = Path.GetFileName(file);
+            var data = source.ReadBytes();
+            var fileName = source.EntryName;
             var lower = fileName.ToLowerInvariant();
-            var directory = Path.GetDirectoryName(file)!;
             var stem = StripCompoundExtension(fileName);
 
             Ps2SceneSubFormat subFormat;
@@ -372,29 +530,16 @@ internal static class MeshConverterTabFileScanner
                 return null;
             }
 
-            string? skeletonPath = null;
-            if (lower.Contains(".skin", StringComparison.Ordinal))
-                skeletonPath = ThawSkeletonDiscovery.FindSkeletonPath(
-                    file,
-                    stem,
-                    subFormat == Ps2SceneSubFormat.ThawSkin);
-
-            var texPath = CompanionSearch.FindCompanion(
-                directory,
-                stem,
-                [".tex.ps2", ".tex", ".img.ps2"],
-                ["TEX", "Textures", "IMG"]);
-
             return new MeshFileEntry
             {
                 FileName = fileName,
-                FilePath = file,
+                FilePath = displayPath,
+                RelativePath = MakeRelativePath(displayPath, rootDir),
                 Format = format,
                 ObjectCount = objectCount,
                 MeshCount = meshCount,
                 Ps2SubFormat = subFormat,
-                CompanionSkeletonPath = skeletonPath,
-                CompanionTexPath = texPath
+                Source = source
             };
         }
         catch
@@ -403,28 +548,21 @@ internal static class MeshConverterTabFileScanner
         }
     }
 
-    private static MeshFileEntry? ScanPs2GeomFile(string file)
+    private static MeshFileEntry? ScanPs2GeomFile(AssetSource source, string displayPath, string rootDir)
     {
         try
         {
-            var scene = Ps2GeomFile.Parse(file);
-            var fileName = Path.GetFileName(file);
-            var stem = StripCompoundExtension(fileName);
-            var texPath = CompanionSearch.FindCompanion(
-                Path.GetDirectoryName(file)!,
-                stem,
-                [".tex.ps2", ".tex", ".img.ps2"],
-                ["TEX", "Textures", "IMG"]);
-
+            var scene = Ps2GeomFile.Parse(source.ReadBytes());
             return new MeshFileEntry
             {
-                FileName = fileName,
-                FilePath = file,
+                FileName = source.EntryName,
+                FilePath = displayPath,
+                RelativePath = MakeRelativePath(displayPath, rootDir),
                 Format = "PS2 GEOM",
                 ObjectCount = scene.Leaves.Count,
                 MeshCount = scene.Leaves.Count,
                 Ps2SubFormat = Ps2SceneSubFormat.Geom,
-                CompanionTexPath = texPath
+                Source = source
             };
         }
         catch
@@ -433,14 +571,12 @@ internal static class MeshConverterTabFileScanner
         }
     }
 
-    private static MeshFileEntry? ScanXbxSceneFile(string file)
+    private static MeshFileEntry? ScanXbxSceneFile(AssetSource source, string displayPath, string rootDir)
     {
         try
         {
-            var data = File.ReadAllBytes(file);
-            var fileName = Path.GetFileName(file);
-            var directory = Path.GetDirectoryName(file)!;
-            var stem = StripCompoundExtension(fileName);
+            var data = source.ReadBytes();
+            var fileName = source.EntryName;
 
             XbxScene scene;
             string format;
@@ -463,20 +599,50 @@ internal static class MeshConverterTabFileScanner
                 return null;
             }
 
-            var texPath = CompanionSearch.FindCompanion(
-                directory,
-                stem,
-                [".tex.xbx", ".tex.wpc"],
-                ["TEX", "Textures"]);
-
             return new MeshFileEntry
             {
                 FileName = fileName,
-                FilePath = file,
+                FilePath = displayPath,
+                RelativePath = MakeRelativePath(displayPath, rootDir),
                 Format = format,
                 ObjectCount = scene.Sectors.Length,
                 MeshCount = scene.Materials.Length,
-                CompanionTexPath = texPath
+                Source = source
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static MeshFileEntry? ScanPakWorldzoneFile(AssetSource source, string displayPath, string rootDir)
+    {
+        var fileSystemPath = source.FileSystemPath;
+        if (fileSystemPath == null) return null; // Worldzone requires a real PAK path
+
+        try
+        {
+            if (!Ps2WorldzoneConverter.IsWorldzonePak(fileSystemPath))
+                return null;
+
+            var typed = PakArchive.GetTypedEntries(fileSystemPath);
+            var mdlCount = typed.Count(e =>
+                e.TypeHash == Ps2WorldzoneConverter.WorldzoneMdlTypeHash
+                || e.TypeHash == Ps2WorldzoneConverter.WorldzoneLevelMdlTypeHash);
+            var placementCount = typed.Count(e =>
+                e.TypeHash == Ps2WorldzoneConverter.WorldzonePlacementTypeHash);
+
+            return new MeshFileEntry
+            {
+                FileName = Path.GetFileName(fileSystemPath),
+                FilePath = displayPath,
+                RelativePath = MakeRelativePath(displayPath, rootDir),
+                Format = "PS2 (THAW worldzone)",
+                ObjectCount = mdlCount,
+                MeshCount = placementCount,
+                Ps2SubFormat = Ps2SceneSubFormat.PakWorldzone,
+                Source = source
             };
         }
         catch
@@ -491,6 +657,7 @@ internal static class MeshConverterTabFileScanner
         public List<string> DdmFiles { get; } = [];
         public HashSet<string> IskinStems { get; } = new(StringComparer.OrdinalIgnoreCase);
         public List<string> PakSceneFiles { get; } = [];
+        public List<string> PakWorldzoneFiles { get; } = [];
         public List<string> Ps2GeomFiles { get; } = [];
         public List<string> Ps2SceneFiles { get; } = [];
         public List<string> PsxFiles { get; } = [];

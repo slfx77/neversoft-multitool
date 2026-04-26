@@ -1,3 +1,5 @@
+using NeversoftMultitool.Core.Formats;
+
 namespace NeversoftMultitool;
 
 public class AudioFileEntry : BaseFileEntry, IListEntry
@@ -7,6 +9,8 @@ public class AudioFileEntry : BaseFileEntry, IListEntry
 
     public required string FileName { get; init; }
     public required string AudioFormat { get; init; }
+    public required AssetSource Source { get; init; }
+    public string RelativePath { get; init; } = "";
 
     protected override string ProcessingVerb => "Converting...";
 

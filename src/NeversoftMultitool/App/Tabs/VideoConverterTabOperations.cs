@@ -1,10 +1,20 @@
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Video;
 
 namespace NeversoftMultitool;
 
 internal static class VideoConverterTabOperations
 {
+    public static bool IsVideoFile(string path)
+    {
+        return OrdinalFileName.HasExtension(path, ".sfd")
+               || OrdinalFileName.HasExtension(path, ".pss")
+               || OrdinalFileName.HasExtension(path, ".bik")
+               || OrdinalFileName.HasExtension(path, ".vid")
+               || OrdinalFileName.HasExtension(path, ".str");
+    }
+
     public static IEnumerable<string> FindVideoFiles(string inputDir)
     {
         return Directory.EnumerateFiles(inputDir, "*", SearchOption.TopDirectoryOnly)
@@ -28,13 +38,40 @@ internal static class VideoConverterTabOperations
             FilePath = filePath,
             DurationDisplay = duration,
             ResolutionDisplay = resolution,
-            SizeDisplay = FormatFileSize(fileInfo.Length)
+            SizeDisplay = FormatFileSize(fileInfo.Length),
+            Source = new FileSystemAssetSource(filePath)
+        };
+    }
+
+    /// <summary>
+    ///     Creates an entry for an archive-backed video. We skip ffprobe during
+    ///     scan to avoid spawning a process per archive entry; duration/resolution
+    ///     remain empty and get populated the first time the user previews.
+    /// </summary>
+    public static SfdFileEntry CreateEntryForArchiveEntry(
+        ArchiveAssetBackend backend, Core.Formats.Archives.ArchiveEntry archiveEntry)
+    {
+        var source = new ArchiveAssetSource(backend, archiveEntry);
+        return new SfdFileEntry
+        {
+            FileName = archiveEntry.Name,
+            FilePath = source.DisplayName,
+            DurationDisplay = "",
+            ResolutionDisplay = "",
+            SizeDisplay = FormatFileSize(archiveEntry.Size),
+            Source = source,
+            RelativePath = source.DisplayName
         };
     }
 
     public static bool IsStrFormat(string path)
     {
         return OrdinalFileName.HasExtension(path, ".str");
+    }
+
+    public static bool IsVidFormat(string path)
+    {
+        return OrdinalFileName.HasExtension(path, ".vid");
     }
 
     public static bool IsFfmpegPassthroughFormat(string path)
@@ -89,6 +126,45 @@ internal static class VideoConverterTabOperations
             return Vid1VideoConverter.ConvertToMp4(path, outputDir, progress, cancellationToken);
 
         return SfdConverter.ConvertToMp4(path, outputDir, progress, cancellationToken);
+    }
+
+    public static SfdConvertResult ConvertFromSource(
+        SfdFileEntry entry,
+        string outputDir,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Filesystem-backed entries go through the existing path-based pipeline
+        // (preserves PSS audio muxing + STR/VID codepaths).
+        if (entry.Source.FileSystemPath is { } filePath)
+            return ConvertFile(filePath, outputDir, progress, cancellationToken);
+
+        // Archive-backed: for SFD, pipe bytes to ffmpeg stdin. For STR/VID, fall
+        // back to a temp file since those converters need a seekable path for
+        // their custom decoders.
+        var stem = Path.GetFileNameWithoutExtension(entry.FileName);
+        var data = entry.Source.ReadBytes();
+
+        if (OrdinalFileName.HasExtension(entry.FileName, ".sfd") ||
+            OrdinalFileName.HasExtension(entry.FileName, ".bik"))
+        {
+            return SfdConverter.ConvertToMp4(data, stem, outputDir, progress, cancellationToken);
+        }
+
+        // Temp-file fallback for STR / VID / PSS from archives.
+        var tempPath = Path.Combine(
+            Path.GetTempPath(), "NeversoftMultitool", "ArchiveVideo",
+            $"{Guid.NewGuid():N}_{entry.FileName}");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(tempPath)!);
+            File.WriteAllBytes(tempPath, data);
+            return ConvertFile(tempPath, outputDir, progress, cancellationToken);
+        }
+        finally
+        {
+            try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { /* ignore */ }
+        }
     }
 
     public static string FormatTime(TimeSpan ts)

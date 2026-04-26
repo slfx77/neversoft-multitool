@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
@@ -52,37 +53,38 @@ internal static class TextureTabTextureOperations
         return TextureFileFormat.Psx;
     }
 
-    public static int CountTextures(string inputFile, TextureFileFormat format)
+    public static int CountTextures(AssetSource source, TextureFileFormat format)
     {
+        var data = source.ReadBytes();
         return format switch
         {
-            TextureFileFormat.Ps2Tex => CountParsedTextures(Ps2TexFile.Parse(inputFile)),
-            TextureFileFormat.NgcTex => CountParsedTextures(NgcTexFile.Parse(inputFile)),
-            TextureFileFormat.XbxTex => CountParsedTextures(ParseXbxTextures(inputFile, format)),
-            TextureFileFormat.XbxImg => CountParsedTextures(ParseXbxTextures(inputFile, format)),
-            TextureFileFormat.Pvr => PvrFileDecoder.DecodeToRgba(inputFile) != null ? 1 : 0,
-            _ => PsxLibrary.EnumerateTextures(inputFile).Count
+            TextureFileFormat.Ps2Tex => CountParsedTextures(Ps2TexFile.Parse(data)),
+            TextureFileFormat.NgcTex => CountParsedTextures(NgcTexFile.Parse(data)),
+            TextureFileFormat.XbxTex => CountParsedTextures(ParseXbxTextures(data, format)),
+            TextureFileFormat.XbxImg => CountParsedTextures(ParseXbxTextures(data, format)),
+            TextureFileFormat.Pvr => PvrFileDecoder.DecodeToRgba(data) != null ? 1 : 0,
+            _ => PsxLibrary.EnumerateTextures(data).Count
         };
     }
 
     public static List<PsxTextureEntry> EnumerateChildren(
-        string inputFile,
+        AssetSource source,
         string parentFileName,
         TextureFileFormat format)
     {
+        var data = source.ReadBytes();
         return format switch
         {
-            TextureFileFormat.Ps2Tex => BuildPs2Entries(Ps2TexFile.Parse(inputFile), parentFileName),
-            TextureFileFormat.NgcTex => BuildNgcEntries(NgcTexFile.Parse(inputFile), parentFileName),
-            TextureFileFormat.XbxTex => BuildXboxEntries(ParseXbxTextures(inputFile, format), parentFileName, format),
-            TextureFileFormat.XbxImg => BuildXboxEntries(ParseXbxTextures(inputFile, format), parentFileName, format),
-            TextureFileFormat.Pvr => BuildPvrEntries(inputFile, parentFileName),
-            _ => BuildPsxEntries(inputFile, parentFileName)
+            TextureFileFormat.Ps2Tex => BuildPs2Entries(Ps2TexFile.Parse(data), parentFileName),
+            TextureFileFormat.NgcTex => BuildNgcEntries(NgcTexFile.Parse(data), parentFileName),
+            TextureFileFormat.XbxTex => BuildXboxEntries(ParseXbxTextures(data, format), parentFileName, format),
+            TextureFileFormat.XbxImg => BuildXboxEntries(ParseXbxTextures(data, format), parentFileName, format),
+            TextureFileFormat.Pvr => BuildPvrEntries(data, parentFileName),
+            _ => BuildPsxEntries(data, parentFileName)
         };
     }
 
     public static (int totalTex, int writtenTex, bool skipped, bool success) ExtractTextures(
-        string inputFile,
         PsxFileEntry entry,
         string outputDir,
         bool createSubDirs,
@@ -90,34 +92,36 @@ internal static class TextureTabTextureOperations
         bool writeMipAtlas)
     {
         var stem = StripCompoundExtension(entry.FileName);
+        var data = entry.Source.ReadBytes();
 
         return entry.Format switch
         {
-            TextureFileFormat.Ps2Tex => ExtractPs2Textures(inputFile, outputDir, stem),
-            TextureFileFormat.NgcTex => ExtractNgcTextures(inputFile, outputDir, stem),
-            TextureFileFormat.XbxTex => ExtractXbxTextures(inputFile, outputDir, stem, entry.Format),
-            TextureFileFormat.XbxImg => ExtractXbxImage(inputFile, outputDir, stem, createSubDirs),
-            TextureFileFormat.Pvr => ExtractPvr(inputFile, outputDir, stem, createSubDirs),
-            _ => ExtractPsxTextures(inputFile, outputDir, createSubDirs, writeDds, writeMipAtlas)
+            TextureFileFormat.Ps2Tex => ExtractPs2Textures(data, outputDir, stem),
+            TextureFileFormat.NgcTex => ExtractNgcTextures(data, outputDir, stem),
+            TextureFileFormat.XbxTex => ExtractXbxTextures(data, outputDir, stem, entry.Format),
+            TextureFileFormat.XbxImg => ExtractXbxImage(data, outputDir, stem, createSubDirs),
+            TextureFileFormat.Pvr => ExtractPvr(data, outputDir, stem, createSubDirs),
+            _ => ExtractPsxTextures(data, entry.FileName, outputDir, createSubDirs, writeDds, writeMipAtlas)
         };
     }
 
     public static (byte[] rgba, int width, int height)? GetPreviewRgba(
-        string inputFile,
+        AssetSource source,
         uint nameHash,
         TextureFileFormat format)
     {
+        var data = source.ReadBytes();
         switch (format)
         {
             case TextureFileFormat.Ps2Tex:
-                return GetPreviewTexture(Ps2TexFile.Parse(inputFile), nameHash);
+                return GetPreviewTexture(Ps2TexFile.Parse(data), nameHash);
             case TextureFileFormat.NgcTex:
-                return GetPreviewTexture(NgcTexFile.Parse(inputFile), nameHash);
+                return GetPreviewTexture(NgcTexFile.Parse(data), nameHash);
             case TextureFileFormat.XbxTex:
-                return GetPreviewTexture(ParseXbxTextures(inputFile, format), nameHash);
+                return GetPreviewTexture(ParseXbxTextures(data, format), nameHash);
             case TextureFileFormat.XbxImg:
             {
-                var result = ParseXbxTextures(inputFile, format);
+                var result = ParseXbxTextures(data, format);
                 if (!result.Success)
                     return null;
 
@@ -125,9 +129,9 @@ internal static class TextureTabTextureOperations
                 return tex?.Pixels != null ? (tex.Pixels, tex.Width, tex.Height) : null;
             }
             case TextureFileFormat.Pvr:
-                return PvrFileDecoder.DecodeToRgba(inputFile);
+                return PvrFileDecoder.DecodeToRgba(data);
             default:
-                return PsxLibrary.ExtractTextureByHash(inputFile, nameHash);
+                return PsxLibrary.ExtractTextureByHash(data, nameHash, source.EntryName);
         }
     }
 
@@ -193,9 +197,9 @@ internal static class TextureTabTextureOperations
             : [];
     }
 
-    private static List<PsxTextureEntry> BuildPvrEntries(string inputFile, string parentFileName)
+    private static List<PsxTextureEntry> BuildPvrEntries(byte[] data, string parentFileName)
     {
-        var pvr = PvrFileDecoder.DecodeToRgba(inputFile);
+        var pvr = PvrFileDecoder.DecodeToRgba(data);
         return pvr != null
             ?
             [
@@ -213,9 +217,9 @@ internal static class TextureTabTextureOperations
             : [];
     }
 
-    private static List<PsxTextureEntry> BuildPsxEntries(string inputFile, string parentFileName)
+    private static List<PsxTextureEntry> BuildPsxEntries(byte[] data, string parentFileName)
     {
-        return PsxLibrary.EnumerateTextures(inputFile)
+        return PsxLibrary.EnumerateTextures(data)
             .Select((texture, index) => new PsxTextureEntry
             {
                 ParentFileName = parentFileName,
@@ -230,11 +234,11 @@ internal static class TextureTabTextureOperations
     }
 
     private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractPs2Textures(
-        string inputFile,
+        byte[] data,
         string outputDir,
         string stem)
     {
-        var result = Ps2TexFile.Parse(inputFile);
+        var result = Ps2TexFile.Parse(data);
         if (!result.Success)
             return (0, 0, false, false);
 
@@ -243,11 +247,11 @@ internal static class TextureTabTextureOperations
     }
 
     private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractNgcTextures(
-        string inputFile,
+        byte[] data,
         string outputDir,
         string stem)
     {
-        var result = NgcTexFile.Parse(inputFile);
+        var result = NgcTexFile.Parse(data);
         if (!result.Success)
             return (0, 0, false, false);
 
@@ -256,12 +260,12 @@ internal static class TextureTabTextureOperations
     }
 
     private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractXbxTextures(
-        string inputFile,
+        byte[] data,
         string outputDir,
         string stem,
         TextureFileFormat format)
     {
-        var result = ParseXbxTextures(inputFile, format);
+        var result = ParseXbxTextures(data, format);
         if (!result.Success)
             return (0, 0, false, false);
 
@@ -270,12 +274,12 @@ internal static class TextureTabTextureOperations
     }
 
     private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractXbxImage(
-        string inputFile,
+        byte[] data,
         string outputDir,
         string stem,
         bool createSubDirs)
     {
-        var result = ParseXbxTextures(inputFile, TextureFileFormat.XbxImg);
+        var result = ParseXbxTextures(data, TextureFileFormat.XbxImg);
         if (!result.Success)
             return (0, 0, false, false);
 
@@ -285,26 +289,25 @@ internal static class TextureTabTextureOperations
     }
 
     private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractPvr(
-        string inputFile,
+        byte[] data,
         string outputDir,
         string stem,
         bool createSubDirs)
     {
         var outPath = BuildSingleTextureOutputPath(outputDir, stem, createSubDirs);
-        using var stream = File.OpenRead(inputFile);
-        using var reader = new BinaryReader(stream);
-        var ok = PvrFileDecoder.DecodeToPng(reader, 0, outPath);
+        var ok = PvrFileDecoder.DecodeToPng(data, outPath);
         return (1, ok ? 1 : 0, false, ok);
     }
 
     private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractPsxTextures(
-        string inputFile,
+        byte[] data,
+        string label,
         string outputDir,
         bool createSubDirs,
         bool writeDds,
         bool writeMipAtlas)
     {
-        var result = PsxLibrary.ExtractTextures(inputFile, outputDir, createSubDirs, writeDds, writeMipAtlas);
+        var result = PsxLibrary.ExtractTextures(data, label, outputDir, createSubDirs, writeDds, writeMipAtlas);
         return (result.TotalTextures, result.TexturesWritten, result.Skipped, result.Success);
     }
 
@@ -329,16 +332,16 @@ internal static class TextureTabTextureOperations
         return texture?.Pixels != null ? (texture.Pixels, texture.Width, texture.Height) : null;
     }
 
-    private static Ps2TexResult ParseXbxTextures(string inputFile, TextureFileFormat format)
+    private static Ps2TexResult ParseXbxTextures(byte[] data, TextureFileFormat format)
     {
         if (format == TextureFileFormat.XbxImg)
         {
-            var result = XbxImgFile.Parse(inputFile);
-            return result.Success ? result : ThawImgFile.Parse(inputFile);
+            var result = XbxImgFile.Parse(data);
+            return result.Success ? result : ThawImgFile.Parse(data);
         }
 
-        var texResult = XbxTexFile.Parse(inputFile);
-        return texResult.Success ? texResult : ThawTexFile.Parse(inputFile);
+        var texResult = XbxTexFile.Parse(data);
+        return texResult.Success ? texResult : ThawTexFile.Parse(data);
     }
 
     private static string StripCompoundExtension(string filename)

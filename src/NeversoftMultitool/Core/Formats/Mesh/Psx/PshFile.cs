@@ -36,7 +36,24 @@ public sealed class PshFile
         if (!File.Exists(filePath))
             return null;
 
-        var lines = File.ReadAllLines(filePath);
+        return ParseLines(File.ReadAllLines(filePath));
+    }
+
+    /// <summary>
+    ///     Parses PSH contents from an in-memory byte buffer (UTF-8 / ASCII).
+    /// </summary>
+    public static PshFile? Parse(byte[] data)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        using var reader = new StreamReader(stream);
+        var lines = new List<string>();
+        while (reader.ReadLine() is { } line)
+            lines.Add(line);
+        return ParseLines([.. lines]);
+    }
+
+    private static PshFile? ParseLines(string[] lines)
+    {
         var bones = new List<PshBone>();
 
         for (var i = 0; i < lines.Length; i++)

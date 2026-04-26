@@ -25,7 +25,19 @@ public static class KatExtractor
     public static List<KatSampleInfo> EnumerateSamples(string inputPath)
     {
         using var stream = File.OpenRead(inputPath);
-        using var reader = new BinaryReader(stream);
+        return EnumerateSamplesFromStream(stream);
+    }
+
+    /// <summary>In-memory variant.</summary>
+    public static List<KatSampleInfo> EnumerateSamples(byte[] data)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        return EnumerateSamplesFromStream(stream);
+    }
+
+    private static List<KatSampleInfo> EnumerateSamplesFromStream(Stream stream)
+    {
+        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
 
         if (stream.Length < 4) return [];
 
@@ -69,16 +81,115 @@ public static class KatExtractor
         try
         {
             using var stream = File.OpenRead(inputPath);
-            using var reader = new BinaryReader(stream);
+            return ExtractSingleFromStream(stream, Path.GetFileNameWithoutExtension(inputPath), sampleIndex, outputDir);
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
-            if (stream.Length < 4) return null;
-            var entryCount = reader.ReadUInt32();
-            if (sampleIndex < 0 || sampleIndex >= (int)entryCount) return null;
-            if (stream.Length < 4 + entryCount * EntrySize) return null;
+    /// <summary>In-memory variant.</summary>
+    public static string? ExtractSingleToWav(byte[] data, string stem, int sampleIndex, string outputDir)
+    {
+        try
+        {
+            using var stream = new MemoryStream(data, writable: false);
+            return ExtractSingleFromStream(stream, stem, sampleIndex, outputDir);
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
-            // Seek to the target entry
-            stream.Position = 4 + (long)sampleIndex * EntrySize;
-            var entry = new KatEntry
+    private static string? ExtractSingleFromStream(Stream stream, string stem, int sampleIndex, string outputDir)
+    {
+        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+
+        if (stream.Length < 4) return null;
+        var entryCount = reader.ReadUInt32();
+        if (sampleIndex < 0 || sampleIndex >= (int)entryCount) return null;
+        if (stream.Length < 4 + entryCount * EntrySize) return null;
+
+        stream.Position = 4 + (long)sampleIndex * EntrySize;
+        var entry = new KatEntry
+        {
+            Channels = reader.ReadUInt32(),
+            Offset = reader.ReadUInt32(),
+            Size = reader.ReadUInt32(),
+            SampleRate = reader.ReadUInt32(),
+            Loop = reader.ReadUInt32(),
+            Bits = reader.ReadUInt32(),
+            Unknown = reader.ReadUInt32(),
+            Name = reader.ReadBytes(16)
+        };
+
+        if (entry.Size == 0 || entry.SampleRate == 0) return null;
+
+        stream.Position = entry.Offset;
+        var rawData = reader.ReadBytes((int)entry.Size);
+        if (IsAllZeros(rawData)) return null;
+
+        var pcm = entry.Bits switch
+        {
+            4 => DecodeAicaAdpcm(rawData),
+            8 => DecodePcm8(rawData),
+            0 or 16 => DecodePcm16(rawData),
+            _ => []
+        };
+
+        if (pcm.Length == 0) return null;
+
+        var wavPath = Path.Combine(outputDir, $"{stem}_{sampleIndex:D3}.wav");
+        WavWriter.WritePcm16(wavPath, (int)entry.SampleRate, 1, pcm);
+        return wavPath;
+    }
+
+    public static AudioConvertResult ExtractToWav(string inputPath, string outputDir)
+    {
+        try
+        {
+            using var stream = File.OpenRead(inputPath);
+            return ExtractToWavFromStream(stream, Path.GetFileNameWithoutExtension(inputPath), outputDir);
+        }
+        catch (Exception ex)
+        {
+            return new AudioConvertResult { ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>In-memory variant.</summary>
+    public static AudioConvertResult ExtractToWav(byte[] data, string stem, string outputDir)
+    {
+        try
+        {
+            using var stream = new MemoryStream(data, writable: false);
+            return ExtractToWavFromStream(stream, stem, outputDir);
+        }
+        catch (Exception ex)
+        {
+            return new AudioConvertResult { ErrorMessage = ex.Message };
+        }
+    }
+
+    private static AudioConvertResult ExtractToWavFromStream(Stream stream, string stem, string outputDir)
+    {
+        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+
+        if (stream.Length < 4)
+            return new AudioConvertResult { ErrorMessage = "File too small for KAT header" };
+
+        var entryCount = reader.ReadUInt32();
+        var expectedHeaderSize = 4 + entryCount * EntrySize;
+
+        if (stream.Length < expectedHeaderSize)
+            return new AudioConvertResult { ErrorMessage = $"File too small for {entryCount} entries" };
+
+        var entries = new KatEntry[entryCount];
+        for (var i = 0; i < entryCount; i++)
+        {
+            entries[i] = new KatEntry
             {
                 Channels = reader.ReadUInt32(),
                 Offset = reader.ReadUInt32(),
@@ -89,115 +200,49 @@ public static class KatExtractor
                 Unknown = reader.ReadUInt32(),
                 Name = reader.ReadBytes(16)
             };
+        }
 
-            if (entry.Size == 0 || entry.SampleRate == 0) return null;
+        var outDir = Path.Combine(outputDir, stem);
+        var filesWritten = 0;
+
+        for (var i = 0; i < entries.Length; i++)
+        {
+            var entry = entries[i];
+            if (entry.Size == 0 || entry.SampleRate == 0)
+                continue;
 
             stream.Position = entry.Offset;
             var rawData = reader.ReadBytes((int)entry.Size);
-            if (IsAllZeros(rawData)) return null;
 
-            var pcm = entry.Bits switch
+            if (IsAllZeros(rawData))
+                continue;
+
+            short[] pcm;
+            switch (entry.Bits)
             {
-                4 => DecodeAicaAdpcm(rawData),
-                8 => DecodePcm8(rawData),
-                0 or 16 => DecodePcm16(rawData),
-                _ => []
-            };
-
-            if (pcm.Length == 0) return null;
-
-            var stem = Path.GetFileNameWithoutExtension(inputPath);
-            var wavPath = Path.Combine(outputDir, $"{stem}_{sampleIndex:D3}.wav");
-            WavWriter.WritePcm16(wavPath, (int)entry.SampleRate, 1, pcm);
-            return wavPath;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    public static AudioConvertResult ExtractToWav(string inputPath, string outputDir)
-    {
-        try
-        {
-            using var stream = File.OpenRead(inputPath);
-            using var reader = new BinaryReader(stream);
-
-            if (stream.Length < 4)
-                return new AudioConvertResult { ErrorMessage = "File too small for KAT header" };
-
-            var entryCount = reader.ReadUInt32();
-            var expectedHeaderSize = 4 + entryCount * EntrySize;
-
-            if (stream.Length < expectedHeaderSize)
-                return new AudioConvertResult { ErrorMessage = $"File too small for {entryCount} entries" };
-
-            // Read entry table
-            var entries = new KatEntry[entryCount];
-            for (var i = 0; i < entryCount; i++)
-            {
-                entries[i] = new KatEntry
-                {
-                    Channels = reader.ReadUInt32(),
-                    Offset = reader.ReadUInt32(),
-                    Size = reader.ReadUInt32(),
-                    SampleRate = reader.ReadUInt32(),
-                    Loop = reader.ReadUInt32(),
-                    Bits = reader.ReadUInt32(),
-                    Unknown = reader.ReadUInt32(),
-                    Name = reader.ReadBytes(16)
-                };
+                case 4:
+                    pcm = DecodeAicaAdpcm(rawData);
+                    break;
+                case 8:
+                    pcm = DecodePcm8(rawData);
+                    break;
+                case 0:
+                case 16:
+                    pcm = DecodePcm16(rawData);
+                    break;
+                default:
+                    continue;
             }
 
-            var stem = Path.GetFileNameWithoutExtension(inputPath);
-            var outDir = Path.Combine(outputDir, stem);
-            var filesWritten = 0;
-
-            for (var i = 0; i < entries.Length; i++)
+            if (pcm.Length > 0)
             {
-                var entry = entries[i];
-                if (entry.Size == 0 || entry.SampleRate == 0)
-                    continue;
-
-                stream.Position = entry.Offset;
-                var rawData = reader.ReadBytes((int)entry.Size);
-
-                // Skip silent placeholders (all zeros)
-                if (IsAllZeros(rawData))
-                    continue;
-
-                short[] pcm;
-                switch (entry.Bits)
-                {
-                    case 4:
-                        pcm = DecodeAicaAdpcm(rawData);
-                        break;
-                    case 8:
-                        pcm = DecodePcm8(rawData);
-                        break;
-                    case 0:
-                    case 16:
-                        pcm = DecodePcm16(rawData);
-                        break;
-                    default:
-                        continue; // skip unknown encoding
-                }
-
-                if (pcm.Length > 0)
-                {
-                    var wavPath = Path.Combine(outDir, $"{i:D3}.wav");
-                    WavWriter.WritePcm16(wavPath, (int)entry.SampleRate, 1, pcm);
-                    filesWritten++;
-                }
+                var wavPath = Path.Combine(outDir, $"{i:D3}.wav");
+                WavWriter.WritePcm16(wavPath, (int)entry.SampleRate, 1, pcm);
+                filesWritten++;
             }
+        }
 
-            return new AudioConvertResult { Success = true, SamplesWritten = filesWritten };
-        }
-        catch (Exception ex)
-        {
-            return new AudioConvertResult { ErrorMessage = ex.Message };
-        }
+        return new AudioConvertResult { Success = true, SamplesWritten = filesWritten };
     }
 
     /// <summary>

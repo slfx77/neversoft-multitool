@@ -12,7 +12,7 @@ public static class RleCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to directory containing .rle/.bmr files"
+            Description = "Path to directory containing .rle/.bmr/.zlb files"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -29,7 +29,7 @@ public static class RleCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("rle", "Convert RLE/BMR bitmap files to PNG");
+        var command = new Command("rle", "Convert RLE/BMR/ZLB bitmap files to PNG");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(widthOption);
@@ -50,20 +50,21 @@ public static class RleCommand
 
             var rleFiles = Directory.GetFiles(input)
                 .Where(f => f.EndsWith(".rle", StringComparison.OrdinalIgnoreCase) ||
-                            f.EndsWith(".bmr", StringComparison.OrdinalIgnoreCase))
+                            f.EndsWith(".bmr", StringComparison.OrdinalIgnoreCase) ||
+                            f.EndsWith(".zlb", StringComparison.OrdinalIgnoreCase))
                 .ToArray();
 
             if (rleFiles.Length == 0)
             {
-                AnsiConsole.MarkupLine("[yellow]No .rle or .bmr files found in the specified directory.[/]");
+                AnsiConsole.MarkupLine("[yellow]No .rle, .bmr, or .zlb files found in the specified directory.[/]");
                 return Task.FromResult(0);
             }
 
             Directory.CreateDirectory(output);
             var autoDetect = width == 0;
             AnsiConsole.MarkupLine(autoDetect
-                ? $"Found [green]{rleFiles.Length}[/] RLE/BMR file(s), width=auto"
-                : $"Found [green]{rleFiles.Length}[/] RLE/BMR file(s), width={width}px");
+                ? $"Found [green]{rleFiles.Length}[/] RLE/BMR/ZLB file(s), width=auto"
+                : $"Found [green]{rleFiles.Length}[/] RLE/BMR/ZLB file(s), width={width}px");
 
             var stopwatch = Stopwatch.StartNew();
             var converted = 0;

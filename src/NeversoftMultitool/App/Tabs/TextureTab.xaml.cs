@@ -3,11 +3,14 @@ using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats;
 
 namespace NeversoftMultitool;
 
 public sealed partial class TextureTab : UserControl, IDisposable
 {
+    private static readonly string[] ArchiveExtensions = [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr"];
+
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<PsxFileEntry> _parentFiles = [];
     private CancellationTokenSource? _cts;
@@ -43,7 +46,7 @@ public sealed partial class TextureTab : UserControl, IDisposable
 
         _items.Clear();
         _parentFiles.Clear();
-        var candidateFiles = Directory.GetFiles(_inputDir)
+        var candidateFiles = Directory.EnumerateFiles(_inputDir, "*", SearchOption.AllDirectories)
             .Where(TextureTabTextureOperations.IsTextureFile)
             .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -74,6 +77,8 @@ public sealed partial class TextureTab : UserControl, IDisposable
             var entry = new PsxFileEntry
             {
                 FileName = fileName,
+                Source = new FileSystemAssetSource(file),
+                RelativePath = MakeRelativePath(file, _inputDir),
                 Format = TextureTabTextureOperations.ClassifyFormat(fileName)
             };
             _parentFiles.Add(entry);
@@ -81,9 +86,67 @@ public sealed partial class TextureTab : UserControl, IDisposable
         }
 
         UpdateUiState();
+        RunCountEnumeration();
+    }
 
-        // Enumerate texture counts in background
-        var inputDir = _inputDir;
+    private async void SelectArchive_Click(object sender, RoutedEventArgs e)
+    {
+        var path = await FilePickerHelper.PickFileAsync(ArchiveExtensions);
+        if (path == null) return;
+
+        _inputDir = Path.GetDirectoryName(path) ?? "";
+        InputPathText.Text = path;
+
+        _items.Clear();
+        _parentFiles.Clear();
+
+        await Task.Run(() =>
+        {
+            var backend = ArchiveAssetBackend.TryOpen(path);
+            if (backend == null)
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    MainWindow.Instance?.SetStatus($"{Path.GetFileName(path)}: unsupported archive.");
+                    UpdateUiState();
+                });
+                return;
+            }
+
+            var archiveName = Path.GetFileName(path);
+            var entries = new List<PsxFileEntry>();
+            foreach (var archiveEntry in backend.Entries)
+            {
+                if (!TextureTabTextureOperations.IsTextureFile(archiveEntry.Name)) continue;
+                entries.Add(new PsxFileEntry
+                {
+                    FileName = archiveEntry.Name,
+                    Source = new ArchiveAssetSource(backend, archiveEntry),
+                    RelativePath = $"{archiveName}::{archiveEntry.Name}",
+                    Format = TextureTabTextureOperations.ClassifyFormat(archiveEntry.Name)
+                });
+            }
+
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                foreach (var entry in entries)
+                {
+                    _parentFiles.Add(entry);
+                    _items.Add(entry);
+                }
+
+                MainWindow.Instance?.SetStatus(entries.Count == 0
+                    ? $"{archiveName}: no texture entries."
+                    : $"Found {entries.Count} texture entrie(s) in {archiveName}.");
+
+                UpdateUiState();
+                RunCountEnumeration();
+            });
+        });
+    }
+
+    private void RunCountEnumeration()
+    {
         var entries = _parentFiles.ToList();
         var dispatcher = DispatcherQueue;
         _ = Task.Run(() =>
@@ -92,9 +155,7 @@ public sealed partial class TextureTab : UserControl, IDisposable
             {
                 try
                 {
-                    var inputFile = Path.Combine(inputDir, entry.FileName);
-                    var count = TextureTabTextureOperations.CountTextures(inputFile, entry.Format);
-
+                    var count = TextureTabTextureOperations.CountTextures(entry.Source, entry.Format);
                     dispatcher.TryEnqueue(() =>
                     {
                         entry.TextureCount = count;
@@ -107,6 +168,13 @@ public sealed partial class TextureTab : UserControl, IDisposable
                 }
             }
         });
+    }
+
+    private static string MakeRelativePath(string file, string rootDir)
+    {
+        if (string.IsNullOrEmpty(rootDir)) return Path.GetFileName(file);
+        try { return Path.GetRelativePath(rootDir, file); }
+        catch { return Path.GetFileName(file); }
     }
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
@@ -139,7 +207,6 @@ public sealed partial class TextureTab : UserControl, IDisposable
 
         if (parent.IsExpanded)
         {
-            // Collapse: remove children after parent
             parent.IsExpanded = false;
             var removeIndex = parentIndex + 1;
             while (removeIndex < _items.Count && _items[removeIndex].IsChildEntry)
@@ -147,14 +214,12 @@ public sealed partial class TextureTab : UserControl, IDisposable
         }
         else
         {
-            // Expand: lazy-load children on first expand
             if (parent.CachedChildren == null)
             {
-                var inputFile = Path.Combine(_inputDir, parent.FileName);
                 try
                 {
                     parent.CachedChildren = TextureTabTextureOperations.EnumerateChildren(
-                        inputFile,
+                        parent.Source,
                         parent.FileName,
                         parent.Format);
                 }
@@ -188,7 +253,6 @@ public sealed partial class TextureTab : UserControl, IDisposable
         var writeDds = WriteDdsCheckbox.IsChecked == true;
         var writeMipAtlas = WriteMipAtlasCheckbox.IsChecked == true;
 
-        // Reset state
         foreach (var file in _parentFiles)
         {
             file.TextureCount = 0;
@@ -206,17 +270,15 @@ public sealed partial class TextureTab : UserControl, IDisposable
         var totalFiles = _parentFiles.Count;
         var token = cts.Token;
         var dispatcher = DispatcherQueue;
-        var inputDir = _inputDir;
         var outputDir = _outputDir;
 
-        // Snapshot parent entries for parallel iteration
         var entries = _parentFiles.ToList();
 
         await Task.Run(() =>
         {
             var semaphore = new SemaphoreSlim(Environment.ProcessorCount);
 
-            var tasks = entries.Select((entry, index) => Task.Run(async () =>
+            var tasks = entries.Select(entry => Task.Run(async () =>
             {
                 await semaphore.WaitAsync(token);
                 try
@@ -225,10 +287,8 @@ public sealed partial class TextureTab : UserControl, IDisposable
 
                     dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
 
-                    var inputFile = Path.Combine(inputDir, entry.FileName);
                     var (totalTex, writtenTex, skipped, success) =
                         TextureTabTextureOperations.ExtractTextures(
-                            inputFile,
                             entry,
                             outputDir,
                             createSubDirs,
@@ -313,7 +373,6 @@ public sealed partial class TextureTab : UserControl, IDisposable
             _sortAscending = true;
         }
 
-        // Collapse all before sorting
         foreach (var parent in _parentFiles)
             parent.IsExpanded = false;
 
@@ -333,7 +392,7 @@ public sealed partial class TextureTab : UserControl, IDisposable
 
     private void UpdateSortIcons()
     {
-        var glyph = _sortAscending ? "\uE70E" : "\uE70D";
+        var glyph = _sortAscending ? "" : "";
         FileNameSortIcon.Glyph = _sortColumn == "FileName" ? glyph : "";
         TexturesSortIcon.Glyph = _sortColumn == "Textures" ? glyph : "";
         ExtractedSortIcon.Glyph = _sortColumn == "Extracted" ? glyph : "";
@@ -372,12 +431,22 @@ public sealed partial class TextureTab : UserControl, IDisposable
         PreviewDimensionsText.Text = "";
         PreviewInfoText.Text = "";
 
-        var inputFile = Path.Combine(_inputDir, texture.ParentFileName);
+        var parent = _parentFiles.FirstOrDefault(p =>
+            p.FileName.Equals(texture.ParentFileName, StringComparison.OrdinalIgnoreCase));
+        if (parent == null)
+        {
+            PreviewLoading.IsActive = false;
+            NoPreviewIcon.Visibility = Visibility.Visible;
+            PreviewDimensionsText.Text = "Parent not found";
+            return;
+        }
+
+        var source = parent.Source;
         var nameHash = texture.NameHash;
-        var format = TextureTabTextureOperations.ClassifyFormat(texture.ParentFileName);
+        var format = parent.Format;
 
         var result = await Task.Run(
-            () => TextureTabTextureOperations.GetPreviewRgba(inputFile, nameHash, format),
+            () => TextureTabTextureOperations.GetPreviewRgba(source, nameHash, format),
             cts.Token);
 
         if (cts.Token.IsCancellationRequested) return;

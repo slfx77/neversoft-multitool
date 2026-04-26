@@ -10,7 +10,21 @@ public static class LitFile
 {
     public static List<LitLight> Parse(string path)
     {
-        var lines = File.ReadAllLines(path);
+        return ParseLines(File.ReadAllLines(path));
+    }
+
+    public static List<LitLight> Parse(byte[] data)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        using var reader = new StreamReader(stream);
+        var lines = new List<string>();
+        while (reader.ReadLine() is { } line)
+            lines.Add(line);
+        return ParseLines([.. lines]);
+    }
+
+    private static List<LitLight> ParseLines(string[] lines)
+    {
         var lights = new List<LitLight>();
         var i = 0;
 

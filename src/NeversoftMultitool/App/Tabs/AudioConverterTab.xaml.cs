@@ -5,12 +5,15 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Audio;
 
 namespace NeversoftMultitool;
 
 public sealed partial class AudioConverterTab : UserControl, IDisposable
 {
+    private static readonly string[] ArchiveExtensions = [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr"];
+
     private readonly AudioConverterTabConversionController _conversionController = new();
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<AudioFileEntry> _parentFiles = [];
@@ -83,13 +86,80 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
             var entry = new AudioFileEntry
             {
                 FileName = fileName,
-                AudioFormat = AudioConverterTabOperations.DetectFormat(ext)
+                AudioFormat = AudioConverterTabOperations.DetectFormat(ext),
+                Source = new FileSystemAssetSource(filePath),
+                RelativePath = MakeRelativePath(filePath, _inputDir)
             };
             _parentFiles.Add(entry);
             _items.Add(entry);
         }
 
         UpdateUiState();
+    }
+
+    private async void SelectArchive_Click(object sender, RoutedEventArgs e)
+    {
+        var path = await FilePickerHelper.PickFileAsync(ArchiveExtensions);
+        if (path == null) return;
+
+        _inputDir = Path.GetDirectoryName(path) ?? "";
+        InputPathText.Text = path;
+
+        ClearPreview();
+        _previewCache.Clear();
+        _items.Clear();
+        _parentFiles.Clear();
+
+        await Task.Run(() =>
+        {
+            var backend = ArchiveAssetBackend.TryOpen(path);
+            if (backend == null)
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    MainWindow.Instance?.SetStatus($"{Path.GetFileName(path)}: unsupported archive.");
+                    UpdateUiState();
+                });
+                return;
+            }
+
+            var archiveName = Path.GetFileName(path);
+            var entries = new List<AudioFileEntry>();
+            foreach (var archiveEntry in backend.Entries)
+            {
+                if (!AudioConverterTabOperations.IsAudioFile(archiveEntry.Name)) continue;
+                var ext = Path.GetExtension(archiveEntry.Name).ToLowerInvariant();
+                entries.Add(new AudioFileEntry
+                {
+                    FileName = archiveEntry.Name,
+                    AudioFormat = AudioConverterTabOperations.DetectFormat(ext),
+                    Source = new ArchiveAssetSource(backend, archiveEntry),
+                    RelativePath = $"{archiveName}::{archiveEntry.Name}"
+                });
+            }
+
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                foreach (var entry in entries.OrderBy(e => e.FileName, StringComparer.OrdinalIgnoreCase))
+                {
+                    _parentFiles.Add(entry);
+                    _items.Add(entry);
+                }
+
+                MainWindow.Instance?.SetStatus(entries.Count == 0
+                    ? $"{archiveName}: no audio entries."
+                    : $"Found {entries.Count} audio entrie(s) in {archiveName}.");
+
+                UpdateUiState();
+            });
+        });
+    }
+
+    private static string MakeRelativePath(string file, string rootDir)
+    {
+        if (string.IsNullOrEmpty(rootDir)) return Path.GetFileName(file);
+        try { return Path.GetRelativePath(rootDir, file); }
+        catch { return Path.GetFileName(file); }
     }
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
@@ -130,11 +200,10 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         {
             if (parent.CachedChildren == null)
             {
-                var inputFile = Path.Combine(_inputDir, parent.FileName);
                 try
                 {
                     parent.CachedChildren = AudioConverterTabOperations.EnumerateChildren(
-                        inputFile,
+                        parent.Source,
                         parent.FileName,
                         parent.AudioFormat);
                 }
@@ -166,7 +235,6 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
     {
         await _conversionController.ConvertAsync(
             _parentFiles,
-            _inputDir,
             _outputDir,
             GetSelectedVabSampleRate(),
             DispatcherQueue,
@@ -292,7 +360,6 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
                 wavPath = await Task.Run(
                     () => AudioConverterTabOperations.ConvertForPreview(
                         item,
-                        _inputDir,
                         _tempDir,
                         _parentFiles,
                         vabSampleRate),

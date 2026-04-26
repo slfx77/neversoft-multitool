@@ -126,14 +126,22 @@
             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
             TextAlignment="Center" />
           <TextBlock
-            Text="Select an input directory containing .rle or .bmr files"
+            Text="Select a folder of .rle/.bmr/.zlb files or a game archive (WAD/PRE/PKR/...)"
             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-            TextAlignment="Center" />
-          <Button
-            Content="Browse..."
-            HorizontalAlignment="Center"
-            Click="InputBrowse_Click"
-            Style="{StaticResource AccentButtonStyle}" />
+            TextAlignment="Center"
+            TextWrapping="Wrap"
+            MaxWidth="420" />
+          <StackPanel Orientation="Horizontal"
+                      HorizontalAlignment="Center"
+                      Spacing="8">
+            <Button
+              Content="Browse folder..."
+              Click="InputBrowse_Click"
+              Style="{StaticResource AccentButtonStyle}" />
+            <Button
+              Content="Select archive..."
+              Click="SelectArchive_Click" />
+          </StackPanel>
         </StackPanel>
       </Border>
 
@@ -207,10 +215,15 @@
                Grid.Row="0" Grid.Column="1"
                IsReadOnly="True"
                Style="{StaticResource IoTextBoxStyle}" />
-      <Button Grid.Row="0" Grid.Column="2"
-              Content="Browse..."
-              MinWidth="120"
-              Click="InputBrowse_Click" />
+      <StackPanel Grid.Row="0" Grid.Column="2"
+                  Orientation="Horizontal" Spacing="4">
+        <Button Content="Browse folder..."
+                MinWidth="120"
+                Click="InputBrowse_Click" />
+        <Button Content="Select archive..."
+                MinWidth="120"
+                Click="SelectArchive_Click" />
+      </StackPanel>
 
       <TextBlock Grid.Row="1" Grid.Column="0"
                  Text="Output:"

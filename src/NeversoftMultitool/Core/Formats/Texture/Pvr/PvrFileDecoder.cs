@@ -22,6 +22,14 @@ public static class PvrFileDecoder
         return DecodeToRgba(reader, 0);
     }
 
+    /// <summary>In-memory variant of <see cref="DecodeToRgba(string)"/>.</summary>
+    public static (byte[] Rgba, int Width, int Height)? DecodeToRgba(byte[] data)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        using var reader = new BinaryReader(stream);
+        return DecodeToRgba(reader, 0);
+    }
+
     /// <summary>
     ///     Decodes a PVR texture from a stream to RGBA pixel data.
     ///     The reader should be positioned at the start of the GBIX or PVRT header.
@@ -37,6 +45,17 @@ public static class PvrFileDecoder
         var rgbaPixels = ColorHelpers.Convert16BitTextureToRgba(
             header.PixelFormat, header.Width, header.Height, textureBuffer);
         return (rgbaPixels, header.Width, header.Height);
+    }
+
+    /// <summary>
+    ///     Decodes PVR bytes and writes the result to a PNG file. Used by archive-sourced
+    ///     PVR entries where no filesystem path exists.
+    /// </summary>
+    public static bool DecodeToPng(byte[] data, string pngPath)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        using var reader = new BinaryReader(stream);
+        return DecodeToPng(reader, 0, pngPath);
     }
 
     /// <summary>

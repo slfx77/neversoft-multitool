@@ -38,6 +38,16 @@ public sealed class PsxMeshFile
     }
 
     /// <summary>
+    ///     Parses a PSX file from an in-memory byte buffer.
+    /// </summary>
+    public static PsxMeshFile? Parse(byte[] data)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        using var reader = new BinaryReader(stream);
+        return Parse(reader);
+    }
+
+    /// <summary>
     ///     Parses a PSX file for mesh geometry from an existing reader.
     ///     Returns null if the file has no mesh data or is invalid.
     /// </summary>

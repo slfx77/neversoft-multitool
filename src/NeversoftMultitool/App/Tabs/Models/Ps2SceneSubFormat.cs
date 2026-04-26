@@ -7,5 +7,6 @@ internal enum Ps2SceneSubFormat
     ThawSkin,
     PakSkin,
     PakMdl,
-    Geom
+    Geom,
+    PakWorldzone
 }

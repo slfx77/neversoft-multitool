@@ -22,14 +22,42 @@ public static class PsxLibrary
     public static PsxExtractionResult ExtractTextures(string inputFile, string outputDir, bool createSubDirs,
         bool writeDds = true, bool writeMipAtlas = false)
     {
-        var result = new PsxExtractionResult();
         var filename = Path.GetFileName(inputFile);
-
         try
         {
             using var stream = File.OpenRead(inputFile);
             using var reader = new BinaryReader(stream);
+            return ExtractTexturesCore(reader, filename, outputDir, createSubDirs, writeDds, writeMipAtlas);
+        }
+        catch (Exception ex)
+        {
+            return new PsxExtractionResult { ErrorMessage = ex.Message };
+        }
+    }
 
+    /// <summary>In-memory variant of <see cref="ExtractTextures(string, string, bool, bool, bool)"/>.</summary>
+    public static PsxExtractionResult ExtractTextures(byte[] data, string label, string outputDir, bool createSubDirs,
+        bool writeDds = true, bool writeMipAtlas = false)
+    {
+        try
+        {
+            using var stream = new MemoryStream(data, writable: false);
+            using var reader = new BinaryReader(stream);
+            return ExtractTexturesCore(reader, label, outputDir, createSubDirs, writeDds, writeMipAtlas);
+        }
+        catch (Exception ex)
+        {
+            return new PsxExtractionResult { ErrorMessage = ex.Message };
+        }
+    }
+
+    private static PsxExtractionResult ExtractTexturesCore(
+        BinaryReader reader, string filename, string outputDir, bool createSubDirs,
+        bool writeDds, bool writeMipAtlas)
+    {
+        var result = new PsxExtractionResult();
+        try
+        {
             // Validate magic number
             var magic = reader.ReadBytes(4);
             if (!IsValidMagic(magic))
@@ -345,6 +373,22 @@ public static class PsxLibrary
         string psxFilePath, uint targetHash, List<string>? diagnostics = null)
     {
         return PsxLibraryLookup.ExtractTextureByHash(psxFilePath, targetHash, diagnostics);
+    }
+
+    /// <summary>
+    ///     In-memory variant of <see cref="ExtractTextureByHash(string, uint, List{string}?)"/>.
+    ///     <paramref name="label"/> is used purely for diagnostic messages.
+    /// </summary>
+    internal static (byte[] Rgba, int Width, int Height)? ExtractTextureByHash(
+        byte[] data, uint targetHash, string label, List<string>? diagnostics = null)
+    {
+        return PsxLibraryLookup.ExtractTextureByHash(data, targetHash, label, diagnostics);
+    }
+
+    /// <summary>In-memory enumeration variant.</summary>
+    public static List<(PsxTextureHeader Header, uint NameHash)> EnumerateTextures(byte[] data)
+    {
+        return PsxLibraryLookup.EnumerateTextures(data);
     }
 
     /// <summary>

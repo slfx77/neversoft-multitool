@@ -102,9 +102,9 @@
                       Grid.Column="0"
                       VerticalAlignment="Center"
                       Margin="8,0,0,0"
-                      Text="{x:Bind FileName}"
+                      Text="{x:Bind RelativePath}"
                       TextTrimming="CharacterEllipsis"
-                      ToolTipService.ToolTip="{x:Bind FileName}" />
+                      ToolTipService.ToolTip="{x:Bind FilePath}" />
                     <TextBlock
                       Grid.Column="1"
                       VerticalAlignment="Center"
@@ -155,14 +155,22 @@
               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
               TextAlignment="Center" />
             <TextBlock
-              Text="Select a game directory — companion files (DDX, PSX, _o) are resolved automatically"
+              Text="Select a folder (scanned recursively) or a .pak.ps2 worldzone archive. Companion files (DDX, PSX, TEX, SKE) are resolved automatically."
               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-              TextAlignment="Center" />
-            <Button
-              Content="Browse..."
-              HorizontalAlignment="Center"
-              Click="InputBrowse_Click"
-              Style="{StaticResource AccentButtonStyle}" />
+              TextAlignment="Center"
+              TextWrapping="Wrap"
+              MaxWidth="480" />
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        Spacing="8">
+              <Button
+                Content="Browse folder..."
+                Click="InputBrowse_Click"
+                Style="{StaticResource AccentButtonStyle}" />
+              <Button
+                Content="Select archive..."
+                Click="SelectArchive_Click" />
+            </StackPanel>
           </StackPanel>
         </Border>
       </Grid>
@@ -234,7 +242,7 @@
         <ColumnDefinition Width="Auto" />
       </Grid.ColumnDefinitions>
 
-      <!-- Input directory -->
+      <!-- Input directory or archive -->
       <TextBlock Grid.Row="0" Grid.Column="0"
                  Text="Input:"
                  Style="{StaticResource IoLabelStyle}" />
@@ -242,10 +250,16 @@
                Grid.Row="0" Grid.Column="1"
                IsReadOnly="True"
                Style="{StaticResource IoTextBoxStyle}" />
-      <Button Grid.Row="0" Grid.Column="2"
-              Content="Browse..."
-              MinWidth="120"
-              Click="InputBrowse_Click" />
+      <StackPanel Grid.Row="0" Grid.Column="2"
+                  Orientation="Horizontal"
+                  Spacing="4">
+        <Button Content="Browse folder..."
+                MinWidth="120"
+                Click="InputBrowse_Click" />
+        <Button Content="Select archive..."
+                MinWidth="120"
+                Click="SelectArchive_Click" />
+      </StackPanel>
 
       <!-- Output directory -->
       <TextBlock Grid.Row="1" Grid.Column="0"

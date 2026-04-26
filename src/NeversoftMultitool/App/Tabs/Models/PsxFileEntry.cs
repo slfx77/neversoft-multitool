@@ -1,3 +1,5 @@
+using NeversoftMultitool.Core.Formats;
+
 namespace NeversoftMultitool;
 
 public class PsxFileEntry : BaseFileEntry, IListEntry
@@ -8,6 +10,8 @@ public class PsxFileEntry : BaseFileEntry, IListEntry
     private int _textureCount;
 
     public required string FileName { get; init; }
+    public required AssetSource Source { get; init; }
+    public string RelativePath { get; init; } = "";
     internal TextureFileFormat Format { get; init; }
 
     public int TextureCount

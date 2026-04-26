@@ -108,6 +108,19 @@ internal static class ThawPs2SkinningTransfer
         return Apply(ps2Scene, ThawSceneFile.Parse(companionPath), skeleton);
     }
 
+    /// <summary>
+    ///     Apply PC-skin data from raw bytes (no filesystem discovery). Used when the
+    ///     source is archive-backed and the PC companion came out of the same archive.
+    /// </summary>
+    public static Result? TryApplyFromBytes(Scene.Ps2Scene ps2Scene, byte[] pcCompanionBytes, Ps2Skeleton skeleton)
+    {
+        if (pcCompanionBytes.Length == 0) return null;
+        var pcScene = ThawSceneFile.IsThawScene(pcCompanionBytes)
+            ? ThawSceneFile.Parse(pcCompanionBytes)
+            : XbxSceneFile.Parse(pcCompanionBytes);
+        return Apply(ps2Scene, pcScene, skeleton);
+    }
+
     private static Dictionary<uint, Dictionary<QuantizedPositionKey, List<XbxVertex>>> BuildPcVertexLookup(
         ParsedXbxScene pcScene)
     {

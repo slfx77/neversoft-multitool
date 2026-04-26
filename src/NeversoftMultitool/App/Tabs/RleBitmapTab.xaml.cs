@@ -4,12 +4,15 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.BinaryIO;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Rle;
 
 namespace NeversoftMultitool;
 
 public sealed partial class RleBitmapTab : UserControl, IDisposable
 {
+    private static readonly string[] ArchiveExtensions = [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr"];
+
     private readonly ObservableCollection<RleFileEntry> _files = [];
     private CancellationTokenSource? _debounceCts;
     private string _inputDir = "";
@@ -42,21 +45,95 @@ public sealed partial class RleBitmapTab : UserControl, IDisposable
         InputPathText.Text = _inputDir;
 
         _files.Clear();
-        var rleFiles = Directory.GetFiles(_inputDir)
-            .Where(f => f.EndsWith(".rle", StringComparison.OrdinalIgnoreCase) ||
-                        f.EndsWith(".bmr", StringComparison.OrdinalIgnoreCase))
-            .Select(Path.GetFileName)
-            .Where(f => f != null)
-            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
 
-        foreach (var file in rleFiles)
+        await Task.Run(() =>
         {
-            var filePath = Path.Combine(_inputDir, file!);
-            var detectedWidth = RleImage.DetectWidth(filePath);
-            _files.Add(new RleFileEntry { FileName = file!, DetectedWidth = detectedWidth });
-        }
+            var rleFiles = Directory.EnumerateFiles(_inputDir, "*", SearchOption.AllDirectories)
+                .Where(IsSupportedBitmapFile)
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-        UpdateUiState();
+            var entries = rleFiles.Select(file => new RleFileEntry
+            {
+                FileName = Path.GetFileName(file),
+                Source = new FileSystemAssetSource(file),
+                RelativePath = MakeRelativePath(file, _inputDir),
+                DetectedWidth = RleImage.DetectWidth(file)
+            }).ToList();
+
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                foreach (var entry in entries)
+                    _files.Add(entry);
+                UpdateUiState();
+            });
+        });
+    }
+
+    private async void SelectArchive_Click(object sender, RoutedEventArgs e)
+    {
+        var path = await FilePickerHelper.PickFileAsync(ArchiveExtensions);
+        if (path == null) return;
+
+        _inputDir = Path.GetDirectoryName(path) ?? "";
+        InputPathText.Text = path;
+
+        _files.Clear();
+
+        await Task.Run(() =>
+        {
+            var backend = ArchiveAssetBackend.TryOpen(path);
+            if (backend == null)
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    MainWindow.Instance?.SetStatus($"{Path.GetFileName(path)}: unsupported archive.");
+                    UpdateUiState();
+                });
+                return;
+            }
+
+            var archiveName = Path.GetFileName(path);
+            var entries = new List<RleFileEntry>();
+            foreach (var archiveEntry in backend.Entries)
+            {
+                var name = archiveEntry.Name;
+                if (!IsSupportedBitmapFile(name))
+                    continue;
+
+                var source = new ArchiveAssetSource(backend, archiveEntry);
+                var detectedWidth = RleImage.DetectWidth(source.ReadBytes(), name);
+                entries.Add(new RleFileEntry
+                {
+                    FileName = name,
+                    Source = source,
+                    RelativePath = $"{archiveName}::{name}",
+                    DetectedWidth = detectedWidth
+                });
+            }
+
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                foreach (var entry in entries)
+                    _files.Add(entry);
+                MainWindow.Instance?.SetStatus(entries.Count == 0
+                    ? $"{archiveName}: no .rle/.bmr entries."
+                    : $"Found {entries.Count} bitmap entrie(s) in {archiveName}.");
+                UpdateUiState();
+            });
+        });
+    }
+
+    private static bool IsSupportedBitmapFile(string path)
+        => path.EndsWith(".rle", StringComparison.OrdinalIgnoreCase)
+           || path.EndsWith(".bmr", StringComparison.OrdinalIgnoreCase)
+           || path.EndsWith(".zlb", StringComparison.OrdinalIgnoreCase);
+
+    private static string MakeRelativePath(string file, string rootDir)
+    {
+        if (string.IsNullOrEmpty(rootDir)) return Path.GetFileName(file);
+        try { return Path.GetRelativePath(rootDir, file); }
+        catch { return Path.GetFileName(file); }
     }
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
@@ -107,7 +184,6 @@ public sealed partial class RleBitmapTab : UserControl, IDisposable
     {
         if (_files.Count == 0 || string.IsNullOrEmpty(_outputDir)) return;
 
-        // Reset state
         foreach (var file in _files)
         {
             file.Status = ExtractionStatus.Pending;
@@ -120,7 +196,6 @@ public sealed partial class RleBitmapTab : UserControl, IDisposable
         var stopwatch = Stopwatch.StartNew();
         var filesProcessed = 0;
         var totalFiles = _files.Count;
-        var inputDir = _inputDir;
         var outputDir = _outputDir;
         var dispatcher = DispatcherQueue;
 
@@ -130,8 +205,7 @@ public sealed partial class RleBitmapTab : UserControl, IDisposable
             {
                 dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
 
-                var inputFile = Path.Combine(inputDir, entry.FileName);
-                var result = RleImage.Convert(inputFile, entry.EffectiveWidth);
+                var result = RleImage.Convert(entry.Source.ReadBytes(), entry.FileName, entry.WidthOverride ?? entry.EffectiveWidth);
 
                 if (result.Success)
                 {
@@ -169,7 +243,6 @@ public sealed partial class RleBitmapTab : UserControl, IDisposable
 
         if (FilesListView.SelectedItem is RleFileEntry entry)
         {
-            // Sync width controls to the selected file's state
             _suppressWidthEvents = true;
             if (entry.WidthOverride.HasValue)
             {
@@ -207,7 +280,6 @@ public sealed partial class RleBitmapTab : UserControl, IDisposable
         var cts = new CancellationTokenSource();
         _previewCts = cts;
 
-        // Show the preview panel and loading state
         PreviewPanel.Visibility = Visibility.Visible;
         PreviewSplitter.Visibility = Visibility.Visible;
         SplitterColumn.Width = new GridLength(8);
@@ -219,10 +291,13 @@ public sealed partial class RleBitmapTab : UserControl, IDisposable
         PreviewDimensionsText.Text = "";
         PreviewInfoText.Text = "";
 
-        var inputFile = Path.Combine(_inputDir, entry.FileName);
+        var source = entry.Source;
+        var fileName = entry.FileName;
         var width = entry.EffectiveWidth;
 
-        var result = await Task.Run(() => RleImage.Convert(inputFile, width), cts.Token);
+        var result = await Task.Run(
+            () => RleImage.Convert(source.ReadBytes(), fileName, width),
+            cts.Token);
 
         if (cts.Token.IsCancellationRequested) return;
 
@@ -250,7 +325,6 @@ public sealed partial class RleBitmapTab : UserControl, IDisposable
 
         entry.WidthOverride = (int)args.NewValue;
 
-        // Debounce preview re-rendering
         var previousDebounceCts = _debounceCts;
         if (previousDebounceCts != null)
         {

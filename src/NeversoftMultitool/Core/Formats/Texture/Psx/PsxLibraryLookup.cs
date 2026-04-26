@@ -14,39 +14,7 @@ internal static class PsxLibraryLookup
         {
             using var stream = File.OpenRead(psxFilePath);
             using var reader = new BinaryReader(stream);
-
-            var magic = reader.ReadBytes(4);
-            if (!PsxLibrary.IsValidMagic(magic))
-            {
-                diagnostics?.Add($"{Path.GetFileName(psxFilePath)}: invalid magic");
-                return null;
-            }
-
-            PsxLibrary.SkipModelData(reader);
-            var texNames = PsxLibrary.ReadTextureInfo(reader);
-            var palette4Bit = PsxLibrary.ReadPalettes(reader, 16);
-            var palette8Bit = PsxLibrary.ReadPalettes(reader, 256);
-
-            var textureCount = ReadTextureCount(reader);
-            var targetIndex = Array.IndexOf(texNames, targetHash);
-            if (targetIndex < 0)
-            {
-                diagnostics?.Add(
-                    $"{Path.GetFileName(psxFilePath)}: hash 0x{targetHash:X8} not found in texture name list");
-                return null;
-            }
-
-            for (var i = 0; i < textureCount; i++)
-                reader.ReadBytes(4);
-
-            return FindAndDecodeTexture(
-                reader,
-                (int)textureCount,
-                targetIndex,
-                palette4Bit,
-                palette8Bit,
-                diagnostics,
-                Path.GetFileName(psxFilePath));
+            return ExtractTextureByHashCore(reader, targetHash, diagnostics, Path.GetFileName(psxFilePath));
         }
         catch (Exception ex)
         {
@@ -55,11 +23,81 @@ internal static class PsxLibraryLookup
         }
     }
 
+    public static (byte[] Rgba, int Width, int Height)? ExtractTextureByHash(
+        byte[] data,
+        uint targetHash,
+        string label,
+        List<string>? diagnostics = null)
+    {
+        try
+        {
+            using var stream = new MemoryStream(data, writable: false);
+            using var reader = new BinaryReader(stream);
+            return ExtractTextureByHashCore(reader, targetHash, diagnostics, label);
+        }
+        catch (Exception ex)
+        {
+            diagnostics?.Add($"{label}: {ex.GetType().Name}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static (byte[] Rgba, int Width, int Height)? ExtractTextureByHashCore(
+        BinaryReader reader,
+        uint targetHash,
+        List<string>? diagnostics,
+        string label)
+    {
+        var magic = reader.ReadBytes(4);
+        if (!PsxLibrary.IsValidMagic(magic))
+        {
+            diagnostics?.Add($"{label}: invalid magic");
+            return null;
+        }
+
+        PsxLibrary.SkipModelData(reader);
+        var texNames = PsxLibrary.ReadTextureInfo(reader);
+        var palette4Bit = PsxLibrary.ReadPalettes(reader, 16);
+        var palette8Bit = PsxLibrary.ReadPalettes(reader, 256);
+
+        var textureCount = ReadTextureCount(reader);
+        var targetIndex = Array.IndexOf(texNames, targetHash);
+        if (targetIndex < 0)
+        {
+            diagnostics?.Add(
+                $"{label}: hash 0x{targetHash:X8} not found in texture name list");
+            return null;
+        }
+
+        for (var i = 0; i < textureCount; i++)
+            reader.ReadBytes(4);
+
+        return FindAndDecodeTexture(
+            reader,
+            (int)textureCount,
+            targetIndex,
+            palette4Bit,
+            palette8Bit,
+            diagnostics,
+            label);
+    }
+
     public static List<(PsxTextureHeader Header, uint NameHash)> EnumerateTextures(string inputFile)
     {
         using var stream = File.OpenRead(inputFile);
         using var reader = new BinaryReader(stream);
+        return EnumerateTexturesCore(reader);
+    }
 
+    public static List<(PsxTextureHeader Header, uint NameHash)> EnumerateTextures(byte[] data)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        using var reader = new BinaryReader(stream);
+        return EnumerateTexturesCore(reader);
+    }
+
+    private static List<(PsxTextureHeader Header, uint NameHash)> EnumerateTexturesCore(BinaryReader reader)
+    {
         var magic = reader.ReadBytes(4);
         if (!PsxLibrary.IsValidMagic(magic))
             return [];

@@ -16,6 +16,22 @@ public sealed class DdmFile
     {
         using var stream = File.OpenRead(filePath);
         using var reader = new BinaryReader(stream);
+        return Parse(reader);
+    }
+
+    /// <summary>
+    ///     Parses a DDM file from an in-memory byte buffer.
+    /// </summary>
+    public static DdmFile Parse(byte[] data)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        using var reader = new BinaryReader(stream);
+        return Parse(reader);
+    }
+
+    private static DdmFile Parse(BinaryReader reader)
+    {
+        var stream = reader.BaseStream;
 
         // File header: version (4) + dataSize (4) + objectCount (4)
         var version = reader.ReadUInt32();

@@ -53,25 +53,66 @@ public static partial class SfdConverter
         if (ffprobe == null)
             return null;
 
+        return RunProbe(ffprobe, $"-v quiet -print_format json -show_format -show_streams \"{inputPath}\"",
+            inputPath, pssAudio, stdinData: null);
+    }
+
+    /// <summary>
+    ///     In-memory variant of <see cref="Probe(string)"/>. Pipes the bytes to
+    ///     ffprobe via stdin. PSS audio probe is not run (PSS-in-archive is rare
+    ///     and its probe requires path-based parsing).
+    /// </summary>
+    public static SfdProbeResult? Probe(byte[] data)
+    {
+        var ffprobe = FindFfprobe();
+        if (ffprobe == null) return null;
+
+        return RunProbe(ffprobe, "-v quiet -print_format json -show_format -show_streams -i -",
+            inputPathLabel: "<stdin>", pssAudio: null, stdinData: data);
+    }
+
+    private static SfdProbeResult? RunProbe(
+        string ffprobe, string arguments, string inputPathLabel,
+        PssAudioExtractor.PssAudioProbeResult? pssAudio, byte[]? stdinData)
+    {
         try
         {
             using var process = new Process();
             process.StartInfo = new ProcessStartInfo
             {
                 FileName = ffprobe,
-                Arguments = $"-v quiet -print_format json -show_format -show_streams \"{inputPath}\"",
+                Arguments = arguments,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
+                RedirectStandardInput = stdinData != null,
                 CreateNoWindow = true
             };
 
             process.Start();
+
+            if (stdinData != null)
+            {
+                try
+                {
+                    process.StandardInput.BaseStream.Write(stdinData, 0, stdinData.Length);
+                    process.StandardInput.BaseStream.Flush();
+                }
+                catch
+                {
+                    // ffprobe may close stdin early
+                }
+                finally
+                {
+                    try { process.StandardInput.Close(); } catch { /* already closed */ }
+                }
+            }
+
             var json = process.StandardOutput.ReadToEnd();
             process.WaitForExit(10_000);
 
             if (process.ExitCode != 0) return null;
 
-            return ParseProbeJson(json, inputPath, pssAudio);
+            return ParseProbeJson(json, inputPathLabel, pssAudio);
         }
         catch
         {
@@ -96,7 +137,6 @@ public static partial class SfdConverter
         var outputPath = Path.Combine(outputDir,
             Path.GetFileNameWithoutExtension(inputPath) + ".mp4");
 
-        // Get duration for progress reporting
         var probe = Probe(inputPath);
         var totalSeconds = probe?.Duration.TotalSeconds ?? 0;
 
@@ -122,6 +162,44 @@ public static partial class SfdConverter
             var result = RunFfmpeg(ffmpeg, arguments, outputPath, totalSeconds, progress, cancellationToken);
             TryDeleteFile(tempAudioPath);
             return result;
+        }
+        catch (Exception ex)
+        {
+            TryDeleteFile(outputPath);
+            return new SfdConvertResult { ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>
+    ///     In-memory variant: pipes SFD bytes to ffmpeg via stdin (<c>-i -</c>).
+    ///     Used for archive-sourced videos where no filesystem path exists.
+    ///     PSS format is not supported via stdin (it needs a second audio-stream
+    ///     temp-file input); callers with a PSS byte blob should fall back to a
+    ///     temp file + the path-based overload.
+    /// </summary>
+    public static SfdConvertResult ConvertToMp4(
+        byte[] data,
+        string stem,
+        string outputDir,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var ffmpeg = FindFfmpeg();
+        if (ffmpeg == null)
+            return new SfdConvertResult { ErrorMessage = "ffmpeg not found on PATH" };
+
+        Directory.CreateDirectory(outputDir);
+        var outputPath = Path.Combine(outputDir, stem + ".mp4");
+
+        var probe = Probe(data);
+        var totalSeconds = probe?.Duration.TotalSeconds ?? 0;
+
+        try
+        {
+            // ffmpeg stdin input — `-i -` tells ffmpeg to read from stdin.
+            var arguments =
+                $"-y -i - -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k \"{outputPath}\"";
+            return RunFfmpeg(ffmpeg, arguments, outputPath, totalSeconds, progress, cancellationToken, data);
         }
         catch (Exception ex)
         {
@@ -159,7 +237,8 @@ public static partial class SfdConverter
         string outputPath,
         double totalSeconds,
         IProgress<double>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        byte[]? stdinData = null)
     {
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
@@ -168,10 +247,33 @@ public static partial class SfdConverter
             Arguments = arguments,
             UseShellExecute = false,
             RedirectStandardError = true,
+            RedirectStandardInput = stdinData != null,
             CreateNoWindow = true
         };
 
         process.Start();
+
+        if (stdinData != null)
+        {
+            // Feed bytes on a background task so we can keep draining stderr in
+            // parallel (ffmpeg's pipe can block otherwise).
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    process.StandardInput.BaseStream.Write(stdinData, 0, stdinData.Length);
+                    process.StandardInput.BaseStream.Flush();
+                }
+                catch
+                {
+                    // ffmpeg may close stdin early on decode errors; stderr will explain.
+                }
+                finally
+                {
+                    try { process.StandardInput.Close(); } catch { /* already closed */ }
+                }
+            }, cancellationToken);
+        }
 
         while (!process.StandardError.EndOfStream)
         {

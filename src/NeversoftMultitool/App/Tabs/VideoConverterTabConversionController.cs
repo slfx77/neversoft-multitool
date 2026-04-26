@@ -62,8 +62,8 @@ internal sealed class VideoConverterTabConversionController : IDisposable
 
                     dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
 
-                    var result = VideoConverterTabOperations.ConvertFile(
-                        entry.FilePath,
+                    var result = VideoConverterTabOperations.ConvertFromSource(
+                        entry,
                         outputDir,
                         new Progress<double>(progress =>
                             dispatcher.TryEnqueue(() => entry.ConvertProgress = progress * 100)),

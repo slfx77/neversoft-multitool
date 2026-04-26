@@ -28,7 +28,19 @@ public static class VabExtractor
     public static List<VabSampleInfo> EnumerateSamples(string inputPath)
     {
         using var stream = File.OpenRead(inputPath);
-        using var reader = new BinaryReader(stream);
+        return EnumerateSamplesFromStream(stream);
+    }
+
+    /// <summary>In-memory variant.</summary>
+    public static List<VabSampleInfo> EnumerateSamples(byte[] data)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        return EnumerateSamplesFromStream(stream);
+    }
+
+    private static List<VabSampleInfo> EnumerateSamplesFromStream(Stream stream)
+    {
+        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
 
         var layout = ReadLayout(reader);
         if (layout == null) return [];
@@ -53,35 +65,55 @@ public static class VabExtractor
         try
         {
             using var stream = File.OpenRead(inputPath);
-            using var reader = new BinaryReader(stream);
-
-            var layout = ReadLayout(reader);
-            if (layout == null || sampleIndex < 1 || sampleIndex > layout.Header.VagCount)
-                return null;
-
-            var size = layout.VagSizes[sampleIndex];
-            if (size <= 0) return null;
-
-            // Calculate offset to the target sample (sum sizes of all preceding entries)
-            var currentOffset = layout.VagDataOffset;
-            for (var v = 0; v < sampleIndex; v++)
-                currentOffset += layout.VagSizes[v];
-
-            stream.Position = currentOffset;
-            var vagData = reader.ReadBytes(size);
-            var pcm = SpuAdpcm.Decode(vagData);
-            if (pcm.Length == 0) return null;
-
-            var stem = Path.GetFileNameWithoutExtension(inputPath);
-            var wavPath = Path.Combine(outputDir, $"{stem}_{sampleIndex:D3}.wav");
-            var resolvedSampleRate = sampleRate > 0 ? sampleRate : GetSuggestedSampleRate(layout, sampleIndex);
-            WavWriter.WritePcm16(wavPath, resolvedSampleRate, 1, pcm);
-            return wavPath;
+            return ExtractSingleToWavFromStream(stream, Path.GetFileNameWithoutExtension(inputPath),
+                sampleIndex, outputDir, sampleRate);
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>In-memory variant.</summary>
+    public static string? ExtractSingleToWav(byte[] data, string stem, int sampleIndex, string outputDir,
+        int sampleRate = 0)
+    {
+        try
+        {
+            using var stream = new MemoryStream(data, writable: false);
+            return ExtractSingleToWavFromStream(stream, stem, sampleIndex, outputDir, sampleRate);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? ExtractSingleToWavFromStream(
+        Stream stream, string stem, int sampleIndex, string outputDir, int sampleRate)
+    {
+        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+
+        var layout = ReadLayout(reader);
+        if (layout == null || sampleIndex < 1 || sampleIndex > layout.Header.VagCount)
+            return null;
+
+        var size = layout.VagSizes[sampleIndex];
+        if (size <= 0) return null;
+
+        var currentOffset = layout.VagDataOffset;
+        for (var v = 0; v < sampleIndex; v++)
+            currentOffset += layout.VagSizes[v];
+
+        stream.Position = currentOffset;
+        var vagData = reader.ReadBytes(size);
+        var pcm = SpuAdpcm.Decode(vagData);
+        if (pcm.Length == 0) return null;
+
+        var wavPath = Path.Combine(outputDir, $"{stem}_{sampleIndex:D3}.wav");
+        var resolvedSampleRate = sampleRate > 0 ? sampleRate : GetSuggestedSampleRate(layout, sampleIndex);
+        WavWriter.WritePcm16(wavPath, resolvedSampleRate, 1, pcm);
+        return wavPath;
     }
 
     public static AudioConvertResult ExtractToWav(string inputPath, string outputDir,
@@ -90,47 +122,67 @@ public static class VabExtractor
         try
         {
             using var stream = File.OpenRead(inputPath);
-            using var reader = new BinaryReader(stream);
-
-            var layout = ReadLayout(reader);
-            if (layout == null)
-                return new AudioConvertResult { ErrorMessage = "Invalid VAB header (missing pBAV magic)" };
-            var stem = Path.GetFileNameWithoutExtension(inputPath);
-            var outDir = Path.Combine(outputDir, stem);
-            var filesWritten = 0;
-
-            // VAG index 0 is unused; valid indices start from 1
-            var currentOffset = layout.VagDataOffset;
-            for (var v = 0; v < VagSizeTableEntries; v++)
-            {
-                var size = layout.VagSizes[v];
-                if (size <= 0)
-                    continue;
-
-                if (v > 0 && v <= layout.Header.VagCount)
-                {
-                    stream.Position = currentOffset;
-                    var vagData = reader.ReadBytes(size);
-                    var pcm = SpuAdpcm.Decode(vagData);
-
-                    if (pcm.Length > 0)
-                    {
-                        var wavPath = Path.Combine(outDir, $"{v:D3}.wav");
-                        var resolvedSampleRate = sampleRate > 0 ? sampleRate : GetSuggestedSampleRate(layout, v);
-                        WavWriter.WritePcm16(wavPath, resolvedSampleRate, 1, pcm);
-                        filesWritten++;
-                    }
-                }
-
-                currentOffset += size;
-            }
-
-            return new AudioConvertResult { Success = true, SamplesWritten = filesWritten };
+            return ExtractToWavFromStream(stream, Path.GetFileNameWithoutExtension(inputPath), outputDir, sampleRate);
         }
         catch (Exception ex)
         {
             return new AudioConvertResult { ErrorMessage = ex.Message };
         }
+    }
+
+    /// <summary>In-memory variant.</summary>
+    public static AudioConvertResult ExtractToWav(byte[] data, string stem, string outputDir,
+        int sampleRate = DefaultSampleRate)
+    {
+        try
+        {
+            using var stream = new MemoryStream(data, writable: false);
+            return ExtractToWavFromStream(stream, stem, outputDir, sampleRate);
+        }
+        catch (Exception ex)
+        {
+            return new AudioConvertResult { ErrorMessage = ex.Message };
+        }
+    }
+
+    private static AudioConvertResult ExtractToWavFromStream(
+        Stream stream, string stem, string outputDir, int sampleRate)
+    {
+        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+
+        var layout = ReadLayout(reader);
+        if (layout == null)
+            return new AudioConvertResult { ErrorMessage = "Invalid VAB header (missing pBAV magic)" };
+
+        var outDir = Path.Combine(outputDir, stem);
+        var filesWritten = 0;
+
+        var currentOffset = layout.VagDataOffset;
+        for (var v = 0; v < VagSizeTableEntries; v++)
+        {
+            var size = layout.VagSizes[v];
+            if (size <= 0)
+                continue;
+
+            if (v > 0 && v <= layout.Header.VagCount)
+            {
+                stream.Position = currentOffset;
+                var vagData = reader.ReadBytes(size);
+                var pcm = SpuAdpcm.Decode(vagData);
+
+                if (pcm.Length > 0)
+                {
+                    var wavPath = Path.Combine(outDir, $"{v:D3}.wav");
+                    var resolvedSampleRate = sampleRate > 0 ? sampleRate : GetSuggestedSampleRate(layout, v);
+                    WavWriter.WritePcm16(wavPath, resolvedSampleRate, 1, pcm);
+                    filesWritten++;
+                }
+            }
+
+            currentOffset += size;
+        }
+
+        return new AudioConvertResult { Success = true, SamplesWritten = filesWritten };
     }
 
     private static VabLayout? ReadLayout(BinaryReader reader)

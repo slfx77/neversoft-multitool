@@ -61,26 +61,7 @@ public static class PakArchive
     {
         try
         {
-            var data = File.ReadAllBytes(filePath);
-            if (data.Length < CompactEntrySize)
-                return false;
-
-            // Find at least one "last" sentinel with a valid preceding entry
-            for (var i = CompactEntrySize; i <= data.Length - 4; i += 4)
-            {
-                if (BitConverter.ToUInt32(data, i) != LastSentinel)
-                    continue;
-
-                // Check for a valid compact entry immediately before.
-                if (LooksLikeEntryAt(data, i - CompactEntrySize, false, i))
-                    return true;
-
-                // Check for a valid full entry.
-                if (LooksLikeEntryAt(data, i - FullEntrySize, true, i))
-                    return true;
-            }
-
-            return false;
+            return IsPakArchive(File.ReadAllBytes(filePath));
         }
         catch
         {
@@ -88,30 +69,58 @@ public static class PakArchive
         }
     }
 
+    /// <summary>In-memory variant of <see cref="IsPakArchive(string)"/>.</summary>
+    public static bool IsPakArchive(byte[] data)
+    {
+        if (data.Length < CompactEntrySize)
+            return false;
+
+        for (var i = CompactEntrySize; i <= data.Length - 4; i += 4)
+        {
+            if (BitConverter.ToUInt32(data, i) != LastSentinel)
+                continue;
+
+            if (LooksLikeEntryAt(data, i - CompactEntrySize, false, i))
+                return true;
+
+            if (LooksLikeEntryAt(data, i - FullEntrySize, true, i))
+                return true;
+        }
+
+        return false;
+    }
+
     /// <summary>
     ///     Reads all file entries from a PAK archive (across all sub-PAKs).
     /// </summary>
     public static List<ArchiveEntry> GetFileList(string pakPath)
     {
-        var data = File.ReadAllBytes(pakPath);
+        return GetFileListCore(File.ReadAllBytes(pakPath), File.Exists(GetPabPath(pakPath)));
+    }
+
+    /// <summary>
+    ///     In-memory variant. Callers that have PAK bytes without a filesystem path
+    ///     pass <paramref name="hasPab"/> = false (no companion PAB detection).
+    /// </summary>
+    public static List<ArchiveEntry> GetFileList(byte[] data, bool hasPab = false)
+    {
+        return GetFileListCore(data, hasPab);
+    }
+
+    private static List<ArchiveEntry> GetFileListCore(byte[] data, bool hasPab)
+    {
         var entries = new List<ArchiveEntry>();
 
-        // Find all "last" sentinel positions (each marks the end of a sub-PAK entry table)
         var sentinelPositions = FindSentinelPositions(data);
         if (sentinelPositions.Count == 0)
             return entries;
 
-        // Determine if a companion .pab file exists
-        var pabPath = GetPabPath(pakPath);
-        var hasPab = File.Exists(pabPath);
-
         foreach (var sentinelPos in sentinelPositions)
         {
-            // Walk backward from sentinel to find the start of the entry table
             var tableEntries = WalkBackward(data, sentinelPos);
             foreach (var entry in tableEntries)
             {
-                entry.IsCompressed = hasPab; // repurpose to indicate PAB companion
+                entry.IsCompressed = hasPab;
                 entries.Add(entry);
             }
         }
@@ -126,14 +135,22 @@ public static class PakArchive
     /// </summary>
     public static List<(uint TypeHash, ArchiveEntry Entry)> GetTypedEntries(string pakPath)
     {
-        var data = File.ReadAllBytes(pakPath);
+        return GetTypedEntriesCore(File.ReadAllBytes(pakPath), File.Exists(GetPabPath(pakPath)));
+    }
+
+    /// <summary>In-memory variant of <see cref="GetTypedEntries(string)"/>.</summary>
+    public static List<(uint TypeHash, ArchiveEntry Entry)> GetTypedEntries(byte[] data, bool hasPab = false)
+    {
+        return GetTypedEntriesCore(data, hasPab);
+    }
+
+    private static List<(uint TypeHash, ArchiveEntry Entry)> GetTypedEntriesCore(byte[] data, bool hasPab)
+    {
         var typedEntries = new List<(uint TypeHash, ArchiveEntry Entry)>();
 
         var sentinelPositions = FindSentinelPositions(data);
         if (sentinelPositions.Count == 0)
             return typedEntries;
-
-        var hasPab = File.Exists(GetPabPath(pakPath));
 
         foreach (var sentinelPos in sentinelPositions)
         {

@@ -2,12 +2,15 @@ using System.Collections.ObjectModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Video;
 
 namespace NeversoftMultitool;
 
 public sealed partial class VideoConverterTab : UserControl, IDisposable
 {
+    private static readonly string[] ArchiveExtensions = [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr"];
+
     private readonly VideoConverterTabConversionController _conversionController = new();
     private readonly ObservableCollection<SfdFileEntry> _items = [];
     private readonly VideoConverterTabPreviewController _previewController;
@@ -71,6 +74,51 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
             _items.Add(VideoConverterTabOperations.CreateEntry(filePath));
 
         UpdateUiState();
+    }
+
+    private async void SelectArchive_Click(object sender, RoutedEventArgs e)
+    {
+        var path = await FilePickerHelper.PickFileAsync(ArchiveExtensions);
+        if (path == null) return;
+
+        _inputDir = Path.GetDirectoryName(path) ?? "";
+        InputPathText.Text = path;
+        _previewController.ClearPreview();
+        _items.Clear();
+
+        await Task.Run(() =>
+        {
+            var backend = ArchiveAssetBackend.TryOpen(path);
+            if (backend == null)
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    MainWindow.Instance?.SetStatus($"{Path.GetFileName(path)}: unsupported archive.");
+                    UpdateUiState();
+                });
+                return;
+            }
+
+            var archiveName = Path.GetFileName(path);
+            var entries = new List<SfdFileEntry>();
+            foreach (var archiveEntry in backend.Entries)
+            {
+                if (!VideoConverterTabOperations.IsVideoFile(archiveEntry.Name)) continue;
+                entries.Add(VideoConverterTabOperations.CreateEntryForArchiveEntry(backend, archiveEntry));
+            }
+
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                foreach (var entry in entries.OrderBy(en => en.FileName, StringComparer.OrdinalIgnoreCase))
+                    _items.Add(entry);
+
+                MainWindow.Instance?.SetStatus(entries.Count == 0
+                    ? $"{archiveName}: no video entries."
+                    : $"Found {entries.Count} video entrie(s) in {archiveName}.");
+
+                UpdateUiState();
+            });
+        });
     }
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)

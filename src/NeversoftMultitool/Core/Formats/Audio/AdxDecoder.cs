@@ -16,32 +16,49 @@ public static class AdxDecoder
         try
         {
             using var stream = File.OpenRead(inputPath);
-            using var reader = new BinaryReader(stream);
-
-            var header = ReadHeader(reader);
-            if (header == null)
-                return new AudioConvertResult { ErrorMessage = "Invalid ADX header" };
-
-            if (header.Encoding != 3)
-                return new AudioConvertResult { ErrorMessage = $"Unsupported ADX encoding type: {header.Encoding}" };
-
-            var (coef1, coef2) = CalculateCoefficients(header.HighpassFrequency, header.SampleRate);
-
-            // Seek to audio data
-            stream.Position = header.DataOffset;
-
-            var samples = DecodeFrames(reader, header, coef1, coef2);
-
-            var outputPath = Path.Combine(outputDir,
-                Path.GetFileNameWithoutExtension(inputPath) + ".wav");
-            WavWriter.WritePcm16(outputPath, header.SampleRate, header.ChannelCount, samples);
-
-            return new AudioConvertResult { Success = true, SamplesWritten = 1 };
+            return ConvertStreamToWav(stream, Path.GetFileNameWithoutExtension(inputPath), outputDir);
         }
         catch (Exception ex)
         {
             return new AudioConvertResult { ErrorMessage = ex.Message };
         }
+    }
+
+    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string)"/>.</summary>
+    public static AudioConvertResult ConvertToWav(byte[] data, string stem, string outputDir)
+    {
+        try
+        {
+            using var stream = new MemoryStream(data, writable: false);
+            return ConvertStreamToWav(stream, stem, outputDir);
+        }
+        catch (Exception ex)
+        {
+            return new AudioConvertResult { ErrorMessage = ex.Message };
+        }
+    }
+
+    private static AudioConvertResult ConvertStreamToWav(Stream stream, string stem, string outputDir)
+    {
+        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+
+        var header = ReadHeader(reader);
+        if (header == null)
+            return new AudioConvertResult { ErrorMessage = "Invalid ADX header" };
+
+        if (header.Encoding != 3)
+            return new AudioConvertResult { ErrorMessage = $"Unsupported ADX encoding type: {header.Encoding}" };
+
+        var (coef1, coef2) = CalculateCoefficients(header.HighpassFrequency, header.SampleRate);
+
+        stream.Position = header.DataOffset;
+
+        var samples = DecodeFrames(reader, header, coef1, coef2);
+
+        var outputPath = Path.Combine(outputDir, stem + ".wav");
+        WavWriter.WritePcm16(outputPath, header.SampleRate, header.ChannelCount, samples);
+
+        return new AudioConvertResult { Success = true, SamplesWritten = 1 };
     }
 
     private static AdxHeader? ReadHeader(BinaryReader reader)

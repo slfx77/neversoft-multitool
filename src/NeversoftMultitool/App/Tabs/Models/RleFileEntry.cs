@@ -1,3 +1,5 @@
+using NeversoftMultitool.Core.Formats;
+
 namespace NeversoftMultitool;
 
 public class RleFileEntry : BaseFileEntry
@@ -6,6 +8,10 @@ public class RleFileEntry : BaseFileEntry
     private int? _widthOverride;
 
     public required string FileName { get; init; }
+    public required AssetSource Source { get; init; }
+
+    /// <summary>Display path relative to the browsed root ("archive.wad::frame.rle" for archive sources).</summary>
+    public string RelativePath { get; init; } = "";
 
     protected override string ProcessingVerb => "Converting...";
 

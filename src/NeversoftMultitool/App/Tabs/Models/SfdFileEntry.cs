@@ -1,3 +1,5 @@
+using NeversoftMultitool.Core.Formats;
+
 namespace NeversoftMultitool;
 
 public class SfdFileEntry : BaseFileEntry
@@ -6,6 +8,8 @@ public class SfdFileEntry : BaseFileEntry
 
     public required string FileName { get; init; }
     public required string FilePath { get; init; }
+    public required AssetSource Source { get; init; }
+    public string RelativePath { get; init; } = "";
 
     protected override string ProcessingVerb => "Converting...";
 

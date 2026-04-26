@@ -16,7 +16,6 @@ internal sealed class AudioConverterTabConversionController : IDisposable
 
     public async Task ConvertAsync(
         IReadOnlyList<AudioFileEntry> parentFiles,
-        string inputDir,
         string outputDir,
         int vabSampleRate,
         DispatcherQueue dispatcher,
@@ -65,14 +64,12 @@ internal sealed class AudioConverterTabConversionController : IDisposable
                         break;
 
                     dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
-                    var inputFile = Path.Combine(inputDir, entry.FileName);
 
                     try
                     {
                         var result = AudioConverterTabOperations.ConvertFile(
-                            inputFile,
+                            entry,
                             outputDir,
-                            entry.AudioFormat,
                             vabSampleRate);
 
                         var processed = Interlocked.Increment(ref filesProcessed);
