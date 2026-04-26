@@ -268,8 +268,81 @@ public class Vid1DecoderTests(TestPaths paths)
 
         var fps = decoded / sw.Elapsed.TotalSeconds;
         var allocatedBytesPerFrame = allocatedBytes / Math.Max(1.0, decoded);
+        Console.WriteLine(
+            $"VID1 BGRA object path: decoded={decoded} fps={fps:F2} alloc={allocatedBytesPerFrame / 1024.0:F1} KB/frame");
         Assert.True(fps >= 45.0, $"VID1 BGRA decode was {fps:F2} fps");
         Assert.True(allocatedBytesPerFrame <= 2 * 1024 * 1024, $"VID1 BGRA allocated {allocatedBytesPerFrame / 1024.0:F1} KB/frame");
+    }
+
+    [Fact]
+    public void DecodeBgraSpan_Perf_OptIn()
+    {
+        if (Environment.GetEnvironmentVariable("VID1_RUN_PERF_TESTS") != "1")
+            return;
+
+        var path = FindIntroVid();
+        if (path == null) return;
+
+        var file = Vid1VideoFile.Parse(path);
+        var provider = new Vid1BgraPresentationFrameProvider(file);
+        var destination = new byte[file.Width * file.Height * 4];
+        var frameLimit = Math.Min(300, file.FrameCount);
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var decoded = 0;
+        while (decoded < frameLimit && provider.TryDecodeNextFrame(destination, out _))
+            decoded++;
+        sw.Stop();
+        var allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        var fps = decoded / sw.Elapsed.TotalSeconds;
+        var allocatedBytesPerFrame = allocatedBytes / Math.Max(1.0, decoded);
+        Console.WriteLine(
+            $"VID1 BGRA span path: decoded={decoded} fps={fps:F2} alloc={allocatedBytesPerFrame / 1024.0:F1} KB/frame");
+        Assert.True(fps >= 60.0, $"VID1 BGRA span decode was {fps:F2} fps");
+        Assert.True(allocatedBytesPerFrame <= 64 * 1024, $"VID1 BGRA span decode allocated {allocatedBytesPerFrame / 1024.0:F1} KB/frame");
+    }
+
+    [Fact]
+    public void DecodeRgbSpanToNull_Perf_OptIn()
+    {
+        if (Environment.GetEnvironmentVariable("VID1_RUN_PERF_TESTS") != "1")
+            return;
+
+        var path = FindIntroVid();
+        if (path == null) return;
+
+        var file = Vid1VideoFile.Parse(path);
+        var provider = new Vid1PresentationFrameProvider(file);
+        var destination = new byte[file.Width * file.Height * 3];
+        var frameLimit = Math.Min(300, file.FrameCount);
+        using var sink = Stream.Null;
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var decoded = 0;
+        while (decoded < frameLimit && provider.TryDecodeNextFrame(destination, out _))
+        {
+            sink.Write(destination, 0, destination.Length);
+            decoded++;
+        }
+
+        sw.Stop();
+        var allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        var fps = decoded / sw.Elapsed.TotalSeconds;
+        var allocatedBytesPerFrame = allocatedBytes / Math.Max(1.0, decoded);
+        Console.WriteLine(
+            $"VID1 RGB span->null path: decoded={decoded} fps={fps:F2} alloc={allocatedBytesPerFrame / 1024.0:F1} KB/frame");
+        Assert.True(fps >= 45.0, $"VID1 RGB span->null decode was {fps:F2} fps");
+        Assert.True(allocatedBytesPerFrame <= 16 * 1024, $"VID1 RGB span->null decode allocated {allocatedBytesPerFrame / 1024.0:F1} KB/frame");
     }
 
     [Fact]

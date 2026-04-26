@@ -296,6 +296,7 @@ public static partial class Vid1VideoConverter
         process.BeginErrorReadLine();
 
         var provider = new Vid1PresentationFrameProvider(file);
+        var rgbBuffer = new byte[file.Width * file.Height * 3];
         var frameLimit = GetDebugFrameLimit(file.Frames.Count);
         var totalFrames = frameLimit;
         var decodeProgressBase = 0.10;
@@ -314,13 +315,12 @@ public static partial class Vid1VideoConverter
                     return false;
                 }
 
-                var decoded = provider.DecodeNextFrame();
-                if (decoded == null)
+                if (!provider.TryDecodeNextFrame(rgbBuffer, out _))
                     break;
 
                 try
                 {
-                    stdin.Write(decoded.Rgb24, 0, decoded.Rgb24.Length);
+                    stdin.Write(rgbBuffer, 0, rgbBuffer.Length);
                 }
                 catch (IOException)
                 {
@@ -402,6 +402,7 @@ public static partial class Vid1VideoConverter
         process.BeginErrorReadLine();
 
         var provider = new Vid1PresentationFrameProvider(file);
+        var rgbBuffer = new byte[file.Width * file.Height * 3];
         var frameLimit = GetDebugFrameLimit(file.Frames.Count);
 
         try
@@ -416,11 +417,10 @@ public static partial class Vid1VideoConverter
                     return false;
                 }
 
-                var decoded = provider.DecodeNextFrame();
-                if (decoded == null)
+                if (!provider.TryDecodeNextFrame(rgbBuffer, out _))
                     break;
 
-                stdin.Write(decoded.Rgb24, 0, decoded.Rgb24.Length);
+                stdin.Write(rgbBuffer, 0, rgbBuffer.Length);
             }
         }
         catch (Exception ex)

@@ -1,7 +1,10 @@
 #if WINDOWS_GUI
+using System.Buffers;
 using System.Runtime.InteropServices.WindowsRuntime;
+using Windows.Foundation;
 using Windows.Media.Core;
 using Windows.Media.MediaProperties;
+using Windows.Storage.Streams;
 using NeversoftMultitool.Core.Formats.Audio;
 
 namespace NeversoftMultitool.Core.Formats.Video;
@@ -14,26 +17,63 @@ namespace NeversoftMultitool.Core.Formats.Video;
 public sealed class Vid1MediaSource : IDisposable
 {
     private const int DecodeAheadFrames = 3;
+    // Extra slots cover samples still in flight while WinUI requests the next frame.
+    private const int VideoBufferCount = DecodeAheadFrames + 4;
 
     private readonly Vid1AudioExtractor.Vid1PcmAudio? _audio;
     private readonly Vid1VideoFile _file;
     private readonly double _frameRate;
-    private readonly Queue<QueuedVideoFrame> _videoQueue = [];
+    private readonly byte[] _seekScratchBuffer;
+    private readonly Queue<VideoBufferSlot> _freeVideoBuffers = new(VideoBufferCount);
+    private readonly int _videoFrameByteLength;
+    private readonly Queue<QueuedVideoFrame> _videoQueue = new(VideoBufferCount);
+    private readonly VideoBufferSlot[] _videoBuffers = new VideoBufferSlot[VideoBufferCount];
+    private readonly object _videoSync = new();
     private int _audioByteOffset;
+    private bool _disposed;
     private int _nextQueuedPresentationIndex;
-    private Vid1BgraPresentationFrameProvider _provider;
+    private readonly Vid1BgraPresentationFrameProvider _provider;
 
     private Vid1MediaSource(Vid1VideoFile file, Vid1AudioExtractor.Vid1PcmAudio? audio)
     {
         _file = file;
         _audio = audio;
         _frameRate = file.FrameRate;
+        _videoFrameByteLength = file.Width * file.Height * 4;
+        _seekScratchBuffer = new byte[_videoFrameByteLength];
         _provider = new Vid1BgraPresentationFrameProvider(file);
+
+        for (var i = 0; i < _videoBuffers.Length; i++)
+        {
+            var slot = new VideoBufferSlot(this, _videoFrameByteLength);
+            _videoBuffers[i] = slot;
+            _freeVideoBuffers.Enqueue(slot);
+        }
     }
 
     public void Dispose()
     {
-        _videoQueue.Clear();
+        lock (_videoSync)
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            RecycleQueuedVideoBuffers();
+
+            foreach (var slot in _videoBuffers)
+            {
+                if (slot.State == VideoBufferSlotState.InFlight)
+                {
+                    slot.ReleaseWhenAvailable = true;
+                    continue;
+                }
+
+                slot.ReleaseToPool();
+            }
+
+            _freeVideoBuffers.Clear();
+        }
     }
 
     public static MediaSource? Create(string filePath)
@@ -110,19 +150,24 @@ public sealed class Vid1MediaSource : IDisposable
 
     private void ProvideVideoSample(MediaStreamSourceSampleRequest request)
     {
-        EnsureVideoQueue(DecodeAheadFrames);
-        if (_videoQueue.Count == 0)
+        lock (_videoSync)
         {
-            request.Sample = null;
-            return;
-        }
+            EnsureVideoQueue(DecodeAheadFrames);
+            if (_videoQueue.Count == 0)
+            {
+                request.Sample = null;
+                return;
+            }
 
-        var queued = _videoQueue.Dequeue();
-        var timestamp = TimeSpan.FromSeconds(queued.PresentationIndex / _frameRate);
-        var duration = TimeSpan.FromSeconds(1.0 / _frameRate);
-        var sample = MediaStreamSample.CreateFromBuffer(queued.Frame.Bgra8.AsBuffer(), timestamp);
-        sample.Duration = duration;
-        request.Sample = sample;
+            var queued = _videoQueue.Dequeue();
+            var slot = queued.Slot;
+            var timestamp = TimeSpan.FromSeconds(queued.PresentationIndex / _frameRate);
+            var duration = TimeSpan.FromSeconds(1.0 / _frameRate);
+            var sample = MediaStreamSample.CreateFromBuffer(slot.BufferView, timestamp);
+            slot.AttachToSample(sample);
+            sample.Duration = duration;
+            request.Sample = sample;
+        }
     }
 
     private void ProvideAudioSample(MediaStreamSourceSampleRequest request)
@@ -146,12 +191,9 @@ public sealed class Vid1MediaSource : IDisposable
             return;
         }
 
-        var chunk = new byte[chunkSize];
-        Buffer.BlockCopy(_audio.Pcm16, _audioByteOffset, chunk, 0, chunkSize);
-
         var timestamp = TimeSpan.FromSeconds((double)_audioByteOffset / _audio.BytesPerSecond);
         var duration = TimeSpan.FromSeconds((double)chunkSize / _audio.BytesPerSecond);
-        var sample = MediaStreamSample.CreateFromBuffer(chunk.AsBuffer(), timestamp);
+        var sample = MediaStreamSample.CreateFromBuffer(_audio.Pcm16.AsBuffer(_audioByteOffset, chunkSize), timestamp);
         sample.Duration = duration;
         request.Sample = sample;
 
@@ -166,28 +208,67 @@ public sealed class Vid1MediaSource : IDisposable
 
     private void ResetVideo(int presentationIndex)
     {
-        _provider = new Vid1BgraPresentationFrameProvider(_file);
-        _videoQueue.Clear();
-        _nextQueuedPresentationIndex = 0;
-
-        for (var i = 0; i < presentationIndex; i++)
+        lock (_videoSync)
         {
-            if (_provider.DecodeNextFrame() == null)
-                break;
+            _provider.Reset();
+            RecycleQueuedVideoBuffers();
+            _nextQueuedPresentationIndex = 0;
 
-            _nextQueuedPresentationIndex++;
+            for (var i = 0; i < presentationIndex; i++)
+            {
+                if (!_provider.TryDecodeNextFrame(_seekScratchBuffer, out _))
+                    break;
+
+                _nextQueuedPresentationIndex++;
+            }
         }
     }
 
     private void EnsureVideoQueue(int targetCount)
     {
-        while (_videoQueue.Count < targetCount)
+        while (_videoQueue.Count < targetCount && _freeVideoBuffers.Count > 0)
         {
-            var frame = _provider.DecodeNextFrame();
-            if (frame == null)
+            var slot = _freeVideoBuffers.Dequeue();
+            slot.MarkQueued();
+            if (!_provider.TryDecodeNextFrame(slot.WritableFrame, out _))
+            {
+                slot.MarkFree();
+                _freeVideoBuffers.Enqueue(slot);
                 break;
+            }
 
-            _videoQueue.Enqueue(new QueuedVideoFrame(_nextQueuedPresentationIndex++, frame));
+            _videoQueue.Enqueue(new QueuedVideoFrame(_nextQueuedPresentationIndex++, slot));
+        }
+    }
+
+    private void RecycleQueuedVideoBuffers()
+    {
+        while (_videoQueue.Count > 0)
+        {
+            var slot = _videoQueue.Dequeue().Slot;
+            if (_disposed)
+            {
+                slot.ReleaseToPool();
+                continue;
+            }
+
+            slot.MarkFree();
+            _freeVideoBuffers.Enqueue(slot);
+        }
+    }
+
+    private void OnVideoSlotProcessed(VideoBufferSlot slot)
+    {
+        lock (_videoSync)
+        {
+            if (_disposed || slot.ReleaseWhenAvailable)
+            {
+                slot.ReleaseToPool();
+                return;
+            }
+
+            slot.MarkFree();
+            _freeVideoBuffers.Enqueue(slot);
         }
     }
 
@@ -204,8 +285,72 @@ public sealed class Vid1MediaSource : IDisposable
         return offset - offset % alignment;
     }
 
+    private enum VideoBufferSlotState
+    {
+        Free,
+        Queued,
+        InFlight,
+        Released
+    }
+
+    private sealed class VideoBufferSlot
+    {
+        private readonly TypedEventHandler<MediaStreamSample, object> _processedHandler;
+
+        public VideoBufferSlot(Vid1MediaSource owner, int frameByteLength)
+        {
+            Owner = owner;
+            FrameByteLength = frameByteLength;
+            Bgra8 = ArrayPool<byte>.Shared.Rent(frameByteLength);
+            BufferView = Bgra8.AsBuffer(0, frameByteLength);
+            _processedHandler = OnProcessed;
+        }
+
+        private int FrameByteLength { get; }
+        private Vid1MediaSource Owner { get; }
+        public byte[] Bgra8 { get; }
+        public IBuffer BufferView { get; }
+        public bool ReleaseWhenAvailable { get; set; }
+        public VideoBufferSlotState State { get; private set; }
+        public Span<byte> WritableFrame => Bgra8.AsSpan(0, FrameByteLength);
+
+        public void MarkQueued()
+        {
+            ReleaseWhenAvailable = false;
+            State = VideoBufferSlotState.Queued;
+        }
+
+        public void AttachToSample(MediaStreamSample sample)
+        {
+            State = VideoBufferSlotState.InFlight;
+            sample.Processed += _processedHandler;
+        }
+
+        public void MarkFree()
+        {
+            ReleaseWhenAvailable = false;
+            State = VideoBufferSlotState.Free;
+        }
+
+        public void ReleaseToPool()
+        {
+            if (State == VideoBufferSlotState.Released)
+                return;
+
+            ArrayPool<byte>.Shared.Return(Bgra8);
+            ReleaseWhenAvailable = false;
+            State = VideoBufferSlotState.Released;
+        }
+
+        private void OnProcessed(MediaStreamSample sender, object args)
+        {
+            sender.Processed -= _processedHandler;
+            Owner.OnVideoSlotProcessed(this);
+        }
+    }
+
     private readonly record struct QueuedVideoFrame(
         int PresentationIndex,
-        Vid1DecodedBgraFrame Frame);
+        VideoBufferSlot Slot);
 }
 #endif
