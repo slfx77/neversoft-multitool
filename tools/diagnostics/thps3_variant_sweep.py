@@ -60,6 +60,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=repo_root / "src" / "NeversoftMultitool" / "NeversoftMultitool.csproj",
     )
+    parser.add_argument(
+        "--tool",
+        type=Path,
+        help="optional prebuilt NeversoftMultitool executable; bypasses dotnet run",
+    )
     parser.add_argument("--skn", type=Path, default=default_skn(repo_root))
     parser.add_argument("--ska", type=Path, action="append", default=None)
     parser.add_argument("--out", type=Path, default=repo_root / "TestOutput" / "thps3_variant_sweep")
@@ -80,6 +85,20 @@ def run(cmd: list[str], cwd: Path) -> None:
     subprocess.run(cmd, cwd=cwd, check=True)
 
 
+def cli_prefix(args: argparse.Namespace) -> list[str]:
+    if args.tool:
+        return [str(args.tool)]
+    return [
+        "dotnet",
+        "run",
+        "--framework",
+        "net10.0",
+        "--project",
+        str(args.project),
+        "--",
+    ]
+
+
 def stem_for_ska(path: Path) -> str:
     stem = path.stem
     if stem.endswith(".ska"):
@@ -91,14 +110,8 @@ def export_glb(args: argparse.Namespace, mode: str, ska: Path) -> Path:
     mode_dir = args.out / mode / "glb"
     mode_dir.mkdir(parents=True, exist_ok=True)
     run(
-        [
-            "dotnet",
-            "run",
-            "--framework",
-            "net10.0",
-            "--project",
-            str(args.project),
-            "--",
+        cli_prefix(args)
+        + [
             "ska",
             str(ska),
             "-o",
@@ -119,14 +132,8 @@ def render_gif(args: argparse.Namespace, mode: str, glb: Path, azimuth: float) -
     gif_dir = args.out / mode / az_name
     gif_dir.mkdir(parents=True, exist_ok=True)
     run(
-        [
-            "dotnet",
-            "run",
-            "--framework",
-            "net10.0",
-            "--project",
-            str(args.project),
-            "--",
+        cli_prefix(args)
+        + [
             "glb-gif",
             str(glb),
             "-o",
@@ -229,6 +236,7 @@ def main() -> int:
     args = parse_args()
     args.repo_root = args.repo_root.resolve()
     args.project = args.project.resolve()
+    args.tool = args.tool.resolve() if args.tool else None
     args.skn = args.skn.resolve()
     args.out = args.out.resolve()
 
@@ -236,7 +244,9 @@ def main() -> int:
     azimuths = args.azimuth or DEFAULT_AZIMUTHS
     skas = [p.resolve() for p in (args.ska or DEFAULT_SKAS)]
 
-    missing = [str(p) for p in [args.project, args.skn, *skas] if not p.exists()]
+    required = [args.skn, *skas]
+    required.append(args.tool if args.tool else args.project)
+    missing = [str(p) for p in required if p is not None and not p.exists()]
     if missing:
         print("Missing required input(s):", file=sys.stderr)
         for path in missing:
@@ -245,6 +255,8 @@ def main() -> int:
 
     manifest: dict[str, object] = {
         "skn": str(args.skn),
+        "tool": str(args.tool) if args.tool else None,
+        "project": str(args.project) if not args.tool else None,
         "modes": modes,
         "azimuths": azimuths,
         "animations": [str(path) for path in skas],

@@ -85,12 +85,13 @@ internal static class SkaFile
     ///     [Trailing pad]      4 bytes
     ///     </code>
     ///
-    ///     Q uses <c>prev-at-start</c>, T uses <c>prev-at-end</c>. numQKeys is
-    ///     always 1 greater than the actual stored record count (RW allocates
-    ///     an extra slot at serialise time). <c>prev</c> is a byte offset back
-    ///     into the respective array, chaining same-bone keys. A bone's first
-    ///     key has <c>prev</c> set to a per-file sentinel value (an
-    ///     uninitialised pointer from RW's writer).
+    ///     T uses <c>prev-at-end</c>. numQKeys is always 1 greater than the
+    ///     actual stored record count (RW allocates an extra slot at serialise
+    ///     time). T <c>prev</c> is a byte offset back into the array, chaining
+    ///     same-bone keys. A bone's first T key has <c>prev</c> set to a
+    ///     per-file sentinel value (an uninitialised pointer from RW's writer).
+    ///     Q <c>prev</c> does not identify runtime bone tracks; the game loads
+    ///     Q records into non-root bone tracks using serialized time order.
     ///
     ///     Record strides and field offsets were confirmed against the THPS3
     ///     PS2 in-memory interpolator (FUN_00230f68 / FUN_00231048 at
@@ -128,24 +129,22 @@ internal static class SkaFile
         var (qKeys, qSentinels) = ReadThps3Records(data, qStart, qActual, QRecordSize, trackKind: ThpsRecordKind.Q);
         var (tKeys, tSentinels) = ReadThps3Records(data, tStart, numTKeys, TRecordSize, trackKind: ThpsRecordKind.T);
 
-        // Group Q records by bone. The prev chain anchors every record back to
-        // one of the sentinel (first-key) records. Sentinels appear in bone
-        // order (matches the RW rpHAnim convention that the first nBones frames
-        // are the initial keys of each bone in hierarchy order).
-        var numBones = qSentinels.Count;
-        var qTracksByBone = AssignBonesByPrevChain(qKeys, qSentinels, QRecordSize);
         var tTracksByBone = AssignBonesByPrevChain(tKeys, tSentinels, TRecordSize);
+        var qRuntimeTrackCount = Math.Max(0, (tTracksByBone.Length > 0 ? tTracksByBone.Length : qSentinels.Count) - 1);
+        var qTracksByNonRootBone = AssignThps3RuntimeQTracks(qKeys, qRuntimeTrackCount, duration);
+
+        // The runtime Q blob contains tracks for bones 1..N only. Bone 0/root
+        // has implicit identity rotation; translations still include root.
+        var numBones = Math.Max(tTracksByBone.Length, qTracksByNonRootBone.Length + 1);
 
         // Build per-bone tracks. Bones without a T track get an empty array.
-        // Current assumption: tSentinels are in the same hierarchy order as
-        // qSentinels, so the Nth T-sentinel belongs to the Nth bone that has a
-        // T track. For simplicity we pair by sentinel order and align to the
-        // beginning of the bone list — revisit if THPS3 stores a mapping.
         var tracks = new SkaBoneTrack[numBones];
         for (var bone = 0; bone < numBones; bone++)
         {
-            var rot = bone < qTracksByBone.Length ? qTracksByBone[bone] : Array.Empty<ThpsRawKey>();
-            var dedupedRot = DedupByTimeKeepLatest(rot);
+            var rot = bone > 0 && bone - 1 < qTracksByNonRootBone.Length
+                ? qTracksByNonRootBone[bone - 1]
+                : Array.Empty<ThpsRawKey>();
+            var dedupedRot = DedupByTimeKeepFirst(rot);
             var rotKeys = new SkaRotationKey[dedupedRot.Count];
             for (var k = 0; k < dedupedRot.Count; k++)
             {
@@ -156,7 +155,7 @@ internal static class SkaFile
             Array.Sort(rotKeys, (a, b) => a.Time.CompareTo(b.Time));
 
             var trans = bone < tTracksByBone.Length ? tTracksByBone[bone] : Array.Empty<ThpsRawKey>();
-            var dedupedTrans = DedupByTimeKeepLatest(trans);
+            var dedupedTrans = DedupByTimeKeepFirst(trans);
             var transKeys = new SkaTranslationKey[dedupedTrans.Count];
             for (var k = 0; k < dedupedTrans.Count; k++)
             {
@@ -184,16 +183,11 @@ internal static class SkaFile
 
     private readonly record struct ThpsRawKey(float X, float Y, float Z, float W, float Time, int Prev, int RecIndex);
 
-    // THPS3 SKA files authored in the Maya exporter often contain MULTIPLE
-    // records at the same timestamp for the same bone — apparently an artifact
-    // of the authoring tool's history (later edits append new records without
-    // removing the old ones). The runtime interpolates from the head of each
-    // bone's prev-chain (highest record index), so when the same timestamp is
-    // repeated we keep the one with the highest record index (the most recent
-    // insertion) and drop the stale values. Without this dedup, glTF's SLERP
-    // interpolates through the stale intermediate values, producing visible
-    // spasms during the animation.
-    private static List<ThpsRawKey> DedupByTimeKeepLatest(ThpsRawKey[] keys)
+    // THPS3 SKA files authored in the Maya exporter can contain multiple
+    // records at the same timestamp for a track. Runtime evidence favors the
+    // first serialized value for a timestamp; dropping later duplicates also
+    // prevents glTF interpolation from passing through stale intermediate keys.
+    private static List<ThpsRawKey> DedupByTimeKeepFirst(ThpsRawKey[] keys)
     {
         if (keys.Length <= 1) return new List<ThpsRawKey>(keys);
 
@@ -209,6 +203,93 @@ internal static class SkaFile
                 byTime[bucket] = k;
         }
         return byTime.Values.ToList();
+    }
+
+    private static ThpsRawKey[][] AssignThps3RuntimeQTracks(
+        ThpsRawKey[] keys, int trackCount, float duration)
+    {
+        if (trackCount <= 0)
+            return Array.Empty<ThpsRawKey[]>();
+
+        var result = new List<ThpsRawKey>[trackCount];
+        for (var track = 0; track < trackCount; track++)
+            result[track] = new List<ThpsRawKey>();
+
+        var initialCount = Math.Min(trackCount, keys.Length);
+        for (var i = 0; i < initialCount; i++)
+            result[i].Add(keys[i]);
+
+        if (keys.Length <= trackCount)
+            return result.Select(static track => track.ToArray()).ToArray();
+
+        // The game omits the root/end marker from the loaded Q blob. For the
+        // skater rig this is record 28: identity at animation duration.
+        var start = IsImplicitRootQMarker(keys[trackCount], duration)
+            ? trackCount + 1
+            : trackCount;
+
+        for (var i = start; i < keys.Length; i++)
+        {
+            var key = keys[i];
+            var bestTrack = -1;
+            var bestTime = 0f;
+
+            for (var track = 0; track < result.Length; track++)
+            {
+                if (result[track].Count == 0)
+                {
+                    bestTrack = track;
+                    bestTime = float.NegativeInfinity;
+                    break;
+                }
+
+                var lastTime = result[track][^1].Time;
+                if (lastTime > key.Time + 0.0001f)
+                    continue;
+
+                if (bestTrack < 0 || lastTime < bestTime - 0.0001f)
+                {
+                    bestTrack = track;
+                    bestTime = lastTime;
+                }
+            }
+
+            if (bestTrack < 0)
+                bestTrack = FindTrackWithLowestLastTime(result);
+
+            result[bestTrack].Add(key);
+        }
+
+        return result.Select(static track => track.ToArray()).ToArray();
+    }
+
+    private static bool IsImplicitRootQMarker(ThpsRawKey key, float duration)
+    {
+        const float QTolerance = 0.0001f;
+        const float TimeTolerance = 1f / 30f;
+
+        return MathF.Abs(key.X) <= QTolerance
+            && MathF.Abs(key.Y) <= QTolerance
+            && MathF.Abs(key.Z) <= QTolerance
+            && MathF.Abs(MathF.Abs(key.W) - 1f) <= QTolerance
+            && MathF.Abs(key.Time - duration) <= TimeTolerance;
+    }
+
+    private static int FindTrackWithLowestLastTime(List<ThpsRawKey>[] tracks)
+    {
+        var bestTrack = 0;
+        var bestTime = tracks[0].Count > 0 ? tracks[0][^1].Time : float.NegativeInfinity;
+        for (var track = 1; track < tracks.Length; track++)
+        {
+            var lastTime = tracks[track].Count > 0 ? tracks[track][^1].Time : float.NegativeInfinity;
+            if (lastTime < bestTime)
+            {
+                bestTrack = track;
+                bestTime = lastTime;
+            }
+        }
+
+        return bestTrack;
     }
 
     private enum ThpsRecordKind { Q, T }

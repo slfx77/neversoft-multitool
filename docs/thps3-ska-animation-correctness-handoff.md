@@ -2,9 +2,28 @@
 
 Date: 2026-04-21
 
+## Current Status
+
+- `SkaFile.ParseThps3` now reproduces the game-loaded Q-track linearization:
+  root rotation is implicit/identity, serialized record 28 is treated as the
+  root/end marker for the 29-bone skater rig, and records are scheduled into
+  28 non-root Q tracks by serialized time order.
+- Runtime Q/T compare after that parser fix is effectively exact for the
+  captured Idle savestate: source A/B Q/T are near zero error, output compare
+  is `q_rmse=5.11786e-08`, `t_rmse=2.071e-07`.
+- `xyzw` + raw quaternion decode is confirmed for the runtime intermediate
+  Q/T buffers; `wxyz` and conjugated variants remain rejected.
+- The production/default exporter mode was not changed. The latest contact
+  sheets visually eliminate `direct-raw` and `direct-raw-rawt` because their
+  arms fold through/cross the torso. `bind-raw` remains the default.
+- Generated diagnostics for this repo should be written under `TestOutput\...`.
+  Keep `C:\tmp\skater_m_*.ska` only as local input fixture paths.
+
 ## Implemented
 
 - THPS3 pose application is now isolated in `Thps3SkaPoseApplier`.
+- THPS3 SKA Q records are parsed using the runtime Q-blob grouping rule instead
+  of the serialized `prev / 24` chains. T records still use `prev / 20`.
 - `ska --skn` accepts `--thps3-mode` with these diagnostic modes:
   `bind-raw`, `direct-raw`, `bind-conjugated`, `direct-conjugated`,
   `bind-raw-rawt`, `direct-raw-rawt`.
@@ -31,48 +50,56 @@ Date: 2026-04-21
 - Focused tests cover rotation modes, anchored/raw translation, HAnim mapping
   status, and local THPS3 fixture counts when assets are present.
 
-## Sweep Result
+## Latest Sweep Result
 
 Command:
 
 ```powershell
-python tools/diagnostics/thps3_variant_sweep.py --out C:\tmp\thps3_variant_sweep
+python tools\diagnostics\thps3_variant_sweep.py `
+  --out TestOutput\thps3_qschedule_variant_sweep `
+  --size 512 --fps 15 --columns 8 --thumb-size 192
+```
+
+`dotnet run` hit an unrelated local workload-manifest mismatch on the final
+`direct-raw-rawt` mode, so that mode was finished with the built executable:
+
+```powershell
+src\NeversoftMultitool\bin\Debug\net10.0\NeversoftMultitool.exe ska ...
+src\NeversoftMultitool\bin\Debug\net10.0\NeversoftMultitool.exe glb-gif ...
+python tools\diagnostics\thps3_variant_sweep.py `
+  --out TestOutput\thps3_qschedule_variant_sweep --contact-only `
+  --columns 8 --thumb-size 192
 ```
 
 Outputs inspected:
 
-- `C:\tmp\thps3_variant_sweep\contact_sheets\skater_m_Idle_az0.png`
-- `C:\tmp\thps3_variant_sweep\contact_sheets\skater_m_Idle_az90.png`
-- `C:\tmp\thps3_variant_sweep\contact_sheets\skater_m_AirIdle_az0.png`
-- `C:\tmp\thps3_variant_sweep\contact_sheets\skater_m_AirIdle_az90.png`
+- `TestOutput\thps3_qschedule_variant_sweep\contact_sheets\skater_m_Idle_az0.png`
+- `TestOutput\thps3_qschedule_variant_sweep\contact_sheets\skater_m_Idle_az90.png`
+- `TestOutput\thps3_qschedule_variant_sweep\contact_sheets\skater_m_AirIdle_az0.png`
+- `TestOutput\thps3_qschedule_variant_sweep\contact_sheets\skater_m_AirIdle_az90.png`
 
 HAnim diagnostic for the fixture reports `id=exact, index=exact`, so there is
 no current evidence for a THPS3 bone-order remap.
 
-No mode was promoted. `bind-raw` remains the default because the contact sheets
-did not identify a single mode that is clearly valid across both animations and
-both cameras. `bind-raw-rawt` was included as a raw-translation control and
-looked equivalent at this contact-sheet scale for these samples, so translation
-mode is not the primary discriminator here.
-
-After the first PCSX2 savestate scan, `direct-raw-rawt` was added as an
-additional diagnostic-only mode. It is not promoted as the production default.
+No mode was promoted. `bind-raw` remains the default. The direct rotation modes
+are rejected visually in the latest sheets despite matching the runtime Q/T
+intermediate buffers, which indicates those buffers are not the final local
+skinning transforms by themselves. Raw-translation modes remain diagnostic
+controls until final matrix evidence proves otherwise.
 
 ## Mode Notes
 
-- `bind-raw`: current control. Keeps the least risky production behavior, but
-  the AirIdle sweep is still visually ambiguous.
-- `direct-raw`: reduces some bind-composition effects in Idle views, but does
-  not clearly fix AirIdle.
+- `bind-raw`: current production default and latest visual winner/control.
+- `direct-raw`: parser-level Q/T match to runtime intermediate buffers, but
+  contact sheets fold/cross the arms through the torso; do not promote.
 - `bind-conjugated`: obvious arm/torso distortion in Idle contact sheets.
 - `direct-conjugated`: better than `bind-conjugated` in some Idle samples, but
   still not consistently valid across AirIdle.
 - `bind-raw-rawt`: raw-translation control. It should remain diagnostic-only
   unless matrix evidence says THPS3 wants raw SKA translations.
-- `direct-raw-rawt`: added after savestate Q/T evidence showed raw translation
-  matches the runtime pose while `direct-raw` rotation is the best of the
-  current rotation variants. Still diagnostic-only until final matrix evidence
-  confirms the convention.
+- `direct-raw-rawt`: raw translation plus runtime-intermediate Q convention.
+  Rejected visually for the same arm/torso crossing as `direct-raw`; keep only
+  as a diagnostic comparison mode.
 
 ## Runtime Pose Evidence
 
@@ -89,8 +116,8 @@ python tools\diagnostics\thps3_pose_scan.py `
   "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
   --top 20 `
   --animation skater_m_Idle --time 0.0 `
-  --out C:\tmp\thps3_runtime_matrices\pose_scan_candidates.json `
-  --dump-best C:\tmp\thps3_runtime_matrices\pose_scan_best.json
+  --out TestOutput\thps3_runtime_matrices\pose_scan_candidates.json `
+  --dump-best TestOutput\thps3_runtime_matrices\pose_scan_best.json
 ```
 
 Top candidate:
@@ -104,16 +131,9 @@ Top candidate:
 The dumped records carry repeated time-like value `0.483332`, so the GLB
 comparison used that inferred record time.
 
-Best Q/T comparison after adding `direct-raw-rawt`:
-
-- `direct-raw-rawt`: `q_rmse=0.170994`, `t_rmse=0.000000207`
-- `bind-raw-rawt`: `q_rmse=0.222675`, `t_rmse=0.000000207`
-- anchored translation modes: `t_rmse=0.353889`
-
-Interpretation: this savestate strongly supports raw SKA translation for the
-runtime Q/T pose and makes `direct-raw-rawt` the best current diagnostic
-exporter mode for this Idle sample. It still does not prove the final skinning
-matrix convention or cover AirIdle.
+Best Q/T comparison before the Q-track parser fix was `direct-raw-rawt`
+(`q_rmse=0.170994`, `t_rmse=0.000000207`). That result is superseded by the
+parser-level Q-track fix below.
 
 Additional parser-level checks:
 
@@ -122,38 +142,55 @@ python tools\diagnostics\thps3_pose_dump.py `
   --savestate "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
   --pose-addr 0x00B404C0 --slot output `
   --animation skater_m_Idle `
-  --out C:\tmp\thps3_runtime_matrices\debug_output_pose.json
+  --out TestOutput\thps3_runtime_matrices\debug_output_pose.json
 
 python tools\diagnostics\thps3_pose_dump.py `
   --savestate "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
   --pose-addr 0x00B404C0 --slot source-a `
   --animation skater_m_Idle `
-  --out C:\tmp\thps3_runtime_matrices\debug_source_a_pose.json
+  --out TestOutput\thps3_runtime_matrices\debug_source_a_pose.json
 
 python tools\diagnostics\thps3_pose_dump.py `
   --savestate "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
   --pose-addr 0x00B404C0 --slot source-b `
   --animation skater_m_Idle `
-  --out C:\tmp\thps3_runtime_matrices\debug_source_b_pose.json
+  --out TestOutput\thps3_runtime_matrices\debug_source_b_pose.json
 
 python tools\diagnostics\thps3_ska_runtime_compare.py `
   --ska C:\tmp\skater_m_Idle.ska `
-  --pose C:\tmp\thps3_runtime_matrices\debug_output_pose.json `
-  --pose C:\tmp\thps3_runtime_matrices\debug_source_a_pose.json `
-  --pose C:\tmp\thps3_runtime_matrices\debug_source_b_pose.json `
-  --out C:\tmp\thps3_runtime_matrices\debug_ska_runtime_compare.json
+  --pose TestOutput\thps3_runtime_matrices\debug_output_pose.json `
+  --pose TestOutput\thps3_runtime_matrices\debug_source_a_pose.json `
+  --pose TestOutput\thps3_runtime_matrices\debug_source_b_pose.json `
+  --out TestOutput\thps3_runtime_matrices\debug_ska_runtime_compare.json
 ```
 
-Results:
+Results before the Q-track parser fix:
 
-- `xyzw` is correct; `wxyz` is clearly wrong (`q_rmse` around `0.66-0.67`).
-- Raw versus conjugated quaternions does not explain the remaining error.
-- Translation is effectively exact against the SKA parser (`t_rmse=0` for
+- `xyzw` was correct; `wxyz` was clearly wrong (`q_rmse` around `0.66-0.67`).
+- Raw versus conjugated quaternions did not explain the remaining error.
+- Translation was effectively exact against the SKA parser (`t_rmse=0` for
   source slots, `0.000000207` for output).
-- The runtime pose struct now reports:
+- The runtime pose struct reported:
   `key_table=0x00B40560`, output Q/T `0x00B40660/0x00B40930`,
   source A `0x00B40B90/0x00B40E60`, source B
   `0x00B410C0/0x00B41390`.
+
+Results after the Q-track parser fix:
+
+```powershell
+python tools\diagnostics\thps3_ska_runtime_compare.py `
+  --ska C:\tmp\skater_m_Idle.ska `
+  --pose TestOutput\thps3_runtime_matrices\debug_output_pose.json `
+  --pose TestOutput\thps3_runtime_matrices\debug_source_a_pose.json `
+  --pose TestOutput\thps3_runtime_matrices\debug_source_b_pose.json `
+  --out TestOutput\thps3_runtime_matrices\debug_ska_runtime_compare_after_qschedule.json `
+  --top 12
+```
+
+- `source-a`, `xyzw/raw`: `q_rmse=5.71532e-17`, `t_rmse=0`.
+- `source-b`, `xyzw/raw`: `q_rmse=6.37428e-17`, `t_rmse=0`.
+- `output`, `xyzw/raw`: `q_rmse=5.11786e-08`, `t_rmse=2.071e-07`.
+- Conjugated variants remain wrong (`q_rmse` around `0.252-0.254`).
 
 Critical Q-track finding:
 
@@ -161,7 +198,7 @@ Critical Q-track finding:
 python tools\diagnostics\thps3_runtime_qblob_dump.py `
   --savestate "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
   --ska C:\tmp\skater_m_Idle.ska `
-  --out C:\tmp\thps3_runtime_matrices\debug_runtime_qblob.json
+  --out TestOutput\thps3_runtime_matrices\debug_runtime_qblob.json
 ```
 
 The game-loaded Q blob starts at `0x00D12C28`, contains `158` packed 20-byte
@@ -180,8 +217,7 @@ Interpretation: the serialized Q records are `prev + q/time`, but the THPS3
 loader strips `prev` and linearizes Q keys into runtime bone tracks before
 interpolation. Root rotation appears implicit/identity; the loaded blob has 28
 animated Q tracks for bones 1-28, while translation has 29 tracks including
-root. This is now the primary blocker. Do not promote an exporter mode until
-`SkaFile.ParseThps3` reproduces the loader's Q-track linearization.
+root. `SkaFile.ParseThps3` now implements this rule.
 
 Matrix-palette scan:
 
@@ -217,14 +253,20 @@ standing idle/state.
 
 ## Next Step
 
-Reverse the THPS3 SKA loader's Q-key linearization and update
-`SkaFile.ParseThps3` to reproduce the game-loaded 20-byte Q blob order. The
-next Ghidra target is the loader that converts serialized 24-byte Q records
-into the packed runtime Q blob, not the final matrix palette.
+The parser-level blocker is resolved. The remaining correctness question is the
+final transform convention after the runtime Q/T intermediate buffers are
+combined with bind/model/skinning matrices. The next useful target is final
+matrix capture, not more SKA field-order permutations.
 
-After Q-track parsing matches the runtime blob, rerun the variant sweep and
-pose compare. Only then return to final matrix palette capture for a production
-default decision.
+Recommended next work:
+
+- Capture or locate the final 29-bone matrix palette after the game applies the
+  interpolated Q/T buffers.
+- Compare that palette against `bind-raw`, `bind-raw-rawt`, and any required
+  matrix-space variants. Direct modes can stay available but are visually
+  deprioritized.
+- Keep the production default at `bind-raw` unless final matrix evidence proves
+  raw translation or another composition.
 
 Static Ghidra progress:
 
@@ -234,6 +276,6 @@ Static Ghidra progress:
 - `FUN_00231048` confirms `x,y,z,w` Hamilton quaternion composition and
   additive translation, but no direct caller was identified in the focused
   call-graph dump.
-- Live PCSX2 matrix capture is still useful later, but the current local
-  blocker is now parser-level: reproduce the Q-key runtime linearization shown
-  by `debug_runtime_qblob.json`.
+- Live PCSX2 matrix capture is the remaining high-value evidence now that the
+  parser reproduces the Q-key runtime linearization shown by
+  `debug_runtime_qblob.json`.

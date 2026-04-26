@@ -7,6 +7,7 @@ exporter default:
 - quaternion field order: `xyzw` vs targeted `wxyz`
 - quaternion transform: raw vs conjugated
 - duplicate timestamp policy: first-inserted vs last-inserted record
+- runtime Q grouping: serialized-time scheduling for non-root bone tracks
 
 Input pose JSONs come from `thps3_pose_dump.py` or `thps3_pose_scan.py`.
 """
@@ -218,6 +219,57 @@ def assign_by_prev_chain(keys: list[RawKey], sentinels: list[int], stride: int) 
     return result
 
 
+def is_implicit_root_q_marker(key: RawKey, duration: float) -> bool:
+    return (
+        abs(key.x) <= 0.0001
+        and abs(key.y) <= 0.0001
+        and abs(key.z) <= 0.0001
+        and abs(abs(key.w) - 1.0) <= 0.0001
+        and abs(key.time - duration) <= (1.0 / 30.0)
+    )
+
+
+def assign_runtime_q_tracks(keys: list[RawKey], track_count: int, duration: float) -> list[list[RawKey]]:
+    """Mirror the THPS3 runtime Q blob layout: tracks are bones 1..N."""
+    if track_count <= 0:
+        return []
+
+    result: list[list[RawKey]] = [[] for _ in range(track_count)]
+    for index, key in enumerate(keys[:track_count]):
+        result[index].append(key)
+
+    if len(keys) <= track_count:
+        return result
+
+    start = track_count + 1 if is_implicit_root_q_marker(keys[track_count], duration) else track_count
+    for key in keys[start:]:
+        best_track = -1
+        best_time = 0.0
+        for track_index, track in enumerate(result):
+            if not track:
+                best_track = track_index
+                best_time = -math.inf
+                break
+
+            last_time = track[-1].time
+            if last_time > key.time + 0.0001:
+                continue
+
+            if best_track < 0 or last_time < best_time - 0.0001:
+                best_track = track_index
+                best_time = last_time
+
+        if best_track < 0:
+            best_track = min(
+                range(len(result)),
+                key=lambda index: result[index][-1].time if result[index] else -math.inf,
+            )
+
+        result[best_track].append(key)
+
+    return result
+
+
 def dedup_by_time(keys: list[RawKey], policy: str) -> list[RawKey]:
     if len(keys) <= 1:
         return sorted(keys, key=lambda item: (item.time, item.rec_index))
@@ -271,14 +323,17 @@ def parse_ska(path: Path, q_order: str, q_transform: str, duplicate_policy: str)
 
     q_keys, q_sentinels = read_records(data, q_start, q_actual, Q_RECORD_SIZE, "q")
     t_keys, t_sentinels = read_records(data, t_start, t_count, T_RECORD_SIZE, "t")
-    q_by_bone = assign_by_prev_chain(q_keys, q_sentinels, Q_RECORD_SIZE)
     t_by_bone = assign_by_prev_chain(t_keys, t_sentinels, T_RECORD_SIZE)
+    q_track_count = max(0, (len(t_by_bone) if t_by_bone else len(q_sentinels)) - 1)
+    q_by_non_root_bone = assign_runtime_q_tracks(q_keys, q_track_count, duration)
 
     tracks: list[DecodedTrack] = []
-    for bone_index in range(len(q_by_bone)):
+    num_bones = max(len(t_by_bone), len(q_by_non_root_bone) + 1)
+    for bone_index in range(num_bones):
+        q_source = q_by_non_root_bone[bone_index - 1] if 0 < bone_index <= len(q_by_non_root_bone) else []
         q_track = [
             (key.time, decode_quat(key, q_order, q_transform), key.rec_index)
-            for key in dedup_by_time(q_by_bone[bone_index], duplicate_policy)
+            for key in dedup_by_time(q_source, duplicate_policy)
         ]
         t_track = []
         if bone_index < len(t_by_bone):

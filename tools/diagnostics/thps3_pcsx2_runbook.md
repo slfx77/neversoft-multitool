@@ -58,7 +58,7 @@ $out = (Resolve-Path 'tools\ghidra\thps3_ps2\output').Path + '\thps3_ska_callgra
 $scripts = (Resolve-Path 'tools\ghidra\thps3_ps2').Path
 New-Item -ItemType Directory -Force -Path $project | Out-Null
 & $ghidra $project Thps3SkaCallGraph `
-  -import 'C:\tmp\thps3_slus.bin' `
+  -import 'TestOutput\thps3_slus.bin' `
   -processor 'MIPS:LE:32:default' `
   -loader ElfLoader `
   -postScript DumpSkaCallGraph.java $out `
@@ -108,7 +108,7 @@ If the matrix buffer address is known, dump it without hand-copying:
 python tools/diagnostics/thps3_matrix_dump.py --pine `
   --addr 0x00ABCDEF `
   --animation skater_m_Idle --time 0.533333 `
-  --out C:\tmp\thps3_runtime_matrices\idle_mid.json
+  --out TestOutput\thps3_runtime_matrices\idle_mid.json
 ```
 
 For a saved `.p2s` state, use the same address against `eeMemory.bin`:
@@ -118,7 +118,7 @@ python tools/diagnostics/thps3_matrix_dump.py `
   --savestate "C:\Users\mmc99\Documents\PCSX2\sstates\SLUS-20013 (F77E2FB5).01.p2s" `
   --addr 0x00ABCDEF `
   --animation skater_m_Idle --time 0.533333 `
-  --out C:\tmp\thps3_runtime_matrices\idle_mid.json
+  --out TestOutput\thps3_runtime_matrices\idle_mid.json
 ```
 
 ## Step D - Compare against exporter matrices
@@ -128,10 +128,10 @@ python tools/diagnostics/thps3_matrix_dump.py `
 
    ```powershell
    python tools/diagnostics/thps3_matrix_compare.py `
-     --runtime C:\tmp\thps3_runtime_matrices\idle_mid.json `
-     --sweep-root C:\tmp\thps3_variant_sweep `
+     --runtime TestOutput\thps3_runtime_matrices\idle_mid.json `
+     --sweep-root TestOutput\thps3_variant_sweep `
      --top 20 `
-     --out C:\tmp\thps3_runtime_matrices\idle_mid_compare.json
+     --out TestOutput\thps3_runtime_matrices\idle_mid_compare.json
    ```
 
 3. Repeat for all six samples: Idle frame 0, Idle mid, Idle loop-end,
@@ -171,7 +171,7 @@ translation composition question.
    python tools/diagnostics/thps3_pose_dump.py --pine `
      --pose-addr 0x00ABCDEF `
      --animation skater_m_Idle --time 0.533333 `
-     --out C:\tmp\thps3_runtime_matrices\idle_mid_pose.json
+     --out TestOutput\thps3_runtime_matrices\idle_mid_pose.json
    ```
 
 If the breakpoint path is too noisy or does not fire during gameplay, use a
@@ -184,8 +184,8 @@ savestate scan instead:
    python tools/diagnostics/thps3_pose_scan.py `
      --top 20 `
      --animation skater_m_Idle --time 0.0 `
-     --out C:\tmp\thps3_runtime_matrices\pose_scan_candidates.json `
-     --dump-best C:\tmp\thps3_runtime_matrices\pose_scan_best.json
+     --out TestOutput\thps3_runtime_matrices\pose_scan_candidates.json `
+     --dump-best TestOutput\thps3_runtime_matrices\pose_scan_best.json
    ```
 
 3. If the newest THPS3 savestate is not in the default PCSX2 sstates folder,
@@ -198,8 +198,8 @@ python tools/diagnostics/thps3_pose_scan.py `
   "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
   --top 20 `
   --animation skater_m_Idle --time 0.0 `
-  --out C:\tmp\thps3_runtime_matrices\pose_scan_candidates.json `
-  --dump-best C:\tmp\thps3_runtime_matrices\pose_scan_best.json
+  --out TestOutput\thps3_runtime_matrices\pose_scan_candidates.json `
+  --dump-best TestOutput\thps3_runtime_matrices\pose_scan_best.json
 ```
 
 Best candidate was:
@@ -214,11 +214,11 @@ Compare the dumped Q/T pose against diagnostic GLBs:
 
 ```powershell
 python tools/diagnostics/thps3_pose_compare.py `
-  --pose C:\tmp\thps3_runtime_matrices\pose_scan_best.json `
-  --sweep-root C:\tmp\thps3_variant_sweep `
+  --pose TestOutput\thps3_runtime_matrices\pose_scan_best.json `
+  --sweep-root TestOutput\thps3_variant_sweep `
   --use-record-time `
   --top 10 `
-  --out C:\tmp\thps3_runtime_matrices\pose_compare_record_time.json
+  --out TestOutput\thps3_runtime_matrices\pose_compare_record_time.json
 ```
 
 With `direct-raw-rawt` added as a diagnostic mode, the best Idle Q/T match was
@@ -238,7 +238,7 @@ Use this command to reconstruct that blob from a savestate:
 python tools/diagnostics/thps3_runtime_qblob_dump.py `
   --savestate "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
   --ska C:\tmp\skater_m_Idle.ska `
-  --out C:\tmp\thps3_runtime_matrices\debug_runtime_qblob.json
+  --out TestOutput\thps3_runtime_matrices\debug_runtime_qblob.json
 ```
 
 Observed for `thp3_debug.p2s` + `skater_m_Idle.ska`:
@@ -254,10 +254,10 @@ Direct parser compare command:
 ```powershell
 python tools/diagnostics/thps3_ska_runtime_compare.py `
   --ska C:\tmp\skater_m_Idle.ska `
-  --pose C:\tmp\thps3_runtime_matrices\debug_output_pose.json `
-  --pose C:\tmp\thps3_runtime_matrices\debug_source_a_pose.json `
-  --pose C:\tmp\thps3_runtime_matrices\debug_source_b_pose.json `
-  --out C:\tmp\thps3_runtime_matrices\debug_ska_runtime_compare.json
+  --pose TestOutput\thps3_runtime_matrices\debug_output_pose.json `
+  --pose TestOutput\thps3_runtime_matrices\debug_source_a_pose.json `
+  --pose TestOutput\thps3_runtime_matrices\debug_source_b_pose.json `
+  --out TestOutput\thps3_runtime_matrices\debug_ska_runtime_compare.json
 ```
 
 Interpretation:

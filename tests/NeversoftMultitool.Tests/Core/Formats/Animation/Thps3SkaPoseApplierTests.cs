@@ -99,8 +99,8 @@ public sealed class Thps3SkaPoseApplierTests(TestPaths paths)
     }
 
     [Theory]
-    [InlineData("C:/tmp/skater_m_Idle.ska", 29, 136, 71, 1.0666667f)]
-    [InlineData("C:/tmp/skater_m_AirIdle.ska", 29, 122, 69, 1.3333334f)]
+    [InlineData("C:/tmp/skater_m_Idle.ska", 29, 158, 71, 1.0666667f)]
+    [InlineData("C:/tmp/skater_m_AirIdle.ska", 29, 132, 69, 1.3333334f)]
     public void ParseThps3_LocalFixtures_HaveStableKeyCounts(
         string path, int expectedBones, int expectedRotationKeys, int expectedTranslationKeys, float expectedDuration)
     {
@@ -112,6 +112,23 @@ public sealed class Thps3SkaPoseApplierTests(TestPaths paths)
         Assert.Equal(expectedRotationKeys, animation.BoneTracks.Sum(static track => track.RotationKeys.Length));
         Assert.Equal(expectedTranslationKeys, animation.BoneTracks.Sum(static track => track.TranslationKeys.Length));
         Assert.True(Math.Abs(animation.Duration - expectedDuration) < 0.0001f);
+    }
+
+    [Fact]
+    public void ParseThps3_LocalIdle_UsesRuntimeQTrackGrouping()
+    {
+        const string path = "C:/tmp/skater_m_Idle.ska";
+        Assert.SkipWhen(!File.Exists(path), $"Local THPS3 SKA fixture not found: {path}");
+
+        var animation = SkaFile.Parse(File.ReadAllBytes(path));
+
+        Assert.Empty(animation.BoneTracks[0].RotationKeys);
+        Assert.Equal(2, animation.BoneTracks[1].RotationKeys.Length);
+        Assert.Equal(9, animation.BoneTracks[2].RotationKeys.Length);
+        Assert.Equal(19, animation.BoneTracks[3].RotationKeys.Length);
+        Assert.Equal(
+            new[] { 0, 10, 16, 20, 32, 40, 44, 50, 64 },
+            animation.BoneTracks[2].RotationKeys.Select(static key => (int)MathF.Round(key.Time * 60f)).ToArray());
     }
 
     [Fact]
