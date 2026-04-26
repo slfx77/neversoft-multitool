@@ -122,6 +122,14 @@ public static class Ps2GeomFile
 
         var outLeaves = new List<Ps2GeomLeaf>(sortedLeaves.Count);
 
+        // GS state machine. THAW worldzone leaves emit register writes only when state
+        // CHANGES from the previous draw (engine optimization). Leaves that share TEX0
+        // with the previous draw write a single NOP register (reg=0x7F, value=0) as
+        // padding instead. We propagate the last-seen non-empty GS context across
+        // leaves so those "inheriting" leaves bind to the right texture rather than
+        // rendering as untextured white.
+        var inheritedGsCtx = new Ps2GeomGsContext();
+
         for (var i = 0; i < sortedLeaves.Count; i++)
         {
             var leaf = sortedLeaves[i];
@@ -163,9 +171,10 @@ public static class Ps2GeomFile
                     data, vifStreamStart, vifStreamEnd);
                 if (billboard is not null)
                 {
-                    var bbGsCtx = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(
-                                      data, billboard.Value.VifStart, billboard.Value.VifEnd)
-                                  ?? new Ps2GeomGsContext();
+                    var scanned = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(
+                        data, billboard.Value.VifStart, billboard.Value.VifEnd);
+                    var bbGsCtx = scanned is { Tex0: not 0 } ? scanned.Value : inheritedGsCtx;
+                    if (bbGsCtx.Tex0 != 0) inheritedGsCtx = bbGsCtx;
                     outLeaves.Add(MakeLeafFromMdlMesh(billboard.Value.Vertices, bbGsCtx));
                 }
                 continue;
@@ -179,8 +188,9 @@ public static class Ps2GeomFile
                 if (!IsBatchCoherent(batch.Vertices, placement))
                     continue;
 
-                var gsCtx = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(data, batch.VifStart, batch.VifEnd)
-                           ?? new Ps2GeomGsContext();
+                var scanned = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(data, batch.VifStart, batch.VifEnd);
+                var gsCtx = scanned is { Tex0: not 0 } ? scanned.Value : inheritedGsCtx;
+                if (gsCtx.Tex0 != 0) inheritedGsCtx = gsCtx;
                 outLeaves.Add(MakeLeafFromMdlMesh(batch.Vertices, gsCtx));
             }
         }

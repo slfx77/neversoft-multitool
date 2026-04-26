@@ -82,8 +82,12 @@ internal static class Ps2GeomMdlBatchScanner
 
     internal static Ps2GeomGsContext? ScanBatchForGsContext(byte[] data, int batchStart, int batchEnd)
     {
-        // Primary pattern: V4_32 num=1 (GIF tag) followed by V3_32 num>1 (register writes).
-        // This is the standard GEOM/MDL GS context setup block.
+        // Primary pattern: V4_32 num=1 (GIF tag) followed by V3_32 num>=1 (register writes).
+        // This is the standard GEOM/MDL GS context setup block. The register list count
+        // is normally 5 (TEX0/TEX1/CLAMP/ALPHA/TEST), but THAW worldzone leaves that
+        // share GS state with a previous draw write only TEX0 — i.e. num=1. Both shapes
+        // are valid GIF prologues; we let TryExtractRegistersFromV332 reject ones that
+        // contain no known register address.
         var pCode = batchStart;
         while (pCode < batchEnd && pCode + 4 <= data.Length)
         {
@@ -93,7 +97,7 @@ internal static class Ps2GeomMdlBatchScanner
             if ((cmd & 0x7F) == 0x6C && num == 1)
             {
                 var nextP = Ps2GeomVifVertexDecoder.VifNextCode(data, pCode, batchEnd);
-                if (nextP + 4 <= data.Length && (data[nextP + 3] & 0x7F) == 0x68 && data[nextP + 2] > 1)
+                if (nextP + 4 <= data.Length && (data[nextP + 3] & 0x7F) == 0x68 && data[nextP + 2] >= 1)
                     return Ps2GeomVifVertexDecoder.ExtractGsContextFromVif(data, pCode, batchEnd);
             }
 
@@ -122,10 +126,11 @@ internal static class Ps2GeomMdlBatchScanner
             var cmd = data[pCode + 3];
             var num = data[pCode + 2];
 
-            // V3_32 (opcode 0x68) with num >= 2: potential GS register write block.
-            // Each entry is 12 bytes: lo32 + hi32 + reg_addr.
+            // V3_32 (opcode 0x68) with num >= 1: potential GS register write block.
+            // Each entry is 12 bytes: lo32 + hi32 + reg_addr. Even single-entry blocks
+            // are valid (THAW worldzone leaves frequently write only TEX0_1).
             // Validate by checking that at least one entry has a known GS register address.
-            if ((cmd & 0x7F) == 0x68 && num >= 2)
+            if ((cmd & 0x7F) == 0x68 && num >= 1)
             {
                 var ctx = TryExtractRegistersFromV332(data, pCode, num);
                 if (ctx.HasValue)
