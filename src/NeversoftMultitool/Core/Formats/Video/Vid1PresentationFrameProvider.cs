@@ -23,11 +23,53 @@ internal sealed class Vid1PresentationFrameProvider
 
     public Vid1DecodedFrame? DecodeNextFrame()
     {
-        var rgb = new byte[_frameByteLength];
-        if (!TryDecodeNextFrame(rgb, out var frameIndex))
-            return null;
+        while (true)
+        {
+            if (_decodeIndex >= _file.Frames.Count)
+            {
+                if (_heldReferenceFrameIndex < 0 || _heldReferenceBuffer == null)
+                    return null;
 
-        return new Vid1DecodedFrame(frameIndex, _file.Width, _file.Height, rgb);
+                var heldBuffer = TakeHeldReferenceBuffer();
+                var frameIndex = _heldReferenceFrameIndex;
+                _heldReferenceFrameIndex = -1;
+                return new Vid1DecodedFrame(frameIndex, _file.Width, _file.Height, heldBuffer);
+            }
+
+            var frame = _file.Frames[_decodeIndex++];
+            if (frame.PreambleClass == 2)
+            {
+                var rgb = new byte[_frameByteLength];
+                _decoder.DecodeFrameToRgb(frame, rgb);
+                return new Vid1DecodedFrame(frame.Index, _file.Width, _file.Height, rgb);
+            }
+
+            if (!_emittedInitialReference)
+            {
+                var rgb = new byte[_frameByteLength];
+                _decoder.DecodeFrameToRgb(frame, rgb);
+                _emittedInitialReference = true;
+                return new Vid1DecodedFrame(frame.Index, _file.Width, _file.Height, rgb);
+            }
+
+            EnsureHeldReferenceBuffer();
+            if (_heldReferenceFrameIndex < 0)
+            {
+                _decoder.DecodeFrameToRgb(frame, _heldReferenceBuffer);
+                _heldReferenceFrameIndex = frame.Index;
+                continue;
+            }
+
+            EnsureScratchBuffer();
+            _decoder.DecodeFrameToRgb(frame, _scratchBuffer);
+
+            var outputBuffer = TakeHeldReferenceBuffer();
+            var outputFrameIndex = _heldReferenceFrameIndex;
+            _heldReferenceBuffer = _scratchBuffer;
+            _scratchBuffer = null;
+            _heldReferenceFrameIndex = frame.Index;
+            return new Vid1DecodedFrame(outputFrameIndex, _file.Width, _file.Height, outputBuffer);
+        }
     }
 
     internal bool TryDecodeNextFrame(Span<byte> destination, out int frameIndex)
@@ -67,7 +109,8 @@ internal sealed class Vid1PresentationFrameProvider
                 return true;
             }
 
-            EnsureBuffers();
+            EnsureHeldReferenceBuffer();
+            EnsureScratchBuffer();
             if (_heldReferenceFrameIndex < 0)
             {
                 _decoder.DecodeFrameToRgb(frame, _heldReferenceBuffer);
@@ -93,10 +136,17 @@ internal sealed class Vid1PresentationFrameProvider
         _decodeIndex = 0;
     }
 
-    private void EnsureBuffers()
+    private void EnsureHeldReferenceBuffer()
+        => _heldReferenceBuffer ??= new byte[_frameByteLength];
+
+    private void EnsureScratchBuffer()
+        => _scratchBuffer ??= new byte[_frameByteLength];
+
+    private byte[] TakeHeldReferenceBuffer()
     {
-        _heldReferenceBuffer ??= new byte[_frameByteLength];
-        _scratchBuffer ??= new byte[_frameByteLength];
+        var buffer = _heldReferenceBuffer;
+        _heldReferenceBuffer = null;
+        return buffer ?? throw new InvalidOperationException("Held reference buffer was not available.");
     }
 }
 
@@ -121,11 +171,53 @@ internal sealed class Vid1BgraPresentationFrameProvider
 
     public Vid1DecodedBgraFrame? DecodeNextFrame()
     {
-        var bgra = new byte[_frameByteLength];
-        if (!TryDecodeNextFrame(bgra, out var frameIndex))
-            return null;
+        while (true)
+        {
+            if (_decodeIndex >= _file.Frames.Count)
+            {
+                if (_heldReferenceFrameIndex < 0 || _heldReferenceBuffer == null)
+                    return null;
 
-        return new Vid1DecodedBgraFrame(frameIndex, _file.Width, _file.Height, bgra);
+                var heldBuffer = TakeHeldReferenceBuffer();
+                var frameIndex = _heldReferenceFrameIndex;
+                _heldReferenceFrameIndex = -1;
+                return new Vid1DecodedBgraFrame(frameIndex, _file.Width, _file.Height, heldBuffer);
+            }
+
+            var frame = _file.Frames[_decodeIndex++];
+            if (frame.PreambleClass == 2)
+            {
+                var bgra = new byte[_frameByteLength];
+                _decoder.DecodeFrameToBgra(frame, bgra);
+                return new Vid1DecodedBgraFrame(frame.Index, _file.Width, _file.Height, bgra);
+            }
+
+            if (!_emittedInitialReference)
+            {
+                var bgra = new byte[_frameByteLength];
+                _decoder.DecodeFrameToBgra(frame, bgra);
+                _emittedInitialReference = true;
+                return new Vid1DecodedBgraFrame(frame.Index, _file.Width, _file.Height, bgra);
+            }
+
+            EnsureHeldReferenceBuffer();
+            if (_heldReferenceFrameIndex < 0)
+            {
+                _decoder.DecodeFrameToBgra(frame, _heldReferenceBuffer);
+                _heldReferenceFrameIndex = frame.Index;
+                continue;
+            }
+
+            EnsureScratchBuffer();
+            _decoder.DecodeFrameToBgra(frame, _scratchBuffer);
+
+            var outputBuffer = TakeHeldReferenceBuffer();
+            var outputFrameIndex = _heldReferenceFrameIndex;
+            _heldReferenceBuffer = _scratchBuffer;
+            _scratchBuffer = null;
+            _heldReferenceFrameIndex = frame.Index;
+            return new Vid1DecodedBgraFrame(outputFrameIndex, _file.Width, _file.Height, outputBuffer);
+        }
     }
 
     internal bool TryDecodeNextFrame(Span<byte> destination, out int frameIndex)
@@ -165,7 +257,8 @@ internal sealed class Vid1BgraPresentationFrameProvider
                 return true;
             }
 
-            EnsureBuffers();
+            EnsureHeldReferenceBuffer();
+            EnsureScratchBuffer();
             if (_heldReferenceFrameIndex < 0)
             {
                 _decoder.DecodeFrameToBgra(frame, _heldReferenceBuffer);
@@ -191,9 +284,16 @@ internal sealed class Vid1BgraPresentationFrameProvider
         _decodeIndex = 0;
     }
 
-    private void EnsureBuffers()
+    private void EnsureHeldReferenceBuffer()
+        => _heldReferenceBuffer ??= new byte[_frameByteLength];
+
+    private void EnsureScratchBuffer()
+        => _scratchBuffer ??= new byte[_frameByteLength];
+
+    private byte[] TakeHeldReferenceBuffer()
     {
-        _heldReferenceBuffer ??= new byte[_frameByteLength];
-        _scratchBuffer ??= new byte[_frameByteLength];
+        var buffer = _heldReferenceBuffer;
+        _heldReferenceBuffer = null;
+        return buffer ?? throw new InvalidOperationException("Held reference buffer was not available.");
     }
 }

@@ -20,11 +20,6 @@ public sealed class Vid1Decoder
 
     private sealed class FrameDecodeSnapshot(int maxMacroblocks)
     {
-        private readonly byte[] _outputY = new byte[maxMacroblocks * 16 * 16];
-        private readonly byte[] _outputCb = new byte[maxMacroblocks * 8 * 8];
-        private readonly byte[] _outputCr = new byte[maxMacroblocks * 8 * 8];
-        private readonly byte[] _mbState = new byte[maxMacroblocks * Vid1FrameContext.MbStateStride];
-
         private int _count;
         private int _flagBitPosition;
         private int _macroblockIndex;
@@ -44,142 +39,80 @@ public sealed class Vid1Decoder
             CurrentQuantizer = context.CurrentQuantizer;
             _vlcBitPosition = vlcReader.BitPosition;
             _flagBitPosition = flagReader.BitPosition;
-
-            Buffer.BlockCopy(
-                context.MbState,
-                macroblockIndex * Vid1FrameContext.MbStateStride,
-                _mbState,
-                0,
-                _count * Vid1FrameContext.MbStateStride);
-
-            for (var i = 0; i < _count; i++)
-            {
-                var index = macroblockIndex + i;
-                CopyPlaneBlockToSnapshot(
-                    context.OutputY,
-                    context.Width,
-                    context.Height,
-                    context.MbCols,
-                    index,
-                    16,
-                    _outputY,
-                    i * 16 * 16);
-                CopyPlaneBlockToSnapshot(
-                    context.OutputCb,
-                    context.ChromaWidth,
-                    context.ChromaHeight,
-                    context.MbCols,
-                    index,
-                    8,
-                    _outputCb,
-                    i * 8 * 8);
-                CopyPlaneBlockToSnapshot(
-                    context.OutputCr,
-                    context.ChromaWidth,
-                    context.ChromaHeight,
-                    context.MbCols,
-                    index,
-                    8,
-                    _outputCr,
-                    i * 8 * 8);
-            }
         }
 
         public void Restore(Vid1FrameContext context, Vid1BitReader vlcReader, Vid1BitReader flagReader)
         {
-            Buffer.BlockCopy(
-                _mbState,
-                0,
-                context.MbState,
-                _macroblockIndex * Vid1FrameContext.MbStateStride,
-                _count * Vid1FrameContext.MbStateStride);
-
-            for (var i = 0; i < _count; i++)
-            {
-                var index = _macroblockIndex + i;
-                CopyPlaneBlockFromSnapshot(
-                    _outputY,
-                    i * 16 * 16,
-                    context.OutputY,
-                    context.Width,
-                    context.Height,
-                    context.MbCols,
-                    index,
-                    16);
-                CopyPlaneBlockFromSnapshot(
-                    _outputCb,
-                    i * 8 * 8,
-                    context.OutputCb,
-                    context.ChromaWidth,
-                    context.ChromaHeight,
-                    context.MbCols,
-                    index,
-                    8);
-                CopyPlaneBlockFromSnapshot(
-                    _outputCr,
-                    i * 8 * 8,
-                    context.OutputCr,
-                    context.ChromaWidth,
-                    context.ChromaHeight,
-                    context.MbCols,
-                    index,
-                    8);
-            }
-
+            ResetPendingMacroblocks(context, _macroblockIndex, _count);
             context.CurrentQuantizer = CurrentQuantizer;
             vlcReader.SetBitPosition(_vlcBitPosition);
             flagReader.SetBitPosition(_flagBitPosition);
         }
 
-        private static void CopyPlaneBlockToSnapshot(
-            byte[] source,
-            int planeWidth,
-            int planeHeight,
-            int mbCols,
+        private static void ResetPendingMacroblocks(
+            Vid1FrameContext context,
             int macroblockIndex,
-            int blockSize,
-            byte[] destination,
-            int destinationOffset)
+            int count)
         {
-            var blockX = (macroblockIndex % mbCols) * blockSize;
-            var blockY = (macroblockIndex / mbCols) * blockSize;
-            var copyWidth = Math.Min(blockSize, Math.Max(0, planeWidth - blockX));
-            var copyHeight = Math.Min(blockSize, Math.Max(0, planeHeight - blockY));
+            if (count <= 0)
+                return;
 
-            for (var row = 0; row < copyHeight; row++)
-            {
-                Buffer.BlockCopy(
-                    source,
-                    ((blockY + row) * planeWidth) + blockX,
-                    destination,
-                    destinationOffset + row * blockSize,
-                    copyWidth);
-            }
+            // Recovery bookmarks the current MB before it is decoded, so the
+            // lookahead window is still in its untouched frame-default state:
+            // gray output planes and zeroed MB metadata. Restoring that default
+            // state is much cheaper than snapshotting every future MB on the
+            // clean fast path where recovery is never used.
+            context.MbState
+                .AsSpan(
+                    macroblockIndex * Vid1FrameContext.MbStateStride,
+                    count * Vid1FrameContext.MbStateStride)
+                .Clear();
+
+            ResetPlaneBlocks(
+                context.OutputY,
+                context.Width,
+                context.Height,
+                context.MbCols,
+                macroblockIndex,
+                count,
+                blockSize: 16);
+            ResetPlaneBlocks(
+                context.OutputCb,
+                context.ChromaWidth,
+                context.ChromaHeight,
+                context.MbCols,
+                macroblockIndex,
+                count,
+                blockSize: 8);
+            ResetPlaneBlocks(
+                context.OutputCr,
+                context.ChromaWidth,
+                context.ChromaHeight,
+                context.MbCols,
+                macroblockIndex,
+                count,
+                blockSize: 8);
         }
 
-        private static void CopyPlaneBlockFromSnapshot(
-            byte[] source,
-            int sourceOffset,
-            byte[] destination,
+        private static void ResetPlaneBlocks(
+            byte[] plane,
             int planeWidth,
             int planeHeight,
             int mbCols,
-            int macroblockIndex,
-            int blockSize)
+            int startMacroblockIndex,
+            int count,
+            int blockSize,
+            byte fillValue = 128)
         {
-            var blockX = (macroblockIndex % mbCols) * blockSize;
-            var blockY = (macroblockIndex / mbCols) * blockSize;
-            var copyWidth = Math.Min(blockSize, Math.Max(0, planeWidth - blockX));
-            var copyHeight = Math.Min(blockSize, Math.Max(0, planeHeight - blockY));
-
-            for (var row = 0; row < copyHeight; row++)
+            for (var i = 0; i < count; i++)
             {
-                Buffer.BlockCopy(
-                    source,
-                    sourceOffset + row * blockSize,
-                    destination,
-                    ((blockY + row) * planeWidth) + blockX,
-                    copyWidth);
+                var macroblockIndex = startMacroblockIndex + i;
+                var blockX = (macroblockIndex % mbCols) * blockSize;
+                var blockY = (macroblockIndex / mbCols) * blockSize;
+                var copyWidth = Math.Min(blockSize, Math.Max(0, planeWidth - blockX));
+                var copyHeight = Math.Min(blockSize, Math.Max(0, planeHeight - blockY));
+                for (var row = 0; row < copyHeight; row++)
+                    plane.AsSpan(((blockY + row) * planeWidth) + blockX, copyWidth).Fill(fillValue);
             }
         }
     }
@@ -689,41 +622,8 @@ public sealed class Vid1Decoder
         return true;
     }
 
-    private static IEnumerable<(int VlcDelta, int FlagDelta)> EnumerateRecoveryCandidates()
-    {
-        var deltas = new (int VlcDelta, int FlagDelta)[]
-        {
-            (-1, 0),
-            (-2, 0),
-            (-3, 0),
-            (1, 0),
-            (2, 0),
-            (3, 0),
-            (4, 0),
-            (0, -1),
-            (0, 1),
-            (0, -2),
-            (0, 2),
-            (0, -3),
-            (0, 3),
-            (0, -4),
-            (0, 4),
-            (-1, -1),
-            (-1, 1),
-            (1, -1),
-            (1, 1),
-            (-2, -1),
-            (-2, 1),
-            (2, -1),
-            (2, 1),
-            (-1, -2),
-            (-1, 2),
-            (1, -2),
-            (1, 2),
-        };
-
-        return deltas;
-    }
+    private static ReadOnlySpan<(int VlcDelta, int FlagDelta)> EnumerateRecoveryCandidates()
+        => RecoveryCandidates;
 
     private int CopyRemainingMacroblocksFromReference(int startMacroblock, int totalMacroblocks, int mbCols)
     {
@@ -789,4 +689,35 @@ public sealed class Vid1Decoder
         Array.Fill(matrix, (byte)16);
         return matrix;
     }
+
+    private static readonly (int VlcDelta, int FlagDelta)[] RecoveryCandidates =
+    [
+        (-1, 0),
+        (-2, 0),
+        (-3, 0),
+        (1, 0),
+        (2, 0),
+        (3, 0),
+        (4, 0),
+        (0, -1),
+        (0, 1),
+        (0, -2),
+        (0, 2),
+        (0, -3),
+        (0, 3),
+        (0, -4),
+        (0, 4),
+        (-1, -1),
+        (-1, 1),
+        (1, -1),
+        (1, 1),
+        (-2, -1),
+        (-2, 1),
+        (2, -1),
+        (2, 1),
+        (-1, -2),
+        (-1, 2),
+        (1, -2),
+        (1, 2),
+    ];
 }

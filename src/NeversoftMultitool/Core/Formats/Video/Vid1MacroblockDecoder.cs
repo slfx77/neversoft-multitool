@@ -23,6 +23,8 @@ internal static class Vid1MacroblockDecoder
     private const int MbFlagsOffset = 0xDC;
     private const int MotionVectorOffsetBase = 0x08;
     private const int MotionVectorStride = 0x08;
+    private const int MotionVectorRegionLength = MotionVectorOffsetBase + MotionVectorStride * 4;
+    private const int TailRegionLength = Vid1FrameContext.MbStateStride - MbFlagsOffset;
 
     private static readonly byte[] ZigzagScan = Vid1CoefficientDecoder.GetScanTable("zigzag");
     private static readonly byte[] HorizontalScan = Vid1CoefficientDecoder.GetScanTable("horizontal");
@@ -91,7 +93,8 @@ internal static class Vid1MacroblockDecoder
     private static void MarkSkippedMacroblock(Vid1FrameContext ctx, int mbX, int mbY)
     {
         var mbBase = GetMbStateOffset(ctx, mbX, mbY);
-        Array.Clear(ctx.MbState, mbBase, Vid1FrameContext.MbStateStride);
+        ctx.MbState.AsSpan(mbBase, MotionVectorRegionLength).Clear();
+        ctx.MbState.AsSpan(mbBase + MbFlagsOffset, TailRegionLength).Clear();
         ctx.MbState[mbBase] = 0x10;
         ctx.MbState[mbBase + 1] = (byte)(ctx.CurrentQuantizer & 0xFF);
     }
