@@ -21,11 +21,166 @@ internal static class Ps2GeomVifVertexDecoder
         return ExtractVerticesFromVif(data, pStart, pEnd, center);
     }
 
+    /// <summary>
+    ///     Per-batch result for the level-MDL path. Each batch corresponds to one MSCAL kick
+    ///     in the VIF stream; level-MDL leaves with 2+ MSCALs need to be emitted as separate
+    ///     Ps2GeomLeaf objects so each batch can carry its own GS context / TEX0.
+    /// </summary>
+    internal readonly record struct Ps2GeomBatch(Ps2Vertex[] Vertices, int VifStart, int VifEnd);
+
+    /// <summary>
+    ///     Walk the VIF stream and emit one <see cref="Ps2GeomBatch"/> per MSCAL boundary,
+    ///     preserving the per-batch VIF byte range so callers can extract a fresh GS context
+    ///     per batch.
+    /// </summary>
+    internal static List<Ps2GeomBatch> ExtractBatchesFromVif(
+        byte[] data, int pStart, int pEnd, Vector3 center)
+    {
+        var decoded = new List<Ps2GeomBatch>();
+        var batches = ParseBatches(data, pStart, pEnd);
+        foreach (var (batch, batchStart, batchEnd) in batches)
+        {
+            if (batch.PositionCount == 0)
+                continue;
+            var verts = BuildVertices(data, batch, center, forceFirstRestart: false);
+            if (verts.Length > 0)
+                decoded.Add(new Ps2GeomBatch(verts, batchStart, batchEnd));
+        }
+        return decoded;
+    }
+
+    /// <summary>
+    ///     Detect and decode a level-MDL billboard leaf (Format B). These leaves carry 4 V4_32
+    ///     float "positions" without STMOD; they're not real vertices but parametric billboard
+    ///     descriptors consumed by a VU1 microprogram. Layout observed across 215/215 BH leaves:
+    ///     <c>[0] = world anchor</c>, <c>[1] = (width, height, 0)</c>, <c>[2]..[3]</c> residuals.
+    ///     We approximate each billboard as a 4-vertex axis-aligned quad in the XY plane,
+    ///     centred on the anchor, so the feature is at least visible at the right world
+    ///     location with the right scale. No camera-facing rotation is applied.
+    ///     Returns null if the leaf doesn't match the Format B signature.
+    /// </summary>
+    internal static (Ps2Vertex[] Vertices, int VifStart, int VifEnd)? ExtractBillboardFromVif(
+        byte[] data, int pStart, int pEnd)
+    {
+        // Walk the stream looking for: a V4_32 UNPACK with num==4 (positions), NOT gated by
+        // STMOD(1), followed by MSCAL. Capture the address of the position UNPACK data.
+        var pCode = pStart;
+        var stmodOn = false;
+        var positionDataOffset = -1;
+        var mscalSeen = false;
+        while (pCode < pEnd && pCode + 4 <= data.Length)
+        {
+            var cmd = data[pCode + 3];
+            var cmd7 = cmd & 0x7F;
+
+            if (cmd7 == 0x05)
+            {
+                var imm = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(pCode));
+                stmodOn = (imm & 3) == 1;
+                pCode = VifNextCode(data, pCode, pEnd);
+                continue;
+            }
+
+            if (cmd7 == 0x14)
+            {
+                mscalSeen = true;
+                break;
+            }
+
+            if ((cmd & 0x60) == 0x60)
+            {
+                var num = data[pCode + 2];
+                // V4_32 (cmd byte 0x6C) with num == 4, no STMOD gating = Format B positions.
+                if (cmd == 0x6C && num == 4 && !stmodOn)
+                {
+                    positionDataOffset = pCode + 4;
+                }
+            }
+
+            pCode = VifNextCode(data, pCode, pEnd);
+        }
+
+        if (!mscalSeen || positionDataOffset < 0 || positionDataOffset + 64 > data.Length)
+            return null;
+
+        // Read anchor (vertex 0) and size (vertex 1 = width, height, _).
+        var anchorX = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset));
+        var anchorY = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 4));
+        var anchorZ = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 8));
+        var width = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 16));
+        var height = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 20));
+
+        if (!float.IsFinite(anchorX) || !float.IsFinite(anchorY) || !float.IsFinite(anchorZ)
+            || !float.IsFinite(width) || !float.IsFinite(height)
+            || width <= 0f || height <= 0f || width > 10000f || height > 10000f)
+        {
+            return null;
+        }
+
+        var hw = width * 0.5f;
+        var hh = height * 0.5f;
+        var anchor = new Vector3(anchorX, anchorY, anchorZ);
+        // Axis-aligned XY quad centred on anchor. Emitted as a 4-vertex tri-strip
+        // (v0, v1, v2, v3) → triangles (v0, v1, v2), (v1, v2, v3) after strip unrolling.
+        var verts = new[]
+        {
+            MakeBillboardVertex(anchor + new Vector3(-hw, -hh, 0), 0f, 1f, isStripRestart: true),
+            MakeBillboardVertex(anchor + new Vector3( hw, -hh, 0), 1f, 1f, isStripRestart: true),
+            MakeBillboardVertex(anchor + new Vector3(-hw,  hh, 0), 0f, 0f, isStripRestart: false),
+            MakeBillboardVertex(anchor + new Vector3( hw,  hh, 0), 1f, 0f, isStripRestart: false),
+        };
+        return (verts, pStart, pEnd);
+    }
+
+    private static Ps2Vertex MakeBillboardVertex(Vector3 position, float u, float v, bool isStripRestart)
+    {
+        return new Ps2Vertex(
+            position,
+            Vector3.UnitZ,
+            128, 128, 128, 128,
+            u, v,
+            hasNormal: false, hasColor: false, hasUV: true,
+            isStripRestart: isStripRestart);
+    }
+
     internal static Ps2Vertex[] ExtractVerticesFromVif(byte[] data, int pStart, int pEnd, Vector3 center)
     {
-        var batches = new List<VifBatch>();
+        var batches = ParseBatches(data, pStart, pEnd);
+        if (batches.Count == 0)
+            return [];
+
+        var allVertices = new List<Ps2Vertex>();
+        var firstBatchEmitted = false;
+        foreach (var (batch, _, _) in batches)
+        {
+            if (batch.PositionCount == 0)
+                continue;
+
+            // Force strip restart on the first vertex of every batch after the first so
+            // we never form a phantom triangle that bridges two MSCAL batches.
+            var verts = BuildVertices(data, batch, center, forceFirstRestart: firstBatchEmitted);
+            if (verts.Length == 0)
+                continue;
+
+            allVertices.AddRange(verts);
+            firstBatchEmitted = true;
+        }
+
+        return allVertices.ToArray();
+    }
+
+    /// <summary>
+    ///     Parse the VIF stream into a list of batches split by MSCAL. Each batch entry
+    ///     records its VIF byte range (start/end, with end pointing just past the MSCAL
+    ///     that closed it) so callers can scan for a per-batch GS context.
+    /// </summary>
+    private static List<(VifBatch Batch, int BatchStart, int BatchEnd)> ParseBatches(
+        byte[] data, int pStart, int pEnd)
+    {
+        var batches = new List<(VifBatch, int, int)>();
         var currentBatch = new VifBatch();
         var stmodActive = false;
+        var currentBatchStart = pStart;
         // Level-MDL sub-chunks share one VU1 setup and emit position-only UNPACKs
         // between MSCALs. Once we've seen ONE position UNPACK (cmd byte X), later
         // UNPACKs with the same cmd byte at the START of a new sub-chunk are also
@@ -48,12 +203,14 @@ internal static class Ps2GeomVifVertexDecoder
 
             if ((cmd & 0x7F) == 0x14)
             {
+                var batchEnd = VifNextCode(data, pCode, pEnd);
                 if (currentBatch.PositionOffset >= 0)
-                    batches.Add(currentBatch);
+                    batches.Add((currentBatch, currentBatchStart, batchEnd));
 
                 currentBatch = new VifBatch();
                 stmodActive = false;
-                pCode = VifNextCode(data, pCode, pEnd);
+                currentBatchStart = batchEnd;
+                pCode = batchEnd;
                 continue;
             }
 
@@ -64,13 +221,6 @@ internal static class Ps2GeomVifVertexDecoder
                 var num = data[pCode + 2];
                 var unpackDataOffset = pCode + 4;
 
-                // Primary path: STMOD-gated position UNPACK.
-                // Continuation path: a sub-chunk after the first MSCAL that inherits
-                // the VU1 setup. Recognised when (a) we've previously decoded a
-                // position UNPACK in this VIF range (so we know it's a mesh chain),
-                // (b) the current UNPACK is V4_32/V4_16 (cmd & 0x7E == 0x6C) with
-                // num > 1, and (c) this sub-chunk has no other attributes yet —
-                // meaning the V4_16 is almost certainly positions, not UVs.
                 var matchesLastPositionCmd =
                     lastPositionUnpackCmd != 0 &&
                     (cmd & 0x7E) == 0x6C &&
@@ -90,8 +240,6 @@ internal static class Ps2GeomVifVertexDecoder
                 }
                 else if (matchesLastPositionCmd)
                 {
-                    // Continuation sub-chunk: same UNPACK cmd as the last
-                    // STMOD-gated position upload, no other attributes yet.
                     currentBatch.PositionOffset = unpackDataOffset;
                     currentBatch.PositionCount = num;
                     currentBatch.PositionIs16Bit = (cmd & 0x01) != 0;
@@ -129,68 +277,63 @@ internal static class Ps2GeomVifVertexDecoder
         }
 
         if (currentBatch.PositionOffset >= 0)
-            batches.Add(currentBatch);
+            batches.Add((currentBatch, currentBatchStart, pEnd));
 
-        if (batches.Count == 0)
+        return batches;
+    }
+
+    /// <summary>
+    ///     Read one batch's vertex attributes into <see cref="Ps2Vertex"/> records. Positions
+    ///     outside a sane envelope (±200k units) are treated as a sign of misidentified UNPACKs
+    ///     and drop the whole batch.
+    /// </summary>
+    private static Ps2Vertex[] BuildVertices(byte[] data, VifBatch batch, Vector3 center, bool forceFirstRestart)
+    {
+        if (batch.PositionCount == 0)
             return [];
 
-        var allVertices = new List<Ps2Vertex>();
-        foreach (var batch in batches)
+        // World z_bh fits in ±20,000 units; ±200k gives 10x headroom for outlier
+        // billboards while still rejecting wrong-attribute decodes (UV sint16 / 16
+        // peaked at ~2k, packed normal sint16 / 16 ~2k — both well inside ±200k, so
+        // we're depending on positional sanity AFTER the GIF-tag prologue skip lands
+        // the right UNPACK). The original ±1M envelope was sized to mask the
+        // wrong-attribute bug.
+        const float SanityLimit = 200_000f;
+        for (var i = 0; i < batch.PositionCount; i++)
         {
-            if (batch.PositionCount == 0)
-                continue;
-
-            // Continuation-sub-chunk decoding occasionally mis-classifies a non-
-            // position UNPACK as positions and emits garbage coordinates far outside
-            // any level's bbox. Reject batches whose decoded positions land outside
-            // a generous sanity envelope (THAW levels are ~20k units wide; a 1M cap
-            // leaves ample margin while catching 10M+ outliers).
-            const float SanityLimit = 1_000_000f;
-            var anyInvalid = false;
-            for (var i = 0; i < batch.PositionCount; i++)
+            var preview = ReadPosition(data, batch, i, center);
+            if (!preview.HasValue)
+                return [];
+            var (px0, py0, pz0, _) = preview.Value;
+            if (!float.IsFinite(px0) || !float.IsFinite(py0) || !float.IsFinite(pz0) ||
+                Math.Abs(px0) > SanityLimit || Math.Abs(py0) > SanityLimit || Math.Abs(pz0) > SanityLimit)
             {
-                var preview = ReadPosition(data, batch, i, center);
-                if (!preview.HasValue)
-                    break;
-                var (px0, py0, pz0, _) = preview.Value;
-                if (!float.IsFinite(px0) || !float.IsFinite(py0) || !float.IsFinite(pz0) ||
-                    Math.Abs(px0) > SanityLimit || Math.Abs(py0) > SanityLimit || Math.Abs(pz0) > SanityLimit)
-                {
-                    anyInvalid = true;
-                    break;
-                }
-            }
-            if (anyInvalid)
-                continue;
-
-            for (var i = 0; i < batch.PositionCount; i++)
-            {
-                var position = ReadPosition(data, batch, i, center);
-                if (!position.HasValue)
-                    break;
-
-                var (px, py, pz, isStripRestart) = position.Value;
-                var (u, v, hasUv) = ReadUv(data, batch, i);
-                var (cr, cg, cb, ca, hasColor) = ReadColor(data, batch, i);
-                var (normal, hasNormal) = ReadNormal(data, batch, i);
-
-                allVertices.Add(new Ps2Vertex(
-                    new Vector3(px, py, pz),
-                    normal,
-                    cr,
-                    cg,
-                    cb,
-                    ca,
-                    u,
-                    v,
-                    hasNormal,
-                    hasColor,
-                    hasUv,
-                    isStripRestart));
+                return [];
             }
         }
 
-        return allVertices.ToArray();
+        var verts = new List<Ps2Vertex>(batch.PositionCount);
+        for (var i = 0; i < batch.PositionCount; i++)
+        {
+            var position = ReadPosition(data, batch, i, center);
+            if (!position.HasValue)
+                break;
+
+            var (px, py, pz, isStripRestart) = position.Value;
+            var (u, v, hasUv) = ReadUv(data, batch, i);
+            var (cr, cg, cb, ca, hasColor) = ReadColor(data, batch, i);
+            var (normal, hasNormal) = ReadNormal(data, batch, i);
+
+            if (i == 0 && forceFirstRestart)
+                isStripRestart = true;
+
+            verts.Add(new Ps2Vertex(
+                new Vector3(px, py, pz), normal,
+                cr, cg, cb, ca, u, v,
+                hasNormal, hasColor, hasUv, isStripRestart));
+        }
+
+        return verts.ToArray();
     }
 
     internal static int VifNextCode(byte[] data, int offset, int end)

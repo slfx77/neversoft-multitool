@@ -287,19 +287,46 @@ public static class Ps2GeomGltfWriter
             .WithBaseColor(Vector4.One)
             .WithDoubleSide(true);
 
+        // ALPHA_1 low byte: 0x0A/0x1A/0x00 means PS2 outputs source colour with no
+        // alpha contribution (Cv = Cs). When ATE is also off, the alpha channel is
+        // entirely irrelevant — the texture renders fully opaque even if the artist
+        // baked alpha gradients into the PNG (typical of building wall textures with
+        // window highlights). Treating those PNGs as BLEND/MASK based on histogram
+        // makes whole buildings translucent.
+        //
+        // We use this as the "force opaque" signal: if GS would have ignored alpha,
+        // bake alpha=255 so glTF viewers do the same.
+        var isOpaqueBlend = alphaBlend is 0x0A or 0x1A or 0x00;
+        var psIgnoresAlpha = isOpaqueBlend && aref == 0;
+
+        // Standard alpha blend (Cs*As + Cd*(1-As)) with alpha test disabled. PS2
+        // titles routinely encoded a per-pixel checker/dither pattern in the alpha
+        // channel of window glass and similar surfaces and relied on the low GS
+        // resolution + CRT blur to perceptually average it into translucency. In
+        // glTF we can't reproduce that smoothing, so a literal MASK at 0.5 renders
+        // the dither as a visible checkerboard — see dither investigation in
+        // tools/diagnostics/score_dither_textures.py for the empirical separator.
+        var isStandardBlend = aField == 0 && bField == 1 && cField == 0 && dField == 1;
+        var ditherCandidate = isStandardBlend && aref == 0;
+
+        var alphaProfile = AlphaProfile.AllOpaque;
         if (textureProvider != null && textureChecksum != 0)
         {
             var pngBytes = textureProvider(textureChecksum);
             if (pngBytes != null)
             {
-                // For additive blend, convert texture to luminance-alpha:
-                // RGB -> white, Alpha = max(R,G,B). This approximates additive
-                // blending (black=invisible, white=bright overlay) using glTF BLEND
-                // which doesn't natively support additive.
+                // Additive / subtractive blend approximations: convert the texture to
+                // luminance-alpha first so the profile reflects the final image.
                 if (isAdditive)
                     pngBytes = ConvertBlendTexture(pngBytes, 255, 255, 255);
                 else if (isSubtractive)
                     pngBytes = ConvertBlendTexture(pngBytes, 0, 0, 0);
+                else if (psIgnoresAlpha)
+                    pngBytes = ForceAlphaOpaque(pngBytes);
+                else if (ditherCandidate && IsDitheredAlpha(pngBytes))
+                    pngBytes = ForceAlphaOpaque(pngBytes);
+
+                alphaProfile = AnalyzeAlphaProfile(pngBytes);
 
                 var memImage = new MemoryImage(pngBytes);
                 builder.WithChannelImage(KnownChannel.BaseColor, memImage);
@@ -323,13 +350,20 @@ public static class Ps2GeomGltfWriter
             }
         }
 
-        // Alpha handling from GS registers.
-        // ALPHA_1 low byte: 0x0A/0x1A = opaque (output=Cs). Anything else = blending.
-        // TEST_1 alpha test: PackTEST(1,AGEQUAL,Aref,KEEP,0,0,1,ZGEQUAL)
-        //   AREF=0: alpha >= 0 always passes -> truly OPAQUE.
-        //   AREF=1: discards alpha=0 pixels -> MASK cutout (fences, foliage, etc.)
-        //   AREF>=2: higher-threshold cutout -> MASK with visible cutoff.
-        var isOpaqueBlend = alphaBlend is 0x0A or 0x1A or 0x00;
+        // Alpha mode selection.
+        //
+        // Additive/subtractive get BLEND (texture is already luminance-alpha) and
+        // FIX-mode opacity gets BLEND with a base-colour alpha override.
+        //
+        // Otherwise we use the PNG alpha HISTOGRAM rather than the GS AREF byte:
+        //   AllOpaque  -> OPAQUE (no transparent pixels — includes the "PS2 ignores
+        //                 alpha" case where we already forced alpha=255 above)
+        //   Bimodal    -> MASK at 0.5 (signs / fences / foliage — clean hard cutout)
+        //   Graduated  -> BLEND (shadows / decals — soft falloff)
+        //
+        // This fixes shadow textures that were previously forced into MASK with a
+        // pixel-accurate AREF/255 threshold (jagged edge), and sign textures whose
+        // graphic was hidden inside a larger transparent quad.
         if (isAdditive)
         {
             builder.WithAlpha(AlphaMode.BLEND);
@@ -357,43 +391,185 @@ public static class Ps2GeomGltfWriter
                 builder.WithBaseColor(new Vector4(0f, 0f, 0f, 1f));
             }
         }
-        else if (!isOpaqueBlend)
+        else if (cField == 2 && fixValue < Ps2SceneGltfWriter.FixBlendOpaqueThreshold)
         {
-            // Fixed-blend opacity: C field (bits 4-5) == 2 means FIX mode.
-            // FIX value in ALPHA_1 bits 32-39. Opacity = FIX/128.
-            // High FIX values (>= threshold) are treated as OPAQUE to avoid
-            // z-sorting artifacts in glTF viewers that don't depth-sort BLEND.
-            if (cField == 2)
-            {
-                if (fixValue < Ps2SceneGltfWriter.FixBlendOpaqueThreshold)
-                {
-                    builder.WithAlpha(AlphaMode.BLEND);
-                    builder.WithBaseColor(new Vector4(1f, 1f, 1f, fixValue / 128f));
-                }
-                // else: fix >= threshold -> leave as default OPAQUE
-            }
-            else if (aref >= 1)
-            {
-                // Source-alpha blend with alpha test (AREF > 0): acts as MASK cutout.
-                // PS2 games use ALPHA=0x44 (standard Cs*As+Cd*(1-As)) with alpha testing
-                // for fences, foliage, etc. — pixels below AREF are discarded, the rest
-                // are effectively opaque because PS2 textures typically have alpha=128.
-                builder.WithAlpha(AlphaMode.MASK, aref / 255f);
-            }
-            else
-            {
-                // True transparency: source-alpha blend with no meaningful alpha test.
-                // PS2 textures with alpha=128 will still appear opaque via the texture.
-                builder.WithAlpha(AlphaMode.BLEND);
-            }
+            // Fixed-blend opacity: C field (bits 4-5) == 2 means FIX mode. FIX value in
+            // ALPHA_1 bits 32-39; opacity = FIX/128. High FIX values fall through to the
+            // histogram path below and typically land on OPAQUE, avoiding z-sort issues.
+            builder.WithAlpha(AlphaMode.BLEND);
+            builder.WithBaseColor(new Vector4(1f, 1f, 1f, fixValue / 128f));
         }
-        else if (aref >= 1)
+        else
         {
-            builder.WithAlpha(AlphaMode.MASK, aref / 255f);
+            switch (alphaProfile)
+            {
+                case AlphaProfile.Bimodal:
+                    builder.WithAlpha(AlphaMode.MASK, 0.5f);
+                    break;
+                case AlphaProfile.Graduated:
+                    builder.WithAlpha(AlphaMode.BLEND);
+                    break;
+                case AlphaProfile.AllOpaque:
+                default:
+                    // Leave as default OPAQUE. Nothing to blend against.
+                    break;
+            }
         }
 
         cache[key] = builder;
         return builder;
+    }
+
+    /// <summary>
+    ///     Rewrite a PNG so every pixel has alpha = 255 while preserving RGB. Used for
+    ///     materials whose GS ALPHA register yields output = Cs (source colour only)
+    ///     with the alpha test disabled — PS2 hardware ignores the alpha channel
+    ///     entirely, and we want glTF viewers to render the same way regardless of how
+    ///     they handle premultiplication.
+    /// </summary>
+    private static byte[] ForceAlphaOpaque(byte[] pngBytes)
+    {
+        using var image = Image.Load<Rgba32>(pngBytes);
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var p = row[x];
+                    row[x] = new Rgba32(p.R, p.G, p.B, (byte)255);
+                }
+            }
+        });
+
+        using var ms = new MemoryStream();
+        image.SaveAsPng(ms);
+        return ms.ToArray();
+    }
+
+    /// <summary>
+    ///     Coarse classification of a PNG's alpha channel into three buckets used for
+    ///     glTF alphaMode selection.
+    ///     <see cref="AllOpaque"/>: all pixels at or near full opacity.
+    ///     <see cref="Bimodal"/>: most pixels are at the extremes (a=0 or a=255) with at
+    ///     most a thin antialiasing fringe at the boundaries — a hard-edge cutout
+    ///     (fences, foliage, signs, decals over a transparent quad). Maps to MASK so
+    ///     the result writes to the depth buffer and occludes correctly.
+    ///     <see cref="Graduated"/>: a substantial fraction of pixels fall in the
+    ///     mid-alpha range — true soft falloff such as shadows, smoke, light beams.
+    ///     Maps to BLEND.
+    /// </summary>
+    private enum AlphaProfile
+    {
+        AllOpaque,
+        Bimodal,
+        Graduated
+    }
+
+    /// <summary>
+    ///     Scan a PNG's alpha channel and bucket each pixel as low (≤ 8), high (≥ 248),
+    ///     or middle. The classification rule is "where is the mass of the histogram?":
+    ///     pixels concentrated at the extremes indicate a cutout-with-fringe (Bimodal),
+    ///     pixels spread through the mid range indicate a true gradient (Graduated).
+    ///     Using mid-fraction alone (the simpler rule) wrongly classifies palm-leaf
+    ///     and sign textures as Graduated because of their antialiased edges, which
+    ///     then renders as BLEND and bleeds through the depth buffer.
+    /// </summary>
+    private static AlphaProfile AnalyzeAlphaProfile(byte[] pngBytes)
+    {
+        using var image = Image.Load<Rgba32>(pngBytes);
+        var total = image.Width * image.Height;
+        if (total == 0) return AlphaProfile.AllOpaque;
+
+        var counts = new int[3]; // 0=low, 1=high, 2=mid
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var a = row[x].A;
+                    if (a <= 8) counts[0]++;
+                    else if (a >= 248) counts[1]++;
+                    else counts[2]++;
+                }
+            }
+        });
+        var low = counts[0];
+        var high = counts[1];
+        var mid = counts[2];
+
+        // No transparency at all: texture is fully opaque.
+        if (low == 0 && mid == 0)
+            return AlphaProfile.AllOpaque;
+
+        // Extremes (a=0 + a=255) ≥ 80% of pixels: most of the image is opaque or
+        // fully transparent, the rest is antialiasing noise. MASK at 0.5 keeps the
+        // hard outline and writes to depth so geometry behind correctly occludes.
+        // The 80% threshold is empirical: palm-leaf cutouts come in around 85-95%
+        // extremes (5-15% AA fringe); soft shadow textures come in well below 50%.
+        if ((low + high) * 5 >= total * 4)
+            return AlphaProfile.Bimodal;
+
+        return AlphaProfile.Graduated;
+    }
+
+    /// <summary>
+    ///     Detect a high-frequency dithered alpha pattern: pixels at extreme alpha
+    ///     (a=0 or a=255) that alternate every 1-2 pixels. Returns true when the
+    ///     fraction of horizontal-and-vertical neighbour pairs that flip between
+    ///     the two extremes exceeds a small threshold.
+    ///
+    ///     Empirically validated against z_bh.pak.ps2 worldzone textures: window
+    ///     glass dithers score 5-28%, while genuine cutouts (chain link fences,
+    ///     antialiased silhouettes) score below 4%.
+    /// </summary>
+    private static bool IsDitheredAlpha(byte[] pngBytes)
+    {
+        using var image = Image.Load<Rgba32>(pngBytes);
+        var w = image.Width;
+        var h = image.Height;
+        var pairTotal = 2 * w * h - w - h;
+        if (pairTotal <= 0) return false;
+
+        var alternations = 0;
+        image.ProcessPixelRows(accessor =>
+            alternations = CountExtremeAlphaAlternations(accessor));
+
+        // 5% threshold separates dithers from cutouts in the empirical sample.
+        return alternations * 20 >= pairTotal;
+    }
+
+    private static bool IsExtremeAlphaFlip(byte a1, byte a2) =>
+        (a1 == 0 && a2 == 255) || (a1 == 255 && a2 == 0);
+
+    private static int CountExtremeAlphaAlternations(PixelAccessor<Rgba32> accessor)
+    {
+        var count = 0;
+        for (var y = 0; y < accessor.Height; y++)
+        {
+            var row = accessor.GetRowSpan(y);
+            for (var x = 0; x < row.Length - 1; x++)
+            {
+                if (IsExtremeAlphaFlip(row[x].A, row[x + 1].A))
+                    count++;
+            }
+        }
+
+        for (var y = 0; y < accessor.Height - 1; y++)
+        {
+            var rowA = accessor.GetRowSpan(y);
+            var rowB = accessor.GetRowSpan(y + 1);
+            for (var x = 0; x < rowA.Length; x++)
+            {
+                if (IsExtremeAlphaFlip(rowA[x].A, rowB[x].A))
+                    count++;
+            }
+        }
+
+        return count;
     }
 
     /// <summary>
