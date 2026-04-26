@@ -6,6 +6,12 @@ namespace NeversoftMultitool.Core.Formats.Video;
 /// </summary>
 internal static class Vid1YuvToRgb
 {
+    private static readonly int[] YContribution = BuildContributionTable(static value => 298 * (value - 16));
+    private static readonly int[] CbBlueContribution = BuildContributionTable(static value => 516 * (value - 128));
+    private static readonly int[] CbGreenContribution = BuildContributionTable(static value => -100 * (value - 128));
+    private static readonly int[] CrRedContribution = BuildContributionTable(static value => 409 * (value - 128));
+    private static readonly int[] CrGreenContribution = BuildContributionTable(static value => -208 * (value - 128));
+
     /// <summary>
     ///     Convert YUV 4:2:0 planes to a row-major RGB24 buffer.
     ///     Chroma is upsampled by pixel-replicate (nearest-neighbor).
@@ -27,35 +33,55 @@ internal static class Vid1YuvToRgb
         if (rgb.Length < width * height * 3)
             throw new ArgumentException("RGB destination is too small", nameof(rgb));
 
-        var chromaWidth = width / 2;
+        var chromaWidth = width >> 1;
 
-        for (var y = 0; y < height; y++)
+        for (var y = 0; y < height; y += 2)
         {
-            var cyRow = y >> 1;
-            var lumaRow = y * width;
-            var rgbRow = lumaRow * 3;
+            var hasSecondRow = y + 1 < height;
+            var chromaRow = (y >> 1) * chromaWidth;
+            var lumaRow0 = y * width;
+            var lumaRow1 = lumaRow0 + width;
+            var rgbRow0 = lumaRow0 * 3;
+            var rgbRow1 = rgbRow0 + (width * 3);
 
-            for (var x = 0; x < width; x++)
+            for (var x = 0; x < width; x += 2)
             {
-                var cxCol = x >> 1;
-                int yVal = lumaPlane[lumaRow + x];
-                int cb = cbPlane[(cyRow * chromaWidth) + cxCol] - 128;
-                int cr = crPlane[(cyRow * chromaWidth) + cxCol] - 128;
+                var chromaIndex = chromaRow + (x >> 1);
+                var cb = cbPlane[chromaIndex];
+                var cr = crPlane[chromaIndex];
 
-                // BT.601 studio-range:
-                //   C = Y - 16, D = Cb - 128, E = Cr - 128
-                //   R = (298*C + 409*E + 128) >> 8
-                //   G = (298*C - 100*D - 208*E + 128) >> 8
-                //   B = (298*C + 516*D + 128) >> 8
-                // This maps encoded black (Y=16, Cb/Cr=128) to RGB 0.
-                var c = yVal - 16;
-                var r = ((298 * c) + (409 * cr) + 128) >> 8;
-                var g = ((298 * c) - (100 * cb) - (208 * cr) + 128) >> 8;
-                var b = ((298 * c) + (516 * cb) + 128) >> 8;
+                var redBias = CrRedContribution[cr] + 128;
+                var greenBias = CbGreenContribution[cb] + CrGreenContribution[cr] + 128;
+                var blueBias = CbBlueContribution[cb] + 128;
 
-                rgb[rgbRow + (x * 3)] = ClampByte(r);
-                rgb[rgbRow + (x * 3) + 1] = ClampByte(g);
-                rgb[rgbRow + (x * 3) + 2] = ClampByte(b);
+                WriteRgbPixel(rgb, rgbRow0 + (x * 3), YContribution[lumaPlane[lumaRow0 + x]], redBias, greenBias, blueBias);
+
+                if (x + 1 < width)
+                {
+                    WriteRgbPixel(
+                        rgb,
+                        rgbRow0 + ((x + 1) * 3),
+                        YContribution[lumaPlane[lumaRow0 + x + 1]],
+                        redBias,
+                        greenBias,
+                        blueBias);
+                }
+
+                if (!hasSecondRow)
+                    continue;
+
+                WriteRgbPixel(rgb, rgbRow1 + (x * 3), YContribution[lumaPlane[lumaRow1 + x]], redBias, greenBias, blueBias);
+
+                if (x + 1 < width)
+                {
+                    WriteRgbPixel(
+                        rgb,
+                        rgbRow1 + ((x + 1) * 3),
+                        YContribution[lumaPlane[lumaRow1 + x + 1]],
+                        redBias,
+                        greenBias,
+                        blueBias);
+                }
             }
         }
     }
@@ -68,39 +94,88 @@ internal static class Vid1YuvToRgb
         if (bgra.Length < width * height * 4)
             throw new ArgumentException("BGRA destination is too small", nameof(bgra));
 
-        var chromaWidth = width / 2;
+        var chromaWidth = width >> 1;
 
-        for (var y = 0; y < height; y++)
+        for (var y = 0; y < height; y += 2)
         {
-            var cyRow = y >> 1;
-            var lumaRow = y * width;
-            var bgraRow = lumaRow * 4;
+            var hasSecondRow = y + 1 < height;
+            var chromaRow = (y >> 1) * chromaWidth;
+            var lumaRow0 = y * width;
+            var lumaRow1 = lumaRow0 + width;
+            var bgraRow0 = lumaRow0 * 4;
+            var bgraRow1 = bgraRow0 + (width * 4);
 
-            for (var x = 0; x < width; x++)
+            for (var x = 0; x < width; x += 2)
             {
-                var cxCol = x >> 1;
-                int yVal = lumaPlane[lumaRow + x];
-                int cb = cbPlane[(cyRow * chromaWidth) + cxCol] - 128;
-                int cr = crPlane[(cyRow * chromaWidth) + cxCol] - 128;
+                var chromaIndex = chromaRow + (x >> 1);
+                var cb = cbPlane[chromaIndex];
+                var cr = crPlane[chromaIndex];
 
-                var c = yVal - 16;
-                var r = ((298 * c) + (409 * cr) + 128) >> 8;
-                var g = ((298 * c) - (100 * cb) - (208 * cr) + 128) >> 8;
-                var b = ((298 * c) + (516 * cb) + 128) >> 8;
+                var redBias = CrRedContribution[cr] + 128;
+                var greenBias = CbGreenContribution[cb] + CrGreenContribution[cr] + 128;
+                var blueBias = CbBlueContribution[cb] + 128;
 
-                var offset = bgraRow + (x * 4);
-                bgra[offset] = ClampByte(b);
-                bgra[offset + 1] = ClampByte(g);
-                bgra[offset + 2] = ClampByte(r);
-                bgra[offset + 3] = 0xFF;
+                WriteBgraPixel(bgra, bgraRow0 + (x * 4), YContribution[lumaPlane[lumaRow0 + x]], redBias, greenBias, blueBias);
+
+                if (x + 1 < width)
+                {
+                    WriteBgraPixel(
+                        bgra,
+                        bgraRow0 + ((x + 1) * 4),
+                        YContribution[lumaPlane[lumaRow0 + x + 1]],
+                        redBias,
+                        greenBias,
+                        blueBias);
+                }
+
+                if (!hasSecondRow)
+                    continue;
+
+                WriteBgraPixel(bgra, bgraRow1 + (x * 4), YContribution[lumaPlane[lumaRow1 + x]], redBias, greenBias, blueBias);
+
+                if (x + 1 < width)
+                {
+                    WriteBgraPixel(
+                        bgra,
+                        bgraRow1 + ((x + 1) * 4),
+                        YContribution[lumaPlane[lumaRow1 + x + 1]],
+                        redBias,
+                        greenBias,
+                        blueBias);
+                }
             }
         }
     }
 
+    private static int[] BuildContributionTable(Func<int, int> transform)
+    {
+        var table = new int[256];
+        for (var i = 0; i < table.Length; i++)
+            table[i] = transform(i);
+
+        return table;
+    }
+
+    private static void WriteRgbPixel(Span<byte> rgb, int offset, int yContribution, int redBias, int greenBias, int blueBias)
+    {
+        rgb[offset] = ClampByte((yContribution + redBias) >> 8);
+        rgb[offset + 1] = ClampByte((yContribution + greenBias) >> 8);
+        rgb[offset + 2] = ClampByte((yContribution + blueBias) >> 8);
+    }
+
+    private static void WriteBgraPixel(Span<byte> bgra, int offset, int yContribution, int redBias, int greenBias, int blueBias)
+    {
+        bgra[offset] = ClampByte((yContribution + blueBias) >> 8);
+        bgra[offset + 1] = ClampByte((yContribution + greenBias) >> 8);
+        bgra[offset + 2] = ClampByte((yContribution + redBias) >> 8);
+        bgra[offset + 3] = 0xFF;
+    }
+
     private static byte ClampByte(int value)
     {
-        if (value < 0) return 0;
-        if (value > 255) return 255;
-        return (byte)value;
+        if ((uint)value <= byte.MaxValue)
+            return (byte)value;
+
+        return value < 0 ? byte.MinValue : byte.MaxValue;
     }
 }
