@@ -235,6 +235,7 @@
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="Auto" />
@@ -273,6 +274,30 @@
               Content="Browse..."
               MinWidth="120"
               Click="OutputBrowse_Click" />
+
+      <TextBlock Grid.Row="2" Grid.Column="0"
+                 Text="Worldzone:"
+                 Style="{StaticResource IoLabelStyle}" />
+      <StackPanel Grid.Row="2" Grid.Column="1"
+                  Orientation="Horizontal"
+                  Spacing="8">
+        <TextBlock Text="Time"
+                   VerticalAlignment="Center"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <ComboBox x:Name="WorldzoneTimeCombo"
+                  Width="120"
+                  SelectedIndex="0">
+          <ComboBoxItem Content="All" Tag="all" />
+          <ComboBoxItem Content="Day" Tag="day" />
+          <ComboBoxItem Content="Night" Tag="night" />
+        </ComboBox>
+        <TextBlock Text="Scale"
+                   VerticalAlignment="Center"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <TextBox x:Name="WorldzoneScaleText"
+                 Width="80"
+                 Text="1" />
+      </StackPanel>
     </Grid>
 
     <!-- Action Row -->

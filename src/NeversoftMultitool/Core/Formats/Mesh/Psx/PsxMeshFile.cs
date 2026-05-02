@@ -155,6 +155,78 @@ public sealed class PsxMeshFile
     }
 
     /// <summary>
+    ///     Returns the byte offset immediately past the last mesh block in
+    ///     <paramref name="data"/>, i.e. where any post-mesh content (animation
+    ///     packets, hierarchy/anim streams, etc.) would begin. Returns -1 if
+    ///     the file is invalid or has no meshes.
+    ///
+    ///     Strategy: parse all meshes, then take the highest <c>MeshTopPointer</c>,
+    ///     seek to it, re-parse that single mesh, and return <c>reader.BaseStream.Position</c>
+    ///     — which is where that mesh's serialized data ends.
+    /// </summary>
+    public static long GetMeshBlockEnd(byte[] data)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        using var reader = new BinaryReader(stream);
+        var header = PsxMeshHeaderReader.Parse(reader);
+        if (header == null || header.MeshTopPointers.Length == 0) return -1;
+
+        var attachmentVertices = PsxMeshGeometryReader.CollectAttachableVertices(
+            reader,
+            header.MeshTopPointers,
+            header.Version,
+            header.ScaleDivisor,
+            header.Objects,
+            BuildMeshToObjectIndex(header),
+            header.TranslationDivisor);
+        var attachmentVertexMap = attachmentVertices.ToDictionary(a => a.AttachmentIndex);
+
+        var lastEnd = 0L;
+        foreach (var pointer in header.MeshTopPointers)
+        {
+            if (pointer >= data.Length) continue;
+            reader.BaseStream.Seek(pointer, SeekOrigin.Begin);
+            try
+            {
+                PsxMeshGeometryReader.ReadMesh(
+                    reader,
+                    header.Version,
+                    header.ScaleDivisor,
+                    header.TextureHashes,
+                    attachmentVertexMap);
+            }
+            catch (EndOfStreamException) { /* truncated mesh; ignore */ }
+
+            if (reader.BaseStream.Position > lastEnd)
+                lastEnd = reader.BaseStream.Position;
+        }
+
+        return lastEnd;
+    }
+
+    private static int[] BuildMeshToObjectIndex(PsxMeshHeader header)
+    {
+        var meshToObjectIndex = new int[header.MeshTopPointers.Length];
+        Array.Fill(meshToObjectIndex, -1);
+        if (header.HasHierarchy)
+        {
+            for (var i = 0; i < header.Objects.Count; i++)
+                if (i < meshToObjectIndex.Length)
+                    meshToObjectIndex[i] = i;
+        }
+        else
+        {
+            for (var i = 0; i < header.Objects.Count; i++)
+            {
+                var meshIndex = header.Objects[i].MeshIndex;
+                if (meshIndex < meshToObjectIndex.Length && meshToObjectIndex[meshIndex] == -1)
+                    meshToObjectIndex[meshIndex] = i;
+            }
+        }
+        return meshToObjectIndex;
+    }
+
+    /// <summary>
     ///     Parses only the header data (objects, mesh name hashes, texture hashes) without
     ///     reading mesh geometry. Use this when you need object positions and name hashes
     ///     but don't need vertex/face data (e.g. DDM world placement).
@@ -164,7 +236,23 @@ public sealed class PsxMeshFile
     {
         using var stream = File.OpenRead(filePath);
         using var reader = new BinaryReader(stream);
+        return ParseHeaderOnly(reader);
+    }
 
+    /// <summary>
+    ///     <see cref="ParseHeaderOnly(string)"/> overload that consumes an
+    ///     in-memory byte buffer — useful when the bytes are already loaded
+    ///     for other purposes (e.g. <see cref="GetMeshBlockEnd"/>).
+    /// </summary>
+    public static PsxMeshFile? ParseHeaderOnly(byte[] data)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        using var reader = new BinaryReader(stream);
+        return ParseHeaderOnly(reader);
+    }
+
+    private static PsxMeshFile? ParseHeaderOnly(BinaryReader reader)
+    {
         var header = PsxMeshHeaderReader.Parse(reader);
         if (header == null)
             return null;

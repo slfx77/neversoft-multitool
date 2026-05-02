@@ -194,6 +194,23 @@ internal static class SkaGltfWriter
         return channelCount;
     }
 
+    /// <summary>
+    ///     Apply multiple named animations as separate glTF animation tracks.
+    ///     Each animation becomes a switchable track in the output (compatible with
+    ///     model-viewer / Blender / Unity). Returns total channel count across all
+    ///     animations.
+    /// </summary>
+    internal static int ApplyAnimations(
+        NodeBuilder[] jointNodes,
+        Ps2Skeleton skeleton,
+        IReadOnlyList<(string Name, SkaAnimation Animation)> animations)
+    {
+        var totalChannels = 0;
+        foreach (var (name, animation) in animations)
+            totalChannels += ApplyAnimation(jointNodes, skeleton, animation, name);
+        return totalChannels;
+    }
+
     // Version-aware suppression: version-1 (THPS4) bakes constant tracks into the
     // joint's rest pose via BuildJointHierarchy(skeleton, animation), so any
     // single-key track is redundant and we skip emitting it as a channel. For
@@ -227,21 +244,20 @@ internal static class SkaGltfWriter
         => keys.Length == 1 && keys[0].Translation == Vector3.Zero;
 
     /// <summary>
-    ///     Write an animated skeleton (no mesh) to a .glb file.
+    ///     Write an animated skeleton (no mesh) to a .glb file with one or more
+    ///     named animation tracks.
     /// </summary>
     internal static int WriteAnimatedSkeleton(
         Ps2Skeleton skeleton,
-        SkaAnimation animation,
-        string outputPath,
-        string? animationName = null)
+        IReadOnlyList<(string Name, SkaAnimation Animation)> animations,
+        string outputPath)
     {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
         var jointNodes = BuildJointHierarchy(skeleton);
-        var name = animationName ?? Path.GetFileNameWithoutExtension(outputPath);
-        var channelCount = ApplyAnimation(jointNodes, skeleton, animation, name);
+        var channelCount = ApplyAnimations(jointNodes, skeleton, animations);
         if (channelCount == 0)
             return 0;
 
@@ -257,5 +273,18 @@ internal static class SkaGltfWriter
         var model = scene.ToGltf2();
         model.SaveGLB(outputPath);
         return channelCount;
+    }
+
+    /// <summary>
+    ///     Backward-compatible single-animation overload.
+    /// </summary>
+    internal static int WriteAnimatedSkeleton(
+        Ps2Skeleton skeleton,
+        SkaAnimation animation,
+        string outputPath,
+        string? animationName = null)
+    {
+        var name = animationName ?? Path.GetFileNameWithoutExtension(outputPath);
+        return WriteAnimatedSkeleton(skeleton, [(name, animation)], outputPath);
     }
 }

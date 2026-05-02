@@ -5,11 +5,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.XbxScene;
 
 public sealed class ThawSceneFileTests(TestPaths paths)
 {
-    private string SkinDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2006-2-6, PC - Final)", "SKIN");
-
-    private string MdlDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2006-2-6, PC - Final)", "MDL");
+    private const string BuildName = "Tony Hawk's American Wasteland (2006-2-6, PC - Final)";
 
     // ── IsThawScene ──
 
@@ -17,8 +13,8 @@ public sealed class ThawSceneFileTests(TestPaths paths)
     public void IsThawScene_WithThawFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "acc_backpack01.skin.wpc");
-        Assert.SkipWhen(!File.Exists(file), "acc_backpack01.skin.wpc not found");
+        var file = paths.FindSampleFile(BuildName, "acc_backpack01.skin.wpc");
+        Assert.SkipWhen(file is null, "acc_backpack01.skin.wpc not found");
 
         Assert.True(ThawSceneFile.IsThawScene(File.ReadAllBytes(file)));
     }
@@ -46,8 +42,8 @@ public sealed class ThawSceneFileTests(TestPaths paths)
     public void Parse_ThawSkinFile_ProducesMeshes()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "acc_backpack01.skin.wpc");
-        Assert.SkipWhen(!File.Exists(file), "acc_backpack01.skin.wpc not found");
+        var file = paths.FindSampleFile(BuildName, "acc_backpack01.skin.wpc");
+        Assert.SkipWhen(file is null, "acc_backpack01.skin.wpc not found");
 
         var scene = ThawSceneFile.Parse(file);
 
@@ -68,8 +64,8 @@ public sealed class ThawSceneFileTests(TestPaths paths)
     public void Parse_ThawMdlFile_ProducesMultipleSectors()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(MdlDir, "veh_sub.mdl.wpc");
-        Assert.SkipWhen(!File.Exists(file), "veh_sub.mdl.wpc not found");
+        var file = paths.FindSampleFile(BuildName, "veh_sub.mdl.wpc");
+        Assert.SkipWhen(file is null, "veh_sub.mdl.wpc not found");
 
         var scene = ThawSceneFile.Parse(file);
 
@@ -82,8 +78,8 @@ public sealed class ThawSceneFileTests(TestPaths paths)
     public void Parse_SkaterFile_HasReasonableStats()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "skater_hawk.skin.wpc");
-        Assert.SkipWhen(!File.Exists(file), "skater_hawk.skin.wpc not found");
+        var file = paths.FindSampleFile(BuildName, "skater_hawk.skin.wpc");
+        Assert.SkipWhen(file is null, "skater_hawk.skin.wpc not found");
 
         var scene = ThawSceneFile.Parse(file);
 
@@ -95,8 +91,8 @@ public sealed class ThawSceneFileTests(TestPaths paths)
     public void Parse_SkinnedSkater_PreservesSkinWeightsAndBoneIndices()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "skater_lasek.skin.wpc");
-        Assert.SkipWhen(!File.Exists(file), "skater_lasek.skin.wpc not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.wpc");
+        Assert.SkipWhen(file is null, "skater_lasek.skin.wpc not found");
 
         var scene = ThawSceneFile.Parse(file);
         var skinnedVertices = scene.Sectors
@@ -122,9 +118,8 @@ public sealed class ThawSceneFileTests(TestPaths paths)
     public void BatchParse_AllThawSkinFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(SkinDir), "SKIN directory not found");
 
-        var files = Directory.GetFiles(SkinDir, "*.skin.wpc");
+        var files = paths.FindSampleFiles(BuildName, "*.skin.wpc").ToArray();
         Assert.SkipWhen(files.Length == 0, "No .skin.wpc files found");
 
         var failures = new List<string>();
@@ -153,9 +148,8 @@ public sealed class ThawSceneFileTests(TestPaths paths)
     public void BatchParse_AllThawMdlFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(MdlDir), "MDL directory not found");
 
-        var files = Directory.GetFiles(MdlDir, "*.mdl.wpc");
+        var files = paths.FindSampleFiles(BuildName, "*.mdl.wpc").ToArray();
         Assert.SkipWhen(files.Length == 0, "No .mdl.wpc files found");
 
         var failures = new List<string>();

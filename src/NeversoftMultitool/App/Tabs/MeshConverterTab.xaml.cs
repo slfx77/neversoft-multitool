@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 
 namespace NeversoftMultitool;
 
@@ -201,6 +203,12 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     {
         if (_items.Count == 0 || string.IsNullOrEmpty(_outputDir)) return;
 
+        if (!TryGetWorldzoneScale(out var worldzoneScale))
+        {
+            MainWindow.Instance?.SetStatus("Worldzone scale must be a positive number.");
+            return;
+        }
+
         var previousCts = _cts;
         if (previousCts != null)
         {
@@ -232,6 +240,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         var outputDir = _outputDir;
         var token = cts.Token;
         var entries = _items.ToList();
+        var worldzoneTimeOfDay = GetSelectedWorldzoneTimeOfDay();
 
         await Task.Run(() =>
         {
@@ -244,7 +253,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
                 try
                 {
-                    var triangles = MeshConverterTabFileConverter.ConvertFile(entry, outputDir);
+                    var triangles = MeshConverterTabFileConverter.ConvertFile(
+                        entry, outputDir, worldzoneTimeOfDay, worldzoneScale);
                     Interlocked.Add(ref totalTriangles, triangles);
                     Interlocked.Increment(ref totalConverted);
 
@@ -275,6 +285,31 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         MainWindow.Instance?.SetStatus(
             $"Converted {totalConverted}/{totalFiles} files " +
             $"({totalTriangles:N0} triangles) in {stopwatch.Elapsed.TotalSeconds:F2}s");
+    }
+
+    private Ps2WorldzoneConverter.WorldzoneTimeOfDay GetSelectedWorldzoneTimeOfDay()
+    {
+        var tag = (WorldzoneTimeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        return tag switch
+        {
+            "day" => Ps2WorldzoneConverter.WorldzoneTimeOfDay.Day,
+            "night" => Ps2WorldzoneConverter.WorldzoneTimeOfDay.Night,
+            _ => Ps2WorldzoneConverter.WorldzoneTimeOfDay.All
+        };
+    }
+
+    private bool TryGetWorldzoneScale(out float scale)
+    {
+        var text = WorldzoneScaleText.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            scale = 1f;
+            return true;
+        }
+
+        return float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out scale)
+               && float.IsFinite(scale)
+               && scale > 0f;
     }
 
     private async void CancelButton_Click(object sender, RoutedEventArgs e)

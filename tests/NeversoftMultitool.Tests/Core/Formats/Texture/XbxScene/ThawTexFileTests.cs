@@ -5,8 +5,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.XbxScene;
 
 public sealed class ThawTexFileTests(TestPaths paths)
 {
-    private string TexDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2006-2-6, PC - Final)", "TEX");
+    private const string BuildName = "Tony Hawk's American Wasteland (2006-2-6, PC - Final)";
 
     // ── IsThawTex ──
 
@@ -26,8 +25,8 @@ public sealed class ThawTexFileTests(TestPaths paths)
     public void IsThawTex_ValidFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(TexDir, "acc_backpack01.tex.wpc");
-        Assert.SkipWhen(!File.Exists(file), "acc_backpack01.tex.wpc not found");
+        var file = paths.FindSampleFile(BuildName, "acc_backpack01.tex.wpc");
+        Assert.SkipWhen(file is null, "acc_backpack01.tex.wpc not found");
 
         var data = File.ReadAllBytes(file);
         Assert.True(ThawTexFile.IsThawTex(data));
@@ -55,8 +54,8 @@ public sealed class ThawTexFileTests(TestPaths paths)
     public void Parse_AccBackpack01_ExtractsTexture()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(TexDir, "acc_backpack01.tex.wpc");
-        Assert.SkipWhen(!File.Exists(file), "acc_backpack01.tex.wpc not found");
+        var file = paths.FindSampleFile(BuildName, "acc_backpack01.tex.wpc");
+        Assert.SkipWhen(file is null, "acc_backpack01.tex.wpc not found");
 
         var result = ThawTexFile.Parse(file);
 
@@ -75,8 +74,8 @@ public sealed class ThawTexFileTests(TestPaths paths)
     public void Parse_TexturesHaveValidDimensions()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(TexDir, "acc_backpack01.tex.wpc");
-        Assert.SkipWhen(!File.Exists(file), "acc_backpack01.tex.wpc not found");
+        var file = paths.FindSampleFile(BuildName, "acc_backpack01.tex.wpc");
+        Assert.SkipWhen(file is null, "acc_backpack01.tex.wpc not found");
 
         var result = ThawTexFile.Parse(file);
         Assert.True(result.Success, result.ErrorMessage);
@@ -115,9 +114,8 @@ public sealed class ThawTexFileTests(TestPaths paths)
     public void BatchParse_AllThawTexWpc_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(TexDir), "TEX directory not found");
 
-        var files = Directory.GetFiles(TexDir, "*.tex.wpc", SearchOption.TopDirectoryOnly);
+        var files = paths.FindSampleFiles(BuildName, "*.tex.wpc").ToArray();
         Assert.SkipWhen(files.Length == 0, "No TEX files found");
 
         var failures = new List<string>();

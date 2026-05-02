@@ -1,8 +1,5 @@
-using NeversoftMultitool.Core.BinaryIO;
-using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 
 namespace NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 
@@ -58,99 +55,11 @@ public static class ZoneTextureProviderBuilder
         textureProvider = null;
         tex0Resolver = null;
 
-        if (texPath == null) return false;
+        if (!ZoneTextureCatalog.TryBuild(texPath, out var catalog, log) || catalog == null)
+            return false;
 
-        var texFiles = GetTexFiles(texPath);
-        var textureCache = new Dictionary<uint, Ps2Texture>();
-        var checksumByTbpCbp = new Dictionary<(uint Tbp, uint Cbp), uint>();
-        // Higher-fidelity map keyed on TEX0 bits that affect the actual texture
-        // lookup: TBP (0-13), PSM (20-25), TW (26-29), TH (30-33), CBP (37-50),
-        // CPSM (51-54). Excludes TBW (stride) and TCC/TFX/CSM/CSA/CLD which are
-        // rendering-state bits, not identity. This catches dimension + format
-        // differences that a bare (TBP, CBP) key collapses together.
-        var checksumByKey = new Dictionary<ulong, uint>();
-        var zoneTexCount = 0;
-
-        foreach (var tf in texFiles)
-        {
-            try
-            {
-                var data = File.ReadAllBytes(tf);
-
-                // A .pak.ps2 file is an archive containing many .stex/.tex entries. Extracting
-                // each entry separately yields far more textures than parsing the whole PAK as
-                // a single ThawZoneTex blob.
-                if (tf.EndsWith(".pak.ps2", StringComparison.OrdinalIgnoreCase)
-                    && PakArchive.IsPakArchive(tf))
-                {
-                    foreach (var entry in PakArchive.GetTypedEntries(tf))
-                    {
-                        if (entry.TypeHash is not (0x2B0A3095u /* .stex */ or 0x8BFA5E8Eu /* .tex */))
-                            continue;
-                        var off = entry.Entry.Offset;
-                        var size = entry.Entry.Size;
-                        if (off < 0 || size <= 0 || off + size > data.Length)
-                            continue;
-                        var entryBytes = new byte[size];
-                        Array.Copy(data, off, entryBytes, 0, (int)size);
-                        ParseZoneTexBytes(entryBytes, $"{Path.GetFileName(tf)}::{off:X8}",
-                            textureCache, checksumByTbpCbp, checksumByKey, ref zoneTexCount, log);
-                    }
-                    if (ThawZoneTexFile.IsThawZoneTex(data))
-                        ParseZoneTexBytes(data, Path.GetFileName(tf),
-                            textureCache, checksumByTbpCbp, checksumByKey, ref zoneTexCount, log);
-                }
-                else if (ThawZoneTexFile.IsThawZoneTex(data))
-                {
-                    ParseZoneTexBytes(data, Path.GetFileName(tf),
-                        textureCache, checksumByTbpCbp, checksumByKey, ref zoneTexCount, log);
-                }
-            }
-            catch
-            {
-                // Skip unreadable files
-            }
-        }
-
-        if (zoneTexCount == 0) return false;
-        if (textureCache.Count == 0) return false;
-
-        log?.Invoke($"Decoded {textureCache.Count} textures from {zoneTexCount} zone TEX file(s)");
-
-        var pngCache = new Dictionary<uint, byte[]?>();
-
-        tex0Resolver = (dmaTex0, _) =>
-        {
-            var tbp = (uint)(dmaTex0 & 0x3FFF);
-            var cbp = (uint)((dmaTex0 >> 37) & 0x3FFF);
-            var fullKey = MakeTex0IdentityKey(dmaTex0);
-            var mapped = checksumByKey.TryGetValue(fullKey, out var ck)
-                         || checksumByTbpCbp.TryGetValue((tbp, cbp), out ck);
-            var checksum = mapped ? ck : (tbp << 16) | cbp;
-            if (checksum == 0) return 0;
-
-            if (!pngCache.ContainsKey(checksum))
-            {
-                if (textureCache.TryGetValue(checksum, out var texture) && texture.Pixels != null)
-                {
-                    pngCache[checksum] = ImageWriter.WritePngToMemory(
-                        texture.Width, texture.Height, texture.Pixels);
-                }
-                else
-                {
-                    pngCache[checksum] = null;
-                }
-            }
-
-            return pngCache[checksum] != null ? checksum : 0;
-        };
-
-        textureProvider = checksum =>
-        {
-            pngCache.TryGetValue(checksum, out var png);
-            return png;
-        };
-
+        textureProvider = catalog.CreateTextureProvider();
+        tex0Resolver = catalog.CreateTex0Resolver(texPath);
         return true;
     }
 
@@ -161,45 +70,19 @@ public static class ZoneTextureProviderBuilder
     ///     rendering-state bits so two TEX0 writes that reference the same texture
     ///     under different render state collapse to one key.
     /// </summary>
-    private static ulong MakeTex0IdentityKey(ulong tex0)
+    internal static ulong MakeTex0IdentityKey(ulong tex0)
     {
         var tbp   =  tex0        & 0x3FFFUL;
+        var tbw   = (tex0 >> 14) & 0x3FUL;
         var psm   = (tex0 >> 20) & 0x3FUL;
         var tw    = (tex0 >> 26) & 0xFUL;
         var th    = (tex0 >> 30) & 0xFUL;
         var cbp   = (tex0 >> 37) & 0x3FFFUL;
         var cpsm  = (tex0 >> 51) & 0xFUL;
-        return tbp | (psm << 14) | (tw << 20) | (th << 24) | (cbp << 28) | (cpsm << 42);
-    }
-
-    private static void ParseZoneTexBytes(
-        byte[] data,
-        string label,
-        Dictionary<uint, Ps2Texture> textureCache,
-        Dictionary<(uint Tbp, uint Cbp), uint> checksumByTbpCbp,
-        Dictionary<ulong, uint> checksumByKey,
-        ref int zoneTexCount,
-        Action<string>? log)
-    {
-        if (!ThawZoneTexFile.IsThawZoneTex(data))
-            return;
-
-        zoneTexCount++;
-        var textures = ThawZoneTexFile.DecodeAllFromFile(data);
-        var entries = ThawZoneTexFile.ParseHeaderEntries(data);
-
-        foreach (var texture in textures)
-            textureCache.TryAdd(texture.Checksum, texture);
-
-        foreach (var entry in entries)
-        {
-            var tbp = (uint)(entry.Tex0 & 0x3FFF);
-            var cbp = (uint)((entry.Tex0 >> 37) & 0x3FFF);
-            checksumByTbpCbp.TryAdd((tbp, cbp), entry.Checksum);
-            checksumByKey.TryAdd(MakeTex0IdentityKey(entry.Tex0), entry.Checksum);
-        }
-
-        log?.Invoke($"Detected zone TEX: {label} ({entries.Count} records, {textures.Count} textures)");
+        var csm   = (tex0 >> 55) & 0x1UL;
+        var csa   = (tex0 >> 56) & 0x1FUL;
+        return tbp | (tbw << 14) | (psm << 20) | (tw << 26) | (th << 30) |
+               (cbp << 34) | (cpsm << 48) | (csm << 52) | (csa << 53);
     }
 
     private static List<string> GetSiblingPakFiles(string pakPath)
@@ -225,7 +108,14 @@ public static class ZoneTextureProviderBuilder
 
         Add(pakPath);
         foreach (var candidate in Directory.EnumerateFiles(dir, $"{stem}*.pak.ps2"))
-            Add(candidate);
+        {
+            var candidateStem = GetPakStem(Path.GetFileName(candidate));
+            if (candidateStem == null)
+                continue;
+            if (string.Equals(candidateStem, stem, StringComparison.OrdinalIgnoreCase)
+                || candidateStem.StartsWith(stem + "_", StringComparison.OrdinalIgnoreCase))
+                Add(candidate);
+        }
         return result;
     }
 
@@ -243,5 +133,15 @@ public static class ZoneTextureProviderBuilder
                 stem = stem[..underscore];
         }
         return stem.Length > 0 ? stem : null;
+    }
+
+    private static string? GetPakStem(string fileName)
+    {
+        const string PakPs2 = ".pak.ps2";
+        if (fileName.EndsWith(PakPs2, StringComparison.OrdinalIgnoreCase))
+            return fileName[..^PakPs2.Length];
+
+        var dot = fileName.IndexOf('.');
+        return dot > 0 ? fileName[..dot] : null;
     }
 }

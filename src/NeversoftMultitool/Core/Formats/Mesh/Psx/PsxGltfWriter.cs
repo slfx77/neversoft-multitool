@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Animation;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -97,11 +98,27 @@ public static class PsxGltfWriter
         PsxGltfMaterialContext materials,
         PshFile? pshFile)
     {
-        var lodVariants = BuildLodVariantSet(psxFile);
         var jointNodes = BuildCharacterJointNodes(psxFile, pshFile);
-        var gltfMesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4>("combined_mesh");
+        var (gltfMesh, totalTriangles) = BuildCharacterSkinnedMesh(psxFile, materials);
 
+        if (totalTriangles > 0)
+            scene.AddSkinnedMesh(gltfMesh, Matrix4x4.Identity, jointNodes);
+
+        return totalTriangles;
+    }
+
+    /// <summary>
+    ///     Shared character mesh-construction loop used by both static (<see cref="WriteSkinned" />)
+    ///     and animated (<see cref="WriteAnimated" />) paths. Walks the object list in order,
+    ///     skips LOD variants, and weights each body part 100% to its matching joint.
+    /// </summary>
+    private static (MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4> Mesh, int Triangles)
+        BuildCharacterSkinnedMesh(PsxMeshFile psxFile, PsxGltfMaterialContext materials)
+    {
+        var lodVariants = BuildLodVariantSet(psxFile);
+        var gltfMesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4>("combined_mesh");
         var totalTriangles = 0;
+
         for (var objIdx = 0; objIdx < psxFile.Objects.Count; objIdx++)
         {
             var meshIndex = PsxMeshSemantics.GetCharacterMeshIndex(psxFile, objIdx);
@@ -114,11 +131,133 @@ public static class PsxGltfWriter
             totalTriangles += AddSkinnedObjectFaces(gltfMesh, psxFile, objIdx, meshIndex, mesh, materials);
         }
 
+        return (gltfMesh, totalTriangles);
+    }
+
+    // ─── Animated writer (PSX character animations) ─────────────────────
+
+    /// <summary>
+    ///     Writes a parsed PSX character with one or more named animations to a
+    ///     <c>.glb</c> file. Each animation becomes a switchable named glTF track;
+    ///     bones with placeholder (all-zero) channels keep their bind pose.
+    /// </summary>
+    /// <param name="psxFile">Parsed PSX mesh data (must be a character / hierarchical model).</param>
+    /// <param name="animations">Named animations to embed.</param>
+    /// <param name="outputPath">Output <c>.glb</c> file path.</param>
+    /// <param name="textureProvider">Optional callback to resolve texture hashes.</param>
+    /// <param name="pshFile">Optional companion <c>.psh</c> for bone names.</param>
+    /// <param name="fps">Frame rate used to convert per-frame samples to glTF time (default 30).</param>
+    /// <returns>Total number of triangles emitted.</returns>
+    public static int WriteAnimated(
+        PsxMeshFile psxFile,
+        IReadOnlyList<(string Name, PsxAnimation Animation)> animations,
+        string outputPath,
+        TextureProvider? textureProvider = null,
+        PshFile? pshFile = null,
+        PsxAnimationOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(psxFile);
+        ArgumentNullException.ThrowIfNull(animations);
+        ArgumentException.ThrowIfNullOrEmpty(outputPath);
+
+        var directory = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        var (model, triangles) = BuildAnimated(psxFile, animations, textureProvider, pshFile, options);
+        if (triangles == 0) return 0;
+        GltfNormalSmoother.SmoothNormals(model);
+        model.SaveGLB(outputPath);
+        return triangles;
+    }
+
+    internal static (ModelRoot Model, int Triangles) BuildAnimated(
+        PsxMeshFile psxFile,
+        IReadOnlyList<(string Name, PsxAnimation Animation)> animations,
+        TextureProvider? textureProvider = null,
+        PshFile? pshFile = null,
+        PsxAnimationOptions? options = null)
+    {
+        if (animations.Count == 0)
+            throw new ArgumentException("At least one animation required", nameof(animations));
+        var opts = options ?? new PsxAnimationOptions();
+        if (opts.Fps <= 0f)
+            throw new ArgumentOutOfRangeException(nameof(options), "options.Fps must be positive.");
+
+        var scene = new SceneBuilder();
+        var materials = PsxGltfMaterialFactory.CreateContext(textureProvider);
+
+        // Build skeleton with the same bind pose the static path uses.
+        var jointNodes = BuildCharacterJointNodes(psxFile, pshFile);
+
+        var (gltfMesh, totalTriangles) = BuildCharacterSkinnedMesh(psxFile, materials);
+
+        // Add the skinned mesh with auto-IBM BEFORE attaching animation curves.
+        // SharpGLTF captures the joints' bind-pose world transforms at this
+        // moment to compute inverse-bind matrices. If we attach curves first,
+        // the joints reflect the first keyframe and IBMs come out wrong.
         if (totalTriangles > 0)
             scene.AddSkinnedMesh(gltfMesh, Matrix4x4.Identity, jointNodes);
 
-        return totalTriangles;
+        // Now attach animation curves. They override LocalTransform per frame
+        // but don't affect the IBMs we already baked.
+        foreach (var (name, animation) in animations)
+            ApplyPsxAnimation(jointNodes, psxFile, animation, name, opts);
+
+        return (scene.ToGltf2(), totalTriangles);
     }
+
+    /// <summary>
+    ///     Attaches per-bone rotation and translation curves. Codec output is
+    ///     already local-to-parent (the engine's chain accumulation in
+    ///     Decomp_GetAnimTransform only affects its own render buffer, not the
+    ///     stored stream), so values flow directly into glTF NodeBuilder; the
+    ///     parent chain handles world composition. Placeholder tracks (all-zero
+    ///     across all frames) are skipped to preserve bind pose.
+    /// </summary>
+    private static void ApplyPsxAnimation(
+        NodeBuilder[] jointNodes,
+        PsxMeshFile psxFile,
+        PsxAnimation animation,
+        string animationName,
+        PsxAnimationOptions opts)
+    {
+        var boneCount = Math.Min(jointNodes.Length, animation.BoneCount);
+        var translationDivisor = psxFile.TranslationDivisor;
+        var fps = opts.Fps;
+        var frameCount = animation.FrameCount;
+
+        for (var b = 0; b < boneCount; b++)
+        {
+            if (!opts.SkipRotation && animation.IsRotationAnimated(b))
+            {
+                var rot = jointNodes[b].UseRotation(animationName);
+                for (var f = 0; f < frameCount; f++)
+                {
+                    var psxR = animation.GetBoneRotation(b, f, opts.RotationCompose);
+                    rot.SetPoint(f / fps, PsxToGltfRotation(psxR));
+                }
+            }
+
+            if (!opts.SkipTranslation && animation.IsTranslationAnimated(b))
+            {
+                var trans = jointNodes[b].UseTranslation(animationName);
+                for (var f = 0; f < frameCount; f++)
+                {
+                    var psxT = animation.GetBoneTranslation(b, f) / translationDivisor;
+                    trans.SetPoint(f / fps, PsxMeshSemantics.ToGltfPosition(psxT));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Converts a PSX-frame quaternion to glTF-frame. Coordinate change is
+    ///     <c>diag(1, -1, -1)</c> (negate Y, Z); under this involution the
+    ///     equivalent glTF quaternion is simply (qx, -qy, -qz, qw).
+    /// </summary>
+    private static Quaternion PsxToGltfRotation(Quaternion psx)
+        => new(psx.X, -psx.Y, -psx.Z, psx.W);
 
     /// <summary>
     ///     Adds faces from a body part mesh to a combined skinned mesh.

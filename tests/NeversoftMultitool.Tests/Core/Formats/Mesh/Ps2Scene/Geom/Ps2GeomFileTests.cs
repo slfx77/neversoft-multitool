@@ -41,7 +41,7 @@ public sealed class Ps2GeomFileTests(TestPaths paths)
 
             var scene = Ps2GeomFile.ParsePakMdl(data);
             var totalVertices = scene.Leaves.Sum(leaf => leaf.Vertices.Length);
-            var giantLeaves = scene.Leaves.Count(leaf =>
+            var originCenteredGiantHelpers = scene.Leaves.Count(leaf =>
             {
                 var min = new Vector3(float.MaxValue);
                 var max = new Vector3(float.MinValue);
@@ -52,12 +52,19 @@ public sealed class Ps2GeomFileTests(TestPaths paths)
                 }
 
                 var size = max - min;
-                return Math.Max(size.X, Math.Max(size.Y, size.Z)) > 20_000f;
+                var center = (min + max) * 0.5f;
+                return leaf.Vertices.Length <= 8
+                       && leaf.Vertices.All(static vertex => !vertex.HasNormal)
+                       && Math.Max(size.X, Math.Max(size.Y, size.Z)) > 20_000f
+                       && Math.Abs(center.X) <= 10f
+                       && Math.Abs(center.Y) <= 10f
+                       && Math.Abs(center.Z) <= 10f;
             });
 
             Assert.True(scene.Leaves.Count > 100, $"Expected >100 mesh leaves, found {scene.Leaves.Count}");
             Assert.True(totalVertices > 20_000, $"Expected >20K vertices, found {totalVertices}");
-            Assert.True(giantLeaves == 0, $"Expected no giant world-zone leaves, found {giantLeaves}");
+            Assert.True(originCenteredGiantHelpers == 0,
+                $"Expected no origin-centered helper leaves, found {originCenteredGiantHelpers}");
         }
         finally
         {

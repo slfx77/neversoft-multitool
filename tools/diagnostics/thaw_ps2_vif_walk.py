@@ -123,11 +123,15 @@ def walk_file(path):
     print(f'Expected triangles (approx): {total_verts - 2*batch_count}')
 
 if __name__ == '__main__':
-    skin_dir = r"Sample\Builds\Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)\SKIN"
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'utilities'))
+    from sample_paths import find as _find_sample
 
-    # Walk acc_backpack01 in detail
-    walk_file(os.path.join(skin_dir, "acc_backpack01.skin.ps2"))
+    BUILD = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)"
+    backpack = _find_sample(BUILD, "acc_backpack01.skin.ps2")
+    hawk = _find_sample(BUILD, "skater_hawk.skin.ps2")
+    if backpack is None or hawk is None:
+        sys.exit("Sample build not populated; run tools/SampleGenerator")
+
+    walk_file(str(backpack))
     print("\n" + "="*80 + "\n")
-
-    # Walk skater_hawk
-    walk_file(os.path.join(skin_dir, "skater_hawk.skin.ps2"))
+    walk_file(str(hawk))

@@ -9,14 +9,9 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Skin;
 
 public sealed class ThawPs2SkinFileTests(TestPaths paths)
 {
-    private string ThawSkinDir => paths.SampleBuildsDir is null ? string.Empty :
-        Path.Combine(paths.SampleBuildsDir, "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)", "SKIN");
-
-    private string ThawPcSkinDir => paths.SampleBuildsDir is null ? string.Empty :
-        Path.Combine(paths.SampleBuildsDir, "Tony Hawk's American Wasteland (2006-2-6, PC - Final)", "SKIN");
-
-    private string Thug2SkeDir => paths.SampleBuildsDir is null ? string.Empty :
-        Path.Combine(paths.SampleBuildsDir, "Tony Hawk's Underground 2 (2004-8-22, PS2 - Final)", "SKE");
+    private const string ThawPs2Build = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
+    private const string ThawPcBuild = "Tony Hawk's American Wasteland (2006-2-6, PC - Final)";
+    private const string Thug2Ps2Build = "Tony Hawk's Underground 2 (2004-8-22, PS2 - Final)";
 
     // ── Detection ──
 
@@ -52,8 +47,8 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     public void IsThawPs2Skin_WithThawFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "acc_backpack01.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(ThawPs2Build, "acc_backpack01.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         Assert.True(ThawPs2SkinFile.IsThawPs2Skin(data));
@@ -72,8 +67,8 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     public void Parse_ThawSkinFile_MatchesPcTriangleCounts(string filename, int minGroups, int expectedTriangles)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, filename);
-        Assert.SkipWhen(!File.Exists(file), $"Test file not found: {filename}");
+        var file = paths.FindSampleFile(ThawPs2Build, filename);
+        Assert.SkipWhen(file is null, $"Test file not found: {filename}");
 
         var scene = ThawPs2SkinFile.Parse(file);
 
@@ -91,10 +86,10 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     public void Parse_SkaterLasek_MatchesPcUniquePositions()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var ps2File = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        var pcFile = Path.Combine(ThawPcSkinDir, "skater_lasek.skin.wpc");
-        Assert.SkipWhen(!File.Exists(ps2File), "PS2 file not found");
-        Assert.SkipWhen(!File.Exists(pcFile), "PC file not found");
+        var ps2File = paths.FindSampleFile(ThawPs2Build, "skater_lasek.skin.ps2");
+        var pcFile = paths.FindSampleFile(ThawPcBuild, "skater_lasek.skin.wpc");
+        Assert.SkipWhen(ps2File is null, "PS2 file not found");
+        Assert.SkipWhen(pcFile is null, "PC file not found");
 
         var ps2Scene = ThawPs2SkinFile.Parse(ps2File);
         var pcScene = ThawSceneFile.Parse(pcFile);
@@ -106,15 +101,15 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     [Fact]
     public void Parse_SkaterLasek_MatchesPcMaterialPositionCoverage()
     {
-        AssertPs2MaterialPositionParity(paths, ThawSkinDir, ThawPcSkinDir, "skater_lasek");
+        AssertPs2MaterialPositionParity(paths, ThawPs2Build, ThawPcBuild, "skater_lasek");
     }
 
     [Fact]
     public void DiscoverThawSkeleton_SkaterLasek_FindsThps6Human()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var ps2File = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(ps2File), "PS2 file not found");
+        var ps2File = paths.FindSampleFile(ThawPs2Build, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(ps2File is null, "PS2 file not found");
 
         var skeletonPath = ThawSkeletonDiscovery.FindSkeletonPath(ps2File, "skater_lasek", true);
 
@@ -126,8 +121,8 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     public void DiscoverThawSkeleton_ProVallelyHead_FindsLegacyHeadSkeleton()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var ps2File = Path.Combine(ThawSkinDir, "pro_vallely_head.skin.ps2");
-        Assert.SkipWhen(!File.Exists(ps2File), "PS2 file not found");
+        var ps2File = paths.FindSampleFile(ThawPs2Build, "pro_vallely_head.skin.ps2");
+        Assert.SkipWhen(ps2File is null, "PS2 file not found");
 
         var skeletonPath = ThawSkeletonDiscovery.FindSkeletonPath(ps2File, "pro_vallely_head", true);
 
@@ -139,12 +134,12 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     public void ApplyPcSkinning_SkaterLasek_TransfersSkinDataOntoPs2Vertices()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var ps2File = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        var pcFile = Path.Combine(ThawPcSkinDir, "skater_lasek.skin.wpc");
-        var skeletonFile = Path.Combine(Thug2SkeDir, "thps6_human.ske.ps2");
-        Assert.SkipWhen(!File.Exists(ps2File), "PS2 file not found");
-        Assert.SkipWhen(!File.Exists(pcFile), "PC file not found");
-        Assert.SkipWhen(!File.Exists(skeletonFile), "THUG2 human skeleton not found");
+        var ps2File = paths.FindSampleFile(ThawPs2Build, "skater_lasek.skin.ps2");
+        var pcFile = paths.FindSampleFile(ThawPcBuild, "skater_lasek.skin.wpc");
+        var skeletonFile = paths.FindSampleFile(Thug2Ps2Build, "thps6_human.ske.ps2");
+        Assert.SkipWhen(ps2File is null, "PS2 file not found");
+        Assert.SkipWhen(pcFile is null, "PC file not found");
+        Assert.SkipWhen(skeletonFile is null, "THUG2 human skeleton not found");
 
         var ps2Scene = ThawPs2SkinFile.Parse(ps2File);
         var pcScene = ThawSceneFile.Parse(pcFile);
@@ -171,10 +166,10 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     public void Parse_SkaterHawk_DocumentsLegacySiblingMaterialSplitDivergence()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var ps2File = Path.Combine(ThawSkinDir, "skater_hawk.skin.ps2");
-        var pcFile = Path.Combine(ThawPcSkinDir, "skater_hawk.skin.wpc");
-        Assert.SkipWhen(!File.Exists(ps2File), "PS2 file not found");
-        Assert.SkipWhen(!File.Exists(pcFile), "PC file not found");
+        var ps2File = paths.FindSampleFile(ThawPs2Build, "skater_hawk.skin.ps2");
+        var pcFile = paths.FindSampleFile(ThawPcBuild, "skater_hawk.skin.wpc");
+        Assert.SkipWhen(ps2File is null, "PS2 file not found");
+        Assert.SkipWhen(pcFile is null, "PC file not found");
 
         var ps2Scene = ThawPs2SkinFile.Parse(ps2File);
         var pcScene = ThawSceneFile.Parse(pcFile);
@@ -195,10 +190,10 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     public void Parse_ProVallelyHead_DocumentsPcOnlyMaterialDivergence()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var ps2File = Path.Combine(ThawSkinDir, "pro_vallely_head.skin.ps2");
-        var pcFile = Path.Combine(ThawPcSkinDir, "pro_vallely_head.skin.wpc");
-        Assert.SkipWhen(!File.Exists(ps2File), "PS2 file not found");
-        Assert.SkipWhen(!File.Exists(pcFile), "PC file not found");
+        var ps2File = paths.FindSampleFile(ThawPs2Build, "pro_vallely_head.skin.ps2");
+        var pcFile = paths.FindSampleFile(ThawPcBuild, "pro_vallely_head.skin.wpc");
+        Assert.SkipWhen(ps2File is null, "PS2 file not found");
+        Assert.SkipWhen(pcFile is null, "PC file not found");
 
         var ps2Scene = ThawPs2SkinFile.Parse(ps2File);
         var pcScene = ThawSceneFile.Parse(pcFile);
@@ -219,13 +214,13 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     [Fact]
     public void Parse_SecJimbo_MatchesPcMaterialPositionCoverage()
     {
-        AssertPs2MaterialPositionParity(paths, ThawSkinDir, ThawPcSkinDir, "sec_jimbo");
+        AssertPs2MaterialPositionParity(paths, ThawPs2Build, ThawPcBuild, "sec_jimbo");
     }
 
     [Fact]
     public void Parse_SecJimboXen_MatchesPcMaterialPositionCoverage()
     {
-        AssertPs2MaterialPositionParity(paths, ThawSkinDir, ThawPcSkinDir, "sec_jimbo_xen");
+        AssertPs2MaterialPositionParity(paths, ThawPs2Build, ThawPcBuild, "sec_jimbo_xen");
     }
 
     [Fact]
@@ -233,10 +228,10 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
 
-        var jimboFile = Path.Combine(ThawSkinDir, "sec_jimbo_xen.skin.ps2");
-        var hawkFile = Path.Combine(ThawSkinDir, "skater_hawk.skin.ps2");
-        Assert.SkipWhen(!File.Exists(jimboFile), "Jimbo file not found");
-        Assert.SkipWhen(!File.Exists(hawkFile), "Hawk file not found");
+        var jimboFile = paths.FindSampleFile(ThawPs2Build, "sec_jimbo_xen.skin.ps2");
+        var hawkFile = paths.FindSampleFile(ThawPs2Build, "skater_hawk.skin.ps2");
+        Assert.SkipWhen(jimboFile is null, "Jimbo file not found");
+        Assert.SkipWhen(hawkFile is null, "Hawk file not found");
 
         var jimboByChecksum = ThawPs2SkinFile.Parse(jimboFile).Materials.ToDictionary(mat => mat.Checksum);
         var hawkByChecksum = ThawPs2SkinFile.Parse(hawkFile).Materials.ToDictionary(mat => mat.Checksum);
@@ -254,8 +249,8 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     public void Parse_AccBackpack01_HasReasonablePositions()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "acc_backpack01.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(ThawPs2Build, "acc_backpack01.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var scene = ThawPs2SkinFile.Parse(file);
         var verts = scene.MeshGroups.SelectMany(g => g.Meshes).SelectMany(m => m.Vertices).ToArray();
@@ -280,9 +275,8 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
     public void BatchParse_AllThawSkinFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(ThawSkinDir), "THAW SKIN directory not found");
 
-        var files = Directory.GetFiles(ThawSkinDir, "*.skin.ps2");
+        var files = paths.FindSampleFiles(ThawPs2Build, "*.skin.ps2").ToArray();
         Assert.SkipWhen(files.Length == 0, "No .skin.ps2 files found");
 
         var failures = new List<string>();

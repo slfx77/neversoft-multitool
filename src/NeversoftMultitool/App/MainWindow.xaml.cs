@@ -120,6 +120,7 @@ public sealed partial class MainWindow : Window
             HashReviewerTabContent.Visibility = Visibility.Collapsed;
             ScriptDecompilerTabContent.Visibility = Visibility.Collapsed;
             MeshConverterTabContent.Visibility = Visibility.Collapsed;
+            CharacterPreviewTabContent.Visibility = Visibility.Collapsed;
 
             // Clear status bar when switching tabs
             SetStatus("");
@@ -153,6 +154,9 @@ public sealed partial class MainWindow : Window
                     break;
                 case "MeshConverter":
                     MeshConverterTabContent.Visibility = Visibility.Visible;
+                    break;
+                case "CharacterPreview":
+                    CharacterPreviewTabContent.Visibility = Visibility.Visible;
                     break;
             }
 

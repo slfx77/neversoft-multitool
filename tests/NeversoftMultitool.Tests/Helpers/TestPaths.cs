@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using NeversoftMultitool.Tests.Helpers;
 
 [assembly: AssemblyFixture(typeof(TestPaths))]
@@ -10,6 +12,8 @@ namespace NeversoftMultitool.Tests.Helpers;
 /// </summary>
 public class TestPaths
 {
+    private readonly ConcurrentDictionary<string, FrozenDictionary<string, string>> _buildIndex = new();
+
     public TestPaths()
     {
         TestDataDir = FindDirectory("tests", "TestData");
@@ -52,6 +56,47 @@ public class TestPaths
 
     public bool HasTestData => TestDataDir != null && Directory.Exists(TestDataDir);
     public bool HasGoldenFiles => GoldenFilesDir != null && Directory.Exists(GoldenFilesDir);
+
+    /// <summary>
+    /// Locates a file by its bare filename inside Sample/Builds/{buildName}/. The first call for a
+    /// given build builds an in-memory index by walking the build tree; subsequent calls hit the
+    /// cache. Lookup is case-insensitive. If multiple files share the same name, the indexer keeps
+    /// the last one encountered — callers needing disambiguation should use <see cref="FindSampleFiles"/>.
+    /// </summary>
+    public string? FindSampleFile(string buildName, string fileName)
+    {
+        var index = GetBuildIndex(buildName);
+        return index.TryGetValue(fileName, out var path) ? path : null;
+    }
+
+    /// <summary>
+    /// Enumerates files matching a glob pattern under Sample/Builds/{buildName}/, recursively.
+    /// Returns an empty sequence when the build directory does not exist.
+    /// </summary>
+    public IEnumerable<string> FindSampleFiles(string buildName, string searchPattern)
+    {
+        if (SampleBuildsDir is null) return [];
+        var buildDir = Path.Combine(SampleBuildsDir, buildName);
+        return Directory.Exists(buildDir)
+            ? Directory.EnumerateFiles(buildDir, searchPattern, SearchOption.AllDirectories)
+            : [];
+    }
+
+    private FrozenDictionary<string, string> GetBuildIndex(string buildName) =>
+        _buildIndex.GetOrAdd(buildName, BuildIndex);
+
+    private FrozenDictionary<string, string> BuildIndex(string buildName)
+    {
+        if (SampleBuildsDir is null) return FrozenDictionary<string, string>.Empty;
+        var buildDir = Path.Combine(SampleBuildsDir, buildName);
+        if (!Directory.Exists(buildDir)) return FrozenDictionary<string, string>.Empty;
+
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in Directory.EnumerateFiles(buildDir, "*", SearchOption.AllDirectories))
+            dict[Path.GetFileName(file)] = file;
+
+        return dict.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+    }
 
     private static string? FindDirectory(params string[] relativeParts)
     {

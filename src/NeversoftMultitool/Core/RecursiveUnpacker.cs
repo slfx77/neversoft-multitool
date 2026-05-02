@@ -167,6 +167,9 @@ public static class RecursiveUnpacker
         CancellationToken ct = default)
     {
         var allArchives = new List<ArchiveInfo>();
+        // Each pass calls Scan() fresh, so an archive that failed to extract (no {stem}/ created)
+        // would be rediscovered as "not extracted" forever. Track attempted paths to break the loop.
+        var attempted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pass = 0;
 
         while (true)
@@ -176,7 +179,7 @@ public static class RecursiveUnpacker
 
             var discovered = Scan(rootDir, pass);
             var newArchives = discovered
-                .Where(a => !a.AlreadyExtracted)
+                .Where(a => !a.AlreadyExtracted && !attempted.Contains(a.FilePath))
                 .ToList();
 
             if (newArchives.Count == 0)
@@ -189,6 +192,7 @@ public static class RecursiveUnpacker
             {
                 ct.ThrowIfCancellationRequested();
                 onArchiveStarted?.Invoke(archive);
+                attempted.Add(archive.FilePath);
 
                 try
                 {

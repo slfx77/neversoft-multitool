@@ -307,22 +307,42 @@ def get_thps2x_dir(builds_dir):
     return os.path.join(builds_dir, "Tony Hawk's Pro Skater 2X (2001-11-15, Xbox - Final)")
 
 
+def index_files_by_stem(root: str, suffixes: tuple[str, ...]) -> dict[str, str]:
+    """Index files under root recursively, keyed by lowercase basename-without-extension.
+    Suffixes match case-insensitively. The new SampleGenerator emits builds as the actual
+    game disc tree, so files are scattered rather than living in PSX/ or DDM/ folders."""
+    suffixes_lower = tuple(s.lower() for s in suffixes)
+    index = {}
+    for dirpath, _, filenames in os.walk(root):
+        for fn in filenames:
+            fn_lower = fn.lower()
+            if not fn_lower.endswith(suffixes_lower):
+                continue
+            stem = os.path.splitext(fn)[0].lower()
+            index[stem] = os.path.join(dirpath, fn)
+    return index
+
+
+def list_files_by_extension(root: str, *suffixes: str) -> list[str]:
+    """Return all files under root whose name ends with any of the given suffixes (case-insensitive)."""
+    suffixes_lower = tuple(s.lower() for s in suffixes)
+    out = []
+    for dirpath, _, filenames in os.walk(root):
+        for fn in filenames:
+            if fn.lower().endswith(suffixes_lower):
+                out.append(os.path.join(dirpath, fn))
+    return sorted(out)
+
+
 def analyze_pair(basename: str, thps2x_dir: str, all_psx_tex_hashes: set = None):
     """Analyze a DDM/PSX file pair."""
-    ddm_path = os.path.join(thps2x_dir, "DDM", basename + ".DDM")
-    # Try both cases for DDM
-    if not os.path.exists(ddm_path):
-        ddm_path = os.path.join(thps2x_dir, "DDM", basename + ".ddm")
+    ddm_index = index_files_by_stem(thps2x_dir, (".ddm",))
+    psx_index = index_files_by_stem(thps2x_dir, (".psx",))
 
-    # PSX files have inconsistent case
-    psx_path = None
-    for ext in [".psx", ".PSX"]:
-        candidate = os.path.join(thps2x_dir, "PSX", basename + ext)
-        if os.path.exists(candidate):
-            psx_path = candidate
-            break
+    ddm_path = ddm_index.get(basename.lower())
+    psx_path = psx_index.get(basename.lower())
 
-    has_ddm = os.path.exists(ddm_path)
+    has_ddm = ddm_path is not None
     has_psx = psx_path is not None
 
     print(f"\n{'='*70}")
@@ -534,22 +554,18 @@ def read_psx_texture_headers(filepath: str):
 
 def analyze_hash_distribution(thps2x_dir: str):
     """Analyze the distribution of PSX texture 'hashes' to determine if they're really hashes."""
-    psx_dir = os.path.join(thps2x_dir, "PSX")
     all_tex_vals = []
     all_mesh_hashes = []
     per_file = {}
 
-    for f in sorted(os.listdir(psx_dir)):
-        if not f.lower().endswith('.psx'):
-            continue
-        fp = os.path.join(psx_dir, f)
+    for fp in list_files_by_extension(thps2x_dir, ".psx"):
         try:
             tex_names, headers = read_psx_texture_headers(fp)
             mh, th, _, _, _ = read_psx_hashes(fp)
             all_tex_vals.extend(th)
             all_mesh_hashes.extend(mh)
-            per_file[f] = (th, headers)
-        except Exception as e:
+            per_file[os.path.basename(fp)] = (th, headers)
+        except Exception:
             pass
 
     print(f"\n{'='*70}")
@@ -621,16 +637,13 @@ def is_likely_float_not_hash(val: int) -> bool:
 
 def analyze_real_vs_placeholder(thps2x_dir: str):
     """Separate real texture hashes from placeholder float values and analyze each group."""
-    psx_dir = os.path.join(thps2x_dir, "PSX")
     real_hashes = set()
     placeholder_vals = set()
     real_per_file = {}
     placeholder_per_file = {}
 
-    for f in sorted(os.listdir(psx_dir)):
-        if not f.lower().endswith('.psx'):
-            continue
-        fp = os.path.join(psx_dir, f)
+    for fp in list_files_by_extension(thps2x_dir, ".psx"):
+        f = os.path.basename(fp)
         try:
             tex_names, headers = read_psx_texture_headers(fp)
         except Exception:
@@ -717,12 +730,8 @@ def analyze_real_vs_placeholder(thps2x_dir: str):
 
 def collect_real_texture_hashes(thps2x_dir: str) -> set:
     """Collect all real (non-placeholder) texture hashes from all PSX files."""
-    psx_dir = os.path.join(thps2x_dir, "PSX")
     real_hashes = set()
-    for f in sorted(os.listdir(psx_dir)):
-        if not f.lower().endswith('.psx'):
-            continue
-        fp = os.path.join(psx_dir, f)
+    for fp in list_files_by_extension(thps2x_dir, ".psx"):
         try:
             tex_names, headers = read_psx_texture_headers(fp)
         except Exception:
@@ -741,12 +750,8 @@ def collect_real_texture_hashes(thps2x_dir: str) -> set:
 
 def collect_all_texture_hashes(thps2x_dir: str) -> set:
     """Collect ALL texture hashes (including placeholders) from all PSX files."""
-    psx_dir = os.path.join(thps2x_dir, "PSX")
     all_hashes = set()
-    for f in sorted(os.listdir(psx_dir)):
-        if not f.lower().endswith('.psx'):
-            continue
-        fp = os.path.join(psx_dir, f)
+    for fp in list_files_by_extension(thps2x_dir, ".psx"):
         try:
             _, th, _, _, _ = read_psx_hashes(fp)
             all_hashes.update(th)
@@ -763,22 +768,18 @@ def collect_candidate_names(thps2x_dir: str) -> set:
     builds_dir = os.path.join(repo_root, "Sample", "Builds")
 
     # 1. DDM texture names (plaintext)
-    ddm_dir = os.path.join(thps2x_dir, "DDM")
-    if os.path.isdir(ddm_dir):
-        for f in os.listdir(ddm_dir):
-            if not f.lower().endswith('.ddm'):
-                continue
-            try:
-                objects = read_ddm_names(os.path.join(ddm_dir, f))
-                for obj in objects:
-                    candidates.add(obj['name'])
-                    for mat_name, tex_name in obj['materials']:
-                        if tex_name and tex_name.lower() != 'no_texture_map':
-                            candidates.add(tex_name)
-                        if mat_name:
-                            candidates.add(mat_name)
-            except Exception:
-                pass
+    for ddm_path in list_files_by_extension(thps2x_dir, ".ddm"):
+        try:
+            objects = read_ddm_names(ddm_path)
+            for obj in objects:
+                candidates.add(obj['name'])
+                for mat_name, tex_name in obj['materials']:
+                    if tex_name and tex_name.lower() != 'no_texture_map':
+                        candidates.add(tex_name)
+                    if mat_name:
+                        candidates.add(mat_name)
+        except Exception:
+            pass
     ddm_count = len(candidates)
 
     # 2. GHIDRA names

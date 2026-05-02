@@ -24,14 +24,14 @@ namespace NeversoftMultitool;
 
 internal static class MeshConverterTabFileConverter
 {
-    private static readonly string[] Ps2TexExtensions = [".tex.ps2", ".tex", ".img.ps2"];
-    private static readonly string[] Ps2TexSubdirs = ["TEX", "Textures", "IMG"];
+    internal static readonly string[] Ps2TexExtensions = [".tex.ps2", ".tex", ".img.ps2"];
+    internal static readonly string[] Ps2TexSubdirs = ["TEX", "Textures", "IMG"];
     private static readonly string[] XbxTexExtensions = [".tex.xbx", ".tex.wpc"];
     private static readonly string[] XbxTexSubdirs = ["TEX", "Textures"];
     private static readonly string[] RwTexExtensions = [".tex"];
     private static readonly string[] RwTexSubdirs = ["TEX", "Textures"];
-    private static readonly string[] PcSkinExtensions = [".skin.wpc", ".skin.xbx"];
-    private static readonly string[] PcSkinSubdirs = ["SKIN", "Models"];
+    internal static readonly string[] PcSkinExtensions = [".skin.wpc", ".skin.xbx"];
+    internal static readonly string[] PcSkinSubdirs = ["SKIN", "Models"];
 
     /// <summary>
     ///     Converts a mesh file to GLB bytes in memory (no temp files).
@@ -60,10 +60,14 @@ internal static class MeshConverterTabFileConverter
         return BuildDdmGlb(entry);
     }
 
-    public static int ConvertFile(MeshFileEntry entry, string outputDir)
+    public static int ConvertFile(
+        MeshFileEntry entry,
+        string outputDir,
+        Ps2WorldzoneConverter.WorldzoneTimeOfDay worldzoneTimeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.All,
+        float worldzoneScale = 1f)
     {
         if (entry.IsPakWorldzone)
-            return ConvertPakWorldzone(entry, outputDir);
+            return ConvertPakWorldzone(entry, outputDir, worldzoneTimeOfDay, worldzoneScale);
         if (entry.IsCol)
             return ConvertColFile(entry, outputDir);
         if (entry.IsPs2Scene)
@@ -84,12 +88,19 @@ internal static class MeshConverterTabFileConverter
         return ConvertDdmFile(entry, outputDir);
     }
 
-    private static int ConvertPakWorldzone(MeshFileEntry entry, string outputDir)
+    private static int ConvertPakWorldzone(
+        MeshFileEntry entry,
+        string outputDir,
+        Ps2WorldzoneConverter.WorldzoneTimeOfDay worldzoneTimeOfDay,
+        float worldzoneScale)
     {
         var result = Ps2WorldzoneConverter.Convert(
             entry.Source,
             outputDir,
-            new Ps2WorldzoneConverter.WorldzoneOptions(Combined: true));
+            new Ps2WorldzoneConverter.WorldzoneOptions(
+                Combined: true,
+                TimeOfDay: worldzoneTimeOfDay,
+                CoordinateScale: worldzoneScale));
         return result.Triangles;
     }
 
@@ -375,7 +386,7 @@ internal static class MeshConverterTabFileConverter
         return triangles > 0 ? (WriteGlbToMemory(model), triangles) : (null, 0);
     }
 
-    private static Ps2Skeleton? TryLoadPs2Skeleton(MeshFileEntry entry, string stem)
+    internal static Ps2Skeleton? TryLoadPs2Skeleton(MeshFileEntry entry, string stem)
     {
         // Prefer exact companion (.ske.ps2 then .ske). Scanner may have pre-resolved
         // a skeleton from a filesystem-wide index (ThawSkeletonDiscovery); reuse by
@@ -452,6 +463,9 @@ internal static class MeshConverterTabFileConverter
         }
     }
 
+    internal static RwDffGltfWriter.TextureProvider? BuildRwDffTextureProvider(MeshFileEntry entry)
+        => BuildRwTxdTextureProvider(entry, forBsp: false);
+
     private static RwDffGltfWriter.TextureProvider? BuildRwTxdTextureProvider(MeshFileEntry entry, bool forBsp)
     {
         var stem = Path.GetFileNameWithoutExtension(entry.FileName);
@@ -517,7 +531,7 @@ internal static class MeshConverterTabFileConverter
         };
     }
 
-    private static Ps2SceneGltfWriter.TextureProvider? BuildPs2TextureProvider(byte[]? textureBytes)
+    internal static Ps2SceneGltfWriter.TextureProvider? BuildPs2TextureProvider(byte[]? textureBytes)
     {
         if (textureBytes == null) return null;
 

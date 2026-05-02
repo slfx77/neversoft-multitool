@@ -11,14 +11,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Animation;
 
 public sealed class SkaPoseEvaluatorTests(TestPaths paths)
 {
+    private const string Thps4Build = "Tony Hawk's Pro Skater 4 (2002-9-30, PS2 - Final)";
     private static readonly float[] SampleTimes = [0.10f, 0.25f, 0.50f, 0.90f];
-
-    private string Thps4BuildDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Pro Skater 4 (2002-9-30, PS2 - Final)");
-
-    private string Thps4SkeDir => Path.Combine(Thps4BuildDir, "SKE");
-    private string Thps4SkaDir => Path.Combine(Thps4BuildDir, "SKA");
-    private string Thps4SkinDir => Path.Combine(Thps4BuildDir, "SKIN");
 
     [Fact]
     public void Evaluate_UsesVersionSpecificFallbackSemantics()
@@ -408,20 +402,20 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
 
-        var skeletonPath = Path.Combine(Thps4SkeDir, skeletonFileName);
-        var skinPath = Path.Combine(Thps4SkinDir, skinFileName);
-        var animationPath = Path.Combine(Thps4SkaDir, animationFileName);
+        var skeletonPath = paths.FindSampleFile(Thps4Build, skeletonFileName);
+        var skinPath = paths.FindSampleFile(Thps4Build, skinFileName);
+        var animationPath = paths.FindSampleFile(Thps4Build, animationFileName);
 
-        Assert.SkipWhen(!File.Exists(skeletonPath), $"Test file not found: {skeletonFileName}");
-        Assert.SkipWhen(!File.Exists(skinPath), $"Test file not found: {skinFileName}");
-        Assert.SkipWhen(!File.Exists(animationPath), $"Test file not found: {animationFileName}");
+        Assert.SkipWhen(skeletonPath is null, $"Test file not found: {skeletonFileName}");
+        Assert.SkipWhen(skinPath is null, $"Test file not found: {skinFileName}");
+        Assert.SkipWhen(animationPath is null, $"Test file not found: {animationFileName}");
 
-        var skeleton = SkeletonFile.Parse(skeletonPath);
-        var skin = Ps2SceneFile.Parse(skinPath);
-        var compressTable = SkaCommand.FindCompressTable(animationPath);
+        var skeleton = SkeletonFile.Parse(skeletonPath!);
+        var skin = Ps2SceneFile.Parse(skinPath!);
+        var compressTable = SkaCommand.FindCompressTable(animationPath!);
         Assert.NotNull(compressTable);
 
-        var animation = SkaFile.Parse(File.ReadAllBytes(animationPath), compressTable);
+        var animation = SkaFile.Parse(File.ReadAllBytes(animationPath!), compressTable);
         var animationName = Path.GetFileNameWithoutExtension(
             Path.GetFileNameWithoutExtension(animationFileName));
         var (model, triangles) = Ps2SceneGltfWriter.BuildSkinnedAnimated(

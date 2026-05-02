@@ -30,13 +30,18 @@ namespace NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 ///     3. After relocation:
 ///         - <c>relocated_data_offset</c> points at the prepared CLUT data (32 bytes for
 ///           PSMCT16, 64 bytes for PSMCT32).
-///         - <c>relocated_cumul_off</c> points at the prepared pixel data (PSMT4 nibbles
-///           pre-swizzled in the GS Conv4to32 layout, or PSMT8 bytes for paletted-8).
+///         - <c>relocated_cumul_off</c> points at the prepared pixel data. Storage
+///           layout depends on (psm, tw, th):
+///           PSMT4 follows the standard build-tool path
+///           (<see cref="Ps2TexSwizzle.UnswizzlePsmt4"/>: Conv4to32 -> Conv4to16 -> linear).
+///           PSMT8 uses Conv8to32 for everything except sub-page-width
+///           multi-page-tall records (tw &lt; 128 AND th &gt; 64), which are
+///           linear bottom-up; FUN_0019cd48 (Phase 333) confirms that path.
 ///
-///     4. Decode (per FUN_0019cd48):
-///         - For PSMT4: pixels are stored in PSMCT32-uploaded layout. Apply Conv4to32
-///           unswizzle, then look up each nibble in the CLUT, BOTTOM-UP scan.
-///         - For PSMT8: similar but with CSM1 lookup table on the index.
+///     4. Decode:
+///         - PSMT4: walk the unswizzled nibble buffer bottom-up, look up in the CLUT.
+///         - PSMT8: walk the unswizzled / linear byte buffer bottom-up, apply the
+///           CSM1 index remap (DAT_005ad180), then look up in the CLUT.
 ///
 ///     This replaces the older heuristic <see cref="ThawZoneTexFile.TryGetHeaderDataLayout"/>
 ///     path which guessed the data base offset and the per-record layout.
@@ -142,6 +147,15 @@ internal static class ThawZoneTexOwnerBlobDecoder
     /// <summary>
     ///     Decode a single record using the FUN_001e9ac0 relocation formula.
     /// </summary>
+    /// <remarks>
+    ///     If every output pixel is alpha-zero but the buffer has visible RGB
+    ///     content, force alpha to 255. This matches the
+    ///     <see cref="Ps2TexPixelDecoder.DecodePixels"/> post-pass and recovers
+    ///     PSMT8 records whose CLUT/index combination decodes every base-level
+    ///     pixel to alpha-zero (the PS2 "use material/register alpha, not
+    ///     per-texel alpha" convention). Records whose lower mip carries real
+    ///     alpha are handled before this fixup.
+    /// </remarks>
     internal static Ps2Texture? DecodeRecord(
         ReadOnlySpan<byte> fileData,
         ThawZoneTexFile.ZoneTexHeaderEntry entry,
@@ -164,9 +178,9 @@ internal static class ThawZoneTexOwnerBlobDecoder
 
         // Direct-color formats (no palette)
         if (psm == Ps2TexPixelDecoder.PSMCT32)
-            return DecodePsmct32Record(fileData, entry, headerBase, baseB, tw, th);
+            return DecodePsmct32Record(fileData, entry, (long)headerBase + entry.CumulativeOffset + baseB, tw, th);
         if (psm == Ps2TexPixelDecoder.PSMCT16)
-            return DecodePsmct16Record(fileData, entry, headerBase, baseB, tw, th);
+            return DecodePsmct16Record(fileData, entry, (long)headerBase + entry.CumulativeOffset + baseB, tw, th);
 
         if (entry.PaletteBytes == 0)
             return null;
@@ -207,45 +221,171 @@ internal static class ThawZoneTexOwnerBlobDecoder
             return null;
         }
 
-        // Unswizzle pixel data.
-        //   PSMT4: stored in PSMCT32-uploaded layout (Conv4to32). No CSM1.
-        //   PSMT8: stored in PSMCT32-uploaded layout (Conv8to32). CSM1 index
-        //          remap applied before palette lookup (matches runtime
-        //          DAT_005ad180 table and THUG source texture.cpp:503-522).
-        byte[] unswizzled;
-        if (psm == Ps2TexPixelDecoder.PSMT4)
-            unswizzled = Ps2TexSwizzle.UnswizzlePsmt4(pixelBytes, tw, th);
-        else
-            unswizzled = Ps2TexSwizzle.UnswizzlePsmt8(pixelBytes, tw, th);
+        // Decode strategy:
+        //  - PSMT4: full UnswizzlePsmt4 (Conv4to32 → Conv4to16 → linear fallback)
+        //    matches the runtime build-tool layout for every dimension we see
+        //    in zone .tex files. Phase 336 validated this path.
+        //  - PSMT8: Conv8to32 except for sub-page-width AND multi-page-tall
+        //    records (width < 128 AND height > 64). PSMT8 page geometry is
+        //    128x64; in that quadrant the Conv8to32 algorithm zero-pads the
+        //    right half of each page, producing visible checkerboard / banding
+        //    (Phase 337). FUN_0019cd48 (Phase 333) reads those records linearly
+        //    instead. 64x64 / 256x64 / 128x128 etc. continue through Conv8to32
+        //    because they either fit a single page or fill the page width.
+        // CSM1 index remap is applied for PSMT8 during palette lookup regardless
+        // of which path produced the index buffer.
+        const int psmt8PageWidth = 128;
+        const int psmt8PageHeight = 64;
+        var psmt8NeedsLinear = psm == Ps2TexPixelDecoder.PSMT8
+            && tw < psmt8PageWidth
+            && th > psmt8PageHeight;
+        var indexBytes = psm switch
+        {
+            Ps2TexPixelDecoder.PSMT4 => Ps2TexSwizzle.UnswizzlePsmt4(pixelBytes, tw, th),
+            Ps2TexPixelDecoder.PSMT8 when !psmt8NeedsLinear =>
+                Ps2TexSwizzle.UnswizzlePsmt8(pixelBytes, tw, th),
+            _ => null,
+        };
 
-        // Convert linear index buffer to RGBA32, BOTTOM-UP scan
+        ReadOnlySpan<byte> sourceBytes = indexBytes ?? pixelBytes.ToArray();
+        var rgba = RenderPalettedLinear(sourceBytes, palette, tw, th, psm);
+
+        if (psm == Ps2TexPixelDecoder.PSMT8
+            && IsAllAlphaZeroWithVisibleRgb(rgba)
+            && TryDecodeAlphaBearingPsmt8Mip(fileData, pixelAbs, entry, palette, tw, th, out var mipTexture))
+        {
+            return new Ps2Texture(entry.Checksum, mipTexture.Width, mipTexture.Height, psm, cpsm, mipTexture.Rgba);
+        }
+
+        // PS2 textures whose CLUT entries are all alpha-0 use the GS material/
+        // register alpha rather than per-texel alpha at runtime. The decoded RGBA
+        // buffer would be invisible if we kept that as alpha-0; force-opaque it
+        // (mirrors Ps2TexPixelDecoder.FixAllZeroAlpha for the public TEX path).
+        FixAllZeroAlphaIfRgbVisible(rgba);
+
+        return new Ps2Texture(entry.Checksum, tw, th, psm, cpsm, rgba);
+    }
+
+    private static bool TryDecodeAlphaBearingPsmt8Mip(
+        ReadOnlySpan<byte> fileData,
+        long pixelAbs,
+        ThawZoneTexFile.ZoneTexHeaderEntry entry,
+        byte[] palette,
+        int baseWidth,
+        int baseHeight,
+        out (int Width, int Height, byte[] Rgba) mipTexture)
+    {
+        mipTexture = default;
+
+        if (entry.MipLevelCount == 0 || entry.DataSize == 0)
+            return false;
+        if (pixelAbs < 0 || pixelAbs >= fileData.Length)
+            return false;
+
+        var availableBytes = Math.Min((long)entry.DataSize, fileData.Length - pixelAbs);
+        if (availableBytes <= 0)
+            return false;
+
+        var offset = entry.BasePixelBytes != 0
+            ? (long)entry.BasePixelBytes
+            : (long)baseWidth * baseHeight;
+        if (offset <= 0 || offset >= availableBytes)
+            return false;
+
+        for (var level = 1; level <= entry.MipLevelCount; level++)
+        {
+            var mipWidth = Math.Max(1, baseWidth >> level);
+            var mipHeight = Math.Max(1, baseHeight >> level);
+            var mipBytes = (long)mipWidth * mipHeight;
+            if (offset + mipBytes > availableBytes)
+                break;
+
+            var mipPixelBytes = fileData.Slice((int)(pixelAbs + offset), (int)mipBytes);
+            var psmt8NeedsLinear = mipWidth < 128 && mipHeight > 64;
+            var mipIndexBytes = psmt8NeedsLinear
+                ? mipPixelBytes.ToArray()
+                : Ps2TexSwizzle.UnswizzlePsmt8(mipPixelBytes, mipWidth, mipHeight);
+            var mipRgba = RenderPalettedLinear(mipIndexBytes, palette, mipWidth, mipHeight,
+                Ps2TexPixelDecoder.PSMT8);
+
+            if (HasAnyNonZeroAlpha(mipRgba))
+            {
+                mipTexture = (mipWidth, mipHeight, mipRgba);
+                return true;
+            }
+
+            offset += mipBytes;
+        }
+
+        return false;
+    }
+
+    private static bool IsAllAlphaZeroWithVisibleRgb(byte[] rgba)
+    {
+        var hasRgb = false;
+        for (var i = 0; i < rgba.Length; i += 4)
+        {
+            if (rgba[i + 3] != 0)
+                return false;
+            if (!hasRgb && (rgba[i] != 0 || rgba[i + 1] != 0 || rgba[i + 2] != 0))
+                hasRgb = true;
+        }
+
+        return hasRgb;
+    }
+
+    private static bool HasAnyNonZeroAlpha(byte[] rgba)
+    {
+        for (var i = 3; i < rgba.Length; i += 4)
+        {
+            if (rgba[i] != 0)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    ///     If every alpha byte in <paramref name="rgba"/> is 0 but at least one
+    ///     RGB byte is non-zero, force all alpha to 255. This matches the public
+    ///     <see cref="Ps2TexPixelDecoder.DecodePixels"/> "all-alpha-zero means
+    ///     material-controlled alpha" convention. Skipping the fixup when RGB is
+    ///     also zero keeps unused/empty record regions invisible rather than
+    ///     turning them into solid black.
+    /// </summary>
+    private static void FixAllZeroAlphaIfRgbVisible(byte[] rgba)
+    {
+        var hasRgb = false;
+        for (var i = 0; i < rgba.Length; i += 4)
+        {
+            if (rgba[i + 3] != 0) return; // any non-zero alpha — no fixup needed
+            if (!hasRgb && (rgba[i] != 0 || rgba[i + 1] != 0 || rgba[i + 2] != 0))
+                hasRgb = true;
+        }
+        if (!hasRgb) return;
+
+        for (var i = 3; i < rgba.Length; i += 4)
+            rgba[i] = 255;
+    }
+
+    /// <summary>
+    ///     Linear bottom-up walk of a paletted index buffer into RGBA32. Out-of-range
+    ///     reads fall back to palette entry 0 — the previous swizzle path zero-padded
+    ///     to the full mapping size, so records whose stored pixel run is shorter
+    ///     than tw*th retain the same trailing pixel value.
+    /// </summary>
+    private static byte[] RenderPalettedLinear(
+        ReadOnlySpan<byte> pixelBytes, byte[] palette, int tw, int th, uint psm)
+    {
         var rgba = new byte[tw * th * 4];
         for (var y = 0; y < th; y++)
         {
             var srcY = th - 1 - y;
             for (var x = 0; x < tw; x++)
             {
-                int idx;
-                if (psm == Ps2TexPixelDecoder.PSMT4)
-                {
-                    var nibblePos = srcY * tw + x;
-                    var byteIdx = nibblePos / 2;
-                    var shift = (nibblePos & 1) * 4;
-                    idx = (unswizzled[byteIdx] >> shift) & 0xF;
-                }
-                else
-                {
-                    // PSMT8: apply CSM1 index remap (swap blocks [8..15] and
-                    // [16..23] within each group of 32). This matches the
-                    // runtime DAT_005ad180 lookup table and the THUG source
-                    // texture.cpp CSM1 CLUT rearrangement (lines 503-522).
-                    idx = unswizzled[srcY * tw + x];
-                    var block = idx & 0x18; // bits 3-4 within group of 32
-                    if (block == 0x08) // 8..15 → 16..23
-                        idx = (idx & ~0x18) | 0x10;
-                    else if (block == 0x10) // 16..23 → 8..15
-                        idx = (idx & ~0x18) | 0x08;
-                }
+                var idx = psm == Ps2TexPixelDecoder.PSMT4
+                    ? ReadPsmt4Index(pixelBytes, srcY, x, tw)
+                    : ReadPsmt8IndexWithCsm1(pixelBytes, srcY, x, tw);
                 var paletteOff = idx * 4;
                 var outOff = (y * tw + x) * 4;
                 rgba[outOff] = palette[paletteOff];
@@ -254,19 +394,42 @@ internal static class ThawZoneTexOwnerBlobDecoder
                 rgba[outOff + 3] = palette[paletteOff + 3];
             }
         }
+        return rgba;
+    }
 
-        return new Ps2Texture(entry.Checksum, tw, th, psm, cpsm, rgba);
+    private static int ReadPsmt4Index(ReadOnlySpan<byte> pixelBytes, int srcY, int x, int tw)
+    {
+        var nibblePos = srcY * tw + x;
+        var byteIdx = nibblePos / 2;
+        if (byteIdx >= pixelBytes.Length) return 0;
+        var shift = (nibblePos & 1) * 4;
+        return (pixelBytes[byteIdx] >> shift) & 0xF;
+    }
+
+    /// <summary>
+    ///     Reads a PSMT8 index and applies the CSM1 remap (swap entries [8..15]
+    ///     with [16..23] within each group of 32). Matches runtime DAT_005ad180
+    ///     and THUG source texture.cpp:503-522.
+    /// </summary>
+    private static int ReadPsmt8IndexWithCsm1(ReadOnlySpan<byte> pixelBytes, int srcY, int x, int tw)
+    {
+        var byteIdx = srcY * tw + x;
+        var idx = byteIdx >= pixelBytes.Length ? 0 : pixelBytes[byteIdx];
+        var block = idx & 0x18;
+        if (block == 0x08)
+            idx = (idx & ~0x18) | 0x10;
+        else if (block == 0x10)
+            idx = (idx & ~0x18) | 0x08;
+        return idx;
     }
 
     private static Ps2Texture? DecodePsmct32Record(
         ReadOnlySpan<byte> fileData,
         ThawZoneTexFile.ZoneTexHeaderEntry entry,
-        int headerBase,
-        int baseB,
+        long pixelAbs,
         int tw,
         int th)
     {
-        var pixelAbs = (long)headerBase + entry.CumulativeOffset + baseB;
         var pixelSize = (long)tw * th * 4;
 
         if (pixelAbs < 0 || pixelAbs >= fileData.Length)
@@ -302,12 +465,10 @@ internal static class ThawZoneTexOwnerBlobDecoder
     private static Ps2Texture? DecodePsmct16Record(
         ReadOnlySpan<byte> fileData,
         ThawZoneTexFile.ZoneTexHeaderEntry entry,
-        int headerBase,
-        int baseB,
+        long pixelAbs,
         int tw,
         int th)
     {
-        var pixelAbs = (long)headerBase + entry.CumulativeOffset + baseB;
         var pixelSize = (long)tw * th * 2;
 
         if (pixelAbs < 0 || pixelAbs >= fileData.Length)

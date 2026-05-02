@@ -8,12 +8,6 @@ public sealed class ThawSceneTexFileTests(TestPaths paths)
 {
     private const string ThawBuild = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
 
-    private string TexDir =>
-        Path.Combine(paths.SampleBuildsDir!, ThawBuild, "TEX");
-
-    private string SingleTexFile =>
-        Path.Combine(TexDir, "acc_backpack01.tex.ps2");
-
     // ── IsThawSceneTex ──
 
     [Fact]
@@ -37,9 +31,10 @@ public sealed class ThawSceneTexFileTests(TestPaths paths)
     public void IsThawSceneTex_ValidFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!File.Exists(SingleTexFile), "acc_backpack01.tex.ps2 not found");
+        var file = paths.FindSampleFile(ThawBuild, "acc_backpack01.tex.ps2");
+        Assert.SkipWhen(file is null, "acc_backpack01.tex.ps2 not found");
 
-        var data = File.ReadAllBytes(SingleTexFile);
+        var data = File.ReadAllBytes(file);
         Assert.True(ThawSceneTexFile.IsThawSceneTex(data));
     }
 
@@ -49,9 +44,10 @@ public sealed class ThawSceneTexFileTests(TestPaths paths)
     public void Parse_AccBackpack01_ExtractsTexture()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!File.Exists(SingleTexFile), "acc_backpack01.tex.ps2 not found");
+        var file = paths.FindSampleFile(ThawBuild, "acc_backpack01.tex.ps2");
+        Assert.SkipWhen(file is null, "acc_backpack01.tex.ps2 not found");
 
-        var result = ThawSceneTexFile.Parse(SingleTexFile);
+        var result = ThawSceneTexFile.Parse(file);
 
         Assert.True(result.Success, result.ErrorMessage);
         Assert.NotEmpty(result.Textures);
@@ -69,9 +65,10 @@ public sealed class ThawSceneTexFileTests(TestPaths paths)
     public void Parse_TexturesHaveValidDimensions()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!File.Exists(SingleTexFile), "acc_backpack01.tex.ps2 not found");
+        var file = paths.FindSampleFile(ThawBuild, "acc_backpack01.tex.ps2");
+        Assert.SkipWhen(file is null, "acc_backpack01.tex.ps2 not found");
 
-        var result = ThawSceneTexFile.Parse(SingleTexFile);
+        var result = ThawSceneTexFile.Parse(file);
         Assert.True(result.Success, result.ErrorMessage);
 
         foreach (var tex in result.Textures)
@@ -89,8 +86,8 @@ public sealed class ThawSceneTexFileTests(TestPaths paths)
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
 
         // Find a multi-texture file (acc_backpack03 has 2 textures from previous analysis)
-        var multiFile = Path.Combine(TexDir, "acc_backpack03.tex.ps2");
-        Assert.SkipWhen(!File.Exists(multiFile), "acc_backpack03.tex.ps2 not found");
+        var multiFile = paths.FindSampleFile(ThawBuild, "acc_backpack03.tex.ps2");
+        Assert.SkipWhen(multiFile is null, "acc_backpack03.tex.ps2 not found");
 
         var result = ThawSceneTexFile.Parse(multiFile);
 
@@ -112,10 +109,7 @@ public sealed class ThawSceneTexFileTests(TestPaths paths)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
 
-        var buildDir = Path.Combine(paths.SampleBuildsDir!, ThawBuild);
-        Assert.SkipWhen(!Directory.Exists(buildDir), "THAW PS2 build not found");
-
-        var files = Directory.GetFiles(buildDir, "*.tex.ps2", SearchOption.AllDirectories);
+        var files = paths.FindSampleFiles(ThawBuild, "*.tex.ps2").ToArray();
         Assert.SkipWhen(files.Length == 0, "No .tex.ps2 files found");
 
         var failures = new List<string>();
@@ -144,9 +138,8 @@ public sealed class ThawSceneTexFileTests(TestPaths paths)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
 
-        var pakDir = Path.Combine(paths.SampleBuildsDir!, ThawBuild, "PAK");
-        var pakPath = Path.Combine(pakDir, "z_ho.pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), "z_ho.pak.ps2 not found");
+        var pakPath = paths.FindSampleFile(ThawBuild, "z_ho.pak.ps2");
+        Assert.SkipWhen(pakPath is null, "z_ho.pak.ps2 not found");
 
         var tempDir = Path.Combine(Path.GetTempPath(),
             "NsMultitool_Test_ZHoTex_" + Guid.NewGuid().ToString("N")[..8]);

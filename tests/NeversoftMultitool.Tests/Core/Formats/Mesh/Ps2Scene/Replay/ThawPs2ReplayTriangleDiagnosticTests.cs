@@ -9,11 +9,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Replay;
 
 public sealed class ThawPs2ReplayTriangleDiagnosticTests(TestPaths paths)
 {
-    private string ThawSkinDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)", "SKIN");
-
-    private string ThawPcSkinDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2006-2-6, PC - Final)", "SKIN");
+    private const string ThawPs2Build = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
+    private const string ThawPcBuild = "Tony Hawk's American Wasteland (2006-2-6, PC - Final)";
 
     [Theory]
     [InlineData("skater_lasek", 3070)]
@@ -23,10 +20,10 @@ public sealed class ThawPs2ReplayTriangleDiagnosticTests(TestPaths paths)
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
         Assert.SkipWhen(paths.TestOutputDir is null, "TestOutput not available");
 
-        var ps2File = Path.Combine(ThawSkinDir, $"{stem}.skin.ps2");
-        var pcFile = Path.Combine(ThawPcSkinDir, $"{stem}.skin.wpc");
-        Assert.SkipWhen(!File.Exists(ps2File), $"PS2 file not found: {stem}");
-        Assert.SkipWhen(!File.Exists(pcFile), $"PC file not found: {stem}");
+        var ps2File = paths.FindSampleFile(ThawPs2Build, $"{stem}.skin.ps2");
+        var pcFile = paths.FindSampleFile(ThawPcBuild, $"{stem}.skin.wpc");
+        Assert.SkipWhen(ps2File is null, $"PS2 file not found: {stem}");
+        Assert.SkipWhen(pcFile is null, $"PC file not found: {stem}");
 
         var pcScene = ThawSceneFile.Parse(pcFile);
         var pcTriangles = new HashSet<(Vector3, Vector3, Vector3)>();

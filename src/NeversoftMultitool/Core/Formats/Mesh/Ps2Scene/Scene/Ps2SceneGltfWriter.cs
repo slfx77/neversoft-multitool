@@ -114,40 +114,67 @@ public static class Ps2SceneGltfWriter
     }
 
     /// <summary>
-    ///     Writes a skinned mesh with animation to a .glb file.
+    ///     Writes a skinned mesh with one or more named animations to a .glb file.
+    ///     The first animation seeds the rest pose (its t=0 sample); all listed
+    ///     animations are emitted as switchable named tracks.
     /// </summary>
     internal static int WriteSkinnedAnimated(Ps2Scene ps2Scene, Ps2Skeleton skeleton,
-        SkaAnimation animation, string outputPath, string? animationName = null,
-        TextureProvider? textureProvider = null)
+        IReadOnlyList<(string Name, SkaAnimation Animation)> animations,
+        string outputPath, TextureProvider? textureProvider = null)
     {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        var (model, triangles) = BuildSkinnedAnimated(ps2Scene, skeleton, animation,
-            animationName, textureProvider);
+        var (model, triangles) = BuildSkinnedAnimated(ps2Scene, skeleton, animations, textureProvider);
         if (triangles == 0) return 0;
         GltfNormalSmoother.SmoothNormals(model);
         model.SaveGLB(outputPath);
         return triangles;
     }
 
+    /// <summary>
+    ///     Backward-compatible single-animation overload.
+    /// </summary>
+    internal static int WriteSkinnedAnimated(Ps2Scene ps2Scene, Ps2Skeleton skeleton,
+        SkaAnimation animation, string outputPath, string? animationName = null,
+        TextureProvider? textureProvider = null)
+    {
+        var name = animationName ?? "animation";
+        return WriteSkinnedAnimated(ps2Scene, skeleton, [(name, animation)], outputPath, textureProvider);
+    }
+
+    /// <summary>
+    ///     Backward-compatible single-animation builder overload.
+    /// </summary>
     internal static (ModelRoot Model, int Triangles) BuildSkinnedAnimated(
         Ps2Scene ps2Scene, Ps2Skeleton skeleton, SkaAnimation animation,
         string? animationName = null, TextureProvider? textureProvider = null)
     {
+        var name = animationName ?? "animation";
+        return BuildSkinnedAnimated(ps2Scene, skeleton, [(name, animation)], textureProvider);
+    }
+
+    internal static (ModelRoot Model, int Triangles) BuildSkinnedAnimated(
+        Ps2Scene ps2Scene, Ps2Skeleton skeleton,
+        IReadOnlyList<(string Name, SkaAnimation Animation)> animations,
+        TextureProvider? textureProvider = null)
+    {
+        if (animations.Count == 0)
+            throw new ArgumentException("At least one animation required", nameof(animations));
+
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<uint, MaterialBuilder?>();
         var totalTriangles = 0;
 
-        // Build skeleton seeded from SkaPoseEvaluator.Evaluate(0f) so each joint's
-        // rest transform exactly matches what a renderer would compute from the
-        // animation at t=0. V1 (THPS4) content has no native bind pose in the .ske
-        // file, so this is the only way to produce a meaningful rest pose; V2+
-        // content gets the animation's first keyframe (typically == bind) with the
-        // same evaluator fallback semantics.
-        var jointNodes = SkaGltfWriter.BuildJointHierarchySeededFromEvaluator(skeleton, animation);
-        SkaGltfWriter.ApplyAnimation(jointNodes, skeleton, animation, animationName ?? "animation");
+        // Build skeleton seeded from SkaPoseEvaluator.Evaluate(0f) on the FIRST
+        // animation so each joint's rest transform exactly matches what a renderer
+        // would compute from that animation at t=0. V1 (THPS4) content has no
+        // native bind pose in the .ske file, so this is the only way to produce a
+        // meaningful rest pose; V2+ content gets the first animation's first
+        // keyframe (typically == bind) with the same evaluator fallback semantics.
+        var jointNodes = SkaGltfWriter.BuildJointHierarchySeededFromEvaluator(skeleton, animations[0].Animation);
+        SkaGltfWriter.ApplyAnimations(jointNodes, skeleton, animations);
 
         // Build skinned mesh
         var gltfMesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4>("skinned_mesh");
@@ -245,7 +272,8 @@ public static class Ps2SceneGltfWriter
         bool startsOnOddOutputSlot = false,
         HashSet<(Vector3, Vector3, Vector3)>? dedup = null,
         float maxTriangleEdgeLength = float.PositiveInfinity,
-        bool resetOnRestart = false)
+        bool resetOnRestart = false,
+        bool preserveVertexAlpha = true)
     {
         var count = 0;
         var stripStart = 0;
@@ -279,18 +307,18 @@ public static class Ps2SceneGltfWriter
                 pa = verts[i - 2];
                 pb = verts[i - 1];
                 pc = verts[i];
-                va = MakeVertex(verts[i - 2]);
-                vb = MakeVertex(verts[i - 1]);
-                vc = MakeVertex(verts[i]);
+                va = MakeVertex(verts[i - 2], preserveVertexAlpha);
+                vb = MakeVertex(verts[i - 1], preserveVertexAlpha);
+                vc = MakeVertex(verts[i], preserveVertexAlpha);
             }
             else
             {
                 pa = verts[i - 1];
                 pb = verts[i - 2];
                 pc = verts[i];
-                va = MakeVertex(verts[i - 1]);
-                vb = MakeVertex(verts[i - 2]);
-                vc = MakeVertex(verts[i]);
+                va = MakeVertex(verts[i - 1], preserveVertexAlpha);
+                vb = MakeVertex(verts[i - 2], preserveVertexAlpha);
+                vc = MakeVertex(verts[i], preserveVertexAlpha);
             }
 
             if (IsDegenerate(pa, pb, pc))
@@ -378,7 +406,7 @@ public static class Ps2SceneGltfWriter
         return cross.LengthSquared() <= epsilon;
     }
 
-    private static VERTEX MakeVertex(Ps2Vertex v)
+    private static VERTEX MakeVertex(Ps2Vertex v, bool preserveVertexAlpha = true)
     {
         var pos = v.Position;
         var normal = Vector3.UnitY;
@@ -392,7 +420,9 @@ public static class Ps2SceneGltfWriter
         var r = Math.Min(v.R / 128f, 1f);
         var g = Math.Min(v.G / 128f, 1f);
         var b = Math.Min(v.B / 128f, 1f);
-        var a = Math.Min(v.A / 128f, 1f);
+        var a = preserveVertexAlpha
+            ? Math.Min(v.A / 128f, 1f)
+            : 1f;
 
         // UV: flip V. PS2 GS samples bottom-up but our TEX pipeline flips
         // pixel data to top-down PNGs; mesh UVs remain in bottom-up space.

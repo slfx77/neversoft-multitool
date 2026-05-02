@@ -5,11 +5,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.XbxScene;
 
 public sealed class XbxTexFileTests(TestPaths paths)
 {
-    private string TexDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)", "TEX");
-
-    private string ImgDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)", "IMG");
+    private const string BuildName = "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)";
 
     // ── IsTexFile ──
 
@@ -17,8 +13,8 @@ public sealed class XbxTexFileTests(TestPaths paths)
     public void IsTexFile_ValidFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(TexDir, "AP.tex.xbx");
-        Assert.SkipWhen(!File.Exists(file), "AP.tex.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "AP.tex.xbx");
+        Assert.SkipWhen(file is null, "AP.tex.xbx not found");
 
         var data = File.ReadAllBytes(file);
         Assert.True(XbxTexFile.IsTexFile(data));
@@ -42,8 +38,8 @@ public sealed class XbxTexFileTests(TestPaths paths)
     public void Parse_AP_Has195Textures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(TexDir, "AP.tex.xbx");
-        Assert.SkipWhen(!File.Exists(file), "AP.tex.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "AP.tex.xbx");
+        Assert.SkipWhen(file is null, "AP.tex.xbx not found");
 
         var result = XbxTexFile.Parse(file);
 
@@ -55,8 +51,8 @@ public sealed class XbxTexFileTests(TestPaths paths)
     public void Parse_AP_TexturesHaveValidDimensions()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(TexDir, "AP.tex.xbx");
-        Assert.SkipWhen(!File.Exists(file), "AP.tex.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "AP.tex.xbx");
+        Assert.SkipWhen(file is null, "AP.tex.xbx not found");
 
         var result = XbxTexFile.Parse(file);
         Assert.True(result.Success, result.ErrorMessage);
@@ -74,8 +70,8 @@ public sealed class XbxTexFileTests(TestPaths paths)
     public void Parse_AP_TexturesHaveNonZeroChecksums()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(TexDir, "AP.tex.xbx");
-        Assert.SkipWhen(!File.Exists(file), "AP.tex.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "AP.tex.xbx");
+        Assert.SkipWhen(file is null, "AP.tex.xbx not found");
 
         var result = XbxTexFile.Parse(file);
         Assert.True(result.Success, result.ErrorMessage);
@@ -89,8 +85,8 @@ public sealed class XbxTexFileTests(TestPaths paths)
     public void SaveAllAsPng_AP_ProducesPngFiles()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(TexDir, "AP.tex.xbx");
-        Assert.SkipWhen(!File.Exists(file), "AP.tex.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "AP.tex.xbx");
+        Assert.SkipWhen(file is null, "AP.tex.xbx not found");
 
         var result = XbxTexFile.Parse(file);
         Assert.True(result.Success, result.ErrorMessage);
@@ -118,9 +114,8 @@ public sealed class XbxTexFileTests(TestPaths paths)
     public void Parse_AllTexFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(TexDir), "TEX directory not found");
 
-        var files = Directory.GetFiles(TexDir, "*.tex.xbx", SearchOption.TopDirectoryOnly);
+        var files = paths.FindSampleFiles(BuildName, "*.tex.xbx").ToArray();
         Assert.SkipWhen(files.Length == 0, "No TEX files found");
 
         var failures = new List<string>();
@@ -150,8 +145,8 @@ public sealed class XbxTexFileTests(TestPaths paths)
     public void IsImgFile_ValidFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ImgDir, "black.img.xbx");
-        Assert.SkipWhen(!File.Exists(file), "black.img.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "black.img.xbx");
+        Assert.SkipWhen(file is null, "black.img.xbx not found");
 
         var data = File.ReadAllBytes(file);
         Assert.True(XbxImgFile.IsImgFile(data));
@@ -167,8 +162,8 @@ public sealed class XbxTexFileTests(TestPaths paths)
     public void Parse_BlackImg_Succeeds()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ImgDir, "black.img.xbx");
-        Assert.SkipWhen(!File.Exists(file), "black.img.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "black.img.xbx");
+        Assert.SkipWhen(file is null, "black.img.xbx not found");
 
         var result = XbxImgFile.Parse(file);
 
@@ -187,9 +182,8 @@ public sealed class XbxTexFileTests(TestPaths paths)
     public void Parse_AllImgFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(ImgDir), "IMG directory not found");
 
-        var files = Directory.GetFiles(ImgDir, "*.img.xbx", SearchOption.TopDirectoryOnly);
+        var files = paths.FindSampleFiles(BuildName, "*.img.xbx").ToArray();
         Assert.SkipWhen(files.Length == 0, "No IMG files found");
 
         var failures = new List<string>();

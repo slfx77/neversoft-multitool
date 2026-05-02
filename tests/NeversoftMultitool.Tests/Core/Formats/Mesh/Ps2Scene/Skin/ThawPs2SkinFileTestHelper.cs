@@ -40,13 +40,13 @@ internal static class ThawPs2SkinFileTestHelper
     }
 
     public static void AssertPs2MaterialPositionParity(
-        TestPaths paths, string thawSkinDir, string thawPcSkinDir, string stem)
+        TestPaths paths, string ps2BuildName, string pcBuildName, string stem)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var ps2File = Path.Combine(thawSkinDir, $"{stem}.skin.ps2");
-        var pcFile = Path.Combine(thawPcSkinDir, $"{stem}.skin.wpc");
-        Assert.SkipWhen(!File.Exists(ps2File), $"PS2 file not found: {stem}");
-        Assert.SkipWhen(!File.Exists(pcFile), $"PC file not found: {stem}");
+        var ps2File = paths.FindSampleFile(ps2BuildName, $"{stem}.skin.ps2");
+        var pcFile = paths.FindSampleFile(pcBuildName, $"{stem}.skin.wpc");
+        Assert.SkipWhen(ps2File is null, $"PS2 file not found: {stem}");
+        Assert.SkipWhen(pcFile is null, $"PC file not found: {stem}");
 
         var ps2Scene = ThawPs2SkinFile.Parse(ps2File);
         var pcScene = ThawSceneFile.Parse(pcFile);

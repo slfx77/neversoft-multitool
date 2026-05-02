@@ -6,11 +6,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.RenderWare;
 
 public sealed class RwBspFileTests(TestPaths paths)
 {
-    private string BspDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)", "BSP");
-
-    private string TexDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)", "TEX");
+    private const string BuildName = "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)";
 
     // ── IsBspFile ──
 
@@ -18,8 +14,8 @@ public sealed class RwBspFileTests(TestPaths paths)
     public void IsBspFile_ValidBspFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(BspDir, "Burn.bsp");
-        Assert.SkipWhen(!File.Exists(file), "Burn.bsp not found");
+        var file = paths.FindSampleFile(BuildName, "Burn.bsp");
+        Assert.SkipWhen(file is null, "Burn.bsp not found");
 
         var data = File.ReadAllBytes(file);
         Assert.True(RwBspFile.IsBspFile(data));
@@ -46,8 +42,8 @@ public sealed class RwBspFileTests(TestPaths paths)
     public void Parse_KnownFile_HasSectionsAndMaterials(string filename)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(BspDir, filename);
-        Assert.SkipWhen(!File.Exists(file), $"{filename} not found");
+        var file = paths.FindSampleFile(BuildName, filename);
+        Assert.SkipWhen(file is null, $"{filename} not found");
 
         var world = RwBspFile.Parse(file);
 
@@ -61,8 +57,8 @@ public sealed class RwBspFileTests(TestPaths paths)
     public void Parse_Burn_HasExpectedGeometry()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(BspDir, "Burn.bsp");
-        Assert.SkipWhen(!File.Exists(file), "Burn.bsp not found");
+        var file = paths.FindSampleFile(BuildName, "Burn.bsp");
+        Assert.SkipWhen(file is null, "Burn.bsp not found");
 
         var world = RwBspFile.Parse(file);
 
@@ -76,8 +72,8 @@ public sealed class RwBspFileTests(TestPaths paths)
     public void Parse_Burn_HasMaterialsWithTextureNames()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(BspDir, "Burn.bsp");
-        Assert.SkipWhen(!File.Exists(file), "Burn.bsp not found");
+        var file = paths.FindSampleFile(BuildName, "Burn.bsp");
+        Assert.SkipWhen(file is null, "Burn.bsp not found");
 
         var world = RwBspFile.Parse(file);
 
@@ -91,8 +87,8 @@ public sealed class RwBspFileTests(TestPaths paths)
     public void Parse_Burn_VerticesAreFinite()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(BspDir, "Burn.bsp");
-        Assert.SkipWhen(!File.Exists(file), "Burn.bsp not found");
+        var file = paths.FindSampleFile(BuildName, "Burn.bsp");
+        Assert.SkipWhen(file is null, "Burn.bsp not found");
 
         var world = RwBspFile.Parse(file);
         foreach (var section in world.Sections)
@@ -110,8 +106,8 @@ public sealed class RwBspFileTests(TestPaths paths)
     public void Parse_Burn_TriangleIndicesInRange()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(BspDir, "Burn.bsp");
-        Assert.SkipWhen(!File.Exists(file), "Burn.bsp not found");
+        var file = paths.FindSampleFile(BuildName, "Burn.bsp");
+        Assert.SkipWhen(file is null, "Burn.bsp not found");
 
         var world = RwBspFile.Parse(file);
         foreach (var section in world.Sections)
@@ -131,9 +127,8 @@ public sealed class RwBspFileTests(TestPaths paths)
     public void Parse_AllBspFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(BspDir), "BSP directory not found");
 
-        var files = Directory.GetFiles(BspDir, "*.bsp", SearchOption.TopDirectoryOnly);
+        var files = paths.FindSampleFiles(BuildName, "*.bsp").ToArray();
         Assert.SkipWhen(files.Length == 0, "No BSP files found");
 
         var failures = new List<string>();
@@ -167,8 +162,8 @@ public sealed class RwBspFileTests(TestPaths paths)
     public void Write_Burn_ProducesValidGlb()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(BspDir, "Burn.bsp");
-        Assert.SkipWhen(!File.Exists(file), "Burn.bsp not found");
+        var file = paths.FindSampleFile(BuildName, "Burn.bsp");
+        Assert.SkipWhen(file is null, "Burn.bsp not found");
 
         var world = RwBspFile.Parse(file);
         var outputDir = Path.Combine(Path.GetTempPath(), "rwbsp_test");
@@ -192,10 +187,10 @@ public sealed class RwBspFileTests(TestPaths paths)
     public void Write_Burn_WithTextures_ProducesLargerGlb()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var bspFile = Path.Combine(BspDir, "Burn.bsp");
-        var texFile = Path.Combine(TexDir, "Burn.tex");
-        Assert.SkipWhen(!File.Exists(bspFile), "Burn.bsp not found");
-        Assert.SkipWhen(!File.Exists(texFile), "Burn.tex not found");
+        var bspFile = paths.FindSampleFile(BuildName, "Burn.bsp");
+        var texFile = paths.FindSampleFile(BuildName, "Burn.tex");
+        Assert.SkipWhen(bspFile is null, "Burn.bsp not found");
+        Assert.SkipWhen(texFile is null, "Burn.tex not found");
 
         var world = RwBspFile.Parse(bspFile);
         var txdResult = RwTxdFile.Parse(texFile);

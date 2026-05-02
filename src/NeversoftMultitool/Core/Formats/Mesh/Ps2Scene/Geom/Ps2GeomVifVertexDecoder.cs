@@ -124,10 +124,10 @@ internal static class Ps2GeomVifVertexDecoder
         // (v0, v1, v2, v3) → triangles (v0, v1, v2), (v1, v2, v3) after strip unrolling.
         var verts = new[]
         {
-            MakeBillboardVertex(anchor + new Vector3(-hw, -hh, 0), 0f, 1f, isStripRestart: true),
-            MakeBillboardVertex(anchor + new Vector3( hw, -hh, 0), 1f, 1f, isStripRestart: true),
-            MakeBillboardVertex(anchor + new Vector3(-hw,  hh, 0), 0f, 0f, isStripRestart: false),
-            MakeBillboardVertex(anchor + new Vector3( hw,  hh, 0), 1f, 0f, isStripRestart: false),
+            MakeBillboardVertex(anchor + new Vector3(-hw, -hh, 0), 0f, 0f, isStripRestart: true),
+            MakeBillboardVertex(anchor + new Vector3( hw, -hh, 0), 1f, 0f, isStripRestart: true),
+            MakeBillboardVertex(anchor + new Vector3(-hw,  hh, 0), 0f, 1f, isStripRestart: false),
+            MakeBillboardVertex(anchor + new Vector3( hw,  hh, 0), 1f, 1f, isStripRestart: false),
         };
         return (verts, pStart, pEnd);
     }
@@ -219,6 +219,7 @@ internal static class Ps2GeomVifVertexDecoder
                 var vn = (cmd >> 2) & 3;
                 var vl = cmd & 3;
                 var num = data[pCode + 2];
+                var unpackAddress = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(pCode)) & 0x03FF;
                 var unpackDataOffset = pCode + 4;
 
                 var matchesLastPositionCmd =
@@ -252,6 +253,19 @@ internal static class Ps2GeomVifVertexDecoder
                         currentBatch.UvCount = num;
                         currentBatch.UvIs16Bit = vl == 1;
                         currentBatch.UvIs32Bit = vl == 0;
+                        currentBatch.UvComponentCount = 2;
+                    }
+                    else if (vn == 2 && vl == 1 && unpackAddress == 0x007 && currentBatch.UvOffset < 0)
+                    {
+                        // Some THAW worldzone batches store texture coordinates as V3_16
+                        // at VU address 0x007: S, T, and Q/unused. Treat the first two
+                        // components as UVs. Without this, Santa Monica boardwalk/shadow
+                        // leaves render with no UVs and smear a single texel across the mesh.
+                        currentBatch.UvOffset = unpackDataOffset;
+                        currentBatch.UvCount = num;
+                        currentBatch.UvIs16Bit = true;
+                        currentBatch.UvIs32Bit = false;
+                        currentBatch.UvComponentCount = 3;
                     }
                     else if (vn == 2 && vl == 1)
                     {
@@ -475,7 +489,8 @@ internal static class Ps2GeomVifVertexDecoder
 
         if (batch.UvIs16Bit)
         {
-            var off = batch.UvOffset + index * 4;
+            var componentCount = Math.Max(batch.UvComponentCount, 2);
+            var off = batch.UvOffset + index * componentCount * 2;
             if (off + 4 > data.Length)
                 return (0, 0, false);
 
@@ -488,7 +503,8 @@ internal static class Ps2GeomVifVertexDecoder
         if (!batch.UvIs32Bit)
             return (0, 0, false);
 
-        var off32 = batch.UvOffset + index * 8;
+        var componentCount32 = Math.Max(batch.UvComponentCount, 2);
+        var off32 = batch.UvOffset + index * componentCount32 * 4;
         if (off32 + 8 > data.Length)
             return (0, 0, false);
 
@@ -550,6 +566,7 @@ internal static class Ps2GeomVifVertexDecoder
         public int UvCount;
         public bool UvIs16Bit;
         public bool UvIs32Bit;
+        public int UvComponentCount;
         public int NormalOffset;
         public int NormalCount;
         public int ColorOffset;

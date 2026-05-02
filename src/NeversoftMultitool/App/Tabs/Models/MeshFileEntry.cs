@@ -30,6 +30,10 @@ public class MeshFileEntry : BaseFileEntry
     // Internal: PS2 scene sub-format routing
     internal Ps2SceneSubFormat Ps2SubFormat { get; init; }
 
+    // Internal: PSX hierarchical-character flag — only character/creature .psx files
+    // (not levels or texture libraries) have animations to preview.
+    internal bool PsxHasHierarchy { get; init; }
+
     internal bool IsPlacedLevel => HasPlacedPsxCompanion;
 
     internal bool IsPsx => Format == "PSX";

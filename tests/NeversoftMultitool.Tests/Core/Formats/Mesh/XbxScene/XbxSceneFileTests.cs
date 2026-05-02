@@ -5,11 +5,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.XbxScene;
 
 public sealed class XbxSceneFileTests(TestPaths paths)
 {
-    private string SkinDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)", "SKIN");
-
-    private string MdlDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)", "MDL");
+    private const string BuildName = "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)";
 
     // ── IsXbxScene ──
 
@@ -17,8 +13,8 @@ public sealed class XbxSceneFileTests(TestPaths paths)
     public void IsXbxScene_ValidFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "Anl_Pigeon.skin.xbx");
-        Assert.SkipWhen(!File.Exists(file), "Anl_Pigeon.skin.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "Anl_Pigeon.skin.xbx");
+        Assert.SkipWhen(file is null, "Anl_Pigeon.skin.xbx not found");
 
         Assert.True(XbxSceneFile.IsXbxScene(File.ReadAllBytes(file)));
     }
@@ -46,8 +42,8 @@ public sealed class XbxSceneFileTests(TestPaths paths)
     public void Parse_KnownFile_ReturnsValidScene()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "Board_Skaboto.skin.xbx");
-        Assert.SkipWhen(!File.Exists(file), "Board_Skaboto.skin.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "Board_Skaboto.skin.xbx");
+        Assert.SkipWhen(file is null, "Board_Skaboto.skin.xbx not found");
 
         var scene = XbxSceneFile.Parse(file);
 
@@ -61,8 +57,8 @@ public sealed class XbxSceneFileTests(TestPaths paths)
     public void Parse_KnownFile_MaterialsHavePasses()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "Board_Skaboto.skin.xbx");
-        Assert.SkipWhen(!File.Exists(file), "Board_Skaboto.skin.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "Board_Skaboto.skin.xbx");
+        Assert.SkipWhen(file is null, "Board_Skaboto.skin.xbx not found");
 
         var scene = XbxSceneFile.Parse(file);
 
@@ -77,8 +73,8 @@ public sealed class XbxSceneFileTests(TestPaths paths)
     public void Parse_KnownFile_MeshesHaveVertices()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "Anl_Pigeon.skin.xbx");
-        Assert.SkipWhen(!File.Exists(file), "Anl_Pigeon.skin.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "Anl_Pigeon.skin.xbx");
+        Assert.SkipWhen(file is null, "Anl_Pigeon.skin.xbx not found");
 
         var scene = XbxSceneFile.Parse(file);
 
@@ -99,9 +95,8 @@ public sealed class XbxSceneFileTests(TestPaths paths)
     public void BatchParse_AllSkinFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(SkinDir), "SKIN directory not found");
 
-        var files = Directory.GetFiles(SkinDir, "*.skin.xbx");
+        var files = paths.FindSampleFiles(BuildName, "*.skin.xbx").ToArray();
         Assert.SkipWhen(files.Length == 0, "No .skin.xbx files found");
 
         var failures = new List<string>();
@@ -134,9 +129,8 @@ public sealed class XbxSceneFileTests(TestPaths paths)
     public void BatchParse_AllMdlFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(MdlDir), "MDL directory not found");
 
-        var files = Directory.GetFiles(MdlDir, "*.mdl.xbx");
+        var files = paths.FindSampleFiles(BuildName, "*.mdl.xbx").ToArray();
         Assert.SkipWhen(files.Length == 0, "No .mdl.xbx files found");
 
         var failures = new List<string>();

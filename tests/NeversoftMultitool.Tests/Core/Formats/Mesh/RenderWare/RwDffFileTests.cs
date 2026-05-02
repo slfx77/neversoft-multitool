@@ -6,11 +6,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.RenderWare;
 
 public sealed class RwDffFileTests(TestPaths paths)
 {
-    private string SkinDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)", "SKIN");
-
-    private string TexDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)", "TEX");
+    private const string BuildName = "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)";
 
     // ── IsDffFile ──
 
@@ -18,8 +14,8 @@ public sealed class RwDffFileTests(TestPaths paths)
     public void IsDffFile_ValidSknFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "Bird_A.SKN");
-        Assert.SkipWhen(!File.Exists(file), "Bird_A.SKN not found");
+        var file = paths.FindSampleFile(BuildName, "Bird_A.SKN");
+        Assert.SkipWhen(file is null, "Bird_A.SKN not found");
 
         var data = File.ReadAllBytes(file);
         Assert.True(RwDffFile.IsDffFile(data));
@@ -46,8 +42,8 @@ public sealed class RwDffFileTests(TestPaths paths)
     public void Parse_KnownFile_HasGeometryAndAtomics(string filename)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, filename);
-        Assert.SkipWhen(!File.Exists(file), $"{filename} not found");
+        var file = paths.FindSampleFile(BuildName, filename);
+        Assert.SkipWhen(file is null, $"{filename} not found");
 
         var clump = RwDffFile.Parse(file);
 
@@ -60,8 +56,8 @@ public sealed class RwDffFileTests(TestPaths paths)
     public void Parse_BirdA_HasExpectedGeometry()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "Bird_A.SKN");
-        Assert.SkipWhen(!File.Exists(file), "Bird_A.SKN not found");
+        var file = paths.FindSampleFile(BuildName, "Bird_A.SKN");
+        Assert.SkipWhen(file is null, "Bird_A.SKN not found");
 
         var clump = RwDffFile.Parse(file);
         var geom = clump.Geometries[0];
@@ -76,8 +72,8 @@ public sealed class RwDffFileTests(TestPaths paths)
     public void Parse_BirdA_HasMaterialsWithTextureNames()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "Bird_A.SKN");
-        Assert.SkipWhen(!File.Exists(file), "Bird_A.SKN not found");
+        var file = paths.FindSampleFile(BuildName, "Bird_A.SKN");
+        Assert.SkipWhen(file is null, "Bird_A.SKN not found");
 
         var clump = RwDffFile.Parse(file);
         var geom = clump.Geometries[0];
@@ -91,8 +87,8 @@ public sealed class RwDffFileTests(TestPaths paths)
     public void Parse_BirdA_AtomicLinksValid()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "Bird_A.SKN");
-        Assert.SkipWhen(!File.Exists(file), "Bird_A.SKN not found");
+        var file = paths.FindSampleFile(BuildName, "Bird_A.SKN");
+        Assert.SkipWhen(file is null, "Bird_A.SKN not found");
 
         var clump = RwDffFile.Parse(file);
 
@@ -109,8 +105,8 @@ public sealed class RwDffFileTests(TestPaths paths)
     public void Parse_BirdA_VerticesAreFinite()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "Bird_A.SKN");
-        Assert.SkipWhen(!File.Exists(file), "Bird_A.SKN not found");
+        var file = paths.FindSampleFile(BuildName, "Bird_A.SKN");
+        Assert.SkipWhen(file is null, "Bird_A.SKN not found");
 
         var clump = RwDffFile.Parse(file);
         foreach (var geom in clump.Geometries)
@@ -130,9 +126,8 @@ public sealed class RwDffFileTests(TestPaths paths)
     public void Parse_AllSknFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(SkinDir), "SKIN directory not found");
 
-        var files = Directory.GetFiles(SkinDir, "*.SKN", SearchOption.TopDirectoryOnly);
+        var files = paths.FindSampleFiles(BuildName, "*.SKN").ToArray();
         Assert.SkipWhen(files.Length == 0, "No SKN files found");
 
         var failures = new List<string>();
@@ -164,8 +159,8 @@ public sealed class RwDffFileTests(TestPaths paths)
     public void Write_BirdA_ProducesValidGlb()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(SkinDir, "Bird_A.SKN");
-        Assert.SkipWhen(!File.Exists(file), "Bird_A.SKN not found");
+        var file = paths.FindSampleFile(BuildName, "Bird_A.SKN");
+        Assert.SkipWhen(file is null, "Bird_A.SKN not found");
 
         var clump = RwDffFile.Parse(file);
         var outputDir = Path.Combine(Path.GetTempPath(), "rwdff_test");
@@ -189,10 +184,10 @@ public sealed class RwDffFileTests(TestPaths paths)
     public void Write_BirdA_WithTextures_ProducesLargerGlb()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var sknFile = Path.Combine(SkinDir, "Bird_A.SKN");
-        var texFile = Path.Combine(TexDir, "Bird_A.tex");
-        Assert.SkipWhen(!File.Exists(sknFile), "Bird_A.SKN not found");
-        Assert.SkipWhen(!File.Exists(texFile), "Bird_A.tex not found");
+        var sknFile = paths.FindSampleFile(BuildName, "Bird_A.SKN");
+        var texFile = paths.FindSampleFile(BuildName, "Bird_A.tex");
+        Assert.SkipWhen(sknFile is null, "Bird_A.SKN not found");
+        Assert.SkipWhen(texFile is null, "Bird_A.tex not found");
 
         var clump = RwDffFile.Parse(sknFile);
         var txdResult = RwTxdFile.Parse(texFile);

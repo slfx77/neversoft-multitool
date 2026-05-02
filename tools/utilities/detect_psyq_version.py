@@ -5,7 +5,7 @@ Uses the ghidra_psx_ldr signature database (JSON files with hex byte patterns + 
 
 Usage:
     python detect_psyq_version.py <psx_executable> [--sigs <signature_dir>]
-    python detect_psyq_version.py "Sample/Builds/Tony Hawk's Pro Skater 2 (2000-3-29, PSX - Prototype)/EXE/SLUS_900.86"
+    python detect_psyq_version.py "Sample/Builds/Tony Hawk's Pro Skater 2 (2000-3-29, PSX - Prototype)/SLUS_900.86"
 
 Requires: ghidra_psx_ldr extension installed at GHIDRA_HOME (default: C:/tools/ghidra_12.0.2_PUBLIC)
 """

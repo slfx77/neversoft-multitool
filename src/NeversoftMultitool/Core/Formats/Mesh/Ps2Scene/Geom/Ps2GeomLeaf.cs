@@ -78,4 +78,11 @@ public sealed class Ps2GeomLeaf
     ///     through geometry" artifacts in the final glb.
     /// </summary>
     public bool IsLodPlane { get; init; }
+
+    /// <summary>
+    ///     True for synthesized THAW worldzone Format-B billboard quads. These need
+    ///     cutout-style alpha in glTF so foliage billboards do not render as translucent
+    ///     panes.
+    /// </summary>
+    public bool IsBillboard { get; init; }
 }

@@ -6,17 +6,15 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Replay;
 
 public sealed class ThawPs2ReplayTests(TestPaths paths)
 {
+    private const string BuildName = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
     private static readonly int[] ValidKickAddresses = [280, 652];
-
-    private string ThawSkinDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)", "SKIN");
 
     [Fact]
     public void ReplayBatches_SkaterLasek_HasReplayBatchMetadata()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
@@ -47,8 +45,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayBatches_SkaterLasek_IncludesInitialMeshZeroPreambleBatch()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
@@ -74,8 +72,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayBatches_SkaterLasek_TracksFirstMaterialKickSnapshot()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
@@ -97,8 +95,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayBatches_SkaterLasek_FirstMaterialBatch_CapturesContextWrites()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
@@ -123,8 +121,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayBatches_SkaterLasek_FirstMaterialBatchSequenceMatchesReference()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
@@ -152,8 +150,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayBatches_SkaterLasek_FlaggedAddr652Batch0038A0_MinWriteWindowMatchesPython()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
@@ -174,8 +172,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayBatches_SkaterLasek_FlaggedAddr652Batch0038A0_CapturesWrappedContextWrites()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
@@ -192,8 +190,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayBatches_SkaterLasek_FlaggedAddr652Batch004568_MinWriteWindowMatchesPython()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
@@ -216,8 +214,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayBatches_SkaterLasek_FlaggedAddr280ShoeKicks_ShareStableKickBaseWindow()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
@@ -238,8 +236,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayBatches_BodyFTorso_FlagsPreambleBatches()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "body_f_torso.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "body_f_torso.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
@@ -252,8 +250,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayBatches_SkaterHawk_UsesResolvedChainStartAndPreservesPreambleBatches()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "skater_hawk.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_hawk.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
@@ -267,8 +265,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayBatches_ProVallelyHead_UsesEarlierRawBoundary()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "pro_vallely_head.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "pro_vallely_head.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
@@ -284,8 +282,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayExtractKicks_SkaterLasek_EmitsValidKickWindows()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var kicks = ThawPs2SkinFile.ReplayExtractKicks(data);
@@ -308,8 +306,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayExtractKicks_ProVallelyHead_HasGapFreeKicks()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "pro_vallely_head.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "pro_vallely_head.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var kicks = ThawPs2SkinFile.ReplayExtractKicks(data);
@@ -323,8 +321,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayExtractKicks_SkaterLasek_FirstMaterialKick_IsAnchoredToCurrentWindow()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var kicks = ThawPs2SkinFile.ReplayExtractKicks(data);
@@ -340,8 +338,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayKickDebugReport_SkaterLasek_ContainsFirstMaterialKickName()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var kicks = ThawPs2SkinFile.ReplayExtractKicks(data);
@@ -357,8 +355,8 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     public void ReplayTraceFormatter_BodyFTorso_EmitsPreambleTrace()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThawSkinDir, "body_f_torso.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "body_f_torso.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);

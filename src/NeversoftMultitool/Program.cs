@@ -48,6 +48,9 @@ public static class Program
         rootCommand.Subcommands.Add(StrCommand.Create());
         rootCommand.Subcommands.Add(PsxMeshCommand.Create());
         rootCommand.Subcommands.Add(PsxMeshDumpCommand.Create());
+        rootCommand.Subcommands.Add(PsxAnimDumpCommand.Create());
+        rootCommand.Subcommands.Add(PsxAnimExportCommand.Create());
+        rootCommand.Subcommands.Add(PsxAnimSurveyCommand.Create());
         rootCommand.Subcommands.Add(Ps2TexCommand.Create());
         rootCommand.Subcommands.Add(Ps2SceneCommand.Create());
         rootCommand.Subcommands.Add(Ps2GeomCommand.Create());
@@ -150,6 +153,9 @@ public static class Program
             args.Any(a => a.Equals("str", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("psx-mesh", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("psx-mesh-dump", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("psx-anim-export", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("psx-anim-survey", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("psxanim", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("ps2tex", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("ps2scene", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("ps2geom", StringComparison.OrdinalIgnoreCase)) ||

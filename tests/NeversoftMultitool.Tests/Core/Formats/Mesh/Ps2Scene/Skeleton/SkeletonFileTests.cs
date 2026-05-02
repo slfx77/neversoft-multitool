@@ -6,14 +6,9 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Skeleton;
 
 public sealed class SkeletonFileTests(TestPaths paths)
 {
-    private string Thps4SkeDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Pro Skater 4 (2002-9-30, PS2 - Final)", "SKE");
-
-    private string ThugSkeDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Underground (2003-10-2, PS2 - Final)", "SKE");
-
-    private string Thug2SkeDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Underground 2 (2004-8-22, PS2 - Final)", "SKE");
+    private const string Thps4Build = "Tony Hawk's Pro Skater 4 (2002-9-30, PS2 - Final)";
+    private const string ThugBuild = "Tony Hawk's Underground (2003-10-2, PS2 - Final)";
+    private const string Thug2Build = "Tony Hawk's Underground 2 (2004-8-22, PS2 - Final)";
 
     // ── THPS4 format (names only, no neutral poses) ──
 
@@ -26,8 +21,8 @@ public sealed class SkeletonFileTests(TestPaths paths)
     public void Parse_Thps4_ReturnsCorrectBoneCount(string filename, int expectedBones)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(Thps4SkeDir, filename);
-        Assert.SkipWhen(!File.Exists(file), $"Test file not found: {filename}");
+        var file = paths.FindSampleFile(Thps4Build, filename);
+        Assert.SkipWhen(file is null, $"Test file not found: {filename}");
 
         var skeleton = SkeletonFile.Parse(file);
 
@@ -39,8 +34,8 @@ public sealed class SkeletonFileTests(TestPaths paths)
     public void Parse_Thps4Human_HasIdentityPoses()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(Thps4SkeDir, "human.ske");
-        Assert.SkipWhen(!File.Exists(file), "human.ske not found");
+        var file = paths.FindSampleFile(Thps4Build, "human.ske");
+        Assert.SkipWhen(file is null, "human.ske not found");
 
         var skeleton = SkeletonFile.Parse(file);
 
@@ -57,8 +52,8 @@ public sealed class SkeletonFileTests(TestPaths paths)
     public void Parse_Thps4Human_HasValidHierarchy()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(Thps4SkeDir, "human.ske");
-        Assert.SkipWhen(!File.Exists(file), "human.ske not found");
+        var file = paths.FindSampleFile(Thps4Build, "human.ske");
+        Assert.SkipWhen(file is null, "human.ske not found");
 
         var skeleton = SkeletonFile.Parse(file);
 
@@ -78,13 +73,12 @@ public sealed class SkeletonFileTests(TestPaths paths)
     public void Parse_AllThps4SkeFiles_NoneThrow()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(Thps4SkeDir), "THPS4 SKE dir not found");
 
-        var files = Directory.GetFiles(Thps4SkeDir, "*.ske")
+        var files = paths.FindSampleFiles(Thps4Build, "*.ske")
             .Where(f => !f.EndsWith(".ske.ps2", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        Assert.NotEmpty(files);
+        Assert.SkipWhen(files.Count == 0, "No THPS4 .ske files found");
 
         foreach (var file in files)
         {
@@ -104,8 +98,8 @@ public sealed class SkeletonFileTests(TestPaths paths)
     public void Parse_Thug_ReturnsCorrectBoneCount(string filename, int expectedBones)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThugSkeDir, filename);
-        Assert.SkipWhen(!File.Exists(file), $"Test file not found: {filename}");
+        var file = paths.FindSampleFile(ThugBuild, filename);
+        Assert.SkipWhen(file is null, $"Test file not found: {filename}");
 
         var skeleton = SkeletonFile.Parse(file);
 
@@ -117,8 +111,8 @@ public sealed class SkeletonFileTests(TestPaths paths)
     public void Parse_ThugHuman_HasNonIdentityPoses()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ThugSkeDir, "Ped_F.ske");
-        Assert.SkipWhen(!File.Exists(file), "Ped_F.ske not found");
+        var file = paths.FindSampleFile(ThugBuild, "Ped_F.ske");
+        Assert.SkipWhen(file is null, "Ped_F.ske not found");
 
         var skeleton = SkeletonFile.Parse(file);
 
@@ -135,13 +129,12 @@ public sealed class SkeletonFileTests(TestPaths paths)
     public void Parse_AllThugSkeFiles_NoneThrow()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(ThugSkeDir), "THUG SKE dir not found");
 
-        var files = Directory.GetFiles(ThugSkeDir, "*.ske")
+        var files = paths.FindSampleFiles(ThugBuild, "*.ske")
             .Where(f => !f.EndsWith(".ske.ps2", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        Assert.NotEmpty(files);
+        Assert.SkipWhen(files.Count == 0, "No THUG .ske files found");
 
         foreach (var file in files)
         {
@@ -155,13 +148,12 @@ public sealed class SkeletonFileTests(TestPaths paths)
     public void Parse_AllThug2SkeFiles_NoneThrow()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(Thug2SkeDir), "THUG2 SKE dir not found");
 
-        var files = Directory.GetFiles(Thug2SkeDir, "*.ske")
+        var files = paths.FindSampleFiles(Thug2Build, "*.ske")
             .Where(f => !f.EndsWith(".ske.ps2", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        Assert.NotEmpty(files);
+        Assert.SkipWhen(files.Count == 0, "No THUG2 .ske files found");
 
         foreach (var file in files)
         {
@@ -179,9 +171,9 @@ public sealed class SkeletonFileTests(TestPaths paths)
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
 
         // Find a skeleton that has both .ske and .ske.ps2 versions
-        var skeFile = Path.Combine(ThugSkeDir, "Ped_F.ske");
-        var skePs2File = Path.Combine(ThugSkeDir, "Ped_F.ske.ps2");
-        Assert.SkipWhen(!File.Exists(skeFile) || !File.Exists(skePs2File),
+        var skeFile = paths.FindSampleFile(ThugBuild, "Ped_F.ske");
+        var skePs2File = paths.FindSampleFile(ThugBuild, "Ped_F.ske.ps2");
+        Assert.SkipWhen(skeFile is null || skePs2File is null,
             "Both Ped_F.ske and Ped_F.ske.ps2 required");
 
         var crossPlatform = SkeletonFile.Parse(skeFile);
@@ -205,8 +197,8 @@ public sealed class SkeletonFileTests(TestPaths paths)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
 
-        var skePs2File = Path.Combine(ThugSkeDir, "Ped_F.ske.ps2");
-        Assert.SkipWhen(!File.Exists(skePs2File), "Ped_F.ske.ps2 not found");
+        var skePs2File = paths.FindSampleFile(ThugBuild, "Ped_F.ske.ps2");
+        Assert.SkipWhen(skePs2File is null, "Ped_F.ske.ps2 not found");
 
         // .ske.ps2 starts with version=2 at offset 0, not a checksum
         // The cross-platform parser should either reject it or misparse it

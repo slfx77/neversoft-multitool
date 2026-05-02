@@ -5,8 +5,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.XbxScene;
 
 public sealed class ThawImgFileTests(TestPaths paths)
 {
-    private string ImgDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2006-2-6, PC - Final)", "IMG");
+    private const string BuildName = "Tony Hawk's American Wasteland (2006-2-6, PC - Final)";
 
     [Fact]
     public void IsThawImg_EmptyData_ReturnsFalse()
@@ -84,8 +83,8 @@ public sealed class ThawImgFileTests(TestPaths paths)
     public void IsThawImg_RealSample_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ImgDir, "levelposter_hollywood.img.wpc");
-        Assert.SkipWhen(!File.Exists(file), "levelposter_hollywood.img.wpc not found");
+        var file = paths.FindSampleFile(BuildName, "levelposter_hollywood.img.wpc");
+        Assert.SkipWhen(file is null, "levelposter_hollywood.img.wpc not found");
 
         var data = File.ReadAllBytes(file);
         Assert.True(ThawImgFile.IsThawImg(data));
@@ -95,8 +94,8 @@ public sealed class ThawImgFileTests(TestPaths paths)
     public void Parse_LevelPosterHollywood_Succeeds()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ImgDir, "levelposter_hollywood.img.wpc");
-        Assert.SkipWhen(!File.Exists(file), "levelposter_hollywood.img.wpc not found");
+        var file = paths.FindSampleFile(BuildName, "levelposter_hollywood.img.wpc");
+        Assert.SkipWhen(file is null, "levelposter_hollywood.img.wpc not found");
 
         var result = ThawImgFile.Parse(file);
 
@@ -111,8 +110,8 @@ public sealed class ThawImgFileTests(TestPaths paths)
     public void Parse_SpazznotchPaletted_Succeeds()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ImgDir, "spazznotch.img.wpc");
-        Assert.SkipWhen(!File.Exists(file), "spazznotch.img.wpc not found");
+        var file = paths.FindSampleFile(BuildName, "spazznotch.img.wpc");
+        Assert.SkipWhen(file is null, "spazznotch.img.wpc not found");
 
         var result = ThawImgFile.Parse(file);
 

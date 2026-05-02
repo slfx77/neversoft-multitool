@@ -50,6 +50,29 @@ internal static class SkaFile
             || (flags & FlagThps3RpHAnim) != 0;
     }
 
+    /// <summary>
+    ///     Header-only probe for animation discovery. Returns duration and bone
+    ///     count without decoding keyframes — does not require a compress table.
+    ///     <see cref="SkaProbeResult.BoneCount"/> is null when unknown (THPS3,
+    ///     where the count is implicit and only the full parser can derive it).
+    /// </summary>
+    internal static SkaProbeResult? TryProbe(ReadOnlySpan<byte> data)
+    {
+        if (!IsSkaFile(data)) return null;
+        var flags = BitConverter.ToUInt32(data[4..]);
+        var duration = BitConverter.ToSingle(data[8..]);
+
+        if (((flags & FlagPlatform) != 0 || (flags & FlagUseCompressTable) != 0)
+            && data.Length >= 16)
+        {
+            var numBones = (int)BitConverter.ToUInt32(data[12..]);
+            return new SkaProbeResult(duration, numBones);
+        }
+
+        // THPS3 RpHAnim has no explicit bone count in the header; signal "unknown".
+        return new SkaProbeResult(duration, null);
+    }
+
     internal static SkaAnimation Parse(byte[] data, SkaCompressTable? compressTable = null)
     {
         return Parse((ReadOnlySpan<byte>)data, compressTable);

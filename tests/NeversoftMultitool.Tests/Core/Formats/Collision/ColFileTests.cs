@@ -5,8 +5,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Collision;
 
 public sealed class ColFileTests(TestPaths paths)
 {
-    private string ColDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)", "COL");
+    private const string BuildName = "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)";
 
     // ── Format Detection ──
 
@@ -14,8 +13,8 @@ public sealed class ColFileTests(TestPaths paths)
     public void IsColFile_ValidColFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ColDir, "Arrow.col.xbx");
-        Assert.SkipWhen(!File.Exists(file), "Arrow.col.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "Arrow.col.xbx");
+        Assert.SkipWhen(file is null, "Arrow.col.xbx not found");
 
         var data = File.ReadAllBytes(file);
         Assert.True(ColFile.IsColFile(data));
@@ -63,8 +62,8 @@ public sealed class ColFileTests(TestPaths paths)
     public void Parse_Arrow_HasExpectedStructure()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ColDir, "Arrow.col.xbx");
-        Assert.SkipWhen(!File.Exists(file), "Arrow.col.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "Arrow.col.xbx");
+        Assert.SkipWhen(file is null, "Arrow.col.xbx not found");
 
         var scene = ColFile.Parse(file);
         Assert.Equal(10, scene.Version);
@@ -79,8 +78,8 @@ public sealed class ColFileTests(TestPaths paths)
     public void Parse_KnownFile_HasObjectsAndFaces(string filename)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ColDir, filename);
-        Assert.SkipWhen(!File.Exists(file), $"{filename} not found");
+        var file = paths.FindSampleFile(BuildName, filename);
+        Assert.SkipWhen(file is null, $"{filename} not found");
 
         var scene = ColFile.Parse(file);
         Assert.True(scene.Objects.Length > 0);
@@ -93,8 +92,8 @@ public sealed class ColFileTests(TestPaths paths)
     public void Parse_Arrow_VerticesAreFinite()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ColDir, "Arrow.col.xbx");
-        Assert.SkipWhen(!File.Exists(file), "Arrow.col.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "Arrow.col.xbx");
+        Assert.SkipWhen(file is null, "Arrow.col.xbx not found");
 
         var scene = ColFile.Parse(file);
         foreach (var obj in scene.Objects)
@@ -112,8 +111,8 @@ public sealed class ColFileTests(TestPaths paths)
     public void Parse_Arrow_FaceIndicesInRange()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ColDir, "Arrow.col.xbx");
-        Assert.SkipWhen(!File.Exists(file), "Arrow.col.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "Arrow.col.xbx");
+        Assert.SkipWhen(file is null, "Arrow.col.xbx not found");
 
         var scene = ColFile.Parse(file);
         foreach (var obj in scene.Objects)
@@ -136,9 +135,8 @@ public sealed class ColFileTests(TestPaths paths)
     public void Parse_AllColFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(ColDir), "COL directory not found");
 
-        var files = Directory.GetFiles(ColDir, "*.col.xbx", SearchOption.TopDirectoryOnly);
+        var files = paths.FindSampleFiles(BuildName, "*.col.xbx").ToArray();
         Assert.SkipWhen(files.Length == 0, "No COL files found");
 
         var failures = new List<string>();
@@ -177,8 +175,8 @@ public sealed class ColFileTests(TestPaths paths)
     public void Write_Arrow_ProducesValidGlb()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var file = Path.Combine(ColDir, "Arrow.col.xbx");
-        Assert.SkipWhen(!File.Exists(file), "Arrow.col.xbx not found");
+        var file = paths.FindSampleFile(BuildName, "Arrow.col.xbx");
+        Assert.SkipWhen(file is null, "Arrow.col.xbx not found");
 
         var scene = ColFile.Parse(file);
         var outputDir = Path.Combine(Path.GetTempPath(), "col_test_" + Guid.NewGuid().ToString("N")[..8]);
@@ -229,9 +227,8 @@ public sealed class ColFileTests(TestPaths paths)
     public void Write_AllColFiles_ZeroGlbFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        Assert.SkipWhen(!Directory.Exists(ColDir), "COL directory not found");
 
-        var files = Directory.GetFiles(ColDir, "*.col.xbx", SearchOption.TopDirectoryOnly);
+        var files = paths.FindSampleFiles(BuildName, "*.col.xbx").ToArray();
         Assert.SkipWhen(files.Length == 0, "No COL files found");
 
         var outputDir = Path.Combine(Path.GetTempPath(), "col_batch_" + Guid.NewGuid().ToString("N")[..8]);

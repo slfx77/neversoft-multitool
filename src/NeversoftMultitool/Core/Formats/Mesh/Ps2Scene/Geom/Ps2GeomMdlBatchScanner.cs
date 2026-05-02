@@ -80,14 +80,13 @@ internal static class Ps2GeomMdlBatchScanner
         return ranges;
     }
 
-    internal static Ps2GeomGsContext? ScanBatchForGsContext(byte[] data, int batchStart, int batchEnd)
+    internal static Ps2GeomGsContextScan? ScanBatchForGsContext(byte[] data, int batchStart, int batchEnd)
     {
         // Primary pattern: V4_32 num=1 (GIF tag) followed by V3_32 num>=1 (register writes).
         // This is the standard GEOM/MDL GS context setup block. The register list count
-        // is normally 5 (TEX0/TEX1/CLAMP/ALPHA/TEST), but THAW worldzone leaves that
-        // share GS state with a previous draw write only TEX0 — i.e. num=1. Both shapes
-        // are valid GIF prologues; we let TryExtractRegistersFromV332 reject ones that
-        // contain no known register address.
+        // is normally 5 (TEX0/TEX1/CLAMP/ALPHA/TEST), but THAW worldzone leaves can
+        // also emit short register lists or a single NOP placeholder when all GS state
+        // should be inherited from the previous draw.
         var pCode = batchStart;
         while (pCode < batchEnd && pCode + 4 <= data.Length)
         {
@@ -98,7 +97,7 @@ internal static class Ps2GeomMdlBatchScanner
             {
                 var nextP = Ps2GeomVifVertexDecoder.VifNextCode(data, pCode, batchEnd);
                 if (nextP + 4 <= data.Length && (data[nextP + 3] & 0x7F) == 0x68 && data[nextP + 2] >= 1)
-                    return Ps2GeomVifVertexDecoder.ExtractGsContextFromVif(data, pCode, batchEnd);
+                    return TryExtractRegistersFromV332(data, nextP, data[nextP + 2]);
             }
 
             pCode = Ps2GeomVifVertexDecoder.VifNextCode(data, pCode, batchEnd);
@@ -116,9 +115,9 @@ internal static class Ps2GeomMdlBatchScanner
     ///     texture changes are encoded as bare register write blocks without the
     ///     standard V4_32 num=1 GIF tag prefix.
     /// </summary>
-    private static Ps2GeomGsContext? ScanBatchForStandaloneGsRegisters(byte[] data, int batchStart, int batchEnd)
+    private static Ps2GeomGsContextScan? ScanBatchForStandaloneGsRegisters(byte[] data, int batchStart, int batchEnd)
     {
-        Ps2GeomGsContext? lastCtx = null;
+        Ps2GeomGsContextScan? lastCtx = null;
         var pCode = batchStart;
 
         while (pCode < batchEnd && pCode + 4 <= data.Length)
@@ -133,7 +132,7 @@ internal static class Ps2GeomMdlBatchScanner
             if ((cmd & 0x7F) == 0x68 && num >= 1)
             {
                 var ctx = TryExtractRegistersFromV332(data, pCode, num);
-                if (ctx.HasValue)
+                if (ctx is { HasRegisters: true })
                     lastCtx = ctx;
             }
 
@@ -143,11 +142,11 @@ internal static class Ps2GeomMdlBatchScanner
         return lastCtx;
     }
 
-    private static Ps2GeomGsContext? TryExtractRegistersFromV332(byte[] data, int vifOffset, int num)
+    private static Ps2GeomGsContextScan? TryExtractRegistersFromV332(byte[] data, int vifOffset, int num)
     {
         var regDataStart = vifOffset + 4;
         var ctx = new Ps2GeomGsContext();
-        var foundKnownReg = false;
+        var present = GsRegisterMask.None;
 
         for (var i = 0; i < num; i++)
         {
@@ -162,17 +161,17 @@ internal static class Ps2GeomMdlBatchScanner
 
             switch (reg)
             {
-                case 0x06: ctx.Tex0 = value; foundKnownReg = true; break;
-                case 0x14: ctx.Tex1 = value; foundKnownReg = true; break;
-                case 0x34: ctx.MipTbp1 = value; foundKnownReg = true; break;
-                case 0x36: ctx.MipTbp2 = value; foundKnownReg = true; break;
-                case 0x08: ctx.Clamp1 = value; foundKnownReg = true; break;
-                case 0x42: ctx.Alpha1 = value; foundKnownReg = true; break;
-                case 0x47: ctx.Test1 = value; foundKnownReg = true; break;
+                case 0x06: ctx.Tex0 = value; present |= GsRegisterMask.Tex0; break;
+                case 0x14: ctx.Tex1 = value; present |= GsRegisterMask.Tex1; break;
+                case 0x34: ctx.MipTbp1 = value; present |= GsRegisterMask.MipTbp1; break;
+                case 0x36: ctx.MipTbp2 = value; present |= GsRegisterMask.MipTbp2; break;
+                case 0x08: ctx.Clamp1 = value; present |= GsRegisterMask.Clamp1; break;
+                case 0x42: ctx.Alpha1 = value; present |= GsRegisterMask.Alpha1; break;
+                case 0x47: ctx.Test1 = value; present |= GsRegisterMask.Test1; break;
             }
         }
 
-        return foundKnownReg ? ctx : null;
+        return new Ps2GeomGsContextScan(ctx, present);
     }
 
     internal static Vector3? ScanBatchForCenter(byte[] data, int batchStart, int batchEnd)

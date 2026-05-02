@@ -127,6 +127,15 @@
           </NavigationViewItem.Icon>
         </NavigationViewItem>
 
+        <!--  Character Preview  -->
+        <NavigationViewItem
+          Content="Character Preview"
+          Tag="CharacterPreview">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE77B;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+
         <NavigationViewItemSeparator />
 
         <NavigationViewItemHeader Content="Tools" />
@@ -205,6 +214,10 @@
               Visibility="Collapsed" />
             <tabs:MeshConverterTab
               x:Name="MeshConverterTabContent"
+              VerticalAlignment="Stretch"
+              Visibility="Collapsed" />
+            <tabs:CharacterPreviewTab
+              x:Name="CharacterPreviewTabContent"
               VerticalAlignment="Stretch"
               Visibility="Collapsed" />
           </Grid>

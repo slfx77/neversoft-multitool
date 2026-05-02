@@ -51,6 +51,28 @@ public static class Ps2SceneCommand
             Description =
                 "When --worldzone is set, emit a single combined .glb containing every placed object across all MDLs in the PAK."
         };
+        var worldzoneDebugTexturesOption = new Option<bool>("--worldzone-debug-textures")
+        {
+            Description =
+                "When --worldzone is set, emit decoded texture and material debug artifacts under worldzone_debug."
+        };
+        var worldzoneDebugLeafColorsOption = new Option<bool>("--worldzone-debug-leaf-colors")
+        {
+            Description =
+                "When --worldzone is set, emit a flat-color diagnostic GLB and leaf_id_colors.csv mapping colors to leaves/materials."
+        };
+        var worldzoneTimeOfDayOption = new Option<string>("--worldzone-time-of-day")
+        {
+            Description =
+                "When --worldzone is set, choose which time-of-day layers to export: all, day, or night.",
+            DefaultValueFactory = _ => "all"
+        };
+        var worldzoneScaleOption = new Option<float>("--worldzone-scale")
+        {
+            Description =
+                "When --worldzone is set, multiply exported coordinates by this positive scale. Use 0.01 for Blender-friendly viewing while preserving relative layout.",
+            DefaultValueFactory = _ => 1f
+        };
         var command = new Command("ps2scene", "Convert PS2 scene files (MDL/SKIN) to glTF (.glb)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
@@ -59,6 +81,10 @@ public static class Ps2SceneCommand
         command.Options.Add(skeletonOption);
         command.Options.Add(worldzoneOption);
         command.Options.Add(worldzoneCombinedOption);
+        command.Options.Add(worldzoneDebugTexturesOption);
+        command.Options.Add(worldzoneDebugLeafColorsOption);
+        command.Options.Add(worldzoneTimeOfDayOption);
+        command.Options.Add(worldzoneScaleOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -69,9 +95,30 @@ public static class Ps2SceneCommand
             var skePath = parseResult.GetValue(skeletonOption);
             var worldzone = parseResult.GetValue(worldzoneOption);
             var worldzoneCombined = parseResult.GetValue(worldzoneCombinedOption);
+            var worldzoneDebugTextures = parseResult.GetValue(worldzoneDebugTexturesOption);
+            var worldzoneDebugLeafColors = parseResult.GetValue(worldzoneDebugLeafColorsOption);
+            var worldzoneTimeOfDayText = parseResult.GetValue(worldzoneTimeOfDayOption);
+            var worldzoneScale = parseResult.GetValue(worldzoneScaleOption);
 
             if (worldzone)
-                return Task.FromResult(ExecuteWorldzone(input, output, texPath, worldzoneCombined, verbose));
+            {
+                if (!TryParseWorldzoneTimeOfDay(worldzoneTimeOfDayText, out var worldzoneTimeOfDay))
+                {
+                    AnsiConsole.MarkupLine(
+                        $"[red]Error:[/] --worldzone-time-of-day must be one of: all, day, night");
+                    return Task.FromResult(1);
+                }
+
+                if (!float.IsFinite(worldzoneScale) || worldzoneScale <= 0f)
+                {
+                    AnsiConsole.MarkupLine("[red]Error:[/] --worldzone-scale must be a finite positive number");
+                    return Task.FromResult(1);
+                }
+
+                return Task.FromResult(ExecuteWorldzone(
+                    input, output, texPath, worldzoneCombined, worldzoneDebugTextures,
+                    worldzoneDebugLeafColors, worldzoneTimeOfDay, worldzoneScale, verbose));
+            }
             return Task.FromResult(Execute(input, output, texPath, verbose, skePath));
         });
 
@@ -79,7 +126,13 @@ public static class Ps2SceneCommand
     }
 
     private static int ExecuteWorldzone(string input, string output,
-        string? texPath, bool combined, bool verbose)
+        string? texPath,
+        bool combined,
+        bool debugTextures,
+        bool debugLeafColors,
+        Ps2WorldzoneConverter.WorldzoneTimeOfDay timeOfDay,
+        float coordinateScale,
+        bool verbose)
     {
         if (!File.Exists(input))
         {
@@ -96,7 +149,9 @@ public static class Ps2SceneCommand
         var mdlCount = CountMdlEntries(input);
         AnsiConsole.MarkupLine(
             $"Worldzone [green]{Path.GetFileName(input)}[/]: " +
-            $"{mdlCount} .mdl entrie(s){(combined ? ", emitting combined .glb" : "")}");
+            $"{mdlCount} .mdl entrie(s){(combined ? ", emitting combined .glb" : "")}, " +
+            $"time-of-day: [green]{timeOfDay.ToString().ToLowerInvariant()}[/], " +
+            $"scale: [green]{coordinateScale:G}[/]");
 
         var stopwatch = Stopwatch.StartNew();
         Action<string> log = line => AnsiConsole.MarkupLine(Markup.Escape(line));
@@ -106,6 +161,10 @@ public static class Ps2SceneCommand
             new Ps2WorldzoneConverter.WorldzoneOptions(
                 TexPath: texPath,
                 Combined: combined,
+                DebugTextures: debugTextures,
+                DebugLeafColors: debugLeafColors,
+                TimeOfDay: timeOfDay,
+                CoordinateScale: coordinateScale,
                 Log: verbose ? log : null));
 
         stopwatch.Stop();
@@ -113,7 +172,7 @@ public static class Ps2SceneCommand
         if (combined)
         {
             var combinedOut = result.OutputPaths.FirstOrDefault(
-                p => p.EndsWith("_worldzone.glb", StringComparison.OrdinalIgnoreCase));
+                p => p.EndsWith(".glb", StringComparison.OrdinalIgnoreCase));
             if (combinedOut != null)
                 AnsiConsole.MarkupLine($"Wrote combined worldzone: [green]{combinedOut}[/]");
         }
@@ -125,6 +184,27 @@ public static class Ps2SceneCommand
             $"{result.Triangles:N0} triangles, {result.Failed} failed{skipMsg} " +
             $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
         return 0;
+    }
+
+    private static bool TryParseWorldzoneTimeOfDay(
+        string? value,
+        out Ps2WorldzoneConverter.WorldzoneTimeOfDay timeOfDay)
+    {
+        switch ((value ?? "all").Trim().ToLowerInvariant())
+        {
+            case "all":
+                timeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.All;
+                return true;
+            case "day":
+                timeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.Day;
+                return true;
+            case "night":
+                timeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.Night;
+                return true;
+            default:
+                timeOfDay = default;
+                return false;
+        }
     }
 
     private static int CountMdlEntries(string pakPath)

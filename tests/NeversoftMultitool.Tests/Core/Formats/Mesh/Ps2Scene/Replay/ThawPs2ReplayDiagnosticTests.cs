@@ -6,16 +6,15 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Replay;
 
 public sealed class ThawPs2ReplayDiagnosticTests(TestPaths paths)
 {
-    private string ThawSkinDir =>
-        Path.Combine(paths.SampleBuildsDir!, "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)", "SKIN");
+    private const string BuildName = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
 
     [Fact]
     public void Diagnostic_SkaterLasek_KickAnalysis()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
         Assert.SkipWhen(paths.TestOutputDir is null, "TestOutput not available");
-        var file = Path.Combine(ThawSkinDir, "skater_lasek.skin.ps2");
-        Assert.SkipWhen(!File.Exists(file), "Test file not found");
+        var file = paths.FindSampleFile(BuildName, "skater_lasek.skin.ps2");
+        Assert.SkipWhen(file is null, "Test file not found");
 
         var data = File.ReadAllBytes(file);
         var batches = ThawPs2SkinFile.ReplayBatches(data);
@@ -174,8 +173,8 @@ public sealed class ThawPs2ReplayDiagnosticTests(TestPaths paths)
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
         Assert.SkipWhen(paths.TestOutputDir is null, "TestOutput not available");
 
-        var ps2File = Path.Combine(ThawSkinDir, $"{stem}.skin.ps2");
-        Assert.SkipWhen(!File.Exists(ps2File), $"PS2 file not found: {stem}");
+        var ps2File = paths.FindSampleFile(BuildName, $"{stem}.skin.ps2");
+        Assert.SkipWhen(ps2File is null, $"PS2 file not found: {stem}");
 
         var ps2Data = File.ReadAllBytes(ps2File);
         var batches = ThawPs2SkinFile.ReplayBatches(ps2Data);

@@ -69,6 +69,13 @@ public static class Ps2MdlPreamble
         public required uint Field48 { get; init; }
 
         /// <summary>
+        ///     u32 at record +0x4C. For THAW level MDLs this is a 1-based material-group index
+        ///     into the zone texture owner blob's primary table. The primary table entry carries
+        ///     the real texture group checksum used to disambiguate reused TEX0 VRAM addresses.
+        /// </summary>
+        public required uint MaterialGroup { get; init; }
+
+        /// <summary>
         ///     Leaf test derived from <see cref="Flags" /> bit 1 (0x02). Verified against the
         ///     BH sample: ~3,977/5,649 records are leaves, all with <see cref="Field40" />
         ///     pointing into the VIF region.
@@ -215,6 +222,7 @@ public static class Ps2MdlPreamble
         var flags = BinaryPrimitives.ReadUInt32LittleEndian(span[0x3C..]);
         var field40 = BinaryPrimitives.ReadUInt32LittleEndian(span[0x40..]);
         var field48 = BinaryPrimitives.ReadUInt32LittleEndian(span[0x48..]);
+        var materialGroup = BinaryPrimitives.ReadUInt32LittleEndian(span[0x4C..]);
 
         return new PreambleRecord
         {
@@ -226,7 +234,8 @@ public static class Ps2MdlPreamble
             Flags = flags,
             Centre = new Vector3(qx, qy, qz),
             Field40 = field40,
-            Field48 = field48
+            Field48 = field48,
+            MaterialGroup = materialGroup
         };
     }
 
