@@ -7,9 +7,9 @@ namespace NeversoftMultitool.Core.Formats.Mesh;
 
 /// <summary>
 ///     Handles texture discovery, loading, DDS decoding, and luminance-to-alpha conversion
-///     for the DDM-to-glTF pipeline.
+///     for mesh conversion pipelines.
 /// </summary>
-internal static class GltfTextureHelper
+internal static class MeshTextureHelper
 {
     /// <summary>
     ///     Builds a list of directories to search for texture files, given a base texture path
@@ -82,7 +82,7 @@ internal static class GltfTextureHelper
         // Search directories
         foreach (var dir in textureDirs)
         {
-            // Try PNG first (native glTF format)
+            // Try PNG first so exporters can embed texture bytes directly.
             var pngFiles = Directory.GetFiles(dir, textureName + ".png",
                 new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
             if (pngFiles.Length > 0)
@@ -99,7 +99,7 @@ internal static class GltfTextureHelper
     }
 
     /// <summary>
-    ///     Converts a texture for additive blend approximation in glTF.
+    ///     Converts a texture for additive blend approximation in portable outputs.
     ///     Converts texture to white RGB with luminance-derived alpha.
     ///     Dark pixels become transparent (invisible, like additive black)
     ///     and bright pixels become white with proportional opacity.
@@ -130,7 +130,67 @@ internal static class GltfTextureHelper
     }
 
     /// <summary>
-    ///     Detects magenta (255, 0, 255) color-key backgrounds in textures and converts
+    ///     Converts an additive texture into a portable alpha-blend approximation
+    ///     while preserving source hue. The source contribution is represented as
+    ///     RGB plus alpha: alpha = max(src.rgb), RGB = src.rgb / alpha.
+    /// </summary>
+    internal static byte[] ConvertAdditiveBlendTexture(byte[] pngBytes)
+    {
+        using var image = Image.Load<Rgba32>(pngBytes);
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var p = row[x];
+                    var maxChannel = Math.Max(p.R, Math.Max(p.G, p.B));
+                    if (maxChannel == 0 || p.A == 0)
+                    {
+                        row[x] = new Rgba32(0, 0, 0, 0);
+                        continue;
+                    }
+
+                    var alpha = (byte)(maxChannel * p.A / 255);
+                    row[x] = new Rgba32(
+                        (byte)Math.Min(255, p.R * 255 / maxChannel),
+                        (byte)Math.Min(255, p.G * 255 / maxChannel),
+                        (byte)Math.Min(255, p.B * 255 / maxChannel),
+                        alpha);
+                }
+            }
+        });
+
+        using var ms = new MemoryStream();
+        image.SaveAsPng(ms);
+        return ms.ToArray();
+    }
+
+    internal static byte[] ScaleTextureAlpha(byte[] pngBytes, float scale)
+    {
+        using var image = Image.Load<Rgba32>(pngBytes);
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var p = row[x];
+                    var alpha = Math.Clamp((int)MathF.Round(p.A * scale), 0, 255);
+                    row[x] = new Rgba32(p.R, p.G, p.B, (byte)alpha);
+                }
+            }
+        });
+
+        using var ms = new MemoryStream();
+        image.SaveAsPng(ms);
+        return ms.ToArray();
+    }
+
+    /// <summary>
+     ///     Detects magenta (255, 0, 255) color-key backgrounds in textures and converts
     ///     them to alpha transparency. Uses Manhattan distance from magenta so antialiased
     ///     edges get smooth alpha gradients instead of hard pink fringing.
     ///     Only modifies textures that contain at least one exact magenta pixel.

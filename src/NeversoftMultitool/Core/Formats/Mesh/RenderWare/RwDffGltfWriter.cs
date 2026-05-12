@@ -1,6 +1,7 @@
 using System.Numerics;
 using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Animation;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Texture;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
@@ -22,18 +23,12 @@ using VERTEX = VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexE
 public static class RwDffGltfWriter
 {
     /// <summary>
-    ///     Resolves a texture name to PNG bytes for embedding in glTF.
-    ///     Returns null if the texture cannot be resolved.
-    /// </summary>
-    public delegate byte[]? TextureProvider(string textureName);
-
-    /// <summary>
     ///     Writes a parsed DFF clump to a .glb file.
     ///     Automatically detects skinned meshes (Skin PLG) and outputs with skeleton.
     /// </summary>
     /// <returns>Total number of triangles written.</returns>
     public static int Write(RwDffClump clump, string outputPath,
-        TextureProvider? textureProvider = null)
+        MeshNamedTextureResolver? textureProvider = null)
     {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
@@ -57,7 +52,7 @@ public static class RwDffGltfWriter
         RwDffClump clump,
         IReadOnlyList<(string Name, SkaAnimation Animation)> animations,
         string outputPath,
-        TextureProvider? textureProvider = null,
+        MeshNamedTextureResolver? textureProvider = null,
         Thps3SkaAnimationMode? animationMode = null)
     {
         if (animations.Count == 0) return 0;
@@ -101,7 +96,7 @@ public static class RwDffGltfWriter
         RwDffClump clump,
         SkaAnimation animation,
         string outputPath,
-        TextureProvider? textureProvider = null,
+        MeshNamedTextureResolver? textureProvider = null,
         Thps3SkaAnimationMode? animationMode = null)
     {
         var name = Path.GetFileNameWithoutExtension(outputPath);
@@ -109,7 +104,7 @@ public static class RwDffGltfWriter
     }
 
     internal static (ModelRoot Model, int Triangles) Build(
-        RwDffClump clump, TextureProvider? textureProvider = null)
+        RwDffClump clump, MeshNamedTextureResolver? textureProvider = null)
     {
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<string, MaterialBuilder>(StringComparer.OrdinalIgnoreCase);
@@ -156,7 +151,7 @@ public static class RwDffGltfWriter
     /// </summary>
     private static int WriteSkinned(RwDffClump clump, RwSkinData skinRef,
         Dictionary<string, MaterialBuilder> materialCache,
-        TextureProvider? textureProvider, SceneBuilder scene,
+        MeshNamedTextureResolver? textureProvider, SceneBuilder scene,
         NodeBuilder[]? prebuiltBoneNodes = null)
     {
         // Build joint nodes from Skin PLG bone data.
@@ -342,7 +337,7 @@ public static class RwDffGltfWriter
     private static MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty> BuildMesh(
         RwGeometry geometry,
         Dictionary<string, MaterialBuilder> materialCache,
-        TextureProvider? textureProvider,
+        MeshNamedTextureResolver? textureProvider,
         string meshName)
     {
         var gltfMesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>(meshName);
@@ -457,7 +452,7 @@ public static class RwDffGltfWriter
     private static MaterialBuilder GetOrCreateMaterial(
         RwMaterial material,
         Dictionary<string, MaterialBuilder> cache,
-        TextureProvider? textureProvider)
+        MeshNamedTextureResolver? textureProvider)
     {
         var key = material.TextureName ?? $"mat_{material.R}_{material.G}_{material.B}_{material.A}";
 
@@ -514,7 +509,7 @@ public static class RwDffGltfWriter
     ///     Builds a texture provider from an RW TXD file parsed via RwTxdFile.
     ///     Resolves texture names to PNG bytes using the parsed texture dictionary.
     /// </summary>
-    public static TextureProvider BuildTxdTextureProvider(Ps2TexResult txdResult)
+    public static MeshNamedTextureResolver BuildTxdTextureProvider(Ps2TexResult txdResult)
     {
         // Build name → texture lookup (RW TXD textures have Name set during parsing)
         var lookup = new Dictionary<string, Ps2Texture>(StringComparer.OrdinalIgnoreCase);

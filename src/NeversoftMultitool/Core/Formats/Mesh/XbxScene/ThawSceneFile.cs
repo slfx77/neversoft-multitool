@@ -25,14 +25,12 @@ public static class ThawSceneFile
 
     /// <summary>
     ///     Detect THAW scene format: not THUG2 (version 1,1,1), pre_material_header_size=16 at 0x21.
+    ///     PAK-extracted PC worldzone MDLs may prepend a small CGeom header before the normal scene payload.
     /// </summary>
     public static bool IsThawScene(byte[] data)
     {
-        if (data.Length < 0x30) return false;
         if (XbxSceneFile.IsXbxScene(data)) return false;
-        if (data[0x21] != 16) return false;
-        var matCount = BitConverter.ToUInt16(data, 0x22);
-        return matCount > 0 && matCount < 10000;
+        return TryFindSceneOffset(data, out _);
     }
 
     public static XbxScene Parse(string filePath)
@@ -42,6 +40,11 @@ public static class ThawSceneFile
 
     public static XbxScene Parse(byte[] data)
     {
+        if (!TryFindSceneOffset(data, out var sceneOffset))
+            throw new InvalidDataException("Data does not contain a THAW scene payload");
+        if (sceneOffset > 0)
+            data = data[sceneOffset..];
+
         using var ms = new MemoryStream(data);
         using var r = new BinaryReader(ms);
 
@@ -158,6 +161,63 @@ public static class ThawSceneFile
 
         return new XbxScene { Materials = materials, Sectors = sectors, Links = links };
     }
+
+    internal static bool TryFindSceneOffset(ReadOnlySpan<byte> data, out int offset)
+    {
+        offset = 0;
+        if (data.Length < 0x30)
+            return false;
+
+        if (LooksLikeSceneAt(data, 0))
+            return true;
+
+        for (var i = 4; i <= data.Length - 0x30; i += 4)
+        {
+            if (!LooksLikeSceneAt(data, i))
+                continue;
+
+            offset = i;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool LooksLikeSceneAt(ReadOnlySpan<byte> data, int offset)
+    {
+        if (offset < 0 || offset + 0x30 > data.Length)
+            return false;
+
+        if (data[offset + 0x21] != 16)
+            return false;
+
+        var materialCount = BitConverter.ToUInt16(data[(offset + 0x22)..]);
+        if (materialCount == 0 || materialCount >= 10000)
+            return false;
+
+        var materialListSize = BitConverter.ToInt32(data[(offset + 0x24)..]);
+        if (materialListSize <= 0)
+            return false;
+
+        var afterMaterialList = offset + 0x20L + materialListSize;
+        if (afterMaterialList < 0 || afterMaterialList + 16 > data.Length)
+            return false;
+
+        if (BitConverter.ToUInt32(data[(int)afterMaterialList..]) != BabefaceMagic)
+            return false;
+
+        var padCount = BitConverter.ToInt32(data[(int)(afterMaterialList + 4)..]);
+        if (padCount < 0 || padCount > 0x100000)
+            return false;
+
+        var sceneOffset = afterMaterialList + 8 + padCount;
+        if (sceneOffset + 4 > data.Length)
+            return false;
+
+        var sceneObjectSize = BitConverter.ToUInt16(data[(int)(sceneOffset + 2)..]);
+        return sceneObjectSize is > 0 and < 0x1000;
+    }
+
     // ── Links ───────────────────────────────────────────────────────────────
 
     /// <summary>Read hierarchy links: 80 bytes per link (same format as THUG2).</summary>

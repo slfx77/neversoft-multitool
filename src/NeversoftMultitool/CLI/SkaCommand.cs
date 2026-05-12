@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Animation;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
@@ -110,7 +111,7 @@ public static class SkaCommand
 
         // Load THPS3 RW DFF .SKN (has embedded skeleton + skinned mesh in one file)
         RwDffClump? rwClump = null;
-        RwDffGltfWriter.TextureProvider? rwTextureProvider = null;
+        MeshNamedTextureResolver? rwTextureProvider = null;
         if (sknPath != null)
         {
             var sknData = File.ReadAllBytes(sknPath);
@@ -155,7 +156,7 @@ public static class SkaCommand
         }
 
         // Build texture provider if TEX file provided
-        Ps2SceneGltfWriter.TextureProvider? textureProvider = null;
+        MeshChecksumTextureResolver? textureProvider = null;
         if (texPath != null)
         {
             var textureCache = Ps2TextureLoader.BuildTextureCache([], texPath, verbose);

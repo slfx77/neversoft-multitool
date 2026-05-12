@@ -202,7 +202,8 @@ public static class Ps2GeomFile
                         billboard.Value.Vertices,
                         bbGsCtx,
                         groupChecksum: leaf.MaterialGroup,
-                        isBillboard: true));
+                        isBillboard: true,
+                        billboardDescriptor: billboard.Value.Descriptor));
                 }
                 else
                 {
@@ -402,6 +403,7 @@ public static class Ps2GeomFile
                             TextureChecksum = textureChecksum,
                             GroupChecksum = groupChecksum,
                             Colour = colour,
+                            Flags = flags,
                             BoundingSphere = new Vector4(sphereX, sphereY, sphereZ, sphereR),
                             Vertices = vertices,
                             DmaTex0 = gsCtx.Tex0,
@@ -410,7 +412,9 @@ public static class Ps2GeomFile
                             DmaMipTbp2 = gsCtx.MipTbp2,
                             DmaClamp1 = gsCtx.Clamp1,
                             DmaAlpha1 = gsCtx.Alpha1,
-                            DmaTest1 = gsCtx.Test1
+                            DmaTest1 = gsCtx.Test1,
+                            DmaFrame1 = gsCtx.Frame1,
+                            DmaTexa = gsCtx.Texa,
                         });
                     }
                 }
@@ -429,7 +433,8 @@ public static class Ps2GeomFile
         IReadOnlyList<Ps2Vertex> vertices,
         Ps2GeomGsContext gsCtx,
         uint groupChecksum = 0,
-        bool isBillboard = false)
+        bool isBillboard = false,
+        Ps2BillboardDescriptor? billboardDescriptor = null)
     {
         var (min, max) = ComputeBbox(vertices);
         return new Ps2GeomLeaf
@@ -447,9 +452,12 @@ public static class Ps2GeomFile
             DmaClamp1 = gsCtx.Clamp1,
             DmaAlpha1 = gsCtx.Alpha1,
             DmaTest1 = gsCtx.Test1,
+            DmaFrame1 = gsCtx.Frame1,
+            DmaTexa = gsCtx.Texa,
             IsLocalSpace = IsLocalSpaceBatch(vertices.Count, min, max),
             IsLodPlane = IsLodPlaneBatch(vertices.Count, min, max),
-            IsBillboard = isBillboard
+            IsBillboard = isBillboard,
+            BillboardDescriptor = billboardDescriptor
         };
     }
 

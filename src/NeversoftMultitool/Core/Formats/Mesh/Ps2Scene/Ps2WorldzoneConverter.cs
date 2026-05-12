@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Text;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Archives;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
@@ -20,6 +21,11 @@ public static class Ps2WorldzoneConverter
     public const uint WorldzoneMdlTypeHash = 0x9BCC234D;       // QbKey(".mdl") — object MDL
     public const uint WorldzoneLevelMdlTypeHash = 0x7EA7357B;  // THAW shell/CAP geometry chunk
     public const uint WorldzonePlacementTypeHash = 0x91E1028D;
+    private const uint MdlPreambleRecordSignature = 0x4B189680;
+    private const int MdlPreambleRecordSize = 0x50;
+    private const int MdlPreambleRecordSignatureOffset = 0x18;
+    private const int MinLevelMdlPreambleRecords = 100;
+    private const int MaxLevelMdlPreambleExtensionBytes = 0x4000;
 
     public enum WorldzoneTimeOfDay
     {
@@ -40,7 +46,31 @@ public static class Ps2WorldzoneConverter
         bool DebugLeafColors = false,
         WorldzoneTimeOfDay TimeOfDay = WorldzoneTimeOfDay.All,
         float CoordinateScale = 1f,
-        Action<string>? Log = null);
+        Action<string>? Log = null,
+        Ps2WorldzoneLighting? Lighting = null);
+
+    /// <summary>
+    ///     Per-vertex lighting model approximating the PS2 VU1 microcode's
+    ///     `ambient + N·L_sun · sun_color` formula. Applied at parse time so the
+    ///     pre-baked source vertex colours match what PS2 actually outputs to GS.
+    ///
+    ///     Without this the worldzone renders ~2x too bright: source VC for
+    ///     surfaces like the asphalt is "neutral 128" (full source brightness),
+    ///     and PS2 darkens it at runtime via the vertex shader. Defaults derived
+    ///     from GS-dump observation of z_sm: asphalt-shadow modulation factor
+    ///     is approximately (0.28, 0.24, 0.20) (pure ambient, sun occluded by
+    ///     buildings); fully sun-lit surfaces saturate at ~1.0.
+    /// </summary>
+    public readonly record struct Ps2WorldzoneLighting(
+        System.Numerics.Vector3 Ambient,
+        System.Numerics.Vector3 SunDirection,
+        System.Numerics.Vector3 SunColor)
+    {
+        public static Ps2WorldzoneLighting Default => new(
+            Ambient: new System.Numerics.Vector3(0.30f, 0.27f, 0.24f),
+            SunDirection: System.Numerics.Vector3.Normalize(new System.Numerics.Vector3(0.4f, 0.7f, 0.6f)),
+            SunColor: new System.Numerics.Vector3(0.65f, 0.65f, 0.62f));
+    }
 
     public readonly record struct WorldzoneResult(
         int MdlEntries,
@@ -78,6 +108,9 @@ public static class Ps2WorldzoneConverter
     ///     Convert a worldzone PAK. Returns counts + the list of output file paths.
     ///     When no object/level MDL entries are present, returns a zero result and no output.
     /// </summary>
+#pragma warning disable S1133
+    [Obsolete("THAW worldzones must be parsed through MeshModelParser/ModelDocument with ModelSourceKind.Ps2Worldzone.", error: true)]
+#pragma warning restore S1133
     public static WorldzoneResult Convert(
         string pakPath,
         string outputDir,
@@ -96,6 +129,9 @@ public static class Ps2WorldzoneConverter
     ///     archive-nested sources (not a supported scenario), sibling discovery is
     ///     skipped and only the main PAK's embedded textures apply.
     /// </summary>
+#pragma warning disable S1133
+    [Obsolete("THAW worldzones must be parsed through MeshModelParser/ModelDocument with ModelSourceKind.Ps2Worldzone.", error: true)]
+#pragma warning restore S1133
     public static WorldzoneResult Convert(
         AssetSource source,
         string outputDir,
@@ -121,16 +157,18 @@ public static class Ps2WorldzoneConverter
         // source's backing path when available.
         var texPath = options.TexPath ?? source.FileSystemPath;
         var textureSourceHint = source.FileSystemPath ?? texPath;
-        Ps2SceneGltfWriter.TextureProvider? textureProvider = null;
-        Ps2GeomGltfWriter.Tex0Resolver? tex0Resolver = null;
+        MeshChecksumTextureResolver? textureProvider = null;
+        Ps2TexaTextureResolver? texaTextureProvider = null;
+        Ps2Tex0ChecksumResolver? tex0Resolver = null;
         ZoneTextureCatalog? textureCatalog = null;
         if (texPath != null)
         {
             if (ZoneTextureCatalog.TryBuild(texPath, out textureCatalog, options.Log)
                 && textureCatalog != null)
             {
-                textureProvider = textureCatalog.CreateTextureProvider();
-                tex0Resolver = textureCatalog.CreateTex0Resolver(textureSourceHint);
+                textureProvider = textureCatalog.CreateTextureResolver();
+                texaTextureProvider = textureCatalog.CreateTexaAwareTextureResolver();
+                tex0Resolver = textureCatalog.CreateTex0ChecksumResolver(textureSourceHint);
             }
         }
 
@@ -156,7 +194,7 @@ public static class Ps2WorldzoneConverter
             var result = ProcessWorldzoneMdl(
                 pakBytes, mdlEntry, outputDir, combinedScene,
                 debugLeafScene, debugLeafRecords, ref nextDebugLeafId,
-                textureProvider, tex0Resolver, textureCatalog,
+                textureProvider, texaTextureProvider, tex0Resolver, textureCatalog,
                 textureSourceHint, collectDebug, options.TimeOfDay, options.CoordinateScale, options.Log);
             if (result.DebugCollector != null)
                 debugCollectors.Add(result.DebugCollector);
@@ -217,8 +255,9 @@ public static class Ps2WorldzoneConverter
         SceneBuilder? debugLeafScene,
         List<Ps2GeomLeafIdDebugRecord> debugLeafRecords,
         ref int nextDebugLeafId,
-        Ps2SceneGltfWriter.TextureProvider? textureProvider,
-        Ps2GeomGltfWriter.Tex0Resolver? tex0Resolver,
+        MeshChecksumTextureResolver? textureProvider,
+        Ps2TexaTextureResolver? texaTextureProvider,
+        Ps2Tex0ChecksumResolver? tex0Resolver,
         ZoneTextureCatalog? textureCatalog,
         string? textureSourceHint,
         bool collectDebug,
@@ -231,6 +270,7 @@ public static class Ps2WorldzoneConverter
         {
             var mdlData = new byte[mdlEntry.Size];
             Array.Copy(pakBytes, mdlEntry.Offset, mdlData, 0, (int)mdlEntry.Size);
+            mdlData = ExtendLevelMdlPreambleIfNeeded(pakBytes, mdlEntry, mdlData, mdlName, log);
 
             if (!Ps2GeomFile.IsPakMdl(mdlData))
             {
@@ -240,7 +280,7 @@ public static class Ps2WorldzoneConverter
 
             var mdlTextureHint = textureCatalog?.FindTextureEntryHintBefore(textureSourceHint, mdlEntry.Offset)
                 ?? textureSourceHint;
-            var mdlTex0Resolver = textureCatalog?.CreateTex0Resolver(mdlTextureHint)
+            var mdlTex0Resolver = textureCatalog?.CreateTex0ChecksumResolver(mdlTextureHint)
                 ?? tex0Resolver;
             var debugCollector = collectDebug
                 ? new Ps2GeomDebugCollector(mdlName)
@@ -289,7 +329,8 @@ public static class Ps2WorldzoneConverter
                 leafFilter: leaf => !leaf.IsLocalSpace && ShouldIncludeForTimeOfDay(leaf, timeOfDay),
                 debugCollector: debugCollector,
                 localizeMeshOrigins: true,
-                coordinateScale: coordinateScale);
+                coordinateScale: coordinateScale,
+                texaTextureProvider: texaTextureProvider);
 
             var localTris = bonePlacements.Count > 0
                 ? Ps2GeomGltfWriter.AppendToScene(
@@ -297,7 +338,8 @@ public static class Ps2WorldzoneConverter
                     leafFilter: leaf => leaf.IsLocalSpace && ShouldIncludeForTimeOfDay(leaf, timeOfDay),
                     debugCollector: debugCollector,
                     localizeMeshOrigins: true,
-                    coordinateScale: coordinateScale)
+                    coordinateScale: coordinateScale,
+                    texaTextureProvider: texaTextureProvider)
                 : 0;
 
             if (debugLeafScene != null)
@@ -359,6 +401,102 @@ public static class Ps2WorldzoneConverter
         }
     }
 
+    internal static byte[] ExtendLevelMdlPreambleIfNeeded(
+        byte[] pakBytes,
+        ArchiveEntry mdlEntry,
+        byte[] mdlData,
+        string mdlName,
+        Action<string>? log)
+    {
+        var preambleStart = FindMdlPreambleStart(mdlData);
+        if (preambleStart < 0)
+            return mdlData;
+
+        var fullRecordEnd = preambleStart;
+        var existingRecords = 0;
+        while (fullRecordEnd + MdlPreambleRecordSize <= mdlData.Length
+               && ReadUInt32(mdlData, fullRecordEnd + MdlPreambleRecordSignatureOffset) ==
+               MdlPreambleRecordSignature)
+        {
+            existingRecords++;
+            fullRecordEnd += MdlPreambleRecordSize;
+        }
+
+        if (existingRecords < MinLevelMdlPreambleRecords)
+            return mdlData;
+
+        // Some THAW level-MDL entries end in the middle of a 0x50-byte preamble
+        // record. z_sm's following COL entry starts with the continuation records,
+        // and those records point back at valid VIF chunks before the root node.
+        // The game can read the contiguous PAK bytes; our extracted entry slice
+        // needs the same extension.
+        var trailingBytes = mdlData.Length - fullRecordEnd;
+        if (trailingBytes <= 0 || trailingBytes >= MdlPreambleRecordSize)
+            return mdlData;
+
+        var logicalBase = checked((int)mdlEntry.Offset);
+        var maxLogicalLength = Math.Min(
+            pakBytes.Length - logicalBase,
+            mdlData.Length + MaxLevelMdlPreambleExtensionBytes);
+
+        var extendedEnd = fullRecordEnd;
+        var addedRecords = 0;
+        while (extendedEnd + MdlPreambleRecordSize <= maxLogicalLength
+               && ReadUInt32(pakBytes, logicalBase + extendedEnd + MdlPreambleRecordSignatureOffset) ==
+               MdlPreambleRecordSignature)
+        {
+            addedRecords++;
+            extendedEnd += MdlPreambleRecordSize;
+        }
+
+        if (addedRecords == 0 || extendedEnd <= mdlData.Length)
+            return mdlData;
+
+        var addedLeafRefsIntoMdl = 0;
+        for (var recordOffset = fullRecordEnd;
+             recordOffset + MdlPreambleRecordSize <= extendedEnd;
+             recordOffset += MdlPreambleRecordSize)
+        {
+            var flags = ReadUInt32(pakBytes, logicalBase + recordOffset + 0x3C);
+            if ((flags & 0x2u) == 0)
+                continue;
+
+            var field40 = ReadUInt32(pakBytes, logicalBase + recordOffset + 0x40);
+            if (field40 < mdlData.Length)
+                addedLeafRefsIntoMdl++;
+        }
+
+        if (addedLeafRefsIntoMdl == 0)
+            return mdlData;
+
+        var extended = new byte[extendedEnd];
+        Array.Copy(pakBytes, logicalBase, extended, 0, extended.Length);
+        log?.Invoke(
+            $"  {mdlName}.mdl: extended level-MDL preamble by {extended.Length - mdlData.Length:N0} bytes " +
+            $"({addedRecords} record(s), {addedLeafRefsIntoMdl} leaf ref(s))");
+        return extended;
+    }
+
+    private static int FindMdlPreambleStart(byte[] data)
+    {
+        for (var i = 0; i + 4 <= data.Length; i += 4)
+        {
+            if (ReadUInt32(data, i) != MdlPreambleRecordSignature)
+                continue;
+
+            return i >= MdlPreambleRecordSignatureOffset
+                ? i - MdlPreambleRecordSignatureOffset
+                : -1;
+        }
+
+        return -1;
+    }
+
+    private static uint ReadUInt32(byte[] data, int offset)
+    {
+        return BitConverter.ToUInt32(data, offset);
+    }
+
     private static readonly string[] CombinedWorldzoneStrippedExtensions = [".pak.ps2", ".pak"];
 
     private static bool ShouldIncludeForTimeOfDay(Ps2GeomLeaf leaf, WorldzoneTimeOfDay timeOfDay)
@@ -366,7 +504,7 @@ public static class Ps2WorldzoneConverter
         if (timeOfDay == WorldzoneTimeOfDay.All || timeOfDay == WorldzoneTimeOfDay.Night)
             return true;
 
-        return Ps2GeomGltfWriter.ClassifyWorldzoneRenderLayer(leaf) != Ps2GeomRenderLayer.NightOverlay;
+        return Ps2GeomRenderSemantics.ClassifyWorldzoneRenderLayer(leaf) != Ps2GeomRenderLayer.NightOverlay;
     }
 
     private static void WriteWorldzoneDebug(

@@ -1,7 +1,6 @@
 using System.CommandLine;
-using System.Diagnostics;
 using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.Formats.Collision;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -25,25 +24,38 @@ public static class ColCommand
         {
             Description = "Enable verbose output"
         };
+        var formatOption = MeshExportCliOptions.CreateFormatOption();
+        var blenderHelperOption = MeshExportCliOptions.CreateBlenderHelperOption();
 
-        var command = new Command("col", "Convert collision (.col) files to glTF (.glb)");
+        var command = new Command("col", "Convert collision (.col) files to glTF (.glb) or Blender (.blend)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
+        command.Options.Add(formatOption);
+        command.Options.Add(blenderHelperOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
             var verbose = parseResult.GetValue(verboseOption);
+            if (!MeshExportCliOptions.ValidateFormat(parseResult.GetValue(formatOption), out var format))
+                return Task.FromResult(1);
+            var blenderHelper = parseResult.GetValue(blenderHelperOption);
 
-            return Task.FromResult(Execute(input, output, verbose));
+            return Task.FromResult(Execute(input, output, verbose, format, blenderHelper, cancellationToken));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string output, bool verbose)
+    private static int Execute(
+        string input,
+        string output,
+        bool verbose,
+        MeshOutputFormat format,
+        string? blenderHelperPath,
+        CancellationToken cancellationToken)
     {
         List<string> files;
 
@@ -92,62 +104,15 @@ public static class ColCommand
             return 0;
         }
 
-        Directory.CreateDirectory(output);
         AnsiConsole.MarkupLine($"Found [green]{files.Count}[/] COL file(s)");
-
-        var stopwatch = Stopwatch.StartNew();
-        var totalTriangles = 0;
-        var converted = 0;
-        var failed = 0;
-
-        foreach (var file in files)
-        {
-            var fileName = Path.GetFileName(file);
-            // Strip compound extension: Arrow.col.xbx → Arrow
-            var stem = Path.GetFileNameWithoutExtension(file);
-            if (stem.EndsWith(".col", StringComparison.OrdinalIgnoreCase))
-                stem = stem[..^4];
-
-            try
-            {
-                var data = File.ReadAllBytes(file);
-                if (!ColFile.IsColFile(data))
-                {
-                    if (verbose)
-                        AnsiConsole.MarkupLine($"  {fileName}: [yellow]Not a COL file[/]");
-                    continue;
-                }
-
-                var scene = ColFile.Parse(data);
-                var outputFile = Path.Combine(output, stem + ".glb");
-                var triangles = ColGltfWriter.Write(scene, outputFile);
-
-                totalTriangles += triangles;
-                converted++;
-
-                if (verbose)
-                {
-                    AnsiConsole.MarkupLine(
-                        $"  {fileName}: [green]{triangles:N0}[/] tris, " +
-                        $"{scene.Objects.Length} objects, {scene.TotalVertices:N0} verts");
-                }
-            }
-            catch (Exception ex)
-            {
-                failed++;
-                if (verbose)
-                    AnsiConsole.WriteException(ex);
-                AnsiConsole.MarkupLine(
-                    $"  {fileName}: [red]{ex.Message.EscapeMarkup()}[/]");
-            }
-        }
-
-        stopwatch.Stop();
-        AnsiConsole.MarkupLine(
-            $"\nConverted [green]{converted}[/] files ({totalTriangles:N0} triangles) " +
-            $"in {stopwatch.Elapsed.TotalSeconds:F2}s" +
-            (failed > 0 ? $", [red]{failed} failed[/]" : ""));
-
-        return failed > 0 ? 1 : 0;
+        return MeshExportCliOptions.ExportFiles(
+            files,
+            output,
+            ModelSourceKind.Collision,
+            format,
+            blenderHelperPath,
+            verbose,
+            cancellationToken,
+            MeshExportCliOptions.StripColExtension);
     }
 }

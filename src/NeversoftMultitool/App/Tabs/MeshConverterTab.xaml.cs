@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 
 namespace NeversoftMultitool;
@@ -236,11 +237,13 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         var totalTriangles = 0;
         var totalConverted = 0;
         var totalFiles = _items.Count;
+        string? firstError = null;
         var dispatcher = DispatcherQueue;
         var outputDir = _outputDir;
         var token = cts.Token;
         var entries = _items.ToList();
         var worldzoneTimeOfDay = GetSelectedWorldzoneTimeOfDay();
+        var outputFormat = GetSelectedOutputFormat();
 
         await Task.Run(() =>
         {
@@ -253,21 +256,27 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
                 try
                 {
-                    var triangles = MeshConverterTabFileConverter.ConvertFile(
-                        entry, outputDir, worldzoneTimeOfDay, worldzoneScale);
-                    Interlocked.Add(ref totalTriangles, triangles);
+                    var result = MeshConverterTabFileConverter.ConvertFile(
+                        entry,
+                        outputDir,
+                        worldzoneTimeOfDay,
+                        worldzoneScale,
+                        outputFormat,
+                        cancellationToken: token);
+                    Interlocked.Add(ref totalTriangles, result.Triangles);
                     Interlocked.Increment(ref totalConverted);
 
                     var processed = Interlocked.Increment(ref filesProcessed);
                     dispatcher.TryEnqueue(() =>
                     {
-                        entry.TriangleCount = triangles;
+                        entry.TriangleCount = result.Triangles;
                         entry.Status = ExtractionStatus.Done;
                         ConversionProgress.Value = (double)processed / totalFiles * 100;
                     });
                 }
-                catch
+                catch (Exception ex)
                 {
+                    firstError ??= ex.Message;
                     var processed = Interlocked.Increment(ref filesProcessed);
                     dispatcher.TryEnqueue(() =>
                     {
@@ -282,9 +291,22 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         ConversionProgress.Value = 100;
         CancelButton.Visibility = Visibility.Collapsed;
         ConvertButton.IsEnabled = true;
-        MainWindow.Instance?.SetStatus(
-            $"Converted {totalConverted}/{totalFiles} files " +
-            $"({totalTriangles:N0} triangles) in {stopwatch.Elapsed.TotalSeconds:F2}s");
+        var status = $"Converted {totalConverted}/{totalFiles} files " +
+                     $"({totalTriangles:N0} triangles) in {stopwatch.Elapsed.TotalSeconds:F2}s";
+        if (firstError != null)
+            status += $". First error: {firstError}";
+        MainWindow.Instance?.SetStatus(status);
+    }
+
+    private MeshOutputFormat GetSelectedOutputFormat()
+    {
+        var tag = (OutputFormatCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        return tag switch
+        {
+            "blend" => MeshOutputFormat.Blend,
+            "both" => MeshOutputFormat.Both,
+            _ => MeshOutputFormat.Glb
+        };
     }
 
     private Ps2WorldzoneConverter.WorldzoneTimeOfDay GetSelectedWorldzoneTimeOfDay()

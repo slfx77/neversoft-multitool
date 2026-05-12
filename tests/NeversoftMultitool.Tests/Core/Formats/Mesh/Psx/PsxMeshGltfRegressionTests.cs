@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NeversoftMultitool.Core.BinaryIO;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
 using NeversoftMultitool.Tests.Helpers;
@@ -66,7 +67,7 @@ public sealed class PsxMeshGltfRegressionTests(TestPaths paths)
         var outputFile = Path.Combine(tempDir, Path.GetFileNameWithoutExtension(inputFile) + ".glb");
         var pshFile = psxFile.HasHierarchy ? PshFile.FindCompanion(inputFile) : null;
 
-        PsxGltfWriter.TextureProvider textureProvider = hash =>
+        MeshChecksumTextureResolver textureProvider = hash =>
         {
             var result = PsxLibrary.ExtractTextureByHash(inputFile, hash);
             if (result == null) return null;

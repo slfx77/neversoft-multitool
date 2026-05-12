@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Numerics;
 using System.Text;
 using System.Text.Json.Nodes;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
@@ -23,33 +24,37 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 /// </summary>
 public static class Ps2GeomGltfWriter
 {
-    private const float WorldzoneBlendOverlayDepthBias = 2.0f;
-    private const float WorldzoneMaskCutoutDepthBias = 3.0f;
+    private const float WorldzoneBlendOverlayDepthBias = 0.005f;
+    private const float WorldzoneMaskCutoutDepthBias = 0.010f;
 
     /// <summary>
     ///     Per-render-group depth bias spacing (PS2 units). Each render group
     ///     gets pushed forward by <c>group_index * spacing</c> along the surface
-    ///     normal so layered worldzone meshes auto-sort correctly under glTF
-    ///     viewers that order BLEND primitives by camera distance. Render groups
-    ///     come from the level-MDL preamble +0x4C field via
-    ///     <see cref="GetWorldzoneRenderOrderKey"/>; on z_bh group keys range
-    ///     1..200ish, so 5.0 units yields up to ~1000-unit total displacement
-    ///     for the deepest overlay groups. Coplanar decals end up clearly
-    ///     separated in any reasonable camera orientation.
+    ///     normal so the deepest group still wins the depth test under glTF
+    ///     viewers that don't emulate the engine's draw-order layering. Real
+    ///     group keys range 1..200ish on z_bh, so 0.002 yields a max total
+    ///     offset of ~0.4 PS2 units (≈ 1 cm at game scale) — well below
+    ///     visual perception at typical worldzone view distances and well
+    ///     above 24-bit depth-buffer precision so coplanar decals don't
+    ///     Z-fight. The PCSX2 GS dump confirms the engine itself never
+    ///     spatially shifts overlays; on PS2 the layering is purely a
+    ///     draw-order + ZTST=ZGREATER artifact, which we approximate here
+    ///     with a vanishingly small spatial offset.
     /// </summary>
-    private const float WorldzoneRenderGroupSpacing = 5.0f;
+    private const float WorldzoneRenderGroupSpacing = 0.002f;
     private const float WorldzoneSoftShadowAlphaScale = 0.35f;
-    private const int GltfRepeatWrap = 10497;
 
     /// <summary>
-    ///     Delegate that resolves a raw TEX0_1 GS register value to a texture checksum.
-    ///     Used for THPS4 GEOM files where CGeomNode.texture_checksum is always 0
-    ///     and textures are identified by VRAM addresses embedded in the DMA chain.
-    ///     The group checksum disambiguates double-buffered VRAM banks where different
-    ///     texture groups reuse the same TBP/CBP addresses.
-    ///     Returns 0 if the TEX0 value cannot be resolved.
+    ///     Alpha-scale factor applied to the luminance-alpha texture produced for
+    ///     PS2 SUBTRACTIVE blends (`A=0, B=Cs, D=Cd` → `Cd - Cs·As/128`). The exact
+    ///     equation cannot be reproduced in glTF (which has only proportional
+    ///     blend); the converted texture's alpha already encodes "darkening
+    ///     intensity by source luminance", but the proportional approximation
+    ///     reads about 2-3× stronger than the engine. 0.30 brings dirt overlays
+    ///     and similar surfaces back into the in-game perceptual range.
     /// </summary>
-    public delegate uint Tex0Resolver(ulong dmaTex0, uint groupChecksum);
+    private const float WorldzoneSubtractiveAlphaScale = 0.30f;
+    private const int GltfRepeatWrap = 10497;
 
     /// <summary>
     ///     Writes a parsed PS2 GEOM scene to a .glb file.
@@ -59,8 +64,8 @@ public static class Ps2GeomGltfWriter
     ///     DMA chain TEX0 register values to texture checksums via VRAM simulation.
     /// </summary>
     public static int Write(Ps2GeomScene geomScene, string outputPath,
-        Ps2SceneGltfWriter.TextureProvider? textureProvider = null,
-        Tex0Resolver? tex0Resolver = null,
+        MeshChecksumTextureResolver? textureProvider = null,
+        Ps2Tex0ChecksumResolver? tex0Resolver = null,
         Ps2GeomDebugCollector? debugCollector = null)
     {
         return Write(geomScene, outputPath, placements: null, textureProvider, tex0Resolver, debugCollector);
@@ -69,12 +74,12 @@ public static class Ps2GeomGltfWriter
     /// <summary>
     ///     Writes a parsed PS2 GEOM scene to a .glb file with one scene node per placement.
     ///     When <paramref name="placements"/> is null or empty, a single identity-transform node
-    ///     is emitted (matches the default <see cref="Write(Ps2GeomScene,string,Ps2SceneGltfWriter.TextureProvider?,Tex0Resolver?)"/> behaviour).
+    ///     is emitted, matching the default single-node writer behavior.
     /// </summary>
     public static int Write(Ps2GeomScene geomScene, string outputPath,
         IReadOnlyList<(Vector3 Position, Quaternion Rotation)>? placements,
-        Ps2SceneGltfWriter.TextureProvider? textureProvider = null,
-        Tex0Resolver? tex0Resolver = null,
+        MeshChecksumTextureResolver? textureProvider = null,
+        Ps2Tex0ChecksumResolver? tex0Resolver = null,
         Ps2GeomDebugCollector? debugCollector = null)
     {
         var directory = Path.GetDirectoryName(outputPath);
@@ -245,19 +250,24 @@ public static class Ps2GeomGltfWriter
     /// </summary>
     public static int AppendToScene(SceneBuilder scene, Ps2GeomScene geomScene,
         IReadOnlyList<(Vector3 Position, Quaternion Rotation)>? placements,
-        Ps2SceneGltfWriter.TextureProvider? textureProvider = null,
-        Tex0Resolver? tex0Resolver = null,
+        MeshChecksumTextureResolver? textureProvider = null,
+        Ps2Tex0ChecksumResolver? tex0Resolver = null,
         Func<Ps2GeomLeaf, bool>? leafFilter = null,
         Ps2GeomDebugCollector? debugCollector = null,
         bool localizeMeshOrigins = false,
-        float coordinateScale = 1f)
+        float coordinateScale = 1f,
+        Ps2TexaTextureResolver? texaTextureProvider = null)
     {
         if (!float.IsFinite(coordinateScale) || coordinateScale <= 0f)
             throw new ArgumentOutOfRangeException(nameof(coordinateScale), coordinateScale,
                 "Coordinate scale must be a finite positive value.");
 
         var (buckets, triangles) = BuildMeshBuckets(
-            geomScene, textureProvider, tex0Resolver, leafFilter, debugCollector);
+            geomScene,
+            ResolveTexaAwareProvider(textureProvider, texaTextureProvider),
+            tex0Resolver,
+            leafFilter,
+            debugCollector);
         if (triangles == 0) return 0;
 
         var instances = placements is { Count: > 0 }
@@ -319,7 +329,7 @@ public static class Ps2GeomGltfWriter
         string mdlName,
         IList<Ps2GeomLeafIdDebugRecord> records,
         ref int nextId,
-        Tex0Resolver? tex0Resolver = null,
+        Ps2Tex0ChecksumResolver? tex0Resolver = null,
         Func<ulong, uint, Ps2GeomTextureResolution>? debugTextureResolver = null,
         float coordinateScale = 1f)
     {
@@ -411,8 +421,8 @@ public static class Ps2GeomGltfWriter
     }
 
     internal static (ModelRoot Model, int Triangles) Build(Ps2GeomScene geomScene,
-        Ps2SceneGltfWriter.TextureProvider? textureProvider = null,
-        Tex0Resolver? tex0Resolver = null,
+        MeshChecksumTextureResolver? textureProvider = null,
+        Ps2Tex0ChecksumResolver? tex0Resolver = null,
         Ps2GeomDebugCollector? debugCollector = null)
     {
         var scene = new SceneBuilder();
@@ -421,21 +431,36 @@ public static class Ps2GeomGltfWriter
         return (scene.ToGltf2(), triangles);
     }
 
+    /// <summary>
+    ///     Wrap whichever provider the caller supplied as a single
+    ///     <see cref="Ps2TexaTextureResolver"/>. Prefers
+    ///     the explicit TEXA-aware one when set; otherwise adapts the legacy
+    ///     <see cref="MeshChecksumTextureResolver"/> by ignoring TEXA.
+    /// </summary>
+    private static Ps2TexaTextureResolver? ResolveTexaAwareProvider(
+        MeshChecksumTextureResolver? textureProvider,
+        Ps2TexaTextureResolver? texaTextureProvider)
+    {
+        if (texaTextureProvider != null) return texaTextureProvider;
+        if (textureProvider == null) return null;
+        return (checksum, _) => textureProvider(checksum);
+    }
+
     private static (Dictionary<GeomBucketKey, GeomMeshBucket> Buckets, int Triangles) BuildMeshBuckets(
         Ps2GeomScene geomScene,
-        Ps2SceneGltfWriter.TextureProvider? textureProvider,
-        Tex0Resolver? tex0Resolver,
+        Ps2TexaTextureResolver? textureProvider,
+        Ps2Tex0ChecksumResolver? tex0Resolver,
         Func<Ps2GeomLeaf, bool>? leafFilter = null,
         Ps2GeomDebugCollector? debugCollector = null)
     {
         var materialCache = new Dictionary<GeomMaterialKey, GeomMaterialInfo>();
         var buckets = new Dictionary<GeomBucketKey, GeomMeshBucket>();
         var syntheticTextures = new Dictionary<uint, byte[]>();
-        Ps2SceneGltfWriter.TextureProvider? effectiveTextureProvider = textureProvider == null
+        Ps2TexaTextureResolver? effectiveTextureProvider = textureProvider == null
             ? null
-            : checksum => syntheticTextures.TryGetValue(checksum, out var syntheticPng)
+            : (checksum, texa) => syntheticTextures.TryGetValue(checksum, out var syntheticPng)
                 ? syntheticPng
-                : textureProvider(checksum);
+                : textureProvider(checksum, texa);
         var recentAlphaMasks = new Dictionary<LeafGeometryKey, DestinationAlphaMaskCandidate>();
         var totalTriangles = 0;
         var isWorldZoneScene = IsWorldZoneScene(geomScene);
@@ -516,8 +541,11 @@ public static class Ps2GeomGltfWriter
                 && maskCandidate.TextureChecksum != 0)
             {
                 var maskChecksum = maskCandidate.TextureChecksum;
-                var sourcePng = textureProvider(texChecksum);
-                var maskPng = textureProvider(maskChecksum);
+                // Each side of the synthesis pulls texture data with its own
+                // per-leaf TEXA so PSMCT16/PSMCT24/16-bit-CLUT alpha expansion
+                // matches what the GS sees at that leaf's draw time.
+                var sourcePng = textureProvider(texChecksum, leaf.DmaTexa);
+                var maskPng = textureProvider(maskChecksum, maskCandidate.Leaf.DmaTexa);
                 if (sourcePng != null && maskPng != null)
                 {
                     // The mask sibling's effective per-pixel alpha at consumer
@@ -547,7 +575,12 @@ public static class Ps2GeomGltfWriter
                         maskCandidate.Leaf,
                         out var maskFromSourceUv);
                     var transform = hasUvTransform ? maskFromSourceUv : (UvAffineTransform?)null;
-                    var maskedPng = ApplyDestinationAlphaMask(sourcePng, effectiveMaskPng, transform, maskCandidate.Leaf.DmaClamp1);
+                    var maskedPng = ApplyDestinationAlphaMask(
+                        sourcePng,
+                        effectiveMaskPng,
+                        transform,
+                        maskCandidate.Leaf.DmaClamp1,
+                        leaf.DmaTest1);
                     var syntheticChecksum = CreateSyntheticTextureChecksum(texChecksum, maskChecksum);
                     while (syntheticTextures.TryGetValue(syntheticChecksum, out var existing)
                            && !existing.SequenceEqual(maskedPng))
@@ -571,21 +604,32 @@ public static class Ps2GeomGltfWriter
                 && IsLikelyStandaloneAlphaMaskLayer(
                     leaf,
                     alphaBlend,
-                    effectiveTextureProvider?.Invoke(texChecksum)))
+                    effectiveTextureProvider?.Invoke(texChecksum, leaf.DmaTexa)))
             {
                 debugCollector?.AddRejection(MakeLeafRejection(
                     debugCollector.MdlName, "write", "standalone_alpha_mask_layer", -1, leaf));
                 continue;
             }
 
+            // For OPAQUE worldzone leaves carrying baked AO/lighting in vertex
+            // colours, pre-modulate the texture by the leaf's average vertex
+            // tint in PS2-style 8-bit math instead of relying on per-vertex
+            // modulation in the viewer. glTF viewers gamma-correct vertex
+            // colour multiplication, which over-amplifies the slight blue cast
+            // typical of sky-light AO bakes (B usually 1-2 above R/G in
+            // shadowed verts), making plants/foliage read as dim and bluish.
+            var bakedTint = ShouldBakeVertexTint(isWorldZoneScene, leaf, alphaBlend)
+                ? ComputeBakedVertexTint(leaf.Vertices)
+                : 0u;
             var key = CreateGeomMaterialKey(
                 texChecksum,
                 leaf.DmaClamp1,
                 leaf.DmaAlpha1,
                 leaf.DmaTest1,
                 leaf.IsBillboard,
-                ShouldPreferBlendFromVertexAlpha(leaf, alphaBlend));
-            var material = GetOrCreateGeomMaterial(key, materialCache, effectiveTextureProvider);
+                ShouldPreferBlendFromVertexAlpha(leaf, alphaBlend),
+                bakedTint);
+            var material = GetOrCreateGeomMaterial(key, materialCache, effectiveTextureProvider, leaf.DmaTexa);
             var bucket = GetOrCreateBucket(
                 key,
                 material,
@@ -600,7 +644,8 @@ public static class Ps2GeomGltfWriter
             var tris = Ps2SceneGltfWriter.AddTriangleStrip(bucket.Primitive, vertices,
                 dedup: bucket.Dedup,
                 resetOnRestart: isWorldZoneScene,
-                preserveVertexAlpha: bucket.PreserveVertexAlpha);
+                preserveVertexAlpha: bucket.PreserveVertexAlpha,
+                bakeVertexColorsToWhite: bucket.BakeVertexColorsToWhite);
 
             if (tris == 0) continue;
 
@@ -667,8 +712,8 @@ public static class Ps2GeomGltfWriter
 
     private static List<DestinationAlphaMaskCandidate> BuildDestinationAlphaMaskCandidates(
         IReadOnlyList<Ps2GeomLeaf> leaves,
-        Ps2SceneGltfWriter.TextureProvider? textureProvider,
-        Tex0Resolver? tex0Resolver,
+        Ps2TexaTextureResolver? textureProvider,
+        Ps2Tex0ChecksumResolver? tex0Resolver,
         Func<Ps2GeomLeaf, bool>? leafFilter,
         bool isWorldZoneScene)
     {
@@ -698,7 +743,7 @@ public static class Ps2GeomGltfWriter
             if (texChecksum == 0)
                 continue;
 
-            var pngBytes = textureProvider(texChecksum);
+            var pngBytes = textureProvider(texChecksum, leaf.DmaTexa);
             if (pngBytes == null || !HasUsefulDestinationAlpha(pngBytes))
                 continue;
 
@@ -708,7 +753,7 @@ public static class Ps2GeomGltfWriter
         return candidates;
     }
 
-    private static uint ResolveTextureChecksum(Ps2GeomLeaf leaf, Tex0Resolver? tex0Resolver)
+    private static uint ResolveTextureChecksum(Ps2GeomLeaf leaf, Ps2Tex0ChecksumResolver? tex0Resolver)
     {
         if (leaf.TextureChecksum != 0)
             return leaf.TextureChecksum;
@@ -720,7 +765,7 @@ public static class Ps2GeomGltfWriter
 
     private static Ps2GeomTextureResolution ResolveDebugTextureResolution(
         Ps2GeomLeaf leaf,
-        Tex0Resolver? tex0Resolver,
+        Ps2Tex0ChecksumResolver? tex0Resolver,
         Func<ulong, uint, Ps2GeomTextureResolution>? debugTextureResolver)
     {
         if (leaf.TextureChecksum != 0)
@@ -892,7 +937,8 @@ public static class Ps2GeomGltfWriter
             name = $"{name}_blend_{uniqueBlendOrdinal:D4}";
         var mesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>(name);
         var bucket = new GeomMeshBucket(name, material.AlphaMode, mesh, mesh.UsePrimitive(material.Material),
-            new HashSet<(Vector3, Vector3, Vector3)>(), ShouldPreserveVertexAlpha(key, material.AlphaMode));
+            new HashSet<(Vector3, Vector3, Vector3)>(), ShouldPreserveVertexAlpha(key, material.AlphaMode),
+            bakeVertexColorsToWhite: (key.BakedVertexTintRgba >> 24) == 0xFFu);
         buckets[bucketKey] = bucket;
         return bucket;
     }
@@ -1198,7 +1244,8 @@ public static class Ps2GeomGltfWriter
         ulong alpha1,
         ulong test1,
         bool preferCutout,
-        bool preferBlend)
+        bool preferBlend,
+        uint bakedVertexTintRgba = 0u)
     {
         var clampBits = (byte)(clamp1 & 0x0F);
         var alphaBlend = (byte)(alpha1 & 0xFF);
@@ -1212,7 +1259,8 @@ public static class Ps2GeomGltfWriter
             ate ? aref : (byte)0,
             fix,
             preferCutout,
-            preferBlend);
+            preferBlend,
+            bakedVertexTintRgba);
     }
 
     private static bool ShouldPreferBlendFromVertexAlpha(Ps2GeomLeaf leaf, byte alphaBlend)
@@ -1387,7 +1435,8 @@ public static class Ps2GeomGltfWriter
     private static GeomMaterialInfo GetOrCreateGeomMaterial(
         GeomMaterialKey key,
         Dictionary<GeomMaterialKey, GeomMaterialInfo> cache,
-        Ps2SceneGltfWriter.TextureProvider? textureProvider)
+        Ps2TexaTextureResolver? textureProvider,
+        ulong texa)
     {
         if (cache.TryGetValue(key, out var existing))
             return existing;
@@ -1449,7 +1498,7 @@ public static class Ps2GeomGltfWriter
         var isFoliageCutout = false;
         if (textureProvider != null && textureChecksum != 0)
         {
-            var pngBytes = textureProvider(textureChecksum);
+            var pngBytes = textureProvider(textureChecksum, texa);
             if (pngBytes != null)
             {
                 isDarkBlendOverlay = isStandardBlend && !psIgnoresAlpha && IsDarkAlphaOverlay(pngBytes);
@@ -1480,7 +1529,17 @@ public static class Ps2GeomGltfWriter
                 if (isAdditive)
                     pngBytes = ConvertAdditiveBlendTexture(pngBytes);
                 else if (isSubtractive)
+                {
+                    // PS2 subtractive equation: Cd - Cs*As/128 (constant subtraction
+                    // proportional to texture brightness). glTF BLEND can only do
+                    // Cs*As + Cd*(1-As) (proportional dimming). For typical dirt/cloud
+                    // overlays the proportional approximation reads ~2x stronger than
+                    // the engine's constant subtraction, producing dark "blobs" where
+                    // the engine renders subtle tints. Scale the converted luminance-
+                    // alpha down to bring it back into the in-game perceptual range.
                     pngBytes = ConvertBlendTexture(pngBytes, 0, 0, 0);
+                    pngBytes = ScaleTextureAlpha(pngBytes, WorldzoneSubtractiveAlphaScale);
+                }
                 else if (psIgnoresAlpha)
                     pngBytes = ForceAlphaOpaque(pngBytes);
                 else if (forceOpaqueRgbOnlyTexture)
@@ -1493,6 +1552,19 @@ public static class Ps2GeomGltfWriter
                 else if (isSoftShadowOverlay)
                 {
                     pngBytes = ScaleTextureAlpha(pngBytes, WorldzoneSoftShadowAlphaScale);
+                }
+
+                // Per-leaf vertex-tint bake (Option B for OPAQUE worldzone draws):
+                // when the leaf carries a non-zero baked tint, multiply the texture
+                // by that tint in PS2-style 8-bit math (clamped to 255). The vertex
+                // attribute is then emitted as (1,1,1,1) so the result is no longer
+                // gamma-amplified by viewers' linear-space vertex modulation.
+                if ((key.BakedVertexTintRgba >> 24) == 0xFFu)
+                {
+                    var tintR = (byte)((key.BakedVertexTintRgba >> 16) & 0xFFu);
+                    var tintG = (byte)((key.BakedVertexTintRgba >> 8) & 0xFFu);
+                    var tintB = (byte)(key.BakedVertexTintRgba & 0xFFu);
+                    pngBytes = ModulateTextureBy8BitTint(pngBytes, tintR, tintG, tintB);
                 }
 
                 alphaProfile = AnalyzeAlphaProfile(pngBytes);
@@ -1551,7 +1623,7 @@ public static class Ps2GeomGltfWriter
                     // glTF doesn't drop the texture in BLEND-style sorting.
                     if (textureProvider != null && textureChecksum != 0)
                     {
-                        var pngBytes = textureProvider(textureChecksum);
+                        var pngBytes = textureProvider(textureChecksum, texa);
                         if (pngBytes != null)
                         {
                             var forced = ForceAlphaOpaque(pngBytes);
@@ -1928,7 +2000,8 @@ public static class Ps2GeomGltfWriter
         byte[] sourcePng,
         byte[] maskPng,
         UvAffineTransform? maskFromSourceUv = null,
-        ulong maskClamp1 = 0)
+        ulong maskClamp1 = 0,
+        ulong sourceTest1 = 0)
     {
         using var source = Image.Load<Rgba32>(sourcePng);
         using var mask = Image.Load<Rgba32>(maskPng);
@@ -1969,7 +2042,8 @@ public static class Ps2GeomGltfWriter
                         maskA = maskAlpha[maskY * mask.Width + maskX];
                     }
 
-                    var alpha = p.A * maskA / 255;
+                    var sourceCoverage = ComputeSourceAlphaTestCoverage(p.A, sourceTest1);
+                    var alpha = sourceCoverage * maskA / 255;
                     row[x] = new Rgba32(p.R, p.G, p.B, (byte)alpha);
                 }
             }
@@ -1977,6 +2051,145 @@ public static class Ps2GeomGltfWriter
 
         using var ms = new MemoryStream();
         source.SaveAsPng(ms);
+        return ms.ToArray();
+    }
+
+    private static byte ComputeSourceAlphaTestCoverage(byte sourceAlpha, ulong test)
+    {
+        var ateEnabled = (test & 0x1UL) != 0;
+        if (!ateEnabled)
+            return 255;
+
+        var atst = (int)((test >> 1) & 0x7);
+        if (atst == 1) // ATST_ALWAYS
+            return 255;
+
+        var afail = (int)((test >> 12) & 0x3);
+        if (afail is not (0 or 2))
+            return 255;
+
+        var aref = (byte)((test >> 4) & 0xFF);
+        return AlphaTestPasses(sourceAlpha, aref, atst) ? (byte)255 : (byte)0;
+    }
+
+    private static bool AlphaTestPasses(byte sourceAlpha, byte aref, int atst) =>
+        atst switch
+        {
+            0 => false, // NEVER
+            1 => true, // ALWAYS
+            2 => sourceAlpha < aref, // LESS
+            3 => sourceAlpha <= aref, // LEQUAL
+            4 => sourceAlpha == aref, // EQUAL
+            5 => sourceAlpha >= aref, // GEQUAL
+            6 => sourceAlpha > aref, // GREATER
+            7 => sourceAlpha != aref, // NOTEQUAL
+            _ => true
+        };
+
+    /// <summary>
+    ///     True when a leaf's vertex colours should be pre-baked into its texture
+    ///     (Option B for plant/foliage/static-mesh draws). The bake replaces the
+    ///     per-vertex modulation with a per-leaf flat tint applied directly to
+    ///     the source pixels in PS2-style 8-bit math (clamped to 255). This sidesteps
+    ///     glTF viewers' gamma-correct vertex-modulation pass, which over-amplifies
+    ///     the slight blue cast typical of sky-light AO bakes.
+    ///
+    ///     Eligibility:
+    ///     - Worldzone scenes only (skinned meshes preserve smooth shading).
+    ///     - OPAQUE blend mode (`0x0A` / `0x1A` / `0x00`) — the leaf is rendered
+    ///       once with no destination blend, so flattening per-vertex variation
+    ///       loses the least.
+    ///     - The leaf carries non-uniform / non-neutral vertex colours — leaves
+    ///       whose vertex colours are all close to (128,128,128) modulate the
+    ///       texture by ~1.0 either way; baking is a no-op so we skip.
+    ///     - Per-vertex colour range is tight (max - min ≤ 24 in any channel).
+    ///       Wider ranges indicate large surfaces with smoothly-varying AO bake
+    ///       (ground planes, walls); flattening those to a per-leaf average
+    ///       darkens lit areas and washes out shading. Only leaves with
+    ///       tightly-clustered vertex colours — typical of foliage cards and
+    ///       small props — get baked.
+    /// </summary>
+    private const int VertexTintBakeMaxChannelRange = 24;
+
+    private static bool ShouldBakeVertexTint(bool isWorldZoneScene, Ps2GeomLeaf leaf, byte alphaBlend)
+    {
+        if (!isWorldZoneScene || leaf.IsBillboard)
+            return false;
+        if (alphaBlend is not (0x0A or 0x1A or 0x00))
+            return false;
+        if (leaf.Vertices.Length == 0)
+            return false;
+        byte minR = 255, maxR = 0, minG = 255, maxG = 0, minB = 255, maxB = 0;
+        var hasMeaningfulTint = false;
+        foreach (var v in leaf.Vertices)
+        {
+            if (!v.HasColor) return false;
+            if (v.R < minR) minR = v.R;
+            if (v.R > maxR) maxR = v.R;
+            if (v.G < minG) minG = v.G;
+            if (v.G > maxG) maxG = v.G;
+            if (v.B < minB) minB = v.B;
+            if (v.B > maxB) maxB = v.B;
+            if (Math.Abs(v.R - 128) > 8 || Math.Abs(v.G - 128) > 8 || Math.Abs(v.B - 128) > 8)
+                hasMeaningfulTint = true;
+        }
+        if (!hasMeaningfulTint)
+            return false;
+        var maxRange = Math.Max(Math.Max(maxR - minR, maxG - minG), maxB - minB);
+        return maxRange <= VertexTintBakeMaxChannelRange;
+    }
+
+    /// <summary>
+    ///     Compute the leaf's average vertex tint and pack it into a 32-bit value
+    ///     keyed as <c>0xFF_RR_GG_BB</c> — the high byte 0xFF is the "bake active"
+    ///     sentinel that distinguishes this from the default 0 (no bake). Average
+    ///     is plain arithmetic mean across all coloured vertices.
+    /// </summary>
+    private static uint ComputeBakedVertexTint(Ps2Vertex[] vertices)
+    {
+        long sumR = 0, sumG = 0, sumB = 0;
+        var n = 0;
+        foreach (var v in vertices)
+        {
+            if (!v.HasColor) continue;
+            sumR += v.R;
+            sumG += v.G;
+            sumB += v.B;
+            n++;
+        }
+        if (n == 0) return 0u;
+        var avgR = (byte)Math.Clamp(sumR / n, 0, 255);
+        var avgG = (byte)Math.Clamp(sumG / n, 0, 255);
+        var avgB = (byte)Math.Clamp(sumB / n, 0, 255);
+        return 0xFF000000u | ((uint)avgR << 16) | ((uint)avgG << 8) | avgB;
+    }
+
+    /// <summary>
+    ///     Multiply every RGB pixel of a texture by an 8-bit per-channel tint
+    ///     using PS2-style integer math (<c>out = pixel * tint / 128</c>, clamped
+    ///     to 255). Alpha is left untouched. Used to bake per-leaf vertex colour
+    ///     into the texture so per-vertex glTF modulation can be skipped.
+    /// </summary>
+    private static byte[] ModulateTextureBy8BitTint(byte[] pngBytes, byte tintR, byte tintG, byte tintB)
+    {
+        using var image = Image.Load<Rgba32>(pngBytes);
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var p = row[x];
+                    var r = (byte)Math.Min(255, p.R * tintR / 128);
+                    var g = (byte)Math.Min(255, p.G * tintG / 128);
+                    var b = (byte)Math.Min(255, p.B * tintB / 128);
+                    row[x] = new Rgba32(r, g, b, p.A);
+                }
+            }
+        });
+        using var ms = new MemoryStream();
+        image.SaveAsPng(ms);
         return ms.ToArray();
     }
 
@@ -2669,6 +2882,12 @@ public static class Ps2GeomGltfWriter
     /// <summary>
     ///     Composite key for GEOM material caching. Different leaves with the same texture
     ///     may need different materials if they have different clamp or alpha settings.
+    ///     <see cref="BakedVertexTintRgba"/> packs the per-leaf average vertex colour
+    ///     as 0xFF_RR_GG_BB (sentinel byte 0xFF in the high byte signals "bake active";
+    ///     0x00000000 means "no bake"). When active, the texture is modulated in 8-bit
+    ///     display space and per-vertex colours are emitted as (1,1,1,1). Used for
+    ///     OPAQUE worldzone leaves whose baked AO/lighting otherwise reads bluish-dim
+    ///     through glTF viewers' gamma-correct vertex modulation.
     /// </summary>
     private readonly record struct GeomMaterialKey(
         uint TextureChecksum,
@@ -2677,7 +2896,8 @@ public static class Ps2GeomGltfWriter
         byte AlphaRef,
         byte FixValue,
         bool PreferCutout,
-        bool PreferBlend);
+        bool PreferBlend,
+        uint BakedVertexTintRgba = 0u);
 
     private readonly record struct GeomBucketKey(GeomMaterialKey Material, int UniqueBlendOrdinal);
 
@@ -2716,7 +2936,8 @@ public static class Ps2GeomGltfWriter
         MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty> mesh,
         PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexEmpty> primitive,
         HashSet<(Vector3, Vector3, Vector3)> dedup,
-        bool preserveVertexAlpha)
+        bool preserveVertexAlpha,
+        bool bakeVertexColorsToWhite = false)
     {
         public string Name { get; } = name;
         public string AlphaMode { get; } = alphaMode;
@@ -2729,6 +2950,7 @@ public static class Ps2GeomGltfWriter
 
         public HashSet<(Vector3, Vector3, Vector3)> Dedup { get; } = dedup;
         public bool PreserveVertexAlpha { get; } = preserveVertexAlpha;
+        public bool BakeVertexColorsToWhite { get; } = bakeVertexColorsToWhite;
         public int TriangleCount { get; set; }
 
         private Vector3 _min = new(float.MaxValue);

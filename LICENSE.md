@@ -19,3 +19,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Blender Exporter Distribution Notice
+
+NeversoftMultitool source files remain MIT licensed unless a file states
+otherwise. Builds that ship a Blender binary for .blend export also include
+Blender under the GNU General Public License; see
+src/NeversoftMultitool/BlenderExporter/LICENSE_NOTICE.txt for the bundled helper
+notice.

@@ -1,16 +1,9 @@
 using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.BinaryIO;
-using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
-using NeversoftMultitool.Core.Formats.Texture;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -25,7 +18,7 @@ public static class Ps2SceneCommand
         };
         var outputOption = new Option<string>("-o", "--output")
         {
-            Description = "Output directory for .glb files",
+            Description = "Output directory for converted mesh files",
             DefaultValueFactory = _ => "TestOutput"
         };
         var texPathOption = new Option<string?>("--tex")
@@ -49,17 +42,17 @@ public static class Ps2SceneCommand
         var worldzoneCombinedOption = new Option<bool>("--worldzone-combined")
         {
             Description =
-                "When --worldzone is set, emit a single combined .glb containing every placed object across all MDLs in the PAK."
+                "Compatibility flag. THAW worldzones are always emitted as one combined ModelDocument."
         };
         var worldzoneDebugTexturesOption = new Option<bool>("--worldzone-debug-textures")
         {
             Description =
-                "When --worldzone is set, emit decoded texture and material debug artifacts under worldzone_debug."
+                "Legacy worldzone debug artifact flag. Not available in the ModelDocument-only worldzone path."
         };
         var worldzoneDebugLeafColorsOption = new Option<bool>("--worldzone-debug-leaf-colors")
         {
             Description =
-                "When --worldzone is set, emit a flat-color diagnostic GLB and leaf_id_colors.csv mapping colors to leaves/materials."
+                "Legacy worldzone debug leaf-color flag. Not available in the ModelDocument-only worldzone path."
         };
         var worldzoneTimeOfDayOption = new Option<string>("--worldzone-time-of-day")
         {
@@ -73,7 +66,10 @@ public static class Ps2SceneCommand
                 "When --worldzone is set, multiply exported coordinates by this positive scale. Use 0.01 for Blender-friendly viewing while preserving relative layout.",
             DefaultValueFactory = _ => 1f
         };
-        var command = new Command("ps2scene", "Convert PS2 scene files (MDL/SKIN) to glTF (.glb)");
+        var formatOption = MeshExportCliOptions.CreateFormatOption();
+        var blenderHelperOption = MeshExportCliOptions.CreateBlenderHelperOption();
+
+        var command = new Command("ps2scene", "Convert PS2 scene files (MDL/SKIN) to glTF (.glb) or Blender (.blend)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(texPathOption);
@@ -85,6 +81,8 @@ public static class Ps2SceneCommand
         command.Options.Add(worldzoneDebugLeafColorsOption);
         command.Options.Add(worldzoneTimeOfDayOption);
         command.Options.Add(worldzoneScaleOption);
+        command.Options.Add(formatOption);
+        command.Options.Add(blenderHelperOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -94,11 +92,13 @@ public static class Ps2SceneCommand
             var verbose = parseResult.GetValue(verboseOption);
             var skePath = parseResult.GetValue(skeletonOption);
             var worldzone = parseResult.GetValue(worldzoneOption);
-            var worldzoneCombined = parseResult.GetValue(worldzoneCombinedOption);
             var worldzoneDebugTextures = parseResult.GetValue(worldzoneDebugTexturesOption);
             var worldzoneDebugLeafColors = parseResult.GetValue(worldzoneDebugLeafColorsOption);
             var worldzoneTimeOfDayText = parseResult.GetValue(worldzoneTimeOfDayOption);
             var worldzoneScale = parseResult.GetValue(worldzoneScaleOption);
+            if (!MeshExportCliOptions.ValidateFormat(parseResult.GetValue(formatOption), out var format))
+                return Task.FromResult(1);
+            var blenderHelper = parseResult.GetValue(blenderHelperOption);
 
             if (worldzone)
             {
@@ -115,24 +115,42 @@ public static class Ps2SceneCommand
                     return Task.FromResult(1);
                 }
 
+                if (worldzoneDebugTextures || worldzoneDebugLeafColors)
+                {
+                    AnsiConsole.MarkupLine(
+                        "[red]Error:[/] --worldzone-debug-textures and --worldzone-debug-leaf-colors " +
+                        "belonged to the legacy worldzone exporter. THAW worldzones now always use " +
+                        "the ModelDocument parser; use --format blend for leaf/material inspection.");
+                    return Task.FromResult(1);
+                }
+
                 return Task.FromResult(ExecuteWorldzone(
-                    input, output, texPath, worldzoneCombined, worldzoneDebugTextures,
-                    worldzoneDebugLeafColors, worldzoneTimeOfDay, worldzoneScale, verbose));
+                    input,
+                    output,
+                    texPath,
+                    format,
+                    blenderHelper,
+                    worldzoneTimeOfDay,
+                    worldzoneScale,
+                    verbose,
+                    cancellationToken));
             }
-            return Task.FromResult(Execute(input, output, texPath, verbose, skePath));
+            return Task.FromResult(Execute(input, output, texPath, verbose, skePath, format, blenderHelper, cancellationToken));
         });
 
         return command;
     }
 
-    private static int ExecuteWorldzone(string input, string output,
+    private static int ExecuteWorldzone(
+        string input,
+        string output,
         string? texPath,
-        bool combined,
-        bool debugTextures,
-        bool debugLeafColors,
+        MeshOutputFormat format,
+        string? blenderHelperPath,
         Ps2WorldzoneConverter.WorldzoneTimeOfDay timeOfDay,
         float coordinateScale,
-        bool verbose)
+        bool verbose,
+        CancellationToken cancellationToken)
     {
         if (!File.Exists(input))
         {
@@ -146,44 +164,49 @@ public static class Ps2SceneCommand
             return 0;
         }
 
-        var mdlCount = CountMdlEntries(input);
         AnsiConsole.MarkupLine(
             $"Worldzone [green]{Path.GetFileName(input)}[/]: " +
-            $"{mdlCount} .mdl entrie(s){(combined ? ", emitting combined .glb" : "")}, " +
+            $"ModelDocument export, format: [green]{format.ToString().ToLowerInvariant()}[/], " +
             $"time-of-day: [green]{timeOfDay.ToString().ToLowerInvariant()}[/], " +
             $"scale: [green]{coordinateScale:G}[/]");
 
         var stopwatch = Stopwatch.StartNew();
-        Action<string> log = line => AnsiConsole.MarkupLine(Markup.Escape(line));
-
-        var result = Ps2WorldzoneConverter.Convert(
-            input, output,
-            new Ps2WorldzoneConverter.WorldzoneOptions(
-                TexPath: texPath,
-                Combined: combined,
-                DebugTextures: debugTextures,
-                DebugLeafColors: debugLeafColors,
-                TimeOfDay: timeOfDay,
-                CoordinateScale: coordinateScale,
-                Log: verbose ? log : null));
-
-        stopwatch.Stop();
-
-        if (combined)
+        try
         {
-            var combinedOut = result.OutputPaths.FirstOrDefault(
-                p => p.EndsWith(".glb", StringComparison.OrdinalIgnoreCase));
-            if (combinedOut != null)
-                AnsiConsole.MarkupLine($"Wrote combined worldzone: [green]{combinedOut}[/]");
-        }
+            var result = MeshExportCliOptions.ExportFile(
+                input,
+                output,
+                ModelSourceKind.Ps2Worldzone,
+                format,
+                blenderHelperPath,
+                cancellationToken,
+                MeshExportCliOptions.StripKnownExtension(input, [".pak.ps2"]),
+                Ps2SceneSubFormat.PakWorldzone,
+                texturePath: texPath,
+                worldzoneTimeOfDay: timeOfDay,
+                worldzoneScale: coordinateScale);
 
-        var skipMsg = result.Skipped > 0 ? $", {result.Skipped} skipped" : "";
-        AnsiConsole.MarkupLine(
-            $"Worldzone: [green]{result.Converted}[/]/{result.MdlEntries} MDL(s), " +
-            $"[green]{result.Placements}[/] placements, " +
-            $"{result.Triangles:N0} triangles, {result.Failed} failed{skipMsg} " +
-            $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
-        return 0;
+            stopwatch.Stop();
+
+            if (verbose && result.OutputPaths.Count > 0)
+            {
+                foreach (var path in result.OutputPaths)
+                    AnsiConsole.MarkupLine($"  wrote [green]{Markup.Escape(path)}[/]");
+            }
+
+            AnsiConsole.MarkupLine(
+                $"Worldzone: [green]{result.Triangles:N0}[/] triangles, " +
+                $"[green]{result.MaterialCount:N0}[/] materials, " +
+                $"[green]{result.TextureCount:N0}[/] textures " +
+                $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
+            return 1;
+        }
     }
 
     private static bool TryParseWorldzoneTimeOfDay(
@@ -207,23 +230,9 @@ public static class Ps2SceneCommand
         }
     }
 
-    private static int CountMdlEntries(string pakPath)
-    {
-        try
-        {
-            var typed = PakArchive.GetTypedEntries(pakPath);
-            return typed.Count(e =>
-                e.TypeHash == Ps2WorldzoneConverter.WorldzoneMdlTypeHash
-                || e.TypeHash == Ps2WorldzoneConverter.WorldzoneLevelMdlTypeHash);
-        }
-        catch
-        {
-            return 0;
-        }
-    }
-
     private static int Execute(string input, string output,
-        string? texPath, bool verbose, string? skePath = null)
+        string? texPath, bool verbose, string? skePath, MeshOutputFormat format,
+        string? blenderHelperPath, CancellationToken cancellationToken)
     {
         List<string> files;
 
@@ -267,301 +276,19 @@ public static class Ps2SceneCommand
             return 0;
         }
 
-        // Build texture lookup if requested
-        Ps2SceneGltfWriter.TextureProvider? textureProvider = null;
-        Ps2GeomGltfWriter.Tex0Resolver? tex0Resolver = null;
-        Dictionary<uint, Ps2Texture>? textureCache = null;
-
-        // Try THAW world-zone TEX format first (GIF A+D VRAM uploads)
-        if (!Ps2TextureLoader.TryBuildZoneTexProviders(
-                texPath, out textureProvider, out tex0Resolver, verbose))
-        {
-            // Fall back to standard TEX formats
-            textureCache = Ps2TextureLoader.BuildTextureCache(files, texPath, verbose);
-            if (textureCache.Count > 0)
-            {
-                AnsiConsole.MarkupLine(
-                    $"Loaded [green]{textureCache.Count}[/] textures for embedding");
-                textureProvider = checksum =>
-                {
-                    if (!textureCache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
-                        return null;
-                    return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
-                };
-            }
-
-            var tex0Mapping = Ps2TextureLoader.BuildTex0Mapping(files, texPath, verbose);
-            if (tex0Mapping.Count > 0)
-            {
-                if (verbose)
-                {
-                    AnsiConsole.MarkupLine(
-                        $"Built TEX0 mapping with [green]{tex0Mapping.Count}[/] entries");
-                }
-
-                tex0Resolver = (dmaTex0, groupChecksum) =>
-                {
-                    var key = Ps2VramAllocator.DecodeTex0Key(dmaTex0, groupChecksum);
-                    return tex0Mapping.GetValueOrDefault(key);
-                };
-            }
-        }
-
-        Directory.CreateDirectory(output);
         AnsiConsole.MarkupLine($"Found [green]{files.Count}[/] PS2 scene file(s)");
-
-        // Pre-load explicit skeleton if provided
-        Ps2Skeleton? explicitSkeleton = null;
-        Dictionary<string, Ps2Skeleton>? skeletonCache = null;
-        if (skePath != null)
-        {
-            if (File.Exists(skePath))
-            {
-                explicitSkeleton = ParseSkeletonFile(skePath);
-                AnsiConsole.MarkupLine(
-                    $"Loaded skeleton: [green]{explicitSkeleton.Bones.Length} bones[/]");
-            }
-            else if (Directory.Exists(skePath))
-            {
-                skeletonCache = new Dictionary<string, Ps2Skeleton>(StringComparer.OrdinalIgnoreCase);
-
-                // Load .ske.ps2 files (PS2-specific format)
-                foreach (var skeFile in Directory.GetFiles(skePath, "*.ske.ps2"))
-                {
-                    var skeStem = Path.GetFileName(skeFile).Replace(".ske.ps2", "", StringComparison.OrdinalIgnoreCase);
-                    try
-                    {
-                        skeletonCache[skeStem] = Ps2SkeletonFile.Parse(skeFile);
-                    }
-                    catch
-                    {
-                        // Skip unparseable skeleton files
-                    }
-                }
-
-                // Load .ske files (cross-platform format, used by THPS4)
-                // Only add if no .ske.ps2 already loaded for same stem
-                foreach (var skeFile in Directory.GetFiles(skePath, "*.ske"))
-                {
-                    if (skeFile.EndsWith(".ske.ps2", StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    var skeStem = Path.GetFileName(skeFile).Replace(".ske", "", StringComparison.OrdinalIgnoreCase);
-                    if (skeletonCache.ContainsKey(skeStem))
-                        continue;
-                    try
-                    {
-                        skeletonCache[skeStem] = SkeletonFile.Parse(skeFile);
-                    }
-                    catch
-                    {
-                        // Skip unparseable skeleton files
-                    }
-                }
-
-                if (skeletonCache.Count > 0)
-                    AnsiConsole.MarkupLine($"Loaded [green]{skeletonCache.Count}[/] skeletons from directory");
-            }
-        }
-
-        var stopwatch = Stopwatch.StartNew();
-        var converted = 0;
-        var failed = 0;
-        var skipped = 0;
-        var totalTriangles = 0;
-        var texturedCount = 0;
-        var skinnedCount = 0;
-
-        foreach (var file in files)
-        {
-            var filename = Path.GetFileName(file);
-            // Strip compound extensions: foo.mdl.ps2 → foo
-            var matchedExt = Ps2SceneFile.SupportedExtensions
-                .FirstOrDefault(ext => filename.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
-            var stem = matchedExt != null ? filename[..^matchedExt.Length] : filename;
-
-            var outputPath = Path.Combine(output, stem + ".glb");
-
-            try
-            {
-                var fileData = File.ReadAllBytes(file);
-                var isThawSkin = ThawPs2SkinFile.IsThawPs2Skin(fileData);
-
-                // Use per-file texture provider if we have a cache,
-                // or try auto-detecting a companion TEX file for this specific scene
-                var provider = textureProvider;
-                if (provider == null)
-                {
-                    var perFileCache = Ps2TextureLoader.TryLoadCompanionTex(file, stem);
-                    if (perFileCache != null && perFileCache.Count > 0)
-                    {
-                        provider = checksum =>
-                        {
-                            if (!perFileCache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
-                                return null;
-                            return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
-                        };
-                    }
-                }
-
-                int tris;
-
-                // PAK-extracted MDL: GEOM-style VIF → Ps2GeomGltfWriter
-                if (Ps2GeomFile.IsPakMdl(fileData))
-                {
-                    var geomScene = Ps2GeomFile.ParsePakMdl(fileData);
-                    tris = Ps2GeomGltfWriter.Write(geomScene, outputPath, provider, tex0Resolver);
-                }
-                else
-                {
-                    // Detect pre-compiled VIF/DMA .skin.ps2 (THAW or THUG2)
-                    Ps2Scene scene;
-                    if (isThawSkin)
-                    {
-                        // THUG2 pre-compiled: skip if .iskin.ps2 exists (higher quality)
-                        var iskinFile = file.Replace(".skin.ps2", ".iskin.ps2",
-                            StringComparison.OrdinalIgnoreCase);
-                        if (File.Exists(iskinFile))
-                        {
-                            skipped++;
-                            if (verbose)
-                                AnsiConsole.MarkupLine(
-                                    $"  {filename}: [yellow]pre-compiled VIF, skipped (.iskin.ps2 exists)[/]");
-                            continue;
-                        }
-
-                        // Load companion .tex.ps2 raw bytes for DIRECT block setup/material mapping.
-                        byte[]? companionTexData = null;
-                        var texDir = Path.GetDirectoryName(file);
-                        if (texDir != null)
-                        {
-                            var companionTex = CompanionSearch.FindCompanion(
-                                texDir, stem, [".tex.ps2"], ["TEX", "Textures"]);
-                            if (companionTex != null)
-                                companionTexData = File.ReadAllBytes(companionTex);
-                        }
-
-                        scene = ThawPs2SkinFile.Parse(fileData, companionTexData);
-                    }
-                    else if (ThawPs2SkinFile.IsPakSkin(fileData))
-                    {
-                        scene = ThawPs2SkinFile.ParsePakSkin(fileData);
-                    }
-                    else
-                    {
-                        scene = Ps2SceneFile.Parse(fileData);
-                    }
-
-                    // Resolve skeleton: explicit > cache > auto-discover
-                    var skeleton = explicitSkeleton;
-                    if (skeleton == null && skeletonCache != null)
-                        skeletonCache.TryGetValue(stem, out skeleton);
-                    if (skeleton == null && filename.Contains(".skin.", StringComparison.OrdinalIgnoreCase))
-                        skeleton = TryDiscoverSkeleton(file, stem, isThawSkin);
-
-                    if (skeleton != null)
-                    {
-                        var useSkinnedExport = true;
-                        if (isThawSkin)
-                        {
-                            var transferred = ThawPs2SkinningTransfer.TryApplyFromCompanion(scene, file, skeleton);
-                            if (transferred is { SkinnedVertexCount: > 0 })
-                            {
-                                scene = transferred.Scene;
-                            }
-                            else
-                            {
-                                useSkinnedExport = false;
-                                if (verbose)
-                                    AnsiConsole.MarkupLine(
-                                        $"  {filename}: [yellow]skeleton found but no THAW PC skin weights were discovered; exporting rigid[/]");
-                            }
-                        }
-
-                        tris = useSkinnedExport
-                            ? Ps2SceneGltfWriter.WriteSkinned(scene, skeleton, outputPath, provider)
-                            : Ps2SceneGltfWriter.Write(scene, outputPath, provider);
-                        if (useSkinnedExport && tris > 0) skinnedCount++;
-                    }
-                    else
-                    {
-                        tris = Ps2SceneGltfWriter.Write(scene, outputPath, provider);
-                    }
-                }
-
-                if (tris == 0)
-                {
-                    skipped++;
-                    if (verbose)
-                        AnsiConsole.MarkupLine($"  {filename}: [yellow]empty (0 triangles)[/]");
-                    continue;
-                }
-
-                totalTriangles += tris;
-                converted++;
-
-                if (provider != null)
-                    texturedCount++;
-
-                if (verbose)
-                {
-                    var texInfo = provider != null ? ", textured" : "";
-                    AnsiConsole.MarkupLine(
-                        $"  {filename}: [green]{tris:N0} triangles{texInfo}[/]");
-                }
-            }
-            catch (Exception ex)
-            {
-                failed++;
-                if (verbose)
-                    AnsiConsole.MarkupLine($"  {filename}: [red]{ex.Message.EscapeMarkup()}[/]");
-            }
-        }
-
-        stopwatch.Stop();
-        var texMsg = texturedCount > 0 ? $", {texturedCount} textured" : "";
-        var skelMsg = skinnedCount > 0 ? $", {skinnedCount} skinned" : "";
-        var skipMsg = skipped > 0 ? $", {skipped} empty" : "";
-        AnsiConsole.MarkupLine(
-            $"Converted [green]{converted}[/]/{files.Count} files " +
-            $"({totalTriangles:N0} triangles, {failed} failed{skipMsg}{texMsg}{skelMsg}) " +
-            $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
-
-        return 0;
-    }
-
-    /// <summary>
-    ///     Auto-discover a companion skeleton file for a .skin.ps2 file.
-    ///     Searches: same directory → sibling SKE/ → ancestor walk (Skeletons/, SKE/).
-    ///     Tries .ske.ps2 first (PS2-specific), then .ske (cross-platform, used by THPS4).
-    /// </summary>
-    private static Ps2Skeleton? TryDiscoverSkeleton(string skinFile, string stem, bool isThawSkin)
-    {
-        var skeFile = ThawSkeletonDiscovery.FindSkeletonPath(
-            skinFile,
-            stem,
-            isThawSkin);
-        if (skeFile == null) return null;
-
-        try
-        {
-            return ParseSkeletonFile(skeFile);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    ///     Parse a skeleton file, routing to the correct parser based on extension.
-    /// </summary>
-    private static Ps2Skeleton ParseSkeletonFile(string path)
-    {
-        if (path.EndsWith(".ske.ps2", StringComparison.OrdinalIgnoreCase))
-            return Ps2SkeletonFile.Parse(path);
-
-        // Cross-platform .ske format (THPS4/THUG/THUG2)
-        return SkeletonFile.Parse(path);
+        return MeshExportCliOptions.ExportFiles(
+            files,
+            output,
+            ModelSourceKind.Ps2Scene,
+            format,
+            blenderHelperPath,
+            verbose,
+            cancellationToken,
+            file => MeshExportCliOptions.StripKnownExtension(file, Ps2SceneFile.SupportedExtensions),
+            MeshExportCliOptions.DetectPs2SceneSubFormat,
+            texturePath: texPath,
+            skeletonPath: skePath);
     }
 
     private static bool IsPs2SceneFile(string path)

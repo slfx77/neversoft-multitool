@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Geom;
@@ -24,9 +25,10 @@ public sealed class Ps2GeomGsContextScanTests
             new Ps2GeomGsContext
             {
                 Alpha1 = 0xAAAA,
-                Test1 = 0xBBBB
+                Test1 = 0xBBBB,
+                Frame1 = 0xCCCC
             },
-            GsRegisterMask.Alpha1 | GsRegisterMask.Test1);
+            GsRegisterMask.Alpha1 | GsRegisterMask.Test1 | GsRegisterMask.Frame1);
 
         var merged = scan.MergeWith(inherited);
 
@@ -37,6 +39,7 @@ public sealed class Ps2GeomGsContextScanTests
         Assert.Equal(inherited.Clamp1, merged.Clamp1);
         Assert.Equal(0xAAAAUL, merged.Alpha1);
         Assert.Equal(0xBBBBUL, merged.Test1);
+        Assert.Equal(0xCCCCUL, merged.Frame1);
     }
 
     [Fact]
@@ -53,6 +56,20 @@ public sealed class Ps2GeomGsContextScanTests
         Assert.Equal(inherited.Clamp1, merged.Clamp1);
         Assert.Equal(inherited.Alpha1, merged.Alpha1);
         Assert.Equal(inherited.Test1, merged.Test1);
+        Assert.Equal(inherited.Frame1, merged.Frame1);
+    }
+
+    [Fact]
+    public void ScanBatchForGsContext_CapturesFrame1Register()
+    {
+        const ulong frame = 0xFF000000000A0000;
+        var data = MakeGifRegisterBlock(reg: 0x4C, value: frame);
+
+        var scan = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(data, 0, data.Length);
+
+        Assert.True(scan.HasValue);
+        Assert.True((scan.Value.Present & GsRegisterMask.Frame1) != 0);
+        Assert.Equal(frame, scan.Value.Context.Frame1);
     }
 
     private static Ps2GeomGsContext MakeInheritedContext() => new()
@@ -63,6 +80,20 @@ public sealed class Ps2GeomGsContextScanTests
         MipTbp2 = 0x40,
         Clamp1 = 0x50,
         Alpha1 = 0x60,
-        Test1 = 0x70
+        Test1 = 0x70,
+        Frame1 = 0x80
     };
+
+    private static byte[] MakeGifRegisterBlock(uint reg, ulong value)
+    {
+        var data = new byte[36];
+        data[2] = 1;
+        data[3] = 0x6C;
+        data[22] = 1;
+        data[23] = 0x68;
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(24), (uint)value);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(28), (uint)(value >> 32));
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(32), reg);
+        return data;
+    }
 }

@@ -1,5 +1,6 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Animation;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using SharpGLTF.Geometry;
@@ -24,18 +25,12 @@ using VERTEX = VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexE
 public static class Ps2SceneGltfWriter
 {
     /// <summary>
-    ///     Delegate that resolves a texture checksum to PNG bytes for embedding in glTF.
-    ///     Returns null if the texture cannot be resolved.
-    /// </summary>
-    public delegate byte[]? TextureProvider(uint textureChecksum);
-
-    /// <summary>
     ///     Minimum FIX value (0-128 scale) at or above which FixBlend materials are treated
     ///     as OPAQUE instead of BLEND. 96/128 = 75% opacity. High-FIX materials are nearly
     ///     opaque; marking them BLEND causes z-sorting artifacts in glTF viewers that don't
     ///     depth-sort transparent geometry.
     /// </summary>
-    internal const int FixBlendOpaqueThreshold = 96;
+    internal const int FixBlendOpaqueThreshold = Ps2SceneRenderSemantics.FixBlendOpaqueThreshold;
 
     /// <summary>
     ///     Writes a parsed PS2 scene to a .glb file.
@@ -45,7 +40,7 @@ public static class Ps2SceneGltfWriter
     /// <param name="textureProvider">Optional callback to resolve texture checksums to PNG bytes.</param>
     /// <returns>Total number of triangles written.</returns>
     public static int Write(Ps2Scene ps2Scene, string outputPath,
-        TextureProvider? textureProvider = null)
+        MeshChecksumTextureResolver? textureProvider = null)
     {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
@@ -59,7 +54,7 @@ public static class Ps2SceneGltfWriter
     }
 
     internal static (ModelRoot Model, int Triangles) Build(Ps2Scene ps2Scene,
-        TextureProvider? textureProvider = null)
+        MeshChecksumTextureResolver? textureProvider = null)
     {
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<uint, MaterialBuilder?>();
@@ -100,7 +95,7 @@ public static class Ps2SceneGltfWriter
     ///     Creates bone hierarchy, JOINTS_0/WEIGHTS_0 vertex attributes, and inverse bind matrices.
     /// </summary>
     public static int WriteSkinned(Ps2Scene ps2Scene, Ps2Skeleton skeleton, string outputPath,
-        TextureProvider? textureProvider = null)
+        MeshChecksumTextureResolver? textureProvider = null)
     {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
@@ -120,7 +115,7 @@ public static class Ps2SceneGltfWriter
     /// </summary>
     internal static int WriteSkinnedAnimated(Ps2Scene ps2Scene, Ps2Skeleton skeleton,
         IReadOnlyList<(string Name, SkaAnimation Animation)> animations,
-        string outputPath, TextureProvider? textureProvider = null)
+        string outputPath, MeshChecksumTextureResolver? textureProvider = null)
     {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
@@ -138,7 +133,7 @@ public static class Ps2SceneGltfWriter
     /// </summary>
     internal static int WriteSkinnedAnimated(Ps2Scene ps2Scene, Ps2Skeleton skeleton,
         SkaAnimation animation, string outputPath, string? animationName = null,
-        TextureProvider? textureProvider = null)
+        MeshChecksumTextureResolver? textureProvider = null)
     {
         var name = animationName ?? "animation";
         return WriteSkinnedAnimated(ps2Scene, skeleton, [(name, animation)], outputPath, textureProvider);
@@ -149,7 +144,7 @@ public static class Ps2SceneGltfWriter
     /// </summary>
     internal static (ModelRoot Model, int Triangles) BuildSkinnedAnimated(
         Ps2Scene ps2Scene, Ps2Skeleton skeleton, SkaAnimation animation,
-        string? animationName = null, TextureProvider? textureProvider = null)
+        string? animationName = null, MeshChecksumTextureResolver? textureProvider = null)
     {
         var name = animationName ?? "animation";
         return BuildSkinnedAnimated(ps2Scene, skeleton, [(name, animation)], textureProvider);
@@ -158,7 +153,7 @@ public static class Ps2SceneGltfWriter
     internal static (ModelRoot Model, int Triangles) BuildSkinnedAnimated(
         Ps2Scene ps2Scene, Ps2Skeleton skeleton,
         IReadOnlyList<(string Name, SkaAnimation Animation)> animations,
-        TextureProvider? textureProvider = null)
+        MeshChecksumTextureResolver? textureProvider = null)
     {
         if (animations.Count == 0)
             throw new ArgumentException("At least one animation required", nameof(animations));
@@ -208,7 +203,7 @@ public static class Ps2SceneGltfWriter
     }
 
     internal static (ModelRoot Model, int Triangles) BuildSkinned(Ps2Scene ps2Scene,
-        Ps2Skeleton skeleton, TextureProvider? textureProvider = null)
+        Ps2Skeleton skeleton, MeshChecksumTextureResolver? textureProvider = null)
     {
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<uint, MaterialBuilder?>();
@@ -273,7 +268,8 @@ public static class Ps2SceneGltfWriter
         HashSet<(Vector3, Vector3, Vector3)>? dedup = null,
         float maxTriangleEdgeLength = float.PositiveInfinity,
         bool resetOnRestart = false,
-        bool preserveVertexAlpha = true)
+        bool preserveVertexAlpha = true,
+        bool bakeVertexColorsToWhite = false)
     {
         var count = 0;
         var stripStart = 0;
@@ -307,18 +303,18 @@ public static class Ps2SceneGltfWriter
                 pa = verts[i - 2];
                 pb = verts[i - 1];
                 pc = verts[i];
-                va = MakeVertex(verts[i - 2], preserveVertexAlpha);
-                vb = MakeVertex(verts[i - 1], preserveVertexAlpha);
-                vc = MakeVertex(verts[i], preserveVertexAlpha);
+                va = MakeVertex(verts[i - 2], preserveVertexAlpha, bakeVertexColorsToWhite);
+                vb = MakeVertex(verts[i - 1], preserveVertexAlpha, bakeVertexColorsToWhite);
+                vc = MakeVertex(verts[i], preserveVertexAlpha, bakeVertexColorsToWhite);
             }
             else
             {
                 pa = verts[i - 1];
                 pb = verts[i - 2];
                 pc = verts[i];
-                va = MakeVertex(verts[i - 1], preserveVertexAlpha);
-                vb = MakeVertex(verts[i - 2], preserveVertexAlpha);
-                vc = MakeVertex(verts[i], preserveVertexAlpha);
+                va = MakeVertex(verts[i - 1], preserveVertexAlpha, bakeVertexColorsToWhite);
+                vb = MakeVertex(verts[i - 2], preserveVertexAlpha, bakeVertexColorsToWhite);
+                vc = MakeVertex(verts[i], preserveVertexAlpha, bakeVertexColorsToWhite);
             }
 
             if (IsDegenerate(pa, pb, pc))
@@ -373,7 +369,7 @@ public static class Ps2SceneGltfWriter
         Ps2Mesh mesh,
         List<Ps2Material> materials,
         Dictionary<uint, MaterialBuilder?> materialCache,
-        TextureProvider? textureProvider,
+        MeshChecksumTextureResolver? textureProvider,
         out int triangleCount,
         HashSet<(Vector3, Vector3, Vector3)>? dedup = null)
     {
@@ -406,7 +402,8 @@ public static class Ps2SceneGltfWriter
         return cross.LengthSquared() <= epsilon;
     }
 
-    private static VERTEX MakeVertex(Ps2Vertex v, bool preserveVertexAlpha = true)
+    private static VERTEX MakeVertex(Ps2Vertex v, bool preserveVertexAlpha = true,
+        bool bakeVertexColorsToWhite = false)
     {
         var pos = v.Position;
         var normal = Vector3.UnitY;
@@ -416,13 +413,18 @@ public static class Ps2SceneGltfWriter
             normal = len > 0.001f ? v.Normal / len : Vector3.UnitY;
         }
 
-        // Vertex colors: PS2 uses 0-128 range (128 = full bright), divide by 128
-        var r = Math.Min(v.R / 128f, 1f);
-        var g = Math.Min(v.G / 128f, 1f);
-        var b = Math.Min(v.B / 128f, 1f);
-        var a = preserveVertexAlpha
-            ? Math.Min(v.A / 128f, 1f)
-            : 1f;
+        // Vertex colors: PS2 uses 0-128 range (128 = full bright), divide by 128.
+        // When bakeVertexColorsToWhite is set, the per-leaf vertex tint has been
+        // pre-modulated into the texture in 8-bit display space (matching PS2's
+        // flat math), so we emit (1,1,1,1) here to avoid double-modulation.
+        var r = bakeVertexColorsToWhite ? 1f : Math.Min(v.R / 128f, 1f);
+        var g = bakeVertexColorsToWhite ? 1f : Math.Min(v.G / 128f, 1f);
+        var b = bakeVertexColorsToWhite ? 1f : Math.Min(v.B / 128f, 1f);
+        var a = bakeVertexColorsToWhite
+            ? 1f
+            : preserveVertexAlpha
+                ? Math.Min(v.A / 128f, 1f)
+                : 1f;
 
         // UV: flip V. PS2 GS samples bottom-up but our TEX pipeline flips
         // pixel data to top-down PNGs; mesh UVs remain in bottom-up space.
@@ -437,7 +439,7 @@ public static class Ps2SceneGltfWriter
         List<Ps2Material> materials,
         uint matChecksum,
         Dictionary<uint, MaterialBuilder?> cache,
-        TextureProvider? textureProvider)
+        MeshChecksumTextureResolver? textureProvider)
     {
         if (cache.TryGetValue(matChecksum, out var existing))
             return existing;
@@ -472,7 +474,7 @@ public static class Ps2SceneGltfWriter
     private enum TextureResult { None, Embedded, Placeholder }
 
     private static TextureResult TryEmbedTexture(
-        MaterialBuilder builder, Ps2Material mat, TextureProvider textureProvider)
+        MaterialBuilder builder, Ps2Material mat, MeshChecksumTextureResolver textureProvider)
     {
         var pngBytes = textureProvider(mat.TextureChecksum);
         if (pngBytes == null)

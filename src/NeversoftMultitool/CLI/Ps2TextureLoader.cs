@@ -1,7 +1,6 @@
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.BinaryIO;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
@@ -170,8 +169,8 @@ internal static class Ps2TextureLoader
     /// </summary>
     public static bool TryBuildZoneTexProviders(
         string? texPath,
-        out Ps2SceneGltfWriter.TextureProvider? textureProvider,
-        out Ps2GeomGltfWriter.Tex0Resolver? tex0Resolver,
+        out MeshChecksumTextureResolver? textureProvider,
+        out Ps2Tex0ChecksumResolver? tex0Resolver,
         bool verbose)
     {
         Action<string>? log = verbose

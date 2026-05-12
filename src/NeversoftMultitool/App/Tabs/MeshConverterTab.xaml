@@ -25,7 +25,7 @@
           Text="Mesh Conversion"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Convert mesh files to glTF (.glb)"
+          Text="Convert mesh files to glTF (.glb) or Blender (.blend)"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>
@@ -236,6 +236,7 @@
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="Auto" />
@@ -276,9 +277,21 @@
               Click="OutputBrowse_Click" />
 
       <TextBlock Grid.Row="2" Grid.Column="0"
+                 Text="Format:"
+                 Style="{StaticResource IoLabelStyle}" />
+      <ComboBox x:Name="OutputFormatCombo"
+                Grid.Row="2" Grid.Column="1"
+                Width="120"
+                SelectedIndex="0">
+        <ComboBoxItem Content="GLB" Tag="glb" />
+        <ComboBoxItem Content="BLEND" Tag="blend" />
+        <ComboBoxItem Content="Both" Tag="both" />
+      </ComboBox>
+
+      <TextBlock Grid.Row="3" Grid.Column="0"
                  Text="Worldzone:"
                  Style="{StaticResource IoLabelStyle}" />
-      <StackPanel Grid.Row="2" Grid.Column="1"
+      <StackPanel Grid.Row="3" Grid.Column="1"
                   Orientation="Horizontal"
                   Spacing="8">
         <TextBlock Text="Time"

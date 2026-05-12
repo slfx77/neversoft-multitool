@@ -16,7 +16,7 @@ internal static class GltfLightWriter
     internal static List<LitLight>? FindAndParseLitFile(string levelName, string? searchDir)
     {
         if (string.IsNullOrEmpty(searchDir)) return null;
-        var litPath = GltfTextureHelper.FindCompanionFile(searchDir, levelName, ".lit");
+        var litPath = MeshTextureHelper.FindCompanionFile(searchDir, levelName, ".lit");
         if (litPath == null) return null;
         try
         {

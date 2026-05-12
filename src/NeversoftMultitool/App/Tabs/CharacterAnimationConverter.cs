@@ -1,5 +1,6 @@
 using NeversoftMultitool.CLI;
 using NeversoftMultitool.Core.Formats.Animation;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
@@ -250,7 +251,7 @@ internal static class CharacterAnimationConverter
         return new Result(WriteGlbToMemory(model), triangles, null);
     }
 
-    private static PsxGltfWriter.TextureProvider? BuildPsxTextureProvider(MeshFileEntry character)
+    private static MeshChecksumTextureResolver? BuildPsxTextureProvider(MeshFileEntry character)
     {
         var fsPath = character.Source.FileSystemPath;
         return fsPath == null ? null : PsxTextureProviderFactory.FromFile(fsPath);
@@ -306,7 +307,7 @@ internal static class CharacterAnimationConverter
         }
     }
 
-    private static RwDffGltfWriter.TextureProvider? BuildRwDffTextureProvider(MeshFileEntry character)
+    private static MeshNamedTextureResolver? BuildRwDffTextureProvider(MeshFileEntry character)
     {
         // RW DFF textures live in companion .tex files. Reuse the existing helper
         // that handles both filesystem and archive sources.

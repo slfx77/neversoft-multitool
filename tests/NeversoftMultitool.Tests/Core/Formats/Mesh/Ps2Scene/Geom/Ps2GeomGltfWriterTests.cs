@@ -571,6 +571,47 @@ public sealed class Ps2GeomGltfWriterTests
     }
 
     [Fact]
+    public void Write_DestinationAlphaLayerIgnoresSourceAlphaWhenAlphaTestPasses()
+    {
+        const uint maskChecksum = 0x11112222;
+        const uint layerChecksum = 0x33334444;
+        var maskLeaf = MakeTexturedLeaf(maskChecksum, isBillboard: false);
+        var layerLeaf = MakeTexturedLeaf(
+            layerChecksum,
+            isBillboard: false,
+            alpha1: 0x54,
+            test1: MakeTest(atst: 5, aref: 0));
+        var geom = new Ps2GeomScene { Leaves = [maskLeaf, layerLeaf] };
+        var maskPng = MakeUniformAlphaMaskPng(192);
+        var layerPng = MakeSolidPng(new Rgba32(0, 64, 255, 64));
+        var tempDir = Path.Combine(Path.GetTempPath(), "NsMultitool_Test_Ps2Geom_" + Guid.NewGuid().ToString("N")[..8]);
+
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var outputFile = Path.Combine(tempDir, "geom_dest_alpha_source_alpha_ignored.glb");
+
+            var triangles = Ps2GeomGltfWriter.Write(geom, outputFile,
+                checksum => checksum switch
+                {
+                    maskChecksum => maskPng,
+                    layerChecksum => layerPng,
+                    _ => null
+                });
+
+            var firstPixels = ReadEmbeddedImageFirstPixels(outputFile);
+            Assert.Equal(4, triangles);
+            Assert.Contains(firstPixels, p => p.R == 0 && p.G == 64 && p.B == 255 && p.A == 192);
+            Assert.DoesNotContain(firstPixels, p => p.R == 0 && p.G == 64 && p.B == 255 && p.A == 48);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void Write_DestinationAlphaLayerFindsLaterCoplanarMask()
     {
         const uint maskChecksum = 0x11112222;
@@ -996,6 +1037,12 @@ public sealed class Ps2GeomGltfWriterTests
             DmaTest1 = 0
         };
     }
+
+    private static ulong MakeTest(int atst, int aref, int afail = 0) =>
+        0x1UL |
+        ((ulong)(atst & 0x7) << 1) |
+        ((ulong)(aref & 0xFF) << 4) |
+        ((ulong)(afail & 0x3) << 12);
 
     private static Ps2GeomLeaf MakeTexturedQuadLeaf(
         uint textureChecksum,

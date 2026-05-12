@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Materials;
 using SharpGLTF.Memory;
 
@@ -9,7 +10,7 @@ using AlphaMode = AlphaMode;
 
 internal static class PsxGltfMaterialFactory
 {
-    internal static PsxGltfMaterialContext CreateContext(PsxGltfWriter.TextureProvider? textureProvider)
+    internal static PsxGltfMaterialContext CreateContext(MeshChecksumTextureResolver? textureProvider)
     {
         return new PsxGltfMaterialContext(textureProvider);
     }
@@ -54,10 +55,10 @@ internal static class PsxGltfMaterialFactory
             var pngBytes = materials.TextureProvider(textureHash);
             if (pngBytes != null)
             {
-                var (processedPngBytes, hasAlpha) = GltfTextureHelper.ApplyColorKey(pngBytes);
+                var (processedPngBytes, hasAlpha) = MeshTextureHelper.ApplyColorKey(pngBytes);
                 if (isSemiTransparent)
                 {
-                    processedPngBytes = GltfTextureHelper.ConvertLuminanceToAlpha(processedPngBytes);
+                    processedPngBytes = MeshTextureHelper.ConvertLuminanceToAlpha(processedPngBytes);
                     hasAlpha = true;
                 }
 

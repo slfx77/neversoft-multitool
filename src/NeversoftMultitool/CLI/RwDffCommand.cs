@@ -1,8 +1,5 @@
 using System.CommandLine;
-using System.Diagnostics;
-using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Core.Formats.Texture.RenderWare;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -28,12 +25,16 @@ public static class RwDffCommand
         {
             Description = "Enable verbose output"
         };
+        var formatOption = MeshExportCliOptions.CreateFormatOption();
+        var blenderHelperOption = MeshExportCliOptions.CreateBlenderHelperOption();
 
-        var command = new Command("rwdff", "Convert RenderWare DFF mesh files (.SKN) to glTF (.glb)");
+        var command = new Command("rwdff", "Convert RenderWare DFF mesh files (.SKN) to glTF (.glb) or Blender (.blend)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(texPathOption);
         command.Options.Add(verboseOption);
+        command.Options.Add(formatOption);
+        command.Options.Add(blenderHelperOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -41,15 +42,19 @@ public static class RwDffCommand
             var output = parseResult.GetValue(outputOption)!;
             var texPath = parseResult.GetValue(texPathOption);
             var verbose = parseResult.GetValue(verboseOption);
+            if (!MeshExportCliOptions.ValidateFormat(parseResult.GetValue(formatOption), out var format))
+                return Task.FromResult(1);
+            var blenderHelper = parseResult.GetValue(blenderHelperOption);
 
-            return Task.FromResult(Execute(input, output, texPath, verbose));
+            return Task.FromResult(Execute(input, output, texPath, verbose, format, blenderHelper, cancellationToken));
         });
 
         return command;
     }
 
     private static int Execute(string input, string output,
-        string? texPath, bool verbose)
+        string? texPath, bool verbose, MeshOutputFormat format, string? blenderHelperPath,
+        CancellationToken cancellationToken)
     {
         List<string> files;
 
@@ -76,136 +81,15 @@ public static class RwDffCommand
         }
 
         AnsiConsole.MarkupLine($"Found [green]{files.Count}[/] DFF file(s)");
-
-        // Build texture cache if requested
-        var textureCaches = new Dictionary<string, RwDffGltfWriter.TextureProvider>(
-            StringComparer.OrdinalIgnoreCase);
-
-        var stopwatch = Stopwatch.StartNew();
-        var totalTriangles = 0;
-        var converted = 0;
-        var failed = 0;
-
-        foreach (var file in files)
-        {
-            var fileName = Path.GetFileName(file);
-            var stem = Path.GetFileNameWithoutExtension(file);
-
-            try
-            {
-                var data = File.ReadAllBytes(file);
-                if (!RwDffFile.IsDffFile(data))
-                {
-                    if (verbose)
-                        AnsiConsole.MarkupLine($"  {fileName}: [yellow]Not a DFF file[/]");
-                    continue;
-                }
-
-                var clump = RwDffFile.Parse(data);
-
-                // Resolve texture provider for this file
-                RwDffGltfWriter.TextureProvider? textureProvider = null;
-                textureProvider = GetTextureProvider(file, texPath, textureCaches, verbose);
-
-                var outputFile = Path.Combine(output, stem + ".glb");
-                var triangles = RwDffGltfWriter.Write(clump, outputFile, textureProvider);
-
-                totalTriangles += triangles;
-                converted++;
-
-                if (verbose)
-                {
-                    var geomCount = clump.Geometries.Length;
-                    var matCount = clump.Geometries.Sum(g => g.Materials.Length);
-                    AnsiConsole.MarkupLine(
-                        $"  {fileName}: [green]{triangles:N0}[/] tris, " +
-                        $"{geomCount} geom, {matCount} mat");
-                }
-            }
-            catch (Exception ex)
-            {
-                failed++;
-                if (verbose)
-                    AnsiConsole.WriteException(ex);
-                AnsiConsole.MarkupLine(
-                    $"  {fileName}: [red]{ex.Message.EscapeMarkup()}[/]");
-            }
-        }
-
-        stopwatch.Stop();
-        AnsiConsole.MarkupLine(
-            $"\nConverted [green]{converted}[/] files ({totalTriangles:N0} triangles) " +
-            $"in {stopwatch.Elapsed.TotalSeconds:F2}s" +
-            (failed > 0 ? $", [red]{failed} failed[/]" : ""));
-
-        return failed > 0 ? 1 : 0;
-    }
-
-    private static RwDffGltfWriter.TextureProvider? GetTextureProvider(
-        string dffFile, string? texPath,
-        Dictionary<string, RwDffGltfWriter.TextureProvider> cache, bool verbose)
-    {
-        // Determine which TEX file to use
-        string? texFile;
-        if (texPath != null)
-        {
-            // Explicit path: use it directly or find matching file in directory
-            if (File.Exists(texPath))
-            {
-                texFile = texPath;
-            }
-            else if (Directory.Exists(texPath))
-            {
-                var stem = Path.GetFileNameWithoutExtension(dffFile);
-                texFile = CompanionSearch.FindCompanion(texPath, stem, [".tex"], ["TEX", "Textures"]);
-            }
-            else
-            {
-                return null;
-            }
-        }
-        else
-        {
-            // Auto-discover companion .tex file
-            var dir = Path.GetDirectoryName(dffFile);
-            if (dir == null) return null;
-            var stem = Path.GetFileNameWithoutExtension(dffFile);
-            texFile = CompanionSearch.FindCompanion(dir, stem, [".tex"], ["TEX", "Textures"]);
-        }
-
-        if (texFile == null) return null;
-
-        // Check cache
-        if (cache.TryGetValue(texFile, out var existing))
-            return existing;
-
-        // Parse the TXD file
-        try
-        {
-            var txdResult = RwTxdFile.Parse(texFile);
-            if (!txdResult.Success)
-            {
-                if (verbose)
-                    AnsiConsole.MarkupLine($"  TEX {Path.GetFileName(texFile)}: [yellow]Parse failed[/]");
-                return null;
-            }
-
-            var provider = RwDffGltfWriter.BuildTxdTextureProvider(txdResult);
-            cache[texFile] = provider;
-
-            if (verbose)
-                AnsiConsole.MarkupLine(
-                    $"  Loaded [green]{txdResult.Textures.Count}[/] textures from {Path.GetFileName(texFile)}");
-
-            return provider;
-        }
-        catch (Exception ex)
-        {
-            if (verbose)
-                AnsiConsole.MarkupLine(
-                    $"  TEX {Path.GetFileName(texFile)}: [yellow]{ex.Message.EscapeMarkup()}[/]");
-            return null;
-        }
+        return MeshExportCliOptions.ExportFiles(
+            files,
+            output,
+            ModelSourceKind.RenderWareDff,
+            format,
+            blenderHelperPath,
+            verbose,
+            cancellationToken,
+            texturePath: texPath);
     }
 
     private static bool IsDffFile(string path)

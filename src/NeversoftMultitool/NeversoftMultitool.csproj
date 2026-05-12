@@ -49,6 +49,12 @@
     <EmbeddedResource Include="Core\QbKey\QbKeyNames.ThawGcTextures.txt" LogicalName="QbKeyNames.ThawGcTextures.txt" />
   </ItemGroup>
 
+  <!-- Blender export helper script. Blender binaries, when distributed, live beside this folder. -->
+  <ItemGroup>
+    <Content Include="BlenderExporter\import_package.py" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="BlenderExporter\LICENSE_NOTICE.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- Shared packages -->
   <ItemGroup>
     <PackageReference Include="Pfim" Version="0.11.2" />

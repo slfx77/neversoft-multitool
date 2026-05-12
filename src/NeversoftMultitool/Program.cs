@@ -46,23 +46,22 @@ public static class Program
         rootCommand.Subcommands.Add(SfdCommand.Create());
         rootCommand.Subcommands.Add(VidCommand.Create());
         rootCommand.Subcommands.Add(StrCommand.Create());
+        rootCommand.Subcommands.Add(MeshCommand.Create());
         rootCommand.Subcommands.Add(PsxMeshCommand.Create());
         rootCommand.Subcommands.Add(PsxMeshDumpCommand.Create());
         rootCommand.Subcommands.Add(PsxAnimDumpCommand.Create());
         rootCommand.Subcommands.Add(PsxAnimExportCommand.Create());
         rootCommand.Subcommands.Add(PsxAnimSurveyCommand.Create());
         rootCommand.Subcommands.Add(Ps2TexCommand.Create());
-        rootCommand.Subcommands.Add(Ps2SceneCommand.Create());
-        rootCommand.Subcommands.Add(Ps2GeomCommand.Create());
         rootCommand.Subcommands.Add(RwDffCommand.Create());
         rootCommand.Subcommands.Add(RwBspCommand.Create());
         rootCommand.Subcommands.Add(ColCommand.Create());
         rootCommand.Subcommands.Add(XbxTexCommand.Create());
-        rootCommand.Subcommands.Add(XbxSceneCommand.Create());
         rootCommand.Subcommands.Add(UnpackCommand.Create());
         rootCommand.Subcommands.Add(QbCommand.Create());
         rootCommand.Subcommands.Add(GlbRenderCommand.Create());
         rootCommand.Subcommands.Add(GlbGifCommand.Create());
+        rootCommand.Subcommands.Add(GsDumpCommand.Create());
         rootCommand.Subcommands.Add(SkaCommand.Create());
 
         return rootCommand.Parse(args).Invoke();
@@ -112,20 +111,19 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]sfd[/]       Convert SFD (Sofdec) video files to MP4");
         AnsiConsole.MarkupLine("  [green]vid[/]       Convert THAW GameCube VID1 video files to MP4");
         AnsiConsole.MarkupLine("  [green]str[/]       Convert PS1 STR (MDEC) video files to MP4");
+        AnsiConsole.MarkupLine("  [green]mesh[/]      Auto-detect and convert supported mesh files to glTF (.glb) or Blender (.blend)");
         AnsiConsole.MarkupLine("  [green]psx-mesh[/]  Convert PSX model files to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]psx-mesh-dump[/] Dump PSX mesh parse diagnostics to JSON");
         AnsiConsole.MarkupLine("  [green]ps2tex[/]    Extract textures from PS2 TEX/IMG files to PNG");
-        AnsiConsole.MarkupLine("  [green]ps2scene[/]  Convert PS2 scene files (MDL/SKIN) to glTF (.glb)");
-        AnsiConsole.MarkupLine("  [green]ps2geom[/]   Convert PS2 GEOM level geometry to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]rwdff[/]     Convert RenderWare DFF mesh files (.SKN) to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]rwbsp[/]     Convert RenderWare BSP level files to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]col[/]       Convert collision (.col) files to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]xbxtex[/]    Extract textures from Xbox/PC TEX/IMG files to PNG");
-        AnsiConsole.MarkupLine("  [green]xbxscene[/]  Convert Xbox/PC scene files (SKIN/MDL) to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]unpack[/]    Recursively extract all archives in-place");
         AnsiConsole.MarkupLine("  [green]qb[/]        Decompile QB compiled script files to source text");
         AnsiConsole.MarkupLine("  [green]glb-render[/] Render .glb files to .png images");
         AnsiConsole.MarkupLine("  [green]glb-gif[/]    Render animated .glb files to .gif images");
+        AnsiConsole.MarkupLine("  [green]gsdump[/]     Audit raw PCSX2 GS dumps and compare to screenshot PNGs");
 #if WINDOWS_GUI
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]For GUI mode:[/]");
@@ -151,20 +149,19 @@ public static class Program
             args.Any(a => a.Equals("sfd", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("vid", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("str", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("mesh", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("psx-mesh", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("psx-mesh-dump", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("psx-anim-export", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("psx-anim-survey", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("psxanim", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("ps2tex", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("ps2scene", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("ps2geom", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("rwdff", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("col", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("xbxtex", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("xbxscene", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("unpack", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("qb", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("gsdump", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("ska", StringComparison.OrdinalIgnoreCase)));
     }
 #endif

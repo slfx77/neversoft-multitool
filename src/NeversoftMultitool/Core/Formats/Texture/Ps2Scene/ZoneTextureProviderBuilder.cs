@@ -1,5 +1,4 @@
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
+using NeversoftMultitool.Core.Formats.Mesh;
 
 namespace NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 
@@ -48,8 +47,8 @@ public static class ZoneTextureProviderBuilder
     /// </summary>
     public static bool TryBuild(
         string? texPath,
-        out Ps2SceneGltfWriter.TextureProvider? textureProvider,
-        out Ps2GeomGltfWriter.Tex0Resolver? tex0Resolver,
+        out MeshChecksumTextureResolver? textureProvider,
+        out Ps2Tex0ChecksumResolver? tex0Resolver,
         Action<string>? log = null)
     {
         textureProvider = null;
@@ -58,8 +57,8 @@ public static class ZoneTextureProviderBuilder
         if (!ZoneTextureCatalog.TryBuild(texPath, out var catalog, log) || catalog == null)
             return false;
 
-        textureProvider = catalog.CreateTextureProvider();
-        tex0Resolver = catalog.CreateTex0Resolver(texPath);
+        textureProvider = catalog.CreateTextureResolver();
+        tex0Resolver = catalog.CreateTex0ChecksumResolver(texPath);
         return true;
     }
 

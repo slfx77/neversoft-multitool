@@ -1,11 +1,12 @@
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Materials;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 internal sealed class PsxGltfMaterialContext
 {
-    public PsxGltfMaterialContext(PsxGltfWriter.TextureProvider? textureProvider)
+    public PsxGltfMaterialContext(MeshChecksumTextureResolver? textureProvider)
     {
         TextureProvider = textureProvider;
         Untextured = CreateUntexturedMaterial();
@@ -15,7 +16,7 @@ internal sealed class PsxGltfMaterialContext
 
     public Dictionary<uint, (int Width, int Height)> TextureDimensions { get; } = new();
 
-    public PsxGltfWriter.TextureProvider? TextureProvider { get; }
+    public MeshChecksumTextureResolver? TextureProvider { get; }
 
     public MaterialBuilder Untextured { get; }
 

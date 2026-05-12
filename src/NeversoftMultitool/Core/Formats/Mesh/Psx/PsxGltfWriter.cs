@@ -1,5 +1,6 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Animation;
+using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -19,12 +20,6 @@ using SKINNED_VERTEX = VertexBuilder<VertexPositionNormal, VertexColor1Texture1,
 public static class PsxGltfWriter
 {
     /// <summary>
-    ///     Delegate that resolves a texture hash to PNG bytes for embedding in glTF.
-    ///     Returns null if the texture cannot be resolved.
-    /// </summary>
-    public delegate byte[]? TextureProvider(uint textureHash);
-
-    /// <summary>
     ///     Writes a parsed PSX file to a .glb file.
     /// </summary>
     /// <param name="psxFile">Parsed PSX mesh data.</param>
@@ -33,7 +28,7 @@ public static class PsxGltfWriter
     /// <param name="pshFile">Optional parsed PSH file for bone names in hierarchical models.</param>
     /// <returns>Total number of triangles written.</returns>
     public static int Write(PsxMeshFile psxFile, string outputPath,
-        TextureProvider? textureProvider = null, PshFile? pshFile = null)
+        MeshChecksumTextureResolver? textureProvider = null, PshFile? pshFile = null)
     {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
@@ -46,7 +41,7 @@ public static class PsxGltfWriter
     }
 
     internal static (ModelRoot Model, int Triangles) Build(PsxMeshFile psxFile,
-        TextureProvider? textureProvider = null, PshFile? pshFile = null)
+        MeshChecksumTextureResolver? textureProvider = null, PshFile? pshFile = null)
     {
         var scene = new SceneBuilder();
         var materials = PsxGltfMaterialFactory.CreateContext(textureProvider);
@@ -152,7 +147,7 @@ public static class PsxGltfWriter
         PsxMeshFile psxFile,
         IReadOnlyList<(string Name, PsxAnimation Animation)> animations,
         string outputPath,
-        TextureProvider? textureProvider = null,
+        MeshChecksumTextureResolver? textureProvider = null,
         PshFile? pshFile = null,
         PsxAnimationOptions? options = null)
     {
@@ -174,7 +169,7 @@ public static class PsxGltfWriter
     internal static (ModelRoot Model, int Triangles) BuildAnimated(
         PsxMeshFile psxFile,
         IReadOnlyList<(string Name, PsxAnimation Animation)> animations,
-        TextureProvider? textureProvider = null,
+        MeshChecksumTextureResolver? textureProvider = null,
         PshFile? pshFile = null,
         PsxAnimationOptions? options = null)
     {

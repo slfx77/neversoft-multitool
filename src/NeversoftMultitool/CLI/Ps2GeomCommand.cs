@@ -1,10 +1,5 @@
 using System.CommandLine;
-using System.Diagnostics;
-using NeversoftMultitool.Core.BinaryIO;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Texture;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -32,12 +27,16 @@ public static class Ps2GeomCommand
         {
             Description = "Enable verbose output"
         };
+        var formatOption = MeshExportCliOptions.CreateFormatOption();
+        var blenderHelperOption = MeshExportCliOptions.CreateBlenderHelperOption();
 
-        var command = new Command("ps2geom", "Convert PS2 GEOM files (level geometry) to glTF (.glb)");
+        var command = new Command("ps2geom", "Convert PS2 GEOM files (level geometry) to glTF (.glb) or Blender (.blend)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(texPathOption);
         command.Options.Add(verboseOption);
+        command.Options.Add(formatOption);
+        command.Options.Add(blenderHelperOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -45,15 +44,19 @@ public static class Ps2GeomCommand
             var output = parseResult.GetValue(outputOption)!;
             var texPath = parseResult.GetValue(texPathOption);
             var verbose = parseResult.GetValue(verboseOption);
+            if (!MeshExportCliOptions.ValidateFormat(parseResult.GetValue(formatOption), out var format))
+                return Task.FromResult(1);
+            var blenderHelper = parseResult.GetValue(blenderHelperOption);
 
-            return Task.FromResult(Execute(input, output, texPath, verbose));
+            return Task.FromResult(Execute(input, output, texPath, verbose, format, blenderHelper, cancellationToken));
         });
 
         return command;
     }
 
     private static int Execute(string input, string output,
-        string? texPath, bool verbose)
+        string? texPath, bool verbose, MeshOutputFormat format, string? blenderHelperPath,
+        CancellationToken cancellationToken)
     {
         List<string> files;
 
@@ -79,115 +82,17 @@ public static class Ps2GeomCommand
             return 0;
         }
 
-        // Build texture lookup if requested
-        Ps2SceneGltfWriter.TextureProvider? textureProvider = null;
-        Ps2GeomGltfWriter.Tex0Resolver? tex0Resolver = null;
-        Dictionary<uint, Ps2Texture>? textureCache = null;
-
-        textureCache = Ps2TextureLoader.BuildTextureCache(files, texPath, verbose);
-        if (textureCache.Count > 0)
-        {
-            AnsiConsole.MarkupLine(
-                $"Loaded [green]{textureCache.Count}[/] textures for embedding");
-            textureProvider = checksum =>
-            {
-                if (!textureCache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
-                    return null;
-                return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
-            };
-        }
-
-        // Build VRAM mapping for THPS4 (where CGeomNode.texture_checksum is always 0)
-        var vramMapping = Ps2TextureLoader.BuildTex0Mapping(files, texPath, verbose);
-        if (vramMapping.Count > 0)
-        {
-            AnsiConsole.MarkupLine(
-                $"Built VRAM mapping with [green]{vramMapping.Count}[/] entries for TEX0 lookup");
-            tex0Resolver = (dmaTex0, groupChecksum) =>
-            {
-                var key = Ps2VramAllocator.DecodeTex0Key(dmaTex0, groupChecksum);
-                return vramMapping.GetValueOrDefault(key);
-            };
-        }
-
-        Directory.CreateDirectory(output);
         AnsiConsole.MarkupLine($"Found [green]{files.Count}[/] PS2 GEOM file(s)");
-
-        var stopwatch = Stopwatch.StartNew();
-        var converted = 0;
-        var failed = 0;
-        var skipped = 0;
-        var totalTriangles = 0;
-        var texturedCount = 0;
-
-        foreach (var file in files)
-        {
-            var filename = Path.GetFileName(file);
-            var stem = filename;
-            if (stem.EndsWith(Extension, StringComparison.OrdinalIgnoreCase))
-                stem = stem[..^Extension.Length];
-
-            var outputPath = Path.Combine(output, stem + ".glb");
-
-            try
-            {
-                var scene = Ps2GeomFile.Parse(file);
-
-                // Try per-file texture provider
-                var provider = textureProvider;
-                if (provider == null)
-                {
-                    var perFileCache = Ps2TextureLoader.TryLoadCompanionTex(file, stem);
-                    if (perFileCache != null && perFileCache.Count > 0)
-                    {
-                        provider = checksum =>
-                        {
-                            if (!perFileCache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
-                                return null;
-                            return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
-                        };
-                    }
-                }
-
-                var tris = Ps2GeomGltfWriter.Write(scene, outputPath, provider, tex0Resolver);
-                if (tris == 0)
-                {
-                    skipped++;
-                    if (verbose)
-                        AnsiConsole.MarkupLine($"  {filename}: [yellow]empty (0 triangles)[/]");
-                    continue;
-                }
-
-                totalTriangles += tris;
-                converted++;
-
-                if (provider != null)
-                    texturedCount++;
-
-                if (verbose)
-                {
-                    var texInfo = provider != null ? ", textured" : "";
-                    AnsiConsole.MarkupLine(
-                        $"  {filename}: [green]{scene.Leaves.Count} leaves, " +
-                        $"{tris:N0} triangles{texInfo}[/]");
-                }
-            }
-            catch (Exception ex)
-            {
-                failed++;
-                if (verbose)
-                    AnsiConsole.MarkupLine($"  {filename}: [red]{ex.Message.EscapeMarkup()}[/]");
-            }
-        }
-
-        stopwatch.Stop();
-        var texMsg = texturedCount > 0 ? $", {texturedCount} textured" : "";
-        var skipMsg = skipped > 0 ? $", {skipped} empty" : "";
-        AnsiConsole.MarkupLine(
-            $"Converted [green]{converted}[/]/{files.Count} files " +
-            $"({totalTriangles:N0} triangles, {failed} failed{skipMsg}{texMsg}) " +
-            $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
-
-        return 0;
+        return MeshExportCliOptions.ExportFiles(
+            files,
+            output,
+            ModelSourceKind.Ps2Geom,
+            format,
+            blenderHelperPath,
+            verbose,
+            cancellationToken,
+            file => MeshExportCliOptions.StripKnownExtension(file, [Extension]),
+            _ => Ps2SceneSubFormat.Geom,
+            texturePath: texPath);
     }
 }

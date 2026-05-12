@@ -54,7 +54,7 @@ public static class GltfWriter
         DdmFile ddm, string? texturePath = null, string? ddmName = null,
         Dictionary<string, byte[]>? ddxTextures = null, List<LitLight>? lights = null)
     {
-        var textureDirs = GltfTextureHelper.BuildTextureSearchPaths(texturePath, ddmName);
+        var textureDirs = MeshTextureHelper.BuildTextureSearchPaths(texturePath, ddmName);
 
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<string, MaterialBuilder>();
@@ -100,13 +100,13 @@ public static class GltfWriter
         var levelPsx = PsxLayoutFile.Parse(levelPsxPath);
 
         // Load DDX textures for both level and objects
-        var ddxTextures = GltfTextureHelper.LoadDdxTextures(ddxPath, levelName);
+        var ddxTextures = MeshTextureHelper.LoadDdxTextures(ddxPath, levelName);
 
         // Load .lit lights
         var lights = GltfLightWriter.FindAndParseLitFile(levelName, ddxPath)
                      ?? GltfLightWriter.FindAndParseLitFile(levelName, Path.GetDirectoryName(levelDdmPath));
 
-        var textureDirs = GltfTextureHelper.BuildTextureSearchPaths(null, null);
+        var textureDirs = MeshTextureHelper.BuildTextureSearchPaths(null, null);
 
         // Level geometry
         var levelScene = new SceneBuilder();
@@ -258,7 +258,7 @@ public static class GltfWriter
         if ((textureDirs.Count > 0 || ddxTextures?.Count > 0) &&
             !mat.TextureName.Equals("No_Texture_Map", StringComparison.OrdinalIgnoreCase))
         {
-            var loaded = GltfTextureHelper.LoadTexture(textureDirs, mat.TextureName, ddxTextures);
+            var loaded = MeshTextureHelper.LoadTexture(textureDirs, mat.TextureName, ddxTextures);
             if (loaded != null)
             {
                 var pngBytes = loaded.Value.Bytes;
@@ -274,7 +274,7 @@ public static class GltfWriter
                 // and uses luminance only. Existing alpha is used as a multiplier.
                 if (isAdditive)
                 {
-                    pngBytes = GltfTextureHelper.ConvertLuminanceToAlpha(pngBytes);
+                    pngBytes = MeshTextureHelper.ConvertLuminanceToAlpha(pngBytes);
                     hasTextureAlpha = true;
                 }
 

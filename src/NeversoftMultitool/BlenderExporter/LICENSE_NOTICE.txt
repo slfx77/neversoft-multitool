@@ -1,0 +1,11 @@
+NeversoftMultitool Blender Exporter Notice
+
+The helper script in this folder is MIT licensed as part of NeversoftMultitool.
+
+Distributions that include a Blender binary in this folder also include Blender
+under the GNU General Public License. See the Blender project license notice at:
+https://www.blender.org/about/license/
+
+The exporter invokes Blender in background mode with its Python API to import an
+intermediate GLB package, attach native render metadata as custom properties, and
+save a .blend file.

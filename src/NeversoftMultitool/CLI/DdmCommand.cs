@@ -1,8 +1,6 @@
 using System.CommandLine;
 using System.Diagnostics;
-using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Mesh.Ddm;
-using NeversoftMultitool.Core.Formats.Mesh.Lit;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -40,8 +38,10 @@ public static class DdmCommand
         {
             Description = "Path to PSX layout file or directory for placed level assembly"
         };
+        var formatOption = MeshExportCliOptions.CreateFormatOption();
+        var blenderHelperOption = MeshExportCliOptions.CreateBlenderHelperOption();
 
-        var command = new Command("ddm", "Convert DDM mesh files to glTF (.glb)");
+        var command = new Command("ddm", "Convert DDM mesh files to glTF (.glb) or Blender (.blend)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(texturesOption);
@@ -49,6 +49,8 @@ public static class DdmCommand
         command.Options.Add(ddxOption);
         command.Options.Add(allOption);
         command.Options.Add(psxOption);
+        command.Options.Add(formatOption);
+        command.Options.Add(blenderHelperOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -59,16 +61,25 @@ public static class DdmCommand
             var ddx = parseResult.GetValue(ddxOption);
             var all = parseResult.GetValue(allOption);
             var psx = parseResult.GetValue(psxOption);
+            if (!MeshExportCliOptions.ValidateFormat(parseResult.GetValue(formatOption), out var format))
+                return Task.FromResult(1);
+            var blenderHelper = parseResult.GetValue(blenderHelperOption);
 
             if (all)
-                return Task.FromResult(ExecuteAll(input, output, verbose));
-            return Task.FromResult(Execute(input, output, textures, verbose, ddx, psx));
+                return Task.FromResult(ExecuteAll(input, output, verbose, format, blenderHelper, cancellationToken));
+            return Task.FromResult(Execute(input, output, textures, verbose, ddx, psx, format, blenderHelper, cancellationToken));
         });
 
         return command;
     }
 
-    private static int ExecuteAll(string parentDir, string output, bool verbose)
+    private static int ExecuteAll(
+        string parentDir,
+        string output,
+        bool verbose,
+        MeshOutputFormat format,
+        string? blenderHelperPath,
+        CancellationToken cancellationToken)
     {
         if (!Directory.Exists(parentDir))
         {
@@ -98,7 +109,16 @@ public static class DdmCommand
         {
             var name = Path.GetFileName(dir);
             var levelOutput = Path.Combine(output, name);
-            var exitCode = Execute(dir, levelOutput, null, verbose, null);
+            var exitCode = Execute(
+                dir,
+                levelOutput,
+                null,
+                verbose,
+                null,
+                null,
+                format,
+                blenderHelperPath,
+                cancellationToken);
             if (exitCode == 0)
                 totalConverted++;
             else
@@ -115,7 +135,8 @@ public static class DdmCommand
     }
 
     private static int Execute(string input, string output, string? textures, bool verbose,
-        string? ddxPath, string? psxPath = null)
+        string? ddxPath, string? psxPath, MeshOutputFormat format,
+        string? blenderHelperPath, CancellationToken cancellationToken)
     {
         if (!Directory.Exists(input))
         {
@@ -149,35 +170,99 @@ public static class DdmCommand
         AnsiConsole.MarkupLine(
             $"Found [green]{allDdmFiles.Length}[/] DDM file(s){placedInfo}{textureInfo}{ddxInfo}");
 
-        var stopwatch = Stopwatch.StartNew();
-        var totalObjects = 0;
-        var totalTriangles = 0;
+        return ExecuteCoreExport(
+            standaloneDdmFiles,
+            placedLevels,
+            output,
+            verbose,
+            textures,
+            ddxPath,
+            psxPath,
+            format,
+            blenderHelperPath,
+            cancellationToken);
+    }
+
+    private static int ExecuteCoreExport(
+        IReadOnlyList<string> standaloneDdmFiles,
+        IReadOnlyDictionary<string, string> placedLevels,
+        string output,
+        bool verbose,
+        string? texturePath,
+        string? ddxPath,
+        string? psxDir,
+        MeshOutputFormat format,
+        string? blenderHelperPath,
+        CancellationToken cancellationToken)
+    {
         var converted = 0;
+        var failed = 0;
+        var totalTriangles = 0;
 
         foreach (var (ddmFile, levelPsx) in placedLevels)
         {
-            var result = ConvertPlacedLevel(ddmFile, levelPsx, output, verbose, ddxPath, psxPath);
-            totalObjects += result.Objects;
-            totalTriangles += result.Triangles;
-            if (result.Converted) converted++;
+            var name = Path.GetFileNameWithoutExtension(ddmFile);
+            try
+            {
+                var result = MeshExportCliOptions.ExportFile(
+                    ddmFile,
+                    output,
+                    ModelSourceKind.Ddm,
+                    format,
+                    blenderHelperPath,
+                    cancellationToken,
+                    name,
+                    hasPlacedPsxCompanion: true,
+                    ddxPath: ddxPath,
+                    psxPath: psxDir ?? levelPsx,
+                    ddmTexturePath: texturePath);
+                totalTriangles += result.Triangles;
+                converted++;
+                if (verbose)
+                    AnsiConsole.MarkupLine($"  {name}: [green]{result.Triangles:N0} triangles[/]");
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                if (verbose)
+                    AnsiConsole.MarkupLine($"  {name}: [red]error: {ex.Message.EscapeMarkup()}[/]");
+            }
         }
 
         foreach (var file in standaloneDdmFiles)
         {
-            var result = ConvertDdmFile(file, output, textures, verbose, ddxPath);
-            totalObjects += result.Objects;
-            totalTriangles += result.Triangles;
-            if (result.Converted) converted++;
+            var name = Path.GetFileNameWithoutExtension(file);
+            try
+            {
+                var result = MeshExportCliOptions.ExportFile(
+                    file,
+                    output,
+                    ModelSourceKind.Ddm,
+                    format,
+                    blenderHelperPath,
+                    cancellationToken,
+                    name,
+                    ddxPath: ddxPath,
+                    ddmTexturePath: texturePath);
+                totalTriangles += result.Triangles;
+                converted++;
+                if (verbose)
+                    AnsiConsole.MarkupLine($"  {name}: [green]{result.Triangles:N0} triangles[/]");
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                if (verbose)
+                    AnsiConsole.MarkupLine($"  {name}: [red]error: {ex.Message.EscapeMarkup()}[/]");
+            }
         }
 
-        stopwatch.Stop();
-        var totalFileCount = standaloneDdmFiles.Length + placedLevels.Count;
+        var total = standaloneDdmFiles.Count + placedLevels.Count;
         AnsiConsole.MarkupLine(
-            $"Converted [green]{converted}[/]/{totalFileCount} files " +
-            $"({totalObjects:N0} objects, {totalTriangles:N0} triangles) " +
-            $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
-
-        return 0;
+            $"Converted [green]{converted}[/]/{total} files " +
+            $"({totalTriangles:N0} triangles)" +
+            (failed > 0 ? $", [red]{failed} failed[/]" : ""));
+        return failed > 0 ? 1 : 0;
     }
 
     /// <summary>
@@ -222,101 +307,6 @@ public static class DdmCommand
         return (placedLevels, objectStems);
     }
 
-    private static ConvertResult ConvertPlacedLevel(
-        string levelDdmPath, string levelPsxPath, string output, bool verbose,
-        string? ddxPath, string? psxDir)
-    {
-        var ddmName = Path.GetFileNameWithoutExtension(levelDdmPath);
-        var inputDir = Path.GetDirectoryName(levelDdmPath)!;
-
-        try
-        {
-            // Find _o companions (objects DDM + objects PSX)
-            var objectsDdm = FindCompanionFile(inputDir, ddmName + "_o", ".ddm");
-            var objectsPsx = psxDir != null ? FindCompanionFile(psxDir, ddmName + "_o", ".psx") : null;
-
-            var (levelTris, objTris) = GltfWriter.WritePlacedLevel(
-                levelDdmPath, levelPsxPath,
-                objectsDdm, objectsPsx,
-                output, ddmName, ddxPath);
-
-            var totalTriangles = levelTris + objTris;
-
-            if (verbose)
-            {
-                var objInfo = objectsDdm != null ? " + objects" : "";
-                AnsiConsole.MarkupLine(
-                    $"  {ddmName}: [blue]placed level{objInfo}, {totalTriangles:N0} triangles[/]");
-            }
-
-            return new ConvertResult(0, totalTriangles, true);
-        }
-        catch (Exception ex)
-        {
-            if (verbose)
-                AnsiConsole.MarkupLine($"  {ddmName}: [red]error: {ex.Message}[/]");
-            return new ConvertResult(0, 0, false);
-        }
-    }
-
-    private static ConvertResult ConvertDdmFile(
-        string file, string output, string? textures, bool verbose, string? ddxPath)
-    {
-        var filename = Path.GetFileName(file);
-        var ddmName = Path.GetFileNameWithoutExtension(filename);
-
-        try
-        {
-            var ddm = DdmFile.Parse(file);
-
-            // Load DDX textures
-            Dictionary<string, byte[]>? ddxTextures = null;
-            if (!string.IsNullOrEmpty(ddxPath) && Directory.Exists(ddxPath))
-            {
-                var ddx = FindCompanionFile(ddxPath, ddmName, ".ddx");
-                if (ddx != null)
-                    ddxTextures = DdxArchive.ReadAllEntries(ddx);
-            }
-
-            // Load .lit lights (search DDX dir, then input dir)
-            var lights = FindAndParseLitFile(ddmName, ddxPath)
-                         ?? FindAndParseLitFile(ddmName, Path.GetDirectoryName(file));
-
-            var outputFile = Path.Combine(output, ddmName + ".glb");
-            var triangles = GltfWriter.WriteDdm(ddm, outputFile, textures, ddmName, ddxTextures, lights);
-
-            if (verbose)
-            {
-                var lightInfo = lights != null ? $", {lights.Count} lights" : "";
-                AnsiConsole.MarkupLine(
-                    $"  {filename}: [green]{ddm.Objects.Count} objects, {triangles:N0} triangles{lightInfo}[/]");
-            }
-
-            return new ConvertResult(ddm.Objects.Count, triangles, true);
-        }
-        catch (Exception ex)
-        {
-            if (verbose)
-                AnsiConsole.MarkupLine($"  {filename}: [red]error: {ex.Message}[/]");
-            return new ConvertResult(0, 0, false);
-        }
-    }
-
-    private static List<LitLight>? FindAndParseLitFile(string levelName, string? searchDir)
-    {
-        if (string.IsNullOrEmpty(searchDir)) return null;
-        var litPath = FindCompanionFile(searchDir, levelName, ".lit");
-        if (litPath == null) return null;
-        try
-        {
-            return LitFile.Parse(litPath);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
     private static string? ResolveSiblingDirectory(string inputDir, string siblingName)
     {
         var parent = Path.GetDirectoryName(inputDir);
@@ -331,6 +321,4 @@ public static class DdmCommand
             new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
         return files.Length > 0 ? files[0] : null;
     }
-
-    private readonly record struct ConvertResult(int Objects, int Triangles, bool Converted);
 }

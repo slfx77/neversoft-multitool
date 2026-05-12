@@ -1,6 +1,6 @@
 namespace NeversoftMultitool;
 
-internal enum Ps2SceneSubFormat
+public enum Ps2SceneSubFormat
 {
     None,
     Standard,

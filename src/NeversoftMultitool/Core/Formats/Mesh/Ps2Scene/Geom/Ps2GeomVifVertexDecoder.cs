@@ -51,15 +51,17 @@ internal static class Ps2GeomVifVertexDecoder
 
     /// <summary>
     ///     Detect and decode a level-MDL billboard leaf (Format B). These leaves carry 4 V4_32
-    ///     float "positions" without STMOD; they're not real vertices but parametric billboard
-    ///     descriptors consumed by a VU1 microprogram. Layout observed across 215/215 BH leaves:
-    ///     <c>[0] = world anchor</c>, <c>[1] = (width, height, 0)</c>, <c>[2]..[3]</c> residuals.
-    ///     We approximate each billboard as a 4-vertex axis-aligned quad in the XY plane,
-    ///     centred on the anchor, so the feature is at least visible at the right world
-    ///     location with the right scale. No camera-facing rotation is applied.
+    ///     float quadwords without STMOD; they're not real vertices but parametric billboard
+    ///     descriptors consumed by a VU1 microprogram (vu1code.dsm: ScreenAlignedBillboards,
+    ///     LongAxisBillboards, ShortAxisBillboards). Layout:
+    ///     <c>[0] = pvw (anchor)</c>, <c>[1] = (width, height, _, _)</c>,
+    ///     <c>[2] = pvl (pivot-local offset)</c>, <c>[3] = axis (zero for screen-aligned)</c>.
+    ///     We approximate each as a 4-vertex quad (axis-rotated for axis-aligned, XY-plane
+    ///     for screen-aligned) centred at <c>anchor</c>; the Blender importer applies a
+    ///     Track-To constraint to make screen/axis billboards actually face the camera.
     ///     Returns null if the leaf doesn't match the Format B signature.
     /// </summary>
-    internal static (Ps2Vertex[] Vertices, int VifStart, int VifEnd)? ExtractBillboardFromVif(
+    internal static (Ps2Vertex[] Vertices, int VifStart, int VifEnd, Ps2BillboardDescriptor Descriptor)? ExtractBillboardFromVif(
         byte[] data, int pStart, int pEnd)
     {
         // Walk the stream looking for: a V4_32 UNPACK with num==4 (positions), NOT gated by
@@ -103,33 +105,72 @@ internal static class Ps2GeomVifVertexDecoder
         if (!mscalSeen || positionDataOffset < 0 || positionDataOffset + 64 > data.Length)
             return null;
 
-        // Read anchor (vertex 0) and size (vertex 1 = width, height, _).
+        // Read all four V4_32 quadwords: anchor, size, pvl, axis.
         var anchorX = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset));
         var anchorY = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 4));
         var anchorZ = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 8));
         var width = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 16));
         var height = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 20));
+        var pvlX = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 32));
+        var pvlY = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 36));
+        var pvlZ = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 40));
+        var axisX = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 48));
+        var axisY = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 52));
+        var axisZ = BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(positionDataOffset + 56));
 
         if (!float.IsFinite(anchorX) || !float.IsFinite(anchorY) || !float.IsFinite(anchorZ)
             || !float.IsFinite(width) || !float.IsFinite(height)
+            || !float.IsFinite(pvlX) || !float.IsFinite(pvlY) || !float.IsFinite(pvlZ)
+            || !float.IsFinite(axisX) || !float.IsFinite(axisY) || !float.IsFinite(axisZ)
             || width <= 0f || height <= 0f || width > 10000f || height > 10000f)
         {
             return null;
         }
 
-        var hw = width * 0.5f;
-        var hh = height * 0.5f;
         var anchor = new Vector3(anchorX, anchorY, anchorZ);
-        // Axis-aligned XY quad centred on anchor. Emitted as a 4-vertex tri-strip
-        // (v0, v1, v2, v3) → triangles (v0, v1, v2), (v1, v2, v3) after strip unrolling.
+        var size = new Vector2(width, height);
+        var pvl = new Vector3(pvlX, pvlY, pvlZ);
+        var axis = new Vector3(axisX, axisY, axisZ);
+
+        // P1 diagnostic on z_sm (tools/diagnostics/thaw_billboard_classify.py) found 145/145
+        // axis-aligned with axis = (0, 1, 0) — every Format-B leaf in the corpus rotates around
+        // world Y. The screen-aligned case isn't observed but the kind is preserved so a future
+        // dataset that uses it can be handled without a decoder change.
+        var axisLen2 = axis.LengthSquared();
+        var kind = axisLen2 < 1e-6f
+            ? Ps2BillboardKind.ScreenAligned
+            : Ps2BillboardKind.LongAxis;
+        var descriptor = new Ps2BillboardDescriptor(anchor, size, pvl, axis, kind);
+
+        // pvl ("pivot-local") is the offset from the world anchor to the rendered quad
+        // centre, expressed in the (udir, vdir, wdir) basis built per-frame by the VU1
+        // billboard microprogram. For axis-aligned variants wdir = axis, so the
+        // axis-aligned component (pvl.z) is the only one we can statically bake; udir
+        // and vdir are camera-dependent and only resolved at render time. Observed on
+        // z_sm: lamp-post light flares have anchor at the lamp head and positive pvl.z
+        // along axis = +Y up, so the quad must sit ABOVE the anchor to land inside the
+        // glass housing rather than below it.
+        var pivotCenter = anchor;
+        if (kind == Ps2BillboardKind.LongAxis && axisLen2 > 1e-6f)
+        {
+            var axisNorm = Vector3.Normalize(axis);
+            pivotCenter += axisNorm * pvl.Z;
+        }
+
+        var hw = size.X * 0.5f;
+        var hh = size.Y * 0.5f;
+        // Axis-aligned XY quad centred on the pivot. The Blender importer rotates this around
+        // the leaf's axis vector via a Track-To constraint at scene load; the static .glb keeps
+        // this orientation (acceptable for street-level cameras since every observed billboard
+        // has axis = world Y so the quad's local up is already correct).
         var verts = new[]
         {
-            MakeBillboardVertex(anchor + new Vector3(-hw, -hh, 0), 0f, 0f, isStripRestart: true),
-            MakeBillboardVertex(anchor + new Vector3( hw, -hh, 0), 1f, 0f, isStripRestart: true),
-            MakeBillboardVertex(anchor + new Vector3(-hw,  hh, 0), 0f, 1f, isStripRestart: false),
-            MakeBillboardVertex(anchor + new Vector3( hw,  hh, 0), 1f, 1f, isStripRestart: false),
+            MakeBillboardVertex(pivotCenter + new Vector3(-hw, -hh, 0), 0f, 0f, isStripRestart: true),
+            MakeBillboardVertex(pivotCenter + new Vector3( hw, -hh, 0), 1f, 0f, isStripRestart: true),
+            MakeBillboardVertex(pivotCenter + new Vector3(-hw,  hh, 0), 0f, 1f, isStripRestart: false),
+            MakeBillboardVertex(pivotCenter + new Vector3( hw,  hh, 0), 1f, 1f, isStripRestart: false),
         };
-        return (verts, pStart, pEnd);
+        return (verts, pStart, pEnd, descriptor);
     }
 
     private static Ps2Vertex MakeBillboardVertex(Vector3 position, float u, float v, bool isStripRestart)
@@ -438,6 +479,8 @@ internal static class Ps2GeomVifVertexDecoder
                         case 0x08: ctx.Clamp1 = value; break;
                         case 0x42: ctx.Alpha1 = value; break;
                         case 0x47: ctx.Test1 = value; break;
+                        case 0x3B: ctx.Texa = value; break;
+                        case 0x4C: ctx.Frame1 = value; break;
                     }
                 }
 

@@ -113,7 +113,7 @@ public class ThawZoneTexOwnerBlobLinearDecodeTests(TestPaths paths)
 
     private static Ps2Texture? DecodeOne(ZoneTextureCatalog catalog, uint checksum)
     {
-        var provider = catalog.CreateTextureProvider();
+        var provider = catalog.CreateTextureResolver();
         var png = provider(checksum);
         if (png is null) return null;
 

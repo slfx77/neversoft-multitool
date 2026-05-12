@@ -75,6 +75,28 @@ public sealed class ThawSceneFileTests(TestPaths paths)
     }
 
     [Fact]
+    public void Parse_ExtractedWorldzoneMdl_ProducesWorldGeometry()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var zonePath = Path.Combine("worldzones", "Z_SM", "z_sm.pak");
+        var file = paths.FindSampleFiles(BuildName, "007858E0.mdl")
+            .FirstOrDefault(path => path.Contains(zonePath, StringComparison.OrdinalIgnoreCase));
+        Assert.SkipWhen(file is null, "Extracted PC z_sm worldzone MDL not found");
+
+        var data = File.ReadAllBytes(file);
+        Assert.True(ThawSceneFile.IsThawScene(data));
+
+        var scene = ThawSceneFile.Parse(data);
+
+        Assert.True(scene.Materials.Length > 900, $"Expected many worldzone materials, got {scene.Materials.Length}");
+        Assert.True(scene.Sectors.Length > 1000, $"Expected many worldzone sectors, got {scene.Sectors.Length}");
+        Assert.True(scene.TotalTriangles > 30000, $"Expected substantial world geometry, got {scene.TotalTriangles}");
+        Assert.Contains(
+            scene.Materials.SelectMany(material => material.Passes),
+            pass => pass.UAddressing == 3 || pass.VAddressing == 3);
+    }
+
+    [Fact]
     public void Parse_SkaterFile_HasReasonableStats()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

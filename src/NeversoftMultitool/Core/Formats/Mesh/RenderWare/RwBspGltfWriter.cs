@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Texture;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
@@ -24,7 +25,7 @@ public static class RwBspGltfWriter
     /// </summary>
     /// <returns>Total number of triangles written.</returns>
     public static int Write(RwBspWorld world, string outputPath,
-        RwDffGltfWriter.TextureProvider? textureProvider = null)
+        MeshNamedTextureResolver? textureProvider = null)
     {
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
@@ -38,7 +39,7 @@ public static class RwBspGltfWriter
     }
 
     internal static (ModelRoot Model, int Triangles) Build(
-        RwBspWorld world, RwDffGltfWriter.TextureProvider? textureProvider = null)
+        RwBspWorld world, MeshNamedTextureResolver? textureProvider = null)
     {
         var scene = new SceneBuilder();
         var materialCache = new Dictionary<string, MaterialBuilder>(StringComparer.OrdinalIgnoreCase);
@@ -61,7 +62,7 @@ public static class RwBspGltfWriter
     private static int AddSection(RwBspSection section, RwMaterial[] materials,
         MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty> gltfMesh,
         Dictionary<string, MaterialBuilder> materialCache,
-        RwDffGltfWriter.TextureProvider? textureProvider)
+        MeshNamedTextureResolver? textureProvider)
     {
         if (section.Vertices.Length == 0 || section.Triangles.Length == 0)
             return 0;
@@ -147,7 +148,7 @@ public static class RwBspGltfWriter
     private static MaterialBuilder GetOrCreateMaterial(
         RwMaterial material,
         Dictionary<string, MaterialBuilder> cache,
-        RwDffGltfWriter.TextureProvider? textureProvider)
+        MeshNamedTextureResolver? textureProvider)
     {
         // Cache key includes GsAlpha so the same texture with different blend modes gets separate materials
         var key = material.TextureName ?? $"mat_{material.R}_{material.G}_{material.B}_{material.A}";
@@ -180,17 +181,17 @@ public static class RwBspGltfWriter
                 // - Other: color-key magenta (255,0,255) backgrounds to alpha transparency
                 if (material.IsAdditive)
                 {
-                    pngBytes = GltfTextureHelper.ConvertBlendTexture(pngBytes, 255, 255, 255);
+                    pngBytes = MeshTextureHelper.ConvertBlendTexture(pngBytes, 255, 255, 255);
                     textureHasAlpha = true;
                 }
                 else if (material.IsSubtractive)
                 {
-                    pngBytes = GltfTextureHelper.ConvertBlendTexture(pngBytes, 0, 0, 0);
+                    pngBytes = MeshTextureHelper.ConvertBlendTexture(pngBytes, 0, 0, 0);
                     textureHasAlpha = true;
                 }
                 else
                 {
-                    (pngBytes, textureHasAlpha) = GltfTextureHelper.ApplyColorKey(pngBytes);
+                    (pngBytes, textureHasAlpha) = MeshTextureHelper.ApplyColorKey(pngBytes);
                 }
 
                 builder.WithChannelImage(KnownChannel.BaseColor, new MemoryImage(pngBytes));
@@ -227,7 +228,7 @@ public static class RwBspGltfWriter
     /// <summary>
     ///     Builds a texture provider from an RW TXD file.
     /// </summary>
-    public static RwDffGltfWriter.TextureProvider BuildTxdTextureProvider(Ps2TexResult txdResult)
+    public static MeshNamedTextureResolver BuildTxdTextureProvider(Ps2TexResult txdResult)
     {
         return RwDffGltfWriter.BuildTxdTextureProvider(txdResult);
     }

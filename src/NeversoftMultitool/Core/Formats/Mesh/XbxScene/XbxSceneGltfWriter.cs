@@ -17,10 +17,7 @@ namespace NeversoftMultitool.Core.Formats.XbxScene;
 /// </summary>
 public static class XbxSceneGltfWriter
 {
-    /// <summary>Provides PNG bytes for a texture checksum, or null if not available.</summary>
-    public delegate byte[]? TextureProvider(uint textureChecksum);
-
-    public static int Write(XbxScene scene, string outputPath, TextureProvider? textureProvider = null)
+    public static int Write(XbxScene scene, string outputPath, MeshChecksumTextureResolver? textureProvider = null)
     {
         var dir = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(dir))
@@ -33,7 +30,7 @@ public static class XbxSceneGltfWriter
     }
 
     internal static (ModelRoot Model, int Triangles) Build(
-        XbxScene scene, TextureProvider? textureProvider = null)
+        XbxScene scene, MeshChecksumTextureResolver? textureProvider = null)
     {
         var sceneBuilder = new SceneBuilder();
         var materialCache = new Dictionary<uint, MaterialBuilder>();
@@ -167,7 +164,7 @@ public static class XbxSceneGltfWriter
         Dictionary<uint, MaterialBuilder> cache,
         XbxMaterial[] materials,
         uint materialChecksum,
-        TextureProvider? textureProvider)
+        MeshChecksumTextureResolver? textureProvider)
     {
         if (cache.TryGetValue(materialChecksum, out var existing))
             return existing;

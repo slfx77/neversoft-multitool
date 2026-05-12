@@ -1,17 +1,18 @@
 using NeversoftMultitool.Core.BinaryIO;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 /// <summary>
-///     Builds a <see cref="PsxGltfWriter.TextureProvider" /> that resolves
-///     texture hashes against a primary <c>.psx</c> file and (for level
+///     Builds a neutral texture resolver that maps PSX texture hashes against
+///     a primary <c>.psx</c> file and (for level
 ///     geometry files named <c>*_g.psx</c>) its sibling library <c>*_l.psx</c>.
 ///     Shared by the static, animated, and GUI character-preview paths.
 /// </summary>
 public static class PsxTextureProviderFactory
 {
-    public static PsxGltfWriter.TextureProvider FromFile(string psxPath)
+    public static MeshChecksumTextureResolver FromFile(string psxPath)
     {
         var stem = Path.GetFileNameWithoutExtension(psxPath);
         string? companionLibPath = null;

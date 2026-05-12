@@ -3,6 +3,7 @@ using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Collision;
 using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using NeversoftMultitool.Core.Formats.Mesh.Lit;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
@@ -24,10 +25,10 @@ namespace NeversoftMultitool;
 
 internal static class MeshConverterTabFileConverter
 {
+    private static readonly MeshModelParser Parser = new();
+
     internal static readonly string[] Ps2TexExtensions = [".tex.ps2", ".tex", ".img.ps2"];
     internal static readonly string[] Ps2TexSubdirs = ["TEX", "Textures", "IMG"];
-    private static readonly string[] XbxTexExtensions = [".tex.xbx", ".tex.wpc"];
-    private static readonly string[] XbxTexSubdirs = ["TEX", "Textures"];
     private static readonly string[] RwTexExtensions = [".tex"];
     private static readonly string[] RwTexSubdirs = ["TEX", "Textures"];
     internal static readonly string[] PcSkinExtensions = [".skin.wpc", ".skin.xbx"];
@@ -39,351 +40,74 @@ internal static class MeshConverterTabFileConverter
     /// </summary>
     public static (byte[]? GlbBytes, int Triangles) ConvertToGlbBytes(MeshFileEntry entry)
     {
-        if (entry.IsPakWorldzone)
-            return (null, 0); // Worldzones produce a full-level .glb; not suitable for preview
-        if (entry.IsCol)
-            return BuildColGlb(entry);
-        if (entry.IsPs2Scene)
-            return BuildPs2SceneGlb(entry);
-        if (entry.IsPs2Geom)
-            return BuildPs2GeomGlb(entry);
-        if (entry.IsXbxScene)
-            return BuildXbxSceneGlb(entry);
-        if (entry.IsRwBsp)
-            return BuildRwBspGlb(entry);
-        if (entry.IsRwDff)
-            return BuildRwDffGlb(entry);
-        if (entry.IsPsx)
-            return BuildPsxGlb(entry);
-        if (entry.IsPlacedLevel)
-            return (null, 0); // Placed levels produce multiple files; not supported in preview
-        return BuildDdmGlb(entry);
+        var document = Parser.Parse(CreateImportRequest(entry));
+        return ModelExportService.BuildGlbBytes(document);
     }
 
-    public static int ConvertFile(
+    public static MeshExportResult ConvertFile(
         MeshFileEntry entry,
         string outputDir,
         Ps2WorldzoneConverter.WorldzoneTimeOfDay worldzoneTimeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.All,
+        float worldzoneScale = 1f,
+        MeshOutputFormat outputFormat = MeshOutputFormat.Glb,
+        string? blenderHelperPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        var document = Parser.Parse(CreateImportRequest(entry, worldzoneTimeOfDay, worldzoneScale));
+        return ModelExportService.Export(
+            document,
+            new MeshExportRequest
+            {
+                OutputDirectory = outputDir,
+                OutputStem = document.Name,
+                Format = outputFormat,
+                BlenderHelperPath = blenderHelperPath,
+                WorldzoneTimeOfDay = worldzoneTimeOfDay,
+                WorldzoneScale = worldzoneScale,
+                CancellationToken = cancellationToken
+            });
+    }
+
+    private static MeshImportRequest CreateImportRequest(
+        MeshFileEntry entry,
+        Ps2WorldzoneConverter.WorldzoneTimeOfDay worldzoneTimeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.All,
         float worldzoneScale = 1f)
     {
-        if (entry.IsPakWorldzone)
-            return ConvertPakWorldzone(entry, outputDir, worldzoneTimeOfDay, worldzoneScale);
-        if (entry.IsCol)
-            return ConvertColFile(entry, outputDir);
-        if (entry.IsPs2Scene)
-            return ConvertPs2SceneFile(entry, outputDir);
-        if (entry.IsPs2Geom)
-            return ConvertPs2GeomFile(entry, outputDir);
-        if (entry.IsXbxScene)
-            return ConvertXbxSceneFile(entry, outputDir);
-        if (entry.IsRwBsp)
-            return ConvertRwBspFile(entry, outputDir);
-        if (entry.IsRwDff)
-            return ConvertRwDffFile(entry, outputDir);
-        if (entry.IsPsx)
-            return ConvertPsxFile(entry, outputDir);
-        if (entry.IsPlacedLevel)
-            return ConvertPlacedDdm(entry, outputDir);
-
-        return ConvertDdmFile(entry, outputDir);
-    }
-
-    private static int ConvertPakWorldzone(
-        MeshFileEntry entry,
-        string outputDir,
-        Ps2WorldzoneConverter.WorldzoneTimeOfDay worldzoneTimeOfDay,
-        float worldzoneScale)
-    {
-        var result = Ps2WorldzoneConverter.Convert(
-            entry.Source,
-            outputDir,
-            new Ps2WorldzoneConverter.WorldzoneOptions(
-                Combined: true,
-                TimeOfDay: worldzoneTimeOfDay,
-                CoordinateScale: worldzoneScale));
-        return result.Triangles;
-    }
-
-    private static int ConvertRwDffFile(MeshFileEntry entry, string outputDir)
-    {
-        var clump = RwDffFile.Parse(entry.Source.ReadBytes());
-        var textureProvider = BuildRwTxdTextureProvider(entry, forBsp: false);
-        var outputFile = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(entry.FileName) + ".glb");
-        return RwDffGltfWriter.Write(clump, outputFile, textureProvider);
-    }
-
-    private static int ConvertPs2SceneFile(MeshFileEntry entry, string outputDir)
-    {
-        var data = entry.Source.ReadBytes();
-        var stem = MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
-        var outputPath = Path.Combine(outputDir, stem + ".glb");
-
-        var companionTexData = entry.Source.TryReadCompanion(stem, Ps2TexExtensions, Ps2TexSubdirs);
-        var textureProvider = BuildPs2TextureProvider(companionTexData);
-
-        if (entry.Ps2SubFormat == Ps2SceneSubFormat.PakMdl)
+        return new MeshImportRequest
         {
-            var geomScene = Ps2GeomFile.ParsePakMdl(data);
-            return Ps2GeomGltfWriter.Write(geomScene, outputPath, textureProvider);
-        }
-
-        var scene = entry.Ps2SubFormat switch
-        {
-            Ps2SceneSubFormat.ThawSkin => ThawPs2SkinFile.Parse(data, companionTexData),
-            Ps2SceneSubFormat.PakSkin => ThawPs2SkinFile.ParsePakSkin(data),
-            _ => Ps2SceneFile.Parse(data)
+            Source = entry.Source,
+            FileName = entry.FileName,
+            OutputStem = GetOutputStem(entry),
+            SourceKind = GetSourceKind(entry),
+            Ps2SubFormat = entry.Ps2SubFormat,
+            HasPlacedPsxCompanion = entry.HasPlacedPsxCompanion,
+            WorldzoneTimeOfDay = worldzoneTimeOfDay,
+            WorldzoneScale = worldzoneScale
         };
-
-        var skeleton = TryLoadPs2Skeleton(entry, stem);
-
-        if (skeleton != null && entry.Ps2SubFormat == Ps2SceneSubFormat.ThawSkin)
-        {
-            var pcBytes = entry.Source.TryReadCompanion(stem, PcSkinExtensions, PcSkinSubdirs);
-            var transferred = pcBytes != null
-                ? ThawPs2SkinningTransfer.TryApplyFromBytes(scene, pcBytes, skeleton)
-                : null;
-            if (transferred is { SkinnedVertexCount: > 0 })
-                scene = transferred.Scene;
-            else
-                skeleton = null;
-        }
-
-        return skeleton != null
-            ? Ps2SceneGltfWriter.WriteSkinned(scene, skeleton, outputPath, textureProvider)
-            : Ps2SceneGltfWriter.Write(scene, outputPath, textureProvider);
     }
 
-    private static int ConvertPs2GeomFile(MeshFileEntry entry, string outputDir)
+    private static ModelSourceKind GetSourceKind(MeshFileEntry entry)
     {
-        var scene = Ps2GeomFile.Parse(entry.Source.ReadBytes());
-        var stem = MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
-        var outputPath = Path.Combine(outputDir, stem + ".glb");
-        var companionTexData = entry.Source.TryReadCompanion(stem, Ps2TexExtensions, Ps2TexSubdirs);
-        var textureProvider = BuildPs2TextureProvider(companionTexData);
-        return Ps2GeomGltfWriter.Write(scene, outputPath, textureProvider);
+        if (entry.IsCol) return ModelSourceKind.Collision;
+        if (entry.IsPakWorldzone) return ModelSourceKind.Ps2Worldzone;
+        if (entry.IsPs2Scene) return ModelSourceKind.Ps2Scene;
+        if (entry.IsPs2Geom) return ModelSourceKind.Ps2Geom;
+        if (entry.IsXbxScene) return ModelSourceKind.XbxScene;
+        if (entry.IsRwBsp) return ModelSourceKind.RenderWareBsp;
+        if (entry.IsRwDff) return ModelSourceKind.RenderWareDff;
+        if (entry.IsPsx) return ModelSourceKind.Psx;
+        return ModelSourceKind.Ddm;
     }
 
-    private static int ConvertXbxSceneFile(MeshFileEntry entry, string outputDir)
+    private static string GetOutputStem(MeshFileEntry entry)
     {
-        var data = entry.Source.ReadBytes();
-        var stem = MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
-        var outputPath = Path.Combine(outputDir, stem + ".glb");
+        if (entry.IsPs2Scene || entry.IsPs2Geom || entry.IsXbxScene || entry.IsPakWorldzone)
+            return MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
 
-        var scene = ThawSceneFile.IsThawScene(data)
-            ? ThawSceneFile.Parse(data)
-            : XbxSceneFile.Parse(data);
-
-        var textureProvider = BuildXbxSceneTextureProvider(entry, stem);
-        return XbxSceneGltfWriter.Write(scene, outputPath, textureProvider);
-    }
-
-    private static int ConvertColFile(MeshFileEntry entry, string outputDir)
-    {
-        var scene = ColFile.Parse(entry.Source.ReadBytes());
         var stem = Path.GetFileNameWithoutExtension(entry.FileName);
-        if (stem.EndsWith(".col", StringComparison.OrdinalIgnoreCase))
+        if (entry.IsCol && stem.EndsWith(".col", StringComparison.OrdinalIgnoreCase))
             stem = stem[..^4];
-        var outputFile = Path.Combine(outputDir, stem + ".glb");
-        return ColGltfWriter.Write(scene, outputFile);
-    }
-
-    private static int ConvertRwBspFile(MeshFileEntry entry, string outputDir)
-    {
-        var world = RwBspFile.Parse(entry.Source.ReadBytes());
-        var textureProvider = BuildRwTxdTextureProvider(entry, forBsp: true);
-        var outputFile = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(entry.FileName) + ".glb");
-        return RwBspGltfWriter.Write(world, outputFile, textureProvider);
-    }
-
-    private static int ConvertPsxFile(MeshFileEntry entry, string outputDir)
-    {
-        var psxData = entry.Source.ReadBytes();
-        var psxFile = PsxMeshFile.Parse(psxData)
-                      ?? throw new InvalidOperationException("No mesh data");
-
-        var textureProvider = BuildPsxTextureProvider(entry, psxData);
-
-        PshFile? pshFile = null;
-        if (psxFile.HasHierarchy)
-        {
-            var stem = Path.GetFileNameWithoutExtension(entry.FileName);
-            var pshBytes = entry.Source.TryReadCompanion(stem + ".psh");
-            pshFile = pshBytes != null ? PshFile.Parse(pshBytes) : null;
-        }
-
-        var outputFile = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(entry.FileName) + ".glb");
-        return PsxGltfWriter.Write(psxFile, outputFile, textureProvider, pshFile);
-    }
-
-    private static int ConvertDdmFile(MeshFileEntry entry, string outputDir)
-    {
-        var ddm = DdmFile.Parse(entry.Source.ReadBytes());
-        var ddmName = Path.GetFileNameWithoutExtension(entry.FileName);
-        var outputFile = Path.Combine(outputDir, ddmName + ".glb");
-
-        var ddxTextures = LoadDdxCompanion(entry, ddmName);
-        var lights = LoadLitCompanion(entry, ddmName);
-
-        return GltfWriter.WriteDdm(ddm, outputFile, null, ddmName, ddxTextures, lights);
-    }
-
-    private static int ConvertPlacedDdm(MeshFileEntry entry, string outputDir)
-    {
-        // Placed-level conversion is deeply filesystem-based (multiple companion paths).
-        // For archive sources we don't support placed-level; the scanner should have
-        // flagged HasPlacedPsxCompanion=false in that case, but guard anyway.
-        var ddmPath = entry.Source.FileSystemPath;
-        if (ddmPath == null)
-            return ConvertDdmFile(entry, outputDir);
-
-        var ddmName = Path.GetFileNameWithoutExtension(entry.FileName);
-        var inputDir = Path.GetDirectoryName(ddmPath)!;
-        var companionPsx = entry.Source.TryResolveCompanionPath(ddmName + ".psx");
-        if (companionPsx == null)
-            return ConvertDdmFile(entry, outputDir);
-
-        var companionObjectsDdm = entry.Source.TryResolveCompanionPath(ddmName + "_o.ddm");
-        var objectsPsx = companionObjectsDdm != null
-            ? entry.Source.TryResolveCompanionPath(ddmName + "_o.psx")
-            : null;
-
-        var (levelTriangles, objectTriangles) = GltfWriter.WritePlacedLevel(
-            ddmPath,
-            companionPsx,
-            companionObjectsDdm,
-            objectsPsx,
-            outputDir,
-            ddmName,
-            inputDir);
-
-        return levelTriangles + objectTriangles;
-    }
-
-    private static byte[]? WriteGlbToMemory(ModelRoot model)
-    {
-        using var ms = new MemoryStream();
-        model.WriteGLB(ms);
-        return ms.ToArray();
-    }
-
-    private static (byte[]? GlbBytes, int Triangles) BuildColGlb(MeshFileEntry entry)
-    {
-        var scene = ColFile.Parse(entry.Source.ReadBytes());
-        var (model, triangles) = ColGltfWriter.Build(scene);
-        return triangles > 0 ? (WriteGlbToMemory(model), triangles) : (null, 0);
-    }
-
-    private static (byte[]? GlbBytes, int Triangles) BuildPs2SceneGlb(MeshFileEntry entry)
-    {
-        var data = entry.Source.ReadBytes();
-        var stem = MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
-        var companionTexData = entry.Source.TryReadCompanion(stem, Ps2TexExtensions, Ps2TexSubdirs);
-        var textureProvider = BuildPs2TextureProvider(companionTexData);
-
-        if (entry.Ps2SubFormat == Ps2SceneSubFormat.PakMdl)
-        {
-            var geomScene = Ps2GeomFile.ParsePakMdl(data);
-            var (model, triangles) = Ps2GeomGltfWriter.Build(geomScene, textureProvider);
-            return triangles > 0 ? (WriteGlbToMemory(model), triangles) : (null, 0);
-        }
-
-        var scene = entry.Ps2SubFormat switch
-        {
-            Ps2SceneSubFormat.ThawSkin => ThawPs2SkinFile.Parse(data, companionTexData),
-            Ps2SceneSubFormat.PakSkin => ThawPs2SkinFile.ParsePakSkin(data),
-            _ => Ps2SceneFile.Parse(data)
-        };
-
-        var skeleton = TryLoadPs2Skeleton(entry, stem);
-
-        if (skeleton != null && entry.Ps2SubFormat == Ps2SceneSubFormat.ThawSkin)
-        {
-            var pcBytes = entry.Source.TryReadCompanion(stem, PcSkinExtensions, PcSkinSubdirs);
-            var transferred = pcBytes != null
-                ? ThawPs2SkinningTransfer.TryApplyFromBytes(scene, pcBytes, skeleton)
-                : null;
-            if (transferred is { SkinnedVertexCount: > 0 })
-                scene = transferred.Scene;
-            else
-                skeleton = null;
-        }
-
-        var (m, t) = skeleton != null
-            ? Ps2SceneGltfWriter.BuildSkinned(scene, skeleton, textureProvider)
-            : Ps2SceneGltfWriter.Build(scene, textureProvider);
-        return t > 0 ? (WriteGlbToMemory(m), t) : (null, 0);
-    }
-
-    private static (byte[]? GlbBytes, int Triangles) BuildPs2GeomGlb(MeshFileEntry entry)
-    {
-        var scene = Ps2GeomFile.Parse(entry.Source.ReadBytes());
-        var stem = MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
-        var companionTexData = entry.Source.TryReadCompanion(stem, Ps2TexExtensions, Ps2TexSubdirs);
-        var textureProvider = BuildPs2TextureProvider(companionTexData);
-        var (model, triangles) = Ps2GeomGltfWriter.Build(scene, textureProvider);
-        return triangles > 0 ? (WriteGlbToMemory(model), triangles) : (null, 0);
-    }
-
-    private static (byte[]? GlbBytes, int Triangles) BuildXbxSceneGlb(MeshFileEntry entry)
-    {
-        var data = entry.Source.ReadBytes();
-        var scene = ThawSceneFile.IsThawScene(data)
-            ? ThawSceneFile.Parse(data)
-            : XbxSceneFile.Parse(data);
-
-        var stem = MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
-        var textureProvider = BuildXbxSceneTextureProvider(entry, stem);
-
-        var (model, triangles) = XbxSceneGltfWriter.Build(scene, textureProvider);
-        return triangles > 0 ? (WriteGlbToMemory(model), triangles) : (null, 0);
-    }
-
-    private static (byte[]? GlbBytes, int Triangles) BuildRwBspGlb(MeshFileEntry entry)
-    {
-        var world = RwBspFile.Parse(entry.Source.ReadBytes());
-        var textureProvider = BuildRwTxdTextureProvider(entry, forBsp: true);
-        var (model, triangles) = RwBspGltfWriter.Build(world, textureProvider);
-        return triangles > 0 ? (WriteGlbToMemory(model), triangles) : (null, 0);
-    }
-
-    private static (byte[]? GlbBytes, int Triangles) BuildRwDffGlb(MeshFileEntry entry)
-    {
-        var clump = RwDffFile.Parse(entry.Source.ReadBytes());
-        var textureProvider = BuildRwTxdTextureProvider(entry, forBsp: false);
-        var (model, triangles) = RwDffGltfWriter.Build(clump, textureProvider);
-        return triangles > 0 ? (WriteGlbToMemory(model), triangles) : (null, 0);
-    }
-
-    private static (byte[]? GlbBytes, int Triangles) BuildPsxGlb(MeshFileEntry entry)
-    {
-        var psxData = entry.Source.ReadBytes();
-        var psxFile = PsxMeshFile.Parse(psxData)
-                      ?? throw new InvalidOperationException("No mesh data");
-
-        var textureProvider = BuildPsxTextureProvider(entry, psxData);
-
-        PshFile? pshFile = null;
-        if (psxFile.HasHierarchy)
-        {
-            var stem = Path.GetFileNameWithoutExtension(entry.FileName);
-            var pshBytes = entry.Source.TryReadCompanion(stem + ".psh");
-            pshFile = pshBytes != null ? PshFile.Parse(pshBytes) : null;
-        }
-
-        var (model, triangles) = PsxGltfWriter.Build(psxFile, textureProvider, pshFile);
-        return triangles > 0 ? (WriteGlbToMemory(model), triangles) : (null, 0);
-    }
-
-    private static (byte[]? GlbBytes, int Triangles) BuildDdmGlb(MeshFileEntry entry)
-    {
-        var ddm = DdmFile.Parse(entry.Source.ReadBytes());
-        var ddmName = Path.GetFileNameWithoutExtension(entry.FileName);
-
-        var ddxTextures = LoadDdxCompanion(entry, ddmName);
-        var lights = LoadLitCompanion(entry, ddmName);
-
-        var (model, triangles) = GltfWriter.BuildDdmModel(ddm, null, ddmName, ddxTextures, lights);
-        return triangles > 0 ? (WriteGlbToMemory(model), triangles) : (null, 0);
+        return stem;
     }
 
     internal static Ps2Skeleton? TryLoadPs2Skeleton(MeshFileEntry entry, string stem)
@@ -443,95 +167,20 @@ internal static class MeshConverterTabFileConverter
         return null;
     }
 
-    private static Dictionary<string, byte[]>? LoadDdxCompanion(MeshFileEntry entry, string ddmName)
-    {
-        var ddxBytes = entry.Source.TryReadCompanion(ddmName + ".ddx");
-        return ddxBytes != null ? DdxArchive.ReadAllEntries(ddxBytes) : null;
-    }
+    internal static MeshNamedTextureResolver? BuildRwDffTextureProvider(MeshFileEntry entry)
+        => BuildRwTxdTextureProvider(entry);
 
-    private static List<LitLight>? LoadLitCompanion(MeshFileEntry entry, string ddmName)
-    {
-        var litBytes = entry.Source.TryReadCompanion(ddmName + ".lit");
-        if (litBytes == null) return null;
-        try
-        {
-            return LitFile.Parse(litBytes);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    internal static RwDffGltfWriter.TextureProvider? BuildRwDffTextureProvider(MeshFileEntry entry)
-        => BuildRwTxdTextureProvider(entry, forBsp: false);
-
-    private static RwDffGltfWriter.TextureProvider? BuildRwTxdTextureProvider(MeshFileEntry entry, bool forBsp)
+    private static MeshNamedTextureResolver? BuildRwTxdTextureProvider(MeshFileEntry entry)
     {
         var stem = Path.GetFileNameWithoutExtension(entry.FileName);
         var texBytes = entry.Source.TryReadCompanion(stem, RwTexExtensions, RwTexSubdirs);
         if (texBytes == null) return null;
         var txdResult = RwTxdFile.Parse(texBytes);
         if (!txdResult.Success) return null;
-        return forBsp
-            ? RwBspGltfWriter.BuildTxdTextureProvider(txdResult)
-            : RwDffGltfWriter.BuildTxdTextureProvider(txdResult);
+        return RwDffGltfWriter.BuildTxdTextureProvider(txdResult);
     }
 
-    private static XbxSceneGltfWriter.TextureProvider? BuildXbxSceneTextureProvider(MeshFileEntry entry, string stem)
-    {
-        var texBytes = entry.Source.TryReadCompanion(stem, XbxTexExtensions, XbxTexSubdirs);
-        if (texBytes == null) return null;
-
-        var texResult = XbxTexFile.Parse(texBytes);
-        if (!texResult.Success)
-            texResult = ThawTexFile.Parse(texBytes);
-        if (!texResult.Success) return null;
-
-        var cache = new Dictionary<uint, Ps2Texture>();
-        foreach (var tex in texResult.Textures)
-            if (tex.Pixels != null)
-                cache.TryAdd(tex.Checksum, tex);
-
-        return checksum =>
-        {
-            if (!cache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
-                return null;
-            return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
-        };
-    }
-
-    private static PsxGltfWriter.TextureProvider BuildPsxTextureProvider(MeshFileEntry entry, byte[] psxData)
-    {
-        // PSX textures live in (a) the PSX file itself, or (b) a companion *_l.psx
-        // library (character models with separate texture libraries). For archive
-        // sources the library is resolved as a sibling entry via Source; the
-        // filesystem code path reads the library from disk.
-        var meshLabel = entry.FileName;
-        var stem = Path.GetFileNameWithoutExtension(entry.FileName);
-
-        byte[]? libraryBytes = null;
-        string libraryLabel = "";
-        if (stem.EndsWith("_g", StringComparison.OrdinalIgnoreCase))
-        {
-            var libraryName = stem[..^2] + "_l.psx";
-            libraryBytes = entry.Source.TryReadCompanion(libraryName);
-            libraryLabel = libraryName;
-        }
-
-        return hash =>
-        {
-            var result = PsxLibrary.ExtractTextureByHash(psxData, hash, meshLabel);
-            if (result == null && libraryBytes != null)
-                result = PsxLibrary.ExtractTextureByHash(libraryBytes, hash, libraryLabel);
-            if (result == null)
-                return null;
-            var (rgba, width, height) = result.Value;
-            return ImageWriter.WritePngToMemory(width, height, rgba);
-        };
-    }
-
-    internal static Ps2SceneGltfWriter.TextureProvider? BuildPs2TextureProvider(byte[]? textureBytes)
+    internal static MeshChecksumTextureResolver? BuildPs2TextureProvider(byte[]? textureBytes)
     {
         if (textureBytes == null) return null;
 

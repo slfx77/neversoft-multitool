@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.BinaryIO;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
 using NeversoftMultitool.Tests.Helpers;
@@ -66,7 +67,7 @@ public sealed class PsxMeshGltfTests(TestPaths paths)
 
             // Export with textures
             var texFile = Path.Combine(tempDir, "with_tex.glb");
-            PsxGltfWriter.TextureProvider textureProvider = hash =>
+            MeshChecksumTextureResolver textureProvider = hash =>
             {
                 var result = PsxLibrary.ExtractTextureByHash(inputFile, hash);
                 if (result == null) return null;

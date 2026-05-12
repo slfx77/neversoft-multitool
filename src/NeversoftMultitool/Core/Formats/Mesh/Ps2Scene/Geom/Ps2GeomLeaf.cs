@@ -13,6 +13,15 @@ public sealed class Ps2GeomLeaf
     public uint TextureChecksum { get; init; }
     public uint GroupChecksum { get; init; }
     public uint Colour { get; init; }
+
+    /// <summary>
+    ///     CGeomNode flags from offset 0x1C of the source node header. Includes
+    ///     NODEFLAG_LEAF (1&lt;&lt;1) and NODEFLAG_COLOURED (1&lt;&lt;4): when the
+    ///     latter is set, the runtime VU1 microcode tints all child geometry by
+    ///     <see cref="Colour"/> via SetColour() in geomnode.cpp.
+    /// </summary>
+    public uint Flags { get; init; }
+
     public Vector4 BoundingSphere { get; init; }
     public required Ps2Vertex[] Vertices { get; init; }
 
@@ -62,6 +71,28 @@ public sealed class Ps2GeomLeaf
     public ulong DmaTest1 { get; init; }
 
     /// <summary>
+    ///     Raw FRAME_1 GS register value from the DMA chain. Bits 32-63 are
+    ///     FBMSK, the framebuffer write mask; FBMSK[31:24] controls whether
+    ///     the alpha channel is updated. Destination-alpha synthesis must
+    ///     ignore mask-source draws whose framebuffer alpha writes are masked.
+    /// </summary>
+    public ulong DmaFrame1 { get; init; }
+
+    /// <summary>
+    ///     Raw TEXA GS register value from the DMA chain. Drives alpha
+    ///     expansion for non-32-bit pixel formats — PSMCT16 textures and
+    ///     paletted formats (PSMT4/PSMT8) sampling 16-bit CLUTs use TEXA
+    ///     to expand the per-texel/CLUT-entry bit15 into an 8-bit alpha.
+    ///     Layout: TA0(7:0) | AEM(15) | TA1(39:32). PS2 alpha range is
+    ///     [0,128]; the 0xFF default the GS uses when TEXA hasn't been
+    ///     written (TA0=0 TA1=128 AEM=0) is the same as the historical
+    ///     "bit15 → 0/0xFF" behaviour our decoder hardcoded — but the
+    ///     dump-confirmed in-game state for many draws is TA0=128 TA1=128,
+    ///     which makes every 16-bit pixel fully opaque regardless of bit15.
+    /// </summary>
+    public ulong DmaTexa { get; init; }
+
+    /// <summary>
     ///     THAW worldzone-object MDLs interleave two kinds of batches:
     ///     large "world"/infrastructure batches (shared geometry in world coordinates)
     ///     and small "local" batches (per-sector car mesh in bone-local coordinates,
@@ -85,4 +116,41 @@ public sealed class Ps2GeomLeaf
     ///     panes.
     /// </summary>
     public bool IsBillboard { get; init; }
+
+    /// <summary>
+    ///     Raw parametric descriptor for a Format-B billboard leaf, decoded from the four
+    ///     V4_32 quadwords consumed by the VU1 billboard microprograms. Null for
+    ///     non-billboard leaves. Lets the export path emit camera-facing constraints in
+    ///     .blend and an axis-rotated fallback quad in .glb.
+    /// </summary>
+    public Ps2BillboardDescriptor? BillboardDescriptor { get; init; }
+}
+
+/// <summary>
+///     PS2 Format-B billboard parametric descriptor. Decoded from the four V4_32
+///     "positions" consumed by ScreenAlignedBillboards / LongAxisBillboards /
+///     ShortAxisBillboards in vu1code.dsm:
+///     <list type="bullet">
+///         <item><c>Anchor</c> = pvw, world pivot position.</item>
+///         <item><c>Size</c>   = (width, height).</item>
+///         <item><c>PivotLocal</c> = pvl, pivot-local 3-vec offset (subtracted in the
+///             udir/vdir/wdir basis built by the VU1 microcode).</item>
+///         <item><c>Axis</c>   = world axis for axis-aligned variants. Zero for the
+///             screen-aligned variant.</item>
+///     </list>
+///     On z_sm all 145 Format-B leaves are axis-aligned with <c>Axis = (0, 1, 0)</c>;
+///     <see cref="Kind"/> is computed from <c>|Axis|</c>.
+/// </summary>
+public readonly record struct Ps2BillboardDescriptor(
+    Vector3 Anchor,
+    Vector2 Size,
+    Vector3 PivotLocal,
+    Vector3 Axis,
+    Ps2BillboardKind Kind);
+
+public enum Ps2BillboardKind
+{
+    ScreenAligned,
+    LongAxis,
+    ShortAxis,
 }

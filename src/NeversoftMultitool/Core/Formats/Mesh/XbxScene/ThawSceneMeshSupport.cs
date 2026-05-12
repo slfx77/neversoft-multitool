@@ -4,6 +4,8 @@ namespace NeversoftMultitool.Core.Formats.XbxScene;
 
 internal static class ThawSceneMeshSupport
 {
+    private const int SMeshHeaderSize = 224;
+
     public static XbxMaterial ReadMaterial(BinaryReader r)
     {
         var checksum = r.ReadUInt32();
@@ -23,7 +25,12 @@ internal static class ThawSceneMeshSupport
 
         var passFlags = ReadUInt32Array(r, ThawSceneFile.MaxPasses);
         var passChecksums = ReadUInt32Array(r, ThawSceneFile.MaxPasses);
-        r.BaseStream.Position += ThawSceneFile.MaxPasses * 16;
+        var passColors = new Vector3[ThawSceneFile.MaxPasses];
+        for (var i = 0; i < ThawSceneFile.MaxPasses; i++)
+        {
+            passColors[i] = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
+            r.ReadSingle();
+        }
 
         var passBlendModes = new uint[ThawSceneFile.MaxPasses];
         for (var i = 0; i < ThawSceneFile.MaxPasses; i++)
@@ -32,7 +39,7 @@ internal static class ThawSceneMeshSupport
             r.ReadInt16();
         }
 
-        r.BaseStream.Position += ThawSceneFile.MaxPasses * 4;
+        var passAddressing = ReadUInt32Array(r, ThawSceneFile.MaxPasses);
         r.BaseStream.Position += ThawSceneFile.MaxPasses * 8;
         r.BaseStream.Position += ThawSceneFile.MaxPasses * 4;
         r.BaseStream.Position += ThawSceneFile.MaxPasses * 4;
@@ -52,7 +59,11 @@ internal static class ThawSceneMeshSupport
             {
                 TextureChecksum = passChecksums[p],
                 Flags = passFlags[p],
-                BlendMode = passBlendModes[p]
+                HasColor = true,
+                Color = passColors[p],
+                BlendMode = passBlendModes[p],
+                UAddressing = ConvertThawAddressMode(passAddressing[p] & 0xFFFF),
+                VAddressing = ConvertThawAddressMode((passAddressing[p] >> 16) & 0xFFFF)
             };
         }
 
@@ -75,6 +86,16 @@ internal static class ThawSceneMeshSupport
     public static XbxMesh ReadSMesh(
         BinaryReader r, int headerOffset, int offScene, int sectorFlags, XbxMaterial[] materials)
     {
+        if (!CanRead(r, headerOffset, SMeshHeaderSize))
+        {
+            return new XbxMesh
+            {
+                Vertices = [],
+                FaceIndices = [],
+                IsPreTriangulated = true
+            };
+        }
+
         r.BaseStream.Position = headerOffset;
 
         var meshFlags = r.ReadUInt32();
@@ -105,20 +126,30 @@ internal static class ThawSceneMeshSupport
         ushort[] faceIndices = [];
         if (faceCount0 > 0 && faceOffset0Raw > 0)
         {
-            r.BaseStream.Position = offScene + faceOffset0Raw;
-            r.ReadInt32();
-            var rawIndices = new ushort[faceCount0];
-            for (var i = 0; i < faceCount0; i++)
-                rawIndices[i] = r.ReadUInt16();
+            var faceOffset = offScene + faceOffset0Raw;
+            var faceBytes = 4L + faceCount0 * 2L;
+            if (CanRead(r, faceOffset, faceBytes))
+            {
+                r.BaseStream.Position = faceOffset;
+                r.ReadInt32();
+                var rawIndices = new ushort[faceCount0];
+                for (var i = 0; i < faceCount0; i++)
+                    rawIndices[i] = r.ReadUInt16();
 
-            faceIndices = TriangulateStrips(rawIndices, isBillboard);
+                faceIndices = TriangulateStrips(rawIndices, isBillboard);
+            }
         }
 
         XbxVertex[] vertices = [];
-        if (vertexCount > 0 && vertexOffsetRaw > 0)
+        if (vertexCount > 0 && vertexOffsetRaw > 0 && vertexStride > 0)
         {
-            r.BaseStream.Position = offScene + vertexOffsetRaw;
-            vertices = ReadVertexBuffer(r, sectorFlags, vertexCount, vertexStride, passCount);
+            var vertexOffset = offScene + vertexOffsetRaw;
+            var vertexBytes = (long)vertexCount * vertexStride;
+            if (CanRead(r, vertexOffset, vertexBytes))
+            {
+                r.BaseStream.Position = vertexOffset;
+                vertices = ReadVertexBuffer(r, sectorFlags, vertexCount, vertexStride, passCount);
+            }
         }
 
         return new XbxMesh
@@ -131,6 +162,20 @@ internal static class ThawSceneMeshSupport
             FaceIndices = faceIndices,
             IsPreTriangulated = true
         };
+    }
+
+    private static uint ConvertThawAddressMode(uint mode)
+    {
+        // THAW PC stores pass addressing as packed 16-bit fields where 0 is
+        // wrap and 1 is clamp. Normalize to the D3D-style values used by the
+        // THUG2 reader: 1 = wrap, 3 = clamp.
+        return mode == 0 ? 1u : 3u;
+    }
+
+    private static bool CanRead(BinaryReader r, long offset, long byteCount)
+    {
+        var length = r.BaseStream.Length;
+        return offset >= 0 && byteCount >= 0 && offset <= length && byteCount <= length - offset;
     }
 
     private static ushort[] TriangulateStrips(ushort[] rawIndices, bool billboard)
