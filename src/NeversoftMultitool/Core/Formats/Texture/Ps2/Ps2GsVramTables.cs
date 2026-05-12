@@ -34,6 +34,18 @@ internal static class Ps2GsVramTables
         21, 23, 29, 31
     };
 
+    internal static readonly int[] Block16S =
+    {
+        0, 2, 16, 18,
+        1, 3, 17, 19,
+        8, 10, 24, 26,
+        9, 11, 25, 27,
+        4, 6, 20, 22,
+        5, 7, 21, 23,
+        12, 14, 28, 30,
+        13, 15, 29, 31
+    };
+
     internal static readonly int[] ColumnWord16 =
     {
         0, 1, 4, 5, 8, 9, 12, 13, 0, 1, 4, 5, 8, 9, 12, 13,

@@ -4,8 +4,8 @@ using System.Text;
 using System.Buffers.Binary;
 using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Archives;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 
 namespace NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
@@ -14,6 +14,11 @@ public sealed class ZoneTextureCatalog
 {
     private readonly Dictionary<uint, Ps2Texture> textureCache;
     private readonly Dictionary<uint, byte[]?> pngCache = [];
+    // PNG cache keyed on (checksum, normalized TEXA). For texture formats whose
+    // alpha channel doesn't depend on TEXA (PSMCT32 direct, PSMT4/PSMT8 with
+    // PSMCT32 CLUTs), the TEXA portion of the key is normalized to 0 so all
+    // requests for that checksum share one PNG.
+    private readonly Dictionary<(uint Checksum, ulong Texa), byte[]?> texaPngCache = [];
     private readonly List<SourceInfo> sources;
     private readonly List<EntryRecord> entries;
     private readonly Dictionary<(int Source, ulong Key), List<EntryRecord>> entriesBySourceIdentity;
@@ -234,9 +239,18 @@ public sealed class ZoneTextureCatalog
         return new ZoneTextureCatalog(textures, sources, entries);
     }
 
-    public Ps2SceneGltfWriter.TextureProvider CreateTextureProvider() => checksum => GetPng(checksum);
+    public MeshChecksumTextureResolver CreateTextureResolver() => checksum => GetPng(checksum);
 
-    public Ps2GeomGltfWriter.Tex0Resolver CreateTex0Resolver(string? sourceHint = null) =>
+    /// <summary>
+    ///     TEXA-aware variant. PSMCT16/PSMCT24/paletted-with-PSMCT16-CLUT
+    ///     textures get their alpha channel re-expanded based on the TEXA
+    ///     register state from the consumer leaf. Other formats ignore TEXA
+    ///     and share one cached PNG with the legacy provider.
+    /// </summary>
+    public Ps2TexaTextureResolver CreateTexaAwareTextureResolver() =>
+        (checksum, texa) => GetPng(checksum, texa);
+
+    public Ps2Tex0ChecksumResolver CreateTex0ChecksumResolver(string? sourceHint = null) =>
         (dmaTex0, groupChecksum) => ResolveTex0(dmaTex0, sourceHint, groupChecksum).Checksum;
 
     public Func<ulong, uint, Ps2GeomTextureResolution> CreateDebugTex0Resolver(string? sourceHint = null) =>
@@ -412,6 +426,113 @@ public sealed class ZoneTextureCatalog
         var png = ImageWriter.WritePngToMemory(texture.Width, texture.Height, texture.Pixels);
         pngCache[checksum] = png;
         return png;
+    }
+
+    // Deterministic TEXA used when a leaf's DMA chain carries no inline
+    // TEXA register write (the universal case for THAW worldzones, which
+    // load TEXA from EE preset code rather than the GIF stream). PCSX2 GS
+    // traces show the engine writes only four distinct TEXA values across
+    // the binary, and renders every TEXA-relevant texture binding with
+    // both TA0=0 (colour pass) and TA0=128 (depth/clear pass) within the
+    // same frame. For a single-pass static export the colour-pass value
+    // is the right one: it preserves cutout transparency on textures with
+    // any MSB=0 CLUT entries, and resolves to alpha=128 (visually
+    // identical to TA0=128) for textures whose CLUT MSBs are all 1.
+    private const ulong UnsetTexaDeterministicDefault = 0x0000008000000000UL;
+
+    /// <summary>
+    ///     TEXA-aware variant: re-applies alpha expansion for non-32-bit
+    ///     pixel formats based on the supplied TEXA. Caches per
+    ///     (checksum, normalizedTexa) so each unique TEXA combination is
+    ///     decoded once. For formats unaffected by TEXA the normalization
+    ///     collapses to (checksum, 0) and the cache shares with the
+    ///     non-TEXA-aware provider.
+    /// </summary>
+    private byte[]? GetPng(uint checksum, ulong texa)
+    {
+        if (!textureCache.TryGetValue(checksum, out var texture) || texture.Pixels == null)
+            return null;
+
+        var formatRespectsTexa = TextureFormatRespectsTexa(texture.Psm, texture.Cpsm);
+
+        // Substitute the deterministic colour-pass TEXA (TA0=0 TA1=128 AEM=0)
+        // when the leaf carried no inline TEXA write and the format actually
+        // consumes TEXA. See UnsetTexaDeterministicDefault remark above.
+        if (formatRespectsTexa && texa == 0)
+            texa = UnsetTexaDeterministicDefault;
+
+        var normalizedTexa = formatRespectsTexa ? texa : 0UL;
+        var key = (checksum, normalizedTexa);
+        if (texaPngCache.TryGetValue(key, out var cached))
+            return cached;
+
+        // The legacy decoder bakes the (TA0=0 TA1=128 AEM=0) rule into its
+        // RGBA output (alpha=0 on pixel-value-0, 0xFF otherwise), so both
+        // the deterministic-default and TEXA-irrelevant cases share its
+        // cached bytes verbatim.
+        if (normalizedTexa is 0 or UnsetTexaDeterministicDefault)
+        {
+            var defaultPng = GetPng(checksum);
+            texaPngCache[key] = defaultPng;
+            return defaultPng;
+        }
+
+        // Non-default TEXA: re-apply alpha expansion to a copy of the
+        // already-decoded RGBA buffer, treating (alpha==0) as "bit15 was 0"
+        // and (alpha!=0) as "bit15 was 1" then overwriting with TA0/TA1
+        // (PS2 0..128 -> PNG 0..255 doubled).
+        var ta0 = (byte)Math.Min(((texa & 0xFF) * 2), 255);
+        var ta1 = (byte)Math.Min((((texa >> 32) & 0xFF) * 2), 255);
+        var aem = ((texa >> 15) & 1) != 0;
+        var rgba = (byte[])texture.Pixels.Clone();
+        ApplyTexaAlpha(rgba, texture.Psm, texture.Cpsm, ta0, ta1, aem);
+        var png = ImageWriter.WritePngToMemory(texture.Width, texture.Height, rgba);
+        texaPngCache[key] = png;
+        return png;
+    }
+
+    /// <summary>
+    ///     Returns true when the given (PSM, CPSM) combination's alpha
+    ///     channel is influenced by TEXA. PSMCT16 direct textures, PSMCT24
+    ///     direct textures, and paletted formats sampling a PSMCT16 CLUT
+    ///     all read TEXA at draw time. PSMCT32 direct and paletted-with-
+    ///     PSMCT32-CLUT carry full per-texel/CLUT-entry alpha and ignore
+    ///     TEXA entirely.
+    /// </summary>
+    private static bool TextureFormatRespectsTexa(uint psm, uint cpsm)
+    {
+        // PSMCT16 (0x02) / PSMCT16S (0x0A) / PSMCT24 (0x01) direct textures
+        if (psm is 0x01 or 0x02 or 0x0A) return true;
+        // PSMT4 (0x14) / PSMT8 (0x13) sampling a 16-bit CLUT
+        if (psm is 0x13 or 0x14 && cpsm is 0x02 or 0x0A) return true;
+        return false;
+    }
+
+    /// <summary>
+    ///     Re-applies TEXA-driven alpha expansion to an already-decoded RGBA
+    ///     buffer. Heuristic: the legacy decoder mapped pixel-value-0 to
+    ///     alpha=0 and any non-zero pixel to alpha=0xFF (effectively
+    ///     TA0=0, TA1=128, AEM=0). To redo with the supplied TEXA we treat
+    ///     (alpha==0) as "bit15 was 0" and (alpha!=0) as "bit15 was 1",
+    ///     overwriting with TA0/TA1 (PS2 0..128 -> PNG 0..255 doubled).
+    /// </summary>
+    private static void ApplyTexaAlpha(byte[] rgba, uint psm, uint cpsm, byte ta0, byte ta1, bool aem)
+    {
+        for (var i = 0; i < rgba.Length; i += 4)
+        {
+            var bit15WasZero = rgba[i + 3] == 0;
+            byte alpha;
+            if (bit15WasZero)
+                alpha = ta0;
+            else
+                alpha = ta1;
+            // AEM (16-bit only): force alpha=0 when RGB are all zero.
+            if (aem && rgba[i] == 0 && rgba[i + 1] == 0 && rgba[i + 2] == 0)
+                alpha = 0;
+            rgba[i + 3] = alpha;
+        }
+        _ = psm;
+        _ = cpsm;
     }
 
     private SourceInfo? FindSource(string? sourceHint)

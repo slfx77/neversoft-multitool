@@ -5,6 +5,44 @@ namespace NeversoftMultitool.Tests.Core.Formats.Texture.Ps2;
 public class Ps2GsVramTests
 {
     [Theory]
+    [InlineData(0u, 5u, 320, 256, 0x01u)]   // THAW dump 0290: FBP=13632, FBW=5, PSMCT24 framebuffer.
+    [InlineData(0u, 10u, 640, 448, 0x00u)]  // Full-frame PSMCT32 main framebuffer.
+    [InlineData(0u, 1u, 4, 4, 0x31u)]       // Tiny PSMZ24 region (matches the depth test).
+    public void WritePixelThenReadRectPSMCT32_RoundTrips(uint fbp, uint fbw, int width, int height, uint psm)
+    {
+        // Regression: when the game writes a framebuffer via per-pixel WritePixel calls (the
+        // path WriteFramebufferPixel uses) and then samples it back via ReadRectPSMCT32 (the
+        // path ThawZoneTexVramSupport.DecodeFromTex0 / ReadFramebufferRgba use for sampled
+        // textures with framebuffer provenance), the GS page-block-column swizzle must be
+        // symmetric: every (x, y) must round-trip exactly. A skew here would manifest as
+        // "ghost silhouette" scramble in framebuffer-feedback dumps even when classifier
+        // FBW == TBW. THAW dump 0290 hits exactly this case at FBW=5 PSMCT24.
+        var vram = new Ps2GsVram();
+
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var v = (uint)((y * 31u + x * 7u + 1u) & 0x00FFFFFFu); // 24-bit pattern fits PSMCT24/Z24.
+                vram.WritePixel(fbp, fbw, psm, x, y, (byte)v, (byte)(v >> 8), (byte)(v >> 16), 0x40);
+            }
+        }
+
+        var rgba = vram.ReadRectPSMCT32(fbp, fbw, width, height);
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var i = (y * width + x) * 4;
+                var expected = (uint)((y * 31u + x * 7u + 1u) & 0x00FFFFFFu);
+                Assert.Equal((byte)expected, rgba[i]);
+                Assert.Equal((byte)(expected >> 8), rgba[i + 1]);
+                Assert.Equal((byte)(expected >> 16), rgba[i + 2]);
+            }
+        }
+    }
+
+    [Theory]
     [InlineData(64, 64)]
     [InlineData(128, 128)]
     public void WritePsmct32ThenReadPsmt4_MatchesVerifiedConv4to32Mapping(int width, int height)

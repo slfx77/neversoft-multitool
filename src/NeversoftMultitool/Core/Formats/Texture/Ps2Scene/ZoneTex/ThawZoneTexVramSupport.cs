@@ -97,7 +97,12 @@ internal static class ThawZoneTexVramSupport
         return uploads;
     }
 
-    internal static byte[]? DecodeFromTex0(Ps2GsVram vram, ulong tex0)
+    internal static byte[]? DecodeFromTex0(
+        Ps2GsVram vram,
+        ulong tex0,
+        bool flipVertical = true,
+        bool fixAllZeroAlpha = true,
+        ulong? texa = null)
     {
         var tbp0 = (uint)(tex0 & 0x3FFF);
         var tbw = (uint)((tex0 >> 14) & 0x3F);
@@ -118,7 +123,33 @@ internal static class ThawZoneTexVramSupport
                 texData = vram.ReadTexturePSMT8(tbp0, tbw, tw, th);
                 break;
             case Ps2TexPixelDecoder.PSMCT32:
+            case Ps2GsVram.PSMZ32:
                 texData = vram.ReadRectPSMCT32(tbp0, tbw, tw, th);
+                psm = Ps2TexPixelDecoder.PSMCT32;
+                break;
+            case Ps2TexPixelDecoder.PSMCT24:
+            case Ps2GsVram.PSMZ24:
+            {
+                var raw32 = vram.ReadRectPSMCT32(tbp0, tbw, tw, th);
+                texData = new byte[tw * th * 3];
+                for (var src = 0; src < raw32.Length; src += 4)
+                {
+                    var dst = src / 4 * 3;
+                    texData[dst] = raw32[src];
+                    texData[dst + 1] = raw32[src + 1];
+                    texData[dst + 2] = raw32[src + 2];
+                }
+
+                psm = Ps2TexPixelDecoder.PSMCT24;
+                break;
+            }
+            case Ps2TexPixelDecoder.PSMCT16:
+                texData = vram.ReadRectPSMCT16(tbp0, tbw, tw, th);
+                psm = Ps2TexPixelDecoder.PSMCT16;
+                break;
+            case Ps2GsVram.PSMCT16S:
+                texData = vram.ReadRectPSMCT16S(tbp0, tbw, tw, th);
+                psm = Ps2TexPixelDecoder.PSMCT16;
                 break;
             default:
                 return null;
@@ -155,7 +186,16 @@ internal static class ThawZoneTexVramSupport
             }
         }
 
-        return Ps2TexPixelDecoder.DecodePixels(texData, tw, th, psm, cpsm, clut);
+        return Ps2TexPixelDecoder.DecodePixels(
+            texData,
+            tw,
+            th,
+            psm,
+            cpsm,
+            clut,
+            flipVertical,
+            fixAllZeroAlpha,
+            texa);
     }
 
     internal static byte[]? ReadClutPsmt4Csm1(Ps2GsVram vram, uint cbp, uint cpsm)

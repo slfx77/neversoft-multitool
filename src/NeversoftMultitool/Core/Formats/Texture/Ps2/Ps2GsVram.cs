@@ -28,6 +28,8 @@ internal sealed class Ps2GsVram
     internal const uint PSMCT16S = 0x0A;
     internal const uint PSMT8 = 0x13;
     internal const uint PSMT4 = 0x14;
+    internal const uint PSMZ32 = 0x30;
+    internal const uint PSMZ24 = 0x31;
 
     private readonly Ps2GifQwordWordOrder _gifQwordWordOrder;
     private readonly uint[] _vram = new uint[VramWords];
@@ -45,7 +47,10 @@ internal sealed class Ps2GsVram
     ///     Write a rectangular region to VRAM using PSMCT32 addressing.
     ///     Each pixel is 4 bytes (32 bits) in the source data.
     /// </summary>
-    public void WriteRectPSMCT32(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
+    public void WriteRectPSMCT32(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data) =>
+        WriteRectPSMCT32(dbp, dbw, rrw, rrh, data, dsax: 0, dsay: 0);
+
+    public void WriteRectPSMCT32(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
     {
         var srcOff = 0;
         for (var y = 0; y < rrh; y++)
@@ -58,7 +63,7 @@ internal sealed class Ps2GsVram
                                   (data[mappedOff + 2] << 16) | (data[mappedOff + 3] << 24));
                 srcOff += 4;
 
-                var addr = GetWordAddressPSMCT32(dbp, dbw, x, y);
+                var addr = GetWordAddressPSMCT32(dbp, dbw, dsax + x, dsay + y);
                 if (addr < VramWords)
                     _vram[addr] = word;
             }
@@ -69,7 +74,27 @@ internal sealed class Ps2GsVram
     ///     Write a rectangular region to VRAM using PSMCT16 addressing.
     ///     Each pixel is 2 bytes (16 bits) in the source data.
     /// </summary>
-    public void WriteRectPSMCT16(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
+    public void WriteRectPSMCT16(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data) =>
+        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax: 0, dsay: 0, signedMode: false);
+
+    public void WriteRectPSMCT16S(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data) =>
+        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax: 0, dsay: 0, signedMode: true);
+
+    public void WriteRectPSMCT16(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay) =>
+        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax, dsay, signedMode: false);
+
+    public void WriteRectPSMCT16S(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay) =>
+        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax, dsay, signedMode: true);
+
+    private void WriteRectPSMCT16(
+        uint dbp,
+        uint dbw,
+        int rrw,
+        int rrh,
+        ReadOnlySpan<byte> data,
+        int dsax,
+        int dsay,
+        bool signedMode)
     {
         var srcOff = 0;
         for (var y = 0; y < rrh; y++)
@@ -81,7 +106,7 @@ internal sealed class Ps2GsVram
                 var halfword = (uint)(data[mappedOff] | (data[mappedOff + 1] << 8));
                 srcOff += 2;
 
-                var (wordAddr, half) = GetWordAddressPSMCT16(dbp, dbw, x, y);
+                var (wordAddr, half) = GetWordAddressPSMCT16(dbp, dbw, dsax + x, dsay + y, signedMode);
                 if (wordAddr < VramWords)
                 {
                     if (half == 0)
@@ -96,25 +121,131 @@ internal sealed class Ps2GsVram
     /// <summary>
     ///     Write a rectangular region using the specified PSM format.
     /// </summary>
-    public void WriteRect(uint dbp, uint dbw, uint dpsm, int rrw, int rrh, ReadOnlySpan<byte> data)
+    public void WriteRect(uint dbp, uint dbw, uint dpsm, int rrw, int rrh, ReadOnlySpan<byte> data) =>
+        WriteRect(dbp, dbw, dpsm, rrw, rrh, data, dsax: 0, dsay: 0);
+
+    public void WriteRect(uint dbp, uint dbw, uint dpsm, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
     {
         switch (dpsm)
         {
             case PSMCT32:
-                WriteRectPSMCT32(dbp, dbw, rrw, rrh, data);
+            case PSMZ32:
+            case PSMZ24:
+                WriteRectPSMCT32(dbp, dbw, rrw, rrh, data, dsax, dsay);
                 break;
             case PSMCT16:
+                WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax, dsay);
+                break;
             case PSMCT16S:
-                WriteRectPSMCT16(dbp, dbw, rrw, rrh, data);
+                WriteRectPSMCT16S(dbp, dbw, rrw, rrh, data, dsax, dsay);
                 break;
             case PSMT8:
-                WriteRectPSMT8(dbp, dbw, rrw, rrh, data);
+                WriteRectPSMT8(dbp, dbw, rrw, rrh, data, dsax, dsay);
                 break;
             case PSMT4:
-                WriteRectPSMT4(dbp, dbw, rrw, rrh, data);
+                WriteRectPSMT4(dbp, dbw, rrw, rrh, data, dsax, dsay);
                 break;
         }
     }
+
+    public void WritePixel(uint dbp, uint dbw, uint dpsm, int x, int y, byte r, byte g, byte b, byte a, uint fbmsk = 0)
+    {
+        if (x < 0 || y < 0)
+            return;
+
+        switch (dpsm)
+        {
+            case PSMCT32:
+            case PSMZ32: // PSMZ32 shares the 32-bit page layout; gsdump replay treats it as color data.
+            {
+                var addr = GetWordAddressPSMCT32(dbp, dbw, x, y);
+                if (addr < VramWords)
+                    _vram[addr] = ApplyMask(
+                        _vram[addr],
+                        r | ((uint)g << 8) | ((uint)b << 16) | ((uint)a << 24),
+                        fbmsk);
+                break;
+            }
+            case 0x01: // PSMCT24 uses PSMCT32 addressing with ignored alpha bits.
+            case PSMZ24: // PSMZ24 shares the 24-bit page layout; gsdump replay treats it as color data.
+            {
+                var addr = GetWordAddressPSMCT32(dbp, dbw, x, y);
+                if (addr < VramWords)
+                    _vram[addr] = ApplyMask(
+                        _vram[addr],
+                        r | ((uint)g << 8) | ((uint)b << 16),
+                        fbmsk | 0xFF000000u);
+                break;
+            }
+            case PSMCT16:
+            {
+                var (wordAddr, half) = GetWordAddressPSMCT16(dbp, dbw, x, y, signedMode: false);
+                if (wordAddr >= VramWords)
+                    break;
+
+                var pixel = (uint)((r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10) | (a >= 128 ? 0x8000 : 0));
+                var mask = fbmsk & 0xFFFFu;
+                if (half == 0)
+                    _vram[wordAddr] = (_vram[wordAddr] & 0xFFFF0000) | ApplyMask(_vram[wordAddr] & 0xFFFFu, pixel, mask);
+                else
+                    _vram[wordAddr] = (_vram[wordAddr] & 0x0000FFFF) |
+                                      (ApplyMask((_vram[wordAddr] >> 16) & 0xFFFFu, pixel, mask) << 16);
+                break;
+            }
+            case PSMCT16S:
+            {
+                var (wordAddr, half) = GetWordAddressPSMCT16(dbp, dbw, x, y, signedMode: true);
+                if (wordAddr >= VramWords)
+                    break;
+
+                var pixel = (uint)((r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10) | (a >= 128 ? 0x8000 : 0));
+                var mask = fbmsk & 0xFFFFu;
+                if (half == 0)
+                    _vram[wordAddr] = (_vram[wordAddr] & 0xFFFF0000) | ApplyMask(_vram[wordAddr] & 0xFFFFu, pixel, mask);
+                else
+                    _vram[wordAddr] = (_vram[wordAddr] & 0x0000FFFF) |
+                                      (ApplyMask((_vram[wordAddr] >> 16) & 0xFFFFu, pixel, mask) << 16);
+                break;
+            }
+        }
+    }
+
+    public (byte R, byte G, byte B, byte A) ReadPixelRgba(uint dbp, uint dbw, uint dpsm, int x, int y)
+    {
+        if (x < 0 || y < 0)
+            return (0, 0, 0, 0);
+
+        switch (dpsm)
+        {
+            case PSMCT32:
+            case PSMZ32:
+            case 0x01:
+            case PSMZ24:
+            {
+                var addr = GetWordAddressPSMCT32(dbp, dbw, x, y);
+                var word = addr < VramWords ? _vram[addr] : 0u;
+                // PSMCT24 has no native alpha; return PS2-nominal full (128) so downstream
+                // /128 blend factors evaluate to 1.0. PSMCT32 returns the raw stored byte.
+                var alpha = dpsm is 0x01 or PSMZ24 ? 128 : (int)(word >> 24);
+                return ((byte)word, (byte)(word >> 8), (byte)(word >> 16), (byte)alpha);
+            }
+            case PSMCT16:
+            case PSMCT16S:
+            {
+                var (wordAddr, half) = GetWordAddressPSMCT16(dbp, dbw, x, y, dpsm == PSMCT16S);
+                var word = wordAddr < VramWords ? _vram[wordAddr] : 0u;
+                var pixel = half == 0 ? (ushort)(word & 0xFFFF) : (ushort)(word >> 16);
+                return (Expand5(pixel & 0x1F), Expand5((pixel >> 5) & 0x1F), Expand5((pixel >> 10) & 0x1F), (pixel & 0x8000) != 0 ? (byte)255 : (byte)0);
+            }
+            default:
+                return (0, 0, 0, 0);
+        }
+    }
+
+    private static uint ApplyMask(uint oldValue, uint newValue, uint mask) =>
+        (oldValue & mask) | (newValue & ~mask);
+
+    private static byte Expand5(int value) => (byte)((value << 3) | (value >> 2));
 
     /// <summary>
     ///     Read a PSMT4 texture from VRAM as linear 4-bit pixel data (packed 2 pixels/byte).
@@ -201,7 +332,13 @@ internal sealed class Ps2GsVram
     /// <summary>
     ///     Read a PSMCT16 region from VRAM (used for 16-bit CLUT data).
     /// </summary>
-    public byte[] ReadRectPSMCT16(uint cbp, uint cbw, int width, int height)
+    public byte[] ReadRectPSMCT16(uint cbp, uint cbw, int width, int height) =>
+        ReadRectPSMCT16(cbp, cbw, width, height, signedMode: false);
+
+    public byte[] ReadRectPSMCT16S(uint cbp, uint cbw, int width, int height) =>
+        ReadRectPSMCT16(cbp, cbw, width, height, signedMode: true);
+
+    private byte[] ReadRectPSMCT16(uint cbp, uint cbw, int width, int height, bool signedMode)
     {
         var output = new byte[width * height * 2];
         var off = 0;
@@ -209,7 +346,7 @@ internal sealed class Ps2GsVram
         {
             for (var x = 0; x < width; x++)
             {
-                var (wordAddr, half) = GetWordAddressPSMCT16(cbp, cbw, x, y);
+                var (wordAddr, half) = GetWordAddressPSMCT16(cbp, cbw, x, y, signedMode);
                 var word = wordAddr < VramWords ? _vram[wordAddr] : 0u;
                 var pixel = half == 0 ? (ushort)(word & 0xFFFF) : (ushort)(word >> 16);
                 output[off++] = (byte)pixel;
@@ -290,7 +427,7 @@ internal sealed class Ps2GsVram
 
     // ---- PSMCT16 addressing ----
 
-    private static (int wordAddr, int half) GetWordAddressPSMCT16(uint dbp, uint dbw, int x, int y)
+    private static (int wordAddr, int half) GetWordAddressPSMCT16(uint dbp, uint dbw, int x, int y, bool signedMode)
     {
         var pageX = x / 64;
         var pageY = y / 64;
@@ -298,7 +435,7 @@ internal sealed class Ps2GsVram
 
         var blockX = x % 64 / 16;
         var blockY = y % 64 / 8;
-        var block = Block16[blockY * 4 + blockX];
+        var block = (signedMode ? Block16S : Block16)[blockY * 4 + blockX];
 
         var colY = y % 8;
         var column = colY / 2;
@@ -354,7 +491,7 @@ internal sealed class Ps2GsVram
 
     // ---- PSMT4 write (for rare PSMT4-format uploads) ----
 
-    private void WriteRectPSMT4(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
+    private void WriteRectPSMT4(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
     {
         for (var y = 0; y < rrh; y++)
         {
@@ -364,7 +501,7 @@ internal sealed class Ps2GsVram
                 var byteIdx = pixelIdx / 2;
                 if (byteIdx >= data.Length) return;
                 var nibble = (data[byteIdx] >> ((pixelIdx & 1) * 4)) & 0xF;
-                WriteNibblePSMT4(dbp, dbw, x, y, nibble);
+                WriteNibblePSMT4(dbp, dbw, dsax + x, dsay + y, nibble);
             }
         }
     }
@@ -389,7 +526,7 @@ internal sealed class Ps2GsVram
 
     // ---- PSMT8 write (for rare PSMT8-format uploads) ----
 
-    private void WriteRectPSMT8(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
+    private void WriteRectPSMT8(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
     {
         var srcOff = 0;
         for (var y = 0; y < rrh; y++)
@@ -397,7 +534,7 @@ internal sealed class Ps2GsVram
             for (var x = 0; x < rrw; x++)
             {
                 if (srcOff >= data.Length) return;
-                WriteBytePSMT8(dbp, dbw, x, y, data[srcOff++]);
+                WriteBytePSMT8(dbp, dbw, dsax + x, dsay + y, data[srcOff++]);
             }
         }
     }
