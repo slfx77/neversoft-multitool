@@ -1,55 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
-using System.Linq;
 
 namespace NeversoftMultitool.Core.Formats.Video;
-
-public enum Vid1VideoVariant
-{
-    Unknown,
-    ThawLongForm,
-    ThawAtvi
-}
-
-public sealed record Vid1VideoFrame(
-    int Index,
-    ushort Tag16,
-    int PreambleClass,
-    bool UsesCustomQuantMatrices,
-    bool IsPartial,
-    byte[] CodedPayload,
-    byte[] Bitstream,
-    int IntraDcThresholdIndex,
-    int Quantizer,
-    int? ForwardCode,
-    int? BackwardCode,
-    uint? CurrentFrameStateWord,
-    uint? AlternateFrameStateWord,
-    bool HasSpecialCallerGate,
-    byte[]? CustomIntraMatrix,
-    byte[]? CustomInterMatrix)
-{
-    internal int FlagBitOffset { get; init; }
-    internal int VlcBitOffset { get; init; }
-
-    internal int? SpritePointCount { get; init; }
-
-    internal int? SpriteWarpAccuracy { get; init; }
-
-    internal int[]? SpriteTrajectoryDeltas { get; init; }
-
-    internal int GetFallbackVopType()
-    {
-        return PreambleClass switch
-        {
-            0 => 0,
-            1 => 1,
-            2 => 2,
-            3 => 3,
-            _ => 0
-        };
-    }
-}
 
 public sealed class Vid1VideoFile
 {
@@ -57,6 +9,15 @@ public sealed class Vid1VideoFile
     private const int FrameChildOffset = 0x20;
     private const int ViddFlagSeedOffset = 4;
     private const int ViddTag16Offset = 6;
+
+    private static readonly byte[] ZigzagScan =
+    [
+        0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5,
+        12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
+        35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+        58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63
+    ];
+
     private Vid1VideoFile(
         string? sourcePath,
         int width,
@@ -158,10 +119,12 @@ public sealed class Vid1VideoFile
             return false;
         }
 
-        if (!TryFindChunk(data, headChunk.Offset + HeadChildOffset, headChunk.EndOffset, "VIDH", out var vidhChunk, out error))
+        if (!TryFindChunk(data, headChunk.Offset + HeadChildOffset, headChunk.EndOffset, "VIDH", out var vidhChunk,
+                out error))
             return false;
 
-        if (!TryParseVideoHeader(data, vidhChunk, out var width, out var height, out var frameCount, out var frameRateNumerator, out var frameRateDenominator, out error))
+        if (!TryParseVideoHeader(data, vidhChunk, out var width, out var height, out var frameCount,
+                out var frameRateNumerator, out var frameRateDenominator, out error))
             return false;
 
         if (!TryParseFrames(data, headChunk.EndOffset, out var frames, out error))
@@ -202,7 +165,8 @@ public sealed class Vid1VideoFile
         }
 
         var tag16Values = frames.Select(static frame => frame.Tag16).ToArray();
-        var longFormCount = tag16Values.Count(static tag16 => tag16 is 0x2002 or 0x4014 or 0x4024 or 0x5014 or 0x5024 or 0x5044);
+        var longFormCount =
+            tag16Values.Count(static tag16 => tag16 is 0x2002 or 0x4014 or 0x4024 or 0x5014 or 0x5024 or 0x5044);
         var atviCount = tag16Values.Count(static tag16 => tag16 is 0x4016 or 0x5016 or 0x8026 or 0x8029 or 0x8046);
 
         if (atviCount > longFormCount && atviCount > 0)
@@ -494,8 +458,8 @@ public sealed class Vid1VideoFile
     {
         var zigzag = ZigzagScan;
         var output = new byte[64];
-        int prev = 0;
-        int i = 0;
+        var prev = 0;
+        var i = 0;
         for (; i < 64; i++)
         {
             var value = reader.ReadBits(8);
@@ -510,14 +474,6 @@ public sealed class Vid1VideoFile
 
         return output;
     }
-
-    private static readonly byte[] ZigzagScan =
-    [
-        0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5,
-        12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
-        35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
-        58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
-    ];
 
     private static bool TryFindChunk(
         byte[] data,
@@ -616,5 +572,4 @@ public sealed class Vid1VideoFile
         int Offset,
         int Size,
         int EndOffset);
-
 }

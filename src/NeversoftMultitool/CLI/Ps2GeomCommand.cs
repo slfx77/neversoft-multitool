@@ -1,4 +1,5 @@
 using System.CommandLine;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using Spectre.Console;
 
@@ -30,7 +31,8 @@ public static class Ps2GeomCommand
         var formatOption = MeshExportCliOptions.CreateFormatOption();
         var blenderHelperOption = MeshExportCliOptions.CreateBlenderHelperOption();
 
-        var command = new Command("ps2geom", "Convert PS2 GEOM files (level geometry) to glTF (.glb) or Blender (.blend)");
+        var command = new Command("ps2geom",
+            "Convert PS2 GEOM files (level geometry) to glTF (.glb) or Blender (.blend)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(texPathOption);

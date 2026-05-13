@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Text;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using Spectre.Console;
@@ -105,16 +106,16 @@ public static class PsxAnimDumpCommand
         }
 
         // ─── Layer 1: hex dump + u32 interpretation ─────────────────────
-        AnsiConsole.MarkupLine($"\n[bold underline]Layer 1[/] [grey]— hex dump after boundary[/]");
+        AnsiConsole.MarkupLine("\n[bold underline]Layer 1[/] [grey]— hex dump after boundary[/]");
         DumpHex(data, boundary, (int)Math.Min(hexBytes, trailing));
         DumpFirstU32s(data, boundary, (int)Math.Min(16, trailing / 4));
 
         // ─── Layer 2: speculative anim-packet walk ──────────────────────
-        AnsiConsole.MarkupLine($"\n[bold underline]Layer 2[/] [grey]— anim packet walk (PreProcessAnimPacket)[/]");
+        AnsiConsole.MarkupLine("\n[bold underline]Layer 2[/] [grey]— anim packet walk (PreProcessAnimPacket)[/]");
         var afterAnimPacket = TryWalkAnimPacket(data, boundary, meshFile.Meshes.Count, verbose);
 
         // ─── Layer 3: speculative hierarchy walk ────────────────────────
-        AnsiConsole.MarkupLine($"\n[bold underline]Layer 3[/] [grey]— per-bone hierarchy walk[/]");
+        AnsiConsole.MarkupLine("\n[bold underline]Layer 3[/] [grey]— per-bone hierarchy walk[/]");
         var psh = TryLoadPshCompanion(input);
         var hierResult = TryWalkHierarchy(data, afterAnimPacket, psh, verbose);
 
@@ -171,9 +172,9 @@ public static class PsxAnimDumpCommand
 
     /// <summary>
     ///     Tentatively walk the <c>PreProcessAnimPacket</c> structure starting
-    ///     at <paramref name="offset"/>. Returns the byte offset just past the
-    ///     packet, or <paramref name="offset"/> unchanged if the structure
-    ///     doesn't validate against <paramref name="meshCount"/>.
+    ///     at <paramref name="offset" />. Returns the byte offset just past the
+    ///     packet, or <paramref name="offset" /> unchanged if the structure
+    ///     doesn't validate against <paramref name="meshCount" />.
     /// </summary>
     private static long TryWalkAnimPacket(byte[] data, long offset, int meshCount, bool verbose)
     {
@@ -185,7 +186,8 @@ public static class PsxAnimDumpCommand
 
         if (groupCount > 64)
         {
-            AnsiConsole.MarkupLine($"  [yellow]groupCount=0x{groupCount:X8} — too large; structure interpretation rejected.[/]");
+            AnsiConsole.MarkupLine(
+                $"  [yellow]groupCount=0x{groupCount:X8} — too large; structure interpretation rejected.[/]");
             return offset;
         }
 
@@ -242,27 +244,28 @@ public static class PsxAnimDumpCommand
 
         if (totalAnims > 0 && meshIdxOutOfRange == totalAnims)
         {
-            AnsiConsole.MarkupLine("  [yellow]All meshIdx values out of range — packet interpretation likely wrong.[/]");
+            AnsiConsole.MarkupLine(
+                "  [yellow]All meshIdx values out of range — packet interpretation likely wrong.[/]");
             return offset;
         }
 
         return pos;
     }
 
-    // ─── Layer 3: hierarchy walk ────────────────────────────────────────
-
-    private record HierLocation(
-        long Base, long PoolBase, int NumStreams, int[] FrameCounts, int[] PoolOffsets);
-
     /// <summary>
     ///     Walk the hierarchy block per the THPS2 release source layout (per
     ///     decomp agent analysis of DECOMP.cpp:484):
     ///     <list type="bullet">
-    ///         <item><c>+0x00: u32 numStreams</c></item>
-    ///         <item><c>+0x04 + i*8: per-anim entry</c>:
+    ///         <item>
+    ///             <c>+0x00: u32 numStreams</c>
+    ///         </item>
+    ///         <item>
+    ///             <c>+0x04 + i*8: per-anim entry</c>:
     ///             <list type="bullet">
     ///                 <item><c>+0x00: u32 poolOffset</c> (relative to pool start)</item>
-    ///                 <item><c>+0x04: u32 frameCount</c></item>
+    ///                 <item>
+    ///                     <c>+0x04: u32 frameCount</c>
+    ///                 </item>
     ///             </list>
     ///         </item>
     ///         <item>Stream pool starts at <c>+0x04 + numStreams*8</c></item>
@@ -291,7 +294,7 @@ public static class PsxAnimDumpCommand
         if (poolStart > data.Length)
         {
             AnsiConsole.MarkupLine(
-                $"  [yellow]Entry table would extend past EOF.[/]");
+                "  [yellow]Entry table would extend past EOF.[/]");
             return null;
         }
 
@@ -338,14 +341,15 @@ public static class PsxAnimDumpCommand
     ///     <c>numBones × 6</c> channels concatenated as
     ///     <c>[bone0_ch0..ch5][bone1_ch0..ch5][…][boneN_ch5]</c>. Walking that
     ///     produces the full per-bone (Rx, Ry, Rz, Tx, Ty, Tz) trajectory for
-    ///     all <paramref name="numBones"/> bones across <c>frameCount</c> frames.
+    ///     all <paramref name="numBones" /> bones across <c>frameCount</c> frames.
     /// </summary>
     private static void DumpAnimationSlot(
         byte[] data, HierLocation hier, int animIndex, int boneIndex, int numBones, bool verbose)
     {
         if (animIndex < 0 || animIndex >= hier.NumStreams)
         {
-            AnsiConsole.MarkupLine($"  [yellow]Animation index {animIndex} out of range (0..{hier.NumStreams - 1}).[/]");
+            AnsiConsole.MarkupLine(
+                $"  [yellow]Animation index {animIndex} out of range (0..{hier.NumStreams - 1}).[/]");
             return;
         }
 
@@ -376,7 +380,7 @@ public static class PsxAnimDumpCommand
             $"  anim {animIndex}  streamStart=0x{streamStart:X}  frames={frameCount}  numBones={numBones}  byteBudget={byteBudget}");
 
         // Preview first 32 bytes for manual structure inspection.
-        var preview = new System.Text.StringBuilder("  first 32 bytes:");
+        var preview = new StringBuilder("  first 32 bytes:");
         for (var i = 0; i < Math.Min(32, data.Length - streamStart); i++)
             preview.Append($" {data[streamStart + i]:X2}");
         AnsiConsole.MarkupLine($"[grey]{preview}[/]");
@@ -387,8 +391,8 @@ public static class PsxAnimDumpCommand
         var bufSize = Math.Max(frameCount * 4, 64);
         var allBoneChannels = new short[numBones, channelsPerBone][];
         for (var b = 0; b < numBones; b++)
-            for (var c = 0; c < channelsPerBone; c++)
-                allBoneChannels[b, c] = new short[bufSize];
+        for (var c = 0; c < channelsPerBone; c++)
+            allBoneChannels[b, c] = new short[bufSize];
 
         var src = data.AsSpan(streamStart);
         var consumed = 0;
@@ -437,9 +441,11 @@ public static class PsxAnimDumpCommand
                     return;
                 }
             }
+
             perBoneBytes[b] = consumed - boneStart;
             bonesActuallyDecoded = b + 1;
         }
+
         numBones = bonesActuallyDecoded;
 
         if (verbose)
@@ -477,6 +483,7 @@ public static class PsxAnimDumpCommand
                 var (mn, mx) = MinMaxChannel(allBoneChannels[b, c], frameCount);
                 spans[c] = mx - mn;
             }
+
             AnsiConsole.MarkupLine(
                 $"  [grey]{b,4}[/]  | {spans[0],8} {spans[1],8} {spans[2],8} {spans[3],8} {spans[4],8} {spans[5],8}");
         }
@@ -517,7 +524,8 @@ public static class PsxAnimDumpCommand
         }
 
         if (!verbose && frameCount > framesToShow)
-            AnsiConsole.MarkupLine($"  [grey](… {frameCount - framesToShow} more frames suppressed; pass -v for full dump)[/]");
+            AnsiConsole.MarkupLine(
+                $"  [grey](… {frameCount - framesToShow} more frames suppressed; pass -v for full dump)[/]");
     }
 
     private static (short Min, short Max) MinMaxChannel(short[] buf, int frameCount)
@@ -529,6 +537,7 @@ public static class PsxAnimDumpCommand
             if (buf[f] < min) min = buf[f];
             if (buf[f] > max) max = buf[f];
         }
+
         return (min, max);
     }
 
@@ -541,4 +550,13 @@ public static class PsxAnimDumpCommand
             Path.GetFileNameWithoutExtension(psxPath) + ".psh");
         return File.Exists(stem) ? PshFile.Parse(stem) : null;
     }
+
+    // ─── Layer 3: hierarchy walk ────────────────────────────────────────
+
+    private record HierLocation(
+        long Base,
+        long PoolBase,
+        int NumStreams,
+        int[] FrameCounts,
+        int[] PoolOffsets);
 }

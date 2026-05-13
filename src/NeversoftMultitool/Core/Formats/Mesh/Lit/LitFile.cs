@@ -15,7 +15,7 @@ public static class LitFile
 
     public static List<LitLight> Parse(byte[] data)
     {
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         using var reader = new StreamReader(stream);
         var lines = new List<string>();
         while (reader.ReadLine() is { } line)

@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace NeversoftMultitool.Core.Formats.XbxScene;
+namespace NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 /// <summary>
 ///     Parser for THAW PC/Xbox scene files (.skin.wpc, .mdl.wpc, .skin.xbx, .mdl.xbx).

@@ -1,5 +1,4 @@
 using System.Numerics;
-using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -167,7 +166,7 @@ public sealed class GltfModelExporter : IModelExporter
             var bField = (alphaBlend >> 2) & 0x03;
             var cField = (alphaBlend >> 4) & 0x03;
             var dField = (alphaBlend >> 6) & 0x03;
-            var fixScale = Math.Clamp((float)((alpha >> 32) & 0xFF) / 128f, 0f, 1f);
+            var fixScale = Math.Clamp(((alpha >> 32) & 0xFF) / 128f, 0f, 1f);
             var isAdditive = aField == 0 && bField == 2 && dField == 1 && cField is 0 or 2;
             var isSubtractive = aField == 2 && bField == 0 && dField == 1 && cField is 0 or 2;
             if (isAdditive)
@@ -189,10 +188,12 @@ public sealed class GltfModelExporter : IModelExporter
         return pngBytes;
     }
 
-    private static TextureWrapMode ToTextureWrapMode(ModelTextureWrap wrap) =>
-        wrap == ModelTextureWrap.ClampToEdge
+    private static TextureWrapMode ToTextureWrapMode(ModelTextureWrap wrap)
+    {
+        return wrap == ModelTextureWrap.ClampToEdge
             ? TextureWrapMode.CLAMP_TO_EDGE
             : TextureWrapMode.REPEAT;
+    }
 
     private static int AddTriangles(
         PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexEmpty> prim,

@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -144,58 +145,8 @@ internal sealed class BlendPackageManifest
         return result;
     }
 
-    private static float[] ToArray(System.Numerics.Vector4 value) =>
-        [value.X, value.Y, value.Z, value.W];
-}
-
-internal sealed class BlendTextureManifest
-{
-    public required string Name { get; init; }
-    public string? PngPath { get; init; }
-    public string? RgbaPath { get; init; }
-    public int? Width { get; init; }
-    public int? Height { get; init; }
-    public required string WrapU { get; init; }
-    public required string WrapV { get; init; }
-    public uint? NativeChecksum { get; init; }
-}
-
-internal sealed class BlendMaterialManifest
-{
-    public required string Name { get; init; }
-    public required float[] BaseColor { get; init; }
-    public int? TextureIndex { get; init; }
-    public required string AlphaMode { get; init; }
-    public float AlphaCutoff { get; init; }
-    public bool DoubleSided { get; init; }
-    public bool Unlit { get; init; }
-    public required List<Dictionary<string, object?>> NativeMetadata { get; init; }
-}
-
-internal sealed class BlendMeshManifest
-{
-    public required string Name { get; init; }
-    public required List<BlendPrimitiveManifest> Primitives { get; init; }
-    public required List<Dictionary<string, object?>> NativeMetadata { get; init; }
-}
-
-internal sealed class BlendPrimitiveManifest
-{
-    public required string Name { get; init; }
-    public int MaterialIndex { get; init; }
-    public required string VertexBuffer { get; init; }
-    public int VertexCount { get; init; }
-    public required string IndexBuffer { get; init; }
-    public int IndexCount { get; init; }
-    public int TriangleCount { get; init; }
-    public required List<Dictionary<string, object?>> NativeMetadata { get; init; }
-}
-
-internal sealed class BlendNodeManifest
-{
-    public required string Name { get; init; }
-    public int? MeshIndex { get; init; }
-    public required float[] Transform { get; init; }
-    public required List<int> ChildNodeIndices { get; init; }
-    public required List<Dictionary<string, object?>> NativeMetadata { get; init; }
+    private static float[] ToArray(Vector4 value)
+    {
+        return [value.X, value.Y, value.Z, value.W];
+    }
 }

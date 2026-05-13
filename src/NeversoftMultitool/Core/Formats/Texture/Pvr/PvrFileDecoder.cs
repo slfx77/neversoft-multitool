@@ -22,10 +22,10 @@ public static class PvrFileDecoder
         return DecodeToRgba(reader, 0);
     }
 
-    /// <summary>In-memory variant of <see cref="DecodeToRgba(string)"/>.</summary>
+    /// <summary>In-memory variant of <see cref="DecodeToRgba(string)" />.</summary>
     public static (byte[] Rgba, int Width, int Height)? DecodeToRgba(byte[] data)
     {
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         using var reader = new BinaryReader(stream);
         return DecodeToRgba(reader, 0);
     }
@@ -53,7 +53,7 @@ public static class PvrFileDecoder
     /// </summary>
     public static bool DecodeToPng(byte[] data, string pngPath)
     {
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         using var reader = new BinaryReader(stream);
         return DecodeToPng(reader, 0, pngPath);
     }

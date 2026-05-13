@@ -1,5 +1,4 @@
 using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
@@ -165,7 +164,7 @@ internal static class Ps2TextureLoader
     /// <summary>
     ///     Try to load THAW world-zone TEX files and build texture providers.
     ///     Thin Spectre-logging wrapper over
-    ///     <see cref="ZoneTextureProviderBuilder.TryBuild"/>.
+    ///     <see cref="ZoneTextureProviderBuilder.TryBuild" />.
     /// </summary>
     public static bool TryBuildZoneTexProviders(
         string? texPath,
@@ -179,8 +178,10 @@ internal static class Ps2TextureLoader
         return ZoneTextureProviderBuilder.TryBuild(texPath, out textureProvider, out tex0Resolver, log);
     }
 
-    public static List<string> GetTexFiles(string path) =>
-        ZoneTextureProviderBuilder.GetTexFiles(path);
+    public static List<string> GetTexFiles(string path)
+    {
+        return ZoneTextureProviderBuilder.GetTexFiles(path);
+    }
 
     private static Ps2TexResult ParseTextureFile(string texFile)
     {

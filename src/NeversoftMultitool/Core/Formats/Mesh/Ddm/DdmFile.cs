@@ -24,7 +24,7 @@ public sealed class DdmFile
     /// </summary>
     public static DdmFile Parse(byte[] data)
     {
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         using var reader = new BinaryReader(stream);
         return Parse(reader);
     }

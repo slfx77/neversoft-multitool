@@ -1,5 +1,4 @@
 using System.Numerics;
-using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -8,7 +7,7 @@ using SharpGLTF.Scenes;
 using SharpGLTF.Schema2;
 using AlphaMode = SharpGLTF.Materials.AlphaMode;
 
-namespace NeversoftMultitool.Core.Formats.XbxScene;
+namespace NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 /// <summary>
 ///     Writes an XbxScene to glTF 2.0 (.glb).

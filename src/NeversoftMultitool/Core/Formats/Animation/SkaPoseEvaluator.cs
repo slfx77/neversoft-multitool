@@ -4,17 +4,15 @@ using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 namespace NeversoftMultitool.Core.Formats.Animation;
 
 /// <summary>
-///     Evaluates a <see cref="SkaAnimation"/> against a <see cref="Ps2Skeleton"/> at a
+///     Evaluates a <see cref="SkaAnimation" /> against a <see cref="Ps2Skeleton" /> at a
 ///     given time, producing per-bone local rotation/translation plus the composed
 ///     world matrix (parent-chain multiply).
-///
 ///     Version-specific fallback semantics for empty tracks:
-///       - Version 1 (THPS4): empty track → identity (the native V1 .ske file carries
-///         no bind pose; the engine overlays a default animation at load time, so
-///         "no animation track" for V1 means "no transform").
-///       - Version 2 (THUG+): empty track → bone's bind pose from the skeleton's
-///         LocalRotation/LocalTranslation fields.
-///
+///     - Version 1 (THPS4): empty track → identity (the native V1 .ske file carries
+///     no bind pose; the engine overlays a default animation at load time, so
+///     "no animation track" for V1 means "no transform").
+///     - Version 2 (THUG+): empty track → bone's bind pose from the skeleton's
+///     LocalRotation/LocalTranslation fields.
 ///     Single-key tracks are treated as constant. Multi-key tracks LERP translation
 ///     and SLERP rotation between bracketing keys. Times outside [0, Duration] wrap
 ///     modulo Duration so looping playback returns a stable pose.
@@ -41,8 +39,8 @@ internal sealed class SkaPoseEvaluator
     }
 
     /// <summary>
-    ///     Sample one <see cref="SkaBonePose"/> per bone in the skeleton at the
-    ///     given time. Time wraps modulo <see cref="SkaAnimation.Duration"/> for
+    ///     Sample one <see cref="SkaBonePose" /> per bone in the skeleton at the
+    ///     given time. Time wraps modulo <see cref="SkaAnimation.Duration" /> for
     ///     looping animations.
     /// </summary>
     public SkaBonePose[] Evaluate(float time)
@@ -150,17 +148,4 @@ internal sealed class SkaPoseEvaluator
             wrapped += duration;
         return wrapped;
     }
-}
-
-/// <summary>
-///     Per-bone pose produced by <see cref="SkaPoseEvaluator.Evaluate"/>.
-///     <see cref="Rotation"/> and <see cref="Translation"/> are the bone's local
-///     (parent-relative) transform at the sample time; <see cref="WorldMatrix"/>
-///     is the composed parent-chain matrix in model space.
-/// </summary>
-internal readonly struct SkaBonePose(Quaternion rotation, Vector3 translation, Matrix4x4 worldMatrix)
-{
-    public Quaternion Rotation { get; } = rotation;
-    public Vector3 Translation { get; } = translation;
-    public Matrix4x4 WorldMatrix { get; } = worldMatrix;
 }

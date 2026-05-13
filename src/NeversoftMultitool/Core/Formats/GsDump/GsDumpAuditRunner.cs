@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
@@ -9,23 +10,6 @@ using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
 namespace NeversoftMultitool.Core.Formats.GsDump;
-
-internal sealed class GsDumpAuditOptions
-{
-    public string? PngPath { get; init; }
-    public string? TexturePath { get; init; }
-    public bool JsonOnly { get; init; }
-    public bool Verbose { get; init; }
-    public int? ProbeX { get; init; }
-    public int? ProbeY { get; init; }
-    public uint? ProbeFbp { get; init; }
-    public string? ProbeOutputPath { get; init; }
-    public int? MaxVsync { get; init; }
-    public string? SaveRtDir { get; init; }
-    public int SaveRtStart { get; init; }
-    public int? SaveRtCount { get; init; }
-    public uint? SaveRtFbp { get; init; }
-}
 
 internal static class GsDumpAuditRunner
 {
@@ -53,9 +37,9 @@ internal static class GsDumpAuditRunner
                     ? $"{stem}.probe-fbp{options.ProbeFbp.Value}-x{options.ProbeX?.ToString() ?? "any"}-y{options.ProbeY?.ToString() ?? "any"}.csv"
                     : $"{stem}.probe-{options.ProbeX!.Value}-{options.ProbeY!.Value}.csv";
                 var probePath = options.ProbeOutputPath
-                    ?? Path.Combine(outputDirectory, defaultStem);
+                                ?? Path.Combine(outputDirectory, defaultStem);
                 Directory.CreateDirectory(Path.GetDirectoryName(probePath)!);
-                probeWriter = new StreamWriter(probePath, append: false);
+                probeWriter = new StreamWriter(probePath, false);
                 probeWriter.WriteLine(
                     "draw,primitive,fbp,fbw,psm,fbmsk,tex0,alpha,test,z,tme,abe,sampled," +
                     "sample_r,sample_g,sample_b,sample_a," +
@@ -125,25 +109,31 @@ internal static class GsDumpAuditRunner
                     SaveRtStart = options.SaveRtStart,
                     SaveRtCount = options.SaveRtCount,
                     SaveRtFbp = options.SaveRtFbp,
-                    SaveRtSink = options.SaveRtDir == null ? null : snapshot =>
-                    {
-                        var saveDir = options.SaveRtDir;
-                        Directory.CreateDirectory(saveDir);
-                        var fileName = $"{snapshot.DrawIndex:D5}_rt_{snapshot.Fbp:X5}_{(snapshot.Psm == Ps2TexPixelDecoder.PSMCT16 || snapshot.Psm == Ps2GsVram.PSMCT16S ? "C_16" : snapshot.Psm == Ps2TexPixelDecoder.PSMCT24 ? "C_24" : "C_32")}.png";
-                        var path = Path.Combine(saveDir, fileName);
-                        SaveRgba(path, snapshot.Rgba, snapshot.Width, snapshot.Height);
-                    },
-                    TextureDumpSink = options.JsonOnly ? null : dumpTexture =>
-                    {
-                        Directory.CreateDirectory(textureDumpDirectory);
-                        var fileName =
-                            $"{textureDumpIndex++:D4}_tex0-{dumpTexture.Audit.Tex0[2..]}_texa-{dumpTexture.Audit.Texa[2..]}_psm-{dumpTexture.Audit.Psm:X2}_{dumpTexture.Audit.Width}x{dumpTexture.Audit.Height}_at-{dumpTexture.Audit.RegionX}-{dumpTexture.Audit.RegionY}_{MakeSafeFileSuffix(dumpTexture.Audit.Source)}_{dumpTexture.Audit.ContentHash:X8}.png";
-                        var path = Path.Combine(textureDumpDirectory, fileName);
-                        SaveRgba(path, dumpTexture.Rgba, dumpTexture.Audit.Width, dumpTexture.Audit.Height);
-                        return Path.GetFullPath(path);
-                    }
+                    SaveRtSink = options.SaveRtDir == null
+                        ? null
+                        : snapshot =>
+                        {
+                            var saveDir = options.SaveRtDir;
+                            Directory.CreateDirectory(saveDir);
+                            var fileName =
+                                $"{snapshot.DrawIndex:D5}_rt_{snapshot.Fbp:X5}_{(snapshot.Psm == Ps2TexPixelDecoder.PSMCT16 || snapshot.Psm == Ps2GsVram.PSMCT16S ? "C_16" : snapshot.Psm == Ps2TexPixelDecoder.PSMCT24 ? "C_24" : "C_32")}.png";
+                            var path = Path.Combine(saveDir, fileName);
+                            SaveRgba(path, snapshot.Rgba, snapshot.Width, snapshot.Height);
+                        },
+                    TextureDumpSink = options.JsonOnly
+                        ? null
+                        : dumpTexture =>
+                        {
+                            Directory.CreateDirectory(textureDumpDirectory);
+                            var fileName =
+                                $"{textureDumpIndex++:D4}_tex0-{dumpTexture.Audit.Tex0[2..]}_texa-{dumpTexture.Audit.Texa[2..]}_psm-{dumpTexture.Audit.Psm:X2}_{dumpTexture.Audit.Width}x{dumpTexture.Audit.Height}_at-{dumpTexture.Audit.RegionX}-{dumpTexture.Audit.RegionY}_{MakeSafeFileSuffix(dumpTexture.Audit.Source)}_{dumpTexture.Audit.ContentHash:X8}.png";
+                            var path = Path.Combine(textureDumpDirectory, fileName);
+                            SaveRgba(path, dumpTexture.Rgba, dumpTexture.Audit.Width, dumpTexture.Audit.Height);
+                            return Path.GetFullPath(path);
+                        }
                 });
-            return FinishRun(interpretation, dump, gsPath, outputDirectory, options, dimensions, pngPath, stem, textureContext, textureDumpDirectory);
+            return FinishRun(interpretation, dump, gsPath, outputDirectory, options, dimensions, pngPath, stem,
+                textureContext, textureDumpDirectory);
         }
         finally
         {
@@ -205,8 +195,10 @@ internal static class GsDumpAuditRunner
             }
         }
 
-        interpretation.Render.DirectNonBlackBounds = BuildPixelBounds(directPixels, dimensions.Width, dimensions.Height);
-        interpretation.Render.PresentedNonBlackBounds = BuildPixelBounds(renderPixels, dimensions.Width, dimensions.Height);
+        interpretation.Render.DirectNonBlackBounds =
+            BuildPixelBounds(directPixels, dimensions.Width, dimensions.Height);
+        interpretation.Render.PresentedNonBlackBounds =
+            BuildPixelBounds(renderPixels, dimensions.Width, dimensions.Height);
 
         var rawDirectRenderPath = Path.Combine(outputDirectory, stem + ".raw-direct.png");
         var rawRenderPath = Path.Combine(outputDirectory, stem + ".raw-render.png");
@@ -223,7 +215,8 @@ internal static class GsDumpAuditRunner
         if (!options.JsonOnly)
         {
             if (embeddedScreenshotPath != null)
-                SaveRgba(embeddedScreenshotPath, ConvertEmbeddedScreenshotToRgba(dump), dump.ScreenshotWidth, dump.ScreenshotHeight);
+                SaveRgba(embeddedScreenshotPath, ConvertEmbeddedScreenshotToRgba(dump), dump.ScreenshotWidth,
+                    dump.ScreenshotHeight);
             SaveRgba(rawDirectRenderPath, interpretation.DirectPixels, dimensions.Width, dimensions.Height);
             SaveRgba(rawRenderPath, interpretation.Pixels, dimensions.Width, dimensions.Height);
             SaveRgba(directRenderPath, directPixels, dimensions.Width, dimensions.Height);
@@ -313,7 +306,7 @@ internal static class GsDumpAuditRunner
             TextureCorrelation = textureContext?.BuildCorrelation(interpretation.XyzByTex0)
         };
 
-        File.WriteAllText(jsonPath, System.Text.Json.JsonSerializer.Serialize(
+        File.WriteAllText(jsonPath, JsonSerializer.Serialize(
             report,
             GsDumpAuditJsonContext.Default.GsDumpAuditReport));
         return report;
@@ -339,6 +332,7 @@ internal static class GsDumpAuditRunner
             if (image != null)
                 return (image.Width, image.Height);
         }
+
         return (640, 448);
     }
 
@@ -348,10 +342,12 @@ internal static class GsDumpAuditRunner
         return (1f, 1f);
     }
 
-    private static bool HasEmbeddedScreenshot(GsDumpFile dump) =>
-        dump.ScreenshotWidth > 0 &&
-        dump.ScreenshotHeight > 0 &&
-        dump.ScreenshotPixels.Length == dump.ScreenshotWidth * dump.ScreenshotHeight * 4;
+    private static bool HasEmbeddedScreenshot(GsDumpFile dump)
+    {
+        return dump.ScreenshotWidth > 0 &&
+               dump.ScreenshotHeight > 0 &&
+               dump.ScreenshotPixels.Length == dump.ScreenshotWidth * dump.ScreenshotHeight * 4;
+    }
 
     private static ReferencePixels? LoadReferencePixels(GsDumpFile dump, string? pngPath)
     {
@@ -458,11 +454,13 @@ internal static class GsDumpAuditRunner
         return new GsTextureContext(catalog.CreateTextureResolver(), catalog.CreateDebugTex0Resolver(texturePath));
     }
 
-    private static Dictionary<string, long> BuildPacketTypeCounts(GsDumpFile dump) =>
-        dump.Packets
+    private static Dictionary<string, long> BuildPacketTypeCounts(GsDumpFile dump)
+    {
+        return dump.Packets
             .GroupBy(static packet => packet.Kind.ToString())
             .OrderBy(static group => group.Key, StringComparer.Ordinal)
             .ToDictionary(static group => group.Key, static group => (long)group.Count());
+    }
 
     private static Dictionary<string, GsTransferStats> BuildTransferStats(GsDumpFile dump)
     {
@@ -662,13 +660,17 @@ internal static class GsDumpAuditRunner
         return "\"" + text.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
     }
 
-    private static string FormatDouble(double value) =>
-        value.ToString("0.###", CultureInfo.InvariantCulture);
+    private static string FormatDouble(double value)
+    {
+        return value.ToString("0.###", CultureInfo.InvariantCulture);
+    }
 
-    private static string FormatBounds(GsPixelBounds? bounds) =>
-        bounds == null
+    private static string FormatBounds(GsPixelBounds? bounds)
+    {
+        return bounds == null
             ? ""
             : $"{bounds.X},{bounds.Y},{bounds.Width}x{bounds.Height}";
+    }
 
     private static GsPixelDiffStats CompareAgainstPng(
         byte[] renderPixels,

@@ -124,7 +124,7 @@ public sealed class BlendModelExporter : IModelExporter
         try
         {
             if (!process.HasExited)
-                process.Kill(entireProcessTree: true);
+                process.Kill(true);
         }
         catch
         {

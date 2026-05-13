@@ -1,5 +1,4 @@
 using System.Numerics;
-using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -316,7 +315,8 @@ internal static class Ps2GeomDestinationAlphaSynthesis
         var maskSize = maskMax - maskMin;
         var maxDimension = Math.Max(
             Math.Max(Math.Abs(sourceSize.X), Math.Abs(sourceSize.Y)),
-            Math.Max(Math.Abs(sourceSize.Z), Math.Max(Math.Abs(maskSize.X), Math.Max(Math.Abs(maskSize.Y), Math.Abs(maskSize.Z)))));
+            Math.Max(Math.Abs(sourceSize.Z),
+                Math.Max(Math.Abs(maskSize.X), Math.Max(Math.Abs(maskSize.Y), Math.Abs(maskSize.Z)))));
         return Math.Max(0.01f, maxDimension * 0.001f);
     }
 
@@ -485,8 +485,9 @@ internal static class Ps2GeomDestinationAlphaSynthesis
         return AlphaTestPasses(sourceAlpha, aref, atst) ? (byte)255 : (byte)0;
     }
 
-    private static bool AlphaTestPasses(byte sourceAlpha, byte aref, int atst) =>
-        atst switch
+    private static bool AlphaTestPasses(byte sourceAlpha, byte aref, int atst)
+    {
+        return atst switch
         {
             0 => false, // NEVER
             1 => true, // ALWAYS
@@ -498,6 +499,7 @@ internal static class Ps2GeomDestinationAlphaSynthesis
             7 => sourceAlpha != aref, // NOTEQUAL
             _ => true
         };
+    }
 
     private static byte SampleAlpha(
         byte[] alpha,
@@ -533,8 +535,10 @@ internal static class Ps2GeomDestinationAlphaSynthesis
         return Math.Min(length - 1, Math.Max(0, repeated));
     }
 
-    private static bool HasUsefulDestinationAlpha(byte[] pngBytes) =>
-        AnalyzeAlphaProfile(pngBytes) != AlphaProfile.AllOpaque;
+    private static bool HasUsefulDestinationAlpha(byte[] pngBytes)
+    {
+        return AnalyzeAlphaProfile(pngBytes) != AlphaProfile.AllOpaque;
+    }
 
     private static AlphaProfile AnalyzeAlphaProfile(byte[] pngBytes)
     {
@@ -667,8 +671,10 @@ internal static class Ps2GeomDestinationAlphaSynthesis
         return (min, max);
     }
 
-    private static bool DestinationAlphaSynthesisEligible() =>
-        ReadDestAlphaStrategy() is "synthesize" or "blend";
+    private static bool DestinationAlphaSynthesisEligible()
+    {
+        return ReadDestAlphaStrategy() is "synthesize" or "blend";
+    }
 
     private static string ReadDestAlphaStrategy()
     {
@@ -686,8 +692,10 @@ internal static class Ps2GeomDestinationAlphaSynthesis
         return hash | 0x80000000u;
     }
 
-    private static uint RotateLeft(uint value, int shift) =>
-        (value << shift) | (value >> (32 - shift));
+    private static uint RotateLeft(uint value, int shift)
+    {
+        return (value << shift) | (value >> (32 - shift));
+    }
 
     private enum AlphaProfile
     {
@@ -714,13 +722,3 @@ internal static class Ps2GeomDestinationAlphaSynthesis
         }
     }
 }
-
-internal readonly record struct Ps2DestinationAlphaMaskCandidate(
-    Ps2DestinationAlphaLeafGeometryKey Geometry,
-    uint TextureChecksum,
-    Ps2GeomLeaf Leaf);
-
-internal readonly record struct Ps2DestinationAlphaLeafGeometryKey(
-    int VertexCount,
-    Vector3 Min,
-    Vector3 Max);

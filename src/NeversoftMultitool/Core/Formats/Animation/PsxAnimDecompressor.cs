@@ -2,15 +2,13 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 
 /// <summary>
 ///     Decompresses a single channel of PS1-era Neversoft character animation data.
-///
 ///     Mechanical port of <c>DecompressStream</c> from the THPS2 PSX prototype
 ///     decompilation
 ///     (<c>\\wsl.localhost\Ubuntu\home\slfx77\thps2-psx-proto\src\DECOMP.cpp</c>,
 ///     lines 37–250). One stream produces <c>streamLength</c> 16-bit signed
-///     samples scattered through <paramref name="dst"/> with a writer-controlled
+///     samples scattered through <paramref name="dst" /> with a writer-controlled
 ///     stride, so 6 channels × N bones can be filled into a single buffer by
 ///     consecutive calls at staggered start offsets.
-///
 ///     Wire format (per stream):
 ///     <list type="bullet">
 ///         <item>1 header byte: high nibble = numSegments − 1, low nibble = mode (0..15).</item>
@@ -23,15 +21,15 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 internal static class PsxAnimDecompressor
 {
     /// <summary>
-    ///     Decompresses one channel into <paramref name="dst"/>, writing
-    ///     <paramref name="streamLength"/> samples at indices
+    ///     Decompresses one channel into <paramref name="dst" />, writing
+    ///     <paramref name="streamLength" /> samples at indices
     ///     <c>0, step, 2·step, …, (streamLength−1)·step</c>.
     /// </summary>
     /// <param name="src">Compressed bytes; reading begins at offset 0.</param>
     /// <param name="dst">Destination buffer in s16 elements (NOT bytes).</param>
     /// <param name="step">Stride in s16 elements between consecutive samples.</param>
     /// <param name="streamLength">Number of samples to emit (typically frame count).</param>
-    /// <returns>Number of <paramref name="src"/> bytes consumed.</returns>
+    /// <returns>Number of <paramref name="src" /> bytes consumed.</returns>
     public static int Decompress(ReadOnlySpan<byte> src, Span<short> dst, int step, int streamLength)
     {
         var srcIdx = 0;
@@ -150,14 +148,14 @@ internal static class PsxAnimDecompressor
         int step, int bitWidth, int numSegments, int segLength, int remainder)
     {
         var prev = ReadInt16Le(src, srcIdx);
-        srcIdx++;             // bitstream begins at srcIdx (which equals stream byte 2);
+        srcIdx++; // bitstream begins at srcIdx (which equals stream byte 2);
         // the high byte of the starting u16 also serves as the bitstream's first
         // byte (overlap noted in DECOMP.cpp:158-162).
         var dstIdx = 0;
         dst[dstIdx] = (short)prev;
         dstIdx += step;
 
-        var bitOff = 0;     // bit offset within current byte (0..7)
+        var bitOff = 0; // bit offset within current byte (0..7)
         var byteIdx = srcIdx;
 
         for (var seg = 0; seg < segLength; seg++)
@@ -203,7 +201,7 @@ internal static class PsxAnimDecompressor
     private static int ModeRepeatConstant(
         ReadOnlySpan<byte> src, int srcIdx, Span<short> dst, int step, int streamLength)
     {
-        srcIdx++;     // skip filler byte (matches DECOMP.cpp:218)
+        srcIdx++; // skip filler byte (matches DECOMP.cpp:218)
         var value = ReadInt16Le(src, srcIdx);
         srcIdx += 2;
 
@@ -219,18 +217,18 @@ internal static class PsxAnimDecompressor
 
     /// <summary>
     ///     Read a signed bit-packed integer from a byte stream. Reads exactly
-    ///     <paramref name="bitWidth"/> bits starting at <c>(byteIdx, bitOff)</c>,
-    ///     advances both, and sign-extends the result from <paramref name="bitWidth"/>
+    ///     <paramref name="bitWidth" /> bits starting at <c>(byteIdx, bitOff)</c>,
+    ///     advances both, and sign-extends the result from <paramref name="bitWidth" />
     ///     to 32 bits.
     /// </summary>
     private static int ReadSignedBits(ReadOnlySpan<byte> src, ref int byteIdx, ref int bitOff, int bitWidth)
     {
         // The decomp reads a 24-bit window and shifts; we replicate that
         // behaviour to handle bit widths up to 15 cleanly.
-        uint window =
-              ((uint)src[byteIdx] << 16)
+        var window =
+            ((uint)src[byteIdx] << 16)
             | ((uint)src[byteIdx + 1] << 8)
-            |  (uint)src[byteIdx + 2];
+            | src[byteIdx + 2];
 
         var shifted = (window << (bitOff + 8)) >> (32 - bitWidth);
         var value = (int)shifted;
@@ -247,5 +245,7 @@ internal static class PsxAnimDecompressor
     }
 
     private static int ReadInt16Le(ReadOnlySpan<byte> src, int idx)
-        => (short)(src[idx] | (src[idx + 1] << 8));
+    {
+        return (short)(src[idx] | (src[idx + 1] << 8));
+    }
 }

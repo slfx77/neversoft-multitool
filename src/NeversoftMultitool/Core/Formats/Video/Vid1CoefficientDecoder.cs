@@ -10,6 +10,7 @@ namespace NeversoftMultitool.Core.Formats.Video;
 internal static class Vid1CoefficientDecoder
 {
     private const int EscapeCode = 0x1BFF;
+
     private static readonly bool UseSecondaryTailForLowPeek =
         string.Equals(
             Environment.GetEnvironmentVariable("VID1_LOW_PEEK_MODE"),
@@ -21,7 +22,7 @@ internal static class Vid1CoefficientDecoder
         0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5,
         12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
         35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
-        58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
+        58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63
     ];
 
     private static readonly byte[] HorizontalScan =
@@ -29,7 +30,7 @@ internal static class Vid1CoefficientDecoder
         0, 1, 2, 3, 8, 9, 16, 17, 10, 11, 4, 5, 6, 7, 15, 14,
         13, 12, 19, 18, 24, 25, 32, 33, 26, 27, 20, 21, 22, 23, 28, 29,
         30, 31, 34, 35, 40, 41, 48, 49, 42, 43, 36, 37, 38, 39, 44, 45,
-        46, 47, 50, 51, 56, 57, 58, 59, 52, 53, 54, 55, 60, 61, 62, 63,
+        46, 47, 50, 51, 56, 57, 58, 59, 52, 53, 54, 55, 60, 61, 62, 63
     ];
 
     private static readonly byte[] VerticalScan =
@@ -37,7 +38,7 @@ internal static class Vid1CoefficientDecoder
         0, 8, 16, 24, 1, 9, 2, 10, 17, 25, 32, 40, 48, 56, 57, 49,
         41, 33, 26, 18, 3, 11, 4, 12, 19, 27, 34, 42, 50, 58, 35, 43,
         51, 59, 20, 28, 5, 13, 6, 14, 21, 29, 36, 44, 52, 60, 37, 45,
-        53, 61, 22, 30, 7, 15, 23, 31, 38, 46, 54, 62, 39, 47, 55, 63,
+        53, 61, 22, 30, 7, 15, 23, 31, 38, 46, 54, 62, 39, 47, 55, 63
     ];
 
     // Bundle A tables (DOL 0x80326860, 112 entries / 0x80326A20, 96 / 0x80326BA0, 120)
@@ -57,7 +58,7 @@ internal static class Vid1CoefficientDecoder
         0x0060011, 0x0060011, 0x0060011, 0x0060011, 0x0060011, 0x0060011, 0x0060011, 0x0060011,
         0x0060011, 0x0060011, 0x0060011, 0x0060011, 0x0060011, 0x0060011, 0x0060011, 0x0060011,
         0x0080021, 0x0080021, 0x0080021, 0x0080021, 0x0080021, 0x0080021, 0x0080021, 0x0080021,
-        0x0080002, 0x0080002, 0x0080002, 0x0080002, 0x0080002, 0x0080002, 0x0080002, 0x0080002,
+        0x0080002, 0x0080002, 0x0080002, 0x0080002, 0x0080002, 0x0080002, 0x0080002, 0x0080002
     ];
 
     private static readonly int[] BundleASecondary =
@@ -73,7 +74,7 @@ internal static class Vid1CoefficientDecoder
         0x01010B1, 0x01010B1, 0x01010B1, 0x01010B1, 0x01010A1, 0x01010A1, 0x01010A1, 0x01010A1,
         0x0101091, 0x0101091, 0x0101091, 0x0101091, 0x01000E1, 0x01000E1, 0x01000E1, 0x01000E1,
         0x01000D1, 0x01000D1, 0x01000D1, 0x01000D1, 0x0100022, 0x0100022, 0x0100022, 0x0100022,
-        0x0100013, 0x0100013, 0x0100013, 0x0100013, 0x0100005, 0x0100005, 0x0100005, 0x0100005,
+        0x0100013, 0x0100013, 0x0100013, 0x0100013, 0x0100005, 0x0100005, 0x0100005, 0x0100005
     ];
 
     private static readonly int[] BundleATertiary =
@@ -92,7 +93,7 @@ internal static class Vid1CoefficientDecoder
         0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF,
         0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF,
         0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF,
-        0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF,
+        0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF
     ];
 
     // Bundle B tables (DOL 0x80326D80, 112 entries / 0x80326F40, 96 / 0x803270C0, 120)
@@ -112,7 +113,7 @@ internal static class Vid1CoefficientDecoder
         0x0060002, 0x0060002, 0x0060002, 0x0060002, 0x0060002, 0x0060002, 0x0060002, 0x0060002,
         0x0060002, 0x0060002, 0x0060002, 0x0060002, 0x0060002, 0x0060002, 0x0060002, 0x0060002,
         0x0080101, 0x0080101, 0x0080101, 0x0080101, 0x0080101, 0x0080101, 0x0080101, 0x0080101,
-        0x0080003, 0x0080003, 0x0080003, 0x0080003, 0x0080003, 0x0080003, 0x0080003, 0x0080003,
+        0x0080003, 0x0080003, 0x0080003, 0x0080003, 0x0080003, 0x0080003, 0x0080003, 0x0080003
     ];
 
     private static readonly int[] BundleBSecondary =
@@ -128,7 +129,7 @@ internal static class Vid1CoefficientDecoder
         0x0100901, 0x0100901, 0x0100901, 0x0100901, 0x0100801, 0x0100801, 0x0100801, 0x0100801,
         0x0110901, 0x0110901, 0x0110901, 0x0110901, 0x0100302, 0x0100302, 0x0100302, 0x0100302,
         0x0100104, 0x0100104, 0x0100104, 0x0100104, 0x010000C, 0x010000C, 0x010000C, 0x010000C,
-        0x010000B, 0x010000B, 0x010000B, 0x010000B, 0x010000A, 0x010000A, 0x010000A, 0x010000A,
+        0x010000B, 0x010000B, 0x010000B, 0x010000B, 0x010000A, 0x010000A, 0x010000A, 0x010000A
     ];
 
     private static readonly int[] BundleBTertiary =
@@ -147,7 +148,7 @@ internal static class Vid1CoefficientDecoder
         0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF,
         0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF,
         0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF,
-        0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF,
+        0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF, 0x00E1BFF
     ];
 
     // Escape correction tables (DOL 0x80325FB8, 256 bytes / 0x803260B8, 1024 bytes)
@@ -168,7 +169,7 @@ internal static class Vid1CoefficientDecoder
         3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     ];
 
     private static readonly byte[] Correction256 =
@@ -236,16 +237,19 @@ internal static class Vid1CoefficientDecoder
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     ];
 
-    public static byte[] GetScanTable(string scanName) => scanName switch
+    public static byte[] GetScanTable(string scanName)
     {
-        "zigzag" => ZigzagScan,
-        "horizontal" => HorizontalScan,
-        "vertical" => VerticalScan,
-        _ => ZigzagScan,
-    };
+        return scanName switch
+        {
+            "zigzag" => ZigzagScan,
+            "horizontal" => HorizontalScan,
+            "vertical" => VerticalScan,
+            _ => ZigzagScan
+        };
+    }
 
     public static void DecodeBlock(
         Vid1BitReader reader,
@@ -314,6 +318,7 @@ internal static class Vid1CoefficientDecoder
                 throw new InvalidDataException($"VLC prefix 0x{peek:X} out of primary table bounds");
             return primary[idx];
         }
+
         if (peek >= 0x80)
         {
             var idx = (peek >> 2) - 0x20;
@@ -321,6 +326,7 @@ internal static class Vid1CoefficientDecoder
                 throw new InvalidDataException($"VLC prefix 0x{peek:X} out of secondary table bounds");
             return secondary[idx];
         }
+
         if (peek < 8)
         {
             // FUN_802A08B4 has no lower-bound guard before indexing the

@@ -1,3 +1,4 @@
+using System.Text;
 using NeversoftMultitool.Core.BinaryIO;
 
 namespace NeversoftMultitool.Core.Formats.Audio;
@@ -24,12 +25,12 @@ public static class AdxDecoder
         }
     }
 
-    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string)"/>.</summary>
+    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string)" />.</summary>
     public static AudioConvertResult ConvertToWav(byte[] data, string stem, string outputDir)
     {
         try
         {
-            using var stream = new MemoryStream(data, writable: false);
+            using var stream = new MemoryStream(data, false);
             return ConvertStreamToWav(stream, stem, outputDir);
         }
         catch (Exception ex)
@@ -40,7 +41,7 @@ public static class AdxDecoder
 
     private static AudioConvertResult ConvertStreamToWav(Stream stream, string stem, string outputDir)
     {
-        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+        using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         var header = ReadHeader(reader);
         if (header == null)

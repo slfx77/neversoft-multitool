@@ -75,8 +75,8 @@ internal static class NgcTexCmprDecoder
             var selectors = block[4 + row];
             for (var column = 0; column < 4; column++)
             {
-                var paletteIndex = (selectors >> (6 - (column * 2))) & 0x03;
-                var pixelOffset = ((startY + row) * imageWidth + (startX + column)) * 4;
+                var paletteIndex = (selectors >> (6 - column * 2)) & 0x03;
+                var pixelOffset = ((startY + row) * imageWidth + startX + column) * 4;
                 var color = palette[paletteIndex];
                 output[pixelOffset] = color.R;
                 output[pixelOffset + 1] = color.G;
@@ -135,7 +135,7 @@ internal static class NgcTexCmprDecoder
 
     private static int RoundUpToBlock(int value, int blockSize)
     {
-        return ((value + blockSize - 1) / blockSize) * blockSize;
+        return (value + blockSize - 1) / blockSize * blockSize;
     }
 
     private readonly record struct Rgba32(byte R, byte G, byte B, byte A);

@@ -1,6 +1,6 @@
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
-using NeversoftMultitool.Core.Formats.XbxScene;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 namespace NeversoftMultitool.Core;
 

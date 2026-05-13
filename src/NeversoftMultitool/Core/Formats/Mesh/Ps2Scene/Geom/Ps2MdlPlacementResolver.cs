@@ -17,19 +17,6 @@ internal static class Ps2MdlPlacementResolver
             0, 1, 0, 0,
             0, 0, 0, 1));
 
-    internal readonly record struct BatchPlacement(int BatchIndex, int TrailerIndex, int BoneIndex, Matrix4x4 Transform);
-
-    /// <summary>
-    ///     Per-block worldzone placement derived from pairing a .91E1028D record with the
-    ///     preceding .mdl's preamble records. Used by the worldzone CLI flow to spawn one scene
-    ///     node per placed object.
-    /// </summary>
-    internal readonly record struct WorldzonePlacement(
-        int BlockIndex,
-        uint ClassHash,
-        Vector3 Position,
-        Quaternion Rotation);
-
     internal static IReadOnlyDictionary<int, BatchPlacement> ResolveObjectPlacements(
         Ps2MdlPreamble.Preamble? preamble,
         IReadOnlyList<(int Start, int End)> batchRanges)
@@ -54,7 +41,7 @@ internal static class Ps2MdlPlacementResolver
     ///     Resolve worldzone placements from CHierarchyObject bone matrices in the MDL preamble.
     ///     Returns one placement per non-root bone (for LOCAL-space batches that should be
     ///     instanced per bone) PLUS the root axis-swap at [0] (for WORLD-space batches).
-    ///     Callers must split output by <see cref="Ps2GeomLeaf.IsLocalSpace"/>: pass [0] only
+    ///     Callers must split output by <see cref="Ps2GeomLeaf.IsLocalSpace" />: pass [0] only
     ///     to world leaves and [1..] to local leaves. This matches the THAW worldzone object
     ///     MDL layout where car-shaped batches are in bone-local space and shared
     ///     infrastructure is in world space.
@@ -75,6 +62,7 @@ internal static class Ps2MdlPlacementResolver
             rootIdx = i;
             break;
         }
+
         if (rootIdx < 0)
             return [];
 
@@ -101,11 +89,12 @@ internal static class Ps2MdlPlacementResolver
                 position = new Vector3(combined.M41, combined.M42, combined.M43);
                 rotation = Quaternion.CreateFromRotationMatrix(combined);
             }
+
             placements.Add(new WorldzonePlacement(
-                BlockIndex: i,
-                ClassHash: bone.Checksum,
-                Position: position,
-                Rotation: rotation));
+                i,
+                bone.Checksum,
+                position,
+                rotation));
         }
 
         return placements;
@@ -152,4 +141,21 @@ internal static class Ps2MdlPlacementResolver
 
         return transformed;
     }
+
+    internal readonly record struct BatchPlacement(
+        int BatchIndex,
+        int TrailerIndex,
+        int BoneIndex,
+        Matrix4x4 Transform);
+
+    /// <summary>
+    ///     Per-block worldzone placement derived from pairing a .91E1028D record with the
+    ///     preceding .mdl's preamble records. Used by the worldzone CLI flow to spawn one scene
+    ///     node per placed object.
+    /// </summary>
+    internal readonly record struct WorldzonePlacement(
+        int BlockIndex,
+        uint ClassHash,
+        Vector3 Position,
+        Quaternion Rotation);
 }

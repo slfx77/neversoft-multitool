@@ -15,12 +15,6 @@ public static class SfxExtractor
     private const int AliasScoreThreshold = 24;
     private const int AliasMarginThreshold = 8;
 
-    /// <summary>
-    ///     Explicit companion-bank bytes. Used by archive-sourced SFX extraction
-    ///     where the path-based cross-sibling alias fallback isn't available.
-    /// </summary>
-    public readonly record struct SfxBankBytes(byte[] Data, string Format); // Format = "KAT" | "VAB"
-
     public static List<SfxSampleInfo> EnumerateSamples(string inputPath)
     {
         return TryResolvePlan(inputPath, out var plan, out _)
@@ -55,7 +49,7 @@ public static class SfxExtractor
             mapping.BankSample.SampleRate);
     }
 
-    /// <summary>In-memory variant of <see cref="ExtractSingleToWav(string, int, string)"/>.</summary>
+    /// <summary>In-memory variant of <see cref="ExtractSingleToWav(string, int, string)" />.</summary>
     public static string? ExtractSingleToWav(
         byte[] sfxData, string stem, int cueIndex, SfxBankBytes? bankBytes, string outputDir)
     {
@@ -82,7 +76,7 @@ public static class SfxExtractor
         return ExtractToWavCore(plan, stem, outputDir);
     }
 
-    /// <summary>In-memory variant of <see cref="ExtractToWav(string, string)"/>.</summary>
+    /// <summary>In-memory variant of <see cref="ExtractToWav(string, string)" />.</summary>
     public static AudioConvertResult ExtractToWav(
         byte[] sfxData, string stem, SfxBankBytes? bankBytes, string outputDir)
     {
@@ -115,7 +109,7 @@ public static class SfxExtractor
 
                 Directory.CreateDirectory(outDir);
                 var finalPath = Path.Combine(outDir, $"{mapping.CueIndex:D3}.wav");
-                File.Move(tempPath, finalPath, overwrite: true);
+                File.Move(tempPath, finalPath, true);
                 filesWritten++;
             }
 
@@ -129,7 +123,7 @@ public static class SfxExtractor
         finally
         {
             if (Directory.Exists(tempDir))
-                Directory.Delete(tempDir, recursive: true);
+                Directory.Delete(tempDir, true);
         }
     }
 
@@ -622,6 +616,12 @@ public static class SfxExtractor
                ((uint)data[offset + 2] << 16) |
                ((uint)data[offset + 3] << 24);
     }
+
+    /// <summary>
+    ///     Explicit companion-bank bytes. Used by archive-sourced SFX extraction
+    ///     where the path-based cross-sibling alias fallback isn't available.
+    /// </summary>
+    public readonly record struct SfxBankBytes(byte[] Data, string Format); // Format = "KAT" | "VAB"
 
     public sealed record SfxSampleInfo(
         int CueIndex,

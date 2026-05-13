@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Archives;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
@@ -15,16 +14,14 @@ internal static class ThawSkeletonDiscovery
     private static readonly ConcurrentDictionary<string, IReadOnlyDictionary<string, List<string>>> SkeletonIndexCache =
         new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Skeleton bytes plus the original entry name (used to decide which parser to use).</summary>
-    public readonly record struct Result(byte[] Bytes, string EntryName);
-
     public static string? FindSkeletonPath(string skinFilePath, string stem, bool isThawSkin)
     {
         var dir = Path.GetDirectoryName(skinFilePath);
         if (dir is null)
             return null;
 
-        var direct = CompanionSearch.FindCompanion(dir, stem, [SkeletonExtensionPs2, SkeletonExtensionCross], ["SKE", "Skeletons"]);
+        var direct = CompanionSearch.FindCompanion(dir, stem, [SkeletonExtensionPs2, SkeletonExtensionCross],
+            ["SKE", "Skeletons"]);
         if (direct != null)
             return direct;
 
@@ -57,7 +54,7 @@ internal static class ThawSkeletonDiscovery
     /// <summary>
     ///     Scan an archive's entries for a skeleton matching this skin's stem (plus
     ///     the same humanoid-fallback rules as the filesystem variant). The archive
-    ///     entry list is scored on <see cref="ArchiveEntry.FullName"/> so PAK
+    ///     entry list is scored on <see cref="ArchiveEntry.FullName" /> so PAK
     ///     directory prefixes like <c>pre/skeletons/</c> still influence picks.
     /// </summary>
     public static Result? FindInArchive(
@@ -108,8 +105,10 @@ internal static class ThawSkeletonDiscovery
                 matches = [];
                 index[entry.Name] = matches;
             }
+
             matches.Add(entry);
         }
+
         return index;
     }
 
@@ -208,4 +207,7 @@ internal static class ThawSkeletonDiscovery
 
         return null;
     }
+
+    /// <summary>Skeleton bytes plus the original entry name (used to decide which parser to use).</summary>
+    public readonly record struct Result(byte[] Bytes, string EntryName);
 }

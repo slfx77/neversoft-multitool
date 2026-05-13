@@ -178,7 +178,8 @@ public static partial class Vid1VideoConverter
             return false;
         }
 
-        if (!Vid1VideoRebuilder.TryBuildPrefix(ffmpeg, file!.Width, file.Height, file.FrameRate, out var prefix, out error))
+        if (!Vid1VideoRebuilder.TryBuildPrefix(ffmpeg, file!.Width, file.Height, file.FrameRate, out var prefix,
+                out error))
             return false;
 
         var candidate = Vid1VideoRebuilder.BuildDeterministicCandidateStream(prefix, file);
@@ -278,7 +279,7 @@ public static partial class Vid1VideoConverter
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardError = true,
-            CreateNoWindow = true,
+            CreateNoWindow = true
         };
 
         var stderrBuf = new StringBuilder();
@@ -289,7 +290,14 @@ public static partial class Vid1VideoConverter
 
         using var killOnCancel = cancellationToken.Register(() =>
         {
-            try { process.Kill(); } catch { /* already dead */ }
+            try
+            {
+                process.Kill();
+            }
+            catch
+            {
+                /* already dead */
+            }
         });
 
         process.Start();
@@ -309,7 +317,15 @@ public static partial class Vid1VideoConverter
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    try { process.Kill(); } catch { /* already dead */ }
+                    try
+                    {
+                        process.Kill();
+                    }
+                    catch
+                    {
+                        /* already dead */
+                    }
+
                     TryDeleteFile(outputPath);
                     error = "Cancelled";
                     return false;
@@ -330,13 +346,21 @@ public static partial class Vid1VideoConverter
 
                 if (totalFrames > 0)
                 {
-                    progress?.Report(decodeProgressBase + (decodeProgressSpan * (i + 1) / totalFrames));
+                    progress?.Report(decodeProgressBase + decodeProgressSpan * (i + 1) / totalFrames);
                 }
             }
         }
         catch (Exception ex)
         {
-            try { process.Kill(); } catch { /* already dead */ }
+            try
+            {
+                process.Kill();
+            }
+            catch
+            {
+                /* already dead */
+            }
+
             TryDeleteFile(outputPath);
             error = $"native decode failed: {ex.Message}";
             return false;
@@ -344,7 +368,15 @@ public static partial class Vid1VideoConverter
 
         if (!process.WaitForExit(60_000))
         {
-            try { process.Kill(); } catch { /* already dead */ }
+            try
+            {
+                process.Kill();
+            }
+            catch
+            {
+                /* already dead */
+            }
+
             TryDeleteFile(outputPath);
             error = "ffmpeg timed out";
             return false;
@@ -384,7 +416,7 @@ public static partial class Vid1VideoConverter
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardError = true,
-            CreateNoWindow = true,
+            CreateNoWindow = true
         };
 
         var stderrBuf = new StringBuilder();
@@ -395,7 +427,14 @@ public static partial class Vid1VideoConverter
 
         using var killOnCancel = cancellationToken.Register(() =>
         {
-            try { process.Kill(); } catch { /* already dead */ }
+            try
+            {
+                process.Kill();
+            }
+            catch
+            {
+                /* already dead */
+            }
         });
 
         process.Start();
@@ -412,7 +451,15 @@ public static partial class Vid1VideoConverter
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    try { process.Kill(); } catch { /* already dead */ }
+                    try
+                    {
+                        process.Kill();
+                    }
+                    catch
+                    {
+                        /* already dead */
+                    }
+
                     error = "Cancelled";
                     return false;
                 }
@@ -425,14 +472,30 @@ public static partial class Vid1VideoConverter
         }
         catch (Exception ex)
         {
-            try { process.Kill(); } catch { /* already dead */ }
+            try
+            {
+                process.Kill();
+            }
+            catch
+            {
+                /* already dead */
+            }
+
             error = $"native frame export failed: {ex.Message}";
             return false;
         }
 
         if (!process.WaitForExit(120_000))
         {
-            try { process.Kill(); } catch { /* already dead */ }
+            try
+            {
+                process.Kill();
+            }
+            catch
+            {
+                /* already dead */
+            }
+
             error = "ffmpeg timed out";
             return false;
         }
@@ -505,7 +568,7 @@ public static partial class Vid1VideoConverter
                 double.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture) * 60 +
                 double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture) +
                 double.Parse(match.Groups[4].Value, CultureInfo.InvariantCulture) / 100.0;
-            progress?.Report(Math.Min((0.35 + (currentSeconds / totalSeconds * 0.65)), 1.0));
+            progress?.Report(Math.Min(0.35 + currentSeconds / totalSeconds * 0.65, 1.0));
         }
 
         process.WaitForExit(30_000);
@@ -535,7 +598,7 @@ public static partial class Vid1VideoConverter
         try
         {
             if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
+                Directory.Delete(path, true);
         }
         catch
         {

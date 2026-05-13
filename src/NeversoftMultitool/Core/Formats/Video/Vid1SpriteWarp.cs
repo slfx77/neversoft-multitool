@@ -37,7 +37,7 @@ internal static class Vid1SpriteWarp
         var widthBits = 0;
         if (width > 1)
         {
-            while ((1 << widthBits) < width)
+            while (1 << widthBits < width)
                 widthBits++;
         }
 
@@ -51,19 +51,19 @@ internal static class Vid1SpriteWarp
         var anchor1X = context.SpriteAnchor1X;
         var anchor1Y = context.SpriteAnchor1Y;
 
-        long lumaBaseX = (long)halfScale * (anchor0X * 2L + delta[0]);
-        long lumaBaseY = (long)halfScale * (anchor0Y * 2L + delta[1]);
-        long numeratorX =
-            (long)(width - widthPow2) * (spriteSubdivision * lumaBaseX - anchor0X * 16L) +
-            (long)widthPow2 *
+        var lumaBaseX = halfScale * (anchor0X * 2L + delta[0]);
+        var lumaBaseY = halfScale * (anchor0Y * 2L + delta[1]);
+        var numeratorX =
+            (width - widthPow2) * (spriteSubdivision * lumaBaseX - anchor0X * 16L) +
+            widthPow2 *
             (spriteSubdivision * halfScale * (anchor1X * 2L + delta[0] + delta[2]) - anchor1X * 16L);
 
         var widthHalf = width >> 1;
         var roundingX = numeratorX < 1 ? -widthHalf : widthHalf;
 
-        long numeratorY =
-            (long)(width - widthPow2) * (spriteSubdivision * lumaBaseY - anchor0Y * 16L) +
-            (long)widthPow2 *
+        var numeratorY =
+            (width - widthPow2) * (spriteSubdivision * lumaBaseY - anchor0Y * 16L) +
+            widthPow2 *
             (spriteSubdivision * halfScale * (anchor1Y * 2L + delta[1] + delta[3]) - anchor1Y * 16L);
 
         var roundingY = numeratorY < 1 ? -widthHalf : widthHalf;
@@ -123,9 +123,11 @@ internal static class Vid1SpriteWarp
             var negAnchorY = -anchor0Y;
             var chromaScale = widthPow2 * spriteSubdivision * 2L;
 
-            warpChromaY = coeffY * doubleAnchorX + coeffMain * doubleAnchorY + chromaScale * lumaBaseY - widthPow2 * 16L;
+            warpChromaY = coeffY * doubleAnchorX + coeffMain * doubleAnchorY + chromaScale * lumaBaseY -
+                          widthPow2 * 16L;
             warpLumaY = (lumaBaseY << shiftLumaX) + coeffY * negAnchorX + coeffMain * negAnchorY;
-            warpChromaX = coeffMain * doubleAnchorX + coeffX * doubleAnchorY + chromaScale * lumaBaseX - widthPow2 * 16L;
+            warpChromaX = coeffMain * doubleAnchorX + coeffX * doubleAnchorY + chromaScale * lumaBaseX -
+                          widthPow2 * 16L;
             warpLumaX = (lumaBaseX << shiftLumaX) + coeffMain * negAnchorX + coeffX * negAnchorY;
 
             scaleCoeffX = coeffMain;
@@ -154,14 +156,14 @@ internal static class Vid1SpriteWarp
             scaleCoeffChromaY = scale;
         }
 
-        if (scaleCoeffX == ((long)scale << shiftLumaX) &&
+        if (scaleCoeffX == (long)scale << shiftLumaX &&
             crossCoeffX == 0 &&
             crossCoeffY == 0 &&
-            scaleCoeffY == ((long)scale << shiftLumaY) &&
-            scaleCoeffChromaX == ((long)scale << shiftChromaX) &&
+            scaleCoeffY == (long)scale << shiftLumaY &&
+            scaleCoeffChromaX == (long)scale << shiftChromaX &&
             crossCoeffChromaX == 0 &&
             crossCoeffChromaY == 0 &&
-            scaleCoeffChromaY == ((long)scale << shiftChromaY))
+            scaleCoeffChromaY == (long)scale << shiftChromaY)
         {
             warpLumaX >>= shiftLumaX;
             warpLumaY >>= shiftLumaY;

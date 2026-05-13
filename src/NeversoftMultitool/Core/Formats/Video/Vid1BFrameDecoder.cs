@@ -15,29 +15,6 @@ internal static class Vid1BFrameDecoder
 
     private static readonly byte[] ZigzagScan = Vid1CoefficientDecoder.GetScanTable("zigzag");
 
-    internal readonly record struct DecodeStats(
-        int DecodedMacroblocks,
-        int FallbackMacroblocks,
-        int UnsupportedBranches,
-        int FieldOrGmcBranches);
-
-    private sealed class VectorState
-    {
-        public int ForwardX { get; set; }
-        public int ForwardY { get; set; }
-        public int BackwardX { get; set; }
-        public int BackwardY { get; set; }
-    }
-
-    private readonly record struct BControl(
-        int Mode,
-        int Cbp,
-        int Quantizer,
-        int Flags,
-        bool Supported,
-        bool DirectDeltaCoded,
-        bool CopyPreviousReference);
-
     public static DecodeStats DecodeFrame(
         Vid1VideoFrame frame,
         Vid1BitReader vlcReader,
@@ -80,7 +57,7 @@ internal static class Vid1BFrameDecoder
                         case 0:
                             if (control.CopyPreviousReference)
                             {
-                                CopyMacroblockFromReference(ctx, mbX, mbY, usePreviousReference: true);
+                                CopyMacroblockFromReference(ctx, mbX, mbY, true);
                                 fallback++;
                             }
                             else
@@ -121,7 +98,7 @@ internal static class Vid1BFrameDecoder
                                 mbY,
                                 control.Cbp,
                                 control.Flags,
-                                usePreviousReference: false,
+                                false,
                                 vectorState,
                                 Math.Max(frame.BackwardCode ?? 1, 1));
                             decoded++;
@@ -135,7 +112,7 @@ internal static class Vid1BFrameDecoder
                                 mbY,
                                 control.Cbp,
                                 control.Flags,
-                                usePreviousReference: true,
+                                true,
                                 vectorState,
                                 Math.Max(frame.ForwardCode ?? 1, 1));
                             decoded++;
@@ -175,26 +152,26 @@ internal static class Vid1BFrameDecoder
         if (ctx.ReferenceMbState[refMbBase] == 0x10)
         {
             return new BControl(
-                Mode: 0,
-                Cbp: 0,
+                0,
+                0,
                 currentQuantizer,
-                Flags: 3,
-                Supported: true,
-                DirectDeltaCoded: false,
-                CopyPreviousReference: true);
+                3,
+                true,
+                false,
+                true);
         }
 
         var gate = flagReader.ReadBits(1);
         if (gate != 0)
         {
             return new BControl(
-                Mode: 0,
-                Cbp: 0,
+                0,
+                0,
                 currentQuantizer,
-                Flags: 0,
-                Supported: true,
-                DirectDeltaCoded: false,
-                CopyPreviousReference: false);
+                0,
+                true,
+                false,
+                false);
         }
 
         var hasCbp = flagReader.ReadBits(1) == 0;
@@ -226,8 +203,8 @@ internal static class Vid1BFrameDecoder
             quantizer,
             flags,
             supported,
-            DirectDeltaCoded: lowerMode == 0,
-            CopyPreviousReference: false);
+            lowerMode == 0,
+            false);
     }
 
     private static int ReadBFrameMode(Vid1BitReader reader)
@@ -268,7 +245,7 @@ internal static class Vid1BFrameDecoder
         var directDeltaX = 0;
         var directDeltaY = 0;
         if (directDeltaCoded)
-            (directDeltaX, directDeltaY) = DecodeMotionVectorPair(vlcReader, fCode: 1, predictorX: 0, predictorY: 0);
+            (directDeltaX, directDeltaY) = DecodeMotionVectorPair(vlcReader, 1, 0, 0);
 
         var refMbBase = GetMbStateOffset(ctx, mbX, mbY);
         Span<int> forwardX = stackalloc int[4];
@@ -291,8 +268,10 @@ internal static class Vid1BFrameDecoder
                 ? DivideTowardsZero((bDelta - referenceDelta) * futureY, referenceDelta)
                 : forwardY[block] - futureY;
 
-            WriteMotionVector(ctx.MbState, mbBase + MotionVectorOffsetBase + block * MotionVectorStride, forwardX[block], forwardY[block]);
-            WriteMotionVector(ctx.MbState, mbBase + 0xE0 + block * MotionVectorStride, backwardX[block], backwardY[block]);
+            WriteMotionVector(ctx.MbState, mbBase + MotionVectorOffsetBase + block * MotionVectorStride,
+                forwardX[block], forwardY[block]);
+            WriteMotionVector(ctx.MbState, mbBase + 0xE0 + block * MotionVectorStride, backwardX[block],
+                backwardY[block]);
         }
 
         var forwardChroma = ComputeFourMotionChromaVector(forwardX, forwardY);
@@ -308,7 +287,8 @@ internal static class Vid1BFrameDecoder
         }
     }
 
-    private static bool TryGetDirectTiming(Vid1FrameContext ctx, Vid1VideoFrame frame, out int bDelta, out int referenceDelta)
+    private static bool TryGetDirectTiming(Vid1FrameContext ctx, Vid1VideoFrame frame, out int bDelta,
+        out int referenceDelta)
     {
         bDelta = 0;
         referenceDelta = 0;
@@ -333,7 +313,9 @@ internal static class Vid1BFrameDecoder
     }
 
     private static int DivideTowardsZero(int numerator, int denominator)
-        => numerator / denominator;
+    {
+        return numerator / denominator;
+    }
 
     private static void DecodeSingleReferenceMacroblock(
         Vid1BitReader vlcReader,
@@ -422,7 +404,8 @@ internal static class Vid1BFrameDecoder
         vectorState.BackwardY = backwardY;
 
         for (var block = 0; block < 4; block++)
-            WriteMotionVector(ctx.MbState, mbBase + MotionVectorOffsetBase + block * MotionVectorStride, forwardX, forwardY);
+            WriteMotionVector(ctx.MbState, mbBase + MotionVectorOffsetBase + block * MotionVectorStride, forwardX,
+                forwardY);
 
         Span<short> residual = stackalloc short[64];
         for (var block = 0; block < 6; block++)
@@ -460,9 +443,9 @@ internal static class Vid1BFrameDecoder
         ReadOnlySpan<short> residual)
     {
         var dst = GetBlockDestination(mbX, mbY, block);
-        var outPlane = GetPlane(ctx, block, usePreviousReference: false);
-        var forwardPlane = GetPlane(ctx, block, usePreviousReference: true);
-        var backwardPlane = GetPlane(ctx, block, usePreviousReference: false);
+        var outPlane = GetPlane(ctx, block, false);
+        var forwardPlane = GetPlane(ctx, block, true);
+        var backwardPlane = GetPlane(ctx, block, false);
         Span<short> averaged = stackalloc short[64];
 
         PredictAveragedBlock(
@@ -487,7 +470,7 @@ internal static class Vid1BFrameDecoder
             outPlane.Stride,
             dst.X,
             dst.Y,
-            sampleOffset: 0);
+            0);
     }
 
     private static void DecodeResidualBlock(
@@ -594,7 +577,7 @@ internal static class Vid1BFrameDecoder
 
     private static void CopyMacroblockFromReference(Vid1FrameContext ctx, int mbX, int mbY, bool usePreviousReference)
     {
-        var mbBase = InitializeBMacroblockState(ctx, mbX, mbY, flags: 3);
+        var mbBase = InitializeBMacroblockState(ctx, mbX, mbY, 3);
         ctx.MbState[mbBase + 1] = ctx.ReferenceMbState[mbBase + 1];
 
         var lumaX = mbX * 16;
@@ -602,7 +585,7 @@ internal static class Vid1BFrameDecoder
         var sourceY = usePreviousReference ? ctx.PreviousReferenceY : ctx.ReferenceY;
         for (var row = 0; row < 16; row++)
         {
-            var offset = ((lumaY + row) * ctx.Width) + lumaX;
+            var offset = (lumaY + row) * ctx.Width + lumaX;
             Buffer.BlockCopy(sourceY, offset, ctx.OutputY, offset, 16);
         }
 
@@ -612,7 +595,7 @@ internal static class Vid1BFrameDecoder
         var sourceCr = usePreviousReference ? ctx.PreviousReferenceCr : ctx.ReferenceCr;
         for (var row = 0; row < 8; row++)
         {
-            var offset = ((chromaY + row) * ctx.ChromaWidth) + chromaX;
+            var offset = (chromaY + row) * ctx.ChromaWidth + chromaX;
             Buffer.BlockCopy(sourceCb, offset, ctx.OutputCb, offset, 8);
             Buffer.BlockCopy(sourceCr, offset, ctx.OutputCr, offset, 8);
         }
@@ -654,7 +637,7 @@ internal static class Vid1BFrameDecoder
     private static (int X, int Y) GetBlockDestination(int mbX, int mbY, int block)
     {
         if (block < 4)
-            return (mbX * 16 + ((block & 1) * 8), mbY * 16 + ((block >> 1) * 8));
+            return (mbX * 16 + (block & 1) * 8, mbY * 16 + (block >> 1) * 8);
 
         return (mbX * 8, mbY * 8);
     }
@@ -689,10 +672,14 @@ internal static class Vid1BFrameDecoder
     }
 
     private static (int X, int Y) ComputeChromaMotionVector(int mvX, int mvY)
-        => (RoundHalfChroma(mvX), RoundHalfChroma(mvY));
+    {
+        return (RoundHalfChroma(mvX), RoundHalfChroma(mvY));
+    }
 
     private static int RoundHalfChroma(int value)
-        => (value & 3) == 0 ? value / 2 : (value >> 1) | 1;
+    {
+        return (value & 3) == 0 ? value / 2 : (value >> 1) | 1;
+    }
 
     private static (int Min, int Max, int Wrap) GetMotionBounds(int fCode)
     {
@@ -708,13 +695,17 @@ internal static class Vid1BFrameDecoder
     }
 
     private static int GetMbStateOffset(Vid1FrameContext ctx, int mbX, int mbY)
-        => (mbY * ctx.MbCols + mbX) * Vid1FrameContext.MbStateStride;
+    {
+        return (mbY * ctx.MbCols + mbX) * Vid1FrameContext.MbStateStride;
+    }
 
     private static int ReadInt32(byte[] buffer, int offset)
-        => (buffer[offset] << 24) |
-           (buffer[offset + 1] << 16) |
-           (buffer[offset + 2] << 8) |
-           buffer[offset + 3];
+    {
+        return (buffer[offset] << 24) |
+               (buffer[offset + 1] << 16) |
+               (buffer[offset + 2] << 8) |
+               buffer[offset + 3];
+    }
 
     private static void WriteInt32(byte[] buffer, int offset, int value)
     {
@@ -724,4 +715,26 @@ internal static class Vid1BFrameDecoder
         buffer[offset + 3] = (byte)value;
     }
 
+    internal readonly record struct DecodeStats(
+        int DecodedMacroblocks,
+        int FallbackMacroblocks,
+        int UnsupportedBranches,
+        int FieldOrGmcBranches);
+
+    private sealed class VectorState
+    {
+        public int ForwardX { get; set; }
+        public int ForwardY { get; set; }
+        public int BackwardX { get; set; }
+        public int BackwardY { get; set; }
+    }
+
+    private readonly record struct BControl(
+        int Mode,
+        int Cbp,
+        int Quantizer,
+        int Flags,
+        bool Supported,
+        bool DirectDeltaCoded,
+        bool CopyPreviousReference);
 }

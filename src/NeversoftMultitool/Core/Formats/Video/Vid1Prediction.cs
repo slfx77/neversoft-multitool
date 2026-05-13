@@ -40,14 +40,14 @@ internal static class Vid1Prediction
 
         // Find left, top, top-left neighbor block prediction sources.
         // Decomp: a neighbor contributes only if mb_state[0] is 3 or 4 (a878 intra).
-        int leftBlockOffset = -1;
-        int topBlockOffset = -1;
-        int topLeftBlockOffset = -1;
+        var leftBlockOffset = -1;
+        var topBlockOffset = -1;
+        var topLeftBlockOffset = -1;
         var leftQuant = quantizer;
         var topQuant = quantizer;
 
         // Left MB exists if mbX > 0
-        int leftMbBase = -1;
+        var leftMbBase = -1;
         if (mbX > 0)
         {
             leftMbBase = MbStateOffset(ctx, mbX - 1, mbY);
@@ -58,7 +58,7 @@ internal static class Vid1Prediction
                 leftMbBase = -1;
         }
 
-        int topMbBase = -1;
+        var topMbBase = -1;
         if (mbY > 0)
         {
             topMbBase = MbStateOffset(ctx, mbX, mbY - 1);
@@ -69,7 +69,7 @@ internal static class Vid1Prediction
                 topMbBase = -1;
         }
 
-        int topLeftMbBase = -1;
+        var topLeftMbBase = -1;
         if (mbX > 0 && mbY > 0)
         {
             topLeftMbBase = MbStateOffset(ctx, mbX - 1, mbY - 1);
@@ -90,22 +90,22 @@ internal static class Vid1Prediction
         switch (blockIndex)
         {
             case 0:
-                leftPred = (leftMbBase >= 0) ? OffsetForBlock(leftMbBase, 1) : -1;
-                topPred = (topMbBase >= 0) ? OffsetForBlock(topMbBase, 2) : -1;
-                topLeftPred = (topLeftMbBase >= 0) ? OffsetForBlock(topLeftMbBase, 3) : -1;
+                leftPred = leftMbBase >= 0 ? OffsetForBlock(leftMbBase, 1) : -1;
+                topPred = topMbBase >= 0 ? OffsetForBlock(topMbBase, 2) : -1;
+                topLeftPred = topLeftMbBase >= 0 ? OffsetForBlock(topLeftMbBase, 3) : -1;
                 break;
             case 1:
                 leftPred = OffsetForBlock(currentMbBase, 0);
-                topPred = (topMbBase >= 0) ? OffsetForBlock(topMbBase, 3) : -1;
-                topLeftPred = (topMbBase >= 0) ? OffsetForBlock(topMbBase, 2) : -1;
-                topQuant = (topMbBase >= 0) ? mbState[topMbBase + 1] : quantizer;
+                topPred = topMbBase >= 0 ? OffsetForBlock(topMbBase, 3) : -1;
+                topLeftPred = topMbBase >= 0 ? OffsetForBlock(topMbBase, 2) : -1;
+                topQuant = topMbBase >= 0 ? mbState[topMbBase + 1] : quantizer;
                 leftQuant = quantizer;
                 break;
             case 2:
-                leftPred = (leftMbBase >= 0) ? OffsetForBlock(leftMbBase, 3) : -1;
+                leftPred = leftMbBase >= 0 ? OffsetForBlock(leftMbBase, 3) : -1;
                 topPred = OffsetForBlock(currentMbBase, 0);
-                topLeftPred = (leftMbBase >= 0) ? OffsetForBlock(leftMbBase, 1) : -1;
-                leftQuant = (leftMbBase >= 0) ? mbState[leftMbBase + 1] : quantizer;
+                topLeftPred = leftMbBase >= 0 ? OffsetForBlock(leftMbBase, 1) : -1;
+                leftQuant = leftMbBase >= 0 ? mbState[leftMbBase + 1] : quantizer;
                 topQuant = quantizer;
                 break;
             case 3:
@@ -116,14 +116,14 @@ internal static class Vid1Prediction
                 topQuant = quantizer;
                 break;
             case 4: // Cb
-                leftPred = (leftMbBase >= 0) ? OffsetForBlock(leftMbBase, 4) : -1;
-                topPred = (topMbBase >= 0) ? OffsetForBlock(topMbBase, 4) : -1;
-                topLeftPred = (topLeftMbBase >= 0) ? OffsetForBlock(topLeftMbBase, 4) : -1;
+                leftPred = leftMbBase >= 0 ? OffsetForBlock(leftMbBase, 4) : -1;
+                topPred = topMbBase >= 0 ? OffsetForBlock(topMbBase, 4) : -1;
+                topLeftPred = topLeftMbBase >= 0 ? OffsetForBlock(topLeftMbBase, 4) : -1;
                 break;
             case 5: // Cr
-                leftPred = (leftMbBase >= 0) ? OffsetForBlock(leftMbBase, 5) : -1;
-                topPred = (topMbBase >= 0) ? OffsetForBlock(topMbBase, 5) : -1;
-                topLeftPred = (topLeftMbBase >= 0) ? OffsetForBlock(topLeftMbBase, 5) : -1;
+                leftPred = leftMbBase >= 0 ? OffsetForBlock(leftMbBase, 5) : -1;
+                topPred = topMbBase >= 0 ? OffsetForBlock(topMbBase, 5) : -1;
+                topLeftPred = topLeftMbBase >= 0 ? OffsetForBlock(topLeftMbBase, 5) : -1;
                 break;
             default:
                 leftPred = topPred = topLeftPred = -1;
@@ -152,7 +152,7 @@ internal static class Vid1Prediction
                 predictions[i + 1] = ScalePredictionComponent(
                     topQuant,
                     quantizer,
-                    topPred >= 0 ? ReadAcPredictor(mbState, topPred + 2 + (i * 2)) : (short)0);
+                    topPred >= 0 ? ReadAcPredictor(mbState, topPred + 2 + i * 2) : (short)0);
             }
         }
         else
@@ -164,7 +164,7 @@ internal static class Vid1Prediction
                 predictions[i + 1] = ScalePredictionComponent(
                     leftQuant,
                     quantizer,
-                    leftPred >= 0 ? ReadAcPredictor(mbState, leftPred + 0x10 + (i * 2)) : (short)0);
+                    leftPred >= 0 ? ReadAcPredictor(mbState, leftPred + 0x10 + i * 2) : (short)0);
             }
         }
 
@@ -212,6 +212,7 @@ internal static class Vid1Prediction
                 coefficients[pos] = v;
                 WriteShort(mbState, blockBase + 2 + i * 2, v);
             }
+
             for (var i = 0; i < 7; i++)
             {
                 WriteShort(mbState, blockBase + 16 + i * 2, coefficients[(i + 1) * 8]);
@@ -227,6 +228,7 @@ internal static class Vid1Prediction
                 coefficients[pos] = v;
                 WriteShort(mbState, blockBase + 16 + i * 2, v);
             }
+
             // Store top row (positions 1-7, no prediction added)
             for (var i = 0; i < 7; i++)
             {
@@ -262,16 +264,24 @@ internal static class Vid1Prediction
     }
 
     private static int MbStateOffset(Vid1FrameContext ctx, int mbX, int mbY)
-        => (mbY * ctx.MbCols + mbX) * Vid1FrameContext.MbStateStride;
+    {
+        return (mbY * ctx.MbCols + mbX) * Vid1FrameContext.MbStateStride;
+    }
 
     private static int OffsetForBlock(int mbBase, int blockIndex)
-        => mbBase + Vid1FrameContext.MbBlockOffsetBase + blockIndex * Vid1FrameContext.MbBlockStride;
+    {
+        return mbBase + Vid1FrameContext.MbBlockOffsetBase + blockIndex * Vid1FrameContext.MbBlockStride;
+    }
 
     private static int ReadDcPredictor(byte[] buffer, int offset)
-        => (buffer[offset] << 8) | buffer[offset + 1];
+    {
+        return (buffer[offset] << 8) | buffer[offset + 1];
+    }
 
     private static short ReadAcPredictor(byte[] buffer, int offset)
-        => (short)ReadDcPredictor(buffer, offset);
+    {
+        return (short)ReadDcPredictor(buffer, offset);
+    }
 
     private static void WriteShort(byte[] buffer, int offset, short value)
     {

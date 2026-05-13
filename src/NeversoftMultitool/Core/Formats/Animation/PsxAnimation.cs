@@ -6,7 +6,6 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 ///     Decoded PSX character animation: one slot's full <c>numBones × 6 × frameCount</c>
 ///     s16 sample grid, with helpers to convert per-frame values to quaternions and
 ///     translations consumable by glTF.
-///
 ///     Channel order per bone (confirmed via THPS2 PSX prototype decompilation):
 ///     <list type="bullet">
 ///         <item>0: Rotation X (raw s16, full range = 360°)</item>
@@ -24,6 +23,14 @@ public sealed class PsxAnimation
     /// <summary>Channels per bone (Rx, Ry, Rz, Tx, Ty, Tz).</summary>
     public const int ChannelsPerBone = 6;
 
+    // 12-bit fixed-point: 4096 = 360°. The codec writes s16 values whose low
+    // 12 bits encode the angle; the high 4 bits aren't part of the angle but
+    // sin/cos are periodic so multiplying the raw s16 by 2π/4096 produces the
+    // correct rotation (the implicit modulo wraps the wider range to the same
+    // angle).
+    private const float AngleScale = (float)(2.0 * Math.PI / 4096.0);
+    private const float TranslationScale = 1f / 4096f;
+
     /// <summary>Number of frames in this animation.</summary>
     public required int FrameCount { get; init; }
 
@@ -35,14 +42,6 @@ public sealed class PsxAnimation
     ///     indices match the order documented on <see cref="PsxAnimation" />.
     /// </summary>
     public required short[,,] Channels { get; init; }
-
-    // 12-bit fixed-point: 4096 = 360°. The codec writes s16 values whose low
-    // 12 bits encode the angle; the high 4 bits aren't part of the angle but
-    // sin/cos are periodic so multiplying the raw s16 by 2π/4096 produces the
-    // correct rotation (the implicit modulo wraps the wider range to the same
-    // angle).
-    private const float AngleScale = (float)(2.0 * Math.PI / 4096.0);
-    private const float TranslationScale = 1f / 4096f;
 
     /// <summary>
     ///     Builds the bone's rotation quaternion at <paramref name="frame" /> from
@@ -70,7 +69,7 @@ public sealed class PsxAnimation
             PsxRotationCompose.ZYX => qz * qy * qx,
             PsxRotationCompose.XZY => qx * qz * qy,
             PsxRotationCompose.YZX => qy * qz * qx,
-            _ => qy * qx * qz,
+            _ => qy * qx * qz
         };
     }
 
@@ -91,7 +90,10 @@ public sealed class PsxAnimation
     ///     non-zero across all frames. False = placeholder track; the writer should
     ///     leave this bone at its bind-pose rotation rather than overriding to identity.
     /// </summary>
-    public bool IsRotationAnimated(int boneIndex) => HasAnyNonZero(boneIndex, 0, 3);
+    public bool IsRotationAnimated(int boneIndex)
+    {
+        return HasAnyNonZero(boneIndex, 0, 3);
+    }
 
     /// <summary>
     ///     Returns true when at least one translation sample (channels 3..5) is
@@ -99,7 +101,10 @@ public sealed class PsxAnimation
     ///     leave this bone at its bind-pose translation rather than collapsing it
     ///     to the parent's origin.
     /// </summary>
-    public bool IsTranslationAnimated(int boneIndex) => HasAnyNonZero(boneIndex, 3, 3);
+    public bool IsTranslationAnimated(int boneIndex)
+    {
+        return HasAnyNonZero(boneIndex, 3, 3);
+    }
 
     private bool HasAnyNonZero(int boneIndex, int channelStart, int channelLength)
     {
@@ -111,6 +116,7 @@ public sealed class PsxAnimation
                     return true;
             }
         }
+
         return false;
     }
 }

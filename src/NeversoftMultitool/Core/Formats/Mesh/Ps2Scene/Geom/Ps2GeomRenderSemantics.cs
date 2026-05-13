@@ -26,7 +26,7 @@ internal static class Ps2GeomRenderSemantics
         {
             "MASK" => WorldzoneMaskCutoutDepthBias,
             "BLEND" => WorldzoneBlendOverlayDepthBias,
-            _ => 0f,
+            _ => 0f
         };
         if (modeBias <= 0f)
             return 0f;
@@ -184,8 +184,3 @@ internal static class Ps2GeomRenderSemantics
         return aref / 255f;
     }
 }
-
-internal readonly record struct WorldzoneLeafDrawItem(
-    Ps2GeomLeaf Leaf,
-    int LeafIndex,
-    int DrawIndex);

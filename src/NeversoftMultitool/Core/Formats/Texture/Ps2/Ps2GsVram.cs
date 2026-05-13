@@ -47,8 +47,10 @@ internal sealed class Ps2GsVram
     ///     Write a rectangular region to VRAM using PSMCT32 addressing.
     ///     Each pixel is 4 bytes (32 bits) in the source data.
     /// </summary>
-    public void WriteRectPSMCT32(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data) =>
-        WriteRectPSMCT32(dbp, dbw, rrw, rrh, data, dsax: 0, dsay: 0);
+    public void WriteRectPSMCT32(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
+    {
+        WriteRectPSMCT32(dbp, dbw, rrw, rrh, data, 0, 0);
+    }
 
     public void WriteRectPSMCT32(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
     {
@@ -74,17 +76,25 @@ internal sealed class Ps2GsVram
     ///     Write a rectangular region to VRAM using PSMCT16 addressing.
     ///     Each pixel is 2 bytes (16 bits) in the source data.
     /// </summary>
-    public void WriteRectPSMCT16(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data) =>
-        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax: 0, dsay: 0, signedMode: false);
+    public void WriteRectPSMCT16(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
+    {
+        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, 0, 0, false);
+    }
 
-    public void WriteRectPSMCT16S(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data) =>
-        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax: 0, dsay: 0, signedMode: true);
+    public void WriteRectPSMCT16S(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
+    {
+        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, 0, 0, true);
+    }
 
-    public void WriteRectPSMCT16(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay) =>
-        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax, dsay, signedMode: false);
+    public void WriteRectPSMCT16(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
+    {
+        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax, dsay, false);
+    }
 
-    public void WriteRectPSMCT16S(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay) =>
-        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax, dsay, signedMode: true);
+    public void WriteRectPSMCT16S(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
+    {
+        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax, dsay, true);
+    }
 
     private void WriteRectPSMCT16(
         uint dbp,
@@ -121,8 +131,10 @@ internal sealed class Ps2GsVram
     /// <summary>
     ///     Write a rectangular region using the specified PSM format.
     /// </summary>
-    public void WriteRect(uint dbp, uint dbw, uint dpsm, int rrw, int rrh, ReadOnlySpan<byte> data) =>
-        WriteRect(dbp, dbw, dpsm, rrw, rrh, data, dsax: 0, dsay: 0);
+    public void WriteRect(uint dbp, uint dbw, uint dpsm, int rrw, int rrh, ReadOnlySpan<byte> data)
+    {
+        WriteRect(dbp, dbw, dpsm, rrw, rrh, data, 0, 0);
+    }
 
     public void WriteRect(uint dbp, uint dbw, uint dpsm, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
     {
@@ -179,14 +191,15 @@ internal sealed class Ps2GsVram
             }
             case PSMCT16:
             {
-                var (wordAddr, half) = GetWordAddressPSMCT16(dbp, dbw, x, y, signedMode: false);
+                var (wordAddr, half) = GetWordAddressPSMCT16(dbp, dbw, x, y, false);
                 if (wordAddr >= VramWords)
                     break;
 
                 var pixel = (uint)((r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10) | (a >= 128 ? 0x8000 : 0));
                 var mask = fbmsk & 0xFFFFu;
                 if (half == 0)
-                    _vram[wordAddr] = (_vram[wordAddr] & 0xFFFF0000) | ApplyMask(_vram[wordAddr] & 0xFFFFu, pixel, mask);
+                    _vram[wordAddr] = (_vram[wordAddr] & 0xFFFF0000) |
+                                      ApplyMask(_vram[wordAddr] & 0xFFFFu, pixel, mask);
                 else
                     _vram[wordAddr] = (_vram[wordAddr] & 0x0000FFFF) |
                                       (ApplyMask((_vram[wordAddr] >> 16) & 0xFFFFu, pixel, mask) << 16);
@@ -194,14 +207,15 @@ internal sealed class Ps2GsVram
             }
             case PSMCT16S:
             {
-                var (wordAddr, half) = GetWordAddressPSMCT16(dbp, dbw, x, y, signedMode: true);
+                var (wordAddr, half) = GetWordAddressPSMCT16(dbp, dbw, x, y, true);
                 if (wordAddr >= VramWords)
                     break;
 
                 var pixel = (uint)((r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10) | (a >= 128 ? 0x8000 : 0));
                 var mask = fbmsk & 0xFFFFu;
                 if (half == 0)
-                    _vram[wordAddr] = (_vram[wordAddr] & 0xFFFF0000) | ApplyMask(_vram[wordAddr] & 0xFFFFu, pixel, mask);
+                    _vram[wordAddr] = (_vram[wordAddr] & 0xFFFF0000) |
+                                      ApplyMask(_vram[wordAddr] & 0xFFFFu, pixel, mask);
                 else
                     _vram[wordAddr] = (_vram[wordAddr] & 0x0000FFFF) |
                                       (ApplyMask((_vram[wordAddr] >> 16) & 0xFFFFu, pixel, mask) << 16);
@@ -235,17 +249,23 @@ internal sealed class Ps2GsVram
                 var (wordAddr, half) = GetWordAddressPSMCT16(dbp, dbw, x, y, dpsm == PSMCT16S);
                 var word = wordAddr < VramWords ? _vram[wordAddr] : 0u;
                 var pixel = half == 0 ? (ushort)(word & 0xFFFF) : (ushort)(word >> 16);
-                return (Expand5(pixel & 0x1F), Expand5((pixel >> 5) & 0x1F), Expand5((pixel >> 10) & 0x1F), (pixel & 0x8000) != 0 ? (byte)255 : (byte)0);
+                return (Expand5(pixel & 0x1F), Expand5((pixel >> 5) & 0x1F), Expand5((pixel >> 10) & 0x1F),
+                    (pixel & 0x8000) != 0 ? (byte)255 : (byte)0);
             }
             default:
                 return (0, 0, 0, 0);
         }
     }
 
-    private static uint ApplyMask(uint oldValue, uint newValue, uint mask) =>
-        (oldValue & mask) | (newValue & ~mask);
+    private static uint ApplyMask(uint oldValue, uint newValue, uint mask)
+    {
+        return (oldValue & mask) | (newValue & ~mask);
+    }
 
-    private static byte Expand5(int value) => (byte)((value << 3) | (value >> 2));
+    private static byte Expand5(int value)
+    {
+        return (byte)((value << 3) | (value >> 2));
+    }
 
     /// <summary>
     ///     Read a PSMT4 texture from VRAM as linear 4-bit pixel data (packed 2 pixels/byte).
@@ -332,11 +352,15 @@ internal sealed class Ps2GsVram
     /// <summary>
     ///     Read a PSMCT16 region from VRAM (used for 16-bit CLUT data).
     /// </summary>
-    public byte[] ReadRectPSMCT16(uint cbp, uint cbw, int width, int height) =>
-        ReadRectPSMCT16(cbp, cbw, width, height, signedMode: false);
+    public byte[] ReadRectPSMCT16(uint cbp, uint cbw, int width, int height)
+    {
+        return ReadRectPSMCT16(cbp, cbw, width, height, false);
+    }
 
-    public byte[] ReadRectPSMCT16S(uint cbp, uint cbw, int width, int height) =>
-        ReadRectPSMCT16(cbp, cbw, width, height, signedMode: true);
+    public byte[] ReadRectPSMCT16S(uint cbp, uint cbw, int width, int height)
+    {
+        return ReadRectPSMCT16(cbp, cbw, width, height, true);
+    }
 
     private byte[] ReadRectPSMCT16(uint cbp, uint cbw, int width, int height, bool signedMode)
     {

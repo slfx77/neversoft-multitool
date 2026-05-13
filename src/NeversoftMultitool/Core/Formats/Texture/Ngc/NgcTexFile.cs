@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using NeversoftMultitool.Core.BinaryIO;
-using NeversoftMultitool.Core.Formats.Texture;
 
 namespace NeversoftMultitool.Core.Formats.Texture.Ngc;
 
@@ -137,7 +136,7 @@ public static class NgcTexFile
             return false;
         }
 
-        var requiredMetadataSize = checked((int)metadataOffset + (textureCount * EntrySize));
+        var requiredMetadataSize = checked((int)metadataOffset + textureCount * EntrySize);
         if (requiredMetadataSize > data.Length)
         {
             error = "NGC TEX metadata table is truncated.";
@@ -164,7 +163,7 @@ public static class NgcTexFile
             return false;
         }
 
-        var offset = checked((int)header.MetadataOffset + (index * EntrySize));
+        var offset = checked((int)header.MetadataOffset + index * EntrySize);
         if (offset > data.Length - EntrySize)
         {
             error = $"NGC TEX entry {index} is truncated.";
@@ -234,15 +233,3 @@ public static class NgcTexFile
         return formatA == SupportedFormatA && formatB == SupportedFormatB;
     }
 }
-
-internal readonly record struct NgcTexHeader(ushort TextureCount, uint MetadataOffset);
-
-internal readonly record struct NgcTexEntry(
-    uint Magic,
-    uint Checksum,
-    int Width,
-    int Height,
-    byte FormatA,
-    byte FormatB,
-    int DataSize,
-    int DataOffset);

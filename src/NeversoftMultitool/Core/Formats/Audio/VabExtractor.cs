@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text;
 using NeversoftMultitool.Core.BinaryIO;
 
 namespace NeversoftMultitool.Core.Formats.Audio;
@@ -34,13 +35,13 @@ public static class VabExtractor
     /// <summary>In-memory variant.</summary>
     public static List<VabSampleInfo> EnumerateSamples(byte[] data)
     {
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         return EnumerateSamplesFromStream(stream);
     }
 
     private static List<VabSampleInfo> EnumerateSamplesFromStream(Stream stream)
     {
-        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+        using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         var layout = ReadLayout(reader);
         if (layout == null) return [];
@@ -80,7 +81,7 @@ public static class VabExtractor
     {
         try
         {
-            using var stream = new MemoryStream(data, writable: false);
+            using var stream = new MemoryStream(data, false);
             return ExtractSingleToWavFromStream(stream, stem, sampleIndex, outputDir, sampleRate);
         }
         catch
@@ -92,7 +93,7 @@ public static class VabExtractor
     private static string? ExtractSingleToWavFromStream(
         Stream stream, string stem, int sampleIndex, string outputDir, int sampleRate)
     {
-        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+        using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         var layout = ReadLayout(reader);
         if (layout == null || sampleIndex < 1 || sampleIndex > layout.Header.VagCount)
@@ -136,7 +137,7 @@ public static class VabExtractor
     {
         try
         {
-            using var stream = new MemoryStream(data, writable: false);
+            using var stream = new MemoryStream(data, false);
             return ExtractToWavFromStream(stream, stem, outputDir, sampleRate);
         }
         catch (Exception ex)
@@ -148,7 +149,7 @@ public static class VabExtractor
     private static AudioConvertResult ExtractToWavFromStream(
         Stream stream, string stem, string outputDir, int sampleRate)
     {
-        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+        using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         var layout = ReadLayout(reader);
         if (layout == null)
@@ -278,7 +279,7 @@ public static class VabExtractor
     private static int EstimateSampleRate(byte center, byte shift)
     {
         var fineTuneCents = shift * 100.0 / 128.0;
-        var semitoneOffset = NeutralMidiNote - center - (fineTuneCents / 100.0);
+        var semitoneOffset = NeutralMidiNote - center - fineTuneCents / 100.0;
         var sampleRate = RawSpuBaseRate * Math.Pow(2.0, semitoneOffset / 12.0);
         return Math.Clamp((int)Math.Round(sampleRate), 2000, 96000);
     }
@@ -315,7 +316,8 @@ public static class VabExtractor
 
     private sealed class VabLayout
     {
-        public VabLayout(VabHeader header, int[] vagSizes, IReadOnlyDictionary<int, VabToneInfo> toneMap, long vagDataOffset)
+        public VabLayout(VabHeader header, int[] vagSizes, IReadOnlyDictionary<int, VabToneInfo> toneMap,
+            long vagDataOffset)
         {
             Header = header;
             VagSizes = vagSizes;

@@ -35,13 +35,13 @@ public static class PsxLibrary
         }
     }
 
-    /// <summary>In-memory variant of <see cref="ExtractTextures(string, string, bool, bool, bool)"/>.</summary>
+    /// <summary>In-memory variant of <see cref="ExtractTextures(string, string, bool, bool, bool)" />.</summary>
     public static PsxExtractionResult ExtractTextures(byte[] data, string label, string outputDir, bool createSubDirs,
         bool writeDds = true, bool writeMipAtlas = false)
     {
         try
         {
-            using var stream = new MemoryStream(data, writable: false);
+            using var stream = new MemoryStream(data, false);
             using var reader = new BinaryReader(stream);
             return ExtractTexturesCore(reader, label, outputDir, createSubDirs, writeDds, writeMipAtlas);
         }
@@ -376,8 +376,8 @@ public static class PsxLibrary
     }
 
     /// <summary>
-    ///     In-memory variant of <see cref="ExtractTextureByHash(string, uint, List{string}?)"/>.
-    ///     <paramref name="label"/> is used purely for diagnostic messages.
+    ///     In-memory variant of <see cref="ExtractTextureByHash(string, uint, List{string}?)" />.
+    ///     <paramref name="label" /> is used purely for diagnostic messages.
     /// </summary>
     internal static (byte[] Rgba, int Width, int Height)? ExtractTextureByHash(
         byte[] data, uint targetHash, string label, List<string>? diagnostics = null)

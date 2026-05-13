@@ -1,12 +1,13 @@
 using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
-using NeversoftMultitool.Core.Formats.XbxScene;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -66,7 +67,8 @@ public static class MeshCommand
         var formatOption = MeshExportCliOptions.CreateFormatOption();
         var blenderHelperOption = MeshExportCliOptions.CreateBlenderHelperOption();
 
-        var command = new Command("mesh", "Auto-detect and convert supported mesh files to glTF (.glb) or Blender (.blend)");
+        var command = new Command("mesh",
+            "Auto-detect and convert supported mesh files to glTF (.glb) or Blender (.blend)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(texPathOption);
@@ -162,7 +164,8 @@ public static class MeshCommand
         {
             AnsiConsole.MarkupLine("[yellow]No supported mesh files found.[/]");
             if (files.Count == 1 && skipped.Count == 1)
-                AnsiConsole.MarkupLine($"  {Markup.Escape(Path.GetFileName(skipped[0].File))}: {Markup.Escape(skipped[0].Reason)}");
+                AnsiConsole.MarkupLine(
+                    $"  {Markup.Escape(Path.GetFileName(skipped[0].File))}: {Markup.Escape(skipped[0].Reason)}");
             return 0;
         }
 
@@ -174,7 +177,8 @@ public static class MeshCommand
         if (verbose && skipped.Count > 0)
         {
             foreach (var (file, reason) in skipped)
-                AnsiConsole.MarkupLine($"  [yellow]skip[/] {Markup.Escape(Path.GetFileName(file))}: {Markup.Escape(reason)}");
+                AnsiConsole.MarkupLine(
+                    $"  [yellow]skip[/] {Markup.Escape(Path.GetFileName(file))}: {Markup.Escape(reason)}");
         }
 
         var stopwatch = Stopwatch.StartNew();
@@ -199,13 +203,13 @@ public static class MeshCommand
                     candidate.OutputStem,
                     candidate.Ps2SubFormat,
                     candidate.HasPlacedPsxCompanion,
-                    texturePath: texturePath,
-                    skeletonPath: skeletonPath,
-                    ddxPath: ddxPath,
-                    psxPath: psxPath,
-                    ddmTexturePath: ddmTexturePath,
-                    worldzoneTimeOfDay: worldzoneTimeOfDay,
-                    worldzoneScale: coordinateScale);
+                    texturePath,
+                    skeletonPath,
+                    ddxPath,
+                    psxPath,
+                    ddmTexturePath,
+                    worldzoneTimeOfDay,
+                    coordinateScale);
 
                 converted++;
                 totalTriangles += result.Triangles;

@@ -1,5 +1,4 @@
 using System.Numerics;
-using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Texture;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;

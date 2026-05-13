@@ -16,6 +16,13 @@ public abstract class AssetSource
     /// <summary>Basename of the asset entry, including compound extension (e.g. "skater.psx").</summary>
     public abstract string EntryName { get; }
 
+    /// <summary>
+    ///     Real disk path backing this source, or null if it's archive-backed.
+    ///     A few legacy consumers still need the original path (e.g. to drive their
+    ///     own discovery). New code should prefer the byte-reading APIs.
+    /// </summary>
+    public virtual string? FileSystemPath => null;
+
     /// <summary>Read the asset bytes.</summary>
     public abstract byte[] ReadBytes();
 
@@ -27,7 +34,7 @@ public abstract class AssetSource
 
     /// <summary>
     ///     Read companion bytes by stem + list of extensions to try, checking sibling
-    ///     subdirectories as well. Filesystem sources honour <paramref name="subdirs"/>;
+    ///     subdirectories as well. Filesystem sources honour <paramref name="subdirs" />;
     ///     archive sources ignore them (flat entry list).
     /// </summary>
     public abstract byte[]? TryReadCompanion(
@@ -41,7 +48,10 @@ public abstract class AssetSource
     ///     keep working. Archive sources return null — callers must fall back to
     ///     byte-reading APIs.
     /// </summary>
-    public virtual string? TryResolveCompanionPath(string nameWithExtension) => null;
+    public virtual string? TryResolveCompanionPath(string nameWithExtension)
+    {
+        return null;
+    }
 
     /// <summary>
     ///     Path version of the stem+extensions lookup. Filesystem sources walk
@@ -50,12 +60,8 @@ public abstract class AssetSource
     public virtual string? TryResolveCompanionPath(
         string stem,
         IReadOnlyList<string> extensions,
-        IReadOnlyList<string>? subdirs = null) => null;
-
-    /// <summary>
-    ///     Real disk path backing this source, or null if it's archive-backed.
-    ///     A few legacy consumers still need the original path (e.g. to drive their
-    ///     own discovery). New code should prefer the byte-reading APIs.
-    /// </summary>
-    public virtual string? FileSystemPath => null;
+        IReadOnlyList<string>? subdirs = null)
+    {
+        return null;
+    }
 }

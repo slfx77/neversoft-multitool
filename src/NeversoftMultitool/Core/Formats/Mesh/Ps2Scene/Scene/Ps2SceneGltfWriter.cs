@@ -1,6 +1,5 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Animation;
-using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using SharpGLTF.Geometry;
@@ -10,7 +9,9 @@ using SharpGLTF.Memory;
 using SharpGLTF.Scenes;
 using SharpGLTF.Schema2;
 using SharpGLTF.Transforms;
+using SixLabors.ImageSharp.PixelFormats;
 using AlphaMode = SharpGLTF.Materials.AlphaMode;
+using Image = SixLabors.ImageSharp.Image;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 
@@ -380,6 +381,7 @@ public static class Ps2SceneGltfWriter
             triangleCount = 0;
             return gltfMesh;
         }
+
         var prim = gltfMesh.UsePrimitive(material);
 
         triangleCount = AddTriangleStrip(prim, mesh.Vertices, mesh.StartsOnOddOutputSlot, dedup);
@@ -471,8 +473,6 @@ public static class Ps2SceneGltfWriter
         return builder;
     }
 
-    private enum TextureResult { None, Embedded, Placeholder }
-
     private static TextureResult TryEmbedTexture(
         MaterialBuilder builder, Ps2Material mat, MeshChecksumTextureResolver textureProvider)
     {
@@ -506,12 +506,12 @@ public static class Ps2SceneGltfWriter
         if (pngBytes.Length > 1024)
             return false;
 
-        using var img = SixLabors.ImageSharp.Image.Load<SixLabors.ImageSharp.PixelFormats.Rgba32>(pngBytes);
+        using var img = Image.Load<Rgba32>(pngBytes);
         var firstPixel = img[0, 0];
         for (var y = 0; y < img.Height; y++)
-            for (var x = 0; x < img.Width; x++)
-                if (img[x, y] != firstPixel)
-                    return false;
+        for (var x = 0; x < img.Width; x++)
+            if (img[x, y] != firstPixel)
+                return false;
         return true;
     }
 
@@ -549,5 +549,12 @@ public static class Ps2SceneGltfWriter
         // E.g., ghost models use FIX=50 → 39% opacity.
         if (fixedOpacity.HasValue)
             builder.WithBaseColor(new Vector4(1f, 1f, 1f, fixedOpacity.Value));
+    }
+
+    private enum TextureResult
+    {
+        None,
+        Embedded,
+        Placeholder
     }
 }

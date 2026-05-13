@@ -70,7 +70,7 @@ public static class XaDecoder
         }
     }
 
-    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string)"/>.</summary>
+    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string)" />.</summary>
     public static AudioConvertResult ConvertToWav(byte[] data, string stem, string outputDir)
     {
         try

@@ -37,8 +37,9 @@ public static class VagDecoder
         }
     }
 
-    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string, int)"/>.</summary>
-    public static AudioConvertResult ConvertToWav(byte[] data, string stem, string outputDir, int overrideSampleRate = 0)
+    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string, int)" />.</summary>
+    public static AudioConvertResult ConvertToWav(byte[] data, string stem, string outputDir,
+        int overrideSampleRate = 0)
     {
         try
         {
@@ -76,7 +77,7 @@ public static class VagDecoder
         }
     }
 
-    /// <summary>In-memory variant of <see cref="Probe(string)"/>.</summary>
+    /// <summary>In-memory variant of <see cref="Probe(string)" />.</summary>
     public static VagProbeResult? Probe(byte[] data)
     {
         try

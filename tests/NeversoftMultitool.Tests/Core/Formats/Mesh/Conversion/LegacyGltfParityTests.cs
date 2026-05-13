@@ -9,12 +9,12 @@ using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Core.Formats.XbxScene;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
 using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene.Ps2Scene;
-using ParsedXbxScene = NeversoftMultitool.Core.Formats.XbxScene.XbxScene;
+using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 

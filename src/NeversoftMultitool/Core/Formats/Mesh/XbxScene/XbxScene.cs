@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core.Formats.XbxScene;
+namespace NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 /// <summary>
 ///     Parsed Xbox/PC scene file (.skin.xbx, .mdl.xbx) from THUG2.

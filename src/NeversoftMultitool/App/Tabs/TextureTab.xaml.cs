@@ -173,8 +173,14 @@ public sealed partial class TextureTab : UserControl, IDisposable
     private static string MakeRelativePath(string file, string rootDir)
     {
         if (string.IsNullOrEmpty(rootDir)) return Path.GetFileName(file);
-        try { return Path.GetRelativePath(rootDir, file); }
-        catch { return Path.GetFileName(file); }
+        try
+        {
+            return Path.GetRelativePath(rootDir, file);
+        }
+        catch
+        {
+            return Path.GetFileName(file);
+        }
     }
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)

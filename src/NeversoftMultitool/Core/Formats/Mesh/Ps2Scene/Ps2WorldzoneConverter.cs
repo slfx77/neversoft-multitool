@@ -1,10 +1,8 @@
+using System.Globalization;
 using System.Numerics;
 using System.Text;
-using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 using SharpGLTF.Scenes;
 
@@ -18,15 +16,6 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 /// </summary>
 public static class Ps2WorldzoneConverter
 {
-    public const uint WorldzoneMdlTypeHash = 0x9BCC234D;       // QbKey(".mdl") — object MDL
-    public const uint WorldzoneLevelMdlTypeHash = 0x7EA7357B;  // THAW shell/CAP geometry chunk
-    public const uint WorldzonePlacementTypeHash = 0x91E1028D;
-    private const uint MdlPreambleRecordSignature = 0x4B189680;
-    private const int MdlPreambleRecordSize = 0x50;
-    private const int MdlPreambleRecordSignatureOffset = 0x18;
-    private const int MinLevelMdlPreambleRecords = 100;
-    private const int MaxLevelMdlPreambleExtensionBytes = 0x4000;
-
     public enum WorldzoneTimeOfDay
     {
         All,
@@ -34,52 +23,16 @@ public static class Ps2WorldzoneConverter
         Night
     }
 
-    /// <summary>
-    ///     Options for <see cref="Convert"/>. When <see cref="TexPath"/> is null the
-    ///     PAK file itself is used as the zone-texture root (sibling zone PAKs are
-    ///     picked up automatically).
-    /// </summary>
-    public readonly record struct WorldzoneOptions(
-        string? TexPath = null,
-        bool Combined = true,
-        bool DebugTextures = false,
-        bool DebugLeafColors = false,
-        WorldzoneTimeOfDay TimeOfDay = WorldzoneTimeOfDay.All,
-        float CoordinateScale = 1f,
-        Action<string>? Log = null,
-        Ps2WorldzoneLighting? Lighting = null);
+    public const uint WorldzoneMdlTypeHash = 0x9BCC234D; // QbKey(".mdl") — object MDL
+    public const uint WorldzoneLevelMdlTypeHash = 0x7EA7357B; // THAW shell/CAP geometry chunk
+    public const uint WorldzonePlacementTypeHash = 0x91E1028D;
+    private const uint MdlPreambleRecordSignature = 0x4B189680;
+    private const int MdlPreambleRecordSize = 0x50;
+    private const int MdlPreambleRecordSignatureOffset = 0x18;
+    private const int MinLevelMdlPreambleRecords = 100;
+    private const int MaxLevelMdlPreambleExtensionBytes = 0x4000;
 
-    /// <summary>
-    ///     Per-vertex lighting model approximating the PS2 VU1 microcode's
-    ///     `ambient + N·L_sun · sun_color` formula. Applied at parse time so the
-    ///     pre-baked source vertex colours match what PS2 actually outputs to GS.
-    ///
-    ///     Without this the worldzone renders ~2x too bright: source VC for
-    ///     surfaces like the asphalt is "neutral 128" (full source brightness),
-    ///     and PS2 darkens it at runtime via the vertex shader. Defaults derived
-    ///     from GS-dump observation of z_sm: asphalt-shadow modulation factor
-    ///     is approximately (0.28, 0.24, 0.20) (pure ambient, sun occluded by
-    ///     buildings); fully sun-lit surfaces saturate at ~1.0.
-    /// </summary>
-    public readonly record struct Ps2WorldzoneLighting(
-        System.Numerics.Vector3 Ambient,
-        System.Numerics.Vector3 SunDirection,
-        System.Numerics.Vector3 SunColor)
-    {
-        public static Ps2WorldzoneLighting Default => new(
-            Ambient: new System.Numerics.Vector3(0.30f, 0.27f, 0.24f),
-            SunDirection: System.Numerics.Vector3.Normalize(new System.Numerics.Vector3(0.4f, 0.7f, 0.6f)),
-            SunColor: new System.Numerics.Vector3(0.65f, 0.65f, 0.62f));
-    }
-
-    public readonly record struct WorldzoneResult(
-        int MdlEntries,
-        int Converted,
-        int Failed,
-        int Skipped,
-        int Placements,
-        int Triangles,
-        IReadOnlyList<string> OutputPaths);
+    private static readonly string[] CombinedWorldzoneStrippedExtensions = [".pak.ps2", ".pak"];
 
     /// <summary>
     ///     Cheap check used by the GUI scanner to decide whether a .pak.ps2 file
@@ -109,7 +62,8 @@ public static class Ps2WorldzoneConverter
     ///     When no object/level MDL entries are present, returns a zero result and no output.
     /// </summary>
 #pragma warning disable S1133
-    [Obsolete("THAW worldzones must be parsed through MeshModelParser/ModelDocument with ModelSourceKind.Ps2Worldzone.", error: true)]
+    [Obsolete("THAW worldzones must be parsed through MeshModelParser/ModelDocument with ModelSourceKind.Ps2Worldzone.",
+        true)]
 #pragma warning restore S1133
     public static WorldzoneResult Convert(
         string pakPath,
@@ -123,14 +77,15 @@ public static class Ps2WorldzoneConverter
     }
 
     /// <summary>
-    ///     <see cref="AssetSource"/>-based entry point used by the GUI's mesh
+    ///     <see cref="AssetSource" />-based entry point used by the GUI's mesh
     ///     converter so every archive type goes through the same abstraction. For
     ///     filesystem sources sibling-PAK zone-texture discovery is unchanged; for
     ///     archive-nested sources (not a supported scenario), sibling discovery is
     ///     skipped and only the main PAK's embedded textures apply.
     /// </summary>
 #pragma warning disable S1133
-    [Obsolete("THAW worldzones must be parsed through MeshModelParser/ModelDocument with ModelSourceKind.Ps2Worldzone.", error: true)]
+    [Obsolete("THAW worldzones must be parsed through MeshModelParser/ModelDocument with ModelSourceKind.Ps2Worldzone.",
+        true)]
 #pragma warning restore S1133
     public static WorldzoneResult Convert(
         AssetSource source,
@@ -238,15 +193,6 @@ public static class Ps2WorldzoneConverter
             totalPlacements, totalTriangles, outputs);
     }
 
-    private enum MdlOutcome { Converted, Skipped, Failed }
-
-    private readonly record struct MdlResult(
-        MdlOutcome Outcome,
-        int Triangles,
-        int Placements,
-        string? OutputPath,
-        Ps2GeomDebugCollector? DebugCollector);
-
     private static MdlResult ProcessWorldzoneMdl(
         byte[] pakBytes,
         ArchiveEntry mdlEntry,
@@ -279,9 +225,9 @@ public static class Ps2WorldzoneConverter
             }
 
             var mdlTextureHint = textureCatalog?.FindTextureEntryHintBefore(textureSourceHint, mdlEntry.Offset)
-                ?? textureSourceHint;
+                                 ?? textureSourceHint;
             var mdlTex0Resolver = textureCatalog?.CreateTex0ChecksumResolver(mdlTextureHint)
-                ?? tex0Resolver;
+                                  ?? tex0Resolver;
             var debugCollector = collectDebug
                 ? new Ps2GeomDebugCollector(mdlName)
                 {
@@ -326,20 +272,20 @@ public static class Ps2WorldzoneConverter
             // exclusion entirely.
             var worldTris = Ps2GeomGltfWriter.AppendToScene(
                 scene, geomScene, rootPlacement, textureProvider, mdlTex0Resolver,
-                leafFilter: leaf => !leaf.IsLocalSpace && ShouldIncludeForTimeOfDay(leaf, timeOfDay),
-                debugCollector: debugCollector,
-                localizeMeshOrigins: true,
-                coordinateScale: coordinateScale,
-                texaTextureProvider: texaTextureProvider);
+                leaf => !leaf.IsLocalSpace && ShouldIncludeForTimeOfDay(leaf, timeOfDay),
+                debugCollector,
+                true,
+                coordinateScale,
+                texaTextureProvider);
 
             var localTris = bonePlacements.Count > 0
                 ? Ps2GeomGltfWriter.AppendToScene(
                     scene, geomScene, bonePlacements, textureProvider, mdlTex0Resolver,
-                    leafFilter: leaf => leaf.IsLocalSpace && ShouldIncludeForTimeOfDay(leaf, timeOfDay),
-                    debugCollector: debugCollector,
-                    localizeMeshOrigins: true,
-                    coordinateScale: coordinateScale,
-                    texaTextureProvider: texaTextureProvider)
+                    leaf => leaf.IsLocalSpace && ShouldIncludeForTimeOfDay(leaf, timeOfDay),
+                    debugCollector,
+                    true,
+                    coordinateScale,
+                    texaTextureProvider)
                 : 0;
 
             if (debugLeafScene != null)
@@ -497,8 +443,6 @@ public static class Ps2WorldzoneConverter
         return BitConverter.ToUInt32(data, offset);
     }
 
-    private static readonly string[] CombinedWorldzoneStrippedExtensions = [".pak.ps2", ".pak"];
-
     private static bool ShouldIncludeForTimeOfDay(Ps2GeomLeaf leaf, WorldzoneTimeOfDay timeOfDay)
     {
         if (timeOfDay == WorldzoneTimeOfDay.All || timeOfDay == WorldzoneTimeOfDay.Night)
@@ -528,7 +472,8 @@ public static class Ps2WorldzoneConverter
         IReadOnlyList<Ps2GeomDebugCollector> collectors)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("mdl,material,texture_checksum,group_checksum,tex0,tex1,clamp1,alpha1,test1,alpha_mode,resolve_mode,source,entry,render_layer,triangles,min_x,min_y,min_z,max_x,max_y,max_z,is_billboard");
+        sb.AppendLine(
+            "mdl,material,texture_checksum,group_checksum,tex0,tex1,clamp1,alpha1,test1,alpha_mode,resolve_mode,source,entry,render_layer,triangles,min_x,min_y,min_z,max_x,max_y,max_z,is_billboard");
         foreach (var record in collectors.SelectMany(static collector => collector.Materials))
         {
             sb.Append(Csv(record.MdlName)).Append(',')
@@ -564,7 +509,8 @@ public static class Ps2WorldzoneConverter
         IReadOnlyList<Ps2GeomLeafIdDebugRecord> records)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("id,color,mdl,leaf_index,material,texture_checksum,group_checksum,tex0,tex1,clamp1,alpha1,test1,resolve_mode,source,entry,render_layer,triangles,placement_count,min_x,min_y,min_z,max_x,max_y,max_z,is_billboard,is_local_space");
+        sb.AppendLine(
+            "id,color,mdl,leaf_index,material,texture_checksum,group_checksum,tex0,tex1,clamp1,alpha1,test1,resolve_mode,source,entry,render_layer,triangles,placement_count,min_x,min_y,min_z,max_x,max_y,max_z,is_billboard,is_local_space");
         foreach (var record in records)
         {
             sb.Append(record.Id).Append(',')
@@ -661,13 +607,15 @@ public static class Ps2WorldzoneConverter
         return combinedPath;
     }
 
-    private static string GetVariantSuffix(WorldzoneTimeOfDay timeOfDay) =>
-        timeOfDay switch
+    private static string GetVariantSuffix(WorldzoneTimeOfDay timeOfDay)
+    {
+        return timeOfDay switch
         {
             WorldzoneTimeOfDay.Day => "_day",
             WorldzoneTimeOfDay.Night => "_night",
             _ => ""
         };
+    }
 
     private static string Csv(string value)
     {
@@ -675,10 +623,78 @@ public static class Ps2WorldzoneConverter
         return $"\"{escaped}\"";
     }
 
-    private static string CsvHex(uint value) => $"0x{value:X8}";
+    private static string CsvHex(uint value)
+    {
+        return $"0x{value:X8}";
+    }
 
-    private static string CsvHex(ulong value) => $"0x{value:X16}";
+    private static string CsvHex(ulong value)
+    {
+        return $"0x{value:X16}";
+    }
 
-    private static string Float(float value) =>
-        value.ToString("G9", System.Globalization.CultureInfo.InvariantCulture);
+    private static string Float(float value)
+    {
+        return value.ToString("G9", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    ///     Options for <see cref="Convert" />. When <see cref="TexPath" /> is null the
+    ///     PAK file itself is used as the zone-texture root (sibling zone PAKs are
+    ///     picked up automatically).
+    /// </summary>
+    public readonly record struct WorldzoneOptions(
+        string? TexPath = null,
+        bool Combined = true,
+        bool DebugTextures = false,
+        bool DebugLeafColors = false,
+        WorldzoneTimeOfDay TimeOfDay = WorldzoneTimeOfDay.All,
+        float CoordinateScale = 1f,
+        Action<string>? Log = null,
+        Ps2WorldzoneLighting? Lighting = null);
+
+    /// <summary>
+    ///     Per-vertex lighting model approximating the PS2 VU1 microcode's
+    ///     `ambient + N·L_sun · sun_color` formula. Applied at parse time so the
+    ///     pre-baked source vertex colours match what PS2 actually outputs to GS.
+    ///     Without this the worldzone renders ~2x too bright: source VC for
+    ///     surfaces like the asphalt is "neutral 128" (full source brightness),
+    ///     and PS2 darkens it at runtime via the vertex shader. Defaults derived
+    ///     from GS-dump observation of z_sm: asphalt-shadow modulation factor
+    ///     is approximately (0.28, 0.24, 0.20) (pure ambient, sun occluded by
+    ///     buildings); fully sun-lit surfaces saturate at ~1.0.
+    /// </summary>
+    public readonly record struct Ps2WorldzoneLighting(
+        Vector3 Ambient,
+        Vector3 SunDirection,
+        Vector3 SunColor)
+    {
+        public static Ps2WorldzoneLighting Default => new(
+            new Vector3(0.30f, 0.27f, 0.24f),
+            Vector3.Normalize(new Vector3(0.4f, 0.7f, 0.6f)),
+            new Vector3(0.65f, 0.65f, 0.62f));
+    }
+
+    public readonly record struct WorldzoneResult(
+        int MdlEntries,
+        int Converted,
+        int Failed,
+        int Skipped,
+        int Placements,
+        int Triangles,
+        IReadOnlyList<string> OutputPaths);
+
+    private enum MdlOutcome
+    {
+        Converted,
+        Skipped,
+        Failed
+    }
+
+    private readonly record struct MdlResult(
+        MdlOutcome Outcome,
+        int Triangles,
+        int Placements,
+        string? OutputPath,
+        Ps2GeomDebugCollector? DebugCollector);
 }

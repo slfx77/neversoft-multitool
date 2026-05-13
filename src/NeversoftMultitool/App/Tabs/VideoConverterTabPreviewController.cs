@@ -7,9 +7,9 @@ namespace NeversoftMultitool;
 
 internal sealed class VideoConverterTabPreviewController : IDisposable
 {
-    private readonly Dictionary<string, string> _previewCache = [];
     // Temp files written for archive-sourced previews; cleaned up on tab unload.
     private readonly List<string> _archivePreviewTempFiles = [];
+    private readonly Dictionary<string, string> _previewCache = [];
     private readonly VideoPreviewView _view;
     private MediaPlayer? _mediaPlayer;
     private DispatcherTimer? _positionTimer;
@@ -31,9 +31,16 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
 
         foreach (var tempFile in _archivePreviewTempFiles)
         {
-            try { if (File.Exists(tempFile)) File.Delete(tempFile); }
-            catch { /* ignore */ }
+            try
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+            catch
+            {
+                /* ignore */
+            }
         }
+
         _archivePreviewTempFiles.Clear();
     }
 

@@ -87,7 +87,7 @@ public static class VidCommand
                 }
 
                 var result = writeFrames
-                    ? Vid1VideoConverter.DecodeNativeFrames(file, output, cancellationToken: cancellationToken)
+                    ? Vid1VideoConverter.DecodeNativeFrames(file, output, cancellationToken)
                     : Vid1VideoConverter.ConvertToMp4(file, output, cancellationToken: cancellationToken);
                 if (result.Success)
                 {

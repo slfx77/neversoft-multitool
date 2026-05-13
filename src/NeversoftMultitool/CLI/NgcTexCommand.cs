@@ -106,7 +106,8 @@ public static class NgcTexCommand
                 failed++;
                 if (verbose)
                 {
-                    AnsiConsole.MarkupLine($"  {fileName}: [red]{Markup.Escape(result.ErrorMessage ?? "Unknown error")}[/]");
+                    AnsiConsole.MarkupLine(
+                        $"  {fileName}: [red]{Markup.Escape(result.ErrorMessage ?? "Unknown error")}[/]");
                 }
 
                 continue;

@@ -7,8 +7,6 @@ namespace NeversoftMultitool.CLI;
 
 public static class GlbRenderCommand
 {
-    private readonly record struct RenderView(string Name, float Azimuth, float Elevation);
-
     private static readonly IReadOnlyList<RenderView> ObjectReviewViews =
     [
         new("front_left", -45f, 20f),
@@ -176,4 +174,6 @@ public static class GlbRenderCommand
         var dir = Path.GetDirectoryName(inputFile) ?? ".";
         return Path.Combine(dir, stem + suffix + ".png");
     }
+
+    private readonly record struct RenderView(string Name, float Azimuth, float Elevation);
 }

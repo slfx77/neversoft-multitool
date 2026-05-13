@@ -4,9 +4,8 @@ using NeversoftMultitool.Core.Formats.Animation;
 namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 
 /// <summary>
-///     Populates a THPS4 V1 <see cref="Ps2Skeleton"/>'s bind pose from a companion
+///     Populates a THPS4 V1 <see cref="Ps2Skeleton" />'s bind pose from a companion
 ///     <c>default.ska.ps2</c> file.
-///
 ///     THPS4 V1 <c>.ske</c> files store only bone names + hierarchy; no neutral pose
 ///     data. The engine instead loaded a single-frame "default animation" per skeleton
 ///     archetype (e.g. <c>pre/anims/anims/skater_basics/Default.ska.ps2</c> for the human
@@ -14,18 +13,17 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 ///     The THUG source refers to this as the deprecated "default anims" system in
 ///     comments at <c>Gfx/Skeleton.cpp:1147-1152</c> — THUG moved the bind into the
 ///     <c>.ske</c> file itself (V2 format) but THPS4 shipped in the old arrangement.
-///
 ///     Applied by parsing frame 0 of each bone's rotation/translation track from the
-///     supplied default anim and recomputing <see cref="Ps2Bone.InverseBindMatrix"/> via
-///     the same hierarchy walk used by <see cref="Ps2SkeletonFile"/> for V2 skeletons.
+///     supplied default anim and recomputing <see cref="Ps2Bone.InverseBindMatrix" /> via
+///     the same hierarchy walk used by <see cref="Ps2SkeletonFile" /> for V2 skeletons.
 /// </summary>
 internal static class Ps2SkeletonDefaultPose
 {
     /// <summary>
     ///     Returns a new skeleton with bind poses populated from the default animation's
     ///     first keyframe per bone. Bone hierarchy and identity are preserved; only
-    ///     <see cref="Ps2Bone.LocalRotation"/>, <see cref="Ps2Bone.LocalTranslation"/>,
-    ///     and <see cref="Ps2Bone.InverseBindMatrix"/> are replaced.
+    ///     <see cref="Ps2Bone.LocalRotation" />, <see cref="Ps2Bone.LocalTranslation" />,
+    ///     and <see cref="Ps2Bone.InverseBindMatrix" /> are replaced.
     /// </summary>
     public static Ps2Skeleton EnrichWithDefaultPose(Ps2Skeleton skeleton, SkaAnimation defaultAnim)
     {

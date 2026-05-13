@@ -42,7 +42,7 @@ public sealed class PsxMeshFile
     /// </summary>
     public static PsxMeshFile? Parse(byte[] data)
     {
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         using var reader = new BinaryReader(stream);
         return Parse(reader);
     }
@@ -156,17 +156,16 @@ public sealed class PsxMeshFile
 
     /// <summary>
     ///     Returns the byte offset immediately past the last mesh block in
-    ///     <paramref name="data"/>, i.e. where any post-mesh content (animation
+    ///     <paramref name="data" />, i.e. where any post-mesh content (animation
     ///     packets, hierarchy/anim streams, etc.) would begin. Returns -1 if
     ///     the file is invalid or has no meshes.
-    ///
     ///     Strategy: parse all meshes, then take the highest <c>MeshTopPointer</c>,
     ///     seek to it, re-parse that single mesh, and return <c>reader.BaseStream.Position</c>
     ///     — which is where that mesh's serialized data ends.
     /// </summary>
     public static long GetMeshBlockEnd(byte[] data)
     {
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         using var reader = new BinaryReader(stream);
         var header = PsxMeshHeaderReader.Parse(reader);
         if (header == null || header.MeshTopPointers.Length == 0) return -1;
@@ -195,7 +194,10 @@ public sealed class PsxMeshFile
                     header.TextureHashes,
                     attachmentVertexMap);
             }
-            catch (EndOfStreamException) { /* truncated mesh; ignore */ }
+            catch (EndOfStreamException)
+            {
+                /* truncated mesh; ignore */
+            }
 
             if (reader.BaseStream.Position > lastEnd)
                 lastEnd = reader.BaseStream.Position;
@@ -223,6 +225,7 @@ public sealed class PsxMeshFile
                     meshToObjectIndex[meshIndex] = i;
             }
         }
+
         return meshToObjectIndex;
     }
 
@@ -240,13 +243,13 @@ public sealed class PsxMeshFile
     }
 
     /// <summary>
-    ///     <see cref="ParseHeaderOnly(string)"/> overload that consumes an
+    ///     <see cref="ParseHeaderOnly(string)" /> overload that consumes an
     ///     in-memory byte buffer — useful when the bytes are already loaded
-    ///     for other purposes (e.g. <see cref="GetMeshBlockEnd"/>).
+    ///     for other purposes (e.g. <see cref="GetMeshBlockEnd" />).
     /// </summary>
     public static PsxMeshFile? ParseHeaderOnly(byte[] data)
     {
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         using var reader = new BinaryReader(stream);
         return ParseHeaderOnly(reader);
     }

@@ -3,9 +3,9 @@ namespace NeversoftMultitool.Core.Formats.Video;
 /// <summary>
 ///     8×8 block motion compensation for Vid1 inter prediction.
 ///     Implements MPEG-4 H.263-style half-pel bilinear interpolation:
-///       H-only: (a + b + 1) &gt;&gt; 1
-///       V-only: (a + b + 1) &gt;&gt; 1
-///       HV:     (a + b + c + d + 2) &gt;&gt; 2
+///     H-only: (a + b + 1) &gt;&gt; 1
+///     V-only: (a + b + 1) &gt;&gt; 1
+///     HV:     (a + b + c + d + 2) &gt;&gt; 2
 ///     Semantically equivalent to the heavily-unrolled Gekko paired-single
 ///     kernels at <c>FUN_8029ECE8</c> / <c>FUN_8029F868</c>, just without the
 ///     platform-specific SIMD.
@@ -44,8 +44,8 @@ internal static class Vid1MotionComp
                 var predicted = FetchPredictionPixel(
                     refPlane, refStride, refWidth, refHeight,
                     srcX + x, srcY + y, halfX, halfY, bias);
-                var combined = predicted + residual[(y * 8) + x];
-                outPlane[((dstY + y) * outStride) + dstX + x] = ClampByte(combined);
+                var combined = predicted + residual[y * 8 + x];
+                outPlane[(dstY + y) * outStride + dstX + x] = ClampByte(combined);
             }
         }
     }
@@ -65,8 +65,8 @@ internal static class Vid1MotionComp
                 var predicted = FetchPredictionPixel(
                     refPlane, refStride, refWidth, refHeight,
                     srcX + x, srcY + y, halfX, halfY, bias);
-                var combined = predicted + residual[(y * 8) + x];
-                output[(y * outputStride) + x] = ClampByte(combined);
+                var combined = predicted + residual[y * 8 + x];
+                output[y * outputStride + x] = ClampByte(combined);
             }
         }
     }
@@ -85,7 +85,7 @@ internal static class Vid1MotionComp
         {
             for (var x = 0; x < 8; x++)
             {
-                outPlane[((dstY + y) * outStride) + dstX + x] = ClampByte(samples[(y * 8) + x] + sampleOffset);
+                outPlane[(dstY + y) * outStride + dstX + x] = ClampByte(samples[y * 8 + x] + sampleOffset);
             }
         }
     }
@@ -103,7 +103,7 @@ internal static class Vid1MotionComp
         {
             for (var x = 0; x < 8; x++)
             {
-                outPlane[((dstY + y) * outStride) + dstX + x] = ClampByte(samples[(y * 8) + x]);
+                outPlane[(dstY + y) * outStride + dstX + x] = ClampByte(samples[y * 8 + x]);
             }
         }
     }
@@ -119,8 +119,8 @@ internal static class Vid1MotionComp
     {
         for (var row = 0; row < 8; row++)
         {
-            var srcOffset = ((y + row) * refStride) + x;
-            var dstOffset = ((y + row) * outStride) + x;
+            var srcOffset = (y + row) * refStride + x;
+            var dstOffset = (y + row) * outStride + x;
             Buffer.BlockCopy(refPlane, srcOffset, outPlane, dstOffset, 8);
         }
     }
@@ -155,12 +155,12 @@ internal static class Vid1MotionComp
                 var c = Sample(refPlane, refStride, refWidth, refHeight, px, py + 1);
                 var d = Sample(refPlane, refStride, refWidth, refHeight, px + 1, py + 1);
                 var predicted =
-                    (((16 - fx) * (16 - fy) * a) +
-                     (fx * (16 - fy) * b) +
-                     ((16 - fx) * fy * c) +
-                     (fx * fy * d) +
+                    ((16 - fx) * (16 - fy) * a +
+                     fx * (16 - fy) * b +
+                     (16 - fx) * fy * c +
+                     fx * fy * d +
                      (128 - bias)) >> 8;
-                outPlane[((dstY + y) * outStride) + dstX + x] = (byte)predicted;
+                outPlane[(dstY + y) * outStride + dstX + x] = (byte)predicted;
             }
         }
     }
@@ -200,7 +200,7 @@ internal static class Vid1MotionComp
                 var predicted = FetchPredictionPixel(
                     refPlane, refStride, refWidth, refHeight,
                     srcX + col, srcY, halfX, halfY, bias);
-                outPlane[((dstY + row) * outStride) + dstX + col] = (byte)predicted;
+                outPlane[(dstY + row) * outStride + dstX + col] = (byte)predicted;
             }
         }
     }
@@ -236,11 +236,11 @@ internal static class Vid1MotionComp
             {
                 var absoluteX = dstX + x;
                 var sourceFixedX =
-                    (long)baseFixedX +
-                    ((((long)scaleX * absoluteX) + ((long)crossX * absoluteY)) >> shift);
+                    baseFixedX +
+                    (((long)scaleX * absoluteX + (long)crossX * absoluteY) >> shift);
                 var sourceFixedY =
-                    (long)baseFixedY +
-                    ((((long)crossY * absoluteX) + ((long)scaleY * absoluteY)) >> shift);
+                    baseFixedY +
+                    (((long)crossY * absoluteX + (long)scaleY * absoluteY) >> shift);
 
                 var srcX = (int)(sourceFixedX >> pixelShift);
                 var srcY = (int)(sourceFixedY >> pixelShift);
@@ -252,13 +252,13 @@ internal static class Vid1MotionComp
                 var c = Sample(refPlane, refStride, refWidth, refHeight, srcX, srcY + 1);
                 var d = Sample(refPlane, refStride, refWidth, refHeight, srcX + 1, srcY + 1);
                 var predicted =
-                    (((16 - fracX) * (16 - fracY) * a) +
-                     (fracX * (16 - fracY) * b) +
-                     ((16 - fracX) * fracY * c) +
-                     (fracX * fracY * d) +
+                    ((16 - fracX) * (16 - fracY) * a +
+                     fracX * (16 - fracY) * b +
+                     (16 - fracX) * fracY * c +
+                     fracX * fracY * d +
                      (128 - bias)) >> 8;
 
-                outPlane[((dstY + y) * outStride) + dstX + x] = (byte)predicted;
+                outPlane[(dstY + y) * outStride + dstX + x] = (byte)predicted;
             }
         }
     }
@@ -274,8 +274,8 @@ internal static class Vid1MotionComp
         {
             for (var x = 0; x < 8; x++)
             {
-                var offset = ((dstY + y) * outStride) + dstX + x;
-                outPlane[offset] = ClampByte(outPlane[offset] + residual[(y * 8) + x]);
+                var offset = (dstY + y) * outStride + dstX + x;
+                outPlane[offset] = ClampByte(outPlane[offset] + residual[y * 8 + x]);
             }
         }
     }
@@ -298,9 +298,9 @@ internal static class Vid1MotionComp
         {
             for (var col = 0; col < 8; col++)
             {
-                var predicted = refPlane[((y + row) * refStride) + x + col];
-                var combined = predicted + residual[(row * 8) + col];
-                outPlane[((y + row) * outStride) + x + col] = ClampByte(combined);
+                var predicted = refPlane[(y + row) * refStride + x + col];
+                var combined = predicted + residual[row * 8 + col];
+                outPlane[(y + row) * outStride + x + col] = ClampByte(combined);
             }
         }
     }
@@ -342,7 +342,7 @@ internal static class Vid1MotionComp
         // motion vectors use the same replicated-edge behavior.
         var cx = Math.Clamp(x, 0, refWidth - 1);
         var cy = Math.Clamp(y, 0, refHeight - 1);
-        return refPlane[(cy * refStride) + cx];
+        return refPlane[cy * refStride + cx];
     }
 
     private static byte ClampByte(int value)

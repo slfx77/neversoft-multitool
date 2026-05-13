@@ -11,8 +11,8 @@ namespace NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 public static class ZoneTextureProviderBuilder
 {
     /// <summary>
-    ///     Collects .tex / .tex.ps2 / .img.ps2 / .stex files reachable from <paramref name="path"/>.
-    ///     When <paramref name="path"/> is a .pak.ps2 file, also includes sibling worldzone PAKs
+    ///     Collects .tex / .tex.ps2 / .img.ps2 / .stex files reachable from <paramref name="path" />.
+    ///     When <paramref name="path" /> is a .pak.ps2 file, also includes sibling worldzone PAKs
     ///     (z_bh.pak.ps2 + z_bh_*.pak.ps2) so their embedded textures can be pooled together.
     /// </summary>
     public static List<string> GetTexFiles(string path)
@@ -71,15 +71,15 @@ public static class ZoneTextureProviderBuilder
     /// </summary>
     internal static ulong MakeTex0IdentityKey(ulong tex0)
     {
-        var tbp   =  tex0        & 0x3FFFUL;
-        var tbw   = (tex0 >> 14) & 0x3FUL;
-        var psm   = (tex0 >> 20) & 0x3FUL;
-        var tw    = (tex0 >> 26) & 0xFUL;
-        var th    = (tex0 >> 30) & 0xFUL;
-        var cbp   = (tex0 >> 37) & 0x3FFFUL;
-        var cpsm  = (tex0 >> 51) & 0xFUL;
-        var csm   = (tex0 >> 55) & 0x1UL;
-        var csa   = (tex0 >> 56) & 0x1FUL;
+        var tbp = tex0 & 0x3FFFUL;
+        var tbw = (tex0 >> 14) & 0x3FUL;
+        var psm = (tex0 >> 20) & 0x3FUL;
+        var tw = (tex0 >> 26) & 0xFUL;
+        var th = (tex0 >> 30) & 0xFUL;
+        var cbp = (tex0 >> 37) & 0x3FFFUL;
+        var cpsm = (tex0 >> 51) & 0xFUL;
+        var csm = (tex0 >> 55) & 0x1UL;
+        var csa = (tex0 >> 56) & 0x1FUL;
         return tbp | (tbw << 14) | (psm << 20) | (tw << 26) | (th << 30) |
                (cbp << 34) | (cpsm << 48) | (csm << 52) | (csa << 53);
     }
@@ -98,6 +98,7 @@ public static class ZoneTextureProviderBuilder
         // by EnumerateFiles may differ in slash direction and casing.
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var result = new List<string>();
+
         void Add(string p)
         {
             var canonical = Path.GetFullPath(p);
@@ -115,6 +116,7 @@ public static class ZoneTextureProviderBuilder
                 || candidateStem.StartsWith(stem + "_", StringComparison.OrdinalIgnoreCase))
                 Add(candidate);
         }
+
         return result;
     }
 
@@ -131,6 +133,7 @@ public static class ZoneTextureProviderBuilder
             if (underscore > 0)
                 stem = stem[..underscore];
         }
+
         return stem.Length > 0 ? stem : null;
     }
 

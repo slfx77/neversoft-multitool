@@ -1,5 +1,4 @@
 using NeversoftMultitool.Core.BinaryIO;
-using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Psx;

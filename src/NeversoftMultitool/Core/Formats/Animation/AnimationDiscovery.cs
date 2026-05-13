@@ -1,4 +1,3 @@
-using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Animation;
@@ -10,6 +9,8 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 /// </summary>
 internal static class AnimationDiscovery
 {
+    private const float PsxFps = 30f;
+
     /// <summary>
     ///     Anim subdirs walked during ancestor search. Mirrors the conventions
     ///     used by <c>SkaCommand.FindCompressTable</c>:
@@ -63,7 +64,7 @@ internal static class AnimationDiscovery
     }
 
     /// <summary>
-    ///     Probe every <c>.ska*</c> file recursively under <paramref name="root"/>.
+    ///     Probe every <c>.ska*</c> file recursively under <paramref name="root" />.
     ///     Used by the manual "Add folder…" picker.
     /// </summary>
     public static IReadOnlyList<AnimationProbe> FindInDirectory(
@@ -98,15 +99,17 @@ internal static class AnimationDiscovery
 
     /// <summary>Reports whether a path looks like a SKA animation file.</summary>
     public static bool IsAnimFileName(string path)
-        => path.EndsWith(".ska", StringComparison.OrdinalIgnoreCase)
-           || path.EndsWith(".ska.ps2", StringComparison.OrdinalIgnoreCase)
-           || path.EndsWith(".ska.xbx", StringComparison.OrdinalIgnoreCase)
-           || path.EndsWith(".ska.wpc", StringComparison.OrdinalIgnoreCase);
-
-    private const float PsxFps = 30f;
+    {
+        return path.EndsWith(".ska", StringComparison.OrdinalIgnoreCase)
+               || path.EndsWith(".ska.ps2", StringComparison.OrdinalIgnoreCase)
+               || path.EndsWith(".ska.xbx", StringComparison.OrdinalIgnoreCase)
+               || path.EndsWith(".ska.wpc", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static bool IsPsxCharacter(AssetSource source)
-        => source.EntryName.EndsWith(".psx", StringComparison.OrdinalIgnoreCase);
+    {
+        return source.EntryName.EndsWith(".psx", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static IReadOnlyList<AnimationProbe> FindForPsxCharacter(AssetSource skinSource)
     {
@@ -116,20 +119,40 @@ internal static class AnimationDiscovery
         if (fsPath == null) return [];
 
         byte[] data;
-        try { data = skinSource.ReadBytes(); }
-        catch { return []; }
+        try
+        {
+            data = skinSource.ReadBytes();
+        }
+        catch
+        {
+            return [];
+        }
 
         PsxMeshFile? psxFile;
-        try { psxFile = PsxMeshFile.Parse(data); }
-        catch { return []; }
+        try
+        {
+            psxFile = PsxMeshFile.Parse(data);
+        }
+        catch
+        {
+            return [];
+        }
+
         if (psxFile == null) return [];
 
         var meshBlockEnd = PsxMeshFile.GetMeshBlockEnd(data);
         if (meshBlockEnd <= 0) return [];
 
         PsxAnimFile? animFile;
-        try { animFile = PsxAnimFile.Parse(data, psxFile.Objects.Count, meshBlockEnd); }
-        catch { return []; }
+        try
+        {
+            animFile = PsxAnimFile.Parse(data, psxFile.Objects.Count, meshBlockEnd);
+        }
+        catch
+        {
+            return [];
+        }
+
         if (animFile == null || animFile.Entries.Count == 0) return [];
 
         var results = new List<AnimationProbe>(animFile.Entries.Count);
@@ -143,7 +166,7 @@ internal static class AnimationDiscovery
                 $"anim_{i}",
                 duration,
                 psxFile.Objects.Count,
-                MatchesSkeleton: true));
+                true));
         }
 
         return results;
@@ -200,15 +223,3 @@ internal static class AnimationDiscovery
         }
     }
 }
-
-/// <summary>
-///     A discovered animation candidate. <see cref="MatchesSkeleton"/> reflects
-///     whether the candidate's bone count is compatible with the active
-///     character's skeleton (true if either count is unknown).
-/// </summary>
-internal sealed record AnimationProbe(
-    AssetSource Source,
-    string DisplayName,
-    float DurationSec,
-    int? BoneCount,
-    bool MatchesSkeleton);

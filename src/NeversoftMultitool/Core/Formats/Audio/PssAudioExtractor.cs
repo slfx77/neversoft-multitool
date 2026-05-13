@@ -39,12 +39,12 @@ public static class PssAudioExtractor
         return WriteWavFromStream(stream, outputPath);
     }
 
-    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string)"/>.</summary>
+    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string)" />.</summary>
     public static AudioConvertResult ConvertToWav(byte[] data, string stem, string outputDir)
     {
         Directory.CreateDirectory(outputDir);
         var outputPath = Path.Combine(outputDir, stem + ".wav");
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         return WriteWavFromStream(stream, outputPath);
     }
 
@@ -236,7 +236,7 @@ public static class PssAudioExtractor
 
                 for (var channel = 0; channel < channels; channel++)
                 {
-                    var position = frameBase + (channel * interleave) + sampleOffset;
+                    var position = frameBase + channel * interleave + sampleOffset;
                     if (position + 1 >= bodySpan.Length)
                         continue;
 
@@ -295,7 +295,7 @@ public static class PssAudioExtractor
         {
             for (var channel = 0; channel < channels; channel++)
             {
-                var blockStart = frameBase + (channel * interleave);
+                var blockStart = frameBase + channel * interleave;
                 if (blockStart >= bodySpan.Length)
                     continue;
 

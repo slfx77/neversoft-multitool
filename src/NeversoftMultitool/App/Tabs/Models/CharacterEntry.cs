@@ -6,7 +6,7 @@ namespace NeversoftMultitool;
 
 /// <summary>
 ///     A skinned character (skin file) in the Character Preview tab. Wraps the
-///     same data as <see cref="MeshFileEntry"/> but caches the resolved skeleton
+///     same data as <see cref="MeshFileEntry" /> but caches the resolved skeleton
 ///     bone count so the animation panel can filter mismatched anims without
 ///     re-parsing on every selection.
 /// </summary>

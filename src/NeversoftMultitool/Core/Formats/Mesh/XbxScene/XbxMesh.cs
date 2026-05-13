@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace NeversoftMultitool.Core.Formats.XbxScene;
+namespace NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 /// <summary>
 ///     Mesh within a sector: bounding volume, material reference, per-mesh vertex buffer,

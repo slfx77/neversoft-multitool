@@ -18,7 +18,6 @@ using NeversoftMultitool.Core.Formats.Texture.Ps2;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.SceneTex;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
 using NeversoftMultitool.Core.Formats.Texture.RenderWare;
-using NeversoftMultitool.Core.Formats.XbxScene;
 using SharpGLTF.Schema2;
 
 namespace NeversoftMultitool;
@@ -118,13 +117,27 @@ internal static class MeshConverterTabFileConverter
         var ps2Bytes = entry.Source.TryReadCompanion(stem + ".ske.ps2");
         if (ps2Bytes != null)
         {
-            try { return Ps2SkeletonFile.Parse(ps2Bytes); } catch { /* fall through */ }
+            try
+            {
+                return Ps2SkeletonFile.Parse(ps2Bytes);
+            }
+            catch
+            {
+                /* fall through */
+            }
         }
 
         var skeBytes = entry.Source.TryReadCompanion(stem + ".ske");
         if (skeBytes != null)
         {
-            try { return SkeletonFile.Parse(skeBytes); } catch { /* fall through */ }
+            try
+            {
+                return SkeletonFile.Parse(skeBytes);
+            }
+            catch
+            {
+                /* fall through */
+            }
         }
 
         // THAW filesystem fallback: walk Builds/ tree for a humanoid-rig match when
@@ -141,7 +154,10 @@ internal static class MeshConverterTabFileConverter
                         ? Ps2SkeletonFile.Parse(skeletonPath)
                         : SkeletonFile.Parse(skeletonPath);
                 }
-                catch { /* proceed without skeleton */ }
+                catch
+                {
+                    /* proceed without skeleton */
+                }
             }
         }
 
@@ -160,7 +176,10 @@ internal static class MeshConverterTabFileConverter
                         ? Ps2SkeletonFile.Parse(result.Bytes)
                         : SkeletonFile.Parse(result.Bytes);
                 }
-                catch { /* proceed without skeleton */ }
+                catch
+                {
+                    /* proceed without skeleton */
+                }
             }
         }
 

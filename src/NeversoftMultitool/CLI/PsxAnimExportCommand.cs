@@ -78,10 +78,10 @@ public static class PsxAnimExportCommand
             var rotCompose = parseResult.GetValue(rotComposeOption);
             var verbose = parseResult.GetValue(verboseOption);
             var opts = new PsxAnimationOptions(
-                SkipRotation: noRot,
-                SkipTranslation: noTrans,
-                RotationCompose: ParseRotCompose(rotCompose),
-                Fps: fps);
+                noRot,
+                noTrans,
+                ParseRotCompose(rotCompose),
+                fps);
             return Task.FromResult(Execute(input, output, anim, name, opts, verbose));
         });
 
@@ -90,7 +90,7 @@ public static class PsxAnimExportCommand
 
     private static PsxRotationCompose ParseRotCompose(string s)
     {
-        if (Enum.TryParse<PsxRotationCompose>(s, ignoreCase: true, out var compose))
+        if (Enum.TryParse<PsxRotationCompose>(s, true, out var compose))
             return compose;
         AnsiConsole.MarkupLine(
             $"[yellow]Warning:[/] Unknown --rot-compose value '{Markup.Escape(s)}'; using YXZ.");
@@ -214,6 +214,7 @@ public static class PsxAnimExportCommand
                     $"  [yellow]{name}: decode failed ({Markup.Escape(ex.Message)})[/]");
             }
         }
+
         return decoded;
     }
 

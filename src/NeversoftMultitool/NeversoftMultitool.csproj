@@ -44,16 +44,26 @@
   </ItemGroup>
 
   <!-- Embedded data files -->
+
   <ItemGroup>
+
     <EmbeddedResource Include="Core\QbKey\QbKeyNames.txt" LogicalName="QbKeyNames.txt" />
+
     <EmbeddedResource Include="Core\QbKey\QbKeyNames.ThawGcTextures.txt" LogicalName="QbKeyNames.ThawGcTextures.txt" />
+
   </ItemGroup>
 
+
   <!-- Blender export helper script. Blender binaries, when distributed, live beside this folder. -->
+
   <ItemGroup>
+
     <Content Include="BlenderExporter\import_package.py" CopyToOutputDirectory="PreserveNewest" />
+
     <Content Include="BlenderExporter\LICENSE_NOTICE.txt" CopyToOutputDirectory="PreserveNewest" />
+
   </ItemGroup>
+
 
   <!-- Shared packages -->
   <ItemGroup>
@@ -65,12 +75,12 @@
     <PackageReference Include="System.IO.Hashing" Version="9.0.5" />
   </ItemGroup>
 
-  <!-- Windows GUI packages -->
+  <!-- Windows GUI packages. WinUI 3 was renamed back to "WinUI" in WindowsAppSDK 2.0. -->
   <ItemGroup Condition="$(TargetFramework.Contains('windows'))">
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260101001" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.Primitives" Version="8.2.250402" />
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.Sizers" Version="8.2.250402" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.Primitives" Version="8.2.251219" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.Sizers" Version="8.2.251219" />
   </ItemGroup>
 
   <!-- Windows GUI assets -->

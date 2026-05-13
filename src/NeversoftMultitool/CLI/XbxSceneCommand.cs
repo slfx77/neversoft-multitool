@@ -1,6 +1,6 @@
 using System.CommandLine;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
-using NeversoftMultitool.Core.Formats.XbxScene;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -35,7 +35,8 @@ public static class XbxSceneCommand
         var formatOption = MeshExportCliOptions.CreateFormatOption();
         var blenderHelperOption = MeshExportCliOptions.CreateBlenderHelperOption();
 
-        var command = new Command("xbxscene", "Convert Xbox/PC scene files (SKIN/MDL) to glTF (.glb) or Blender (.blend) - THUG2 + THAW");
+        var command = new Command("xbxscene",
+            "Convert Xbox/PC scene files (SKIN/MDL) to glTF (.glb) or Blender (.blend) - THUG2 + THAW");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(texPathOption);
@@ -117,5 +118,4 @@ public static class XbxSceneCommand
         AnsiConsole.MarkupLine($"[red]Error:[/] Path not found: {input}");
         return null;
     }
-
 }

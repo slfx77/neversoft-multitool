@@ -11,7 +11,7 @@ using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Core.Formats.XbxScene;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 namespace NeversoftMultitool;
 
@@ -103,7 +103,8 @@ internal static class MeshConverterTabFileScanner
 
         Parallel.ForEach(buckets.Ps2SceneFiles, parallelOptions, file =>
         {
-            AddIfNotNull(results, ScanPs2SceneFile(new FileSystemAssetSource(file), file, inputDir, buckets.IskinStems));
+            AddIfNotNull(results,
+                ScanPs2SceneFile(new FileSystemAssetSource(file), file, inputDir, buckets.IskinStems));
             Report();
         });
 
@@ -141,7 +142,7 @@ internal static class MeshConverterTabFileScanner
     ///     worldzone PAKs to the single-entry worldzone path; for other archive
     ///     types (WAD, PRE, PRE3/PRX, PKR, non-worldzone PAK), opens the archive
     ///     in-memory and enumerates every entry that looks like a supported mesh
-    ///     file. Every returned entry carries an <see cref="ArchiveAssetSource"/>.
+    ///     file. Every returned entry carries an <see cref="ArchiveAssetSource" />.
     /// </summary>
     public static List<MeshFileEntry> ScanArchive(string archivePath, CancellationToken ct = default)
     {
@@ -178,7 +179,8 @@ internal static class MeshConverterTabFileScanner
     /// </summary>
     public static MeshFileEntry? ScanSingleArchiveAsWorldzone(string pakFile)
     {
-        return ScanPakWorldzoneFile(new FileSystemAssetSource(pakFile), pakFile, rootDir: Path.GetDirectoryName(pakFile) ?? "");
+        return ScanPakWorldzoneFile(new FileSystemAssetSource(pakFile), pakFile,
+            rootDir: Path.GetDirectoryName(pakFile) ?? "");
     }
 
     internal static string StripCompoundExtension(string filename)
@@ -194,6 +196,7 @@ internal static class MeshConverterTabFileScanner
             ct.ThrowIfCancellationRequested();
             list.Add(file);
         }
+
         return list;
     }
 

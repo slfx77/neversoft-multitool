@@ -28,7 +28,8 @@ public static class RwDffCommand
         var formatOption = MeshExportCliOptions.CreateFormatOption();
         var blenderHelperOption = MeshExportCliOptions.CreateBlenderHelperOption();
 
-        var command = new Command("rwdff", "Convert RenderWare DFF mesh files (.SKN) to glTF (.glb) or Blender (.blend)");
+        var command = new Command("rwdff",
+            "Convert RenderWare DFF mesh files (.SKN) to glTF (.glb) or Blender (.blend)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(texPathOption);

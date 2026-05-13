@@ -1,8 +1,8 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
-using NeversoftMultitool.Core.Formats.XbxScene;
-using ParsedXbxScene = NeversoftMultitool.Core.Formats.XbxScene.XbxScene;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
+using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 

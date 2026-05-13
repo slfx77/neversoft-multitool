@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Rendering;
 
 namespace NeversoftMultitool;
@@ -179,7 +180,10 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
                 : $"Found {_animations.Count} animation(s)"
                   + (boneCount.HasValue ? $" — skeleton has {boneCount} bones" : "");
         }
-        catch (OperationCanceledException) { /* ignore */ }
+        catch (OperationCanceledException)
+        {
+            /* ignore */
+        }
         catch (Exception ex)
         {
             AnimDiscoveryStatusText.Text = $"Discovery failed: {ex.Message}";
@@ -192,7 +196,8 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
     {
         // Mark the previously-active row inactive
         foreach (var anim in _animations)
-            if (anim.IsActive) anim.IsActive = false;
+            if (anim.IsActive)
+                anim.IsActive = false;
 
         var entry = AnimationListView.SelectedItem as AnimationListEntry;
         if (entry == null || _selectedCharacter == null || _preview == null)
@@ -223,8 +228,7 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
         if (path == null) return;
 
         var boneCount = _selectedCharacter.SkeletonBoneCount;
-        var probes = await Task.Run(
-            () => AnimationDiscovery.FindInDirectory(path, boneCount, CancellationToken.None));
+        var probes = await Task.Run(() => AnimationDiscovery.FindInDirectory(path, boneCount, CancellationToken.None));
         MergeAnimationProbes(probes);
         AnimDiscoveryStatusText.Text = $"{_animations.Count} animation(s) listed.";
     }
@@ -307,7 +311,14 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
                 }
                 finally
                 {
-                    try { if (File.Exists(tempGlb)) File.Delete(tempGlb); } catch { /* ignore */ }
+                    try
+                    {
+                        if (File.Exists(tempGlb)) File.Delete(tempGlb);
+                    }
+                    catch
+                    {
+                        /* ignore */
+                    }
                 }
             }, cts.Token);
 

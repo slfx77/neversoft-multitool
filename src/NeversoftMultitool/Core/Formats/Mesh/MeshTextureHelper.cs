@@ -190,7 +190,7 @@ internal static class MeshTextureHelper
     }
 
     /// <summary>
-     ///     Detects magenta (255, 0, 255) color-key backgrounds in textures and converts
+    ///     Detects magenta (255, 0, 255) color-key backgrounds in textures and converts
     ///     them to alpha transparency. Uses Manhattan distance from magenta so antialiased
     ///     edges get smooth alpha gradients instead of hard pink fringing.
     ///     Only modifies textures that contain at least one exact magenta pixel.

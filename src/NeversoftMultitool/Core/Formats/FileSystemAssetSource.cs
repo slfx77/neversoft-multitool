@@ -1,25 +1,28 @@
 namespace NeversoftMultitool.Core.Formats;
 
 /// <summary>
-///     <see cref="AssetSource"/> backed by a real file on disk. Companion lookups
-///     walk the filesystem via <see cref="CompanionSearch"/>.
+///     <see cref="AssetSource" /> backed by a real file on disk. Companion lookups
+///     walk the filesystem via <see cref="CompanionSearch" />.
 /// </summary>
 public sealed class FileSystemAssetSource : AssetSource
 {
-    private readonly string _filePath;
     private readonly string _directory;
 
     public FileSystemAssetSource(string filePath)
     {
-        _filePath = filePath;
+        DisplayName = filePath;
         _directory = Path.GetDirectoryName(filePath) ?? "";
     }
 
-    public override string DisplayName => _filePath;
-    public override string EntryName => Path.GetFileName(_filePath);
-    public override string? FileSystemPath => _filePath;
+    public override string DisplayName { get; }
 
-    public override byte[] ReadBytes() => File.ReadAllBytes(_filePath);
+    public override string EntryName => Path.GetFileName(DisplayName);
+    public override string? FileSystemPath => DisplayName;
+
+    public override byte[] ReadBytes()
+    {
+        return File.ReadAllBytes(DisplayName);
+    }
 
     public override bool CompanionExists(string nameWithExtension)
     {
@@ -67,6 +70,7 @@ public sealed class FileSystemAssetSource : AssetSource
                 var path = Path.Combine(_directory, stem + ext);
                 if (File.Exists(path)) return path;
             }
+
             return null;
         }
 

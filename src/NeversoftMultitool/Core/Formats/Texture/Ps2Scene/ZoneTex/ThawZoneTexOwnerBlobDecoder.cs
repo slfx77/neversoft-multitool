@@ -4,46 +4,40 @@ namespace NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 
 /// <summary>
 ///     Authoritative THAW PS2 zone .tex decoder based on the FUN_001e9ac0 owner blob format.
-///
 ///     This is the format the runtime actually uses to load zone textures. It mirrors the
 ///     decompiled FUN_001e9ac0 logic from THAW PS2:
-///
 ///     1. The file begins (after some prefix data) with a 0x10-byte owner blob header:
-///         <code>
+///     <code>
 ///         +0x00 u16  global_u16
 ///         +0x02 u16  primary_count
 ///         +0x04 i32  secondary_count   (number of texture records)
 ///         +0x08 i32  base_a_offset     (used to relocate per-record +0x38)
 ///         +0x0c i32  base_b_offset     (used to relocate per-record +0x28 / +0x30)
 ///         </code>
-///         followed immediately by primary_count * 0x50 bytes of primaries, then
-///         secondary_count * 0x40 bytes of secondaries (texture records).
-///
+///     followed immediately by primary_count * 0x50 bytes of primaries, then
+///     secondary_count * 0x40 bytes of secondaries (texture records).
 ///     2. Each secondary (0x40 bytes) at the standard layout described in zone_tex_format.md.
-///         FUN_001e9ac0 relocates fields per record:
-///         <code>
+///     FUN_001e9ac0 relocates fields per record:
+///     <code>
 ///         relocated cumul_off    = header_base + record.cumul_off    + base_b
 ///         relocated data_offset  = header_base + record.data_offset  + base_b
 ///         relocated upload_off   = header_base + record.upload_off   + base_a
 ///         </code>
-///
 ///     3. After relocation:
-///         - <c>relocated_data_offset</c> points at the prepared CLUT data (32 bytes for
-///           PSMCT16, 64 bytes for PSMCT32).
-///         - <c>relocated_cumul_off</c> points at the prepared pixel data. Storage
-///           layout depends on (psm, tw, th):
-///           PSMT4 follows the standard build-tool path
-///           (<see cref="Ps2TexSwizzle.UnswizzlePsmt4"/>: Conv4to32 -> Conv4to16 -> linear).
-///           PSMT8 uses Conv8to32 for everything except sub-page-width
-///           multi-page-tall records (tw &lt; 128 AND th &gt; 64), which are
-///           linear bottom-up; FUN_0019cd48 (Phase 333) confirms that path.
-///
+///     - <c>relocated_data_offset</c> points at the prepared CLUT data (32 bytes for
+///     PSMCT16, 64 bytes for PSMCT32).
+///     - <c>relocated_cumul_off</c> points at the prepared pixel data. Storage
+///     layout depends on (psm, tw, th):
+///     PSMT4 follows the standard build-tool path
+///     (<see cref="Ps2TexSwizzle.UnswizzlePsmt4" />: Conv4to32 -> Conv4to16 -> linear).
+///     PSMT8 uses Conv8to32 for everything except sub-page-width
+///     multi-page-tall records (tw &lt; 128 AND th &gt; 64), which are
+///     linear bottom-up; FUN_0019cd48 (Phase 333) confirms that path.
 ///     4. Decode:
-///         - PSMT4: walk the unswizzled nibble buffer bottom-up, look up in the CLUT.
-///         - PSMT8: walk the unswizzled / linear byte buffer bottom-up, apply the
-///           CSM1 index remap (DAT_005ad180), then look up in the CLUT.
-///
-///     This replaces the older heuristic <see cref="ThawZoneTexFile.TryGetHeaderDataLayout"/>
+///     - PSMT4: walk the unswizzled nibble buffer bottom-up, look up in the CLUT.
+///     - PSMT8: walk the unswizzled / linear byte buffer bottom-up, apply the
+///     CSM1 index remap (DAT_005ad180), then look up in the CLUT.
+///     This replaces the older heuristic <see cref="ThawZoneTexFile.TryGetHeaderDataLayout" />
 ///     path which guessed the data base offset and the per-record layout.
 /// </summary>
 internal static class ThawZoneTexOwnerBlobDecoder
@@ -150,7 +144,7 @@ internal static class ThawZoneTexOwnerBlobDecoder
     /// <remarks>
     ///     If every output pixel is alpha-zero but the buffer has visible RGB
     ///     content, force alpha to 255. This matches the
-    ///     <see cref="Ps2TexPixelDecoder.DecodePixels"/> post-pass and recovers
+    ///     <see cref="Ps2TexPixelDecoder.DecodePixels" /> post-pass and recovers
     ///     PSMT8 records whose CLUT/index combination decodes every base-level
     ///     pixel to alpha-zero (the PS2 "use material/register alpha, not
     ///     per-texel alpha" convention). Records whose lower mip carries real
@@ -171,23 +165,23 @@ internal static class ThawZoneTexOwnerBlobDecoder
         var th = 1 << (int)((tex0 >> 30) & 0xF);
 
         if (psm != Ps2TexPixelDecoder.PSMT4 && psm != Ps2TexPixelDecoder.PSMT8
-            && psm != Ps2TexPixelDecoder.PSMCT32 && psm != Ps2TexPixelDecoder.PSMCT16)
+                                            && psm != Ps2TexPixelDecoder.PSMCT32 && psm != Ps2TexPixelDecoder.PSMCT16)
             return null;
         if (entry.DataSize == 0)
             return null;
 
         // Direct-color formats (no palette)
         if (psm == Ps2TexPixelDecoder.PSMCT32)
-            return DecodePsmct32Record(fileData, entry, (long)headerBase + entry.CumulativeOffset + baseB, tw, th);
+            return DecodePsmct32Record(fileData, entry, headerBase + entry.CumulativeOffset + baseB, tw, th);
         if (psm == Ps2TexPixelDecoder.PSMCT16)
-            return DecodePsmct16Record(fileData, entry, (long)headerBase + entry.CumulativeOffset + baseB, tw, th);
+            return DecodePsmct16Record(fileData, entry, headerBase + entry.CumulativeOffset + baseB, tw, th);
 
         if (entry.PaletteBytes == 0)
             return null;
 
         // Relocate per FUN_001e9ac0
-        var pixelAbs = (long)headerBase + entry.CumulativeOffset + baseB;
-        var clutAbs = (long)headerBase + entry.DataOffset + baseB;
+        var pixelAbs = headerBase + entry.CumulativeOffset + baseB;
+        var clutAbs = headerBase + entry.DataOffset + baseB;
         var pixelSize = psm == Ps2TexPixelDecoder.PSMT4 ? (long)tw * th / 2 : (long)tw * th;
 
         // Clamp pixel read to available file data (last record may extend past file end)
@@ -237,14 +231,14 @@ internal static class ThawZoneTexOwnerBlobDecoder
         const int psmt8PageWidth = 128;
         const int psmt8PageHeight = 64;
         var psmt8NeedsLinear = psm == Ps2TexPixelDecoder.PSMT8
-            && tw < psmt8PageWidth
-            && th > psmt8PageHeight;
+                               && tw < psmt8PageWidth
+                               && th > psmt8PageHeight;
         var indexBytes = psm switch
         {
             Ps2TexPixelDecoder.PSMT4 => Ps2TexSwizzle.UnswizzlePsmt4(pixelBytes, tw, th),
             Ps2TexPixelDecoder.PSMT8 when !psmt8NeedsLinear =>
                 Ps2TexSwizzle.UnswizzlePsmt8(pixelBytes, tw, th),
-            _ => null,
+            _ => null
         };
 
         ReadOnlySpan<byte> sourceBytes = indexBytes ?? pixelBytes.ToArray();
@@ -282,12 +276,12 @@ internal static class ThawZoneTexOwnerBlobDecoder
         if (pixelAbs < 0 || pixelAbs >= fileData.Length)
             return false;
 
-        var availableBytes = Math.Min((long)entry.DataSize, fileData.Length - pixelAbs);
+        var availableBytes = Math.Min(entry.DataSize, fileData.Length - pixelAbs);
         if (availableBytes <= 0)
             return false;
 
         var offset = entry.BasePixelBytes != 0
-            ? (long)entry.BasePixelBytes
+            ? entry.BasePixelBytes
             : (long)baseWidth * baseHeight;
         if (offset <= 0 || offset >= availableBytes)
             return false;
@@ -346,9 +340,9 @@ internal static class ThawZoneTexOwnerBlobDecoder
     }
 
     /// <summary>
-    ///     If every alpha byte in <paramref name="rgba"/> is 0 but at least one
+    ///     If every alpha byte in <paramref name="rgba" /> is 0 but at least one
     ///     RGB byte is non-zero, force all alpha to 255. This matches the public
-    ///     <see cref="Ps2TexPixelDecoder.DecodePixels"/> "all-alpha-zero means
+    ///     <see cref="Ps2TexPixelDecoder.DecodePixels" /> "all-alpha-zero means
     ///     material-controlled alpha" convention. Skipping the fixup when RGB is
     ///     also zero keeps unused/empty record regions invisible rather than
     ///     turning them into solid black.
@@ -362,6 +356,7 @@ internal static class ThawZoneTexOwnerBlobDecoder
             if (!hasRgb && (rgba[i] != 0 || rgba[i + 1] != 0 || rgba[i + 2] != 0))
                 hasRgb = true;
         }
+
         if (!hasRgb) return;
 
         for (var i = 3; i < rgba.Length; i += 4)
@@ -394,6 +389,7 @@ internal static class ThawZoneTexOwnerBlobDecoder
                 rgba[outOff + 3] = palette[paletteOff + 3];
             }
         }
+
         return rgba;
     }
 
@@ -524,6 +520,7 @@ internal static class ThawZoneTexOwnerBlobDecoder
             // UNLESS the entire pixel is 0x0000 (black + transparent).
             result[i * 4 + 3] = pixel == 0 ? (byte)0 : (byte)0xFF;
         }
+
         return result;
     }
 
@@ -541,7 +538,7 @@ internal static class ThawZoneTexOwnerBlobDecoder
             var alpha = clutBytes[i * 4 + 3];
             result[i * 4 + 3] = (byte)Math.Min(alpha * 2, 255);
         }
+
         return result;
     }
-
 }

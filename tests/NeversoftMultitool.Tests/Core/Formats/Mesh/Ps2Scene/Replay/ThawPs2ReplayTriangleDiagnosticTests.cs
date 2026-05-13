@@ -1,7 +1,7 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Replay;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
-using NeversoftMultitool.Core.Formats.XbxScene;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using NeversoftMultitool.Tests.Helpers;
 using static NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Replay.ThawPs2ReplayTriangleDiagnostics;
 

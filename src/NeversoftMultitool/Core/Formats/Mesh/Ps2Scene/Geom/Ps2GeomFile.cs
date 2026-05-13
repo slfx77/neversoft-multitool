@@ -82,8 +82,8 @@ public static class Ps2GeomFile
     private static bool IsLevelMdl(Ps2MdlPreamble.Preamble? preamble)
     {
         return preamble is not null
-            && preamble.Bones.Count == 0
-            && preamble.Records.Count >= 100;
+               && preamble.Bones.Count == 0
+               && preamble.Records.Count >= 100;
     }
 
     /// <summary>
@@ -91,17 +91,14 @@ public static class Ps2GeomFile
     ///     a self-contained VIF packet, NOT an absolute file offset. The leaf chunk layout (per
     ///     phase 420 decomp of FUN_001d1f58 / FUN_001d3388, verified 100% across 3,977 BH leaves
     ///     and 5 other THAW level MDLs):
-    ///
-    ///         [0..7]   8-byte DMA source-chain tag (QWC in low 16 bits, ID=6, ADDR=0)
-    ///         [8..11]  VIF OFFSET opcode (0x02000000, immediate = 0)
-    ///         [12..15] VIF STCYCL opcode (0x01000101, CL=1, WL=1)
-    ///         [16..]   VIF UNPACK stream (positions, UVs, normals, colors, MSCAL)
-    ///
+    ///     [0..7]   8-byte DMA source-chain tag (QWC in low 16 bits, ID=6, ADDR=0)
+    ///     [8..11]  VIF OFFSET opcode (0x02000000, immediate = 0)
+    ///     [12..15] VIF STCYCL opcode (0x01000101, CL=1, WL=1)
+    ///     [16..]   VIF UNPACK stream (positions, UVs, normals, colors, MSCAL)
     ///     Next leaf starts at `leaf_start + 16 + QWC*16`. The engine never submits the on-disk
     ///     DMA tag through DMAC — it reads QWC/ADDR at runtime and rebuilds a fresh DMA chain.
     ///     For our decoder, we feed the VIF bytes `[leaf_start+8, leaf_start+16+QWC*16)` to
     ///     Ps2GeomVifVertexDecoder, which handles the OFFSET/STCYCL/UNPACK stream natively.
-    ///
     ///     K (data_section_offset) varies per MDL (0x110..0x10B0 observed). We derive it by
     ///     scanning for the first <c>OFFSET(0) + STCYCL(1,1)</c> pair in the low file region and
     ///     subtracting the smallest leaf Field40.
@@ -201,19 +198,20 @@ public static class Ps2GeomFile
                     outLeaves.Add(MakeLeafFromMdlMesh(
                         billboard.Value.Vertices,
                         bbGsCtx,
-                        groupChecksum: leaf.MaterialGroup,
-                        isBillboard: true,
-                        billboardDescriptor: billboard.Value.Descriptor));
+                        leaf.MaterialGroup,
+                        true,
+                        billboard.Value.Descriptor));
                 }
                 else
                 {
                     rejectionLogger?.Invoke(MakeRejection(
                         diagnosticsName, "parse", "no_batches_or_billboard", i, [], inheritedGsCtx.Tex0));
                 }
+
                 continue;
             }
 
-            var placement = new LeafPlacement(leaf.Centre, leaf.Size, Matched: true);
+            var placement = new LeafPlacement(leaf.Centre, leaf.Size, true);
             foreach (var batch in batches)
             {
                 if (batch.Vertices.Length == 0)
@@ -240,7 +238,7 @@ public static class Ps2GeomFile
                 var scanned = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(data, batch.VifStart, batch.VifEnd);
                 var gsCtx = ResolveInheritedGsContext(inheritedGsCtx, scanned, out var updatesGsState);
                 if (updatesGsState) inheritedGsCtx = gsCtx;
-                outLeaves.Add(MakeLeafFromMdlMesh(batch.Vertices, gsCtx, groupChecksum: leaf.MaterialGroup));
+                outLeaves.Add(MakeLeafFromMdlMesh(batch.Vertices, gsCtx, leaf.MaterialGroup));
             }
         }
 
@@ -287,6 +285,7 @@ public static class Ps2GeomFile
             k = candidate;
             return true;
         }
+
         return false;
     }
 
@@ -414,7 +413,7 @@ public static class Ps2GeomFile
                             DmaAlpha1 = gsCtx.Alpha1,
                             DmaTest1 = gsCtx.Test1,
                             DmaFrame1 = gsCtx.Frame1,
-                            DmaTexa = gsCtx.Texa,
+                            DmaTexa = gsCtx.Texa
                         });
                     }
                 }
@@ -474,6 +473,7 @@ public static class Ps2GeomFile
             min = Vector3.Min(min, pos);
             max = Vector3.Max(max, pos);
         }
+
         return (min, max);
     }
 
@@ -517,13 +517,6 @@ public static class Ps2GeomFile
         const float LodAspectThreshold = 0.2f;
         return ratio < LodAspectThreshold;
     }
-
-    /// <summary>
-    ///     Placement information for one preamble-leaf sub-chunk: world-space centre (added to
-    ///     each decoded sint16 position) and half-extent used by the coherence filter to reject
-    ///     sub-chunks that decoded to positions far outside the expected bbox.
-    /// </summary>
-    private readonly record struct LeafPlacement(Vector3 Centre, Vector3 Size, bool Matched);
 
     /// <summary>
     ///     Coherence filter. Decoded positions for a correctly-paired batch should cluster
@@ -600,4 +593,11 @@ public static class Ps2GeomFile
             min,
             max);
     }
+
+    /// <summary>
+    ///     Placement information for one preamble-leaf sub-chunk: world-space centre (added to
+    ///     each decoded sint16 position) and half-extent used by the coherence filter to reject
+    ///     sub-chunks that decoded to positions far outside the expected bbox.
+    /// </summary>
+    private readonly record struct LeafPlacement(Vector3 Centre, Vector3 Size, bool Matched);
 }

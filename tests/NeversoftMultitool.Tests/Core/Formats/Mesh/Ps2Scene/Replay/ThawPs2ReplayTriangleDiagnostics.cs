@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Replay;
-using ParsedXbxScene = NeversoftMultitool.Core.Formats.XbxScene.XbxScene;
+using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Replay;
 

@@ -163,7 +163,14 @@ internal static class VideoConverterTabOperations
         }
         finally
         {
-            try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { /* ignore */ }
+            try
+            {
+                if (File.Exists(tempPath)) File.Delete(tempPath);
+            }
+            catch
+            {
+                /* ignore */
+            }
         }
     }
 

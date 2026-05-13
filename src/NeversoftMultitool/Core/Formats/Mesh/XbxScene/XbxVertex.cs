@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace NeversoftMultitool.Core.Formats.XbxScene;
+namespace NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 /// <summary>
 ///     Per-vertex data decoded from interleaved vertex buffer.

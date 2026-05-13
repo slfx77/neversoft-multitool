@@ -5,23 +5,9 @@ using NeversoftMultitool.Core.Formats.Archives;
 namespace NeversoftMultitool.Core.Formats;
 
 /// <summary>
-///     Archive backends the converter tabs can enumerate and read entries from
-///     without a temp-extract step. Keep this in sync with
-///     <see cref="ArchiveAssetBackend"/>'s type-detection logic.
-/// </summary>
-public enum ArchiveAssetType
-{
-    Wad,
-    Pre,
-    CompressedPre,
-    Pkr,
-    Pak
-}
-
-/// <summary>
 ///     Shared access to an archive's entry table plus per-entry byte reads.
 ///     One instance per archive path; created once by a tab's scanner and
-///     referenced by every <see cref="ArchiveAssetSource"/> it produces, so the
+///     referenced by every <see cref="ArchiveAssetSource" /> it produces, so the
 ///     archive file is memory-mapped once and entries are decompressed on
 ///     demand.
 /// </summary>
@@ -29,10 +15,6 @@ public sealed class ArchiveAssetBackend
 {
     private readonly byte[] _archiveBytes;
     private readonly Dictionary<string, ArchiveEntry> _entriesByBasename;
-
-    public string ArchivePath { get; }
-    public ArchiveAssetType Type { get; }
-    public IReadOnlyList<ArchiveEntry> Entries { get; }
 
     public ArchiveAssetBackend(string archivePath, ArchiveAssetType type, IReadOnlyList<ArchiveEntry> entries)
     {
@@ -43,8 +25,12 @@ public sealed class ArchiveAssetBackend
         _entriesByBasename = BuildBasenameIndex(entries);
     }
 
+    public string ArchivePath { get; }
+    public ArchiveAssetType Type { get; }
+    public IReadOnlyList<ArchiveEntry> Entries { get; }
+
     /// <summary>
-    ///     Probes <paramref name="path"/> and returns a backend if it's a supported
+    ///     Probes <paramref name="path" /> and returns a backend if it's a supported
     ///     archive, or null otherwise. PAK archives that look like THAW worldzones
     ///     are NOT returned here — they go through the dedicated worldzone
     ///     pipeline instead of per-entry enumeration.
@@ -118,6 +104,7 @@ public sealed class ArchiveAssetBackend
             // the first one wins; consumers can still iterate Entries directly if needed.
             index.TryAdd(entry.Name, entry);
         }
+
         return index;
     }
 

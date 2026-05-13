@@ -18,7 +18,7 @@ public sealed class Ps2GeomLeaf
     ///     CGeomNode flags from offset 0x1C of the source node header. Includes
     ///     NODEFLAG_LEAF (1&lt;&lt;1) and NODEFLAG_COLOURED (1&lt;&lt;4): when the
     ///     latter is set, the runtime VU1 microcode tints all child geometry by
-    ///     <see cref="Colour"/> via SetColour() in geomnode.cpp.
+    ///     <see cref="Colour" /> via SetColour() in geomnode.cpp.
     /// </summary>
     public uint Flags { get; init; }
 
@@ -124,33 +124,4 @@ public sealed class Ps2GeomLeaf
     ///     .blend and an axis-rotated fallback quad in .glb.
     /// </summary>
     public Ps2BillboardDescriptor? BillboardDescriptor { get; init; }
-}
-
-/// <summary>
-///     PS2 Format-B billboard parametric descriptor. Decoded from the four V4_32
-///     "positions" consumed by ScreenAlignedBillboards / LongAxisBillboards /
-///     ShortAxisBillboards in vu1code.dsm:
-///     <list type="bullet">
-///         <item><c>Anchor</c> = pvw, world pivot position.</item>
-///         <item><c>Size</c>   = (width, height).</item>
-///         <item><c>PivotLocal</c> = pvl, pivot-local 3-vec offset (subtracted in the
-///             udir/vdir/wdir basis built by the VU1 microcode).</item>
-///         <item><c>Axis</c>   = world axis for axis-aligned variants. Zero for the
-///             screen-aligned variant.</item>
-///     </list>
-///     On z_sm all 145 Format-B leaves are axis-aligned with <c>Axis = (0, 1, 0)</c>;
-///     <see cref="Kind"/> is computed from <c>|Axis|</c>.
-/// </summary>
-public readonly record struct Ps2BillboardDescriptor(
-    Vector3 Anchor,
-    Vector2 Size,
-    Vector3 PivotLocal,
-    Vector3 Axis,
-    Ps2BillboardKind Kind);
-
-public enum Ps2BillboardKind
-{
-    ScreenAligned,
-    LongAxis,
-    ShortAxis,
 }

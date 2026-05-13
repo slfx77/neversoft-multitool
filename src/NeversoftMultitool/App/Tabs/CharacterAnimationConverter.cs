@@ -13,17 +13,20 @@ namespace NeversoftMultitool;
 /// <summary>
 ///     Builds animated GLB output for the Character Preview tab. Wraps the
 ///     pieces shared between previewing one animation and exporting many.
-///
 ///     Supports two character paths:
 ///     <list type="bullet">
-///         <item>PS2 skinned scenes (.skin.ps2 / .iskin.ps2 / ThawSkin / PakSkin) via <see cref="Ps2SceneGltfWriter.WriteSkinnedAnimated"/>.</item>
-///         <item>RenderWare DFF (THPS3 .SKN) via <see cref="RwDffGltfWriter.WriteAnimated"/> — animation correctness is still in progress per docs/thps3-ska-animation-correctness-handoff.md.</item>
+///         <item>
+///             PS2 skinned scenes (.skin.ps2 / .iskin.ps2 / ThawSkin / PakSkin) via
+///             <see cref="Ps2SceneGltfWriter.WriteSkinnedAnimated" />.
+///         </item>
+///         <item>
+///             RenderWare DFF (THPS3 .SKN) via <see cref="RwDffGltfWriter.WriteAnimated" /> — animation correctness is
+///             still in progress per docs/thps3-ska-animation-correctness-handoff.md.
+///         </item>
 ///     </list>
 /// </summary>
 internal static class CharacterAnimationConverter
 {
-    public sealed record Result(byte[]? GlbBytes, int Triangles, string? Error);
-
     /// <summary>
     ///     Build an animated GLB from a character + N animations. Returns bytes
     ///     in memory (no temp files). Caller writes to disk as needed.
@@ -196,7 +199,14 @@ internal static class CharacterAnimationConverter
         }
         finally
         {
-            try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { /* ignore */ }
+            try
+            {
+                if (File.Exists(tempPath)) File.Delete(tempPath);
+            }
+            catch
+            {
+                /* ignore */
+            }
         }
     }
 
@@ -327,4 +337,6 @@ internal static class CharacterAnimationConverter
         var idx = fileName.IndexOf(".ska", StringComparison.OrdinalIgnoreCase);
         return idx > 0 ? fileName[..idx] : Path.GetFileNameWithoutExtension(fileName);
     }
+
+    public sealed record Result(byte[]? GlbBytes, int Triangles, string? Error);
 }

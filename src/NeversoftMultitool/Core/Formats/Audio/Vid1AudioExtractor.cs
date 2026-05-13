@@ -34,7 +34,7 @@ public static class Vid1AudioExtractor
         }
     }
 
-    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string)"/>.</summary>
+    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string)" />.</summary>
     public static AudioConvertResult ConvertToWav(byte[] data, string stem, string outputDir)
     {
         var ffmpeg = SfdConverter.FindFfmpeg();
@@ -199,10 +199,12 @@ public static class Vid1AudioExtractor
             return false;
         }
 
-        if (!TryFindChunk(data, headChunk.Offset + HeadChildOffset, headChunk.EndOffset, "AUDH", out var audhChunk, out error))
+        if (!TryFindChunk(data, headChunk.Offset + HeadChildOffset, headChunk.EndOffset, "AUDH", out var audhChunk,
+                out error))
             return false;
 
-        if (!TryParseAudioHeader(data, audhChunk, out var sampleRate, out var channels, out var totalSamples, out var idPacket, out var setupPacket, out error))
+        if (!TryParseAudioHeader(data, audhChunk, out var sampleRate, out var channels, out var totalSamples,
+                out var idPacket, out var setupPacket, out error))
             return false;
 
         var audioPackets = new List<byte[]>();
@@ -277,7 +279,8 @@ public static class Vid1AudioExtractor
             if (!LooksLikeFramePayloadTag(data, offset))
                 continue;
 
-            if (TryReadChunk(data, offset, frameChunk.EndOffset, out var childChunk, out _) && IsFramePayloadTag(childChunk.Tag))
+            if (TryReadChunk(data, offset, frameChunk.EndOffset, out var childChunk, out _) &&
+                IsFramePayloadTag(childChunk.Tag))
                 return offset;
         }
 
@@ -375,7 +378,8 @@ public static class Vid1AudioExtractor
         }
 
         var headerPacketOffset = metadataOffset + 0x24;
-        if (!TryReadPacketHeader(data, headerPacketOffset, audhChunk.EndOffset, out var firstPacketOffset, out var firstPacketSize))
+        if (!TryReadPacketHeader(data, headerPacketOffset, audhChunk.EndOffset, out var firstPacketOffset,
+                out var firstPacketSize))
         {
             error = "VID1 Vorbis identification header is invalid";
             return false;
@@ -384,7 +388,8 @@ public static class Vid1AudioExtractor
         idPacket = data.AsSpan(firstPacketOffset, firstPacketSize).ToArray();
         var secondPacketHeaderOffset = firstPacketOffset + firstPacketSize;
 
-        if (!TryReadPacketHeader(data, secondPacketHeaderOffset, audhChunk.EndOffset, out var secondPacketOffset, out var secondPacketSize))
+        if (!TryReadPacketHeader(data, secondPacketHeaderOffset, audhChunk.EndOffset, out var secondPacketOffset,
+                out var secondPacketSize))
         {
             error = "VID1 Vorbis setup header is invalid";
             return false;
@@ -698,7 +703,8 @@ public static class Vid1AudioExtractor
                packet.AsSpan(1, 6).SequenceEqual("vorbis"u8);
     }
 
-    private static bool TryReadBitsLsb(ReadOnlySpan<byte> data, ref int bitOffset, int bitEnd, int bitCount, out int value)
+    private static bool TryReadBitsLsb(ReadOnlySpan<byte> data, ref int bitOffset, int bitEnd, int bitCount,
+        out int value)
     {
         value = 0;
         if (bitOffset + bitCount > bitEnd)

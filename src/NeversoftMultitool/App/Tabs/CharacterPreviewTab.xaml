@@ -220,7 +220,8 @@
               </Grid.ColumnDefinitions>
               <TextBlock Grid.Column="0" Text="" />
               <TextBlock Grid.Column="1" Text="Animation" FontWeight="SemiBold" Margin="8,0,0,0" />
-              <TextBlock Grid.Column="2" Text="Length" FontWeight="SemiBold" HorizontalAlignment="Right" Margin="0,0,8,0" />
+              <TextBlock Grid.Column="2" Text="Length" FontWeight="SemiBold" HorizontalAlignment="Right"
+                         Margin="0,0,8,0" />
             </Grid>
 
             <!-- Animation list -->

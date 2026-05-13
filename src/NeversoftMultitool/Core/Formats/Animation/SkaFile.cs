@@ -5,7 +5,6 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 /// <summary>
 ///     Parser for Neversoft SKA animation files (THPS4/THUG/THUG2).
 ///     Format reference: THUG source Gfx/BonedAnim.cpp + BonedAnimTypes.h.
-///
 ///     File layout (USECOMPRESSTABLE path — flags bit 23):
 ///     <code>
 ///     [File header]       12 bytes: version(u32) + flags(u32) + duration(float)
@@ -17,7 +16,6 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 ///     [Q keyframe data]   qAllocSize bytes (variable-length compressed keys)
 ///     [T keyframe data]   tAllocSize bytes (variable-length compressed keys)
 ///     </code>
-///
 ///     File layout (PLATFORM path — flags bit 28):
 ///     <code>
 ///     [File header]       12 bytes
@@ -46,14 +44,14 @@ internal static class SkaFile
         if (data.Length < 28) return false;
         var flags = BitConverter.ToUInt32(data[4..]);
         return (flags & FlagPlatform) != 0
-            || (flags & FlagUseCompressTable) != 0
-            || (flags & FlagThps3RpHAnim) != 0;
+               || (flags & FlagUseCompressTable) != 0
+               || (flags & FlagThps3RpHAnim) != 0;
     }
 
     /// <summary>
     ///     Header-only probe for animation discovery. Returns duration and bone
     ///     count without decoding keyframes — does not require a compress table.
-    ///     <see cref="SkaProbeResult.BoneCount"/> is null when unknown (THPS3,
+    ///     <see cref="SkaProbeResult.BoneCount" /> is null when unknown (THPS3,
     ///     where the count is implicit and only the full parser can derive it).
     /// </summary>
     internal static SkaProbeResult? TryProbe(ReadOnlySpan<byte> data)
@@ -92,12 +90,12 @@ internal static class SkaFile
         if ((flags & FlagThps3RpHAnim) != 0)
             return ParseThps3(data, version, flags, duration);
 
-        throw new InvalidDataException($"SKA: unrecognized flags 0x{flags:X8} (neither PLATFORM nor USECOMPRESSTABLE nor THPS3)");
+        throw new InvalidDataException(
+            $"SKA: unrecognized flags 0x{flags:X8} (neither PLATFORM nor USECOMPRESSTABLE nor THPS3)");
     }
 
     /// <summary>
     ///     Parse THPS3 PS2 SKA format (RenderWare rpHAnim variant).
-    ///
     ///     File layout (verified on Bird_A_Flap 524 B + Crowd_A_CrowdClap 6844 B):
     ///     <code>
     ///     [File header]       28 bytes: version(u32) + flags(u32) + duration(f32)
@@ -107,7 +105,6 @@ internal static class SkaFile
     ///     [T keyframes]       numTKeys × 20 B: trans(3×f32) + time(f32) + prev(i32)
     ///     [Trailing pad]      4 bytes
     ///     </code>
-    ///
     ///     T uses <c>prev-at-end</c>. numQKeys is always 1 greater than the
     ///     actual stored record count (RW allocates an extra slot at serialise
     ///     time). T <c>prev</c> is a byte offset back into the array, chaining
@@ -115,7 +112,6 @@ internal static class SkaFile
     ///     per-file sentinel value (an uninitialised pointer from RW's writer).
     ///     Q <c>prev</c> does not identify runtime bone tracks; the game loads
     ///     Q records into non-root bone tracks using serialized time order.
-    ///
     ///     Record strides and field offsets were confirmed against the THPS3
     ///     PS2 in-memory interpolator (FUN_00230f68 / FUN_00231048 at
     ///     SLUS_200.13 +0x230F68): 0x18 stride for Q, 0x14 stride for T,
@@ -149,8 +145,8 @@ internal static class SkaFile
             tEnd = tStart + numTKeys * TRecordSize;
         }
 
-        var (qKeys, qSentinels) = ReadThps3Records(data, qStart, qActual, QRecordSize, trackKind: ThpsRecordKind.Q);
-        var (tKeys, tSentinels) = ReadThps3Records(data, tStart, numTKeys, TRecordSize, trackKind: ThpsRecordKind.T);
+        var (qKeys, qSentinels) = ReadThps3Records(data, qStart, qActual, QRecordSize, ThpsRecordKind.Q);
+        var (tKeys, tSentinels) = ReadThps3Records(data, tStart, numTKeys, TRecordSize, ThpsRecordKind.T);
 
         var tTracksByBone = AssignBonesByPrevChain(tKeys, tSentinels, TRecordSize);
         var qRuntimeTrackCount = Math.Max(0, (tTracksByBone.Length > 0 ? tTracksByBone.Length : qSentinels.Count) - 1);
@@ -175,6 +171,7 @@ internal static class SkaFile
                 var q = Quaternion.Normalize(new Quaternion(src.X, src.Y, src.Z, src.W));
                 rotKeys[k] = new SkaRotationKey(src.Time, q);
             }
+
             Array.Sort(rotKeys, (a, b) => a.Time.CompareTo(b.Time));
 
             var trans = bone < tTracksByBone.Length ? tTracksByBone[bone] : Array.Empty<ThpsRawKey>();
@@ -185,6 +182,7 @@ internal static class SkaFile
                 var src = dedupedTrans[k];
                 transKeys[k] = new SkaTranslationKey(src.Time, new Vector3(src.X, src.Y, src.Z));
             }
+
             Array.Sort(transKeys, (a, b) => a.Time.CompareTo(b.Time));
 
             tracks[bone] = new SkaBoneTrack
@@ -203,8 +201,6 @@ internal static class SkaFile
             BoneTracks = tracks
         };
     }
-
-    private readonly record struct ThpsRawKey(float X, float Y, float Z, float W, float Time, int Prev, int RecIndex);
 
     // THPS3 SKA files authored in the Maya exporter can contain multiple
     // records at the same timestamp for a track. Runtime evidence favors the
@@ -225,6 +221,7 @@ internal static class SkaFile
             if (!byTime.TryGetValue(bucket, out var existing) || k.RecIndex < existing.RecIndex)
                 byTime[bucket] = k;
         }
+
         return byTime.Values.ToList();
     }
 
@@ -292,10 +289,10 @@ internal static class SkaFile
         const float TimeTolerance = 1f / 30f;
 
         return MathF.Abs(key.X) <= QTolerance
-            && MathF.Abs(key.Y) <= QTolerance
-            && MathF.Abs(key.Z) <= QTolerance
-            && MathF.Abs(MathF.Abs(key.W) - 1f) <= QTolerance
-            && MathF.Abs(key.Time - duration) <= TimeTolerance;
+               && MathF.Abs(key.Y) <= QTolerance
+               && MathF.Abs(key.Z) <= QTolerance
+               && MathF.Abs(MathF.Abs(key.W) - 1f) <= QTolerance
+               && MathF.Abs(key.Time - duration) <= TimeTolerance;
     }
 
     private static int FindTrackWithLowestLastTime(List<ThpsRawKey>[] tracks)
@@ -314,8 +311,6 @@ internal static class SkaFile
 
         return bestTrack;
     }
-
-    private enum ThpsRecordKind { Q, T }
 
     private static (ThpsRawKey[] keys, List<int> sentinelIndices) ReadThps3Records(
         ReadOnlySpan<byte> data, int start, int count, int stride, ThpsRecordKind trackKind)
@@ -353,7 +348,7 @@ internal static class SkaFile
 
             // Sentinel = prev doesn't land on an earlier record in this array.
             // Valid prev: non-negative, a multiple of stride, and < (i * stride).
-            var isSentinel = prev < 0 || prev >= i * stride || (prev % stride) != 0;
+            var isSentinel = prev < 0 || prev >= i * stride || prev % stride != 0;
             if (isSentinel) sentinels.Add(i);
         }
 
@@ -759,7 +754,6 @@ internal static class SkaFile
     /// <summary>
     ///     Reconstruct unit quaternion W component from X, Y, Z, then conjugate.
     ///     W = sqrt(1 - x² - y² - z²), sign from signBit.
-    ///
     ///     The THUG engine's QuatVecToMatrix conjugates the quaternion before
     ///     building a rotation matrix — the file stores q but the engine uses q*.
     ///     This matches Ps2SkeletonFile.cs:71 so animation and skeleton live in
@@ -776,57 +770,12 @@ internal static class SkaFile
         if (signBit) w = -w;
         return Quaternion.Conjugate(new Quaternion(x, y, z, w));
     }
-}
 
-/// <summary>
-///     Q48/T48 compression lookup tables (256 entries each).
-///     Loaded from external files, shared across all animations.
-/// </summary>
-internal sealed class SkaCompressTable
-{
-    public required SkaCompressEntry[] Q48 { get; init; }
-    public required SkaCompressEntry[] T48 { get; init; }
+    private readonly record struct ThpsRawKey(float X, float Y, float Z, float W, float Time, int Prev, int RecIndex);
 
-    /// <summary>
-    ///     Load Q48/T48 tables from raw binary files.
-    ///     Each file is 2048 bytes (256 entries × 8 bytes: x48(s16) + y48(s16) + z48(s16) + n8(s16)).
-    /// </summary>
-    internal static SkaCompressTable? TryLoad(string q48Path, string t48Path)
+    private enum ThpsRecordKind
     {
-        if (!File.Exists(q48Path) || !File.Exists(t48Path))
-            return null;
-
-        var q48Data = File.ReadAllBytes(q48Path);
-        var t48Data = File.ReadAllBytes(t48Path);
-
-        if (q48Data.Length < 2048 || t48Data.Length < 2048)
-            return null;
-
-        return new SkaCompressTable
-        {
-            Q48 = ParseEntries(q48Data),
-            T48 = ParseEntries(t48Data)
-        };
+        Q,
+        T
     }
-
-    private static SkaCompressEntry[] ParseEntries(byte[] data)
-    {
-        var entries = new SkaCompressEntry[256];
-        for (var i = 0; i < 256; i++)
-        {
-            var off = i * 8;
-            entries[i] = new SkaCompressEntry(
-                BitConverter.ToInt16(data, off),
-                BitConverter.ToInt16(data, off + 2),
-                BitConverter.ToInt16(data, off + 4));
-        }
-        return entries;
-    }
-}
-
-internal readonly struct SkaCompressEntry(short x, short y, short z)
-{
-    public short X { get; } = x;
-    public short Y { get; } = y;
-    public short Z { get; } = z;
 }

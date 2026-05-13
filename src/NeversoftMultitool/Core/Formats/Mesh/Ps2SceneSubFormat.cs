@@ -1,4 +1,4 @@
-namespace NeversoftMultitool;
+namespace NeversoftMultitool.Core.Formats.Mesh;
 
 public enum Ps2SceneSubFormat
 {

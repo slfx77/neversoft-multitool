@@ -1,9 +1,9 @@
 using System.CommandLine;
 using NeversoftMultitool.Core.Formats;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 using Spectre.Console;
 
@@ -91,11 +91,11 @@ internal static class MeshExportCliOptions
                     outputStem?.Invoke(file),
                     ps2SubFormat?.Invoke(file) ?? Ps2SceneSubFormat.None,
                     hasPlacedPsxCompanion?.Invoke(file) ?? false,
-                    texturePath: texturePath,
-                    skeletonPath: skeletonPath,
-                    ddxPath: ddxPath,
-                    psxPath: psxPath,
-                    ddmTexturePath: ddmTexturePath,
+                    texturePath,
+                    skeletonPath,
+                    ddxPath,
+                    psxPath,
+                    ddmTexturePath,
                     worldzoneScale: worldzoneScale);
 
                 totalTriangles += result.Triangles;

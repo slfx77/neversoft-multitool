@@ -4,6 +4,13 @@ namespace NeversoftMultitool;
 
 internal static class MeshConverterTabScanAnalysis
 {
+    // Cap on how many candidate files to header-probe. Recursive scans of a full
+    // extracted game tree can produce thousands of candidates; probing every one
+    // reads the file header, which dominates the pre-scan dialog latency. After
+    // the cap, remaining candidates are silently ignored — the main parallel
+    // scan still covers them.
+    private const int MaxUnsupportedProbe = 200;
+
     private static readonly string[] MeshFormatsWithPartialWarnings =
     [
         ".skin.xbx", ".mdl.xbx", ".scn.xbx",
@@ -24,13 +31,6 @@ internal static class MeshConverterTabScanAnalysis
     ];
 
     private static readonly string[] PlatformSuffixes = [".ps2", ".xbx", ".wpc"];
-
-    // Cap on how many candidate files to header-probe. Recursive scans of a full
-    // extracted game tree can produce thousands of candidates; probing every one
-    // reads the file header, which dominates the pre-scan dialog latency. After
-    // the cap, remaining candidates are silently ignored — the main parallel
-    // scan still covers them.
-    private const int MaxUnsupportedProbe = 200;
 
     public static List<ScanSummaryDialog.UnsupportedFile> FindUnsupportedFiles(IEnumerable<string> allFiles)
     {

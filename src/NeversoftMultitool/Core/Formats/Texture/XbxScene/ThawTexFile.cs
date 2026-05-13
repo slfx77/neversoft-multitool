@@ -1,7 +1,6 @@
 using NeversoftMultitool.Core.BinaryIO;
-using NeversoftMultitool.Core.Formats.Texture;
 
-namespace NeversoftMultitool.Core.Formats.XbxScene;
+namespace NeversoftMultitool.Core.Formats.Texture.XbxScene;
 
 /// <summary>
 ///     Parses THAW PC texture dictionaries (.tex.wpc) with 0xABADD00D magic.

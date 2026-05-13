@@ -10,28 +10,31 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 /// </summary>
 internal sealed class PsxAnimationSource : AssetSource
 {
-    private readonly string _psxPath;
-    private readonly int _animIndex;
-
     public PsxAnimationSource(string psxPath, int animIndex, int frameCount)
     {
-        _psxPath = psxPath;
-        _animIndex = animIndex;
+        PsxFilePath = psxPath;
+        AnimIndex = animIndex;
         FrameCount = frameCount;
     }
 
-    public int AnimIndex => _animIndex;
-    public int FrameCount { get; }
-    public string PsxFilePath => _psxPath;
+    public int AnimIndex { get; }
 
-    public override string DisplayName => $"{Path.GetFileName(_psxPath)}::anim_{_animIndex}";
-    public override string EntryName => $"anim_{_animIndex}";
+    public int FrameCount { get; }
+    public string PsxFilePath { get; }
+
+    public override string DisplayName => $"{Path.GetFileName(PsxFilePath)}::anim_{AnimIndex}";
+    public override string EntryName => $"anim_{AnimIndex}";
+
+    public override string? FileSystemPath => PsxFilePath;
 
     /// <summary>
     ///     Reads the parent <c>.psx</c> file in full. Callers that only want one
     ///     animation slot should prefer <see cref="Decode" /> instead.
     /// </summary>
-    public override byte[] ReadBytes() => File.ReadAllBytes(_psxPath);
+    public override byte[] ReadBytes()
+    {
+        return File.ReadAllBytes(PsxFilePath);
+    }
 
     /// <summary>
     ///     Parses the parent <c>.psx</c>, locates the animation table, and
@@ -40,26 +43,37 @@ internal sealed class PsxAnimationSource : AssetSource
     /// </summary>
     public PsxAnimation Decode()
     {
-        var data = File.ReadAllBytes(_psxPath);
+        var data = File.ReadAllBytes(PsxFilePath);
         var psxFile = PsxMeshFile.Parse(data)
-                      ?? throw new InvalidDataException($"PSX file has no parseable mesh data: {_psxPath}");
+                      ?? throw new InvalidDataException($"PSX file has no parseable mesh data: {PsxFilePath}");
 
         var meshBlockEnd = PsxMeshFile.GetMeshBlockEnd(data);
         var animFile = PsxAnimFile.Parse(data, psxFile.Objects.Count, meshBlockEnd)
-                       ?? throw new InvalidDataException($"PSX file has no recognizable animation table: {_psxPath}");
+                       ?? throw new InvalidDataException(
+                           $"PSX file has no recognizable animation table: {PsxFilePath}");
 
-        if (_animIndex < 0 || _animIndex >= animFile.Entries.Count)
+        if (AnimIndex < 0 || AnimIndex >= animFile.Entries.Count)
             throw new ArgumentOutOfRangeException(nameof(AnimIndex),
-                $"Anim index {_animIndex} out of range (0..{animFile.Entries.Count - 1}).");
+                $"Anim index {AnimIndex} out of range (0..{animFile.Entries.Count - 1}).");
 
-        var entry = animFile.Entries[_animIndex];
+        var entry = animFile.Entries[AnimIndex];
         var slice = animFile.Pool.Span[entry.PoolOffset..];
         return PsxAnimDecoder.Decode(slice, psxFile.Objects.Count, entry.FrameCount);
     }
 
-    public override bool CompanionExists(string nameWithExtension) => false;
-    public override byte[]? TryReadCompanion(string nameWithExtension) => null;
+    public override bool CompanionExists(string nameWithExtension)
+    {
+        return false;
+    }
+
+    public override byte[]? TryReadCompanion(string nameWithExtension)
+    {
+        return null;
+    }
+
     public override byte[]? TryReadCompanion(
-        string stem, IReadOnlyList<string> extensions, IReadOnlyList<string>? subdirs = null) => null;
-    public override string? FileSystemPath => _psxPath;
+        string stem, IReadOnlyList<string> extensions, IReadOnlyList<string>? subdirs = null)
+    {
+        return null;
+    }
 }

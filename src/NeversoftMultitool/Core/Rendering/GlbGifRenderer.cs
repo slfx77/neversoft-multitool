@@ -130,7 +130,7 @@ internal static class GlbGifRenderer
             return new Image<Rgba32>(fixedWidth, fixedHeight);
 
         return GlbRenderer.RenderScene(scene, longEdge, azimuthDeg, elevationDeg,
-            fixedWidth: fixedWidth, fixedHeight: fixedHeight,
-            referenceWidth: referenceW, referenceHeight: referenceH);
+            fixedWidth, fixedHeight,
+            referenceW, referenceH);
     }
 }

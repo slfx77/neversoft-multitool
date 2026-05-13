@@ -161,15 +161,42 @@ internal static class Ps2GeomMdlBatchScanner
 
             switch (reg)
             {
-                case 0x06: ctx.Tex0 = value; present |= GsRegisterMask.Tex0; break;
-                case 0x14: ctx.Tex1 = value; present |= GsRegisterMask.Tex1; break;
-                case 0x34: ctx.MipTbp1 = value; present |= GsRegisterMask.MipTbp1; break;
-                case 0x36: ctx.MipTbp2 = value; present |= GsRegisterMask.MipTbp2; break;
-                case 0x08: ctx.Clamp1 = value; present |= GsRegisterMask.Clamp1; break;
-                case 0x42: ctx.Alpha1 = value; present |= GsRegisterMask.Alpha1; break;
-                case 0x47: ctx.Test1 = value; present |= GsRegisterMask.Test1; break;
-                case 0x3B: ctx.Texa = value; present |= GsRegisterMask.Texa; break;
-                case 0x4C: ctx.Frame1 = value; present |= GsRegisterMask.Frame1; break;
+                case 0x06:
+                    ctx.Tex0 = value;
+                    present |= GsRegisterMask.Tex0;
+                    break;
+                case 0x14:
+                    ctx.Tex1 = value;
+                    present |= GsRegisterMask.Tex1;
+                    break;
+                case 0x34:
+                    ctx.MipTbp1 = value;
+                    present |= GsRegisterMask.MipTbp1;
+                    break;
+                case 0x36:
+                    ctx.MipTbp2 = value;
+                    present |= GsRegisterMask.MipTbp2;
+                    break;
+                case 0x08:
+                    ctx.Clamp1 = value;
+                    present |= GsRegisterMask.Clamp1;
+                    break;
+                case 0x42:
+                    ctx.Alpha1 = value;
+                    present |= GsRegisterMask.Alpha1;
+                    break;
+                case 0x47:
+                    ctx.Test1 = value;
+                    present |= GsRegisterMask.Test1;
+                    break;
+                case 0x3B:
+                    ctx.Texa = value;
+                    present |= GsRegisterMask.Texa;
+                    break;
+                case 0x4C:
+                    ctx.Frame1 = value;
+                    present |= GsRegisterMask.Frame1;
+                    break;
             }
         }
 

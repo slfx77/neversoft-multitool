@@ -31,7 +31,7 @@ public static class Ps2TexFile
         }
     }
 
-    /// <summary>In-memory variant of <see cref="Parse(string)"/>.</summary>
+    /// <summary>In-memory variant of <see cref="Parse(string)" />.</summary>
     public static Ps2TexResult Parse(byte[] data)
     {
         try

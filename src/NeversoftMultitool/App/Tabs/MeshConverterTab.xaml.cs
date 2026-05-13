@@ -12,10 +12,10 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 {
     private readonly ObservableCollection<MeshFileEntry> _items = [];
     private CancellationTokenSource? _cts;
-    private CancellationTokenSource? _scanCts;
     private string _inputDir = "";
     private string _outputDir = "";
     private MeshConverterTabPreview? _preview;
+    private CancellationTokenSource? _scanCts;
 
     public MeshConverterTab()
     {
@@ -177,6 +177,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         {
             // swallow
         }
+
         existing.Dispose();
     }
 

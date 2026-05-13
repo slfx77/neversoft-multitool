@@ -1,7 +1,7 @@
+using System.Buffers.Binary;
 using System.Globalization;
 using System.Net;
 using System.Text;
-using System.Buffers.Binary;
 using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Mesh;
@@ -12,20 +12,33 @@ namespace NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 
 public sealed class ZoneTextureCatalog
 {
-    private readonly Dictionary<uint, Ps2Texture> textureCache;
+    // Deterministic TEXA used when a leaf's DMA chain carries no inline
+    // TEXA register write (the universal case for THAW worldzones, which
+    // load TEXA from EE preset code rather than the GIF stream). PCSX2 GS
+    // traces show the engine writes only four distinct TEXA values across
+    // the binary, and renders every TEXA-relevant texture binding with
+    // both TA0=0 (colour pass) and TA0=128 (depth/clear pass) within the
+    // same frame. For a single-pass static export the colour-pass value
+    // is the right one: it preserves cutout transparency on textures with
+    // any MSB=0 CLUT entries, and resolves to alpha=128 (visually
+    // identical to TA0=128) for textures whose CLUT MSBs are all 1.
+    private const ulong UnsetTexaDeterministicDefault = 0x0000008000000000UL;
+    private readonly List<EntryRecord> entries;
+    private readonly Dictionary<ulong, List<EntryRecord>> entriesByIdentity;
+    private readonly Dictionary<(int Source, ulong Key), List<EntryRecord>> entriesBySourceIdentity;
+    private readonly Dictionary<(int Source, uint Tbp, uint Cbp), List<EntryRecord>> entriesBySourceTbpCbp;
+    private readonly Dictionary<(uint Tbp, uint Cbp), List<EntryRecord>> entriesByTbpCbp;
+    private readonly SourceInfo mainSource;
     private readonly Dictionary<uint, byte[]?> pngCache = [];
+
+    private readonly List<SourceInfo> sources;
+
     // PNG cache keyed on (checksum, normalized TEXA). For texture formats whose
     // alpha channel doesn't depend on TEXA (PSMCT32 direct, PSMT4/PSMT8 with
     // PSMCT32 CLUTs), the TEXA portion of the key is normalized to 0 so all
     // requests for that checksum share one PNG.
     private readonly Dictionary<(uint Checksum, ulong Texa), byte[]?> texaPngCache = [];
-    private readonly List<SourceInfo> sources;
-    private readonly List<EntryRecord> entries;
-    private readonly Dictionary<(int Source, ulong Key), List<EntryRecord>> entriesBySourceIdentity;
-    private readonly Dictionary<ulong, List<EntryRecord>> entriesByIdentity;
-    private readonly Dictionary<(int Source, uint Tbp, uint Cbp), List<EntryRecord>> entriesBySourceTbpCbp;
-    private readonly Dictionary<(uint Tbp, uint Cbp), List<EntryRecord>> entriesByTbpCbp;
-    private readonly SourceInfo mainSource;
+    private readonly Dictionary<uint, Ps2Texture> textureCache;
 
     private ZoneTextureCatalog(
         Dictionary<uint, Ps2Texture> textureCache,
@@ -39,7 +52,8 @@ public sealed class ZoneTextureCatalog
         mainSource = mainSourceIndex >= 0 ? sources[mainSourceIndex] : sources.First();
 
         entriesBySourceIdentity = entries
-            .GroupBy(static entry => (entry.Source.Index, ZoneTextureProviderBuilder.MakeTex0IdentityKey(entry.Entry.Tex0)))
+            .GroupBy(static entry =>
+                (entry.Source.Index, ZoneTextureProviderBuilder.MakeTex0IdentityKey(entry.Entry.Tex0)))
             .ToDictionary(static group => group.Key, static group => group.ToList());
         entriesByIdentity = entries
             .GroupBy(static entry => ZoneTextureProviderBuilder.MakeTex0IdentityKey(entry.Entry.Tex0))
@@ -173,7 +187,7 @@ public sealed class ZoneTextureCatalog
             }
 
             textures.TryAdd(row.Texture.Checksum, row.Texture);
-            entries.Add(new EntryRecord(row.Entry, source, row.SourceLabel, EntryOffset: 0, PrimaryGroupIndex: 0));
+            entries.Add(new EntryRecord(row.Entry, source, row.SourceLabel, 0, 0));
         }
 
         return new ZoneTextureCatalog(textures, sources, entries);
@@ -203,7 +217,7 @@ public sealed class ZoneTextureCatalog
             }
 
             textures.TryAdd(row.Texture.Checksum, row.Texture);
-            entries.Add(new EntryRecord(row.Entry, source, row.SourceLabel, EntryOffset: 0, row.PrimaryGroupIndex));
+            entries.Add(new EntryRecord(row.Entry, source, row.SourceLabel, 0, row.PrimaryGroupIndex));
         }
 
         return new ZoneTextureCatalog(textures, sources, entries);
@@ -233,13 +247,16 @@ public sealed class ZoneTextureCatalog
             }
 
             textures.TryAdd(row.Texture.Checksum, row.Texture);
-            entries.Add(new EntryRecord(row.Entry, source, row.EntryLabel, EntryOffset: 0, PrimaryGroupIndex: 0));
+            entries.Add(new EntryRecord(row.Entry, source, row.EntryLabel, 0, 0));
         }
 
         return new ZoneTextureCatalog(textures, sources, entries);
     }
 
-    public MeshChecksumTextureResolver CreateTextureResolver() => checksum => GetPng(checksum);
+    public MeshChecksumTextureResolver CreateTextureResolver()
+    {
+        return checksum => GetPng(checksum);
+    }
 
     /// <summary>
     ///     TEXA-aware variant. PSMCT16/PSMCT24/paletted-with-PSMCT16-CLUT
@@ -247,14 +264,20 @@ public sealed class ZoneTextureCatalog
     ///     register state from the consumer leaf. Other formats ignore TEXA
     ///     and share one cached PNG with the legacy provider.
     /// </summary>
-    public Ps2TexaTextureResolver CreateTexaAwareTextureResolver() =>
-        (checksum, texa) => GetPng(checksum, texa);
+    public Ps2TexaTextureResolver CreateTexaAwareTextureResolver()
+    {
+        return (checksum, texa) => GetPng(checksum, texa);
+    }
 
-    public Ps2Tex0ChecksumResolver CreateTex0ChecksumResolver(string? sourceHint = null) =>
-        (dmaTex0, groupChecksum) => ResolveTex0(dmaTex0, sourceHint, groupChecksum).Checksum;
+    public Ps2Tex0ChecksumResolver CreateTex0ChecksumResolver(string? sourceHint = null)
+    {
+        return (dmaTex0, groupChecksum) => ResolveTex0(dmaTex0, sourceHint, groupChecksum).Checksum;
+    }
 
-    public Func<ulong, uint, Ps2GeomTextureResolution> CreateDebugTex0Resolver(string? sourceHint = null) =>
-        (dmaTex0, groupChecksum) => ResolveTex0(dmaTex0, sourceHint, groupChecksum);
+    public Func<ulong, uint, Ps2GeomTextureResolution> CreateDebugTex0Resolver(string? sourceHint = null)
+    {
+        return (dmaTex0, groupChecksum) => ResolveTex0(dmaTex0, sourceHint, groupChecksum);
+    }
 
     public string? FindTextureEntryHintBefore(string? sourceHint, long contentOffset)
     {
@@ -282,7 +305,8 @@ public sealed class ZoneTextureCatalog
         if (hintedEntries.Count > 0)
         {
             var identityMatches = hintedEntries
-                .Where(entryRecord => ZoneTextureProviderBuilder.MakeTex0IdentityKey(entryRecord.Entry.Tex0) == identityKey)
+                .Where(entryRecord =>
+                    ZoneTextureProviderBuilder.MakeTex0IdentityKey(entryRecord.Entry.Tex0) == identityKey)
                 .ToList();
             if (TryResolveByGroup(identityMatches, groupChecksum, out entry, out groupMode))
                 return MakeResolution(entry, $"entry_{groupMode}_exact");
@@ -353,7 +377,8 @@ public sealed class ZoneTextureCatalog
     private void WriteTextureCatalogCsv(string path)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("checksum,source,entry,group_checksum,primary_group_index,tex0,tbp,tbw,psm,tw,th,cbp,cpsm,csm,csa,width,height");
+        sb.AppendLine(
+            "checksum,source,entry,group_checksum,primary_group_index,tex0,tbp,tbw,psm,tw,th,cbp,cpsm,csm,csa,width,height");
         foreach (var entry in entries.OrderBy(static entry => entry.Source.Label)
                      .ThenBy(static entry => entry.Entry.Checksum)
                      .ThenBy(static entry => entry.EntryLabel))
@@ -387,7 +412,8 @@ public sealed class ZoneTextureCatalog
     {
         var sb = new StringBuilder();
         sb.AppendLine("<!doctype html><meta charset=\"utf-8\"><title>Worldzone Textures</title>");
-        sb.AppendLine("<style>body{font-family:sans-serif} .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}.tex{border:1px solid #ccc;padding:8px}.tex img{image-rendering:pixelated;max-width:100%;background:#888}</style>");
+        sb.AppendLine(
+            "<style>body{font-family:sans-serif} .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}.tex{border:1px solid #ccc;padding:8px}.tex img{image-rendering:pixelated;max-width:100%;background:#888}</style>");
         sb.AppendLine("<h1>Worldzone Textures</h1><div class=\"grid\">");
         foreach (var texture in textureCache.Values.OrderBy(static texture => texture.Checksum))
         {
@@ -427,18 +453,6 @@ public sealed class ZoneTextureCatalog
         pngCache[checksum] = png;
         return png;
     }
-
-    // Deterministic TEXA used when a leaf's DMA chain carries no inline
-    // TEXA register write (the universal case for THAW worldzones, which
-    // load TEXA from EE preset code rather than the GIF stream). PCSX2 GS
-    // traces show the engine writes only four distinct TEXA values across
-    // the binary, and renders every TEXA-relevant texture binding with
-    // both TA0=0 (colour pass) and TA0=128 (depth/clear pass) within the
-    // same frame. For a single-pass static export the colour-pass value
-    // is the right one: it preserves cutout transparency on textures with
-    // any MSB=0 CLUT entries, and resolves to alpha=128 (visually
-    // identical to TA0=128) for textures whose CLUT MSBs are all 1.
-    private const ulong UnsetTexaDeterministicDefault = 0x0000008000000000UL;
 
     /// <summary>
     ///     TEXA-aware variant: re-applies alpha expansion for non-32-bit
@@ -481,8 +495,8 @@ public sealed class ZoneTextureCatalog
         // already-decoded RGBA buffer, treating (alpha==0) as "bit15 was 0"
         // and (alpha!=0) as "bit15 was 1" then overwriting with TA0/TA1
         // (PS2 0..128 -> PNG 0..255 doubled).
-        var ta0 = (byte)Math.Min(((texa & 0xFF) * 2), 255);
-        var ta1 = (byte)Math.Min((((texa >> 32) & 0xFF) * 2), 255);
+        var ta0 = (byte)Math.Min((texa & 0xFF) * 2, 255);
+        var ta1 = (byte)Math.Min(((texa >> 32) & 0xFF) * 2, 255);
         var aem = ((texa >> 15) & 1) != 0;
         var rgba = (byte[])texture.Pixels.Clone();
         ApplyTexaAlpha(rgba, texture.Psm, texture.Cpsm, ta0, ta1, aem);
@@ -531,6 +545,7 @@ public sealed class ZoneTextureCatalog
                 alpha = 0;
             rgba[i + 3] = alpha;
         }
+
         _ = psm;
         _ = cpsm;
     }
@@ -715,24 +730,36 @@ public sealed class ZoneTextureCatalog
             .ToList();
     }
 
-    private static IEnumerable<EntryRecord> OrderCandidates(IEnumerable<EntryRecord> candidates) =>
-        candidates
+    private static IEnumerable<EntryRecord> OrderCandidates(IEnumerable<EntryRecord> candidates)
+    {
+        return candidates
             .OrderBy(static candidate => candidate.Source.Index)
             .ThenBy(static candidate => candidate.EntryLabel, StringComparer.OrdinalIgnoreCase)
             .ThenBy(static candidate => candidate.PrimaryGroupIndex)
             .ThenBy(static candidate => candidate.Entry.UploadOffset)
             .ThenBy(static candidate => candidate.Entry.DataOffset);
+    }
 
-    private static bool MatchesGroup(EntryRecord entry, uint groupChecksum) =>
-        entry.Entry.GroupChecksum == groupChecksum
-        || (entry.PrimaryGroupIndex != 0 && entry.PrimaryGroupIndex == groupChecksum);
+    private static bool MatchesGroup(EntryRecord entry, uint groupChecksum)
+    {
+        return entry.Entry.GroupChecksum == groupChecksum
+               || (entry.PrimaryGroupIndex != 0 && entry.PrimaryGroupIndex == groupChecksum);
+    }
 
-    private static Ps2GeomTextureResolution MakeResolution(EntryRecord entry, string mode) =>
-        new(entry.Entry.Checksum, mode, entry.Source.Label, entry.EntryLabel);
+    private static Ps2GeomTextureResolution MakeResolution(EntryRecord entry, string mode)
+    {
+        return new Ps2GeomTextureResolution(entry.Entry.Checksum, mode, entry.Source.Label, entry.EntryLabel);
+    }
 
-    private static uint GetTbp(ulong tex0) => (uint)(tex0 & 0x3FFF);
+    private static uint GetTbp(ulong tex0)
+    {
+        return (uint)(tex0 & 0x3FFF);
+    }
 
-    private static uint GetCbp(ulong tex0) => (uint)((tex0 >> 37) & 0x3FFF);
+    private static uint GetCbp(ulong tex0)
+    {
+        return (uint)((tex0 >> 37) & 0x3FFF);
+    }
 
     private static string Csv(string value)
     {
@@ -740,9 +767,15 @@ public sealed class ZoneTextureCatalog
         return $"\"{escaped}\"";
     }
 
-    private static string CsvHex(uint value) => $"0x{value:X8}";
+    private static string CsvHex(uint value)
+    {
+        return $"0x{value:X8}";
+    }
 
-    private static string CsvHex(ulong value) => $"0x{value:X16}";
+    private static string CsvHex(ulong value)
+    {
+        return $"0x{value:X16}";
+    }
 
     private readonly record struct SourceInfo(int Index, string Path, string Label, bool IsMain);
 
@@ -753,9 +786,3 @@ public sealed class ZoneTextureCatalog
         long EntryOffset,
         uint PrimaryGroupIndex);
 }
-
-public readonly record struct ZoneTextureCatalogEntry(
-    uint Checksum,
-    ulong Tex0,
-    string SourceLabel,
-    string EntryLabel);

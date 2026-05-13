@@ -38,7 +38,7 @@ public static class PsxAnimDecoder
                 }
 
                 var bytes = PsxAnimDecompressor.Decompress(
-                    stream[consumed..], temp, step: 1, frameCount);
+                    stream[consumed..], temp, 1, frameCount);
                 consumed += bytes;
 
                 for (var f = 0; f < frameCount; f++)
@@ -51,7 +51,7 @@ public static class PsxAnimDecoder
         {
             FrameCount = frameCount,
             BoneCount = boneCount,
-            Channels = channels,
+            Channels = channels
         };
     }
 
@@ -59,5 +59,7 @@ public static class PsxAnimDecoder
     ///     Convenience overload that discards the bytes-consumed count.
     /// </summary>
     public static PsxAnimation Decode(ReadOnlySpan<byte> stream, int boneCount, int frameCount)
-        => Decode(stream, boneCount, frameCount, out _);
+    {
+        return Decode(stream, boneCount, frameCount, out _);
+    }
 }

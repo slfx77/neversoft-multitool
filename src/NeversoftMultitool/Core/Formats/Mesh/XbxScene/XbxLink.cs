@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace NeversoftMultitool.Core.Formats.XbxScene;
+namespace NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 /// <summary>
 ///     Hierarchy link entry: sector-to-parent bone relationship with transform matrix.

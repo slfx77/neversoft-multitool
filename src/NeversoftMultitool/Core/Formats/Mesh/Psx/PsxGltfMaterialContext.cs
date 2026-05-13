@@ -1,5 +1,4 @@
 using System.Numerics;
-using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Materials;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Psx;

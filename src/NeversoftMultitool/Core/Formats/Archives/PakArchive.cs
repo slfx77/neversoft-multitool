@@ -69,7 +69,7 @@ public static class PakArchive
         }
     }
 
-    /// <summary>In-memory variant of <see cref="IsPakArchive(string)"/>.</summary>
+    /// <summary>In-memory variant of <see cref="IsPakArchive(string)" />.</summary>
     public static bool IsPakArchive(byte[] data)
     {
         if (data.Length < CompactEntrySize)
@@ -100,7 +100,7 @@ public static class PakArchive
 
     /// <summary>
     ///     In-memory variant. Callers that have PAK bytes without a filesystem path
-    ///     pass <paramref name="hasPab"/> = false (no companion PAB detection).
+    ///     pass <paramref name="hasPab" /> = false (no companion PAB detection).
     /// </summary>
     public static List<ArchiveEntry> GetFileList(byte[] data, bool hasPab = false)
     {
@@ -138,7 +138,7 @@ public static class PakArchive
         return GetTypedEntriesCore(File.ReadAllBytes(pakPath), File.Exists(GetPabPath(pakPath)));
     }
 
-    /// <summary>In-memory variant of <see cref="GetTypedEntries(string)"/>.</summary>
+    /// <summary>In-memory variant of <see cref="GetTypedEntries(string)" />.</summary>
     public static List<(uint TypeHash, ArchiveEntry Entry)> GetTypedEntries(byte[] data, bool hasPab = false)
     {
         return GetTypedEntriesCore(data, hasPab);

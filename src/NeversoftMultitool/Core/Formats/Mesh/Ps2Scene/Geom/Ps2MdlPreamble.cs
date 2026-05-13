@@ -11,98 +11,6 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 /// </summary>
 public static class Ps2MdlPreamble
 {
-    public sealed record Preamble
-    {
-        public required int VifStart { get; init; }
-        public int? SentinelStart { get; init; }
-        public int? SentinelEnd { get; init; }
-        public uint? BoneSectionSize { get; init; }
-        public uint? BoneSectionPadding { get; init; }
-        public IReadOnlyList<MdlBone> Bones { get; init; } = Array.Empty<MdlBone>();
-        public ObjectTrailer? Trailer { get; init; }
-
-        /// <summary>
-        ///     0x50-byte preamble records that carry per-class rotation + local size for worldzone
-        ///     object placement. Keyed by byte offset within the MDL so worldzone placement items
-        ///     (Ps2ObjectPlacementFile.PlacementItem.Field_44) can look up records directly.
-        /// </summary>
-        public IReadOnlyDictionary<int, PreambleRecord> Records { get; init; }
-            = new Dictionary<int, PreambleRecord>();
-    }
-
-    /// <summary>
-    ///     Per-class record stored in the MDL preamble at a 0x50-byte stride. Signature
-    ///     0x4B189680 sits at record+0x18. The 4-floats at +0x20..+0x2C form a unit quaternion
-    ///     multiplied by a scalar magnitude; normalizing yields the object's rotation.
-    ///     Full format reference: tools/ghidra/thaw-ps2/output/phase400_91e1028d_full_layout.md
-    /// </summary>
-    public sealed record PreambleRecord
-    {
-        public required int Offset { get; init; }
-        public required uint ClassHash { get; init; }
-        public required byte Sequence { get; init; }
-        public required Quaternion Rotation { get; init; }
-        public required Vector3 Size { get; init; }
-        public required uint Flags { get; init; }
-
-        /// <summary>
-        ///     Raw (x, y, z) floats at record +0x20. For object MDLs this is a rotation quaternion
-        ///     (see <see cref="Rotation" />); for level MDLs (worldzone shell/CAP geometry chunks)
-        ///     it's a world-space bounding sphere centre used as per-batch placement.
-        /// </summary>
-        public required Vector3 Centre { get; init; }
-
-        /// <summary>
-        ///     u32 at record +0x40. For level MDL leaves (<see cref="IsLeaf" />) this is a file
-        ///     offset into the VIF region pointing at the leaf's vertex data chunk. For internal
-        ///     tree nodes (non-leaf) it is a child record offset. The THAW engine rebases this
-        ///     field from file-offset to EE-absolute pointer on load, but pre-relocation (our
-        ///     case) it is a plain byte offset into the MDL file.
-        /// </summary>
-        public required uint Field40 { get; init; }
-
-        /// <summary>
-        ///     u32 at record +0x48. Empirically always either 0xFFFFFFFF (no sibling) or a file
-        ///     offset pointing into the preamble-record table, so interpreted as a sibling
-        ///     reference in the CGeomNode-style tree.
-        /// </summary>
-        public required uint Field48 { get; init; }
-
-        /// <summary>
-        ///     u32 at record +0x4C. For THAW level MDLs this is a 1-based material-group index
-        ///     into the zone texture owner blob's primary table. The primary table entry carries
-        ///     the real texture group checksum used to disambiguate reused TEX0 VRAM addresses.
-        /// </summary>
-        public required uint MaterialGroup { get; init; }
-
-        /// <summary>
-        ///     Leaf test derived from <see cref="Flags" /> bit 1 (0x02). Verified against the
-        ///     BH sample: ~3,977/5,649 records are leaves, all with <see cref="Field40" />
-        ///     pointing into the VIF region.
-        /// </summary>
-        public bool IsLeaf => (Flags & 0x2u) != 0;
-    }
-
-    public sealed record ObjectTrailer
-    {
-        public required int HeaderOffset { get; init; }
-        public required uint PrefixZero { get; init; }
-        public required uint Marker { get; init; }
-        public required uint Count { get; init; }
-        public required uint RawPointer { get; init; }
-        public IReadOnlyList<uint> Indices { get; init; } = Array.Empty<uint>();
-    }
-
-    /// <summary>
-    ///     Bone record from the post-sentinel section.
-    ///     Each record is 80 bytes: 16B header + 64B row-major 4x4 float matrix.
-    ///     Row 3 of the matrix contains the position (X, Y, Z, 1.0).
-    /// </summary>
-    public readonly record struct MdlBone(uint Checksum, uint ParentChecksum, ushort Index, Matrix4x4 Transform)
-    {
-        public Vector3 Position => new(Transform.M41, Transform.M42, Transform.M43);
-    }
-
     private const uint CdcdSentinel = 0xCDCDCDCD;
     private const uint ObjectTrailerMarker = 0x00010100;
     private const int BoneRecordSize = 80;
@@ -365,5 +273,97 @@ public static class Ps2MdlPreamble
             BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(m + 60)));
 
         return new MdlBone(checksum, parentChecksum, index, matrix);
+    }
+
+    public sealed record Preamble
+    {
+        public required int VifStart { get; init; }
+        public int? SentinelStart { get; init; }
+        public int? SentinelEnd { get; init; }
+        public uint? BoneSectionSize { get; init; }
+        public uint? BoneSectionPadding { get; init; }
+        public IReadOnlyList<MdlBone> Bones { get; init; } = Array.Empty<MdlBone>();
+        public ObjectTrailer? Trailer { get; init; }
+
+        /// <summary>
+        ///     0x50-byte preamble records that carry per-class rotation + local size for worldzone
+        ///     object placement. Keyed by byte offset within the MDL so worldzone placement items
+        ///     (Ps2ObjectPlacementFile.PlacementItem.Field_44) can look up records directly.
+        /// </summary>
+        public IReadOnlyDictionary<int, PreambleRecord> Records { get; init; }
+            = new Dictionary<int, PreambleRecord>();
+    }
+
+    /// <summary>
+    ///     Per-class record stored in the MDL preamble at a 0x50-byte stride. Signature
+    ///     0x4B189680 sits at record+0x18. The 4-floats at +0x20..+0x2C form a unit quaternion
+    ///     multiplied by a scalar magnitude; normalizing yields the object's rotation.
+    ///     Full format reference: tools/ghidra/thaw-ps2/output/phase400_91e1028d_full_layout.md
+    /// </summary>
+    public sealed record PreambleRecord
+    {
+        public required int Offset { get; init; }
+        public required uint ClassHash { get; init; }
+        public required byte Sequence { get; init; }
+        public required Quaternion Rotation { get; init; }
+        public required Vector3 Size { get; init; }
+        public required uint Flags { get; init; }
+
+        /// <summary>
+        ///     Raw (x, y, z) floats at record +0x20. For object MDLs this is a rotation quaternion
+        ///     (see <see cref="Rotation" />); for level MDLs (worldzone shell/CAP geometry chunks)
+        ///     it's a world-space bounding sphere centre used as per-batch placement.
+        /// </summary>
+        public required Vector3 Centre { get; init; }
+
+        /// <summary>
+        ///     u32 at record +0x40. For level MDL leaves (<see cref="IsLeaf" />) this is a file
+        ///     offset into the VIF region pointing at the leaf's vertex data chunk. For internal
+        ///     tree nodes (non-leaf) it is a child record offset. The THAW engine rebases this
+        ///     field from file-offset to EE-absolute pointer on load, but pre-relocation (our
+        ///     case) it is a plain byte offset into the MDL file.
+        /// </summary>
+        public required uint Field40 { get; init; }
+
+        /// <summary>
+        ///     u32 at record +0x48. Empirically always either 0xFFFFFFFF (no sibling) or a file
+        ///     offset pointing into the preamble-record table, so interpreted as a sibling
+        ///     reference in the CGeomNode-style tree.
+        /// </summary>
+        public required uint Field48 { get; init; }
+
+        /// <summary>
+        ///     u32 at record +0x4C. For THAW level MDLs this is a 1-based material-group index
+        ///     into the zone texture owner blob's primary table. The primary table entry carries
+        ///     the real texture group checksum used to disambiguate reused TEX0 VRAM addresses.
+        /// </summary>
+        public required uint MaterialGroup { get; init; }
+
+        /// <summary>
+        ///     Leaf test derived from <see cref="Flags" /> bit 1 (0x02). Verified against the
+        ///     BH sample: ~3,977/5,649 records are leaves, all with <see cref="Field40" />
+        ///     pointing into the VIF region.
+        /// </summary>
+        public bool IsLeaf => (Flags & 0x2u) != 0;
+    }
+
+    public sealed record ObjectTrailer
+    {
+        public required int HeaderOffset { get; init; }
+        public required uint PrefixZero { get; init; }
+        public required uint Marker { get; init; }
+        public required uint Count { get; init; }
+        public required uint RawPointer { get; init; }
+        public IReadOnlyList<uint> Indices { get; init; } = Array.Empty<uint>();
+    }
+
+    /// <summary>
+    ///     Bone record from the post-sentinel section.
+    ///     Each record is 80 bytes: 16B header + 64B row-major 4x4 float matrix.
+    ///     Row 3 of the matrix contains the position (X, Y, Z, 1.0).
+    /// </summary>
+    public readonly record struct MdlBone(uint Checksum, uint ParentChecksum, ushort Index, Matrix4x4 Transform)
+    {
+        public Vector3 Position => new(Transform.M41, Transform.M42, Transform.M43);
     }
 }

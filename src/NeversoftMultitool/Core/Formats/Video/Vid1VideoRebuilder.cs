@@ -8,7 +8,8 @@ internal static class Vid1VideoRebuilder
     private const string DefaultPrefixFps = "30";
     private static readonly byte[] VopStartCode = [0x00, 0x00, 0x01, 0xB6];
 
-    internal static bool TryBuildPrefix(string ffmpegPath, int width, int height, double frameRate, out byte[] prefix, out string error)
+    internal static bool TryBuildPrefix(string ffmpegPath, int width, int height, double frameRate, out byte[] prefix,
+        out string error)
     {
         prefix = [];
         error = "";
@@ -55,7 +56,7 @@ internal static class Vid1VideoRebuilder
 
     internal static byte[] BuildDeterministicCandidateStream(byte[] prefix, Vid1VideoFile file)
     {
-        var output = new List<byte>(prefix.Length + (file.Frames.Count * 256));
+        var output = new List<byte>(prefix.Length + file.Frames.Count * 256);
         output.AddRange(prefix);
         var timeIncrement = 0;
 
@@ -91,7 +92,8 @@ internal static class Vid1VideoRebuilder
         return [.. output];
     }
 
-    internal static Vid1DeterministicFramePlan? GetDeterministicFramePlan(Vid1VideoVariant variant, Vid1VideoFrame frame)
+    internal static Vid1DeterministicFramePlan? GetDeterministicFramePlan(Vid1VideoVariant variant,
+        Vid1VideoFrame frame)
     {
         return variant switch
         {

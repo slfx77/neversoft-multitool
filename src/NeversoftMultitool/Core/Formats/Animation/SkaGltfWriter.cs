@@ -7,7 +7,7 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 
 /// <summary>
 ///     Writes an animated skeleton (and optionally a skinned mesh) to a .glb file
-///     using SharpGLTF Toolkit. Animation keyframes from <see cref="SkaAnimation"/>
+///     using SharpGLTF Toolkit. Animation keyframes from <see cref="SkaAnimation" />
 ///     are applied as rotation/translation channels on the skeleton's joint nodes.
 /// </summary>
 internal static class SkaGltfWriter
@@ -43,13 +43,11 @@ internal static class SkaGltfWriter
     ///     the skeleton's static bind pose. Used by THPS4 (version 1) content where
     ///     the native .ske file has no neutral pose — the animation's frame 0 IS the
     ///     rest pose.
-    ///
     ///     For each bone:
-    ///       - Translation: first animation translation key if present, else bone bind.
-    ///       - Rotation: first animation rotation key if present, else bone bind.
-    ///
+    ///     - Translation: first animation translation key if present, else bone bind.
+    ///     - Rotation: first animation rotation key if present, else bone bind.
     ///     Version-1 suppression: when a bone's <c>NameChecksum</c> does NOT resolve
-    ///     via <see cref="QbKey.TryResolve"/>, any constant rest rotation from the
+    ///     via <see cref="QbKey.TryResolve" />, any constant rest rotation from the
     ///     animation is suppressed back to identity. This matches the historical
     ///     behavior where unresolved bones (often auxiliary/attachment points) would
     ///     otherwise lock into an arbitrary constant and produce broken poses.
@@ -86,7 +84,7 @@ internal static class SkaGltfWriter
             if (skeleton.Version == 1
                 && track != null
                 && track.RotationKeys.Length == 1
-                && global::NeversoftMultitool.Core.QbKey.QbKey.TryResolve(bone.NameChecksum) == null)
+                && QbKey.QbKey.TryResolve(bone.NameChecksum) == null)
             {
                 rotation = Quaternion.Identity;
             }
@@ -99,7 +97,7 @@ internal static class SkaGltfWriter
 
     /// <summary>
     ///     Build a joint hierarchy whose rest pose is seeded directly from
-    ///     <see cref="SkaPoseEvaluator.Evaluate"/> at <c>t = 0</c>. Use this variant
+    ///     <see cref="SkaPoseEvaluator.Evaluate" /> at <c>t = 0</c>. Use this variant
     ///     when downstream consumers compare joint LocalTransforms against evaluator
     ///     samples — the two are guaranteed to agree.
     /// </summary>
@@ -141,19 +139,16 @@ internal static class SkaGltfWriter
     /// <summary>
     ///     Apply animation channels to an existing joint hierarchy.
     ///     Returns the number of channels added.
-    ///
     ///     SKA stores absolute local rotations and translations per bone; the
     ///     THUG runtime (<c>CSkeleton::Update</c> in <c>Sample/thug/Code/Gfx/Skeleton.cpp</c>)
     ///     hands these directly to <c>sQuatVecToMatrix</c> as the bone's local
     ///     transform. We mirror that — no composition with bind pose.
-    ///
     ///     SKA encodes "no animation for this bone" as a single placeholder key:
     ///     identity rotation <c>(0,0,0,1)</c> or zero translation. The runtime
     ///     leaves the pose entry at its bind value when this happens; emitting
     ///     a glTF channel with the placeholder would instead force the bone to
-    ///     identity and collapse the skin. <see cref="IsRotationPlaceholder"/>
-    ///     and <see cref="IsTranslationPlaceholder"/> suppress those channels.
-    ///
+    ///     identity and collapse the skin. <see cref="IsRotationPlaceholder" />
+    ///     and <see cref="IsTranslationPlaceholder" /> suppress those channels.
     ///     Requires the joint nodes' <c>LocalTransform</c> to be the bind pose
     ///     (so bones with suppressed channels stay at bind), and the skin to be
     ///     attached via <c>AddSkinnedMesh(mesh, (joint, IBM)[])</c> with explicit
@@ -238,10 +233,14 @@ internal static class SkaGltfWriter
     // and only overwrites entries with real motion. For glTF, suppress these
     // placeholder channels so the joint node keeps its bind-pose rest transform.
     private static bool IsRotationPlaceholder(SkaRotationKey[] keys)
-        => keys.Length == 1 && keys[0].Rotation == Quaternion.Identity;
+    {
+        return keys.Length == 1 && keys[0].Rotation == Quaternion.Identity;
+    }
 
     private static bool IsTranslationPlaceholder(SkaTranslationKey[] keys)
-        => keys.Length == 1 && keys[0].Translation == Vector3.Zero;
+    {
+        return keys.Length == 1 && keys[0].Translation == Vector3.Zero;
+    }
 
     /// <summary>
     ///     Write an animated skeleton (no mesh) to a .glb file with one or more

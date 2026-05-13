@@ -1,6 +1,4 @@
-using NeversoftMultitool.Core.Formats.Texture;
-
-namespace NeversoftMultitool.Core.Formats.XbxScene;
+namespace NeversoftMultitool.Core.Formats.Texture.XbxScene;
 
 /// <summary>
 ///     Loads Xbox/PC TEX textures into a checksum→Ps2Texture cache for glTF embedding.

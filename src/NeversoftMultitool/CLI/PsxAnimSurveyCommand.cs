@@ -46,25 +46,6 @@ public static class PsxAnimSurveyCommand
         return command;
     }
 
-    private sealed record SurveyRow(
-        string Build,
-        string RelPath,
-        ushort? Version,
-        bool HasHierarchy,
-        int Bones,
-        int Meshes,
-        long FileSize,
-        long PostMeshSize,
-        PsxAnimLayoutVariant? Layout,
-        int NumStreamsDecl,
-        int EntriesRecovered,
-        string? Error)
-    {
-        public string VersionLabel => Version.HasValue ? $"0x{Version.Value:X2}" : "?";
-        public string LayoutLabel => Layout?.ToString() ?? (Error == "no mesh" ? "NoMesh" :
-            Error != null ? "Error" : "NoAnimBlock");
-    }
-
     private static int Execute(string input, string? output, bool verbose)
     {
         if (!Directory.Exists(input))
@@ -122,14 +103,27 @@ public static class PsxAnimSurveyCommand
             }
 
             long meshBlockEnd = 0;
-            try { meshBlockEnd = PsxMeshFile.GetMeshBlockEnd(data); } catch { /* leave 0 */ }
+            try
+            {
+                meshBlockEnd = PsxMeshFile.GetMeshBlockEnd(data);
+            }
+            catch
+            {
+                /* leave 0 */
+            }
 
             PsxAnimFile? animFile = null;
             string? error = null;
             if (meshBlockEnd > 0 && meshBlockEnd < data.Length)
             {
-                try { animFile = PsxAnimFile.Parse(data, psxFile.Objects.Count, meshBlockEnd); }
-                catch (Exception ex) { error = ex.Message; }
+                try
+                {
+                    animFile = PsxAnimFile.Parse(data, psxFile.Objects.Count, meshBlockEnd);
+                }
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                }
             }
 
             return new SurveyRow(
@@ -160,7 +154,8 @@ public static class PsxAnimSurveyCommand
     private static void WriteCsv(string path, IReadOnlyList<SurveyRow> rows)
     {
         using var writer = new StreamWriter(path);
-        writer.WriteLine("build,relpath,version,has_hierarchy,bones,meshes,file_size,post_mesh_size,layout,num_streams_declared,entries_recovered,error");
+        writer.WriteLine(
+            "build,relpath,version,has_hierarchy,bones,meshes,file_size,post_mesh_size,layout,num_streams_declared,entries_recovered,error");
         foreach (var r in rows)
         {
             writer.WriteLine(
@@ -251,5 +246,25 @@ public static class PsxAnimSurveyCommand
         }
 
         AnsiConsole.Write(comboTable);
+    }
+
+    private sealed record SurveyRow(
+        string Build,
+        string RelPath,
+        ushort? Version,
+        bool HasHierarchy,
+        int Bones,
+        int Meshes,
+        long FileSize,
+        long PostMeshSize,
+        PsxAnimLayoutVariant? Layout,
+        int NumStreamsDecl,
+        int EntriesRecovered,
+        string? Error)
+    {
+        public string VersionLabel => Version.HasValue ? $"0x{Version.Value:X2}" : "?";
+
+        public string LayoutLabel => Layout?.ToString() ?? (Error == "no mesh" ? "NoMesh" :
+            Error != null ? "Error" : "NoAnimBlock");
     }
 }

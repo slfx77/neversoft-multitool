@@ -1,28 +1,7 @@
 using System.Buffers.Binary;
+using System.Text;
 
 namespace NeversoftMultitool.Core.Formats.GsDump;
-
-internal enum GsDumpPacketKind
-{
-    Transfer,
-    VSync,
-    ReadFifo2,
-    Registers
-}
-
-internal enum GsTransferPath
-{
-    Path1Old = 0,
-    Path2 = 1,
-    Path3 = 2,
-    Path1New = 3,
-    Dummy = 4
-}
-
-internal sealed record GsDumpPacket(
-    GsDumpPacketKind Kind,
-    GsTransferPath? Path,
-    byte[] Data);
 
 internal sealed class GsDumpFile
 {
@@ -57,6 +36,7 @@ internal sealed class GsDumpFile
     public static GsDumpFile Parse(ReadOnlySpan<byte> raw)
     {
         var offset = 0;
+
         static uint U32(ReadOnlySpan<byte> data, ref int offset)
         {
             Require(data, offset, 4);
@@ -93,7 +73,7 @@ internal sealed class GsDumpFile
                 throw new InvalidDataException("GS dump header block is shorter than GSDumpHeader.");
 
             var header = headerBlock.AsSpan();
-            stateVersion = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[0..]));
+            stateVersion = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[..]));
             var stateSize = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[4..]));
             var serialOffset = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[8..]));
             var serialSize = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[12..]));
@@ -108,7 +88,7 @@ internal sealed class GsDumpFile
                 serialOffset <= headerBlock.Length &&
                 serialSize <= headerBlock.Length - serialOffset)
             {
-                serial = System.Text.Encoding.ASCII.GetString(headerBlock, serialOffset, serialSize)
+                serial = Encoding.ASCII.GetString(headerBlock, serialOffset, serialSize)
                     .TrimEnd('\0');
             }
 
@@ -164,7 +144,8 @@ internal sealed class GsDumpFile
                     packets.Add(new GsDumpPacket(GsDumpPacketKind.Registers, null, Bytes(raw, ref offset, 8192)));
                     break;
                 default:
-                    throw new InvalidDataException($"Unknown GS dump packet id {packetId} at offset 0x{packetOffset:X}.");
+                    throw new InvalidDataException(
+                        $"Unknown GS dump packet id {packetId} at offset 0x{packetOffset:X}.");
             }
         }
 

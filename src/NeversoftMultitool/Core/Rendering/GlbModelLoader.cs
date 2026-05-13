@@ -370,8 +370,8 @@ internal static class GlbModelLoader
     private sealed class AnimationKeyframeCache
     {
         private readonly Dictionary<int, (float Time, Quaternion Value)[]> _rotations = new();
-        private readonly Dictionary<int, (float Time, Vector3 Value)[]> _translations = new();
         private readonly Dictionary<int, (float Time, Vector3 Value)[]> _scales = new();
+        private readonly Dictionary<int, (float Time, Vector3 Value)[]> _translations = new();
 
         public static AnimationKeyframeCache Build(Animation animation)
         {

@@ -1,6 +1,5 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Animation;
-using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
 using SharpGLTF.Materials;
@@ -252,7 +251,9 @@ public static class PsxGltfWriter
     ///     equivalent glTF quaternion is simply (qx, -qy, -qz, qw).
     /// </summary>
     private static Quaternion PsxToGltfRotation(Quaternion psx)
-        => new(psx.X, -psx.Y, -psx.Z, psx.W);
+    {
+        return new Quaternion(psx.X, -psx.Y, -psx.Z, psx.W);
+    }
 
     /// <summary>
     ///     Adds faces from a body part mesh to a combined skinned mesh.

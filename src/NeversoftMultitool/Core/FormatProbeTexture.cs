@@ -1,6 +1,6 @@
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
-using NeversoftMultitool.Core.Formats.XbxScene;
+using NeversoftMultitool.Core.Formats.Texture.XbxScene;
 
 namespace NeversoftMultitool.Core;
 

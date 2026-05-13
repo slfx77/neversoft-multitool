@@ -59,7 +59,8 @@ public static class GsDumpCommand
         };
         var saveRtDirOption = new Option<string?>("--save-rt-dir")
         {
-            Description = "Directory to write per-draw render-target snapshots (matches PCSX2 SaveRT). Files: NNNNN_rt_BBBBB_C_NN.png"
+            Description =
+                "Directory to write per-draw render-target snapshots (matches PCSX2 SaveRT). Files: NNNNN_rt_BBBBB_C_NN.png"
         };
         var saveRtStartOption = new Option<int?>("--save-rt-start")
         {
@@ -156,7 +157,8 @@ public static class GsDumpCommand
 
         if (!probeFbp.HasValue && probeX.HasValue != probeY.HasValue)
         {
-            AnsiConsole.MarkupLine("[red]Error:[/] --probe-x and --probe-y must both be provided unless --probe-fbp is set.");
+            AnsiConsole.MarkupLine(
+                "[red]Error:[/] --probe-x and --probe-y must both be provided unless --probe-fbp is set.");
             return 1;
         }
 
@@ -209,7 +211,8 @@ public static class GsDumpCommand
 
         if (failed == 0)
         {
-            AnsiConsole.MarkupLine($"GS dump audit complete: [green]{files.Count}[/] succeeded -> {Markup.Escape(output)}");
+            AnsiConsole.MarkupLine(
+                $"GS dump audit complete: [green]{files.Count}[/] succeeded -> {Markup.Escape(output)}");
             return 0;
         }
 
@@ -232,10 +235,12 @@ public static class GsDumpCommand
             .ToList();
     }
 
-    private static bool IsRawGs(string path) =>
-        path.EndsWith(".gs", StringComparison.OrdinalIgnoreCase) &&
-        !path.EndsWith(".gs.xz", StringComparison.OrdinalIgnoreCase) &&
-        !path.EndsWith(".gs.zst", StringComparison.OrdinalIgnoreCase);
+    private static bool IsRawGs(string path)
+    {
+        return path.EndsWith(".gs", StringComparison.OrdinalIgnoreCase) &&
+               !path.EndsWith(".gs.xz", StringComparison.OrdinalIgnoreCase) &&
+               !path.EndsWith(".gs.zst", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static void PrintSummary(string file, GsDumpAuditReport report, bool verbose)
     {

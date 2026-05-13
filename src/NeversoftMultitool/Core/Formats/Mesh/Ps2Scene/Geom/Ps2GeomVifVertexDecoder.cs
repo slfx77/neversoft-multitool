@@ -22,14 +22,7 @@ internal static class Ps2GeomVifVertexDecoder
     }
 
     /// <summary>
-    ///     Per-batch result for the level-MDL path. Each batch corresponds to one MSCAL kick
-    ///     in the VIF stream; level-MDL leaves with 2+ MSCALs need to be emitted as separate
-    ///     Ps2GeomLeaf objects so each batch can carry its own GS context / TEX0.
-    /// </summary>
-    internal readonly record struct Ps2GeomBatch(Ps2Vertex[] Vertices, int VifStart, int VifEnd);
-
-    /// <summary>
-    ///     Walk the VIF stream and emit one <see cref="Ps2GeomBatch"/> per MSCAL boundary,
+    ///     Walk the VIF stream and emit one <see cref="Ps2GeomBatch" /> per MSCAL boundary,
     ///     preserving the per-batch VIF byte range so callers can extract a fresh GS context
     ///     per batch.
     /// </summary>
@@ -42,10 +35,11 @@ internal static class Ps2GeomVifVertexDecoder
         {
             if (batch.PositionCount == 0)
                 continue;
-            var verts = BuildVertices(data, batch, center, forceFirstRestart: false);
+            var verts = BuildVertices(data, batch, center, false);
             if (verts.Length > 0)
                 decoded.Add(new Ps2GeomBatch(verts, batchStart, batchEnd));
         }
+
         return decoded;
     }
 
@@ -61,8 +55,9 @@ internal static class Ps2GeomVifVertexDecoder
     ///     Track-To constraint to make screen/axis billboards actually face the camera.
     ///     Returns null if the leaf doesn't match the Format B signature.
     /// </summary>
-    internal static (Ps2Vertex[] Vertices, int VifStart, int VifEnd, Ps2BillboardDescriptor Descriptor)? ExtractBillboardFromVif(
-        byte[] data, int pStart, int pEnd)
+    internal static (Ps2Vertex[] Vertices, int VifStart, int VifEnd, Ps2BillboardDescriptor Descriptor)?
+        ExtractBillboardFromVif(
+            byte[] data, int pStart, int pEnd)
     {
         // Walk the stream looking for: a V4_32 UNPACK with num==4 (positions), NOT gated by
         // STMOD(1), followed by MSCAL. Capture the address of the position UNPACK data.
@@ -165,10 +160,10 @@ internal static class Ps2GeomVifVertexDecoder
         // has axis = world Y so the quad's local up is already correct).
         var verts = new[]
         {
-            MakeBillboardVertex(pivotCenter + new Vector3(-hw, -hh, 0), 0f, 0f, isStripRestart: true),
-            MakeBillboardVertex(pivotCenter + new Vector3( hw, -hh, 0), 1f, 0f, isStripRestart: true),
-            MakeBillboardVertex(pivotCenter + new Vector3(-hw,  hh, 0), 0f, 1f, isStripRestart: false),
-            MakeBillboardVertex(pivotCenter + new Vector3( hw,  hh, 0), 1f, 1f, isStripRestart: false),
+            MakeBillboardVertex(pivotCenter + new Vector3(-hw, -hh, 0), 0f, 0f, true),
+            MakeBillboardVertex(pivotCenter + new Vector3(hw, -hh, 0), 1f, 0f, true),
+            MakeBillboardVertex(pivotCenter + new Vector3(-hw, hh, 0), 0f, 1f, false),
+            MakeBillboardVertex(pivotCenter + new Vector3(hw, hh, 0), 1f, 1f, false)
         };
         return (verts, pStart, pEnd, descriptor);
     }
@@ -180,8 +175,8 @@ internal static class Ps2GeomVifVertexDecoder
             Vector3.UnitZ,
             128, 128, 128, 128,
             u, v,
-            hasNormal: false, hasColor: false, hasUV: true,
-            isStripRestart: isStripRestart);
+            false, false, true,
+            isStripRestart);
     }
 
     internal static Ps2Vertex[] ExtractVerticesFromVif(byte[] data, int pStart, int pEnd, Vector3 center)
@@ -199,7 +194,7 @@ internal static class Ps2GeomVifVertexDecoder
 
             // Force strip restart on the first vertex of every batch after the first so
             // we never form a phantom triangle that bridges two MSCAL batches.
-            var verts = BuildVertices(data, batch, center, forceFirstRestart: firstBatchEmitted);
+            var verts = BuildVertices(data, batch, center, firstBatchEmitted);
             if (verts.Length == 0)
                 continue;
 
@@ -338,7 +333,7 @@ internal static class Ps2GeomVifVertexDecoder
     }
 
     /// <summary>
-    ///     Read one batch's vertex attributes into <see cref="Ps2Vertex"/> records. Positions
+    ///     Read one batch's vertex attributes into <see cref="Ps2Vertex" /> records. Positions
     ///     outside a sane envelope (±200k units) are treated as a sign of misidentified UNPACKs
     ///     and drop the whole batch.
     /// </summary>
@@ -599,6 +594,13 @@ internal static class Ps2GeomVifVertexDecoder
 
         return (normal, true);
     }
+
+    /// <summary>
+    ///     Per-batch result for the level-MDL path. Each batch corresponds to one MSCAL kick
+    ///     in the VIF stream; level-MDL leaves with 2+ MSCALs need to be emitted as separate
+    ///     Ps2GeomLeaf objects so each batch can carry its own GS context / TEX0.
+    /// </summary>
+    internal readonly record struct Ps2GeomBatch(Ps2Vertex[] Vertices, int VifStart, int VifEnd);
 
     private struct VifBatch
     {

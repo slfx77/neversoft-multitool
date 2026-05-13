@@ -24,13 +24,13 @@ public static class DdxArchive
     /// </summary>
     public static List<ArchiveEntry> GetFileList(byte[] data)
     {
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         return ReadFileList(stream);
     }
 
     private static List<ArchiveEntry> ReadFileList(Stream stream)
     {
-        using var reader = new BinaryReader(stream, Encoding.ASCII, leaveOpen: true);
+        using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         // Header: 4 reserved + 4 fileSize + 4 dataOffset + 4 entryCount
         reader.ReadUInt32(); // reserved (always 0)
@@ -69,11 +69,11 @@ public static class DdxArchive
     }
 
     /// <summary>
-    ///     In-memory variant of <see cref="ReadAllEntries(string)"/>.
+    ///     In-memory variant of <see cref="ReadAllEntries(string)" />.
     /// </summary>
     public static Dictionary<string, byte[]> ReadAllEntries(byte[] data)
     {
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         return ReadAllEntriesFromStream(stream);
     }
 

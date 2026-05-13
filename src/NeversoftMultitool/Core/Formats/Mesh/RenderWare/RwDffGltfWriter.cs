@@ -1,7 +1,6 @@
 using System.Numerics;
 using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Animation;
-using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Texture;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
@@ -46,8 +45,10 @@ public static class RwDffGltfWriter
     ///     .glb file. Requires the clump to have a Skin PLG and every animation's
     ///     bone count to match the skeleton.
     /// </summary>
-    /// <returns>Total number of triangles written; 0 if the clump isn't skinned,
-    /// any bone count disagrees, or no animations were supplied.</returns>
+    /// <returns>
+    ///     Total number of triangles written; 0 if the clump isn't skinned,
+    ///     any bone count disagrees, or no animations were supplied.
+    /// </returns>
     internal static int WriteAnimated(
         RwDffClump clump,
         IReadOnlyList<(string Name, SkaAnimation Animation)> animations,

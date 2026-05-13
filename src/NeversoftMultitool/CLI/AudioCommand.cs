@@ -7,7 +7,8 @@ namespace NeversoftMultitool.CLI;
 
 public static class AudioCommand
 {
-    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".kat", ".sfx", ".vag", ".pss", ".vid"];
+    private static readonly string[] SupportedExtensions =
+        [".adx", ".xa", ".vab", ".kat", ".sfx", ".vag", ".pss", ".vid"];
 
     public static Command Create()
     {
@@ -89,7 +90,8 @@ public static class AudioCommand
                 {
                     ".adx" => AdxDecoder.ConvertToWav(file, output),
                     ".xa" => XaDecoder.ConvertToWav(file, output),
-                    ".vab" => VabExtractor.ExtractToWav(file, output, sampleRate > 0 ? sampleRate : VabExtractor.DefaultSampleRate),
+                    ".vab" => VabExtractor.ExtractToWav(file, output,
+                        sampleRate > 0 ? sampleRate : VabExtractor.DefaultSampleRate),
                     ".vag" => VagDecoder.ConvertToWav(file, output, sampleRate),
                     ".pss" => PssAudioExtractor.ConvertToWav(file, output),
                     ".vid" => Vid1AudioExtractor.ConvertToWav(file, output),

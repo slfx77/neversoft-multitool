@@ -9,11 +9,11 @@ namespace NeversoftMultitool;
 
 /// <summary>
 ///     A row in the Character Preview tab's animation panel. Wraps an
-///     <see cref="AnimationProbe"/> with two view-side flags:
-///     <see cref="IsChecked"/> ("include in multi-anim GLB export") and
-///     <see cref="IsActive"/> ("currently previewed in 3D and the GIF render
+///     <see cref="AnimationProbe" /> with two view-side flags:
+///     <see cref="IsChecked" /> ("include in multi-anim GLB export") and
+///     <see cref="IsActive" /> ("currently previewed in 3D and the GIF render
 ///     target"). Mismatched-skeleton anims still appear in the list but render
-///     greyed-out via <see cref="RowForeground"/>.
+///     greyed-out via <see cref="RowForeground" />.
 /// </summary>
 internal sealed class AnimationListEntry : INotifyPropertyChanged
 {

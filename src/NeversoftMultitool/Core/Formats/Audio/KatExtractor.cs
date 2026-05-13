@@ -1,3 +1,4 @@
+using System.Text;
 using NeversoftMultitool.Core.BinaryIO;
 
 namespace NeversoftMultitool.Core.Formats.Audio;
@@ -31,13 +32,13 @@ public static class KatExtractor
     /// <summary>In-memory variant.</summary>
     public static List<KatSampleInfo> EnumerateSamples(byte[] data)
     {
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         return EnumerateSamplesFromStream(stream);
     }
 
     private static List<KatSampleInfo> EnumerateSamplesFromStream(Stream stream)
     {
-        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+        using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         if (stream.Length < 4) return [];
 
@@ -94,7 +95,7 @@ public static class KatExtractor
     {
         try
         {
-            using var stream = new MemoryStream(data, writable: false);
+            using var stream = new MemoryStream(data, false);
             return ExtractSingleFromStream(stream, stem, sampleIndex, outputDir);
         }
         catch
@@ -105,7 +106,7 @@ public static class KatExtractor
 
     private static string? ExtractSingleFromStream(Stream stream, string stem, int sampleIndex, string outputDir)
     {
-        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+        using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         if (stream.Length < 4) return null;
         var entryCount = reader.ReadUInt32();
@@ -164,7 +165,7 @@ public static class KatExtractor
     {
         try
         {
-            using var stream = new MemoryStream(data, writable: false);
+            using var stream = new MemoryStream(data, false);
             return ExtractToWavFromStream(stream, stem, outputDir);
         }
         catch (Exception ex)
@@ -175,7 +176,7 @@ public static class KatExtractor
 
     private static AudioConvertResult ExtractToWavFromStream(Stream stream, string stem, string outputDir)
     {
-        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+        using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         if (stream.Length < 4)
             return new AudioConvertResult { ErrorMessage = "File too small for KAT header" };

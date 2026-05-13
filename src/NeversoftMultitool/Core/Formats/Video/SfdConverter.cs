@@ -54,11 +54,11 @@ public static partial class SfdConverter
             return null;
 
         return RunProbe(ffprobe, $"-v quiet -print_format json -show_format -show_streams \"{inputPath}\"",
-            inputPath, pssAudio, stdinData: null);
+            inputPath, pssAudio, null);
     }
 
     /// <summary>
-    ///     In-memory variant of <see cref="Probe(string)"/>. Pipes the bytes to
+    ///     In-memory variant of <see cref="Probe(string)" />. Pipes the bytes to
     ///     ffprobe via stdin. PSS audio probe is not run (PSS-in-archive is rare
     ///     and its probe requires path-based parsing).
     /// </summary>
@@ -68,7 +68,7 @@ public static partial class SfdConverter
         if (ffprobe == null) return null;
 
         return RunProbe(ffprobe, "-v quiet -print_format json -show_format -show_streams -i -",
-            inputPathLabel: "<stdin>", pssAudio: null, stdinData: data);
+            "<stdin>", null, data);
     }
 
     private static SfdProbeResult? RunProbe(
@@ -103,7 +103,14 @@ public static partial class SfdConverter
                 }
                 finally
                 {
-                    try { process.StandardInput.Close(); } catch { /* already closed */ }
+                    try
+                    {
+                        process.StandardInput.Close();
+                    }
+                    catch
+                    {
+                        /* already closed */
+                    }
                 }
             }
 
@@ -270,7 +277,14 @@ public static partial class SfdConverter
                 }
                 finally
                 {
-                    try { process.StandardInput.Close(); } catch { /* already closed */ }
+                    try
+                    {
+                        process.StandardInput.Close();
+                    }
+                    catch
+                    {
+                        /* already closed */
+                    }
                 }
             }, cancellationToken);
         }

@@ -31,7 +31,7 @@ internal static class PsxLibraryLookup
     {
         try
         {
-            using var stream = new MemoryStream(data, writable: false);
+            using var stream = new MemoryStream(data, false);
             using var reader = new BinaryReader(stream);
             return ExtractTextureByHashCore(reader, targetHash, diagnostics, label);
         }
@@ -91,7 +91,7 @@ internal static class PsxLibraryLookup
 
     public static List<(PsxTextureHeader Header, uint NameHash)> EnumerateTextures(byte[] data)
     {
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         using var reader = new BinaryReader(stream);
         return EnumerateTexturesCore(reader);
     }

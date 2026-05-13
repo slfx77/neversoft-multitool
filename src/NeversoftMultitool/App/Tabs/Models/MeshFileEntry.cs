@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.Formats;
+using NeversoftMultitool.Core.Formats.Mesh;
 
 namespace NeversoftMultitool;
 

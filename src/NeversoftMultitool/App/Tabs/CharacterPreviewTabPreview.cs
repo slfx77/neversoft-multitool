@@ -10,7 +10,7 @@ namespace NeversoftMultitool;
 ///     Owns the WebView2 model viewer for the Character Preview tab. Builds
 ///     single-animation GLBs on demand and loads them into the embedded
 ///     <c>&lt;model-viewer&gt;</c> via base64. Mirrors the cancellation pattern
-///     used by <see cref="MeshConverterTabPreview"/>.
+///     used by <see cref="MeshConverterTabPreview" />.
 /// </summary>
 internal sealed class CharacterPreviewTabPreview : IDisposable
 {
@@ -19,9 +19,9 @@ internal sealed class CharacterPreviewTabPreview : IDisposable
     private readonly TextBlock _infoText;
     private readonly ProgressRing _loadingRing;
     private readonly WebView2 _webView;
-    private CancellationTokenSource? _previewCts;
 
     private byte[]? _lastGlbBytes;
+    private CancellationTokenSource? _previewCts;
 
     private bool _webViewInitialized;
 
@@ -66,7 +66,8 @@ internal sealed class CharacterPreviewTabPreview : IDisposable
                 CoreWebView2HostResourceAccessKind.Allow);
 
             _webView.CoreWebView2.Navigate(
-                new UriBuilder(Uri.UriSchemeHttps, "character-viewer-assets") { Path = "mesh-viewer.html" }.Uri.ToString());
+                new UriBuilder(Uri.UriSchemeHttps, "character-viewer-assets")
+                    { Path = "mesh-viewer.html" }.Uri.ToString());
             _webViewInitialized = true;
         }
         catch (Exception ex)
@@ -102,8 +103,14 @@ internal sealed class CharacterPreviewTabPreview : IDisposable
 
         if (_webViewInitialized)
         {
-            try { await _webView.ExecuteScriptAsync("setStatus('Building preview...')"); }
-            catch { /* WebView may not be ready */ }
+            try
+            {
+                await _webView.ExecuteScriptAsync("setStatus('Building preview...')");
+            }
+            catch
+            {
+                /* WebView may not be ready */
+            }
         }
 
         try
@@ -126,9 +133,16 @@ internal sealed class CharacterPreviewTabPreview : IDisposable
                 });
                 if (_webViewInitialized)
                 {
-                    try { await _webView.ExecuteScriptAsync("setStatus('No preview')"); }
-                    catch { /* ignore */ }
+                    try
+                    {
+                        await _webView.ExecuteScriptAsync("setStatus('No preview')");
+                    }
+                    catch
+                    {
+                        /* ignore */
+                    }
                 }
+
                 return;
             }
 
@@ -184,8 +198,14 @@ internal sealed class CharacterPreviewTabPreview : IDisposable
 
         if (_webViewInitialized)
         {
-            try { await _webView.ExecuteScriptAsync("clearModel()"); }
-            catch { /* ignore */ }
+            try
+            {
+                await _webView.ExecuteScriptAsync("clearModel()");
+            }
+            catch
+            {
+                /* ignore */
+            }
         }
     }
 }

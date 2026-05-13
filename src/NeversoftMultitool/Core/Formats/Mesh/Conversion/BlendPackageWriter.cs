@@ -1,5 +1,5 @@
-using System.Numerics;
 using System.IO.Compression;
+using System.Numerics;
 using System.Text.Json;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -10,6 +10,8 @@ internal static class BlendPackageWriter
 {
     private const int VertexFloatCount = 12;
 
+    internal static int VertexStrideBytes => VertexFloatCount * sizeof(float);
+
     public static void Write(ModelDocument document, Stream packageStream, string blendPath)
     {
         if (!document.Nodes.Any(static node => node.MeshIndex.HasValue) ||
@@ -19,7 +21,7 @@ internal static class BlendPackageWriter
                 $"Blend export requires ModelDocument geometry. Parser adapter for {document.SourceKind} did not populate geometry.");
         }
 
-        using var archive = new ZipArchive(packageStream, ZipArchiveMode.Create, leaveOpen: true);
+        using var archive = new ZipArchive(packageStream, ZipArchiveMode.Create, true);
         var textures = WriteTextures(document, archive);
         var meshes = WriteMeshes(document, archive);
         var nodes = document.Nodes.Select(static node => new BlendNodeManifest
@@ -148,13 +150,16 @@ internal static class BlendPackageWriter
             writer.Write(index);
     }
 
-    private static float[] ToArray(Matrix4x4 matrix) =>
-    [
-        matrix.M11, matrix.M12, matrix.M13, matrix.M14,
-        matrix.M21, matrix.M22, matrix.M23, matrix.M24,
-        matrix.M31, matrix.M32, matrix.M33, matrix.M34,
-        matrix.M41, matrix.M42, matrix.M43, matrix.M44
-    ];
+    private static float[] ToArray(Matrix4x4 matrix)
+    {
+        return
+        [
+            matrix.M11, matrix.M12, matrix.M13, matrix.M14,
+            matrix.M21, matrix.M22, matrix.M23, matrix.M24,
+            matrix.M31, matrix.M32, matrix.M33, matrix.M34,
+            matrix.M41, matrix.M42, matrix.M43, matrix.M44
+        ];
+    }
 
     private static string SanitizeFileName(string name)
     {
@@ -167,6 +172,4 @@ internal static class BlendPackageWriter
                 ? sanitized
                 : sanitized[..80].TrimEnd('_', '.', ' ');
     }
-
-    internal static int VertexStrideBytes => VertexFloatCount * sizeof(float);
 }

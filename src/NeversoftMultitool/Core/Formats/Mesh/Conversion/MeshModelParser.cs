@@ -1,24 +1,22 @@
 using NeversoftMultitool.Core.BinaryIO;
-using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using NeversoftMultitool.Core.Formats.Mesh.Lit;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.SceneTex;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
 using NeversoftMultitool.Core.Formats.Texture.RenderWare;
-using NeversoftMultitool.Core.Formats.XbxScene;
+using NeversoftMultitool.Core.Formats.Texture.XbxScene;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -175,7 +173,7 @@ public sealed class MeshModelParser : IModelParser
         if (request.Ps2SubFormat == Ps2SceneSubFormat.PakMdl)
         {
             var geomScene = Ps2GeomFile.ParsePakMdl(data);
-            return BuildPs2GeomDocument(request.OutputStem, geomScene, textureProvider, tex0Resolver: null);
+            return BuildPs2GeomDocument(request.OutputStem, geomScene, textureProvider, null);
         }
 
         var scene = request.Ps2SubFormat switch
@@ -219,7 +217,7 @@ public sealed class MeshModelParser : IModelParser
                 null,
                 null,
                 null,
-                ((ulong)material.ClampUMode) | ((ulong)material.ClampVMode << 2),
+                material.ClampUMode | ((ulong)material.ClampVMode << 2),
                 material.TextureChecksum,
                 material.GroupChecksum,
                 material.AlphaRef,
@@ -241,7 +239,7 @@ public sealed class MeshModelParser : IModelParser
             Ps2TexSubdirs,
             request.TexturePath);
         var textureProvider = BuildPs2TextureProvider(companionTexData);
-        return BuildPs2GeomDocument(request.OutputStem, scene, textureProvider, tex0Resolver: null);
+        return BuildPs2GeomDocument(request.OutputStem, scene, textureProvider, null);
     }
 
     private static ModelDocument BuildPs2GeomDocument(
@@ -493,7 +491,7 @@ public sealed class MeshModelParser : IModelParser
         var stem = Path.GetFileNameWithoutExtension(fileName);
 
         byte[]? libraryBytes = null;
-        string libraryLabel = "";
+        var libraryLabel = "";
         if (stem.EndsWith("_g", StringComparison.OrdinalIgnoreCase))
         {
             var libraryName = stem[..^2] + "_l.psx";
@@ -555,25 +553,42 @@ public sealed class MeshModelParser : IModelParser
                     ? Ps2SkeletonFile.Parse(explicitPath)
                     : SkeletonFile.Parse(explicitPath);
             }
-            catch { /* fall through to automatic discovery */ }
+            catch
+            {
+                /* fall through to automatic discovery */
+            }
         }
 
         var ps2Bytes = source.TryReadCompanion(stem + ".ske.ps2");
         if (ps2Bytes != null)
         {
-            try { return Ps2SkeletonFile.Parse(ps2Bytes); } catch { /* fall through */ }
+            try
+            {
+                return Ps2SkeletonFile.Parse(ps2Bytes);
+            }
+            catch
+            {
+                /* fall through */
+            }
         }
 
         var skeBytes = source.TryReadCompanion(stem + ".ske");
         if (skeBytes != null)
         {
-            try { return SkeletonFile.Parse(skeBytes); } catch { /* fall through */ }
+            try
+            {
+                return SkeletonFile.Parse(skeBytes);
+            }
+            catch
+            {
+                /* fall through */
+            }
         }
 
         if (subFormat == Ps2SceneSubFormat.ThawSkin && source.FileSystemPath != null)
         {
             var skeletonPath = ThawSkeletonDiscovery.FindSkeletonPath(
-                source.FileSystemPath, stem, isThawSkin: true);
+                source.FileSystemPath, stem, true);
             if (skeletonPath != null)
             {
                 try
@@ -582,14 +597,17 @@ public sealed class MeshModelParser : IModelParser
                         ? Ps2SkeletonFile.Parse(skeletonPath)
                         : SkeletonFile.Parse(skeletonPath);
                 }
-                catch { /* proceed without skeleton */ }
+                catch
+                {
+                    /* proceed without skeleton */
+                }
             }
         }
 
         if (subFormat == Ps2SceneSubFormat.ThawSkin && source is ArchiveAssetSource archiveSource)
         {
             var archiveResult = ThawSkeletonDiscovery.FindInArchive(
-                archiveSource.Backend.Entries, archiveSource.Backend, stem, isThawSkin: true);
+                archiveSource.Backend.Entries, archiveSource.Backend, stem, true);
             if (archiveResult is { } result)
             {
                 try
@@ -598,7 +616,10 @@ public sealed class MeshModelParser : IModelParser
                         ? Ps2SkeletonFile.Parse(result.Bytes)
                         : SkeletonFile.Parse(result.Bytes);
                 }
-                catch { /* proceed without skeleton */ }
+                catch
+                {
+                    /* proceed without skeleton */
+                }
             }
         }
 

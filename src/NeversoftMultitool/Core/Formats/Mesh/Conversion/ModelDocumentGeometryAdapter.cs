@@ -1,25 +1,34 @@
 using System.Buffers.Binary;
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
-using NeversoftMultitool.Core.Formats.XbxScene;
-
 using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene.Ps2Scene;
-using ParsedXbxScene = NeversoftMultitool.Core.Formats.XbxScene.XbxScene;
+using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
 internal static class ModelDocumentGeometryAdapter
 {
     private const float DdmDecalNormalOffset = 0.1f;
+
+    /// <summary>
+    ///     Optional per-vertex PS2 worldzone lighting model. Null by default so
+    ///     worldzone exports pass source vertex colours through unchanged; callers
+    ///     can provide a value to bake an experimental ambient + N·L_sun model.
+    /// </summary>
+    [SuppressMessage("Performance", "CA1810",
+        Justification = "intentional global; thread-safety asserted by single-threaded IR build")]
+    [ThreadStatic]
+    private static Ps2WorldzoneConverter.Ps2WorldzoneLighting? _activePs2WorldzoneLighting;
 
     public static void PopulateCollision(ModelDocument document, ColScene scene)
     {
@@ -234,8 +243,9 @@ internal static class ModelDocumentGeometryAdapter
                 }
 
                 var mesh = new ModelMesh { Name = groupName };
-                var preserveVertexAlpha = !nativeMaterials.TryGetValue(nativeMesh.MaterialChecksum, out var nativeMaterial) ||
-                                          ShouldPreservePs2SceneVertexAlpha(nativeMaterial);
+                var preserveVertexAlpha =
+                    !nativeMaterials.TryGetValue(nativeMesh.MaterialChecksum, out var nativeMaterial) ||
+                    ShouldPreservePs2SceneVertexAlpha(nativeMaterial);
                 AddPs2StripPrimitive(
                     mesh,
                     "strip",
@@ -243,9 +253,9 @@ internal static class ModelDocumentGeometryAdapter
                     nativeMesh.Vertices,
                     nativeMesh.StartsOnOddOutputSlot,
                     dedup,
-                    resetOnRestart: false,
-                    preserveVertexAlpha: preserveVertexAlpha,
-                    bakeVertexColorsToWhite: false);
+                    false,
+                    preserveVertexAlpha,
+                    false);
                 AddMeshNode(document, groupName, mesh);
             }
         }
@@ -278,11 +288,11 @@ internal static class ModelDocumentGeometryAdapter
                 "strip",
                 materialIndex,
                 leaf.Vertices,
-                startsOnOddOutputSlot: false,
-                dedup: null,
-                resetOnRestart: true,
-                preserveVertexAlpha: preserveVertexAlpha,
-                bakeVertexColorsToWhite: false);
+                false,
+                null,
+                true,
+                preserveVertexAlpha,
+                false);
             AddMeshNode(document, mesh.Name, mesh);
         }
 
@@ -300,7 +310,7 @@ internal static class ModelDocumentGeometryAdapter
         string? textureSourceHint,
         Ps2WorldzoneConverter.WorldzoneTimeOfDay timeOfDay,
         float coordinateScale,
-        Ps2Scene.Ps2WorldzoneConverter.Ps2WorldzoneLighting? lighting = null)
+        Ps2WorldzoneConverter.Ps2WorldzoneLighting? lighting = null)
     {
         if (!float.IsFinite(coordinateScale) || coordinateScale <= 0f)
             throw new ArgumentOutOfRangeException(nameof(coordinateScale), coordinateScale,
@@ -351,14 +361,14 @@ internal static class ModelDocumentGeometryAdapter
                     mdlEntry,
                     mdlData,
                     mdlName,
-                    log: null);
+                    null);
                 if (!Ps2GeomFile.IsPakMdl(mdlData))
                     continue;
 
                 var mdlTextureHint = textureCatalog?.FindTextureEntryHintBefore(textureSourceHint, mdlEntry.Offset)
-                    ?? textureSourceHint;
+                                     ?? textureSourceHint;
                 var mdlTex0Resolver = textureCatalog?.CreateTex0ChecksumResolver(mdlTextureHint)
-                    ?? tex0Resolver;
+                                      ?? tex0Resolver;
                 var geomScene = Ps2GeomFile.ParsePakMdl(mdlData, mdlName);
                 var placements = geomScene.MdlPreamble?.Bones.Count > 0
                     ? Ps2MdlPlacementResolver.ResolveWorldzonePlacements(geomScene.MdlPreamble)
@@ -472,7 +482,7 @@ internal static class ModelDocumentGeometryAdapter
             for (var materialIndex = 0; materialIndex < geometry.Materials.Length; materialIndex++)
             {
                 materialMap[(geometryIndex, materialIndex)] =
-                    AddRwMaterial(document, geometry.Materials[materialIndex], textureProvider, forBsp: false);
+                    AddRwMaterial(document, geometry.Materials[materialIndex], textureProvider, false);
             }
         }
 
@@ -522,7 +532,7 @@ internal static class ModelDocumentGeometryAdapter
         MeshNamedTextureResolver? textureProvider)
     {
         for (var i = 0; i < world.Materials.Length && i < document.Materials.Count; i++)
-            ApplyRwMaterial(document, document.Materials[i], world.Materials[i], textureProvider, forBsp: true);
+            ApplyRwMaterial(document, document.Materials[i], world.Materials[i], textureProvider, true);
 
         var mesh = new ModelMesh { Name = "level" };
         foreach (var group in world.Sections
@@ -541,7 +551,7 @@ internal static class ModelDocumentGeometryAdapter
             }
 
             if (materialIndex >= document.Materials.Count)
-                materialIndex = AddRwMaterial(document, rwMaterial, textureProvider, forBsp: true);
+                materialIndex = AddRwMaterial(document, rwMaterial, textureProvider, true);
 
             var vertices = new List<ModelVertex>();
             var indices = new List<int>();
@@ -649,7 +659,7 @@ internal static class ModelDocumentGeometryAdapter
                 document,
                 materialCache,
                 leaf,
-                textureProvider: null,
+                null,
                 effectiveTexaTextureProvider,
                 tex0Resolver,
                 textureChecksum,
@@ -670,11 +680,11 @@ internal static class ModelDocumentGeometryAdapter
                     "strip",
                     materialIndex,
                     localizedVertices,
-                    startsOnOddOutputSlot: false,
-                    dedup: null,
-                    resetOnRestart: true,
-                    preserveVertexAlpha: preserveVertexAlpha,
-                    bakeVertexColorsToWhite: false);
+                    false,
+                    null,
+                    true,
+                    preserveVertexAlpha,
+                    false);
 
                 if (primitive == null)
                     continue;
@@ -694,7 +704,7 @@ internal static class ModelDocumentGeometryAdapter
                 if (leaf.BillboardDescriptor is { } billboard)
                 {
                     primitive.NativeMetadata.Add(new Ps2WorldzoneBillboardMetadata(
-                        BillboardKind: billboard.Kind.ToString(),
+                        billboard.Kind.ToString(),
                         billboard.Anchor.X, billboard.Anchor.Y, billboard.Anchor.Z,
                         billboard.Size.X, billboard.Size.Y,
                         billboard.PivotLocal.X, billboard.PivotLocal.Y, billboard.PivotLocal.Z,
@@ -714,7 +724,8 @@ internal static class ModelDocumentGeometryAdapter
                 Ps2GeomRenderSemantics.WritesFramebufferAlpha(leaf) &&
                 !Ps2GeomRenderSemantics.UsesDestinationAlphaBlend((byte)(leaf.DmaAlpha1 & 0xFF)))
             {
-                recentAlphaMasks[geometryKey] = new Ps2DestinationAlphaMaskCandidate(geometryKey, textureChecksum, leaf);
+                recentAlphaMasks[geometryKey] =
+                    new Ps2DestinationAlphaMaskCandidate(geometryKey, textureChecksum, leaf);
             }
         }
     }
@@ -1009,8 +1020,8 @@ internal static class ModelDocumentGeometryAdapter
             if (localIndex < 2)
                 continue;
 
-            var a = ((localIndex & 1) == 0) ? vertices[i - 2].Position : vertices[i - 1].Position;
-            var b = ((localIndex & 1) == 0) ? vertices[i - 1].Position : vertices[i - 2].Position;
+            var a = (localIndex & 1) == 0 ? vertices[i - 2].Position : vertices[i - 1].Position;
+            var b = (localIndex & 1) == 0 ? vertices[i - 1].Position : vertices[i - 2].Position;
             var c = vertices[i].Position;
             var cross = Vector3.Cross(b - a, c - a);
             if (cross.LengthSquared() > 1e-8f)
@@ -1325,6 +1336,7 @@ internal static class ModelDocumentGeometryAdapter
                 aIdx = i - 1;
                 bIdx = i - 2;
             }
+
             var cIdx = i;
 
             var aPos = sourceVertices[aIdx].Position;
@@ -1469,16 +1481,6 @@ internal static class ModelDocumentGeometryAdapter
             ComputePsxTextureUv(version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height));
     }
 
-    /// <summary>
-    ///     Optional per-vertex PS2 worldzone lighting model. Null by default so
-    ///     worldzone exports pass source vertex colours through unchanged; callers
-    ///     can provide a value to bake an experimental ambient + N·L_sun model.
-    /// </summary>
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1810",
-        Justification = "intentional global; thread-safety asserted by single-threaded IR build")]
-    [ThreadStatic]
-    private static Ps2Scene.Ps2WorldzoneConverter.Ps2WorldzoneLighting? _activePs2WorldzoneLighting;
-
     private static ModelVertex MakePs2Vertex(
         Ps2Vertex vertex,
         bool preserveVertexAlpha,
@@ -1497,7 +1499,7 @@ internal static class ModelDocumentGeometryAdapter
         var hasUsableNormal = vertex.HasNormal || fallbackNormal.HasValue;
         var normal = vertex.HasNormal
             ? NormalizeOrDefault(vertex.Normal)
-            : (fallbackNormal ?? Vector3.UnitY);
+            : fallbackNormal ?? Vector3.UnitY;
 
         if (!bakeVertexColorsToWhite && _activePs2WorldzoneLighting is { } lighting && hasUsableNormal)
         {
@@ -1656,9 +1658,9 @@ internal static class ModelDocumentGeometryAdapter
         string? alphaModeOverride = null)
     {
         var textureChecksum = textureChecksumOverride
-            ?? (leaf.TextureChecksum != 0
-                ? leaf.TextureChecksum
-                : tex0Resolver?.Invoke(leaf.DmaTex0, leaf.GroupChecksum) ?? 0);
+                              ?? (leaf.TextureChecksum != 0
+                                  ? leaf.TextureChecksum
+                                  : tex0Resolver?.Invoke(leaf.DmaTex0, leaf.GroupChecksum) ?? 0);
         byte[]? pngBytes = null;
         if ((textureProvider != null || texaTextureProvider != null) && textureChecksum != 0)
         {
@@ -1741,7 +1743,7 @@ internal static class ModelDocumentGeometryAdapter
         if (aField != 0 || bField != 1 || cField != 2 || dField != 1)
             return;
 
-        var opacity = Math.Clamp((float)((alpha >> 32) & 0xFF) / 128f, 0f, 1f);
+        var opacity = Math.Clamp(((alpha >> 32) & 0xFF) / 128f, 0f, 1f);
         renderMaterial.BaseColor = new Vector4(
             renderMaterial.BaseColor.X,
             renderMaterial.BaseColor.Y,
@@ -1959,8 +1961,9 @@ internal static class ModelDocumentGeometryAdapter
             : new Vector2(u / (float)Math.Max(texWidth, 1), v / (float)Math.Max(texHeight, 1));
     }
 
-    private static uint GetPsxFaceVertexIndex(PsxFace face, int slot) =>
-        slot switch
+    private static uint GetPsxFaceVertexIndex(PsxFace face, int slot)
+    {
+        return slot switch
         {
             0 => face.Index0,
             1 => face.Index1,
@@ -1968,17 +1971,22 @@ internal static class ModelDocumentGeometryAdapter
             3 => face.Index3,
             _ => throw new ArgumentOutOfRangeException(nameof(slot))
         };
+    }
 
-    private static bool UsesCombinedPsxCharacterAssembly(PsxMeshFile psxFile) =>
-        psxFile.HasHierarchy ||
-        psxFile.Meshes.Any(static mesh => mesh.Vertices.Any(static vertex =>
-            PsxMeshSemantics.IsExactStitchedReference(vertex.Type)));
+    private static bool UsesCombinedPsxCharacterAssembly(PsxMeshFile psxFile)
+    {
+        return psxFile.HasHierarchy ||
+               psxFile.Meshes.Any(static mesh => mesh.Vertices.Any(static vertex =>
+                   PsxMeshSemantics.IsExactStitchedReference(vertex.Type)));
+    }
 
-    private static HashSet<int> BuildPsxLodVariantSet(PsxMeshFile psxFile) =>
-        psxFile.Meshes
+    private static HashSet<int> BuildPsxLodVariantSet(PsxMeshFile psxFile)
+    {
+        return psxFile.Meshes
             .Select(static mesh => (int)mesh.LodNextMeshIndex)
             .Where(index => index != ushort.MaxValue && index < psxFile.Meshes.Count)
             .ToHashSet();
+    }
 
     private static string ResolvePsxMeshName(PsxMeshFile psxFile, int meshIndex)
     {
@@ -2109,10 +2117,12 @@ internal static class ModelDocumentGeometryAdapter
         return document.Textures.Count - 1;
     }
 
-    private static void FinalizeTriangleCount(ModelDocument document) =>
+    private static void FinalizeTriangleCount(ModelDocument document)
+    {
         document.TriangleCount = document.Meshes
             .SelectMany(static mesh => mesh.Primitives)
             .Sum(static primitive => primitive.TriangleCount);
+    }
 
     private static Vector3 NormalizeOrDefault(Vector3 value)
     {
@@ -2164,21 +2174,29 @@ internal static class ModelDocumentGeometryAdapter
         return world;
     }
 
-    private static ModelTextureWrap Ps2ClampToWrap(uint mode) =>
-        mode is 1 or 2 ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat;
+    private static ModelTextureWrap Ps2ClampToWrap(uint mode)
+    {
+        return mode is 1 or 2 ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat;
+    }
 
-    private static Vector4 ToColor(RwVertexColor color) =>
-        new(color.R / 255f, color.G / 255f, color.B / 255f, color.A / 255f);
+    private static Vector4 ToColor(RwVertexColor color)
+    {
+        return new Vector4(color.R / 255f, color.G / 255f, color.B / 255f, color.A / 255f);
+    }
 
-    private static bool IsRwDevTexture(string name) =>
-        string.Equals(name, "wire", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(name, "transparent", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("_CR_Collision_", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("_CR_TriggerPlane_", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("_CR_VertPoly", StringComparison.OrdinalIgnoreCase);
+    private static bool IsRwDevTexture(string name)
+    {
+        return string.Equals(name, "wire", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(name, "transparent", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("_CR_Collision_", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("_CR_TriggerPlane_", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("_CR_VertPoly", StringComparison.OrdinalIgnoreCase);
+    }
 
-    private static string ResolveQbName(uint checksum, string fallback) =>
-        QbKey.QbKey.TryResolve(checksum) ?? fallback;
+    private static string ResolveQbName(uint checksum, string fallback)
+    {
+        return QbKey.QbKey.TryResolve(checksum) ?? fallback;
+    }
 
     private static (int Width, int Height)? TryExtractPngDimensions(ReadOnlySpan<byte> pngBytes)
     {

@@ -111,7 +111,8 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]sfd[/]       Convert SFD (Sofdec) video files to MP4");
         AnsiConsole.MarkupLine("  [green]vid[/]       Convert THAW GameCube VID1 video files to MP4");
         AnsiConsole.MarkupLine("  [green]str[/]       Convert PS1 STR (MDEC) video files to MP4");
-        AnsiConsole.MarkupLine("  [green]mesh[/]      Auto-detect and convert supported mesh files to glTF (.glb) or Blender (.blend)");
+        AnsiConsole.MarkupLine(
+            "  [green]mesh[/]      Auto-detect and convert supported mesh files to glTF (.glb) or Blender (.blend)");
         AnsiConsole.MarkupLine("  [green]psx-mesh[/]  Convert PSX model files to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]psx-mesh-dump[/] Dump PSX mesh parse diagnostics to JSON");
         AnsiConsole.MarkupLine("  [green]ps2tex[/]    Extract textures from PS2 TEX/IMG files to PNG");

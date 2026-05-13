@@ -12,7 +12,7 @@ internal static class Vid1IntraDc
     private static readonly uint[] ChromaDcSizeFallback =
     [
         0x00000000, 0x00060004, 0x00060003, 0x00060000,
-        0x00040002, 0x00040002, 0x00040001, 0x00040001,
+        0x00040002, 0x00040002, 0x00040001, 0x00040001
     ];
 
     /// <summary>
@@ -36,6 +36,7 @@ internal static class Vid1IntraDc
                     reader.SkipBits(size);
                     return size + 1;
                 }
+
                 peek >>= 1;
                 size--;
             }
@@ -55,9 +56,11 @@ internal static class Vid1IntraDc
                     reader.SkipBits(size);
                     return size;
                 }
+
                 peek >>= 1;
                 size--;
             }
+
             // No unary-prefix match: sizes 0..3 encoded as a 2-bit tail.
             var tail = reader.ReadBits(2);
             return 3 - tail;
@@ -65,7 +68,7 @@ internal static class Vid1IntraDc
     }
 
     /// <summary>
-    ///     Read a DC coefficient's magnitude as <paramref name="size"/> bits
+    ///     Read a DC coefficient's magnitude as <paramref name="size" /> bits
     ///     from the stream, sign-extending when the MSB is 0 (standard
     ///     MPEG-4 DC coding).
     /// </summary>
@@ -73,10 +76,11 @@ internal static class Vid1IntraDc
     {
         if (size == 0) return 0;
         var value = reader.ReadBits(size);
-        if ((value >> (size - 1)) == 0)
+        if (value >> (size - 1) == 0)
         {
             value = -(value ^ ((1 << size) - 1));
         }
+
         return value;
     }
 }

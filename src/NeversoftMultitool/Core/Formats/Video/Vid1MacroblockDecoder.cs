@@ -11,11 +11,15 @@ namespace NeversoftMultitool.Core.Formats.Video;
 ///     The following are intentionally simplified in this first pass; see
 ///     the plan file for the refinement backlog:
 ///     <list type="bullet">
-///         <item>Motion vector decode — inter macroblocks use a zero motion vector
-///               (prediction = reference block at the same position).</item>
+///         <item>
+///             Motion vector decode — inter macroblocks use a zero motion vector
+///             (prediction = reference block at the same position).
+///         </item>
 ///         <item>GMC sprite warping — stubbed to identity.</item>
-///         <item>CBP extras (<c>FUN_8029C214</c> / <c>FUN_8029CE08</c>) — skipped;
-///               we rely solely on <c>control.ControlWord</c> as the CBP mask.</item>
+///         <item>
+///             CBP extras (<c>FUN_8029C214</c> / <c>FUN_8029CE08</c>) — skipped;
+///             we rely solely on <c>control.ControlWord</c> as the CBP mask.
+///         </item>
 ///     </list>
 /// </remarks>
 internal static class Vid1MacroblockDecoder
@@ -29,12 +33,13 @@ internal static class Vid1MacroblockDecoder
     private static readonly byte[] ZigzagScan = Vid1CoefficientDecoder.GetScanTable("zigzag");
     private static readonly byte[] HorizontalScan = Vid1CoefficientDecoder.GetScanTable("horizontal");
     private static readonly byte[] VerticalScan = Vid1CoefficientDecoder.GetScanTable("vertical");
+
     private static readonly int[] FourMotionChromaMvRoundingTable =
     [
         0, 0, 0, 1,
         1, 1, 1, 1,
         1, 1, 1, 1,
-        1, 1, 2, 2,
+        1, 1, 2, 2
     ];
 
     public static void Decode(
@@ -75,7 +80,7 @@ internal static class Vid1MacroblockDecoder
         var lumaY = mbY * 16;
         for (var row = 0; row < 16; row++)
         {
-            var srcOffset = ((lumaY + row) * ctx.Width) + lumaX;
+            var srcOffset = (lumaY + row) * ctx.Width + lumaX;
             Buffer.BlockCopy(ctx.ReferenceY, srcOffset, ctx.OutputY, srcOffset, 16);
         }
 
@@ -84,7 +89,7 @@ internal static class Vid1MacroblockDecoder
         var chromaY = mbY * 8;
         for (var row = 0; row < 8; row++)
         {
-            var srcOffset = ((chromaY + row) * ctx.ChromaWidth) + chromaX;
+            var srcOffset = (chromaY + row) * ctx.ChromaWidth + chromaX;
             Buffer.BlockCopy(ctx.ReferenceCb, srcOffset, ctx.OutputCb, srcOffset, 8);
             Buffer.BlockCopy(ctx.ReferenceCr, srcOffset, ctx.OutputCr, srcOffset, 8);
         }
@@ -153,7 +158,7 @@ internal static class Vid1MacroblockDecoder
                     {
                         "horizontal" => 1,
                         "vertical" => 2,
-                        _ => 0,
+                        _ => 0
                     };
                     ctx.MbState[GetMbStateOffset(ctx, mbX, mbY) + 2 + block] = (byte)scanTableIndex;
                 }
@@ -176,7 +181,7 @@ internal static class Vid1MacroblockDecoder
             if (isCoded)
             {
                 Vid1CoefficientDecoder.DecodeBlock(
-                    vlcReader, useBundleB: true, scanTable, quant, startIndex: startIndex);
+                    vlcReader, true, scanTable, quant, startIndex);
             }
 
             if (usePrediction)
@@ -201,7 +206,7 @@ internal static class Vid1MacroblockDecoder
             // Intra/inter reconstruction is a macroblock-type decision, not a
             // side effect of whether DC arrived through the pre-decode path.
             var intraWriteOffset = configuredIntraOffset ?? 0;
-            WriteBlockToPlane(ctx, dequant, mbX, mbY, block, intra: isIntraMacroblock, intraWriteOffset);
+            WriteBlockToPlane(ctx, dequant, mbX, mbY, block, isIntraMacroblock, intraWriteOffset);
         }
     }
 
@@ -297,7 +302,8 @@ internal static class Vid1MacroblockDecoder
     }
 
     private static void WriteBlockToPlane(
-        Vid1FrameContext ctx, ReadOnlySpan<short> residual, int mbX, int mbY, int blockIndex, bool intra, int intraWriteOffset)
+        Vid1FrameContext ctx, ReadOnlySpan<short> residual, int mbX, int mbY, int blockIndex, bool intra,
+        int intraWriteOffset)
     {
         byte[] refPlane;
         byte[] outPlane;
@@ -312,8 +318,8 @@ internal static class Vid1MacroblockDecoder
             stride = ctx.Width;
             width = ctx.Width;
             height = ctx.Height;
-            dstX = mbX * 16 + ((blockIndex & 1) * 8);
-            dstY = mbY * 16 + ((blockIndex >> 1) * 8);
+            dstX = mbX * 16 + (blockIndex & 1) * 8;
+            dstY = mbY * 16 + (blockIndex >> 1) * 8;
         }
         else if (blockIndex == 4)
         {
@@ -347,11 +353,11 @@ internal static class Vid1MacroblockDecoder
             // Inter with zero MV = reference at (dstX, dstY) + residual.
             Vid1MotionComp.PredictInterBlock(
                 refPlane, stride, width, height,
-                srcX: dstX, srcY: dstY, halfX: 0, halfY: 0,
+                dstX, dstY, 0, 0,
                 residual,
                 outPlane, stride,
-                dstX: dstX, dstY: dstY,
-                roundingBias: ctx.SubpixelRoundingBias);
+                dstX, dstY,
+                ctx.SubpixelRoundingBias);
         }
     }
 
@@ -377,8 +383,8 @@ internal static class Vid1MacroblockDecoder
             stride = ctx.Width;
             width = ctx.Width;
             height = ctx.Height;
-            dstX = mbX * 16 + ((blockIndex & 1) * 8);
-            dstY = mbY * 16 + ((blockIndex >> 1) * 8);
+            dstX = mbX * 16 + (blockIndex & 1) * 8;
+            dstY = mbY * 16 + (blockIndex >> 1) * 8;
             mvX = ReadInt32(ctx.MbState, mbBase + MotionVectorOffsetBase + blockIndex * MotionVectorStride);
             mvY = ReadInt32(ctx.MbState, mbBase + MotionVectorOffsetBase + blockIndex * MotionVectorStride + 4);
         }
@@ -396,12 +402,12 @@ internal static class Vid1MacroblockDecoder
 
         Vid1MotionComp.PredictInterBlock(
             refPlane, stride, width, height,
-            srcX: dstX + (mvX >> 1), srcY: dstY + (mvY >> 1),
-            halfX: mvX & 1, halfY: mvY & 1,
+            dstX + (mvX >> 1), dstY + (mvY >> 1),
+            mvX & 1, mvY & 1,
             residual,
             outPlane, stride,
-            dstX: dstX, dstY: dstY,
-            roundingBias: ctx.SubpixelRoundingBias);
+            dstX, dstY,
+            ctx.SubpixelRoundingBias);
     }
 
     private static void WarpSpriteMacroblock(Vid1FrameContext ctx, int mbX, int mbY)
@@ -419,9 +425,9 @@ internal static class Vid1MacroblockDecoder
             ctx.SpriteLumaX,
             ctx.SpriteLumaY,
             accuracy,
-            minCoord: -16,
-            maxX: ctx.Width,
-            maxY: ctx.Height);
+            -16,
+            ctx.Width,
+            ctx.Height);
 
         Vid1MotionComp.WarpSpriteBlock(
             ctx.ReferenceY, ctx.Width, ctx.Width, ctx.Height,
@@ -454,9 +460,9 @@ internal static class Vid1MacroblockDecoder
             ctx.SpriteChromaX,
             ctx.SpriteChromaY,
             accuracy,
-            minCoord: -8,
-            maxX: ctx.ChromaWidth,
-            maxY: ctx.ChromaHeight);
+            -8,
+            ctx.ChromaWidth,
+            ctx.ChromaHeight);
 
         Vid1MotionComp.WarpSpriteBlock(
             ctx.ReferenceCb, ctx.ChromaWidth, ctx.ChromaWidth, ctx.ChromaHeight,
@@ -480,8 +486,8 @@ internal static class Vid1MacroblockDecoder
 
         for (var block = 0; block < 4; block++)
         {
-            var dstX = lumaX + ((block & 1) * 8);
-            var dstY = lumaY + ((block >> 1) * 8);
+            var dstX = lumaX + (block & 1) * 8;
+            var dstY = lumaY + (block >> 1) * 8;
             Vid1MotionComp.WarpSpriteAffineBlock(
                 ctx.ReferenceY, ctx.Width, ctx.Width, ctx.Height,
                 dstX, dstY,
@@ -540,8 +546,8 @@ internal static class Vid1MacroblockDecoder
             ctx.ReferenceY, ctx.Width, ctx.Width, ctx.Height,
             ctx.OutputY, ctx.Width,
             mbX * 16, mbY * 16,
-            blockWidth: 16,
-            blockHeight: 16,
+            16,
+            16,
             firstMvX, firstMvY,
             secondMvX, secondMvY,
             fieldSelectBits,
@@ -556,8 +562,8 @@ internal static class Vid1MacroblockDecoder
             ctx.ReferenceCb, ctx.ChromaWidth, ctx.ChromaWidth, ctx.ChromaHeight,
             ctx.OutputCb, ctx.ChromaWidth,
             chromaX, chromaY,
-            blockWidth: 8,
-            blockHeight: 8,
+            8,
+            8,
             firstChromaX, firstChromaY,
             secondChromaX, secondChromaY,
             fieldSelectBits,
@@ -566,8 +572,8 @@ internal static class Vid1MacroblockDecoder
             ctx.ReferenceCr, ctx.ChromaWidth, ctx.ChromaWidth, ctx.ChromaHeight,
             ctx.OutputCr, ctx.ChromaWidth,
             chromaX, chromaY,
-            blockWidth: 8,
-            blockHeight: 8,
+            8,
+            8,
             firstChromaX, firstChromaY,
             secondChromaX, secondChromaY,
             fieldSelectBits,
@@ -630,8 +636,8 @@ internal static class Vid1MacroblockDecoder
         {
             outPlane = ctx.OutputY;
             stride = ctx.Width;
-            dstX = mbX * 16 + ((blockIndex & 1) * 8);
-            dstY = mbY * 16 + ((blockIndex >> 1) * 8);
+            dstX = mbX * 16 + (blockIndex & 1) * 8;
+            dstY = mbY * 16 + (blockIndex >> 1) * 8;
         }
         else
         {
@@ -662,7 +668,8 @@ internal static class Vid1MacroblockDecoder
         if (isFieldPrediction && !isFourMotionVectors)
         {
             var predictorYHalf = DivideByTwoTruncated(predictor[1]);
-            DecodeMotionVectorPair(reader, ctx.ForwardFCode, predictor[0], predictor[1], ctx.MbState, mbBase + MotionVectorOffsetBase);
+            DecodeMotionVectorPair(reader, ctx.ForwardFCode, predictor[0], predictor[1], ctx.MbState,
+                mbBase + MotionVectorOffsetBase);
             DecodeMotionVectorPair(
                 reader,
                 ctx.ForwardFCode,
@@ -677,11 +684,13 @@ internal static class Vid1MacroblockDecoder
             WriteInt32(
                 ctx.MbState,
                 mbBase + MotionVectorOffsetBase + MotionVectorStride + 4,
-                (ReadInt32(ctx.MbState, mbBase + MotionVectorOffsetBase + MotionVectorStride + 4) + predictorYHalf) * 2);
+                (ReadInt32(ctx.MbState, mbBase + MotionVectorOffsetBase + MotionVectorStride + 4) + predictorYHalf) *
+                2);
             return;
         }
 
-        DecodeMotionVectorPair(reader, ctx.ForwardFCode, predictor[0], predictor[1], ctx.MbState, mbBase + MotionVectorOffsetBase);
+        DecodeMotionVectorPair(reader, ctx.ForwardFCode, predictor[0], predictor[1], ctx.MbState,
+            mbBase + MotionVectorOffsetBase);
 
         if (!isFourMotionVectors)
         {
@@ -795,6 +804,7 @@ internal static class Vid1MacroblockDecoder
                     candidateMbY = mbY - 1;
                     blockIndex = 2;
                 }
+
                 break;
 
             case 1:
@@ -816,6 +826,7 @@ internal static class Vid1MacroblockDecoder
                     candidateMbY = mbY - 1;
                     blockIndex = 2;
                 }
+
                 break;
 
             case 2:
@@ -837,6 +848,7 @@ internal static class Vid1MacroblockDecoder
                     candidateMbY = mbY;
                     blockIndex = 1;
                 }
+
                 break;
 
             default:
@@ -858,6 +870,7 @@ internal static class Vid1MacroblockDecoder
                     candidateMbY = mbY;
                     blockIndex = 1;
                 }
+
                 break;
         }
 
@@ -931,30 +944,40 @@ internal static class Vid1MacroblockDecoder
         return (RoundFourMotionChroma(sumX), RoundFourMotionChroma(sumY));
     }
 
-    private static void InitializeMacroblockState(Vid1FrameContext ctx, int mbX, int mbY, int macroblockType, int quantizer)
+    private static void InitializeMacroblockState(Vid1FrameContext ctx, int mbX, int mbY, int macroblockType,
+        int quantizer)
     {
         var mbBase = GetMbStateOffset(ctx, mbX, mbY);
         ctx.MbState[mbBase] = (byte)(macroblockType & 0xFF);
         ctx.MbState[mbBase + 1] = (byte)(quantizer & 0xFF);
     }
 
-    private static byte[] GetScanTable(int scanTableIndex) => scanTableIndex switch
+    private static byte[] GetScanTable(int scanTableIndex)
     {
-        // FUN_8029BFAC installs ctx+0x94 as zigzag, ctx+0x98 as the
-        // horizontal scan, and ctx+0x9C as the vertical scan.
-        1 => HorizontalScan,
-        2 => VerticalScan,
-        _ => ZigzagScan,
-    };
+        return scanTableIndex switch
+        {
+            // FUN_8029BFAC installs ctx+0x94 as zigzag, ctx+0x98 as the
+            // horizontal scan, and ctx+0x9C as the vertical scan.
+            1 => HorizontalScan,
+            2 => VerticalScan,
+            _ => ZigzagScan
+        };
+    }
 
     private static string GetA878PredictionMode()
-        => Environment.GetEnvironmentVariable("VID1_A878_PREDICT")?.ToLowerInvariant() ?? "all";
+    {
+        return Environment.GetEnvironmentVariable("VID1_A878_PREDICT")?.ToLowerInvariant() ?? "all";
+    }
 
     private static string GetA878ScanMode()
-        => Environment.GetEnvironmentVariable("VID1_A878_SCAN_MODE")?.ToLowerInvariant() ?? "auto";
+    {
+        return Environment.GetEnvironmentVariable("VID1_A878_SCAN_MODE")?.ToLowerInvariant() ?? "auto";
+    }
 
     private static bool ShouldEnableFieldPrediction()
-        => Environment.GetEnvironmentVariable("VID1_FIELD_PREDICTION") == "1";
+    {
+        return Environment.GetEnvironmentVariable("VID1_FIELD_PREDICTION") == "1";
+    }
 
     private static bool ShouldApplyA878Prediction(string predictionMode, bool isIntraMacroblock, int blockIndex)
     {
@@ -966,7 +989,7 @@ internal static class Vid1MacroblockDecoder
             "all" => true,
             "luma" => blockIndex < 4,
             "chroma" => blockIndex >= 4,
-            _ => false,
+            _ => false
         };
     }
 
@@ -983,13 +1006,17 @@ internal static class Vid1MacroblockDecoder
     }
 
     private static int GetMbStateOffset(Vid1FrameContext ctx, int mbX, int mbY)
-        => (mbY * ctx.MbCols + mbX) * Vid1FrameContext.MbStateStride;
+    {
+        return (mbY * ctx.MbCols + mbX) * Vid1FrameContext.MbStateStride;
+    }
 
     private static int ReadInt32(byte[] buffer, int offset)
-        => (buffer[offset] << 24) |
-           (buffer[offset + 1] << 16) |
-           (buffer[offset + 2] << 8) |
-           buffer[offset + 3];
+    {
+        return (buffer[offset] << 24) |
+               (buffer[offset + 1] << 16) |
+               (buffer[offset + 2] << 8) |
+               buffer[offset + 3];
+    }
 
     private static void WriteInt32(byte[] buffer, int offset, int value)
     {
@@ -1011,7 +1038,9 @@ internal static class Vid1MacroblockDecoder
     }
 
     private static int RoundHalfChroma(int value)
-        => (value & 3) == 0 ? value / 2 : (value >> 1) | 1;
+    {
+        return (value & 3) == 0 ? value / 2 : (value >> 1) | 1;
+    }
 
     private static (int X, int Y) ComputeFieldChromaMotionVector(int mvX, int mvY)
     {
@@ -1032,15 +1061,19 @@ internal static class Vid1MacroblockDecoder
             return 0;
 
         var magnitude = Math.Abs(value);
-        var rounded = FourMotionChromaMvRoundingTable[magnitude & 0xF] + ((magnitude >> 4) * 2);
+        var rounded = FourMotionChromaMvRoundingTable[magnitude & 0xF] + (magnitude >> 4) * 2;
         return value < 0 ? -rounded : rounded;
     }
 
     private static int RoundHalvedOdd(int value)
-        => (value >> 1) | (value & 1);
+    {
+        return (value >> 1) | (value & 1);
+    }
 
     private static int DivideByTwoTruncated(int value)
-        => value < 0 ? -((-value) / 2) : value / 2;
+    {
+        return value < 0 ? -(-value / 2) : value / 2;
+    }
 
     internal static int ComputeDcScale(int qp, bool isLuma)
     {
@@ -1056,5 +1089,4 @@ internal static class Vid1MacroblockDecoder
         if (qp is >= 5 and <= 24) return (qp + 13) / 2;
         return qp - 6;
     }
-
 }

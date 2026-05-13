@@ -2,14 +2,14 @@ namespace NeversoftMultitool.Core.Formats.Video;
 
 /// <summary>
 ///     Shared mutable decoding state carried from frame to frame, and across
-///     macroblocks within a frame. Created once per <see cref="Vid1Decoder"/>
+///     macroblocks within a frame. Created once per <see cref="Vid1Decoder" />
 ///     instance and reused for each <c>DecodeFrame</c> call.
 /// </summary>
 internal sealed class Vid1FrameContext
 {
-    public const int MbStateStride = 0x100;     // bytes per MB in state buffer
-    public const int MbBlockOffsetBase = 0x28;  // first block's prediction data offset
-    public const int MbBlockStride = 0x1E;      // 30 bytes per block (DC + 7 top + 7 left)
+    public const int MbStateStride = 0x100; // bytes per MB in state buffer
+    public const int MbBlockOffsetBase = 0x28; // first block's prediction data offset
+    public const int MbBlockStride = 0x1E; // 30 bytes per block (DC + 7 top + 7 left)
 
     public Vid1FrameContext(int width, int height, byte[] intraMatrix, byte[] interMatrix)
     {
@@ -86,11 +86,11 @@ internal sealed class Vid1FrameContext
 
     public byte[] OutputCr { get; }
 
-    public byte[] ReferenceY { get; private set; }
+    public byte[] ReferenceY { get; }
 
-    public byte[] ReferenceCb { get; private set; }
+    public byte[] ReferenceCb { get; }
 
-    public byte[] ReferenceCr { get; private set; }
+    public byte[] ReferenceCr { get; }
 
     public byte[] PreviousReferenceY { get; }
 
@@ -170,7 +170,10 @@ internal sealed class Vid1FrameContext
 
     public int SpriteAnchor3Y { get; }
 
-    public void ClearMbState() => Array.Clear(MbState);
+    public void ClearMbState()
+    {
+        Array.Clear(MbState);
+    }
 
     public void ResetSpriteWarp()
     {

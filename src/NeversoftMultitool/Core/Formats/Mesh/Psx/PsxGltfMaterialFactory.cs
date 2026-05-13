@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using NeversoftMultitool.Core.Formats.Mesh;
 using SharpGLTF.Materials;
 using SharpGLTF.Memory;
 

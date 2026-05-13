@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
@@ -105,7 +106,7 @@ public static class Ps2SceneCommand
                 if (!TryParseWorldzoneTimeOfDay(worldzoneTimeOfDayText, out var worldzoneTimeOfDay))
                 {
                     AnsiConsole.MarkupLine(
-                        $"[red]Error:[/] --worldzone-time-of-day must be one of: all, day, night");
+                        "[red]Error:[/] --worldzone-time-of-day must be one of: all, day, night");
                     return Task.FromResult(1);
                 }
 
@@ -135,7 +136,9 @@ public static class Ps2SceneCommand
                     verbose,
                     cancellationToken));
             }
-            return Task.FromResult(Execute(input, output, texPath, verbose, skePath, format, blenderHelper, cancellationToken));
+
+            return Task.FromResult(Execute(input, output, texPath, verbose, skePath, format, blenderHelper,
+                cancellationToken));
         });
 
         return command;

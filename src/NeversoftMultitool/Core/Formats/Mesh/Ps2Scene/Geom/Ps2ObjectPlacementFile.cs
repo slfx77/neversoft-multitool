@@ -19,51 +19,9 @@ public static class Ps2ObjectPlacementFile
     private const int BlockStrideFactor = ItemStride + ItemTailStride; // 0x74
     private const int MaxCountPerBlock = 100;
 
-    public sealed record ObjectPlacementFile
-    {
-        public required IReadOnlyList<PlacementBlock> Blocks { get; init; }
-    }
-
-    public sealed record PlacementBlock
-    {
-        public required int Offset { get; init; }
-        public required uint Flag { get; init; }
-        public required IReadOnlyList<PlacementItem> Items { get; init; }
-
-        /// <summary>
-        ///     World-space AABB center derived from item 0's bbox. Empty when the block has no items.
-        /// </summary>
-        public Vector3 AabbCenter => Items.Count > 0
-            ? (Items[0].BboxMin + Items[0].BboxMax) * 0.5f
-            : Vector3.Zero;
-    }
-
-    public sealed record PlacementItem
-    {
-        public required int Offset { get; init; }
-
-        /// <summary>World-space bbox minimum corner. Only meaningful for item 0 of each block.</summary>
-        public required Vector3 BboxMin { get; init; }
-
-        /// <summary>World-space bbox maximum corner. Only meaningful for item 0 of each block.</summary>
-        public required Vector3 BboxMax { get; init; }
-
-        /// <summary>Flag word at item+0x40. High byte encoded build-tool discriminator; bits 0x10/0x200/0x400 control post-processing.</summary>
-        public required uint Field_40 { get; init; }
-
-        /// <summary>
-        ///     For item 0: byte offset into the preceding .mdl preamble (looks up a PreambleRecord).
-        ///     For item 1: a class/instance hash.
-        /// </summary>
-        public required uint Field_44 { get; init; }
-
-        /// <summary>Class/instance hash. Item 0 holds a render-side class hash; item 1 typically holds 0xFFFFFFFF.</summary>
-        public required uint Field_4C { get; init; }
-    }
-
     /// <summary>
     ///     Parse a .91E1028D PAK entry as a chain of placement blocks.
-    ///     Returns false with a populated <paramref name="skipReason"/> for outlier variants (dense
+    ///     Returns false with a populated <paramref name="skipReason" /> for outlier variants (dense
     ///     float data, degenerate-header dumps, or anything else that doesn't parse as a block chain).
     /// </summary>
     public static bool TryParse(byte[] data, out ObjectPlacementFile? result, out string skipReason)
@@ -164,5 +122,50 @@ public static class Ps2ObjectPlacementFile
             Field_44 = BinaryPrimitives.ReadUInt32LittleEndian(span[0x44..]),
             Field_4C = BinaryPrimitives.ReadUInt32LittleEndian(span[0x4C..])
         };
+    }
+
+    public sealed record ObjectPlacementFile
+    {
+        public required IReadOnlyList<PlacementBlock> Blocks { get; init; }
+    }
+
+    public sealed record PlacementBlock
+    {
+        public required int Offset { get; init; }
+        public required uint Flag { get; init; }
+        public required IReadOnlyList<PlacementItem> Items { get; init; }
+
+        /// <summary>
+        ///     World-space AABB center derived from item 0's bbox. Empty when the block has no items.
+        /// </summary>
+        public Vector3 AabbCenter => Items.Count > 0
+            ? (Items[0].BboxMin + Items[0].BboxMax) * 0.5f
+            : Vector3.Zero;
+    }
+
+    public sealed record PlacementItem
+    {
+        public required int Offset { get; init; }
+
+        /// <summary>World-space bbox minimum corner. Only meaningful for item 0 of each block.</summary>
+        public required Vector3 BboxMin { get; init; }
+
+        /// <summary>World-space bbox maximum corner. Only meaningful for item 0 of each block.</summary>
+        public required Vector3 BboxMax { get; init; }
+
+        /// <summary>
+        ///     Flag word at item+0x40. High byte encoded build-tool discriminator; bits 0x10/0x200/0x400 control
+        ///     post-processing.
+        /// </summary>
+        public required uint Field_40 { get; init; }
+
+        /// <summary>
+        ///     For item 0: byte offset into the preceding .mdl preamble (looks up a PreambleRecord).
+        ///     For item 1: a class/instance hash.
+        /// </summary>
+        public required uint Field_44 { get; init; }
+
+        /// <summary>Class/instance hash. Item 0 holds a render-side class hash; item 1 typically holds 0xFFFFFFFF.</summary>
+        public required uint Field_4C { get; init; }
     }
 }

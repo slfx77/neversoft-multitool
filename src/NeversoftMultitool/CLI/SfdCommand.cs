@@ -23,7 +23,8 @@ public static class SfdCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("sfd", "Convert video files to MP4 (SFD/BIK via ffmpeg, PSS with ADS audio extraction)");
+        var command = new Command("sfd",
+            "Convert video files to MP4 (SFD/BIK via ffmpeg, PSS with ADS audio extraction)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);

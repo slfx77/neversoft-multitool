@@ -67,7 +67,8 @@ public static class DdmCommand
 
             if (all)
                 return Task.FromResult(ExecuteAll(input, output, verbose, format, blenderHelper, cancellationToken));
-            return Task.FromResult(Execute(input, output, textures, verbose, ddx, psx, format, blenderHelper, cancellationToken));
+            return Task.FromResult(Execute(input, output, textures, verbose, ddx, psx, format, blenderHelper,
+                cancellationToken));
         });
 
         return command;

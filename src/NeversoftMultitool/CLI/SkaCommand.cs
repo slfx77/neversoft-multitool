@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
@@ -14,6 +15,13 @@ namespace NeversoftMultitool.CLI;
 public static class SkaCommand
 {
     private static readonly string[] SkaSuffixes = [".ska", ".ska.ps2", ".ska.xbx", ".ska.wpc"];
+
+    // Q48/T48 compression tables (standardkeyQ.bin / standardkeyT.bin) are required to
+    // decode quantised rotation/translation keys. Without them, table-lookup keys fall
+    // back to identity, causing visible "snap to bind pose" stutter at those frames.
+    // Cache by directory since tables apply to every SKA in the same build.
+    private static readonly Dictionary<string, SkaCompressTable?> _tableCache =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public static Command Create()
     {
@@ -97,7 +105,8 @@ public static class SkaCommand
             skeleton = skePath.EndsWith(".ps2", StringComparison.OrdinalIgnoreCase)
                 ? Ps2SkeletonFile.Parse(skelData)
                 : SkeletonFile.Parse(skelData);
-            AnsiConsole.MarkupLine($"Loaded skeleton: [green]{skeleton.Bones.Length}[/] bones from {Path.GetFileName(skePath)}");
+            AnsiConsole.MarkupLine(
+                $"Loaded skeleton: [green]{skeleton.Bones.Length}[/] bones from {Path.GetFileName(skePath)}");
         }
 
         // Load skin mesh if provided (enables combined mesh+animation export)
@@ -106,7 +115,8 @@ public static class SkaCommand
         {
             var skinData = File.ReadAllBytes(skinPath);
             skinScene = Ps2SceneFile.Parse(skinData);
-            AnsiConsole.MarkupLine($"Loaded skin: [green]{skinScene.MeshGroups.Sum(g => g.Meshes.Count)}[/] meshes from {Path.GetFileName(skinPath)}");
+            AnsiConsole.MarkupLine(
+                $"Loaded skin: [green]{skinScene.MeshGroups.Sum(g => g.Meshes.Count)}[/] meshes from {Path.GetFileName(skinPath)}");
         }
 
         // Load THPS3 RW DFF .SKN (has embedded skeleton + skinned mesh in one file)
@@ -162,12 +172,13 @@ public static class SkaCommand
             var textureCache = Ps2TextureLoader.BuildTextureCache([], texPath, verbose);
             if (textureCache.Count > 0)
             {
-                AnsiConsole.MarkupLine($"Loaded [green]{textureCache.Count}[/] textures from {Path.GetFileName(texPath)}");
+                AnsiConsole.MarkupLine(
+                    $"Loaded [green]{textureCache.Count}[/] textures from {Path.GetFileName(texPath)}");
                 textureProvider = checksum =>
                 {
                     if (!textureCache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
                         return null;
-                    return Core.BinaryIO.ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
+                    return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
                 };
             }
         }
@@ -291,7 +302,7 @@ public static class SkaCommand
                         if (tris > 0)
                             AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] (RW skinned, {tris} triangles)");
                         else
-                            AnsiConsole.MarkupLine($"    [yellow]skipped (bone count or clump not skinned)[/]");
+                            AnsiConsole.MarkupLine("    [yellow]skipped (bone count or clump not skinned)[/]");
                     }
                 }
                 // Export to glTF if skeleton is available and bone counts match
@@ -339,13 +350,6 @@ public static class SkaCommand
 
         return failed > 0 ? 1 : 0;
     }
-
-    // Q48/T48 compression tables (standardkeyQ.bin / standardkeyT.bin) are required to
-    // decode quantised rotation/translation keys. Without them, table-lookup keys fall
-    // back to identity, causing visible "snap to bind pose" stutter at those frames.
-    // Cache by directory since tables apply to every SKA in the same build.
-    private static readonly Dictionary<string, SkaCompressTable?> _tableCache =
-        new(StringComparer.OrdinalIgnoreCase);
 
     // THPS4 V1 skeletons (pre-2003) stored no bind pose in the .ske file; the engine
     // instead loaded a single-frame "default animation" per skeleton archetype
@@ -440,6 +444,7 @@ public static class SkaCommand
                     qPath = Path.Combine(dir, subdir, "standardkeyq.bin");
                     tPath = Path.Combine(dir, subdir, "standardkeyt.bin");
                 }
+
                 if (File.Exists(qPath) && File.Exists(tPath))
                 {
                     var table = SkaCompressTable.TryLoad(qPath, tPath);
@@ -450,6 +455,7 @@ public static class SkaCommand
 
             dir = Path.GetDirectoryName(dir);
         }
+
         return null;
     }
 }

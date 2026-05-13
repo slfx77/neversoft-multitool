@@ -22,7 +22,10 @@ internal static class Vid1Idct
     private const double C6 = 0.191341698169708;
     private const double C7 = 0.097545199096203;
 
-    public static void Transform(short[] coefficients) => Transform(coefficients.AsSpan());
+    public static void Transform(short[] coefficients)
+    {
+        Transform(coefficients.AsSpan());
+    }
 
     public static void Transform(Span<short> coefficients)
     {

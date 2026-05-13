@@ -42,7 +42,7 @@ internal static class Vid1YuvToRgb
             var lumaRow0 = y * width;
             var lumaRow1 = lumaRow0 + width;
             var rgbRow0 = lumaRow0 * 3;
-            var rgbRow1 = rgbRow0 + (width * 3);
+            var rgbRow1 = rgbRow0 + width * 3;
 
             for (var x = 0; x < width; x += 2)
             {
@@ -54,13 +54,14 @@ internal static class Vid1YuvToRgb
                 var greenBias = CbGreenContribution[cb] + CrGreenContribution[cr] + 128;
                 var blueBias = CbBlueContribution[cb] + 128;
 
-                WriteRgbPixel(rgb, rgbRow0 + (x * 3), YContribution[lumaPlane[lumaRow0 + x]], redBias, greenBias, blueBias);
+                WriteRgbPixel(rgb, rgbRow0 + x * 3, YContribution[lumaPlane[lumaRow0 + x]], redBias, greenBias,
+                    blueBias);
 
                 if (x + 1 < width)
                 {
                     WriteRgbPixel(
                         rgb,
-                        rgbRow0 + ((x + 1) * 3),
+                        rgbRow0 + (x + 1) * 3,
                         YContribution[lumaPlane[lumaRow0 + x + 1]],
                         redBias,
                         greenBias,
@@ -70,13 +71,14 @@ internal static class Vid1YuvToRgb
                 if (!hasSecondRow)
                     continue;
 
-                WriteRgbPixel(rgb, rgbRow1 + (x * 3), YContribution[lumaPlane[lumaRow1 + x]], redBias, greenBias, blueBias);
+                WriteRgbPixel(rgb, rgbRow1 + x * 3, YContribution[lumaPlane[lumaRow1 + x]], redBias, greenBias,
+                    blueBias);
 
                 if (x + 1 < width)
                 {
                     WriteRgbPixel(
                         rgb,
-                        rgbRow1 + ((x + 1) * 3),
+                        rgbRow1 + (x + 1) * 3,
                         YContribution[lumaPlane[lumaRow1 + x + 1]],
                         redBias,
                         greenBias,
@@ -103,7 +105,7 @@ internal static class Vid1YuvToRgb
             var lumaRow0 = y * width;
             var lumaRow1 = lumaRow0 + width;
             var bgraRow0 = lumaRow0 * 4;
-            var bgraRow1 = bgraRow0 + (width * 4);
+            var bgraRow1 = bgraRow0 + width * 4;
 
             for (var x = 0; x < width; x += 2)
             {
@@ -115,13 +117,14 @@ internal static class Vid1YuvToRgb
                 var greenBias = CbGreenContribution[cb] + CrGreenContribution[cr] + 128;
                 var blueBias = CbBlueContribution[cb] + 128;
 
-                WriteBgraPixel(bgra, bgraRow0 + (x * 4), YContribution[lumaPlane[lumaRow0 + x]], redBias, greenBias, blueBias);
+                WriteBgraPixel(bgra, bgraRow0 + x * 4, YContribution[lumaPlane[lumaRow0 + x]], redBias, greenBias,
+                    blueBias);
 
                 if (x + 1 < width)
                 {
                     WriteBgraPixel(
                         bgra,
-                        bgraRow0 + ((x + 1) * 4),
+                        bgraRow0 + (x + 1) * 4,
                         YContribution[lumaPlane[lumaRow0 + x + 1]],
                         redBias,
                         greenBias,
@@ -131,13 +134,14 @@ internal static class Vid1YuvToRgb
                 if (!hasSecondRow)
                     continue;
 
-                WriteBgraPixel(bgra, bgraRow1 + (x * 4), YContribution[lumaPlane[lumaRow1 + x]], redBias, greenBias, blueBias);
+                WriteBgraPixel(bgra, bgraRow1 + x * 4, YContribution[lumaPlane[lumaRow1 + x]], redBias, greenBias,
+                    blueBias);
 
                 if (x + 1 < width)
                 {
                     WriteBgraPixel(
                         bgra,
-                        bgraRow1 + ((x + 1) * 4),
+                        bgraRow1 + (x + 1) * 4,
                         YContribution[lumaPlane[lumaRow1 + x + 1]],
                         redBias,
                         greenBias,
@@ -156,14 +160,16 @@ internal static class Vid1YuvToRgb
         return table;
     }
 
-    private static void WriteRgbPixel(Span<byte> rgb, int offset, int yContribution, int redBias, int greenBias, int blueBias)
+    private static void WriteRgbPixel(Span<byte> rgb, int offset, int yContribution, int redBias, int greenBias,
+        int blueBias)
     {
         rgb[offset] = ClampByte((yContribution + redBias) >> 8);
         rgb[offset + 1] = ClampByte((yContribution + greenBias) >> 8);
         rgb[offset + 2] = ClampByte((yContribution + blueBias) >> 8);
     }
 
-    private static void WriteBgraPixel(Span<byte> bgra, int offset, int yContribution, int redBias, int greenBias, int blueBias)
+    private static void WriteBgraPixel(Span<byte> bgra, int offset, int yContribution, int redBias, int greenBias,
+        int blueBias)
     {
         bgra[offset] = ClampByte((yContribution + blueBias) >> 8);
         bgra[offset + 1] = ClampByte((yContribution + greenBias) >> 8);

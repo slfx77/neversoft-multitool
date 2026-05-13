@@ -132,8 +132,14 @@ public sealed partial class RleBitmapTab : UserControl, IDisposable
     private static string MakeRelativePath(string file, string rootDir)
     {
         if (string.IsNullOrEmpty(rootDir)) return Path.GetFileName(file);
-        try { return Path.GetRelativePath(rootDir, file); }
-        catch { return Path.GetFileName(file); }
+        try
+        {
+            return Path.GetRelativePath(rootDir, file);
+        }
+        catch
+        {
+            return Path.GetFileName(file);
+        }
     }
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
@@ -205,7 +211,8 @@ public sealed partial class RleBitmapTab : UserControl, IDisposable
             {
                 dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
 
-                var result = RleImage.Convert(entry.Source.ReadBytes(), entry.FileName, entry.WidthOverride ?? entry.EffectiveWidth);
+                var result = RleImage.Convert(entry.Source.ReadBytes(), entry.FileName,
+                    entry.WidthOverride ?? entry.EffectiveWidth);
 
                 if (result.Success)
                 {

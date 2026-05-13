@@ -19,7 +19,7 @@ internal static class Vid1VlcDecoder
         0x0008000D, 0x0008000D, 0x0008000D, 0x0008000D, 0x00080003, 0x00080003, 0x00080003, 0x00080003,
         0x0008000B, 0x0008000B, 0x0008000B, 0x0008000B, 0x00080007, 0x00080007, 0x00080007, 0x00080007,
         0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F,
-        0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F,
+        0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F, 0x0004000F
     ];
 
     // 9-bit peek >> 3 → raw-code A (64 entries, DOL 0x8031A000)
@@ -32,7 +32,7 @@ internal static class Vid1VlcDecoder
         0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003,
         0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003,
         0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003,
-        0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003,
+        0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003, 0x00020003
     ];
 
     // 9-bit peek → raw-code B (257 entries, DOL 0x8031A100)
@@ -70,7 +70,7 @@ internal static class Vid1VlcDecoder
         0x00060001, 0x00060001, 0x00060001, 0x00060001, 0x00060001, 0x00060001, 0x00060001, 0x00060001,
         0x00060001, 0x00060001, 0x00060001, 0x00060001, 0x00060001, 0x00060001, 0x00060001, 0x00060001,
         0x00060001, 0x00060001, 0x00060001, 0x00060001, 0x00060001, 0x00060001, 0x00060001, 0x00060001,
-        0x00020000,
+        0x00020000
     ];
 
     // MV VLC tables (DOL 0x803264B8..0x8032685F): three ranges of a 12-bit peek
@@ -78,7 +78,7 @@ internal static class Vid1VlcDecoder
     private static readonly uint[] MvTableLarge =
     [
         0x00080003, 0x0009FFFD, 0x00060002, 0x00060002, 0x0007FFFE, 0x0007FFFE, 0x00040001, 0x00040001,
-        0x00040001, 0x00040001, 0x0005FFFF, 0x0005FFFF, 0x0005FFFF, 0x0005FFFF,
+        0x00040001, 0x00040001, 0x0005FFFF, 0x0005FFFF, 0x0005FFFF, 0x0005FFFF
     ];
 
     private static readonly uint[] MvTableMedium =
@@ -94,7 +94,7 @@ internal static class Vid1VlcDecoder
         0x000C0004, 0x000C0004, 0x000C0004, 0x000C0004, 0x000C0004, 0x000C0004, 0x000C0004, 0x000C0004,
         0x000C0004, 0x000C0004, 0x000C0004, 0x000C0004, 0x000C0004, 0x000C0004, 0x000C0004, 0x000C0004,
         0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC,
-        0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC,
+        0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC, 0x000DFFFC
     ];
 
     private static readonly uint[] MvTableSmall =
@@ -114,7 +114,7 @@ internal static class Vid1VlcDecoder
         0x0015FFF0, 0x0015FFF0, 0x0015FFF0, 0x0015FFF0, 0x0014000F, 0x0014000F, 0x0014000F, 0x0014000F,
         0x0015FFF1, 0x0015FFF1, 0x0015FFF1, 0x0015FFF1, 0x0014000E, 0x0014000E, 0x0014000E, 0x0014000E,
         0x0015FFF2, 0x0015FFF2, 0x0015FFF2, 0x0015FFF2, 0x0014000D, 0x0014000D, 0x0014000D, 0x0014000D,
-        0x0015FFF3, 0x0015FFF3, 0x0015FFF3, 0x0015FFF3,
+        0x0015FFF3, 0x0015FFF3, 0x0015FFF3, 0x0015FFF3
     ];
 
     private static (int bitsToConsume, int decodedValue) Unpack(uint entry)
@@ -249,12 +249,12 @@ internal static class Vid1VlcDecoder
 
     /// <summary>
     ///     Sign-extend a value read from the bitstream (FUN_8029CE08).
-    ///     If MSB of the <paramref name="bitCount"/>-bit value is 0, negate.
+    ///     If MSB of the <paramref name="bitCount" />-bit value is 0, negate.
     /// </summary>
     public static int SignExtendValue(Vid1BitReader reader, int bitCount)
     {
         var value = reader.ReadBits(bitCount);
-        if ((value >> (bitCount - 1)) == 0)
+        if (value >> (bitCount - 1) == 0)
             value = -(value ^ ((1 << bitCount) - 1));
         return value;
     }

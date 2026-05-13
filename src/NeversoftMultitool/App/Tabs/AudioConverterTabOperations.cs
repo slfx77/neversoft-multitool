@@ -5,7 +5,8 @@ namespace NeversoftMultitool;
 
 internal static class AudioConverterTabOperations
 {
-    private static readonly string[] SupportedExtensions = [".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".pss", ".vid"];
+    private static readonly string[] SupportedExtensions =
+        [".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".pss", ".vid"];
 
     public static bool IsAudioFile(string path)
     {
@@ -44,7 +45,8 @@ internal static class AudioConverterTabOperations
         };
     }
 
-    public static List<AudioSampleEntry> EnumerateChildren(AssetSource source, string parentFileName, string audioFormat)
+    public static List<AudioSampleEntry> EnumerateChildren(AssetSource source, string parentFileName,
+        string audioFormat)
     {
         var data = source.ReadBytes();
         return audioFormat switch
@@ -97,9 +99,9 @@ internal static class AudioConverterTabOperations
     }
 
     /// <summary>
-    ///     Try to pull a companion KAT/VAB from the same <see cref="AssetSource"/>
+    ///     Try to pull a companion KAT/VAB from the same <see cref="AssetSource" />
     ///     (works for both filesystem and archive sources because of how
-    ///     <see cref="AssetSource.TryReadCompanion(string)"/> resolves siblings).
+    ///     <see cref="AssetSource.TryReadCompanion(string)" /> resolves siblings).
     /// </summary>
     private static SfxExtractor.SfxBankBytes? TryResolveSfxBankFromSource(AssetSource source)
     {

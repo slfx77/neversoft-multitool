@@ -30,14 +30,14 @@ public static class RleImage
     }
 
     /// <summary>
-    ///     In-memory width detection for an RLE or BMR buffer. <paramref name="extensionOrName"/>
+    ///     In-memory width detection for an RLE or BMR buffer. <paramref name="extensionOrName" />
     ///     may be a bare extension (<c>.rle</c>, <c>.bmr</c>, <c>.zlb</c>) or a filename.
     /// </summary>
     public static int DetectWidth(byte[] data, string extensionOrName)
     {
         var ext = Path.GetExtension(extensionOrName);
         (data, ext) = UnwrapIfZlb(data, ext);
-        using var stream = new MemoryStream(data, writable: false);
+        using var stream = new MemoryStream(data, false);
         var totalPixels = GetTotalPixelCount(stream, ext);
         return GuessWidth(totalPixels);
     }
@@ -55,7 +55,7 @@ public static class RleImage
         using var stream = File.OpenRead(filePath);
         var data = new byte[stream.Length];
         stream.ReadExactly(data);
-        return ConvertCore(data, ext, width: null);
+        return ConvertCore(data, ext, null);
     }
 
     /// <summary>
@@ -75,9 +75,9 @@ public static class RleImage
     }
 
     /// <summary>
-    ///     In-memory conversion. <paramref name="extensionOrName"/> may be a bare
+    ///     In-memory conversion. <paramref name="extensionOrName" /> may be a bare
     ///     extension (<c>.rle</c>, <c>.bmr</c>) or a filename. When
-    ///     <paramref name="width"/> is null, width is auto-detected.
+    ///     <paramref name="width" /> is null, width is auto-detected.
     /// </summary>
     public static RleConversionResult Convert(byte[] data, string extensionOrName, int? width = null)
     {
@@ -89,12 +89,16 @@ public static class RleImage
     }
 
     private static bool IsSupportedExtension(string ext)
-        => ext.Equals(".rle", StringComparison.OrdinalIgnoreCase)
-           || ext.Equals(".bmr", StringComparison.OrdinalIgnoreCase)
-           || IsZlbExtension(ext);
+    {
+        return ext.Equals(".rle", StringComparison.OrdinalIgnoreCase)
+               || ext.Equals(".bmr", StringComparison.OrdinalIgnoreCase)
+               || IsZlbExtension(ext);
+    }
 
     private static bool IsZlbExtension(string ext)
-        => ext.Equals(".zlb", StringComparison.OrdinalIgnoreCase);
+    {
+        return ext.Equals(".zlb", StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     ///     Unwraps a <c>.zlb</c> payload (gzip-wrapped RLE/BMR) into its inner
@@ -111,7 +115,7 @@ public static class RleImage
 
     private static byte[] Gunzip(byte[] data)
     {
-        using var src = new MemoryStream(data, writable: false);
+        using var src = new MemoryStream(data, false);
         using var gz = new GZipStream(src, CompressionMode.Decompress);
         using var dst = new MemoryStream();
         gz.CopyTo(dst);
@@ -119,9 +123,11 @@ public static class RleImage
     }
 
     private static bool LooksLikeRleMagic(byte[] data)
-        => data.Length >= 8
-           && data[0] == '_' && data[1] == 'R' && data[2] == 'L' && data[3] == 'E'
-           && data[4] == '_' && data[5] == '1' && data[6] == '6' && data[7] == '_';
+    {
+        return data.Length >= 8
+               && data[0] == '_' && data[1] == 'R' && data[2] == 'L' && data[3] == 'E'
+               && data[4] == '_' && data[5] == '1' && data[6] == '6' && data[7] == '_';
+    }
 
     private static RleConversionResult ConvertCore(byte[] data, string ext, int? width)
     {
@@ -130,7 +136,7 @@ public static class RleImage
         var autoDetected = false;
         if (width is null)
         {
-            using var sizeProbe = new MemoryStream(data, writable: false);
+            using var sizeProbe = new MemoryStream(data, false);
             width = GuessWidth(GetTotalPixelCount(sizeProbe, ext));
             autoDetected = true;
         }
@@ -139,7 +145,7 @@ public static class RleImage
 
         try
         {
-            using var stream = new MemoryStream(data, writable: false);
+            using var stream = new MemoryStream(data, false);
             using var reader = new BinaryReader(stream);
 
             List<List<RgbColor>> canvas;
@@ -297,7 +303,7 @@ public static class RleImage
     /// </summary>
     private static long GetTotalPixelCount(Stream stream, string ext)
     {
-        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, leaveOpen: true);
+        using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         if (ext.Equals(".bmr", StringComparison.OrdinalIgnoreCase))
         {
