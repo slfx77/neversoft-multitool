@@ -36,7 +36,7 @@
 
   <!-- Code analysis packages applied to NeversoftMultitool projects -->
   <ItemGroup Condition="$(MSBuildProjectName.StartsWith('NeversoftMultitool'))">
-    <PackageReference Include="SonarAnalyzer.CSharp" Version="10.4.0.108396">
+    <PackageReference Include="SonarAnalyzer.CSharp" Version="10.27.0.140913">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
