@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core.Formats.Video;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 /// <summary>
 ///     Native C# decoder for THAW GameCube VID1 (Factor 5 f5vid) video.

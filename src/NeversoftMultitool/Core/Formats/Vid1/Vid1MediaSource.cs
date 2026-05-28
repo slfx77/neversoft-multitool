@@ -7,7 +7,7 @@ using Windows.Media.MediaProperties;
 using Windows.Storage.Streams;
 using NeversoftMultitool.Core.Formats.Audio;
 
-namespace NeversoftMultitool.Core.Formats.Video;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 /// <summary>
 ///     Direct WinUI playback source for GameCube VID1 streams.

@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 
-namespace NeversoftMultitool.Core.Formats.Video;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 public sealed class Vid1VideoFile
 {

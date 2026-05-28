@@ -3,8 +3,9 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using NeversoftMultitool.Core.Formats.Audio;
+using NeversoftMultitool.Core.Formats.Video;
 
-namespace NeversoftMultitool.Core.Formats.Video;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 public static partial class Vid1VideoConverter
 {

@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core.Formats.Video;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 /// <summary>
 ///     DC/AC prediction context port of FUN_802A044C and FUN_8029D494.

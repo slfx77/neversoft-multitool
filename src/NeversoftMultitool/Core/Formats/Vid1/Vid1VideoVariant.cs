@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core.Formats.Video;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 public enum Vid1VideoVariant
 {

@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core.Formats.Video;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 public sealed record Vid1VideoFrame(
     int Index,

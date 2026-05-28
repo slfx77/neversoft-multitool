@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core.Formats.Video;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 internal readonly record struct Vid1FrameDecodeStats(
     int FrameIndex,

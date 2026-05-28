@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core.Formats.Video;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 /// <summary>
 ///     Inverse quantization for Factor 5 M4Decoder coefficient blocks.

@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core.Formats.Video;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 /// <summary>
 ///     Result of parsing a per-macroblock control prefix. Mirrors the Python

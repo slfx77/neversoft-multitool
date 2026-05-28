@@ -4,6 +4,7 @@ using NeversoftMultitool.Core.Formats.Audio;
 using NeversoftMultitool.Core.Formats.Video;
 using NeversoftMultitool.Tests.Core;
 using NeversoftMultitool.Tests.Helpers;
+using NeversoftMultitool.Core.Formats.Vid1;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Audio;
 

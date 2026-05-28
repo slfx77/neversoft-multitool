@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core.Formats.Video;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 internal sealed record Vid1DecodedBgraFrame(
     int FrameIndex,

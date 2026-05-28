@@ -2,6 +2,7 @@ using NeversoftMultitool.Core.Formats.Video;
 using NeversoftMultitool.Tests.Helpers;
 using System.Diagnostics;
 using System.Reflection;
+using NeversoftMultitool.Core.Formats.Vid1;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Video;
 

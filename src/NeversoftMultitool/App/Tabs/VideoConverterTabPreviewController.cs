@@ -2,6 +2,7 @@ using Windows.Media.Core;
 using Windows.Media.Playback;
 using Microsoft.UI.Xaml;
 using NeversoftMultitool.Core.Formats.Video;
+using NeversoftMultitool.Core.Formats.Vid1;
 
 namespace NeversoftMultitool;
 

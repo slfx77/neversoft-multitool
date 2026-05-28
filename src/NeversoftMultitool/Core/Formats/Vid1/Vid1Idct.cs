@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace NeversoftMultitool.Core.Formats.Video;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 /// <summary>
 ///     Floating-point 8×8 IDCT matching Factor 5's M4Decoder (FUN_8029E8A0).

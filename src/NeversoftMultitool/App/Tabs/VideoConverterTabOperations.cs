@@ -1,6 +1,7 @@
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Video;
+using NeversoftMultitool.Core.Formats.Vid1;
 
 namespace NeversoftMultitool;
 

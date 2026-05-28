@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.Formats.Audio;
+using NeversoftMultitool.Core.Formats.Vid1;
 
 namespace NeversoftMultitool.Core;
 

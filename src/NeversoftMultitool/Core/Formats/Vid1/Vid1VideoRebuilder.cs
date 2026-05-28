@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace NeversoftMultitool.Core.Formats.Video;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 internal static class Vid1VideoRebuilder
 {

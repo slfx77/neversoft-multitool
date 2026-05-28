@@ -1,9 +1,10 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Text;
+using NeversoftMultitool.Core.Formats.Audio;
 using NeversoftMultitool.Core.Formats.Video;
 
-namespace NeversoftMultitool.Core.Formats.Audio;
+namespace NeversoftMultitool.Core.Formats.Vid1;
 
 /// <summary>
 ///     Extracts custom Vorbis audio carried inside Factor 5 VID1 movie containers.
