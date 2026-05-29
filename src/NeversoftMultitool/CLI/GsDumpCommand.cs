@@ -74,6 +74,11 @@ public static class GsDumpCommand
         {
             Description = "Restrict per-draw RT capture to draws targeting this FBP (block address)"
         };
+        var saveRtOnStateTransitionOption = new Option<bool>("--save-rt-on-state-transition")
+        {
+            Description =
+                "Capture per-draw RT snapshots ONLY at framebuffer-state (Fbp, Fbw, Psm) transitions. Use to align with PCSX2's per-primitive-batch RT dumps."
+        };
 
         var command = new Command("gsdump", "Audit raw PCSX2 GS dumps with a pure C# GIF/GS parser and renderer");
         command.Arguments.Add(inputArgument);
@@ -92,6 +97,7 @@ public static class GsDumpCommand
         command.Options.Add(saveRtStartOption);
         command.Options.Add(saveRtCountOption);
         command.Options.Add(saveRtFbpOption);
+        command.Options.Add(saveRtOnStateTransitionOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -112,7 +118,8 @@ public static class GsDumpCommand
                 parseResult.GetValue(saveRtDirOption),
                 parseResult.GetValue(saveRtStartOption),
                 parseResult.GetValue(saveRtCountOption),
-                parseResult.GetValue(saveRtFbpOption)));
+                parseResult.GetValue(saveRtFbpOption),
+                parseResult.GetValue(saveRtOnStateTransitionOption)));
         });
 
         return command;
@@ -134,7 +141,8 @@ public static class GsDumpCommand
         string? saveRtDir,
         int? saveRtStart,
         int? saveRtCount,
-        uint? saveRtFbp)
+        uint? saveRtFbp,
+        bool saveRtOnStateTransition)
     {
         var files = CollectFiles(input);
         if (files.Count == 0)
@@ -196,7 +204,8 @@ public static class GsDumpCommand
                         SaveRtDir = saveRtDir,
                         SaveRtStart = saveRtStart ?? 0,
                         SaveRtCount = saveRtCount,
-                        SaveRtFbp = saveRtFbp
+                        SaveRtFbp = saveRtFbp,
+                        SaveRtOnStateTransition = saveRtOnStateTransition
                     });
 
                 PrintSummary(file, report, verbose);

@@ -113,6 +113,9 @@ tools/diagnostics/*
 !tools/diagnostics/thps3_matrix_palette_scan.py
 !tools/diagnostics/thps3_ska_runtime_compare.py
 !tools/diagnostics/thps3_runtime_qblob_dump.py
+!tools/diagnostics/capture_pcsx2_rt_dumps.ps1
+!tools/diagnostics/fb_state_bisect.py
+!tools/diagnostics/inspect_blend_distribution.py
 
 # Build/runtime noise inside curated tools/
 tools/**/bin/

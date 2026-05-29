@@ -109,6 +109,7 @@ internal static partial class GsDumpAuditRunner
                     SaveRtStart = options.SaveRtStart,
                     SaveRtCount = options.SaveRtCount,
                     SaveRtFbp = options.SaveRtFbp,
+                    SaveRtOnStateTransition = options.SaveRtOnStateTransition,
                     SaveRtSink = options.SaveRtDir == null
                         ? null
                         : snapshot =>

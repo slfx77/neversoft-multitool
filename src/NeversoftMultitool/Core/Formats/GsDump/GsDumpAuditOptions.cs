@@ -15,4 +15,5 @@ internal sealed class GsDumpAuditOptions
     public int SaveRtStart { get; init; }
     public int? SaveRtCount { get; init; }
     public uint? SaveRtFbp { get; init; }
+    public bool SaveRtOnStateTransition { get; init; }
 }

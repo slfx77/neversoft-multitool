@@ -114,6 +114,10 @@ internal sealed partial class GsGifInterpreter
     private readonly Dictionary<ulong, long> xyzByTex0 = [];
     private GsImageTransfer? activeImageTransfer;
     private byte[]? directPixels;
+    // Tracks the prior (Fbp << 32) | (Fbw << 16) | Psm captured by MaybeSaveDrawRt when
+    // options.SaveRtOnStateTransition is set. ulong.MaxValue is a sentinel "no prior key"
+    // so the first qualifying draw always emits an RT.
+    private ulong _lastSaveRtTransitionKey = ulong.MaxValue;
 
     private GsGifInterpreter(GsGifInterpretOptions options)
     {

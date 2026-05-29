@@ -236,6 +236,17 @@ internal sealed partial class GsGifInterpreter
             return;
         if (options.SaveRtFbp.HasValue && options.SaveRtFbp.Value != target.Fbp)
             return;
+        if (options.SaveRtOnStateTransition)
+        {
+            // Capture only at framebuffer-state transitions: write nothing while a run of
+            // consecutive draws targets the same (Fbp, Fbw, Psm). Used to align our output
+            // against PCSX2's per-primitive-batch RT dumps without our per-triangle index
+            // counter forcing 30x more snapshots than PCSX2 produces.
+            var key = ((ulong)target.Fbp << 32) | ((ulong)target.Fbw << 16) | target.Psm;
+            if (key == _lastSaveRtTransitionKey)
+                return;
+            _lastSaveRtTransitionKey = key;
+        }
 
         var width = Math.Clamp((int)target.Fbw * 64, 1, options.Width);
         var height = options.Height;
