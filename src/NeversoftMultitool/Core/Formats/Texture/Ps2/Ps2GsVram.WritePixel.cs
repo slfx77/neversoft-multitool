@@ -66,7 +66,7 @@ internal sealed partial class Ps2GsVram
         }
     }
 
-    public (byte R, byte G, byte B, byte A) ReadPixelRgba(uint dbp, uint dbw, uint dpsm, int x, int y)
+    public (byte R, byte G, byte B, byte A) ReadPixelRgba(uint dbp, uint dbw, uint dpsm, int x, int y, ulong texa = 0)
     {
         if (x < 0 || y < 0)
             return (0, 0, 0, 0);
@@ -80,22 +80,41 @@ internal sealed partial class Ps2GsVram
             {
                 var addr = GetWordAddressPSMCT32(dbp, dbw, x, y);
                 var word = addr < VramWords ? _vram[addr] : 0u;
-                // PSMCT24 has no native alpha; return PS2-nominal full (128) so downstream
-                // /128 blend factors evaluate to 1.0. PSMCT32 returns the raw stored byte.
-                var alpha = dpsm is 0x01 or PSMZ24 ? 128 : (int)(word >> 24);
+                // PSMCT24 writes mask out alpha (fbmsk | 0xFF000000u), preserving whatever
+                // byte a prior PSMCT32 write left there. Cd reads during ABE blending must
+                // see that real byte — bloom feedback aliases the same FBP between PSMCT32
+                // and PSMCT24 (e.g. THAW FBP=13632), so returning a constant 128 here
+                // destroys mid-tone alpha and bimodalises the cascade to 0/128.
+                // PSMZ24 stays at 128 because depth-as-color overlaps unrelated colour
+                // FBPs (see Z-to-VRAM memory note about rollback).
+                var alpha = dpsm == PSMZ24 ? 128 : (int)(word >> 24);
                 return ((byte)word, (byte)(word >> 8), (byte)(word >> 16), (byte)alpha);
             }
             case PSMCT16:
             case PSMCT16S:
-            {
-                var (wordAddr, half) = GetWordAddressPSMCT16(dbp, dbw, x, y, dpsm == PSMCT16S);
-                var word = wordAddr < VramWords ? _vram[wordAddr] : 0u;
-                var pixel = half == 0 ? (ushort)(word & 0xFFFF) : (ushort)(word >> 16);
-                return (Expand5(pixel & 0x1F), Expand5((pixel >> 5) & 0x1F), Expand5((pixel >> 10) & 0x1F),
-                    (pixel & 0x8000) != 0 ? (byte)255 : (byte)0);
-            }
+                return ReadPsmct16Pixel(dbp, dbw, dpsm, x, y, texa);
             default:
                 return (0, 0, 0, 0);
         }
+    }
+
+    /// <summary>
+    ///     PSMCT16/16S framebuffer read. PS2 GS spec: the 1-bit alpha is expanded via TEXA
+    ///     (TA1 when alpha-bit=1, TA0 otherwise) with AEM forcing 0 for fully-black
+    ///     non-alpha pixels. The texa=0 fallback preserves the old "any value will do for
+    ///     unrelated callers" contract; the GsGifInterpreter blend path always supplies
+    ///     state.Texa so blends + write-confirmation readbacks see the same spec-correct value.
+    /// </summary>
+    private (byte R, byte G, byte B, byte A) ReadPsmct16Pixel(uint dbp, uint dbw, uint dpsm, int x, int y, ulong texa)
+    {
+        var (wordAddr, half) = GetWordAddressPSMCT16(dbp, dbw, x, y, dpsm == PSMCT16S);
+        var word = wordAddr < VramWords ? _vram[wordAddr] : 0u;
+        var pixel = half == 0 ? (ushort)(word & 0xFFFF) : (ushort)(word >> 16);
+        byte alphaByte;
+        if (texa != 0)
+            alphaByte = Ps2TexPixelDecoder.ExpandTexaAlpha(pixel, texa);
+        else
+            alphaByte = (pixel & 0x8000) != 0 ? (byte)255 : (byte)0;
+        return (Expand5(pixel & 0x1F), Expand5((pixel >> 5) & 0x1F), Expand5((pixel >> 10) & 0x1F), alphaByte);
     }
 }

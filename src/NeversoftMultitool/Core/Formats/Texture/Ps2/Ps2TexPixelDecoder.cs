@@ -257,7 +257,14 @@ internal static class Ps2TexPixelDecoder
         }
     }
 
-    private static byte ExpandTexaAlpha(ushort pixel, ulong texa)
+    /// <summary>
+    ///     Expand a PSMCT16-encoded RGB5551 pixel's 1-bit alpha into a full byte via the
+    ///     TEXA register: TA0 for alpha-bit=0, TA1 for alpha-bit=1, with the AEM rule
+    ///     forcing alpha=0 when AEM=1 and the pixel is fully black with alpha-bit=0. Used
+    ///     by both texture decode (PSMCT16 textures + PSMCT16 CLUTs) and framebuffer Cd
+    ///     reads (PSMCT16/16S framebuffers sampled during ABE blending).
+    /// </summary>
+    internal static byte ExpandTexaAlpha(ushort pixel, ulong texa)
     {
         var alphaBitSet = (pixel & 0x8000) != 0;
         var gsAlpha = alphaBitSet ? (byte)((texa >> 32) & 0xFF) : (byte)(texa & 0xFF);

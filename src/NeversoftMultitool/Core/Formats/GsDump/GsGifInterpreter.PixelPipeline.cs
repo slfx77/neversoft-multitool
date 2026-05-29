@@ -108,7 +108,9 @@ internal sealed partial class GsGifInterpreter
         }
 
         vram.WritePixel(target.Fbp, target.Fbw, target.Psm, x, y, r, g, b, a, target.Fbmsk | extraFbmsk);
-        var written = vram.ReadPixelRgba(target.Fbp, target.Fbw, target.Psm, x, y);
+        // Pass state.Texa so PSMCT16/16S write-confirmation reads back match the spec-correct
+        // alpha the dst read in BlendPixel will see — same TEXA, same readback value, same probe.
+        var written = vram.ReadPixelRgba(target.Fbp, target.Fbw, target.Psm, x, y, state.Texa);
         return new GsSample(written.R, written.G, written.B, written.A);
     }
 
@@ -182,7 +184,9 @@ internal sealed partial class GsGifInterpreter
             return false;
         }
 
-        var rgba = vram.ReadPixelRgba(target.Fbp, target.Fbw, target.Psm, x, y);
+        // Pass state.Texa so PSMCT16/16S Cd reads during ABE blending get the spec-correct
+        // alpha (TA0/TA1 expansion with AEM rule) instead of the binary 0/255.
+        var rgba = vram.ReadPixelRgba(target.Fbp, target.Fbw, target.Psm, x, y, state.Texa);
         pixel = new GsSample(rgba.R, rgba.G, rgba.B, rgba.A);
         return true;
     }

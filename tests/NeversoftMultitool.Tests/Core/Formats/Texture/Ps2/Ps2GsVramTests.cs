@@ -168,6 +168,78 @@ public class Ps2GsVramTests
         Assert.Equal(0u, words[8]);
     }
 
+    [Fact]
+    public void ReadPixelRgba_Psmct16_ExpandsAlphaViaTexa()
+    {
+        // Regression: PSMCT16/16S stores only 1 bit of alpha. PS2 GS spec says framebuffer
+        // Cd reads expand that bit via TEXA — TA1 when alpha-bit=1, TA0 when alpha-bit=0,
+        // with AEM=1 forcing alpha=0 for fully-black non-alpha pixels. Without this, the
+        // ABE blend path sees binary 0/255 alpha for PSMCT16 framebuffers (HUD scanout
+        // at FBP=4480, post-fx layers), causing wrong blend factors. The texa=0 fallback
+        // preserves the old 0/255 behaviour for callers that don't know about TEXA.
+        var vram = new Ps2GsVram();
+
+        // TEXA register layout: TA0 at bits 0..7, AEM at bit 15, TA1 at bits 32..39.
+        const ulong texaTa0_00_Ta1_80 = 0x80UL << 32;                       // TA0=0x00, TA1=0x80
+        const ulong texaTa0_80_Ta1_FF_AemSet = (0xFFUL << 32) | (1UL << 15) | 0x80UL;
+
+        // Alpha-bit=1 (a >= 128) -> read with TEXA -> alpha = TA1.
+        vram.WritePixel(0u, 5u, Ps2GsVram.PSMCT16, 7, 11, 0x40, 0x20, 0x10, 0xFF);
+        var pBit1 = vram.ReadPixelRgba(0u, 5u, Ps2GsVram.PSMCT16, 7, 11, texaTa0_00_Ta1_80);
+        Assert.Equal((byte)0x80, pBit1.A);
+
+        // Alpha-bit=0 (a < 128) -> read with same TEXA -> alpha = TA0 = 0.
+        vram.WritePixel(0u, 5u, Ps2GsVram.PSMCT16, 7, 12, 0x40, 0x20, 0x10, 0x00);
+        var pBit0 = vram.ReadPixelRgba(0u, 5u, Ps2GsVram.PSMCT16, 7, 12, texaTa0_00_Ta1_80);
+        Assert.Equal((byte)0x00, pBit0.A);
+
+        // AEM rule: alpha-bit=0 AND RGB=0 -> alpha forced to 0 regardless of TA0.
+        vram.WritePixel(0u, 5u, Ps2GsVram.PSMCT16, 7, 13, 0x00, 0x00, 0x00, 0x00);
+        var pAem = vram.ReadPixelRgba(0u, 5u, Ps2GsVram.PSMCT16, 7, 13, texaTa0_80_Ta1_FF_AemSet);
+        Assert.Equal((byte)0x00, pAem.A);
+
+        // AEM rule does NOT fire when alpha-bit=1, even with RGB=0 -> alpha = TA1.
+        vram.WritePixel(0u, 5u, Ps2GsVram.PSMCT16, 7, 14, 0x00, 0x00, 0x00, 0xFF);
+        var pAemBit1 = vram.ReadPixelRgba(0u, 5u, Ps2GsVram.PSMCT16, 7, 14, texaTa0_80_Ta1_FF_AemSet);
+        Assert.Equal((byte)0xFF, pAemBit1.A);
+
+        // texa=0 fallback: behaviour matches the pre-fix 0/255 contract for non-blend callers.
+        var pFallbackBit1 = vram.ReadPixelRgba(0u, 5u, Ps2GsVram.PSMCT16, 7, 11);
+        Assert.Equal((byte)0xFF, pFallbackBit1.A);
+        var pFallbackBit0 = vram.ReadPixelRgba(0u, 5u, Ps2GsVram.PSMCT16, 7, 12);
+        Assert.Equal((byte)0x00, pFallbackBit0.A);
+    }
+
+    [Fact]
+    public void ReadPixelRgba_Psmct24_ReturnsPreviousPsmct32Alpha()
+    {
+        // Regression: PSMCT24 writes mask the alpha byte (fbmsk | 0xFF000000u), preserving
+        // whatever a prior PSMCT32 write left in VRAM. Bloom-feedback passes in THAW alias
+        // the same FBP between PSMCT32 and PSMCT24 (e.g. FBP=13632 in the canonical capture)
+        // and depend on subsequent Cd reads returning the real mid-tone alpha, not a hardcoded
+        // 128. Hardcoded 128 collapsed our FBP=0 alpha distribution to bimodal 0/128 and
+        // over-amplified the bloom downsample's `Cs * Cs.A` math by up to 2x.
+        var vram = new Ps2GsVram();
+
+        // Seed: write PSMCT32 with alpha=0x40 (a mid-tone the bloom math depends on).
+        vram.WritePixel(0u, 5u, Ps2GsVram.PSMCT32, 17, 23, 0x11, 0x22, 0x33, 0x40);
+
+        // Overwrite RGB via PSMCT24 — the WritePixel PSMCT24 case ORs 0xFF000000 into the
+        // mask so the supplied alpha argument is ignored; 0x40 stays in VRAM.
+        vram.WritePixel(0u, 5u, 0x01u, 17, 23, 0x44, 0x55, 0x66, 0xFF);
+
+        // Cd read from the PSMCT24 view must surface the preserved 0x40, not 0x80.
+        var psmct24 = vram.ReadPixelRgba(0u, 5u, 0x01u, 17, 23);
+        Assert.Equal((byte)0x44, psmct24.R);
+        Assert.Equal((byte)0x55, psmct24.G);
+        Assert.Equal((byte)0x66, psmct24.B);
+        Assert.Equal((byte)0x40, psmct24.A);
+
+        // PSMCT32 sees the same word — sanity-check the RGB update landed.
+        var psmct32 = vram.ReadPixelRgba(0u, 5u, Ps2GsVram.PSMCT32, 17, 23);
+        Assert.Equal((byte)0x40, psmct32.A);
+    }
+
     private static byte[] BuildLinearPsmt4(int width, int height)
     {
         var totalNibbles = width * height;
