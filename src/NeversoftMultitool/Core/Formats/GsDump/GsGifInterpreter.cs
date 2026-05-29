@@ -242,7 +242,27 @@ internal sealed partial class GsGifInterpreter
             NoteUnsupported($"image_transfer_incomplete_{transfer.BytesWritten}_of_{transfer.ExpectedBytes}");
 
         directPixels = pixels.ToArray();
+        DumpVramRegionsToSink();
         PresentFromDisplayBuffer(dump);
+    }
+
+    private void DumpVramRegionsToSink()
+    {
+        if (options.DumpVramRegions == null || options.DumpVramRegionSink == null)
+            return;
+        foreach (var (tbp, fbw, psm, w, h) in options.DumpVramRegions)
+        {
+            // ReadFramebufferRgbaRaw preserves real alpha for diagnostic comparison against
+            // PCSX2's itexraw_XXX_alpha.png companions. PSMZ24/PSMCT24 lose alpha (no native
+            // alpha bits), but RGB matches PCSX2's view of the same VRAM region.
+            var rgba = ReadFramebufferRgbaRaw(tbp, fbw, psm, w, h);
+            if (rgba == null)
+            {
+                NoteApproximation($"dump_vram_region_unsupported_psm_0x{psm:X2}");
+                continue;
+            }
+            options.DumpVramRegionSink(tbp, fbw, psm, w, h, rgba);
+        }
     }
 
     private void LoadInitialState(GsDumpFile dump)

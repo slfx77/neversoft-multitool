@@ -16,4 +16,7 @@ internal sealed class GsDumpAuditOptions
     public int? SaveRtCount { get; init; }
     public uint? SaveRtFbp { get; init; }
     public bool SaveRtOnStateTransition { get; init; }
+
+    /// <summary>End-of-frame VRAM region dumps for Z-buffer / intermediate-FBP diagnostics.</summary>
+    public IReadOnlyList<(uint Tbp, uint Fbw, uint Psm, int Width, int Height)>? DumpVramRegions { get; init; }
 }

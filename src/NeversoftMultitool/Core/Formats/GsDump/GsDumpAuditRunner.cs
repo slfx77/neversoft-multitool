@@ -121,6 +121,27 @@ internal static partial class GsDumpAuditRunner
                             var path = Path.Combine(saveDir, fileName);
                             SaveRgba(path, snapshot.Rgba, snapshot.Width, snapshot.Height);
                         },
+                    DumpVramRegions = options.DumpVramRegions,
+                    DumpVramRegionSink = options.DumpVramRegions == null
+                        ? null
+                        : (tbp, fbw, psm, w, h, rgba) =>
+                        {
+                            var saveDir = options.SaveRtDir ?? Path.Combine(outputDirectory, $"{stem}.vram_regions");
+                            Directory.CreateDirectory(saveDir);
+                            var psmTag = psm switch
+                            {
+                                Ps2TexPixelDecoder.PSMCT32 => "C_32",
+                                Ps2TexPixelDecoder.PSMCT24 => "C_24",
+                                Ps2TexPixelDecoder.PSMCT16 => "C_16",
+                                Ps2GsVram.PSMCT16S => "C_16S",
+                                Ps2GsVram.PSMZ32 => "Z_32",
+                                Ps2GsVram.PSMZ24 => "Z_24",
+                                _ => $"X_{psm:X2}"
+                            };
+                            var fileName = $"vram_tbp{tbp:X5}_fbw{fbw}_{psmTag}_{w}x{h}.png";
+                            var path = Path.Combine(saveDir, fileName);
+                            SaveRgba(path, rgba, w, h);
+                        },
                     TextureDumpSink = options.JsonOnly
                         ? null
                         : dumpTexture =>

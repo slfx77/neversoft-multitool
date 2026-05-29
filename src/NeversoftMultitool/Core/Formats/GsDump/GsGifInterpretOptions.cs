@@ -18,4 +18,10 @@ internal sealed class GsGifInterpretOptions
     public uint? SaveRtFbp { get; init; }
     public bool SaveRtOnStateTransition { get; init; }
     public Action<GsDrawRtSnapshot>? SaveRtSink { get; init; }
+
+    /// <summary>End-of-frame VRAM region dumps. Each tuple = (Tbp, Fbw, Psm, Width, Height).</summary>
+    public IReadOnlyList<(uint Tbp, uint Fbw, uint Psm, int Width, int Height)>? DumpVramRegions { get; init; }
+
+    /// <summary>Sink for end-of-frame VRAM region dumps. Receives (Tbp, Fbw, Psm, Width, Height, Rgba).</summary>
+    public Action<uint, uint, uint, int, int, byte[]>? DumpVramRegionSink { get; init; }
 }

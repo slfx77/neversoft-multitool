@@ -79,6 +79,12 @@ public static class GsDumpCommand
             Description =
                 "Capture per-draw RT snapshots ONLY at framebuffer-state (Fbp, Fbw, Psm) transitions. Use to align with PCSX2's per-primitive-batch RT dumps."
         };
+        var dumpVramRegionOption = new Option<string[]>("--dump-vram-region")
+        {
+            Description =
+                "End-of-frame VRAM region dump. Repeatable. Format 'TBP_HEX:FBW:PSM_HEX:W:H' (e.g. '0x1a40:5:0x31:640:448' for the Z buffer at TBP=0x1A40 PSMZ24).",
+            AllowMultipleArgumentsPerToken = true
+        };
 
         var command = new Command("gsdump", "Audit raw PCSX2 GS dumps with a pure C# GIF/GS parser and renderer");
         command.Arguments.Add(inputArgument);
@@ -98,6 +104,7 @@ public static class GsDumpCommand
         command.Options.Add(saveRtCountOption);
         command.Options.Add(saveRtFbpOption);
         command.Options.Add(saveRtOnStateTransitionOption);
+        command.Options.Add(dumpVramRegionOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -119,7 +126,8 @@ public static class GsDumpCommand
                 parseResult.GetValue(saveRtStartOption),
                 parseResult.GetValue(saveRtCountOption),
                 parseResult.GetValue(saveRtFbpOption),
-                parseResult.GetValue(saveRtOnStateTransitionOption)));
+                parseResult.GetValue(saveRtOnStateTransitionOption),
+                parseResult.GetValue(dumpVramRegionOption)));
         });
 
         return command;
@@ -142,8 +150,10 @@ public static class GsDumpCommand
         int? saveRtStart,
         int? saveRtCount,
         uint? saveRtFbp,
-        bool saveRtOnStateTransition)
+        bool saveRtOnStateTransition,
+        string[]? dumpVramRegionSpecs)
     {
+        var dumpVramRegions = ParseDumpVramRegionSpecs(dumpVramRegionSpecs);
         var files = CollectFiles(input);
         if (files.Count == 0)
         {
@@ -205,7 +215,8 @@ public static class GsDumpCommand
                         SaveRtStart = saveRtStart ?? 0,
                         SaveRtCount = saveRtCount,
                         SaveRtFbp = saveRtFbp,
-                        SaveRtOnStateTransition = saveRtOnStateTransition
+                        SaveRtOnStateTransition = saveRtOnStateTransition,
+                        DumpVramRegions = dumpVramRegions
                     });
 
                 PrintSummary(file, report, verbose);
@@ -358,5 +369,46 @@ public static class GsDumpCommand
                 .Select(static kv => $"{kv.Key}:{kv.Value.PixelsWritten:N0}px/{kv.Value.Draws:N0}draw"));
             AnsiConsole.MarkupLine($"    framebuffer writes: {Markup.Escape(top)}");
         }
+    }
+
+    /// <summary>
+    ///     Parse one or more "TBP:FBW:PSM:W:H" specs into typed tuples consumed by the
+    ///     end-of-frame VRAM dump sink. Returns null when no specs are supplied so the
+    ///     interpreter skips the dump pass entirely.
+    /// </summary>
+    private static IReadOnlyList<(uint Tbp, uint Fbw, uint Psm, int Width, int Height)>? ParseDumpVramRegionSpecs(
+        string[]? specs)
+    {
+        if (specs == null || specs.Length == 0)
+            return null;
+        var list = new List<(uint, uint, uint, int, int)>(specs.Length);
+        foreach (var spec in specs)
+        {
+            var parts = spec.Split(':');
+            if (parts.Length != 5)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[red]Error:[/] --dump-vram-region spec '{Markup.Escape(spec)}' must be TBP:FBW:PSM:W:H");
+                continue;
+            }
+            if (!TryParseUInt(parts[0], out var tbp) || !TryParseUInt(parts[1], out var fbw) ||
+                !TryParseUInt(parts[2], out var psm) || !int.TryParse(parts[3], out var w) ||
+                !int.TryParse(parts[4], out var h))
+            {
+                AnsiConsole.MarkupLine(
+                    $"[red]Error:[/] --dump-vram-region spec '{Markup.Escape(spec)}' has invalid numeric fields");
+                continue;
+            }
+            list.Add((tbp, fbw, psm, w, h));
+        }
+        return list.Count == 0 ? null : list;
+    }
+
+    private static bool TryParseUInt(string s, out uint value)
+    {
+        if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return uint.TryParse(s.AsSpan(2), System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out value);
+        return uint.TryParse(s, out value);
     }
 }

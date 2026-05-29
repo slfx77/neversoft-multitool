@@ -12,6 +12,9 @@ internal sealed class GsRenderAudit
     public long SpritesDrawn { get; set; }
     public long PixelsTouched { get; set; }
     public long DepthRejectedPixels { get; set; }
+    public long DepthVramWrites { get; set; }
+    public long DepthVramWritesSkippedFbw0 { get; set; }
+    public long DepthVramWritesSkippedPsm { get; set; }
     public long AlphaFailedPixels { get; set; }
     public long AlphaFailFramebufferOnlyPixels { get; set; }
     public long AlphaFailZBufferOnlyPixels { get; set; }

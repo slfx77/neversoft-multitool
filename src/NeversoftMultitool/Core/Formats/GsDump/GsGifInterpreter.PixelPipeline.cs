@@ -379,20 +379,32 @@ internal sealed partial class GsGifInterpreter
     private void WriteDepthToVram(GsContext context, int x, int y, float z)
     {
         // PCSX2 ZBUF layout (GSRegs.h:948-957): ZBP=bits 0..8 (page units),
-        // PSM=bits 24..29 (6 bits), ZMSK=bit 32. The Z buffer shares its
-        // stride with the colour buffer's FBW (there is no ZBW field).
-        var zpsm = (uint)((context.Zbuf >> 24) & 0x3Fu);
+        // PSM=bits 24..27 (4-bit *wire* field; the upper 0x30 nibble is implicit),
+        // ZMSK=bit 32. The Z buffer shares its stride with the colour buffer's FBW
+        // (there is no ZBW field).
+        //
+        // GSRegs.h documents PSM as `u32 PSM : 6` because PCSX2 stores the *decoded*
+        // value internally after OR'ing 0x30 in; the wire format only stores the low
+        // nibble (PSMZ32=0, PSMZ24=1, PSMZ16=2, PSMZ16S=10). Reading 6 bits raw and
+        // comparing against PSMZ24=0x31 always failed — we then dropped every Z write
+        // (2M skipped, 0 stored) and the bloom-feedback chain that samples the Z buffer
+        // as a PSMZ24 texture saw garbage instead of the depth silhouette.
+        var zpsm = 0x30u | (uint)((context.Zbuf >> 24) & 0xFu);
         if (zpsm != Ps2GsVram.PSMZ32 && zpsm != Ps2GsVram.PSMZ24)
         {
             // PSMZ16 / PSMZ16S exist but the VRAM module doesn't store them yet.
             if (zpsm is 0x32 or 0x3A)
                 NoteApproximation($"depth_psm_0x{zpsm:X2}_not_written_to_vram");
+            renderAudit.DepthVramWritesSkippedPsm++;
             return;
         }
 
         var fbw = (uint)((context.Frame >> 16) & 0x3Fu);
         if (fbw == 0)
+        {
+            renderAudit.DepthVramWritesSkippedFbw0++;
             return;
+        }
 
         var zbp = (uint)(context.Zbuf & 0x1FFu) << 5;
         var zi = z <= 0f ? 0u : z >= 4294967295f ? 0xFFFFFFFFu : (uint)z;
@@ -401,6 +413,7 @@ internal sealed partial class GsGifInterpreter
         var b = (byte)((zi >> 16) & 0xFFu);
         var a = (byte)((zi >> 24) & 0xFFu);
         vram.WritePixel(zbp, fbw, zpsm, x, y, r, g, b, a);
+        renderAudit.DepthVramWrites++;
     }
 
     private static bool PassesDepth(float z, int idx, GsContext context, float[] depth)

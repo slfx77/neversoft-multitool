@@ -534,6 +534,62 @@ public sealed class GsDumpAuditTests
     }
 
     [Fact]
+    public void Renderer_DecodesZbufPsmFromLowNibbleWithImplicit0x30Prefix()
+    {
+        // Regression for the THAW bloom-cascade Z-buffer bug. The GS hardware stores
+        // ZBUF.PSM as a 4-bit field at bits 24..27 with the upper 0x30 nibble *implicit*
+        // (PSMZ32 = field 0x0, PSMZ24 = field 0x1, PSMZ16 = 0x2, PSMZ16S = 0xA). The
+        // commented variant in PCSX2's GSRegs.h shows the 4-bit form; the active 6-bit
+        // declaration is PCSX2's *decoded* form after the implicit 0x30 has been OR'd in.
+        // Reading the wire form as 6 bits gave us 0x1 instead of 0x31, so every Z write
+        // was rejected ("zpsm != PSMZ32 && zpsm != PSMZ24") and the bloom-feedback path
+        // that samples the Z buffer as a PSMZ24 texture saw garbage. Worst dump:
+        // 1,968,267 Z writes were silently dropped — empty Z buffer, no scene silhouette.
+        const uint zbpPage = 4;
+        const uint tbpBlock = zbpPage * 32;
+        // Wire format: only the low nibble of PSM at bits 24..27. 0x1 means PSMZ24.
+        var zbufWireFormat = (ulong)zbpPage | (0x1UL << 24);
+        var tex0PsmZ24 = MakeTex0(widthPow: 2, heightPow: 2, psm: 0x31, tbp: tbpBlock, tcc: 0, tfx: 1);
+
+        var gif = Concat(
+            AdTag(
+                (0x4C, MakeFrame(fbw: 1, psm: 0)),
+                (0x4E, zbufWireFormat)),
+            PackedTag(
+                nloop: 2,
+                nreg: 2,
+                regs: MakeRegs(0x01, 0x04),
+                prim: PrimSprite,
+                Rgbaq(128, 128, 128, 128),
+                PackedXyz(0, 0, 0x123456),
+                Rgbaq(128, 128, 128, 128),
+                PackedXyz(4, 4, 0x123456)),
+            AdTag((0x06, tex0PsmZ24)),
+            PackedTag(
+                nloop: 2,
+                nreg: 2,
+                regs: MakeRegs(0x03, 0x04),
+                prim: PrimSpriteTextureFst,
+                PackedUv(0, 0),
+                PackedXyz(8, 0),
+                PackedUv(64, 64),
+                PackedXyz(12, 4)));
+        var dump = GsDumpFile.Parse(BuildRawDump(new TransferPacket(3, gif)));
+
+        var result = GsGifInterpreter.Interpret(dump, new GsGifInterpretOptions { Width = 16, Height = 8 });
+
+        // Z value 0x123456 must have been written to VRAM at TBP=128 PSMZ24 and then
+        // sampled back by the second sprite. If the wire-format PSM decoding is wrong,
+        // depthBuffer holds the value but VRAM is empty and the readback returns 0.
+        Assert.True(result.Render.DepthVramWrites > 0,
+            $"Expected Z writes to VRAM but counter was {result.Render.DepthVramWrites}");
+        var pixel = ReadPixel(result.Pixels, 16, 10, 2);
+        Assert.Equal(0x56, pixel.R);
+        Assert.Equal(0x34, pixel.G);
+        Assert.Equal(0x12, pixel.B);
+    }
+
+    [Fact]
     public void Renderer_WritesDepthToVramSoFramebufferFeedbackCanSampleIt()
     {
         // Regression for THAW dump 0188 (PSMZ24 depth-as-texture sample reading all-zero).
