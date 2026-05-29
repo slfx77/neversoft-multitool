@@ -1,5 +1,5 @@
 using System.CommandLine;
-using NeversoftMultitool.Core.Formats.Psx;
+using NeversoftMultitool.Core.Formats.Texture.Psx;
 using Spectre.Console;
 
 namespace PsxAnalyzer.Commands;

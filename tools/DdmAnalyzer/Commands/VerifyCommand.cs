@@ -2,6 +2,8 @@ using System.CommandLine;
 using System.Numerics;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Ddm;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using Spectre.Console;
 
 namespace DdmAnalyzer.Commands;

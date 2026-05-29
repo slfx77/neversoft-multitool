@@ -1,5 +1,6 @@
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using Pfim;
 
 // -----------------------------------------------------------------------
