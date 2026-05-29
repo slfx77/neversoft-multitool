@@ -17,7 +17,8 @@ Date: 2026-04-21
   sheets visually eliminate `direct-raw` and `direct-raw-rawt` because their
   arms fold through/cross the torso. `bind-raw` remains the default.
 - Generated diagnostics for this repo should be written under `TestOutput\...`.
-  Keep `C:\tmp\skater_m_*.ska` only as local input fixture paths.
+  THPS3 SKA input fixtures live at `tests\TestData\Thps3\Ska\skater_m_*.ska`
+  (gitignored — extracted from disc locally).
 
 ## Implemented
 
@@ -157,7 +158,7 @@ python tools\diagnostics\thps3_pose_dump.py `
   --out TestOutput\thps3_runtime_matrices\debug_source_b_pose.json
 
 python tools\diagnostics\thps3_ska_runtime_compare.py `
-  --ska C:\tmp\skater_m_Idle.ska `
+  --ska tests\TestData\Thps3\Ska\skater_m_Idle.ska `
   --pose TestOutput\thps3_runtime_matrices\debug_output_pose.json `
   --pose TestOutput\thps3_runtime_matrices\debug_source_a_pose.json `
   --pose TestOutput\thps3_runtime_matrices\debug_source_b_pose.json `
@@ -179,7 +180,7 @@ Results after the Q-track parser fix:
 
 ```powershell
 python tools\diagnostics\thps3_ska_runtime_compare.py `
-  --ska C:\tmp\skater_m_Idle.ska `
+  --ska tests\TestData\Thps3\Ska\skater_m_Idle.ska `
   --pose TestOutput\thps3_runtime_matrices\debug_output_pose.json `
   --pose TestOutput\thps3_runtime_matrices\debug_source_a_pose.json `
   --pose TestOutput\thps3_runtime_matrices\debug_source_b_pose.json `
@@ -197,7 +198,7 @@ Critical Q-track finding:
 ```powershell
 python tools\diagnostics\thps3_runtime_qblob_dump.py `
   --savestate "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
-  --ska C:\tmp\skater_m_Idle.ska `
+  --ska tests\TestData\Thps3\Ska\skater_m_Idle.ska `
   --out TestOutput\thps3_runtime_matrices\debug_runtime_qblob.json
 ```
 

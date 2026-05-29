@@ -25,14 +25,15 @@ DEFAULT_MODES = [
     "direct-raw-rawt",
 ]
 DEFAULT_AZIMUTHS = [0.0, 90.0]
-DEFAULT_SKAS = [
-    Path(r"C:\tmp\skater_m_Idle.ska"),
-    Path(r"C:\tmp\skater_m_AirIdle.ska"),
-]
 
 
 def default_repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def default_skas(repo_root: Path) -> list[Path]:
+    ska_dir = repo_root / "tests" / "TestData" / "Thps3" / "Ska"
+    return [ska_dir / "skater_m_Idle.ska", ska_dir / "skater_m_AirIdle.ska"]
 
 
 def default_skn(repo_root: Path) -> Path:
@@ -242,7 +243,7 @@ def main() -> int:
 
     modes = args.mode or DEFAULT_MODES
     azimuths = args.azimuth or DEFAULT_AZIMUTHS
-    skas = [p.resolve() for p in (args.ska or DEFAULT_SKAS)]
+    skas = [p.resolve() for p in (args.ska or default_skas(args.repo_root))]
 
     required = [args.skn, *skas]
     required.append(args.tool if args.tool else args.project)

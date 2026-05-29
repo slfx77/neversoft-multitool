@@ -99,11 +99,13 @@ public sealed class Thps3SkaPoseApplierTests(TestPaths paths)
     }
 
     [Theory]
-    [InlineData("C:/tmp/skater_m_Idle.ska", 29, 158, 71, 1.0666667f)]
-    [InlineData("C:/tmp/skater_m_AirIdle.ska", 29, 132, 69, 1.3333334f)]
+    [InlineData("skater_m_Idle.ska", 29, 158, 71, 1.0666667f)]
+    [InlineData("skater_m_AirIdle.ska", 29, 132, 69, 1.3333334f)]
     public void ParseThps3_LocalFixtures_HaveStableKeyCounts(
-        string path, int expectedBones, int expectedRotationKeys, int expectedTranslationKeys, float expectedDuration)
+        string fileName, int expectedBones, int expectedRotationKeys, int expectedTranslationKeys, float expectedDuration)
     {
+        Assert.SkipWhen(paths.Thps3SkaDir is null, "TestData directory not located");
+        var path = Path.Combine(paths.Thps3SkaDir!, fileName);
         Assert.SkipWhen(!File.Exists(path), $"Local THPS3 SKA fixture not found: {path}");
 
         var animation = SkaFile.Parse(File.ReadAllBytes(path));
@@ -117,7 +119,8 @@ public sealed class Thps3SkaPoseApplierTests(TestPaths paths)
     [Fact]
     public void ParseThps3_LocalIdle_UsesRuntimeQTrackGrouping()
     {
-        const string path = "C:/tmp/skater_m_Idle.ska";
+        Assert.SkipWhen(paths.Thps3SkaDir is null, "TestData directory not located");
+        var path = Path.Combine(paths.Thps3SkaDir!, "skater_m_Idle.ska");
         Assert.SkipWhen(!File.Exists(path), $"Local THPS3 SKA fixture not found: {path}");
 
         var animation = SkaFile.Parse(File.ReadAllBytes(path));

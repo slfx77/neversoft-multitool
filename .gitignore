@@ -59,6 +59,7 @@ Sample/
 tests/TestData/Psx/
 tests/TestData/Rle/
 tests/TestData/Archives/Wad/
+tests/TestData/Thps3/
 
 # Golden files derived from copyrighted game content
 # Synthetic golden files (GoldenFiles/Archives/Pkr/) are fine to commit

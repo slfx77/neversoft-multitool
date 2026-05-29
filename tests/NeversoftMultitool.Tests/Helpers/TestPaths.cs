@@ -36,6 +36,9 @@ public class TestPaths
     public string? WadDir => TestDataDir != null ? Path.Combine(TestDataDir, "Archives", "Wad") : null;
     public string? PkrDir => TestDataDir != null ? Path.Combine(TestDataDir, "Archives", "Pkr") : null;
 
+    // THPS3 SKA animation fixtures (extracted from disc, gitignored)
+    public string? Thps3SkaDir => TestDataDir != null ? Path.Combine(TestDataDir, "Thps3", "Ska") : null;
+
     // Golden files
     public string? GoldenPsxXboxDir => GoldenFilesDir != null ? Path.Combine(GoldenFilesDir, "Psx", "Xbox") : null;
     public string? GoldenPsxPs1Dir => GoldenFilesDir != null ? Path.Combine(GoldenFilesDir, "Psx", "Ps1") : null;

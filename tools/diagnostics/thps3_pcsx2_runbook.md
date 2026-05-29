@@ -10,8 +10,8 @@ select a safe production pose mode.
 - PCSX2 build: `C:/Users/mmc99/Downloads/pcsx2-v2.3.218-windows-x64-Qt/pcsx2-qt.exe`
 - Game: Tony Hawk's Pro Skater 3, PS2 final.
 - Model: `Sample/Builds/Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)/Extracted/SKATE3/pre/cas_male/models/skater_m/skater_m.skn`
-- Animations: `C:/tmp/skater_m_Idle.ska`, `C:/tmp/skater_m_AirIdle.ska`
-- Export sweep: `python tools/diagnostics/thps3_variant_sweep.py --out C:/tmp/thps3_variant_sweep`
+- Animations: `tests/TestData/Thps3/Ska/skater_m_Idle.ska`, `tests/TestData/Thps3/Ska/skater_m_AirIdle.ska`
+- Export sweep: `python tools/diagnostics/thps3_variant_sweep.py --out TestOutput/thps3_variant_sweep`
 
 Capture these sample times:
 
@@ -23,10 +23,10 @@ Capture these sample times:
 ## Step A - Confirm the visual ambiguity
 
 1. Run the diagnostic sweep and inspect:
-   - `C:/tmp/thps3_variant_sweep/contact_sheets/skater_m_Idle_az0.png`
-   - `C:/tmp/thps3_variant_sweep/contact_sheets/skater_m_Idle_az90.png`
-   - `C:/tmp/thps3_variant_sweep/contact_sheets/skater_m_AirIdle_az0.png`
-   - `C:/tmp/thps3_variant_sweep/contact_sheets/skater_m_AirIdle_az90.png`
+   - `TestOutput/thps3_variant_sweep/contact_sheets/skater_m_Idle_az0.png`
+   - `TestOutput/thps3_variant_sweep/contact_sheets/skater_m_Idle_az90.png`
+   - `TestOutput/thps3_variant_sweep/contact_sheets/skater_m_AirIdle_az0.png`
+   - `TestOutput/thps3_variant_sweep/contact_sheets/skater_m_AirIdle_az90.png`
 2. Do not promote a mode if it only looks better in one animation or one
    camera. The replacement default needs to survive both animations and both
    cameras.
@@ -237,7 +237,7 @@ Use this command to reconstruct that blob from a savestate:
 ```powershell
 python tools/diagnostics/thps3_runtime_qblob_dump.py `
   --savestate "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
-  --ska C:\tmp\skater_m_Idle.ska `
+  --ska tests\TestData\Thps3\Ska\skater_m_Idle.ska `
   --out TestOutput\thps3_runtime_matrices\debug_runtime_qblob.json
 ```
 
@@ -253,7 +253,7 @@ Direct parser compare command:
 
 ```powershell
 python tools/diagnostics/thps3_ska_runtime_compare.py `
-  --ska C:\tmp\skater_m_Idle.ska `
+  --ska tests\TestData\Thps3\Ska\skater_m_Idle.ska `
   --pose TestOutput\thps3_runtime_matrices\debug_output_pose.json `
   --pose TestOutput\thps3_runtime_matrices\debug_source_a_pose.json `
   --pose TestOutput\thps3_runtime_matrices\debug_source_b_pose.json `
