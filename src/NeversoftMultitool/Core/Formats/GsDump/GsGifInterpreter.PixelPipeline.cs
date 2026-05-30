@@ -111,6 +111,12 @@ internal sealed partial class GsGifInterpreter
         // Pass state.Texa so PSMCT16/16S write-confirmation reads back match the spec-correct
         // alpha the dst read in BlendPixel will see — same TEXA, same readback value, same probe.
         var written = vram.ReadPixelRgba(target.Fbp, target.Fbw, target.Psm, x, y, state.Texa);
+        // Mirror the *post-mask, post-readback* bytes into the per-(FBP, FBW, PSM) shadow
+        // cache. The cache lets later texture samples pull RT pixels per-FBW-surface instead
+        // of going through the shared-VRAM swizzle, which produces FBW-aliasing strips when
+        // the same FBP is written at multiple FBWs (THAW bloom pyramid pattern).
+        renderTargetCache.WritePixel(target.Fbp, target.Fbw, target.Psm, x, y,
+            written.R, written.G, written.B, written.A);
         return new GsSample(written.R, written.G, written.B, written.A);
     }
 

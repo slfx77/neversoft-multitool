@@ -111,6 +111,7 @@ internal sealed partial class GsGifInterpreter
     private readonly Dictionary<ulong, long> tex0Writes = [];
     private readonly Dictionary<GsTextureCacheKey, GsTexture?> textureCache = [];
     private readonly Ps2GsVram vram = new();
+    private readonly GsRenderTargetCache renderTargetCache = new();
     private readonly Dictionary<ulong, long> xyzByTex0 = [];
     private GsImageTransfer? activeImageTransfer;
     private byte[]? directPixels;

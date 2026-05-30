@@ -53,6 +53,20 @@ internal sealed partial class GsGifInterpreter
             if (psm == Ps2GsVram.PSMZ32)
                 NoteApproximation("texture_psmz32_as_color");
 
+            // RT cache fast path: when the sampled TBP overlaps a known per-(FBP,FBW,PSM)
+            // surface, blit the surface's pixels into the sample at FBW-correct offsets
+            // instead of going through the shared-VRAM swizzle (which produces FBW-aliasing
+            // strips when one FBP was written at multiple FBWs — the THAW 1024×1024 bloom
+            // compose pattern).
+            var tbpForCache = (uint)(tex0 & 0x3FFF);
+            var rgbaFromCache = renderTargetCache.TryComposeSample(tbpForCache, width, height, psm);
+            if (rgbaFromCache != null)
+            {
+                texture = new GsTexture(width, height, rgbaFromCache);
+                textureSource = "rt_cache";
+                NoteApproximation("texture_from_rt_cache");
+            }
+
             if (texture == null)
             {
                 var pixelsFromVram = ThawZoneTexVramSupport.DecodeFromTex0(
