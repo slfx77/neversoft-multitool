@@ -276,10 +276,15 @@ internal sealed partial class GsGifInterpreter
     private byte[]? ReadFramebufferRgbaRaw(uint fbp, uint fbw, uint psm, int width, int height)
     {
         // Like ReadFramebufferRgba but preserves the raw alpha byte for PSMCT32 / PSMZ32
-        // (matches PCSX2's SaveBMP output).
-        if (psm is Ps2TexPixelDecoder.PSMCT32 or Ps2GsVram.PSMZ32)
-            return vram.ReadRectPSMCT32(fbp, fbw, width, height);
-        return ReadFramebufferRgba(fbp, fbw, psm, width, height);
+        // (matches PCSX2's SaveBMP output). PSMZ paths route through the Z swizzle so the
+        // bytes read back are the actual depth payload written via WriteDepthToVram /
+        // WriteFramebufferPixel(PSMZ*).
+        return psm switch
+        {
+            Ps2TexPixelDecoder.PSMCT32 => vram.ReadRectPSMCT32(fbp, fbw, width, height),
+            Ps2GsVram.PSMZ32 => vram.ReadRectPSMZ32(fbp, fbw, width, height),
+            _ => ReadFramebufferRgba(fbp, fbw, psm, width, height)
+        };
     }
 
     private byte[]? ReadFramebufferRgba(uint fbp, uint fbw, uint psm, int width, int height)
@@ -287,17 +292,38 @@ internal sealed partial class GsGifInterpreter
         return psm switch
         {
             Ps2TexPixelDecoder.PSMCT32 => ReadPsmct32Framebuffer(fbp, fbw, width, height),
-            Ps2GsVram.PSMZ32 => ReadPsmct32Framebuffer(fbp, fbw, width, height),
-            Ps2TexPixelDecoder.PSMCT24 or Ps2GsVram.PSMZ24 => ReadPsmct24Framebuffer(fbp, fbw, width, height),
+            Ps2GsVram.PSMZ32 => ReadPsmz32Framebuffer(fbp, fbw, width, height),
+            Ps2TexPixelDecoder.PSMCT24 => ReadPsmct24Framebuffer(fbp, fbw, width, height),
+            Ps2GsVram.PSMZ24 => ReadPsmz24Framebuffer(fbp, fbw, width, height),
             Ps2TexPixelDecoder.PSMCT16 or Ps2GsVram.PSMCT16S => ReadPsmct16Framebuffer(fbp, fbw, psm, width, height),
+            Ps2GsVram.PSMZ16 or Ps2GsVram.PSMZ16S => ReadPsmz16Framebuffer(fbp, fbw, psm, width, height),
             _ => null
         };
     }
 
     private byte[] ReadPsmct32Framebuffer(uint fbp, uint fbw, int width, int height)
     {
-        var raw = vram.ReadRectPSMCT32(fbp, fbw, width, height);
-        var rgba = new byte[width * height * 4];
+        return PackRgbWithSolidAlpha(vram.ReadRectPSMCT32(fbp, fbw, width, height));
+    }
+
+    private byte[] ReadPsmz32Framebuffer(uint fbp, uint fbw, int width, int height)
+    {
+        return PackRgbWithSolidAlpha(vram.ReadRectPSMZ32(fbp, fbw, width, height));
+    }
+
+    private byte[] ReadPsmct24Framebuffer(uint fbp, uint fbw, int width, int height)
+    {
+        return PackRgbWithSolidAlpha(vram.ReadRectPSMCT32(fbp, fbw, width, height));
+    }
+
+    private byte[] ReadPsmz24Framebuffer(uint fbp, uint fbw, int width, int height)
+    {
+        return PackRgbWithSolidAlpha(vram.ReadRectPSMZ24(fbp, fbw, width, height));
+    }
+
+    private static byte[] PackRgbWithSolidAlpha(byte[] raw)
+    {
+        var rgba = new byte[raw.Length];
         for (var i = 0; i < rgba.Length; i += 4)
         {
             rgba[i] = raw[i];
@@ -309,28 +335,25 @@ internal sealed partial class GsGifInterpreter
         return rgba;
     }
 
-    private byte[] ReadPsmct24Framebuffer(uint fbp, uint fbw, int width, int height)
-    {
-        var raw = vram.ReadRectPSMCT32(fbp, fbw, width, height);
-        var rgba = new byte[width * height * 4];
-        for (var src = 0; src < raw.Length; src += 4)
-        {
-            var dst = src;
-            rgba[dst] = raw[src];
-            rgba[dst + 1] = raw[src + 1];
-            rgba[dst + 2] = raw[src + 2];
-            rgba[dst + 3] = 255;
-        }
-
-        return rgba;
-    }
-
     private byte[] ReadPsmct16Framebuffer(uint fbp, uint fbw, uint psm, int width, int height)
     {
         var raw = psm == Ps2GsVram.PSMCT16S
             ? vram.ReadRectPSMCT16S(fbp, fbw, width, height)
             : vram.ReadRectPSMCT16(fbp, fbw, width, height);
-        var rgba = new byte[width * height * 4];
+        return DecodePsmct16RgbaPlane(raw);
+    }
+
+    private byte[] ReadPsmz16Framebuffer(uint fbp, uint fbw, uint psm, int width, int height)
+    {
+        var raw = psm == Ps2GsVram.PSMZ16S
+            ? vram.ReadRectPSMZ16S(fbp, fbw, width, height)
+            : vram.ReadRectPSMZ16(fbp, fbw, width, height);
+        return DecodePsmct16RgbaPlane(raw);
+    }
+
+    private static byte[] DecodePsmct16RgbaPlane(byte[] raw)
+    {
+        var rgba = new byte[raw.Length * 2];
         for (var src = 0; src + 1 < raw.Length; src += 2)
         {
             var pixel = raw[src] | (raw[src + 1] << 8);

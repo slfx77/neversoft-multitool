@@ -656,7 +656,9 @@ internal sealed partial class GsGifInterpreter
             or Ps2TexPixelDecoder.PSMCT16
             or Ps2GsVram.PSMCT16S
             or Ps2GsVram.PSMZ32
-            or Ps2GsVram.PSMZ24;
+            or Ps2GsVram.PSMZ24
+            or Ps2GsVram.PSMZ16
+            or Ps2GsVram.PSMZ16S;
     }
 
     private void RecordFramebufferDraw(GsFramebufferTarget target)
