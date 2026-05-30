@@ -8,15 +8,17 @@ public class Ps2GsVramTests
     [InlineData(0u, 5u, 320, 256, 0x01u)]   // THAW dump 0290: FBP=13632, FBW=5, PSMCT24 framebuffer.
     [InlineData(0u, 10u, 640, 448, 0x00u)]  // Full-frame PSMCT32 main framebuffer.
     [InlineData(0u, 1u, 4, 4, 0x31u)]       // Tiny PSMZ24 region (matches the depth test).
-    public void WritePixelThenReadRectPSMCT32_RoundTrips(uint fbp, uint fbw, int width, int height, uint psm)
+    public void WritePixelThenReadRect_RoundTrips(uint fbp, uint fbw, int width, int height, uint psm)
     {
         // Regression: when the game writes a framebuffer via per-pixel WritePixel calls (the
-        // path WriteFramebufferPixel uses) and then samples it back via ReadRectPSMCT32 (the
-        // path ThawZoneTexVramSupport.DecodeFromTex0 / ReadFramebufferRgba use for sampled
+        // path WriteFramebufferPixel uses) and then samples it back via ReadRect (the path
+        // ThawZoneTexVramSupport.DecodeFromTex0 / ReadFramebufferRgba use for sampled
         // textures with framebuffer provenance), the GS page-block-column swizzle must be
-        // symmetric: every (x, y) must round-trip exactly. A skew here would manifest as
-        // "ghost silhouette" scramble in framebuffer-feedback dumps even when classifier
-        // FBW == TBW. THAW dump 0290 hits exactly this case at FBW=5 PSMCT24.
+        // symmetric for the matching PSM: every (x, y) must round-trip exactly. A skew here
+        // would manifest as "ghost silhouette" scramble in framebuffer-feedback dumps even
+        // when classifier FBW == TBW. THAW dump 0290 hits this case at FBW=5 PSMCT24. The
+        // PSMZ24 row covers the Z-swizzled (XOR 0x600) read/write path that the bloom
+        // pyramid's Z-as-texture sample depends on.
         var vram = new Ps2GsVram();
 
         for (var y = 0; y < height; y++)
@@ -28,7 +30,9 @@ public class Ps2GsVramTests
             }
         }
 
-        var rgba = vram.ReadRectPSMCT32(fbp, fbw, width, height);
+        var rgba = psm == Ps2GsVram.PSMZ24
+            ? vram.ReadRectPSMZ24(fbp, fbw, width, height)
+            : vram.ReadRectPSMCT32(fbp, fbw, width, height);
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -209,6 +213,135 @@ public class Ps2GsVramTests
         var pFallbackBit0 = vram.ReadPixelRgba(0u, 5u, Ps2GsVram.PSMCT16, 7, 12);
         Assert.Equal((byte)0x00, pFallbackBit0.A);
     }
+
+    [Fact]
+    public void PsmZ32_WritesToZSwizzledAddress_DiffersFromPsmct32_AtSameCoord()
+    {
+        // Regression for the THAW bloom-pyramid Z-as-texture gap. PCSX2 swizzle32Z
+        // (GSLocalMemory.h:479) reuses swizzleTables32 with blockXor=0x18 → pixel-address
+        // XOR 0x18 << 6 = 0x600. Without this XOR our Z bytes land at the same VRAM word
+        // as PSMCT32 writes at the same coordinate, so games that sample the Z buffer as a
+        // PSMZ24 texture (THAW: 844 sample draws at TBP=0x1A40 PSMZ24 1024x1024) read color
+        // bytes instead of depth. This test pins down both halves: each PSM reads its own
+        // write, and neither sees the other's bytes.
+        var vram = new Ps2GsVram();
+
+        vram.WritePixel(0u, 10u, Ps2GsVram.PSMCT32, 0, 0, 0xAA, 0xBB, 0xCC, 0xDD);
+        vram.WritePixel(0u, 10u, Ps2GsVram.PSMZ32, 0, 0, 0x11, 0x22, 0x33, 0x44);
+
+        var color = vram.ReadPixelRgba(0u, 10u, Ps2GsVram.PSMCT32, 0, 0);
+        var depth = vram.ReadPixelRgba(0u, 10u, Ps2GsVram.PSMZ32, 0, 0);
+
+        Assert.Equal((0xAA, 0xBB, 0xCC, 0xDD), (color.R, color.G, color.B, color.A));
+        Assert.Equal((0x11, 0x22, 0x33, 0x44), (depth.R, depth.G, depth.B, depth.A));
+    }
+
+    [Fact]
+    public void PsmZ24_AndPsmct24_CoexistInSameVram_WithoutAliasing()
+    {
+        // PSMZ24 and PSMCT24 share the alpha-mask write rule (fbmsk | 0xFF000000) but write
+        // to different VRAM words after the Z swizzle is applied. The bloom-feedback pattern
+        // in THAW relies on this: the game uses TBP=0x1A40 as both the colour buffer and the
+        // depth feedback target, and a write to one must not corrupt the other. The 0x18
+        // block-XOR keeps a PSMCT24 write at the bottom-left corner of one block from
+        // colliding with a PSMZ24 write at the same coord, so both payloads survive in the
+        // same VRAM. This test uses an 8x8 region (single block) where the two address
+        // spaces are guaranteed disjoint.
+        var vram = new Ps2GsVram();
+
+        for (var y = 0; y < 8; y++)
+        {
+            for (var x = 0; x < 8; x++)
+            {
+                var ct = (uint)((y * 11u + x * 5u + 0x100u) & 0x00FFFFFFu);
+                var zd = (uint)((y * 13u + x * 7u + 0x80000u) & 0x00FFFFFFu);
+                vram.WritePixel(0u, 1u, 0x01u, x, y, (byte)ct, (byte)(ct >> 8), (byte)(ct >> 16), 0);
+                vram.WritePixel(0u, 1u, Ps2GsVram.PSMZ24, x, y, (byte)zd, (byte)(zd >> 8), (byte)(zd >> 16), 0);
+            }
+        }
+
+        for (var y = 0; y < 8; y++)
+        {
+            for (var x = 0; x < 8; x++)
+            {
+                var ct = (uint)((y * 11u + x * 5u + 0x100u) & 0x00FFFFFFu);
+                var zd = (uint)((y * 13u + x * 7u + 0x80000u) & 0x00FFFFFFu);
+                var ctRead = vram.ReadPixelRgba(0u, 1u, 0x01u, x, y);
+                var zRead = vram.ReadPixelRgba(0u, 1u, Ps2GsVram.PSMZ24, x, y);
+                Assert.Equal((byte)ct, ctRead.R);
+                Assert.Equal((byte)(ct >> 8), ctRead.G);
+                Assert.Equal((byte)(ct >> 16), ctRead.B);
+                Assert.Equal((byte)zd, zRead.R);
+                Assert.Equal((byte)(zd >> 8), zRead.G);
+                Assert.Equal((byte)(zd >> 16), zRead.B);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(Ps2GsVram.PSMZ16)]
+    [InlineData(Ps2GsVram.PSMZ16S)]
+    public void PsmZ16_RoundTrip_64x64(uint psm)
+    {
+        // PSMZ16 / PSMZ16S writes used to be silently dropped (~71k/frame on THAW dump
+        // 20260507234126). After the Z-buffer correctness sweep, WritePixel(PSMZ16, ...)
+        // stores (r | g << 8) as a raw halfword — PCSX2 WritePixel16Z preserves the low
+        // 16 bits of Z verbatim, no 5-bit quantization. The roundtrip via ReadRectPSMZ16
+        // returns the raw bytes; both halfword selectors are exercised, including the
+        // odd-x upper-halfword case.
+        var vram = new Ps2GsVram();
+
+        for (var y = 0; y < 64; y++)
+        {
+            for (var x = 0; x < 64; x++)
+            {
+                var lo = (byte)((x * 7) & 0xFF);
+                var hi = (byte)((y * 13) & 0xFF);
+                vram.WritePixel(0u, 1u, psm, x, y, lo, hi, 0, 0);
+            }
+        }
+
+        var raw = psm == Ps2GsVram.PSMZ16
+            ? vram.ReadRectPSMZ16(0u, 1u, 64, 64)
+            : vram.ReadRectPSMZ16S(0u, 1u, 64, 64);
+
+        for (var y = 0; y < 64; y++)
+        {
+            for (var x = 0; x < 64; x++)
+            {
+                var i = (y * 64 + x) * 2;
+                var expectedLo = (byte)((x * 7) & 0xFF);
+                var expectedHi = (byte)((y * 13) & 0xFF);
+                Assert.Equal(expectedLo, raw[i]);
+                Assert.Equal(expectedHi, raw[i + 1]);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(Ps2GsVram.PSMZ16, Ps2GsVram.PSMCT16)]
+    [InlineData(Ps2GsVram.PSMZ16S, Ps2GsVram.PSMCT16S)]
+    public void PsmZ16_AtSingleCoord_DoesNotAliasPsmct16(uint zPsm, uint ctPsm)
+    {
+        // The Z swizzle XOR (0x600 in word units, 24 blocks within a 32-block page)
+        // must keep a PSMZ16 write at (x,y) from landing at the same VRAM halfword as a
+        // PSMCT16 read at (x,y). Verified at a single coord within the first 16x8 block:
+        // a single-coord write fills only block 0 (PSMCT) or block 24 (PSMZ), so cross-PSM
+        // reads see zero. This complements the PSMCT16-isolation check that the 64x64
+        // roundtrip test cannot do (writes there span a full page and the permutation
+        // covers every halfword address).
+        var vram = new Ps2GsVram();
+
+        vram.WritePixel(0u, 1u, zPsm, 3, 5, 0xC0, 0x40, 0x80, 0xFF);
+        var fromCt = vram.ReadPixelRgba(0u, 1u, ctPsm, 3, 5);
+        Assert.Equal((0, 0, 0, 0), (fromCt.R, fromCt.G, fromCt.B, fromCt.A));
+
+        var fromZ = vram.ReadPixelRgba(0u, 1u, zPsm, 3, 5);
+        Assert.True(fromZ.R > 0 || fromZ.G > 0 || fromZ.B > 0,
+            $"Expected non-zero PSMZ16 readback but got ({fromZ.R}, {fromZ.G}, {fromZ.B})");
+    }
+
+    private static byte Expand5To8(int v) => (byte)((v << 3) | (v >> 2));
 
     [Fact]
     public void ReadPixelRgba_Psmct24_ReturnsPreviousPsmct32Alpha()

@@ -30,6 +30,8 @@ internal sealed partial class Ps2GsVram
     internal const uint PSMT4 = 0x14;
     internal const uint PSMZ32 = 0x30;
     internal const uint PSMZ24 = 0x31;
+    internal const uint PSMZ16 = 0x32;
+    internal const uint PSMZ16S = 0x3A;
 
     private readonly Ps2GifQwordWordOrder _gifQwordWordOrder;
     private readonly uint[] _vram = new uint[VramWords];
@@ -54,6 +56,39 @@ internal sealed partial class Ps2GsVram
 
     public void WriteRectPSMCT32(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
     {
+        WriteRectPSMCT32Core(dbp, dbw, rrw, rrh, data, dsax, dsay, false);
+    }
+
+    public void WriteRectPSMZ32(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
+    {
+        WriteRectPSMCT32Core(dbp, dbw, rrw, rrh, data, 0, 0, true);
+    }
+
+    public void WriteRectPSMZ32(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
+    {
+        WriteRectPSMCT32Core(dbp, dbw, rrw, rrh, data, dsax, dsay, true);
+    }
+
+    public void WriteRectPSMZ24(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
+    {
+        WriteRectPSMCT32Core(dbp, dbw, rrw, rrh, data, 0, 0, true);
+    }
+
+    public void WriteRectPSMZ24(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
+    {
+        WriteRectPSMCT32Core(dbp, dbw, rrw, rrh, data, dsax, dsay, true);
+    }
+
+    private void WriteRectPSMCT32Core(
+        uint dbp,
+        uint dbw,
+        int rrw,
+        int rrh,
+        ReadOnlySpan<byte> data,
+        int dsax,
+        int dsay,
+        bool zSwizzle)
+    {
         var srcOff = 0;
         for (var y = 0; y < rrh; y++)
         {
@@ -65,7 +100,9 @@ internal sealed partial class Ps2GsVram
                                   (data[mappedOff + 2] << 16) | (data[mappedOff + 3] << 24));
                 srcOff += 4;
 
-                var addr = GetWordAddressPSMCT32(dbp, dbw, dsax + x, dsay + y);
+                var addr = zSwizzle
+                    ? GetWordAddressPSMZ32(dbp, dbw, dsax + x, dsay + y)
+                    : GetWordAddressPSMCT32(dbp, dbw, dsax + x, dsay + y);
                 if (addr < VramWords)
                     _vram[addr] = word;
             }
@@ -78,25 +115,45 @@ internal sealed partial class Ps2GsVram
     /// </summary>
     public void WriteRectPSMCT16(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
     {
-        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, 0, 0, false);
+        WriteRectPSMCT16Core(dbp, dbw, rrw, rrh, data, 0, 0, false, false);
     }
 
     public void WriteRectPSMCT16S(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
     {
-        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, 0, 0, true);
+        WriteRectPSMCT16Core(dbp, dbw, rrw, rrh, data, 0, 0, true, false);
     }
 
     public void WriteRectPSMCT16(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
     {
-        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax, dsay, false);
+        WriteRectPSMCT16Core(dbp, dbw, rrw, rrh, data, dsax, dsay, false, false);
     }
 
     public void WriteRectPSMCT16S(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
     {
-        WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax, dsay, true);
+        WriteRectPSMCT16Core(dbp, dbw, rrw, rrh, data, dsax, dsay, true, false);
     }
 
-    private void WriteRectPSMCT16(
+    public void WriteRectPSMZ16(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
+    {
+        WriteRectPSMCT16Core(dbp, dbw, rrw, rrh, data, 0, 0, false, true);
+    }
+
+    public void WriteRectPSMZ16(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
+    {
+        WriteRectPSMCT16Core(dbp, dbw, rrw, rrh, data, dsax, dsay, false, true);
+    }
+
+    public void WriteRectPSMZ16S(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
+    {
+        WriteRectPSMCT16Core(dbp, dbw, rrw, rrh, data, 0, 0, true, true);
+    }
+
+    public void WriteRectPSMZ16S(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
+    {
+        WriteRectPSMCT16Core(dbp, dbw, rrw, rrh, data, dsax, dsay, true, true);
+    }
+
+    private void WriteRectPSMCT16Core(
         uint dbp,
         uint dbw,
         int rrw,
@@ -104,7 +161,8 @@ internal sealed partial class Ps2GsVram
         ReadOnlySpan<byte> data,
         int dsax,
         int dsay,
-        bool signedMode)
+        bool signedMode,
+        bool zSwizzle)
     {
         var srcOff = 0;
         for (var y = 0; y < rrh; y++)
@@ -116,7 +174,9 @@ internal sealed partial class Ps2GsVram
                 var halfword = (uint)(data[mappedOff] | (data[mappedOff + 1] << 8));
                 srcOff += 2;
 
-                var (wordAddr, half) = GetWordAddressPSMCT16(dbp, dbw, dsax + x, dsay + y, signedMode);
+                var (wordAddr, half) = zSwizzle
+                    ? GetWordAddressPSMZ16(dbp, dbw, dsax + x, dsay + y, signedMode)
+                    : GetWordAddressPSMCT16(dbp, dbw, dsax + x, dsay + y, signedMode);
                 if (wordAddr < VramWords)
                 {
                     if (half == 0)
@@ -141,15 +201,25 @@ internal sealed partial class Ps2GsVram
         switch (dpsm)
         {
             case PSMCT32:
-            case PSMZ32:
-            case PSMZ24:
                 WriteRectPSMCT32(dbp, dbw, rrw, rrh, data, dsax, dsay);
+                break;
+            case PSMZ32:
+                WriteRectPSMZ32(dbp, dbw, rrw, rrh, data, dsax, dsay);
+                break;
+            case PSMZ24:
+                WriteRectPSMZ24(dbp, dbw, rrw, rrh, data, dsax, dsay);
                 break;
             case PSMCT16:
                 WriteRectPSMCT16(dbp, dbw, rrw, rrh, data, dsax, dsay);
                 break;
             case PSMCT16S:
                 WriteRectPSMCT16S(dbp, dbw, rrw, rrh, data, dsax, dsay);
+                break;
+            case PSMZ16:
+                WriteRectPSMZ16(dbp, dbw, rrw, rrh, data, dsax, dsay);
+                break;
+            case PSMZ16S:
+                WriteRectPSMZ16S(dbp, dbw, rrw, rrh, data, dsax, dsay);
                 break;
             case PSMT8:
                 WriteRectPSMT8(dbp, dbw, rrw, rrh, data, dsax, dsay);
@@ -209,6 +279,29 @@ internal sealed partial class Ps2GsVram
     ///     Read a PSMCT32 region from VRAM (used for CLUT data).
     /// </summary>
     public byte[] ReadRectPSMCT32(uint cbp, uint cbw, int width, int height)
+        => ReadRectPSMCT32Core(cbp, cbw, width, height, false);
+
+    /// <summary>
+    ///     Read a PSMZ32 region from VRAM. Same byte layout as PSMCT32 once read; the
+    ///     Z swizzle (XOR 0x600 at the pixel address per PCSX2 GSLocalMemory.h:75 / :479)
+    ///     keeps Z bytes from colliding with PSMCT32 bytes at the same TBP/(x,y).
+    /// </summary>
+    public byte[] ReadRectPSMZ32(uint cbp, uint cbw, int width, int height)
+        => ReadRectPSMCT32Core(cbp, cbw, width, height, true);
+
+    /// <summary>
+    ///     Read a PSMZ24 region from VRAM. Like PSMZ32 but with the alpha byte zeroed
+    ///     (matches PCSX2 fmsk=0x00FFFFFF; GSLocalMemory.cpp:237).
+    /// </summary>
+    public byte[] ReadRectPSMZ24(uint cbp, uint cbw, int width, int height)
+    {
+        var output = ReadRectPSMCT32Core(cbp, cbw, width, height, true);
+        for (var i = 3; i < output.Length; i += 4)
+            output[i] = 0;
+        return output;
+    }
+
+    private byte[] ReadRectPSMCT32Core(uint cbp, uint cbw, int width, int height, bool zSwizzle)
     {
         var output = new byte[width * height * 4];
         var off = 0;
@@ -216,7 +309,9 @@ internal sealed partial class Ps2GsVram
         {
             for (var x = 0; x < width; x++)
             {
-                var addr = GetWordAddressPSMCT32(cbp, cbw, x, y);
+                var addr = zSwizzle
+                    ? GetWordAddressPSMZ32(cbp, cbw, x, y)
+                    : GetWordAddressPSMCT32(cbp, cbw, x, y);
                 var word = addr < VramWords ? _vram[addr] : 0u;
                 output[off++] = (byte)word;
                 output[off++] = (byte)(word >> 8);
@@ -256,16 +351,23 @@ internal sealed partial class Ps2GsVram
     ///     Read a PSMCT16 region from VRAM (used for 16-bit CLUT data).
     /// </summary>
     public byte[] ReadRectPSMCT16(uint cbp, uint cbw, int width, int height)
-    {
-        return ReadRectPSMCT16(cbp, cbw, width, height, false);
-    }
+        => ReadRectPSMCT16Core(cbp, cbw, width, height, false, false);
 
     public byte[] ReadRectPSMCT16S(uint cbp, uint cbw, int width, int height)
-    {
-        return ReadRectPSMCT16(cbp, cbw, width, height, true);
-    }
+        => ReadRectPSMCT16Core(cbp, cbw, width, height, true, false);
 
-    private byte[] ReadRectPSMCT16(uint cbp, uint cbw, int width, int height, bool signedMode)
+    /// <summary>
+    ///     Read a PSMZ16 / PSMZ16S region from VRAM. Same halfword layout as the
+    ///     PSMCT counterparts once read; the Z swizzle XOR keeps Z bytes from
+    ///     colliding with PSMCT16 bytes at the same TBP/(x,y).
+    /// </summary>
+    public byte[] ReadRectPSMZ16(uint cbp, uint cbw, int width, int height)
+        => ReadRectPSMCT16Core(cbp, cbw, width, height, false, true);
+
+    public byte[] ReadRectPSMZ16S(uint cbp, uint cbw, int width, int height)
+        => ReadRectPSMCT16Core(cbp, cbw, width, height, true, true);
+
+    private byte[] ReadRectPSMCT16Core(uint cbp, uint cbw, int width, int height, bool signedMode, bool zSwizzle)
     {
         var output = new byte[width * height * 2];
         var off = 0;
@@ -273,7 +375,9 @@ internal sealed partial class Ps2GsVram
         {
             for (var x = 0; x < width; x++)
             {
-                var (wordAddr, half) = GetWordAddressPSMCT16(cbp, cbw, x, y, signedMode);
+                var (wordAddr, half) = zSwizzle
+                    ? GetWordAddressPSMZ16(cbp, cbw, x, y, signedMode)
+                    : GetWordAddressPSMCT16(cbp, cbw, x, y, signedMode);
                 var word = wordAddr < VramWords ? _vram[wordAddr] : 0u;
                 var pixel = half == 0 ? (ushort)(word & 0xFFFF) : (ushort)(word >> 16);
                 output[off++] = (byte)pixel;

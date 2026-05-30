@@ -4,6 +4,13 @@ namespace NeversoftMultitool.Core.Formats.Texture.Ps2;
 
 internal sealed partial class Ps2GsVram
 {
+    // PCSX2 GSLocalMemory.h:75 / :479-483 — Z swizzles reuse the PSMCT block/column tables
+    // with blockXor=0x18. The resulting pixel-address XOR is blockXor << (blockShiftX +
+    // blockShiftY). PSMCT32's 8×8-pixel block gives shift=6 → 0x18 << 6 = 0x600. PSMCT16's
+    // 16×8 block gives shift=7 → 0x18 << 7 = 0xC00 in halfword units, whose low bit is 0
+    // so the word-index XOR is also 0x600 and the half selector is unchanged.
+    private const int PsmZWordXor = 0x18 << 6;
+
     private static int GetWordAddressPSMCT32(uint dbp, uint dbw, int x, int y)
     {
         var pageX = x / 64;
@@ -18,6 +25,9 @@ internal sealed partial class Ps2GsVram
 
         return (int)(dbp * 64) + page * 2048 + block * 64 + word;
     }
+
+    private static int GetWordAddressPSMZ32(uint dbp, uint dbw, int x, int y)
+        => GetWordAddressPSMCT32(dbp, dbw, x, y) ^ PsmZWordXor;
 
     // ---- PSMCT16 addressing ----
 
@@ -40,6 +50,12 @@ internal sealed partial class Ps2GsVram
 
         var addr = (int)(dbp * 64) + page * 2048 + block * 64 + column * 16 + word;
         return (addr, half);
+    }
+
+    private static (int wordAddr, int half) GetWordAddressPSMZ16(uint dbp, uint dbw, int x, int y, bool signedMode)
+    {
+        var (addr, half) = GetWordAddressPSMCT16(dbp, dbw, x, y, signedMode);
+        return (addr ^ PsmZWordXor, half);
     }
 
     // ---- PSMT4 addressing ----

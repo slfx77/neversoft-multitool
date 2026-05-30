@@ -15,6 +15,7 @@ internal sealed partial class GsGifInterpreter
         var psm = (uint)((tex0 >> 20) & 0x3F);
         var cpsm = (uint)((tex0 >> 51) & 0xF);
         var texaSensitive = psm is Ps2TexPixelDecoder.PSMCT16 or Ps2GsVram.PSMCT16S
+                                or Ps2GsVram.PSMZ16 or Ps2GsVram.PSMZ16S
                             || (psm is Ps2TexPixelDecoder.PSMT8 or Ps2TexPixelDecoder.PSMT4 &&
                                 cpsm == Ps2TexPixelDecoder.PSMCT16);
         var cacheKey = new GsTextureCacheKey(tex0, texaSensitive ? state.Texa : 0);
@@ -45,7 +46,9 @@ internal sealed partial class GsGifInterpreter
             or Ps2TexPixelDecoder.PSMT8
             or Ps2TexPixelDecoder.PSMT4
             or Ps2GsVram.PSMZ32
-            or Ps2GsVram.PSMZ24)
+            or Ps2GsVram.PSMZ24
+            or Ps2GsVram.PSMZ16
+            or Ps2GsVram.PSMZ16S)
         {
             if (psm == Ps2GsVram.PSMZ32)
                 NoteApproximation("texture_psmz32_as_color");

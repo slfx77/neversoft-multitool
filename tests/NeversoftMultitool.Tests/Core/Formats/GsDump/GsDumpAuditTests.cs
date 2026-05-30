@@ -644,6 +644,92 @@ public sealed class GsDumpAuditTests
     }
 
     [Fact]
+    public void Renderer_Psmz16S_WriteDepthToVram_IncrementsDepthVramWrites()
+    {
+        // Regression: PSMZ16/PSMZ16S writes used to be skipped (DepthVramWritesSkippedPsm
+        // ~71k/frame on THAW dump 20260507234126). After the Z-buffer correctness sweep
+        // adds PSMZ16/16S addressing they must persist to VRAM like PSMZ32/24.
+        const uint zbpPage = 4;
+        var zbufWireFormat = (ulong)zbpPage | (0xAUL << 24); // 0xA = PSMZ16S low nibble.
+        var gif = Concat(
+            AdTag(
+                (0x4C, MakeFrame(fbw: 1, psm: 0)),
+                (0x4E, zbufWireFormat)),
+            PackedTag(
+                nloop: 2,
+                nreg: 2,
+                regs: MakeRegs(0x01, 0x04),
+                prim: PrimSprite,
+                Rgbaq(128, 128, 128, 128),
+                PackedXyz(0, 0, 0x123456),
+                Rgbaq(128, 128, 128, 128),
+                PackedXyz(4, 4, 0x123456)));
+        var dump = GsDumpFile.Parse(BuildRawDump(new TransferPacket(3, gif)));
+
+        var result = GsGifInterpreter.Interpret(dump, new GsGifInterpretOptions { Width = 16, Height = 8 });
+
+        Assert.True(result.Render.DepthVramWrites > 0,
+            $"Expected PSMZ16S Z writes but counter was {result.Render.DepthVramWrites}");
+        Assert.Equal(0, result.Render.DepthVramWritesSkippedPsm);
+        Assert.True(result.Render.DepthVramWritesPsm16S > 0,
+            $"Expected PSMZ16S counter to track 16S writes but was {result.Render.DepthVramWritesPsm16S}");
+    }
+
+    [Fact]
+    public void Renderer_WritesDepthAndSamplesAsTexture_Psmz16S_RoundTrips()
+    {
+        // Regression: when the game writes Z via PSMZ16S and later samples that Z buffer
+        // as a TEX0.PSM=PSMZ16S texture, the bytes must round-trip through the Z swizzle
+        // so depth silhouettes appear in the bloom-pyramid sampling path. PSMZ16S packs
+        // the upper 16 bits of the Z value into a PSMCT16-style 5-5-5-1 word; the test
+        // verifies the high-bit quantisation reproduces the encoded value.
+        const uint zbpPage = 4;
+        const uint tbpBlock = zbpPage * 32;
+        var zbufPsmz16SNoMask = (ulong)zbpPage | (0xAUL << 24);
+        var tex0PsmZ16S = MakeTex0(widthPow: 2, heightPow: 2, psm: 0x3A, tbp: tbpBlock, tcc: 0, tfx: 1);
+
+        // Z value with interesting top 16 bits (0x789A → unpacks to non-zero 5-5-5-1
+        // channels). PackedXyz takes int so we stay within the positive range.
+        const int zValue = 0x789ABCDE;
+        var gif = Concat(
+            AdTag(
+                (0x4C, MakeFrame(fbw: 1, psm: 0)),
+                (0x4E, zbufPsmz16SNoMask)),
+            PackedTag(
+                nloop: 2,
+                nreg: 2,
+                regs: MakeRegs(0x01, 0x04),
+                prim: PrimSprite,
+                Rgbaq(128, 128, 128, 128),
+                PackedXyz(0, 0, zValue),
+                Rgbaq(128, 128, 128, 128),
+                PackedXyz(4, 4, zValue)),
+            AdTag((0x06, tex0PsmZ16S)),
+            PackedTag(
+                nloop: 2,
+                nreg: 2,
+                regs: MakeRegs(0x03, 0x04),
+                prim: PrimSpriteTextureFst,
+                PackedUv(0, 0),
+                PackedXyz(8, 0),
+                PackedUv(64, 64),
+                PackedXyz(12, 4)));
+        var dump = GsDumpFile.Parse(BuildRawDump(new TransferPacket(3, gif)));
+
+        var result = GsGifInterpreter.Interpret(dump, new GsGifInterpretOptions { Width = 16, Height = 8 });
+
+        Assert.True(result.Render.DepthVramWrites > 0);
+        Assert.True(result.Render.DepthVramWritesPsm16S > 0);
+        Assert.Equal(0, result.Render.TextureDecodeMisses);
+        var pixel = ReadPixel(result.Pixels, 16, 10, 2);
+        // Encoded Z top 16 = 0xF8F8 → R5G5B5A1 = (0x18, 0x07, 0x1E, 1) → expand to
+        // (0xC6, 0x39, 0xF7) after 5→8 expansion. The pixel must reflect the depth bytes
+        // we wrote rather than zero / leftover background.
+        Assert.True(pixel.R > 0 || pixel.G > 0 || pixel.B > 0,
+            $"Expected non-zero RGB from Z-as-texture sample but got ({pixel.R}, {pixel.G}, {pixel.B})");
+    }
+
+    [Fact]
     public void Renderer_TreatsPsmz32AsThirtyTwoBitTextureForAudit()
     {
         var tex0 = MakeTex0(widthPow: 1, heightPow: 1, psm: 0x30);

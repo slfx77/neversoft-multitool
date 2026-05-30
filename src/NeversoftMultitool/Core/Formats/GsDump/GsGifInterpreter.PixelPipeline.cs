@@ -390,11 +390,9 @@ internal sealed partial class GsGifInterpreter
         // (2M skipped, 0 stored) and the bloom-feedback chain that samples the Z buffer
         // as a PSMZ24 texture saw garbage instead of the depth silhouette.
         var zpsm = 0x30u | (uint)((context.Zbuf >> 24) & 0xFu);
-        if (zpsm != Ps2GsVram.PSMZ32 && zpsm != Ps2GsVram.PSMZ24)
+        if (zpsm != Ps2GsVram.PSMZ32 && zpsm != Ps2GsVram.PSMZ24 &&
+            zpsm != Ps2GsVram.PSMZ16 && zpsm != Ps2GsVram.PSMZ16S)
         {
-            // PSMZ16 / PSMZ16S exist but the VRAM module doesn't store them yet.
-            if (zpsm is 0x32 or 0x3A)
-                NoteApproximation($"depth_psm_0x{zpsm:X2}_not_written_to_vram");
             renderAudit.DepthVramWritesSkippedPsm++;
             return;
         }
@@ -414,6 +412,10 @@ internal sealed partial class GsGifInterpreter
         var a = (byte)((zi >> 24) & 0xFFu);
         vram.WritePixel(zbp, fbw, zpsm, x, y, r, g, b, a);
         renderAudit.DepthVramWrites++;
+        if (zpsm == Ps2GsVram.PSMZ16)
+            renderAudit.DepthVramWritesPsm16++;
+        else if (zpsm == Ps2GsVram.PSMZ16S)
+            renderAudit.DepthVramWritesPsm16S++;
     }
 
     private static bool PassesDepth(float z, int idx, GsContext context, float[] depth)
