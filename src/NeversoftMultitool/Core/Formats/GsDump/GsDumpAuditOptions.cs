@@ -19,4 +19,11 @@ internal sealed class GsDumpAuditOptions
 
     /// <summary>End-of-frame VRAM region dumps for Z-buffer / intermediate-FBP diagnostics.</summary>
     public IReadOnlyList<(uint Tbp, uint Fbw, uint Psm, int Width, int Height)>? DumpVramRegions { get; init; }
+
+    /// <summary>
+    ///     End-of-frame dump of each per-(FBP, FBW, PSM) screen-space buffer as a PNG.
+    ///     Diagnostic for the per-FBP-buffer refactor (verifies HUD overlay FBP=11200
+    ///     stays separate from main scene FBP=0).
+    /// </summary>
+    public bool DumpFbpBuffers { get; init; }
 }

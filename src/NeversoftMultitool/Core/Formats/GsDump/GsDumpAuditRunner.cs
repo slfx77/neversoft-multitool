@@ -142,6 +142,28 @@ internal static partial class GsDumpAuditRunner
                             var path = Path.Combine(saveDir, fileName);
                             SaveRgba(path, rgba, w, h);
                         },
+                    DumpFbpBufferSink = options.DumpFbpBuffers
+                        ? (fbp, fbw, psm, w, h, rgba) =>
+                        {
+                            var saveDir = Path.Combine(outputDirectory, $"{stem}.fbp_buffers");
+                            Directory.CreateDirectory(saveDir);
+                            var psmTag = psm switch
+                            {
+                                Ps2TexPixelDecoder.PSMCT32 => "C_32",
+                                Ps2TexPixelDecoder.PSMCT24 => "C_24",
+                                Ps2TexPixelDecoder.PSMCT16 => "C_16",
+                                Ps2GsVram.PSMCT16S => "C_16S",
+                                Ps2GsVram.PSMZ32 => "Z_32",
+                                Ps2GsVram.PSMZ24 => "Z_24",
+                                Ps2GsVram.PSMZ16 => "Z_16",
+                                Ps2GsVram.PSMZ16S => "Z_16S",
+                                _ => $"X_{psm:X2}"
+                            };
+                            var fileName = $"fbp_{fbp:X5}_fbw{fbw}_{psmTag}_{w}x{h}.png";
+                            var path = Path.Combine(saveDir, fileName);
+                            SaveRgba(path, rgba, w, h);
+                        }
+                        : null,
                     TextureDumpSink = options.JsonOnly
                         ? null
                         : dumpTexture =>

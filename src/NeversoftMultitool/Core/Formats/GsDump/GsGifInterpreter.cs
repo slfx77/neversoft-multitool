@@ -242,9 +242,57 @@ internal sealed partial class GsGifInterpreter
         if (activeImageTransfer is { BytesWritten: > 0 } transfer)
             NoteUnsupported($"image_transfer_incomplete_{transfer.BytesWritten}_of_{transfer.ExpectedBytes}");
 
-        directPixels = pixels.ToArray();
+        directPixels = SnapshotPrimaryFbpBuffer();
         DumpVramRegionsToSink();
+        DumpFbpBuffersToSink();
         PresentFromDisplayBuffer(dump);
+    }
+
+    private void DumpFbpBuffersToSink()
+    {
+        if (options.DumpFbpBufferSink == null)
+            return;
+        foreach (var (fbp, fbw, psm, width, height, rgba) in renderTargetCache.Surfaces)
+            options.DumpFbpBufferSink(fbp, fbw, psm, width, height, rgba);
+    }
+
+    /// <summary>
+    ///     Pre-PCRTC snapshot for diagnostic comparison. Previously this was
+    ///     <c>pixels.ToArray()</c> — a screen-space last-write-wins composite across all
+    ///     FBPs. After the per-FBP-buffer refactor that pixels[] is empty until PCRTC
+    ///     composition runs, so directPixels must be sourced from the per-FBP buffer
+    ///     with the most pixel writes (typically the main scene FBP=0). The
+    ///     <c>DirectPixelDiff</c> in the audit then measures "primary FBP vs PCSX2
+    ///     screenshot" — close enough to the prior semantics for diff-driven debugging,
+    ///     and unambiguously per-FBP.
+    /// </summary>
+    private byte[] SnapshotPrimaryFbpBuffer()
+    {
+        var output = new byte[options.Width * options.Height * 4];
+        for (var i = 3; i < output.Length; i += 4)
+            output[i] = 255;
+
+        var primaryRow = renderAudit.FramebufferTargets.Values
+            .Where(static row => row.PixelsWritten > 0)
+            .OrderByDescending(static row => row.PixelsWritten)
+            .FirstOrDefault();
+        if (primaryRow == null)
+            return output;
+
+        if (!renderTargetCache.TryGetSurface(primaryRow.Fbp, primaryRow.Fbw, primaryRow.Psm,
+                out var rgba, out var width, out var height))
+            return output;
+
+        var copyW = Math.Min(width, options.Width);
+        var copyH = Math.Min(height, options.Height);
+        for (var y = 0; y < copyH; y++)
+        {
+            var src = y * width * 4;
+            var dst = y * options.Width * 4;
+            Array.Copy(rgba, src, output, dst, copyW * 4);
+        }
+
+        return output;
     }
 
     private void DumpVramRegionsToSink()

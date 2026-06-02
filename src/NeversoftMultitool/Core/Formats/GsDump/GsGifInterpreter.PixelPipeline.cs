@@ -142,9 +142,7 @@ internal sealed partial class GsGifInterpreter
         float srcB,
         float srcA)
     {
-        var dst = TryReadFramebufferPixel(target, x, y, out var framebufferPixel)
-            ? framebufferPixel
-            : new GsSample(pixels[p], pixels[p + 1], pixels[p + 2], pixels[p + 3]);
+        var dst = ReadBlendDestination(target, x, y, p);
         var dstR = dst.R;
         var dstG = dst.G;
         var dstB = dst.B;
@@ -195,6 +193,32 @@ internal sealed partial class GsGifInterpreter
         var rgba = vram.ReadPixelRgba(target.Fbp, target.Fbw, target.Psm, x, y, state.Texa);
         pixel = new GsSample(rgba.R, rgba.G, rgba.B, rgba.A);
         return true;
+    }
+
+    /// <summary>
+    ///     Resolves the destination color for ABE blending. PSMCT16/16S/Z need spec-correct
+    ///     TEXA-expanded alpha from VRAM (the dithered, masked, post-write byte); for those
+    ///     <see cref="TryReadFramebufferPixel" /> handles it directly. For PSMs the VRAM
+    ///     read doesn't support, fall through to the per-FBP screen-space buffer (which
+    ///     stores RGBA bytes the rasterizer wrote, isolated per target FBP so an unrelated
+    ///     draw to a different FBP doesn't pollute Cd). If even the per-FBP buffer hasn't
+    ///     been written at this coordinate, return (0,0,0,255) — matches the initial
+    ///     <c>pixels[]</c> state pre-refactor when no draw had touched that screen coord.
+    ///     <para>
+    ///         <paramref name="screenIndex" /> is reserved for diagnostic asserts; the
+    ///         current implementation no longer reads the screen-space <c>pixels[]</c>
+    ///         buffer here, but keeping the index lets future probes correlate Cd reads
+    ///         with the final PCRTC-composed output.
+    ///     </para>
+    /// </summary>
+    private GsSample ReadBlendDestination(GsFramebufferTarget target, int x, int y, int screenIndex)
+    {
+        _ = screenIndex;
+        if (TryReadFramebufferPixel(target, x, y, out var framebufferPixel))
+            return framebufferPixel;
+        if (renderTargetCache.TryReadScreenSpacePixel(target.Fbp, target.Fbw, target.Psm, x, y, out var rgba))
+            return new GsSample(rgba.R, rgba.G, rgba.B, rgba.A);
+        return new GsSample(0, 0, 0, 255);
     }
 
     private bool ShouldProbe(int x, int y, GsFramebufferTarget target)

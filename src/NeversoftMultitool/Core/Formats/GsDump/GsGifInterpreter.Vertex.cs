@@ -298,13 +298,17 @@ internal sealed partial class GsGifInterpreter
                 extraFbmsk);
         }
 
-        pixels[p] = (byte)written.R;
-        pixels[p + 1] = (byte)written.G;
-        pixels[p + 2] = (byte)written.B;
-        pixels[p + 3] = 255;
+        // Per-FBP isolation: the rasterizer no longer writes a screen-space pixels[]
+        // buffer here. The post-blend RGBA already landed in the per-(FBP,FBW,PSM)
+        // surface via WriteFramebufferPixel → renderTargetCache.WritePixel. pixels[]
+        // is now populated only by PCRTC composition at frame end (Present.cs), so
+        // the magenta-strip pattern (a draw to FBP=11200 stomping the FBP=0 main
+        // scene at screen Y=0..50) no longer happens — the two FBPs stay separate
+        // until PCRTC composes them with proper source-rect / dest-pos mapping.
         if (probe)
             EmitPixelProbe(x, y, "POINT", framebufferTarget, context, state.Tme, sample,
                 vertex.R, vertex.G, vertex.B, vertex.A, srcR, srcG, srcB, srcA, vertex.Z, preBlendDst, written);
+        _ = p;
         renderAudit.PixelsTouched++;
         material.PixelsWritten++;
         RecordFramebufferPixels(framebufferTarget, context.Tex0, 1, x, y, x, y);
@@ -472,10 +476,9 @@ internal sealed partial class GsGifInterpreter
                         ClampByte(blended.B),
                         ClampByte(blended.A),
                         extraFbmsk);
-                    pixels[p] = (byte)written.R;
-                    pixels[p + 1] = (byte)written.G;
-                    pixels[p + 2] = (byte)written.B;
-                    pixels[p + 3] = 255;
+                    // Per-FBP isolation: see DrawPoint above. pixels[] no longer touched
+                    // by the rasterizer — PCRTC composition at frame end fills it.
+                    _ = p;
                     if (probe)
                         EmitPixelProbe(x, y, "TRIANGLE", framebufferTarget, context, state.Tme, sample,
                             vr, vg, vb, va, srcR, srcG, srcB, srcA, z, preBlendDst, written);
@@ -488,10 +491,6 @@ internal sealed partial class GsGifInterpreter
                     var outA = (byte)Math.Clamp((int)MathF.Round(srcA), 0, 255);
                     var written = WriteFramebufferPixel(framebufferTarget, context, x, y, outR, outG, outB, outA,
                         extraFbmsk);
-                    pixels[p] = (byte)written.R;
-                    pixels[p + 1] = (byte)written.G;
-                    pixels[p + 2] = (byte)written.B;
-                    pixels[p + 3] = 255;
                     if (probe)
                         EmitPixelProbe(x, y, "TRIANGLE", framebufferTarget, context, state.Tme, sample,
                             vr, vg, vb, va, srcR, srcG, srcB, srcA, z, null, written);

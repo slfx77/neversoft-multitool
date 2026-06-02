@@ -24,4 +24,11 @@ internal sealed class GsGifInterpretOptions
 
     /// <summary>Sink for end-of-frame VRAM region dumps. Receives (Tbp, Fbw, Psm, Width, Height, Rgba).</summary>
     public Action<uint, uint, uint, int, int, byte[]>? DumpVramRegionSink { get; init; }
+
+    /// <summary>
+    ///     Sink for end-of-frame per-(FBP, FBW, PSM) screen-space buffer dumps. Receives
+    ///     (Fbp, Fbw, Psm, Width, Height, Rgba). The interpreter calls this once per
+    ///     active surface after PCRTC composition.
+    /// </summary>
+    public Action<uint, uint, uint, int, int, byte[]>? DumpFbpBufferSink { get; init; }
 }

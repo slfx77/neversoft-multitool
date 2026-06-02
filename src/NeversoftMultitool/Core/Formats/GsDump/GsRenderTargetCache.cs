@@ -3,21 +3,55 @@ using NeversoftMultitool.Core.Formats.Texture.Ps2;
 namespace NeversoftMultitool.Core.Formats.GsDump;
 
 /// <summary>
-///     Per-(FBP, FBW, PSM) render-target shadow cache. Mirrors framebuffer pixel writes
-///     into a logical surface keyed by the destination tuple. Texture samples whose TBP
-///     overlaps any surface can be composed from the cache instead of going through the
-///     shared VRAM swizzle path, sidestepping FBW-aliasing artifacts that show up when
-///     multiple draws write to the same FBP with different FBW values (a common THAW
-///     bloom-pyramid pattern). Modeled on PCSX2 HW's per-(FBP, FBW) render-target cache.
+///     Per-(FBP, FBW, PSM) screen-space surface store. Mirrors framebuffer pixel writes
+///     into a logical surface keyed by the destination tuple. Three uses:
+///     <list type="bullet">
+///         <item>
+///             Texture samples whose TBP overlaps a surface can compose from the cache
+///             (<see cref="TryComposeSample" />) instead of going through the shared VRAM
+///             swizzle path, sidestepping FBW-aliasing artifacts on multi-FBW writes to
+///             the same FBP (the THAW bloom-pyramid pattern).
+///         </item>
+///         <item>
+///             <see cref="GsGifInterpreter" /> reads back per-pixel destination colors via
+///             <see cref="TryReadScreenSpacePixel" /> when <c>BlendPixel</c>'s VRAM read
+///             path isn't available (unsupported PSMs / Fbw=0).
+///         </item>
+///         <item>
+///             PCRTC composition reads circuit framebuffers via
+///             <see cref="TryGetSurface" />. Per-FBP isolation is what keeps the cyan HUD
+///             overlay (FBP=11200) separate from the main scene (FBP=0) without
+///             last-write-wins stomping (THAW magenta SPECIAL meter artifact).
+///         </item>
+///     </list>
+///     Modeled on PCSX2 HW's per-(FBP, FBW) render-target cache.
 /// </summary>
 internal sealed class GsRenderTargetCache
 {
     private readonly Dictionary<RtKey, RenderTargetSurface> _surfaces = [];
 
     /// <summary>
+    ///     All cached surfaces in insertion order. Used by the diagnostic
+    ///     <c>--dump-fbp-buffers</c> CLI option to inspect per-FBP screen-space content
+    ///     without going through the VRAM swizzle path.
+    /// </summary>
+    public IEnumerable<(uint Fbp, uint Fbw, uint Psm, int Width, int Height, byte[] Rgba)> Surfaces
+    {
+        get
+        {
+            foreach (var (_, surface) in _surfaces)
+            {
+                if (surface.MaxYWritten < 0)
+                    continue;
+                yield return (surface.Fbp, surface.Fbw, surface.Psm, surface.Width,
+                    surface.MaxYWritten + 1, surface.SnapshotRgba());
+            }
+        }
+    }
+
+    /// <summary>
     ///     Mirror a framebuffer pixel write to the matching surface. Creates the surface
-    ///     on first write. PSMs that are not page-aligned PSMCT-family (PSMT4/PSMT8/PSMZ16/16S)
-    ///     are skipped — those are not used as render targets in THAW.
+    ///     on first write. PSMs not page-aligned in the GS register set are skipped.
     /// </summary>
     public void WritePixel(uint fbp, uint fbw, uint psm, int x, int y, byte r, byte g, byte b, byte a)
     {
@@ -34,6 +68,58 @@ internal sealed class GsRenderTargetCache
         }
 
         surface.Write(x, y, r, g, b, a);
+    }
+
+    /// <summary>
+    ///     Returns the stored RGBA at (x, y) of the surface keyed by (fbp, fbw, psm),
+    ///     or false if no surface exists or the pixel hasn't been written. Used by
+    ///     <c>BlendPixel</c>'s VRAM-unavailable fallback path: matches PCSX2 SW renderer's
+    ///     behavior of reading Cd from the screen-space target color, not from raw VRAM.
+    /// </summary>
+    public bool TryReadScreenSpacePixel(uint fbp, uint fbw, uint psm, int x, int y,
+        out (byte R, byte G, byte B, byte A) rgba)
+    {
+        rgba = default;
+        if (fbw == 0 || x < 0 || y < 0)
+            return false;
+        if (!IsSupportedPsm(psm))
+            return false;
+        var key = new RtKey(fbp, fbw, psm);
+        if (!_surfaces.TryGetValue(key, out var surface))
+            return false;
+        if (x >= surface.Width)
+            return false;
+        var pixelIdx = y * surface.Width + x;
+        if (!surface.IsPixelWritten(pixelIdx))
+            return false;
+        var byteIdx = pixelIdx * 4;
+        rgba = (surface.Rgba[byteIdx], surface.Rgba[byteIdx + 1],
+            surface.Rgba[byteIdx + 2], surface.Rgba[byteIdx + 3]);
+        return true;
+    }
+
+    /// <summary>
+    ///     Returns the full per-(FBP, FBW, PSM) surface as a freshly-allocated RGBA8888
+    ///     buffer plus its dimensions. Used by PCRTC composition in
+    ///     <c>GsGifInterpreter.Present</c> to read circuit framebuffer content without
+    ///     going through the VRAM swizzle path (which would not see writes that targeted
+    ///     a different FBW on the same FBP). Returns false if no surface is registered.
+    /// </summary>
+    public bool TryGetSurface(uint fbp, uint fbw, uint psm,
+        out byte[] rgba, out int width, out int height)
+    {
+        rgba = [];
+        width = 0;
+        height = 0;
+        var key = new RtKey(fbp, fbw, psm);
+        if (!_surfaces.TryGetValue(key, out var surface))
+            return false;
+        if (surface.MaxYWritten < 0)
+            return false;
+        rgba = surface.SnapshotRgba();
+        width = surface.Width;
+        height = surface.MaxYWritten + 1;
+        return true;
     }
 
     /// <summary>
@@ -126,12 +212,23 @@ internal sealed class GsRenderTargetCache
         _surfaces.Clear();
     }
 
+    /// <summary>
+    ///     Every PSM that <see cref="GsGifInterpreter.IsFramebufferPsmSupported" /> accepts
+    ///     as a draw target. The surface stores post-write RGBA8888 regardless of source
+    ///     PSM — Session 1 of the per-FBP-buffer refactor needs ALL framebuffer-targeting
+    ///     PSMs tracked (not just PSMCT32 family) so PCRTC composition and BlendPixel Cd
+    ///     reads can route through the per-FBP buffer for any draw target.
+    /// </summary>
     private static bool IsSupportedPsm(uint psm)
     {
         return psm is Ps2TexPixelDecoder.PSMCT32
             or Ps2TexPixelDecoder.PSMCT24
+            or Ps2TexPixelDecoder.PSMCT16
+            or Ps2GsVram.PSMCT16S
             or Ps2GsVram.PSMZ32
-            or Ps2GsVram.PSMZ24;
+            or Ps2GsVram.PSMZ24
+            or Ps2GsVram.PSMZ16
+            or Ps2GsVram.PSMZ16S;
     }
 
     private static bool IsPsmct32Family(uint psm)
@@ -190,6 +287,21 @@ internal sealed class GsRenderTargetCache
         public bool IsPixelWritten(int pixelIdx)
         {
             return pixelIdx >= 0 && pixelIdx < _written.Length && _written[pixelIdx];
+        }
+
+        /// <summary>
+        ///     Copy of the RGBA buffer trimmed to (Width, MaxYWritten+1) for external
+        ///     consumers (PCRTC composition, diagnostic dumps). Returns a fresh array so
+        ///     callers can't mutate the surface storage. The full allocated height may be
+        ///     larger than the trim (lazy growth rounds up to RowChunkHeight chunks).
+        /// </summary>
+        public byte[] SnapshotRgba()
+        {
+            var height = MaxYWritten < 0 ? 0 : MaxYWritten + 1;
+            var bytes = Width * height * 4;
+            var copy = new byte[bytes];
+            Array.Copy(Rgba, copy, bytes);
+            return copy;
         }
 
         private void Grow(int requiredHeight)

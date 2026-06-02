@@ -193,13 +193,60 @@ internal sealed partial class GsGifInterpreter
         if (!enabled)
             return new CircuitLayer(null, audit);
 
-        if (dbx != 0 || dby != 0)
-            NoteUnsupported("display_framebuffer_offset_ignored");
-
-        var rgba = ReadFramebufferRgba(fbp, fbw, psm, sourceWidth, sourceHeight);
+        // Prefer the per-(FBP, FBW, PSM) screen-space buffer over a VRAM swizzle read.
+        // The buffer holds the post-blend RGBA the rasterizer wrote with full per-FBP
+        // isolation; VRAM, by contrast, suffers from multi-FBW writes to the same FBP
+        // (THAW bloom pyramid pattern) producing strip artifacts. DBX/DBY honored as
+        // the source rect offset within the FBP buffer — essential for placing HUD
+        // content that lives at internal Y≈380 in FBP=11200 at screen Y=0.
+        var rgba = TryReadCircuitFromFbpBuffer(fbp, fbw, psm, dbx, dby, sourceWidth, sourceHeight)
+                   ?? ReadFramebufferRgba(fbp, fbw, psm, sourceWidth, sourceHeight);
         if (rgba != null)
             audit.NonBlackPixels = CountNonBlackPixels(rgba);
         return new CircuitLayer(rgba, audit);
+    }
+
+    /// <summary>
+    ///     Extract a (<paramref name="sourceWidth" />, <paramref name="sourceHeight" />)
+    ///     rectangle starting at (<paramref name="dbx" />, <paramref name="dby" />) from
+    ///     the per-FBP buffer at (<paramref name="fbp" />, <paramref name="fbw" />,
+    ///     <paramref name="psm" />). Returns null when no buffer exists for this FBP
+    ///     tuple (PCRTC falls back to VRAM). Out-of-bounds pixels become transparent
+    ///     black, matching the live VRAM behavior for unwritten regions.
+    /// </summary>
+    private byte[]? TryReadCircuitFromFbpBuffer(uint fbp, uint fbw, uint psm,
+        int dbx, int dby, int sourceWidth, int sourceHeight)
+    {
+        if (!renderTargetCache.TryGetSurface(fbp, fbw, psm, out var surface, out var surfaceWidth, out var surfaceHeight))
+            return null;
+        var output = new byte[sourceWidth * sourceHeight * 4];
+        // PCRTC composition treats the source alpha as the per-pixel "circuit weight"
+        // when PMODE.MMOD=1, so display layers must arrive opaque. The legacy VRAM
+        // read path (PackRgbWithSolidAlpha / DecodePsmct16RgbaPlane) hard-codes
+        // alpha=255 for this reason. PSMCT16S sources in particular write per-pixel
+        // alpha=0 for background pixels (no TEXA expansion on the rasterizer write),
+        // which would otherwise collapse the entire frame to BGCOLOR (=black) at
+        // composition time. Mirror the legacy alpha-forcing here so PCRTC sees the
+        // same "fully-opaque display content" semantics regardless of source.
+        for (var y = 0; y < sourceHeight; y++)
+        {
+            var srcY = dby + y;
+            if (srcY < 0 || srcY >= surfaceHeight)
+                continue;
+            for (var x = 0; x < sourceWidth; x++)
+            {
+                var srcX = dbx + x;
+                if (srcX < 0 || srcX >= surfaceWidth)
+                    continue;
+                var srcOff = (srcY * surfaceWidth + srcX) * 4;
+                var dstOff = (y * sourceWidth + x) * 4;
+                output[dstOff] = surface[srcOff];
+                output[dstOff + 1] = surface[srcOff + 1];
+                output[dstOff + 2] = surface[srcOff + 2];
+                output[dstOff + 3] = 255;
+            }
+        }
+        return output;
     }
 
     private static (byte R, byte G, byte B, byte A) SampleCircuit(CircuitLayer layer, int x, int y, bool enabled)

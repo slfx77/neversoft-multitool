@@ -85,6 +85,11 @@ public static class GsDumpCommand
                 "End-of-frame VRAM region dump. Repeatable. Format 'TBP_HEX:FBW:PSM_HEX:W:H' (e.g. '0x1a40:5:0x31:640:448' for the Z buffer at TBP=0x1A40 PSMZ24).",
             AllowMultipleArgumentsPerToken = true
         };
+        var dumpFbpBuffersOption = new Option<bool>("--dump-fbp-buffers")
+        {
+            Description =
+                "End-of-frame dump of each per-(FBP, FBW, PSM) screen-space buffer as a PNG. Use to verify per-FBP isolation: HUD overlay (FBP=11200 in THAW) should be visually distinct from main scene (FBP=0). Output: <output>/<stem>.fbp_buffers/fbp_<FBP_HEX>_fbw<FBW>_<PSM_TAG>.png"
+        };
 
         var command = new Command("gsdump", "Audit raw PCSX2 GS dumps with a pure C# GIF/GS parser and renderer");
         command.Arguments.Add(inputArgument);
@@ -105,6 +110,7 @@ public static class GsDumpCommand
         command.Options.Add(saveRtFbpOption);
         command.Options.Add(saveRtOnStateTransitionOption);
         command.Options.Add(dumpVramRegionOption);
+        command.Options.Add(dumpFbpBuffersOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -127,7 +133,8 @@ public static class GsDumpCommand
                 parseResult.GetValue(saveRtCountOption),
                 parseResult.GetValue(saveRtFbpOption),
                 parseResult.GetValue(saveRtOnStateTransitionOption),
-                parseResult.GetValue(dumpVramRegionOption)));
+                parseResult.GetValue(dumpVramRegionOption),
+                parseResult.GetValue(dumpFbpBuffersOption)));
         });
 
         return command;
@@ -151,7 +158,8 @@ public static class GsDumpCommand
         int? saveRtCount,
         uint? saveRtFbp,
         bool saveRtOnStateTransition,
-        string[]? dumpVramRegionSpecs)
+        string[]? dumpVramRegionSpecs,
+        bool dumpFbpBuffers)
     {
         var dumpVramRegions = ParseDumpVramRegionSpecs(dumpVramRegionSpecs);
         var files = CollectFiles(input);
@@ -216,7 +224,8 @@ public static class GsDumpCommand
                         SaveRtCount = saveRtCount,
                         SaveRtFbp = saveRtFbp,
                         SaveRtOnStateTransition = saveRtOnStateTransition,
-                        DumpVramRegions = dumpVramRegions
+                        DumpVramRegions = dumpVramRegions,
+                        DumpFbpBuffers = dumpFbpBuffers
                     });
 
                 PrintSummary(file, report, verbose);
