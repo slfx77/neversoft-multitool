@@ -389,7 +389,15 @@ internal sealed partial class GsGifInterpreter
                 if (w0 < 0 || w1 < 0 || w2 < 0)
                     continue;
 
-                var z = a.Z * w0 + b.Z * w1 + c.Z * w2;
+                // Interpolate Z in double precision then round to the integer the GS
+                // depth buffer actually stores. float32 cannot represent consecutive
+                // integers past 2^24, so single-precision interpolation of a flat Z at
+                // the 24-bit ceiling jitters by ±1-2 — enough to make equal-Z HUD
+                // overlays (drawn at z≈0xFFFFFF) randomly fail the GEQUAL depth test
+                // against the layer beneath, punching scattered holes in the SPECIAL/
+                // speedometer meter. Rounding the double-precision result keeps equal-Z
+                // layers exactly equal (and matches the integer GS z-buffer semantics).
+                var z = (float)Math.Round((double)a.Z * w0 + (double)b.Z * w1 + (double)c.Z * w2);
                 var idx = y * options.Width + x;
                 if (!PassesDepth(z, idx, context, depthBuffer))
                 {
