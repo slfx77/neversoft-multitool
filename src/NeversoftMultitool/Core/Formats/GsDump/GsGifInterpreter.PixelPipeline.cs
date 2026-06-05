@@ -308,9 +308,17 @@ internal sealed partial class GsGifInterpreter
         };
     }
 
+    // PS2 GS quantizes the blend/combine result by TRUNCATION, not round-to-nearest.
+    // PCSX2's SW renderer blends in fixed point via GSVector4i::modulate16 =
+    // `sll16<shift+1>().mul16hs(f)` where mul16hs is `_mm_mulhi_epi16` — an arithmetic
+    // high-multiply that floors toward -inf (the rounding variant `_mm_mulhrs_epi16`
+    // is deliberately NOT used). Rounding-to-nearest here adds a systematic ~+0.5 per
+    // blended channel; across THAW's many stacked translucent scene layers that
+    // compounds into a uniform over-brightness and lifted blacks. Floor matches the GS.
+    // (GSDrawScanline.cpp:1498 `rb.modulate16<1>(a)`; GSVector4i.h:1010-1014, 953-955.)
     private static byte ClampByte(float value)
     {
-        return (byte)Math.Clamp((int)MathF.Round(value), 0, 255);
+        return (byte)Math.Clamp((int)MathF.Floor(value), 0, 255);
     }
 
     private void ApplyFog(float fog, ref float r, ref float g, ref float b)

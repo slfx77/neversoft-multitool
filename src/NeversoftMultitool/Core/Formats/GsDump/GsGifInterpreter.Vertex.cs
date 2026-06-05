@@ -493,10 +493,13 @@ internal sealed partial class GsGifInterpreter
                 }
                 else
                 {
-                    var outR = (byte)Math.Clamp((int)MathF.Round(srcR), 0, 255);
-                    var outG = (byte)Math.Clamp((int)MathF.Round(srcG), 0, 255);
-                    var outB = (byte)Math.Clamp((int)MathF.Round(srcB), 0, 255);
-                    var outA = (byte)Math.Clamp((int)MathF.Round(srcA), 0, 255);
+                    // Route through ClampByte so non-blended (TFX combine) writes use the
+                    // same GS-accurate truncation as the blended path (PCSX2 truncates the
+                    // texture-combine modulate too).
+                    var outR = ClampByte(srcR);
+                    var outG = ClampByte(srcG);
+                    var outB = ClampByte(srcB);
+                    var outA = ClampByte(srcA);
                     var written = WriteFramebufferPixel(framebufferTarget, context, x, y, outR, outG, outB, outA,
                         extraFbmsk);
                     if (probe)
