@@ -150,7 +150,7 @@ public static class Ps2SceneCommand
         string? texPath,
         MeshOutputFormat format,
         string? blenderHelperPath,
-        Ps2WorldzoneConverter.WorldzoneTimeOfDay timeOfDay,
+        WorldzoneTimeOfDay timeOfDay,
         float coordinateScale,
         bool verbose,
         CancellationToken cancellationToken)
@@ -161,7 +161,7 @@ public static class Ps2SceneCommand
             return 1;
         }
 
-        if (!Ps2WorldzoneConverter.IsWorldzonePak(input))
+        if (!Ps2WorldzoneDetection.IsWorldzonePak(input))
         {
             AnsiConsole.MarkupLine($"[yellow]No .mdl entries found in {input}.[/]");
             return 0;
@@ -214,18 +214,18 @@ public static class Ps2SceneCommand
 
     private static bool TryParseWorldzoneTimeOfDay(
         string? value,
-        out Ps2WorldzoneConverter.WorldzoneTimeOfDay timeOfDay)
+        out WorldzoneTimeOfDay timeOfDay)
     {
         switch ((value ?? "all").Trim().ToLowerInvariant())
         {
             case "all":
-                timeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.All;
+                timeOfDay = WorldzoneTimeOfDay.All;
                 return true;
             case "day":
-                timeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.Day;
+                timeOfDay = WorldzoneTimeOfDay.Day;
                 return true;
             case "night":
-                timeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.Night;
+                timeOfDay = WorldzoneTimeOfDay.Night;
                 return true;
             default:
                 timeOfDay = default;

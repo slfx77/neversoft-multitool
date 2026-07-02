@@ -25,9 +25,11 @@ public static class GlbRenderer
     /// <param name="elevationDeg">Camera elevation in degrees above horizontal.</param>
     public static void RenderToFile(string glbPath, string pngPath,
         int longEdge = 512,
-        float azimuthDeg = -90f, float elevationDeg = 10f)
+        float azimuthDeg = -90f, float elevationDeg = 10f,
+        int? animationIndex = null, float? animationTime = null)
     {
-        using var image = RenderToImage(glbPath, longEdge, azimuthDeg, elevationDeg);
+        using var image = RenderToImage(
+            glbPath, longEdge, azimuthDeg, elevationDeg, animationIndex, animationTime);
         Directory.CreateDirectory(Path.GetDirectoryName(pngPath)!);
         image.SaveAsPng(pngPath);
     }
@@ -39,9 +41,28 @@ public static class GlbRenderer
     /// </summary>
     public static Image<Rgba32> RenderToImage(string glbPath,
         int longEdge = 512,
-        float azimuthDeg = -90f, float elevationDeg = 10f)
+        float azimuthDeg = -90f, float elevationDeg = 10f,
+        int? animationIndex = null, float? animationTime = null)
     {
-        var scene = GlbModelLoader.Load(glbPath);
+        if (!animationIndex.HasValue && !animationTime.HasValue)
+            return RenderScene(GlbModelLoader.Load(glbPath), longEdge, azimuthDeg, elevationDeg);
+
+        var model = SharpGLTF.Schema2.ModelRoot.Load(glbPath);
+        if (model.LogicalAnimations.Count == 0)
+            throw new InvalidOperationException("GLB contains no animations.");
+
+        var index = animationIndex ?? 0;
+        if ((uint)index >= (uint)model.LogicalAnimations.Count)
+            throw new ArgumentOutOfRangeException(
+                nameof(animationIndex),
+                $"Animation index {index} is out of range; GLB has {model.LogicalAnimations.Count} animation(s).");
+
+        var animation = model.LogicalAnimations[index];
+        var time = animationTime ?? 0f;
+        if (animation.Duration > 0f)
+            time = Math.Clamp(time, 0f, animation.Duration);
+
+        var scene = GlbModelLoader.Load(model, animation, time);
         return RenderScene(scene, longEdge, azimuthDeg, elevationDeg);
     }
 

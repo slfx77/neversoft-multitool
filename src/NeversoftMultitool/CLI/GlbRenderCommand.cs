@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Diagnostics;
+using System.Globalization;
 using NeversoftMultitool.Core.Rendering;
 using Spectre.Console;
 
@@ -45,6 +46,14 @@ public static class GlbRenderCommand
         {
             Description = "Named camera preset. object-review renders five fixed views for placement checks"
         };
+        var animIndexOption = new Option<int?>("--anim-index")
+        {
+            Description = "Animation index inside the GLB to render as a still frame"
+        };
+        var timeOption = new Option<float?>("--time")
+        {
+            Description = "Animation time in seconds to render with --anim-index (default: 0)"
+        };
         var verboseOption = new Option<bool>("-v", "--verbose")
         {
             Description = "Enable verbose output"
@@ -57,6 +66,8 @@ public static class GlbRenderCommand
         command.Options.Add(azimuthOption);
         command.Options.Add(elevationOption);
         command.Options.Add(presetOption);
+        command.Options.Add(animIndexOption);
+        command.Options.Add(timeOption);
         command.Options.Add(verboseOption);
 
         command.SetAction((parseResult, cancellationToken) =>
@@ -67,16 +78,19 @@ public static class GlbRenderCommand
             var azimuth = parseResult.GetValue(azimuthOption);
             var elevation = parseResult.GetValue(elevationOption);
             var preset = parseResult.GetValue(presetOption);
+            var animIndex = parseResult.GetValue(animIndexOption);
+            var time = parseResult.GetValue(timeOption);
             var verbose = parseResult.GetValue(verboseOption);
 
-            return Task.FromResult(Execute(input, output, size, azimuth, elevation, preset, verbose));
+            return Task.FromResult(Execute(
+                input, output, size, azimuth, elevation, preset, animIndex, time, verbose));
         });
 
         return command;
     }
 
     private static int Execute(string input, string? output, int longEdge,
-        float azimuth, float elevation, string? preset, bool verbose)
+        float azimuth, float elevation, string? preset, int? animIndex, float? time, bool verbose)
     {
         List<string> files;
 
@@ -111,7 +125,7 @@ public static class GlbRenderCommand
         {
             foreach (var view in views)
             {
-                var pngPath = GetOutputPath(file, output, view, useViewSuffix);
+                var pngPath = GetOutputPath(file, output, view, useViewSuffix, animIndex, time);
                 if (verbose)
                 {
                     var angleLabel = $"az={view.Azimuth:0.##}, el={view.Elevation:0.##}";
@@ -121,7 +135,8 @@ public static class GlbRenderCommand
 
                 try
                 {
-                    GlbRenderer.RenderToFile(file, pngPath, longEdge, view.Azimuth, view.Elevation);
+                    GlbRenderer.RenderToFile(
+                        file, pngPath, longEdge, view.Azimuth, view.Elevation, animIndex, time);
                     success++;
                 }
                 catch (Exception ex)
@@ -159,11 +174,21 @@ public static class GlbRenderCommand
         return false;
     }
 
-    private static string GetOutputPath(string inputFile, string? outputDir,
-        RenderView view, bool useViewSuffix)
+    private static string GetOutputPath(
+        string inputFile, string? outputDir,
+        RenderView view, bool useViewSuffix,
+        int? animIndex, float? time)
     {
         var stem = Path.GetFileNameWithoutExtension(inputFile);
         var suffix = useViewSuffix ? "_" + view.Name : "";
+        if (animIndex.HasValue || time.HasValue)
+        {
+            var index = animIndex ?? 0;
+            var clampedTime = Math.Max(0f, time ?? 0f);
+            var timeLabel = clampedTime.ToString("0.###", CultureInfo.InvariantCulture);
+            suffix += $"_anim{index}_t{timeLabel}".Replace('.', 'p');
+        }
+
         if (outputDir != null)
         {
             Directory.CreateDirectory(outputDir);

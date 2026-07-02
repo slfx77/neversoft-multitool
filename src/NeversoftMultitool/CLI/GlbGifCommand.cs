@@ -27,6 +27,10 @@ public static class GlbGifCommand
             Description = "Frames per second (higher = smoother but larger file)",
             DefaultValueFactory = _ => 15
         };
+        var animIndexOption = new Option<int?>("--anim-index")
+        {
+            Description = "Animation index inside the GLB to render (default: first animation)"
+        };
         var azimuthOption = new Option<float>("--azimuth")
         {
             Description = "Camera azimuth in degrees (0=front, 90=right side)",
@@ -47,6 +51,7 @@ public static class GlbGifCommand
         command.Options.Add(outputOption);
         command.Options.Add(sizeOption);
         command.Options.Add(fpsOption);
+        command.Options.Add(animIndexOption);
         command.Options.Add(azimuthOption);
         command.Options.Add(elevationOption);
         command.Options.Add(verboseOption);
@@ -57,17 +62,18 @@ public static class GlbGifCommand
             var output = parseResult.GetValue(outputOption);
             var size = parseResult.GetValue(sizeOption);
             var fps = parseResult.GetValue(fpsOption);
+            var animIndex = parseResult.GetValue(animIndexOption);
             var azimuth = parseResult.GetValue(azimuthOption);
             var elevation = parseResult.GetValue(elevationOption);
             var verbose = parseResult.GetValue(verboseOption);
 
-            return Task.FromResult(Execute(input, output, size, fps, azimuth, elevation, verbose));
+            return Task.FromResult(Execute(input, output, size, fps, animIndex, azimuth, elevation, verbose));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string? output, int longEdge, int fps,
+    private static int Execute(string input, string? output, int longEdge, int fps, int? animIndex,
         float azimuth, float elevation, bool verbose)
     {
         List<string> files;
@@ -95,6 +101,8 @@ public static class GlbGifCommand
         foreach (var file in files)
         {
             var stem = Path.GetFileNameWithoutExtension(file);
+            if (animIndex.HasValue)
+                stem += $"_anim{animIndex.Value}";
             var gifPath = output != null
                 ? Path.Combine(output, stem + ".gif")
                 : Path.Combine(Path.GetDirectoryName(file) ?? ".", stem + ".gif");
@@ -103,7 +111,7 @@ public static class GlbGifCommand
             {
                 var fileSw = Stopwatch.StartNew();
                 var (frameCount, duration) = GlbGifRenderer.RenderToFile(
-                    file, gifPath, longEdge, fps, azimuth, elevation);
+                    file, gifPath, longEdge, fps, azimuth, elevation, animIndex);
                 fileSw.Stop();
 
                 if (frameCount == 0)

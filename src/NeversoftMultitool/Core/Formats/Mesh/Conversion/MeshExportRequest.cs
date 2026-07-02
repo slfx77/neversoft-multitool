@@ -9,8 +9,8 @@ public sealed class MeshExportRequest
     public string? OutputStem { get; init; }
     public string? BlenderHelperPath { get; init; }
 
-    public Ps2WorldzoneConverter.WorldzoneTimeOfDay WorldzoneTimeOfDay { get; init; } =
-        Ps2WorldzoneConverter.WorldzoneTimeOfDay.All;
+    public WorldzoneTimeOfDay WorldzoneTimeOfDay { get; init; } =
+        WorldzoneTimeOfDay.All;
 
     public float WorldzoneScale { get; init; } = 1f;
     public CancellationToken CancellationToken { get; init; }

@@ -266,10 +266,14 @@ internal static partial class ModelDocumentGeometryAdapter
         HashSet<(Vector3, Vector3, Vector3)>? dedup,
         bool resetOnRestart,
         bool preserveVertexAlpha,
-        bool bakeVertexColorsToWhite)
+        bool bakeVertexColorsToWhite,
+        int? skeletonIndex = null)
     {
         var vertices = new List<ModelVertex>();
         var indices = new List<int>();
+        var influences = skeletonIndex.HasValue && Array.Exists(sourceVertices, static v => v.HasSkinData)
+            ? new List<ModelBoneInfluences>()
+            : null;
         var parityBias = startsOnOddOutputSlot ? 1 : 0;
 
         // Walk the strip and collect emitted triangles. When the source stream
@@ -334,15 +338,36 @@ internal static partial class ModelDocumentGeometryAdapter
         foreach (var (aIdx, bIdx, cIdx, faceNormal) in triangles)
         {
             var fallbackNormal = faceNormal.LengthSquared() > 0f ? faceNormal : (Vector3?)null;
-            AddTriangle(
-                vertices,
-                indices,
-                MakePs2Vertex(sourceVertices[aIdx], preserveVertexAlpha, bakeVertexColorsToWhite, fallbackNormal),
-                MakePs2Vertex(sourceVertices[bIdx], preserveVertexAlpha, bakeVertexColorsToWhite, fallbackNormal),
-                MakePs2Vertex(sourceVertices[cIdx], preserveVertexAlpha, bakeVertexColorsToWhite, fallbackNormal));
+            var va = MakePs2Vertex(sourceVertices[aIdx], preserveVertexAlpha, bakeVertexColorsToWhite, fallbackNormal);
+            var vb = MakePs2Vertex(sourceVertices[bIdx], preserveVertexAlpha, bakeVertexColorsToWhite, fallbackNormal);
+            var vc = MakePs2Vertex(sourceVertices[cIdx], preserveVertexAlpha, bakeVertexColorsToWhite, fallbackNormal);
+            if (influences is null)
+            {
+                AddTriangle(vertices, indices, va, vb, vc);
+            }
+            else
+            {
+                AddSkinnedTriangle(
+                    vertices, indices, influences,
+                    va, MakePs2SkinInfluence(sourceVertices[aIdx]),
+                    vb, MakePs2SkinInfluence(sourceVertices[bIdx]),
+                    vc, MakePs2SkinInfluence(sourceVertices[cIdx]));
+            }
         }
 
-        return AddPrimitive(mesh, name, materialIndex, vertices, indices);
+        var skin = influences is { Count: > 0 }
+            ? new ModelSkinBinding { SkeletonIndex = skeletonIndex!.Value, Influences = influences.ToArray() }
+            : null;
+        return AddPrimitive(mesh, name, materialIndex, vertices, indices, skin);
+    }
+
+    private static ModelBoneInfluences MakePs2SkinInfluence(Ps2Vertex vertex)
+    {
+        if (!vertex.HasSkinData)
+            return ModelBoneInfluences.Single(0);
+        return new ModelBoneInfluences(
+            vertex.BoneIndex0, vertex.BoneIndex1, vertex.BoneIndex2, 0,
+            vertex.BoneWeight0, vertex.BoneWeight1, vertex.BoneWeight2, 0f);
     }
 
     private static void AddXbxIndexedTriangles(

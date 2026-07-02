@@ -140,7 +140,7 @@ internal static class MeshExportCliOptions
         string? ddxPath = null,
         string? psxPath = null,
         string? ddmTexturePath = null,
-        Ps2WorldzoneConverter.WorldzoneTimeOfDay worldzoneTimeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.All,
+        WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
         float worldzoneScale = 1f)
     {
         var stem = outputStem ?? Path.GetFileNameWithoutExtension(file);

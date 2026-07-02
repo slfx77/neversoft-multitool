@@ -4,7 +4,7 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 ///     Parsed SKA animation file — per-bone rotation and translation keyframe tracks.
 ///     Format reference: THUG source Gfx/BonedAnim.cpp, Gfx/BonedAnimTypes.h.
 /// </summary>
-internal sealed class SkaAnimation
+public sealed class SkaAnimation
 {
     public required uint Version { get; init; }
     public required uint Flags { get; init; }

@@ -7,6 +7,7 @@ using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
@@ -28,7 +29,7 @@ internal static partial class ModelDocumentGeometryAdapter
     [SuppressMessage("Performance", "CA1810",
         Justification = "intentional global; thread-safety asserted by single-threaded IR build")]
     [ThreadStatic]
-    private static Ps2WorldzoneConverter.Ps2WorldzoneLighting? _activePs2WorldzoneLighting;
+    private static Ps2WorldzoneLighting? _activePs2WorldzoneLighting;
 
     public static void PopulateCollision(ModelDocument document, ColScene scene)
     {
@@ -209,7 +210,8 @@ internal static partial class ModelDocumentGeometryAdapter
     public static void PopulatePs2Scene(
         ModelDocument document,
         ParsedPs2Scene scene,
-        MeshChecksumTextureResolver? textureProvider)
+        MeshChecksumTextureResolver? textureProvider,
+        Ps2Skeleton? skeleton = null)
     {
         var materialMap = new Dictionary<uint, int>();
         var nativeMaterials = new Dictionary<uint, Ps2Material>();
@@ -221,7 +223,19 @@ internal static partial class ModelDocumentGeometryAdapter
             ApplyPs2Material(document, document.Materials[i], scene.Materials[i], textureProvider);
         }
 
+        int? skeletonIndex = null;
+        if (skeleton != null)
+        {
+            skeletonIndex = document.Skeletons.Count;
+            document.Skeletons.Add(BuildPs2Skeleton(skeleton));
+        }
+
         var dedupByMaterial = new Dictionary<uint, HashSet<(Vector3, Vector3, Vector3)>>();
+        // When the scene is skinned, fold every primitive into a single combined mesh
+        // so the glTF exporter emits one skin shared across the whole character —
+        // matching the legacy Ps2SceneGltfWriter behavior. Rigid scenes keep one
+        // ModelMesh per native mesh group so per-group placement stays distinct.
+        var skinnedMesh = skeletonIndex.HasValue ? new ModelMesh { Name = "skinned_mesh" } : null;
         foreach (var group in scene.MeshGroups)
         {
             var groupName = ResolveQbName(group.Checksum, $"group_{group.Checksum:X8}");
@@ -242,7 +256,7 @@ internal static partial class ModelDocumentGeometryAdapter
                     dedupByMaterial[nativeMesh.MaterialChecksum] = dedup;
                 }
 
-                var mesh = new ModelMesh { Name = groupName };
+                var mesh = skinnedMesh ?? new ModelMesh { Name = groupName };
                 var preserveVertexAlpha =
                     !nativeMaterials.TryGetValue(nativeMesh.MaterialChecksum, out var nativeMaterial) ||
                     ShouldPreservePs2SceneVertexAlpha(nativeMaterial);
@@ -255,10 +269,15 @@ internal static partial class ModelDocumentGeometryAdapter
                     dedup,
                     false,
                     preserveVertexAlpha,
-                    false);
-                AddMeshNode(document, groupName, mesh);
+                    false,
+                    skeletonIndex);
+                if (skinnedMesh == null)
+                    AddMeshNode(document, groupName, mesh);
             }
         }
+
+        if (skinnedMesh != null)
+            AddMeshNode(document, skinnedMesh.Name, skinnedMesh);
 
         FinalizeTriangleCount(document);
     }
@@ -308,9 +327,9 @@ internal static partial class ModelDocumentGeometryAdapter
         Ps2Tex0ChecksumResolver? tex0Resolver,
         ZoneTextureCatalog? textureCatalog,
         string? textureSourceHint,
-        Ps2WorldzoneConverter.WorldzoneTimeOfDay timeOfDay,
+        WorldzoneTimeOfDay timeOfDay,
         float coordinateScale,
-        Ps2WorldzoneConverter.Ps2WorldzoneLighting? lighting = null)
+        Ps2WorldzoneLighting? lighting = null)
     {
         if (!float.IsFinite(coordinateScale) || coordinateScale <= 0f)
             throw new ArgumentOutOfRangeException(nameof(coordinateScale), coordinateScale,
@@ -324,8 +343,8 @@ internal static partial class ModelDocumentGeometryAdapter
         var typedEntries = PakArchive.GetTypedEntries(pakBytes);
         var mdlEntries = typedEntries
             .Where(static entry => entry.TypeHash is
-                Ps2WorldzoneConverter.WorldzoneMdlTypeHash or
-                Ps2WorldzoneConverter.WorldzoneLevelMdlTypeHash)
+                Ps2WorldzoneDetection.WorldzoneMdlTypeHash or
+                Ps2WorldzoneDetection.WorldzoneLevelMdlTypeHash)
             .Select(static entry => entry.Entry)
             .ToList();
 
@@ -356,12 +375,7 @@ internal static partial class ModelDocumentGeometryAdapter
                 var mdlData = new byte[mdlEntry.Size];
                 Array.Copy(pakBytes, mdlEntry.Offset, mdlData, 0, (int)mdlEntry.Size);
                 var mdlName = $"{mdlEntry.Offset:X8}";
-                mdlData = Ps2WorldzoneConverter.ExtendLevelMdlPreambleIfNeeded(
-                    pakBytes,
-                    mdlEntry,
-                    mdlData,
-                    mdlName,
-                    null);
+                mdlData = ExtendLevelMdlPreambleIfNeeded(pakBytes, mdlEntry, mdlData);
                 if (!Ps2GeomFile.IsPakMdl(mdlData))
                     continue;
 
@@ -486,6 +500,14 @@ internal static partial class ModelDocumentGeometryAdapter
             }
         }
 
+        var skinnedAtomic = clump.Atomics.FirstOrDefault(a => a.SkinData != null);
+        if (skinnedAtomic?.SkinData != null)
+        {
+            PopulateRwDffSkinned(document, clump, skinnedAtomic.SkinData, materialMap);
+            FinalizeTriangleCount(document);
+            return;
+        }
+
         var frameWorld = BuildRwFrameWorldTransforms(clump.Frames);
         foreach (var atomic in clump.Atomics)
         {
@@ -577,7 +599,8 @@ internal static partial class ModelDocumentGeometryAdapter
         string name,
         int materialIndex,
         List<ModelVertex> vertices,
-        List<int> indices)
+        List<int> indices,
+        ModelSkinBinding? skin = null)
     {
         if (indices.Count == 0)
             return null;
@@ -587,7 +610,8 @@ internal static partial class ModelDocumentGeometryAdapter
             Name = name,
             MaterialIndex = materialIndex,
             Vertices = vertices.ToArray(),
-            Indices = indices.ToArray()
+            Indices = indices.ToArray(),
+            Skin = skin
         };
         mesh.Primitives.Add(primitive);
         return primitive;
@@ -607,6 +631,29 @@ internal static partial class ModelDocumentGeometryAdapter
         vertices.Add(a);
         vertices.Add(b);
         vertices.Add(c);
+        indices.Add(offset);
+        indices.Add(offset + 1);
+        indices.Add(offset + 2);
+    }
+
+    private static void AddSkinnedTriangle(
+        List<ModelVertex> vertices,
+        List<int> indices,
+        List<ModelBoneInfluences> influences,
+        ModelVertex va, ModelBoneInfluences ia,
+        ModelVertex vb, ModelBoneInfluences ib,
+        ModelVertex vc, ModelBoneInfluences ic)
+    {
+        if (IsDegenerate(va.Position, vb.Position, vc.Position))
+            return;
+
+        var offset = vertices.Count;
+        vertices.Add(va);
+        vertices.Add(vb);
+        vertices.Add(vc);
+        influences.Add(ia);
+        influences.Add(ib);
+        influences.Add(ic);
         indices.Add(offset);
         indices.Add(offset + 1);
         indices.Add(offset + 2);

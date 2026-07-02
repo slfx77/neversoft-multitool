@@ -32,8 +32,21 @@ internal static class BlendPackageWriter
             ChildNodeIndices = node.ChildNodeIndices.ToList(),
             NativeMetadata = node.NativeMetadata.Select(BlendPackageManifest.ToDictionary).ToList()
         }).ToList();
+        var skeletons = document.Skeletons.Select(static skeleton => new BlendSkeletonManifest
+        {
+            Name = skeleton.Name,
+            Bones = skeleton.Bones.Select(static bone => new BlendBoneManifest
+            {
+                Name = bone.Name,
+                ParentIndex = bone.ParentIndex,
+                LocalTransform = ToArray(bone.LocalTransform),
+                InverseBindMatrix = ToArray(bone.InverseBindMatrix),
+                NativeChecksum = bone.NativeChecksum
+            }).ToList()
+        }).ToList();
+        var animations = WriteAnimations(document, archive);
 
-        var manifest = BlendPackageManifest.FromDocument(document, blendPath, textures, meshes, nodes);
+        var manifest = BlendPackageManifest.FromDocument(document, blendPath, textures, meshes, nodes, skeletons, animations);
         var manifestEntry = archive.CreateEntry("manifest.json", CompressionLevel.Fastest);
         using var manifestStream = manifestEntry.Open();
         JsonSerializer.Serialize(manifestStream, manifest, BlendPackageManifest.JsonOptions);
@@ -95,6 +108,20 @@ internal static class BlendPackageWriter
                 WriteVertexBuffer(archive, vertexPath, primitive.Vertices);
                 WriteIndexBuffer(archive, indexPath, primitive.Indices);
 
+                BlendSkinManifest? skin = null;
+                if (primitive.Skin is { Influences: { Length: > 0 } influences })
+                {
+                    var skinFileName = $"mesh_{meshIndex:D4}_prim_{primitiveIndex:D4}.skin.bin";
+                    var skinPath = $"buffers/{skinFileName}";
+                    WriteSkinBuffer(archive, skinPath, influences);
+                    skin = new BlendSkinManifest
+                    {
+                        SkeletonIndex = primitive.Skin.SkeletonIndex,
+                        InfluenceBuffer = skinPath,
+                        InfluenceCount = influences.Length
+                    };
+                }
+
                 primitives.Add(new BlendPrimitiveManifest
                 {
                     Name = primitive.Name,
@@ -104,6 +131,7 @@ internal static class BlendPackageWriter
                     IndexBuffer = indexPath,
                     IndexCount = primitive.Indices.Length,
                     TriangleCount = primitive.TriangleCount,
+                    Skin = skin,
                     NativeMetadata = primitive.NativeMetadata.Select(BlendPackageManifest.ToDictionary).ToList()
                 });
             }
@@ -148,6 +176,68 @@ internal static class BlendPackageWriter
         using var writer = new BinaryWriter(stream);
         foreach (var index in indices)
             writer.Write(index);
+    }
+
+    private static List<BlendAnimationManifest> WriteAnimations(ModelDocument document, ZipArchive archive)
+    {
+        var animations = new List<BlendAnimationManifest>(document.Animations.Count);
+        for (var animIndex = 0; animIndex < document.Animations.Count; animIndex++)
+        {
+            var animation = document.Animations[animIndex];
+            var channels = new List<BlendAnimationChannelManifest>(animation.Channels.Count);
+            for (var channelIndex = 0; channelIndex < animation.Channels.Count; channelIndex++)
+            {
+                var channel = animation.Channels[channelIndex];
+                var timesPath = $"buffers/anim_{animIndex:D4}_ch_{channelIndex:D4}.times.bin";
+                var valuesPath = $"buffers/anim_{animIndex:D4}_ch_{channelIndex:D4}.values.bin";
+                WriteFloatBuffer(archive, timesPath, channel.Times);
+                WriteFloatBuffer(archive, valuesPath, channel.Values);
+                channels.Add(new BlendAnimationChannelManifest
+                {
+                    SkeletonIndex = channel.SkeletonIndex,
+                    BoneIndex = channel.BoneIndex,
+                    Property = channel.Property.ToString(),
+                    TimesBuffer = timesPath,
+                    ValuesBuffer = valuesPath,
+                    KeyCount = channel.KeyCount,
+                    ValueStride = channel.ValueStride,
+                    Interpolation = channel.Interpolation.ToString()
+                });
+            }
+
+            animations.Add(new BlendAnimationManifest { Name = animation.Name, Channels = channels });
+        }
+
+        return animations;
+    }
+
+    private static void WriteFloatBuffer(ZipArchive archive, string path, IReadOnlyList<float> values)
+    {
+        var entry = archive.CreateEntry(path, CompressionLevel.Fastest);
+        using var stream = entry.Open();
+        using var writer = new BinaryWriter(stream);
+        foreach (var value in values)
+            writer.Write(value);
+    }
+
+    private static void WriteSkinBuffer(ZipArchive archive, string path, IReadOnlyList<ModelBoneInfluences> influences)
+    {
+        // Per-vertex layout: 4×int32 (joints) + 4×float32 (weights) = 32 bytes.
+        // Parallels the vertex buffer index-for-index.
+        var entry = archive.CreateEntry(path, CompressionLevel.Fastest);
+        using var stream = entry.Open();
+        using var writer = new BinaryWriter(stream);
+        foreach (var influence in influences)
+        {
+            writer.Write(influence.Joint0);
+            writer.Write(influence.Joint1);
+            writer.Write(influence.Joint2);
+            writer.Write(influence.Joint3);
+            writer.Write(influence.Weight0);
+            writer.Write(influence.Weight1);
+            writer.Write(influence.Weight2);
+            writer.Write(influence.Weight3);
+        }
     }
 
     private static float[] ToArray(Matrix4x4 matrix)

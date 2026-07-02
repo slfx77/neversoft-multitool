@@ -147,7 +147,7 @@ internal static class MeshConverterTabFileScanner
     public static List<MeshFileEntry> ScanArchive(string archivePath, CancellationToken ct = default)
     {
         // Worldzone PAKs stay on their dedicated single-entry path.
-        if (Ps2WorldzoneConverter.IsWorldzonePak(archivePath))
+        if (Ps2WorldzoneDetection.IsWorldzonePak(archivePath))
         {
             var worldzone = ScanPakWorldzoneFile(new FileSystemAssetSource(archivePath), archivePath, rootDir: "");
             return worldzone != null ? [worldzone] : [];
@@ -627,15 +627,15 @@ internal static class MeshConverterTabFileScanner
 
         try
         {
-            if (!Ps2WorldzoneConverter.IsWorldzonePak(fileSystemPath))
+            if (!Ps2WorldzoneDetection.IsWorldzonePak(fileSystemPath))
                 return null;
 
             var typed = PakArchive.GetTypedEntries(fileSystemPath);
             var mdlCount = typed.Count(e =>
-                e.TypeHash == Ps2WorldzoneConverter.WorldzoneMdlTypeHash
-                || e.TypeHash == Ps2WorldzoneConverter.WorldzoneLevelMdlTypeHash);
+                e.TypeHash == Ps2WorldzoneDetection.WorldzoneMdlTypeHash
+                || e.TypeHash == Ps2WorldzoneDetection.WorldzoneLevelMdlTypeHash);
             var placementCount = typed.Count(e =>
-                e.TypeHash == Ps2WorldzoneConverter.WorldzonePlacementTypeHash);
+                e.TypeHash == Ps2WorldzoneDetection.WorldzonePlacementTypeHash);
 
             return new MeshFileEntry
             {

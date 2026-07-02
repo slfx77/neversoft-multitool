@@ -14,6 +14,11 @@ from mathutils import Matrix, Vector
 
 VERTEX_STRUCT = struct.Struct("<12f")
 INDEX_STRUCT = struct.Struct("<i")
+# 4 joint indices (int32) + 4 weights (float32), parallel to vertex buffer.
+SKIN_STRUCT = struct.Struct("<4i4f")
+# Animation buffers are flat little-endian float32 arrays; size is implicit
+# from ValueStride × KeyCount in the manifest.
+ANIM_FLOAT_STRUCT = struct.Struct("<f")
 
 # Source data is glTF-style Y-up (PS2 worldzones are emitted with Y as height,
 # X/Z forming the ground plane). Blender uses Z-up natively, so each imported
@@ -846,7 +851,10 @@ def _load_rgba_image(name, width, height, data, synthesize_alpha=True):
     # created image (no source filepath) does NOT reliably preserve pixel data
     # — the saved .blend ends up referencing an empty packed_file and every
     # texture renders as RGBA(0,0,0,0), which makes the entire model invisible.
-    # Saving to a temp PNG first gives pack() a real file to encode.
+    # Blender 4.4+ also tightened pack() so passing a filepath that has already
+    # been deleted produces "Unable to pack file" errors; read the PNG bytes
+    # back in and feed them to pack(data=...) so the source-file lifetime no
+    # longer matters.
     import tempfile
     fd, temp_path = tempfile.mkstemp(suffix=".png", prefix="nsmt_blend_tex_")
     os.close(fd)
@@ -854,7 +862,13 @@ def _load_rgba_image(name, width, height, data, synthesize_alpha=True):
         image.filepath_raw = temp_path
         image.file_format = "PNG"
         image.save()
-        image.pack()
+        try:
+            with open(temp_path, "rb") as png_file:
+                png_bytes = png_file.read()
+            image.pack(data=png_bytes, data_len=len(png_bytes))
+        except (TypeError, AttributeError):
+            # Older Blender: pack() with no args reads from filepath_raw.
+            image.pack()
     except Exception:
         pass
     finally:
@@ -1263,7 +1277,140 @@ def _object_build_items(manifest):
     return items
 
 
-def _make_objects(manifest, package, package_dir, materials):
+def _flat_matrix(values):
+    """Convert a 16-float row-major System.Numerics.Matrix4x4 into a mathutils Matrix.
+    Transposes from row-vector to column-vector convention."""
+    if not values or len(values) != 16:
+        return Matrix.Identity(4)
+    return Matrix((
+        (values[0], values[4], values[8], values[12]),
+        (values[1], values[5], values[9], values[13]),
+        (values[2], values[6], values[10], values[14]),
+        (values[3], values[7], values[11], values[15]),
+    ))
+
+
+def _make_armatures(manifest):
+    """Create one Blender Armature object per ModelSkeleton in the manifest.
+
+    Returns a list of (armature_obj, [bone_name, ...]) tuples indexed by
+    skeleton index, with (None, []) for empty/missing entries. Bone names
+    in the returned list match the order of the IR's joint indices so a
+    primitive's per-vertex JOINTS_0 entries can resolve directly.
+
+    Each bone's rest position is derived by accumulating LocalTransform
+    matrices up the parent chain. Bones get a small +Y tail offset (their
+    visual length in armature-local space) since Blender requires
+    head != tail. Vertex group binding is by name, so the visual tail
+    direction doesn't affect skinning correctness."""
+    armatures = []
+    skeletons = manifest.get("Skeletons", [])
+    for skeleton_index, skeleton in enumerate(skeletons):
+        bones = skeleton.get("Bones", [])
+        if not bones:
+            armatures.append((None, []))
+            continue
+
+        armature_name = skeleton.get("Name") or f"skeleton_{skeleton_index:04d}"
+        armature_data = bpy.data.armatures.new(armature_name)
+        armature_obj = bpy.data.objects.new(armature_name, armature_data)
+        bpy.context.collection.objects.link(armature_obj)
+
+        # Chain local transforms up the parent to get world bind matrices.
+        world_binds = [None] * len(bones)
+        for i, bone in enumerate(bones):
+            local = _flat_matrix(bone.get("LocalTransform"))
+            parent_index = bone.get("ParentIndex", -1)
+            if 0 <= parent_index < i and world_binds[parent_index] is not None:
+                world_binds[i] = world_binds[parent_index] @ local
+            else:
+                world_binds[i] = local
+
+        bpy.context.view_layer.objects.active = armature_obj
+        bpy.ops.object.mode_set(mode='EDIT')
+        try:
+            edit_bones = armature_data.edit_bones
+            bone_names = []
+            for i, bone in enumerate(bones):
+                bone_name = bone.get("Name") or f"bone_{i:04d}"
+                # Blender requires unique bone names within an armature.
+                if bone_name in edit_bones:
+                    bone_name = f"{bone_name}_{i:04d}"
+                bone_names.append(bone_name)
+                eb = edit_bones.new(bone_name)
+                head = world_binds[i].translation
+                eb.head = head
+                eb.tail = head + Vector((0.0, 0.05, 0.0))
+
+            for i, bone in enumerate(bones):
+                parent_index = bone.get("ParentIndex", -1)
+                if 0 <= parent_index < len(bone_names):
+                    edit_bones[bone_names[i]].parent = edit_bones[bone_names[parent_index]]
+        finally:
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        armature_obj.matrix_world = Y_UP_TO_Z_UP
+        armatures.append((armature_obj, bone_names))
+
+    return armatures
+
+
+def _read_skin_influences(package, package_dir, skin):
+    """Read parallel-to-vertex influence buffer: (joint, weight) × 4 per vertex."""
+    data = _read_package_bytes(package, package_dir, skin.get("InfluenceBuffer", ""))
+    if not data:
+        return []
+    return [
+        SKIN_STRUCT.unpack_from(data, offset)
+        for offset in range(0, len(data), SKIN_STRUCT.size)
+    ]
+
+
+def _apply_skin(obj, primitive, armatures, package, package_dir):
+    """Attach a Blender Armature modifier + vertex groups so the mesh deforms
+    with bone pose changes. Called from _make_objects after the mesh object
+    exists. No-op when the primitive has no Skin or the referenced skeleton
+    is missing/empty."""
+    skin = primitive.get("Skin")
+    if skin is None:
+        return
+    skeleton_index = skin.get("SkeletonIndex", -1)
+    if not (0 <= skeleton_index < len(armatures)):
+        return
+    armature_obj, bone_names = armatures[skeleton_index]
+    if armature_obj is None or not bone_names:
+        return
+
+    influences = _read_skin_influences(package, package_dir, skin)
+    if not influences:
+        return
+
+    # Lazily create only the vertex groups that have at least one non-zero weight.
+    vgs = {}
+    for vertex_index, (j0, j1, j2, j3, w0, w1, w2, w3) in enumerate(influences):
+        for joint, weight in ((j0, w0), (j1, w1), (j2, w2), (j3, w3)):
+            if weight <= 0.0 or not (0 <= joint < len(bone_names)):
+                continue
+            vg = vgs.get(joint)
+            if vg is None:
+                vg = obj.vertex_groups.new(name=bone_names[joint])
+                vgs[joint] = vg
+            vg.add([vertex_index], weight, 'REPLACE')
+
+    # Parent + ARMATURE modifier. Both the mesh and the armature were already
+    # placed at Y_UP_TO_Z_UP in world space. Setting matrix_parent_inverse to
+    # the armature's inverse world matrix preserves the mesh's world position
+    # post-parenting; otherwise Blender composes parent.world @ child.basis
+    # and the Y_UP_TO_Z_UP axis swap ends up applied twice (mesh ~90° off).
+    obj.parent = armature_obj
+    obj.parent_type = 'OBJECT'
+    obj.matrix_parent_inverse = armature_obj.matrix_world.inverted()
+    mod = obj.modifiers.new(name="Armature", type='ARMATURE')
+    mod.object = armature_obj
+    mod.use_vertex_groups = True
+
+
+def _make_objects(manifest, package, package_dir, materials, armatures=None):
     collection = bpy.context.collection
     created = []
 
@@ -1312,9 +1459,142 @@ def _make_objects(manifest, package, package_dir, materials):
             _get_or_create_billboard_collection().objects.link(obj)
         else:
             collection.objects.link(obj)
+        if armatures:
+            _apply_skin(obj, primitive, armatures, package, package_dir)
         created.append(obj)
 
     return created
+
+
+def _read_float_buffer(package, package_dir, path, count):
+    data = _read_package_bytes(package, package_dir, path)
+    if not data:
+        return []
+    if len(data) < count * ANIM_FLOAT_STRUCT.size:
+        return []
+    return [ANIM_FLOAT_STRUCT.unpack_from(data, i * ANIM_FLOAT_STRUCT.size)[0] for i in range(count)]
+
+
+def _make_animations(manifest, armatures, package, package_dir):
+    """Build a Blender Action per ModelAnimation, with FCurves per channel.
+
+    PSX animation values are absolute local pose transforms (the same convention
+    SKA uses). PSX rest pose has identity rotation per bone, so setting
+    pose_bone.rotation_quaternion directly to the IR value yields the correct
+    pose. Times are converted from seconds to frames via scene.render.fps.
+
+    The IR stores rotation values as (X, Y, Z, W) per glTF spec; Blender's
+    rotation_quaternion is indexed as (W, X, Y, Z) so the components are
+    remapped when emitting FCurves."""
+    animations = manifest.get("Animations", [])
+    if not animations:
+        return
+
+    scene_fps = bpy.context.scene.render.fps
+    last_action_per_armature = {}
+
+
+    for animation in animations:
+        action_name = animation.get("Name") or "animation"
+        action = bpy.data.actions.new(name=action_name)
+        fcurve_target = _get_action_fcurve_container(action)
+        action_used_by_armature = set()
+
+        for channel in animation.get("Channels", []):
+            skeleton_index = channel.get("SkeletonIndex", -1)
+            bone_index = channel.get("BoneIndex", -1)
+            if not (0 <= skeleton_index < len(armatures)):
+                continue
+            armature_obj, bone_names = armatures[skeleton_index]
+            if armature_obj is None or not (0 <= bone_index < len(bone_names)):
+                continue
+
+            key_count = channel.get("KeyCount", 0)
+            value_stride = channel.get("ValueStride", 0)
+            if key_count <= 0 or value_stride <= 0:
+                continue
+
+            times = _read_float_buffer(package, package_dir, channel.get("TimesBuffer", ""), key_count)
+            values = _read_float_buffer(
+                package, package_dir, channel.get("ValuesBuffer", ""), key_count * value_stride)
+            if not times or not values:
+                continue
+
+            bone_name = bone_names[bone_index]
+            property_name = channel.get("Property", "")
+            data_path, component_indices = _resolve_channel_data_path(bone_name, property_name, value_stride)
+            if data_path is None:
+                continue
+
+            for component_index, value_offset in component_indices:
+                fcurve = fcurve_target.fcurves.new(data_path=data_path, index=component_index)
+                fcurve.keyframe_points.add(count=key_count)
+                for key_i in range(key_count):
+                    frame = times[key_i] * scene_fps
+                    value = values[key_i * value_stride + value_offset]
+                    fcurve.keyframe_points[key_i].co = (frame, value)
+                    fcurve.keyframe_points[key_i].interpolation = 'LINEAR'
+                fcurve.update()
+
+            action_used_by_armature.add(skeleton_index)
+
+        for skeleton_index in action_used_by_armature:
+            last_action_per_armature[skeleton_index] = action
+
+    for skeleton_index, action in last_action_per_armature.items():
+        armature_obj, _ = armatures[skeleton_index]
+        if armature_obj is None:
+            continue
+        animation_data = armature_obj.animation_data_create()
+        animation_data.action = action
+        # Blender 4.4+ requires the action's slot to be explicitly bound to the
+        # animation_data; otherwise the assigned action shows up but no FCurves
+        # play because no slot is active. On older Blender there are no slots
+        # and the action drives the data path directly.
+        if hasattr(action, "slots") and len(action.slots) > 0:
+            try:
+                animation_data.action_slot = action.slots[0]
+            except (AttributeError, TypeError):
+                pass
+
+
+def _get_action_fcurve_container(action):
+    """Return the object exposing `.fcurves.new(data_path, index)` for this Action.
+
+    Blender 4.4+ moved FCurves under a Layer→Strip→Slot→Channelbag tree. The
+    legacy `Action.fcurves` accessor was removed for newly-created actions.
+    On 4.4+ we materialise a single OBJECT-typed slot + Keyframe strip and
+    return its channelbag. On older Blender the action itself still exposes
+    `fcurves` directly."""
+    if hasattr(action, "layers") and hasattr(action, "slots"):
+        layer = action.layers[0] if len(action.layers) else action.layers.new(name="Layer")
+        strip = layer.strips[0] if len(layer.strips) else layer.strips.new(type='KEYFRAME')
+        slot = action.slots[0] if len(action.slots) else action.slots.new(id_type='OBJECT', name="Default")
+        return strip.channelbag(slot, ensure=True)
+    return action
+
+
+def _resolve_channel_data_path(bone_name, property_name, value_stride):
+    """Return (fcurve_data_path, [(array_index, value_buffer_offset), ...]).
+
+    IR stores rotation as (X, Y, Z, W) per glTF; Blender's
+    rotation_quaternion array indexing is (W, X, Y, Z) — remap accordingly."""
+    if property_name == "Rotation" and value_stride == 4:
+        return (
+            f'pose.bones["{bone_name}"].rotation_quaternion',
+            [(0, 3), (1, 0), (2, 1), (3, 2)],
+        )
+    if property_name == "Translation" and value_stride == 3:
+        return (
+            f'pose.bones["{bone_name}"].location',
+            [(0, 0), (1, 1), (2, 2)],
+        )
+    if property_name == "Scale" and value_stride == 3:
+        return (
+            f'pose.bones["{bone_name}"].scale',
+            [(0, 0), (1, 1), (2, 2)],
+        )
+    return (None, None)
 
 
 def _apply_scene_metadata(manifest):
@@ -1331,7 +1611,9 @@ def main():
     _clear_scene()
     _apply_scene_metadata(manifest)
     materials = _make_materials(manifest, package, package_dir)
-    _make_objects(manifest, package, package_dir, materials)
+    armatures = _make_armatures(manifest)
+    _make_objects(manifest, package, package_dir, materials, armatures)
+    _make_animations(manifest, armatures, package, package_dir)
 
     output_dir = os.path.dirname(blend_path)
     if output_dir:

@@ -46,7 +46,7 @@ internal static class MeshConverterTabFileConverter
     public static MeshExportResult ConvertFile(
         MeshFileEntry entry,
         string outputDir,
-        Ps2WorldzoneConverter.WorldzoneTimeOfDay worldzoneTimeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.All,
+        WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
         float worldzoneScale = 1f,
         MeshOutputFormat outputFormat = MeshOutputFormat.Glb,
         string? blenderHelperPath = null,
@@ -69,7 +69,7 @@ internal static class MeshConverterTabFileConverter
 
     private static MeshImportRequest CreateImportRequest(
         MeshFileEntry entry,
-        Ps2WorldzoneConverter.WorldzoneTimeOfDay worldzoneTimeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.All,
+        WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
         float worldzoneScale = 1f)
     {
         return new MeshImportRequest

@@ -7,6 +7,7 @@ public sealed class ModelPrimitive
     public ModelPrimitiveTopology Topology { get; init; } = ModelPrimitiveTopology.Triangles;
     public required ModelVertex[] Vertices { get; init; }
     public required int[] Indices { get; init; }
+    public ModelSkinBinding? Skin { get; init; }
     public List<NativeRenderMetadata> NativeMetadata { get; } = [];
     public int TriangleCount => Topology == ModelPrimitiveTopology.Triangles ? Indices.Length / 3 : 0;
 }

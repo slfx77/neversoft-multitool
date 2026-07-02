@@ -9,5 +9,6 @@ internal sealed class BlendPrimitiveManifest
     public required string IndexBuffer { get; init; }
     public int IndexCount { get; init; }
     public int TriangleCount { get; init; }
+    public BlendSkinManifest? Skin { get; init; }
     public required List<Dictionary<string, object?>> NativeMetadata { get; init; }
 }

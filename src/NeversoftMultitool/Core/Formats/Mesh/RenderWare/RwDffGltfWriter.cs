@@ -1,6 +1,5 @@
 using System.Numerics;
 using NeversoftMultitool.Core.BinaryIO;
-using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Texture;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
@@ -38,70 +37,6 @@ public static class RwDffGltfWriter
         GltfNormalSmoother.SmoothNormals(model);
         model.SaveGLB(outputPath);
         return triangles;
-    }
-
-    /// <summary>
-    ///     Writes a parsed DFF clump animated by one or more THPS3 SKA files to a
-    ///     .glb file. Requires the clump to have a Skin PLG and every animation's
-    ///     bone count to match the skeleton.
-    /// </summary>
-    /// <returns>
-    ///     Total number of triangles written; 0 if the clump isn't skinned,
-    ///     any bone count disagrees, or no animations were supplied.
-    /// </returns>
-    internal static int WriteAnimated(
-        RwDffClump clump,
-        IReadOnlyList<(string Name, SkaAnimation Animation)> animations,
-        string outputPath,
-        MeshNamedTextureResolver? textureProvider = null,
-        Thps3SkaAnimationMode? animationMode = null)
-    {
-        if (animations.Count == 0) return 0;
-
-        var directory = Path.GetDirectoryName(outputPath);
-        if (!string.IsNullOrEmpty(directory))
-            Directory.CreateDirectory(directory);
-
-        var skinnedAtomic = clump.Atomics.FirstOrDefault(a => a.SkinData != null);
-        if (skinnedAtomic?.SkinData == null)
-            return 0;
-
-        var skin = skinnedAtomic.SkinData;
-        foreach (var (_, anim) in animations)
-        {
-            if (anim.BoneTracks.Length != skin.NumBones)
-                return 0;
-        }
-
-        var scene = new SceneBuilder();
-        var materialCache = new Dictionary<string, MaterialBuilder>(StringComparer.OrdinalIgnoreCase);
-        var boneNodes = BuildBoneHierarchy(skin);
-
-        var mode = animationMode ?? Thps3SkaAnimationMode.Default;
-        foreach (var (name, anim) in animations)
-            Thps3SkaPoseApplier.ApplyAnimationChannels(boneNodes, anim, name, mode);
-
-        var triangles = WriteSkinned(clump, skin, materialCache, textureProvider, scene, boneNodes);
-        if (triangles == 0) return 0;
-
-        var model = scene.ToGltf2();
-        GltfNormalSmoother.SmoothNormals(model);
-        model.SaveGLB(outputPath);
-        return triangles;
-    }
-
-    /// <summary>
-    ///     Backward-compatible single-animation overload.
-    /// </summary>
-    internal static int WriteAnimated(
-        RwDffClump clump,
-        SkaAnimation animation,
-        string outputPath,
-        MeshNamedTextureResolver? textureProvider = null,
-        Thps3SkaAnimationMode? animationMode = null)
-    {
-        var name = Path.GetFileNameWithoutExtension(outputPath);
-        return WriteAnimated(clump, [(name, animation)], outputPath, textureProvider, animationMode);
     }
 
     internal static (ModelRoot Model, int Triangles) Build(

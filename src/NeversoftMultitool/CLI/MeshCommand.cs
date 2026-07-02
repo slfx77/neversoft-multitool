@@ -140,7 +140,7 @@ public static class MeshCommand
         string? psxPath,
         string? ddmTexturePath,
         float coordinateScale,
-        Ps2WorldzoneConverter.WorldzoneTimeOfDay worldzoneTimeOfDay,
+        WorldzoneTimeOfDay worldzoneTimeOfDay,
         bool verbose,
         MeshOutputFormat format,
         string? blenderHelperPath,
@@ -283,7 +283,7 @@ public static class MeshCommand
 
         if (OrdinalFileName.HasSuffix(name, ".pak.ps2"))
         {
-            if (!Ps2WorldzoneConverter.IsWorldzonePak(file))
+            if (!Ps2WorldzoneDetection.IsWorldzonePak(file))
             {
                 reason = "Not a recognized THAW PS2 worldzone PAK";
                 return false;
@@ -440,18 +440,18 @@ public static class MeshCommand
 
     private static bool TryParseWorldzoneTimeOfDay(
         string? value,
-        out Ps2WorldzoneConverter.WorldzoneTimeOfDay timeOfDay)
+        out WorldzoneTimeOfDay timeOfDay)
     {
         switch ((value ?? "all").Trim().ToLowerInvariant())
         {
             case "all":
-                timeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.All;
+                timeOfDay = WorldzoneTimeOfDay.All;
                 return true;
             case "day":
-                timeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.Day;
+                timeOfDay = WorldzoneTimeOfDay.Day;
                 return true;
             case "night":
-                timeOfDay = Ps2WorldzoneConverter.WorldzoneTimeOfDay.Night;
+                timeOfDay = WorldzoneTimeOfDay.Night;
                 return true;
             default:
                 timeOfDay = default;

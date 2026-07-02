@@ -183,7 +183,7 @@ public sealed class MeshModelParser : IModelParser
             _ => Ps2SceneFile.Parse(data)
         };
 
-        var skeleton = TryLoadPs2Skeleton(
+        var skeleton = request.PreparedSkeleton ?? TryLoadPs2Skeleton(
             request.Source,
             request.OutputStem,
             request.Ps2SubFormat,
@@ -225,7 +225,14 @@ public sealed class MeshModelParser : IModelParser
             document.Materials.Add(renderMaterial);
         }
 
-        ModelDocumentGeometryAdapter.PopulatePs2Scene(document, scene, textureProvider);
+        ModelDocumentGeometryAdapter.PopulatePs2Scene(document, scene, textureProvider, skeleton);
+
+        if (request.SkaAnimations is { Count: > 0 } ps2Animations && document.Skeletons.Count > 0)
+        {
+            ModelDocumentGeometryAdapter.PopulateSkaAnimations(
+                document, skeletonIndex: 0, ps2Animations);
+        }
+
         return document;
     }
 
@@ -364,6 +371,17 @@ public sealed class MeshModelParser : IModelParser
             ModelSourceKind.RenderWareDff,
             new RenderWareDffNativeSource(clump, textureProvider));
         ModelDocumentGeometryAdapter.PopulateRwDff(document, clump, textureProvider);
+
+        if (request.SkaAnimations is { Count: > 0 } rwAnimations && document.Skeletons.Count > 0)
+        {
+            var skin = clump.Atomics
+                .Select(static a => a.SkinData)
+                .FirstOrDefault(static s => s != null);
+            var boneMap = ModelDocumentGeometryAdapter.BuildRwDffBoneIndexMap(skin);
+            ModelDocumentGeometryAdapter.PopulateSkaAnimations(
+                document, skeletonIndex: 0, rwAnimations, SkaCompositionMode.BindComposed, boneMap);
+        }
+
         return document;
     }
 

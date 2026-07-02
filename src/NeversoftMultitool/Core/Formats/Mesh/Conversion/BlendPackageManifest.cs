@@ -26,6 +26,8 @@ internal sealed class BlendPackageManifest
     public required List<BlendMaterialManifest> Materials { get; init; }
     public required List<BlendMeshManifest> Meshes { get; init; }
     public required List<BlendNodeManifest> Nodes { get; init; }
+    public required List<BlendSkeletonManifest> Skeletons { get; init; }
+    public required List<BlendAnimationManifest> Animations { get; init; }
     public required List<Dictionary<string, object?>> NativeMetadata { get; init; }
 
     public static BlendPackageManifest FromDocument(
@@ -33,7 +35,9 @@ internal sealed class BlendPackageManifest
         string blendPath,
         List<BlendTextureManifest>? textures = null,
         List<BlendMeshManifest>? meshes = null,
-        List<BlendNodeManifest>? nodes = null)
+        List<BlendNodeManifest>? nodes = null,
+        List<BlendSkeletonManifest>? skeletons = null,
+        List<BlendAnimationManifest>? animations = null)
     {
         return new BlendPackageManifest
         {
@@ -61,6 +65,8 @@ internal sealed class BlendPackageManifest
             }).ToList(),
             Meshes = meshes ?? [],
             Nodes = nodes ?? [],
+            Skeletons = skeletons ?? [],
+            Animations = animations ?? [],
             NativeMetadata = document.NativeMetadata.Select(ToDictionary).ToList()
         };
     }

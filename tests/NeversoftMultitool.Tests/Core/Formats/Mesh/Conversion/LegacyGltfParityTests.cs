@@ -5,9 +5,7 @@ using NeversoftMultitool.Core.Formats.Collision;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using SixLabors.ImageSharp;
@@ -57,23 +55,6 @@ public sealed class LegacyGltfParityTests
     }
 
     [Fact]
-    public void Psx_GenericGlb_MatchesLegacyWriter()
-    {
-        using var temp = new TempDirectory();
-        var psxFile = CreatePsxMeshFile();
-
-        var oldStats = ExportLegacy(
-            "psx",
-            temp,
-            path => PsxGltfWriter.Write(psxFile, path, ResolveTextureByChecksum));
-        var document = new ModelDocument { Name = "psx", SourceKind = ModelSourceKind.Psx };
-        ModelDocumentGeometryAdapter.PopulatePsx(document, psxFile, ResolveTextureByChecksum);
-        var genericStats = ExportGeneric("psx", temp, document);
-
-        AssertStructuralParity("psx", oldStats, genericStats);
-    }
-
-    [Fact]
     public void Ps2Scene_GenericGlb_MatchesLegacyWriter()
     {
         using var temp = new TempDirectory();
@@ -89,23 +70,6 @@ public sealed class LegacyGltfParityTests
         var genericStats = ExportGeneric("ps2_scene", temp, document);
 
         AssertStructuralParity("ps2_scene", oldStats, genericStats);
-    }
-
-    [Fact]
-    public void Ps2Geom_GenericGlb_MatchesLegacyWriter()
-    {
-        using var temp = new TempDirectory();
-        var scene = CreatePs2GeomScene();
-
-        var oldStats = ExportLegacy(
-            "ps2_geom",
-            temp,
-            path => Ps2GeomGltfWriter.Write(scene, path, ResolveTextureByChecksum));
-        var document = new ModelDocument { Name = "ps2_geom", SourceKind = ModelSourceKind.Ps2Geom };
-        ModelDocumentGeometryAdapter.PopulatePs2Geom(document, scene, ResolveTextureByChecksum, tex0Resolver: null);
-        var genericStats = ExportGeneric("ps2_geom", temp, document);
-
-        AssertStructuralParity("ps2_geom", oldStats, genericStats);
     }
 
     [Fact]
@@ -455,58 +419,6 @@ public sealed class LegacyGltfParityTests
         };
     }
 
-    private static PsxMeshFile CreatePsxMeshFile()
-    {
-        return new PsxMeshFile
-        {
-            Version = 0x04,
-            Objects =
-            [
-                new PsxMeshObject
-                {
-                    MeshIndex = 0
-                }
-            ],
-            Meshes =
-            [
-                new PsxMesh
-                {
-                    Vertices = QuadPsxVertices(),
-                    Normals = [new PsxNormal { X = 0f, Y = 0f, Z = 1f }],
-                    Faces =
-                    [
-                        new PsxFace
-                        {
-                            IsQuad = true,
-                            IsTextured = true,
-                            TextureHash = TextureChecksum,
-                            Index0 = 0,
-                            Index1 = 1,
-                            Index2 = 2,
-                            Index3 = 3,
-                            NormalIndex = 0,
-                            R = 128,
-                            G = 128,
-                            B = 128,
-                            TextureCoordinates =
-                            [
-                                new PsxTextureCoordinate(0, 0),
-                                new PsxTextureCoordinate(1, 0),
-                                new PsxTextureCoordinate(0, 1),
-                                new PsxTextureCoordinate(1, 1)
-                            ]
-                        }
-                    ],
-                    LodNextMeshIndex = ushort.MaxValue
-                }
-            ],
-            MeshNameHashes = [0],
-            TextureHashes = [TextureChecksum],
-            ScaleDivisor = 1f,
-            TranslationDivisor = 1f
-        };
-    }
-
     private static ParsedPs2Scene CreatePs2Scene()
     {
         return new ParsedPs2Scene
@@ -540,26 +452,6 @@ public sealed class LegacyGltfParityTests
                             Vertices = QuadPs2StripVertices()
                         }
                     ]
-                }
-            ]
-        };
-    }
-
-    private static Ps2GeomScene CreatePs2GeomScene()
-    {
-        return new Ps2GeomScene
-        {
-            Leaves =
-            [
-                new Ps2GeomLeaf
-                {
-                    Checksum = 0x33445566,
-                    TextureChecksum = TextureChecksum,
-                    BoundingSphere = new Vector4(0.5f, 0.5f, 0f, 1f),
-                    Vertices = QuadPs2StripVertices(),
-                    DmaClamp1 = 1,
-                    DmaAlpha1 = 0x0A,
-                    DmaTest1 = 0
                 }
             ]
         };
@@ -788,18 +680,6 @@ public sealed class LegacyGltfParityTests
 
     private static DdmVertex MakeDdmVertex(Vector3 position, Vector2 uv) =>
         new(position.X, position.Y, position.Z, 0f, 0f, 1f, 255, 255, 255, 255, uv.X, uv.Y);
-
-    private static List<PsxVertex> QuadPsxVertices()
-    {
-        var positions = QuadPositions();
-        return
-        [
-            new PsxVertex { X = positions[0].X, Y = positions[0].Y, Z = positions[0].Z },
-            new PsxVertex { X = positions[1].X, Y = positions[1].Y, Z = positions[1].Z },
-            new PsxVertex { X = positions[2].X, Y = positions[2].Y, Z = positions[2].Z },
-            new PsxVertex { X = positions[3].X, Y = positions[3].Y, Z = positions[3].Z }
-        ];
-    }
 
     private static byte[]? ResolveTextureByChecksum(uint checksum) =>
         checksum == TextureChecksum ? CreateTexturePngBytes() : null;

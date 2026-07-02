@@ -310,14 +310,14 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         };
     }
 
-    private Ps2WorldzoneConverter.WorldzoneTimeOfDay GetSelectedWorldzoneTimeOfDay()
+    private WorldzoneTimeOfDay GetSelectedWorldzoneTimeOfDay()
     {
         var tag = (WorldzoneTimeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString();
         return tag switch
         {
-            "day" => Ps2WorldzoneConverter.WorldzoneTimeOfDay.Day,
-            "night" => Ps2WorldzoneConverter.WorldzoneTimeOfDay.Night,
-            _ => Ps2WorldzoneConverter.WorldzoneTimeOfDay.All
+            "day" => WorldzoneTimeOfDay.Day,
+            "night" => WorldzoneTimeOfDay.Night,
+            _ => WorldzoneTimeOfDay.All
         };
     }
 

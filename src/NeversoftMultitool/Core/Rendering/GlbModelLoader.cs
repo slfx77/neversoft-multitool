@@ -369,9 +369,9 @@ internal static class GlbModelLoader
     /// </summary>
     private sealed class AnimationKeyframeCache
     {
-        private readonly Dictionary<int, (float Time, Quaternion Value)[]> _rotations = new();
-        private readonly Dictionary<int, (float Time, Vector3 Value)[]> _scales = new();
-        private readonly Dictionary<int, (float Time, Vector3 Value)[]> _translations = new();
+        private readonly Dictionary<int, RotationTrack> _rotations = new();
+        private readonly Dictionary<int, VectorTrack> _scales = new();
+        private readonly Dictionary<int, VectorTrack> _translations = new();
 
         public static AnimationKeyframeCache Build(Animation animation)
         {
@@ -382,17 +382,29 @@ internal static class GlbModelLoader
                 switch (channel.TargetNodePath)
                 {
                     case PropertyPath.rotation:
-                        cache._rotations[nodeIdx] = channel.GetRotationSampler()
-                            .GetLinearKeys().ToArray();
+                    {
+                        var sampler = channel.GetRotationSampler();
+                        cache._rotations[nodeIdx] = new RotationTrack(
+                            sampler.GetLinearKeys().ToArray(),
+                            sampler.InterpolationMode == AnimationInterpolationMode.STEP);
                         break;
+                    }
                     case PropertyPath.translation:
-                        cache._translations[nodeIdx] = channel.GetTranslationSampler()
-                            .GetLinearKeys().ToArray();
+                    {
+                        var sampler = channel.GetTranslationSampler();
+                        cache._translations[nodeIdx] = new VectorTrack(
+                            sampler.GetLinearKeys().ToArray(),
+                            sampler.InterpolationMode == AnimationInterpolationMode.STEP);
                         break;
+                    }
                     case PropertyPath.scale:
-                        cache._scales[nodeIdx] = channel.GetScaleSampler()
-                            .GetLinearKeys().ToArray();
+                    {
+                        var sampler = channel.GetScaleSampler();
+                        cache._scales[nodeIdx] = new VectorTrack(
+                            sampler.GetLinearKeys().ToArray(),
+                            sampler.InterpolationMode == AnimationInterpolationMode.STEP);
                         break;
+                    }
                 }
             }
 
@@ -401,8 +413,9 @@ internal static class GlbModelLoader
 
         public Quaternion? SampleRotation(int nodeIdx, float time)
         {
-            if (!_rotations.TryGetValue(nodeIdx, out var keys) || keys.Length == 0)
+            if (!_rotations.TryGetValue(nodeIdx, out var track) || track.Keys.Length == 0)
                 return null;
+            var keys = track.Keys;
             if (keys.Length == 1) return keys[0].Value;
 
             if (time <= keys[0].Time) return keys[0].Value;
@@ -412,6 +425,9 @@ internal static class GlbModelLoader
             {
                 if (time < keys[i + 1].Time)
                 {
+                    if (track.Step)
+                        return keys[i].Value;
+
                     var t = (time - keys[i].Time) / (keys[i + 1].Time - keys[i].Time);
                     return Quaternion.Slerp(keys[i].Value, keys[i + 1].Value, t);
                 }
@@ -422,20 +438,21 @@ internal static class GlbModelLoader
 
         public Vector3? SampleTranslation(int nodeIdx, float time)
         {
-            if (!_translations.TryGetValue(nodeIdx, out var keys) || keys.Length == 0)
+            if (!_translations.TryGetValue(nodeIdx, out var track) || track.Keys.Length == 0)
                 return null;
-            return SampleVector3(keys, time);
+            return SampleVector3(track, time);
         }
 
         public Vector3? SampleScale(int nodeIdx, float time)
         {
-            if (!_scales.TryGetValue(nodeIdx, out var keys) || keys.Length == 0)
+            if (!_scales.TryGetValue(nodeIdx, out var track) || track.Keys.Length == 0)
                 return null;
-            return SampleVector3(keys, time);
+            return SampleVector3(track, time);
         }
 
-        private static Vector3 SampleVector3((float Time, Vector3 Value)[] keys, float time)
+        private static Vector3 SampleVector3(VectorTrack track, float time)
         {
+            var keys = track.Keys;
             if (keys.Length == 1) return keys[0].Value;
             if (time <= keys[0].Time) return keys[0].Value;
             if (time >= keys[^1].Time) return keys[^1].Value;
@@ -444,6 +461,9 @@ internal static class GlbModelLoader
             {
                 if (time < keys[i + 1].Time)
                 {
+                    if (track.Step)
+                        return keys[i].Value;
+
                     var t = (time - keys[i].Time) / (keys[i + 1].Time - keys[i].Time);
                     return Vector3.Lerp(keys[i].Value, keys[i + 1].Value, t);
                 }
@@ -451,5 +471,13 @@ internal static class GlbModelLoader
 
             return keys[^1].Value;
         }
+
+        private readonly record struct RotationTrack(
+            (float Time, Quaternion Value)[] Keys,
+            bool Step);
+
+        private readonly record struct VectorTrack(
+            (float Time, Vector3 Value)[] Keys,
+            bool Step);
     }
 }

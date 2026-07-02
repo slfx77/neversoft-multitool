@@ -1,5 +1,4 @@
 using System.Numerics;
-using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using SharpGLTF.Geometry;
@@ -21,7 +20,6 @@ using VERTEX = VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexE
 ///     Writes parsed PS2 scene data (MDL/SKIN) to glTF 2.0 (.glb) files.
 ///     Uses ADC-based triangle strip conversion: each vertex's IsStripRestart flag
 ///     controls whether a triangle is drawn (ADC=0 → draw, ADC=0x8000 → skip).
-///     GEOM writing is handled by <see cref="Ps2GeomGltfWriter" />.
 /// </summary>
 public static class Ps2SceneGltfWriter
 {
@@ -107,100 +105,6 @@ public static class Ps2SceneGltfWriter
         GltfNormalSmoother.SmoothNormals(model);
         model.SaveGLB(outputPath);
         return triangles;
-    }
-
-    /// <summary>
-    ///     Writes a skinned mesh with one or more named animations to a .glb file.
-    ///     The first animation seeds the rest pose (its t=0 sample); all listed
-    ///     animations are emitted as switchable named tracks.
-    /// </summary>
-    internal static int WriteSkinnedAnimated(Ps2Scene ps2Scene, Ps2Skeleton skeleton,
-        IReadOnlyList<(string Name, SkaAnimation Animation)> animations,
-        string outputPath, MeshChecksumTextureResolver? textureProvider = null)
-    {
-        var directory = Path.GetDirectoryName(outputPath);
-        if (!string.IsNullOrEmpty(directory))
-            Directory.CreateDirectory(directory);
-
-        var (model, triangles) = BuildSkinnedAnimated(ps2Scene, skeleton, animations, textureProvider);
-        if (triangles == 0) return 0;
-        GltfNormalSmoother.SmoothNormals(model);
-        model.SaveGLB(outputPath);
-        return triangles;
-    }
-
-    /// <summary>
-    ///     Backward-compatible single-animation overload.
-    /// </summary>
-    internal static int WriteSkinnedAnimated(Ps2Scene ps2Scene, Ps2Skeleton skeleton,
-        SkaAnimation animation, string outputPath, string? animationName = null,
-        MeshChecksumTextureResolver? textureProvider = null)
-    {
-        var name = animationName ?? "animation";
-        return WriteSkinnedAnimated(ps2Scene, skeleton, [(name, animation)], outputPath, textureProvider);
-    }
-
-    /// <summary>
-    ///     Backward-compatible single-animation builder overload.
-    /// </summary>
-    internal static (ModelRoot Model, int Triangles) BuildSkinnedAnimated(
-        Ps2Scene ps2Scene, Ps2Skeleton skeleton, SkaAnimation animation,
-        string? animationName = null, MeshChecksumTextureResolver? textureProvider = null)
-    {
-        var name = animationName ?? "animation";
-        return BuildSkinnedAnimated(ps2Scene, skeleton, [(name, animation)], textureProvider);
-    }
-
-    internal static (ModelRoot Model, int Triangles) BuildSkinnedAnimated(
-        Ps2Scene ps2Scene, Ps2Skeleton skeleton,
-        IReadOnlyList<(string Name, SkaAnimation Animation)> animations,
-        MeshChecksumTextureResolver? textureProvider = null)
-    {
-        if (animations.Count == 0)
-            throw new ArgumentException("At least one animation required", nameof(animations));
-
-        var scene = new SceneBuilder();
-        var materialCache = new Dictionary<uint, MaterialBuilder?>();
-        var totalTriangles = 0;
-
-        // Build skeleton seeded from SkaPoseEvaluator.Evaluate(0f) on the FIRST
-        // animation so each joint's rest transform exactly matches what a renderer
-        // would compute from that animation at t=0. V1 (THPS4) content has no
-        // native bind pose in the .ske file, so this is the only way to produce a
-        // meaningful rest pose; V2+ content gets the first animation's first
-        // keyframe (typically == bind) with the same evaluator fallback semantics.
-        var jointNodes = SkaGltfWriter.BuildJointHierarchySeededFromEvaluator(skeleton, animations[0].Animation);
-        SkaGltfWriter.ApplyAnimations(jointNodes, skeleton, animations);
-
-        // Build skinned mesh
-        var gltfMesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4>("skinned_mesh");
-        foreach (var mesh in ps2Scene.MeshGroups.SelectMany(g => g.Meshes))
-        {
-            if (mesh.Vertices.Length < 3) continue;
-            var material = GetOrCreateMaterial(ps2Scene.Materials, mesh.MaterialChecksum,
-                materialCache, textureProvider);
-            if (material == null) continue;
-            var prim = gltfMesh.UsePrimitive(material);
-            var tris = Ps2SceneGltfSkinningSupport.AddSkinnedTriangleStrip(prim, mesh.Vertices,
-                mesh.StartsOnOddOutputSlot);
-            totalTriangles += tris;
-        }
-
-        if (totalTriangles > 0)
-        {
-            // Use the explicit-IBM overload for both V1 and V2 skeletons. V1 skeletons
-            // get their neutral pose populated from companion default.ska.ps2 files by
-            // Ps2SkeletonDefaultPose.EnrichWithDefaultPose before reaching this writer,
-            // so InverseBindMatrix is valid in both cases. SharpGLTF's auto-IBM overload
-            // strips identity node transforms and produces wrong results when a real
-            // bind pose exists (see RwDffGltfWriter for the same approach).
-            var joints = new (NodeBuilder, Matrix4x4)[skeleton.Bones.Length];
-            for (var i = 0; i < skeleton.Bones.Length; i++)
-                joints[i] = (jointNodes[i], skeleton.Bones[i].InverseBindMatrix);
-            scene.AddSkinnedMesh(gltfMesh, joints);
-        }
-
-        return (scene.ToGltf2(), totalTriangles);
     }
 
     internal static (ModelRoot Model, int Triangles) BuildSkinned(Ps2Scene ps2Scene,

@@ -2,8 +2,11 @@ using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.BinaryIO;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
@@ -54,11 +57,6 @@ public static class SkaCommand
         {
             Description = "RenderWare DFF file (.SKN) for THPS3 PS2 skeleton + mesh"
         };
-        var thps3ModeOption = new Option<string>("--thps3-mode")
-        {
-            Description = $"Diagnostic THPS3 SKN pose mode ({Thps3SkaAnimationMode.KnownModeNames})",
-            DefaultValueFactory = _ => Thps3SkaAnimationMode.Default.Name
-        };
 
         var command = new Command("ska", "Parse SKA animation files and optionally export to glTF");
         command.Arguments.Add(inputArgument);
@@ -68,7 +66,6 @@ public static class SkaCommand
         command.Options.Add(skinOption);
         command.Options.Add(texOption);
         command.Options.Add(sknOption);
-        command.Options.Add(thps3ModeOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -79,24 +76,17 @@ public static class SkaCommand
             var skinPath = parseResult.GetValue(skinOption);
             var texPath = parseResult.GetValue(texOption);
             var sknPath = parseResult.GetValue(sknOption);
-            var thps3ModeName = parseResult.GetValue(thps3ModeOption);
 
             return Task.FromResult(Execute(
-                input, output, verbose, skePath, skinPath, texPath, sknPath, thps3ModeName));
+                input, output, verbose, skePath, skinPath, texPath, sknPath));
         });
 
         return command;
     }
 
     private static int Execute(string input, string output, bool verbose, string? skePath,
-        string? skinPath, string? texPath, string? sknPath, string? thps3ModeName)
+        string? skinPath, string? texPath, string? sknPath)
     {
-        if (!Thps3SkaAnimationMode.TryParse(thps3ModeName, out var thps3Mode, out var thps3ModeError))
-        {
-            AnsiConsole.MarkupLine($"[red]{thps3ModeError.EscapeMarkup()}[/]");
-            return 1;
-        }
-
         // Load skeleton if provided (enables glTF export)
         Ps2Skeleton? skeleton = null;
         if (skePath != null)
@@ -119,68 +109,30 @@ public static class SkaCommand
                 $"Loaded skin: [green]{skinScene.MeshGroups.Sum(g => g.Meshes.Count)}[/] meshes from {Path.GetFileName(skinPath)}");
         }
 
-        // Load THPS3 RW DFF .SKN (has embedded skeleton + skinned mesh in one file)
+        // Load THPS3 RW DFF .SKN (has embedded skeleton + skinned mesh in one file).
+        // Texture discovery happens inside MeshModelParser when the parser is invoked
+        // per-animation; this block just emits the informational summary up-front.
         RwDffClump? rwClump = null;
-        MeshNamedTextureResolver? rwTextureProvider = null;
         if (sknPath != null)
         {
             var sknData = File.ReadAllBytes(sknPath);
             rwClump = RwDffFile.Parse(sknData);
-            var boneCount = rwClump.Atomics
+            var rwBoneCount = rwClump.Atomics
                 .Select(a => a.SkinData?.NumBones ?? 0)
                 .DefaultIfEmpty(0)
                 .Max();
             AnsiConsole.MarkupLine(
                 $"Loaded RW DFF: [green]{rwClump.Geometries.Length}[/] geometries, " +
-                $"[green]{boneCount}[/] bones from {Path.GetFileName(sknPath)}");
-
-            var skin = rwClump.Atomics.FirstOrDefault(a => a.SkinData != null)?.SkinData;
-            if (skin != null)
-            {
-                var order = Thps3SkaPoseApplier.AnalyzeBoneOrder(skin);
-                AnsiConsole.MarkupLine(
-                    $"THPS3 HAnim bone order: [cyan]{order.ToDisplayString().EscapeMarkup()}[/]");
-                AnsiConsole.MarkupLine(
-                    $"THPS3 pose mode: [cyan]{thps3Mode.Name.EscapeMarkup()}[/]");
-            }
-
-            // Auto-discover companion .tex next to the .SKN (same stem).
-            var sknDir = Path.GetDirectoryName(sknPath);
-            if (sknDir != null)
-            {
-                var stem = Path.GetFileNameWithoutExtension(sknPath);
-                var texFile = Directory
-                    .EnumerateFiles(sknDir, stem + ".*", SearchOption.TopDirectoryOnly)
-                    .FirstOrDefault(p => p.EndsWith(".tex", StringComparison.OrdinalIgnoreCase));
-                if (texFile != null)
-                {
-                    var txd = RwTxdFile.Parse(texFile);
-                    if (txd.Success)
-                    {
-                        rwTextureProvider = RwDffGltfWriter.BuildTxdTextureProvider(txd);
-                        AnsiConsole.MarkupLine(
-                            $"Loaded [green]{txd.Textures.Count}[/] RW textures from {Path.GetFileName(texFile)}");
-                    }
-                }
-            }
+                $"[green]{rwBoneCount}[/] bones from {Path.GetFileName(sknPath)}");
         }
 
-        // Build texture provider if TEX file provided
-        MeshChecksumTextureResolver? textureProvider = null;
+        // Texture summary (the per-anim parser handles actual embedding).
         if (texPath != null)
         {
             var textureCache = Ps2TextureLoader.BuildTextureCache([], texPath, verbose);
             if (textureCache.Count > 0)
-            {
                 AnsiConsole.MarkupLine(
                     $"Loaded [green]{textureCache.Count}[/] textures from {Path.GetFileName(texPath)}");
-                textureProvider = checksum =>
-                {
-                    if (!textureCache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
-                        return null;
-                    return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
-                };
-            }
         }
 
         List<string> files;
@@ -289,45 +241,43 @@ public static class SkaCommand
                         $"flags=0x{anim.Flags:X8}");
                 }
 
+                var stem = Path.GetFileNameWithoutExtension(
+                    Path.GetFileNameWithoutExtension(file));
+                var glbPath = Path.Combine(output, stem + ".glb");
+
                 // THPS3 path: RW DFF .SKN as skeleton + mesh source.
-                if (rwClump != null)
+                if (rwClump != null && sknPath != null)
                 {
-                    var stem = Path.GetFileNameWithoutExtension(
-                        Path.GetFileNameWithoutExtension(file));
-                    var glbPath = Path.Combine(output, stem + ".glb");
-                    var tris = RwDffGltfWriter.WriteAnimated(
-                        rwClump, anim, glbPath, rwTextureProvider, thps3Mode);
+                    var result = ExportRwDffAnimated(sknPath, stem, anim, output, texPath);
                     if (verbose)
                     {
-                        if (tris > 0)
-                            AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] (RW skinned, {tris} triangles)");
+                        if (result.Triangles > 0)
+                            AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] (RW skinned, {result.Triangles} triangles)");
                         else
                             AnsiConsole.MarkupLine("    [yellow]skipped (bone count or clump not skinned)[/]");
                     }
                 }
-                // Export to glTF if skeleton is available and bone counts match
+                else if (skeleton != null && boneCount == skeleton.Bones.Length && skinPath != null && skinScene != null)
+                {
+                    // Combined mesh + animation via the unified pipeline.
+                    var meshResult = ExportPs2SceneAnimated(skinPath, stem, anim, skeleton, output, texPath);
+                    if (verbose)
+                        AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] (skinned, {meshResult.Triangles} triangles)");
+                }
                 else if (skeleton != null && boneCount == skeleton.Bones.Length)
                 {
-                    var stem = Path.GetFileNameWithoutExtension(
-                        Path.GetFileNameWithoutExtension(file)); // strip .ska.ps2
-                    var glbPath = Path.Combine(output, stem + ".glb");
-
-                    if (skinScene != null)
+                    // Skeleton-only animation: build an IR document with no meshes.
+                    var document = SkaModelDocumentBuilder.BuildSkeletonOnly(skeleton, [(stem, anim)], stem);
+                    new GltfModelExporter().Export(document, new MeshExportRequest
                     {
-                        // Combined mesh + animation
-                        var tris = Ps2SceneGltfWriter.WriteSkinnedAnimated(
-                            skinScene, skeleton, anim, glbPath, stem,
-                            textureProvider);
-                        if (verbose)
-                            AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] (skinned, {tris} triangles)");
-                    }
-                    else
+                        OutputDirectory = output,
+                        OutputStem = stem,
+                        Format = MeshOutputFormat.Glb
+                    });
+                    if (verbose)
                     {
-                        // Skeleton-only animation
-                        var channels = SkaGltfWriter.WriteAnimatedSkeleton(
-                            skeleton, anim, glbPath, stem);
-                        if (verbose)
-                            AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] ({channels} channels)");
+                        var channelCount = document.Animations.Sum(a => a.Channels.Count);
+                        AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] ({channelCount} channels)");
                     }
                 }
             }
@@ -420,6 +370,58 @@ public static class SkaCommand
                 results.Add(dir);
             dir = Path.GetDirectoryName(dir);
         }
+    }
+
+    private static MeshExportResult ExportRwDffAnimated(
+        string sknPath,
+        string stem,
+        SkaAnimation animation,
+        string outputDirectory,
+        string? texPath)
+    {
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = new FileSystemAssetSource(sknPath),
+            FileName = Path.GetFileName(sknPath),
+            OutputStem = stem,
+            SourceKind = ModelSourceKind.RenderWareDff,
+            TexturePath = texPath,
+            SkaAnimations = [(stem, animation)]
+        });
+
+        return new GltfModelExporter().Export(document, new MeshExportRequest
+        {
+            OutputDirectory = outputDirectory,
+            OutputStem = stem,
+            Format = MeshOutputFormat.Glb
+        });
+    }
+
+    private static MeshExportResult ExportPs2SceneAnimated(
+        string skinPath,
+        string stem,
+        SkaAnimation animation,
+        Ps2Skeleton skeleton,
+        string outputDirectory,
+        string? texPath)
+    {
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = new FileSystemAssetSource(skinPath),
+            FileName = Path.GetFileName(skinPath),
+            OutputStem = stem,
+            SourceKind = ModelSourceKind.Ps2Scene,
+            TexturePath = texPath,
+            PreparedSkeleton = skeleton,
+            SkaAnimations = [(stem, animation)]
+        });
+
+        return new GltfModelExporter().Export(document, new MeshExportRequest
+        {
+            OutputDirectory = outputDirectory,
+            OutputStem = stem,
+            Format = MeshOutputFormat.Glb
+        });
     }
 
     internal static SkaCompressTable? FindCompressTable(string skaFilePath)

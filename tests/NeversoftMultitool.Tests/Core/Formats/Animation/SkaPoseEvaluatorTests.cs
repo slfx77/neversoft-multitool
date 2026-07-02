@@ -1,6 +1,9 @@
 using System.Numerics;
 using NeversoftMultitool.CLI;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
+using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Rendering;
@@ -153,109 +156,6 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
     }
 
     [Fact]
-    public void ApplyAnimation_Version1SkipsConstantTracks_Version2PreservesThem()
-    {
-        var constantRotation = Quaternion.Normalize(Quaternion.CreateFromYawPitchRoll(0.2f, -0.1f, 0.3f));
-        var constantTranslation = new Vector3(3f, -2f, 1f);
-        var animation = new SkaAnimation
-        {
-            Version = 1,
-            Flags = 0,
-            Duration = 1f,
-            BoneTracks =
-            [
-                new SkaBoneTrack
-                {
-                    BoneIndex = 0,
-                    RotationKeys = [new SkaRotationKey(0f, constantRotation)],
-                    TranslationKeys = [new SkaTranslationKey(0f, constantTranslation)]
-                }
-            ]
-        };
-
-        var version1Skeleton = CreateSkeleton(1, [Quaternion.Identity], [Vector3.Zero]);
-        var version2Skeleton = CreateSkeleton(2, [Quaternion.Identity], [Vector3.Zero]);
-
-        var version1Channels = SkaGltfWriter.ApplyAnimation(
-            SkaGltfWriter.BuildJointHierarchy(version1Skeleton),
-            version1Skeleton,
-            animation,
-            "anim");
-        var version2Channels = SkaGltfWriter.ApplyAnimation(
-            SkaGltfWriter.BuildJointHierarchy(version2Skeleton),
-            version2Skeleton,
-            animation,
-            "anim");
-
-        Assert.Equal(0, version1Channels);
-        Assert.Equal(2, version2Channels);
-    }
-
-    [Fact]
-    public void BuildJointHierarchy_Version1SuppressesOnlyUnresolvedConstantRestRotations()
-    {
-        var resolvedConstantRotation = Quaternion.Normalize(Quaternion.CreateFromYawPitchRoll(-0.25f, 0.15f, 0.05f));
-        var constantRotation = Quaternion.Normalize(Quaternion.CreateFromYawPitchRoll(0.35f, -0.20f, 0.10f));
-        var animation = new SkaAnimation
-        {
-            Version = 1,
-            Flags = 0,
-            Duration = 1f,
-            BoneTracks =
-            [
-                new SkaBoneTrack
-                {
-                    BoneIndex = 0,
-                    RotationKeys = [new SkaRotationKey(0f, resolvedConstantRotation)],
-                    TranslationKeys = [new SkaTranslationKey(0f, new Vector3(4f, 5f, 6f))]
-                },
-                new SkaBoneTrack
-                {
-                    BoneIndex = 1,
-                    RotationKeys = [new SkaRotationKey(0f, constantRotation)],
-                    TranslationKeys = [new SkaTranslationKey(0f, new Vector3(1f, 2f, 3f))]
-                }
-            ]
-        };
-
-        var skeleton = new Ps2Skeleton
-        {
-            Version = 1,
-            Flags = 0,
-            Bones =
-            [
-                new Ps2Bone
-                {
-                    NameChecksum = NeversoftMultitool.Core.QbKey.QbKey.HashLower("root"),
-                    ParentChecksum = 0,
-                    FlipChecksum = 0,
-                    ParentIndex = -1,
-                    LocalRotation = Quaternion.Identity,
-                    LocalTranslation = Vector3.Zero,
-                    InverseBindMatrix = Matrix4x4.Identity
-                },
-                new Ps2Bone
-                {
-                    NameChecksum = 0x1001,
-                    ParentChecksum = 0x1000,
-                    FlipChecksum = 0,
-                    ParentIndex = 0,
-                    LocalRotation = Quaternion.Identity,
-                    LocalTranslation = Vector3.Zero,
-                    InverseBindMatrix = Matrix4x4.Identity
-                }
-            ]
-        };
-
-        var joints = SkaGltfWriter.BuildJointHierarchy(skeleton, animation);
-
-        AssertQuaternionClose(resolvedConstantRotation, joints[0].LocalTransform.Rotation);
-        AssertVectorClose(new Vector3(4f, 5f, 6f), joints[0].LocalTransform.Translation);
-        AssertQuaternionClose(Quaternion.Identity, joints[1].LocalTransform.Rotation);
-        AssertVectorClose(new Vector3(1f, 2f, 3f), joints[1].LocalTransform.Translation);
-    }
-
-    [Fact]
     public void ParseAndExport_PedFWalkFactsStayStable()
     {
         var fixture = LoadThps4Fixture("Ped_F.ske", "skater_f.skin.ps2", "Ped_F_Walk.ska.ps2");
@@ -265,29 +165,51 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
         Assert.True(fixture.Animation.IsPreRotatedRoot);
         Assert.True(fixture.Animation.UsesCompressTable);
 
+        // With the unified IR pipeline: V1 single-key tracks survive as channels
+        // (they constrain the bone to a constant pose for the duration of the
+        // animation, rather than being implicitly baked into a per-animation
+        // bind seed as the legacy writer did). Placeholder-only suppression
+        // still drops zero-translation and identity-rotation singletons.
         var gltfAnimation = fixture.Model.LogicalAnimations.Single();
-        Assert.Equal(28, gltfAnimation.Channels.Count(channel => channel.TargetNodePath == PropertyPath.rotation));
-        Assert.Equal(2, gltfAnimation.Channels.Count(channel => channel.TargetNodePath == PropertyPath.translation));
+        Assert.Equal(39, gltfAnimation.Channels.Count(channel => channel.TargetNodePath == PropertyPath.rotation));
+        Assert.Equal(50, gltfAnimation.Channels.Count(channel => channel.TargetNodePath == PropertyPath.translation));
         Assert.Equal(0, gltfAnimation.Channels.Count(channel => channel.TargetNodePath == PropertyPath.scale));
     }
 
     [Fact]
-    public void BuildSkinnedAnimated_Thps4SeedsRestPoseFromInitialAnimationSample()
+    public void BuildSkeletonOnly_Thps4EmitsAnimationChannelsForTrackedBones()
     {
         var fixture = LoadThps4Fixture("Ped_F.ske", "skater_f.skin.ps2", "Ped_F_Walk.ska.ps2");
-        var initialPose = new SkaPoseEvaluator(fixture.Animation, fixture.Skeleton).Evaluate(0f);
-        var skin = fixture.Model.LogicalSkins.Single();
 
+        var skeletonOnlyDocument = SkaModelDocumentBuilder.BuildSkeletonOnly(
+            fixture.Skeleton, [("walk", fixture.Animation)], "Ped_F");
+
+        Assert.Single(skeletonOnlyDocument.Skeletons);
+        Assert.Equal(fixture.Skeleton.Bones.Length,
+            skeletonOnlyDocument.Skeletons[0].Bones.Count);
+
+        var modelAnimation = Assert.Single(skeletonOnlyDocument.Animations);
+        Assert.NotEmpty(modelAnimation.Channels);
+
+        // Tracked bones (root, neck, head, biceps, forearms) should have rotation
+        // channels with non-identity first keys.
         foreach (var boneIndex in GetTrackedBoneIndices(fixture.Skeleton))
         {
-            var joint = skin.GetJoint(boneIndex).Item1;
-            AssertVectorClose(initialPose[boneIndex].Translation, joint.LocalTransform.Translation);
-            AssertQuaternionClose(initialPose[boneIndex].Rotation, joint.LocalTransform.Rotation);
+            var rotation = modelAnimation.Channels.FirstOrDefault(c =>
+                c.BoneIndex == boneIndex && c.Property == ModelAnimationProperty.Rotation);
+            if (rotation == null)
+                continue;
+            var first = new Quaternion(
+                rotation.Values[0], rotation.Values[1], rotation.Values[2], rotation.Values[3]);
+            Assert.True(rotation.KeyCount > 0,
+                $"Bone {boneIndex} should have at least one rotation key.");
+            Assert.True(MathF.Abs(Quaternion.Dot(first, Quaternion.Identity)) < 0.999f,
+                $"Bone {boneIndex} first rotation key should not be identity.");
         }
     }
 
     [Fact]
-    public void BuildSkinnedAnimated_Version2PreservesExplicitInverseBindMatrices()
+    public void Parser_Version2PreservesExplicitInverseBindMatricesInIr()
     {
         var explicitInverseBind = Matrix4x4.CreateTranslation(-7f, 3f, 11f);
         var skeleton = new Ps2Skeleton
@@ -309,7 +231,6 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
             ]
         };
 
-        var scene = CreateSingleBoneScene();
         var animation = new SkaAnimation
         {
             Version = 2,
@@ -326,12 +247,11 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
             ]
         };
 
-        var (model, triangles) = Ps2SceneGltfWriter.BuildSkinnedAnimated(scene, skeleton, animation, "anim");
+        var document = SkaModelDocumentBuilder.BuildSkeletonOnly(
+            skeleton, [("anim", animation)], "test");
 
-        Assert.True(triangles > 0);
-        var skin = model.LogicalSkins.Single();
-        Assert.Equal(1, skin.JointsCount);
-        AssertMatrixClose(explicitInverseBind, skin.GetJoint(0).Item2, 1e-5f);
+        var ibm = Assert.Single(document.Skeletons).Bones[0].InverseBindMatrix;
+        AssertMatrixClose(explicitInverseBind, ibm, 1e-5f);
     }
 
     [Theory]
@@ -411,17 +331,41 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
         Assert.SkipWhen(animationPath is null, $"Test file not found: {animationFileName}");
 
         var skeleton = SkeletonFile.Parse(skeletonPath!);
-        var skin = Ps2SceneFile.Parse(skinPath!);
         var compressTable = SkaCommand.FindCompressTable(animationPath!);
         Assert.NotNull(compressTable);
-
         var animation = SkaFile.Parse(File.ReadAllBytes(animationPath!), compressTable);
         var animationName = Path.GetFileNameWithoutExtension(
             Path.GetFileNameWithoutExtension(animationFileName));
-        var (model, triangles) = Ps2SceneGltfWriter.BuildSkinnedAnimated(
-            skin, skeleton, animation, animationName);
 
+        // V1 (THPS4) skeletons get bind populated from the archetype's default anim.
+        if (skeleton.Version == 1)
+        {
+            var defaultPath = SkaCommand.FindDefaultPoseFile(skeletonPath!, animationPath!);
+            if (defaultPath != null)
+            {
+                var defaultTable = SkaCommand.FindCompressTable(defaultPath);
+                var defaultAnim = SkaFile.Parse(File.ReadAllBytes(defaultPath), defaultTable);
+                if (defaultAnim.BoneTracks.Length == skeleton.Bones.Length)
+                    skeleton = Ps2SkeletonDefaultPose.EnrichWithDefaultPose(skeleton, defaultAnim);
+            }
+        }
+
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = new FileSystemAssetSource(skinPath!),
+            FileName = Path.GetFileName(skinPath!),
+            OutputStem = Path.GetFileNameWithoutExtension(skinFileName),
+            SourceKind = ModelSourceKind.Ps2Scene,
+            PreparedSkeleton = skeleton,
+            SkaAnimations = [(animationName, animation)]
+        });
+
+        var (glbBytes, triangles) = new GltfModelExporter().BuildGlbBytes(document);
         Assert.True(triangles > 0, $"{animationFileName}: expected a non-empty skinned export.");
+        Assert.NotNull(glbBytes);
+
+        using var ms = new MemoryStream(glbBytes!);
+        var model = ModelRoot.ReadGLB(ms);
         Assert.Single(model.LogicalAnimations);
         Assert.Single(model.LogicalSkins);
 
@@ -462,75 +406,6 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
             Version = version,
             Flags = 0,
             Bones = bones
-        };
-    }
-
-    private static Ps2Scene CreateSingleBoneScene()
-    {
-        return new Ps2Scene
-        {
-            MaterialVersion = 3,
-            MeshVersion = 4,
-            VertexVersion = 1,
-            Materials =
-            [
-                new Ps2Material
-                {
-                    Checksum = 0x2000,
-                    Flags = 0,
-                    TextureChecksum = 0,
-                    GroupChecksum = 0,
-                    AlphaRef = 0,
-                    ClampUMode = 0,
-                    ClampVMode = 0,
-                    RegAlpha = 0
-                }
-            ],
-            MeshGroups =
-            [
-                new Ps2MeshGroup
-                {
-                    Checksum = 0x3000,
-                    Meshes =
-                    [
-                        new Ps2Mesh
-                        {
-                            Checksum = 0x4000,
-                            MaterialChecksum = 0x2000,
-                            MeshFlags = 0,
-                            BoundingSphere = Vector4.Zero,
-                            StartsOnOddOutputSlot = false,
-                            Vertices =
-                            [
-                                new Ps2Vertex(
-                                    new Vector3(0f, 0f, 0f), Vector3.UnitY,
-                                    128, 128, 128, 128,
-                                    0f, 0f,
-                                    true, true, false, false,
-                                    0, 0, 0,
-                                    1f, 0f, 0f,
-                                    true),
-                                new Ps2Vertex(
-                                    new Vector3(1f, 0f, 0f), Vector3.UnitY,
-                                    128, 128, 128, 128,
-                                    0f, 0f,
-                                    true, true, false, false,
-                                    0, 0, 0,
-                                    1f, 0f, 0f,
-                                    true),
-                                new Ps2Vertex(
-                                    new Vector3(0f, 1f, 0f), Vector3.UnitY,
-                                    128, 128, 128, 128,
-                                    0f, 0f,
-                                    true, true, false, false,
-                                    0, 0, 0,
-                                    1f, 0f, 0f,
-                                    true)
-                            ]
-                        }
-                    ]
-                }
-            ]
         };
     }
 

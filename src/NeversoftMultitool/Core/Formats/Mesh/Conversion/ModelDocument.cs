@@ -7,6 +7,8 @@ public sealed class ModelDocument
     public List<ModelScene> Scenes { get; } = [];
     public List<ModelNode> Nodes { get; } = [];
     public List<ModelMesh> Meshes { get; } = [];
+    public List<ModelSkeleton> Skeletons { get; } = [];
+    public List<ModelAnimation> Animations { get; } = [];
     public List<RenderMaterial> Materials { get; } = [];
     public List<ModelTexture> Textures { get; } = [];
     public List<NativeRenderMetadata> NativeMetadata { get; } = [];
