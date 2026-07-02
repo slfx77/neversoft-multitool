@@ -183,7 +183,7 @@ try {
     }
 
     if (-not $proc.HasExited) {
-        Write-Host "Timer elapsed — terminating PCSX2 (PID $($proc.Id))."
+        Write-Host "Timer elapsed -- terminating PCSX2 (PID $($proc.Id))."
         Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
         $proc.WaitForExit(5000) | Out-Null
     }
