@@ -139,8 +139,13 @@ public sealed class SkeletonFileTests(TestPaths paths)
         foreach (var file in files)
         {
             var skeleton = SkeletonFile.Parse(file);
-            Assert.True(skeleton.Bones.Length > 0,
-                $"{Path.GetFileName(file)}: expected at least 1 bone");
+            // travis250.ske ships as a bone-less stub (16-byte header, numBones=0) —
+            // it must parse without throwing but legitimately has zero bones.
+            if (new FileInfo(file).Length > 16)
+            {
+                Assert.True(skeleton.Bones.Length > 0,
+                    $"{Path.GetFileName(file)}: expected at least 1 bone");
+            }
         }
     }
 

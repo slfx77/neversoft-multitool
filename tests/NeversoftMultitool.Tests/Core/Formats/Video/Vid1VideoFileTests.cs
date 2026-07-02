@@ -6,9 +6,11 @@ namespace NeversoftMultitool.Tests.Core.Formats.Video;
 
 public sealed class Vid1VideoFileTests(TestPaths paths)
 {
+    // Properties evaluate eagerly when referenced (even inside Assert.SkipWhen(!File.Exists(...))),
+    // so guard SampleBuildsDir to avoid Path.Combine throwing on CI when sample data is absent.
     private string ThawGcVidDir =>
-        Path.Combine(
-            paths.SampleBuildsDir!,
+        paths.SampleBuildsDir is null ? string.Empty : Path.Combine(
+            paths.SampleBuildsDir,
             "Tony Hawk's American Wasteland (2005-8-22, GC - Final)",
             "movies",
             "vid");

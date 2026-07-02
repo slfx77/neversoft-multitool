@@ -172,7 +172,10 @@ public sealed class GsDumpAuditTests
     [Fact]
     public void Renderer_RendersOpaqueTriangle()
     {
-        var dump = GsDumpFile.Parse(BuildRawDump(new TransferPacket(3, SimpleTriangle(128, 128, 128))));
+        var gif = Concat(
+            AdTag((0x4C, MakeFrame(fbw: 1, psm: 0))),
+            SimpleTriangle(128, 128, 128));
+        var dump = GsDumpFile.Parse(BuildRawDump(new TransferPacket(3, gif)));
 
         var result = GsGifInterpreter.Interpret(dump, new GsGifInterpretOptions { Width = 16, Height = 16 });
 
@@ -186,7 +189,7 @@ public sealed class GsDumpAuditTests
         Assert.Equal(128, material.AvgR);
         // PS2 GS RGBAQ uses 128 as nominal 1.0 and TME=0 emits vertex color directly.
         // RGBAQ=(128,128,128) should produce a mid-gray pixel, not blown-out white.
-        var pixel = ReadPixel(result.Pixels, 16, 4, 4);
+        var pixel = ReadPixel(result.DirectPixels, 16, 4, 4);
         Assert.InRange(pixel.R, 120, 140);
         Assert.InRange(pixel.G, 120, 140);
         Assert.InRange(pixel.B, 120, 140);
@@ -195,13 +198,15 @@ public sealed class GsDumpAuditTests
     [Fact]
     public void Renderer_RendersPointPrimitive()
     {
-        var gif = PackedTag(
-            nloop: 1,
-            nreg: 2,
-            regs: MakeRegs(0x01, 0x04),
-            prim: 0,
-            Rgbaq(128, 0, 0, 128),
-            PackedXyz(4, 4));
+        var gif = Concat(
+            AdTag((0x4C, MakeFrame(fbw: 1, psm: 0))),
+            PackedTag(
+                nloop: 1,
+                nreg: 2,
+                regs: MakeRegs(0x01, 0x04),
+                prim: 0,
+                Rgbaq(128, 0, 0, 128),
+                PackedXyz(4, 4)));
         var dump = GsDumpFile.Parse(BuildRawDump(new TransferPacket(3, gif)));
 
         var result = GsGifInterpreter.Interpret(dump, new GsGifInterpretOptions { Width = 16, Height = 16 });
@@ -209,7 +214,7 @@ public sealed class GsDumpAuditTests
         Assert.Equal(1, result.Render.PointsDrawn);
         Assert.False(result.Render.UnsupportedStates.ContainsKey("primitive_point"));
         // RGBAQ=(128,0,0,128) on an untextured point yields nominal-1.0 red mid-tone.
-        var pixel = ReadPixel(result.Pixels, 16, 4, 4);
+        var pixel = ReadPixel(result.DirectPixels, 16, 4, 4);
         Assert.InRange(pixel.R, 120, 140);
         Assert.True(pixel.G < 32);
         Assert.True(pixel.B < 32);
@@ -219,13 +224,14 @@ public sealed class GsDumpAuditTests
     public void Renderer_UsesDepthTestForOverlappingTriangles()
     {
         var gif = Concat(
+            AdTag((0x4C, MakeFrame(fbw: 1, psm: 0))),
             TriangleAtZ(128, 0, 0, z: 10),
             TriangleAtZ(0, 0, 128, z: 1));
         var dump = GsDumpFile.Parse(BuildRawDump(new TransferPacket(3, gif)));
 
         var result = GsGifInterpreter.Interpret(dump, new GsGifInterpretOptions { Width = 16, Height = 16 });
 
-        var pixel = ReadPixel(result.Pixels, 16, 4, 4);
+        var pixel = ReadPixel(result.DirectPixels, 16, 4, 4);
         // Front-most triangle (z=1) is red RGBAQ=(128,0,0); TME=0 passes vertex color through.
         Assert.InRange(pixel.R, 120, 140);
         Assert.True(pixel.B < 32);
@@ -235,14 +241,16 @@ public sealed class GsDumpAuditTests
     public void Renderer_AppliesScissorClipping()
     {
         var gif = Concat(
-            AdTag((0x40, MakeScissor(x0: 0, x1: 3, y0: 0, y1: 3))),
+            AdTag(
+                (0x4C, MakeFrame(fbw: 1, psm: 0)),
+                (0x40, MakeScissor(x0: 0, x1: 3, y0: 0, y1: 3))),
             SimpleTriangle(128, 128, 128));
         var dump = GsDumpFile.Parse(BuildRawDump(new TransferPacket(3, gif)));
 
         var result = GsGifInterpreter.Interpret(dump, new GsGifInterpretOptions { Width = 16, Height = 16 });
 
-        Assert.InRange(ReadPixel(result.Pixels, 16, 2, 2).R, 120, 140);
-        Assert.Equal(0, ReadPixel(result.Pixels, 16, 8, 8).R);
+        Assert.InRange(ReadPixel(result.DirectPixels, 16, 2, 2).R, 120, 140);
+        Assert.Equal(0, ReadPixel(result.DirectPixels, 16, 8, 8).R);
     }
 
     [Fact]
@@ -251,6 +259,7 @@ public sealed class GsDumpAuditTests
         var tex0 = MakeTex0(widthPow: 1, heightPow: 1, psm: 0x0A, tcc: 1);
         var gif = Concat(
             AdTag(
+                (0x4C, MakeFrame(fbw: 1, psm: 0)),
                 (0x06, tex0),
                 (0x47, MakeAlphaTestGreaterOrEqual(1))),
             PackedTag(
@@ -281,9 +290,9 @@ public sealed class GsDumpAuditTests
                     ])
             });
 
-        Assert.Equal(0, ReadPixel(result.Pixels, 10, 1, 1).R);
-        Assert.True(ReadPixel(result.Pixels, 10, 6, 6).R > 200);
-        Assert.True(ReadPixel(result.Pixels, 10, 6, 6).G > 200);
+        Assert.Equal(0, ReadPixel(result.DirectPixels, 10, 1, 1).R);
+        Assert.True(ReadPixel(result.DirectPixels, 10, 6, 6).R > 200);
+        Assert.True(ReadPixel(result.DirectPixels, 10, 6, 6).G > 200);
     }
 
     [Fact]
@@ -293,7 +302,11 @@ public sealed class GsDumpAuditTests
         // Use a distinctly non-128 vertex color so a stale MODULATE path would visibly skew RGB.
         var tex0 = MakeTex0(widthPow: 1, heightPow: 1, psm: 0x0A, tcc: 1, tfx: 1);
         var gif = Concat(
-            AdTag((0x06, tex0)),
+            // FRAME at FBP=1 (block 32) keeps the render target clear of TEX0.TBP=0 —
+            // aliasing them turns the draw into framebuffer feedback sampling its own output.
+            AdTag(
+                (0x4C, MakeFrame(fbp: 1, fbw: 1, psm: 0)),
+                (0x06, tex0)),
             PackedTag(
                 nloop: 2,
                 nreg: 3,
@@ -325,7 +338,7 @@ public sealed class GsDumpAuditTests
             });
 
         // DECAL: pixel must match the texel (64,96,192) regardless of the bright-red vertex color.
-        var pixel = ReadPixel(result.Pixels, 10, 4, 4);
+        var pixel = ReadPixel(result.DirectPixels, 10, 4, 4);
         Assert.InRange(pixel.R, 56, 72);
         Assert.InRange(pixel.G, 88, 104);
         Assert.InRange(pixel.B, 184, 200);
@@ -338,7 +351,11 @@ public sealed class GsDumpAuditTests
         // and Av=64 makes the expected output 128 per channel.
         var tex0 = MakeTex0(widthPow: 1, heightPow: 1, psm: 0x0A, tcc: 0, tfx: 2);
         var gif = Concat(
-            AdTag((0x06, tex0)),
+            // FRAME at FBP=1 (block 32) keeps the render target clear of TEX0.TBP=0 —
+            // aliasing them turns the draw into framebuffer feedback sampling its own output.
+            AdTag(
+                (0x4C, MakeFrame(fbp: 1, fbw: 1, psm: 0)),
+                (0x06, tex0)),
             PackedTag(
                 nloop: 2,
                 nreg: 3,
@@ -369,7 +386,7 @@ public sealed class GsDumpAuditTests
                     ])
             });
 
-        var pixel = ReadPixel(result.Pixels, 10, 4, 4);
+        var pixel = ReadPixel(result.DirectPixels, 10, 4, 4);
         Assert.InRange(pixel.R, 120, 140);
         Assert.InRange(pixel.G, 120, 140);
         Assert.InRange(pixel.B, 120, 140);
@@ -530,7 +547,7 @@ public sealed class GsDumpAuditTests
         Assert.False(result.Render.UnsupportedStates.ContainsKey("framebuffer_psm_0x31"));
         Assert.Equal(1, result.Render.TrianglesDrawn);
         // SimpleTriangle(128, 64, 0) emits RGBAQ=(128,64,0); TME=0 passes vertex color through.
-        Assert.InRange(ReadPixel(result.Pixels, 16, 4, 4).R, 120, 140);
+        Assert.InRange(ReadPixel(result.DirectPixels, 16, 4, 4).R, 120, 140);
     }
 
     [Fact]
@@ -583,7 +600,7 @@ public sealed class GsDumpAuditTests
         // depthBuffer holds the value but VRAM is empty and the readback returns 0.
         Assert.True(result.Render.DepthVramWrites > 0,
             $"Expected Z writes to VRAM but counter was {result.Render.DepthVramWrites}");
-        var pixel = ReadPixel(result.Pixels, 16, 10, 2);
+        var pixel = ReadPixel(result.DirectPixels, 16, 10, 2);
         Assert.Equal(0x56, pixel.R);
         Assert.Equal(0x34, pixel.G);
         Assert.Equal(0x12, pixel.B);
@@ -637,7 +654,7 @@ public sealed class GsDumpAuditTests
         var result = GsGifInterpreter.Interpret(dump, new GsGifInterpretOptions { Width = 16, Height = 8 });
 
         Assert.Equal(0, result.Render.TextureDecodeMisses);
-        var pixel = ReadPixel(result.Pixels, 16, 10, 2);
+        var pixel = ReadPixel(result.DirectPixels, 16, 10, 2);
         Assert.Equal(0x56, pixel.R);
         Assert.Equal(0x34, pixel.G);
         Assert.Equal(0x12, pixel.B);
@@ -721,7 +738,7 @@ public sealed class GsDumpAuditTests
         Assert.True(result.Render.DepthVramWrites > 0);
         Assert.True(result.Render.DepthVramWritesPsm16S > 0);
         Assert.Equal(0, result.Render.TextureDecodeMisses);
-        var pixel = ReadPixel(result.Pixels, 16, 10, 2);
+        var pixel = ReadPixel(result.DirectPixels, 16, 10, 2);
         // Encoded Z top 16 = 0xF8F8 → R5G5B5A1 = (0x18, 0x07, 0x1E, 1) → expand to
         // (0xC6, 0x39, 0xF7) after 5→8 expansion. The pixel must reflect the depth bytes
         // we wrote rather than zero / leftover background.
@@ -734,7 +751,10 @@ public sealed class GsDumpAuditTests
     {
         var tex0 = MakeTex0(widthPow: 1, heightPow: 1, psm: 0x30);
         var gif = Concat(
+            // FRAME at FBP=1 (block 32) keeps the render target clear of the texture
+            // uploaded at DBP=0 — aliasing them turns the draw into framebuffer feedback.
             AdTag(
+                (0x4C, MakeFrame(fbp: 1, fbw: 1, psm: 0)),
                 (0x50, MakeBitbltbuf(dbp: 0, dbw: 1, dpsm: 0x30)),
                 (0x52, MakeTrxreg(2, 2)),
                 (0x53, 0),
@@ -762,7 +782,7 @@ public sealed class GsDumpAuditTests
         Assert.False(result.Render.UnsupportedStates.ContainsKey("texture_psm_0x30"));
         Assert.False(result.Render.UnsupportedStates.ContainsKey("textured_draw_skipped_missing_texture"));
         Assert.True(result.Render.Approximations["texture_psmz32_as_color"] > 0);
-        Assert.True(ReadPixel(result.Pixels, 10, 4, 4).R > 200);
+        Assert.True(ReadPixel(result.DirectPixels, 10, 4, 4).R > 200);
     }
 
     [Fact]
@@ -854,7 +874,11 @@ public sealed class GsDumpAuditTests
             255, 0, 0, 0
         };
         var gif = Concat(
-            AdTag((0x06, tex0)),
+            // FRAME at FBP=1 (block 32) keeps the render target clear of TEX0.TBP=0 —
+            // aliasing them turns the draw into framebuffer feedback sampling its own output.
+            AdTag(
+                (0x4C, MakeFrame(fbp: 1, fbw: 1, psm: 0)),
+                (0x06, tex0)),
             PackedTag(
                 nloop: 2,
                 nreg: 2,
@@ -880,7 +904,7 @@ public sealed class GsDumpAuditTests
                 }
             });
 
-        Assert.True(ReadPixel(result.Pixels, 10, 4, 4).R > 200);
+        Assert.True(ReadPixel(result.DirectPixels, 10, 4, 4).R > 200);
         var dumpPixels = Assert.Single(textureDumps).Rgba;
         Assert.All(Enumerable.Range(0, dumpPixels.Length / 4), i => Assert.Equal(255, dumpPixels[i * 4 + 3]));
         Assert.False(Assert.Single(result.Render.TextureDumps).AllAlphaZero);

@@ -93,7 +93,13 @@ public static class SkeletonFile
 
         var flags = BitConverter.ToInt32(data, 8);
         var numBones = BitConverter.ToInt32(data, 12);
-        if (numBones <= 0 || numBones > 256)
+        if (numBones < 0 || numBones > 256)
+            return false;
+
+        // Zero-bone stubs ship in retail data (THUG travis250.ske is a bare 16-byte header).
+        // Only accept them with the constant THUG checksum + zero flags so arbitrary data
+        // can't masquerade as an empty skeleton.
+        if (numBones == 0 && (BitConverter.ToUInt32(data, 0) != 0x222756D5 || flags != 0))
             return false;
 
         // Bone data size: 3 name tables (N×4 each) + neutral poses (N × (quat(16) + vec(16)))
