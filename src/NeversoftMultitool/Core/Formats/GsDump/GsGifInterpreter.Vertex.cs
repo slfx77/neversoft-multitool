@@ -372,6 +372,8 @@ internal sealed partial class GsGifInterpreter
         var material = BeginMaterialDraw(primitiveName, framebufferTarget, x0, y0, x1, y1, false, a, b, c, 3);
         RecordFramebufferDraw(framebufferTarget);
         var depthBuffer = GetDepthBuffer(context);
+        var zMin = (double)Math.Min(a.Z, Math.Min(b.Z, c.Z));
+        var zMax = (double)Math.Max(a.Z, Math.Max(b.Z, c.Z));
         long pixelsWritten = 0;
         var writeMinX = options.Width;
         var writeMinY = options.Height;
@@ -397,7 +399,14 @@ internal sealed partial class GsGifInterpreter
                 // against the layer beneath, punching scattered holes in the SPECIAL/
                 // speedometer meter. Rounding the double-precision result keeps equal-Z
                 // layers exactly equal (and matches the integer GS z-buffer semantics).
-                var z = (float)Math.Round((double)a.Z * w0 + (double)b.Z * w1 + (double)c.Z * w2);
+                // Clamp to the vertex extremes: barycentric interpolation is a convex
+                // combination, so the true result can never leave [min(zv), max(zv)].
+                // Float weights can sum to slightly over 1.0 (half an ulp), and at the
+                // 24-bit ceiling that overshoot rounds 16777215 -> 16777216 — a value no
+                // vertex holds — making later equal-Z HUD layers fail GEQUAL on a lattice
+                // of pixels (scattered black holes in the SPECIAL-orb / meter stack).
+                var z = (float)Math.Clamp(
+                    Math.Round((double)a.Z * w0 + (double)b.Z * w1 + (double)c.Z * w2), zMin, zMax);
                 var idx = y * options.Width + x;
                 if (!PassesDepth(z, idx, context, depthBuffer))
                 {
