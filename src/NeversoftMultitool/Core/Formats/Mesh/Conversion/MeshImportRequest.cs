@@ -17,11 +17,34 @@ public sealed class MeshImportRequest
     public string? DdxPath { get; init; }
     public string? PsxPath { get; init; }
     public string? DdmTexturePath { get; init; }
+    public bool PsxFlatSkeleton { get; init; }
+    public IReadOnlySet<int>? PsxFlatBoneIndices { get; init; }
 
     public WorldzoneTimeOfDay WorldzoneTimeOfDay { get; init; } =
         WorldzoneTimeOfDay.All;
 
     public float WorldzoneScale { get; init; } = 1f;
+
+    /// <summary>
+    ///     Options for embedding PSX character animations into the document. When
+    ///     null, no animation tracks are populated. When set, the parser also
+    ///     consults <see cref="PsxDecodedAnimations" /> for the pre-decoded slot
+    ///     list to embed.
+    /// </summary>
+    public PsxAnimationOptions? PsxAnimationOptions { get; init; }
+
+    /// <summary>
+    ///     Pre-decoded PSX animation slots passed in by the caller (CLI / GUI).
+    ///     Decoupling decode from populate lets the caller report per-slot
+    ///     diagnostics (layout, decode failures) before the IR is built.
+    /// </summary>
+    public IReadOnlyList<(string Name, PsxAnimation Animation)>? PsxDecodedAnimations { get; init; }
+
+    /// <summary>
+    ///     Rich PSX animation entries with optional per-clip metadata. When set,
+    ///     this takes precedence over <see cref="PsxDecodedAnimations" />.
+    /// </summary>
+    public IReadOnlyList<PsxAnimationClip>? PsxAnimationClips { get; init; }
 
     /// <summary>
     ///     Pre-decoded SKA animation slots, populated into <see cref="ModelDocument.Animations" />

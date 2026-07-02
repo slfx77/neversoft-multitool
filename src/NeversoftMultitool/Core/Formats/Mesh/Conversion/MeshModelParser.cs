@@ -155,7 +155,26 @@ public sealed class MeshModelParser : IModelParser
             request.OutputStem,
             ModelSourceKind.Psx,
             new PsxNativeSource(psxFile, textureProvider, pshFile));
-        ModelDocumentGeometryAdapter.PopulatePsx(document, psxFile, textureProvider);
+        ModelDocumentGeometryAdapter.PopulatePsx(
+            document, psxFile, textureProvider, pshFile,
+            request.PsxFlatSkeleton, request.PsxFlatBoneIndices);
+
+        if (request.PsxAnimationOptions is { } animationOptions
+            && document.Skeletons.Count > 0)
+        {
+            var clips = request.PsxAnimationClips;
+            if (clips is { Count: > 0 })
+            {
+                ModelDocumentGeometryAdapter.PopulatePsxAnimationClips(
+                    document, psxFile, skeletonIndex: 0, clips, animationOptions);
+            }
+            else if (request.PsxDecodedAnimations is { Count: > 0 } animations)
+            {
+                ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+                    document, psxFile, skeletonIndex: 0, animations, animationOptions);
+            }
+        }
+
         return document;
     }
 

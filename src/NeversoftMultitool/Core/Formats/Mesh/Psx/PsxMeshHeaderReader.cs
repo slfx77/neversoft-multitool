@@ -41,6 +41,7 @@ internal static class PsxMeshHeaderReader
             reader,
             objectCount,
             out var hasHierarchy,
+            out var hasAnimChunk,
             out var gouraudPalette);
 
         var meshNameHashes = new uint[meshCount];
@@ -54,12 +55,18 @@ internal static class PsxMeshHeaderReader
 
         const float baseScale = 2.25f;
 
+        // Super-character rendering shifts vertex XYZ right by 4 before the GTE
+        // transform. THPS1 proto has no HIER chunk but does have a 0x2C super
+        // animation chunk, so use the /16 character scale for animated
+        // Neversoft supers as well as explicit HIER models.
         // Apocalypse (1998) v3 models use raw vertex coordinates (no /16 scaling).
-        // Other hierarchical models (THPS1+) divide vertices by 16. Detect by probing
-        // the first mesh's header: Apocalypse v3 lacks the m_gunkl2/LOD field after bbox.
-        var isApocalypse = version == 0x03 && hasHierarchy && meshTopPointers.Length > 0
+        // Detect them by probing the first mesh's header: Apocalypse v3 lacks the
+        // m_gunkl2/LOD field after bbox.
+        var isApocalypse = version == 0x03 && meshTopPointers.Length > 0
                            && !ProbeFirstMeshHasLod(reader, meshTopPointers[0]);
-        var scaleDivisor = hasHierarchy && !isApocalypse ? baseScale * 16f : baseScale;
+        var isSuperModel = hasHierarchy || hasAnimChunk;
+        var scaleDivisor = isSuperModel && !isApocalypse ? baseScale * 16f : baseScale;
+        var formatRevision = ClassifyFormatRevision(version, isApocalypse);
 
         if (hierarchyParents != null)
         {
@@ -70,14 +77,27 @@ internal static class PsxMeshHeaderReader
         return new PsxMeshHeader
         {
             Version = version,
+            FormatRevision = formatRevision,
             Objects = objects,
             MeshTopPointers = meshTopPointers,
             MeshNameHashes = meshNameHashes,
             TextureHashes = textureHashes,
             GouraudPalette = gouraudPalette,
             HasHierarchy = hasHierarchy,
+            HasAnimChunk = hasAnimChunk,
             ScaleDivisor = scaleDivisor,
             TranslationDivisor = baseScale
+        };
+    }
+
+    private static PsxMeshFormatRevision ClassifyFormatRevision(ushort version, bool isApocalypse)
+    {
+        return version switch
+        {
+            0x03 => isApocalypse ? PsxMeshFormatRevision.ApocalypseV3 : PsxMeshFormatRevision.NeversoftV3,
+            0x04 => PsxMeshFormatRevision.NeversoftV4,
+            0x06 => PsxMeshFormatRevision.NeversoftV6,
+            _ => PsxMeshFormatRevision.Unknown
         };
     }
 
@@ -128,13 +148,14 @@ internal static class PsxMeshHeaderReader
     }
 
     private static ushort[]? ReadTaggedChunks(BinaryReader reader, uint objectCount,
-        out bool hasHierarchy, out Vector4[]? gouraudPalette)
+        out bool hasHierarchy, out bool hasAnimChunk, out Vector4[]? gouraudPalette)
     {
         const uint TagStop = 0xFFFFFFFF;
         const uint TagHIER = 'H' | ((uint)'I' << 8) | ((uint)'E' << 16) | ((uint)'R' << 24);
         const uint TagRgbs = 'R' | ((uint)'G' << 8) | ((uint)'B' << 16) | ((uint)'s' << 24);
 
         hasHierarchy = false;
+        hasAnimChunk = false;
         gouraudPalette = null;
         ushort[]? hierarchyParents = null;
 
@@ -152,6 +173,10 @@ internal static class PsxMeshHeaderReader
                 hierarchyParents = new ushort[count];
                 for (uint i = 0; i < count; i++)
                     hierarchyParents[i] = reader.ReadUInt16();
+            }
+            else if (tag is PsxMeshFile.HierChunkV1Tag or PsxMeshFile.HierChunkV2Tag)
+            {
+                hasAnimChunk = true;
             }
             else if (tag == TagRgbs)
             {

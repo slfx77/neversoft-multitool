@@ -41,7 +41,7 @@ internal static class PsxMeshDumpSnapshotBuilder
                 RawX = obj.RawX,
                 RawY = obj.RawY,
                 RawZ = obj.RawZ,
-                Position = CreateVector3Snapshot(PsxMeshSemantics.GetObjectOffset(obj, psxFile.TranslationDivisor))
+                Position = CreateVector3Snapshot(PsxMeshSemantics.GetObjectOffset(psxFile, obj))
             })
             .ToList();
 

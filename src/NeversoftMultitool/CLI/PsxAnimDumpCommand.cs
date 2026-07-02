@@ -36,6 +36,16 @@ public static class PsxAnimDumpCommand
             Description = "Bone index within the animation to print frame-by-frame",
             DefaultValueFactory = _ => 0
         };
+        var rankBoneOption = new Option<int?>("--rank-bone")
+        {
+            Description =
+                "Diagnostic: decode all animation slots and rank them by this bone's translation span"
+        };
+        var rankTopOption = new Option<int>("--rank-top")
+        {
+            Description = "Number of ranked animation slots to print with --rank-bone",
+            DefaultValueFactory = _ => 12
+        };
         var verboseOption = new Option<bool>("-v", "--verbose")
         {
             Description = "Print every layer in full"
@@ -47,6 +57,8 @@ public static class PsxAnimDumpCommand
         command.Options.Add(bytesOption);
         command.Options.Add(animOption);
         command.Options.Add(boneOption);
+        command.Options.Add(rankBoneOption);
+        command.Options.Add(rankTopOption);
         command.Options.Add(verboseOption);
 
         command.SetAction((parseResult, cancellationToken) =>
@@ -56,14 +68,23 @@ public static class PsxAnimDumpCommand
             var bytes = parseResult.GetValue(bytesOption);
             var anim = parseResult.GetValue(animOption);
             var bone = parseResult.GetValue(boneOption);
+            var rankBone = parseResult.GetValue(rankBoneOption);
+            var rankTop = parseResult.GetValue(rankTopOption);
             var verbose = parseResult.GetValue(verboseOption);
-            return Task.FromResult(Execute(input, bytes, anim, bone, verbose));
+            return Task.FromResult(Execute(input, bytes, anim, bone, rankBone, rankTop, verbose));
         });
 
         return command;
     }
 
-    private static int Execute(string input, int hexBytes, int animIndex, int boneIndex, bool verbose)
+    private static int Execute(
+        string input,
+        int hexBytes,
+        int animIndex,
+        int boneIndex,
+        int? rankBoneIndex,
+        int rankTop,
+        bool verbose)
     {
         if (!File.Exists(input))
         {
@@ -86,7 +107,19 @@ public static class PsxAnimDumpCommand
 
         AnsiConsole.MarkupLine(
             $"[bold]Mesh layer:[/] version=0x{meshFile.Version:X2} hierarchy={meshFile.HasHierarchy} " +
-            $"meshes={meshFile.Meshes.Count} objects={meshFile.Objects.Count}");
+            $"revision={meshFile.FormatRevision} meshes={meshFile.Meshes.Count} objects={meshFile.Objects.Count}");
+
+        var parsedAnimFile = PsxAnimFile.Parse(data, meshFile.Objects.Count);
+        if (parsedAnimFile != null)
+        {
+            AnsiConsole.MarkupLine(
+                $"[bold]Anim layer:[/] layout={parsedAnimFile.Layout} " +
+                $"revision={parsedAnimFile.FormatRevision} runtime={parsedAnimFile.MinimumRuntimeRevision} " +
+                $"chunk=0x{parsedAnimFile.ChunkTag:X2} entries={parsedAnimFile.Entries.Count}/{parsedAnimFile.NumStreamsDeclared}");
+        }
+
+        if (rankBoneIndex is { } rankedBone)
+            return DumpRankedBoneMotion(parsedAnimFile, meshFile.Objects.Count, rankedBone, rankTop);
 
         var boundary = PsxMeshFile.GetMeshBlockEnd(data);
         if (boundary <= 0 || boundary >= data.Length)
@@ -114,17 +147,25 @@ public static class PsxAnimDumpCommand
         AnsiConsole.MarkupLine("\n[bold underline]Layer 2[/] [grey]— anim packet walk (PreProcessAnimPacket)[/]");
         var afterAnimPacket = TryWalkAnimPacket(data, boundary, meshFile.Meshes.Count, verbose);
 
+        var hierarchyStart = afterAnimPacket;
+        if (PsxMeshFile.TryGetAnimChunkTag(data, out var animChunkTag, out var chunkDataOffset))
+        {
+            hierarchyStart = chunkDataOffset;
+            AnsiConsole.MarkupLine(
+                $"  [grey]Tagged anim chunk found: tag=0x{animChunkTag:X} data=0x{chunkDataOffset:X}[/]");
+        }
+
         // ─── Layer 3: speculative hierarchy walk ────────────────────────
         AnsiConsole.MarkupLine("\n[bold underline]Layer 3[/] [grey]— per-bone hierarchy walk[/]");
         var psh = TryLoadPshCompanion(input);
-        var hierResult = TryWalkHierarchy(data, afterAnimPacket, psh, verbose);
+        var hierResult = TryWalkHierarchy(data, hierarchyStart, psh, verbose);
 
         // ─── Layer 4: decompress one whole animation (all bones, 6 channels each) ───
         if (hierResult is not null)
         {
             AnsiConsole.MarkupLine(
                 $"\n[bold underline]Layer 4[/] [grey]— decompress animation {animIndex} (all bones)[/]");
-            DumpAnimationSlot(data, hierResult, animIndex, boneIndex, meshFile.Meshes.Count, verbose);
+            DumpAnimationSlot(data, hierResult, animIndex, boneIndex, meshFile.Objects.Count, verbose);
         }
         else
         {
@@ -133,6 +174,129 @@ public static class PsxAnimDumpCommand
 
         AnsiConsole.MarkupLine("\n[grey]Done. Iterate the heuristic if any layer looks wrong.[/]");
         return 0;
+    }
+
+    private static int DumpRankedBoneMotion(
+        PsxAnimFile? animFile,
+        int boneCount,
+        int boneIndex,
+        int rankTop)
+    {
+        if (animFile == null)
+        {
+            AnsiConsole.MarkupLine("[red]No recognizable animation table to rank.[/]");
+            return 1;
+        }
+
+        if (boneIndex < 0 || boneIndex >= boneCount)
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Bone index {boneIndex} out of range for {boneCount} bone(s).[/]");
+            return 1;
+        }
+
+        rankTop = Math.Clamp(rankTop, 1, animFile.Entries.Count);
+        var rows = new List<BoneMotionRankRow>(animFile.Entries.Count);
+        for (var i = 0; i < animFile.Entries.Count; i++)
+        {
+            var entry = animFile.Entries[i];
+            try
+            {
+                var slice = animFile.Pool.Span[entry.PoolOffset..];
+                PsxAnimation animation;
+                if (animFile.IsDirectMatrix)
+                {
+                    animation = PsxAnimDecoder.DecodeDirectMatrix(
+                        slice, boneCount, entry.FrameCount);
+                }
+                else
+                {
+                    animation = PsxAnimDecoder.Decode(
+                        slice, boneCount, entry.FrameCount, out _);
+                }
+
+                var tx = ChannelSpan(animation, boneIndex, 3);
+                var ty = ChannelSpan(animation, boneIndex, 4);
+                var tz = ChannelSpan(animation, boneIndex, 5);
+                var rx = ChannelSpan(animation, boneIndex, 0);
+                var ry = ChannelSpan(animation, boneIndex, 1);
+                var rz = ChannelSpan(animation, boneIndex, 2);
+                var translationLength = MathF.Sqrt(
+                    tx.Span * tx.Span + ty.Span * ty.Span + tz.Span * tz.Span);
+                rows.Add(new BoneMotionRankRow(
+                    i,
+                    entry.FrameCount,
+                    tx.Span,
+                    ty.Span,
+                    tz.Span,
+                    translationLength,
+                    rx.Span,
+                    ry.Span,
+                    rz.Span,
+                    null));
+            }
+            catch (Exception ex)
+            {
+                rows.Add(new BoneMotionRankRow(
+                    i, entry.FrameCount, 0, 0, 0, 0f, 0, 0, 0, ex.Message));
+            }
+        }
+
+        var table = new Table()
+            .AddColumn(new TableColumn("Anim").RightAligned())
+            .AddColumn(new TableColumn("Frames").RightAligned())
+            .AddColumn(new TableColumn("TxSpan").RightAligned())
+            .AddColumn(new TableColumn("TySpan").RightAligned())
+            .AddColumn(new TableColumn("TzSpan").RightAligned())
+            .AddColumn(new TableColumn("TLen").RightAligned())
+            .AddColumn(new TableColumn("RxSpan").RightAligned())
+            .AddColumn(new TableColumn("RySpan").RightAligned())
+            .AddColumn(new TableColumn("RzSpan").RightAligned());
+
+        foreach (var row in rows
+                     .Where(static r => r.Error == null)
+                     .OrderByDescending(static r => r.TranslationLength)
+                     .ThenBy(static r => r.AnimIndex)
+                     .Take(rankTop))
+        {
+            table.AddRow(
+                row.AnimIndex.ToString(),
+                row.FrameCount.ToString(),
+                row.TxSpan.ToString(),
+                row.TySpan.ToString(),
+                row.TzSpan.ToString(),
+                row.TranslationLength.ToString("0.0"),
+                row.RxSpan.ToString(),
+                row.RySpan.ToString(),
+                row.RzSpan.ToString());
+        }
+
+        AnsiConsole.MarkupLine(
+            $"[bold]Top {rankTop} animation slots by bone {boneIndex} translation span[/]");
+        AnsiConsole.Write(table);
+
+        var failures = rows.Count(static r => r.Error != null);
+        if (failures > 0)
+            AnsiConsole.MarkupLine($"[yellow]{failures} slot(s) failed to decode.[/]");
+
+        return failures == rows.Count ? 1 : 0;
+    }
+
+    private static (int Min, int Max, int Span) ChannelSpan(
+        PsxAnimation animation,
+        int boneIndex,
+        int channelIndex)
+    {
+        var min = short.MaxValue;
+        var max = short.MinValue;
+        for (var f = 0; f < animation.FrameCount; f++)
+        {
+            var value = animation.Channels[boneIndex, channelIndex, f];
+            if (value < min) min = value;
+            if (value > max) max = value;
+        }
+
+        return (min, max, max - min);
     }
 
     // ─── Layer 1 helpers ────────────────────────────────────────────────
@@ -163,7 +327,15 @@ public static class PsxAnimDumpCommand
             var off = offset + i * 4;
             var v = BitConverter.ToUInt32(data, (int)off);
             var sv = (int)v;
-            var marker = v < 1024 ? "[green]small[/]" : v > 0xFF000000 ? "[yellow]neg/ptr[/]" : "[grey]?[/]";
+            var marker = "[grey]?[/]";
+            if (v < 1024)
+            {
+                marker = "[green]small[/]";
+            }
+            else if (v > 0xFF000000)
+            {
+                marker = "[yellow]neg/ptr[/]";
+            }
             AnsiConsole.MarkupLine($"  [grey]+0x{i * 4:X2}[/] u32=0x{v:X8} ({sv,12:N0})  {marker}");
         }
     }
@@ -253,83 +425,82 @@ public static class PsxAnimDumpCommand
     }
 
     /// <summary>
-    ///     Walk the hierarchy block per the THPS2 release source layout (per
-    ///     decomp agent analysis of DECOMP.cpp:484):
+    ///     Walk the hierarchy/animation chunk data used by <see cref="PsxAnimFile" />:
     ///     <list type="bullet">
     ///         <item>
-    ///             <c>+0x00: u32 numStreams</c>
+    ///             <c>+0x00: u32 numEntries</c>
     ///         </item>
     ///         <item>
-    ///             <c>+0x04 + i*8: per-anim entry</c>:
+    ///             <c>+0x04 + i*8: per-animation entry</c>:
     ///             <list type="bullet">
-    ///                 <item><c>+0x00: u32 poolOffset</c> (relative to pool start)</item>
+    ///                 <item><c>+0x00: u32 poolOffset</c> (relative to chunk-data start)</item>
     ///                 <item>
-    ///                     <c>+0x04: u32 frameCount</c>
+    ///                     <c>+0x04: u16 frameCount</c>
     ///                 </item>
+    ///                 <item><c>+0x06: u16 tweenFlag</c></item>
     ///             </list>
     ///         </item>
-    ///         <item>Stream pool starts at <c>+0x04 + numStreams*8</c></item>
+    ///         <item>Stream pool normally starts at <c>+0x04 + numEntries*8</c>.</item>
     ///     </list>
-    ///     This applies to THPS2 release / Spider-Man / similar v4 PSX games.
-    ///     Per RunAnim's <c>frameCount = *(u8 *)(animTable + animIdx*8 + 8)</c>,
-    ///     the byte at offset +8 from animTable corresponds to entry[0]'s offset
-    ///     +4, which is frameCount's low byte — confirming the layout.
     /// </summary>
     private static HierLocation? TryWalkHierarchy(byte[] data, long startOffset, PshFile? psh, bool verbose)
     {
         if (startOffset + 4 > data.Length) return null;
 
         var pos = (int)startOffset;
-        var numStreams = BitConverter.ToUInt32(data, pos);
+        var numEntries = BitConverter.ToUInt32(data, pos);
 
-        if (numStreams is 0 or > 256)
+        if (numEntries is 0 or > 4096)
         {
             AnsiConsole.MarkupLine(
-                $"  [yellow]numStreams=0x{numStreams:X8} at 0x{pos:X} — implausible; structure mismatch.[/]");
+                $"  [yellow]numEntries=0x{numEntries:X8} at 0x{pos:X} — implausible; structure mismatch.[/]");
             return null;
         }
 
         var entriesStart = pos + 4;
-        var poolStart = entriesStart + (int)numStreams * 8;
-        if (poolStart > data.Length)
+        var firstDataOffset = 4 + (int)numEntries * 8;
+        var tableEnd = pos + firstDataOffset;
+        if (tableEnd > data.Length)
         {
             AnsiConsole.MarkupLine(
                 "  [yellow]Entry table would extend past EOF.[/]");
             return null;
         }
 
-        var poolOffsets = new int[numStreams];
-        var frameCounts = new int[numStreams];
-        for (var i = 0; i < numStreams; i++)
+        var poolOffsets = new int[numEntries];
+        var frameCounts = new int[numEntries];
+        var tweenFlags = new int[numEntries];
+        for (var i = 0; i < numEntries; i++)
         {
             poolOffsets[i] = (int)BitConverter.ToUInt32(data, entriesStart + i * 8);
-            frameCounts[i] = (int)BitConverter.ToUInt32(data, entriesStart + i * 8 + 4);
+            frameCounts[i] = BitConverter.ToUInt16(data, entriesStart + i * 8 + 4);
+            tweenFlags[i] = BitConverter.ToUInt16(data, entriesStart + i * 8 + 6);
         }
 
         AnsiConsole.MarkupLine(
-            $"  hierarchy base=0x{pos:X}  numStreams={numStreams}  poolStart=0x{poolStart:X}  " +
+            $"  hierarchy data=0x{pos:X}  entries={numEntries}  tableEnd=0x{tableEnd:X}  " +
             (psh != null ? $"(psh has {psh.Bones.Count} bones)" : "(no .psh)"));
 
         // Sanity stats
         var maxFrames = frameCounts.Max();
         var minOffset = poolOffsets.Min();
         var maxOffset = poolOffsets.Max();
-        var trailingBytes = data.Length - poolStart;
-        var inRange = poolOffsets.Count(o => o >= 0 && o < trailingBytes);
+        var maxChunkRelativeOffset = data.Length - pos;
+        var inRange = poolOffsets.Count(o => o >= firstDataOffset && o < maxChunkRelativeOffset);
         AnsiConsole.MarkupLine(
             $"  frameCounts: max={maxFrames:N0}  poolOffsets: min={minOffset:N0} max={maxOffset:N0}  " +
-            $"in-range={inRange}/{numStreams}  pool span={trailingBytes:N0}");
+            $"in-range={inRange}/{numEntries}  chunk-relative span={maxChunkRelativeOffset:N0}");
 
-        var firstFew = verbose ? (int)numStreams : Math.Min(8, (int)numStreams);
+        var firstFew = verbose ? (int)numEntries : Math.Min(8, (int)numEntries);
         for (var i = 0; i < firstFew; i++)
         {
             var name = psh?.GetBoneName(i) ?? $"anim_{i}";
             AnsiConsole.MarkupLine(
                 $"  [grey]anim {i,3}[/] {name,-24}  poolOff=+0x{poolOffsets[i]:X6} ({poolOffsets[i],8:N0})  " +
-                $"frames={frameCounts[i],4}");
+                $"frames={frameCounts[i],4} tween={tweenFlags[i],3}");
         }
 
-        return new HierLocation(pos, poolStart, (int)numStreams, frameCounts, poolOffsets);
+        return new HierLocation(pos, (int)numEntries, frameCounts, poolOffsets);
     }
 
     // ─── Layer 4: decompress one bone ───────────────────────────────────
@@ -355,7 +526,7 @@ public static class PsxAnimDumpCommand
 
         var poolOffset = hier.PoolOffsets[animIndex];
         var frameCount = hier.FrameCounts[animIndex];
-        var streamStart = (int)hier.PoolBase + poolOffset;
+        var streamStart = (int)hier.Base + poolOffset;
 
         // Note: per the THPS2 release source layout, anim entries are NOT
         // sorted by pool offset — animIdx 0 may live at the END of the pool.
@@ -365,7 +536,7 @@ public static class PsxAnimDumpCommand
         // streamLen frames per channel.
         var nextHigherOffset = hier.PoolOffsets
             .Where(o => o > poolOffset)
-            .DefaultIfEmpty(data.Length - (int)hier.PoolBase)
+            .DefaultIfEmpty(data.Length - (int)hier.Base)
             .Min();
         var byteBudget = nextHigherOffset - poolOffset;
 
@@ -509,10 +680,9 @@ public static class PsxAnimDumpCommand
             var ty = allBoneChannels[boneIndex, 4][f];
             var tz = allBoneChannels[boneIndex, 5][f];
 
-            // Confirmed: full s16 = 360° for rotations; /4096 for translations.
-            var rxDeg = rx / 65536.0 * 360.0;
-            var ryDeg = ry / 65536.0 * 360.0;
-            var rzDeg = rz / 65536.0 * 360.0;
+            var rxDeg = AngleUnitsToDegrees(rx);
+            var ryDeg = AngleUnitsToDegrees(ry);
+            var rzDeg = AngleUnitsToDegrees(rz);
             var txU = tx / 4096.0;
             var tyU = ty / 4096.0;
             var tzU = tz / 4096.0;
@@ -526,6 +696,11 @@ public static class PsxAnimDumpCommand
         if (!verbose && frameCount > framesToShow)
             AnsiConsole.MarkupLine(
                 $"  [grey](… {frameCount - framesToShow} more frames suppressed; pass -v for full dump)[/]");
+    }
+
+    private static double AngleUnitsToDegrees(short rawAngle)
+    {
+        return (rawAngle & 0x0fff) * (360.0 / PsxAnimation.PsyqAngleUnitsPerRevolution);
     }
 
     private static (short Min, short Max) MinMaxChannel(short[] buf, int frameCount)
@@ -553,10 +728,21 @@ public static class PsxAnimDumpCommand
 
     // ─── Layer 3: hierarchy walk ────────────────────────────────────────
 
-    private record HierLocation(
+    private sealed record HierLocation(
         long Base,
-        long PoolBase,
         int NumStreams,
         int[] FrameCounts,
         int[] PoolOffsets);
+
+    private sealed record BoneMotionRankRow(
+        int AnimIndex,
+        int FrameCount,
+        int TxSpan,
+        int TySpan,
+        int TzSpan,
+        float TranslationLength,
+        int RxSpan,
+        int RySpan,
+        int RzSpan,
+        string? Error);
 }

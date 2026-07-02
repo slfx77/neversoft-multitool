@@ -10,6 +10,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 public sealed class PsxMeshFile
 {
     public required ushort Version { get; init; }
+    public PsxMeshFormatRevision FormatRevision { get; init; } = PsxMeshFormatRevision.Unknown;
     public required List<PsxMeshObject> Objects { get; init; }
     public required List<PsxMesh> Meshes { get; init; }
     public required uint[] MeshNameHashes { get; init; }
@@ -63,27 +64,7 @@ public sealed class PsxMeshFile
         // we need to convert from the source mesh's local space to the target mesh's local
         // space by accounting for their object position offsets.
 #pragma warning restore S125
-        var meshToObjectIndex = new int[header.MeshTopPointers.Length];
-        Array.Fill(meshToObjectIndex, -1);
-        if (header.HasHierarchy)
-        {
-            // Hierarchical (character) models: mesh pointer N belongs to object N.
-            // Extra mesh pointers beyond Objects.Count are LOD variants with no object.
-            for (var objectIndex = 0; objectIndex < header.Objects.Count; objectIndex++)
-            {
-                if (objectIndex < meshToObjectIndex.Length)
-                    meshToObjectIndex[objectIndex] = objectIndex;
-            }
-        }
-        else
-        {
-            for (var objectIndex = 0; objectIndex < header.Objects.Count; objectIndex++)
-            {
-                var meshIndex = header.Objects[objectIndex].MeshIndex;
-                if (meshIndex < meshToObjectIndex.Length && meshToObjectIndex[meshIndex] == -1)
-                    meshToObjectIndex[meshIndex] = objectIndex;
-            }
-        }
+        var meshToObjectIndex = BuildMeshToObjectIndex(header);
 
         var attachmentVertices = PsxMeshGeometryReader.CollectAttachableVertices(
             reader,
@@ -140,6 +121,7 @@ public sealed class PsxMeshFile
         return new PsxMeshFile
         {
             Version = header.Version,
+            FormatRevision = header.FormatRevision,
             Objects = header.Objects,
             Meshes = meshes,
             MeshNameHashes = header.MeshNameHashes,
@@ -153,6 +135,73 @@ public sealed class PsxMeshFile
             MeshToObjectIndex = meshToObjectIndex
         };
     }
+
+    /// <summary>
+    ///     Walks the tagged-chunk chain that starts at the offset stored in
+    ///     <c>data[4]</c> (the engine's <c>metaTop</c>) looking for the
+    ///     hierarchy/anim chunk. Per <c>ProcessNewPSX</c> (SPOOL.cpp:884-928)
+    ///     two tags both set the engine's <c>pAnimFile</c>: <c>0x2A</c> (v1
+    ///     uncompressed direct-matrix SMatrix per bone per frame) and
+    ///     <c>0x2C</c> (v2 DecompressStream-compressed Euler+translation).
+    ///     When multiple matching chunks are present (rare but real — some
+    ///     prototype PSX files carry both a placeholder block and the real
+    ///     anim data) the engine overwrites <c>pAnimFile</c> with each, so
+    ///     this returns the <b>last</b> matching chunk to mirror engine
+    ///     semantics.
+    ///     Returns <c>true</c> on success; <paramref name="chunkTag" /> identifies
+    ///     the variant and <paramref name="chunkDataOffset" /> points to the
+    ///     chunk data (engine equivalent of <c>pAnimFile</c>). Returns false on
+    ///     malformed files or files without an anim/hier chunk (e.g. texture-only
+    ///     libraries).
+    /// </summary>
+    public static bool TryGetAnimChunkTag(byte[] data, out uint chunkTag, out int chunkDataOffset)
+    {
+        chunkTag = 0;
+        chunkDataOffset = -1;
+        if (data.Length < 8) return false;
+
+        var metaTop = BitConverter.ToInt32(data, 4);
+        if (metaTop is < 8 || metaTop + 8 > data.Length)
+            return false;
+
+        var cursor = metaTop;
+        var safety = 0;
+        var found = false;
+        while (cursor + 8 <= data.Length)
+        {
+            if (++safety > 256) return found;
+            var tag = BitConverter.ToUInt32(data, cursor);
+            if (tag == 0xFFFFFFFFu) break;
+            var size = BitConverter.ToUInt32(data, cursor + 4);
+            var dataOffset = cursor + 8;
+            if (size > (uint)data.Length || dataOffset + (long)size > data.Length)
+                return found;
+
+            if (tag is HierChunkV1Tag or HierChunkV2Tag)
+            {
+                chunkTag = tag;
+                chunkDataOffset = dataOffset;
+                found = true;
+            }
+
+            cursor = dataOffset + (int)size;
+        }
+        return found;
+    }
+
+    /// <summary>
+    ///     Chunk tag <c>0x2A</c> — v1 hier/anim. Engine reads
+    ///     <c>numBones × 24</c> bytes per bone per frame directly as an
+    ///     <c>SMatrix</c> (3×3 s16 rotation + 3-vector s16 translation).
+    /// </summary>
+    public const uint HierChunkV1Tag = 0x2A;
+
+    /// <summary>
+    ///     Chunk tag <c>0x2C</c> — v2 hier/anim. Engine decompresses 6 per-bone
+    ///     streams (Rx, Ry, Rz, Tx, Ty, Tz) via <c>DecompressStream</c> into
+    ///     interleaved per-frame Euler+translation buffers.
+    /// </summary>
+    public const uint HierChunkV2Tag = 0x2C;
 
     /// <summary>
     ///     Returns the byte offset immediately past the last mesh block in
@@ -263,6 +312,7 @@ public sealed class PsxMeshFile
         return new PsxMeshFile
         {
             Version = header.Version,
+            FormatRevision = header.FormatRevision,
             Objects = header.Objects,
             Meshes = [],
             MeshNameHashes = header.MeshNameHashes,

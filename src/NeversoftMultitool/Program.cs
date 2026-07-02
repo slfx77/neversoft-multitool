@@ -51,6 +51,7 @@ public static class Program
         rootCommand.Subcommands.Add(PsxMeshDumpCommand.Create());
         rootCommand.Subcommands.Add(PsxAnimDumpCommand.Create());
         rootCommand.Subcommands.Add(PsxAnimExportCommand.Create());
+        rootCommand.Subcommands.Add(PsxAnimTraceCommand.Create());
         rootCommand.Subcommands.Add(PsxAnimSurveyCommand.Create());
         rootCommand.Subcommands.Add(Ps2TexCommand.Create());
         rootCommand.Subcommands.Add(RwDffCommand.Create());

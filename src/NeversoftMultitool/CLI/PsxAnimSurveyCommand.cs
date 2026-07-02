@@ -71,7 +71,9 @@ public static class PsxAnimSurveyCommand
             {
                 AnsiConsole.MarkupLine(
                     $"  [grey]{Markup.Escape(row.RelPath)}[/]  ver={row.VersionLabel}  hier={row.HasHierarchy}  " +
-                    $"bones={row.Bones}  layout={row.LayoutLabel}  entries={row.EntriesRecovered}/{row.NumStreamsDecl}");
+                    $"meshRev={row.MeshRevisionLabel}  bones={row.Bones}  layout={row.LayoutLabel}  " +
+                    $"animRev={row.AnimationRevisionLabel}  runtime={row.RuntimeRevisionLabel}  " +
+                    $"entries={row.EntriesRecovered}/{row.NumStreamsDecl}");
             }
         }
 
@@ -98,8 +100,8 @@ public static class PsxAnimSurveyCommand
             var psxFile = PsxMeshFile.ParseHeaderOnly(data);
             if (psxFile == null)
             {
-                return new SurveyRow(build, rel, null, false, 0, 0, data.Length, 0,
-                    null, 0, 0, "no mesh");
+                return new SurveyRow(build, rel, null, null, false, 0, 0, data.Length, 0,
+                    null, null, 0, 0, null, "no mesh");
             }
 
             long meshBlockEnd = 0;
@@ -114,34 +116,34 @@ public static class PsxAnimSurveyCommand
 
             PsxAnimFile? animFile = null;
             string? error = null;
-            if (meshBlockEnd > 0 && meshBlockEnd < data.Length)
+            try
             {
-                try
-                {
-                    animFile = PsxAnimFile.Parse(data, psxFile.Objects.Count, meshBlockEnd);
-                }
-                catch (Exception ex)
-                {
-                    error = ex.Message;
-                }
+                animFile = PsxAnimFile.Parse(data, psxFile.Objects.Count);
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
             }
 
             return new SurveyRow(
                 build, rel,
                 psxFile.Version,
+                psxFile.FormatRevision,
                 psxFile.HasHierarchy,
                 psxFile.Objects.Count,
                 psxFile.Meshes.Count,
                 data.Length,
                 data.Length - meshBlockEnd,
                 animFile?.Layout,
+                animFile?.FormatRevision,
                 animFile?.NumStreamsDeclared ?? 0,
                 animFile?.Entries.Count ?? 0,
+                animFile?.MinimumRuntimeRevision,
                 error);
         }
         catch (Exception ex)
         {
-            return new SurveyRow(build, rel, null, false, 0, 0, 0, 0, null, 0, 0, ex.Message);
+            return new SurveyRow(build, rel, null, null, false, 0, 0, 0, 0, null, null, 0, 0, null, ex.Message);
         }
     }
 
@@ -155,12 +157,13 @@ public static class PsxAnimSurveyCommand
     {
         using var writer = new StreamWriter(path);
         writer.WriteLine(
-            "build,relpath,version,has_hierarchy,bones,meshes,file_size,post_mesh_size,layout,num_streams_declared,entries_recovered,error");
+            "build,relpath,version,mesh_revision,has_hierarchy,bones,meshes,file_size,post_mesh_size,layout,anim_revision,num_streams_declared,entries_recovered,runtime_revision,error");
         foreach (var r in rows)
         {
             writer.WriteLine(
-                $"{Csv(r.Build)},{Csv(r.RelPath)},{r.VersionLabel},{r.HasHierarchy},{r.Bones},{r.Meshes}," +
-                $"{r.FileSize},{r.PostMeshSize},{r.LayoutLabel},{r.NumStreamsDecl},{r.EntriesRecovered},{Csv(r.Error)}");
+                $"{Csv(r.Build)},{Csv(r.RelPath)},{r.VersionLabel},{r.MeshRevisionLabel},{r.HasHierarchy},{r.Bones},{r.Meshes}," +
+                $"{r.FileSize},{r.PostMeshSize},{r.LayoutLabel},{r.AnimationRevisionLabel},{r.NumStreamsDecl}," +
+                $"{r.EntriesRecovered},{r.RuntimeRevisionLabel},{Csv(r.Error)}");
         }
 
         static string Csv(string? s)
@@ -190,7 +193,9 @@ public static class PsxAnimSurveyCommand
             .AddColumn(new TableColumn("v0x03").RightAligned())
             .AddColumn(new TableColumn("v0x04").RightAligned())
             .AddColumn(new TableColumn("v0x06").RightAligned())
+            .AddColumn(new TableColumn("Direct").RightAligned())
             .AddColumn(new TableColumn("Mono").RightAligned())
+            .AddColumn(new TableColumn("ExtSlot").RightAligned())
             .AddColumn(new TableColumn("ProtoSparse").RightAligned());
 
         foreach (var g in groups)
@@ -199,7 +204,9 @@ public static class PsxAnimSurveyCommand
             var v3 = withAnims.Count(r => r.Version == 0x03);
             var v4 = withAnims.Count(r => r.Version == 0x04);
             var v6 = withAnims.Count(r => r.Version == 0x06);
+            var direct = withAnims.Count(r => r.AnimationRevision == PsxAnimationFormatRevision.DirectMatrixV1);
             var mono = withAnims.Count(r => r.Layout == PsxAnimLayoutVariant.Monolithic);
+            var extSlot = withAnims.Count(r => r.RuntimeRevision == PsxCharacterRuntimeRevision.ExtendedAnimSlots);
             var proto = withAnims.Count(r => r.Layout == PsxAnimLayoutVariant.PrototypeSparse);
             var hierCount = g.Count(r => r.HasHierarchy);
 
@@ -211,27 +218,30 @@ public static class PsxAnimSurveyCommand
                 v3.ToString(),
                 v4.ToString(),
                 v6.ToString(),
+                direct.ToString(),
                 mono.ToString(),
+                extSlot.ToString(),
                 proto.ToString());
         }
 
         AnsiConsole.Write(table);
 
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[bold]Distinct (build, version, layout) groupings (files with anim data)[/]");
+        AnsiConsole.MarkupLine("[bold]Distinct revision groupings (files with anim data)[/]");
 
         var combos = rows
             .Where(r => r.EntriesRecovered > 0)
-            .GroupBy(r => (r.Build, r.VersionLabel, r.LayoutLabel))
+            .GroupBy(r => (r.Build, r.MeshRevisionLabel, r.AnimationRevisionLabel, r.RuntimeRevisionLabel))
             .Select(g => (Combo: g.Key, Count: g.Count(), TotalEntries: g.Sum(r => r.EntriesRecovered)))
             .OrderBy(c => c.Combo.Build, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(c => c.Combo.VersionLabel)
-            .ThenBy(c => c.Combo.LayoutLabel);
+            .ThenBy(c => c.Combo.MeshRevisionLabel)
+            .ThenBy(c => c.Combo.AnimationRevisionLabel);
 
         var comboTable = new Table()
             .AddColumn("Build")
-            .AddColumn("Version")
-            .AddColumn("Layout")
+            .AddColumn("MeshRev")
+            .AddColumn("AnimRev")
+            .AddColumn("Runtime")
             .AddColumn(new TableColumn("Files").RightAligned())
             .AddColumn(new TableColumn("TotalEntries").RightAligned());
 
@@ -239,8 +249,9 @@ public static class PsxAnimSurveyCommand
         {
             comboTable.AddRow(
                 Markup.Escape(combo.Build),
-                combo.VersionLabel,
-                combo.LayoutLabel,
+                combo.MeshRevisionLabel,
+                combo.AnimationRevisionLabel,
+                combo.RuntimeRevisionLabel,
                 count.ToString(),
                 totalEntries.ToString("N0"));
         }
@@ -252,17 +263,26 @@ public static class PsxAnimSurveyCommand
         string Build,
         string RelPath,
         ushort? Version,
+        PsxMeshFormatRevision? MeshRevision,
         bool HasHierarchy,
         int Bones,
         int Meshes,
         long FileSize,
         long PostMeshSize,
         PsxAnimLayoutVariant? Layout,
+        PsxAnimationFormatRevision? AnimationRevision,
         int NumStreamsDecl,
         int EntriesRecovered,
+        PsxCharacterRuntimeRevision? RuntimeRevision,
         string? Error)
     {
         public string VersionLabel => Version.HasValue ? $"0x{Version.Value:X2}" : "?";
+
+        public string MeshRevisionLabel => MeshRevision?.ToString() ?? "?";
+
+        public string AnimationRevisionLabel => AnimationRevision?.ToString() ?? LayoutLabel;
+
+        public string RuntimeRevisionLabel => RuntimeRevision?.ToString() ?? "?";
 
         public string LayoutLabel => Layout?.ToString() ?? (Error == "no mesh" ? "NoMesh" :
             Error != null ? "Error" : "NoAnimBlock");

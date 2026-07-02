@@ -9,8 +9,6 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 /// </summary>
 internal static class AnimationDiscovery
 {
-    private const float PsxFps = 30f;
-
     /// <summary>
     ///     Anim subdirs walked during ancestor search. Mirrors the conventions
     ///     used by <c>SkaCommand.FindCompressTable</c>:
@@ -68,11 +66,18 @@ internal static class AnimationDiscovery
     ///     Used by the manual "Add folder…" picker.
     /// </summary>
     public static IReadOnlyList<AnimationProbe> FindInDirectory(
-        string root, int? skeletonBoneCount, CancellationToken ct)
+        string root,
+        int? skeletonBoneCount,
+        CancellationToken ct,
+        bool includePsxAnimationBanks = false,
+        AssetSource? targetCharacterSource = null)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var results = new List<AnimationProbe>();
-        AddFromDirectory(root, skeletonBoneCount, seen, results, ct);
+        if (includePsxAnimationBanks)
+            AddPsxBanksFromDirectory(root, skeletonBoneCount, targetCharacterSource, seen, results, ct);
+        else
+            AddFromDirectory(root, skeletonBoneCount, seen, results, ct);
         return results;
     }
 
@@ -81,17 +86,31 @@ internal static class AnimationDiscovery
     ///     manual "Add archive…" picker.
     /// </summary>
     public static IReadOnlyList<AnimationProbe> FindInArchive(
-        ArchiveAssetBackend backend, int? skeletonBoneCount, CancellationToken ct)
+        ArchiveAssetBackend backend,
+        int? skeletonBoneCount,
+        CancellationToken ct,
+        bool includePsxAnimationBanks = false,
+        AssetSource? targetCharacterSource = null)
     {
         var results = new List<AnimationProbe>();
         foreach (var entry in backend.Entries)
         {
             ct.ThrowIfCancellationRequested();
-            if (!IsAnimFileName(entry.Name)) continue;
 
             var source = new ArchiveAssetSource(backend, entry);
-            var probe = TryProbe(source, source.DisplayName, skeletonBoneCount);
-            if (probe != null) results.Add(probe);
+            if (includePsxAnimationBanks)
+            {
+                if (!IsPsxAnimationBankFileName(entry.Name)) continue;
+                var remap = CreatePsxBoneRemap(source, targetCharacterSource, skeletonBoneCount);
+                results.AddRange(PsxAnimationBank.CreateProbes(
+                    source, skeletonBoneCount, boneRemap: remap));
+            }
+            else
+            {
+                if (!IsAnimFileName(entry.Name)) continue;
+                var probe = TryProbe(source, source.DisplayName, skeletonBoneCount);
+                if (probe != null) results.Add(probe);
+            }
         }
 
         return results;
@@ -106,6 +125,11 @@ internal static class AnimationDiscovery
                || path.EndsWith(".ska.wpc", StringComparison.OrdinalIgnoreCase);
     }
 
+    public static bool IsPsxAnimationBankFileName(string path)
+    {
+        return path.EndsWith(".psx", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsPsxCharacter(AssetSource source)
     {
         return source.EntryName.EndsWith(".psx", StringComparison.OrdinalIgnoreCase);
@@ -113,11 +137,6 @@ internal static class AnimationDiscovery
 
     private static IReadOnlyList<AnimationProbe> FindForPsxCharacter(AssetSource skinSource)
     {
-        var fsPath = skinSource.FileSystemPath;
-        // PsxAnimationSource needs a real disk path — archive-backed PSX would need
-        // the bytes cached, which we defer until the format is more widely needed.
-        if (fsPath == null) return [];
-
         byte[] data;
         try
         {
@@ -140,36 +159,10 @@ internal static class AnimationDiscovery
 
         if (psxFile == null) return [];
 
-        var meshBlockEnd = PsxMeshFile.GetMeshBlockEnd(data);
-        if (meshBlockEnd <= 0) return [];
-
-        PsxAnimFile? animFile;
-        try
-        {
-            animFile = PsxAnimFile.Parse(data, psxFile.Objects.Count, meshBlockEnd);
-        }
-        catch
-        {
-            return [];
-        }
-
-        if (animFile == null || animFile.Entries.Count == 0) return [];
-
-        var results = new List<AnimationProbe>(animFile.Entries.Count);
-        for (var i = 0; i < animFile.Entries.Count; i++)
-        {
-            var entry = animFile.Entries[i];
-            var source = new PsxAnimationSource(fsPath, i, entry.FrameCount);
-            var duration = entry.FrameCount / PsxFps;
-            results.Add(new AnimationProbe(
-                source,
-                $"anim_{i}",
-                duration,
-                psxFile.Objects.Count,
-                true));
-        }
-
-        return results;
+        return PsxAnimationBank.CreateProbes(
+            skinSource,
+            psxFile.Objects.Count,
+            i => $"anim_{i}");
     }
 
     private static void AddFromDirectory(
@@ -190,6 +183,40 @@ internal static class AnimationDiscovery
             var probe = TryProbe(source, Path.GetFileName(path), skeletonBoneCount);
             if (probe != null) results.Add(probe);
         }
+    }
+
+    private static void AddPsxBanksFromDirectory(
+        string root,
+        int? skeletonBoneCount,
+        AssetSource? targetCharacterSource,
+        HashSet<string> seen,
+        List<AnimationProbe> results,
+        CancellationToken ct)
+    {
+        if (!Directory.Exists(root)) return;
+        foreach (var path in Directory.EnumerateFiles(root, "*.psx", SearchOption.AllDirectories))
+        {
+            ct.ThrowIfCancellationRequested();
+            var fullPath = Path.GetFullPath(path);
+            if (!seen.Add(fullPath)) continue;
+
+            var source = new FileSystemAssetSource(path);
+            var remap = CreatePsxBoneRemap(source, targetCharacterSource, skeletonBoneCount);
+            results.AddRange(PsxAnimationBank.CreateProbes(
+                source, skeletonBoneCount, boneRemap: remap));
+        }
+    }
+
+    private static PsxAnimationBoneRemap? CreatePsxBoneRemap(
+        AssetSource source,
+        AssetSource? targetCharacterSource,
+        int? skeletonBoneCount)
+    {
+        if (targetCharacterSource == null || !skeletonBoneCount.HasValue)
+            return null;
+
+        return PsxAnimationBoneMap.TryCreate(
+            source, targetCharacterSource, skeletonBoneCount.Value, out _);
     }
 
     private static AnimationProbe? TryProbe(

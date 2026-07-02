@@ -12,10 +12,10 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 ///     Wire format (per stream):
 ///     <list type="bullet">
 ///         <item>1 header byte: high nibble = numSegments − 1, low nibble = mode (0..15).</item>
-///         <item>Mode 0: no payload (output = zeros).</item>
-///         <item>Mode 1: 16-bit endpoints; segments linearly interpolated.</item>
-///         <item>Modes 2..14: 16-bit start, then bit-packed deltas (bit width = mode + 1).</item>
-///         <item>Mode 15: single 16-bit value repeated.</item>
+///         <item>Mode 0: 16-bit endpoints; segments linearly interpolated.</item>
+///         <item>Modes 1..13: 16-bit start, then bit-packed deltas (bit width = mode + 1).</item>
+///         <item>Mode 14: single 16-bit value repeated.</item>
+///         <item>Mode 15: no payload (output = zeros).</item>
 ///     </list>
 /// </summary>
 internal static class PsxAnimDecompressor
@@ -53,16 +53,16 @@ internal static class PsxAnimDecompressor
         switch (mode)
         {
             case 0:
-                EmitZeros(dst, step, streamLength);
-                break;
-            case 1:
                 srcIdx = ModeLinearInterp16(src, srcIdx, dst, step, numSegments, segLength, remainder);
                 break;
-            case 15:
+            case 14:
                 srcIdx = ModeRepeatConstant(src, srcIdx, dst, step, streamLength);
                 break;
+            case 15:
+                EmitZeros(dst, step, streamLength);
+                break;
             default:
-                if (mode is >= 2 and <= 14)
+                if (mode is >= 1 and <= 13)
                     srcIdx = ModeBitPackedDelta(src, srcIdx, dst, step, mode + 1, numSegments, segLength, remainder);
                 break;
         }
@@ -70,7 +70,7 @@ internal static class PsxAnimDecompressor
         return srcIdx;
     }
 
-    // Mode 0: every output sample is zero. No payload.
+    // Mode 15: every output sample is zero. No payload.
     private static void EmitZeros(Span<short> dst, int step, int streamLength)
     {
         var idx = 0;
@@ -81,15 +81,10 @@ internal static class PsxAnimDecompressor
         }
     }
 
-    // Mode 1: pairs of u16 endpoints; segments linearly interpolated.
-    // Per-outer-iteration sample count is numSegments (NOT numSegments + 1) —
-    // the formula `1 + segLength × numSegments + remainder = StreamLength`
-    // settles this. The C reconstruction at DECOMP.cpp:114 writes an extra
-    // endpoint sample per outer iteration, but that overcounts: e.g. for
-    // numSegments=1, segLength=StreamLength-1, the reconstruction writes
-    // 1 + 2×(StreamLength-1) ≈ 2×StreamLength samples, double the true count.
-    // The endpoint u16 is still READ each iteration (advances srcIdx) and
-    // becomes the next iteration's `prev`; it just isn't emitted as a sample.
+    // Mode 0: pairs of u16 endpoints; segments linearly interpolated.
+    // The engine writes (numSegments - 1) truncated interpolation steps and
+    // then writes the endpoint exactly. That final exact endpoint matters when
+    // delta is not evenly divisible by numSegments.
     private static int ModeLinearInterp16(
         ReadOnlySpan<byte> src, int srcIdx, Span<short> dst,
         int step, int numSegments, int segLength, int remainder)
@@ -106,14 +101,16 @@ internal static class PsxAnimDecompressor
             srcIdx += 2;
             var delta = endpoint - prev;
 
-            for (var k = 0; k < numSegments; k++)
+            for (var k = 0; k < numSegments - 1; k++)
             {
-                prev += (short)(delta / numSegments);
+                prev = (short)(prev + (short)(delta / numSegments));
                 dst[dstIdx] = (short)prev;
                 dstIdx += step;
             }
 
             prev = endpoint;
+            dst[dstIdx] = (short)prev;
+            dstIdx += step;
         }
 
         if (remainder > 0)
@@ -127,7 +124,7 @@ internal static class PsxAnimDecompressor
             // because there's no next iteration to absorb it.
             for (var k = 0; k < remainder - 1; k++)
             {
-                prev += (short)(delta / remainder);
+                prev = (short)(prev + (short)(delta / remainder));
                 dst[dstIdx] = (short)prev;
                 dstIdx += step;
             }
@@ -138,19 +135,15 @@ internal static class PsxAnimDecompressor
         return srcIdx;
     }
 
-    // Modes 2..14: 16-bit initial sample, then bit-packed signed deltas with
-    // bitWidth = mode + 1. Same correction applies as in mode 1: per outer
-    // iteration writes `numSegments` samples, NOT `numSegments + 1`. The
-    // accumulated `prev` carries forward into the next outer iteration so the
-    // endpoint isn't lost.
+    // Modes 1..13: 16-bit initial sample, then bit-packed signed deltas with
+    // bitWidth = mode + 1. Like mode 0, each full segment writes
+    // (numSegments - 1) interpolation steps and then the exact endpoint.
     private static int ModeBitPackedDelta(
         ReadOnlySpan<byte> src, int srcIdx, Span<short> dst,
         int step, int bitWidth, int numSegments, int segLength, int remainder)
     {
         var prev = ReadInt16Le(src, srcIdx);
-        srcIdx++; // bitstream begins at srcIdx (which equals stream byte 2);
-        // the high byte of the starting u16 also serves as the bitstream's first
-        // byte (overlap noted in DECOMP.cpp:158-162).
+        srcIdx += 2;
         var dstIdx = 0;
         dst[dstIdx] = (short)prev;
         dstIdx += step;
@@ -161,31 +154,32 @@ internal static class PsxAnimDecompressor
         for (var seg = 0; seg < segLength; seg++)
         {
             var delta = ReadSignedBits(src, ref byteIdx, ref bitOff, bitWidth);
-            for (var k = 0; k < numSegments; k++)
+            for (var k = 0; k < numSegments - 1; k++)
             {
-                prev += (short)(delta / numSegments);
+                prev = (short)(prev + (short)(delta / numSegments));
                 dst[dstIdx] = (short)prev;
                 dstIdx += step;
             }
-            // No endpoint write — `prev` carries forward as the start of the
-            // next iteration's interpolation. The encoder's per-outer step is
-            // `numSegments` samples covered, matching the formula
-            // `segLength × numSegments + 1 + remainder = StreamLength`.
+
+            prev = (short)(prev + delta);
+            dst[dstIdx] = (short)prev;
+            dstIdx += step;
         }
 
         if (remainder > 0)
         {
             var delta = ReadSignedBits(src, ref byteIdx, ref bitOff, bitWidth);
+            var endpoint = (short)(prev + delta);
             // Remainder writes (remainder - 1) interpolated + 1 endpoint = `remainder`
             // samples total. The endpoint IS written here (no next iter to absorb).
             for (var k = 0; k < remainder - 1; k++)
             {
-                prev += (short)(delta / remainder);
+                prev = (short)(prev + (short)(delta / remainder));
                 dst[dstIdx] = (short)prev;
                 dstIdx += step;
             }
 
-            dst[dstIdx] = (short)(prev + delta);
+            dst[dstIdx] = endpoint;
         }
 
         // If we ended mid-byte, the next stream starts on the following byte.
@@ -195,13 +189,10 @@ internal static class PsxAnimDecompressor
         return byteIdx;
     }
 
-    // Mode 15: skip 1 byte (mode/segment header was already consumed; the
-    // original advances `pbVar9 = src + 1` then reads bytes at [1] and [2]),
-    // then write a single u16 LE constant for every sample.
+    // Mode 14: write a single u16 LE constant for every sample.
     private static int ModeRepeatConstant(
         ReadOnlySpan<byte> src, int srcIdx, Span<short> dst, int step, int streamLength)
     {
-        srcIdx++; // skip filler byte (matches DECOMP.cpp:218)
         var value = ReadInt16Le(src, srcIdx);
         srcIdx += 2;
 

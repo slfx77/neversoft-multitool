@@ -8,6 +8,11 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Psx;
 
 public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
 {
+    private const string SpiderManBuild = "Spider-Man (2000-9-1, PSX - Final)";
+    private const string Thps1ProtoBuild = "Tony Hawk's Pro Skater (1999-4-4, PSX - Prototype)";
+    private const string ApocalypseBuild = "Apocalypse (1998-11-17, PSX - Final)";
+    private const string Thps2ProtoBuild = "Tony Hawk's Pro Skater 2 (2000-3-29, PSX - Prototype)";
+
     public static TheoryData<string, ushort, bool, int, int, int, int, int, int, int, string>
         LockedCharacterFixtures =>
         new()
@@ -85,6 +90,32 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
     }
 
     [Theory]
+    [InlineData(
+        @"Apocalypse (1998-11-17, PSX - Final)\PSX\bruce.psx",
+        PsxMeshFormatRevision.ApocalypseV3)]
+    [InlineData(
+        @"Spider-Man (2000-9-1, PSX - Final)\PSX\blackcat.psx",
+        PsxMeshFormatRevision.NeversoftV4)]
+    [InlineData(
+        @"Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)\PSX\HAWK2.PSX",
+        PsxMeshFormatRevision.NeversoftV4)]
+    [InlineData(
+        @"Spider-Man (2001-2-14, DC - Prototype)\PSX\BLACKCAT.PSX",
+        PsxMeshFormatRevision.NeversoftV6)]
+    public void Parse_LockedCharacterFixtures_ClassifyMeshRevision(
+        string relativePath,
+        PsxMeshFormatRevision expectedRevision)
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var filePath = RequireSampleBuildFile(relativePath);
+        var psxFile = PsxMeshFile.Parse(filePath);
+        Assert.NotNull(psxFile);
+
+        Assert.Equal(expectedRevision, psxFile.FormatRevision);
+    }
+
+    [Theory]
     [MemberData(nameof(LockedCharacterFixturePaths))]
     public void Resolve_LockedCharacterFixtures_StitchedFaceVerticesMatchAttachmentWorldPositions(string relativePath)
     {
@@ -119,6 +150,172 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
                 }
             }
         }
+    }
+
+    [Fact]
+    public void CharacterRouting_HierarchicalModelsKeepObjectOrder()
+    {
+        var psxFile = new PsxMeshFile
+        {
+            Version = 4,
+            HasHierarchy = true,
+            TranslationDivisor = 1f,
+            Objects =
+            [
+                new PsxMeshObject { RawX = 4096, MeshIndex = 2 },
+                new PsxMeshObject { RawX = 8192, MeshIndex = 0 },
+                new PsxMeshObject { RawX = 12288, MeshIndex = 1 }
+            ],
+            Meshes =
+            [
+                CreateSingleVertexMesh(20f),
+                CreateSingleVertexMesh(30f),
+                CreateSingleVertexMesh(10f)
+            ],
+            MeshNameHashes = [],
+            TextureHashes = [],
+            MeshToObjectIndex = [1, 2, 0]
+        };
+
+        Assert.True(PsxMeshSemantics.UsesCharacterObjectOrder(psxFile));
+        Assert.Equal(0, PsxMeshSemantics.GetCharacterMeshIndex(psxFile, 0));
+        Assert.Equal(1, PsxMeshSemantics.GetCharacterMeshIndex(psxFile, 1));
+        Assert.Equal(2, PsxMeshSemantics.GetCharacterMeshIndex(psxFile, 2));
+        Assert.Equal(0, PsxCharacterMeshResolver.GetObjectIndex(psxFile, 0));
+        Assert.Equal(1, PsxCharacterMeshResolver.GetObjectIndex(psxFile, 1));
+        Assert.Equal(2, PsxCharacterMeshResolver.GetObjectIndex(psxFile, 2));
+
+        var resolved = PsxCharacterMeshResolver.ResolveVertex(psxFile, meshIndex: 0, vertexIndex: 0);
+        Assert.Equal(0, resolved.SourceObjectIndex);
+        Assert.Equal(new Vector3(21f, 0f, 0f), resolved.WorldPosition);
+
+        var meshTwoOffset = PsxCharacterMeshResolver.GetObjectOffset(psxFile, meshIndex: 2);
+        Assert.Equal(new Vector3(3f, 0f, 0f), meshTwoOffset);
+    }
+
+    [Fact]
+    public void CharacterRouting_FlatSuperModelsUseMeshIndex()
+    {
+        var psxFile = new PsxMeshFile
+        {
+            Version = 3,
+            HasHierarchy = false,
+            TranslationDivisor = 1f,
+            Objects =
+            [
+                new PsxMeshObject { RawX = 4096, MeshIndex = 2 },
+                new PsxMeshObject { RawX = 8192, MeshIndex = 0 },
+                new PsxMeshObject { RawX = 12288, MeshIndex = 1 }
+            ],
+            Meshes =
+            [
+                CreateSingleVertexMesh(20f),
+                CreateSingleVertexMesh(30f),
+                CreateSingleVertexMesh(10f)
+            ],
+            MeshNameHashes = [],
+            TextureHashes = [],
+            MeshToObjectIndex = [1, 2, 0]
+        };
+
+        Assert.False(PsxMeshSemantics.UsesCharacterObjectOrder(psxFile));
+        Assert.Equal(2, PsxMeshSemantics.GetCharacterMeshIndex(psxFile, 0));
+        Assert.Equal(0, PsxMeshSemantics.GetCharacterMeshIndex(psxFile, 1));
+        Assert.Equal(1, PsxMeshSemantics.GetCharacterMeshIndex(psxFile, 2));
+        Assert.Equal(1, PsxCharacterMeshResolver.GetObjectIndex(psxFile, 0));
+        Assert.Equal(2, PsxCharacterMeshResolver.GetObjectIndex(psxFile, 1));
+        Assert.Equal(0, PsxCharacterMeshResolver.GetObjectIndex(psxFile, 2));
+
+        var resolved = PsxCharacterMeshResolver.ResolveVertex(psxFile, meshIndex: 2, vertexIndex: 0);
+        Assert.Equal(0, resolved.SourceObjectIndex);
+        Assert.Equal(new Vector3(11f, 0f, 0f), resolved.WorldPosition);
+    }
+
+    [Theory]
+    [InlineData(SpiderManBuild, "spidey.psx")]
+    [InlineData(Thps2ProtoBuild, "mullen.psx")]
+    public void CharacterRouting_SampleSwappedMeshIndexDoesNotOverrideHierarchicalBindOrder(string buildName,
+        string fileName)
+    {
+        var path = paths.FindSampleFile(buildName, fileName);
+        Assert.SkipWhen(path == null, $"{fileName} not found in sample builds");
+
+        var psxFile = PsxMeshFile.Parse(path!);
+        Assert.NotNull(psxFile);
+        Assert.True(PsxMeshSemantics.UsesCharacterObjectOrder(psxFile));
+
+        var mismatches = psxFile.Objects
+            .Select((obj, objectIndex) => (obj, objectIndex))
+            .Where(pair => pair.objectIndex < psxFile.Meshes.Count && pair.obj.MeshIndex != pair.objectIndex)
+            .ToArray();
+        Assert.NotEmpty(mismatches);
+
+        foreach (var (obj, objectIndex) in mismatches)
+        {
+            Assert.Equal(objectIndex, PsxMeshSemantics.GetCharacterMeshIndex(psxFile, objectIndex));
+            Assert.NotEqual(obj.MeshIndex, PsxMeshSemantics.GetCharacterMeshIndex(psxFile, objectIndex));
+            Assert.Equal(objectIndex, psxFile.MeshToObjectIndex[objectIndex]);
+            Assert.Equal(objectIndex, PsxCharacterMeshResolver.GetObjectIndex(psxFile, objectIndex));
+            Assert.Equal(
+                PsxMeshSemantics.GetObjectOffset(psxFile, obj),
+                PsxCharacterMeshResolver.GetObjectOffset(psxFile, objectIndex));
+        }
+    }
+
+    [Theory]
+    [InlineData(SpiderManBuild, "spidey.psx")]
+    [InlineData(Thps2ProtoBuild, "mullen.psx")]
+    public void CharacterBindUnits_HierarchicalObjectsKeepQ12PlacementScale(string buildName, string fileName)
+    {
+        var path = paths.FindSampleFile(buildName, fileName);
+        Assert.SkipWhen(path == null, $"{fileName} not found in sample builds");
+
+        var psxFile = PsxMeshFile.Parse(path!);
+        Assert.NotNull(psxFile);
+        Assert.True(psxFile.HasHierarchy);
+        Assert.Equal(psxFile.TranslationDivisor * 16f, psxFile.ScaleDivisor);
+
+        var obj = psxFile.Objects.First(static o => o.RawX != 0 || o.RawY != 0 || o.RawZ != 0);
+        var offset = PsxMeshSemantics.GetObjectOffset(psxFile, obj);
+        Assert.Equal(obj.RawX / (4096f * psxFile.TranslationDivisor), offset.X, 5);
+        Assert.Equal(obj.RawY / (4096f * psxFile.TranslationDivisor), offset.Y, 5);
+        Assert.Equal(obj.RawZ / (4096f * psxFile.TranslationDivisor), offset.Z, 5);
+    }
+
+    [Theory]
+    [InlineData(Thps1ProtoBuild, "hawk.psx", false, true)]
+    [InlineData(ApocalypseBuild, "bruce.psx", false, false)]
+    public void CharacterBindUnits_NoHierarchySuperScaleTracksRuntimeRevision(
+        string buildName,
+        string fileName,
+        bool expectedHasHierarchy,
+        bool expectedSuperVertexShift)
+    {
+        var path = paths.FindSampleFile(buildName, fileName);
+        Assert.SkipWhen(path == null, $"{fileName} not found in sample builds");
+
+        var psxFile = PsxMeshFile.Parse(path!);
+        Assert.NotNull(psxFile);
+
+        Assert.Equal(expectedHasHierarchy, psxFile.HasHierarchy);
+        var expectedScale = expectedSuperVertexShift
+            ? psxFile.TranslationDivisor * 16f
+            : psxFile.TranslationDivisor;
+        Assert.Equal(expectedScale, psxFile.ScaleDivisor);
+    }
+
+    [Fact]
+    public void CharacterAlternates_SpideyDuplicateHandLeavesAreDetected()
+    {
+        var path = paths.FindSampleFile(SpiderManBuild, "spidey.psx");
+        Assert.SkipWhen(path == null, "spidey.psx not found in sample builds");
+
+        var psxFile = PsxMeshFile.Parse(path!);
+        Assert.NotNull(psxFile);
+
+        var alternates = PsxMeshSemantics.FindAlternateLeafObjectIndices(psxFile);
+
+        Assert.Equal([6, 11], alternates.OrderBy(static i => i).ToArray());
     }
 
     [Fact]
@@ -185,6 +382,25 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
             2 => face.Index2,
             3 => face.Index3,
             _ => throw new ArgumentOutOfRangeException(nameof(slot))
+        };
+    }
+
+    private static PsxMesh CreateSingleVertexMesh(float x)
+    {
+        return new PsxMesh
+        {
+            Vertices =
+            [
+                new PsxVertex
+                {
+                    X = x,
+                    Y = 0f,
+                    Z = 0f
+                }
+            ],
+            Normals = [],
+            Faces = [],
+            VertexCount = 1
         };
     }
 }

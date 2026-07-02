@@ -6,6 +6,7 @@ using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 
 namespace NeversoftMultitool;
@@ -15,6 +16,7 @@ namespace NeversoftMultitool;
 ///     PS2 skinned scenes and THPS3 RW DFF characters through the unified
 ///     <see cref="MeshModelParser" /> + <see cref="GltfModelExporter" /> pipeline,
 ///     attaching parsed SKA animations via <c>MeshImportRequest.SkaAnimations</c>.
+///     PSX characters use the same pipeline with <c>PsxDecodedAnimations</c>.
 /// </summary>
 internal static class CharacterAnimationConverter
 {
@@ -34,6 +36,9 @@ internal static class CharacterAnimationConverter
 
         if (character.IsPs2Scene)
             return BuildPs2Scene(character, animations);
+
+        if (character.IsPsx && character.PsxHasHierarchy)
+            return BuildPsx(character, animations);
 
         return new Result(null, 0,
             $"Animated preview not supported for {character.FormatDisplay}.");
@@ -59,6 +64,12 @@ internal static class CharacterAnimationConverter
                 var stem = MeshConverterTabFileScanner.StripCompoundExtension(character.FileName);
                 var skel = MeshConverterTabFileConverter.TryLoadPs2Skeleton(character, stem);
                 return skel?.Bones.Length;
+            }
+
+            if (character.IsPsx && character.PsxHasHierarchy)
+            {
+                // PSX characters use Objects as bones (1:1 with the joint hierarchy).
+                return character.ObjectCount;
             }
         }
         catch
@@ -154,6 +165,59 @@ internal static class CharacterAnimationConverter
             return new Result(null, 0, "DFF produced no triangles.");
 
         return new Result(glbBytes, triangles, null);
+    }
+
+    private static Result BuildPsx(
+        MeshFileEntry character, IReadOnlyList<AnimationProbe> animations)
+    {
+        var data = character.Source.ReadBytes();
+        var psxFile = PsxMeshFile.Parse(data);
+        if (psxFile == null)
+            return new Result(null, 0, "PSX file has no parseable mesh data.");
+        if (!psxFile.HasHierarchy)
+            return new Result(null, 0, "PSX file is not a hierarchical character.");
+
+        var named = new List<(string Name, PsxAnimation Animation)>();
+        foreach (var probe in animations)
+        {
+            if (probe.Source is not PsxAnimationSource psxSource) continue;
+            try
+            {
+                var animation = psxSource.Decode();
+                if (animation.BoneCount != psxFile.Objects.Count) continue;
+                named.Add((probe.DisplayName, animation));
+            }
+            catch
+            {
+                // Single anim failed — keep going so the rest can still preview.
+            }
+        }
+
+        if (named.Count == 0)
+            return new Result(null, 0, "No animations decoded successfully for this PSX character.");
+
+        var fileName = Path.GetFileName(character.Source.FileSystemPath ?? character.FileName);
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = character.Source,
+            FileName = fileName,
+            OutputStem = Path.GetFileNameWithoutExtension(fileName),
+            SourceKind = ModelSourceKind.Psx,
+            PsxAnimationOptions = new PsxAnimationOptions(Fps: PsxAnimationBank.DefaultPreviewFps),
+            PsxDecodedAnimations = named
+        });
+
+        var (glbBytes, triangles) = new GltfModelExporter().BuildGlbBytes(document);
+        if (triangles == 0 || glbBytes == null)
+            return new Result(null, 0, "PSX mesh produced no triangles.");
+
+        return new Result(glbBytes, triangles, null);
+    }
+
+    private static MeshChecksumTextureResolver? BuildPsxTextureProvider(MeshFileEntry character)
+    {
+        var fsPath = character.Source.FileSystemPath;
+        return fsPath == null ? null : PsxTextureProviderFactory.FromFile(fsPath);
     }
 
     private static SkaAnimation? TryParseAnimation(AnimationProbe probe)

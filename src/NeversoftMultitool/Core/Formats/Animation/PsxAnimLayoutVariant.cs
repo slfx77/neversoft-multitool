@@ -6,10 +6,11 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 public enum PsxAnimLayoutVariant
 {
     /// <summary>
-    ///     Monolithic table used by THPS1 final, THPS2 final / Spider-Man / SM2:EE
+    ///     Monolithic table used by THPS1, THPS2, Spider-Man, and SM2:EE
     ///     and Apocalypse:
-    ///     <c>+0x00 u32 numStreams; +0x04 + i*8: (u32 poolOffset, u32 frameCount)</c>;
-    ///     pool starts at <c>+0x04 + numStreams*8</c>. The same on-disk layout
+    ///     <c>+0x00 u32 numStreams; +0x04 + i*8: (u32 dataOffset, u16 frameCount, u16 tweenFlag)</c>;
+    ///     frame payload usually begins at <c>+0x04 + numStreams*8</c>,
+    ///     while entry offsets are chunk-data-relative. The same on-disk layout
     ///     appears in every shipped game we have surveyed; the file's PSX
     ///     <c>Version</c> field (0x03 vs 0x04) is reported separately by
     ///     <see cref="Mesh.Psx.PsxMeshFile" />.
@@ -26,5 +27,16 @@ public enum PsxAnimLayoutVariant
     ///     . Subsequent entries are not yet recoverable from
     ///     the table alone — decomp research outstanding.
     /// </summary>
-    PrototypeSparse
+    PrototypeSparse,
+
+    /// <summary>
+    ///     v1 hier/anim chunk (tag <c>0x2A</c>): same entry table as
+    ///     <see cref="Monolithic" /> but the per-frame payload is uncompressed —
+    ///     <c>numBones × 24</c> bytes per frame interpreted as
+    ///     <c>SMatrix { short m[3][3]; short t[3]; }</c> (PSY-Q 4096 = 1.0
+    ///     fixed-point rotation matrix + 3-vector translation). Used by
+    ///     Apocalypse, Spider-Man PSX prototype, and many THPS / THPS2 / THPS2X
+    ///     character files.
+    /// </summary>
+    DirectMatrix
 }

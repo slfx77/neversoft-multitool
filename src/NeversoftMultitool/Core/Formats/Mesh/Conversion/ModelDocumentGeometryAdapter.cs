@@ -146,8 +146,20 @@ internal static partial class ModelDocumentGeometryAdapter
     public static void PopulatePsx(
         ModelDocument document,
         PsxMeshFile psxFile,
-        MeshChecksumTextureResolver? textureProvider)
+        MeshChecksumTextureResolver? textureProvider,
+        PshFile? pshFile = null,
+        bool flatSkeleton = false,
+        IReadOnlySet<int>? flatBoneIndices = null)
     {
+        if (UsesCombinedPsxCharacterAssembly(psxFile))
+        {
+            PopulatePsxSkinned(
+                document, psxFile, pshFile, textureProvider,
+                flatSkeleton, flatBoneIndices);
+            FinalizeTriangleCount(document);
+            return;
+        }
+
         var textureDims = new Dictionary<uint, (int Width, int Height)>();
         var materialCache = new Dictionary<(uint Hash, bool SemiTransparent), int>();
         var untexturedMaterial = AddMaterial(document, new RenderMaterial
@@ -156,52 +168,24 @@ internal static partial class ModelDocumentGeometryAdapter
             BaseColor = new Vector4(0.7f, 0.7f, 0.7f, 1f)
         });
 
-        var lodVariants = BuildPsxLodVariantSet(psxFile);
-        if (UsesCombinedPsxCharacterAssembly(psxFile))
+        for (var objectIndex = 0; objectIndex < psxFile.Objects.Count; objectIndex++)
         {
-            for (var objectIndex = 0; objectIndex < psxFile.Objects.Count; objectIndex++)
-            {
-                var meshIndex = PsxMeshSemantics.GetCharacterMeshIndex(psxFile, objectIndex);
-                if (meshIndex < 0 || meshIndex >= psxFile.Meshes.Count || lodVariants.Contains(meshIndex))
-                    continue;
+            var obj = psxFile.Objects[objectIndex];
+            if (obj.MeshIndex >= psxFile.Meshes.Count)
+                continue;
 
-                var transform = Matrix4x4.CreateTranslation(PsxMeshSemantics.ToGltfPosition(
-                    PsxMeshSemantics.GetObjectOffset(psxFile.Objects[objectIndex], psxFile.TranslationDivisor)));
-                PopulatePsxMeshNode(
-                    document,
-                    psxFile,
-                    meshIndex,
-                    $"object_{objectIndex:D3}",
-                    transform,
-                    materialCache,
-                    textureDims,
-                    untexturedMaterial,
-                    textureProvider);
-            }
-        }
-        else
-        {
-            for (var objectIndex = 0; objectIndex < psxFile.Objects.Count; objectIndex++)
-            {
-                var obj = psxFile.Objects[objectIndex];
-                if (obj.MeshIndex >= psxFile.Meshes.Count)
-                    continue;
-
-                var transform = Matrix4x4.CreateTranslation(new Vector3(
-                    obj.X(psxFile.TranslationDivisor),
-                    -obj.Y(psxFile.TranslationDivisor),
-                    -obj.Z(psxFile.TranslationDivisor)));
-                PopulatePsxMeshNode(
-                    document,
-                    psxFile,
-                    obj.MeshIndex,
-                    $"object_{objectIndex:D3}",
-                    transform,
-                    materialCache,
-                    textureDims,
-                    untexturedMaterial,
-                    textureProvider);
-            }
+            var transform = Matrix4x4.CreateTranslation(
+                PsxMeshSemantics.ToGltfPosition(PsxMeshSemantics.GetObjectOffset(psxFile, obj)));
+            PopulatePsxMeshNode(
+                document,
+                psxFile,
+                obj.MeshIndex,
+                $"object_{objectIndex:D3}",
+                transform,
+                materialCache,
+                textureDims,
+                untexturedMaterial,
+                textureProvider);
         }
 
         FinalizeTriangleCount(document);

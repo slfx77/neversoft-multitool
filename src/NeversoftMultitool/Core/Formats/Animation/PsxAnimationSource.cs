@@ -1,79 +1,78 @@
-using NeversoftMultitool.Core.Formats.Mesh.Psx;
-
 namespace NeversoftMultitool.Core.Formats.Animation;
 
 /// <summary>
 ///     <see cref="AssetSource" /> adapter for an animation slot embedded in a
-///     PS1 character <c>.psx</c> file. PSX animations don't live in separate
-///     <c>.ska</c>-style files, so the source carries the parent file path plus
-///     the animation slot index and decodes on demand.
+///     PS1 <c>.psx</c> animation bank. The bank may be the selected character
+///     file itself or an external shared animation file such as THPS2's
+///     <c>sk2anim.psx</c>.
 /// </summary>
 internal sealed class PsxAnimationSource : AssetSource
 {
-    public PsxAnimationSource(string psxPath, int animIndex, int frameCount)
+    private readonly string _displayName;
+
+    public PsxAnimationSource(
+        AssetSource bankSource,
+        int animIndex,
+        int frameCount,
+        int targetBoneCount,
+        string? displayName = null,
+        PsxAnimationBoneRemap? boneRemap = null)
     {
-        PsxFilePath = psxPath;
+        BankSource = bankSource;
         AnimIndex = animIndex;
         FrameCount = frameCount;
+        TargetBoneCount = targetBoneCount;
+        BoneRemap = boneRemap;
+        _displayName = displayName ?? $"{Path.GetFileName(bankSource.EntryName)}::anim_{animIndex}";
     }
+
+    public AssetSource BankSource { get; }
 
     public int AnimIndex { get; }
 
     public int FrameCount { get; }
-    public string PsxFilePath { get; }
 
-    public override string DisplayName => $"{Path.GetFileName(PsxFilePath)}::anim_{AnimIndex}";
+    public int TargetBoneCount { get; }
+
+    public PsxAnimationBoneRemap? BoneRemap { get; }
+
+    public override string DisplayName => _displayName;
     public override string EntryName => $"anim_{AnimIndex}";
 
-    public override string? FileSystemPath => PsxFilePath;
+    public override string? FileSystemPath => BankSource.FileSystemPath;
 
     /// <summary>
-    ///     Reads the parent <c>.psx</c> file in full. Callers that only want one
-    ///     animation slot should prefer <see cref="Decode" /> instead.
+    ///     Reads the parent <c>.psx</c> bank in full. Callers that only want one
+    ///     animation slot should use <see cref="Decode" />.
     /// </summary>
     public override byte[] ReadBytes()
     {
-        return File.ReadAllBytes(PsxFilePath);
+        return BankSource.ReadBytes();
     }
 
     /// <summary>
-    ///     Parses the parent <c>.psx</c>, locates the animation table, and
+    ///     Parses the parent <c>.psx</c> bank, locates the animation table, and
     ///     decodes the slot identified by <see cref="AnimIndex" /> into a
     ///     ready-to-render <see cref="PsxAnimation" />.
     /// </summary>
     public PsxAnimation Decode()
     {
-        var data = File.ReadAllBytes(PsxFilePath);
-        var psxFile = PsxMeshFile.Parse(data)
-                      ?? throw new InvalidDataException($"PSX file has no parseable mesh data: {PsxFilePath}");
-
-        var meshBlockEnd = PsxMeshFile.GetMeshBlockEnd(data);
-        var animFile = PsxAnimFile.Parse(data, psxFile.Objects.Count, meshBlockEnd)
-                       ?? throw new InvalidDataException(
-                           $"PSX file has no recognizable animation table: {PsxFilePath}");
-
-        if (AnimIndex < 0 || AnimIndex >= animFile.Entries.Count)
-            throw new ArgumentOutOfRangeException(nameof(AnimIndex),
-                $"Anim index {AnimIndex} out of range (0..{animFile.Entries.Count - 1}).");
-
-        var entry = animFile.Entries[AnimIndex];
-        var slice = animFile.Pool.Span[entry.PoolOffset..];
-        return PsxAnimDecoder.Decode(slice, psxFile.Objects.Count, entry.FrameCount);
+        return PsxAnimationBank.DecodeSlot(BankSource, TargetBoneCount, AnimIndex, BoneRemap);
     }
 
     public override bool CompanionExists(string nameWithExtension)
     {
-        return false;
+        return BankSource.CompanionExists(nameWithExtension);
     }
 
     public override byte[]? TryReadCompanion(string nameWithExtension)
     {
-        return null;
+        return BankSource.TryReadCompanion(nameWithExtension);
     }
 
     public override byte[]? TryReadCompanion(
         string stem, IReadOnlyList<string> extensions, IReadOnlyList<string>? subdirs = null)
     {
-        return null;
+        return BankSource.TryReadCompanion(stem, extensions, subdirs);
     }
 }

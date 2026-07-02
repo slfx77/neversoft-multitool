@@ -228,7 +228,13 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
         if (path == null) return;
 
         var boneCount = _selectedCharacter.SkeletonBoneCount;
-        var probes = await Task.Run(() => AnimationDiscovery.FindInDirectory(path, boneCount, CancellationToken.None));
+        var isPsx = _selectedCharacter.Mesh.IsPsx;
+        var probes = await Task.Run(() => AnimationDiscovery.FindInDirectory(
+            path,
+            boneCount,
+            CancellationToken.None,
+            includePsxAnimationBanks: isPsx,
+            targetCharacterSource: isPsx ? _selectedCharacter.Mesh.Source : null));
         MergeAnimationProbes(probes);
         AnimDiscoveryStatusText.Text = $"{_animations.Count} animation(s) listed.";
     }
@@ -240,13 +246,18 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
         if (path == null) return;
 
         var boneCount = _selectedCharacter.SkeletonBoneCount;
+        var isPsx = _selectedCharacter.Mesh.IsPsx;
         var probes = await Task.Run(() =>
         {
             var backend = ArchiveAssetBackend.TryOpen(path);
             return backend == null
                 ? []
                 : (IReadOnlyList<AnimationProbe>)AnimationDiscovery.FindInArchive(
-                    backend, boneCount, CancellationToken.None);
+                    backend,
+                    boneCount,
+                    CancellationToken.None,
+                    includePsxAnimationBanks: isPsx,
+                    targetCharacterSource: isPsx ? _selectedCharacter.Mesh.Source : null);
         });
         MergeAnimationProbes(probes);
         AnimDiscoveryStatusText.Text = $"{_animations.Count} animation(s) listed.";

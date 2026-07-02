@@ -25,13 +25,18 @@ internal static class PsxMeshSemantics
             obj.Z(translationDivisor));
     }
 
+    internal static Vector3 GetObjectOffset(PsxMeshFile psxFile, PsxMeshObject obj)
+    {
+        return GetObjectOffset(obj, psxFile.TranslationDivisor);
+    }
+
     internal static bool UsesCharacterObjectOrder(PsxMeshFile psxFile)
     {
-        // Hierarchical character models store the first Objects.Count mesh pointers in
-        // 1:1 correspondence with objects (confirmed by Blender io_ns_psxtools). When the
-        // file has more meshes than objects, the extra meshes are LOD variants — object N
-        // always maps to mesh pointer N regardless of the obj.MeshIndex field.
-        return psxFile.HasHierarchy || psxFile.AttachmentVertices.Count > 0;
+        // Only files with an explicit HIER parent table use object-order super
+        // parts. Older flat stitched supers (THPS1 proto, Apocalypse) are still
+        // character-like, but the engine routes their model list through
+        // obj.MeshIndex and does not parse a HIER table for them.
+        return psxFile.HasHierarchy;
     }
 
     internal static int GetCharacterMeshIndex(PsxMeshFile psxFile, int objectIndex)
@@ -68,11 +73,55 @@ internal static class PsxMeshSemantics
         if (objectIndex < 0 || objectIndex >= psxFile.Objects.Count)
             return Vector3.Zero;
 
-        return GetObjectOffset(psxFile.Objects[objectIndex], psxFile.TranslationDivisor);
+        return GetObjectOffset(psxFile, psxFile.Objects[objectIndex]);
+    }
+
+    internal static HashSet<int> FindAlternateLeafObjectIndices(PsxMeshFile psxFile)
+    {
+        var alternates = new HashSet<int>();
+        if (!psxFile.HasHierarchy || psxFile.Objects.Count == 0)
+            return alternates;
+
+        var hasChild = new bool[psxFile.Objects.Count];
+        for (var i = 0; i < psxFile.Objects.Count; i++)
+        {
+            var parent = psxFile.Objects[i].ParentIndex;
+            if (parent >= 0 && parent < hasChild.Length && parent != i)
+                hasChild[parent] = true;
+        }
+
+        var firstLeafByPlacement = new Dictionary<AlternateLeafKey, int>();
+        for (var objectIndex = 0; objectIndex < psxFile.Objects.Count; objectIndex++)
+        {
+            if (hasChild[objectIndex])
+                continue;
+
+            var obj = psxFile.Objects[objectIndex];
+            if (obj.ParentIndex < 0)
+                continue;
+
+            var meshIndex = GetCharacterMeshIndex(psxFile, objectIndex);
+            if (meshIndex < 0 || meshIndex >= psxFile.Meshes.Count)
+                continue;
+
+            var mesh = psxFile.Meshes[meshIndex];
+            if (mesh.Faces.Count == 0)
+                continue;
+
+            var key = new AlternateLeafKey(obj.ParentIndex, obj.RawX, obj.RawY, obj.RawZ);
+            if (firstLeafByPlacement.TryAdd(key, objectIndex))
+                continue;
+
+            alternates.Add(objectIndex);
+        }
+
+        return alternates;
     }
 
     internal static Vector3 ToGltfPosition(Vector3 position)
     {
         return new Vector3(position.X, -position.Y, -position.Z);
     }
+
+    private readonly record struct AlternateLeafKey(int ParentIndex, int RawX, int RawY, int RawZ);
 }
