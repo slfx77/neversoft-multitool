@@ -405,10 +405,19 @@ internal sealed partial class GsGifInterpreter
 
     private float[] GetDepthBuffer(GsContext context)
     {
-        if (!depthBuffers.TryGetValue(context.Zbuf, out var buffer))
+        // Key the depth buffer by its ADDRESS identity (ZBP bits 0-8 | PSM bits 24-27),
+        // NOT the raw ZBUF register. ZBUF also carries ZMSK (bit 32), the per-draw depth
+        // *write* mask — opaque geometry draws with ZMSK=0 (writes depth) while additive
+        // light/glow sprites draw with ZMSK=1 (GEQUAL test-only). They share the same Z
+        // address, so they must share one depth buffer; keying on the full register split
+        // them into separate buffers, leaving the test-only sprites comparing GEQUAL
+        // against an empty (all-zero) buffer — they passed everywhere and rendered THROUGH
+        // the geometry that should occlude them (THAW street-light bleed-through).
+        var key = context.Zbuf & 0x0F0001FFUL;
+        if (!depthBuffers.TryGetValue(key, out var buffer))
         {
             buffer = new float[options.Width * options.Height];
-            depthBuffers[context.Zbuf] = buffer;
+            depthBuffers[key] = buffer;
         }
 
         return buffer;
