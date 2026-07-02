@@ -129,14 +129,7 @@ internal sealed class GsRenderTargetCache
     ///     surfaces whose FBP block-address falls within the sample's range and
     ///     blits each surface's pixels into the matching offset of the output.
     /// </summary>
-    /// <param name="baseRgba">
-    ///     Optional VRAM-decoded base layer (tw*th*4 bytes). When provided, the compose
-    ///     output starts from this content and TBW-matching surfaces overlay it — so
-    ///     sample regions the per-FBW surfaces can't represent (cross-FBW stride
-    ///     reinterpretation, never-rasterized uploads) keep the VRAM bytes instead of
-    ///     collapsing to transparent black.
-    /// </param>
-    public byte[]? TryComposeSample(uint tbp, uint tbw, int tw, int th, uint tpsm, byte[]? baseRgba = null)
+    public byte[]? TryComposeSample(uint tbp, uint tbw, int tw, int th, uint tpsm)
     {
         if (!IsSupportedPsm(tpsm) || tw <= 0 || th <= 0)
             return null;
@@ -146,12 +139,26 @@ internal sealed class GsRenderTargetCache
         if (!IsPsmct32Family(tpsm))
             return null;
 
-        // Page-row stride: TBW is the buffer width in 64-px units (= pages per row for
-        // PSMCT32-family). TW only limits the sampling extent; when TBW is set it is the
-        // authoritative VRAM row stride (e.g. the THAW display blit samples TW=1024 with
-        // TBW=10 — rows stride 10 pages / 640 px, not 16).
-        var samplePagesPerRow = tbw != 0 ? (int)tbw : tw / 64;
-        var samplePageRows = th / 32;
+        // Two passes, strided-preferred:
+        //   1. Only surfaces whose write FBW matches the sample's TBW, placed at the
+        //      TBW page stride. When the game re-reads a buffer at the stride it wrote
+        //      (the common case), this serves the isolated per-FBW content and keeps
+        //      other-stride writes to the same FBP out of the sample. Overlaying BOTH
+        //      layouts at offset 0 — the previous behavior — fed misplaced content into
+        //      THAW's recursive bloom ping-pong, amplifying a phantom left-decaying haze
+        //      over dark scenes (0x2BC0 written at fbw10 and fbw4 simultaneously).
+        //   2. If no matched surface contributes any pixel, fall back to the legacy
+        //      any-FBW overlay so cross-stride reads (bloom seeding passes re-reading
+        //      fbw10 content at tbw4) keep their previous content instead of dropping
+        //      to transparent black.
+        var matched = ComposePass(tbp, tw, th, tbw != 0 ? (int)tbw : tw / 64, tbw, th / 32);
+        if (matched != null)
+            return matched;
+        return ComposePass(tbp, tw, th, tw / 64, 0, th / 32);
+    }
+
+    private byte[]? ComposePass(uint tbp, int tw, int th, int samplePagesPerRow, uint requiredFbw, int samplePageRows)
+    {
         if (samplePagesPerRow <= 0 || samplePageRows <= 0)
             return null;
 
@@ -161,22 +168,13 @@ internal sealed class GsRenderTargetCache
         var sampleBlockEnd = tbp + sampleBlocksTotal;
 
         byte[]? output = null;
-        if (baseRgba != null && baseRgba.Length == tw * th * 4)
-            output = (byte[])baseRgba.Clone();
         var anyHit = false;
 
         foreach (var (_, surface) in _surfaces)
         {
             if (!IsPsmct32Family(surface.Psm))
                 continue;
-
-            // TBW-match: the sample's page-row stride must equal the surface's write
-            // stride, or the blit places rows at wrong offsets. Multi-FBW FBPs (the THAW
-            // bloom pyramid writes 0x2BC0 at both fbw10 and fbw4) otherwise overlay BOTH
-            // layouts at offset 0 — misplacing content that the recursive bloom ping-pong
-            // then amplifies into a phantom left-decaying haze composited over the scene.
-            // PCSX2 HW keys its render targets by (FBP, FBW) for the same reason.
-            if (tbw != 0 && surface.Fbw != tbw)
+            if (requiredFbw != 0 && surface.Fbw != requiredFbw)
                 continue;
 
             var surfacePagesTall = (surface.MaxYWritten + 32) / 32;

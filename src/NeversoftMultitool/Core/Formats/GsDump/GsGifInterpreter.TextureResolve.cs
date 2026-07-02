@@ -53,26 +53,16 @@ internal sealed partial class GsGifInterpreter
             if (psm == Ps2GsVram.PSMZ32)
                 NoteApproximation("texture_psmz32_as_color");
 
-            // Decode the shared VRAM view first: it is the GS-truth byte content,
-            // including cross-FBW stride reinterpretation (content written at one FBW
-            // and legitimately sampled at another re-flows across rows — only the
-            // swizzled VRAM can represent that).
-            var pixelsFromVram = ThawZoneTexVramSupport.DecodeFromTex0(
-                vram,
-                tex0,
-                false,
-                false,
-                texaSensitive ? state.Texa : null);
-
-            // RT cache compose: overlay per-(FBP,FBW,PSM) surfaces whose FBW matches the
-            // sample's TBW onto the VRAM base. Matching-stride render-target content comes
-            // from the isolated surfaces (avoids multi-FBW write aliasing in shared VRAM —
-            // the THAW bloom-pyramid pattern); everything the surfaces can't represent
-            // keeps the VRAM bytes instead of collapsing to transparent black.
+            // RT cache fast path: when the sampled TBP overlaps a known per-(FBP,FBW,PSM)
+            // surface, blit the surface's pixels into the sample at FBW-correct offsets
+            // instead of going through the shared-VRAM swizzle (which produces FBW-aliasing
+            // strips when one FBP was written at multiple FBWs — the THAW 1024×1024 bloom
+            // compose pattern). Surfaces whose write FBW matches the sample's TBW are
+            // preferred; the legacy any-FBW overlay only serves reads no matched surface
+            // covers (see TryComposeSample).
             var tbpForCache = (uint)(tex0 & 0x3FFF);
             var tbwForCache = (uint)((tex0 >> 14) & 0x3F);
-            var rgbaFromCache = renderTargetCache.TryComposeSample(
-                tbpForCache, tbwForCache, width, height, psm, pixelsFromVram);
+            var rgbaFromCache = renderTargetCache.TryComposeSample(tbpForCache, tbwForCache, width, height, psm);
             if (rgbaFromCache != null)
             {
                 texture = new GsTexture(width, height, rgbaFromCache);
@@ -80,24 +70,33 @@ internal sealed partial class GsGifInterpreter
                 NoteApproximation("texture_from_rt_cache");
             }
 
-            if (texture == null && pixelsFromVram != null)
+            if (texture == null)
             {
-                // Use VRAM decode whenever there's *any* pixel data (RGB or alpha).
-                // Distinguish two cases the renderer must handle differently:
-                //   1. Fully empty VRAM (all bytes zero) — texture was never uploaded;
-                //      let TextureResolver / ZoneTextureCatalog provide a fallback so
-                //      synthetic tests + dumps with missing uploads still see content.
-                //   2. RGB present but alpha=0 — game-intentional signal that this draw
-                //      shouldn't contribute (e.g. character rim lighting in inactive state).
-                //      PCSX2 SW uses VRAM as-is here.
-                // Prior over-aggressive external-fallback caused cyan "silver patch" on
-                // character backs by substituting static catalog RGB into case (2).
-                if (!IsAllPixelsZero(pixelsFromVram))
+                var pixelsFromVram = ThawZoneTexVramSupport.DecodeFromTex0(
+                    vram,
+                    tex0,
+                    false,
+                    false,
+                    texaSensitive ? state.Texa : null);
+                if (pixelsFromVram != null)
                 {
-                    texture = new GsTexture(width, height, pixelsFromVram);
-                    textureSource = IsAllAlphaZero(pixelsFromVram) ? "vram_all_alpha_zero" : "vram";
-                    if (textureSource == "vram_all_alpha_zero")
-                        NoteApproximation("texture_vram_all_alpha_zero");
+                    // Use VRAM decode whenever there's *any* pixel data (RGB or alpha).
+                    // Distinguish two cases the renderer must handle differently:
+                    //   1. Fully empty VRAM (all bytes zero) — texture was never uploaded;
+                    //      let TextureResolver / ZoneTextureCatalog provide a fallback so
+                    //      synthetic tests + dumps with missing uploads still see content.
+                    //   2. RGB present but alpha=0 — game-intentional signal that this draw
+                    //      shouldn't contribute (e.g. character rim lighting in inactive state).
+                    //      PCSX2 SW uses VRAM as-is here.
+                    // Prior over-aggressive external-fallback caused cyan "silver patch" on
+                    // character backs by substituting static catalog RGB into case (2).
+                    if (!IsAllPixelsZero(pixelsFromVram))
+                    {
+                        texture = new GsTexture(width, height, pixelsFromVram);
+                        textureSource = IsAllAlphaZero(pixelsFromVram) ? "vram_all_alpha_zero" : "vram";
+                        if (textureSource == "vram_all_alpha_zero")
+                            NoteApproximation("texture_vram_all_alpha_zero");
+                    }
                 }
             }
         }
