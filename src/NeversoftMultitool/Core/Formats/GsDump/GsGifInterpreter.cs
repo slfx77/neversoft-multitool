@@ -373,6 +373,10 @@ internal sealed partial class GsGifInterpreter
             vram.WriteRawBytes(0, memory);
             renderAudit.InitialGsMemorySeeded = true;
             textureCache.Clear();
+            // Seed the on-chip CLUT buffer from the initial TEX0s now that the initial
+            // VRAM snapshot is in place (the register parse above ran before VRAM).
+            LoadClutForTex0(state.Contexts[0].Tex0);
+            LoadClutForTex0(state.Contexts[1].Tex0);
         }
         else
         {
@@ -591,6 +595,12 @@ internal sealed partial class GsGifInterpreter
                 break;
             case 0x15:
                 state.Contexts[1].Tex1 = value;
+                break;
+            case 0x16:
+                SetTex2(value, 0);
+                break;
+            case 0x17:
+                SetTex2(value, 1);
                 break;
             case 0x18:
                 state.Contexts[0].XyOffset = value;
@@ -1311,6 +1321,20 @@ internal sealed partial class GsGifInterpreter
         public ulong FogColor { get; set; }
         public ulong Dthe { get; set; }
         public ulong Dimx { get; set; }
+
+        // GS on-chip CLUT buffer model. The GS copies the palette from VRAM into an
+        // internal 1KB buffer when TEX0/TEX2 is written with CLD>=1; draws then sample
+        // through the on-chip copy, so later VRAM writes to the palette address do NOT
+        // affect already-loaded palettes. Games exploit this to time-multiplex a small
+        // palette pool (THAW cycles shadow/character LUTs through 0x3590-0x359F). We
+        // snapshot the cooked CLUT bytes per load; ClutGeneration keys the texture cache
+        // so palette reloads invalidate decoded textures. v1 scope: snapshots serve
+        // PSMT8-family reads; PSMT4 slot-accumulation (CSA) keeps the live-VRAM path.
+        public byte[]? ClutSnapshot { get; set; }
+        public uint ClutSnapshotCpsm { get; set; }
+        public uint ClutGeneration { get; set; }
+        public uint Cbp0 { get; set; }
+        public uint Cbp1 { get; set; }
         public ulong Bitbltbuf { get; set; }
         public ulong Trxpos { get; set; }
         public ulong Trxreg { get; set; }
@@ -1366,7 +1390,7 @@ internal sealed partial class GsGifInterpreter
 
     private sealed record GsTexture(int Width, int Height, byte[] Rgba);
 
-    private readonly record struct GsTextureCacheKey(ulong Tex0, ulong Texa);
+    private readonly record struct GsTextureCacheKey(ulong Tex0, ulong Texa, uint ClutGen);
 
     private readonly record struct GsSample(float R, float G, float B, float A);
 

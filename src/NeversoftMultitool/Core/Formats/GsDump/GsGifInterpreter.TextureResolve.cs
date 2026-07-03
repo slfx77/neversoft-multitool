@@ -18,7 +18,13 @@ internal sealed partial class GsGifInterpreter
                                 or Ps2GsVram.PSMZ16 or Ps2GsVram.PSMZ16S
                             || (psm is Ps2TexPixelDecoder.PSMT8 or Ps2TexPixelDecoder.PSMT4 &&
                                 cpsm == Ps2TexPixelDecoder.PSMCT16);
-        var cacheKey = new GsTextureCacheKey(tex0, texaSensitive ? state.Texa : 0);
+        // PSMT8-family decodes consume the on-chip CLUT snapshot; a palette reload must
+        // produce a distinct cache entry even though TEX0 is byte-identical (the THAW
+        // palette pool cycles several LUTs through one CBP).
+        var usesClutSnapshot = psm is Ps2TexPixelDecoder.PSMT8 or 0x1B && state.ClutSnapshot != null &&
+                               state.ClutSnapshotCpsm == cpsm;
+        var cacheKey = new GsTextureCacheKey(tex0, texaSensitive ? state.Texa : 0,
+            usesClutSnapshot ? state.ClutGeneration : 0);
 
         if (textureCache.TryGetValue(cacheKey, out var cached))
         {
@@ -77,7 +83,8 @@ internal sealed partial class GsGifInterpreter
                     tex0,
                     false,
                     false,
-                    texaSensitive ? state.Texa : null);
+                    texaSensitive ? state.Texa : null,
+                    usesClutSnapshot ? state.ClutSnapshot : null);
                 if (pixelsFromVram != null)
                 {
                     // Use VRAM decode whenever there's *any* pixel data (RGB or alpha).

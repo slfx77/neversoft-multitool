@@ -97,12 +97,48 @@ internal static class ThawZoneTexVramSupport
         return uploads;
     }
 
+    /// <summary>
+    ///     Fetch and cook the CLUT for an indexed texture read: raw VRAM read at CBP with
+    ///     the CPSM layout, plus the CSM1 unswizzle for 256-entry (PSMT8) palettes. This is
+    ///     the exact palette bytes a decode consumes — callers snapshotting the GS on-chip
+    ///     CLUT buffer at TEX0-write time store this cooked form.
+    /// </summary>
+    internal static byte[]? FetchClut(Ps2GsVram vram, uint psm, uint cbp, uint cpsm, uint csm)
+    {
+        byte[]? clut;
+        if (psm == Ps2TexPixelDecoder.PSMT4 && csm == 0)
+        {
+            clut = ReadClutPsmt4Csm1(vram, cbp, cpsm);
+        }
+        else
+        {
+            var clutW = psm == Ps2TexPixelDecoder.PSMT4 ? 8 : 16;
+            var clutH = psm == Ps2TexPixelDecoder.PSMT4 ? 2 : 16;
+            clut = cpsm switch
+            {
+                Ps2TexPixelDecoder.PSMCT32 => vram.ReadRectPSMCT32(cbp, 1, clutW, clutH),
+                Ps2TexPixelDecoder.PSMCT16 => vram.ReadRectPSMCT16(cbp, 1, clutW, clutH),
+                _ => null
+            };
+        }
+
+        if (clut != null && psm == Ps2TexPixelDecoder.PSMT8)
+        {
+            var clutBpp = Ps2TexPixelDecoder.GetBitsPerPixel(cpsm) / 8;
+            if (clutBpp > 0)
+                UnswizzleClutCsm1(clut, clutBpp);
+        }
+
+        return clut;
+    }
+
     internal static byte[]? DecodeFromTex0(
         Ps2GsVram vram,
         ulong tex0,
         bool flipVertical = true,
         bool fixAllZeroAlpha = true,
-        ulong? texa = null)
+        ulong? texa = null,
+        byte[]? cookedClut = null)
     {
         var tbp0 = (uint)(tex0 & 0x3FFF);
         var tbw = (uint)((tex0 >> 14) & 0x3F);
@@ -168,31 +204,15 @@ internal static class ThawZoneTexVramSupport
         var paletteSize = Ps2TexPixelDecoder.GetPaletteSize(psm);
         if (paletteSize > 0)
         {
-            if (psm == Ps2TexPixelDecoder.PSMT4 && csm == 0)
-            {
-                clut = ReadClutPsmt4Csm1(vram, cbp, cpsm);
-            }
-            else
-            {
-                var clutW = psm == Ps2TexPixelDecoder.PSMT4 ? 8 : 16;
-                var clutH = psm == Ps2TexPixelDecoder.PSMT4 ? 2 : 16;
-                clut = cpsm switch
-                {
-                    Ps2TexPixelDecoder.PSMCT32 => vram.ReadRectPSMCT32(cbp, 1, clutW, clutH),
-                    Ps2TexPixelDecoder.PSMCT16 => vram.ReadRectPSMCT16(cbp, 1, clutW, clutH),
-                    _ => null
-                };
-            }
-
+            // Prefer a caller-provided cooked CLUT (the GS on-chip CLUT buffer snapshot
+            // taken at TEX0-write time). Games time-multiplex palette VRAM: they upload a
+            // palette, set TEX0 with CLD>=1 (the GS copies it on-chip), then overwrite the
+            // same VRAM with other palettes before the draw kicks. Reading VRAM at
+            // draw/decode time therefore fetches the WRONG palette (THAW shadow-decal
+            // pool at 0x3590-0x359F).
+            clut = cookedClut ?? FetchClut(vram, psm, cbp, cpsm, csm);
             if (clut == null)
                 return null;
-
-            if (psm == Ps2TexPixelDecoder.PSMT8)
-            {
-                var clutBpp = Ps2TexPixelDecoder.GetBitsPerPixel(cpsm) / 8;
-                if (clutBpp > 0)
-                    UnswizzleClutCsm1(clut, clutBpp);
-            }
         }
 
         return Ps2TexPixelDecoder.DecodePixels(
