@@ -163,8 +163,17 @@ internal static class MeshConverterTabFileScanner
         {
             ct.ThrowIfCancellationRequested();
             var source = new ArchiveAssetSource(backend, archiveEntry);
-            var virtualPath = $"{archiveName}::{archiveEntry.Name}";
+            var virtualPath = $"{archiveName}::{archiveEntry.FullName}";
             var entry = TryScanEntry(source, virtualPath, rootDir: "", iskinStems: null);
+
+            // Nested worldzone PAKs (z_*.pak.ps2 inside DATAP.WAD) aren't mesh
+            // files themselves — probe them as worldzone containers.
+            if (entry == null &&
+                (EndsWith(archiveEntry.Name, ".pak.ps2") || EndsWith(archiveEntry.Name, ".pak")))
+            {
+                entry = ScanPakWorldzoneFile(source, virtualPath, rootDir: "");
+            }
+
             if (entry != null)
                 results.Add(entry);
         }
@@ -622,15 +631,16 @@ internal static class MeshConverterTabFileScanner
 
     private static MeshFileEntry? ScanPakWorldzoneFile(AssetSource source, string displayPath, string rootDir)
     {
-        var fileSystemPath = source.FileSystemPath;
-        if (fileSystemPath == null) return null; // Worldzone requires a real PAK path
-
         try
         {
-            if (!Ps2WorldzoneDetection.IsWorldzonePak(fileSystemPath))
+            // Byte-based so worldzone PAKs nested inside a parent archive
+            // (e.g. z_bh.pak.ps2 inside DATAP.WAD) are detected the same way
+            // as on-disk PAK files.
+            var data = source.ReadBytes();
+            if (!Ps2WorldzoneDetection.IsWorldzonePak(data))
                 return null;
 
-            var typed = PakArchive.GetTypedEntries(fileSystemPath);
+            var typed = PakArchive.GetTypedEntries(data);
             var mdlCount = typed.Count(e =>
                 e.TypeHash == Ps2WorldzoneDetection.WorldzoneMdlTypeHash
                 || e.TypeHash == Ps2WorldzoneDetection.WorldzoneLevelMdlTypeHash);
@@ -639,7 +649,7 @@ internal static class MeshConverterTabFileScanner
 
             return new MeshFileEntry
             {
-                FileName = Path.GetFileName(fileSystemPath),
+                FileName = source.EntryName,
                 FilePath = displayPath,
                 RelativePath = MakeRelativePath(displayPath, rootDir),
                 Format = "PS2 (THAW worldzone)",

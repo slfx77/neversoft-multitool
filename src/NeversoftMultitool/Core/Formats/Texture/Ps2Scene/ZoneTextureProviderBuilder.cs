@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Mesh;
 
 namespace NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
@@ -82,6 +83,63 @@ public static class ZoneTextureProviderBuilder
         var csa = (tex0 >> 56) & 0x1FUL;
         return tbp | (tbw << 14) | (psm << 20) | (tw << 26) | (th << 30) |
                (cbp << 34) | (cpsm << 48) | (csm << 52) | (csa << 53);
+    }
+
+    /// <summary>
+    ///     Archive-nested equivalent of the sibling-PAK gather: for a worldzone PAK
+    ///     entry inside a parent archive (e.g. z_bh.pak.ps2 inside DATAP.WAD),
+    ///     collects the entry itself plus every same-directory sibling whose name
+    ///     shares the zone stem (z_bh.pak.ps2 + z_bh_*.pak.ps2), reading each
+    ///     entry's bytes from the backend. The main entry is flagged for
+    ///     source-hint resolution.
+    /// </summary>
+    public static List<ZoneTextureCatalog.ZoneTexSource> GetTexByteSources(
+        ArchiveAssetBackend backend,
+        ArchiveEntry mainEntry)
+    {
+        var sources = new List<ZoneTextureCatalog.ZoneTexSource>();
+
+        void Add(ArchiveEntry entry, bool isMain)
+        {
+            try
+            {
+                sources.Add(new ZoneTextureCatalog.ZoneTexSource(
+                    entry.FullName,
+                    backend.ReadEntryBytes(entry),
+                    isMain));
+            }
+            catch
+            {
+                // Skip unreadable entries.
+            }
+        }
+
+        Add(mainEntry, isMain: true);
+
+        var stem = GetZoneStem(mainEntry.Name);
+        if (stem == null)
+            return sources;
+
+        foreach (var candidate in backend.Entries)
+        {
+            if (ReferenceEquals(candidate, mainEntry))
+                continue;
+            if (!string.Equals(candidate.Directory, mainEntry.Directory, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!candidate.Name.EndsWith(".pak.ps2", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var candidateStem = GetPakStem(candidate.Name);
+            if (candidateStem == null)
+                continue;
+            if (string.Equals(candidateStem, stem, StringComparison.OrdinalIgnoreCase)
+                || candidateStem.StartsWith(stem + "_", StringComparison.OrdinalIgnoreCase))
+            {
+                Add(candidate, isMain: false);
+            }
+        }
+
+        return sources;
     }
 
     private static List<string> GetSiblingPakFiles(string pakPath)

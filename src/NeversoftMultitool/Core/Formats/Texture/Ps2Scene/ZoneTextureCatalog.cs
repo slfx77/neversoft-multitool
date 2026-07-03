@@ -89,29 +89,65 @@ public sealed class ZoneTextureCatalog
         if (texFiles.Count == 0)
             return false;
 
+        var mainPath = File.Exists(texPath) ? Path.GetFullPath(texPath) : null;
+        var byteSources = new List<ZoneTexSource>(texFiles.Count);
+        foreach (var tf in texFiles)
+        {
+            try
+            {
+                var fullPath = Path.GetFullPath(tf);
+                byteSources.Add(new ZoneTexSource(
+                    fullPath,
+                    File.ReadAllBytes(tf),
+                    mainPath != null && string.Equals(fullPath, mainPath, StringComparison.OrdinalIgnoreCase)));
+            }
+            catch
+            {
+                // Skip unreadable files.
+            }
+        }
+
+        return TryBuild(byteSources, out catalog, log);
+    }
+
+    /// <summary>
+    ///     Byte-source variant used when the worldzone PAK (and its sibling PAKs)
+    ///     live inside a parent archive rather than on disk. Each source carries a
+    ///     stable label used for source-hint resolution; exactly one source should
+    ///     be flagged as main (the worldzone PAK being converted).
+    /// </summary>
+    public static bool TryBuild(
+        IReadOnlyList<ZoneTexSource> texSources,
+        out ZoneTextureCatalog? catalog,
+        Action<string>? log = null)
+    {
+        catalog = null;
+        if (texSources.Count == 0)
+            return false;
+
         var textureCache = new Dictionary<uint, Ps2Texture>();
         var sources = new List<SourceInfo>();
         var entries = new List<EntryRecord>();
         var zoneTexCount = 0;
-        var mainPath = File.Exists(texPath) ? Path.GetFullPath(texPath) : null;
 
-        for (var sourceIndex = 0; sourceIndex < texFiles.Count; sourceIndex++)
+        for (var sourceIndex = 0; sourceIndex < texSources.Count; sourceIndex++)
         {
-            var tf = texFiles[sourceIndex];
+            var texSource = texSources[sourceIndex];
             var source = new SourceInfo(
                 sourceIndex,
-                Path.GetFullPath(tf),
-                Path.GetFileName(tf),
-                mainPath != null && string.Equals(Path.GetFullPath(tf), mainPath, StringComparison.OrdinalIgnoreCase));
+                texSource.Label,
+                Path.GetFileName(texSource.Label),
+                texSource.IsMain);
             sources.Add(source);
 
             try
             {
-                var data = File.ReadAllBytes(tf);
-                if (tf.EndsWith(".pak.ps2", StringComparison.OrdinalIgnoreCase)
-                    && PakArchive.IsPakArchive(tf))
+                var data = texSource.Data;
+                var isPakName = texSource.Label.EndsWith(".pak.ps2", StringComparison.OrdinalIgnoreCase)
+                                || texSource.Label.EndsWith(".pak", StringComparison.OrdinalIgnoreCase);
+                if (isPakName && PakArchive.IsPakArchive(data))
                 {
-                    foreach (var entry in PakArchive.GetTypedEntries(tf))
+                    foreach (var entry in PakArchive.GetTypedEntries(data))
                     {
                         if (entry.TypeHash is not (0x2B0A3095u /* .stex */ or 0x8BFA5E8Eu /* .tex */))
                             continue;
@@ -152,7 +188,7 @@ public sealed class ZoneTextureCatalog
             }
             catch
             {
-                // Skip unreadable files.
+                // Skip undecodable sources.
             }
         }
 
@@ -163,6 +199,9 @@ public sealed class ZoneTextureCatalog
         catalog = new ZoneTextureCatalog(textureCache, sources, entries);
         return true;
     }
+
+    /// <summary>One named zone-texture byte source (a .pak.ps2 blob or a raw zone tex file).</summary>
+    public readonly record struct ZoneTexSource(string Label, byte[] Data, bool IsMain);
 
     internal static ZoneTextureCatalog CreateForTests(
         string mainSourceLabel,

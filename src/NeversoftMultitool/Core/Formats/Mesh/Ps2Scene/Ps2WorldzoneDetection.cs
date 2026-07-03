@@ -24,15 +24,38 @@ public static class Ps2WorldzoneDetection
         {
             if (!PakArchive.IsPakArchive(pakPath))
                 return false;
-            var typed = PakArchive.GetTypedEntries(pakPath);
-            var hasMdl = typed.Any(e =>
-                e.TypeHash == WorldzoneMdlTypeHash || e.TypeHash == WorldzoneLevelMdlTypeHash);
-            if (!hasMdl) return false;
-            return typed.Any(e => e.TypeHash == WorldzonePlacementTypeHash);
+            return HasWorldzoneEntries(PakArchive.GetTypedEntries(pakPath));
         }
         catch
         {
             return false;
         }
+    }
+
+    /// <summary>
+    ///     Byte variant of <see cref="IsWorldzonePak(string)" /> for worldzone PAKs
+    ///     nested inside a parent archive (e.g. THAW's DATAP.WAD), where no
+    ///     filesystem path exists.
+    /// </summary>
+    public static bool IsWorldzonePak(byte[] data)
+    {
+        try
+        {
+            if (!PakArchive.IsPakArchive(data))
+                return false;
+            return HasWorldzoneEntries(PakArchive.GetTypedEntries(data));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool HasWorldzoneEntries(List<(uint TypeHash, ArchiveEntry Entry)> typed)
+    {
+        var hasMdl = typed.Any(e =>
+            e.TypeHash == WorldzoneMdlTypeHash || e.TypeHash == WorldzoneLevelMdlTypeHash);
+        if (!hasMdl) return false;
+        return typed.Any(e => e.TypeHash == WorldzonePlacementTypeHash);
     }
 }

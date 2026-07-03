@@ -323,7 +323,22 @@ public sealed class MeshModelParser : IModelParser
         Ps2Tex0ChecksumResolver? tex0Resolver = null;
         ZoneTextureCatalog? textureCatalog = null;
 
-        if (ZoneTextureCatalog.TryBuild(texPath, out textureCatalog) && textureCatalog != null)
+        if (texPath == null && request.Source is ArchiveAssetSource archiveSource)
+        {
+            // Worldzone PAK nested inside a parent archive (e.g. DATAP.WAD): pool the
+            // entry itself plus its same-directory sibling PAKs for texture lookup,
+            // mirroring the sibling-file scan used for on-disk worldzone PAKs.
+            var byteSources = ZoneTextureProviderBuilder.GetTexByteSources(
+                archiveSource.Backend, archiveSource.Entry);
+            if (ZoneTextureCatalog.TryBuild(byteSources, out textureCatalog) && textureCatalog != null)
+                textureSourceHint = archiveSource.Entry.FullName;
+        }
+        else
+        {
+            ZoneTextureCatalog.TryBuild(texPath, out textureCatalog);
+        }
+
+        if (textureCatalog != null)
         {
             textureProvider = textureCatalog.CreateTextureResolver();
             texaTextureProvider = textureCatalog.CreateTexaAwareTextureResolver();
