@@ -1,6 +1,6 @@
 # Neversoft Multitool
 
-.NET 10.0 tool for extracting and converting assets from Neversoft Entertainment game files, spanning the PS1, Dreamcast, Xbox, GameCube, PC, and PS2 eras (1998–2007). Features a WinUI 3 GUI on Windows and a cross-platform CLI that share the same format decoders.
+.NET 10.0 tool for extracting and converting assets from Neversoft Entertainment game files, spanning the PS1, Dreamcast, Xbox, GameCube, PC, and PS2 eras (1998–2006). Features a WinUI 3 GUI on Windows and a cross-platform CLI that share the same format decoders.
 
 ## Supported Formats
 
@@ -92,8 +92,11 @@ Both SFD and STR play back in-app in the **Video Converter** tab.
 - Tony Hawk's Underground (PS2, 2003)
 - Tony Hawk's Underground 2 (PS2 / Xbox / Windows, 2004)
 - Tony Hawk's American Wasteland (PS2 / GameCube / PC, 2005–2006)
-- Tony Hawk's Project 8 (PS2, 2006)
-- Tony Hawk's Proving Ground (PS2, 2007)
+
+Later PS2 titles (Project 8, 2006; Proving Ground, 2007) reuse the same engine
+formats — textures and simpler meshes convert, but their character meshes use a
+strip layout that isn't reconstructed correctly yet, and their collision format
+is a newer unsupported version. They are not validated targets.
 
 ## Requirements
 
