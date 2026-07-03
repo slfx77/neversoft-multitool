@@ -1,21 +1,35 @@
 # Backlog — Mesh Reconstruction Fidelity
 
-Created 2026-07-03. Distilled from `CLAUDE.md` (*Research & Improvements*) + `memory/` — **not re-verified this session**; confirm against HEAD before deep work. See `BACKLOG_SUMMARY.md`.
+Created 2026-07-03; **sweep-verified 2026-07-03**. See `BACKLOG_SUMMARY.md`.
 
 **Status legend:** 🔴 Open · 🔶 Partial · 🟢 Verified this session · ✅ Done · ⚪ By design
 
-**Cross-ref:** `game-thpg-p8.md` (the `(1,8,8)` skin garble is the same class of strip-reconstruction bug), `memory/psx_mesh_format.md`, `memory/psx_mesh_blender_comparison.md`, `memory/thaw_worldzone_phase420_solved.md`.
+**Cross-ref:** `game-thpg-p8.md` (the `(1,8,8)` skin garble is a genuine, still-open strip-reconstruction bug — the one clearly-broken mesh path), `memory/thaw_worldzone_phase420_solved.md`.
+
+> **⚠ The `CLAUDE.md` / `memory/` mesh-fidelity notes are STALE.** A 2026-07-03 conversion+render sweep (below) shows the character-mesh paths that those notes call "garbled / missing parts" now render **correctly** at HEAD. Trust the sweep, not the older prose. Corrected the same day I first (wrongly) transcribed the stale notes into this file — same lesson as the `README.md` "tested games" overstatement.
+
+---
+
+## Verified GOOD at HEAD (🟢 2026-07-03 sweep)
+
+Conversion + `glb-render` inspection, current HEAD (post-v1.2.1 alpha fix `884d018`):
+
+- **THAW PS2 character skins — whole corpus clean.** `mesh` over the full THAW `DATAP/models` tree: **332/332 files convert, 227,487 tris, 0 failures, 0 anomalies** (no 0-tri, no glTF errors). All 41 `skater_pro` skins convert with sane counts.
+- **Chad Muska (the reported case) is FIXED.** Front/back/side renders show hair present + solid torso; **3,488 tris vs PC 3,491 = 99.9% recall.** The reported "missing hair + hole in torso" was the GS-alpha export regression (`884d018` / v1.2.1), **not** a geometry gap — both symptoms were the over-culled alpha mask.
+- **The documented THAW worst-cases are resolved.** `skater_lasek` now **3,070/3,070 tris (100% recall**, up from the 2,930/95% in `memory/thaw_ps2_skin_format.md`) and renders clean. `pro_vallely_head` renders a complete head (the "PC Mesh 2 entirely absent" note is stale).
+- **PSX (PS1) character models render correctly** — contradicting the `CLAUDE.md` "garbled / misaligned body parts" note. Spider-Man `blackcat`/`carnage` and THPS2 `burnq2`/`cab` all convert + render as complete, correct characters.
+
+**Takeaway:** the meshes we *claim* to support are in good shape. The remaining real mesh work is (a) the genuinely-broken **THPG/P8 `(1,8,8)` skins** (see `game-thpg-p8.md` — a format we don't yet claim), and (b) turning "good on a broad sample" into "proven across the corpus" via the QA harness below.
 
 ---
 
 ## Remaining — needs work
 
-### 🔶 PSX (PS1) character models produce wrong geometry
-- Source: `CLAUDE.md` → *Research & Improvements* → "PSX mesh conversion".
-- Evidence (per `CLAUDE.md`): the parser (`Core/Formats/Mesh/Psx/PsxMeshFile.cs`), glTF writer (`PsxGltfWriter.cs`), CLI (`CLI/PsxMeshCommand.cs`), and GUI tab exist. **Level geometry (`_g.psx`) works; character models render garbled / misaligned body parts.** No community tool implements a catch-all across the format variants.
-- What's left: character models use the "Super" skeleton path (item flag bit `0x02`) and stitched/attachable vertex types (`memory/psx_mesh_format.md`: vertex types 0/1/2/16; face flag bits `0x0040`/`0x0080`). The known-missing piece per `memory/psx_mesh_blender_comparison.md` is **face-flag manipulation** not implemented in either our code or the Blender fork. Next step there: a diagnostic comparing our parse vs. the `io_ns_psxtools_v4_apoc` Blender fork on the same file. Decompilation ground truth: THPS2 PSX proto (`M3dInit_ParsePSX`, `M3dAsm_TransformAndOutcodeSuperVertices`).
+### 🔴 Build a mesh-QA regression harness (the real remaining fidelity work)
+- Source: this session — the fidelity story is currently "looks good when spot-checked," which is how the stale notes above went unnoticed.
+- What's left: a repeatable sweep that, across every supported mesh format + game, (1) batch-converts and flags hard failures (0-tri, glTF-validator errors), (2) where a PC/`.wpc` or other ground truth exists, computes **triangle recall** and flags files below a threshold, and (3) emits a render **contact sheet** for eyeball review. Wire it as a `tools/diagnostics/` script (Python over the CLI + `glb-render`) so regressions like the alpha bug are caught mechanically, not by a user noticing a hole months later. This is the durable answer to "are the meshes we claim to support actually perfect."
 
-### 🔶 THAW worldzone level geometry — "missing parts"
+### 🔶 THAW worldzone level geometry — "missing parts" (NOT re-verified this session)
 - Source: `memory/thaw_worldzone_phase420_solved.md` (user visual feedback after phase-420: *"level layout is now there, looks accurate, mostly correct textures… still missing parts"*).
 - Evidence: the level-MDL leaf sub-chunk format is solved and 3,977/3,977 leaves parse (z_bh: 49,935 tris, validator-clean). Known residual limits documented in that memory file:
   - **Triangle-efficiency cap** — Format-A leaves average ~12 drawn tris after ADC degenerate suppression; we can't extract more than the engine draws (⚪ by design).
