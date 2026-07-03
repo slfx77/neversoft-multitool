@@ -16,6 +16,10 @@ internal static class Ps2TexPixelDecoder
 
     /// <summary>
     ///     Decodes raw pixel data to RGBA8888, then flips vertically (PS2 stores bottom-up).
+    ///     By default alpha is rescaled from the GS convention (128 = fully opaque) to the
+    ///     standard PNG/glTF 0-255 range. Pass <paramref name="rawGsAlpha" /> = true to keep
+    ///     the raw GS alpha byte instead — required by the GS replay pipeline whose blend
+    ///     math divides by 128 per PS2 GS spec.
     /// </summary>
     internal static byte[]? DecodePixels(
         ReadOnlySpan<byte> texData,
@@ -26,28 +30,29 @@ internal static class Ps2TexPixelDecoder
         byte[]? clut,
         bool flipVertical = true,
         bool fixAllZeroAlpha = true,
-        ulong? texa = null)
+        ulong? texa = null,
+        bool rawGsAlpha = false)
     {
         var pixels = new byte[width * height * 4];
 
         switch (psm)
         {
             case PSMCT32:
-                DecodePsmct32(texData, pixels, width, height);
+                DecodePsmct32(texData, pixels, width, height, rawGsAlpha);
                 break;
             case PSMCT24:
-                DecodePsmct24(texData, pixels, width, height, texa);
+                DecodePsmct24(texData, pixels, width, height, texa, rawGsAlpha);
                 break;
             case PSMCT16:
-                DecodePsmct16(texData, pixels, width, height, texa);
+                DecodePsmct16(texData, pixels, width, height, texa, rawGsAlpha);
                 break;
             case PSMT8:
                 if (clut == null) return null;
-                DecodePsmt8(texData, pixels, width, height, clut, cpsm, texa);
+                DecodePsmt8(texData, pixels, width, height, clut, cpsm, texa, rawGsAlpha);
                 break;
             case PSMT4:
                 if (clut == null) return null;
-                DecodePsmt4(texData, pixels, width, height, clut, cpsm, texa);
+                DecodePsmt4(texData, pixels, width, height, clut, cpsm, texa, rawGsAlpha);
                 break;
             default:
                 return null;
@@ -151,7 +156,7 @@ internal static class Ps2TexPixelDecoder
             pixels[i] = 255;
     }
 
-    private static void DecodePsmct32(ReadOnlySpan<byte> src, byte[] dst, int width, int height)
+    private static void DecodePsmct32(ReadOnlySpan<byte> src, byte[] dst, int width, int height, bool rawGsAlpha)
     {
         for (var i = 0; i < width * height; i++)
         {
@@ -160,16 +165,17 @@ internal static class Ps2TexPixelDecoder
             dst[di] = src[si]; // R
             dst[di + 1] = src[si + 1]; // G
             dst[di + 2] = src[si + 2]; // B
-            dst[di + 3] = ScaleAlpha(src[si + 3]); // A: PS2 0-128 -> 0-255
+            dst[di + 3] = ScaleAlpha(src[si + 3], rawGsAlpha); // A: PS2 0-128 -> 0-255
         }
     }
 
-    private static void DecodePsmct24(ReadOnlySpan<byte> src, byte[] dst, int width, int height, ulong? texa)
+    private static void DecodePsmct24(ReadOnlySpan<byte> src, byte[] dst, int width, int height, ulong? texa,
+        bool rawGsAlpha)
     {
         // PSMCT24 has no native alpha. PS2 GS provides it via TEXA.TA0 (a raw 8-bit byte
         // where 128 = nominal full = blend factor 1.0). With AEM=1, fully-black RGB pixels
         // get alpha=0 instead. Default to 128 if TEXA isn't supplied (matches "opaque" intent).
-        var ta0 = texa.HasValue ? (byte)(texa.Value & 0xFF) : (byte)128;
+        var ta0 = ScaleAlpha(texa.HasValue ? (byte)(texa.Value & 0xFF) : (byte)128, rawGsAlpha);
         var aem = texa.HasValue && ((texa.Value >> 15) & 1) != 0;
         for (var i = 0; i < width * height; i++)
         {
@@ -185,7 +191,8 @@ internal static class Ps2TexPixelDecoder
         }
     }
 
-    private static void DecodePsmct16(ReadOnlySpan<byte> src, byte[] dst, int width, int height, ulong? texa)
+    private static void DecodePsmct16(ReadOnlySpan<byte> src, byte[] dst, int width, int height, ulong? texa,
+        bool rawGsAlpha)
     {
         for (var i = 0; i < width * height; i++)
         {
@@ -196,12 +203,12 @@ internal static class Ps2TexPixelDecoder
             dst[di] = (byte)(((pixel & 0x1F) << 3) | ((pixel & 0x1F) >> 2)); // R
             dst[di + 1] = (byte)((((pixel >> 5) & 0x1F) << 3) | (((pixel >> 5) & 0x1F) >> 2)); // G
             dst[di + 2] = (byte)((((pixel >> 10) & 0x1F) << 3) | (((pixel >> 10) & 0x1F) >> 2)); // B
-            dst[di + 3] = texa.HasValue ? ExpandTexaAlpha(pixel, texa.Value) : (byte)255;
+            dst[di + 3] = texa.HasValue ? ExpandTexaAlpha(pixel, texa.Value, rawGsAlpha) : (byte)255;
         }
     }
 
     private static void DecodePsmt8(ReadOnlySpan<byte> src, byte[] dst, int width, int height,
-        byte[] clut, uint cpsm, ulong? texa)
+        byte[] clut, uint cpsm, ulong? texa, bool rawGsAlpha)
     {
         var clutBpp = GetBitsPerPixel(cpsm) / 8;
 
@@ -209,12 +216,12 @@ internal static class Ps2TexPixelDecoder
         {
             var colorIndex = src[i];
             var di = i * 4;
-            ReadClutEntry(clut, colorIndex, clutBpp, cpsm, dst, di, texa);
+            ReadClutEntry(clut, colorIndex, clutBpp, cpsm, dst, di, texa, rawGsAlpha);
         }
     }
 
     private static void DecodePsmt4(ReadOnlySpan<byte> src, byte[] dst, int width, int height,
-        byte[] clut, uint cpsm, ulong? texa)
+        byte[] clut, uint cpsm, ulong? texa, bool rawGsAlpha)
     {
         var clutBpp = GetBitsPerPixel(cpsm) / 8;
 
@@ -225,11 +232,12 @@ internal static class Ps2TexPixelDecoder
                 ? src[byteIndex] & 0x0F // low nibble first
                 : (src[byteIndex] >> 4) & 0x0F; // high nibble
             var di = i * 4;
-            ReadClutEntry(clut, colorIndex, clutBpp, cpsm, dst, di, texa);
+            ReadClutEntry(clut, colorIndex, clutBpp, cpsm, dst, di, texa, rawGsAlpha);
         }
     }
 
-    private static void ReadClutEntry(byte[] clut, int index, int clutBpp, uint cpsm, byte[] dst, int di, ulong? texa)
+    private static void ReadClutEntry(byte[] clut, int index, int clutBpp, uint cpsm, byte[] dst, int di, ulong? texa,
+        bool rawGsAlpha)
     {
         var ci = index * clutBpp;
         if (ci + clutBpp > clut.Length)
@@ -244,7 +252,7 @@ internal static class Ps2TexPixelDecoder
             dst[di] = clut[ci]; // R
             dst[di + 1] = clut[ci + 1]; // G
             dst[di + 2] = clut[ci + 2]; // B
-            dst[di + 3] = ScaleAlpha(clut[ci + 3]);
+            dst[di + 3] = ScaleAlpha(clut[ci + 3], rawGsAlpha);
         }
         else // PSMCT16
         {
@@ -253,7 +261,7 @@ internal static class Ps2TexPixelDecoder
             dst[di] = (byte)(((pixel & 0x1F) << 3) | ((pixel & 0x1F) >> 2));
             dst[di + 1] = (byte)((((pixel >> 5) & 0x1F) << 3) | (((pixel >> 5) & 0x1F) >> 2));
             dst[di + 2] = (byte)((((pixel >> 10) & 0x1F) << 3) | (((pixel >> 10) & 0x1F) >> 2));
-            dst[di + 3] = texa.HasValue ? ExpandTexaAlpha(pixel, texa.Value) : (byte)255;
+            dst[di + 3] = texa.HasValue ? ExpandTexaAlpha(pixel, texa.Value, rawGsAlpha) : (byte)255;
         }
     }
 
@@ -262,9 +270,11 @@ internal static class Ps2TexPixelDecoder
     ///     TEXA register: TA0 for alpha-bit=0, TA1 for alpha-bit=1, with the AEM rule
     ///     forcing alpha=0 when AEM=1 and the pixel is fully black with alpha-bit=0. Used
     ///     by both texture decode (PSMCT16 textures + PSMCT16 CLUTs) and framebuffer Cd
-    ///     reads (PSMCT16/16S framebuffers sampled during ABE blending).
+    ///     reads (PSMCT16/16S framebuffers sampled during ABE blending). Defaults to raw
+    ///     GS alpha because the framebuffer-read callers feed GS blend math (/128); the
+    ///     texture-decode paths pass their caller's <c>rawGsAlpha</c> explicitly.
     /// </summary>
-    internal static byte ExpandTexaAlpha(ushort pixel, ulong texa)
+    internal static byte ExpandTexaAlpha(ushort pixel, ulong texa, bool rawGsAlpha = true)
     {
         var alphaBitSet = (pixel & 0x8000) != 0;
         var gsAlpha = alphaBitSet ? (byte)((texa >> 32) & 0xFF) : (byte)(texa & 0xFF);
@@ -272,18 +282,19 @@ internal static class Ps2TexPixelDecoder
         if (aem && !alphaBitSet && (pixel & 0x7FFF) == 0)
             gsAlpha = 0;
 
-        return ScaleAlpha(gsAlpha);
+        return ScaleAlpha(gsAlpha, rawGsAlpha);
     }
 
     /// <summary>
-    ///     PS2 GS stores alpha as a raw 8-bit byte where 128 = nominal full (blend factor 1.0)
-    ///     and values up to 255 yield HDR-style blend factors up to ~1.99 (matches
-    ///     PCSX2's <see href="../../../../Sample/pcsx2/pcsx2/GS/GSLocalMemory.h">WritePixel32</see>
-    ///     which stores the raw byte). Return the raw byte; downstream blend math
-    ///     uses <c>alpha / 128</c> per PS2 GS spec.
+    ///     PS2 GS stores alpha as a raw 8-bit byte where 128 = nominal full (blend factor
+    ///     1.0, matching PCSX2's
+    ///     <see href="../../../../Sample/pcsx2/pcsx2/GS/GSLocalMemory.h">WritePixel32</see>
+    ///     which stores the raw byte). The GS replay pipeline needs that raw byte because
+    ///     its blend math uses <c>alpha / 128</c> per PS2 GS spec; PNG/glTF export needs
+    ///     the 0-255 convention (255 = opaque), so it rescales via <c>alpha * 255 / 128</c>.
     /// </summary>
-    private static byte ScaleAlpha(byte gsAlpha)
+    private static byte ScaleAlpha(byte gsAlpha, bool rawGsAlpha)
     {
-        return gsAlpha;
+        return rawGsAlpha ? gsAlpha : (byte)Math.Min(gsAlpha * 255 / 128, 255);
     }
 }

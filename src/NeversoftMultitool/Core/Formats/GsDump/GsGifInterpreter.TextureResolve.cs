@@ -84,7 +84,8 @@ internal sealed partial class GsGifInterpreter
                     false,
                     false,
                     texaSensitive ? state.Texa : null,
-                    usesClutSnapshot ? state.ClutSnapshot : null);
+                    usesClutSnapshot ? state.ClutSnapshot : null,
+                    rawGsAlpha: true); // GS blend math consumes raw GS alpha (/128), not PNG-scaled.
                 if (pixelsFromVram != null)
                 {
                     // Use VRAM decode whenever there's *any* pixel data (RGB or alpha).

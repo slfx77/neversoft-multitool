@@ -138,7 +138,8 @@ internal static class ThawZoneTexVramSupport
         bool flipVertical = true,
         bool fixAllZeroAlpha = true,
         ulong? texa = null,
-        byte[]? cookedClut = null)
+        byte[]? cookedClut = null,
+        bool rawGsAlpha = false)
     {
         var tbp0 = (uint)(tex0 & 0x3FFF);
         var tbw = (uint)((tex0 >> 14) & 0x3F);
@@ -224,7 +225,8 @@ internal static class ThawZoneTexVramSupport
             clut,
             flipVertical,
             fixAllZeroAlpha,
-            texa);
+            texa,
+            rawGsAlpha);
     }
 
     private static byte[] StripAlphaTo24(byte[] raw32, int tw, int th)

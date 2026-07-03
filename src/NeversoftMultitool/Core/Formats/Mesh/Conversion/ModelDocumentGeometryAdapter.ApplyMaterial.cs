@@ -74,7 +74,7 @@ internal static partial class ModelDocumentGeometryAdapter
             if (material.AlphaRef >= 1)
             {
                 renderMaterial.AlphaMode = ModelAlphaMode.Mask;
-                renderMaterial.AlphaCutoff = material.AlphaRef / 255f;
+                renderMaterial.AlphaCutoff = GsAlphaRefToCutoff(material.AlphaRef);
             }
 
             return;
@@ -83,6 +83,11 @@ internal static partial class ModelDocumentGeometryAdapter
         if (material.IsOpaqueBlend)
         {
             renderMaterial.AlphaMode = ModelAlphaMode.Mask;
+            // Alpha-tested cutout (hair, clothing fringes). Use the AREF the game's own
+            // DIRECT block programmed when we captured one; the 0.5 default only covers
+            // entries whose setup block carried no alpha test.
+            if (material.AlphaRef >= 1)
+                renderMaterial.AlphaCutoff = GsAlphaRefToCutoff(material.AlphaRef);
             return;
         }
 
@@ -180,6 +185,16 @@ internal static partial class ModelDocumentGeometryAdapter
         }
 
         return leaf.Vertices.All(static vertex => vertex.IsStripRestart || vertex.A >= 128);
+    }
+
+    /// <summary>
+    ///     Convert a GS alpha-test reference (raw GS byte, 128 = nominal 1.0) to a glTF
+    ///     MASK cutoff. Exported PNG alpha is rescaled by 255/128, so the cutoff must be
+    ///     rescaled the same way: AREF/128 clamped to 1.0.
+    /// </summary>
+    private static float GsAlphaRefToCutoff(int alphaRef)
+    {
+        return Math.Min(alphaRef / 128f, 1f);
     }
 
     private static void ApplyPs2FixedBlendAlpha(RenderMaterial renderMaterial, ulong alpha)
