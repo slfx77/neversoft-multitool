@@ -19,7 +19,7 @@ Conversion + `glb-render` inspection, current HEAD (post-v1.2.1 alpha fix `884d0
 - **The documented THAW worst-cases are resolved.** `skater_lasek` now **3,070/3,070 tris (100% recall**, up from the 2,930/95% in `memory/thaw_ps2_skin_format.md`) and renders clean. `pro_vallely_head` renders a complete head (the "PC Mesh 2 entirely absent" note is stale).
 - **PSX (PS1) character models render correctly** — contradicting the `CLAUDE.md` "garbled / misaligned body parts" note. Spider-Man `blackcat`/`carnage` and THPS2 `burnq2`/`cab` all convert + render as complete, correct characters.
 
-**Takeaway:** the meshes we *claim* to support are in good shape. The remaining real mesh work is (a) the genuinely-broken **THPG/P8 `(1,8,8)` skins** (see `game-thpg-p8.md` — a format we don't yet claim), and (b) turning "good on a broad sample" into "proven across the corpus" via the QA harness below.
+**Takeaway:** the meshes we *claim* to support are in good shape. The remaining real mesh work is (a) the genuinely-broken **Proving Ground (2007) character skins** — a VIF vertex re-encoding our decoder misreads; Project 8 skins render fine (see `game-thpg-p8.md`) — and (b) turning "good on a broad sample" into "proven across the corpus" via the QA harness below.
 
 ---
 

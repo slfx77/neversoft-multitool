@@ -18,13 +18,13 @@ Sources: the **THPG/Project 8** stream is **verified this session** (conversions
 
 | File | Stream | Headline gap | Status |
 |---|---|---|---|
-| `game-thpg-p8.md` | THPG + Project 8 (PS2) support | Character skin meshes garble; `.col` unsupported | 🟢🔶 verified |
+| `game-thpg-p8.md` | THPG + Project 8 (PS2) support | **P8 skins work**; THPG (2007) skins garble (VIF re-encode); `.col` unsupported | 🟢🔶 verified |
 | `mesh-fidelity.md` | Mesh reconstruction correctness | **Claimed meshes verified good at HEAD**; remaining work = a QA harness + worldzone | 🟢/🔴 |
 | `animation.md` | Skeletal animation | THPS3 SKA spasms; RW DFF T-pose only; PSX anim per-game | 🔶 |
 | `gsreplay-fidelity.md` | THAW GS-replay render fidelity | Shadow-decal streaks; residual over-brightness | 🔶 (research) |
 | `formats-todo.md` | Unimplemented / deferred formats | THAW `.tex.ps2` metadata; PPV container; STR VLC drift | 🔴/🔶 |
 
-> **Mesh-fidelity sweep (2026-07-03):** the meshes we *claim* to support are healthy at HEAD — THAW skins **332/332** convert (Muska fixed; `skater_lasek` 100% recall); PSX characters (Spider-Man, THPS2) render correctly. The `CLAUDE.md`/`memory` "garbled character mesh" notes are **stale**. The only genuinely-broken mesh path is the **THPG/P8 `(1,8,8)` skins** (an unclaimed format — `game-thpg-p8.md`). See `mesh-fidelity.md` for the sweep evidence.
+> **Mesh-fidelity sweep (2026-07-03):** the meshes we *claim* to support are healthy at HEAD — THAW skins **332/332** convert (Muska fixed; `skater_lasek` 100% recall); PSX characters (Spider-Man, THPS2) render correctly. The `CLAUDE.md`/`memory` "garbled character mesh" notes are **stale**. The only genuinely-broken mesh path is **Proving Ground (2007) character skins** — a VIF re-encoding; Project 8 skins render fine (`game-thpg-p8.md`). See `mesh-fidelity.md` for the sweep evidence.
 
 ## Highest-leverage / start-here
 
