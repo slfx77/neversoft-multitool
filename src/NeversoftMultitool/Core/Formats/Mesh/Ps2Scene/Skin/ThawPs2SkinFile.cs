@@ -156,7 +156,10 @@ public static class ThawPs2SkinFile
         var entryTableEnd = (int)(32 + numObjects * 8 + totalMeshes2 * 64);
         var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
         var (vifStart, setupStarts) = ThawPs2SkinVifLayout.ResolveThawSetupBoundaries(data, entryTableEnd, vifEnd);
-        return ThawPs2ReplayEngine.ReplayBatches(data, vifStart, vifEnd, setupStarts);
+        var positionScale = ThpgPositionUnwrapper.UsesQ412Positions(data, entryTableEnd, vifEnd)
+            ? ThawPs2ReplayVertexDecoder.Q412PositionScale
+            : ThawPs2ReplayVertexDecoder.DefaultPositionScale;
+        return ThawPs2ReplayEngine.ReplayBatches(data, vifStart, vifEnd, setupStarts, positionScale);
     }
 
     internal static IReadOnlyList<ThawReplayKickExtractor.ExtractedKick> ReplayExtractKicks(
@@ -171,7 +174,14 @@ public static class ThawPs2SkinFile
         var entryTableEnd = (int)(32 + numObjects * 8 + totalMeshes2 * 64);
         var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
         var (vifStart, setupStarts) = ThawPs2SkinVifLayout.ResolveThawSetupBoundaries(data, entryTableEnd, vifEnd);
-        var replayBatches = ThawPs2ReplayEngine.ReplayBatches(data, vifStart, vifEnd, setupStarts);
+
+        // Proving Ground re-encodes positions as Q4.12 (see ThpgPositionUnwrapper);
+        // decode fine positions at that scale, then unwrap after kick extraction.
+        var usesQ412 = ThpgPositionUnwrapper.UsesQ412Positions(data, entryTableEnd, vifEnd);
+        var positionScale = usesQ412
+            ? ThawPs2ReplayVertexDecoder.Q412PositionScale
+            : ThawPs2ReplayVertexDecoder.DefaultPositionScale;
+        var replayBatches = ThawPs2ReplayEngine.ReplayBatches(data, vifStart, vifEnd, setupStarts, positionScale);
 
         using var ms = new MemoryStream(data);
         using var reader = new BinaryReader(ms);
@@ -188,7 +198,41 @@ public static class ThawPs2SkinFile
         for (var i = 0; i < entries.Length; i++)
             replayEntries[i] = (entries[i].MaterialChecksum, entries[i].HasVertexColors);
 
-        return ThawReplayKickExtractor.ExtractKicks(replayEntries, mappingInfo.SetupEntryIndices, replayBatches);
+        var kicks = ThawReplayKickExtractor.ExtractKicks(replayEntries, mappingInfo.SetupEntryIndices, replayBatches);
+        if (usesQ412)
+            UnwrapQ412Kicks(data, kicks);
+
+        return kicks;
+    }
+
+    /// <summary>
+    ///     Maps each kick's meshes to the per-section bbox record covering its VIF
+    ///     offset, then reconstructs the Q4.12 absolute bands (Proving Ground skins).
+    /// </summary>
+    private static void UnwrapQ412Kicks(byte[] data, IReadOnlyList<ThawReplayKickExtractor.ExtractedKick> kicks)
+    {
+        var sections = ThpgPositionUnwrapper.ReadSectionBounds(data);
+        var allMeshes = new List<Ps2Mesh>();
+        var sectionOfMesh = new List<int>();
+        foreach (var kick in kicks)
+        {
+            var sectionIndex = FindSectionIndex(sections, kick.FirstCommandOffset);
+            foreach (var mesh in kick.Meshes)
+            {
+                allMeshes.Add(mesh);
+                sectionOfMesh.Add(sectionIndex);
+            }
+        }
+
+        ThpgPositionUnwrapper.Unwrap(allMeshes, data, sectionOfMesh, sections);
+    }
+
+    private static int FindSectionIndex(List<ThpgPositionUnwrapper.SectionBounds> sections, int vifOffset)
+    {
+        var sectionIndex = -1;
+        for (var s = 0; s < sections.Count && sections[s].VifOffset <= vifOffset; s++)
+            sectionIndex = s;
+        return sectionIndex;
     }
 
     public static bool IsPakSkin(byte[] data)

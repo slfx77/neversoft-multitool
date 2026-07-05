@@ -5,7 +5,15 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Replay;
 
 internal static class ThawPs2ReplayVertexDecoder
 {
-    private const float PositionScale = 1f / 16f;
+    /// <summary>
+    ///     THAW/Project 8 position scale: Q12.4 fixed point (SUB_INCH_PRECISION = 16).
+    ///     Proving Ground re-encodes positions as Q4.12 (×4096) in the same V3_16 slot;
+    ///     callers pass 1/4096 for that variant (see <see cref="ThpgPositionUnwrapper" />).
+    /// </summary>
+    internal const float DefaultPositionScale = 1f / 16f;
+
+    internal const float Q412PositionScale = 1f / 4096f;
+
     private const float NormalScale = 1f / 127f;
     private const float UvScale = 1f / 4096f;
 
@@ -14,7 +22,8 @@ internal static class ThawPs2ReplayVertexDecoder
         VifUnpackCommand? positionUnpack,
         VifUnpackCommand? normalUnpack,
         VifUnpackCommand? uvAdcUnpack,
-        int count)
+        int count,
+        float positionScale = DefaultPositionScale)
     {
         if (count <= 0 || positionUnpack is null)
             return [];
@@ -27,9 +36,9 @@ internal static class ThawPs2ReplayVertexDecoder
             {
                 var word = memory.ReadQword(positionUnpack.WriteAddresses[i]);
                 position = new Vector3(
-                    unchecked((int)word.X) * PositionScale,
-                    unchecked((int)word.Y) * PositionScale,
-                    unchecked((int)word.Z) * PositionScale);
+                    unchecked((int)word.X) * positionScale,
+                    unchecked((int)word.Y) * positionScale,
+                    unchecked((int)word.Z) * positionScale);
             }
 
             var normal = Vector3.UnitY;
@@ -94,7 +103,8 @@ internal static class ThawPs2ReplayVertexDecoder
         int positionOffset,
         int normalOffset,
         int uvAdcOffset,
-        int count)
+        int count,
+        float positionScale = DefaultPositionScale)
     {
         if (count <= 0)
             return [];
@@ -107,9 +117,9 @@ internal static class ThawPs2ReplayVertexDecoder
             if (positionOffset >= 0 && posOffset + 6 <= data.Length)
             {
                 position = new Vector3(
-                    BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(posOffset)) * PositionScale,
-                    BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(posOffset + 2)) * PositionScale,
-                    BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(posOffset + 4)) * PositionScale);
+                    BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(posOffset)) * positionScale,
+                    BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(posOffset + 2)) * positionScale,
+                    BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(posOffset + 4)) * positionScale);
             }
 
             var normal = Vector3.UnitY;

@@ -9,7 +9,8 @@ internal static class ThawPs2ReplayEngine
         byte[] data,
         int chainStart,
         int chainEnd,
-        IReadOnlyList<int> setupStarts)
+        IReadOnlyList<int> setupStarts,
+        float positionScale = ThawPs2ReplayVertexDecoder.DefaultPositionScale)
     {
         var batches = new List<ThawReplayBatch>();
         var state = new VifReplayState();
@@ -207,7 +208,8 @@ internal static class ThawPs2ReplayEngine
                         memory,
                         currentSetupIndex,
                         snapshot,
-                        builder.FirstCommandOffset >= 0 && builder.FirstCommandOffset < firstSetupStart));
+                        builder.FirstCommandOffset >= 0 && builder.FirstCommandOffset < firstSetupStart,
+                        positionScale));
                 }
 
                 builder = new ReplayBatchBuilder();
@@ -236,7 +238,8 @@ internal static class ThawPs2ReplayEngine
                 memory,
                 currentSetupIndex,
                 snapshot,
-                builder.FirstCommandOffset >= 0 && builder.FirstCommandOffset < firstSetupStart));
+                builder.FirstCommandOffset >= 0 && builder.FirstCommandOffset < firstSetupStart,
+                positionScale));
         }
 
         return batches;

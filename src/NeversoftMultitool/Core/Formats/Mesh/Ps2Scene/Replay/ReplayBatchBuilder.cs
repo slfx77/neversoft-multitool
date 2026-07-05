@@ -24,7 +24,8 @@ internal sealed class ReplayBatchBuilder
         Vu1Memory memory,
         int setupIndex,
         Vu1BatchSnapshot snapshot,
-        bool isPreambleBatch)
+        bool isPreambleBatch,
+        float positionScale = ThawPs2ReplayVertexDecoder.DefaultPositionScale)
     {
         var outputKickPacket = ThawPs2ReplayEngine.DecodeOutputKickPacket(PostBatchElements);
         var vertexSources = ThawPs2ReplayVertexDecoder.DecodeVertexSources(
@@ -32,13 +33,15 @@ internal sealed class ReplayBatchBuilder
             PositionUnpack,
             NormalUnpack,
             UvAdcUnpack,
-            VertexCount);
+            VertexCount,
+            positionScale);
         var rawVertexSources = ThawPs2ReplayVertexDecoder.DecodeRawVertexSources(
             data,
             PositionOffset,
             NormalOffset,
             UvAdcOffset,
-            VertexCount);
+            VertexCount,
+            positionScale);
 
         return new ThawReplayBatch
         {
