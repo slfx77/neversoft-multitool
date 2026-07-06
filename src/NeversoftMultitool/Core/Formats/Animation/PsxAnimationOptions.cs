@@ -6,11 +6,14 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 ///     being calibrated.
 /// </summary>
 /// <param name="SkipTranslation">
-///     When true (default), per-bone translation channels are omitted. The
-///     current rotation-only path keeps bind placement stable while animation
-///     parity is calibrated. When enabled, translation keys are emitted as
-///     bind-anchored deltas so frame 0 keeps the skeleton's bind placement
-///     instead of treating PSX Tx/Ty/Tz values as absolute glTF node positions.
+///     When true, per-bone translation channels are omitted (rotation-only
+///     diagnostic export, bind placement retained). When false (default),
+///     translation keys are emitted per the engine contract: the decoded s16
+///     Tx/Ty/Tz values ARE the pose (Decomp_GetAnimTransform copies them into
+///     SMatrix.t raw), in the same 1/16-world unit as model vertices, so they
+///     are emitted absolute at the vertex ScaleDivisor. Clips whose
+///     translation streams are entirely zero keep bind placement. See
+///     tools/diagnostics/psx-anim-format.md (fixed-point contract).
 /// </param>
 /// <param name="LegacyRotationChain">
 ///     When true, emit each bone's per-frame rotation directly without
@@ -29,39 +32,40 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 ///     only the listed bone indices get translation channels.
 /// </param>
 /// <param name="TranslationDivisorScale">
-///     Multiplier applied to the raw animation translation divisor when
-///     translation emission is enabled. The default 16 matches the runtime's
-///     Super SMatrix translation right-shift without changing bind object
-///     placement.
+///     Diagnostic multiplier applied on top of the contract translation
+///     divisor (the vertex ScaleDivisor). Anim s16 translations share the
+///     model-vertex unit (world×16); ScaleDivisor already contains the
+///     runtime's &gt;&gt;4, so the correct scale is 1 (default). The old
+///     default of 16 double-applied the shift and produced translations 16×
+///     too small.
 /// </param>
 /// <param name="AbsoluteTranslation">
-///     When true, translation channels replace the bind translation with the
-///     decoded PSX Tx/Ty/Tz value. Default false keeps the safer frame-0-
-///     anchored diagnostic delta path.
+///     When true (default), translation channels carry the decoded PSX
+///     Tx/Ty/Tz values directly — matching the engine, which rebuilds every
+///     bone origin from anim data each frame with no bind fallback. Absolute
+///     values at the vertex divisor land exactly in bind-offset units
+///     (s16 = fp12 &gt;&gt; 8). False keeps the legacy frame-0-anchored
+///     bind-delta path for A/B comparison against older exports.
 /// </param>
 /// <param name="EngineWorldTranslation">
-///     When true, recursively compose PSX translation tracks the way
-///     <c>Decomp_GetAnimTransform</c> does, then solve those world-space targets
-///     back into glTF local translation keys. This remains an opt-in diagnostic
-///     path: it improves some numeric board/foot distances but can visibly
-///     worsen the authored pose on current exports.
-/// </param>
-/// <param name="SourceHierarchyTranslation">
-///     Diagnostic companion to <see cref="EngineWorldTranslation" />. When a clip
-///     was decoded from an external PSX animation bank, use that bank's parsed
-///     hierarchy parent table, remapped into target bone order, for recursive
-///     translation composition. This mirrors the runtime's active pHierarchy
-///     source without changing mesh bind hierarchy.
+///     When true, force the explicit engine-world path: recursively compose
+///     PSX translation tracks the way <c>Decomp_GetAnimTransform</c> does,
+///     then solve those world-space targets back into glTF local translation
+///     keys. This engages AUTOMATICALLY whenever a clip's translation
+///     hierarchy (e.g. an external anim bank's PSH hierarchy, mirroring the
+///     runtime's pHierarchy) differs from the glTF skeleton's parent chain —
+///     for matching hierarchies the default local path composes identically
+///     through glTF's own parent chain, so the flag only matters for
+///     flat/unparented skeletons and numeric diagnostics.
 /// </param>
 public sealed record PsxAnimationOptions(
     bool SkipRotation = false,
-    bool SkipTranslation = true,
+    bool SkipTranslation = false,
     PsxRotationCompose RotationCompose = PsxRotationCompose.YXZ,
     float Fps = 10f,
     bool LegacyRotationChain = false,
     float RotationScale = 1f,
     IReadOnlySet<int>? TranslationBoneFilter = null,
-    float TranslationDivisorScale = 16f,
-    bool AbsoluteTranslation = false,
-    bool EngineWorldTranslation = false,
-    bool SourceHierarchyTranslation = false);
+    float TranslationDivisorScale = 1f,
+    bool AbsoluteTranslation = true,
+    bool EngineWorldTranslation = false);

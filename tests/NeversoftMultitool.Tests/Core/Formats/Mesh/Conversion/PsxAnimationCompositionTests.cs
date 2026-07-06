@@ -93,10 +93,13 @@ public sealed class PsxAnimationCompositionTests
     }
 
     [Fact]
-    public void Translation_WithTranslationOption_EmitsZeroStreams()
+    public void Translation_AllZeroPlaceholderStreams_KeepBindAndEmitNoChannels()
     {
-        // The default export skips translations, but the diagnostic path still
-        // emits channels when enabled. All-zero streams stay anchored to bind.
+        // A clip whose translation streams are entirely zero carries placeholder
+        // data. Emitting it absolutely would collapse every bone onto its
+        // parent's origin, so the writer keeps bind placement instead. (Per-bone
+        // zeros inside a clip that DOES carry translation data are engine truth
+        // and are emitted — see the parent-relative test below.)
         var animation = BuildAnimation();
         var document = CreateThreeBoneDocument();
 
@@ -105,16 +108,7 @@ public sealed class PsxAnimationCompositionTests
             [("with_trans", animation)],
             new PsxAnimationOptions(SkipRotation: true, SkipTranslation: false));
 
-        var translationBones = document.Animations[0].Channels
-            .Where(c => c.Property == ModelAnimationProperty.Translation)
-            .Select(c => c.BoneIndex)
-            .OrderBy(static x => x)
-            .ToArray();
-
-        Assert.Equal([0, 1, 2], translationBones);
-        Assert.All(
-            document.Animations[0].Channels.Where(static c => c.Property == ModelAnimationProperty.Translation),
-            static c => Assert.Equal(ModelAnimationInterpolation.Linear, c.Interpolation));
+        Assert.Empty(document.Animations);
     }
 
     [Fact]
@@ -144,13 +138,12 @@ public sealed class PsxAnimationCompositionTests
     }
 
     [Fact]
-    public void Translation_WithTranslationOption_UsesRuntimeShiftedVertexScaleDivisor()
+    public void Translation_Default_UsesVertexScaleDivisorAbsolute()
     {
-        // Anim translations are matrix-local s16 offsets in character vertex
-        // units. glTF already stores bind translations, so keys are emitted as
-        // bind-anchored deltas. The runtime shifts Super SMatrix translations
-        // right by 4 before loading GTE translation, so the default export uses
-        // ScaleDivisor * 16.
+        // Engine fixed-point contract: anim s16 translations share the model
+        // vertex unit (world x16); Decomp_GetAnimTransform copies them into
+        // SMatrix.t raw. The default export therefore emits ABSOLUTE values
+        // at the vertex ScaleDivisor — no bind anchoring, no extra /16.
         var animation = BuildAnimation(
             frameCount: 2,
             (bone: 1, channelIndex: 3, frame: 0, s16Value: 100),
@@ -167,16 +160,16 @@ public sealed class PsxAnimationCompositionTests
             document.Animations[0].Channels,
             static c => c.Property == ModelAnimationProperty.Translation && c.BoneIndex == 1);
 
-        Assert.Equal(3f, channel.Values[0], 3);
-        Assert.Equal(4.25f, channel.Values[3], 3);
+        Assert.Equal(100f / 36f, channel.Values[0], 3);
+        Assert.Equal(820f / 36f, channel.Values[3], 3);
     }
 
     [Fact]
-    public void Translation_WithDivisorScale_CanInspectUnshiftedRawDelta()
+    public void Translation_LegacyBindAnchoredDelta_ReproducesOldExportPath()
     {
-        // The default translation scale matches the runtime /16 shift. Keeping
-        // the scale explicit lets diagnostics reproduce the old unshifted path
-        // when needed.
+        // A/B diagnostic: AbsoluteTranslation=false + TranslationDivisorScale=16
+        // reproduces the pre-contract export (bind + frame-0-anchored delta at
+        // ScaleDivisor x16 = 576). Kept so older exports can be compared.
         var animation = BuildAnimation(
             frameCount: 2,
             (bone: 1, channelIndex: 3, frame: 0, s16Value: 100),
@@ -190,21 +183,23 @@ public sealed class PsxAnimationCompositionTests
             new PsxAnimationOptions(
                 SkipRotation: true,
                 SkipTranslation: false,
-                TranslationDivisorScale: 1f));
+                TranslationDivisorScale: 16f,
+                AbsoluteTranslation: false));
 
         var channel = Assert.Single(
             document.Animations[0].Channels,
             static c => c.Property == ModelAnimationProperty.Translation && c.BoneIndex == 1);
 
         Assert.Equal(3f, channel.Values[0], 3);
-        Assert.Equal(23f, channel.Values[3], 3);
+        Assert.Equal(4.25f, channel.Values[3], 3);
     }
 
     [Fact]
-    public void Translation_WithAbsoluteMode_ReplacesBindTranslation()
+    public void Translation_Default_ReplacesBindTranslation()
     {
-        // Engine matrices store Tx/Ty/Tz directly. This diagnostic mode tests
-        // that path for isolated root-side bones such as the skater board.
+        // Engine matrices store Tx/Ty/Tz directly and never consult bind:
+        // the emitted channel must replace the bone's bind translation
+        // (3,4,5) with the decoded value.
         var animation = BuildAnimation(
             frameCount: 1,
             (bone: 1, channelIndex: 3, frame: 0, s16Value: 72));
@@ -214,11 +209,7 @@ public sealed class PsxAnimationCompositionTests
             document, BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f),
             skeletonIndex: 0,
             [("absolute_trans", animation)],
-            new PsxAnimationOptions(
-                SkipRotation: true,
-                SkipTranslation: false,
-                AbsoluteTranslation: true,
-                TranslationDivisorScale: 1f));
+            new PsxAnimationOptions(SkipRotation: true, SkipTranslation: false));
 
         var channel = Assert.Single(
             document.Animations[0].Channels,
@@ -230,66 +221,119 @@ public sealed class PsxAnimationCompositionTests
     }
 
     [Fact]
-    public void Translation_WithEngineWorldMode_SolvesWorldTargetBackToLocal()
+    public void Translation_EngineWorldMode_MatchesDefaultLocalPath()
     {
-        // The engine recursively composes translation targets before rendering
-        // Super matrices. The opt-in diagnostic export mode mirrors that
-        // world-space target, then solves the local glTF translation needed
-        // under the already-exported parent rotation.
+        // Contract equivalence: for a chained skeleton, the explicit
+        // engine-world recursion (compose like Decomp_GetAnimTransform, then
+        // solve back to glTF locals) must produce the same channels as the
+        // default local path, because glTF's own parent chaining performs the
+        // identical composition once locals are the absolute anim values.
         var animation = BuildAnimation(
             frameCount: 2,
-            (bone: 0, channelIndex: 2, frame: 1, s16Value: AngleToS16Units(MathF.PI / 2f)));
-        var document = CreateTranslatedThreeBoneDocument();
+            (bone: 0, channelIndex: 2, frame: 1, s16Value: AngleToS16Units(MathF.PI / 2f)),
+            (bone: 1, channelIndex: 3, frame: 0, s16Value: 108),
+            (bone: 1, channelIndex: 3, frame: 1, s16Value: 108));
+        var psxFile = BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f, withHierarchy: true);
 
+        var localDocument = CreateTranslatedThreeBoneDocument();
         ModelDocumentGeometryAdapter.PopulatePsxAnimations(
-            document, BuildPsxFile(),
-            skeletonIndex: 0,
-            [("engine_world_trans", animation)],
+            localDocument, psxFile, skeletonIndex: 0,
+            [("local", animation)],
+            new PsxAnimationOptions(SkipTranslation: false));
+
+        var worldDocument = CreateTranslatedThreeBoneDocument();
+        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+            worldDocument, psxFile, skeletonIndex: 0,
+            [("engine_world", animation)],
             new PsxAnimationOptions(
                 SkipTranslation: false,
                 EngineWorldTranslation: true));
 
-        var modelAnimation = document.Animations[0];
-        var rootRotation = Assert.Single(
-            modelAnimation.Channels,
-            static c => c.Property == ModelAnimationProperty.Rotation && c.BoneIndex == 0);
-        var midTranslation = Assert.Single(
-            modelAnimation.Channels,
-            static c => c.Property == ModelAnimationProperty.Translation && c.BoneIndex == 1);
-        var rootFrame1 = ReadQuaternionFrame(rootRotation, 1);
-        var expectedLocalFrame1 = Vector3.Transform(
-            new Vector3(3f, 4f, 5f),
-            Quaternion.Conjugate(rootFrame1));
+        for (var bone = 0; bone < 3; bone++)
+        {
+            var localChannel = Assert.Single(
+                localDocument.Animations[0].Channels,
+                c => c.Property == ModelAnimationProperty.Translation && c.BoneIndex == bone);
+            var worldChannel = Assert.Single(
+                worldDocument.Animations[0].Channels,
+                c => c.Property == ModelAnimationProperty.Translation && c.BoneIndex == bone);
+            for (var frame = 0; frame < 2; frame++)
+            {
+                AssertVectorClose(
+                    ReadVector3Frame(localChannel, frame),
+                    ReadVector3Frame(worldChannel, frame));
+            }
+        }
 
-        AssertVectorClose(new Vector3(3f, 4f, 5f), ReadVector3Frame(midTranslation, 0));
-        AssertVectorClose(expectedLocalFrame1, ReadVector3Frame(midTranslation, 1));
+        // And the shared value is the contract one: mid's local is the raw
+        // anim translation at the vertex divisor, independent of frame.
+        var mid = Assert.Single(
+            localDocument.Animations[0].Channels,
+            static c => c.Property == ModelAnimationProperty.Translation && c.BoneIndex == 1);
+        AssertVectorClose(new Vector3(3f, 0f, 0f), ReadVector3Frame(mid, 0));
+        AssertVectorClose(new Vector3(3f, 0f, 0f), ReadVector3Frame(mid, 1));
     }
 
     [Fact]
-    public void Translation_WithTranslationOption_DefaultsToLocalDeltaPath()
+    public void Translation_Default_LocalIsParentRelative_IndependentOfParentRotation()
     {
-        // The current visual baseline keeps translation emission local and
-        // bind-anchored. Unlike the engine-world diagnostic path, a rotating
-        // parent does not alter the child's emitted local translation when the
-        // child's own Tx/Ty/Tz stream is unchanged.
+        // Locals are parent-relative by construction: a rotating parent must
+        // not alter the child's emitted local translation (glTF chaining
+        // applies the parent rotation at compose time, exactly like the
+        // engine's (parent.rot x anim_t) >> 12 + parent.t).
         var animation = BuildAnimation(
             frameCount: 2,
-            (bone: 0, channelIndex: 2, frame: 1, s16Value: AngleToS16Units(MathF.PI / 2f)));
+            (bone: 0, channelIndex: 2, frame: 1, s16Value: AngleToS16Units(MathF.PI / 2f)),
+            (bone: 1, channelIndex: 3, frame: 0, s16Value: 72),
+            (bone: 1, channelIndex: 3, frame: 1, s16Value: 72));
         var document = CreateTranslatedThreeBoneDocument();
 
         ModelDocumentGeometryAdapter.PopulatePsxAnimations(
-            document, BuildPsxFile(),
+            document, BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f, withHierarchy: true),
             skeletonIndex: 0,
-            [("local_delta_trans", animation)],
-            new PsxAnimationOptions(
-                SkipTranslation: false));
+            [("local_trans", animation)],
+            new PsxAnimationOptions(SkipTranslation: false));
 
         var midTranslation = Assert.Single(
             document.Animations[0].Channels,
             static c => c.Property == ModelAnimationProperty.Translation && c.BoneIndex == 1);
 
-        AssertVectorClose(new Vector3(3f, 4f, 5f), ReadVector3Frame(midTranslation, 0));
-        AssertVectorClose(new Vector3(3f, 4f, 5f), ReadVector3Frame(midTranslation, 1));
+        AssertVectorClose(new Vector3(2f, 0f, 0f), ReadVector3Frame(midTranslation, 0));
+        AssertVectorClose(new Vector3(2f, 0f, 0f), ReadVector3Frame(midTranslation, 1));
+    }
+
+    [Fact]
+    public void Translation_ClipWithForeignHierarchy_AutoRoutesToWorldSolve()
+    {
+        // A clip decoded from an external bank carries the bank's parent
+        // table. When it differs from the glTF skeleton's chain (here: flat
+        // bank vs chained skeleton), the adapter must compose engine-world
+        // through the BANK hierarchy and solve back to glTF locals — the
+        // local path would chain the character's parents onto values the
+        // engine never chained.
+        var animation = BuildAnimation(
+            frameCount: 2,
+            (bone: 0, channelIndex: 2, frame: 1, s16Value: AngleToS16Units(MathF.PI / 2f)),
+            (bone: 1, channelIndex: 3, frame: 0, s16Value: 72),
+            (bone: 1, channelIndex: 3, frame: 1, s16Value: 72));
+        var document = CreateTranslatedThreeBoneDocument();
+
+        ModelDocumentGeometryAdapter.PopulatePsxAnimationClips(
+            document,
+            BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f, withHierarchy: true),
+            skeletonIndex: 0,
+            [new PsxAnimationClip("bank_clip", animation, TranslationParentIndices: [-1, -1, -1])],
+            new PsxAnimationOptions(SkipTranslation: false));
+
+        var midTranslation = Assert.Single(
+            document.Animations[0].Channels,
+            static c => c.Property == ModelAnimationProperty.Translation && c.BoneIndex == 1);
+
+        // Flat bank hierarchy: mid's engine world stays (72,0,0)/36 = (2,0,0)
+        // at both frames. Under the rotated glTF root at frame 1, the solved
+        // local counter-rotates so the world position holds still.
+        AssertVectorClose(new Vector3(2f, 0f, 0f), ReadVector3Frame(midTranslation, 0));
+        AssertVectorClose(new Vector3(0f, 2f, 0f), ReadVector3Frame(midTranslation, 1));
     }
 
     [Fact]
@@ -370,12 +414,24 @@ public sealed class PsxAnimationCompositionTests
 
     // ─── Helpers ────────────────────────────────────────────────────────
 
-    private static PsxMeshFile BuildPsxFile(float scaleDivisor = 1f, float translationDivisor = 1f)
+    private static PsxMeshFile BuildPsxFile(
+        float scaleDivisor = 1f, float translationDivisor = 1f, bool withHierarchy = false)
     {
+        // withHierarchy mirrors the three-bone test skeleton (root → mid →
+        // leaf) in the PSX object table, so BuildPsxEngineParentIndices sees
+        // the same chain the glTF skeleton uses — as it does for real files.
+        List<PsxMeshObject> objects = withHierarchy
+            ?
+            [
+                new PsxMeshObject { ParentIndex = -1 },
+                new PsxMeshObject { ParentIndex = 0 },
+                new PsxMeshObject { ParentIndex = 1 }
+            ]
+            : [];
         return new PsxMeshFile
         {
             Version = 4,
-            Objects = [],
+            Objects = objects,
             Meshes = [],
             MeshNameHashes = [],
             TextureHashes = [],

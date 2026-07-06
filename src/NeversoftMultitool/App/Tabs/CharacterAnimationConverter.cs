@@ -177,7 +177,12 @@ internal static class CharacterAnimationConverter
         if (!psxFile.HasHierarchy)
             return new Result(null, 0, "PSX file is not a hierarchical character.");
 
-        var named = new List<(string Name, PsxAnimation Animation)>();
+        // Translation channels compose through the hierarchy that ships with
+        // the anim data, so clips from an external bank (e.g. sk2anim.psx)
+        // carry that bank's parent table. Cache per bank — probes from the
+        // same bank share it.
+        var parentsByBank = new Dictionary<AssetSource, int[]?>();
+        var clips = new List<PsxAnimationClip>();
         foreach (var probe in animations)
         {
             if (probe.Source is not PsxAnimationSource psxSource) continue;
@@ -185,7 +190,14 @@ internal static class CharacterAnimationConverter
             {
                 var animation = psxSource.Decode();
                 if (animation.BoneCount != psxFile.Objects.Count) continue;
-                named.Add((probe.DisplayName, animation));
+                if (!parentsByBank.TryGetValue(psxSource.BankSource, out var parents))
+                {
+                    parents = PsxAnimationBank.TryBuildSourceParentIndices(
+                        psxSource.BankSource, psxFile.Objects.Count, psxSource.BoneRemap);
+                    parentsByBank[psxSource.BankSource] = parents;
+                }
+
+                clips.Add(new PsxAnimationClip(probe.DisplayName, animation, parents));
             }
             catch
             {
@@ -193,7 +205,7 @@ internal static class CharacterAnimationConverter
             }
         }
 
-        if (named.Count == 0)
+        if (clips.Count == 0)
             return new Result(null, 0, "No animations decoded successfully for this PSX character.");
 
         var fileName = Path.GetFileName(character.Source.FileSystemPath ?? character.FileName);
@@ -204,7 +216,7 @@ internal static class CharacterAnimationConverter
             OutputStem = Path.GetFileNameWithoutExtension(fileName),
             SourceKind = ModelSourceKind.Psx,
             PsxAnimationOptions = new PsxAnimationOptions(Fps: PsxAnimationBank.DefaultPreviewFps),
-            PsxDecodedAnimations = named
+            PsxAnimationClips = clips
         });
 
         var (glbBytes, triangles) = new GltfModelExporter().BuildGlbBytes(document);

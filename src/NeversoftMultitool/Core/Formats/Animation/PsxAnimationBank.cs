@@ -130,6 +130,64 @@ internal static class PsxAnimationBank
         return new PsxAnimationBankDecodeResult(bank, decoded, diagnostics);
     }
 
+    /// <summary>
+    ///     Builds the translation parent table for anims decoded from
+    ///     <paramref name="bankSource" />, remapped into target bone order. The
+    ///     engine composes anim translations through the hierarchy that ships
+    ///     with the anim data (pHierarchy), so clips from an external bank must
+    ///     chain through the bank's parents, not the target character's. Null
+    ///     when the bank carries no object hierarchy (or fails to parse) — the
+    ///     caller then falls back to the character's own hierarchy.
+    /// </summary>
+    public static int[]? TryBuildSourceParentIndices(
+        AssetSource bankSource,
+        int targetBoneCount,
+        PsxAnimationBoneRemap? remap)
+    {
+        PsxMeshFile? sourceHeader;
+        try
+        {
+            sourceHeader = PsxMeshFile.ParseHeaderOnly(bankSource.ReadBytes());
+        }
+        catch
+        {
+            sourceHeader = null;
+        }
+
+        if (sourceHeader == null || sourceHeader.Objects.Count == 0)
+            return null;
+
+        var sourceLimit = Math.Min(targetBoneCount, sourceHeader.Objects.Count);
+        var sourceToTarget = new int[sourceLimit];
+        for (var source = 0; source < sourceToTarget.Length; source++)
+        {
+            sourceToTarget[source] = remap != null && source < remap.SourceToTarget.Count
+                ? remap.SourceToTarget[source]
+                : source;
+        }
+
+        var targetParents = new int[targetBoneCount];
+        Array.Fill(targetParents, -1);
+        for (var source = 0; source < sourceLimit; source++)
+        {
+            var target = sourceToTarget[source];
+            if (target < 0 || target >= targetBoneCount)
+                continue;
+
+            var sourceParent = sourceHeader.Objects[source].ParentIndex;
+            var targetParent = -1;
+            if (sourceParent >= 0 && sourceParent < sourceToTarget.Length)
+                targetParent = sourceToTarget[sourceParent];
+
+            if (targetParent < 0 || targetParent >= targetBoneCount || targetParent == target)
+                targetParent = -1;
+
+            targetParents[target] = targetParent;
+        }
+
+        return targetParents;
+    }
+
     public static PsxAnimation DecodeSlot(
         AssetSource source,
         int targetBoneCount,

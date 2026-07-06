@@ -51,44 +51,41 @@ public static class PsxAnimExportCommand
         {
             Description = "Diagnostic: skip rotation tracks (bones keep bind rotation)"
         };
-        var withTransOption = new Option<bool>("--with-trans")
+        var noTransOption = new Option<bool>("--no-trans")
         {
             Description =
-                "Diagnostic: emit bind-anchored per-bone translation tracks using the runtime " +
-                "Super SMatrix /16 translation shift."
+                "Diagnostic: skip translation tracks (bones keep bind placement). Translations " +
+                "are emitted by default per the engine fixed-point contract."
         };
         var transBonesOption = new Option<string?>("--trans-bones")
         {
             Description =
-                "Diagnostic: with --with-trans, only emit translation tracks for this comma/range " +
+                "Diagnostic: only emit translation tracks for this comma/range " +
                 "bone list (for example 16 or 16-18)."
         };
         var transDivisorScaleOption = new Option<float>("--trans-divisor-scale")
         {
             Description =
-                "Diagnostic: with --with-trans, multiply the animation translation divisor. " +
-                "Default 16 matches the runtime's Super SMatrix right-shift; use 1 to inspect " +
-                "unshifted raw translations.",
-            DefaultValueFactory = _ => 16f
+                "Diagnostic: multiply the contract translation divisor (the " +
+                "vertex ScaleDivisor). Default 1 per the engine fixed-point contract — anim s16 " +
+                "translations share the model-vertex unit; use 16 to reproduce the old " +
+                "double-shifted exports.",
+            DefaultValueFactory = _ => new PsxAnimationOptions().TranslationDivisorScale
         };
         var transAbsoluteOption = new Option<bool>("--trans-absolute")
         {
             Description =
-                "Diagnostic: with --with-trans, emit raw PSX Tx/Ty/Tz as absolute node translation " +
-                "instead of frame-0-anchored bind deltas."
+                "Emit PSX Tx/Ty/Tz as absolute node translations (default, " +
+                "matching the engine's SMatrix.t). Pass 'false' for the legacy frame-0-anchored " +
+                "bind-delta diagnostic.",
+            DefaultValueFactory = _ => new PsxAnimationOptions().AbsoluteTranslation
         };
         var transEngineWorldOption = new Option<bool>("--trans-engine-world")
         {
             Description =
-                "Diagnostic: with --with-trans, recursively compose PSX Tx/Ty/Tz like " +
-                "Decomp_GetAnimTransform and solve the world-space result back to glTF locals. " +
-                "This is opt-in because it can worsen the current visual pose."
-        };
-        var transSourceHierarchyOption = new Option<bool>("--trans-source-hierarchy")
-        {
-            Description =
-                "Diagnostic: with --with-trans --trans-engine-world, compose translation recursion " +
-                "with the animation bank's parsed hierarchy, remapped to the target bone order."
+                "Diagnostic: force the explicit engine-world translation path (compose like " +
+                "Decomp_GetAnimTransform, solve back to glTF locals). Engages automatically when " +
+                "an external bank's hierarchy differs from the character's."
         };
         var rotComposeOption = new Option<string>("--rot-compose")
         {
@@ -137,12 +134,11 @@ public static class PsxAnimExportCommand
         command.Options.Add(fpsOption);
         command.Options.Add(nameOption);
         command.Options.Add(noRotOption);
-        command.Options.Add(withTransOption);
+        command.Options.Add(noTransOption);
         command.Options.Add(transBonesOption);
         command.Options.Add(transDivisorScaleOption);
         command.Options.Add(transAbsoluteOption);
         command.Options.Add(transEngineWorldOption);
-        command.Options.Add(transSourceHierarchyOption);
         command.Options.Add(rotComposeOption);
         command.Options.Add(rotScaleOption);
         command.Options.Add(legacyChainOption);
@@ -162,12 +158,11 @@ public static class PsxAnimExportCommand
             var fps = parseResult.GetValue(fpsOption);
             var name = parseResult.GetValue(nameOption);
             var noRot = parseResult.GetValue(noRotOption);
-            var withTrans = parseResult.GetValue(withTransOption);
+            var noTrans = parseResult.GetValue(noTransOption);
             var transBones = parseResult.GetValue(transBonesOption);
             var transDivisorScale = parseResult.GetValue(transDivisorScaleOption);
             var transAbsolute = parseResult.GetValue(transAbsoluteOption);
             var transEngineWorld = parseResult.GetValue(transEngineWorldOption);
-            var transSourceHierarchy = parseResult.GetValue(transSourceHierarchyOption);
             var rotCompose = parseResult.GetValue(rotComposeOption);
             var rotScale = parseResult.GetValue(rotScaleOption);
             var legacyChain = parseResult.GetValue(legacyChainOption);
@@ -184,7 +179,7 @@ public static class PsxAnimExportCommand
                 return Task.FromResult(1);
             var opts = new PsxAnimationOptions(
                 SkipRotation: noRot,
-                SkipTranslation: !withTrans,
+                SkipTranslation: noTrans,
                 RotationCompose: ParseRotCompose(rotCompose ?? "yxz"),
                 Fps: fps,
                 LegacyRotationChain: legacyChain,
@@ -192,8 +187,7 @@ public static class PsxAnimExportCommand
                 TranslationBoneFilter: translationBoneFilter,
                 TranslationDivisorScale: SanitizePositiveScale(transDivisorScale, "--trans-divisor-scale"),
                 AbsoluteTranslation: transAbsolute,
-                EngineWorldTranslation: transEngineWorld,
-                SourceHierarchyTranslation: transSourceHierarchy);
+                EngineWorldTranslation: transEngineWorld);
             return Task.FromResult(Execute(
                 input, output, animSource, anim, name, opts, format, blenderHelper,
                 flatSkeleton, flatBoneFilter, verbose));
@@ -384,9 +378,14 @@ public static class PsxAnimExportCommand
                     $"[grey]external bone remap:[/] not applied ({Markup.Escape(remapDiagnostic)}).");
             }
 
-            var translationParents = opts.SourceHierarchyTranslation
-                ? BuildRemappedAnimationParentIndices(externalBank, targetBoneCount, remap, verbose)
-                : null;
+            var translationParents = PsxAnimationBank.TryBuildSourceParentIndices(
+                externalBank.Source, targetBoneCount, remap);
+            if (verbose)
+            {
+                AnsiConsole.MarkupLine(translationParents != null
+                    ? "[grey]source hierarchy:[/] bank parent table attached for translation composition."
+                    : $"[grey]source hierarchy:[/] unavailable for {Markup.Escape(externalBank.Source.DisplayName)}.");
+            }
 
             banks.Add((
                 "external",
@@ -471,11 +470,12 @@ public static class PsxAnimExportCommand
         if (opts.EngineWorldTranslation)
         {
             transMode = opts.AbsoluteTranslation ? "engine-world-absolute" : "engine-world-delta";
-            if (opts.SourceHierarchyTranslation)
-                transMode += "+source-hier";
         }
         else
         {
+            // The adapter auto-routes to the engine-world solve when a clip's
+            // bank hierarchy differs from the character's, so "absolute" here
+            // means "contract default", not "always local".
             transMode = opts.AbsoluteTranslation ? "absolute" : "delta";
         }
 
@@ -491,80 +491,6 @@ public static class PsxAnimExportCommand
         return result.Triangles == 0 ? 1 : 0;
     }
 
-    private static int[]? BuildRemappedAnimationParentIndices(
-        PsxAnimationBankInfo bank,
-        int targetBoneCount,
-        PsxAnimationBoneRemap? remap,
-        bool verbose)
-    {
-        PsxMeshFile? sourceHeader;
-        try
-        {
-            sourceHeader = PsxMeshFile.ParseHeaderOnly(bank.Source.ReadBytes());
-        }
-        catch
-        {
-            sourceHeader = null;
-        }
-
-        if (sourceHeader == null || sourceHeader.Objects.Count == 0)
-        {
-            if (verbose)
-            {
-                AnsiConsole.MarkupLine(
-                    $"[grey]source hierarchy:[/] unavailable for {Markup.Escape(bank.Source.DisplayName)}.");
-            }
-
-            return null;
-        }
-
-        var sourceLimit = Math.Min(targetBoneCount, sourceHeader.Objects.Count);
-        var sourceToTarget = new int[sourceLimit];
-        for (var source = 0; source < sourceToTarget.Length; source++)
-        {
-            sourceToTarget[source] = remap != null && source < remap.SourceToTarget.Count
-                ? remap.SourceToTarget[source]
-                : source;
-        }
-
-        var targetParents = new int[targetBoneCount];
-        Array.Fill(targetParents, -1);
-        var changed = 0;
-        for (var source = 0; source < sourceLimit; source++)
-        {
-            var target = sourceToTarget[source];
-            if (target < 0 || target >= targetBoneCount)
-                continue;
-
-            var sourceParent = sourceHeader.Objects[source].ParentIndex;
-            var targetParent = -1;
-            if (sourceParent >= 0 && sourceParent < sourceToTarget.Length)
-                targetParent = sourceToTarget[sourceParent];
-
-            if (targetParent < 0 || targetParent >= targetBoneCount || targetParent == target)
-                targetParent = -1;
-
-            targetParents[target] = targetParent;
-        }
-
-        for (var target = 0; target < targetParents.Length; target++)
-        {
-            var modelParent = target < sourceHeader.Objects.Count
-                ? sourceHeader.Objects[target].ParentIndex
-                : -1;
-            if (targetParents[target] != modelParent)
-                changed++;
-        }
-
-        if (verbose)
-        {
-            AnsiConsole.MarkupLine(
-                $"[grey]source hierarchy:[/] remapped {sourceLimit} source parent entries; " +
-                $"{changed} target slot(s) differ from same-index source parents.");
-        }
-
-        return targetParents;
-    }
 
     private static void PrintBankSummary(string kind, PsxAnimationBankInfo bank)
     {

@@ -238,8 +238,12 @@ internal static partial class ModelDocumentGeometryAdapter
     ///     rotation data OR any ancestor along its parent chain does (otherwise
     ///     glTF would chain the ancestor's animated rotation onto this bone's
     ///     identity bind, mis-rotating it).
-    ///     Translation channels are diagnostic while the remaining PSX
-    ///     translation-space details are being checked against the engine.
+    ///     Translation channels follow the engine fixed-point contract: anim
+    ///     s16 Tx/Ty/Tz share the model-vertex unit (world×16) and are emitted
+    ///     absolute at the vertex ScaleDivisor — the engine rebuilds every bone
+    ///     origin from anim data each frame with no bind fallback. Clips whose
+    ///     translation streams are entirely zero (placeholder data) keep the
+    ///     bind pose instead of collapsing every bone onto its parent.
     /// </summary>
     public static void PopulatePsxAnimations(
         ModelDocument document,
@@ -272,11 +276,14 @@ internal static partial class ModelDocumentGeometryAdapter
         for (var i = 0; i < jointCount; i++)
             gltfParentIndices[i] = skeleton.Bones[i].ParentIndex;
 
-        // Animation Tx/Ty/Tz values are copied into SMatrix.t by
-        // Decomp_GetAnimTransform and consumed with character vertices shifted
-        // right by 4. In exported model units that is the same divisor used for
-        // vertex-local positions. The diagnostic channel writer keeps frame 0
-        // anchored to bind placement while translation-space parity is checked.
+        // Anim s16 Tx/Ty/Tz are copied raw into SMatrix.t by
+        // Decomp_GetAnimTransform and stay at world×16 through the whole
+        // hierarchy (the 4.12 rotation cancels the MVMVA >>12). The render path
+        // then shifts bone.t and vertices right by 4 together
+        // (M3dAsm_SetSuperTransforms / TransformAndOutcodeSuperVertices), so
+        // anim translations and model vertices share one unit and one divisor:
+        // ScaleDivisor, which already contains that >>4. See the fixed-point
+        // contract in tools/diagnostics/psx-anim-format.md.
         var translationDivisor = psxFile.ScaleDivisor > 0f
             ? psxFile.ScaleDivisor
             : psxFile.TranslationDivisor;
@@ -296,8 +303,13 @@ internal static partial class ModelDocumentGeometryAdapter
             if (boneCount == 0 || frameCount == 0)
                 continue;
 
+            // Translation hierarchy: the engine composes anim translations
+            // through the hierarchy that ships WITH the anim data (pHierarchy /
+            // CalculateAnimOrder name-remap), so a clip decoded from an
+            // external bank carries that bank's parent table. Fall back to the
+            // character's own object hierarchy for embedded anims.
             var engineParentIndices =
-                options.SourceHierarchyTranslation && clip.TranslationParentIndices != null
+                clip.TranslationParentIndices != null
                     ? NormalizeParentIndices(clip.TranslationParentIndices, boneCount)
                     : BuildPsxEngineParentIndices(psxFile, boneCount);
             if (!options.SkipRotation)
@@ -309,9 +321,15 @@ internal static partial class ModelDocumentGeometryAdapter
                 AppendPsxRotationChannels(modelAnim, rotationContext);
             }
 
-            if (!options.SkipTranslation)
+            if (!options.SkipTranslation && HasTranslationData(animation, boneCount))
             {
-                if (options.EngineWorldTranslation)
+                // When the translation hierarchy differs from the glTF parent
+                // chain (external banks), the local path would compose through
+                // the wrong parents — the world-solve path is required. For
+                // matching hierarchies both paths are equivalent, so the
+                // cheaper local emission is kept.
+                if (options.EngineWorldTranslation
+                    || !ParentIndicesMatch(engineParentIndices, gltfParentIndices, boneCount))
                 {
                     var translationContext = new PsxTranslationChannelContext(
                         skeletonIndex, skeleton, animation, gltfParentIndices, engineParentIndices, boneCount,
@@ -429,6 +447,20 @@ internal static partial class ModelDocumentGeometryAdapter
         return parents;
     }
 
+    private static bool ParentIndicesMatch(int[] engineParents, int[] gltfParents, int boneCount)
+    {
+        for (var bone = 0; bone < boneCount; bone++)
+        {
+            var gltfParent = bone < gltfParents.Length ? gltfParents[bone] : -1;
+            if (!IsUsableParent(gltfParent, bone, boneCount))
+                gltfParent = -1;
+            if (engineParents[bone] != gltfParent)
+                return false;
+        }
+
+        return true;
+    }
+
     private static int[] NormalizeParentIndices(IReadOnlyList<int> source, int boneCount)
     {
         var parents = new int[boneCount];
@@ -525,6 +557,24 @@ internal static partial class ModelDocumentGeometryAdapter
             Values = values,
             Interpolation = ModelAnimationInterpolation.Linear
         };
+    }
+
+    /// <summary>
+    ///     True when any bone carries a non-zero translation sample. All-zero
+    ///     streams are placeholder data; emitting them absolutely would collapse
+    ///     every bone onto its parent's origin, so such clips keep bind instead.
+    ///     (Per-bone zeros inside a clip that DOES carry translation data are
+    ///     engine truth — that bone sits at its parent's origin — and are emitted.)
+    /// </summary>
+    private static bool HasTranslationData(PsxAnimation animation, int boneCount)
+    {
+        for (var bone = 0; bone < boneCount; bone++)
+        {
+            if (animation.IsTranslationAnimated(bone))
+                return true;
+        }
+
+        return false;
     }
 
     private static ModelAnimationChannel BuildPsxTranslationChannel(

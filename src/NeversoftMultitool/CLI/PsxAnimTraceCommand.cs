@@ -396,8 +396,8 @@ public static class PsxAnimTraceCommand
 
         foreach (var bone in bones)
         {
-            var engineActive = EngineTarget(bindWorld[bone], engineWorldRaw, bone, frame, exporterDivisor);
-            var engineBase = EngineTarget(bindWorld[bone], engineWorldRaw, bone, frame, baseTranslationDivisor);
+            var engineActive = EngineTarget(engineWorldRaw, bone, frame, exporterDivisor);
+            var engineBase = EngineTarget(engineWorldRaw, bone, frame, baseTranslationDivisor);
             var rawLocal = animation.GetBoneTranslation(bone, frame);
             var label = $"{bone}:{skeleton.Bones[bone].Name}\ngltf={gltfParentIndices[bone]} engine={engineParentIndices[bone]}";
             var row = new List<string>
@@ -467,10 +467,10 @@ public static class PsxAnimTraceCommand
             if (!selected.Contains(pair.A) && !selected.Contains(pair.B))
                 continue;
 
-            var engineA = EngineTarget(bindWorld[pair.A], engineWorldRaw, pair.A, frame, exporterDivisor);
-            var engineB = EngineTarget(bindWorld[pair.B], engineWorldRaw, pair.B, frame, exporterDivisor);
-            var engineBaseA = EngineTarget(bindWorld[pair.A], engineWorldRaw, pair.A, frame, baseTranslationDivisor);
-            var engineBaseB = EngineTarget(bindWorld[pair.B], engineWorldRaw, pair.B, frame, baseTranslationDivisor);
+            var engineA = EngineTarget(engineWorldRaw, pair.A, frame, exporterDivisor);
+            var engineB = EngineTarget(engineWorldRaw, pair.B, frame, exporterDivisor);
+            var engineBaseA = EngineTarget(engineWorldRaw, pair.A, frame, baseTranslationDivisor);
+            var engineBaseB = EngineTarget(engineWorldRaw, pair.B, frame, baseTranslationDivisor);
             var row = new List<string>
             {
                 Markup.Escape(pair.Label),
@@ -585,7 +585,7 @@ public static class PsxAnimTraceCommand
         {
             var bone = sample.BoneIndex;
             var rotation = ToGltfRotation(engineLocalRotations[bone, frame]);
-            var target = EngineTarget(bindWorld[bone], engineWorldRaw, bone, frame, exporterDivisor);
+            var target = EngineTarget(engineWorldRaw, bone, frame, exporterDivisor);
             return target + Vector3.Transform(sample.Position - bindWorld[bone], rotation);
         });
 
@@ -738,7 +738,7 @@ public static class PsxAnimTraceCommand
                 return sample.BindPosition;
             }
 
-            var origin = EngineTarget(bindWorld[part], engineWorldRaw, part, targetFrame, exporterDivisor);
+            var origin = EngineTarget(engineWorldRaw, part, targetFrame, exporterDivisor);
             return TransformRenderPartVertex(
                 sample, engineLocalRotations[part, targetFrame], origin, divideLocalBy16: false);
         });
@@ -751,7 +751,7 @@ public static class PsxAnimTraceCommand
             }
 
             var origin = EngineTarget(
-                bindWorld[sample.PartIndex], sourceEngineWorldRaw, sourceSlot, sourceFrame, exporterDivisor);
+                sourceEngineWorldRaw, sourceSlot, sourceFrame, exporterDivisor);
             return TransformRenderPartVertex(
                 sample, sourceEngineLocalRotations[sourceSlot, sourceFrame], origin, divideLocalBy16: false);
         });
@@ -764,7 +764,7 @@ public static class PsxAnimTraceCommand
             }
 
             var origin = EngineTarget(
-                bindWorld[sample.PartIndex], sourceEngineWorldRaw, sourceSlot, sourceFrame, exporterDivisor);
+                sourceEngineWorldRaw, sourceSlot, sourceFrame, exporterDivisor);
             return TransformRenderPartVertex(
                 sample, sourceEngineLocalRotations[sourceSlot, sourceFrame], origin, divideLocalBy16: true);
         });
@@ -1381,15 +1381,14 @@ public static class PsxAnimTraceCommand
     }
 
     private static Vector3 EngineTarget(
-        Vector3 bindWorld,
         Vector3[,] engineWorldRaw,
         int bone,
         int frame,
         float divisor)
     {
-        var anchor = engineWorldRaw[bone, 0] / divisor;
-        var current = engineWorldRaw[bone, frame] / divisor;
-        return bindWorld + PsxMeshSemantics.ToGltfPosition(current - anchor);
+        // Contract-absolute engine target: SMatrix.t IS the composed anim value;
+        // no bind anchoring (the engine has no bind fallback).
+        return PsxMeshSemantics.ToGltfPosition(engineWorldRaw[bone, frame] / divisor);
     }
 
     private static RenderAnimOrder BuildRenderAnimOrder(
