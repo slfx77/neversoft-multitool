@@ -84,11 +84,33 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
   partial); ~6 single-vertex stragglers. Earlier rejected approaches (all made things worse — see the unwrapper's
   comments): bone-offset cluster voting (c2[14:8] is a batch-local slot remap, not a global bone id), positional
   cross-section welds (identical instanced details weld to the wrong copy), carry/origin-provenance cross-section
-  welds (merged components then fight their section boxes). Most promising next leads: (a) decode the per-batch
-  preamble slot-remap tables (V4_8/V3_8/V2_8, stride-7 index patterns) to get REAL global bone ids for cluster
-  votes — this would disambiguate the twins (feet vs head bones) and anchor the wrist patch; (b) VU1 microcode
-  from the THPG ELF for the true reconstruction rule; (c) joint per-section assignment (components of one section
-  placed together against box + coverage + non-overlap constraints).
+  welds (merged components then fight their section boxes).
+- **🔬 VU1 microcode RE (2026-07-06) — mechanism hunt; major format structures decoded, band rule still open.**
+  Extracted VU1 microprograms from both ELFs (`SLUS_214.44` / `SLUS_216.16`) by scanning for VIF MPG chains
+  (`tools/diagnostics/thpg_elf_ucode_scan.py`), disassembled with a new minimal VU disassembler
+  (`tools/diagnostics/vu_disasm.py`, tables ported from PCSX2 `DisVUmicro.h`). **Definitive: THPG's programs are
+  byte-identical to P8's except ITOF4→ITOF12 swaps (19 sites in the main renderer, 5 in the second) and ONE
+  float constant scaled by exactly 1/256 (264192→1032) — the Q12.4→Q4.12 domain shift. There is NO band
+  reconstruction logic in the microcode**: positions are ITOF12'd and immediately matrix-transformed.
+  Structures decoded along the way (verified on all 76 gped_bam batches, exact vertex counts):
+  - **V4_8/V3_8/V2_8 preamble tables = skinning RUN TABLES**: entries `(count×3, matrixAddr…)` — V4_8 = 3-bone
+    runs, V3_8 = 2-bone, V2_8 = 1-bone, `(x,0)` terminators. Matrix palette stride 7 qwords, slot addr = 7k+1
+    (1, 8, 15, 22, 29, 36, …). Vertex order = concatenated runs.
+  - **V4_16 preamble entries = carry-vertex qword images** (raw pos/nrm/uv register data for stitch vertices),
+    placed at grid addresses immediately below the batch arrays.
+  - **Batch VU layout**: `[uv]@0x37D+3i, [nrm]@0x37E+3i (masked unpack), [pos]@0x37F+3i`, STCYCL CL=3 WL=1.
+  Falsified for the band rule (all tested against the oracle): STROW/STMOD in-file (none exist — the earlier
+  histogram hit was a desynced-walker false positive), USN unsigned-domain encoding, constant band per
+  (batch,slot) / per run / per mat-set (bands drift ±1..2 along runs that span >16 units), global-palette
+  anchors (slot verts span 75 units), additive per-slot anchors, (section,slot) spatial clustering (loose,
+  62-unit extents — palettes re-upload per batch). Nearest-band-to-anchor with oracle-derived per-(batch,slot)
+  anchors reaches 97.87% — an upper bound needing real bone anchors we don't have.
+  **Open question**: how hardware recovers per-vertex bands with no per-vertex data and no ucode logic.
+  Best remaining hypothesis: EE-side rewrite at load time (engine unwraps positions in RAM after loading).
+  Decisive test: boot THPG in PCSX2, dump EE RAM with a character loaded, compare in-RAM VIF payloads vs disk
+  (needs the THPG ISO — check `C:\Users\mmc99\Desktop\Games\TCRF\Spider-Man Research\Builds`). Alternative:
+  find the .ske skeletons in the PAKs + the local-slot→global-bone mapping (likely in the per-section gap
+  blobs) and drive nearest-band-to-anchor from bind-pose bone positions.
 - Debug: `THPG_UNWRAP_DBG=1` prints component structure, candidate scores, and placement decisions.
 - Reusable tools: `tools/diagnostics/thpg_vif_compare.py`, `thpg_vif_diff.py`, `thpg_band_analysis.py`
   (oracle band computation; proved bands spatially continuous and bone-slot-uncorrelated).
