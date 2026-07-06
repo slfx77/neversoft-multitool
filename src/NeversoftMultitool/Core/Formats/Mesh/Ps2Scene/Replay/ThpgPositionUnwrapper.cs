@@ -382,7 +382,7 @@ internal static class ThpgPositionUnwrapper
         {
             // The component's section labels contradict every candidate placement —
             // boundary kicks can render geometry under the following section's label.
-            // Ignore the labels and place purely by contact with placed geometry.
+            // Ignore the labels and place by coincidence/contact with placed geometry.
             for (var axis = 0; axis < 3; axis++)
             {
                 var seed = (int)MathF.Round((AxisOf(sphereCenter, axis) - AxisOf(centroid, axis)) / BandSize);
@@ -396,8 +396,14 @@ internal static class ThpgPositionUnwrapper
 
         var debug = Environment.GetEnvironmentVariable("THPG_UNWRAP_DBG") == "1";
 
-        // Joint proximity scoring over the ambiguous tuples.
+        // Joint scoring over the ambiguous tuples. Primary signal: EXACT coincidence
+        // count — boundary kicks re-render earlier geometry verbatim, so at the correct
+        // shift their vertices land exactly (same quantized fine values) on placed
+        // vertices. A mirror twin never coincides exactly (mirrored fine values differ),
+        // which is what defeated plain nearest-distance scoring here. Contact score
+        // breaks coincidence ties.
         var best = (X: candidates[0][0], Y: candidates[1][0], Z: candidates[2][0]);
+        var bestCoincidence = -1;
         var bestScore = float.MaxValue;
         foreach (var gx in candidates[0])
         {
@@ -407,22 +413,28 @@ internal static class ThpgPositionUnwrapper
                 {
                     var offset = BandSize * new Vector3(gx, gy, gz);
                     var score = 0f;
+                    var coincidence = 0;
                     var step = Math.Max(1, component.Count / 400);
                     for (var i = 0; i < component.Count; i += step)
                     {
                         var idx = component[i];
-                        score += ContactScore(unwrapped[idx] + offset, normals[idx], placedGrid);
+                        var (contact, exact) = ContactScore(unwrapped[idx] + offset, normals[idx], placedGrid);
+                        score += contact;
+                        if (exact)
+                            coincidence++;
                     }
 
                     if (debug && component.Count >= 100)
                     {
                         Console.Error.WriteLine(
                             $"[unwrap]   n={component.Count} candidate g=({gx},{gy},{gz}) " +
-                            $"contact={score / Math.Max(1, component.Count / step):F2}/vert total={score:F0}");
+                            $"coincide={coincidence} contact={score / Math.Max(1, component.Count / step):F2}/vert");
                     }
 
-                    if (score < bestScore)
+                    if (coincidence > bestCoincidence ||
+                        (coincidence == bestCoincidence && score < bestScore))
                     {
+                        bestCoincidence = coincidence;
                         bestScore = score;
                         best = (gx, gy, gz);
                     }
@@ -560,19 +572,22 @@ internal static class ThpgPositionUnwrapper
 
     /// <summary>
     ///     Proximity-with-chirality contact score against the placed geometry (lower =
-    ///     better placement). Plain nearest distance would prefer superimposing a piece
-    ///     on its mirror twin (the right glove sits perfectly "close" on top of the left
-    ///     glove); interpenetrating contact with disagreeing normals is physically
-    ///     impossible on a body, so it is penalized above the far-distance cap, while
-    ///     close contact with aligned normals (seams, layered clothing) stays cheap.
+    ///     better placement), plus an exact-coincidence flag. Plain nearest distance
+    ///     would prefer superimposing a piece on its mirror twin (the right glove sits
+    ///     perfectly "close" on top of the left glove); interpenetrating contact with
+    ///     disagreeing normals is physically impossible on a body, so it is penalized
+    ///     above the far-distance cap, while close contact with aligned normals (seams,
+    ///     layered clothing) stays cheap. Exact coincidence (same quantized fine value —
+    ///     the boundary-kick re-render signature) is reported separately so callers can
+    ///     prioritize it.
     /// </summary>
-    private static float ContactScore(
+    private static (float Score, bool ExactCoincidence) ContactScore(
         Vector3 p,
         Vector3 normal,
         Dictionary<(int X, int Y, int Z), List<(Vector3 Position, Vector3 Normal)>> placedGrid)
     {
         if (placedGrid.Count == 0)
-            return 0f;
+            return (0f, false);
 
         var (cx, cy, cz) = Cell(p);
         var bestSq = ProximityCap * ProximityCap;
@@ -599,11 +614,14 @@ internal static class ThpgPositionUnwrapper
             }
         }
 
+        // Q4.12 quantization step is 1/4096 ≈ 0.00024; anything under 0.01 units can
+        // only be the same encoded value re-rendered.
+        var exact = bestSq < 0.01f * 0.01f;
         var distance = MathF.Sqrt(bestSq);
-        if (distance < 1.5f && bestDot < 0.3f)
-            return ProximityCap + 6f; // interpenetration with disagreeing normals
+        if (!exact && distance < 1.5f && bestDot < 0.3f)
+            return (ProximityCap + 6f, false); // interpenetration with disagreeing normals
 
-        return distance;
+        return (distance, exact);
     }
 
     private static float AxisOf(Vector3 v, int axis)

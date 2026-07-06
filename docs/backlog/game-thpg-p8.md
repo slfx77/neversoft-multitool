@@ -53,7 +53,8 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
     16-unit band ambiguous, and the 64B entry table carries no per-mesh position. Needs either a global unwrap across
     the whole strip from a single origin, or the VU-program base. **Gate strictly to THPG** (detect: V3_16 positions
     span near-full sint16 range / glb bbox ~±2047) so P8/THAW keep `/16`.
-- **✅ RECONSTRUCTION SHIPPED (2026-07-04) — 91.6% oracle-exact; renders recognizable characters.**
+- **✅ RECONSTRUCTION SHIPPED (2026-07-04) — 91.6% oracle-exact; renders recognizable characters.
+  Improved to 95.6% (2026-07-06) via exact-coincidence scoring, see below.**
   `ThpgPositionUnwrapper` (new, in `Replay/`), wired through `ThawPs2SkinFile.ReplayExtractKicks`:
   - **Detection:** decoded-at-Q12.4 extent grossly exceeding the header bounding sphere (`UsesQ412Positions`,
     signature-scans STCYCL(3,1)+V3_16 batches byte-wise so gap chunks can't desync). THAW/P8 never trigger —
@@ -67,17 +68,27 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
     + a coverage bonus (pieces that close the gap to a stored box face win — this resolves the hands at the arms
     box's ±X faces) + chirality-aware proximity for ties (close contact with disagreeing normals = mirror-twin
     interpenetration, penalized).
-  - **Oracle regression test:** `ThpgQ412UnwrapTests` (P8↔THPG `gped_bam` per-vertex compare, ≥90% threshold).
-- **🔶 Remaining gap (~8% of vertices on `gped_bam`): small boundary/detail pieces off by one band.**
-  The "first mesh of each section" is a boundary kick re-rendering the previous section's geometry under the next
-  section's label — its section box contradicts its true position, so it falls to pure-proximity placement, which is
-  ambiguous for tiny pieces. Tried and rejected (all made things worse — see the unwrapper's comments): bone-offset
-  cluster voting (c2[14:8] is a batch-local slot remap, not a global bone id), positional cross-section welds
-  (identical instanced details weld to the wrong copy), carry/origin-provenance cross-section welds (merged
-  components then fight their section boxes). Most promising next leads: (a) decode the per-batch preamble
-  slot-remap tables (V4_8/V3_8/V2_8, stride-7 index patterns) to get REAL global bone ids for cluster votes;
-  (b) VU1 microcode from the THPG ELF for the true reconstruction rule; (c) joint per-section assignment
-  (components of one section placed together against box + coverage + non-overlap constraints).
+  - **Oracle regression test:** `ThpgQ412UnwrapTests` (P8↔THPG `gped_bam` per-vertex compare, ≥95% threshold).
+- **✅ Exact-coincidence scoring (2026-07-06): 91.6% → 95.6% (246/5,555 mismatched).**
+  Key insight: boundary kicks *re-render* geometry that already exists in the previous section, so the correct
+  band placement makes their vertices coincide **exactly** (< 0.01 units) with already-placed vertices — while a
+  mirror twin or nesting placement is merely *close*, never exact. `ContactScore` now reports exact-coincidence
+  counts and the placement loop prefers the candidate with the most exact coincidences before falling back to
+  contact distance. Fixed the three large boundary re-render meshes (8, 27, 67). Also tried and rejected
+  (2026-07-06): two-pass placement deferring mislabeled components + file-order neighbor-grid proximity —
+  slightly worse (246 → 256), reverted.
+- **🔶 Remaining gap (~4.4% of vertices on `gped_bam`): three stubborn detail pieces.**
+  Mesh 15 (74 verts: right-wrist skin patch placed at the neck, error (−2,0,0) bands — not a re-render, so no
+  exact coincidence exists); meshes 58 + 72 (76 + 70 verts: geometrically near-identical twin detail pieces
+  swapped feet↔hat, errors (0,+4)/(0,−4) — indistinguishable by any local geometric signal); mesh 57 (21/40
+  partial); ~6 single-vertex stragglers. Earlier rejected approaches (all made things worse — see the unwrapper's
+  comments): bone-offset cluster voting (c2[14:8] is a batch-local slot remap, not a global bone id), positional
+  cross-section welds (identical instanced details weld to the wrong copy), carry/origin-provenance cross-section
+  welds (merged components then fight their section boxes). Most promising next leads: (a) decode the per-batch
+  preamble slot-remap tables (V4_8/V3_8/V2_8, stride-7 index patterns) to get REAL global bone ids for cluster
+  votes — this would disambiguate the twins (feet vs head bones) and anchor the wrist patch; (b) VU1 microcode
+  from the THPG ELF for the true reconstruction rule; (c) joint per-section assignment (components of one section
+  placed together against box + coverage + non-overlap constraints).
 - Debug: `THPG_UNWRAP_DBG=1` prints component structure, candidate scores, and placement decisions.
 - Reusable tools: `tools/diagnostics/thpg_vif_compare.py`, `thpg_vif_diff.py`, `thpg_band_analysis.py`
   (oracle band computation; proved bands spatially continuous and bone-slot-uncorrelated).

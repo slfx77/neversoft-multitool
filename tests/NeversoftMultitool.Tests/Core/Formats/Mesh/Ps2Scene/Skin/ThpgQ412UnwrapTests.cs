@@ -77,12 +77,13 @@ public sealed class ThpgQ412UnwrapTests(TestPaths paths)
                 report.AppendLine($"  {key}: {n}");
         }
 
-        // Known limitation: a handful of small boundary/detail pieces (~8% of vertices
-        // on gped_bam) still resolve to a neighbouring 16-unit band — section labels of
-        // boundary kicks are unreliable and pure-proximity placement is ambiguous for
-        // tiny parts. The threshold guards the reconstruction from regressing; the
-        // remaining gap is tracked in docs/backlog/game-thpg-p8.md.
+        // Known limitation: three small detail pieces (~4% of vertices on gped_bam)
+        // still resolve to a neighbouring 16-unit band — their section labels are
+        // unreliable (boundary kicks) and they have no exact-coincidence twin, so
+        // contact-based placement stays ambiguous. The threshold guards the
+        // reconstruction from regressing; the remaining gap is tracked in
+        // docs/backlog/game-thpg-p8.md.
         var matchRate = total == 0 ? 0.0 : (total - mismatched) / (double)total;
-        Assert.True(matchRate >= 0.90, $"match rate {matchRate:P1} below 90%\n{report}");
+        Assert.True(matchRate >= 0.95, $"match rate {matchRate:P1} below 95%\n{report}");
     }
 }
