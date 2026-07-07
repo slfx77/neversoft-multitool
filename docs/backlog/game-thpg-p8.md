@@ -155,6 +155,17 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
   - Bonus verification: converted + rendered the actually-used CAS pieces (`cas_reg_tshirt_killsparrow`,
     `cas_skater_head01`, `cas_skater_body`, `cas_skater_legs_lower`) — all flawless with current code, since
     non-wrapping Q4.12 files decode exactly.
+- **✅ FINAL CONFIRMATION (2026-07-06, third capture: Bam Margera pro challenge on screen).**
+  Bam renders from **`skater_pro/pro_margera.skin.ps2`** — loaded verbatim (80/80 batches byte-identical in
+  EE RAM including positions) and GS-confirmed on screen (77/80 batches matched to draws by UV fingerprint;
+  `gped_bam` and `shaba_bam` matched zero). The decisive detail: **THPG re-scaled its model universe ~30–40×
+  smaller** — `pro_margera` is 1.84 units tall (bsphere 0.95, sections y 0.07–1.74) vs `gped_bam`'s old-scale
+  ~72 units (sections y 2.7–71.2). New-scale whole characters fit Q4.12's ±8 window outright; that's the whole
+  design. The wrapping files are **old-scale assets exported through the new-scale pipeline** (gped_* were
+  superseded by pro_*; shaba_bam/bob/dollin/mikev/song by newer equivalents) — silently truncated, never
+  loaded. Our converter renders `pro_margera` flawlessly today (3,422 tris, correct character).
+  **THPG support status: complete for everything the game renders.** The gped/ped reconstruction (95.6%)
+  remains as best-effort recovery of cut/legacy content only.
 - Debug: `THPG_UNWRAP_DBG=1` prints component structure, candidate scores, and placement decisions.
 - Reusable tools: `tools/diagnostics/thpg_vif_compare.py`, `thpg_vif_diff.py`, `thpg_band_analysis.py`
   (oracle band computation; proved bands spatially continuous and bone-slot-uncorrelated).
