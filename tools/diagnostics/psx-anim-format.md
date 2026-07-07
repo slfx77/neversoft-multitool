@@ -93,14 +93,24 @@ as `qy * qx * qz`, which is the transpose of the usual column-vector
     constant factor across bones" confusion came from comparing
     parent-relative anim values against absolute bind offsets without
     hierarchy composition.
-  - Related mesh fact from the same walkthrough: the vertex `flags` halfword
-    (4th s16 of each SVECTOR) is control data — bit 0 = stitch source
-    (transformed AND copied to a downward-growing stitch buffer), bit 1 =
-    stitch reference (NOT transformed; its first WORD is a byte distance back
-    from the stitch-buffer top, not a position). The multitool currently
-    decodes references as "second halfword = sequential attachment index",
-    which may differ from the runtime scheme — open question whether disc
-    data stores indices that loading converts, or offsets directly.
+  - **Stitch vertices — RESOLVED (2026-07-06, decomp stitch contract + disc
+    probe).** The decomp's `docs/stitch_vertex_contract.md` (InsertStitch
+    PERFECT\*, Create_CountStitches PERFECT, Super-vertex transform asm)
+    establishes the RUNTIME form: reference = `vx = index×8` (first
+    halfword), `vy = vz = 0`, flags at `pad` (+6, bit0 = source, bit1 =
+    reference); consumed as `readAnchor − vx` into a downward-growing global
+    8-byte-stride buffer — arithmetically identical to sequential source
+    #(vx/8). BUT the ON-DISC form is the mirror: probing bruce (v3), mullen
+    (v4), and THPS1 proto+final hawk via `psx-mesh-dump` shows ghosts stored
+    as `type == 2` exactly, `vx = vz = 0`, and a **raw global sequential
+    index in `vy`** (bruce: indices 0..73 against 74 type-1 sources; type
+    histograms exactly {0,1,2}, no bit-4 values). The engine's loader /
+    create-a-skater assembly (`InsertStitch`) re-encodes disc → runtime.
+    The multitool's existing decode (vy = global index, type-1 collected in
+    mesh-storage order) matches the disc format and needs no change; the
+    earlier suspicion that it caused the character-mesh garbling is
+    withdrawn. With the 2026-07 anim fixes, proto hawk renders correctly
+    except the arms (separate, narrower mesh issue).
 
 ## Confirmed: codec sample-count formula
 
