@@ -51,6 +51,19 @@ internal sealed partial class GsGifInterpreter
             state.Fog,
             noKick);
 
+        options.DrawVertexSink?.Invoke(new GsDrawVertexInfo(
+            (int)gifAudit.GifTagCount,
+            currentVsync,
+            state.Context.Tex0,
+            state.PrimType,
+            screenX,
+            screenY,
+            z,
+            state.Fst ? CurrentU() : state.S,
+            state.Fst ? CurrentV() : state.T,
+            CurrentQ(),
+            noKick));
+
         EmitVertex(vertex);
     }
 

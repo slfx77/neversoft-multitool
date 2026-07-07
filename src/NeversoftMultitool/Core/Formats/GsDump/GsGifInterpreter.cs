@@ -114,6 +114,7 @@ internal sealed partial class GsGifInterpreter
     private readonly GsRenderTargetCache renderTargetCache = new();
     private readonly Dictionary<ulong, long> xyzByTex0 = [];
     private GsImageTransfer? activeImageTransfer;
+    private int currentVsync;
     private byte[]? directPixels;
     // Tracks the prior (Fbp << 32) | (Fbw << 16) | Psm captured by MaybeSaveDrawRt when
     // options.SaveRtOnStateTransition is set. ulong.MaxValue is a sentinel "no prior key"
@@ -220,6 +221,7 @@ internal sealed partial class GsGifInterpreter
             if (packet.Kind == GsDumpPacketKind.VSync)
             {
                 vsyncCount++;
+                currentVsync = vsyncCount;
                 if (options.MaxVsync.HasValue && vsyncCount >= options.MaxVsync.Value)
                     break;
                 continue;

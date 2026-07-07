@@ -26,4 +26,11 @@ internal sealed class GsDumpAuditOptions
     ///     stays separate from main scene FBP=0).
     /// </summary>
     public bool DumpFbpBuffers { get; init; }
+
+    /// <summary>
+    ///     Writes every kicked vertex to {stem}.vertices.csv (gif tag index, TEX0, PRIM type,
+    ///     screen XYZ, STQ, no-kick flag). Ground-truth extraction for cross-referencing
+    ///     post-VU1 geometry against source mesh data.
+    /// </summary>
+    public bool DumpVertices { get; init; }
 }

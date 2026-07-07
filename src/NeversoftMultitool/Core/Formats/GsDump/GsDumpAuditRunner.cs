@@ -29,8 +29,16 @@ internal static partial class GsDumpAuditRunner
         var textureDumpDirectory = Path.Combine(outputDirectory, stem + ".textures");
         var textureDumpIndex = 0;
         StreamWriter? probeWriter = null;
+        StreamWriter? vertexWriter = null;
         try
         {
+            if (options.DumpVertices)
+            {
+                var vertexPath = Path.Combine(outputDirectory, $"{stem}.vertices.csv");
+                vertexWriter = new StreamWriter(vertexPath, false);
+                vertexWriter.WriteLine("giftag,vsync,tex0,prim,x,y,z,s,t,q,nokick");
+            }
+
             if (options.ProbeX.HasValue || options.ProbeY.HasValue || options.ProbeFbp.HasValue)
             {
                 var defaultStem = options.ProbeFbp.HasValue
@@ -142,6 +150,13 @@ internal static partial class GsDumpAuditRunner
                             var path = Path.Combine(saveDir, fileName);
                             SaveRgba(path, rgba, w, h);
                         },
+                    DrawVertexSink = vertexWriter == null
+                        ? null
+                        : info => vertexWriter.WriteLine(
+                            $"{info.GifTagIndex},{info.Vsync},0x{info.Tex0:X16},{info.PrimType}," +
+                            $"{info.X.ToString("F3", CultureInfo.InvariantCulture)},{info.Y.ToString("F3", CultureInfo.InvariantCulture)},{info.Z.ToString("F0", CultureInfo.InvariantCulture)}," +
+                            $"{info.S.ToString("R", CultureInfo.InvariantCulture)},{info.T.ToString("R", CultureInfo.InvariantCulture)},{info.Q.ToString("R", CultureInfo.InvariantCulture)}," +
+                            $"{(info.NoKick ? 1 : 0)}"),
                     DumpFbpBufferSink = options.DumpFbpBuffers
                         ? (fbp, fbw, psm, w, h, rgba) =>
                         {
@@ -182,6 +197,7 @@ internal static partial class GsDumpAuditRunner
         finally
         {
             probeWriter?.Dispose();
+            vertexWriter?.Dispose();
         }
     }
 

@@ -31,4 +31,25 @@ internal sealed class GsGifInterpretOptions
     ///     active surface after PCRTC composition.
     /// </summary>
     public Action<uint, uint, uint, int, int, byte[]>? DumpFbpBufferSink { get; init; }
+
+    /// <summary>
+    ///     Sink invoked for every kicked vertex (XYZ2/XYZF2 register write) with the raw
+    ///     post-VU1 values before rasterisation. Ground-truth extraction for cross-referencing
+    ///     GS-dump geometry against source mesh data.
+    /// </summary>
+    public Action<GsDrawVertexInfo>? DrawVertexSink { get; init; }
 }
+
+/// <summary>One kicked vertex as it arrived at the GS, prior to rasterisation.</summary>
+internal readonly record struct GsDrawVertexInfo(
+    int GifTagIndex,
+    int Vsync,
+    ulong Tex0,
+    int PrimType,
+    float X,
+    float Y,
+    float Z,
+    float S,
+    float T,
+    float Q,
+    bool NoKick);

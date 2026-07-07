@@ -1,4 +1,4 @@
-using System.CommandLine;
+﻿using System.CommandLine;
 using NeversoftMultitool.Core.Formats.GsDump;
 using Spectre.Console;
 
@@ -91,6 +91,12 @@ public static class GsDumpCommand
                 "End-of-frame dump of each per-(FBP, FBW, PSM) screen-space buffer as a PNG. Use to verify per-FBP isolation: HUD overlay (FBP=11200 in THAW) should be visually distinct from main scene (FBP=0). Output: <output>/<stem>.fbp_buffers/fbp_<FBP_HEX>_fbw<FBW>_<PSM_TAG>.png"
         };
 
+        var dumpVerticesOption = new Option<bool>("--dump-vertices")
+        {
+            Description =
+                "Write every kicked vertex to <output>/<stem>.vertices.csv (giftag, vsync, TEX0, prim, screen XYZ, STQ, no-kick). Ground-truth extraction for cross-referencing post-VU1 geometry against source meshes."
+        };
+
         var command = new Command("gsdump", "Audit raw PCSX2 GS dumps with a pure C# GIF/GS parser and renderer");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
@@ -111,6 +117,7 @@ public static class GsDumpCommand
         command.Options.Add(saveRtOnStateTransitionOption);
         command.Options.Add(dumpVramRegionOption);
         command.Options.Add(dumpFbpBuffersOption);
+        command.Options.Add(dumpVerticesOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -134,7 +141,8 @@ public static class GsDumpCommand
                 parseResult.GetValue(saveRtFbpOption),
                 parseResult.GetValue(saveRtOnStateTransitionOption),
                 parseResult.GetValue(dumpVramRegionOption),
-                parseResult.GetValue(dumpFbpBuffersOption)));
+                parseResult.GetValue(dumpFbpBuffersOption),
+                parseResult.GetValue(dumpVerticesOption)));
         });
 
         return command;
@@ -159,7 +167,8 @@ public static class GsDumpCommand
         uint? saveRtFbp,
         bool saveRtOnStateTransition,
         string[]? dumpVramRegionSpecs,
-        bool dumpFbpBuffers)
+        bool dumpFbpBuffers,
+        bool dumpVertices)
     {
         var dumpVramRegions = ParseDumpVramRegionSpecs(dumpVramRegionSpecs);
         var files = CollectFiles(input);
@@ -225,7 +234,8 @@ public static class GsDumpCommand
                         SaveRtFbp = saveRtFbp,
                         SaveRtOnStateTransition = saveRtOnStateTransition,
                         DumpVramRegions = dumpVramRegions,
-                        DumpFbpBuffers = dumpFbpBuffers
+                        DumpFbpBuffers = dumpFbpBuffers,
+                        DumpVertices = dumpVertices
                     });
 
                 PrintSummary(file, report, verbose);
