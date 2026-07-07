@@ -16,18 +16,37 @@ public static class Vid1AudioExtractor
     private const int AuddPacketDataOffset = 0x14;
     private const uint OggCrcPolynomial = 0x04C11DB7;
 
-    public static Vid1AudioProbeResult? Probe(string inputPath)
+    public static Vid1AudioProbeResult? Probe(string inputPath, int trackIndex = 0)
     {
-        return TryProbe(inputPath, out var probe, out _)
+        return TryProbe(inputPath, out var probe, out _, trackIndex)
             ? probe
             : null;
     }
 
-    public static AudioConvertResult ConvertToWav(string inputPath, string outputDir)
+    /// <summary>Probes every audio track in a VID1 file (e.g. one per dubbed language).</summary>
+    public static IReadOnlyList<Vid1AudioProbeResult> ProbeTracks(string inputPath)
+    {
+        return TryProbeTracks(inputPath, out var probes, out _)
+            ? probes
+            : [];
+    }
+
+    /// <summary>
+    ///     Converts VID1 audio to WAV. If <paramref name="trackIndex" /> is null, every audio
+    ///     track is converted (one file per dubbed language track); otherwise only the
+    ///     requested track is written. The first track is always named "{stem}.wav" for
+    ///     backwards compatibility with single-track files; additional tracks are named
+    ///     "{stem}_track{N}.wav".
+    /// </summary>
+    public static AudioConvertResult ConvertToWav(string inputPath, string outputDir, int? trackIndex = null)
     {
         try
         {
-            return ConvertToWav(File.ReadAllBytes(inputPath), Path.GetFileNameWithoutExtension(inputPath), outputDir);
+            return ConvertToWav(
+                File.ReadAllBytes(inputPath),
+                Path.GetFileNameWithoutExtension(inputPath),
+                outputDir,
+                trackIndex);
         }
         catch (Exception ex)
         {
@@ -35,23 +54,61 @@ public static class Vid1AudioExtractor
         }
     }
 
-    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string)" />.</summary>
-    public static AudioConvertResult ConvertToWav(byte[] data, string stem, string outputDir)
+    /// <summary>In-memory variant of <see cref="ConvertToWav(string, string, int?)" />.</summary>
+    public static AudioConvertResult ConvertToWav(byte[] data, string stem, string outputDir, int? trackIndex = null)
     {
         var ffmpeg = SfdConverter.FindFfmpeg();
         if (ffmpeg == null)
             return new AudioConvertResult { ErrorMessage = "ffmpeg not found on PATH" };
 
-        if (!TryParseVid1(data, out var stream, out var error))
+        if (!TryParseVid1(data, out var tracks, out var error))
             return new AudioConvertResult { ErrorMessage = error };
 
+        if (trackIndex is { } requestedTrack)
+        {
+            if (requestedTrack < 0 || requestedTrack >= tracks.Count)
+                return new AudioConvertResult { ErrorMessage = $"VID1 track {requestedTrack} does not exist" };
+
+            return ConvertTrackToWav(tracks[requestedTrack], TrackOutputPath(outputDir, stem, requestedTrack), ffmpeg, out error)
+                ? new AudioConvertResult { Success = true, SamplesWritten = 1 }
+                : new AudioConvertResult { ErrorMessage = error };
+        }
+
         Directory.CreateDirectory(outputDir);
-        var outputPath = Path.Combine(outputDir, stem + ".wav");
+        var written = 0;
+        foreach (var track in tracks)
+        {
+            if (!ConvertTrackToWav(track, TrackOutputPath(outputDir, stem, track.TrackIndex), ffmpeg, out error))
+                return new AudioConvertResult { ErrorMessage = error };
+
+            written++;
+        }
+
+        return new AudioConvertResult { Success = true, SamplesWritten = written };
+    }
+
+    /// <summary>
+    ///     The WAV file name <see cref="ConvertToWav(string, string, int?)" /> writes for a given
+    ///     track: "{stem}.wav" for the first track, "{stem}_track{N}.wav" for the rest.
+    /// </summary>
+    public static string GetTrackFileName(string stem, int trackIndex)
+    {
+        return trackIndex == 0 ? $"{stem}.wav" : $"{stem}_track{trackIndex}.wav";
+    }
+
+    private static string TrackOutputPath(string outputDir, string stem, int trackIndex)
+    {
+        return Path.Combine(outputDir, GetTrackFileName(stem, trackIndex));
+    }
+
+    private static bool ConvertTrackToWav(Vid1AudioTrack track, string outputPath, string ffmpeg, out string error)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
         var tempOggPath = Path.Combine(
             Path.GetTempPath(),
             "NeversoftMultitool",
             "Vid1Audio",
-            $"{Guid.NewGuid():N}_{stem}.ogg");
+            $"{Guid.NewGuid():N}_{Path.GetFileNameWithoutExtension(outputPath)}.ogg");
 
         try
         {
@@ -59,16 +116,16 @@ public static class Vid1AudioExtractor
             if (!string.IsNullOrWhiteSpace(tempDir))
                 Directory.CreateDirectory(tempDir);
 
-            if (!TryWriteOggStream(stream, tempOggPath, out error))
-                return new AudioConvertResult { ErrorMessage = error };
+            if (!TryWriteOggStream(track, tempOggPath, out error))
+                return false;
 
             if (!TryDecodeOggToWav(ffmpeg, tempOggPath, outputPath, out error))
             {
                 TryDeleteFile(outputPath);
-                return new AudioConvertResult { ErrorMessage = error };
+                return false;
             }
 
-            return new AudioConvertResult { Success = true, SamplesWritten = 1 };
+            return true;
         }
         finally
         {
@@ -76,7 +133,7 @@ public static class Vid1AudioExtractor
         }
     }
 
-    internal static bool TryDecodeToPcm16(string inputPath, out Vid1PcmAudio? audio, out string error)
+    internal static bool TryDecodeToPcm16(string inputPath, out Vid1PcmAudio? audio, out string error, int trackIndex = 0)
     {
         audio = null;
 
@@ -87,7 +144,7 @@ public static class Vid1AudioExtractor
             return false;
         }
 
-        if (!TryReadStream(inputPath, out var stream, out error))
+        if (!TryReadTrack(inputPath, trackIndex, out var track, out error))
             return false;
 
         var tempRoot = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "Vid1Audio");
@@ -99,14 +156,14 @@ public static class Vid1AudioExtractor
         {
             Directory.CreateDirectory(tempRoot);
 
-            if (!TryWriteOggStream(stream, tempOggPath, out error))
+            if (!TryWriteOggStream(track, tempOggPath, out error))
                 return false;
 
             if (!TryDecodeOggToPcm16(ffmpeg, tempOggPath, tempPcmPath, out error))
                 return false;
 
             var pcm = File.ReadAllBytes(tempPcmPath);
-            audio = new Vid1PcmAudio(pcm, stream.SampleRate, stream.Channels, stream.TotalSamples);
+            audio = new Vid1PcmAudio(pcm, track.SampleRate, track.Channels, track.TotalSamples);
             error = "";
             return true;
         }
@@ -117,13 +174,29 @@ public static class Vid1AudioExtractor
         }
     }
 
-    internal static bool TryProbe(string inputPath, out Vid1AudioProbeResult? probe, out string error)
+    internal static bool TryProbe(string inputPath, out Vid1AudioProbeResult? probe, out string error, int trackIndex = 0)
     {
         probe = null;
-        if (!TryReadStream(inputPath, out var stream, out error))
+        if (!TryReadTrack(inputPath, trackIndex, out var track, out error, out var trackCount))
             return false;
 
-        probe = new Vid1AudioProbeResult("VID1 Vorbis", stream.SampleRate, stream.Channels, stream.TotalSamples);
+        probe = new Vid1AudioProbeResult(
+            "VID1 Vorbis", track.SampleRate, track.Channels, track.TotalSamples, track.TrackIndex, trackCount);
+        error = "";
+        return true;
+    }
+
+    internal static bool TryProbeTracks(string inputPath, out IReadOnlyList<Vid1AudioProbeResult> probes, out string error)
+    {
+        probes = [];
+
+        if (!TryReadTracks(inputPath, out var tracks, out error))
+            return false;
+
+        probes = tracks
+            .Select(track => new Vid1AudioProbeResult(
+                "VID1 Vorbis", track.SampleRate, track.Channels, track.TotalSamples, track.TrackIndex, tracks.Count))
+            .ToArray();
         error = "";
         return true;
     }
@@ -162,14 +235,48 @@ public static class Vid1AudioExtractor
                packetDataOffset + packetSize <= endOffset;
     }
 
-    private static bool TryReadStream(string inputPath, out Vid1AudioStream stream, out string error)
+    /// <summary>Reads a single audio track, also reporting the total track count found in the file.</summary>
+    private static bool TryReadTrack(
+        string inputPath,
+        int trackIndex,
+        out Vid1AudioTrack track,
+        out string error,
+        out int trackCount)
     {
-        stream = default;
+        track = default!;
+        trackCount = 0;
+
+        if (!TryReadTracks(inputPath, out var tracks, out error))
+            return false;
+
+        trackCount = tracks.Count;
+        if (trackIndex < 0 || trackIndex >= tracks.Count)
+        {
+            error = $"VID1 track {trackIndex} does not exist";
+            return false;
+        }
+
+        track = tracks[trackIndex];
+        return true;
+    }
+
+    private static bool TryReadTrack(string inputPath, int trackIndex, out Vid1AudioTrack track, out string error)
+    {
+        return TryReadTrack(inputPath, trackIndex, out track, out error, out _);
+    }
+
+    internal static bool TryReadTracks(string inputPath, out IReadOnlyList<Vid1AudioTrack> tracks, out string error)
+    {
+        tracks = [];
 
         try
         {
             var data = File.ReadAllBytes(inputPath);
-            return TryParseVid1(data, out stream, out error);
+            if (!TryParseVid1(data, out var parsedTracks, out error))
+                return false;
+
+            tracks = parsedTracks;
+            return true;
         }
         catch (Exception ex)
         {
@@ -178,9 +285,14 @@ public static class Vid1AudioExtractor
         }
     }
 
-    private static bool TryParseVid1(byte[] data, out Vid1AudioStream stream, out string error)
+    /// <summary>
+    ///     Parses every audio track carried in the VID1 file. The HEAD chunk holds one AUDH
+    ///     header per track (e.g. one per dubbed language), and each FRAM chunk carries one
+    ///     AUDD packet block per track in the same order.
+    /// </summary>
+    private static bool TryParseVid1(byte[] data, out List<Vid1AudioTrack> tracks, out string error)
     {
-        stream = default;
+        tracks = [];
 
         if (!TryReadChunk(data, 0, data.Length, out var rootChunk, out error))
             return false;
@@ -200,15 +312,22 @@ public static class Vid1AudioExtractor
             return false;
         }
 
-        if (!TryFindChunk(data, headChunk.Offset + HeadChildOffset, headChunk.EndOffset, "AUDH", out var audhChunk,
-                out error))
+        if (!TryCollectAudioHeaderChunks(data, headChunk.Offset + HeadChildOffset, headChunk.EndOffset,
+                out var audhChunks, out error))
             return false;
 
-        if (!TryParseAudioHeader(data, audhChunk, out var sampleRate, out var channels, out var totalSamples,
-                out var idPacket, out var setupPacket, out error))
-            return false;
+        var trackHeaders = new List<Vid1AudioTrack>(audhChunks.Count);
+        foreach (var audhChunk in audhChunks)
+        {
+            if (!TryParseAudioHeader(data, audhChunk, out var sampleRate, out var channels, out var totalSamples,
+                    out var idPacket, out var setupPacket, out error))
+                return false;
 
-        var audioPackets = new List<byte[]>();
+            trackHeaders.Add(new Vid1AudioTrack(
+                trackHeaders.Count, sampleRate, channels, totalSamples, idPacket, setupPacket, []));
+        }
+
+        var trackPackets = trackHeaders.Select(static _ => new List<byte[]>()).ToList();
         var scanOffset = headChunk.EndOffset;
 
         while (scanOffset + 8 <= data.Length)
@@ -221,19 +340,65 @@ public static class Vid1AudioExtractor
                 return false;
             }
 
-            if (chunk.Tag == "FRAM" && !TryCollectFrameAudioPackets(data, chunk, audioPackets, out error))
+            if (chunk.Tag == "FRAM" && !TryCollectFrameAudioPackets(data, chunk, trackPackets, out error))
                 return false;
 
             scanOffset = chunk.EndOffset;
         }
 
-        if (audioPackets.Count == 0)
+        for (var i = 0; i < trackHeaders.Count; i++)
         {
-            error = "VID1 audio packets were not found";
-            return false;
+            if (trackPackets[i].Count == 0)
+            {
+                error = trackHeaders.Count > 1
+                    ? $"VID1 audio packets were not found for track {i}"
+                    : "VID1 audio packets were not found";
+                return false;
+            }
         }
 
-        stream = new Vid1AudioStream(sampleRate, channels, totalSamples, idPacket, setupPacket, audioPackets);
+        tracks = trackHeaders
+            .Select(header => header with { AudioPackets = trackPackets[header.TrackIndex] })
+            .ToList();
+        error = "";
+        return true;
+    }
+
+    /// <summary>
+    ///     Collects the sequential run of AUDH chunks in HEAD, starting from the first one found
+    ///     (skipping VIDH and any other leading children) and stopping at the first non-AUDH
+    ///     chunk, read failure, or trailing zero padding.
+    /// </summary>
+    private static bool TryCollectAudioHeaderChunks(
+        byte[] data,
+        int startOffset,
+        int endOffset,
+        out List<Vid1Chunk> chunks,
+        out string error)
+    {
+        chunks = [];
+
+        if (!TryFindChunk(data, startOffset, endOffset, "AUDH", out var first, out error))
+            return false;
+
+        chunks.Add(first);
+        var offset = first.EndOffset;
+
+        while (offset + 8 <= endOffset)
+        {
+            if (IsZeroPaddingRange(data, offset, endOffset))
+                break;
+
+            if (!TryReadChunk(data, offset, endOffset, out var candidate, out _))
+                break;
+
+            if (candidate.Tag != "AUDH")
+                break;
+
+            chunks.Add(candidate);
+            offset = candidate.EndOffset;
+        }
+
         error = "";
         return true;
     }
@@ -241,7 +406,7 @@ public static class Vid1AudioExtractor
     private static bool TryCollectFrameAudioPackets(
         byte[] data,
         Vid1Chunk frameChunk,
-        List<byte[]> audioPackets,
+        List<List<byte[]>> trackPackets,
         out string error)
     {
         error = "";
@@ -249,13 +414,22 @@ public static class Vid1AudioExtractor
         if (childOffset < 0)
             return true;
 
+        // Each frame carries one AUDD block per audio track, in the same order as the
+        // AUDH headers in HEAD (e.g. English, French, Italian, German, Spanish).
+        var audioChunkIndex = 0;
         while (childOffset + 8 <= frameChunk.EndOffset)
         {
             if (!TryReadChunk(data, childOffset, frameChunk.EndOffset, out var chunk, out error))
                 return false;
 
-            if (chunk.Tag == "AUDD" && !TryCollectAudioBlockPackets(data, chunk, audioPackets, out error))
-                return false;
+            if (chunk.Tag == "AUDD")
+            {
+                var trackIndex = Math.Min(audioChunkIndex, trackPackets.Count - 1);
+                if (!TryCollectAudioBlockPackets(data, chunk, trackPackets[trackIndex], out error))
+                    return false;
+
+                audioChunkIndex++;
+            }
 
             childOffset = chunk.EndOffset;
         }
@@ -477,22 +651,22 @@ public static class Vid1AudioExtractor
         return true;
     }
 
-    private static bool TryWriteOggStream(Vid1AudioStream stream, string outputPath, out string error)
+    private static bool TryWriteOggStream(Vid1AudioTrack track, string outputPath, out string error)
     {
         error = "";
 
         try
         {
             using var output = File.Create(outputPath);
-            var packets = new List<byte[]>(3 + stream.AudioPackets.Count)
+            var packets = new List<byte[]>(3 + track.AudioPackets.Count)
             {
-                stream.IdPacket,
+                track.IdPacket,
                 BuildCommentPacket("NeversoftMultitool"),
-                stream.SetupPacket
+                track.SetupPacket
             };
-            packets.AddRange(stream.AudioPackets);
+            packets.AddRange(track.AudioPackets);
 
-            const uint serialNumber = 0x31564944;
+            var serialNumber = 0x31564944u + (uint)track.TrackIndex;
             uint pageSequence = 0;
 
             for (var i = 0; i < packets.Count; i++)
@@ -514,14 +688,14 @@ public static class Vid1AudioExtractor
                 if (i >= 3)
                 {
                     var audioPacketIndex = i - 3;
-                    if (stream.TotalSamples > 0)
+                    if (track.TotalSamples > 0)
                     {
-                        granulePosition = audioPacketIndex == stream.AudioPackets.Count - 1
-                            ? (ulong)stream.TotalSamples
+                        granulePosition = audioPacketIndex == track.AudioPackets.Count - 1
+                            ? (ulong)track.TotalSamples
                             : (ulong)Math.Max(
                                 1,
                                 (int)Math.Round(
-                                    (double)stream.TotalSamples * (audioPacketIndex + 1) / stream.AudioPackets.Count));
+                                    (double)track.TotalSamples * (audioPacketIndex + 1) / track.AudioPackets.Count));
                     }
                     else
                     {
@@ -692,6 +866,17 @@ public static class Vid1AudioExtractor
         return true;
     }
 
+    private static bool IsZeroPaddingRange(byte[] data, int start, int end)
+    {
+        for (var i = start; i < end && i < data.Length; i++)
+        {
+            if (data[i] != 0)
+                return false;
+        }
+
+        return true;
+    }
+
     private static bool IsFramePayloadTag(string tag)
     {
         return tag is "VIDD" or "AUDD";
@@ -752,7 +937,9 @@ public static class Vid1AudioExtractor
         int Size,
         int EndOffset);
 
-    private readonly record struct Vid1AudioStream(
+    /// <summary>One dubbed-language audio track carried inside a VID1 container.</summary>
+    internal sealed record Vid1AudioTrack(
+        int TrackIndex,
         int SampleRate,
         int Channels,
         int TotalSamples,
@@ -777,5 +964,7 @@ public static class Vid1AudioExtractor
         string CodecName,
         int SampleRate,
         int Channels,
-        int TotalSamples);
+        int TotalSamples,
+        int TrackIndex,
+        int TrackCount);
 }
