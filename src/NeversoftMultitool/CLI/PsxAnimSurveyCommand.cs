@@ -195,8 +195,7 @@ public static class PsxAnimSurveyCommand
             .AddColumn(new TableColumn("v0x06").RightAligned())
             .AddColumn(new TableColumn("Direct").RightAligned())
             .AddColumn(new TableColumn("Mono").RightAligned())
-            .AddColumn(new TableColumn("ExtSlot").RightAligned())
-            .AddColumn(new TableColumn("ProtoSparse").RightAligned());
+            .AddColumn(new TableColumn("ExtSlot").RightAligned());
 
         foreach (var g in groups)
         {
@@ -207,7 +206,6 @@ public static class PsxAnimSurveyCommand
             var direct = withAnims.Count(r => r.AnimationRevision == PsxAnimationFormatRevision.DirectMatrixV1);
             var mono = withAnims.Count(r => r.Layout == PsxAnimLayoutVariant.Monolithic);
             var extSlot = withAnims.Count(r => r.RuntimeRevision == PsxCharacterRuntimeRevision.ExtendedAnimSlots);
-            var proto = withAnims.Count(r => r.Layout == PsxAnimLayoutVariant.PrototypeSparse);
             var hierCount = g.Count(r => r.HasHierarchy);
 
             table.AddRow(
@@ -220,8 +218,7 @@ public static class PsxAnimSurveyCommand
                 v6.ToString(),
                 direct.ToString(),
                 mono.ToString(),
-                extSlot.ToString(),
-                proto.ToString());
+                extSlot.ToString());
         }
 
         AnsiConsole.Write(table);

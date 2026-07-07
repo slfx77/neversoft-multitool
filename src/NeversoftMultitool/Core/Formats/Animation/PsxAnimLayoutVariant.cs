@@ -18,18 +18,6 @@ public enum PsxAnimLayoutVariant
     Monolithic,
 
     /// <summary>
-    ///     Sparse table used by THPS2 PSX prototype (and possibly THPS1
-    ///     prototype): only one entry header fits before the compressed pool.
-    ///     <c>
-    ///         +0x00 u32 numStreams; +0x04 u32 poolByteSize; +0x08 (u32 frameCount, u32 poolOffset);
-    ///         +0x10 pool data
-    ///     </c>
-    ///     . Subsequent entries are not yet recoverable from
-    ///     the table alone — decomp research outstanding.
-    /// </summary>
-    PrototypeSparse,
-
-    /// <summary>
     ///     v1 hier/anim chunk (tag <c>0x2A</c>): same entry table as
     ///     <see cref="Monolithic" /> but the per-frame payload is uncompressed —
     ///     <c>numBones × 24</c> bytes per frame interpreted as

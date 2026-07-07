@@ -155,22 +155,29 @@ The codec stops naturally at `streamLen` frames per channel; **byte budget
 between consecutive entries is meaningless** because entries aren't sorted
 by offset.
 
-### THPS2 PSX prototype (March 2000) — sparse table
+### ~~THPS2 PSX prototype — sparse table~~ RESOLVED (2026-07-06): the sparse layout never existed
 
-```
-+0x00 : u32 numStreams = 42
-+0x04 : u32 poolByteSize = 13,236
-+0x08 : 8-byte first entry: frameCount=1, poolOffset=12
-+0x10 : binary stream data begins immediately
-```
+The "PrototypeSparse" variant was an artifact of two stacked parser bugs and
+has been removed:
 
-Only ONE entry header fits before pool data starts. The other 41 stream
-offsets/counts must be stored elsewhere (separate table elsewhere in the file,
-or reconstructed at runtime — needs further decomp investigation).
+1. The original hint (hawk2's "42 streams / 13,236 pool") came from the
+   pre-chunk-tag parse reading 8 bytes early — those values were the chunk
+   HEADER (tag 0x2A = 42, size 13,236). Fixed in the May 2026 anchor fix.
+2. After the anchor fix, the classifier still demoted any v2 table with fewer
+   than 5 valid entries to "sparse" (`MonolithicMinValidEntries` was
+   calibrated against the mis-anchored data), recovering a chimera entry —
+   entry 0's frame count decoded against entry 1's data offset. mj.psx
+   (declares 2) parses perfectly as monolithic: entry 0 = (offset 0x14 —
+   exactly `4 + 2×8`, the byte after the table — 80 frames), entry 1 =
+   (offset 0xF58, 48 frames).
 
-This matches the format the decomp source describes; my codec decodes
-hawk2.psx anim 0 cleanly (single-frame rest pose, 247 bytes consumed for 1
-frame × 19 bones × 6 channels).
+`RunAnim` (PERFECT-matched in the decomp) confirms there is only ONE table
+layout: the engine indexes the same monolithic 8-byte entries directly at
+runtime for every file, with no per-file variation and no load-time rebuild.
+After accepting monolithic tables whose declared entries ALL validate, the
+corpus classifies as 588 DirectMatrix + 227 Monolithic — matching the 227
+files the chunk walk finds with 0x2C exactly — with **zero files recovering
+fewer entries than declared**.
 
 ### Apocalypse PSX (1998) — v3 format
 
@@ -185,7 +192,7 @@ decompilation pass; the THPS2 PSX prototype source has no v3 code paths.
 
 | Sample | Era | numStreams | Pool size | Outcome |
 |---|---|---|---|---|
-| THPS2 proto `hawk2.psx` | v4 (March 2000) | 42 | 13,236 | sparse table; codec works |
+| THPS2 proto `hawk2.psx` | v4 (March 2000) | 42 | 13,236 | mis-anchored read (42/13,236 = chunk header); actually a 1-entry v1 monolithic table |
 | Spider-Man `carnage.psx` | v4 (Sept 2000) | 44 | 102,296 | full table; carnage anim 0 over-reads (slot overlap?) |
 | Spider-Man `blackcat.psx` | v4 (Sept 2000) | 44 | 34,660 | full table; under-fills (anim slack) |
 | Apocalypse `croc.psx` | v3 (1998) | 42 | 13,228 | v3 entry packing differs |

@@ -26,11 +26,5 @@ public enum PsxAnimationFormatRevision
     ///     halfword-sized animation slot/cache fields; Spider-Man's player
     ///     banks are the known example.
     /// </summary>
-    CompressedV2ExtendedSlots,
-
-    /// <summary>
-    ///     Prototype sparse 0x2C table: only the first entry is recoverable
-    ///     from the currently understood table header.
-    /// </summary>
-    CompressedV2PrototypeSparse
+    CompressedV2ExtendedSlots
 }

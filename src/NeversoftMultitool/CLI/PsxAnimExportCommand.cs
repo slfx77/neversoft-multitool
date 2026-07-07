@@ -501,14 +501,6 @@ public static class PsxAnimExportCommand
             $"numStreams={bank.AnimFile.NumStreamsDeclared}  " +
             $"recoverable={bank.AnimFile.Entries.Count}  bones={bank.BoneCount}");
 
-        // Only the THPS2-prototype-style sparse table fails to expose all
-        // entries; v1 DirectMatrix and v2 Monolithic both decode every slot.
-        if (bank.AnimFile.Layout == PsxAnimLayoutVariant.PrototypeSparse)
-        {
-            AnsiConsole.MarkupLine(
-                "[yellow]Note:[/] sparse entry table - only the first animation is recoverable.");
-        }
-
         if (bank.AnimFile.Layout == PsxAnimLayoutVariant.DirectMatrix)
         {
             AnsiConsole.MarkupLine(

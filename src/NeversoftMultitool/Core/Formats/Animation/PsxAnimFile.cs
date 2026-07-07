@@ -99,21 +99,23 @@ public sealed class PsxAnimFile
 
         var isDirectMatrix = chunkTag == PsxMeshFile.HierChunkV1Tag;
 
-        // Try monolithic first. Accept only if at least MonolithicMinValidEntries
-        // entries validate — both layouts can produce 1-2 "lucky" valid entries
-        // by chance under the wrong interpretation, but a real monolithic table
-        // has many sequential valid entries. v1 files are always monolithic
-        // (the prototype-sparse variant is a v2-only oddity).
+        // Every file uses the same monolithic 8-byte entry table — RunAnim
+        // (PERFECT-matched) indexes it directly at runtime with no per-file
+        // variation. Accept when every declared entry validates (small v2
+        // tables like mj.psx declare only 2) or when at least
+        // MonolithicMinValidEntries do (tolerance for stray invalid rows in
+        // large tables). The old ≥5-only rule silently demoted small tables to
+        // a fabricated "PrototypeSparse" layout that decoded entry 0's frame
+        // count against entry 1's data; that variant was an artifact of the
+        // earlier mis-anchored parse and does not exist on disc.
         var monolithic = TryParseMonolithic(data, hierBase, numStreams.Value, isDirectMatrix);
         if (monolithic is not null
-            && (isDirectMatrix || monolithic.Entries.Count >= MonolithicMinValidEntries))
+            && (isDirectMatrix
+                || monolithic.Entries.Count == numStreams.Value
+                || monolithic.Entries.Count >= MonolithicMinValidEntries))
             return monolithic;
 
-        if (isDirectMatrix) return null;
-
-        // Fall to prototype-sparse: numStreams + poolByteSize + (frameCount, poolOffset)
-        // + pool data, with only one entry recoverable from the table.
-        return TryParsePrototypeSparse(data, hierBase, numStreams.Value);
+        return null;
     }
 
     // ─── Monolithic layout (both v1 / 0x2A and v2 / 0x2C) ──────────────────
@@ -163,46 +165,12 @@ public sealed class PsxAnimFile
         };
     }
 
-    // ─── Prototype sparse layout (THPS2 PSX prototype, possibly THPS1 PSX prototype) ──
-
-    private static PsxAnimFile? TryParsePrototypeSparse(byte[] data, int hierBase, int numStreams)
-    {
-        // Layout (per tools/diagnostics/psx-anim-format.md):
-        //   +0x00 u32 numStreams
-        //   +0x04 u32 poolByteSize
-        //   +0x08 (u32 frameCount, u32 poolOffset) — first entry only
-        //   +0x10 pool data begins
-        // PoolOffset is chunk-data-relative (same convention as Monolithic) —
-        // anchor Pool at hierBase so the engine math `chunk_data + dataOff`
-        // works without further bias.
-        if (hierBase + 0x10 > data.Length) return null;
-
-        var maxValidOffset = data.Length - hierBase;
-        var frames = (int)BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(hierBase + 0x08));
-        var poolOff = (int)BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(hierBase + 0x0C));
-
-        if (poolOff < 0 || poolOff >= maxValidOffset) return null;
-        if (frames is < 1 or > 1024) return null;
-
-        return new PsxAnimFile
-        {
-            Layout = PsxAnimLayoutVariant.PrototypeSparse,
-            FormatRevision = ClassifyFormatRevision(PsxAnimLayoutVariant.PrototypeSparse, numStreams),
-            Entries = [new PsxAnimEntry(poolOff, frames)],
-            Pool = data.AsMemory(hierBase),
-            NumStreamsDeclared = numStreams,
-            ChunkTag = PsxMeshFile.HierChunkV2Tag,
-            MinimumRuntimeRevision = ClassifyMinimumRuntimeRevision(numStreams)
-        };
-    }
-
     private static PsxAnimationFormatRevision ClassifyFormatRevision(
         PsxAnimLayoutVariant layout, int numStreams)
     {
         return layout switch
         {
             PsxAnimLayoutVariant.DirectMatrix => PsxAnimationFormatRevision.DirectMatrixV1,
-            PsxAnimLayoutVariant.PrototypeSparse => PsxAnimationFormatRevision.CompressedV2PrototypeSparse,
             PsxAnimLayoutVariant.Monolithic when numStreams > byte.MaxValue =>
                 PsxAnimationFormatRevision.CompressedV2ExtendedSlots,
             PsxAnimLayoutVariant.Monolithic => PsxAnimationFormatRevision.CompressedV2,

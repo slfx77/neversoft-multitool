@@ -28,8 +28,8 @@ public sealed class PsxFormatRevisionCrossGameTests(TestPaths paths)
         Thps1ProtoBuild,
         "hawk2_fe.psx",
         PsxMeshFormatRevision.NeversoftV3,
-        PsxAnimLayoutVariant.PrototypeSparse,
-        PsxAnimationFormatRevision.CompressedV2PrototypeSparse,
+        PsxAnimLayoutVariant.Monolithic,
+        PsxAnimationFormatRevision.CompressedV2,
         PsxCharacterRuntimeRevision.ClassicSuper,
         PsxMeshFile.HierChunkV2Tag,
         1,
@@ -61,8 +61,8 @@ public sealed class PsxFormatRevisionCrossGameTests(TestPaths paths)
         Thps1FinalBuild,
         "burnq_fe.psx",
         PsxMeshFormatRevision.NeversoftV4,
-        PsxAnimLayoutVariant.PrototypeSparse,
-        PsxAnimationFormatRevision.CompressedV2PrototypeSparse,
+        PsxAnimLayoutVariant.Monolithic,
+        PsxAnimationFormatRevision.CompressedV2,
         PsxCharacterRuntimeRevision.ClassicSuper,
         PsxMeshFile.HierChunkV2Tag,
         1,
@@ -134,16 +134,21 @@ public sealed class PsxFormatRevisionCrossGameTests(TestPaths paths)
         9,
         9,
         16)]
+    // mj.psx declares only 2 anims — small tables like this were previously
+    // misclassified as a fabricated "PrototypeSparse" layout (a relic of the
+    // pre-chunk-tag mis-anchored parse) and recovered a chimera entry (entry
+    // 0's frame count against entry 1's data). RunAnim (PERFECT-matched)
+    // indexes the same monolithic 8-byte entries in every file.
     [InlineData(
         EnterElectroFinalBuild,
         "mj.psx",
         PsxMeshFormatRevision.NeversoftV4,
-        PsxAnimLayoutVariant.PrototypeSparse,
-        PsxAnimationFormatRevision.CompressedV2PrototypeSparse,
+        PsxAnimLayoutVariant.Monolithic,
+        PsxAnimationFormatRevision.CompressedV2,
         PsxCharacterRuntimeRevision.ClassicSuper,
         PsxMeshFile.HierChunkV2Tag,
         2,
-        1,
+        2,
         18)]
     public void Parse_RepresentativePsxCharacterFiles_ClassifiesMeshAnimationAndRuntimeRevisions(
         string buildName,
