@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
@@ -17,7 +17,7 @@ public static class XbxSceneFile
     private const int SECFLAG_BILLBOARD = 0x00800000;
 
     public static readonly string[] SupportedExtensions =
-        [".skin.xbx", ".mdl.xbx", ".skin.wpc", ".mdl.wpc"];
+        [".skin.xbx", ".mdl.xbx", ".scn.xbx", ".skin.wpc", ".mdl.wpc", ".scn.wpc"];
 
     /// <summary>
     ///     Quick probe: version triple must be (1,1,1).

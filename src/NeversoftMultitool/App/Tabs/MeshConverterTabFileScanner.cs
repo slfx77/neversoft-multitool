@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Archives;
@@ -24,7 +24,7 @@ internal static class MeshConverterTabFileScanner
     private static readonly string[] CompoundExtensions =
     [
         ".iskin.ps2", ".skin.ps2", ".mdl.ps2", ".geom.ps2",
-        ".skin.xbx", ".mdl.xbx", ".skin.wpc", ".mdl.wpc",
+        ".skin.xbx", ".mdl.xbx", ".scn.xbx", ".skin.wpc", ".mdl.wpc", ".scn.wpc",
         ".col.xbx", ".col.wpc", ".col.ps2",
         ".pak.ps2"
     ];
@@ -229,6 +229,7 @@ internal static class MeshConverterTabFileScanner
             return ScanPs2GeomFile(source, displayPath, rootDir);
 
         if (EndsWith(name, ".skin.xbx") || EndsWith(name, ".mdl.xbx") ||
+            EndsWith(name, ".scn.xbx") || EndsWith(name, ".scn.wpc") ||
             EndsWith(name, ".skin.wpc") || EndsWith(name, ".mdl.wpc"))
         {
             return ScanXbxSceneFile(source, displayPath, rootDir);
@@ -303,6 +304,8 @@ internal static class MeshConverterTabFileScanner
 
             if (fileName.EndsWith(".skin.xbx", StringComparison.OrdinalIgnoreCase) ||
                 fileName.EndsWith(".mdl.xbx", StringComparison.OrdinalIgnoreCase) ||
+                fileName.EndsWith(".scn.xbx", StringComparison.OrdinalIgnoreCase) ||
+                fileName.EndsWith(".scn.wpc", StringComparison.OrdinalIgnoreCase) ||
                 fileName.EndsWith(".skin.wpc", StringComparison.OrdinalIgnoreCase) ||
                 fileName.EndsWith(".mdl.wpc", StringComparison.OrdinalIgnoreCase))
             {

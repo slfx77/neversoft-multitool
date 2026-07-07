@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
@@ -21,7 +21,7 @@ public static class ThawSceneFile
     internal const int SecflagBillboard = 0x00800000;
 
     public static readonly string[] SupportedExtensions =
-        [".skin.wpc", ".mdl.wpc", ".skin.xbx", ".mdl.xbx"];
+        [".skin.wpc", ".mdl.wpc", ".scn.wpc", ".skin.xbx", ".mdl.xbx", ".scn.xbx"];
 
     /// <summary>
     ///     Detect THAW scene format: not THUG2 (version 1,1,1), pre_material_header_size=16 at 0x21.
