@@ -93,6 +93,8 @@ tools/ghidra/*
 tools/ghidra/thps3_ps2/*
 !tools/ghidra/thps3_ps2/DumpSkaCallGraph.java
 tools/diagnostics/*
+!tools/diagnostics/psx-anim-format.md
+!tools/diagnostics/psx_anim_tween_survey.py
 !tools/diagnostics/ps2_scene_trace.py
 !tools/diagnostics/ps2_geom_trace.py
 !tools/diagnostics/ps2_geom_gscontext.py

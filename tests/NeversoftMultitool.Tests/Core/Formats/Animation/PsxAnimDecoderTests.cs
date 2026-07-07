@@ -10,6 +10,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
 {
     private const string SpiderManBuild = "Spider-Man (2000-9-1, PSX - Final)";
     private const string Thps2ProtoBuild = "Tony Hawk's Pro Skater 2 (2000-3-29, PSX - Prototype)";
+    private const string ApocalypseBuild = "Apocalypse (1998-11-17, PSX - Final)";
 
     [Fact]
     public void Decompress_Mode0Linear_WritesExactSegmentEndpoint()
@@ -189,7 +190,8 @@ public class PsxAnimDecoderTests(TestPaths paths)
 
         var entry = animFile.Entries[0];
         var slice = animFile.Pool.Span[entry.PoolOffset..];
-        var animation = PsxAnimDecoder.DecodeDirectMatrix(slice, psxFile.Objects.Count, entry.FrameCount);
+        var animation = PsxAnimDecoder.DecodeDirectMatrix(
+            slice, psxFile.Objects.Count, entry.FrameCount, entry.TweenFlag);
 
         Assert.Equal(29, animation.FrameCount);
         Assert.Equal(19, animation.BoneCount);
@@ -197,6 +199,110 @@ public class PsxAnimDecoderTests(TestPaths paths)
         // Every bone has at least some non-zero rotation channel — direct
         // matrix payloads always populate rotations even at rest, so any bone
         // returning all-zero rotation samples would indicate a parsing fault.
+        var rotated = 0;
+        for (var b = 0; b < animation.BoneCount; b++)
+            if (animation.IsRotationAnimated(b)) rotated++;
+        Assert.True(rotated >= animation.BoneCount / 2,
+            $"expected at least half the bones to carry rotation samples; got {rotated}/{animation.BoneCount}");
+    }
+
+    [Theory]
+    [InlineData(40, 2, 14)] // bruce.psx anim 0: interval 3, keyframes at 0,3,…,39
+    [InlineData(29, 0, 29)] // tween 0 = every frame stored
+    [InlineData(29, 1, 15)] // interval 2: keyframes at 0,2,…,28
+    [InlineData(1, 9, 1)] // single-frame pose with a large interval
+    [InlineData(5, 1, 3)]
+    [InlineData(2, 2, 1)]
+    public void GetDirectMatrixStoredFrameCount_MatchesKeyframeAddressing(
+        int frameCount, int tweenFlag, int expectedStored)
+    {
+        Assert.Equal(expectedStored,
+            PsxAnimDecoder.GetDirectMatrixStoredFrameCount(frameCount, tweenFlag));
+    }
+
+    [Fact]
+    public void DecodeDirectMatrix_TweenInterval_ExpandsWithTruncatingLerp()
+    {
+        // tween=1 → interval 2 (framesPerKey = tweenFlag + 1 per both engine
+        // call sites of M3dUtils_InterpolateVectors). 5 playback frames store
+        // 3 keyframe records (frames 0, 2, 4). Identity rotations; Tx values
+        // 0 / 101 / 200 chosen so mid-frame lerps pin the GTE GPL truncation:
+        // f1 = 0 + (101×2048)>>12 = 50 (50.5 truncated), never 51.
+        var stride = PsxAnimDecoder.DirectMatrixStrideBytes;
+        var stream = new byte[3 * stride];
+        short[] keyTx = [0, 101, 200];
+        for (var record = 0; record < 3; record++)
+        {
+            var span = stream.AsSpan(record * stride, stride);
+            WriteSMatrix(span, 4096, 0, 0, 0, 4096, 0, 0, 0, 4096);
+            BinaryPrimitives.WriteInt16LittleEndian(span.Slice(18, 2), keyTx[record]);
+        }
+
+        var animation = PsxAnimDecoder.DecodeDirectMatrix(
+            stream, boneCount: 1, frameCount: 5, tweenFlag: 1);
+
+        Assert.Equal(5, animation.FrameCount);
+        Assert.Equal(0, animation.Channels[0, 3, 0]); // keyframe 0 copied
+        Assert.Equal(50, animation.Channels[0, 3, 1]); // truncating midpoint
+        Assert.Equal(101, animation.Channels[0, 3, 2]); // keyframe 1 copied
+        Assert.Equal(150, animation.Channels[0, 3, 3]); // 101 + (99×2048)>>12
+        Assert.Equal(200, animation.Channels[0, 3, 4]); // clamped window, factor 0x1000 = endpoint
+    }
+
+    [Fact]
+    public void DecodeDirectMatrix_TweenInterval_EndClampExtrapolates()
+    {
+        // Non-cycle end handling (M3dUtils_InterpolateVectors): when the
+        // window passes totalFrames, it clamps back one interval and the
+        // factor extrapolates PAST the last stored record. 4 frames at
+        // interval 2 store records for frames 0 and 2; frame 3 clamps to the
+        // [0,2] window with factor ((3−0)<<12)/2 = 1.5 → Tx = 0 + 1.5×100.
+        var stride = PsxAnimDecoder.DirectMatrixStrideBytes;
+        var stream = new byte[2 * stride];
+        short[] keyTx = [0, 100];
+        for (var record = 0; record < 2; record++)
+        {
+            var span = stream.AsSpan(record * stride, stride);
+            WriteSMatrix(span, 4096, 0, 0, 0, 4096, 0, 0, 0, 4096);
+            BinaryPrimitives.WriteInt16LittleEndian(span.Slice(18, 2), keyTx[record]);
+        }
+
+        var animation = PsxAnimDecoder.DecodeDirectMatrix(
+            stream, boneCount: 1, frameCount: 4, tweenFlag: 1);
+
+        Assert.Equal(0, animation.Channels[0, 3, 0]);
+        Assert.Equal(50, animation.Channels[0, 3, 1]);
+        Assert.Equal(100, animation.Channels[0, 3, 2]); // clamped window endpoint
+        Assert.Equal(150, animation.Channels[0, 3, 3]); // extrapolated tail
+    }
+
+    [Fact]
+    public void DecodeDirectMatrix_BruceAnim0_TweenReducedPayloadDecodes()
+    {
+        // bruce.psx anim 0: 40 playback frames, tween=2 → interval 3, only 14
+        // stored keyframe records. Reading 40 full-frame records (the
+        // pre-tween behavior) over-ran the anim's real data by ~3×.
+        var path = paths.FindSampleFile(ApocalypseBuild, "bruce.psx");
+        Assert.SkipWhen(path == null, "bruce.psx not found in sample builds");
+
+        var data = File.ReadAllBytes(path!);
+        var psxFile = PsxMeshFile.Parse(data);
+        Assert.NotNull(psxFile);
+        var animFile = PsxAnimFile.Parse(data, psxFile.Objects.Count);
+        Assert.NotNull(animFile);
+        Assert.True(animFile.IsDirectMatrix);
+
+        var entry = animFile.Entries[0];
+        Assert.Equal(40, entry.FrameCount);
+        Assert.Equal(2, entry.TweenFlag);
+        Assert.Equal(14,
+            PsxAnimDecoder.GetDirectMatrixStoredFrameCount(entry.FrameCount, entry.TweenFlag));
+
+        var slice = animFile.Pool.Span[entry.PoolOffset..];
+        var animation = PsxAnimDecoder.DecodeDirectMatrix(
+            slice, psxFile.Objects.Count, entry.FrameCount, entry.TweenFlag);
+
+        Assert.Equal(40, animation.FrameCount);
         var rotated = 0;
         for (var b = 0; b < animation.BoneCount; b++)
             if (animation.IsRotationAnimated(b)) rotated++;
