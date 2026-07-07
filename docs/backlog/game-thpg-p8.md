@@ -129,10 +129,32 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
   - **Matrix absorption definitively insufficient**: even 1-bone runs (single unambiguous matrix) span
     multiple bands per (batch, bone) — 13/97 groups, up to 28-vert groups. Bone-cluster band voting fails as
     a placement signal (slots local, clusters loose).
-  **Next decisive step**: match a specific batch's output in a GS dump (user has one:
-  `Documents\PCSX2\snaps\...20260706183623.gs`) against forward-transformed candidates (wrapped vs unwrapped)
-  using the live palette + camera from the savestate — or PCSX2 GUI debugger VU1 breakpoints. This directly
-  reads out the effective per-vertex positions the emulator computed.
+- **✅ MECHANISM QUESTION RESOLVED (2026-07-06, GS dumps + savestates): there is NO reconstruction mechanism —
+  the game never renders the wrapping files.**
+  - New tooling: `gsdump --dump-vertices` writes every post-VU1 kicked vertex (screen XYZ + STQ + no-kick) to
+    CSV; `tools/diagnostics/thpg_gsdump_band_check.py` / `thpg_gsdump_alias_check.py` match `.skin.ps2` batches
+    to GS draws by UV fingerprint (skin ucode emits ST = uv×Q → s/q = raw uv/4096). Matching validated at
+    0.8–1.8px adjacent-vertex screen coherence across 100+ batches.
+  - **Wrap census: 78 of ~750 THPG skins wrap** — ALL full-character exports (gped pros, 66 level peds,
+    `skater_pro/shaba_*`, `skater_secret/*`). The Q4.12 exporter silently wraps geometry beyond ±8 units.
+  - **Runtime character assets are piece-local and NEVER wrap**: two independent in-game captures (free-skate
+    + a scene with two pedestrians close up) show every rendered character — skater AND pedestrians — is
+    CAS-composed from `skater_male`/`skater_pro` piece files with zero wrapping batches. The pedestrians'
+    draws match `cas_career_hoody01` 30/30, `cas_skater_head09` 35/35, etc.; NOTHING matches `peds/*.skin.ps2`
+    (not by chain bytes in RAM, not by uv payload bytes, not by GS-draw fingerprints).
+  - Conclusion: THPG switched to Q4.12 as a **precision upgrade for piece-local CAS assets** (256× finer
+    within the ±8-unit window every real asset fits). The wrapping whole-character files are legacy exports
+    run through the new pipeline — shipped with silently truncated positions the engine never loads. There is
+    no band-recovery anywhere (VU1 ucode: proven identical ITOF-only diff; EE load path: proven byte-identical
+    for loaded files; runtime: the files are simply unused).
+  - **Implication for us: our 95.6% heuristic reconstruction recovers data the shipped game cannot render at
+    all.** The residual ~4.4% has no in-game ground truth; the P8 oracle (same art exported pre-truncation)
+    is the only reference and the remaining error is bounded by heuristic quality, not by undiscovered format
+    data. Caveat: a career pro-goal capture could still be taken to confirm goal peds are CAS-composed like
+    street peds, but the street-ped result makes that outcome near-certain.
+  - Bonus verification: converted + rendered the actually-used CAS pieces (`cas_reg_tshirt_killsparrow`,
+    `cas_skater_head01`, `cas_skater_body`, `cas_skater_legs_lower`) — all flawless with current code, since
+    non-wrapping Q4.12 files decode exactly.
 - Debug: `THPG_UNWRAP_DBG=1` prints component structure, candidate scores, and placement decisions.
 - Reusable tools: `tools/diagnostics/thpg_vif_compare.py`, `thpg_vif_diff.py`, `thpg_band_analysis.py`
   (oracle band computation; proved bands spatially continuous and bone-slot-uncorrelated).
