@@ -291,12 +291,12 @@ public static partial class Vid1VideoConverter
                 .Select(static i => $"-metadata:s:a:{i} title=\"Track {i + 1}\""));
 
             args = $"{videoInput} {audioInputs} {videoMap} {audioMaps} " +
-                   $"-c:v libx264 -preset fast -crf 23 " +
+                   $"-c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -movflags +faststart " +
                    $"-c:a aac -b:a 192k {audioTitles} -shortest \"{outputPath}\"";
         }
         else
         {
-            args = $"{videoInput} -c:v libx264 -preset fast -crf 23 -an \"{outputPath}\"";
+            args = $"{videoInput} -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -movflags +faststart -an \"{outputPath}\"";
         }
 
         using var process = new Process();

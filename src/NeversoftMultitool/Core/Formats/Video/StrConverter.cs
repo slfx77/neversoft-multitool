@@ -146,8 +146,9 @@ public static class StrConverter
         var videoInput = $"-y -f rawvideo -pix_fmt rgb24 -s {width}x{height} -r {frameRate:F2} -i pipe:0";
 
         return audioPath != null
-            ? $"{videoInput} -i \"{audioPath}\" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -shortest \"{outputPath}\""
-            : $"{videoInput} -c:v libx264 -preset fast -crf 23 -an \"{outputPath}\"";
+            ? $"{videoInput} -i \"{audioPath}\" -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -movflags +faststart " +
+              $"-c:a aac -b:a 128k -shortest \"{outputPath}\""
+            : $"{videoInput} -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -movflags +faststart -an \"{outputPath}\"";
     }
 
     private static SfdConvertResult RunFfmpegPipeline(
