@@ -106,11 +106,33 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
   62-unit extents — palettes re-upload per batch). Nearest-band-to-anchor with oracle-derived per-(batch,slot)
   anchors reaches 97.87% — an upper bound needing real bone anchors we don't have.
   **Open question**: how hardware recovers per-vertex bands with no per-vertex data and no ucode logic.
-  Best remaining hypothesis: EE-side rewrite at load time (engine unwraps positions in RAM after loading).
-  Decisive test: boot THPG in PCSX2, dump EE RAM with a character loaded, compare in-RAM VIF payloads vs disk
-  (needs the THPG ISO — check `C:\Users\mmc99\Desktop\Games\TCRF\Spider-Man Research\Builds`). Alternative:
-  find the .ske skeletons in the PAKs + the local-slot→global-bone mapping (likely in the per-section gap
-  blobs) and drive nearest-band-to-anchor from bind-pose bone positions.
+- **🔬 PCSX2 savestate RE (2026-07-06) — load-time rewrite FALSIFIED; runtime pipeline fully mapped.**
+  User provided a THPG savestate (`SLUS-21616 (391A7331).01.p2s`, skater in-level). Savestates are ZIPs with
+  raw 32MB `eeMemory.bin` + `vu1Memory.bin` + `vu1MicroMem.bin`. Findings (all verified in RAM):
+  - **No load-time position rewrite.** 910 V3_16-format batches found in EE RAM; 762 matched to disk CAS
+    pieces by uv-payload hash; 663 position payloads byte-identical to disk (the ~120 "different" are face
+    pieces with 1–4 raw-unit deltas = CAS face morphing). Loaded file images differ from disk only in 38
+    pointer-fixup bytes (entry +0x20/+0x2C, record headers). Positions arrive at VU1 still wrapped. No
+    V3_32-widened variants exist anywhere in RAM.
+  - **Resident VU1 microcode = the ELF programs we analyzed** (main@0x000 and p400@0x400 bit-identical to the
+    MPG extractions) — the static analysis was of the real renderers.
+  - **Frame DMA structure decoded**: per character: CALL shared setup (STMASK) → REF palette upload
+    (`UNPACK V4_32 n=208 → VU 0x70` = **52 bone matrices × 4 qwords** from an engine buffer, animated
+    anim×invBind deltas: orthonormal rows + small translations) → camera upload (7 qw → VU 0x000, MSCAL 2) →
+    per-piece CALL with 5-qword object header (→ VU 7–11, MSCAL 0) into the file's flat RET-terminated VIF
+    chain.
+  - **VIF quirks confirmed live in frozen VU memory**: pos.w = next vertex's x (V3_16 CL=3/WL=1 quirk);
+    nrm.w = 128 constant (engine STMASK row-fill); uv c2/c3 sign-extended with bit 15 = ADC. Output GIF
+    packets use regs [ST, RGBAQ, XYZF2].
+  - **Run-table matrix indices are per-section LOCAL slots** (`(v−1)/7` caps at ~8 for a 52-bone character);
+    the local→global map was NOT located (runtime mesh-struct pointer trail leads to lighting/color tables).
+  - **Matrix absorption definitively insufficient**: even 1-bone runs (single unambiguous matrix) span
+    multiple bands per (batch, bone) — 13/97 groups, up to 28-vert groups. Bone-cluster band voting fails as
+    a placement signal (slots local, clusters loose).
+  **Next decisive step**: match a specific batch's output in a GS dump (user has one:
+  `Documents\PCSX2\snaps\...20260706183623.gs`) against forward-transformed candidates (wrapped vs unwrapped)
+  using the live palette + camera from the savestate — or PCSX2 GUI debugger VU1 breakpoints. This directly
+  reads out the effective per-vertex positions the emulator computed.
 - Debug: `THPG_UNWRAP_DBG=1` prints component structure, candidate scores, and placement decisions.
 - Reusable tools: `tools/diagnostics/thpg_vif_compare.py`, `thpg_vif_diff.py`, `thpg_band_analysis.py`
   (oracle band computation; proved bands spatially continuous and bone-slot-uncorrelated).
