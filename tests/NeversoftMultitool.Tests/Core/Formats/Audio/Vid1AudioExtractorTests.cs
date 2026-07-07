@@ -21,7 +21,7 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
     private string RepresentativeMultiTrackSampleFile =>
         paths.SampleBuildsDir is null ? string.Empty : Path.Combine(
             paths.SampleBuildsDir,
-            "Tony Hawk's American Wasteland (2005-8-22, GC - Final)",
+            "Tony Hawk's Downhill Jam (2006, Wii - Final)",
             "movies",
             "vid",
             "JX_Interview01.vid");
