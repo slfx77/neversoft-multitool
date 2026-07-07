@@ -196,7 +196,7 @@ internal static partial class ModelDocumentGeometryAdapter
         int meshIndex,
         string nodeName,
         Matrix4x4 transform,
-        Dictionary<(uint Hash, bool SemiTransparent), int> materialCache,
+        Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided), int> materialCache,
         Dictionary<uint, (int Width, int Height)> textureDims,
         int untexturedMaterial,
         MeshChecksumTextureResolver? textureProvider)
@@ -208,15 +208,17 @@ internal static partial class ModelDocumentGeometryAdapter
         var mesh = new ModelMesh { Name = ResolvePsxMeshName(psxFile, meshIndex) };
         foreach (var group in psxMesh.Faces.GroupBy(face =>
                      face.IsTextured && face.TextureHash != 0
-                         ? (Hash: face.TextureHash, SemiTransparent: face.IsSemiTransparent)
-                         : (Hash: 0u, SemiTransparent: false)))
+                         ? (Hash: face.TextureHash, SemiTransparent: face.IsSemiTransparent,
+                             DoubleSided: face.IsDoubleSided)
+                         : (Hash: 0u, SemiTransparent: false, DoubleSided: face.IsDoubleSided)))
         {
-            var materialIndex = group.Key.Hash == 0
+            var materialIndex = group.Key.Hash == 0 && !group.Key.DoubleSided
                 ? untexturedMaterial
                 : GetOrCreatePsxMaterial(
                     document,
                     group.Key.Hash,
                     group.Key.SemiTransparent,
+                    group.Key.DoubleSided,
                     textureProvider,
                     textureDims,
                     materialCache);

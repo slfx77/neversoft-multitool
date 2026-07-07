@@ -5,7 +5,15 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 
 internal static class PsxAnimationBank
 {
-    public const float DefaultPreviewFps = 10f;
+    /// <summary>
+    ///     Engine playback rate. UpdateFrame advances the 16.16 frame
+    ///     accumulator by <c>mAnimSpeed × TimeScale / 256</c> per 30 Hz tick,
+    ///     and the default <c>mAnimSpeed</c> is 0x10000 (1.0) — one anim frame
+    ///     per tick, i.e. 30 fps. (The old 10 fps default predates tween
+    ///     keyframe expansion, when v1 anims decoded to a fraction of their
+    ///     real frame counts and looked like flicker at engine speed.)
+    /// </summary>
+    public const float DefaultPreviewFps = 30f;
 
     public static PsxAnimationBankInfo? TryProbe(
         AssetSource source, int? targetBoneCount)

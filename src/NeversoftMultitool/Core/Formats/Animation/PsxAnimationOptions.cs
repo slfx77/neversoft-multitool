@@ -62,7 +62,7 @@ public sealed record PsxAnimationOptions(
     bool SkipRotation = false,
     bool SkipTranslation = false,
     PsxRotationCompose RotationCompose = PsxRotationCompose.YXZ,
-    float Fps = 10f,
+    float Fps = 30f,
     bool LegacyRotationChain = false,
     float RotationScale = 1f,
     IReadOnlySet<int>? TranslationBoneFilter = null,

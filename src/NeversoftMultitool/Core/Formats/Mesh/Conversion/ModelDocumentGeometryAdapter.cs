@@ -161,11 +161,12 @@ internal static partial class ModelDocumentGeometryAdapter
         }
 
         var textureDims = new Dictionary<uint, (int Width, int Height)>();
-        var materialCache = new Dictionary<(uint Hash, bool SemiTransparent), int>();
+        var materialCache = new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided), int>();
         var untexturedMaterial = AddMaterial(document, new RenderMaterial
         {
             Name = "untextured",
-            BaseColor = new Vector4(0.7f, 0.7f, 0.7f, 1f)
+            BaseColor = new Vector4(0.7f, 0.7f, 0.7f, 1f),
+            DoubleSided = false
         });
 
         for (var objectIndex = 0; objectIndex < psxFile.Objects.Count; objectIndex++)

@@ -222,8 +222,15 @@ internal static class PsxMeshGeometryReader
         var semiTrans = (faceFlags & 0x0040) != 0;
         var gouraud = (faceFlags & 0x0800) != 0;
 
-        // M3dInit_ParsePSX STP toggle: if not semi-transparent, flip bit 0x0080.
-        // After toggle, face is invisible when both 0x0040 and 0x0080 are clear.
+        // Disc vs runtime: the render path (M3dAsm_ProcessPolys @0x800999F0)
+        // skips faces with (flags & 0xC0) == 0 and never toggles bit 0x0080 —
+        // but ON DISC every visible character face ships with bits 6 AND 7
+        // clear (probed bruce/mullen/hawk: 100% of faces), so the raw render
+        // rule would reject everything. M3dInit_ParsePSX (unmatched in the
+        // decomp) must establish the draw-enable at load; this XOR is the
+        // disc-side equivalent: opaque faces (bit7 clear on disc) become
+        // drawable, and a raw bit7-set-without-bit6 face is treated as
+        // collision-only/invisible.
         var effectiveFlags = !semiTrans ? (ushort)(faceFlags ^ 0x0080) : faceFlags;
         var invisible = (effectiveFlags & 0x00C0) == 0;
 

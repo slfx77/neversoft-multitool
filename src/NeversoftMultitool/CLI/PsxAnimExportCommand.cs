@@ -37,11 +37,10 @@ public static class PsxAnimExportCommand
         var fpsOption = new Option<float>("--fps")
         {
             Description =
-                "Frame rate for time-base conversion (default: 10). The engine runs at 30fps " +
-                "natively, but PSX character files often ship animations with only a handful " +
-                "of frames (mullen.psx has 2; carnage entries vary 17-56) - at 30fps these loop " +
-                "in a fraction of a second and look like flicker. 10fps gives a readable preview.",
-            DefaultValueFactory = _ => 10f
+                "Frame rate for time-base conversion (default: 30, the engine's native rate — " +
+                "UpdateFrame advances one frame per 30Hz tick at the default mAnimSpeed of 1.0). " +
+                "Lower values slow the preview for inspection.",
+            DefaultValueFactory = _ => new PsxAnimationOptions().Fps
         };
         var nameOption = new Option<string?>("--name")
         {

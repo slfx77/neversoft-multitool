@@ -330,22 +330,29 @@ internal static partial class ModelDocumentGeometryAdapter
         ModelDocument document,
         uint textureHash,
         bool semiTransparent,
+        bool doubleSided,
         MeshChecksumTextureResolver? textureProvider,
         Dictionary<uint, (int Width, int Height)> textureDims,
-        Dictionary<(uint Hash, bool SemiTransparent), int> materialCache)
+        Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided), int> materialCache)
     {
-        var key = (textureHash, semiTransparent);
+        var key = (textureHash, semiTransparent, doubleSided);
         if (materialCache.TryGetValue(key, out var existing))
             return existing;
 
         var name = ResolveQbName(textureHash, $"tex_{textureHash:X8}");
         if (semiTransparent)
             name += "__semitrans";
+        if (doubleSided)
+            name += "__2sided";
 
+        // PS1 backface-culls every face unless flag bit 9 is set
+        // (M3dAsm_ProcessPolys @0x80099B04), so PSX materials are
+        // single-sided by default — unlike the RenderMaterial default.
         var material = new RenderMaterial
         {
             Name = name,
-            AlphaMode = semiTransparent ? ModelAlphaMode.Blend : ModelAlphaMode.Opaque
+            AlphaMode = semiTransparent ? ModelAlphaMode.Blend : ModelAlphaMode.Opaque,
+            DoubleSided = doubleSided
         };
 
         if (textureProvider != null)

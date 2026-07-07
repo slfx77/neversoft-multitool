@@ -31,11 +31,12 @@ internal static partial class ModelDocumentGeometryAdapter
             psxFile, pshFile, flatSkeleton, flatBoneIndices));
 
         var textureDims = new Dictionary<uint, (int Width, int Height)>();
-        var materialCache = new Dictionary<(uint Hash, bool SemiTransparent), int>();
+        var materialCache = new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided), int>();
         var untexturedMaterial = AddMaterial(document, new RenderMaterial
         {
             Name = "untextured",
-            BaseColor = new Vector4(0.7f, 0.7f, 0.7f, 1f)
+            BaseColor = new Vector4(0.7f, 0.7f, 0.7f, 1f),
+            DoubleSided = false
         });
 
         var lodVariants = BuildPsxLodVariantSet(psxFile);
@@ -137,16 +138,17 @@ internal static partial class ModelDocumentGeometryAdapter
         PsxFace face,
         MeshChecksumTextureResolver? textureProvider,
         Dictionary<uint, (int Width, int Height)> textureDims,
-        Dictionary<(uint Hash, bool SemiTransparent), int> materialCache,
+        Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided), int> materialCache,
         int untexturedMaterial)
     {
         var key = face.IsTextured && face.TextureHash != 0
-            ? (Hash: face.TextureHash, SemiTransparent: face.IsSemiTransparent)
-            : (Hash: 0u, SemiTransparent: false);
+            ? (Hash: face.TextureHash, SemiTransparent: face.IsSemiTransparent,
+                DoubleSided: face.IsDoubleSided)
+            : (Hash: 0u, SemiTransparent: false, DoubleSided: face.IsDoubleSided);
 
-        var materialIndex = key.Hash == 0
+        var materialIndex = key.Hash == 0 && !key.DoubleSided
             ? untexturedMaterial
-            : GetOrCreatePsxMaterial(document, key.Hash, key.SemiTransparent,
+            : GetOrCreatePsxMaterial(document, key.Hash, key.SemiTransparent, key.DoubleSided,
                 textureProvider, textureDims, materialCache);
 
         var texDims = key.Hash != 0 && textureDims.TryGetValue(key.Hash, out var dims)

@@ -10,6 +10,16 @@ public sealed class PsxFace
     public bool IsTextured { get; init; }
     public bool IsGouraud { get; init; }
     public bool IsSemiTransparent { get; init; }
+
+    /// <summary>
+    ///     Bit 9 (0x200): double-sided / disable backface culling. The engine
+    ///     backface-culls every face whose bit 9 is clear
+    ///     (M3dAsm_ProcessPolys @0x80099B04) — so exported materials must be
+    ///     single-sided unless this bit is set, or viewers render back faces
+    ///     the game never shows (skin through sleeves etc.).
+    /// </summary>
+    public bool IsDoubleSided => (Flags & 0x0200) != 0;
+
     public uint Index0 { get; init; }
     public uint Index1 { get; init; }
     public uint Index2 { get; init; }
