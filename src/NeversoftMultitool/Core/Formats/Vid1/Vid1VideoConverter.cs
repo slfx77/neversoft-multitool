@@ -30,11 +30,11 @@ public static partial class Vid1VideoConverter
             return new SfdConvertResult { ErrorMessage = "ffmpeg not found on PATH" };
 
         Directory.CreateDirectory(outputDir);
-        var outputPath = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(inputPath) + ".mp4");
+        var stem = Path.GetFileNameWithoutExtension(inputPath);
+        var outputPath = Path.Combine(outputDir, stem + ".mp4");
         var tempDir = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "Vid1Video", Guid.NewGuid().ToString("N"));
-        var tempVideoPath = Path.Combine(tempDir, Path.GetFileNameWithoutExtension(inputPath) + ".m4v");
+        var tempVideoPath = Path.Combine(tempDir, stem + ".m4v");
         var tempAudioDir = Path.Combine(tempDir, "audio");
-        var tempAudioPath = Path.Combine(tempAudioDir, Path.GetFileNameWithoutExtension(inputPath) + ".wav");
 
         try
         {
@@ -45,12 +45,23 @@ public static partial class Vid1VideoConverter
             if (!Vid1VideoFile.TryParse(inputPath, out var file, out error))
                 return new SfdConvertResult { ErrorMessage = error };
 
+            // Converts every dubbed-language audio track; each becomes its own
+            // selectable audio stream in the muxed MP4.
             var audioResult = Vid1AudioExtractor.ConvertToWav(inputPath, tempAudioDir);
-            var hasAudio = audioResult.Success && File.Exists(tempAudioPath);
+            var audioPaths = new List<string>();
+            if (audioResult.Success)
+            {
+                for (var trackIndex = 0; trackIndex < audioResult.SamplesWritten; trackIndex++)
+                {
+                    var trackPath = Path.Combine(tempAudioDir, Vid1AudioExtractor.GetTrackFileName(stem, trackIndex));
+                    if (File.Exists(trackPath))
+                        audioPaths.Add(trackPath);
+                }
+            }
 
             progress?.Report(0.10);
 
-            if (!RunNativeDecodePipeline(ffmpeg, file!, hasAudio ? tempAudioPath : null, outputPath,
+            if (!RunNativeDecodePipeline(ffmpeg, file!, audioPaths, outputPath,
                     progress, cancellationToken, out error))
                 return new SfdConvertResult { ErrorMessage = error };
 
@@ -65,7 +76,6 @@ public static partial class Vid1VideoConverter
         finally
         {
             TryDeleteFile(tempVideoPath);
-            TryDeleteFile(tempAudioPath);
             TryDeleteDirectory(tempAudioDir);
             TryDeleteDirectory(tempDir);
         }
@@ -258,7 +268,7 @@ public static partial class Vid1VideoConverter
     private static bool RunNativeDecodePipeline(
         string ffmpegPath,
         Vid1VideoFile file,
-        string? audioPath,
+        IReadOnlyList<string> audioPaths,
         string outputPath,
         IProgress<double>? progress,
         CancellationToken cancellationToken,
@@ -268,9 +278,26 @@ public static partial class Vid1VideoConverter
 
         var videoInput = $"-y -f rawvideo -pix_fmt rgb24 -s {file.Width}x{file.Height} " +
                          $"-r {file.FrameRate.ToString("F2", CultureInfo.InvariantCulture)} -i pipe:0";
-        var args = audioPath != null
-            ? $"{videoInput} -i \"{audioPath}\" -map 0:v:0 -map 1:a:0 -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k -shortest \"{outputPath}\""
-            : $"{videoInput} -c:v libx264 -preset fast -crf 23 -an \"{outputPath}\"";
+
+        string args;
+        if (audioPaths.Count > 0)
+        {
+            // Each dubbed-language track becomes its own selectable audio stream
+            // (input 0 is the raw video pipe, audio tracks follow as inputs 1..N).
+            var audioInputs = string.Join(' ', audioPaths.Select(static path => $"-i \"{path}\""));
+            var videoMap = "-map 0:v:0";
+            var audioMaps = string.Join(' ', Enumerable.Range(1, audioPaths.Count).Select(static i => $"-map {i}:a:0"));
+            var audioTitles = string.Join(' ', Enumerable.Range(0, audioPaths.Count)
+                .Select(static i => $"-metadata:s:a:{i} title=\"Track {i + 1}\""));
+
+            args = $"{videoInput} {audioInputs} {videoMap} {audioMaps} " +
+                   $"-c:v libx264 -preset fast -crf 23 " +
+                   $"-c:a aac -b:a 192k {audioTitles} -shortest \"{outputPath}\"";
+        }
+        else
+        {
+            args = $"{videoInput} -c:v libx264 -preset fast -crf 23 -an \"{outputPath}\"";
+        }
 
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo

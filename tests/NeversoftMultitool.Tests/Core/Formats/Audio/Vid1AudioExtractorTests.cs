@@ -18,6 +18,14 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
             "vid",
             "atvi.vid");
 
+    private string RepresentativeMultiTrackSampleFile =>
+        paths.SampleBuildsDir is null ? string.Empty : Path.Combine(
+            paths.SampleBuildsDir,
+            "Tony Hawk's American Wasteland (2005-8-22, GC - Final)",
+            "movies",
+            "vid",
+            "JX_Interview01.vid");
+
     private static string? FindRepoAtviVid()
     {
         var current = AppContext.BaseDirectory;
@@ -102,6 +110,166 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
     }
 
     [Fact]
+    public void ProbeTracks_SyntheticMultiTrackVid1_ReturnsAllTracksWithDistinctMetadata()
+    {
+        var data = Vid1TestBuilder.CreateMultiTrackVid1(
+            5,
+            sampleRateForTrack: i => 44100 + i * 1000,
+            channelsForTrack: static _ => 2,
+            totalSamplesForTrack: static _ => 4096);
+        var vidPath = FormatProbeTestHelper.CreateTempFile(".vid", data);
+
+        try
+        {
+            var probes = Vid1AudioExtractor.ProbeTracks(vidPath);
+
+            Assert.Equal(5, probes.Count);
+            for (var i = 0; i < probes.Count; i++)
+            {
+                Assert.Equal(i, probes[i].TrackIndex);
+                Assert.Equal(5, probes[i].TrackCount);
+                Assert.Equal(44100 + i * 1000, probes[i].SampleRate);
+            }
+        }
+        finally
+        {
+            File.Delete(vidPath);
+        }
+    }
+
+    [Fact]
+    public void Probe_SyntheticMultiTrackVid1_TrackIndexSelectsCorrectTrack()
+    {
+        var data = Vid1TestBuilder.CreateMultiTrackVid1(3, sampleRateForTrack: i => 44100 + i * 1000);
+        var vidPath = FormatProbeTestHelper.CreateTempFile(".vid", data);
+
+        try
+        {
+            var track2 = Vid1AudioExtractor.Probe(vidPath, trackIndex: 2);
+
+            Assert.NotNull(track2);
+            Assert.Equal(2, track2!.TrackIndex);
+            Assert.Equal(46100, track2.SampleRate);
+        }
+        finally
+        {
+            File.Delete(vidPath);
+        }
+    }
+
+    [Fact]
+    public void TryReadTracks_SyntheticMultiTrackVid1_KeepsPerTrackAudioPacketsSeparate()
+    {
+        var data = Vid1TestBuilder.CreateMultiTrackVid1(4);
+        var vidPath = FormatProbeTestHelper.CreateTempFile(".vid", data);
+
+        try
+        {
+            var success = Vid1AudioExtractor.TryReadTracks(vidPath, out var tracks, out var error);
+
+            Assert.True(success, error);
+            Assert.Equal(4, tracks.Count);
+
+            for (var i = 0; i < tracks.Count; i++)
+            {
+                var track = tracks[i];
+                Assert.Equal(i, track.TrackIndex);
+
+                // Each track's synthetic AUDD packet encodes its own track index at byte 1;
+                // packets must not be mixed across tracks.
+                var packet = Assert.Single(track.AudioPackets);
+                Assert.Equal(0x60, packet[0]);
+                Assert.Equal((byte)(0x10 + i), packet[1]);
+            }
+        }
+        finally
+        {
+            File.Delete(vidPath);
+        }
+    }
+
+    [Fact]
+    public void ProbeTracks_RepresentativeMultiTrackSample_ReturnsMultipleDubbedTracks()
+    {
+        Assert.SkipWhen(!File.Exists(RepresentativeMultiTrackSampleFile),
+            "Representative multi-track THAW GameCube VID sample not found");
+
+        var probes = Vid1AudioExtractor.ProbeTracks(RepresentativeMultiTrackSampleFile);
+
+        Assert.True(probes.Count > 1, $"Expected multiple audio tracks, found {probes.Count}");
+
+        for (var i = 0; i < probes.Count; i++)
+        {
+            Assert.Equal("VID1 Vorbis", probes[i].CodecName);
+            Assert.Equal(i, probes[i].TrackIndex);
+            Assert.Equal(probes.Count, probes[i].TrackCount);
+            Assert.True(probes[i].SampleRate > 0);
+            Assert.True(probes[i].Channels > 0);
+            Assert.True(probes[i].TotalSamples > 0);
+        }
+    }
+
+    [Fact]
+    public void TryReadTracks_RepresentativeMultiTrackSample_KeepsPerTrackAudioPacketsSeparate()
+    {
+        Assert.SkipWhen(!File.Exists(RepresentativeMultiTrackSampleFile),
+            "Representative multi-track THAW GameCube VID sample not found");
+
+        var success = Vid1AudioExtractor.TryReadTracks(RepresentativeMultiTrackSampleFile, out var tracks, out var error);
+
+        Assert.True(success, error);
+        Assert.True(tracks.Count > 1, $"Expected multiple audio tracks, found {tracks.Count}");
+
+        foreach (var track in tracks)
+        {
+            Assert.NotEmpty(track.AudioPackets);
+            Assert.NotEmpty(track.IdPacket);
+            Assert.NotEmpty(track.SetupPacket);
+        }
+
+        // Tracks are independent dubs of the same scene; packet counts commonly differ
+        // slightly per language, but a real bug (e.g. packets merged across tracks) would
+        // show up as wildly different or duplicated packet lists between tracks.
+        var packetCounts = tracks.Select(static t => t.AudioPackets.Count).ToArray();
+        Assert.All(packetCounts, count => Assert.True(count > 0));
+    }
+
+    [Fact]
+    public void ConvertToWav_RepresentativeMultiTrackSample_WritesOneWavPerTrack()
+    {
+        Assert.SkipWhen(!File.Exists(RepresentativeMultiTrackSampleFile),
+            "Representative multi-track THAW GameCube VID sample not found");
+        Assert.SkipWhen(SfdConverter.FindFfmpeg() == null, "ffmpeg not found on PATH");
+
+        var outputDir = FormatProbeTestHelper.CreateTempDirectory("vid_multitrack_audio_extract");
+
+        try
+        {
+            var result = Vid1AudioExtractor.ConvertToWav(RepresentativeMultiTrackSampleFile, outputDir);
+
+            Assert.True(result.Success, result.ErrorMessage);
+
+            var trackCount = Vid1AudioExtractor.ProbeTracks(RepresentativeMultiTrackSampleFile).Count;
+            Assert.Equal(trackCount, result.SamplesWritten);
+
+            for (var i = 0; i < trackCount; i++)
+            {
+                var expectedName = i == 0 ? "JX_Interview01.wav" : $"JX_Interview01_track{i}.wav";
+                var wavPath = Path.Combine(outputDir, expectedName);
+                Assert.True(File.Exists(wavPath), $"Expected {expectedName} to exist");
+
+                var wavBytes = File.ReadAllBytes(wavPath);
+                Assert.True(wavBytes.AsSpan(0, 4).SequenceEqual("RIFF"u8));
+                Assert.True(wavBytes.AsSpan(8, 4).SequenceEqual("WAVE"u8));
+            }
+        }
+        finally
+        {
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Probe_RepresentativeSample_ReturnsExpectedMetadata()
     {
         Assert.SkipWhen(!File.Exists(RepresentativeSampleFile), "Representative THAW GameCube VID sample not found");
@@ -172,34 +340,76 @@ internal static class Vid1TestBuilder
 {
     public static byte[] CreateVid1(int sampleRate = 44100, int channels = 2, int totalSamples = 4096)
     {
-        var idPacket = CreateVorbisIdentificationPacket(sampleRate, channels);
-        var setupPacket = CreateVorbisSetupPacket();
-        var headerBlob = EncodeVid1Packets(idPacket, setupPacket);
+        return CreateMultiTrackVid1(1, i => sampleRate, i => channels, i => totalSamples);
+    }
 
-        var audhMetadata = new byte[0x24 + headerBlob.Length];
-        "VAUD"u8.CopyTo(audhMetadata.AsSpan(0, 4));
-        BinaryPrimitives.WriteUInt32BigEndian(audhMetadata.AsSpan(4, 4), checked((uint)sampleRate));
-        audhMetadata[8] = checked((byte)channels);
-        BinaryPrimitives.WriteUInt32BigEndian(audhMetadata.AsSpan(0x20, 4), checked((uint)totalSamples));
-        headerBlob.CopyTo(audhMetadata.AsSpan(0x24));
+    /// <summary>
+    ///     Builds a synthetic VID1 file with multiple AUDH tracks in HEAD and, per frame, one
+    ///     AUDD block per track in the same order — mirroring dubbed-language VID1 files (e.g.
+    ///     English, French, Italian, German, Spanish).
+    /// </summary>
+    public static byte[] CreateMultiTrackVid1(
+        int trackCount,
+        Func<int, int>? sampleRateForTrack = null,
+        Func<int, int>? channelsForTrack = null,
+        Func<int, int>? totalSamplesForTrack = null)
+    {
+        sampleRateForTrack ??= static i => 44100 + i * 1000;
+        channelsForTrack ??= static _ => 2;
+        totalSamplesForTrack ??= static _ => 4096;
 
-        var audhPayload = new byte[4 + audhMetadata.Length];
-        audhMetadata.CopyTo(audhPayload.AsSpan(4));
-        var audhChunk = BuildChunk("AUDH", audhPayload);
+        var audhChunks = new byte[trackCount][];
+        var auddChunks = new byte[trackCount][];
 
-        var audioPacket = new byte[] { 0x60, 0x11, 0x22, 0x33 };
-        var auddPacketBlob = EncodeVid1Packets(audioPacket);
-        var auddPayload = new byte[12 + auddPacketBlob.Length];
-        BinaryPrimitives.WriteUInt32BigEndian(auddPayload.AsSpan(4, 4), checked((uint)(auddPacketBlob.Length + 6)));
-        auddPacketBlob.CopyTo(auddPayload.AsSpan(12));
-        var auddChunk = BuildChunk("AUDD", auddPayload);
+        for (var i = 0; i < trackCount; i++)
+        {
+            var sampleRate = sampleRateForTrack(i);
+            var channels = channelsForTrack(i);
+            var totalSamples = totalSamplesForTrack(i);
 
-        var framePayload = new byte[0x18 + auddChunk.Length];
-        auddChunk.CopyTo(framePayload.AsSpan(0x18));
+            var idPacket = CreateVorbisIdentificationPacket(sampleRate, channels);
+            var setupPacket = CreateVorbisSetupPacket();
+            var headerBlob = EncodeVid1Packets(idPacket, setupPacket);
+
+            var audhMetadata = new byte[0x24 + headerBlob.Length];
+            "VAUD"u8.CopyTo(audhMetadata.AsSpan(0, 4));
+            BinaryPrimitives.WriteUInt32BigEndian(audhMetadata.AsSpan(4, 4), checked((uint)sampleRate));
+            audhMetadata[8] = checked((byte)channels);
+            BinaryPrimitives.WriteUInt32BigEndian(audhMetadata.AsSpan(0x20, 4), checked((uint)totalSamples));
+            headerBlob.CopyTo(audhMetadata.AsSpan(0x24));
+
+            var audhPayload = new byte[4 + audhMetadata.Length];
+            audhMetadata.CopyTo(audhPayload.AsSpan(4));
+            audhChunks[i] = BuildChunk("AUDH", audhPayload);
+
+            // Distinct packet content per track so tests can verify AUDD blocks are
+            // routed to the correct track instead of being merged together.
+            var audioPacket = new byte[] { 0x60, checked((byte)(0x10 + i)), 0x22, 0x33 };
+            var auddPacketBlob = EncodeVid1Packets(audioPacket);
+            var auddPayload = new byte[12 + auddPacketBlob.Length];
+            BinaryPrimitives.WriteUInt32BigEndian(auddPayload.AsSpan(4, 4), checked((uint)(auddPacketBlob.Length + 6)));
+            auddPacketBlob.CopyTo(auddPayload.AsSpan(12));
+            auddChunks[i] = BuildChunk("AUDD", auddPayload);
+        }
+
+        var framePayload = new byte[0x18 + auddChunks.Sum(static c => c.Length)];
+        var frameOffset = 0x18;
+        foreach (var auddChunk in auddChunks)
+        {
+            auddChunk.CopyTo(framePayload.AsSpan(frameOffset));
+            frameOffset += auddChunk.Length;
+        }
+
         var frameChunk = BuildChunk("FRAM", framePayload);
 
-        var headPayload = new byte[4 + audhChunk.Length];
-        audhChunk.CopyTo(headPayload.AsSpan(4));
+        var headPayload = new byte[4 + audhChunks.Sum(static c => c.Length)];
+        var headOffset = 4;
+        foreach (var audhChunk in audhChunks)
+        {
+            audhChunk.CopyTo(headPayload.AsSpan(headOffset));
+            headOffset += audhChunk.Length;
+        }
+
         var headChunk = BuildChunk("HEAD", headPayload);
 
         var rootChunk = BuildChunk("VID1", new byte[0x18]);
