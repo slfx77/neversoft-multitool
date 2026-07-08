@@ -1,6 +1,7 @@
-using System.CommandLine;
+﻿using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture.XbxScene;
 using Spectre.Console;
 
@@ -8,10 +9,10 @@ namespace NeversoftMultitool.CLI;
 
 public static class XbxTexCommand
 {
-    private static readonly string[] ImageSuffixes = [".img.xbx", ".img.wpc", ".img"];
+    private static readonly string[] ImageSuffixes = [".img.xbx", ".img.wpc", ".img.ngc", ".img"];
 
     private static readonly string[] SupportedSuffixes =
-        [".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc", ".stex", ".tex", ".img"];
+        [".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc", ".tex.ngc", ".img.ngc", ".stex", ".tex", ".img"];
 
     public static Command Create()
     {
@@ -98,6 +99,8 @@ public static class XbxTexCommand
                 if (!result.Success)
                     result = ThawImgFile.Parse(file);
                 if (!result.Success)
+                    result = NgcTexFile.Parse(file); // THAW GameCube .img.ngc
+                if (!result.Success)
                 {
                     failed++;
                     if (verbose)
@@ -118,6 +121,8 @@ public static class XbxTexCommand
                 var result = XbxTexFile.Parse(file);
                 if (!result.Success)
                     result = ThawTexFile.Parse(file); // Try THAW 0xABADD00D format
+                if (!result.Success)
+                    result = NgcTexFile.Parse(file); // THAW GameCube .tex.ngc
                 if (!result.Success)
                 {
                     failed++;

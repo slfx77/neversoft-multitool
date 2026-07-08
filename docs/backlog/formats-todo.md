@@ -13,14 +13,32 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
 
 ## Remaining — needs work
 
-### 🔴 THAW GameCube platform (textures + meshes) — largest untouched family
-- Source: 2026-07-07 corpus census.
-- Evidence: `.img.ngc` (2,647), `.tex.ngc` (722), `.skin.ngc` (588), `.mdl.ngc` (134), `.col.ngc` (722),
-  plus `.apk.ngc`/`.mpk.ngc` (4,424 each — anim packs / 32-byte padding stubs). Probes show big-endian
-  byte-swapped THAW structures (`.skin.ngc`) and GC-native tiled texture headers (`.img.ngc`).
-- What's left: endian-aware readers for the THAW-generation formats + GC texture tiling/formats. NxTools
-  does NOT cover this generation on ngc (its ngc support = Downhill Jam, the THPG-era engine). Its
-  `fmt_thdjscene`/`fmt_thdjtex` are the nearest big-endian references.
+### 🔶 THAW GameCube platform — textures ✅ shipped 2026-07-07; meshes/collision remain
+- Source: 2026-07-07 corpus census + format RE session.
+- ✅ **Textures done**: `.tex.ngc` (722) + `.img.ngc` (2,647) parse via `NgcTexFile` (extended from the
+  earlier committed skeleton). Format (established via PC↔GC Rosetta pairs, pixel-exact on `anl_pigeon`,
+  MAE 0.46 vs the PC DXT decode): dictionary header (u8 ver=1, u8, u16be count, u32be tableOffset=8) +
+  count×32B record table + data region. Record: ver=4, depth=32, u16, u32be checksum, u16, log2W, log2H,
+  mips, gxFormat, u8, u8, u32be colorSize, u32be dataOffset (ABSOLUTE), u32be alphaOffset (ABSOLUTE,
+  FFFFFFFF=none), u32be 0. `.img.ngc` = bare record, no dict header. Only two GX formats in the corpus:
+  CMPR (0x0E, 4,266 records — 8×8 tiles of four DXT1 blocks, BE colors, MSB indices; DXT5-equivalents get
+  a SECOND CMPR chain at alphaOffset whose GREEN channel is the alpha, the same trick as THUG GC
+  `texture.cpp`) and format byte 0x06 (224 records) which covers BOTH RGBA8 (180 — 4×4 tiles, AR/GB 32B
+  planes; real height = colorSize/(4·width)) and C8+RGB5A3 palette (44 — CAS icons/banners; distinguished
+  arithmetically: colorSize == width×rows + 512). Images are stored bottom-up (y-flip on decode).
+  **Sweep: 3,369/3,369 files, 4,630+ textures, 0 failures** (one 32-byte count=0 stub parses as empty).
+- 🔴 **Meshes** (`.skin.ngc` 588, `.mdl.ngc` 134): NOT the THAW PC/Xbox scene format (no BABEFACE, no
+  shared structure). THUG GC source (`Sample/thug/Code/Gfx/NGC/p_nx.cpp` `s_plat_load_scene_guts` +
+  `NGC/NX/scene.cpp`/`mesh.cpp`/`material.cpp`) shows the ancestor: sSceneHeader + blend/texture DL
+  tables + material headers/passes + object headers, with geometry inside **GX display lists** (GPU
+  command streams). A converter = GX display-list parser (vertex attribute arrays + indexed draw
+  commands) — comparable scope to the THAW PS2 VIF replay work. PC↔GC Rosetta pairs exist for validation
+  (e.g. `anl_pigeon.skin.wpc` 3,120B vs `.skin.ngc` 1,812B).
+- 🔶 **Collision** (`.col.ngc` 722): confirmed big-endian **v10** with byte-count-identical PC pairs
+  (pigeon 1,268B both platforms) but REORDERED header fields (GC file header: faces count at +12 vs PC
+  +16; object headers likely shuffled too). Needs a per-field Rosetta mapping on top of the endian swap —
+  small-to-medium port against `ColFile.cs`.
+- ⚪ `.apk.ngc` (4,424) = anim packs (likely BE .ska variants); `.mpk.ngc` = 32-byte padding stubs.
 
 ### 🔴 `.stex` — raw streaming-texture payloads (NOT a self-contained container)
 - Source: 2026-07-07 probe (re-scoped). ~3,400 files: THAW PS2 (2,423), P8 (365), THPG (627), extracted

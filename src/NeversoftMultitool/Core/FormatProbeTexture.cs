@@ -1,4 +1,4 @@
-using NeversoftMultitool.Core.Formats.Texture.Ngc;
+﻿using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 using NeversoftMultitool.Core.Formats.Texture.XbxScene;
 
@@ -8,7 +8,7 @@ internal static class FormatProbeTexture
 {
     private static readonly string[] XboxTexSuffixes = [".tex.xbx", ".tex.wpc", ".stex"];
     private static readonly string[] XboxImgSuffixes = [".img.xbx", ".img.wpc"];
-    private static readonly string[] NgcTexSuffixes = [".tex.ngc"];
+    private static readonly string[] NgcTexSuffixes = [".tex.ngc", ".img.ngc"];
     private static readonly string[] CrossPlatformTexSuffixes = [".tex.xen", ".tex.ps3", ".tex.dat"];
     private static readonly string[] CrossPlatformImgSuffixes = [".img.xen", ".img.ps3"];
     private static readonly string[] Ps2TextureSuffixes = [".tex.ps2", ".img.ps2"];
@@ -162,6 +162,9 @@ internal static class FormatProbeTexture
     {
         if (!BinaryProbeReader.TryReadAllBytes(filePath, out var data))
             return HeaderReadFailure();
+
+        if (NgcTexFile.IsBareRecord(data))
+            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "NGC IMG");
 
         if (!NgcTexFile.TryReadHeader(data, out _, out var error))
         {

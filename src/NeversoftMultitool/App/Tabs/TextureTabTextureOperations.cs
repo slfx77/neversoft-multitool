@@ -1,4 +1,4 @@
-using NeversoftMultitool.Core;
+﻿using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture;
@@ -15,10 +15,10 @@ internal static class TextureTabTextureOperations
     private static readonly string[] CompoundTextureExtensions =
     [
         ".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc",
-        ".tex.ps2", ".img.ps2", ".tex.ngc"
+        ".tex.ps2", ".img.ps2", ".tex.ngc", ".img.ngc"
     ];
 
-    private static readonly string[] NgcTexExtensions = [".tex.ngc"];
+    private static readonly string[] NgcTexExtensions = [".tex.ngc", ".img.ngc"];
     private static readonly string[] XboxTexExtensions = [".tex.xbx", ".tex.wpc"];
     private static readonly string[] XboxImgExtensions = [".img.xbx", ".img.wpc"];
     private static readonly string[] Ps2TexExtensions = [".tex.ps2", ".img.ps2", ".tex", ".img"];

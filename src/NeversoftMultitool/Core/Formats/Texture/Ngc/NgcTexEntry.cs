@@ -1,4 +1,4 @@
-namespace NeversoftMultitool.Core.Formats.Texture.Ngc;
+﻿namespace NeversoftMultitool.Core.Formats.Texture.Ngc;
 
 internal readonly record struct NgcTexEntry(
     uint Magic,
@@ -8,4 +8,5 @@ internal readonly record struct NgcTexEntry(
     byte FormatA,
     byte FormatB,
     int DataSize,
-    int DataOffset);
+    int DataOffset,
+    int AlphaOffset);
