@@ -1,4 +1,5 @@
 using NeversoftMultitool.CLI;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
