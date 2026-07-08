@@ -446,7 +446,13 @@ internal static partial class ModelDocumentGeometryAdapter
 
     private static bool UsesCombinedPsxCharacterAssembly(PsxMeshFile psxFile)
     {
-        return psxFile.HasHierarchy || psxFile.HasStitchedReferences;
+        // A HIER chunk alone is not a character marker: level files carry one
+        // for their placed animated objects (THPS1-proto skdown/skvans) and
+        // must stay on the per-object level path — routing them through the
+        // combined skinned assembly scatters hundreds of meshes across bind
+        // pivots ("dust" renders). IsSuperModel bounds the part count.
+        return psxFile.HasStitchedReferences ||
+               (psxFile.HasHierarchy && psxFile.IsSuperModel);
     }
 
     private static HashSet<int> BuildPsxLodVariantSet(PsxMeshFile psxFile)

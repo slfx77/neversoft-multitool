@@ -159,6 +159,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         {
             Version = 4,
             HasHierarchy = true,
+            IsSuperModel = true,
             TranslationDivisor = 1f,
             Objects =
             [
@@ -191,6 +192,40 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
 
         var meshTwoOffset = PsxCharacterMeshResolver.GetObjectOffset(psxFile, meshIndex: 2);
         Assert.Equal(new Vector3(3f, 0f, 0f), meshTwoOffset);
+    }
+
+    [Fact]
+    public void CharacterRouting_HierLevelFilesAreNotCharacterOrdered()
+    {
+        // Level files carry a HIER chunk for their placed animated objects
+        // (THPS1-proto skdown/skvans) but are NOT supers — the header marks
+        // them IsSuperModel=false (large object count) and they must keep the
+        // item-path obj.MeshIndex routing rather than positional part order.
+        var psxFile = new PsxMeshFile
+        {
+            Version = 3,
+            HasHierarchy = true,
+            IsSuperModel = false,
+            TranslationDivisor = 1f,
+            Objects =
+            [
+                new PsxMeshObject { RawX = 4096, MeshIndex = 2 },
+                new PsxMeshObject { RawX = 8192, MeshIndex = 0 },
+                new PsxMeshObject { RawX = 12288, MeshIndex = 1 }
+            ],
+            Meshes =
+            [
+                CreateSingleVertexMesh(20f),
+                CreateSingleVertexMesh(30f),
+                CreateSingleVertexMesh(10f)
+            ],
+            MeshNameHashes = [],
+            TextureHashes = [],
+            MeshToObjectIndex = [1, 2, 0]
+        };
+
+        Assert.False(PsxMeshSemantics.UsesCharacterObjectOrder(psxFile));
+        Assert.Equal(2, PsxMeshSemantics.GetCharacterMeshIndex(psxFile, 0));
     }
 
     [Fact]

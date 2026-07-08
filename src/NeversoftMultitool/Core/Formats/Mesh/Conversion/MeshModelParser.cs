@@ -542,20 +542,23 @@ public sealed class MeshModelParser : IModelParser
         var meshLabel = fileName;
         var stem = Path.GetFileNameWithoutExtension(fileName);
 
-        byte[]? libraryBytes = null;
-        var libraryLabel = "";
-        if (stem.EndsWith("_g", StringComparison.OrdinalIgnoreCase))
+        // Sibling texture libraries per the same candidate rules as
+        // PsxTextureProviderFactory (retail *_g/_l pairs, proto {stem}_l /
+        // base _l / shared skatelib+sub_lib).
+        var libraries = new List<(byte[] Bytes, string Label)>();
+        foreach (var candidate in PsxTextureProviderFactory.GetCompanionLibraryStems(stem))
         {
-            var libraryName = stem[..^2] + "_l.psx";
-            libraryBytes = source.TryReadCompanion(libraryName);
-            libraryLabel = libraryName;
+            var libraryName = candidate + ".psx";
+            var bytes = source.TryReadCompanion(libraryName);
+            if (bytes != null)
+                libraries.Add((bytes, libraryName));
         }
 
         return hash =>
         {
             var result = PsxLibrary.ExtractTextureByHash(psxData, hash, meshLabel);
-            if (result == null && libraryBytes != null)
-                result = PsxLibrary.ExtractTextureByHash(libraryBytes, hash, libraryLabel);
+            for (var i = 0; result == null && i < libraries.Count; i++)
+                result = PsxLibrary.ExtractTextureByHash(libraries[i].Bytes, hash, libraries[i].Label);
             if (result == null)
                 return null;
             var (rgba, width, height) = result.Value;

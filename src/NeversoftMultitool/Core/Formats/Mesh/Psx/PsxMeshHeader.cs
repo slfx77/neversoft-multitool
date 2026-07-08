@@ -13,6 +13,14 @@ internal sealed class PsxMeshHeader
     public Vector4[]? GouraudPalette { get; init; }
     public bool HasHierarchy { get; init; }
     public bool HasAnimChunk { get; init; }
+
+    /// <summary>
+    ///     True when the file is a super (character or small animated prop):
+    ///     it has a HIER or anim chunk AND a super-plausible part count. Level
+    ///     files with hier/anim chunks for their placed objects are NOT supers.
+    /// </summary>
+    public bool IsSuperModel { get; init; }
+
     public float ScaleDivisor { get; init; }
     public float TranslationDivisor { get; init; }
 }

@@ -17,6 +17,15 @@ public sealed class PsxMeshFile
     public required uint[] TextureHashes { get; init; }
     public Vector4[]? GouraudPalette { get; init; }
     public bool HasHierarchy { get; init; }
+
+    /// <summary>
+    ///     True when the file is a super (character or small animated prop)
+    ///     per <see cref="PsxMeshHeader.IsSuperModel" />. Level files that
+    ///     carry HIER/anim chunks for their placed animated objects are NOT
+    ///     supers and must convert through the per-object level path.
+    /// </summary>
+    public bool IsSuperModel { get; init; }
+
     public float ScaleDivisor { get; init; }
     public float TranslationDivisor { get; init; }
 
@@ -126,30 +135,8 @@ public sealed class PsxMeshFile
                 attachment.AttachmentIndex;
         }
 
-        var hasStitchedReferences = meshes.Any(static mesh =>
-            mesh.Vertices.Any(static vertex =>
-                PsxMeshSemantics.IsExactStitchedReference(vertex.Type)));
-
-        // Flat stitched supers bind parts positionally (ppModels[part] 1:1 —
-        // see PsxMeshSemantics.UsesCharacterObjectOrder). Stitch presence is
-        // only known now that the meshes are parsed, so redo the provisional
-        // obj.MeshIndex-based mapping and attachment placement in part order.
-        if (!header.HasHierarchy && hasStitchedReferences
-            && header.Objects.Count == meshes.Count)
-        {
-            for (var i = 0; i < meshToObjectIndex.Length; i++)
-                meshToObjectIndex[i] = i < header.Objects.Count ? i : -1;
-
-            foreach (var attachment in attachmentVertices)
-            {
-                if (attachment.MeshIndex >= header.Objects.Count) continue;
-                attachment.ObjectIndex = attachment.MeshIndex;
-                attachment.WorldPosition = attachment.LocalPosition +
-                    PsxMeshSemantics.GetObjectOffset(
-                        header.Objects[attachment.MeshIndex],
-                        header.TranslationDivisor);
-            }
-        }
+        var hasStitchedReferences = ApplyPositionalBindingIfStitchedSuper(
+            header, meshes, meshToObjectIndex, attachmentVertices);
 
         return new PsxMeshFile
         {
@@ -161,6 +148,7 @@ public sealed class PsxMeshFile
             TextureHashes = header.TextureHashes,
             GouraudPalette = header.GouraudPalette,
             HasHierarchy = header.HasHierarchy,
+            IsSuperModel = header.IsSuperModel,
             ScaleDivisor = header.ScaleDivisor,
             TranslationDivisor = header.TranslationDivisor,
             HasStitchedReferences = hasStitchedReferences,
@@ -289,6 +277,45 @@ public sealed class PsxMeshFile
         return lastEnd;
     }
 
+    /// <summary>
+    ///     Flat stitched supers bind parts positionally (ppModels[part] 1:1 —
+    ///     see PsxMeshSemantics.UsesCharacterObjectOrder). Stitch presence is
+    ///     only known once the meshes are parsed, so this redoes the
+    ///     provisional obj.MeshIndex-based mapping and attachment placement in
+    ///     part order. Returns whether any stitched-reference vertex exists.
+    /// </summary>
+    private static bool ApplyPositionalBindingIfStitchedSuper(
+        PsxMeshHeader header,
+        List<PsxMesh> meshes,
+        int[] meshToObjectIndex,
+        List<PsxAttachmentVertex> attachmentVertices)
+    {
+        var hasStitchedReferences = meshes.Any(static mesh =>
+            mesh.Vertices.Any(static vertex =>
+                PsxMeshSemantics.IsExactStitchedReference(vertex.Type)));
+
+        if (header.HasHierarchy || !hasStitchedReferences
+            || header.Objects.Count != meshes.Count)
+        {
+            return hasStitchedReferences;
+        }
+
+        for (var i = 0; i < meshToObjectIndex.Length; i++)
+            meshToObjectIndex[i] = i < header.Objects.Count ? i : -1;
+
+        foreach (var attachment in attachmentVertices)
+        {
+            if (attachment.MeshIndex >= header.Objects.Count) continue;
+            attachment.ObjectIndex = attachment.MeshIndex;
+            attachment.WorldPosition = attachment.LocalPosition +
+                PsxMeshSemantics.GetObjectOffset(
+                    header.Objects[attachment.MeshIndex],
+                    header.TranslationDivisor);
+        }
+
+        return true;
+    }
+
     private static int[] BuildMeshToObjectIndex(PsxMeshHeader header)
     {
         var meshToObjectIndex = new int[header.MeshTopPointers.Length];
@@ -353,6 +380,7 @@ public sealed class PsxMeshFile
             TextureHashes = header.TextureHashes,
             GouraudPalette = header.GouraudPalette,
             HasHierarchy = header.HasHierarchy,
+            IsSuperModel = header.IsSuperModel,
             ScaleDivisor = header.ScaleDivisor,
             TranslationDivisor = header.TranslationDivisor
         };

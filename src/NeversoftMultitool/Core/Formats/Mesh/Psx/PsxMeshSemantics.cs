@@ -44,7 +44,9 @@ internal static class PsxMeshSemantics
         // object/item-table field (load-format doc §6.2) meaningful only for
         // item lookup on non-character files, which keep it via the fallback
         // (as do count-mismatched files, where positional cannot apply).
-        return psxFile.HasHierarchy ||
+        // HIER counts only for supers: level files carry HIER chunks for
+        // their placed animated objects and are not part-ordered characters.
+        return (psxFile.HasHierarchy && psxFile.IsSuperModel) ||
                (psxFile.HasStitchedReferences &&
                 psxFile.Objects.Count == psxFile.Meshes.Count);
     }
