@@ -34,10 +34,16 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
   command streams). A converter = GX display-list parser (vertex attribute arrays + indexed draw
   commands) — comparable scope to the THAW PS2 VIF replay work. PC↔GC Rosetta pairs exist for validation
   (e.g. `anl_pigeon.skin.wpc` 3,120B vs `.skin.ngc` 1,812B).
-- 🔶 **Collision** (`.col.ngc` 722): confirmed big-endian **v10** with byte-count-identical PC pairs
-  (pigeon 1,268B both platforms) but REORDERED header fields (GC file header: faces count at +12 vs PC
-  +16; object headers likely shuffled too). Needs a per-field Rosetta mapping on top of the endian swap —
-  small-to-medium port against `ColFile.cs`.
+- 🔴 **Collision** (`.col.ngc` 722): layout fully mapped 2026-07-07 but **conversion is blocked on the
+  mesh project — GC col files ship WITHOUT vertex positions.** Layout: 24B BE header (version=10,
+  numObjects, totalVerts, totalFaces, ssRows, ssCols) + 32B scene bounds + 64B object records (checksum,
+  u32 numVerts, u16 numFaces, u32 firstFaceOffset in bytes, bboxMin/Max 4×f32 each, u32 0, u32 firstVert
+  INDEX, u32 optOffset, pad) + data: vertex+intensity region (ALL 0xFF-wiped — verified on trigger boxes,
+  props, and the 3,950-vert sec_jimbo_xen level file), faces (always 10-byte large records: u16be flags,
+  terrain, i0, i1, i2 — triangulation matches the PC pairs exactly), then BSP/opt tables with per-object
+  face-index lists. The engine reconstructs collision vertices at runtime (likely from the render scene) —
+  so standalone .col.ngc → glTF is impossible; fold into the GX display-list mesh project and share its
+  vertex sources.
 - ⚪ `.apk.ngc` (4,424) = anim packs (likely BE .ska variants); `.mpk.ngc` = 32-byte padding stubs.
 
 ### 🔴 `.stex` — raw streaming-texture payloads (NOT a self-contained container)

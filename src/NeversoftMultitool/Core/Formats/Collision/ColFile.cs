@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Collision;
@@ -58,8 +58,20 @@ public static class ColFile
         if (numObjects < 0 || numObjects > 100_000)
             throw new InvalidDataException($"Unreasonable object count: {numObjects}");
 
+        // THAW-generation files insert a 48-byte supersector block between the
+        // file header and the object headers: marker(u32=0) + unknown(u32) +
+        // rows(u32) + cols(u32) + sceneBBoxMin(4xf32) + sceneBBoxMax(4xf32).
+        // THUG2-generation files start object headers (non-zero checksum)
+        // immediately. Reference: NxTools fmt_thcol_import.py.
+        var objectBase = SizeofHeader;
+        if (data.Length >= SizeofHeader + 4 &&
+            BinaryPrimitives.ReadUInt32LittleEndian(data[SizeofHeader..]) == 0)
+        {
+            objectBase += 48;
+        }
+
         // ── Offset calculations ──
-        var baseVertOffset = Align16(SizeofHeader + SizeofObject * numObjects);
+        var baseVertOffset = Align16(objectBase + SizeofObject * numObjects);
         var baseIntensityOffset = baseVertOffset +
                                   totalLargeVerts * SizeofFloatVert +
                                   totalSmallVerts * SizeofFixedVert;
@@ -67,7 +79,7 @@ public static class ColFile
 
         // ── Parse per-object headers + geometry ──
         var objects = new ColObject[numObjects];
-        var headerOffset = SizeofHeader;
+        var headerOffset = objectBase;
 
         for (var i = 0; i < numObjects; i++)
         {
