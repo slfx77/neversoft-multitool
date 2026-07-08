@@ -20,6 +20,14 @@ public sealed class PsxMeshFile
     public float ScaleDivisor { get; init; }
     public float TranslationDivisor { get; init; }
 
+    /// <summary>
+    ///     True when any mesh contains type-2 stitched-reference vertices —
+    ///     the marker of a character super on files without a HIER table.
+    ///     Always false for <see cref="ParseHeaderOnly(string)" /> results
+    ///     (geometry is not read there).
+    /// </summary>
+    public bool HasStitchedReferences { get; init; }
+
     internal IReadOnlyList<PsxAttachmentVertex> AttachmentVertices { get; init; } = [];
 
     internal IReadOnlyDictionary<uint, PsxAttachmentVertex> AttachmentVertexMap { get; init; } =
@@ -118,6 +126,31 @@ public sealed class PsxMeshFile
                 attachment.AttachmentIndex;
         }
 
+        var hasStitchedReferences = meshes.Any(static mesh =>
+            mesh.Vertices.Any(static vertex =>
+                PsxMeshSemantics.IsExactStitchedReference(vertex.Type)));
+
+        // Flat stitched supers bind parts positionally (ppModels[part] 1:1 —
+        // see PsxMeshSemantics.UsesCharacterObjectOrder). Stitch presence is
+        // only known now that the meshes are parsed, so redo the provisional
+        // obj.MeshIndex-based mapping and attachment placement in part order.
+        if (!header.HasHierarchy && hasStitchedReferences
+            && header.Objects.Count == meshes.Count)
+        {
+            for (var i = 0; i < meshToObjectIndex.Length; i++)
+                meshToObjectIndex[i] = i < header.Objects.Count ? i : -1;
+
+            foreach (var attachment in attachmentVertices)
+            {
+                if (attachment.MeshIndex >= header.Objects.Count) continue;
+                attachment.ObjectIndex = attachment.MeshIndex;
+                attachment.WorldPosition = attachment.LocalPosition +
+                    PsxMeshSemantics.GetObjectOffset(
+                        header.Objects[attachment.MeshIndex],
+                        header.TranslationDivisor);
+            }
+        }
+
         return new PsxMeshFile
         {
             Version = header.Version,
@@ -130,6 +163,7 @@ public sealed class PsxMeshFile
             HasHierarchy = header.HasHierarchy,
             ScaleDivisor = header.ScaleDivisor,
             TranslationDivisor = header.TranslationDivisor,
+            HasStitchedReferences = hasStitchedReferences,
             AttachmentVertices = attachmentVertices,
             AttachmentVertexMap = attachmentVertexMap,
             MeshToObjectIndex = meshToObjectIndex

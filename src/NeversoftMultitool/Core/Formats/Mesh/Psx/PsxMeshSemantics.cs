@@ -32,11 +32,21 @@ internal static class PsxMeshSemantics
 
     internal static bool UsesCharacterObjectOrder(PsxMeshFile psxFile)
     {
-        // Only files with an explicit HIER parent table use object-order super
-        // parts. Older flat stitched supers (THPS1 proto, Apocalypse) are still
-        // character-like, but the engine routes their model list through
-        // obj.MeshIndex and does not parse a HIER table for them.
-        return psxFile.HasHierarchy;
+        // Characters render positionally: RenderSuperItem draws ppModels[part]
+        // with part == slot, 1:1 (decomp char_mesh_selection.md), and
+        // M3dInit_ParsePSX (decomp-VERIFIED, psx_model_load_format.md §1)
+        // fills ppModels contiguously with no index remap. That applies to
+        // HIER-table files AND to flat stitched supers (THPS1-proto hawk,
+        // Apocalypse bruce): on those, obj.MeshIndex is limb-permuted
+        // relative to the part slots (hawk: hand<->bicep, 12<->14) and
+        // binding through it hangs the bicep mesh on the wrist pivot — the
+        // source of the proto arm/leg garble. obj.MeshIndex is an
+        // object/item-table field (load-format doc §6.2) meaningful only for
+        // item lookup on non-character files, which keep it via the fallback
+        // (as do count-mismatched files, where positional cannot apply).
+        return psxFile.HasHierarchy ||
+               (psxFile.HasStitchedReferences &&
+                psxFile.Objects.Count == psxFile.Meshes.Count);
     }
 
     internal static int GetCharacterMeshIndex(PsxMeshFile psxFile, int objectIndex)

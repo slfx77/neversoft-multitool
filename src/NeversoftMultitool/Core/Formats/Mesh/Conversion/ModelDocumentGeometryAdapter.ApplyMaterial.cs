@@ -446,9 +446,7 @@ internal static partial class ModelDocumentGeometryAdapter
 
     private static bool UsesCombinedPsxCharacterAssembly(PsxMeshFile psxFile)
     {
-        return psxFile.HasHierarchy ||
-               psxFile.Meshes.Any(static mesh => mesh.Vertices.Any(static vertex =>
-                   PsxMeshSemantics.IsExactStitchedReference(vertex.Type)));
+        return psxFile.HasHierarchy || psxFile.HasStitchedReferences;
     }
 
     private static HashSet<int> BuildPsxLodVariantSet(PsxMeshFile psxFile)

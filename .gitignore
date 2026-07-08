@@ -95,6 +95,9 @@ tools/ghidra/thps3_ps2/*
 tools/diagnostics/*
 !tools/diagnostics/psx-anim-format.md
 !tools/diagnostics/psx_anim_tween_survey.py
+!tools/diagnostics/psx_func_signature_scan.py
+!tools/diagnostics/psx_lod_part_probe.py
+!tools/diagnostics/cross_game_anim_functions.md
 !tools/diagnostics/ps2_scene_trace.py
 !tools/diagnostics/ps2_geom_trace.py
 !tools/diagnostics/ps2_geom_gscontext.py
