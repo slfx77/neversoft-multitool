@@ -179,7 +179,7 @@ The 2000-6-2 THPS2 PSX prototype ships only as `SLUS_900.86` + `MAIN.SYM` (no di
 
 ### Not Yet Implemented
 
-- **THAW .tex.ps2 scene texture metadata**: Scene texture metadata files (NOT the same format as THUG TEX). Header contains model checksum + per-texture entries with GS register values (TEX0, MIPTBP), dimensions, and texture checksums. 328 files, each a companion to the same-named `.skin.ps2`. PC equivalent (`.tex.wpc`) uses `0xABADD00D` magic with DXT-compressed pixel data. Internal texture checksums are NOT QbKey hashes.
+- **THAW .tex.ps2 scene texture metadata**: Scene texture metadata files (NOT the same format as THUG TEX). Header contains model checksum + per-texture entries with GS register values (TEX0, MIPTBP), dimensions, and texture checksums. 328 files, each a companion to the same-named `.skin.ps2`. Internal texture checksums are NOT QbKey hashes. (The PC `.tex.wpc`/`.img.wpc` 0xABADD00D DXT containers ARE implemented — `ThawTexFile`/`ThawImgFile` via `xbxtex`; verified 2026-07-07 at 3,203/3,203 files, 4,472 textures.)
 - **RW DFF / THPS3 animations**: No animation support yet. THPS3 likely uses RenderWare animation chunks or custom Neversoft formats. THPS4+ uses Neversoft SKA format (BonedAnim.cpp). Skinned DFF models currently export in bind pose (T-pose).
 
 ### Research & Improvements

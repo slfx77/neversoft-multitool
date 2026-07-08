@@ -1,12 +1,36 @@
 # Backlog — Unimplemented / Deferred Formats
 
-Created 2026-07-03. Distilled from `CLAUDE.md` (*Deferred Items* / *Not Yet Implemented*) + `memory/` — **not re-verified this session**. See `BACKLOG_SUMMARY.md`.
+Created 2026-07-03. Distilled from `CLAUDE.md` (*Deferred Items* / *Not Yet Implemented*) + `memory/`.
+**Re-verified 2026-07-07** with a full-corpus extension census (all 27 build dirs), magic-byte probes, and
+conversion sweeps — several entries here turned out stale (see *Done* below). NxTools (`Sample/nxtools`)
+was surveyed as a reference source: it covers THUG2/THAW scene+tex families across xbx/wpc/xen/ps3 and
+Downhill Jam (`thdj` = ngc/wii, later engine gen), plus a full PS1 `.psx` importer — but has NO coverage
+for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
 
 **Status legend:** 🔴 Open · 🔶 Partial · 🟢 Verified this session · ✅ Done · ⚪ By design
 
 ---
 
 ## Remaining — needs work
+
+### 🔴 THAW GameCube platform (textures + meshes) — largest untouched family
+- Source: 2026-07-07 corpus census.
+- Evidence: `.img.ngc` (2,647), `.tex.ngc` (722), `.skin.ngc` (588), `.mdl.ngc` (134), `.col.ngc` (722),
+  plus `.apk.ngc`/`.mpk.ngc` (4,424 each — anim packs / 32-byte padding stubs). Probes show big-endian
+  byte-swapped THAW structures (`.skin.ngc`) and GC-native tiled texture headers (`.img.ngc`).
+- What's left: endian-aware readers for the THAW-generation formats + GC texture tiling/formats. NxTools
+  does NOT cover this generation on ngc (its ngc support = Downhill Jam, the THPG-era engine). Its
+  `fmt_thdjscene`/`fmt_thdjtex` are the nearest big-endian references.
+
+### 🔴 `.stex` — raw streaming-texture payloads (NOT a self-contained container)
+- Source: 2026-07-07 probe (re-scoped). ~3,400 files: THAW PS2 (2,423), P8 (365), THPG (627), extracted
+  from PAKs via QbKey `.stex` = 0x2B0A3095.
+- Evidence: leading magics are all over the map (floats, 0x80808080 fill, small ints, VIF-like data) —
+  these are headerless streamed texture DATA blobs whose dimensions/format metadata live elsewhere
+  (zone catalogs / scene tex metadata). `ZoneTextureCatalog` already consumes `.stex`-typed PAK entries
+  for worldzone texturing; the `xbxtex` CLI `.stex` route covers only ABADD00D-headed Xbox/PC variants.
+- What's left: pair standalone PS2 `.stex` blobs with their metadata source (likely the same-checksum
+  `.tex.ps2` scene metadata or zone blobs) before standalone conversion is possible. Research item.
 
 ### 🔴 THAW `.tex.ps2` scene texture metadata (NOT the same as THUG TEX)
 - Source: `CLAUDE.md` → *Not Yet Implemented*.
@@ -32,6 +56,17 @@ Created 2026-07-03. Distilled from `CLAUDE.md` (*Deferred Items* / *Not Yet Impl
 
 - ✅ GS-alpha export scaling (128=opaque → PNG 255=opaque) — `memory/ps2_alpha_export_scale.md` (v1.2.1). `DecodePixels(rawGsAlpha)`: export scales ×255/128, GS replay keeps raw.
 - ✅ VID1 (THAW GameCube movie container) → MP4 — shipped (`vid` CLI command + Video Converter tab); the old `CLAUDE.md` "Deferred > VID" note predates it.
+- ✅ **THAW PC textures (`.tex.wpc` / `.img.wpc`, 0xABADD00D)** — already shipped as
+  `ThawTexFile`/`ThawImgFile` (routed via `xbxtex`); the old "Not Yet Implemented" note was stale.
+  Verified 2026-07-07: **723/723 tex.wpc + 2,480/2,480 img.wpc, 0 failures, 4,472 textures**.
+- ✅ **THUG2 `.scn.xbx` level scenes** — same format as `.skin`/`.mdl` (version triple 1,1,1); extension
+  routing added 2026-07-07 (`9eb2680`): 192/192 files, 3,005,651 triangles, 0 validator errors.
+- ✅ **PS1 `.psx` character meshes** — the "garbled body parts" claim was stale; 2026-07-07 five-build
+  sweep: 490 character files, 0 real failures (non-conversions = texture-only costume files). See
+  `mesh-fidelity.md`.
+- ✅ Dev-artifact non-formats identified 2026-07-07 (no work needed): `.usg`/`.usg.ps2` = memory-usage
+  build logs (text), Spider-Man `.tex` = hash manifests (text), `.psh` = C headers, `.mpk.ngc` = padding
+  stubs, `.cas.*`/`.fam.*` = appearance config data.
 
 ## By design / won't-fix ⚪
 
