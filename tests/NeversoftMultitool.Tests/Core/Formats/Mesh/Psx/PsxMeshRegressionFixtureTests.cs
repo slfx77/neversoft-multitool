@@ -9,7 +9,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Psx;
 public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
 {
     private const string SpiderManBuild = "Spider-Man (2000-9-1, PSX - Final)";
-    private const string Thps1ProtoBuild = "Tony Hawk's Pro Skater (1999-4-4, PSX - Prototype)";
+    private const string Thps1ProtoBuild = "Tony Hawk's Pro Skater (1999-4-9, PSX - Prototype)";
     private const string ApocalypseBuild = "Apocalypse (1998-11-17, PSX - Final)";
     private const string Thps2ProtoBuild = "Tony Hawk's Pro Skater 2 (2000-3-29, PSX - Prototype)";
 

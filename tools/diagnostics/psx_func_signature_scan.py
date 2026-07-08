@@ -74,7 +74,7 @@ TARGET_FUNCTIONS = [
 # label -> path relative to Sample/Builds. All PS-X EXE format MIPS binaries.
 TARGET_EXES = {
     "apocalypse_final": "Apocalypse (1998-11-17, PSX - Final)/SLUS_003.73",
-    "thps1_proto": "Tony Hawk's Pro Skater (1999-4-4, PSX - Prototype)/PSX.EXE",
+    "thps1_proto": "Tony Hawk's Pro Skater (1999-4-9, PSX - Prototype)/PSX.EXE",
     "thps1_final": "Tony Hawk's Pro Skater (1999-9-29, PSX - Final)/SLUS_008.60",
     "spiderman_proto_feb": "Spider-Man (2000-2-18, PSX - Prototype)/PSX.EXE",
     "spiderman_final": "Spider-Man (2000-9-1, PSX - Final)/SLUS_008.75",

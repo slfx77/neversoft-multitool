@@ -6,7 +6,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Animation;
 
 public sealed class PsxFormatRevisionCrossGameTests(TestPaths paths)
 {
-    private const string Thps1ProtoBuild = "Tony Hawk's Pro Skater (1999-4-4, PSX - Prototype)";
+    private const string Thps1ProtoBuild = "Tony Hawk's Pro Skater (1999-4-9, PSX - Prototype)";
     private const string Thps1FinalBuild = "Tony Hawk's Pro Skater (1999-9-29, PSX - Final)";
     private const string Thps2ProtoBuild = "Tony Hawk's Pro Skater 2 (2000-3-29, PSX - Prototype)";
     private const string Thps2FinalBuild = "Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)";

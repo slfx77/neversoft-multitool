@@ -793,7 +793,7 @@ static const char *cn_executables[] = {
     "Spider-Man (2001-9-17, PC - Final)\\Data\\Setup\\SpideyPC.exe",
     "Spider-Man 2 - Enter Electro (2001-8-14 - Prototype)\\SLUS_013.78",
     "Spider-Man 2 - Enter Electro (Rev1)\\Data\\SLUS_013.78",
-    "Tony Hawk's Pro Skater (1999-4-4, PSX - Prototype)\\Data\\PSX.EXE",
+    "Tony Hawk's Pro Skater (1999-4-9, PSX - Prototype)\\Data\\PSX.EXE",
     "Tony Hawk's Pro Skater (1999-9-29, PSX - Final)\\Data\\SLUS_008.60",
     "Tony Hawk's Pro Skater 2 (2000-3-29, PSX - Prototype)\\SLUS_900.86",
     "Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)\\SLUS_010.66",

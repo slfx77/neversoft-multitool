@@ -29,7 +29,7 @@ All under `/mnt/c/Users/mmc99/source/repos/NeversoftMultitool/Sample/Builds/`
 | build | path (relative to Sample/Builds) |
 |---|---|
 | Apocalypse final (1998-11-17) | `Apocalypse (1998-11-17, PSX - Final)/SLUS_003.73` |
-| THPS1 proto (1999-4-4) | `Tony Hawk's Pro Skater (1999-4-4, PSX - Prototype)/PSX.EXE` |
+| THPS1 proto (1999-4-9) | `Tony Hawk's Pro Skater (1999-4-9, PSX - Prototype)/PSX.EXE` |
 | THPS1 final (1999-9-29) | `Tony Hawk's Pro Skater (1999-9-29, PSX - Final)/SLUS_008.60` |
 | Spider-Man proto (2000-2-18) | `Spider-Man (2000-2-18, PSX - Prototype)/PSX.EXE` |
 | Spider-Man final (2000-9-1) | `Spider-Man (2000-9-1, PSX - Final)/SLUS_008.75` |
