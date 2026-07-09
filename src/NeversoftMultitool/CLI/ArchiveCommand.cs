@@ -138,6 +138,7 @@ public static class ArchiveCommand
                         break;
 
                     case ".pak" when PakArchive.IsPakArchive(input):
+                    case ".apk" when PakArchive.IsPakArchive(input):
                         AnsiConsole.MarkupLine("[blue]PAK[/] archive detected");
                         var pakEntries = PakArchive.GetFileList(input);
                         AnsiConsole.MarkupLine($"Found [green]{pakEntries.Count}[/] files");
@@ -153,6 +154,7 @@ public static class ArchiveCommand
                         break;
 
                     case ".pak":
+                    case ".apk":
                         AnsiConsole.MarkupLine(
                             "[red]PAK raw data file[/] (no entry table, not an extractable archive)");
                         return Task.FromResult(1);

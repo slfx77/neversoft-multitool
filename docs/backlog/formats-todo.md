@@ -46,7 +46,22 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
   numVerts, u16 numFaces, u32 firstFaceOffset in bytes, bboxMin/Max 4×f32 each, u32 0, u32 firstVert
   INDEX, u32 optOffset, pad) + 0xFF-wiped vertex region + faces (always 10-byte large records: u16be
   flags, terrain, i0, i1, i2 — triangulation matches the PC pairs exactly) + BSP/opt tables.
-- ⚪ `.apk.ngc` (4,424) = anim packs (likely BE .ska variants); `.mpk.ngc` = 32-byte padding stubs.
+- ✅ **`.apk.ngc` / `.pak.ngc` archives — extraction shipped 2026-07-09.** They are big-endian
+  Neversoft PAKs (sentinel-detected; `PakArchive` handles both endians). `.mpk.ngc` = the companion
+  DATA file (like PS2 .pab), not padding — 3,603 of 4,424 are 32-byte stubs (self-contained apk),
+  821 carry real data for cutscene apks. GC quirks vs PS2: name QbKey at +0x0C, flag 0x80000000 =
+  data-in-pak (absent = companion-resident at literal offsets), and **in-pak offsets are
+  header-hoisted, not literal** — physical blocks tile in entry order (32-aligned) from the first
+  stated offset / post-sentinel anchor; validated on 17,809 signature-checkable payloads, 0
+  mismatches. 4,430 archives, 17,501+ entries; 48 `*_sfx.pak.ngc` = raw audio blobs (skipped, like
+  the 987 PS2 raw paks). Extracted .img.ngc (CAS graphics) decode via NgcTexFile immediately.
+  Routed: `archive` CLI, `unpack`, GUI Archive Extractor (which also gained .pak.ps2 support).
+- 🔴 **BE payload decoding** (follow-on from .apk.ngc extraction): `.qb.ngc` compiled scripts
+  (8-byte `[u32 0][u32 size]` prefix + big-endian QB token stream — QB parser is LE-only today),
+  `.ska.ngc`/`.ske.ngc` big-endian anims/skeletons (cutscene .ske = `00 01 00 30` header + offsets
+  + quaternion neutral poses; cam .ska = `00 00 00 28`-headed BonedAnim variant), and the cutscene
+  `.ska` descriptor blocks in main apks (16-byte record table + embedded path referencing the cam
+  pak). The large non-stub `.mpk.ngc` payloads are these same types accessed via the apk table.
 
 ### 🔴 `.stex` — raw streaming-texture payloads (NOT a self-contained container)
 - Source: 2026-07-07 probe (re-scoped). ~3,400 files: THAW PS2 (2,423), P8 (365), THPG (627), extracted
@@ -91,8 +106,9 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
   sweep: 490 character files, 0 real failures (non-conversions = texture-only costume files). See
   `mesh-fidelity.md`.
 - ✅ Dev-artifact non-formats identified 2026-07-07 (no work needed): `.usg`/`.usg.ps2` = memory-usage
-  build logs (text), Spider-Man `.tex` = hash manifests (text), `.psh` = C headers, `.mpk.ngc` = padding
-  stubs, `.cas.*`/`.fam.*` = appearance config data.
+  build logs (text), Spider-Man `.tex` = hash manifests (text), `.psh` = C headers, `.cas.*`/`.fam.*` =
+  appearance config data. (The 2026-07-07 claim that `.mpk.ngc` = padding stubs was wrong for 821 of
+  them — they are apk companion data files; see the .apk.ngc entry above.)
 
 ## By design / won't-fix ⚪
 

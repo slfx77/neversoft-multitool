@@ -14,6 +14,12 @@ public sealed class ArchiveEntry
     public uint Crc { get; set; }
 
     /// <summary>
+    ///     True when the entry's data lives in a companion data file
+    ///     (GC PAK entries without the 0x80000000 in-pak flag).
+    /// </summary>
+    public bool InCompanion { get; set; }
+
+    /// <summary>
     ///     Full path including directory prefix.
     /// </summary>
     public string FullName => string.IsNullOrEmpty(Directory) ? Name : $"{Directory}/{Name}";

@@ -11,7 +11,7 @@ namespace NeversoftMultitool.Core;
 public static class RecursiveUnpacker
 {
     private static readonly string[] ArchiveExtensions =
-        [".wad", ".pre", ".prx", ".pkr", ".ddx", ".bon", ".pak"];
+        [".wad", ".pre", ".prx", ".pkr", ".ddx", ".bon", ".pak", ".apk"];
 
     /// <summary>
     ///     Scans a directory tree for all archive files, returning them with already-extracted status.
@@ -104,6 +104,7 @@ public static class RecursiveUnpacker
                 BonArchive.ExtractFiles(archivePath, outputDir, null, ct);
                 break;
             case ".pak" when PakArchive.IsPakArchive(archivePath):
+            case ".apk" when PakArchive.IsPakArchive(archivePath):
                 PakArchive.ExtractFiles(archivePath, outputDir, null, ct);
                 break;
         }
@@ -124,6 +125,7 @@ public static class RecursiveUnpacker
             ".ddx" => "DDX",
             ".bon" => "BON",
             ".pak" => PakArchive.IsPakArchive(filePath) ? "PAK" : "PAK (raw)",
+            ".apk" => PakArchive.IsPakArchive(filePath) ? "PAK (GC)" : "PAK (raw)",
             _ => "?"
         };
     }

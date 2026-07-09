@@ -16,6 +16,7 @@ internal static class FormatProbeArchive
             ".ddx" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "DDX Archive"),
             ".bon" => ProbeBonArchive(filePath),
             ".pak" => ProbePakArchive(filePath),
+            ".apk" => ProbePakArchive(filePath),
             _ => new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
                 "Unknown",

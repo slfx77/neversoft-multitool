@@ -40,6 +40,8 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
         picker.FileTypeFilter.Add(".ddx");
         picker.FileTypeFilter.Add(".bon");
         picker.FileTypeFilter.Add(".pak");
+        picker.FileTypeFilter.Add(".ps2");
+        picker.FileTypeFilter.Add(".ngc");
         var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
         InitializeWithWindow.Initialize(picker, hwnd);
 
@@ -82,6 +84,10 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                 case ".bon":
                     _archiveType = "BON";
                     entries = BonArchive.GetFileList(_archivePath);
+                    break;
+                case ".pak" or ".ps2" or ".ngc" when PakArchive.IsPakArchive(_archivePath):
+                    _archiveType = "PAK";
+                    entries = PakArchive.GetFileList(_archivePath);
                     break;
                 default:
                     var probe = FormatProbe.ProbeArchive(_archivePath);
@@ -215,6 +221,9 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                         break;
                     case "PRE":
                         PreArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
+                        break;
+                    case "PAK":
+                        PakArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
                         break;
                 }
             }, token);
