@@ -233,12 +233,14 @@ internal static class PsxMeshGeometryReader
         // become drawable, and a raw bit7-set-without-bit6 face is toggled
         // dark = collision-only/invisible. See the decomp's
         // psx_model_load_format.md §4.2 / face_flag_semantics.md §4a.
-        // That contract is THPS2-era (v4+). THPS1-proto v3 levels ship WHOLE
-        // ground meshes with bit7 pre-set (skdown: 147 meshes / 808 faces,
-        // clearly drawn in-game), so the older v3 engine does not use this
-        // invisibility rule — v3 keeps every opaque face.
+        // The rule holds for v3 too: THPS1-proto levels ship whole meshes
+        // with bit7 pre-set (skdown: 147 meshes / 808 faces) that are
+        // collision blockers and trigger-marker boards the game never draws
+        // (user-verified in-viewer, 2026-07-08 — briefly un-dropped, they
+        // occluded Downtown's rooftops). The "missing ground" that prompted
+        // that experiment was the per-mesh LOD-probe misparse, not this drop.
         var effectiveFlags = !semiTrans ? (ushort)(faceFlags ^ 0x0080) : faceFlags;
-        var invisible = version != 0x03 && (effectiveFlags & 0x00C0) == 0;
+        var invisible = (effectiveFlags & 0x00C0) == 0;
 
         uint i0;
         uint i1;
