@@ -72,10 +72,77 @@ def print_stitch_trace(d, mesh_indices):
                   f"resolved={v['AttachmentResolved']}")
 
 
+def gltf(v):
+    """PSX -> glTF handedness map used by the converter (X, -Y, -Z)."""
+    return (v["X"], -v["Y"], -v["Z"])
+
+
+def sub(a, b):
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0])
+
+
+def dot(a, b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def print_normal_stats(d):
+    """Two inversion detectors, both in converted glTF space:
+    (1) stored normal vs centroid->vertex direction (outwardness);
+    (2) stored face normal vs the emitted triangle's geometric winding
+        normal (agreement) — mostly-negative means lighting normals
+        contradict the visible front face, i.e. inverted normals."""
+    out_pos = out_neg = 0
+    wind_pos = wind_neg = 0
+    for m in d["Meshes"]:
+        normals = m.get("Normals", [])
+        if not normals:
+            continue
+        verts = m["Vertices"]
+        n = len(verts)
+        if n and m["HasPerVertexNormals"]:
+            cx = sum(v["WorldPosition"]["X"] for v in verts) / n
+            cy = sum(v["WorldPosition"]["Y"] for v in verts) / n
+            cz = sum(v["WorldPosition"]["Z"] for v in verts) / n
+            centroid = gltf({"X": cx, "Y": cy, "Z": cz})
+            for v in verts:
+                if v["VertexIndex"] >= len(normals):
+                    continue
+                radial = sub(gltf(v["WorldPosition"]), centroid)
+                s = dot(gltf(normals[v["VertexIndex"]]), radial)
+                if s > 0:
+                    out_pos += 1
+                elif s < 0:
+                    out_neg += 1
+        for f in m["Faces"]:
+            if f["NormalIndex"] >= len(normals):
+                continue
+            w = [gltf(p) for p in f["ResolvedWorldVertices"][:3]]
+            geo = cross(sub(w[1], w[0]), sub(w[2], w[0]))
+            s = dot(gltf(normals[f["NormalIndex"]]), geo)
+            if s > 0:
+                wind_pos += 1
+            elif s < 0:
+                wind_neg += 1
+    total_o = out_pos + out_neg
+    total_w = wind_pos + wind_neg
+    print(f"{d['FileName']:14s} outwardness: {out_pos}/{total_o} outward "
+          f"({100.0 * out_pos / total_o if total_o else 0:5.1f}%)   "
+          f"winding-agreement: {wind_pos}/{total_w} aligned "
+          f"({100.0 * wind_pos / total_w if total_w else 0:5.1f}%)")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("dump", help="psx-mesh-dump --json output")
     ap.add_argument("--threshold", type=float, default=0.5)
+    ap.add_argument("--normals", action="store_true",
+                    help="print stored-normal inversion statistics")
     ap.add_argument("--stitch", type=int, nargs="*",
                     help="trace stitched-ref resolution for these mesh indices")
     ap.add_argument("--faces", type=int, nargs="*",
@@ -83,6 +150,10 @@ def main():
     args = ap.parse_args()
 
     d = json.load(open(args.dump))
+
+    if args.normals:
+        print_normal_stats(d)
+        return
 
     if args.stitch:
         print_stitch_trace(d, args.stitch)

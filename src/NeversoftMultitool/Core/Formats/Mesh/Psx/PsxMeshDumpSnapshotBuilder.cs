@@ -154,6 +154,9 @@ internal static class PsxMeshDumpSnapshotBuilder
                 LodNextMeshIndex = mesh.LodNextMeshIndex,
                 HasPerVertexNormals = mesh.HasPerVertexNormals,
                 Vertices = vertices,
+                Normals = mesh.Normals
+                    .Select(n => new PsxMeshDumpVector3Snapshot { X = n.X, Y = n.Y, Z = n.Z })
+                    .ToList(),
                 FaceReads = faceReads,
                 Faces = faces
             });

@@ -15,6 +15,7 @@ internal sealed class PsxMeshDumpMeshSnapshot
     public required ushort LodNextMeshIndex { get; init; }
     public required bool HasPerVertexNormals { get; init; }
     public required IReadOnlyList<PsxMeshDumpVertexSnapshot> Vertices { get; init; }
+    public required IReadOnlyList<PsxMeshDumpVector3Snapshot> Normals { get; init; }
     public required IReadOnlyList<PsxMeshDumpFaceReadSnapshot> FaceReads { get; init; }
     public required IReadOnlyList<PsxMeshDumpFaceSnapshot> Faces { get; init; }
 }

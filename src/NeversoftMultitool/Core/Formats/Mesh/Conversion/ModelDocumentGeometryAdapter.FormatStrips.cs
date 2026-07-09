@@ -250,12 +250,15 @@ internal static partial class ModelDocumentGeometryAdapter
         var v0 = MakePsxVertex(version, mesh, face, 0, c0, texDims);
         var v1 = MakePsxVertex(version, mesh, face, 1, c1, texDims);
         var v2 = MakePsxVertex(version, mesh, face, 2, c2, texDims);
-        AddTriangle(vertices, indices, v0, v1, v2);
+        // glTF front faces are CCW; PSX slot order is CW under the (X,-Y,-Z)
+        // handedness map, so emit reversed to make winding agree with the
+        // stored (outward) normals. Probe: psx_lod_part_probe.py --normals.
+        AddTriangle(vertices, indices, v0, v2, v1);
 
         if (face.IsQuad)
         {
             var v3 = MakePsxVertex(version, mesh, face, 3, c3, texDims);
-            AddTriangle(vertices, indices, v1, v3, v2);
+            AddTriangle(vertices, indices, v1, v2, v3);
         }
     }
 

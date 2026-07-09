@@ -172,12 +172,15 @@ internal static partial class ModelDocumentGeometryAdapter
         var v0 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 0, c0, texDims, out var i0);
         var v1 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 1, c1, texDims, out var i1);
         var v2 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 2, c2, texDims, out var i2);
-        AddSkinnedTriangle(vertices, indices, influences, v0, i0, v1, i1, v2, i2);
+        // glTF front faces are CCW; PSX slot order is CW under the (X,-Y,-Z)
+        // handedness map, so emit reversed to make winding agree with the
+        // stored (outward) normals. Probe: psx_lod_part_probe.py --normals.
+        AddSkinnedTriangle(vertices, indices, influences, v0, i0, v2, i2, v1, i1);
 
         if (face.IsQuad)
         {
             var v3 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 3, c3, texDims, out var i3);
-            AddSkinnedTriangle(vertices, indices, influences, v1, i1, v3, i3, v2, i2);
+            AddSkinnedTriangle(vertices, indices, influences, v1, i1, v2, i2, v3, i3);
         }
     }
 
