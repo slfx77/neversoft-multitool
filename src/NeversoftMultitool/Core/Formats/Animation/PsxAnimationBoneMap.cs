@@ -87,10 +87,15 @@ internal static class PsxAnimationBoneMap
             .Where(static b => b.Index >= 0)
             .GroupBy(static b => b.Index)
             .ToDictionary(static g => g.Key, static g => g.First());
-        var targetExact = targetPsh.Bones
-            .Where(static b => b.Index >= 0)
-            .GroupBy(static b => b.Name, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(static g => g.Key, static g => g.First().Index, StringComparer.OrdinalIgnoreCase);
+
+        // Engine tier: CalculateAnimOrder (decomp byte-PERFECT, 2026-07-09)
+        // matches with a real BIOS strcmp — CASE-SENSITIVE, no normalization —
+        // and on duplicate names the FIRST (lowest-index) bone wins (inner
+        // loop breaks on first hit). The case-insensitive and semantic tiers
+        // below are converter leniency beyond the engine, consulted only when
+        // the engine-faithful comparison finds nothing.
+        var targetExact = BuildFirstWinsIndex(targetPsh, StringComparer.Ordinal);
+        var targetIgnoreCase = BuildFirstWinsIndex(targetPsh, StringComparer.OrdinalIgnoreCase);
         var targetSemantic = BuildUniqueSemanticIndex(targetPsh);
 
         var usedTargets = new bool[boneCount];
@@ -102,7 +107,9 @@ internal static class PsxAnimationBoneMap
                 return false;
             }
 
-            if (!TryResolveTargetIndex(sourceBone.Name, targetExact, targetSemantic, out var targetIndex)
+            if (!TryResolveTargetIndex(
+                    sourceBone.Name, targetExact, targetIgnoreCase, targetSemantic,
+                    out var targetIndex)
                 || targetIndex < 0
                 || targetIndex >= boneCount)
             {
@@ -126,13 +133,37 @@ internal static class PsxAnimationBoneMap
     private static bool TryResolveTargetIndex(
         string sourceName,
         Dictionary<string, int> targetExact,
+        Dictionary<string, int> targetIgnoreCase,
         Dictionary<string, int> targetSemantic,
         out int targetIndex)
     {
+        // Tier 1 mirrors the engine: a case-sensitive strcmp where the
+        // first duplicate wins. Tiers 2 and 3 are converter leniency for
+        // cross-bank pairings the engine would leave unmapped.
         if (targetExact.TryGetValue(sourceName, out targetIndex))
             return true;
 
+        if (targetIgnoreCase.TryGetValue(sourceName, out targetIndex))
+            return true;
+
         return targetSemantic.TryGetValue(ToSemanticName(sourceName), out targetIndex);
+    }
+
+    private static Dictionary<string, int> BuildFirstWinsIndex(
+        PshFile targetPsh, StringComparer comparer)
+    {
+        var index = new Dictionary<string, int>(comparer);
+        foreach (var bone in targetPsh.Bones)
+        {
+            if (bone.Index < 0)
+                continue;
+
+            // TryAdd keeps the first (lowest-index) bone on duplicate names,
+            // matching CalculateAnimOrder's break-on-first-hit inner loop.
+            index.TryAdd(bone.Name, bone.Index);
+        }
+
+        return index;
     }
 
     private static Dictionary<string, int> BuildUniqueSemanticIndex(PshFile targetPsh)

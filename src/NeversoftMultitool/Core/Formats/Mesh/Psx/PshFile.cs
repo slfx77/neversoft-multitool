@@ -10,7 +10,7 @@ public sealed class PshFile
 {
     private readonly Dictionary<int, string> _namesByIndex;
 
-    private PshFile(IReadOnlyList<PshBone> bones)
+    internal PshFile(IReadOnlyList<PshBone> bones)
     {
         Bones = bones;
         _namesByIndex = [];
@@ -73,6 +73,13 @@ public sealed class PshFile
             if (endIdx <= 0)
                 continue;
 
+            // The runtime engine matches bone names with a case-sensitive
+            // strcmp (CalculateAnimOrder, decomp byte-PERFECT) — but on the
+            // strings baked into the anim data, not these C-macro names,
+            // which are uppercase build artifacts of the same identifiers.
+            // Lowercasing here is proxy normalization: applied identically to
+            // both banks it preserves engine match outcomes while keeping
+            // exported node names readable.
             var boneName = afterPart[..endIdx].ToLowerInvariant();
 
             // Extract index number (after the name, skip whitespace)
