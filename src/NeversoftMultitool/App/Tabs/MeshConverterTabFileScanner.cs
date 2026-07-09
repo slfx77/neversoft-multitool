@@ -25,6 +25,7 @@ internal static class MeshConverterTabFileScanner
     [
         ".iskin.ps2", ".skin.ps2", ".mdl.ps2", ".geom.ps2",
         ".skin.xbx", ".mdl.xbx", ".scn.xbx", ".skin.wpc", ".mdl.wpc", ".scn.wpc",
+        ".skin.ngc", ".mdl.ngc", ".scn.ngc",
         ".col.xbx", ".col.wpc", ".col.ps2",
         ".pak.ps2"
     ];
@@ -230,7 +231,9 @@ internal static class MeshConverterTabFileScanner
 
         if (EndsWith(name, ".skin.xbx") || EndsWith(name, ".mdl.xbx") ||
             EndsWith(name, ".scn.xbx") || EndsWith(name, ".scn.wpc") ||
-            EndsWith(name, ".skin.wpc") || EndsWith(name, ".mdl.wpc"))
+            EndsWith(name, ".skin.wpc") || EndsWith(name, ".mdl.wpc") ||
+            EndsWith(name, ".skin.ngc") || EndsWith(name, ".mdl.ngc") ||
+            EndsWith(name, ".scn.ngc"))
         {
             return ScanXbxSceneFile(source, displayPath, rootDir);
         }
@@ -307,7 +310,10 @@ internal static class MeshConverterTabFileScanner
                 fileName.EndsWith(".scn.xbx", StringComparison.OrdinalIgnoreCase) ||
                 fileName.EndsWith(".scn.wpc", StringComparison.OrdinalIgnoreCase) ||
                 fileName.EndsWith(".skin.wpc", StringComparison.OrdinalIgnoreCase) ||
-                fileName.EndsWith(".mdl.wpc", StringComparison.OrdinalIgnoreCase))
+                fileName.EndsWith(".mdl.wpc", StringComparison.OrdinalIgnoreCase) ||
+                fileName.EndsWith(".skin.ngc", StringComparison.OrdinalIgnoreCase) ||
+                fileName.EndsWith(".mdl.ngc", StringComparison.OrdinalIgnoreCase) ||
+                fileName.EndsWith(".scn.ngc", StringComparison.OrdinalIgnoreCase))
             {
                 buckets.XbxSceneFiles.Add(file);
             }
@@ -596,7 +602,12 @@ internal static class MeshConverterTabFileScanner
 
             XbxScene scene;
             string format;
-            if (ThawSceneFile.IsThawScene(data))
+            if (NgcSceneFile.IsNgcScene(data))
+            {
+                scene = NgcSceneFile.Parse(data);
+                format = "GameCube (THAW)";
+            }
+            else if (ThawSceneFile.IsThawScene(data))
             {
                 scene = ThawSceneFile.Parse(data);
                 format = fileName.EndsWith(".wpc", StringComparison.OrdinalIgnoreCase)

@@ -11,6 +11,7 @@ using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using NeversoftMultitool.Core.Formats.Texture;
+using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.SceneTex;
@@ -25,6 +26,7 @@ public sealed class MeshModelParser : IModelParser
     private static readonly string[] Ps2TexExtensions = [".tex.ps2", ".tex", ".img.ps2"];
     private static readonly string[] Ps2TexSubdirs = ["TEX", "Textures", "IMG"];
     private static readonly string[] XbxTexExtensions = [".tex.xbx", ".tex.wpc"];
+    private static readonly string[] NgcTexExtensions = [".tex.ngc"];
     private static readonly string[] XbxTexSubdirs = ["TEX", "Textures"];
     private static readonly string[] RwTexExtensions = [".tex"];
     private static readonly string[] RwTexSubdirs = ["TEX", "Textures"];
@@ -362,10 +364,15 @@ public sealed class MeshModelParser : IModelParser
     private static ModelDocument ParseXbxScene(MeshImportRequest request)
     {
         var data = request.Source.ReadBytes();
-        var scene = ThawSceneFile.IsThawScene(data)
-            ? ThawSceneFile.Parse(data)
-            : XbxSceneFile.Parse(data);
-        var textureProvider = BuildXbxSceneTextureProvider(request.Source, request.OutputStem, request.TexturePath);
+        var isNgc = NgcSceneFile.IsNgcScene(data);
+        var scene = isNgc
+            ? NgcSceneFile.Parse(data)
+            : ThawSceneFile.IsThawScene(data)
+                ? ThawSceneFile.Parse(data)
+                : XbxSceneFile.Parse(data);
+        var textureProvider = isNgc
+            ? BuildNgcSceneTextureProvider(request.Source, request.OutputStem, request.TexturePath)
+            : BuildXbxSceneTextureProvider(request.Source, request.OutputStem, request.TexturePath);
         var document = ModelDocument.CreateNative(
             request.OutputStem,
             ModelSourceKind.XbxScene,
@@ -504,6 +511,32 @@ public sealed class MeshModelParser : IModelParser
                     return null;
             }
 
+            return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels!);
+        };
+    }
+
+    /// <summary>
+    ///     THAW GC material passes reference textures by ORDER in the companion
+    ///     .tex.ngc dictionary; the parser stores index+1 in TextureChecksum.
+    /// </summary>
+    private static MeshChecksumTextureResolver? BuildNgcSceneTextureProvider(
+        AssetSource source,
+        string stem,
+        string? explicitTexturePath = null)
+    {
+        var texBytes = ReadTextureCompanion(source, stem, NgcTexExtensions, XbxTexSubdirs, explicitTexturePath);
+        if (texBytes == null) return null;
+
+        var texResult = NgcTexFile.Parse(texBytes);
+        if (!texResult.Success) return null;
+
+        var ordered = texResult.Textures;
+        return value =>
+        {
+            var index = (int)value - 1;
+            if (index < 0 || index >= ordered.Count || ordered[index].Pixels == null)
+                return null;
+            var tex = ordered[index];
             return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels!);
         };
     }

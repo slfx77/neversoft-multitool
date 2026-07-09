@@ -50,7 +50,8 @@ public class MeshFileEntry : BaseFileEntry
     internal bool IsPs2Geom => Format == "PS2 GEOM";
 
     internal bool IsXbxScene => Format.StartsWith("Xbox (", StringComparison.Ordinal)
-                                || Format.StartsWith("PC (", StringComparison.Ordinal);
+                                || Format.StartsWith("PC (", StringComparison.Ordinal)
+                                || Format.StartsWith("GameCube (", StringComparison.Ordinal);
 
     public string FormatDisplay => Format;
     public string ObjectsDisplay => ObjectCount.ToString("N0");

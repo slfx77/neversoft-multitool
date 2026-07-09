@@ -13,8 +13,8 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
 
 ## Remaining — needs work
 
-### 🔶 THAW GameCube platform — textures ✅ shipped 2026-07-07; meshes/collision remain
-- Source: 2026-07-07 corpus census + format RE session.
+### 🔶 THAW GameCube platform — textures ✅ 2026-07-07, meshes ✅ 2026-07-08; collision remains
+- Source: 2026-07-07 corpus census + format RE sessions (textures 07-07, meshes 07-08).
 - ✅ **Textures done**: `.tex.ngc` (722) + `.img.ngc` (2,647) parse via `NgcTexFile` (extended from the
   earlier committed skeleton). Format (established via PC↔GC Rosetta pairs, pixel-exact on `anl_pigeon`,
   MAE 0.46 vs the PC DXT decode): dictionary header (u8 ver=1, u8, u16be count, u32be tableOffset=8) +
@@ -27,23 +27,25 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
   planes; real height = colorSize/(4·width)) and C8+RGB5A3 palette (44 — CAS icons/banners; distinguished
   arithmetically: colorSize == width×rows + 512). Images are stored bottom-up (y-flip on decode).
   **Sweep: 3,369/3,369 files, 4,630+ textures, 0 failures** (one 32-byte count=0 stub parses as empty).
-- 🔴 **Meshes** (`.skin.ngc` 588, `.mdl.ngc` 134): NOT the THAW PC/Xbox scene format (no BABEFACE, no
-  shared structure). THUG GC source (`Sample/thug/Code/Gfx/NGC/p_nx.cpp` `s_plat_load_scene_guts` +
-  `NGC/NX/scene.cpp`/`mesh.cpp`/`material.cpp`) shows the ancestor: sSceneHeader + blend/texture DL
-  tables + material headers/passes + object headers, with geometry inside **GX display lists** (GPU
-  command streams). A converter = GX display-list parser (vertex attribute arrays + indexed draw
-  commands) — comparable scope to the THAW PS2 VIF replay work. PC↔GC Rosetta pairs exist for validation
-  (e.g. `anl_pigeon.skin.wpc` 3,120B vs `.skin.ngc` 1,812B).
-- 🔴 **Collision** (`.col.ngc` 722): layout fully mapped 2026-07-07 but **conversion is blocked on the
-  mesh project — GC col files ship WITHOUT vertex positions.** Layout: 24B BE header (version=10,
-  numObjects, totalVerts, totalFaces, ssRows, ssCols) + 32B scene bounds + 64B object records (checksum,
-  u32 numVerts, u16 numFaces, u32 firstFaceOffset in bytes, bboxMin/Max 4×f32 each, u32 0, u32 firstVert
-  INDEX, u32 optOffset, pad) + data: vertex+intensity region (ALL 0xFF-wiped — verified on trigger boxes,
-  props, and the 3,950-vert sec_jimbo_xen level file), faces (always 10-byte large records: u16be flags,
-  terrain, i0, i1, i2 — triangulation matches the PC pairs exactly), then BSP/opt tables with per-object
-  face-index lists. The engine reconstructs collision vertices at runtime (likely from the render scene) —
-  so standalone .col.ngc → glTF is impossible; fold into the GX display-list mesh project and share its
-  vertex sources.
+- ✅ **Meshes done** (`.skin.ngc` 588, `.mdl.ngc` 134): GX display-list parser shipped 2026-07-08 as
+  `Core/Formats/Mesh/XbxScene/NgcSceneFile.cs` (produces XbxScene, shares the Xbox glTF writer; routed
+  via `mesh` CLI + GUI Mesh Converter). Container = THUG GC `s_plat_load_scene_guts` layout with a
+  64-byte extended header (0xAAFFEEFF sentinel at +0x2C). Full spec in CLAUDE.md. Key discoveries:
+  skin positions are s16**/32** (THAW halved THUG's 1.9.6 shift), UVs s16 (u=a/1024, v=1−b/1024),
+  material passes reference textures by INDEX into the companion `.tex.ngc` (record order).
+  Rosetta-validated: pigeon exact vs PC (46 verts/45 tris both), ped_baller UVs+normals vs PS2 decode.
+  **Sweep: 722/722 files, 427,343 triangles, 0 failures, 0 glTF validator errors**; textured renders
+  verified (ped_baller Lakers jersey, pigeon alpha-cut wings, board_default griptape+trucks).
+  Diagnostics: `tools/diagnostics/ngc_scene_probe.py` (structural walk + OBJ dump of any .ngc scene).
+- 🔴 **Collision** (`.col.ngc` 722): layout fully mapped 2026-07-07 but **GC col files ship WITHOUT
+  vertex positions** (vertex+intensity region 0xFF-wiped on disc; faces/BSP intact; engine rebuilds
+  positions at runtime). Now that render meshes decode, a reconstruction pass matching col faces to
+  scene geometry is feasible — but col objects (trigger boxes etc.) don't all have render twins; needs
+  a study of how the engine sources the vertices. Layout: 24B BE header (version=10, numObjects,
+  totalVerts, totalFaces, ssRows, ssCols) + 32B scene bounds + 64B object records (checksum, u32
+  numVerts, u16 numFaces, u32 firstFaceOffset in bytes, bboxMin/Max 4×f32 each, u32 0, u32 firstVert
+  INDEX, u32 optOffset, pad) + 0xFF-wiped vertex region + faces (always 10-byte large records: u16be
+  flags, terrain, i0, i1, i2 — triangulation matches the PC pairs exactly) + BSP/opt tables.
 - ⚪ `.apk.ngc` (4,424) = anim packs (likely BE .ska variants); `.mpk.ngc` = 32-byte padding stubs.
 
 ### 🔴 `.stex` — raw streaming-texture payloads (NOT a self-contained container)

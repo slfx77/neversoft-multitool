@@ -6,7 +6,7 @@ namespace NeversoftMultitool.Core;
 
 internal static class FormatProbeMesh
 {
-    private static readonly string[] XboxSceneSuffixes = [".skin.xbx", ".mdl.xbx", ".scn.xbx", ".skin.wpc", ".mdl.wpc", ".scn.wpc"];
+    private static readonly string[] XboxSceneSuffixes = [".skin.xbx", ".mdl.xbx", ".scn.xbx", ".skin.wpc", ".mdl.wpc", ".scn.wpc", ".skin.ngc", ".mdl.ngc", ".scn.ngc"];
     private static readonly string[] Ps2SceneSuffixes = [".skin.ps2", ".mdl.ps2", ".iskin.ps2"];
     private static readonly string[] CollisionSuffixes = [".col.xbx", ".col.wpc", ".col.ps2", ".col.psp"];
 
@@ -77,6 +77,9 @@ internal static class FormatProbeMesh
 
         if (bytesRead < 12)
             return FileTooSmall();
+
+        if (NgcSceneFile.IsNgcScene(header))
+            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "GameCube Scene");
 
         if (ThawSceneFile.IsThawScene(header))
             return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "THAW Scene");
