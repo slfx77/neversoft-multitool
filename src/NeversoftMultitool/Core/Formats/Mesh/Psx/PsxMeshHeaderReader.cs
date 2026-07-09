@@ -58,6 +58,7 @@ internal static class PsxMeshHeaderReader
             reader, version, meshTopPointers, objects.Count,
             hasHierarchy, hasAnimChunk, baseScale);
         var formatRevision = ClassifyFormatRevision(version, isApocalypse);
+        var hasMeshLodField = version != 0x03 || !isApocalypse;
 
         if (hierarchyParents != null)
         {
@@ -77,6 +78,7 @@ internal static class PsxMeshHeaderReader
             HasHierarchy = hasHierarchy,
             HasAnimChunk = hasAnimChunk,
             IsSuperModel = isSuperModel,
+            HasMeshLodField = hasMeshLodField,
             ScaleDivisor = scaleDivisor,
             TranslationDivisor = baseScale
         };
@@ -110,11 +112,33 @@ internal static class PsxMeshHeaderReader
     {
         const int maxSuperParts = 32;
         var isApocalypse = version == 0x03 && meshTopPointers.Length > 0
-                           && !ProbeFirstMeshHasLod(reader, meshTopPointers[0]);
+                           && !MajorityProbeV3HasLod(reader, meshTopPointers);
         var isSuperModel = (hasHierarchy || hasAnimChunk)
                            && objectCount <= maxSuperParts;
         var scaleDivisor = isSuperModel && !isApocalypse ? baseScale * 16f : baseScale;
         return (isApocalypse, isSuperModel, scaleDivisor);
+    }
+
+    /// <summary>
+    ///     Majority vote of the per-mesh LOD-field probe over the first few
+    ///     meshes. The field's presence is an exporter-revision trait and is
+    ///     uniform across the file, but the probe heuristic can misfire on an
+    ///     individual mesh (level meshes with unusual leading vertex types),
+    ///     so a single-mesh decision is unreliable.
+    /// </summary>
+    private static bool MajorityProbeV3HasLod(BinaryReader reader, uint[] meshTopPointers)
+    {
+        const int sampleCount = 5;
+        var votes = 0;
+        var samples = 0;
+        for (var i = 0; i < meshTopPointers.Length && samples < sampleCount; i++)
+        {
+            samples++;
+            if (ProbeMeshHasLod(reader, meshTopPointers[i]))
+                votes++;
+        }
+
+        return samples > 0 && votes * 2 >= samples;
     }
 
     private static PsxMeshFormatRevision ClassifyFormatRevision(ushort version, bool isApocalypse)
@@ -133,7 +157,7 @@ internal static class PsxMeshHeaderReader
     ///     between the bounding box and vertex data. Apocalypse (1998) v3 files lack this field.
     ///     Uses the same logic as PsxMeshGeometryReader.ProbeV3HasLod but seeks to the mesh first.
     /// </summary>
-    private static bool ProbeFirstMeshHasLod(BinaryReader reader, uint meshOffset)
+    private static bool ProbeMeshHasLod(BinaryReader reader, uint meshOffset)
     {
         var savedPos = reader.BaseStream.Position;
         // v3 mesh header: 4×u32(16) + u32 gunkl1(4) + 6×i16 bbox(12) = 32 bytes to the probe point

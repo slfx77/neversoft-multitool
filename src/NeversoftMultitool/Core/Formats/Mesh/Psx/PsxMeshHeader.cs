@@ -21,6 +21,16 @@ internal sealed class PsxMeshHeader
     /// </summary>
     public bool IsSuperModel { get; init; }
 
+    /// <summary>
+    ///     True when mesh headers carry the 4-byte zMax/NextLOD field after
+    ///     the bounding box. An exporter-revision trait, uniform across the
+    ///     whole file: always present for v4/v6, present for THPS1-proto v3
+    ///     (NeversoftV3), absent for Apocalypse v3. Decided once per file by
+    ///     majority vote — per-mesh probing misfires on individual level
+    ///     meshes and shears their vertex parse by 4 bytes.
+    /// </summary>
+    public bool HasMeshLodField { get; init; }
+
     public float ScaleDivisor { get; init; }
     public float TranslationDivisor { get; init; }
 }

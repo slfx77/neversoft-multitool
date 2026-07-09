@@ -90,7 +90,8 @@ public sealed class PsxMeshFile
             header.ScaleDivisor,
             header.Objects,
             meshToObjectIndex,
-            header.TranslationDivisor);
+            header.TranslationDivisor,
+            header.HasMeshLodField);
         var attachmentVertexMap = attachmentVertices.ToDictionary(a => a.AttachmentIndex);
 
         var meshes = new List<PsxMesh>(header.MeshTopPointers.Length);
@@ -109,7 +110,8 @@ public sealed class PsxMeshFile
                         header.Version,
                         header.ScaleDivisor,
                         header.TextureHashes,
-                        attachmentVertexMap);
+                        attachmentVertexMap,
+                        header.HasMeshLodField);
                 }
                 catch (EndOfStreamException)
                 {
@@ -248,7 +250,8 @@ public sealed class PsxMeshFile
             header.ScaleDivisor,
             header.Objects,
             BuildMeshToObjectIndex(header),
-            header.TranslationDivisor);
+            header.TranslationDivisor,
+            header.HasMeshLodField);
         var attachmentVertexMap = attachmentVertices.ToDictionary(a => a.AttachmentIndex);
 
         var lastEnd = 0L;
@@ -263,7 +266,8 @@ public sealed class PsxMeshFile
                     header.Version,
                     header.ScaleDivisor,
                     header.TextureHashes,
-                    attachmentVertexMap);
+                    attachmentVertexMap,
+                    header.HasMeshLodField);
             }
             catch (EndOfStreamException)
             {

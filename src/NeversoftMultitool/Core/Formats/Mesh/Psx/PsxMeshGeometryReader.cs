@@ -15,7 +15,7 @@ internal static class PsxMeshGeometryReader
     internal static List<PsxAttachmentVertex> CollectAttachableVertices(
         BinaryReader reader, uint[] meshTopPointers, ushort version, float scaleDivisor,
         List<PsxMeshObject> objects, int[] meshToObjectIndex,
-        float translationDivisor)
+        float translationDivisor, bool hasMeshLodField)
     {
         var attachmentVertices = new List<PsxAttachmentVertex>();
 
@@ -29,7 +29,7 @@ internal static class PsxMeshGeometryReader
             if (version == 0x03) reader.ReadBytes(16);
             else reader.ReadBytes(8);
             reader.ReadBytes(16); // bbox
-            if (version != 0x03 || ProbeV3HasLod(reader))
+            if (hasMeshLodField)
             {
                 reader.ReadInt16(); // lodDepth
                 var lodNext = reader.ReadUInt16();
@@ -61,7 +61,7 @@ internal static class PsxMeshGeometryReader
 
             reader.ReadBytes(16);
 
-            if (version != 0x03 || ProbeV3HasLod(reader))
+            if (hasMeshLodField)
                 reader.ReadBytes(4);
 
             for (uint vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++)
@@ -91,7 +91,8 @@ internal static class PsxMeshGeometryReader
     }
 
     internal static PsxMesh ReadMesh(BinaryReader reader, ushort version, float scaleDivisor,
-        uint[] textureHashes, IReadOnlyDictionary<uint, PsxAttachmentVertex>? attachmentVertices = null)
+        uint[] textureHashes, IReadOnlyDictionary<uint, PsxAttachmentVertex>? attachmentVertices = null,
+        bool hasMeshLodField = true)
     {
         _ = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
         var vertexCount = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
@@ -103,7 +104,7 @@ internal static class PsxMeshGeometryReader
 
         var lodDepth = short.MaxValue;
         var lodNextMeshIndex = ushort.MaxValue;
-        if (version != 0x03 || ProbeV3HasLod(reader))
+        if (hasMeshLodField)
         {
             lodDepth = reader.ReadInt16();
             lodNextMeshIndex = reader.ReadUInt16();
@@ -232,8 +233,12 @@ internal static class PsxMeshGeometryReader
         // become drawable, and a raw bit7-set-without-bit6 face is toggled
         // dark = collision-only/invisible. See the decomp's
         // psx_model_load_format.md §4.2 / face_flag_semantics.md §4a.
+        // That contract is THPS2-era (v4+). THPS1-proto v3 levels ship WHOLE
+        // ground meshes with bit7 pre-set (skdown: 147 meshes / 808 faces,
+        // clearly drawn in-game), so the older v3 engine does not use this
+        // invisibility rule — v3 keeps every opaque face.
         var effectiveFlags = !semiTrans ? (ushort)(faceFlags ^ 0x0080) : faceFlags;
-        var invisible = (effectiveFlags & 0x00C0) == 0;
+        var invisible = version != 0x03 && (effectiveFlags & 0x00C0) == 0;
 
         uint i0;
         uint i1;
