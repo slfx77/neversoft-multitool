@@ -10,6 +10,7 @@ internal sealed class PsxMeshDumpFaceSnapshot
     public required bool IsTextured { get; init; }
     public required bool IsGouraud { get; init; }
     public required bool IsSemiTransparent { get; init; }
+    public required int BlendRate { get; init; }
     public required uint NormalIndex { get; init; }
     public required uint TextureHash { get; init; }
     public required IReadOnlyList<uint> Indices { get; init; }

@@ -280,4 +280,22 @@ public sealed class PsxMeshParsingTests(TestPaths paths)
 
         Assert.True(stitchedCount > 0, "Character model should have stitched vertices");
     }
+
+    [Theory]
+    [InlineData(0x0040, true, 0)] // bit6 only: semi-trans, ABR 0 (average)
+    [InlineData(0x00C0, true, 1)] // bit6 + bit7: ABR 1 (additive)
+    [InlineData(0x0140, true, 2)] // bit6 + bit8: ABR 2 (subtractive)
+    [InlineData(0x01C0, true, 3)] // bit6 + bits7-8: ABR 3 (quarter additive)
+    [InlineData(0x0180, false, 0)] // opaque: bit7 is the draw-enable toggle, NOT a rate
+    [InlineData(0x0080, false, 0)]
+    public void PsxFace_BlendRate_DecodesAbrBitsOnlyWhenSemiTransparent(
+        ushort flags, bool semiTransparent, int expectedRate)
+    {
+        // face_flag_semantics.md §3b/4c: ABR = (flags & 0x180) >> 7, gated on
+        // bit6 (semi-transparent / GPU ABE). For opaque faces those bits carry
+        // the loader's draw-enable state and must not read as a blend rate.
+        var face = new PsxFace { Flags = flags, IsSemiTransparent = semiTransparent };
+
+        Assert.Equal(expectedRate, face.BlendRate);
+    }
 }

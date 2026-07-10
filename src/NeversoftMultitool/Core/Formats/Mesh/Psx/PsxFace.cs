@@ -20,6 +20,20 @@ public sealed class PsxFace
     /// </summary>
     public bool IsDoubleSided => (Flags & 0x0200) != 0;
 
+    /// <summary>
+    ///     Bits 7-8 (0x180): the GPU ABR blend rate, shifted into TPAGE bits
+    ///     21-22 by the renderer (M3dAsm_ProcessPolys @0x80099C5C /
+    ///     face_flag_semantics.md §3b) and only meaningful when the face is
+    ///     semi-transparent (bit 6 sets ABE): 0 = 0.5×Back + 0.5×Front
+    ///     (average), 1 = Back + Front (additive), 2 = Back − Front
+    ///     (subtractive), 3 = Back + 0.25×Front. For opaque faces bit 7 is
+    ///     the loader's draw-enable toggle instead, so the rate reads 0.
+    ///     Corpus survey (tools/diagnostics/psx_abr_survey.py): 62.5% of
+    ///     semi-transparent faces are rate 0, 24.7% rate 1, 10.1% rate 2,
+    ///     2.7% rate 3.
+    /// </summary>
+    public int BlendRate => IsSemiTransparent ? (Flags & 0x0180) >> 7 : 0;
+
     public uint Index0 { get; init; }
     public uint Index1 { get; init; }
     public uint Index2 { get; init; }

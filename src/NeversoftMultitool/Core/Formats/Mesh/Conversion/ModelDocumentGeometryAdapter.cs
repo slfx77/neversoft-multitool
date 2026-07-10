@@ -161,7 +161,7 @@ internal static partial class ModelDocumentGeometryAdapter
         }
 
         var textureDims = new Dictionary<uint, (int Width, int Height)>();
-        var materialCache = new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided), int>();
+        var materialCache = new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>();
         var untexturedMaterial = AddMaterial(document, new RenderMaterial
         {
             Name = "untextured",

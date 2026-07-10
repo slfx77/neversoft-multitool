@@ -331,17 +331,18 @@ internal static partial class ModelDocumentGeometryAdapter
         uint textureHash,
         bool semiTransparent,
         bool doubleSided,
+        int blendRate,
         MeshChecksumTextureResolver? textureProvider,
         Dictionary<uint, (int Width, int Height)> textureDims,
-        Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided), int> materialCache)
+        Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int> materialCache)
     {
-        var key = (textureHash, semiTransparent, doubleSided);
+        var key = (textureHash, semiTransparent, doubleSided, blendRate);
         if (materialCache.TryGetValue(key, out var existing))
             return existing;
 
         var name = ResolveQbName(textureHash, $"tex_{textureHash:X8}");
         if (semiTransparent)
-            name += "__semitrans";
+            name += $"__st{blendRate}";
         if (doubleSided)
             name += "__2sided";
 
@@ -363,7 +364,7 @@ internal static partial class ModelDocumentGeometryAdapter
                 var (processed, hasAlpha) = MeshTextureHelper.ApplyColorKey(pngBytes);
                 if (semiTransparent)
                 {
-                    processed = MeshTextureHelper.ConvertLuminanceToAlpha(processed);
+                    processed = ConvertPsxSemiTransparentTexture(processed, blendRate);
                     hasAlpha = true;
                 }
 
@@ -378,6 +379,28 @@ internal static partial class ModelDocumentGeometryAdapter
         var index = AddMaterial(document, material);
         materialCache[key] = index;
         return index;
+    }
+
+    /// <summary>
+    ///     Bakes one of the four PS1 ABR blend equations into the texture,
+    ///     since glTF has only OPAQUE/MASK/BLEND (face_flag_semantics.md §3b;
+    ///     conversions mirror the RW BSP precedent in RwBspGltfWriter):
+    ///     rate 0 (0.5B+0.5F, the common glass/water/shadow average) keeps the
+    ///     texture's hue at uniform 50% alpha; rate 1 (B+F additive) bakes
+    ///     luminance-to-alpha (dark→transparent, bright→white glow); rate 2
+    ///     (B−F subtractive) darkens via black RGB with brightness-driven
+    ///     alpha; rate 3 (B+0.25F) is quarter-strength additive.
+    /// </summary>
+    private static byte[] ConvertPsxSemiTransparentTexture(byte[] pngBytes, int blendRate)
+    {
+        return blendRate switch
+        {
+            1 => MeshTextureHelper.ConvertLuminanceToAlpha(pngBytes),
+            2 => MeshTextureHelper.ConvertBlendTexture(pngBytes, 0, 0, 0),
+            3 => MeshTextureHelper.ScaleTextureAlpha(
+                MeshTextureHelper.ConvertLuminanceToAlpha(pngBytes), 0.25f),
+            _ => MeshTextureHelper.ScaleTextureAlpha(pngBytes, 0.5f)
+        };
     }
 
     private static (Vector4 C0, Vector4 C1, Vector4 C2, Vector4 C3) ComputePsxFaceColors(

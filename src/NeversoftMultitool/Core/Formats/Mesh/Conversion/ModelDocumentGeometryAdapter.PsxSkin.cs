@@ -31,7 +31,7 @@ internal static partial class ModelDocumentGeometryAdapter
             psxFile, pshFile, flatSkeleton, flatBoneIndices));
 
         var textureDims = new Dictionary<uint, (int Width, int Height)>();
-        var materialCache = new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided), int>();
+        var materialCache = new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>();
         var untexturedMaterial = AddMaterial(document, new RenderMaterial
         {
             Name = "untextured",
@@ -138,18 +138,18 @@ internal static partial class ModelDocumentGeometryAdapter
         PsxFace face,
         MeshChecksumTextureResolver? textureProvider,
         Dictionary<uint, (int Width, int Height)> textureDims,
-        Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided), int> materialCache,
+        Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int> materialCache,
         int untexturedMaterial)
     {
         var key = face.IsTextured && face.TextureHash != 0
             ? (Hash: face.TextureHash, SemiTransparent: face.IsSemiTransparent,
-                DoubleSided: face.IsDoubleSided)
-            : (Hash: 0u, SemiTransparent: false, DoubleSided: face.IsDoubleSided);
+                DoubleSided: face.IsDoubleSided, BlendRate: face.BlendRate)
+            : (Hash: 0u, SemiTransparent: false, DoubleSided: face.IsDoubleSided, BlendRate: 0);
 
         var materialIndex = key.Hash == 0 && !key.DoubleSided
             ? untexturedMaterial
             : GetOrCreatePsxMaterial(document, key.Hash, key.SemiTransparent, key.DoubleSided,
-                textureProvider, textureDims, materialCache);
+                key.BlendRate, textureProvider, textureDims, materialCache);
 
         var texDims = key.Hash != 0 && textureDims.TryGetValue(key.Hash, out var dims)
             ? dims

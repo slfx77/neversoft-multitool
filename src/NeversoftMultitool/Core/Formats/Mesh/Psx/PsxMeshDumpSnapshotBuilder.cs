@@ -130,6 +130,7 @@ internal static class PsxMeshDumpSnapshotBuilder
                         IsTextured = face.IsTextured,
                         IsGouraud = face.IsGouraud,
                         IsSemiTransparent = face.IsSemiTransparent,
+                        BlendRate = face.BlendRate,
                         NormalIndex = face.NormalIndex,
                         TextureHash = face.TextureHash,
                         Indices = indices,
