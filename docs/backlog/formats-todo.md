@@ -106,11 +106,17 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
 - Evidence: IDCT, YCbCr→RGB, block ordering, and the VLC table are all verified identical to jpsxdec — but **VLC decompression drifts after ~600 blocks / ~2617 codes**. Notably both our code AND jpsxdec's standalone `makeV2` fail the same way; only jpsxdec's full-disc pipeline succeeds, suggesting the bug is in stream framing / sector assembly rather than the codec core.
 - What's left: diff our sector/stream assembly against jpsxdec's full pipeline (`Sample/jpsxdec_v2.0/`, source compiled under `Sample/jpsxdec/`). STR is listed as a supported format and converts short clips; this is a correctness gap on longer content, not a total failure.
 
-### 🔴 PPV runtime container (Spider-Man PSX prototype)
-- Source: `CLAUDE.md` → *Deferred Items* → *Unsupported Game Asset Formats*.
-- Evidence: `BVmC` magic; 14 files under `WTC/SOUNDS` in *Spider-Man (2000-2-4, PSX — Prototype)*. Appears to be a real runtime media container (audio-first), not a tooling artifact. No in-repo or open-source parser reference yet.
-- **Executable route is a proven dead end (decomp session, 2026-07-09):** zero occurrences of `BVmC`/any byte permutation across all 9 cross-game exes, and no MIPS immediate materialization of the magic — the PPV loader is CD-overlay-resident, not linked into PSX.EXE. Reaching it requires dumping the CD overlay modules from the proto disc image.
-- What's left: locate/dump the CD overlay that loads `WTC/SOUNDS/*.ppv`, then RE from there. Low priority (14 proto-only files).
+### ⚪ PPV container — RESOLVED 2026-07-10: not a Neversoft format (out of scope)
+- The *Spider-Man (2000-2-4, PSX — Prototype)* build is a **multi-game demo disc** (SCED_026.36:
+  HARNESS.EXE menu + DD/GK/INFEST/MILLE/POCKET/RAYMANII/REVOLT/SYDNEY/TENCHU2/XMEN/SPIDEY/WTC).
+  Every `.ppv` (incl. `WTC/FE/FE.PPV`), every `.zoo` (79), `.bfx`, `.dhs` etc. lives under `WTC/`
+  = **TOCA World Touring Cars (Codemasters)** — a different developer's engine sharing the disc.
+  The actual Spider-Man demo is `SPIDEY/` (CD.WAD/CD.HED — already supported).
+- This is why the 2026-07-09 exe hunt found nothing: the "overlay" was never a Spider-Man
+  overlay. WTC's own code ships as plain files (`WTC/WTC.EXE`, `GAME.OVL`, `TIMTRIAL.OVL` — no
+  disc dump needed), though they carry no literal `BVmC`/".PPV" references either (loader likely
+  resolves via .ZOO tables). Disposition: out of scope like `.bik` — Codemasters formats belong
+  to Codemasters tooling. Same applies to the `.zoo`/`.bfx` census entries.
 
 ### 🔶 PSX wibbly/animated texture + pulsing colour metadata export
 - Source: decomp contract `thps2-psx-proto docs/wibbly_texture_animation.md` (2026-07-09; `M3dInit_FlagZeroWibbles` + `uWibble`/`vWibble` PERFECT).
@@ -124,6 +130,40 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
 
 ### 🔴 THPG / Project 8 `.col` (newer collision version)
 - Cross-ref: `game-thpg-p8.md` (full evidence there). Newer `.col` container (`0x00FF00FF`-prefixed) not decoded. Listed here too because it's a format gap, not just a per-game gap.
+
+---
+
+## Census 2026-07-10 — newly surfaced items + working priorities
+
+Full-corpus extension census (`tools/diagnostics/corpus_extension_census.py`). **User-set priority
+order: 1) hashes → 2) archives/containers → 3) image formats → 4) mesh formats → 5) animation
+formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
+
+- 🔴 **Priority 1 — pak type-hash identification**: THAW/P8/THPG paks carry ~7,000 entries whose
+  type hashes aren't in `PakArchive.KnownTypes` (extracted as `.a7dea591` etc.). QbKey-resolved
+  2026-07-10: `0xA7DEA591=.pfx`, `0xFF2D0E91=.gap`, `0x199F902B=.nav`, `0x91E1028D=.rnb`,
+  `0x7E1ABC70=.fnt`, `0x9DE9087F=.fam`. Still unresolved: `0x52D95838` (1,148 — content = plain
+  PCM WAV), `0x689028A5` (~880), `0x6290993B` (~275). Add resolved hashes to KnownTypes; brute
+  the rest (extension wordlists + `tools/qbkey_pipeline`). Filename-hash recovery for archives is
+  the follow-on goal.
+- 🔴 **Priority 2 — archives/containers**: `.zip.wpc`/`.zip.ngc` (1,337, THAW PC/GC) are literal
+  PKZip — wire into `unpack`/recursive extraction and census what's inside. `.cut.ps2`/`.cut.xbx`
+  (215, THUG/THUG2) binary cutscene containers — the THAW-cutscene predecessor; likely reveal
+  nested anim/cam data. `.prd`/`.prf` (316, THUG2) unknown binary — probe.
+- 🔴 **Priority 3 — image formats**: caveat from user experience: **`.tga`/`.tim` files sometimes
+  use hardware-specific encodings that standard editors reject** — verify each against a real
+  decoder rather than assuming stock TGA/TIM. Candidates: `.tim` (5, Spider-Man PC), `.tga` (4).
+- 🔴 **Priority 4/5 — mesh/anim formats**: `.dff` (477, THPS3) = standard RW clumps, our
+  `RwDffFile` already parses the format — **routing-only gap** (add `.dff` to rwdff/mesh
+  discovery). `.anim` (193, THPS2X, `Anm\0` magic) — Xbox-era animation format, unstudied.
+- 🔶 **Audio (investigated 2026-07-10, no priority set)**: `.snd` (739+, THUG2 Xbox/PC) and the
+  `0x52D95838` THAW entries = **plain PCM WAV** (rename/route only). `.pcm` (2,580+, THUG2) =
+  RIFF with **Xbox ADPCM codec 0x0069** (44.1k/22k/11k mono) — needs an IMA-ADPCM-variant
+  decoder or ffmpeg passthrough. 172 `.pcm` + 49 `.snd` have fmt chunks beyond the first 64
+  bytes (deeper parse needed, likely fine).
+- ⚪ Not formats / no action: `.dep` (build path lists), `.chk` (checksum text), `.anr` (text
+  anchor scripts), `.rec` replays, `.seq` ("Sequencer File" text on the DC proto), standard
+  `.gif/.ogg/.jpg`, installer debris. `.zoo`/`.bfx`/`.ppv` = Codemasters WTC (see PPV entry).
 
 ---
 
