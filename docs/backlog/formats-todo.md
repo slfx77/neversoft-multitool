@@ -66,7 +66,9 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
   a size prefix" as previously guessed. `QbSectionParser` (auto endian + old/new info-encoding
   detection, LZSS scripts, THAW tokens 0x47-0x4A, inline-script struct items) synthesizes classic
   token streams for the existing decompiler. Sweep: 11,909/11,909 files, 49,755 scripts, 0
-  failures. Follow-on: THAW name resolution (~0% — needs a lowercase-hash THAW wordlist).
+  failures. **Name resolution 97.1% PS2 / 99.2% PC / 89.1% GC** via 137,054 pairs harvested from
+  the shipped `dbg.pak` debug archives (`QbKeyNames.ThawDbg.txt`,
+  `tools/utilities/harvest_thaw_dbg_names.py`).
 - 🔴 **BE anim payload decoding** (follow-on from .apk.ngc extraction):
   `.ska.ngc`/`.ske.ngc` big-endian anims/skeletons (cutscene .ske = `00 01 00 30` header + offsets
   + quaternion neutral poses; cam .ska = `00 00 00 28`-headed BonedAnim variant), and the cutscene

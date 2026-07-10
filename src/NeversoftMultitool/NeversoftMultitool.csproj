@@ -51,6 +51,8 @@
 
     <EmbeddedResource Include="Core\QbKey\QbKeyNames.ThawGcTextures.txt" LogicalName="QbKeyNames.ThawGcTextures.txt" />
 
+    <EmbeddedResource Include="Core\QbKey\QbKeyNames.ThawDbg.txt" LogicalName="QbKeyNames.ThawDbg.txt" />
+
   </ItemGroup>
 
 

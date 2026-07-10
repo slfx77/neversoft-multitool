@@ -41,7 +41,8 @@ public class QbSectionParserTests(TestPaths paths)
             var ps2 = QbFile.Parse(ps2File);
             var gc = QbFile.Parse(gcFile);
 
-            // Same single array-of-structs global under the same key on both platforms.
+            // Same single array-of-structs global under the same key on both platforms
+            // (QbKey("bh_11_cam_paks"); resolves via the THAW dbg.pak dictionary).
             Assert.Equal(1, ps2.GlobalCount);
             Assert.Equal(1, gc.GlobalCount);
             Assert.Equal(0x8A75C579u, ps2.Items.Single().NameChecksum);
@@ -53,8 +54,8 @@ public class QbSectionParserTests(TestPaths paths)
             Assert.Contains(@"cutscenes\\bh_11\\ngc\\bh_11_cam0\\bh_11_cam0.pak", gcText);
 
             // The struct item keys and integer values match across endianness/encodings.
-            Assert.Contains("#\"0xFE82614D\" = 8", ps2Text);
-            Assert.Contains("#\"0xFE82614D\" = 8", gcText);
+            Assert.Contains("length = 8", ps2Text);
+            Assert.Contains("length = 8", gcText);
         }
         finally
         {
