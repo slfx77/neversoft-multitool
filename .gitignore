@@ -110,6 +110,9 @@ tools/diagnostics/*
 !tools/diagnostics/thaw_pcsx2_runbook.md
 !tools/diagnostics/thaw_pcsx2_findings.md
 !tools/diagnostics/thaw_gsdump_parser.py
+!tools/diagnostics/thaw_qb_probe.py
+!tools/diagnostics/pak_offset_check.py
+!tools/diagnostics/extract_qb_corpus.py
 !tools/diagnostics/thps3_variant_sweep.py
 !tools/diagnostics/thps3_pcsx2_runbook.md
 !tools/diagnostics/thps3_matrix_dump.py

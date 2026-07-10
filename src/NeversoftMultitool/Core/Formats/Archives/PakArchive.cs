@@ -9,23 +9,21 @@ namespace NeversoftMultitool.Core.Formats.Archives;
 ///     Entry sizes: 32 bytes (compact, no filename) or 192 bytes (full, with 160-byte filename field).
 ///     The 0x20 flag bit selects the full-entry layout. Lower flag bits are additive archive-family markers.
 ///     A single .pak file may contain multiple concatenated sub-PAKs, each with its own entry table.
-///     Companion .pab files hold data when offsets exceed the .pak file size.
 ///     File types identified by QbKey hash of extension (e.g. QbKey(".ska") = 0x745DCD45).
-///     Reference: Nanook/Queen-Bee PakHeaderItem.cs (GitHub).
+///     Reference: Nanook/Queen-Bee PakHeaderItem.cs + PakEditor.cs (GitHub).
+///
+///     Entry data offsets are RELATIVE TO THE ENTRY'S OWN HEADER POSITION, not absolute
+///     (Queen-Bee: HeaderStart + FileOffset). When the resolved position exceeds the .pak
+///     file size, the data lives in the companion .pab file at (resolved − pak length).
+///     Verified 2026-07-09 with payload signature checks: THAW PS2 12,120 and THAW PC
+///     12,756 hits — zero mismatches under this rule, versus wholesale failures when
+///     offsets are read as absolute (e.g. qb.pak.ps2: 266/266 relative vs 2/266 absolute).
 ///
 ///     THAW GameCube ships the same format big-endian as .apk.ngc / .pak.ngc (detected by
 ///     sentinel byte order). GC entries use flag 0x80000000 to mark data resident in the
-///     archive itself; entries WITHOUT it store their data in the companion .mpk.ngc file
-///     (offsets relative to the companion, which has no header). Self-contained archives
-///     pair with a 32-byte 0xAB/0xCD-fill .mpk.ngc placeholder stub.
-///
-///     GC in-pak offsets are NOT literal: the loader hoists each in-pak file's leading
-///     32 bytes at load time and the stored offsets describe that compacted layout.
-///     The physical layout is exact tiling: in-pak blocks follow each other in entry-table
-///     order, 32-byte aligned, starting at the first entry's stated offset (or just past
-///     the sentinel when the stated anchor points inside the entry table). Verified against
-///     17,809 signature-checkable payloads (.qb size prefixes, .img texture records,
-///     .ska headers) across all 4,430 GC archives with zero mismatches (2026-07-09).
+///     archive itself (header-relative offsets like LE); entries WITHOUT it live in the
+///     companion .mpk.ngc at RAW stored offsets (the first companion entry stores 0).
+///     Self-contained archives pair with a 32-byte 0xAB/0xCD-fill .mpk.ngc placeholder stub.
 /// </summary>
 public static class PakArchive
 {
@@ -195,11 +193,10 @@ public static class PakArchive
         byte[] data, int tableStart, int sentinelPos, bool hasPab, bool bigEndian,
         List<(uint TypeHash, ArchiveEntry Entry)> output)
     {
-        var tiling = new InPakTiling(sentinelPos, bigEndian);
         var current = tableStart;
         while (current < sentinelPos && current + CompactEntrySize <= data.Length)
         {
-            var parsed = TryReadTypedEntry(data, current, sentinelPos, hasPab, bigEndian, ref tiling);
+            var parsed = TryReadTypedEntry(data, current, sentinelPos, hasPab, bigEndian);
             if (parsed is null)
                 break;
 
@@ -208,42 +205,8 @@ public static class PakArchive
         }
     }
 
-    /// <summary>
-    ///     Sequential resolver for GC in-pak data positions. Stated offsets describe the
-    ///     loader's header-hoisted layout; physical blocks tile in entry order with
-    ///     32-byte alignment from the anchor.
-    /// </summary>
-    private struct InPakTiling(int sentinelPos, bool bigEndian)
-    {
-        private long _pos = -1;
-
-        public long Resolve(uint statedOffset, uint length, uint flags)
-        {
-            if (!bigEndian || (flags & DataInPakFlag) == 0)
-                return statedOffset;
-
-            if (_pos < 0)
-            {
-                // Anchor: the first in-pak entry's stated offset is literal unless it
-                // points inside the entry table itself (fully hoisted archives).
-                _pos = statedOffset > sentinelPos
-                    ? statedOffset
-                    : Align32(sentinelPos + CompactEntrySize);
-            }
-
-            var resolved = _pos;
-            _pos = Align32(_pos + length);
-            return resolved;
-        }
-
-        private static long Align32(long value)
-        {
-            return (value + 31) & ~31L;
-        }
-    }
-
     private static ((uint TypeHash, ArchiveEntry Entry) Typed, int EntrySize)? TryReadTypedEntry(
-        byte[] data, int current, int sentinelPos, bool hasPab, bool bigEndian, ref InPakTiling tiling)
+        byte[] data, int current, int sentinelPos, bool hasPab, bool bigEndian)
     {
         var fileType = ReadU32(data, current, bigEndian);
         if (fileType == LastSentinel)
@@ -256,8 +219,8 @@ public static class PakArchive
         var offset = ReadU32(data, current + 0x04, bigEndian);
         var length = ReadU32(data, current + 0x08, bigEndian);
         var inCompanion = IsCompanionResident(flags, bigEndian);
-        var inPakResolved = bigEndian && !inCompanion;
-        if (length == 0 || (!inCompanion && !inPakResolved && offset <= sentinelPos))
+        var resolved = inCompanion ? offset : current + (long)offset;
+        if (length == 0 || (!inCompanion && resolved <= sentinelPos))
             return null;
 
         var hasFilename = HasEmbeddedFilename(flags);
@@ -266,14 +229,14 @@ public static class PakArchive
 
         var (name, directory) = hasFilename && current + CompactEntrySize + 160 <= data.Length
             ? ParseFilename(data, current + CompactEntrySize)
-            : GenerateName(fileType, nameOnlyCrc, offset, bigEndian);
+            : GenerateName(fileType, nameOnlyCrc, (uint)resolved, bigEndian);
 
         var entry = new ArchiveEntry
         {
             Name = name,
             Directory = directory,
             Size = length,
-            Offset = tiling.Resolve(offset, length, flags),
+            Offset = resolved,
             Crc = nameOnlyCrc,
             IsCompressed = hasPab,
             InCompanion = inCompanion
@@ -312,16 +275,22 @@ public static class PakArchive
                 continue;
             }
 
-            // Determine data source: PAK or companion. GC entries carry an explicit
-            // flag; PS2 entries fall back to the companion when the range overruns.
-            byte[] sourceData;
-            if (pabData != null &&
-                (entry.InCompanion || entry.Offset + entry.Size > pakData.Length))
+            // Determine data source: GC companion entries carry raw .mpk.ngc positions;
+            // LE resolved positions past the .pak length continue into the .pab at
+            // (resolved − pak length).
+            var sourceData = pakData;
+            var position = entry.Offset;
+            if (entry.InCompanion && pabData != null)
+            {
                 sourceData = pabData;
-            else
-                sourceData = pakData;
+            }
+            else if (position + entry.Size > pakData.Length && pabData != null)
+            {
+                sourceData = pabData;
+                position -= pakData.Length;
+            }
 
-            if (entry.Offset + entry.Size > sourceData.Length)
+            if (position < 0 || position + entry.Size > sourceData.Length)
             {
                 onFileExtracted?.Invoke(i + 1, entries.Count);
                 continue;
@@ -333,7 +302,7 @@ public static class PakArchive
                 Directory.CreateDirectory(exportDir);
 
             var fileData = new byte[entry.Size];
-            Array.Copy(sourceData, entry.Offset, fileData, 0, (int)entry.Size);
+            Array.Copy(sourceData, position, fileData, 0, (int)entry.Size);
             File.WriteAllBytes(exportPath, fileData);
 
             onFileExtracted?.Invoke(i + 1, entries.Count);
@@ -446,7 +415,6 @@ public static class PakArchive
     private static List<ArchiveEntry> ParseEntries(byte[] data, int start, int sentinelPos, bool bigEndian)
     {
         var entries = new List<ArchiveEntry>();
-        var tiling = new InPakTiling(sentinelPos, bigEndian);
         var current = start;
 
         while (current < sentinelPos && current + CompactEntrySize <= data.Length)
@@ -466,20 +434,20 @@ public static class PakArchive
             var hasFilename = HasEmbeddedFilename(flags);
             var entrySize = hasFilename ? FullEntrySize : CompactEntrySize;
             var inCompanion = IsCompanionResident(flags, bigEndian);
-            var inPakResolved = bigEndian && !inCompanion;
-            if (length == 0 || (!inCompanion && !inPakResolved && offset <= sentinelPos))
+            var resolved = inCompanion ? offset : current + (long)offset;
+            if (length == 0 || (!inCompanion && resolved <= sentinelPos))
                 break;
 
             var (name, directory) = hasFilename && current + CompactEntrySize + 160 <= data.Length
                 ? ParseFilename(data, current + CompactEntrySize)
-                : GenerateName(fileType, nameOnlyCrc, offset, bigEndian);
+                : GenerateName(fileType, nameOnlyCrc, (uint)resolved, bigEndian);
 
             entries.Add(new ArchiveEntry
             {
                 Name = name,
                 Directory = directory,
                 Size = length,
-                Offset = tiling.Resolve(offset, length, flags),
+                Offset = resolved,
                 Crc = nameOnlyCrc,
                 InCompanion = inCompanion
             });
@@ -510,9 +478,11 @@ public static class PakArchive
         if (length == 0)
             return false;
 
-        // GC offsets (companion-resident or hoisted in-pak) may legitimately be
-        // small; only little-endian entries must point past the entry table.
-        if (!bigEndian && offset <= nextPos)
+        // Offsets are relative to the entry header; resolved data must land past
+        // the following table region (data always follows the sentinel). GC
+        // companion-resident entries store raw .mpk.ngc positions (0 is valid).
+        if (!IsCompanionResident(ReadU32(data, pos + 0x1C, bigEndian), bigEndian) &&
+            pos + (long)offset <= nextPos)
             return false;
 
         if (hasFilename && !LooksLikeFilename(data, pos + CompactEntrySize))

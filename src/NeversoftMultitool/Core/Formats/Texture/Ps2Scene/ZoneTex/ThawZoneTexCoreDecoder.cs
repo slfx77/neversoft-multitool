@@ -333,8 +333,11 @@ internal static class ThawZoneTexCoreDecoder
     {
         if (data.Length < 0x200) return false;
 
-        // Must NOT be a standard format
-        var version = BitConverter.ToUInt16(data);
+        // Must NOT be a standard TEX/IMG format (u32 version 2-6 at offset 0).
+        // Correctly-extracted zone tex blobs carry a 16-byte header of their own
+        // (u16 version 6, u16 group count, u32 record count, u32 DMA chain offset,
+        // u32 size) — the nonzero count at +2 keeps the u32 read outside 2-6.
+        var version = BitConverter.ToUInt32(data);
         if (version is >= 2 and <= 6) return false;
 
         var (_, recordCount) = DiscoverRecordTable(data);

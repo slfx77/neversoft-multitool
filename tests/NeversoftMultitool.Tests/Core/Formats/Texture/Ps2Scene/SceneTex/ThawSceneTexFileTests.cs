@@ -150,8 +150,9 @@ public sealed class ThawSceneTexFileTests(TestPaths paths)
             PakArchive.ExtractFiles(pakPath, tempDir, token: TestContext.Current.CancellationToken);
 
             var extractedDir = Path.Combine(tempDir, "z_ho.pak");
+            // Generated entry names carry the resolved header-relative data offset.
             var texPath = Directory.GetFiles(extractedDir, "*.tex", SearchOption.TopDirectoryOnly)
-                .Single(path => Path.GetFileName(path).Equals("0009BF70.tex", StringComparison.OrdinalIgnoreCase));
+                .Single(path => Path.GetFileName(path).Equals("0009CFF0.tex", StringComparison.OrdinalIgnoreCase));
 
             var texData = File.ReadAllBytes(texPath);
             var result = ThawSceneTexFile.ParsePermissive(texData);
