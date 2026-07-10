@@ -86,7 +86,18 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
 ### 🔴 PPV runtime container (Spider-Man PSX prototype)
 - Source: `CLAUDE.md` → *Deferred Items* → *Unsupported Game Asset Formats*.
 - Evidence: `BVmC` magic; 14 files under `WTC/SOUNDS` in *Spider-Man (2000-2-4, PSX — Prototype)*. Appears to be a real runtime media container (audio-first), not a tooling artifact. No in-repo or open-source parser reference yet.
-- What's left: research the `BVmC` container (treat as audio-first). Deferred pending a reference or a decision it's worth the reverse-engineering effort. Low priority (14 proto-only files).
+- **Executable route is a proven dead end (decomp session, 2026-07-09):** zero occurrences of `BVmC`/any byte permutation across all 9 cross-game exes, and no MIPS immediate materialization of the magic — the PPV loader is CD-overlay-resident, not linked into PSX.EXE. Reaching it requires dumping the CD overlay modules from the proto disc image.
+- What's left: locate/dump the CD overlay that loads `WTC/SOUNDS/*.ppv`, then RE from there. Low priority (14 proto-only files).
+
+### 🔶 PSX wibbly/animated texture + pulsing colour metadata export
+- Source: decomp contract `thps2-psx-proto docs/wibbly_texture_animation.md` (2026-07-09; `M3dInit_FlagZeroWibbles` + `uWibble`/`vWibble` PERFECT).
+- **Not a correctness bug**: face bit5 (0x20) "animated texture" is UV scroll + per-vertex sine wibble, never an image flipbook. Disc face UVs on bit5 faces are normal texture-relative base values (verified: skmar 1,774 bit5 faces, skdown 3,693 — zero degenerate UVs), so current GLB output already renders the correct t=0 frame. Bit5 is set on >50% of level faces; actual animation membership comes from the wibble table, not the flag.
+- What's left (additive): parse `pTexWibData` (16-byte `STexWibItemInfo` items: ItemOffset/uVel/vVel/Frequency/NumFaces/ZeroU/V + per-face 4×(u,v,uAmpPhase,vAmpPhase), 0-terminated) and `pColourPulseData` (per-entry `{r,g,b,Interval}` keyframe lists) and export as glTF extras/animation metadata. UV formula: `U = (u<<8) + (t*uVel>>4) + WibbleTables[amp][(t*Freq>>10)+phase*4 & 63]`, LUT = 16 amp rows × 64 s16 @0x800CE02C.
+
+### 🔶 PSX level-object animation export (skeletal path)
+- Source: decomp contract `thps2-psx-proto docs/level_object_anim_binding.md` (2026-07-09; RunAnim/CycleAnim/CalculateAnimOrder PERFECT).
+- Binding chain is fully known: item→region by filename (`Spool_FindRegion`), stream selected by the item's own `mAnim` index into the region's `pAnimFile` table (stride 8, count-prefixed — NOT stream-i→item-i), per-bone positional with parent tree from `pHierarchy` (`mapTable[bone]=parent`), cross-model retarget by name via CalculateAnimOrder. `has pAnimFile ≡ IsSuper` — animated level objects (traffic cars etc.) are CSuper instances on the same skeletal path as characters.
+- What's left: teach the PSX level exporter to enumerate anim streams in hier-level files (skdown: 836 placed objects) and emit glTF animations per placed object. MEDIUM-confidence open question: whether placed level geometry also uses the name-keyed tag-0x45 packet path (all observed `Spool_FindAnim` callers are UI).
 
 ### 🔴 THPG / Project 8 `.col` (newer collision version)
 - Cross-ref: `game-thpg-p8.md` (full evidence there). Newer `.col` container (`0x00FF00FF`-prefixed) not decoded. Listed here too because it's a format gap, not just a per-game gap.
