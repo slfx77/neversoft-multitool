@@ -308,23 +308,15 @@ internal static partial class ModelDocumentGeometryAdapter
         // pHierarchy bind vectors are ~zero — bruce's pose T values ARE the
         // absolute world-unit part origins (numerically verified: T ≈ obj
         // bind positions). Parent indices are therefore forced flat.
+        //
+        // NOT the fix for the bruce/hawk arm garble: re-routing pose streams
+        // through obj.MeshIndex (pHierarchy.partIndex) was tried and REFUTED
+        // by front-view renders (biceps become shoulder slabs) and by the
+        // distance-coherence metric (22 vs 17 for positional) — with
+        // V0_bind ≈ 0 a consistent mesh+pose pairing is equivalent under
+        // either keying, so positional pairing already matches the engine.
+        // The arm posing defect has a different, still-unknown cause.
         var flatSuperEngine = !psxFile.HasHierarchy;
-
-        // The flat renderer selects each slot's POSE RECORD via
-        // pHierarchy[slot].partIndex — the object table's MeshIndex field —
-        // while the slot's MESH stays positional (ppModels[slot]). Proto-era
-        // flat supers ship limb-permuted MeshIndex values (bruce 8↔9/11↔12 =
-        // exactly the forearm/bicep pairs, the parts that garbled), so the
-        // anim streams must be re-routed through that permutation.
-        if (flatSuperEngine && TryBuildFlatSuperPoseRouting(psxFile, out var poseRouting))
-        {
-            animations = animations
-                .Select(clip => clip with
-                {
-                    Animation = RemapPoseStreams(clip.Animation, poseRouting)
-                })
-                .ToList();
-        }
 
         foreach (var clip in animations)
         {
@@ -684,68 +676,6 @@ internal static partial class ModelDocumentGeometryAdapter
         return parents;
     }
 
-    /// <summary>
-    ///     Pose-stream routing for flat supers: slot i's pose record index is
-    ///     the object table's MeshIndex field (pHierarchy[slot].partIndex in
-    ///     the Apocalypse flat renderer). Only trusted when the MeshIndex
-    ///     values form a permutation of the slots — anything else falls back
-    ///     to positional (identity) routing.
-    /// </summary>
-    private static bool TryBuildFlatSuperPoseRouting(PsxMeshFile psxFile, out int[] routing)
-    {
-        var count = psxFile.Objects.Count;
-        routing = new int[count];
-        var seen = new bool[count];
-        var isIdentity = true;
-        for (var slot = 0; slot < count; slot++)
-        {
-            var partIndex = psxFile.Objects[slot].MeshIndex;
-            if (partIndex < 0 || partIndex >= count || seen[partIndex])
-                return false;
-
-            seen[partIndex] = true;
-            routing[slot] = partIndex;
-            isIdentity &= partIndex == slot;
-        }
-
-        return !isIdentity;
-    }
-
-    /// <summary>
-    ///     Re-routes a decoded animation's per-bone streams so slot i carries
-    ///     pose record routing[i] (rotation and translation come from the same
-    ///     24-byte pose record, so both move together).
-    /// </summary>
-    private static PsxAnimation RemapPoseStreams(PsxAnimation animation, int[] routing)
-    {
-        if (animation.BoneCount != routing.Length)
-            return animation;
-
-        var channels = new short[animation.BoneCount, PsxAnimation.ChannelsPerBone, animation.FrameCount];
-        var directRotations = animation.DirectRotations != null
-            ? new Quaternion[animation.BoneCount, animation.FrameCount]
-            : null;
-        for (var slot = 0; slot < animation.BoneCount; slot++)
-        {
-            var source = routing[slot];
-            for (var frame = 0; frame < animation.FrameCount; frame++)
-            {
-                for (var channel = 0; channel < PsxAnimation.ChannelsPerBone; channel++)
-                    channels[slot, channel, frame] = animation.Channels[source, channel, frame];
-                if (directRotations != null)
-                    directRotations[slot, frame] = animation.DirectRotations![source, frame];
-            }
-        }
-
-        return new PsxAnimation
-        {
-            FrameCount = animation.FrameCount,
-            BoneCount = animation.BoneCount,
-            Channels = channels,
-            DirectRotations = directRotations,
-            RotationUnitsPerRevolution = animation.RotationUnitsPerRevolution
-        };
-    }
 
     private static void AppendPsxEngineWorldTranslationChannels(
         ModelAnimation modelAnim,

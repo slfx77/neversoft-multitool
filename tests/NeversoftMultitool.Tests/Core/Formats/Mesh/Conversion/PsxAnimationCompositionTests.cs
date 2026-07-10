@@ -337,16 +337,15 @@ public sealed class PsxAnimationCompositionTests
     }
 
     [Fact]
-    public void Translation_FlatSuper_RoutesPoseStreamsThroughMeshIndex()
+    public void Translation_FlatSuper_KeepsPositionalStreamsAndFlatAbsoluteValues()
     {
-        // Flat supers (no HIER chunk) select each slot's POSE RECORD via the
-        // object table's MeshIndex field (pHierarchy[slot].partIndex in the
-        // Apocalypse flat renderer) while the slot's mesh stays positional.
-        // bruce ships swapped forearm/bicep pairs (8↔9, 11↔12) — the exact
-        // parts that wrapped around the torso before this routing landed.
-        // Here slots 1 and 2 swap streams: slot 1 must carry stream 2's
-        // translation and vice versa, at the flat-absolute contract
-        // (raw T / ScaleDivisor, no parent composition).
+        // Flat supers (no HIER chunk) emit each slot's OWN pose stream at the
+        // flat-absolute contract (raw T / ScaleDivisor, no parent
+        // composition), even when the object table ships permuted MeshIndex
+        // values. Re-routing pose streams through MeshIndex was tried and
+        // refuted by render + coherence evidence (with V0_bind ≈ 0 a
+        // consistent mesh+pose pairing is keying-equivalent, so positional
+        // pairing already matches the engine).
         var animation = BuildAnimation(
             (bone: 1, channelIndex: 3, s16Value: 36),
             (bone: 2, channelIndex: 3, s16Value: 72));
@@ -386,8 +385,8 @@ public sealed class PsxAnimationCompositionTests
             document.Animations[0].Channels,
             static c => c.Property == ModelAnimationProperty.Translation && c.BoneIndex == 2);
 
-        AssertVectorClose(new Vector3(2f, 0f, 0f), ReadVector3Frame(slot1, 0)); // stream 2: 72/36
-        AssertVectorClose(new Vector3(1f, 0f, 0f), ReadVector3Frame(slot2, 0)); // stream 1: 36/36
+        AssertVectorClose(new Vector3(1f, 0f, 0f), ReadVector3Frame(slot1, 0)); // own stream: 36/36
+        AssertVectorClose(new Vector3(2f, 0f, 0f), ReadVector3Frame(slot2, 0)); // own stream: 72/36
     }
 
     [Fact]
