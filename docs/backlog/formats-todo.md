@@ -69,13 +69,22 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
   failures. **Name resolution 97.1% PS2 / 99.2% PC / 89.1% GC** via 137,054 pairs harvested from
   the shipped `dbg.pak` debug archives (`QbKeyNames.ThawDbg.txt`,
   `tools/utilities/harvest_thaw_dbg_names.py`).
-- 🔴 **BE anim payload decoding** (follow-on from .apk.ngc extraction):
-  `.ska.ngc`/`.ske.ngc` big-endian anims/skeletons (cutscene .ske = `00 01 00 30` header + offsets
-  + quaternion neutral poses; cam .ska = `00 00 00 28`-headed BonedAnim variant), and the cutscene
-  `.ska` descriptor blocks in main apks (16-byte record table + embedded path referencing the cam
-  pak — the cutscene load scripts now decompile and enumerate the referenced .SKA/.SKE assets by
-  path, which should anchor the descriptor RE). Payloads must be re-extracted with the FIXED pak
-  offsets — pre-2026-07-10 extractions of companion-resident entries are suspect.
+- ✅ **THAW animation family — shipped 2026-07-10 for ALL THREE platforms** (`.ske` + `.ske.ngc`,
+  `.ska` + `.ska.ngc`): the GC files are field-for-field endian mirrors of the PS2/PC ones, and
+  NO platform parsed them before (the old "BE payload" framing was wrong twice over). THAW SKE
+  (`ThawSkeletonFile`, 973/973): u16 version=1 + u16 hdrSize=0x30 header, vec4[N] local
+  translations, mat4[N] PRECOMPUTED inverse bind matrices, name/parent/flip QbKey arrays.
+  THAW SKA v0x28 (`SkaFile.ThawParser`, ~21,350/21,350 incl. P8/THPG grammar-verified): THUG
+  compressed grammar + THAW deltas verified against the THAW PS2 ELF key readers (bit16 scalar
+  table, bit15 compact bytes, bit8 u16 timestamps, bit19 partial mask, bit28 hi-res float
+  camera/object masters, bits 14+17 additive translations). Key blobs + standardkey tables ship
+  raw LE even on GC. **The rumored cutscene `.ska` "descriptor block with embedded cam pak path"
+  does NOT exist** — that data is `<name>_cam_pak_info.qb.ngc`, a sectioned QB string array the
+  QB parser already handles. Camera masters export as named node-TRS GLB rigs via `ska`.
+  Diagnostics: `thaw_anim_pairs.py`, `thaw_ske_probe.py`, `thaw_ska_probe.py`,
+  `ska_version_census.py`. Remaining niceties: bit28 custom-key event decode (35 files carry
+  them; skipped, Q/T unaffected), glTF camera node with FOV for cam rigs, THAW skin+anim
+  combined export (needs QbKey-based track binding through CAS rigs).
 
 ### 🔴 `.stex` — raw streaming-texture payloads (NOT a self-contained container)
 - Source: 2026-07-07 probe (re-scoped). ~3,400 files: THAW PS2 (2,423), P8 (365), THPG (627), extracted
