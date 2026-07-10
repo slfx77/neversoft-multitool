@@ -20,7 +20,7 @@ public static partial class SfxExtractor
 
     private static bool TryFindAliasBank(
         string inputPath,
-        IReadOnlyList<SfxEntry> entries,
+        IReadOnlyList<SfxCue> entries,
         out string bankPath,
         out string error)
     {
@@ -73,25 +73,25 @@ public static partial class SfxExtractor
         return true;
     }
 
-    private static int ScoreEntries(IReadOnlyList<SfxEntry> left, IReadOnlyList<SfxEntry> right)
+    private static int ScoreEntries(IReadOnlyList<SfxCue> left, IReadOnlyList<SfxCue> right)
     {
         var count = Math.Min(left.Count, right.Count);
         var score = Math.Abs(left.Count - right.Count) * 20;
 
         for (var i = 0; i < count; i++)
         {
-            if (left[i].Flags != right[i].Flags)
-                score += 5;
-            if (left[i].CueValue != right[i].CueValue)
+            if (left[i].Program != right[i].Program)
+                score += 6;
+            if (left[i].Category != right[i].Category)
+                score += 6;
+            if (left[i].Alias != right[i].Alias)
+                score += 6;
+            if (left[i].Note != right[i].Note)
+                score += 3;
+            if (left[i].Loop != right[i].Loop)
+                score += 3;
+            if (left[i].Pitch != right[i].Pitch || left[i].Volume != right[i].Volume)
                 score += 2;
-            if (left[i].PackedFlags != right[i].PackedFlags)
-                score += 3;
-            if (left[i].PackedSampleNumber != right[i].PackedSampleNumber)
-                score += 6;
-            if (left[i].PackedVariant != right[i].PackedVariant)
-                score += 6;
-            if (left[i].PackedMarker != right[i].PackedMarker)
-                score += 3;
         }
 
         return score;
@@ -106,14 +106,6 @@ public static partial class SfxExtractor
         }
 
         return true;
-    }
-
-    private static uint ReadUInt32BigEndian(byte[] data, int offset)
-    {
-        return ((uint)data[offset] << 24) |
-               ((uint)data[offset + 1] << 16) |
-               ((uint)data[offset + 2] << 8) |
-               data[offset + 3];
     }
 
     private static uint ReadUInt32LittleEndian(byte[] data, int offset)

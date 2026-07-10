@@ -4,7 +4,7 @@ public static partial class SfxExtractor
 {
     private static bool TryResolvePlan(string inputPath, out SfxExtractionPlan plan, out string error)
     {
-        plan = new SfxExtractionPlan(new SfxBankSource("", "", 0, []), []);
+        plan = new SfxExtractionPlan(new SfxBankSource("", "", []), []);
 
         if (!File.Exists(inputPath))
         {
@@ -12,21 +12,13 @@ public static partial class SfxExtractor
             return false;
         }
 
-        if (!TryParseEntries(inputPath, out var entries, out error))
+        if (!TryParseEntries(inputPath, out var cues, out error))
             return false;
 
-        if (!TryResolveBankSource(inputPath, entries, out var bankSource, out error))
+        if (!TryResolveBankSource(inputPath, cues, out var bankSource, out error))
             return false;
 
-        List<SfxCueMapping> mappings;
-        if (TryCreateDirectReferenceMappings(entries, bankSource, out mappings))
-        {
-            plan = new SfxExtractionPlan(bankSource, mappings);
-            error = "";
-            return true;
-        }
-
-        mappings = CreateFullBankMappings(bankSource);
+        var mappings = CreateCueMappings(cues, bankSource);
         if (mappings.Count == 0)
         {
             error = $"Companion {bankSource.BankFormat} soundbank could not be parsed";
@@ -40,7 +32,7 @@ public static partial class SfxExtractor
 
     private static bool TryResolveBankSource(
         string inputPath,
-        IReadOnlyList<SfxEntry> entries,
+        IReadOnlyList<SfxCue> entries,
         out SfxBankSource bankSource,
         out string error)
     {
@@ -56,7 +48,7 @@ public static partial class SfxExtractor
             return true;
         }
 
-        bankSource = new SfxBankSource("", "", 0, []);
+        bankSource = new SfxBankSource("", "", []);
         error = string.IsNullOrWhiteSpace(error) ? "Companion KAT/VAB soundbank not found" : error;
         return false;
     }
@@ -79,12 +71,12 @@ public static partial class SfxExtractor
 
                 if (samples.Count == 0)
                 {
-                    bankSource = new SfxBankSource("", "", 0, []);
+                    bankSource = new SfxBankSource("", "", []);
                     error = "Companion KAT soundbank could not be parsed";
                     return false;
                 }
 
-                bankSource = new SfxBankSource(bankPath, "KAT", 0, samples);
+                bankSource = new SfxBankSource(bankPath, "KAT", samples);
                 error = "";
                 return true;
             }
@@ -102,26 +94,26 @@ public static partial class SfxExtractor
 
                 if (samples.Count == 0)
                 {
-                    bankSource = new SfxBankSource("", "", 0, []);
+                    bankSource = new SfxBankSource("", "", []);
                     error = "Companion VAB soundbank could not be parsed";
                     return false;
                 }
 
-                bankSource = new SfxBankSource(bankPath, "VAB", 1, samples);
+                bankSource = new SfxBankSource(bankPath, "VAB", samples);
                 error = "";
                 return true;
             }
 
             default:
-                bankSource = new SfxBankSource("", "", 0, []);
+                bankSource = new SfxBankSource("", "", []);
                 error = $"Unsupported SFX companion bank type: {ext}";
                 return false;
         }
     }
 
-    private static bool TryParseEntries(string inputPath, out List<SfxEntry> entries, out string error)
+    private static bool TryParseEntries(string inputPath, out List<SfxCue> cues, out string error)
     {
-        entries = [];
+        cues = [];
 
         if (!BinaryProbeReader.TryReadAllBytes(inputPath, out var data))
         {
@@ -129,76 +121,7 @@ public static partial class SfxExtractor
             return false;
         }
 
-        if (data.Length < HeaderSize + EntrySize)
-        {
-            error = "Invalid SFX file layout";
-            return false;
-        }
-
-        var headerValue = ReadUInt32BigEndian(data, 0);
-        if ((headerValue & 0x000000FF) != ExpectedHeaderSuffix)
-        {
-            error = $"Unsupported SFX header value 0x{headerValue:X8}";
-            return false;
-        }
-
-        entries = new List<SfxEntry>();
-        for (var offset = HeaderSize; offset + EntrySize <= data.Length; offset += EntrySize)
-        {
-            if (IsZeroedEntry(data, offset))
-                break;
-
-            var entry = new SfxEntry(
-                ReadUInt32LittleEndian(data, offset),
-                ReadUInt32LittleEndian(data, offset + 4),
-                ReadUInt32LittleEndian(data, offset + 8),
-                ReadUInt32LittleEndian(data, offset + 12));
-
-            if (entry.PackedId == TerminatorPackedId)
-                break;
-
-            entries.Add(entry);
-        }
-
-        if (entries.Count == 0)
-        {
-            error = "SFX file contains no cue entries";
-            return false;
-        }
-
-        error = "";
-        return true;
-    }
-
-    private static bool TryCreateDirectReferenceMappings(
-        IReadOnlyList<SfxEntry> entries,
-        SfxBankSource bankSource,
-        out List<SfxCueMapping> mappings)
-    {
-        mappings = [];
-
-        // Spider-Man-style SFX banks use PackedSampleNumber as a direct 1-based bank sample
-        // reference. THPS2-style SFX uses non-zero PackedVariant values for extra indirection,
-        // so reject those here and let them fall back to full companion-bank extraction.
-        if (entries.Any(static entry => entry.PackedVariant != 0 || entry.PackedSampleNumber <= 0))
-            return false;
-
-        var samplesByIndex = bankSource.Samples.ToDictionary(static sample => sample.ExternalIndex);
-        mappings = new List<SfxCueMapping>(entries.Count);
-
-        for (var i = 0; i < entries.Count; i++)
-        {
-            var bankSampleIndex = bankSource.IndexBase + entries[i].PackedSampleNumber - 1;
-            if (!samplesByIndex.TryGetValue(bankSampleIndex, out var bankSample))
-            {
-                mappings = [];
-                return false;
-            }
-
-            mappings.Add(new SfxCueMapping(i, entries[i], bankSample, bankSource.BankFormat));
-        }
-
-        return true;
+        return TryParseCues(data, out cues, out error);
     }
 
     private static List<SfxCueMapping> CreateFullBankMappings(SfxBankSource bankSource)

@@ -1,17 +1,21 @@
 namespace NeversoftMultitool.Core.Formats.Audio;
 
 /// <summary>
-///     Extracts Dreamcast SFX cue tables by resolving them against companion KAT/VAB soundbanks.
-///     Spider-Man-style banks expose direct sample references in the SFX entries. When the cue
-///     indirection cannot be decoded confidently, extraction falls back to the resolved companion
-///     bank so the asset still converts instead of failing outright.
+///     Extracts SFX cue tables by resolving them against companion KAT/VAB soundbanks.
+///     The on-disk format (decomp-verified against the THPS2 PSX prototype's SFX_ParseSFXFile /
+///     playSFX, 2026-07-09) is a flat array of 16-byte cue records terminated by a
+///     0xFFFFFFFF word: marker(u8, 0xFE = loop), VAB program(u8), category(u8, selects tone
+///     1&lt;&lt;category), MIDI note(u8), pitch(u16), volume(u16), alias(u16 — the cue's lookup key).
+///     VAB companions resolve exactly via the program tone table (tone +0x16 = VAG index);
+///     Dreamcast/PC KAT companions use the Spider-Man-style direct program→sample rule, and
+///     THPS2 DC banks (whose tone tables shipped only in the PSX VAB) fall back to full
+///     companion-bank extraction so the asset still converts.
 /// </summary>
 public static partial class SfxExtractor
 {
-    private const int HeaderSize = 4;
     private const int EntrySize = 16;
-    private const uint ExpectedHeaderSuffix = 0x0000003C;
-    private const uint TerminatorPackedId = 0xFFFFFFFF;
+    private const uint CueTerminator = 0xFFFFFFFF;
+    private const byte LoopMarker = 0xFE;
     private const int AliasScoreThreshold = 24;
     private const int AliasMarginThreshold = 8;
 
@@ -46,7 +50,7 @@ public static partial class SfxExtractor
             plan.BankSource,
             mapping.BankSample.ExternalIndex,
             outputDir,
-            mapping.BankSample.SampleRate);
+            mapping.EffectiveSampleRate);
     }
 
     /// <summary>In-memory variant of <see cref="ExtractSingleToWav(string, int, string)" />.</summary>
@@ -63,7 +67,7 @@ public static partial class SfxExtractor
             plan.BankSource,
             mapping.BankSample.ExternalIndex,
             outputDir,
-            mapping.BankSample.SampleRate,
+            mapping.EffectiveSampleRate,
             stem);
     }
 
@@ -102,7 +106,7 @@ public static partial class SfxExtractor
                     plan.BankSource,
                     mapping.BankSample.ExternalIndex,
                     tempDir,
-                    mapping.BankSample.SampleRate,
+                    mapping.EffectiveSampleRate,
                     stem);
                 if (tempPath == null || !File.Exists(tempPath))
                     continue;
@@ -141,18 +145,16 @@ public static partial class SfxExtractor
         int SampleRate,
         int Channels,
         string Encoding,
-        string BankFormat)
+        string BankFormat,
+        int Alias = -1,
+        bool Loop = false)
     {
         public int KatSampleIndex => BankSampleIndex;
     }
 
-    private sealed record SfxEntry(uint Flags, uint CueValue, uint Unknown, uint PackedId)
-    {
-        public byte PackedFlags => (byte)(PackedId & 0xFF);
-        public int PackedSampleNumber => (int)((PackedId >> 8) & 0xFF);
-        public int PackedVariant => (int)((PackedId >> 16) & 0xFF);
-        public byte PackedMarker => (byte)((PackedId >> 24) & 0xFF);
-    }
+    /// <summary>One 16-byte cue record from the .SFX table (fields per SFX_ParseSFXFile).</summary>
+    private sealed record SfxCue(
+        int CueIndex, bool Loop, int Program, int Category, int Note, int Pitch, int Volume, int Alias);
 
     private sealed record SfxBankSample(int ExternalIndex, int DataSize, int SampleRate, int Channels, string Encoding);
 
@@ -164,22 +166,27 @@ public static partial class SfxExtractor
     private sealed record SfxBankSource(
         string BankPath,
         string BankFormat,
-        int IndexBase,
         IReadOnlyList<SfxBankSample> Samples,
         byte[]? BankData = null);
 
-    private sealed record SfxCueMapping(int CueIndex, SfxEntry? Entry, SfxBankSample BankSample, string BankFormat)
+    private sealed record SfxCueMapping(
+        int CueIndex, SfxCue? Cue, SfxBankSample BankSample, string BankFormat, int? SampleRateOverride = null)
     {
+        /// <summary>Cue-note-adjusted rate from the VAB tone walk, else the bank's estimate.</summary>
+        public int EffectiveSampleRate => SampleRateOverride ?? BankSample.SampleRate;
+
         public SfxSampleInfo ToSampleInfo()
         {
             return new SfxSampleInfo(
                 CueIndex,
                 BankSample.ExternalIndex,
                 BankSample.DataSize,
-                BankSample.SampleRate,
+                EffectiveSampleRate,
                 BankSample.Channels,
                 BankSample.Encoding,
-                BankFormat);
+                BankFormat,
+                Cue?.Alias ?? -1,
+                Cue?.Loop ?? false);
         }
     }
 

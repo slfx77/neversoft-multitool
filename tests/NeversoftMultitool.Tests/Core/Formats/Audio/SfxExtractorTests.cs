@@ -29,7 +29,7 @@ public sealed class SfxExtractorTests(TestPaths paths)
         {
             var sfxPath = Path.Combine(tempDir, "demo.sfx");
             var katPath = Path.Combine(tempDir, "demo.kat");
-            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([1, 3], appendTerminator: true, trailingPaddingEntries: 2));
+            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([0, 2], appendTerminator: true, trailingPaddingEntries: 2));
             File.WriteAllBytes(katPath, SfxTestBuilder.CreateKat([0x1000, 0x2000, 0x3000], [4, 4, 4], 16000));
 
             var success = SfxExtractor.CanExtract(sfxPath, out var error);
@@ -49,7 +49,7 @@ public sealed class SfxExtractorTests(TestPaths paths)
         try
         {
             var sfxPath = Path.Combine(tempDir, "demo.sfx");
-            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([1, 2]));
+            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([0, 1]));
 
             var success = SfxExtractor.CanExtract(sfxPath, out var error);
 
@@ -63,14 +63,14 @@ public sealed class SfxExtractorTests(TestPaths paths)
     }
 
     [Fact]
-    public void EnumerateSamples_DirectReferenceSubset_UsesPackedSampleNumbers()
+    public void EnumerateSamples_DirectReferenceSubset_UsesCueProgramReferences()
     {
         var tempDir = FormatProbeTestHelper.CreateTempDirectory("sfx_enumerate_subset");
         try
         {
             var sfxPath = Path.Combine(tempDir, "demo.sfx");
             var katPath = Path.Combine(tempDir, "demo.kat");
-            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([1, 3]));
+            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([0, 2], loops: [false, true]));
             File.WriteAllBytes(katPath, SfxTestBuilder.CreateKat([0x1000, 0x2000, 0x3000], [4, 4, 4], 22050));
 
             var samples = SfxExtractor.EnumerateSamples(sfxPath);
@@ -83,6 +83,10 @@ public sealed class SfxExtractorTests(TestPaths paths)
             Assert.Equal("KAT", samples[0].BankFormat);
             Assert.Equal("PCM 16-bit", samples[0].Encoding);
             Assert.Equal(22050, samples[0].SampleRate);
+            Assert.Equal(0xB0, samples[0].Alias);
+            Assert.False(samples[0].Loop);
+            Assert.Equal(0xB1, samples[1].Alias);
+            Assert.True(samples[1].Loop);
         }
         finally
         {
@@ -100,7 +104,7 @@ public sealed class SfxExtractorTests(TestPaths paths)
             var katPath = Path.Combine(tempDir, "demo.kat");
             var outputDir = Path.Combine(tempDir, "out");
 
-            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([1, 3]));
+            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([0, 2]));
             File.WriteAllBytes(katPath, SfxTestBuilder.CreateKat([0x1000, 0x2000, 0x3000], [4, 4, 4], 16000));
 
             var result = SfxExtractor.ExtractToWav(sfxPath, outputDir);
@@ -124,7 +128,7 @@ public sealed class SfxExtractorTests(TestPaths paths)
         {
             var sfxPath = Path.Combine(tempDir, "demo.sfx");
             var katPath = Path.Combine(tempDir, "demo.kat");
-            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([1]));
+            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([0]));
             File.WriteAllBytes(katPath, SfxTestBuilder.CreateKat([0x1000], [4], 16000));
 
             var result = FormatProbe.ProbeAudio(sfxPath);
@@ -145,7 +149,7 @@ public sealed class SfxExtractorTests(TestPaths paths)
         try
         {
             var sfxPath = Path.Combine(tempDir, "demo.sfx");
-            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([1]));
+            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([0]));
 
             var result = FormatProbe.ProbeAudio(sfxPath);
 
@@ -242,6 +246,34 @@ public sealed class SfxExtractorTests(TestPaths paths)
     }
 
     [Fact]
+    public void EnumerateSamples_Thps2StyleCategoryCue_ResolvesThroughVabToneTable()
+    {
+        // THPS2-style cues keep program 0 and select a tone via 1 << category
+        // (playSFX: toneAttr = vab + program*0x200 + 0x820 + category*0x20, VAG index
+        // at tone +0x16). Category 1 must land on the second VAG, not fall back to
+        // full-bank extraction.
+        var tempDir = FormatProbeTestHelper.CreateTempDirectory("sfx_vab_tonewalk");
+        try
+        {
+            var sfxPath = Path.Combine(tempDir, "demo.sfx");
+            var vabPath = Path.Combine(tempDir, "demo.vab");
+            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([0], categories: [1], appendTerminator: true));
+            File.WriteAllBytes(vabPath, SfxTestBuilder.CreateVab([16, 16]));
+
+            var samples = SfxExtractor.EnumerateSamples(sfxPath);
+
+            Assert.Single(samples);
+            Assert.Equal(0, samples[0].CueIndex);
+            Assert.Equal(2, samples[0].BankSampleIndex);
+            Assert.Equal("VAB", samples[0].BankFormat);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void EnumerateSamples_VabBackedCue_UsesDefaultVabSampleRate()
     {
         var tempDir = FormatProbeTestHelper.CreateTempDirectory("sfx_vab_rate");
@@ -249,7 +281,7 @@ public sealed class SfxExtractorTests(TestPaths paths)
         {
             var sfxPath = Path.Combine(tempDir, "demo.sfx");
             var vabPath = Path.Combine(tempDir, "demo.vab");
-            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([1]));
+            File.WriteAllBytes(sfxPath, SfxTestBuilder.CreateSfx([0]));
             File.WriteAllBytes(vabPath, SfxTestBuilder.CreateVab([16]));
 
             var samples = SfxExtractor.EnumerateSamples(sfxPath);
@@ -267,36 +299,37 @@ public sealed class SfxExtractorTests(TestPaths paths)
 
 internal static class SfxTestBuilder
 {
+    /// <summary>
+    ///     Builds a real .SFX cue table (decomp-verified format): 16-byte records from
+    ///     offset 0 — marker(u8, 0xFE = loop), program(u8), category(u8), note(u8),
+    ///     pitch(u16), volume(u16), alias(u16), 6 zero pad bytes — followed by an
+    ///     optional 0xFFFFFFFF terminator word and zero-filled sector padding.
+    /// </summary>
     public static byte[] CreateSfx(
-        IReadOnlyList<int> packedSampleNumbers,
-        IReadOnlyList<int>? packedVariants = null,
+        IReadOnlyList<int> programs,
+        IReadOnlyList<int>? categories = null,
         bool appendTerminator = false,
-        int trailingPaddingEntries = 0)
+        int trailingPaddingEntries = 0,
+        IReadOnlyList<bool>? loops = null,
+        byte note = 60)
     {
-        var entryCount = packedSampleNumbers.Count + (appendTerminator ? 1 : 0) + trailingPaddingEntries;
-        var data = new byte[4 + (entryCount * 16)];
-        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(0, 4), 0x0000003C);
+        var size = (programs.Count + trailingPaddingEntries) * 16 + (appendTerminator ? 4 : 0);
+        var data = new byte[size];
 
-        for (var i = 0; i < packedSampleNumbers.Count; i++)
+        for (var i = 0; i < programs.Count; i++)
         {
-            var offset = 4 + (i * 16);
-            var packedVariant = packedVariants != null && i < packedVariants.Count ? packedVariants[i] : 0;
-            BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset, 4), 0x10001000u);
-            BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset + 4, 4), (uint)i);
-            BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset + 8, 4), 0u);
-
-            var packedId =
-                ((uint)0x3C << 24) |
-                ((uint)packedVariant << 16) |
-                ((uint)packedSampleNumbers[i] << 8);
-            BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset + 12, 4), packedId);
+            var offset = i * 16;
+            data[offset] = loops != null && i < loops.Count && loops[i] ? (byte)0xFE : (byte)0x00;
+            data[offset + 1] = (byte)programs[i];
+            data[offset + 2] = (byte)(categories != null && i < categories.Count ? categories[i] : 0);
+            data[offset + 3] = note;
+            BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(offset + 4, 2), 0x1000); // pitch
+            BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(offset + 6, 2), 0x1000); // volume
+            BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(offset + 8, 2), (ushort)(0xB0 + i)); // alias
         }
 
         if (appendTerminator)
-        {
-            var offset = 4 + (packedSampleNumbers.Count * 16);
-            BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset + 12, 4), 0xFFFFFFFF);
-        }
+            BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(programs.Count * 16, 4), 0xFFFFFFFF);
 
         return data;
     }
