@@ -299,6 +299,33 @@ internal static partial class ModelDocumentGeometryAdapter
         }
         var fps = options.Fps <= 0f ? PsxAnimationBank.DefaultPreviewFps : options.Fps;
 
+        // FLAT supers (no HIER chunk — Apocalypse/THPS1-proto era) are a
+        // decomp-proven exception to hierarchical composition: the renderer
+        // composes EVERY part against the same CSuper base matrix with no
+        // bone-to-bone accumulation — part origin = PoseRot·V0_bind + PoseT
+        // (two chained MVMVAs at 0x8008445c, Apocalypse final; thps2-psx-proto
+        // docs/apocalypse_flat_super_translation.md). In shipped data the
+        // pHierarchy bind vectors are ~zero — bruce's pose T values ARE the
+        // absolute world-unit part origins (numerically verified: T ≈ obj
+        // bind positions). Parent indices are therefore forced flat.
+        var flatSuperEngine = !psxFile.HasHierarchy;
+
+        // The flat renderer selects each slot's POSE RECORD via
+        // pHierarchy[slot].partIndex — the object table's MeshIndex field —
+        // while the slot's MESH stays positional (ppModels[slot]). Proto-era
+        // flat supers ship limb-permuted MeshIndex values (bruce 8↔9/11↔12 =
+        // exactly the forearm/bicep pairs, the parts that garbled), so the
+        // anim streams must be re-routed through that permutation.
+        if (flatSuperEngine && TryBuildFlatSuperPoseRouting(psxFile, out var poseRouting))
+        {
+            animations = animations
+                .Select(clip => clip with
+                {
+                    Animation = RemapPoseStreams(clip.Animation, poseRouting)
+                })
+                .ToList();
+        }
+
         foreach (var clip in animations)
         {
             var animation = clip.Animation;
@@ -313,8 +340,9 @@ internal static partial class ModelDocumentGeometryAdapter
             // CalculateAnimOrder name-remap), so a clip decoded from an
             // external bank carries that bank's parent table. Fall back to the
             // character's own object hierarchy for embedded anims.
-            var engineParentIndices =
-                clip.TranslationParentIndices != null
+            var engineParentIndices = flatSuperEngine
+                ? BuildFlatParentIndices(boneCount)
+                : clip.TranslationParentIndices != null
                     ? NormalizeParentIndices(clip.TranslationParentIndices, boneCount)
                     : BuildPsxEngineParentIndices(psxFile, boneCount);
             if (!options.SkipRotation)
@@ -328,41 +356,53 @@ internal static partial class ModelDocumentGeometryAdapter
 
             if (!options.SkipTranslation && HasTranslationData(animation, boneCount))
             {
-                // When the translation hierarchy differs from the glTF parent
-                // chain (external banks), the local path would compose through
-                // the wrong parents — the world-solve path is required. For
-                // matching hierarchies both paths are equivalent, so the
-                // cheaper local emission is kept.
-                if (options.EngineWorldTranslation
-                    || !ParentIndicesMatch(engineParentIndices, gltfParentIndices, boneCount))
-                {
-                    var translationContext = new PsxTranslationChannelContext(
-                        skeletonIndex, skeleton, animation, gltfParentIndices, engineParentIndices, boneCount,
-                        frameCount, fps, translationDivisor, options.RotationCompose,
-                        options.LegacyRotationChain, options.RotationScale,
-                        options.AbsoluteTranslation, options.SkipRotation);
-                    AppendPsxEngineWorldTranslationChannels(
-                        modelAnim, in translationContext, options.TranslationBoneFilter);
-                }
-                else
-                {
-                    for (var bone = 0; bone < boneCount; bone++)
-                    {
-                        if (options.TranslationBoneFilter is { Count: > 0 } filter
-                            && !filter.Contains(bone))
-                        {
-                            continue;
-                        }
-
-                        modelAnim.Channels.Add(BuildPsxTranslationChannel(
-                            skeletonIndex, bone, skeleton.Bones[bone], animation,
-                            frameCount, fps, translationDivisor, options.AbsoluteTranslation));
-                    }
-                }
+                var translationContext = new PsxTranslationChannelContext(
+                    skeletonIndex, skeleton, animation, gltfParentIndices, engineParentIndices, boneCount,
+                    frameCount, fps, translationDivisor, options.RotationCompose,
+                    options.LegacyRotationChain, options.RotationScale,
+                    options.AbsoluteTranslation, options.SkipRotation, flatSuperEngine);
+                EmitPsxTranslationChannels(modelAnim, in translationContext, options);
             }
 
             if (modelAnim.Channels.Count > 0)
                 document.Animations.Add(modelAnim);
+        }
+    }
+
+    /// <summary>
+    ///     Emits translation channels for one clip. When the translation
+    ///     hierarchy differs from the glTF parent chain (external banks), the
+    ///     local path would compose through the wrong parents — the world-solve
+    ///     path is required; for matching hierarchies both paths are equivalent,
+    ///     so the cheaper local emission is kept. Flat supers always take the
+    ///     world-solve path: their engine world position carries the
+    ///     rotated-bind term that per-node local emission cannot express.
+    /// </summary>
+    private static void EmitPsxTranslationChannels(
+        ModelAnimation modelAnim,
+        in PsxTranslationChannelContext ctx,
+        PsxAnimationOptions options)
+    {
+        if (ctx.FlatSuperEngine
+            || options.EngineWorldTranslation
+            || !ParentIndicesMatch(ctx.EngineParentIndices, ctx.GltfParentIndices, ctx.BoneCount))
+        {
+            AppendPsxEngineWorldTranslationChannels(
+                modelAnim, in ctx, options.TranslationBoneFilter);
+            return;
+        }
+
+        for (var bone = 0; bone < ctx.BoneCount; bone++)
+        {
+            if (options.TranslationBoneFilter is { Count: > 0 } filter
+                && !filter.Contains(bone))
+            {
+                continue;
+            }
+
+            modelAnim.Channels.Add(BuildPsxTranslationChannel(
+                ctx.SkeletonIndex, bone, ctx.Skeleton.Bones[bone], ctx.Animation,
+                ctx.FrameCount, ctx.Fps, ctx.TranslationDivisor, ctx.AbsoluteTranslation));
         }
     }
 
@@ -629,7 +669,83 @@ internal static partial class ModelDocumentGeometryAdapter
         bool LegacyRotationChain,
         float RotationScale,
         bool AbsoluteTranslation,
-        bool SkipRotation);
+        bool SkipRotation,
+        bool FlatSuperEngine = false);
+
+    /// <summary>
+    ///     Engine parent table for flat supers: every part is a root. The flat
+    ///     renderer path never chains bone to bone (each part composes against
+    ///     the shared CSuper base matrix only).
+    /// </summary>
+    private static int[] BuildFlatParentIndices(int boneCount)
+    {
+        var parents = new int[boneCount];
+        Array.Fill(parents, -1);
+        return parents;
+    }
+
+    /// <summary>
+    ///     Pose-stream routing for flat supers: slot i's pose record index is
+    ///     the object table's MeshIndex field (pHierarchy[slot].partIndex in
+    ///     the Apocalypse flat renderer). Only trusted when the MeshIndex
+    ///     values form a permutation of the slots — anything else falls back
+    ///     to positional (identity) routing.
+    /// </summary>
+    private static bool TryBuildFlatSuperPoseRouting(PsxMeshFile psxFile, out int[] routing)
+    {
+        var count = psxFile.Objects.Count;
+        routing = new int[count];
+        var seen = new bool[count];
+        var isIdentity = true;
+        for (var slot = 0; slot < count; slot++)
+        {
+            var partIndex = psxFile.Objects[slot].MeshIndex;
+            if (partIndex < 0 || partIndex >= count || seen[partIndex])
+                return false;
+
+            seen[partIndex] = true;
+            routing[slot] = partIndex;
+            isIdentity &= partIndex == slot;
+        }
+
+        return !isIdentity;
+    }
+
+    /// <summary>
+    ///     Re-routes a decoded animation's per-bone streams so slot i carries
+    ///     pose record routing[i] (rotation and translation come from the same
+    ///     24-byte pose record, so both move together).
+    /// </summary>
+    private static PsxAnimation RemapPoseStreams(PsxAnimation animation, int[] routing)
+    {
+        if (animation.BoneCount != routing.Length)
+            return animation;
+
+        var channels = new short[animation.BoneCount, PsxAnimation.ChannelsPerBone, animation.FrameCount];
+        var directRotations = animation.DirectRotations != null
+            ? new Quaternion[animation.BoneCount, animation.FrameCount]
+            : null;
+        for (var slot = 0; slot < animation.BoneCount; slot++)
+        {
+            var source = routing[slot];
+            for (var frame = 0; frame < animation.FrameCount; frame++)
+            {
+                for (var channel = 0; channel < PsxAnimation.ChannelsPerBone; channel++)
+                    channels[slot, channel, frame] = animation.Channels[source, channel, frame];
+                if (directRotations != null)
+                    directRotations[slot, frame] = animation.DirectRotations![source, frame];
+            }
+        }
+
+        return new PsxAnimation
+        {
+            FrameCount = animation.FrameCount,
+            BoneCount = animation.BoneCount,
+            Channels = channels,
+            DirectRotations = directRotations,
+            RotationUnitsPerRevolution = animation.RotationUnitsPerRevolution
+        };
+    }
 
     private static void AppendPsxEngineWorldTranslationChannels(
         ModelAnimation modelAnim,
@@ -722,6 +838,10 @@ internal static partial class ModelDocumentGeometryAdapter
         if (computed[bone])
             return world[bone, frame];
 
+        // Root bones (and every part of a flat super, whose engine parent
+        // table is forced flat): the pose T IS the absolute world-unit part
+        // origin — the flat-super renderer (Apocalypse 0x8008445c) adds only
+        // a pHierarchy bind vector that ships ~zero in real data.
         var rawTranslation = ctx.Animation.GetBoneTranslation(bone, frame);
         var parent = ctx.EngineParentIndices[bone];
         if (IsUsableParent(parent, bone, ctx.BoneCount))

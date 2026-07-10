@@ -337,6 +337,60 @@ public sealed class PsxAnimationCompositionTests
     }
 
     [Fact]
+    public void Translation_FlatSuper_RoutesPoseStreamsThroughMeshIndex()
+    {
+        // Flat supers (no HIER chunk) select each slot's POSE RECORD via the
+        // object table's MeshIndex field (pHierarchy[slot].partIndex in the
+        // Apocalypse flat renderer) while the slot's mesh stays positional.
+        // bruce ships swapped forearm/bicep pairs (8↔9, 11↔12) — the exact
+        // parts that wrapped around the torso before this routing landed.
+        // Here slots 1 and 2 swap streams: slot 1 must carry stream 2's
+        // translation and vice versa, at the flat-absolute contract
+        // (raw T / ScaleDivisor, no parent composition).
+        var animation = BuildAnimation(
+            (bone: 1, channelIndex: 3, s16Value: 36),
+            (bone: 2, channelIndex: 3, s16Value: 72));
+        var psxFile = new PsxMeshFile
+        {
+            Version = 3,
+            Objects =
+            [
+                new PsxMeshObject { ParentIndex = -1, MeshIndex = 0 },
+                new PsxMeshObject { ParentIndex = -1, MeshIndex = 2 },
+                new PsxMeshObject { ParentIndex = -1, MeshIndex = 1 }
+            ],
+            Meshes = [],
+            MeshNameHashes = [],
+            TextureHashes = [],
+            ScaleDivisor = 36f,
+            TranslationDivisor = 2.25f,
+            HasHierarchy = false
+        };
+
+        var document = new ModelDocument { Name = "test" };
+        var skeleton = new ModelSkeleton { Name = "rig" };
+        skeleton.Bones.Add(new ModelBone { Name = "a", ParentIndex = -1 });
+        skeleton.Bones.Add(new ModelBone { Name = "b", ParentIndex = -1 });
+        skeleton.Bones.Add(new ModelBone { Name = "c", ParentIndex = -1 });
+        document.Skeletons.Add(skeleton);
+
+        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+            document, psxFile, skeletonIndex: 0,
+            [("flat", animation)],
+            new PsxAnimationOptions(SkipRotation: true, SkipTranslation: false));
+
+        var slot1 = Assert.Single(
+            document.Animations[0].Channels,
+            static c => c.Property == ModelAnimationProperty.Translation && c.BoneIndex == 1);
+        var slot2 = Assert.Single(
+            document.Animations[0].Channels,
+            static c => c.Property == ModelAnimationProperty.Translation && c.BoneIndex == 2);
+
+        AssertVectorClose(new Vector3(2f, 0f, 0f), ReadVector3Frame(slot1, 0)); // stream 2: 72/36
+        AssertVectorClose(new Vector3(1f, 0f, 0f), ReadVector3Frame(slot2, 0)); // stream 1: 36/36
+    }
+
+    [Fact]
     public void Legacy_DoesNotEmitCorrectionChannels()
     {
         // LegacyRotationChain=true reproduces the pre-fix behaviour: only bones
@@ -420,6 +474,10 @@ public sealed class PsxAnimationCompositionTests
         // withHierarchy mirrors the three-bone test skeleton (root → mid →
         // leaf) in the PSX object table, so BuildPsxEngineParentIndices sees
         // the same chain the glTF skeleton uses — as it does for real files.
+        // HasHierarchy must be set alongside it: real HIER files carry the
+        // flag from the HIER chunk, and files WITHOUT it are flat supers
+        // whose translations route through the flat engine model instead of
+        // parent-chained composition.
         List<PsxMeshObject> objects = withHierarchy
             ?
             [
@@ -436,7 +494,8 @@ public sealed class PsxAnimationCompositionTests
             MeshNameHashes = [],
             TextureHashes = [],
             ScaleDivisor = scaleDivisor,
-            TranslationDivisor = translationDivisor
+            TranslationDivisor = translationDivisor,
+            HasHierarchy = withHierarchy
         };
     }
 
