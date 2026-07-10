@@ -123,6 +123,10 @@ tools/diagnostics/*
 !tools/diagnostics/thps3_matrix_palette_scan.py
 !tools/diagnostics/thps3_ska_runtime_compare.py
 !tools/diagnostics/thps3_runtime_qblob_dump.py
+!tools/diagnostics/thaw_anim_pairs.py
+!tools/diagnostics/thaw_ske_probe.py
+!tools/diagnostics/thaw_ska_probe.py
+!tools/diagnostics/ska_version_census.py
 !tools/diagnostics/capture_pcsx2_rt_dumps.ps1
 !tools/diagnostics/fb_state_bisect.py
 !tools/diagnostics/inspect_blend_distribution.py

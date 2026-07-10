@@ -25,6 +25,11 @@ public static class SkeletonFile
         if (data.Length < 8)
             throw new InvalidDataException("File too small for skeleton data");
 
+        // THAW-generation skeletons (LE PS2/PC, BE GC) have an exact structural
+        // gate that cannot match the THUG/THPS4 layouts — try it first.
+        if (ThawSkeletonFile.IsThawSkeleton(data))
+            return ThawSkeletonFile.Parse(data);
+
         // Try THUG/THUG2 format first: checksum + version(2) + flags(0) + numBones + data [+ timestamp]
         if (data.Length >= 16 && TryParseThugFormat(data, out var skeleton))
             return skeleton;

@@ -42,6 +42,7 @@ internal static partial class SkaFile
     internal static bool IsSkaFile(ReadOnlySpan<byte> data)
     {
         if (data.Length < 28) return false;
+        if (IsThawSka(data, out _)) return true;
         var flags = BitConverter.ToUInt32(data[4..]);
         return (flags & FlagPlatform) != 0
                || (flags & FlagUseCompressTable) != 0
@@ -57,6 +58,13 @@ internal static partial class SkaFile
     internal static SkaProbeResult? TryProbe(ReadOnlySpan<byte> data)
     {
         if (!IsSkaFile(data)) return null;
+
+        if (IsThawSka(data, out var thawBigEndian))
+        {
+            var thawReader = new BinaryIO.EndianSpanReader(data, thawBigEndian);
+            return new SkaProbeResult(thawReader.F32(8), data[0x0D]);
+        }
+
         var flags = BitConverter.ToUInt32(data[4..]);
         var duration = BitConverter.ToSingle(data[8..]);
 
@@ -78,6 +86,12 @@ internal static partial class SkaFile
 
     internal static SkaAnimation Parse(ReadOnlySpan<byte> data, SkaCompressTable? compressTable = null)
     {
+        // THAW-era v0x28 container (LE PS2/PC, BE GC) — version-gated BEFORE
+        // the flag dispatch because its flags also carry bit23/bit28 and the
+        // THUG-era paths would silently mis-parse the reshaped header.
+        if (IsThawSka(data, out var thawBigEndian))
+            return ParseThaw(data, thawBigEndian, compressTable);
+
         // File header (12 bytes)
         var version = BitConverter.ToUInt32(data);
         var flags = BitConverter.ToUInt32(data[4..]);

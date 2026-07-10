@@ -40,7 +40,8 @@ internal sealed class SkaCompressTable
             entries[i] = new SkaCompressEntry(
                 BitConverter.ToInt16(data, off),
                 BitConverter.ToInt16(data, off + 2),
-                BitConverter.ToInt16(data, off + 4));
+                BitConverter.ToInt16(data, off + 4),
+                BitConverter.ToInt16(data, off + 6));
         }
 
         return entries;
