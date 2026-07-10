@@ -127,9 +127,13 @@ internal static class MeshConverterTabFileConverter
             }
         }
 
-        var skeBytes = entry.Source.TryReadCompanion(stem + ".ske");
-        if (skeBytes != null)
+        // Cross-platform .ske and GC big-endian .ske.ngc both route through
+        // SkeletonFile.Parse (which gates the THAW variant first).
+        foreach (var extension in new[] { ".ske", ".ske.ngc" })
         {
+            var skeBytes = entry.Source.TryReadCompanion(stem + extension);
+            if (skeBytes == null)
+                continue;
             try
             {
                 return SkeletonFile.Parse(skeBytes);

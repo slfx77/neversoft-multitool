@@ -33,7 +33,8 @@ internal static partial class ModelDocumentGeometryAdapter
                 AddRotationChannel(modelAnimation, skeletonIndex, boneIndex,
                     skeleton.Bones[boneIndex], track.RotationKeys, composition);
                 AddTranslationChannel(modelAnimation, skeletonIndex, boneIndex,
-                    skeleton.Bones[boneIndex], track.TranslationKeys, composition);
+                    skeleton.Bones[boneIndex], track.TranslationKeys, composition,
+                    animation.IsAdditiveTranslation);
             }
 
             if (modelAnimation.Channels.Count > 0)
@@ -101,7 +102,8 @@ internal static partial class ModelDocumentGeometryAdapter
         int boneIndex,
         ModelBone bone,
         SkaTranslationKey[] keys,
-        SkaCompositionMode composition)
+        SkaCompositionMode composition,
+        bool additive = false)
     {
         if (keys.Length == 0 || IsTranslationPlaceholder(keys))
             return;
@@ -112,9 +114,13 @@ internal static partial class ModelDocumentGeometryAdapter
         var values = new float[keys.Length * 3];
         for (var i = 0; i < keys.Length; i++)
         {
-            var t = composition == SkaCompositionMode.BindComposed
-                ? bindTranslation + (keys[i].Translation - anchor)
-                : keys[i].Translation;
+            // THAW additive anims (flags bits 14+17) store deltas over the
+            // bone's neutral translation; other formats store absolute values.
+            var t = additive
+                ? bindTranslation + keys[i].Translation
+                : composition == SkaCompositionMode.BindComposed
+                    ? bindTranslation + (keys[i].Translation - anchor)
+                    : keys[i].Translation;
             times[i] = keys[i].Time;
             var offset = i * 3;
             values[offset] = t.X;

@@ -150,7 +150,12 @@ public static class ThawSkeletonFile
 
         return new Ps2Skeleton
         {
-            Version = 1,
+            // The file's own version field is 1, but Ps2Skeleton.Version uses
+            // the THUG scheme where 1 means "THPS4, no bind pose" (triggering
+            // default-anim enrichment and identity-pose fallbacks). THAW
+            // skeletons carry full bind poses, so report the "has neutral
+            // poses" tier.
+            Version = 2,
             Flags = 0,
             Bones = bones
         };

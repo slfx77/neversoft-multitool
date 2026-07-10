@@ -17,7 +17,7 @@ namespace NeversoftMultitool.CLI;
 
 public static class SkaCommand
 {
-    private static readonly string[] SkaSuffixes = [".ska", ".ska.ps2", ".ska.xbx", ".ska.wpc"];
+    private static readonly string[] SkaSuffixes = [".ska", ".ska.ps2", ".ska.xbx", ".ska.wpc", ".ska.ngc"];
 
     // Q48/T48 compression tables (standardkeyQ.bin / standardkeyT.bin) are required to
     // decode quantised rotation/translation keys. Without them, table-lookup keys fall
@@ -280,6 +280,26 @@ public static class SkaCommand
                         AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] ({channelCount} channels)");
                     }
                 }
+                else if (skeleton == null && anim.IsThawFormat && anim.IsPlatformFormat && boneCount > 0)
+                {
+                    // THAW cutscene camera/object master (hi-res keys, tracks named
+                    // by QbKey): no skeleton file exists for these — synthesize a
+                    // flat rig so the tracks export as named glTF node animations.
+                    var rig = BuildThawObjectRig(anim);
+                    var document = SkaModelDocumentBuilder.BuildSkeletonOnly(rig, [(stem, anim)], stem);
+                    new GltfModelExporter().Export(document, new MeshExportRequest
+                    {
+                        OutputDirectory = output,
+                        OutputStem = stem,
+                        Format = MeshOutputFormat.Glb
+                    });
+                    if (verbose)
+                    {
+                        var channelCount = document.Animations.Sum(a => a.Channels.Count);
+                        var kind = anim.IsCameraData ? "camera" : "object";
+                        AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] ({kind} rig, {channelCount} channels)");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -422,6 +442,32 @@ public static class SkaCommand
             OutputStem = stem,
             Format = MeshOutputFormat.Glb
         });
+    }
+
+    /// <summary>
+    ///     Flat identity rig for THAW cutscene camera/object master anims, whose
+    ///     tracks target free-standing scene nodes rather than a skeleton. Node
+    ///     names come from the tracks' QbKeys (resolved via the dbg dictionaries
+    ///     by the IR builder) so DCC imports show the original object names.
+    /// </summary>
+    private static Ps2Skeleton BuildThawObjectRig(SkaAnimation anim)
+    {
+        var bones = new Ps2Bone[anim.BoneTracks.Length];
+        for (var i = 0; i < bones.Length; i++)
+        {
+            bones[i] = new Ps2Bone
+            {
+                NameChecksum = anim.BoneTracks[i].BoneNameChecksum ?? (uint)i,
+                ParentChecksum = 0,
+                FlipChecksum = 0,
+                ParentIndex = -1,
+                LocalRotation = System.Numerics.Quaternion.Identity,
+                LocalTranslation = System.Numerics.Vector3.Zero,
+                InverseBindMatrix = System.Numerics.Matrix4x4.Identity
+            };
+        }
+
+        return new Ps2Skeleton { Version = 2, Flags = 0, Bones = bones };
     }
 
     internal static SkaCompressTable? FindCompressTable(string skaFilePath)

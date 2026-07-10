@@ -7,6 +7,7 @@ internal static class ThawSkeletonDiscovery
 {
     private const string SkeletonExtensionPs2 = ".ske.ps2";
     private const string SkeletonExtensionCross = ".ske";
+    private const string SkeletonExtensionNgc = ".ske.ngc";
 
     private static readonly string[] DefaultCandidateStems = ["thps6_human", "thps5_human", "human", "test_skater_m"];
     private static readonly string[] HeadPrefixCandidates = ["pro_", "skater_", "sec_"];
@@ -20,7 +21,7 @@ internal static class ThawSkeletonDiscovery
         if (dir is null)
             return null;
 
-        var direct = CompanionSearch.FindCompanion(dir, stem, [SkeletonExtensionPs2, SkeletonExtensionCross],
+        var direct = CompanionSearch.FindCompanion(dir, stem, [SkeletonExtensionPs2, SkeletonExtensionNgc, SkeletonExtensionCross],
             ["SKE", "Skeletons"]);
         if (direct != null)
             return direct;
@@ -35,7 +36,7 @@ internal static class ThawSkeletonDiscovery
         var skeletonIndex = SkeletonIndexCache.GetOrAdd(buildsRoot, BuildSkeletonIndex);
         foreach (var candidateStem in BuildCandidateStems(stem))
         {
-            foreach (var extension in new[] { SkeletonExtensionPs2, SkeletonExtensionCross })
+            foreach (var extension in new[] { SkeletonExtensionPs2, SkeletonExtensionNgc, SkeletonExtensionCross })
             {
                 var fileName = candidateStem + extension;
                 if (!skeletonIndex.TryGetValue(fileName, out var matches) || matches.Count == 0)
@@ -63,7 +64,8 @@ internal static class ThawSkeletonDiscovery
         string stem,
         bool isThawSkin)
     {
-        var direct = backend.FindEntry(stem + SkeletonExtensionPs2) ?? backend.FindEntry(stem + SkeletonExtensionCross);
+        var direct = backend.FindEntry(stem + SkeletonExtensionPs2) ?? backend.FindEntry(stem + SkeletonExtensionNgc)
+                     ?? backend.FindEntry(stem + SkeletonExtensionCross);
         if (direct != null)
             return new Result(backend.ReadEntryBytes(direct), direct.Name);
 
@@ -74,7 +76,7 @@ internal static class ThawSkeletonDiscovery
 
         foreach (var candidateStem in BuildCandidateStems(stem))
         {
-            foreach (var extension in new[] { SkeletonExtensionPs2, SkeletonExtensionCross })
+            foreach (var extension in new[] { SkeletonExtensionPs2, SkeletonExtensionNgc, SkeletonExtensionCross })
             {
                 var basename = candidateStem + extension;
                 if (!basenameToEntries.TryGetValue(basename, out var matches) || matches.Count == 0)
@@ -97,7 +99,8 @@ internal static class ThawSkeletonDiscovery
         foreach (var entry in entries)
         {
             if (!entry.Name.EndsWith(SkeletonExtensionCross, StringComparison.OrdinalIgnoreCase) &&
-                !entry.Name.EndsWith(SkeletonExtensionPs2, StringComparison.OrdinalIgnoreCase))
+                !entry.Name.EndsWith(SkeletonExtensionPs2, StringComparison.OrdinalIgnoreCase) &&
+                !entry.Name.EndsWith(SkeletonExtensionNgc, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             if (!index.TryGetValue(entry.Name, out var matches))
@@ -119,7 +122,8 @@ internal static class ThawSkeletonDiscovery
         {
             var name = Path.GetFileName(file);
             if (!name.EndsWith(SkeletonExtensionCross, StringComparison.OrdinalIgnoreCase) &&
-                !name.EndsWith(SkeletonExtensionPs2, StringComparison.OrdinalIgnoreCase))
+                !name.EndsWith(SkeletonExtensionPs2, StringComparison.OrdinalIgnoreCase) &&
+                !name.EndsWith(SkeletonExtensionNgc, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }

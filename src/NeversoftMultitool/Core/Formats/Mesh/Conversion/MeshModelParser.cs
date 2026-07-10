@@ -631,7 +631,7 @@ public sealed class MeshModelParser : IModelParser
         var explicitPath = ResolveExplicitPath(
             explicitSkeletonPath,
             stem,
-            [".ske.ps2", ".ske"],
+            [".ske.ps2", ".ske.ngc", ".ske"],
             ["SKE", "Skeletons"]);
         if (explicitPath != null)
         {
@@ -660,9 +660,13 @@ public sealed class MeshModelParser : IModelParser
             }
         }
 
-        var skeBytes = source.TryReadCompanion(stem + ".ske");
-        if (skeBytes != null)
+        // Cross-platform .ske and GC big-endian .ske.ngc both route through
+        // SkeletonFile.Parse (which gates the THAW variant first).
+        foreach (var extension in new[] { ".ske", ".ske.ngc" })
         {
+            var skeBytes = source.TryReadCompanion(stem + extension);
+            if (skeBytes == null)
+                continue;
             try
             {
                 return SkeletonFile.Parse(skeBytes);

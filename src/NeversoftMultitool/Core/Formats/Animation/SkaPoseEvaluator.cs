@@ -107,9 +107,17 @@ internal sealed class SkaPoseEvaluator
         }
 
         var keys = track.TranslationKeys;
-        if (keys.Length == 1)
-            return keys[0].Translation;
+        var sampled = keys.Length == 1
+            ? keys[0].Translation
+            : LerpTranslation(keys, time);
 
+        // THAW gameplay anims (flags bits 14+17) store translation keys as
+        // deltas the engine adds onto the bone's neutral-pose translation.
+        return _animation.IsAdditiveTranslation ? bone.LocalTranslation + sampled : sampled;
+    }
+
+    private static Vector3 LerpTranslation(SkaTranslationKey[] keys, float time)
+    {
         var (a, b, t) = FindBracket(keys, time, k => k.Time);
         return Vector3.Lerp(keys[a].Translation, keys[b].Translation, t);
     }

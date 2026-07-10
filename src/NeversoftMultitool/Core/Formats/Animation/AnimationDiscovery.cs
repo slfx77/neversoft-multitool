@@ -122,7 +122,8 @@ internal static class AnimationDiscovery
         return path.EndsWith(".ska", StringComparison.OrdinalIgnoreCase)
                || path.EndsWith(".ska.ps2", StringComparison.OrdinalIgnoreCase)
                || path.EndsWith(".ska.xbx", StringComparison.OrdinalIgnoreCase)
-               || path.EndsWith(".ska.wpc", StringComparison.OrdinalIgnoreCase);
+               || path.EndsWith(".ska.wpc", StringComparison.OrdinalIgnoreCase)
+               || path.EndsWith(".ska.ngc", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsPsxAnimationBankFileName(string path)
