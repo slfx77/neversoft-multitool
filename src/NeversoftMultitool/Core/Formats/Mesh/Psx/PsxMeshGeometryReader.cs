@@ -284,6 +284,13 @@ internal static class PsxMeshGeometryReader
 
             if (version == 0x06)
             {
+                // v6 (Spider-Man DC/PC port containers) widens UVs from the
+                // PS1 byte texel pairs to plane-separated u16 U values then
+                // i16 V values (all four Us, then all four Vs), in a fixed
+                // 512-texel normalized space (see ComputePsxTextureUv). Layout
+                // is empirical — pinned by the BLACKCAT.PSX locked fixture and
+                // the DC/PC sweeps — with no decomp reference (SH-4/x86 exes
+                // sit outside the MIPS toolkit).
                 var xs = new int[4];
                 var ys = new int[4];
 

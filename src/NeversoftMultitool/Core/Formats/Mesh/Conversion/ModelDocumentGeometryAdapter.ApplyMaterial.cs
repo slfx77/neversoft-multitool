@@ -450,6 +450,13 @@ internal static partial class ModelDocumentGeometryAdapter
         if (!face.IsTextured)
             return Vector2.Zero;
 
+        // v6 (Spider-Man DC/PC port containers) stores UVs as u16/i16 pairs
+        // in a fixed 512-texel normalized space instead of the PS1-era byte
+        // texel coordinates that address the texture directly. The /512 is an
+        // EMPIRICAL constant — established against the BLACKCAT.PSX locked
+        // fixture and the DC/PC level sweeps (validator-clean, textures land
+        // correctly) — not a decomp-verified contract; the DC exe is SH-4,
+        // outside the MIPS decomp toolkit.
         return version == 0x06
             ? new Vector2(u / 512f, v / 512f)
             : new Vector2(u / (float)Math.Max(texWidth, 1), v / (float)Math.Max(texHeight, 1));

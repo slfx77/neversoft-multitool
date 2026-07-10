@@ -11,6 +11,7 @@ public sealed class PsxFormatRevisionCrossGameTests(TestPaths paths)
     private const string Thps2ProtoBuild = "Tony Hawk's Pro Skater 2 (2000-3-29, PSX - Prototype)";
     private const string Thps2FinalBuild = "Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)";
     private const string EnterElectroFinalBuild = "Spider-Man 2 - Enter Electro (2001-8-15, PSX - Final)";
+    private const string SpiderManDcProtoBuild = "Spider-Man (2001-2-14, DC - Prototype)";
 
     [Theory]
     [InlineData(
@@ -134,6 +135,31 @@ public sealed class PsxFormatRevisionCrossGameTests(TestPaths paths)
         9,
         9,
         16)]
+    // v6 (Dreamcast/PC port containers): the only true-v6 builds are the two
+    // Spider-Man ports — THPS2 DC and THPS2X Xbox ship v4 (see the pinned
+    // hawk2 fixtures). Both v1 and v2 anim layouts occur inside v6 files.
+    [InlineData(
+        SpiderManDcProtoBuild,
+        "SPIDEY.PSX",
+        PsxMeshFormatRevision.NeversoftV6,
+        PsxAnimLayoutVariant.Monolithic,
+        PsxAnimationFormatRevision.CompressedV2ExtendedSlots,
+        PsxCharacterRuntimeRevision.ExtendedAnimSlots,
+        PsxMeshFile.HierChunkV2Tag,
+        300,
+        300,
+        18)]
+    [InlineData(
+        SpiderManDcProtoBuild,
+        "CARNAGE.PSX",
+        PsxMeshFormatRevision.NeversoftV6,
+        PsxAnimLayoutVariant.DirectMatrix,
+        PsxAnimationFormatRevision.DirectMatrixV1,
+        PsxCharacterRuntimeRevision.ClassicSuper,
+        PsxMeshFile.HierChunkV1Tag,
+        39,
+        39,
+        19)]
     // mj.psx declares only 2 anims — small tables like this were previously
     // misclassified as a fabricated "PrototypeSparse" layout (a relic of the
     // pre-chunk-tag mis-anchored parse) and recovered a chimera entry (entry

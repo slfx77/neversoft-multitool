@@ -13,51 +13,62 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
     private const string ApocalypseBuild = "Apocalypse (1998-11-17, PSX - Final)";
     private const string Thps2ProtoBuild = "Tony Hawk's Pro Skater 2 (2000-3-29, PSX - Prototype)";
 
+    // Baselines re-locked 2026-07-10: these fixtures silently SKIPPED for a
+    // while because the pinned paths kept a stale PSX\ subfolder the sample
+    // layout no longer uses. While they slept, the parser gained the
+    // decomp-verified face rules (universal b7 invisible-drop, per-file v3
+    // LOD vote) — hence the level face/triangle counts dropped — and the
+    // dump snapshot gained per-vertex Normals and per-face BlendRate fields,
+    // which changed every snapshot hash. Counts were re-verified against the
+    // current parser before re-locking.
     public static TheoryData<string, ushort, bool, int, int, int, int, int, int, int, string>
         LockedCharacterFixtures =>
         new()
         {
             {
-                @"Apocalypse (1998-11-17, PSX - Final)\PSX\bruce.psx",
+                @"Apocalypse (1998-11-17, PSX - Final)\CD\bruce.psx",
                 0x0003, false, 15, 15, 329, 278, 74, 76, 474,
-                "3f5d25b4dd5fe299c6d4e985a032e71dd510fc922a2f93b7027bd192f762bd86"
+                "f5a821ce4a5624ac1ba77d5c732e39b2e60737d63700b73d067bb266e7ae7dfc"
             },
             {
-                @"Spider-Man (2000-9-1, PSX - Final)\PSX\blackcat.psx",
+                @"Spider-Man (2000-9-1, PSX - Final)\CD\blackcat.psx",
                 0x0004, true, 18, 18, 298, 338, 74, 79, 434,
-                "0ba39624b84aa32d44c2d31702f62044a8cd9f96db68611779f7f37af1c4050d"
+                "c1e8b728fe36f101232efc87ceaaef31f09518d866f6e791ebad9a27b54dae65"
             },
             {
-                @"Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)\PSX\HAWK2.PSX",
+                @"Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)\HAWK2.PSX",
                 0x0004, true, 19, 19, 402, 376, 79, 85, 573,
-                "85462258804c6718b6f6ca9d84e5b109d54f7d5c16a97fe8858524d3fc0cc562"
+                "66b786cd2c5d44a0342dcd3d17bef00119d0e9487863da458010642e0cf5f316"
             },
             {
-                @"Spider-Man (2001-2-14, DC - Prototype)\PSX\BLACKCAT.PSX",
+                @"Spider-Man (2001-2-14, DC - Prototype)\BLACKCAT.PSX",
                 0x0006, true, 18, 18, 762, 1151, 96, 103, 1303,
-                "4f50cb4340a2efeae86a91846c3b6fdee58a469faa2dbee89589463b7e8502b0"
+                "dd693ae76e701c57439296b5d5376ba4373fc9757cf1a40a7e9c15904bff46ac"
             }
         };
 
     public static TheoryData<string> LockedCharacterFixturePaths =>
         new()
         {
-            @"Apocalypse (1998-11-17, PSX - Final)\PSX\bruce.psx",
-            @"Spider-Man (2000-9-1, PSX - Final)\PSX\blackcat.psx",
-            @"Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)\PSX\HAWK2.PSX",
-            @"Spider-Man (2001-2-14, DC - Prototype)\PSX\BLACKCAT.PSX"
+            @"Apocalypse (1998-11-17, PSX - Final)\CD\bruce.psx",
+            @"Spider-Man (2000-9-1, PSX - Final)\CD\blackcat.psx",
+            @"Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)\HAWK2.PSX",
+            @"Spider-Man (2001-2-14, DC - Prototype)\BLACKCAT.PSX"
         };
 
-    public static TheoryData<string, ushort, int, int, int, int> LevelRegressionFixtures =>
+    // Accepted faces sit below the raw record count since the universal b7
+    // invisible-drop (collision-only faces are parsed but not emitted); when
+    // these fixtures were first pinned the two counts were equal.
+    public static TheoryData<string, ushort, int, int, int, int, int> LevelRegressionFixtures =>
         new()
         {
             {
-                @"Spider-Man (2000-9-1, PSX - Final)\PSX\l1a1_g.psx",
-                0x0004, 138, 3883, 2871, 5236
+                @"Spider-Man (2000-9-1, PSX - Final)\CD\l1a1_g.psx",
+                0x0004, 138, 3883, 2834, 2871, 5162
             },
             {
-                @"Spider-Man (2001-2-14, DC - Prototype)\PSX\L1A1_G.PSX",
-                0x0006, 137, 3861, 2875, 5250
+                @"Spider-Man (2001-2-14, DC - Prototype)\L1A1_G.PSX",
+                0x0006, 137, 3861, 2838, 2875, 5176
             }
         };
 
@@ -91,16 +102,16 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
 
     [Theory]
     [InlineData(
-        @"Apocalypse (1998-11-17, PSX - Final)\PSX\bruce.psx",
+        @"Apocalypse (1998-11-17, PSX - Final)\CD\bruce.psx",
         PsxMeshFormatRevision.ApocalypseV3)]
     [InlineData(
-        @"Spider-Man (2000-9-1, PSX - Final)\PSX\blackcat.psx",
+        @"Spider-Man (2000-9-1, PSX - Final)\CD\blackcat.psx",
         PsxMeshFormatRevision.NeversoftV4)]
     [InlineData(
-        @"Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)\PSX\HAWK2.PSX",
+        @"Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)\HAWK2.PSX",
         PsxMeshFormatRevision.NeversoftV4)]
     [InlineData(
-        @"Spider-Man (2001-2-14, DC - Prototype)\PSX\BLACKCAT.PSX",
+        @"Spider-Man (2001-2-14, DC - Prototype)\BLACKCAT.PSX",
         PsxMeshFormatRevision.NeversoftV6)]
     public void Parse_LockedCharacterFixtures_ClassifyMeshRevision(
         string relativePath,
@@ -359,7 +370,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
 
         var filePath = RequireSampleBuildFile(
-            @"Tony Hawk's Pro Skater 2X (2001-11-15, Xbox - Final)\PSX\HAWK2.PSX");
+            @"Tony Hawk's Pro Skater 2X (2001-11-15, Xbox - Final)\hawk2.PSX");
         var psxFile = PsxMeshFile.Parse(filePath);
         Assert.NotNull(psxFile);
 
@@ -374,7 +385,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
     [Theory]
     [MemberData(nameof(LevelRegressionFixtures))]
     public void Parse_LevelRegressionFixtures_KeepFaceAndTriangleCounts(string relativePath, ushort expectedVersion,
-        int expectedObjects, int expectedVertices, int expectedFaces, int expectedTriangles)
+        int expectedObjects, int expectedVertices, int expectedFaces, int expectedRawFaces, int expectedTriangles)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
 
@@ -387,7 +398,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal(expectedObjects, psxFile.Objects.Count);
         Assert.Equal(expectedVertices, psxFile.Meshes.Sum(mesh => mesh.Vertices.Count));
         Assert.Equal(expectedFaces, psxFile.Meshes.Sum(mesh => mesh.Faces.Count));
-        Assert.Equal(expectedFaces, psxFile.Meshes.Sum(mesh => mesh.FaceReadInfos.Count));
+        Assert.Equal(expectedRawFaces, psxFile.Meshes.Sum(mesh => mesh.FaceReadInfos.Count));
         Assert.Equal(expectedTriangles,
             psxFile.Meshes.Sum(mesh => mesh.Faces.Sum(face => face.IsQuad ? 2 : 1)));
         Assert.Empty(psxFile.AttachmentVertices);
@@ -397,6 +408,21 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
     private string RequireSampleBuildFile(string relativePath)
     {
         var filePath = Path.Combine(paths.SampleBuildsDir!, relativePath);
+        if (!File.Exists(filePath))
+        {
+            // Sample layouts have shifted over time (fixtures were pinned
+            // against a PSX\ subfolder; current builds ship files under CD\
+            // or at the build root). Resolve by build + filename so the
+            // locked fixtures don't silently skip — a wrong pick cannot pass
+            // unnoticed because every fixture asserts counts and a snapshot
+            // hash.
+            var normalized = relativePath.Replace('\\', '/');
+            var buildName = normalized[..normalized.IndexOf('/')];
+            var fallback = paths.FindSampleFile(buildName, Path.GetFileName(normalized));
+            if (fallback != null)
+                return fallback;
+        }
+
         Assert.SkipWhen(!File.Exists(filePath), $"Fixture not found: {relativePath}");
         return filePath;
     }
