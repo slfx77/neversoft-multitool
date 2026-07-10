@@ -56,6 +56,13 @@ public static class PsxAnimExportCommand
                 "Diagnostic: skip translation tracks (bones keep bind placement). Translations " +
                 "are emitted by default per the engine fixed-point contract."
         };
+        var oneShotOption = new Option<bool>("--one-shot")
+        {
+            Description =
+                "Expand tween-compressed clips with the RunAnim one-shot end clamp (hold the last " +
+                "keyframe). Default is the CycleAnim loop expansion: the final tween interval blends " +
+                "toward frame 0 for a seamless loop, matching the engine's dominant character-anim mode."
+        };
         var transBonesOption = new Option<string?>("--trans-bones")
         {
             Description =
@@ -134,6 +141,7 @@ public static class PsxAnimExportCommand
         command.Options.Add(nameOption);
         command.Options.Add(noRotOption);
         command.Options.Add(noTransOption);
+        command.Options.Add(oneShotOption);
         command.Options.Add(transBonesOption);
         command.Options.Add(transDivisorScaleOption);
         command.Options.Add(transAbsoluteOption);
@@ -158,6 +166,7 @@ public static class PsxAnimExportCommand
             var name = parseResult.GetValue(nameOption);
             var noRot = parseResult.GetValue(noRotOption);
             var noTrans = parseResult.GetValue(noTransOption);
+            var oneShot = parseResult.GetValue(oneShotOption);
             var transBones = parseResult.GetValue(transBonesOption);
             var transDivisorScale = parseResult.GetValue(transDivisorScaleOption);
             var transAbsolute = parseResult.GetValue(transAbsoluteOption);
@@ -186,7 +195,8 @@ public static class PsxAnimExportCommand
                 TranslationBoneFilter: translationBoneFilter,
                 TranslationDivisorScale: SanitizePositiveScale(transDivisorScale, "--trans-divisor-scale"),
                 AbsoluteTranslation: transAbsolute,
-                EngineWorldTranslation: transEngineWorld);
+                EngineWorldTranslation: transEngineWorld,
+                OneShot: oneShot);
             return Task.FromResult(Execute(
                 input, output, animSource, anim, name, opts, format, blenderHelper,
                 flatSkeleton, flatBoneFilter, verbose));
@@ -407,7 +417,8 @@ public static class PsxAnimExportCommand
             if (selected.Count == 0)
                 continue;
 
-            var decodeResult = PsxAnimationBank.Decode(bank, targetBoneCount, selected, remap);
+            var decodeResult = PsxAnimationBank.Decode(
+                bank, targetBoneCount, selected, remap, opts.OneShot);
             decoded.AddRange(decodeResult.Animations.Select(entry =>
                 new PsxAnimationClip(entry.Name, entry.Animation, translationParents)));
             PrintDecodeDiagnostics(decodeResult.Diagnostics, verbose);

@@ -246,17 +246,21 @@ public class PsxAnimDecoderTests(TestPaths paths)
         Assert.Equal(50, animation.Channels[0, 3, 1]); // truncating midpoint
         Assert.Equal(101, animation.Channels[0, 3, 2]); // keyframe 1 copied
         Assert.Equal(150, animation.Channels[0, 3, 3]); // 101 + (99×2048)>>12
-        Assert.Equal(200, animation.Channels[0, 3, 4]); // clamped window, factor 0x1000 = endpoint
+        // Final frame sits exactly on the last keyframe: cycle factor is 0
+        // (straight copy) and the one-shot clamp lands on the same endpoint,
+        // so both modes agree here.
+        Assert.Equal(200, animation.Channels[0, 3, 4]);
     }
 
     [Fact]
-    public void DecodeDirectMatrix_TweenInterval_EndClampExtrapolates()
+    public void DecodeDirectMatrix_CycleDefault_FinalIntervalWrapsTowardFrameZero()
     {
-        // Non-cycle end handling (M3dUtils_InterpolateVectors): when the
-        // window passes totalFrames, it clamps back one interval and the
-        // factor extrapolates PAST the last stored record. 4 frames at
-        // interval 2 store records for frames 0 and 2; frame 3 clamps to the
-        // [0,2] window with factor ((3−0)<<12)/2 = 1.5 → Tx = 0 + 1.5×100.
+        // CycleAnim end handling (M3dUtils_InterpolateVectors cycle branch,
+        // VERIFIED): when the window passes totalFrames, keyEnd is forced to 0
+        // (blend target B = the frame-0 keyframe) and the denominator becomes
+        // totalFrames − keyStart. 4 frames at interval 2 store records for
+        // frames 0 and 2; frame 3 blends record 1 toward record 0 with factor
+        // ((3−2)<<12)/(4−2) = 0x800 → Tx = 100 + ((0−100)×2048)>>12 = 50.
         var stride = PsxAnimDecoder.DirectMatrixStrideBytes;
         var stream = new byte[2 * stride];
         short[] keyTx = [0, 100];
@@ -272,8 +276,64 @@ public class PsxAnimDecoderTests(TestPaths paths)
 
         Assert.Equal(0, animation.Channels[0, 3, 0]);
         Assert.Equal(50, animation.Channels[0, 3, 1]);
+        Assert.Equal(100, animation.Channels[0, 3, 2]); // last keyframe copied
+        Assert.Equal(50, animation.Channels[0, 3, 3]); // halfway back toward frame 0
+    }
+
+    [Fact]
+    public void DecodeDirectMatrix_OneShot_EndClampExtrapolates()
+    {
+        // RunAnim end handling: when the window passes totalFrames, it clamps
+        // back one interval and the factor extrapolates PAST the last stored
+        // record. 4 frames at interval 2 store records for frames 0 and 2;
+        // frame 3 clamps to the [0,2] window with factor ((3−0)<<12)/2 = 1.5
+        // → Tx = 0 + 1.5×100.
+        var stride = PsxAnimDecoder.DirectMatrixStrideBytes;
+        var stream = new byte[2 * stride];
+        short[] keyTx = [0, 100];
+        for (var record = 0; record < 2; record++)
+        {
+            var span = stream.AsSpan(record * stride, stride);
+            WriteSMatrix(span, 4096, 0, 0, 0, 4096, 0, 0, 0, 4096);
+            BinaryPrimitives.WriteInt16LittleEndian(span.Slice(18, 2), keyTx[record]);
+        }
+
+        var animation = PsxAnimDecoder.DecodeDirectMatrix(
+            stream, boneCount: 1, frameCount: 4, tweenFlag: 1, oneShot: true);
+
+        Assert.Equal(0, animation.Channels[0, 3, 0]);
+        Assert.Equal(50, animation.Channels[0, 3, 1]);
         Assert.Equal(100, animation.Channels[0, 3, 2]); // clamped window endpoint
         Assert.Equal(150, animation.Channels[0, 3, 3]); // extrapolated tail
+    }
+
+    [Fact]
+    public void DecodeDirectMatrix_CycleDefault_PartialFinalIntervalUsesLoopSpanDenominator()
+    {
+        // Cycle-branch denominator is totalFrames − keyStart (the length of
+        // the final PARTIAL interval to the loop point), NOT the full key
+        // interval. 5 frames at interval 3 store records for frames 0 and 3;
+        // frame 4 blends record 1 toward record 0 with factor
+        // ((4−3)<<12)/(5−3) = 0x800 (denominator 2, not 3)
+        // → Tx = 90 + ((0−90)×2048)>>12 = 90 − 45 = 45.
+        var stride = PsxAnimDecoder.DirectMatrixStrideBytes;
+        var stream = new byte[2 * stride];
+        short[] keyTx = [0, 90];
+        for (var record = 0; record < 2; record++)
+        {
+            var span = stream.AsSpan(record * stride, stride);
+            WriteSMatrix(span, 4096, 0, 0, 0, 4096, 0, 0, 0, 4096);
+            BinaryPrimitives.WriteInt16LittleEndian(span.Slice(18, 2), keyTx[record]);
+        }
+
+        var animation = PsxAnimDecoder.DecodeDirectMatrix(
+            stream, boneCount: 1, frameCount: 5, tweenFlag: 2);
+
+        Assert.Equal(0, animation.Channels[0, 3, 0]);
+        Assert.Equal(29, animation.Channels[0, 3, 1]); // (90×1365)>>12, truncated
+        Assert.Equal(59, animation.Channels[0, 3, 2]); // (90×2730)>>12, truncated
+        Assert.Equal(90, animation.Channels[0, 3, 3]); // last keyframe copied
+        Assert.Equal(45, animation.Channels[0, 3, 4]); // halfway back toward frame 0
     }
 
     [Fact]

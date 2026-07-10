@@ -111,15 +111,18 @@ public static class PsxAnimDecoder
     ///     keyframes every <c>tweenFlag + 1</c> frames; this decoder expands them
     ///     to full frames with the engine's exact truncating 1.12 lerp
     ///     (<c>M3dUtils_InterpolateVectors</c>, PERFECT-matched) before decoding.
+    ///     <paramref name="oneShot" /> selects the end-of-clip expansion branch:
+    ///     false (default) = CycleAnim wrap toward frame 0, true = RunAnim clamp.
     /// </summary>
     public static PsxAnimation DecodeDirectMatrix(
-        ReadOnlySpan<byte> stream, int boneCount, int frameCount, int tweenFlag = 0)
+        ReadOnlySpan<byte> stream, int boneCount, int frameCount, int tweenFlag = 0,
+        bool oneShot = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(boneCount);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(frameCount);
 
         if (tweenFlag > 0)
-            stream = ExpandTweenKeyframes(stream, boneCount, frameCount, tweenFlag);
+            stream = ExpandTweenKeyframes(stream, boneCount, frameCount, tweenFlag, oneShot);
 
         var required = checked(boneCount * frameCount * DirectMatrixStrideBytes);
         if (stream.Length < required)
@@ -171,15 +174,18 @@ public static class PsxAnimDecoder
     ///     <c>interval = tweenFlag + 1</c> frames; the interp factor is a
     ///     truncating 1.12 division <c>((frame − keyStart) &lt;&lt; 12) / span</c>
     ///     and each s16 cell lerps as <c>a + ((b − a) × factor &gt;&gt; 12)</c>
-    ///     (GTE GPL sf=1 — truncation, no rounding). End-of-anim uses the
-    ///     non-cycle branch: the window clamps back one interval and the factor
-    ///     extrapolates past the last stored record, matching one-shot playback
-    ///     (the cycle mode instead wraps toward frame 0 — a runtime per-instance
-    ///     choice a converter cannot know; the clamp branch avoids baking a
-    ///     wrap-lurch into one-shot clips, and looping viewers restart anyway).
+    ///     (GTE GPL sf=1 — truncation, no rounding). The playback mode is a
+    ///     per-instance runtime choice (RunAnim vs CycleAnim) the file format
+    ///     does not record, so the caller selects the end-of-anim branch:
+    ///     default = the CycleAnim wrap (last keyframe blends toward the
+    ///     frame-0 keyframe over the final partial interval, per the VERIFIED
+    ///     cycle branch in M3dUtils_InterpolateVectors — engine character anims
+    ///     are predominantly cycled and looping viewers get a seamless seam);
+    ///     <paramref name="oneShot" /> = the RunAnim clamp (window backs up one
+    ///     interval and holds/extrapolates the last stored record).
     /// </summary>
     private static byte[] ExpandTweenKeyframes(
-        ReadOnlySpan<byte> stream, int boneCount, int frameCount, int tweenFlag)
+        ReadOnlySpan<byte> stream, int boneCount, int frameCount, int tweenFlag, bool oneShot)
     {
         var interval = tweenFlag + 1;
         var storedFrames = GetDirectMatrixStoredFrameCount(frameCount, tweenFlag);
@@ -195,21 +201,7 @@ public static class PsxAnimDecoder
         var shortsPerFrame = perFrame / 2;
         for (var frame = 0; frame < frameCount; frame++)
         {
-            var keyStart = frame - frame % interval;
-            var keyEnd = keyStart + interval;
-            int factor;
-            if (keyEnd >= frameCount)
-            {
-                // Non-cycle end handling: clamp the window back one interval;
-                // a zero keyEnd after clamping forces a straight copy of record 0.
-                keyStart = Math.Max(0, keyStart - interval);
-                keyEnd -= interval;
-                factor = keyEnd == 0 ? 0 : ((frame - keyStart) << 12) / (keyEnd - keyStart);
-            }
-            else
-            {
-                factor = ((frame - keyStart) << 12) / (keyEnd - keyStart);
-            }
+            var (keyStart, keyEnd, factor) = ResolveTweenWindow(frame, interval, frameCount, oneShot);
 
             var dst = expanded.AsSpan(frame * perFrame, perFrame);
             var srcA = stream.Slice(keyStart / interval * perFrame, perFrame);
@@ -230,6 +222,35 @@ public static class PsxAnimDecoder
         }
 
         return expanded;
+    }
+
+    /// <summary>
+    ///     Selects the keyframe window and 1.12 blend factor for one expanded
+    ///     frame, mirroring M3dUtils_InterpolateVectors' three branches.
+    /// </summary>
+    private static (int KeyStart, int KeyEnd, int Factor) ResolveTweenWindow(
+        int frame, int interval, int frameCount, bool oneShot)
+    {
+        var keyStart = frame - frame % interval;
+        var keyEnd = keyStart + interval;
+        if (keyEnd < frameCount)
+            return (keyStart, keyEnd, ((frame - keyStart) << 12) / (keyEnd - keyStart));
+
+        if (!oneShot)
+        {
+            // CycleAnim wrap: keyEnd forced to 0 selects the frame-0 keyframe
+            // as blend target B, and the denominator becomes the length of the
+            // final partial interval up to the loop point (totalFrames), not
+            // the full key interval.
+            return (keyStart, 0, ((frame - keyStart) << 12) / (frameCount - keyStart));
+        }
+
+        // RunAnim clamp: back the window up one interval; a zero keyEnd after
+        // clamping forces a straight copy of record 0.
+        keyStart = Math.Max(0, keyStart - interval);
+        keyEnd -= interval;
+        var factor = keyEnd == 0 ? 0 : ((frame - keyStart) << 12) / (keyEnd - keyStart);
+        return (keyStart, keyEnd, factor);
     }
 
     private static Quaternion DecodeSMatrixQuaternion(ReadOnlySpan<byte> matrixBytes)

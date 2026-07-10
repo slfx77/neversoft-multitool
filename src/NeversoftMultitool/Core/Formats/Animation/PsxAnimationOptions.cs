@@ -58,6 +58,16 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 ///     through glTF's own parent chain, so the flag only matters for
 ///     flat/unparented skeletons and numeric diagnostics.
 /// </param>
+/// <param name="OneShot">
+///     Selects the end-of-clip expansion branch for tween-compressed clips.
+///     The playback mode is a per-instance runtime choice (RunAnim vs
+///     CycleAnim) the file format does not record. False (default) = CycleAnim
+///     wrap: the final partial key interval blends toward the frame-0 keyframe
+///     (M3dUtils_InterpolateVectors cycle branch, VERIFIED) so looping
+///     playback is seamless — the engine's dominant mode for character anims.
+///     True = RunAnim clamp: the window backs up one interval and holds the
+///     last stored keyframe, matching one-shot playback.
+/// </param>
 public sealed record PsxAnimationOptions(
     bool SkipRotation = false,
     bool SkipTranslation = false,
@@ -68,4 +78,5 @@ public sealed record PsxAnimationOptions(
     IReadOnlySet<int>? TranslationBoneFilter = null,
     float TranslationDivisorScale = 1f,
     bool AbsoluteTranslation = true,
-    bool EngineWorldTranslation = false);
+    bool EngineWorldTranslation = false,
+    bool OneShot = false);

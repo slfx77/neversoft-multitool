@@ -112,7 +112,8 @@ internal static class PsxAnimationBank
         PsxAnimationBankInfo bank,
         int targetBoneCount,
         IReadOnlyList<PsxAnimationBankSelection> selected,
-        PsxAnimationBoneRemap? boneRemap = null)
+        PsxAnimationBoneRemap? boneRemap = null,
+        bool oneShot = false)
     {
         var decoded = new List<(string Name, PsxAnimation Animation)>(selected.Count);
         var diagnostics = new List<PsxAnimationDecodeDiagnostic>(selected.Count);
@@ -133,7 +134,7 @@ internal static class PsxAnimationBank
         }
 
         foreach (var selection in selected)
-            DecodeOne(bank, targetBoneCount, selection, boneRemap, decoded, diagnostics);
+            DecodeOne(bank, targetBoneCount, selection, boneRemap, decoded, diagnostics, oneShot);
 
         return new PsxAnimationBankDecodeResult(bank, decoded, diagnostics);
     }
@@ -241,7 +242,8 @@ internal static class PsxAnimationBank
         PsxAnimationBankSelection selection,
         PsxAnimationBoneRemap? boneRemap,
         List<(string Name, PsxAnimation Animation)> decoded,
-        List<PsxAnimationDecodeDiagnostic> diagnostics)
+        List<PsxAnimationDecodeDiagnostic> diagnostics,
+        bool oneShot = false)
     {
         if (selection.Index < 0 || selection.Index >= bank.AnimFile.Entries.Count)
         {
@@ -263,7 +265,7 @@ internal static class PsxAnimationBank
             if (bank.AnimFile.IsDirectMatrix)
             {
                 animation = PsxAnimDecoder.DecodeDirectMatrix(
-                    slice, bank.BoneCount, entry.FrameCount, entry.TweenFlag);
+                    slice, bank.BoneCount, entry.FrameCount, entry.TweenFlag, oneShot);
                 consumed = bank.BoneCount *
                            PsxAnimDecoder.GetDirectMatrixStoredFrameCount(
                                entry.FrameCount, entry.TweenFlag) *
