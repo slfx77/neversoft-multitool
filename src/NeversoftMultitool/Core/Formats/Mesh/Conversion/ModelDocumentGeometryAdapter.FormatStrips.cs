@@ -239,6 +239,17 @@ internal static partial class ModelDocumentGeometryAdapter
         AddMeshNode(document, nodeName, mesh, transform);
     }
 
+    /// <summary>
+    ///     Lift applied to semi-transparent level faces along their outward
+    ///     normal, in glTF units. The PS1 has no depth buffer — shadow meshes
+    ///     and decals (road stripes etc.) sit exactly coplanar with the ground
+    ///     and win by ordering-table draw order — but depth-tested glTF
+    ///     viewers z-fight on coplanar geometry. 0.25 units is below the
+    ///     minimum level-geometry grid step (1 raw unit / 2.25 ≈ 0.44), so
+    ///     the lift is invisible while clearing depth-buffer precision.
+    /// </summary>
+    private const float PsxSemiTransparentFaceLift = 0.25f;
+
     private static void AddPsxFace(
         List<ModelVertex> vertices,
         List<int> indices,
@@ -252,16 +263,34 @@ internal static partial class ModelDocumentGeometryAdapter
         var v0 = MakePsxVertex(version, mesh, face, 0, c0, texDims);
         var v1 = MakePsxVertex(version, mesh, face, 1, c1, texDims);
         var v2 = MakePsxVertex(version, mesh, face, 2, c2, texDims);
+        var v3 = face.IsQuad ? MakePsxVertex(version, mesh, face, 3, c3, texDims) : default;
+
+        if (face.IsSemiTransparent)
+        {
+            // Geometric normal of the emitted CCW triangle (v0, v2, v1) —
+            // outward per the winding convention below — so shadows/decals
+            // lift away from the surface they overlay.
+            var geometricNormal = Vector3.Cross(
+                v2.Position - v0.Position, v1.Position - v0.Position);
+            var lengthSquared = geometricNormal.LengthSquared();
+            if (lengthSquared > 1e-12f)
+            {
+                var lift = geometricNormal / MathF.Sqrt(lengthSquared) * PsxSemiTransparentFaceLift;
+                v0 = v0 with { Position = v0.Position + lift };
+                v1 = v1 with { Position = v1.Position + lift };
+                v2 = v2 with { Position = v2.Position + lift };
+                if (face.IsQuad)
+                    v3 = v3 with { Position = v3.Position + lift };
+            }
+        }
+
         // glTF front faces are CCW; PSX slot order is CW under the (X,-Y,-Z)
         // handedness map, so emit reversed to make winding agree with the
         // stored (outward) normals. Probe: psx_lod_part_probe.py --normals.
         AddTriangle(vertices, indices, v0, v2, v1);
 
         if (face.IsQuad)
-        {
-            var v3 = MakePsxVertex(version, mesh, face, 3, c3, texDims);
             AddTriangle(vertices, indices, v1, v2, v3);
-        }
     }
 
     private static ModelPrimitive? AddPs2StripPrimitive(
