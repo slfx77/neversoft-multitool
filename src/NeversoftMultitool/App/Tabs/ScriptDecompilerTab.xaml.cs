@@ -11,7 +11,29 @@ namespace NeversoftMultitool;
 
 public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
 {
-    private static readonly string[] ScriptExtensions = [".trg", ".qb"];
+    private static readonly string[] TrgExtensions = [".trg"];
+
+    /// <summary>
+    ///     Compiled script files: THPS3-THUG2 raw-token .qb plus THAW-generation
+    ///     platform-suffixed sectioned QB (and .sqb sound-script) variants.
+    /// </summary>
+    private static readonly string[] QbFileSuffixes =
+    [
+        ".qb", ".qb.ps2", ".qb.wpc", ".qb.ngc", ".qb.xbx",
+        ".sqb", ".sqb.ps2", ".sqb.wpc", ".sqb.ngc", ".sqb.xbx"
+    ];
+
+    private static bool IsQbPath(string path)
+    {
+        var name = Path.GetFileName(path);
+        return QbFileSuffixes.Any(s => name.EndsWith(s, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsScriptPath(string path)
+    {
+        return IsQbPath(path) ||
+               TrgExtensions.Contains(Path.GetExtension(path).ToLowerInvariant());
+    }
 
     private readonly ScriptDecompilerDetailPresenter _detailPresenter;
     private readonly ScriptDecompilerTabExporter _exporter = new();
@@ -63,6 +85,11 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
         var picker = new FileOpenPicker();
         picker.FileTypeFilter.Add(".trg");
         picker.FileTypeFilter.Add(".qb");
+        picker.FileTypeFilter.Add(".sqb");
+        picker.FileTypeFilter.Add(".ps2");
+        picker.FileTypeFilter.Add(".wpc");
+        picker.FileTypeFilter.Add(".ngc");
+        picker.FileTypeFilter.Add(".xbx");
         var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
         InitializeWithWindow.Initialize(picker, hwnd);
 
@@ -74,10 +101,9 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
         _items.Clear();
         _parentFiles.Clear();
 
-        var ext = Path.GetExtension(file.Path).ToLowerInvariant();
         try
         {
-            IListEntry entry = ext == ".qb"
+            IListEntry entry = IsQbPath(file.Path)
                 ? ParseQbFileEntry(file.Path)
                 : ParseTrgFileEntry(file.Path);
             _parentFiles.Add(entry);
@@ -102,14 +128,12 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
         _parentFiles.Clear();
 
         var scriptFiles = Directory.GetFiles(path)
-            .Where(f => ScriptExtensions.Contains(
-                Path.GetExtension(f).ToLowerInvariant()))
+            .Where(IsScriptPath)
             .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase);
 
         foreach (var filePath in scriptFiles)
         {
-            var ext = Path.GetExtension(filePath).ToLowerInvariant();
-            IListEntry entry = ext == ".qb"
+            IListEntry entry = IsQbPath(filePath)
                 ? new QbFileEntry
                 {
                     FileName = Path.GetFileName(filePath),

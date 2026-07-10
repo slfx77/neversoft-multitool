@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text;
 
 namespace NeversoftMultitool.Core.Formats.Qb;
@@ -6,6 +7,9 @@ namespace NeversoftMultitool.Core.Formats.Qb;
 ///     Parsed representation of a QB file. Contains the raw token stream
 ///     plus pre-indexed top-level items (scripts and global definitions).
 ///     Format reference: THUG source Gel/Scripting/tokens.h, skiptoken.cpp, parse.cpp.
+///     THAW-generation sectioned QB files (see <see cref="QbSectionParser" />) are
+///     detected by signature and parsed into an equivalent token stream, so both
+///     generations flow through the same indexing and decompilation.
 /// </summary>
 public sealed class QbFile
 {
@@ -52,7 +56,9 @@ public sealed class QbFile
     /// </summary>
     public static QbFile Parse(byte[] data, string fileName = "")
     {
-        var tokens = TokenizeAll(data);
+        var tokens = QbSectionParser.IsSectionedQb(data)
+            ? QbSectionParser.ParseToTokens(data)
+            : TokenizeAll(data, false, null);
         var localNames = CollectChecksumNames(tokens);
         var items = IndexTopLevelItems(tokens, localNames);
 
@@ -66,10 +72,48 @@ public sealed class QbFile
     }
 
     /// <summary>
-    ///     Pass 1: Walk the byte stream and produce a flat list of parsed tokens.
-    ///     Token sizes from skiptoken.cpp.
+    ///     Tokenizes a decompressed THAW-generation script body. Token payloads are
+    ///     little-endian on every platform (the GC port never byte-swapped the script
+    ///     bytecode), but token 0x4A embeds sectioned structs in the FILE's byte order
+    ///     and info encoding, so that context is threaded through separately.
     /// </summary>
-    private static List<QbToken> TokenizeAll(byte[] data)
+    internal static List<QbToken> TokenizeScriptBody(byte[] body, bool structsBigEndian, bool newEncoding)
+    {
+        return TokenizeAll(body, false, (structsBigEndian, newEncoding));
+    }
+
+    private static uint ReadU32(byte[] data, int pos, bool bigEndian)
+    {
+        return bigEndian
+            ? BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(pos))
+            : BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(pos));
+    }
+
+    private static int ReadI32(byte[] data, int pos, bool bigEndian)
+    {
+        return (int)ReadU32(data, pos, bigEndian);
+    }
+
+    private static float ReadF32(byte[] data, int pos, bool bigEndian)
+    {
+        return BitConverter.Int32BitsToSingle(ReadI32(data, pos, bigEndian));
+    }
+
+    private static ushort ReadU16(byte[] data, int pos, bool bigEndian)
+    {
+        return bigEndian
+            ? BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(pos))
+            : BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(pos));
+    }
+
+    /// <summary>
+    ///     Pass 1: Walk the byte stream and produce a flat list of parsed tokens.
+    ///     Token sizes from skiptoken.cpp. <paramref name="inlineStructs" /> is
+    ///     non-null only for THAW-generation script bodies, enabling token 0x4A
+    ///     (inline struct) with the file's byte order and info encoding.
+    /// </summary>
+    private static List<QbToken> TokenizeAll(
+        byte[] data, bool bigEndian, (bool BigEndian, bool NewEncoding)? inlineStructs)
     {
         var tokens = new List<QbToken>();
         var pos = 0;
@@ -78,6 +122,38 @@ public sealed class QbFile
         while (pos < length)
         {
             var tokenByte = data[pos];
+            if (tokenByte == 0x4A && inlineStructs is { } structContext)
+            {
+                // THAW-generation inline struct: u16 length, pad to 4, serialized struct.
+                if (pos + 3 > length)
+                    break;
+                pos = QbSectionParser.EmitInlineStruct(
+                    data, pos + 1, structContext.BigEndian, structContext.NewEncoding, tokens);
+                continue;
+            }
+
+            if (tokenByte is 0x47 or 0x48 && inlineStructs is not null)
+            {
+                // THAW-generation fast branch: if (0x47) / else (0x48) with a u16
+                // runtime skip offset. Explicit endif tokens still close the blocks,
+                // so the offset is redundant for decompilation.
+                tokens.Add(new QbToken
+                {
+                    Type = tokenByte == 0x47 ? QbTokenType.KeywordIf : QbTokenType.KeywordElse,
+                    Offset = pos
+                });
+                pos += 3;
+                continue;
+            }
+
+            if (tokenByte == 0x49 && inlineStructs is not null)
+            {
+                // THAW-generation fast case-branch operand (u16 runtime skip after a
+                // case/default keyword) — structural keywords are emitted separately.
+                pos += 3;
+                continue;
+            }
+
             if (tokenByte > 68)
             {
                 // Unknown token — skip byte (resync strategy from Python parser)
@@ -155,7 +231,7 @@ public sealed class QbFile
                 case QbTokenType.RuntimeCFunction:
                 case QbTokenType.RuntimeMemberFunction:
                     if (pos + 5 > length) return tokens;
-                    token.NameChecksum = BitConverter.ToUInt32(data, pos + 1);
+                    token.NameChecksum = ReadU32(data, pos + 1, bigEndian);
                     tokens.Add(token);
                     pos += 5;
                     break;
@@ -163,28 +239,28 @@ public sealed class QbFile
                 case QbTokenType.Integer:
                 case QbTokenType.EndOfLineNumber:
                     if (pos + 5 > length) return tokens;
-                    token.IntValue = BitConverter.ToInt32(data, pos + 1);
+                    token.IntValue = ReadI32(data, pos + 1, bigEndian);
                     tokens.Add(token);
                     pos += 5;
                     break;
 
                 case QbTokenType.HexInteger:
                     if (pos + 5 > length) return tokens;
-                    token.HexValue = BitConverter.ToUInt32(data, pos + 1);
+                    token.HexValue = ReadU32(data, pos + 1, bigEndian);
                     tokens.Add(token);
                     pos += 5;
                     break;
 
                 case QbTokenType.Float:
                     if (pos + 5 > length) return tokens;
-                    token.FloatValue = BitConverter.ToSingle(data, pos + 1);
+                    token.FloatValue = ReadF32(data, pos + 1, bigEndian);
                     tokens.Add(token);
                     pos += 5;
                     break;
 
                 case QbTokenType.Jump:
                     if (pos + 5 > length) return tokens;
-                    token.JumpOffset = BitConverter.ToInt32(data, pos + 1);
+                    token.JumpOffset = ReadI32(data, pos + 1, bigEndian);
                     tokens.Add(token);
                     pos += 5;
                     break;
@@ -192,9 +268,9 @@ public sealed class QbFile
                 // 13-byte: VECTOR (1 + 3×f32)
                 case QbTokenType.Vector:
                     if (pos + 13 > length) return tokens;
-                    token.FloatX = BitConverter.ToSingle(data, pos + 1);
-                    token.FloatY = BitConverter.ToSingle(data, pos + 5);
-                    token.FloatZ = BitConverter.ToSingle(data, pos + 9);
+                    token.FloatX = ReadF32(data, pos + 1, bigEndian);
+                    token.FloatY = ReadF32(data, pos + 5, bigEndian);
+                    token.FloatZ = ReadF32(data, pos + 9, bigEndian);
                     tokens.Add(token);
                     pos += 13;
                     break;
@@ -202,8 +278,8 @@ public sealed class QbFile
                 // 9-byte: PAIR (1 + 2×f32)
                 case QbTokenType.Pair:
                     if (pos + 9 > length) return tokens;
-                    token.FloatX = BitConverter.ToSingle(data, pos + 1);
-                    token.FloatY = BitConverter.ToSingle(data, pos + 5);
+                    token.FloatX = ReadF32(data, pos + 1, bigEndian);
+                    token.FloatY = ReadF32(data, pos + 5, bigEndian);
                     tokens.Add(token);
                     pos += 9;
                     break;
@@ -212,7 +288,7 @@ public sealed class QbFile
                 case QbTokenType.String:
                 case QbTokenType.LocalString:
                     if (pos + 5 > length) return tokens;
-                    var strLen = (int)BitConverter.ToUInt32(data, pos + 1);
+                    var strLen = (int)ReadU32(data, pos + 1, bigEndian);
                     if (strLen <= 0 || strLen > 100000 || pos + 5 + strLen > length)
                     {
                         pos++;
@@ -228,7 +304,7 @@ public sealed class QbFile
                 // Variable: CHECKSUM_NAME (1 + u32 checksum + null-terminated string)
                 case QbTokenType.ChecksumName:
                     if (pos + 5 > length) return tokens;
-                    token.NameChecksum = BitConverter.ToUInt32(data, pos + 1);
+                    token.NameChecksum = ReadU32(data, pos + 1, bigEndian);
                     var nullPos = Array.IndexOf(data, (byte)0, pos + 5);
                     if (nullPos == -1 || nullPos - (pos + 5) > 512)
                     {
@@ -248,7 +324,7 @@ public sealed class QbFile
                 case QbTokenType.KeywordRandomNoRepeat:
                 case QbTokenType.KeywordRandomPermute:
                     if (pos + 5 > length) return tokens;
-                    var numItems = (int)BitConverter.ToUInt32(data, pos + 1);
+                    var numItems = (int)ReadU32(data, pos + 1, bigEndian);
                     if (numItems <= 0 || numItems > 10000)
                     {
                         pos++;
@@ -265,8 +341,8 @@ public sealed class QbFile
                     for (var i = 0; i < numItems; i++)
                     {
                         items[i] = (
-                            BitConverter.ToUInt16(data, weightBase + 2 * i),
-                            BitConverter.ToInt32(data, offsetBase + 4 * i)
+                            ReadU16(data, weightBase + 2 * i, bigEndian),
+                            ReadI32(data, offsetBase + 4 * i, bigEndian)
                         );
                     }
 

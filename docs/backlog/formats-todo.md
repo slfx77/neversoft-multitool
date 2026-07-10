@@ -46,22 +46,34 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
   numVerts, u16 numFaces, u32 firstFaceOffset in bytes, bboxMin/Max 4×f32 each, u32 0, u32 firstVert
   INDEX, u32 optOffset, pad) + 0xFF-wiped vertex region + faces (always 10-byte large records: u16be
   flags, terrain, i0, i1, i2 — triangulation matches the PC pairs exactly) + BSP/opt tables.
-- ✅ **`.apk.ngc` / `.pak.ngc` archives — extraction shipped 2026-07-09.** They are big-endian
-  Neversoft PAKs (sentinel-detected; `PakArchive` handles both endians). `.mpk.ngc` = the companion
-  DATA file (like PS2 .pab), not padding — 3,603 of 4,424 are 32-byte stubs (self-contained apk),
-  821 carry real data for cutscene apks. GC quirks vs PS2: name QbKey at +0x0C, flag 0x80000000 =
-  data-in-pak (absent = companion-resident at literal offsets), and **in-pak offsets are
-  header-hoisted, not literal** — physical blocks tile in entry order (32-aligned) from the first
-  stated offset / post-sentinel anchor; validated on 17,809 signature-checkable payloads, 0
-  mismatches. 4,430 archives, 17,501+ entries; 48 `*_sfx.pak.ngc` = raw audio blobs (skipped, like
-  the 987 PS2 raw paks). Extracted .img.ngc (CAS graphics) decode via NgcTexFile immediately.
-  Routed: `archive` CLI, `unpack`, GUI Archive Extractor (which also gained .pak.ps2 support).
-- 🔴 **BE payload decoding** (follow-on from .apk.ngc extraction): `.qb.ngc` compiled scripts
-  (8-byte `[u32 0][u32 size]` prefix + big-endian QB token stream — QB parser is LE-only today),
+- ✅ **`.apk.ngc` / `.pak.ngc` archives — extraction shipped 2026-07-09, offset model CORRECTED
+  2026-07-10.** They are big-endian Neversoft PAKs (sentinel-detected; `PakArchive` handles both
+  endians). `.mpk.ngc` = the companion DATA file (like PS2 .pab), not padding — 3,603 of 4,424 are
+  32-byte stubs (self-contained apk), 821 carry real data for cutscene apks. GC quirks vs PS2:
+  name QbKey at +0x0C, flag 0x80000000 = data-in-pak (absent = companion-resident at RAW stored
+  mpk offsets). **All PAK data offsets (LE and GC in-pak) are relative to the entry's own header
+  position** (Queen-Bee `HeaderStart + FileOffset`); the 2026-07-09 "hoisted tiling" model was a
+  near-equivalent approximation, and the original absolute-offset reads silently garbled every
+  multi-entry LE pak. Signature-validated 2026-07-10: PS2 12,120 + PC 12,756 + GC 14,325 payload
+  hits, 0 mismatches (`tools/diagnostics/pak_offset_check.py`). 48 `*_sfx.pak.ngc` = raw audio
+  blobs (skipped). Routed: `archive` CLI, `unpack`, GUI Archive Extractor.
+  ⚠️ **Sample/Builds pak-extracted subtrees predate the offset fix** — payloads extracted from
+  multi-entry paks (qb.pak, cutscene mains, cas paks, worldzone paks) are byte-garbled on disk
+  and need regeneration via `tools/SampleGenerator`.
+- ✅ **THAW QB decoding — shipped 2026-07-10 for ALL THREE platforms** (`.qb.ps2`/`.qb.wpc`/
+  `.qb.ngc` + `.sqb.*`): THAW uses the sectioned QB format (Guitar Hero family, Queen-Bee
+  reference at `Sample/queen-bee`), NOT the raw THPS3-THUG2 token stream and NOT "BE tokens with
+  a size prefix" as previously guessed. `QbSectionParser` (auto endian + old/new info-encoding
+  detection, LZSS scripts, THAW tokens 0x47-0x4A, inline-script struct items) synthesizes classic
+  token streams for the existing decompiler. Sweep: 11,909/11,909 files, 49,755 scripts, 0
+  failures. Follow-on: THAW name resolution (~0% — needs a lowercase-hash THAW wordlist).
+- 🔴 **BE anim payload decoding** (follow-on from .apk.ngc extraction):
   `.ska.ngc`/`.ske.ngc` big-endian anims/skeletons (cutscene .ske = `00 01 00 30` header + offsets
   + quaternion neutral poses; cam .ska = `00 00 00 28`-headed BonedAnim variant), and the cutscene
   `.ska` descriptor blocks in main apks (16-byte record table + embedded path referencing the cam
-  pak). The large non-stub `.mpk.ngc` payloads are these same types accessed via the apk table.
+  pak — the cutscene load scripts now decompile and enumerate the referenced .SKA/.SKE assets by
+  path, which should anchor the descriptor RE). Payloads must be re-extracted with the FIXED pak
+  offsets — pre-2026-07-10 extractions of companion-resident entries are suspect.
 
 ### 🔴 `.stex` — raw streaming-texture payloads (NOT a self-contained container)
 - Source: 2026-07-07 probe (re-scoped). ~3,400 files: THAW PS2 (2,423), P8 (365), THPG (627), extracted
