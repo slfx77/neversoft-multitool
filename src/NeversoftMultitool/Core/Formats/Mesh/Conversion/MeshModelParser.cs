@@ -157,9 +157,21 @@ public sealed class MeshModelParser : IModelParser
             request.OutputStem,
             ModelSourceKind.Psx,
             new PsxNativeSource(psxFile, textureProvider, pshFile));
+
+        // v1 DirectMatrix clips render flat-absolute per part with NO
+        // hierarchy composition (decomp RenderSuperItem 0x800968D8):
+        // worldVert = R_rec·v_local + T_rec, both read straight from the
+        // record. A HIER character (mullen, CARNAGE) whose driving anim is v1
+        // must therefore bind its mesh to a FLAT skeleton — a parented one
+        // re-composes each part through its ancestors and tears the stitch
+        // seams (measured: mullen frame-1 seam 27→0.4, CARNAGE 26→2 once flat).
+        // Flat supers (bruce/hawk) are already flat via all-root object tables,
+        // so this only changes HIER+v1 characters; v2-compressed clips keep the
+        // parented skeleton (they chain translations through the hierarchy).
+        var forceFlatSkeleton = request.PsxFlatSkeleton || DrivingAnimationsAreV1Absolute(request);
         ModelDocumentGeometryAdapter.PopulatePsx(
             document, psxFile, textureProvider, pshFile,
-            request.PsxFlatSkeleton, request.PsxFlatBoneIndices);
+            forceFlatSkeleton, request.PsxFlatBoneIndices);
 
         if (request.PsxAnimationOptions is { } animationOptions
             && document.Skeletons.Count > 0)
@@ -178,6 +190,22 @@ public sealed class MeshModelParser : IModelParser
         }
 
         return document;
+    }
+
+    /// <summary>
+    ///     True when the character will be animated and every driving clip is a
+    ///     v1 direct-matrix animation (absolute per-part world transforms). Such
+    ///     clips need a flat skeleton; a mixed or v2 set keeps the parented one.
+    /// </summary>
+    private static bool DrivingAnimationsAreV1Absolute(MeshImportRequest request)
+    {
+        if (request.PsxAnimationClips is { Count: > 0 } clips)
+            return clips.All(static clip => clip.Animation.AbsoluteWorldTranslations);
+
+        if (request.PsxDecodedAnimations is { Count: > 0 } animations)
+            return animations.All(static entry => entry.Animation.AbsoluteWorldTranslations);
+
+        return false;
     }
 
     private static ModelDocument ParsePs2Scene(MeshImportRequest request)

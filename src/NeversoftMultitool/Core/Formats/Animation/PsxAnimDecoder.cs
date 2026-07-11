@@ -116,7 +116,7 @@ public static class PsxAnimDecoder
     /// </summary>
     public static PsxAnimation DecodeDirectMatrix(
         ReadOnlySpan<byte> stream, int boneCount, int frameCount, int tweenFlag = 0,
-        bool oneShot = false, bool transposedRotation = false)
+        bool oneShot = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(boneCount);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(frameCount);
@@ -141,8 +141,8 @@ public static class PsxAnimDecoder
             {
                 var boneBase = frameBase + bone * DirectMatrixStrideBytes;
                 var matrixBytes = stream.Slice(boneBase, 18);
-                directRotations[bone, frame] = DecodeSMatrixQuaternion(matrixBytes, transposedRotation);
-                var (rx, ry, rz) = ExtractYxzEulersFromSMatrix(matrixBytes, transposedRotation);
+                directRotations[bone, frame] = DecodeSMatrixQuaternion(matrixBytes);
+                var (rx, ry, rz) = ExtractYxzEulersFromSMatrix(matrixBytes);
                 channels[bone, 0, frame] = RadiansToPsxAngleUnits(rx);
                 channels[bone, 1, frame] = RadiansToPsxAngleUnits(ry);
                 channels[bone, 2, frame] = RadiansToPsxAngleUnits(rz);
@@ -254,30 +254,29 @@ public static class PsxAnimDecoder
         return (keyStart, keyEnd, factor);
     }
 
-    private static Quaternion DecodeSMatrixQuaternion(
-        ReadOnlySpan<byte> matrixBytes, bool transposedRotation = false)
+    private static Quaternion DecodeSMatrixQuaternion(ReadOnlySpan<byte> matrixBytes)
     {
-        var matrix = ReadSMatrixRotation(matrixBytes, transposedRotation);
+        var matrix = ReadSMatrixRotation(matrixBytes);
         var q = Quaternion.CreateFromRotationMatrix(matrix);
         return q.LengthSquared() > 1e-12f
             ? Quaternion.Normalize(q)
             : Quaternion.Identity;
     }
 
-    private static Matrix4x4 ReadSMatrixRotation(ReadOnlySpan<byte> matrixBytes, bool transposedRotation)
+    private static Matrix4x4 ReadSMatrixRotation(ReadOnlySpan<byte> matrixBytes)
     {
         return new Matrix4x4(
-            ReadSMatrixCell(matrixBytes, 0, 0, transposedRotation),
-            ReadSMatrixCell(matrixBytes, 0, 1, transposedRotation),
-            ReadSMatrixCell(matrixBytes, 0, 2, transposedRotation),
+            ReadSMatrixCell(matrixBytes, 0, 0),
+            ReadSMatrixCell(matrixBytes, 0, 1),
+            ReadSMatrixCell(matrixBytes, 0, 2),
             0f,
-            ReadSMatrixCell(matrixBytes, 1, 0, transposedRotation),
-            ReadSMatrixCell(matrixBytes, 1, 1, transposedRotation),
-            ReadSMatrixCell(matrixBytes, 1, 2, transposedRotation),
+            ReadSMatrixCell(matrixBytes, 1, 0),
+            ReadSMatrixCell(matrixBytes, 1, 1),
+            ReadSMatrixCell(matrixBytes, 1, 2),
             0f,
-            ReadSMatrixCell(matrixBytes, 2, 0, transposedRotation),
-            ReadSMatrixCell(matrixBytes, 2, 1, transposedRotation),
-            ReadSMatrixCell(matrixBytes, 2, 2, transposedRotation),
+            ReadSMatrixCell(matrixBytes, 2, 0),
+            ReadSMatrixCell(matrixBytes, 2, 1),
+            ReadSMatrixCell(matrixBytes, 2, 2),
             0f,
             0f,
             0f,
@@ -286,16 +285,23 @@ public static class PsxAnimDecoder
     }
 
     /// <summary>
-    ///     Reads one rotation cell from the 9-short block. v3-era files
-    ///     (Apocalypse/THPS1-proto) store the cells transposed relative to
-    ///     the v4/v6 layout (<see cref="PsxAnimFile.UsesTransposedRotation" />
-    ///     — render-A/B verified on bruce/hawk/rasta_fe vs mullen/CARNAGE),
-    ///     so the transposed read swaps the row/col addressing.
+    ///     Reads one rotation cell from the 9-short block, TRANSPOSED. The
+    ///     stored 3×3 is a PSX GTE rotation in column-vector convention
+    ///     (world = M·v), but <see cref="Matrix4x4" /> /
+    ///     <see cref="Quaternion.CreateFromRotationMatrix" /> and glTF use the
+    ///     row-vector convention (world = v·M) — so the cells must be
+    ///     transposed on read to keep the decoded quaternion in the engine's
+    ///     orientation. Verified universally (2026-07-11) by diffing decoded
+    ///     rotations against the decomp engine ground truth: the raw record
+    ///     matches the engine world rotation to ~2°, and the transposed read
+    ///     is what reproduces it in glTF space (bruce/hawk/mullen/carnage seam
+    ///     closure all confirm). This is NOT version-specific — the earlier
+    ///     v3-only gate was compensating for the same convention through a
+    ///     second transpose in the Euler round-trip.
     /// </summary>
-    private static float ReadSMatrixCell(
-        ReadOnlySpan<byte> matrixBytes, int row, int col, bool transposedRotation = false)
+    private static float ReadSMatrixCell(ReadOnlySpan<byte> matrixBytes, int row, int col)
     {
-        var index = transposedRotation ? col * 3 + row : row * 3 + col;
+        var index = col * 3 + row;
         var raw = BinaryPrimitives.ReadInt16LittleEndian(matrixBytes.Slice(index * 2, 2));
         return raw / PsxAnimFile.DirectMatrixFixedPointDivisor;
     }
@@ -304,22 +310,17 @@ public static class PsxAnimDecoder
     ///     Extracts (Rx, Ry, Rz) Euler angles in radians from a PSY-Q
     ///     <c>short[3][3]</c> rotation matrix expected to be built as
     ///     <c>qy * qx * qz</c>, matching <see cref="PsxAnimation.GetBoneRotation" />.
-    ///     Cells are PSY-Q fixed-point: 4096 = 1.0. In <see cref="Matrix4x4" />
-    ///     terms this is the transpose of the usual column-vector
-    ///     <c>Ry · Rx · Rz</c> formula, so extraction reads:
-    ///     <c>M[2][1] = -sin(rx)</c>, <c>M[2][0]/M[2][2] = tan(ry)</c>,
-    ///     <c>M[0][1]/M[1][1] = tan(rz)</c>.
+    ///     Cells are read transposed (see <see cref="ReadSMatrixCell" /> — GTE
+    ///     column-vector → row-vector convention). Used only for the diagnostic
+    ///     Euler channels; the render path prefers the exact matrix quaternion.
     /// </summary>
-    private static (float Rx, float Ry, float Rz) ExtractYxzEulersFromSMatrix(
-        ReadOnlySpan<byte> matrixBytes, bool transposedRotation = false)
+    private static (float Rx, float Ry, float Rz) ExtractYxzEulersFromSMatrix(ReadOnlySpan<byte> matrixBytes)
     {
-        // matrixBytes = 9 shorts, row-major: m[0][0..2], m[1][0..2], m[2][0..2]
-        // (v3-era files store the cells transposed — see ReadSMatrixCell).
         var m = new float[3, 3];
         for (var row = 0; row < 3; row++)
         {
             for (var col = 0; col < 3; col++)
-                m[row, col] = ReadSMatrixCell(matrixBytes, row, col, transposedRotation);
+                m[row, col] = ReadSMatrixCell(matrixBytes, row, col);
         }
 
         // M[2][1] = -sin(rx) ⇒ rx = asin(-M[2][1]). Clamp for numerical safety.

@@ -47,17 +47,6 @@ public sealed class PsxAnimFile
     /// <summary>Container version (u16 at file offset 0): 0x03/0x04/0x06.</summary>
     public ushort ContainerVersion { get; init; }
 
-    /// <summary>
-    ///     v3-era files (Apocalypse final, THPS1 prototype) store the 9
-    ///     DirectMatrix rotation cells TRANSPOSED relative to the v4/v6
-    ///     layout. Established by render A/B on real data (2026-07-10):
-    ///     bruce, hawk and rasta_fe (v3) only pose correctly under the
-    ///     transposed read, while mullen (THPS2-proto v4) and CARNAGE
-    ///     (Spider-Man DC v6) require the straight read — user-verified
-    ///     in-viewer on all five.
-    /// </summary>
-    public bool UsesTransposedRotation => ContainerVersion == 0x0003;
-
     public PsxCharacterRuntimeRevision MinimumRuntimeRevision { get; init; } =
         PsxCharacterRuntimeRevision.Unknown;
 

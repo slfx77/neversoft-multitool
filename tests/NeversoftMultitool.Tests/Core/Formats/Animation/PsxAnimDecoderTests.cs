@@ -253,29 +253,40 @@ public class PsxAnimDecoderTests(TestPaths paths)
     }
 
     [Fact]
-    public void DecodeDirectMatrix_TransposedRotation_DecodesInverseOfStraightRead()
+    public void DecodeDirectMatrix_ReadsCellsTransposedForGteColumnVectorConvention()
     {
-        // v3-era files (Apocalypse/THPS1-proto) store the 9 rotation cells
-        // transposed relative to the v4/v6 layout (render-A/B verified:
-        // bruce/hawk/rasta_fe need the transposed read, mullen/CARNAGE the
-        // straight one). For an orthonormal matrix the transposed read is
-        // the inverse rotation, so the two decodes must be conjugates.
+        // The stored 3x3 is a PSX GTE rotation in column-vector convention
+        // (world = M*v), but System.Numerics / glTF are row-vector
+        // (world = v*M) — so the decoder transposes the cells on read
+        // (PsxAnimDecoder.ReadSMatrixCell). Verified universally against the
+        // decomp engine ground truth (2026-07-11): the raw record IS the
+        // engine world rotation, and the transposed read reproduces it in
+        // glTF space. Write a non-symmetric matrix in raw row-major order and
+        // confirm the decoded rotation is its TRANSPOSE, not the raw layout.
         var stride = PsxAnimDecoder.DirectMatrixStrideBytes;
         var stream = new byte[stride];
-        // +90° about Y (v4 orientation): non-symmetric so the reads differ.
+        // Raw row-major cells for a +90° yaw as the engine stores it.
         WriteSMatrix(stream, 0, 0, -4096, 0, 4096, 0, 4096, 0, 0);
 
-        var straight = PsxAnimDecoder.DecodeDirectMatrix(stream, boneCount: 1, frameCount: 1);
-        var transposed = PsxAnimDecoder.DecodeDirectMatrix(
-            stream, boneCount: 1, frameCount: 1, transposedRotation: true);
+        var decoded = Matrix4x4.CreateFromQuaternion(
+            Quaternion.Normalize(
+                PsxAnimDecoder.DecodeDirectMatrix(stream, boneCount: 1, frameCount: 1)
+                    .DirectRotations![0, 0]));
 
-        var a = straight.DirectRotations![0, 0];
-        var b = transposed.DirectRotations![0, 0];
-        var expected = Quaternion.Conjugate(a);
-        // Compare up to quaternion double-cover (q ≡ −q).
-        var dot = Math.Abs(Quaternion.Dot(b, expected));
-        Assert.True(dot > 0.9999f, $"expected conjugate rotation, dot={dot}");
-        Assert.NotEqual(a, b);
+        // Raw layout as written (row-major) and its transpose.
+        var rawRowMajor = new Matrix4x4(
+            0, 0, -1, 0,
+            0, 1, 0, 0,
+            1, 0, 0, 0,
+            0, 0, 0, 1);
+        AssertMatrixClose(Matrix4x4.Transpose(rawRowMajor), decoded, precision: 3);
+        Assert.False(MatricesClose(rawRowMajor, decoded), "decoded must not equal the raw row-major layout");
+    }
+
+    private static bool MatricesClose(Matrix4x4 a, Matrix4x4 b)
+    {
+        return Math.Abs(a.M11 - b.M11) < 1e-3 && Math.Abs(a.M13 - b.M13) < 1e-3
+            && Math.Abs(a.M31 - b.M31) < 1e-3 && Math.Abs(a.M33 - b.M33) < 1e-3;
     }
 
     [Fact]
@@ -401,18 +412,16 @@ public class PsxAnimDecoderTests(TestPaths paths)
     {
         var stream = new byte[PsxAnimDecoder.DirectMatrixStrideBytes];
 
-        // Row-major SMatrix for Ry=+90°, Rx=Rz=0 under the same transposed
-        // convention emitted by Matrix4x4.CreateFromQuaternion(qy * qx * qz):
-        // [ 0 0 -1 ; 0 1 0 ; 1 0 0 ], fixed point 4096 = 1.0.
-        WriteSMatrix(stream,
-            0, 0, -4096,
-            0, 4096, 0,
-            4096, 0, 0);
+        // A +90° yaw expressed as a System.Numerics matrix, stored through the
+        // convention-transposing WriteSMatrix so the decoder's transposed read
+        // recovers it. GetBoneRotation (via the extracted Euler channels) must
+        // reproduce the same rotation.
+        var expected = CreateExpectedRotMatrixYxz(ToPsyqRadians(0), ToPsyqRadians(1024), ToPsyqRadians(0));
+        WriteSMatrix(stream, expected);
 
         var animation = PsxAnimDecoder.DecodeDirectMatrix(stream, boneCount: 1, frameCount: 1);
         var actual = Matrix4x4.CreateFromQuaternion(
             Quaternion.Normalize(animation.GetBoneRotation(0, 0)));
-        var expected = CreateExpectedRotMatrixYxz(ToPsyqRadians(0), ToPsyqRadians(1024), ToPsyqRadians(0));
 
         AssertMatrixClose(expected, actual);
     }
@@ -489,12 +498,15 @@ public class PsxAnimDecoderTests(TestPaths paths)
             BinaryPrimitives.WriteInt16LittleEndian(destination.Slice(i * 2, 2), cells[i]);
     }
 
+    // The decoder reads the 9 cells TRANSPOSED (GTE column-vector → row-vector
+    // convention, see PsxAnimDecoder.ReadSMatrixCell), so to round-trip a
+    // System.Numerics matrix through the record we store its transpose.
     private static void WriteSMatrix(Span<byte> destination, Matrix4x4 matrix)
     {
         WriteSMatrix(destination,
-            ToFixed(matrix.M11), ToFixed(matrix.M12), ToFixed(matrix.M13),
-            ToFixed(matrix.M21), ToFixed(matrix.M22), ToFixed(matrix.M23),
-            ToFixed(matrix.M31), ToFixed(matrix.M32), ToFixed(matrix.M33));
+            ToFixed(matrix.M11), ToFixed(matrix.M21), ToFixed(matrix.M31),
+            ToFixed(matrix.M12), ToFixed(matrix.M22), ToFixed(matrix.M32),
+            ToFixed(matrix.M13), ToFixed(matrix.M23), ToFixed(matrix.M33));
     }
 
     private static short ToFixed(float value)

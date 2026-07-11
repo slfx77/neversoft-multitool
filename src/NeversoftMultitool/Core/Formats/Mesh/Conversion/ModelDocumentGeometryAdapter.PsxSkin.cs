@@ -522,15 +522,27 @@ internal static partial class ModelDocumentGeometryAdapter
     {
         // Materialise per-frame engine-local rotations once so the correction
         // step can read any bone's parent without recomputing trig.
+        //
+        // v1 direct-matrix clips carry exact matrix-derived quaternions;
+        // prefer them over the Euler round-trip, whose YXZ extraction +
+        // System.Numerics recomposition inverted every stored rotation
+        // (caught 2026-07-10 by diffing mullen against decomp engine ground
+        // truth: matrix quats match to <2°, the Euler path was ~115° off at
+        // posed frames). The Euler path remains for v2 streams and for the
+        // RotationScale diagnostic, which only exists in angle space.
+        var direct = ctx.Animation.DirectRotations;
+        var useDirect = direct != null && Math.Abs(ctx.RotationScale - 1f) < 1e-6f;
         var engineLocal = new Quaternion[ctx.BoneCount, ctx.FrameCount];
         for (var bone = 0; bone < ctx.BoneCount; bone++)
         {
             var animated = ctx.Animation.IsRotationAnimated(bone);
             for (var frame = 0; frame < ctx.FrameCount; frame++)
             {
-                engineLocal[bone, frame] = animated
-                    ? ctx.Animation.GetBoneRotation(bone, frame, ctx.Compose, ctx.RotationScale)
-                    : Quaternion.Identity;
+                engineLocal[bone, frame] = !animated
+                    ? Quaternion.Identity
+                    : useDirect
+                        ? direct![bone, frame]
+                        : ctx.Animation.GetBoneRotation(bone, frame, ctx.Compose, ctx.RotationScale);
             }
         }
 

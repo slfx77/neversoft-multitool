@@ -265,8 +265,7 @@ internal static class PsxAnimationBank
             if (bank.AnimFile.IsDirectMatrix)
             {
                 animation = PsxAnimDecoder.DecodeDirectMatrix(
-                    slice, bank.BoneCount, entry.FrameCount, entry.TweenFlag, oneShot,
-                    bank.AnimFile.UsesTransposedRotation);
+                    slice, bank.BoneCount, entry.FrameCount, entry.TweenFlag, oneShot);
                 consumed = bank.BoneCount *
                            PsxAnimDecoder.GetDirectMatrixStoredFrameCount(
                                entry.FrameCount, entry.TweenFlag) *
