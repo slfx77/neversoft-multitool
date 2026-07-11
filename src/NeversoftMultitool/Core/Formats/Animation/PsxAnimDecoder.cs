@@ -163,7 +163,8 @@ public static class PsxAnimDecoder
             BoneCount = boneCount,
             Channels = channels,
             DirectRotations = directRotations,
-            RotationUnitsPerRevolution = PsxAnimation.PsyqAngleUnitsPerRevolution
+            RotationUnitsPerRevolution = PsxAnimation.PsyqAngleUnitsPerRevolution,
+            AbsoluteWorldTranslations = true
         };
     }
 

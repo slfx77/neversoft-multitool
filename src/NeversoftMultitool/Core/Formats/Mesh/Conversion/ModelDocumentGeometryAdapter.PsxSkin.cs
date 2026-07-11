@@ -332,7 +332,15 @@ internal static partial class ModelDocumentGeometryAdapter
             // CalculateAnimOrder name-remap), so a clip decoded from an
             // external bank carries that bank's parent table. Fall back to the
             // character's own object hierarchy for embedded anims.
-            var engineParentIndices = flatSuperEngine
+            //
+            // v1 direct-matrix clips are exempt from ALL of that: their T
+            // cells are absolute model-space part origins even on HIER
+            // characters (see PsxAnimation.AbsoluteWorldTranslations —
+            // mullen/carnage verified numerically), so composing them through
+            // any parent chain double-counts ancestor origins and stretches
+            // the body. They always take flat parents + the world-solve path.
+            var flatTranslations = flatSuperEngine || clip.Animation.AbsoluteWorldTranslations;
+            var engineParentIndices = flatTranslations
                 ? BuildFlatParentIndices(boneCount)
                 : clip.TranslationParentIndices != null
                     ? NormalizeParentIndices(clip.TranslationParentIndices, boneCount)
@@ -352,7 +360,7 @@ internal static partial class ModelDocumentGeometryAdapter
                     skeletonIndex, skeleton, animation, gltfParentIndices, engineParentIndices, boneCount,
                     frameCount, fps, translationDivisor, options.RotationCompose,
                     options.LegacyRotationChain, options.RotationScale,
-                    options.AbsoluteTranslation, options.SkipRotation, flatSuperEngine);
+                    options.AbsoluteTranslation, options.SkipRotation, flatTranslations);
                 EmitPsxTranslationChannels(modelAnim, in translationContext, options);
             }
 
@@ -375,7 +383,7 @@ internal static partial class ModelDocumentGeometryAdapter
         in PsxTranslationChannelContext ctx,
         PsxAnimationOptions options)
     {
-        if (ctx.FlatSuperEngine
+        if (ctx.FlatTranslations
             || options.EngineWorldTranslation
             || !ParentIndicesMatch(ctx.EngineParentIndices, ctx.GltfParentIndices, ctx.BoneCount))
         {
@@ -662,7 +670,7 @@ internal static partial class ModelDocumentGeometryAdapter
         float RotationScale,
         bool AbsoluteTranslation,
         bool SkipRotation,
-        bool FlatSuperEngine = false);
+        bool FlatTranslations = false);
 
     /// <summary>
     ///     Engine parent table for flat supers: every part is a root. The flat

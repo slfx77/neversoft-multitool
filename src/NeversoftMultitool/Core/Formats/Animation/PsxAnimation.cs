@@ -56,6 +56,20 @@ public sealed class PsxAnimation
     public Quaternion[,]? DirectRotations { get; init; }
 
     /// <summary>
+    ///     True for v1 direct-matrix payloads: their Tx/Ty/Tz cells are
+    ///     ABSOLUTE model-space part origins, never parent-relative offsets —
+    ///     even when the character carries an object hierarchy. Verified
+    ///     numerically (2026-07-10) on mullen (THPS2-proto v4, HIER): frame-0
+    ///     T/divisor matches each part's bind WORLD position to ~1%, not its
+    ///     parent-local offset; composing these through a parent chain
+    ///     stretched the body by roughly the sum of ancestor origins. carnage
+    ///     (SM DC v6, HIER) shows the same bind-world-scale magnitudes. Flat
+    ///     supers (Apocalypse/THPS1-proto) are the same contract with no
+    ///     hierarchy present.
+    /// </summary>
+    public bool AbsoluteWorldTranslations { get; init; }
+
+    /// <summary>
     ///     Angle units used by the rotation channels. PSX runtime animation
     ///     paths use PSY-Q angle units; the property remains explicit so
     ///     diagnostics can identify the convention used by decoded streams.

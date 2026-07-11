@@ -1,3 +1,4 @@
+using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Animation;
@@ -39,6 +40,9 @@ internal static class PsxAnimationBoneMap
             return animation;
 
         var channels = new short[targetBoneCount, PsxAnimation.ChannelsPerBone, animation.FrameCount];
+        var directRotations = animation.DirectRotations != null
+            ? CreateIdentityRotations(targetBoneCount, animation.FrameCount)
+            : null;
         var sourceLimit = Math.Min(animation.BoneCount, remap.SourceToTarget.Count);
         for (var sourceBone = 0; sourceBone < sourceLimit; sourceBone++)
         {
@@ -46,10 +50,12 @@ internal static class PsxAnimationBoneMap
             if (targetBone < 0 || targetBone >= targetBoneCount)
                 continue;
 
-            for (var channel = 0; channel < PsxAnimation.ChannelsPerBone; channel++)
+            for (var frame = 0; frame < animation.FrameCount; frame++)
             {
-                for (var frame = 0; frame < animation.FrameCount; frame++)
+                for (var channel = 0; channel < PsxAnimation.ChannelsPerBone; channel++)
                     channels[targetBone, channel, frame] = animation.Channels[sourceBone, channel, frame];
+                if (directRotations != null)
+                    directRotations[targetBone, frame] = animation.DirectRotations![sourceBone, frame];
             }
         }
 
@@ -58,8 +64,27 @@ internal static class PsxAnimationBoneMap
             FrameCount = animation.FrameCount,
             BoneCount = targetBoneCount,
             Channels = channels,
-            RotationUnitsPerRevolution = animation.RotationUnitsPerRevolution
+            DirectRotations = directRotations,
+            RotationUnitsPerRevolution = animation.RotationUnitsPerRevolution,
+            AbsoluteWorldTranslations = animation.AbsoluteWorldTranslations
         };
+    }
+
+    /// <summary>
+    ///     Identity-filled rotation grid so target bones with no mapped source
+    ///     stay at rest instead of carrying a zero (non-normalizable)
+    ///     quaternion.
+    /// </summary>
+    private static Quaternion[,] CreateIdentityRotations(int boneCount, int frameCount)
+    {
+        var rotations = new Quaternion[boneCount, frameCount];
+        for (var bone = 0; bone < boneCount; bone++)
+        {
+            for (var frame = 0; frame < frameCount; frame++)
+                rotations[bone, frame] = Quaternion.Identity;
+        }
+
+        return rotations;
     }
 
     internal static PshFile? TryReadPsh(AssetSource source)
