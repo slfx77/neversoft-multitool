@@ -17,16 +17,25 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools" / "diagnostics"))
 from extract_qb_corpus import walk_entries  # noqa: E402  (header-relative pak walker)
 
-DBG_SOURCES = [
-    "Sample/Builds/Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)/DATAP/pak/dbg.pak.ps2",
-    "Sample/Builds/Tony Hawk's American Wasteland (2006-2-6, PC - Final)/Installed/program files/"
-    "Aspyr Media, Inc/THAW/Game/data/pak/dbg.pak.wpc",
+# Each group harvests into its own embedded resource, skipping hashes already
+# covered by the resources listed before it (first-wins mirrors the loader).
+HARVEST_GROUPS = [
+    ("QbKeyNames.ThawDbg.txt", [
+        "Sample/Builds/Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)/DATAP/pak/dbg.pak.ps2",
+        "Sample/Builds/Tony Hawk's American Wasteland (2006-2-6, PC - Final)/Installed/program files/"
+        "Aspyr Media, Inc/THAW/Game/data/pak/dbg.pak.wpc",
+    ]),
+    # THPG ships its own debug archives (P8 does not, but shares many assets).
+    ("QbKeyNames.ThpgDbg.txt", [
+        "Sample/Builds/Tony Hawk's Proving Ground (2007-9-3, PS2 - Final)/DATAP/pak/dbg.pak.ps2",
+        "Sample/Builds/Tony Hawk's Proving Ground (2007-9-3, PS2 - Final)/DATAP/pak/dbgq.pak.ps2",
+    ]),
 ]
 
-OUT_PATH = REPO / "src/NeversoftMultitool/Core/QbKey/QbKeyNames.ThawDbg.txt"
+QBKEY_DIR = REPO / "src/NeversoftMultitool/Core/QbKey"
 EXISTING = [
-    REPO / "src/NeversoftMultitool/Core/QbKey/QbKeyNames.txt",
-    REPO / "src/NeversoftMultitool/Core/QbKey/QbKeyNames.ThawGcTextures.txt",
+    QBKEY_DIR / "QbKeyNames.txt",
+    QBKEY_DIR / "QbKeyNames.ThawGcTextures.txt",
 ]
 
 CHECKSUM_LINE = re.compile(r"^0x([0-9A-Fa-f]{1,8}) (.+)$")
@@ -80,26 +89,29 @@ def main() -> None:
                 except ValueError:
                     pass
 
-    merged: dict[int, str] = {}
-    for source in DBG_SOURCES:
-        path = REPO / source
-        if not path.exists():
-            print(f"skip (missing): {source}")
-            continue
-        pairs = harvest(path)
-        added = 0
-        for crc, name in pairs.items():
-            if crc not in merged:
-                merged[crc] = name
-                added += 1
-        print(f"{path.name}: {len(pairs)} pairs ({added} new)")
+    for out_name, sources in HARVEST_GROUPS:
+        merged: dict[int, str] = {}
+        for source in sources:
+            path = REPO / source
+            if not path.exists():
+                print(f"skip (missing): {source}")
+                continue
+            pairs = harvest(path)
+            added = 0
+            for crc, name in pairs.items():
+                if crc not in merged:
+                    merged[crc] = name
+                    added += 1
+            print(f"{path.name}: {len(pairs)} pairs ({added} new)")
 
-    fresh = {crc: name for crc, name in merged.items() if crc not in existing_hashes}
-    lines = [f"{name}=0x{crc:08X}" for crc, name in fresh.items()]
-    lines.sort(key=str.lower)
-    OUT_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-    print(f"wrote {len(lines)} entries to {OUT_PATH.relative_to(REPO)} "
-          f"({len(merged) - len(fresh)} already covered by existing dictionaries)")
+        fresh = {crc: name for crc, name in merged.items() if crc not in existing_hashes}
+        lines = [f"{name}=0x{crc:08X}" for crc, name in fresh.items()]
+        lines.sort(key=str.lower)
+        out_path = QBKEY_DIR / out_name
+        out_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        print(f"wrote {len(lines)} entries to {out_path.relative_to(REPO)} "
+              f"({len(merged) - len(fresh)} already covered by earlier dictionaries)")
+        existing_hashes.update(fresh)
 
 
 if __name__ == "__main__":

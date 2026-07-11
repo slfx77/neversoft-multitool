@@ -139,13 +139,19 @@ Full-corpus extension census (`tools/diagnostics/corpus_extension_census.py`). *
 order: 1) hashes → 2) archives/containers → 3) image formats → 4) mesh formats → 5) animation
 formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
 
-- 🔴 **Priority 1 — pak type-hash identification**: THAW/P8/THPG paks carry ~7,000 entries whose
-  type hashes aren't in `PakArchive.KnownTypes` (extracted as `.a7dea591` etc.). QbKey-resolved
-  2026-07-10: `0xA7DEA591=.pfx`, `0xFF2D0E91=.gap`, `0x199F902B=.nav`, `0x91E1028D=.rnb`,
-  `0x7E1ABC70=.fnt`, `0x9DE9087F=.fam`. Still unresolved: `0x52D95838` (1,148 — content = plain
-  PCM WAV), `0x689028A5` (~880), `0x6290993B` (~275). Add resolved hashes to KnownTypes; brute
-  the rest (extension wordlists + `tools/qbkey_pipeline`). Filename-hash recovery for archives is
-  the follow-on goal.
+- ✅ **Priority 1 — pak type-hash identification** (DONE 2026-07-10): every observed type hash
+  is now in `PakArchive.KnownTypes` (~35 added, incl. bruted `0x689028A5=.pimg`,
+  `0x6290993B=.mcol`, and `0x52D95838=QbKey("unknown")` — the pak builder's fallback type for
+  unclassified files; a RIFF sniff in `ExtractFiles` renames those to `.wav` when the payload is
+  a WAV). Filename-hash recovery shipped alongside: `QbKeyNames.ThpgDbg.txt` (55,530 pairs from
+  THPG's dbg/dbgq paks, `tools/utilities/harvest_thaw_dbg_names.py`) + `QbKeyNames.ThawGcPaks.txt`
+  (715 GC entry names proven via QB-string harvest, `tools/utilities/harvest_gc_pak_names.py`;
+  GC key rule = QbKey of the lowercased full path minus the last extension). Coverage
+  (`tools/diagnostics/pak_name_coverage.py`): 53.9% → **57.2%** named (65,878/115,205); GC
+  unresolved 12,864 → 9,104. Hard limits: 40,223 LE entries are keyless (no key stored — offset
+  names are all there is), and the remaining ~9k GC keys hash vocabulary that ships in no
+  wordlist (gameplay-anim/CAS-part names in the skaterparts/anims apks: .ska 2,582, .img 1,970,
+  .stex 1,263).
 - 🔴 **Priority 2 — archives/containers**: `.zip.wpc`/`.zip.ngc` (1,337, THAW PC/GC) are literal
   PKZip — wire into `unpack`/recursive extraction and census what's inside. `.cut.ps2`/`.cut.xbx`
   (215, THUG/THUG2) binary cutscene containers — the THAW-cutscene predecessor; likely reveal

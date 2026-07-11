@@ -53,6 +53,10 @@
 
     <EmbeddedResource Include="Core\QbKey\QbKeyNames.ThawDbg.txt" LogicalName="QbKeyNames.ThawDbg.txt" />
 
+    <EmbeddedResource Include="Core\QbKey\QbKeyNames.ThpgDbg.txt" LogicalName="QbKeyNames.ThpgDbg.txt" />
+
+    <EmbeddedResource Include="Core\QbKey\QbKeyNames.ThawGcPaks.txt" LogicalName="QbKeyNames.ThawGcPaks.txt" />
+
   </ItemGroup>
 
 

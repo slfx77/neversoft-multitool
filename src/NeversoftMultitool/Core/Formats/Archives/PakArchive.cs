@@ -66,7 +66,48 @@ public static class PakArchive
         [0x6C217288] = ".pak", // QbKey(".pak")
         [0x2B0A3095] = ".stex", // QbKey(".stex")
         [0x2F1A6A09] = ".shd", // QbKey(".shd")
-        [0x7EA7357B] = ".mdl" // THAW shell/Create-A-Park geometry chunk
+        [0x7EA7357B] = ".mdl", // THAW shell/Create-A-Park geometry chunk
+        // Resolved 2026-07-10 (QbKey-bruted, cross-checked against Queen-Bee
+        // PakHeaderItem.cs known-extension list):
+        [0xA7DEA591] = ".pfx", // particle effects (no converter planned)
+        [0xFF2D0E91] = ".gap", // gap definitions
+        [0x199F902B] = ".nav", // navigation data
+        [0x91E1028D] = ".rnb", // QbKey(".rnb")
+        [0x33180544] = ".rnb_lvl", // QbKey(".rnb_lvl")
+        [0x4A2E1FA0] = ".rnb_mdl", // QbKey(".rnb_mdl")
+        [0x7E1ABC70] = ".fnt", // fonts
+        [0x9DE9087F] = ".fam", // appearance config (text)
+        [0x689028A5] = ".pimg", // QbKey(".pimg")
+        [0x6290993B] = ".mcol", // movable collision
+        [0x8A20E0F8] = ".hkc", // QbKey(".hkc")
+        [0xB065C9A2] = ".imv", // QbKey(".imv")
+        [0x66AEDA37] = ".mdv", // QbKey(".mdv")
+        [0x4BC1E85E] = ".mqb", // QbKey(".mqb")
+        [0x49875607] = ".nqb", // QbKey(".nqb")
+        [0xB0A32C18] = ".oba", // QbKey(".oba")
+        [0xDBD7EFC9] = ".perf", // QbKey(".perf")
+        [0x02200857] = ".pimv", // QbKey(".pimv")
+        [0xE20F226C] = ".png", // QbKey(".png")
+        [0x6613EACD] = ".rag", // ragdoll
+        [0x7BA4FAA9] = ".raw", // QbKey(".raw")
+        [0x4995F5EF] = ".rgn", // QbKey(".rgn")
+        [0x3F57C28A] = ".scv", // QbKey(".scv")
+        [0x777DB6D3] = ".skiv", // QbKey(".skiv")
+        [0x43904241] = ".table", // QbKey(".table")
+        [0xEA151F1C] = ".tvx", // QbKey(".tvx")
+        [0x0A6808D4] = ".wav", // QbKey(".wav")
+        [0xFDC939B7] = ".fnc", // QbKey(".fnc")
+        [0x9014DD5C] = ".fnv", // QbKey(".fnv")
+        [0x4AE71C19] = ".clt", // QbKey(".clt")
+        [0x94F3F11B] = ".jam", // QbKey(".jam")
+        [0xA9D5BC8F] = ".note", // QbKey(".note")
+        [0xCD452536] = ".qs", // QbKey(".qs")
+        [0xBBB0E344] = ".trkobj", // QbKey(".trkobj")
+        [0x50E3F99F] = ".xml", // QbKey(".xml")
+        // QbKey("unknown") — the pak builder's fallback for unclassified files.
+        // In THAW PC these are plain RIFF/WAVE zone-ambience sounds; extraction
+        // sniffs RIFF payloads and names them .wav.
+        [0x52D95838] = ".unknown"
     };
 
     private static uint ReadU32(byte[] data, int offset, bool bigEndian)
@@ -296,13 +337,26 @@ public static class PakArchive
                 continue;
             }
 
-            var exportPath = Path.Combine(outputDir, archiveName, entry.FullName);
+            var fileData = new byte[entry.Size];
+            Array.Copy(sourceData, position, fileData, 0, (int)entry.Size);
+
+            // QbKey("unknown")-typed entries are the pak builder's fallback for
+            // unclassified files; sniff RIFF/WAVE payloads so THAW PC zone
+            // ambience extracts directly playable.
+            var fullName = entry.FullName;
+            if (fullName.EndsWith(".unknown", StringComparison.OrdinalIgnoreCase)
+                && fileData.Length >= 12
+                && fileData.AsSpan(0, 4).SequenceEqual("RIFF"u8)
+                && fileData.AsSpan(8, 4).SequenceEqual("WAVE"u8))
+            {
+                fullName = fullName[..^".unknown".Length] + ".wav";
+            }
+
+            var exportPath = Path.Combine(outputDir, archiveName, fullName);
             var exportDir = Path.GetDirectoryName(exportPath);
             if (!string.IsNullOrEmpty(exportDir))
                 Directory.CreateDirectory(exportDir);
 
-            var fileData = new byte[entry.Size];
-            Array.Copy(sourceData, position, fileData, 0, (int)entry.Size);
             File.WriteAllBytes(exportPath, fileData);
 
             onFileExtracted?.Invoke(i + 1, entries.Count);
