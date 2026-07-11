@@ -11,7 +11,7 @@ namespace NeversoftMultitool.Core;
 public static class RecursiveUnpacker
 {
     private static readonly string[] ArchiveExtensions =
-        [".wad", ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".ddx", ".bon", ".pak", ".apk", ".zip"];
+        [".wad", ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".ddx", ".bon", ".pak", ".apk", ".zip", ".cut"];
 
     /// <summary>
     ///     Scans a directory tree for all archive files, returning them with already-extracted status.
@@ -116,6 +116,9 @@ public static class RecursiveUnpacker
             case ".zip" when QZipArchive.IsZip(archivePath):
                 QZipArchive.ExtractFiles(archivePath, outputDir, null, ct);
                 break;
+            case ".cut" when CutArchive.IsCut(archivePath):
+                CutArchive.ExtractFiles(archivePath, outputDir, null, ct);
+                break;
         }
     }
 
@@ -138,6 +141,7 @@ public static class RecursiveUnpacker
             ".pak" => PakArchive.IsPakArchive(filePath) ? "PAK" : "PAK (raw)",
             ".apk" => PakArchive.IsPakArchive(filePath) ? "PAK (GC)" : "PAK (raw)",
             ".zip" => QZipArchive.IsZip(filePath) ? "ZIP" : "ZIP (raw)",
+            ".cut" => CutArchive.IsCut(filePath) ? "CUT" : "CUT (raw)",
             _ => "?"
         };
     }

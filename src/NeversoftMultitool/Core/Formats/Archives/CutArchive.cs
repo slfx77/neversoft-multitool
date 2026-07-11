@@ -1,0 +1,443 @@
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+using System.Text.RegularExpressions;
+using NeversoftMultitool.Core.Formats.Qb;
+
+namespace NeversoftMultitool.Core.Formats.Archives;
+
+/// <summary>
+///     Extracts THUG/THUG2 cutscene containers (.cut, .cut.ps2, .cut.xbx) — the engine's
+///     CFileLibrary format (THUG source Sys/File/FileLibrary.{h,cpp}):
+///     header { u32 version=1; i32 numFiles } + numFiles × { u32 offset; i32 size;
+///     u32 nameQbKey; u32 extQbKey } + contiguous data blobs (little-endian on all platforms).
+///     Payloads are keyed by an extension checksum (SKA/CAM/OBA anims, SKIN/MDL/GEOM models,
+///     TEX textures, QB script, CIF object-binding list, CAS, WGT head-morph weights;
+///     THUG2 adds SKE and an undecoded CIF replacement; bare THUG .cut masters add a
+///     plaintext .q-style placement section). These extension checksums are NOT pak-style
+///     QbKey(".ext") values — the map below comes from the case labels in
+///     Sk/Objects/cutscenedetails.cpp:3098-3200.
+///     TOC name keys resolve 0% from the global dictionaries, so names are recovered from
+///     the embedded QB script's CHECKSUM_NAME pairs and (bare .cut) the plaintext section's
+///     identifiers, validated by hash before use. CIF payload (u32 ver; i32 count; count ×
+///     {obj, model, skeleton, anim, flags}) cross-links objects to sibling entries and is
+///     exported as a JSON manifest during extraction.
+/// </summary>
+public static partial class CutArchive
+{
+    private const int HeaderSize = 8;
+    private const int TocEntrySize = 16;
+    private const int MaxFiles = 4096; // corpus max is 303; the engine's 128 cap is runtime-only
+
+    private const uint ExtCif = 0x5AC14717;
+    private const uint ExtSka = 0xEAB51346;
+    private const uint ExtCam = 0x05CA1497;
+    private const uint ExtOba = 0x2E4BF21B;
+    private const uint ExtQb = 0x2BBEA5C3;
+    private const uint ExtGeom = 0xE7308C1F; // PS2 geometry; Xbox cuts carry MDL instead
+    private const uint ExtSkin = 0xFD8697E1;
+    private const uint ExtMdl = 0x0524FD4E;
+    private const uint ExtTex = 0x1512808D;
+    private const uint ExtCas = 0xFFC529F4;
+    private const uint ExtWgt = 0x2CD4107D;
+    private const uint ExtSke = 0xEDD8D75F; // QbKey("ske"); THUG2 only
+    private const uint ExtCif2 = 0x508AE2F2; // THUG2 CIF replacement; layout unknown, dumped raw
+    private const uint ExtText = 0x2208E9E8; // bare-.cut masters: plaintext .q-style placement
+
+    private static readonly Dictionary<uint, string> ExtensionByKey = new()
+    {
+        [ExtCif] = "cif",
+        [ExtSka] = "ska",
+        [ExtCam] = "cam",
+        [ExtOba] = "oba",
+        [ExtQb] = "qb",
+        [ExtGeom] = "geom",
+        [ExtSkin] = "skin",
+        [ExtMdl] = "mdl",
+        [ExtTex] = "tex",
+        [ExtCas] = "cas",
+        [ExtWgt] = "wgt",
+        [ExtSke] = "ske",
+        [ExtCif2] = "cif2",
+        [ExtText] = "q",
+    };
+
+    // Payloads in the platform's compiled scene formats get the container's platform
+    // suffix so extracted files route to the existing converters (.tex.xbx -> xbxtex etc.).
+    private static readonly HashSet<uint> PlatformTypedKeys = [ExtGeom, ExtSkin, ExtMdl, ExtTex];
+
+    // Engine fetches these by (nameKey=0, extKey) wildcard — one per cutscene, named by role.
+    private static readonly Dictionary<uint, string> SingletonRoleNames = new()
+    {
+        [ExtCif] = "objects",
+        [ExtCif2] = "objects",
+        [ExtCam] = "camera",
+        [ExtOba] = "object",
+        [ExtQb] = "cutscene",
+        [ExtText] = "placement",
+    };
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+    };
+
+    private readonly record struct TocEntry(uint Offset, int Size, uint NameKey, uint ExtKey);
+
+    /// <summary>
+    ///     Structural probe: version 1, sane file count, TOC starts the data region and
+    ///     the blobs are strictly contiguous, ending exactly at EOF.
+    /// </summary>
+    public static bool IsCut(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        return TryReadToc(stream, out _) != null;
+    }
+
+    public static List<ArchiveEntry> GetFileList(string cutPath)
+    {
+        var data = File.ReadAllBytes(cutPath);
+        var toc = ParseToc(data);
+        var names = ResolveNames(data, toc);
+        var platformSuffix = GetPlatformSuffix(cutPath);
+
+        var entries = new List<ArchiveEntry>(toc.Count);
+        foreach (var e in toc)
+        {
+            var extension = ExtensionByKey.GetValueOrDefault(e.ExtKey, $"{e.ExtKey:x8}");
+            var fileName = $"{names[e]}.{extension}";
+            if (PlatformTypedKeys.Contains(e.ExtKey))
+                fileName += platformSuffix;
+
+            entries.Add(new ArchiveEntry
+            {
+                Name = fileName,
+                Directory = "",
+                Size = e.Size,
+                Offset = e.Offset,
+                Crc = e.NameKey
+            });
+        }
+
+        return entries;
+    }
+
+    public static void ExtractFiles(string cutPath, string outputDir,
+        Action<int, int>? onFileExtracted = null, CancellationToken token = default)
+    {
+        var data = File.ReadAllBytes(cutPath);
+        var toc = ParseToc(data);
+        var entries = GetFileList(cutPath);
+        var archiveName = ArchiveNaming.GetExtractionStem(cutPath);
+        var extractDir = Path.Combine(outputDir, archiveName);
+        Directory.CreateDirectory(extractDir);
+
+        for (var i = 0; i < entries.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            var entry = entries[i];
+            File.WriteAllBytes(Path.Combine(extractDir, entry.Name),
+                data.AsSpan((int)entry.Offset, (int)entry.Size).ToArray());
+            onFileExtracted?.Invoke(i + 1, entries.Count);
+        }
+
+        var manifest = BuildManifest(Path.GetFileName(cutPath), data, toc, entries);
+        File.WriteAllText(Path.Combine(outputDir, archiveName + ".cif.json"),
+            JsonSerializer.Serialize(manifest, JsonOptions));
+    }
+
+    // -------------------------------------------------------------------
+    // Container parsing
+    // -------------------------------------------------------------------
+
+    private static List<TocEntry> ParseToc(byte[] data)
+    {
+        using var stream = new MemoryStream(data);
+        var toc = TryReadToc(stream, out var reason);
+        return toc ?? throw new InvalidDataException($"Not a CUT container: {reason}");
+    }
+
+    private static List<TocEntry>? TryReadToc(Stream stream, out string reason)
+    {
+        reason = "";
+        if (stream.Length < HeaderSize + TocEntrySize)
+        {
+            reason = "file too small";
+            return null;
+        }
+
+        stream.Position = 0;
+        using var reader = new BinaryReader(stream, Encoding.ASCII, leaveOpen: true);
+        var version = reader.ReadUInt32();
+        var numFiles = reader.ReadInt32();
+        if (version != 1)
+        {
+            reason = $"version {version} (expected 1)";
+            return null;
+        }
+
+        if (numFiles is < 1 or > MaxFiles)
+        {
+            reason = $"file count {numFiles} out of range";
+            return null;
+        }
+
+        var dataStart = HeaderSize + numFiles * TocEntrySize;
+        if (dataStart > stream.Length)
+        {
+            reason = "TOC runs past end of file";
+            return null;
+        }
+
+        // The first blob starts exactly where the TOC ends — an exact anchor that ties
+        // offset[0] to numFiles, so random data essentially never passes this probe.
+        // Subsequent blobs are ascending and non-overlapping; the writer aligns most of
+        // them but occasionally leaves padding (corpus max gap and tail are both 48 bytes).
+        const int maxAlignmentGap = 64;
+        var toc = new List<TocEntry>(numFiles);
+        var previousEnd = (long)dataStart;
+        for (var i = 0; i < numFiles; i++)
+        {
+            var entry = new TocEntry(reader.ReadUInt32(), reader.ReadInt32(),
+                reader.ReadUInt32(), reader.ReadUInt32());
+            var gap = entry.Offset - previousEnd;
+            if (i == 0 && entry.Offset != dataStart)
+            {
+                reason = $"first blob at 0x{entry.Offset:X}, expected TOC end 0x{dataStart:X}";
+                return null;
+            }
+
+            if (entry.Size < 0 || gap is < 0 or > maxAlignmentGap)
+            {
+                reason = $"entry {i} breaks blob ordering (gap {gap})";
+                return null;
+            }
+
+            previousEnd = entry.Offset + entry.Size;
+            toc.Add(entry);
+        }
+
+        var tail = stream.Length - previousEnd;
+        if (tail is < 0 or > maxAlignmentGap)
+        {
+            reason = $"blobs end at 0x{previousEnd:X} but file is 0x{stream.Length:X} bytes";
+            return null;
+        }
+
+        return toc;
+    }
+
+    private static string GetPlatformSuffix(string cutPath)
+    {
+        var name = Path.GetFileName(cutPath).ToLowerInvariant();
+        var idx = name.LastIndexOf(".cut", StringComparison.Ordinal);
+        return idx < 0 ? "" : name[(idx + 4)..]; // "" for bare .cut, else ".ps2"/".xbx"/".ngc"
+    }
+
+    // -------------------------------------------------------------------
+    // Name resolution: embedded QB pairs -> plaintext identifiers -> global
+    // dictionaries -> role names for zero-key singletons -> hex fallback.
+    // -------------------------------------------------------------------
+
+    private static Dictionary<TocEntry, string> ResolveNames(byte[] data, List<TocEntry> toc)
+    {
+        var harvested = HarvestLocalNames(data, toc);
+
+        var names = new Dictionary<TocEntry, string>();
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in toc)
+        {
+            string name;
+            if (e.NameKey != 0)
+            {
+                name = harvested.GetValueOrDefault(e.NameKey)
+                       ?? QbKey.QbKey.TryResolve(e.NameKey)
+                       ?? $"{e.NameKey:x8}";
+                name = SanitizeFileName(name);
+            }
+            else
+            {
+                name = SingletonRoleNames.GetValueOrDefault(e.ExtKey, $"{e.Offset:x8}");
+            }
+
+            if (!used.Add(name + e.ExtKey))
+                name = $"{name}_{e.Offset:x8}";
+            names[e] = name;
+        }
+
+        return names;
+    }
+
+    private static Dictionary<uint, string> HarvestLocalNames(byte[] data, List<TocEntry> toc)
+    {
+        var wanted = toc.Where(e => e.NameKey != 0).Select(e => e.NameKey).ToHashSet();
+        var harvested = new Dictionary<uint, string>();
+
+        foreach (var e in toc)
+        {
+            if (e.ExtKey == ExtQb)
+            {
+                try
+                {
+                    var qb = QbFile.Parse(data.AsSpan((int)e.Offset, e.Size).ToArray(), "embedded.qb");
+                    foreach (var (checksum, name) in qb.LocalNames)
+                    {
+                        if (wanted.Contains(checksum))
+                            harvested.TryAdd(checksum, name);
+                    }
+                }
+                catch
+                {
+                    // Malformed embedded script: fall back to the other naming tiers.
+                }
+            }
+            else if (e.ExtKey == ExtText)
+            {
+                var text = Encoding.ASCII.GetString(data, (int)e.Offset, e.Size);
+                foreach (Match m in IdentifierRegex().Matches(text))
+                {
+                    var candidate = m.Value;
+                    var lower = QbKey.QbKey.HashLower(candidate);
+                    if (wanted.Contains(lower))
+                        harvested.TryAdd(lower, candidate);
+                    var exact = QbKey.QbKey.Hash(candidate);
+                    if (wanted.Contains(exact))
+                        harvested.TryAdd(exact, candidate);
+                }
+            }
+        }
+
+        return harvested;
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        return name.Any(c => invalid.Contains(c))
+            ? string.Concat(name.Select(c => invalid.Contains(c) ? '_' : c))
+            : name;
+    }
+
+    [GeneratedRegex("[A-Za-z_][A-Za-z0-9_]{2,63}")]
+    private static partial Regex IdentifierRegex();
+
+    // -------------------------------------------------------------------
+    // CIF object-binding manifest
+    // -------------------------------------------------------------------
+
+    private static CutManifest BuildManifest(string sourceName, byte[] data,
+        List<TocEntry> toc, List<ArchiveEntry> entries)
+    {
+        // The same name key legitimately tags several entries (a character's SKA, SKE,
+        // SKIN, and TEX all carry its checksum), so CIF cross-links resolve per type class.
+        var animFileByKey = new Dictionary<uint, string>();
+        var modelFileByKey = new Dictionary<uint, string>();
+        var manifestEntries = new List<CutManifestEntry>(toc.Count);
+        for (var i = 0; i < toc.Count; i++)
+        {
+            var e = toc[i];
+            if (e.NameKey != 0)
+            {
+                if (e.ExtKey is ExtSka or ExtOba)
+                    animFileByKey.TryAdd(e.NameKey, entries[i].Name);
+                else if (e.ExtKey is ExtSkin or ExtMdl or ExtGeom)
+                    modelFileByKey.TryAdd(e.NameKey, entries[i].Name);
+            }
+
+            manifestEntries.Add(new CutManifestEntry
+            {
+                File = entries[i].Name,
+                Type = ExtensionByKey.GetValueOrDefault(e.ExtKey, $"0x{e.ExtKey:X8}"),
+                NameChecksum = e.NameKey != 0 ? $"0x{e.NameKey:X8}" : null,
+                Size = e.Size
+            });
+        }
+
+        List<CutManifestObject>? objects = null;
+        var cif = toc.FirstOrDefault(e => e.ExtKey == ExtCif);
+        if (cif.Size >= 8)
+        {
+            objects = TryParseCif(data.AsSpan((int)cif.Offset, cif.Size), animFileByKey, modelFileByKey);
+        }
+
+        return new CutManifest
+        {
+            Source = sourceName,
+            Files = manifestEntries,
+            Objects = objects
+        };
+    }
+
+    /// <summary>
+    ///     CIF payload (cutscenedetails.cpp:3673-3716): u32 version, u32 numObjects,
+    ///     then numObjects × 5×u32 { objectName, modelName, skeletonName, animName, flags }.
+    /// </summary>
+    private static List<CutManifestObject>? TryParseCif(ReadOnlySpan<byte> cif,
+        Dictionary<uint, string> animFileByKey, Dictionary<uint, string> modelFileByKey)
+    {
+        var count = BitConverter.ToInt32(cif[4..8]);
+        if (count < 0 || cif.Length != 8 + count * 20)
+            return null;
+
+        var objects = new List<CutManifestObject>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var p = 8 + i * 20;
+            var obj = BitConverter.ToUInt32(cif[p..]);
+            var model = BitConverter.ToUInt32(cif[(p + 4)..]);
+            var skeleton = BitConverter.ToUInt32(cif[(p + 8)..]);
+            var anim = BitConverter.ToUInt32(cif[(p + 12)..]);
+            var flags = BitConverter.ToUInt32(cif[(p + 16)..]);
+
+            objects.Add(new CutManifestObject
+            {
+                Name = DescribeKey(obj),
+                Model = DescribeKey(model),
+                Skeleton = DescribeKey(skeleton),
+                Anim = DescribeKey(anim),
+                Flags = flags != 0 ? $"0x{flags:X8}" : null,
+                IsSkater = (flags & 0x80000000) != 0 ? true : null,
+                IsHead = (flags & 0x40000000) != 0 ? true : null,
+                AnimFile = animFileByKey.GetValueOrDefault(anim),
+                ModelFile = modelFileByKey.GetValueOrDefault(model)
+            });
+        }
+
+        return objects;
+
+        static string? DescribeKey(uint key) =>
+            key == 0 ? null : QbKey.QbKey.TryResolve(key) ?? $"0x{key:X8}";
+    }
+
+    private sealed class CutManifest
+    {
+        public string Source { get; init; } = "";
+        public List<CutManifestEntry> Files { get; init; } = [];
+        public List<CutManifestObject>? Objects { get; init; }
+    }
+
+    private sealed class CutManifestEntry
+    {
+        public string File { get; init; } = "";
+        public string Type { get; init; } = "";
+        public string? NameChecksum { get; init; }
+        public long Size { get; init; }
+    }
+
+    private sealed class CutManifestObject
+    {
+        public string? Name { get; init; }
+        public string? Model { get; init; }
+        public string? Skeleton { get; init; }
+        public string? Anim { get; init; }
+        public string? Flags { get; init; }
+        public bool? IsSkater { get; init; }
+        public bool? IsHead { get; init; }
+        public string? AnimFile { get; init; }
+        public string? ModelFile { get; init; }
+    }
+}

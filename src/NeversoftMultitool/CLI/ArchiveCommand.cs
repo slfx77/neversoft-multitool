@@ -12,7 +12,7 @@ public static class ArchiveCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to archive file (WAD, PKR, PRE, PRX, PRD/PRF localized PRE, DDX, BON, PAK, or ZIP)"
+            Description = "Path to archive file (WAD, PKR, PRE, PRX, PRD/PRF localized PRE, DDX, BON, PAK, ZIP, or CUT)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -24,7 +24,7 @@ public static class ArchiveCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("archive", "Extract files from WAD/PKR/PRE/PRX/PRD/PRF/DDX/BON/PAK/ZIP archives");
+        var command = new Command("archive", "Extract files from WAD/PKR/PRE/PRX/PRD/PRF/DDX/BON/PAK/ZIP/CUT archives");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -182,6 +182,25 @@ public static class ArchiveCommand
 
                     case ".zip":
                         AnsiConsole.MarkupLine("[red]Not a PKZip file[/] (no local file header magic)");
+                        return Task.FromResult(1);
+
+                    case ".cut" when CutArchive.IsCut(input):
+                        AnsiConsole.MarkupLine("[blue]CUT[/] cutscene container detected");
+                        var cutEntries = CutArchive.GetFileList(input);
+                        AnsiConsole.MarkupLine($"Found [green]{cutEntries.Count}[/] files");
+                        CutArchive.ExtractFiles(input, output, (current, total) =>
+                        {
+                            filesExtracted = current;
+                            if (verbose)
+                            {
+                                AnsiConsole.MarkupLine(
+                                    $"  [[{current}/{total}]] {cutEntries[current - 1].FullName}");
+                            }
+                        }, cancellationToken);
+                        break;
+
+                    case ".cut":
+                        AnsiConsole.MarkupLine("[red]Not a cutscene file library[/] (bad header or layout)");
                         return Task.FromResult(1);
 
                     default:

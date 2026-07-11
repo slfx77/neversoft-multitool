@@ -25,6 +25,12 @@ internal static class FormatProbeArchive
                     FormatProbe.FormatSupport.Unsupported,
                     "ZIP",
                     "Not a PKZip file (no local file header magic)"),
+            ".cut" => CutArchive.IsCut(filePath)
+                ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "CUT Cutscene Container")
+                : new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    "CUT",
+                    "Not a cutscene file library (bad header or non-contiguous blobs)"),
             _ => new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
                 "Unknown",

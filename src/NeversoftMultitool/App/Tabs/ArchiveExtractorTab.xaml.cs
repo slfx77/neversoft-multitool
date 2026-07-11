@@ -43,9 +43,11 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
         picker.FileTypeFilter.Add(".bon");
         picker.FileTypeFilter.Add(".pak");
         picker.FileTypeFilter.Add(".zip");
+        picker.FileTypeFilter.Add(".cut");
         picker.FileTypeFilter.Add(".ps2");
         picker.FileTypeFilter.Add(".ngc");
         picker.FileTypeFilter.Add(".wpc");
+        picker.FileTypeFilter.Add(".xbx");
         var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
         InitializeWithWindow.Initialize(picker, hwnd);
 
@@ -98,6 +100,10 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                 case ".zip" or ".wpc" or ".ngc" when QZipArchive.IsZip(_archivePath):
                     _archiveType = "ZIP";
                     entries = QZipArchive.GetFileList(_archivePath);
+                    break;
+                case ".cut" or ".ps2" or ".xbx" when CutArchive.IsCut(_archivePath):
+                    _archiveType = "CUT";
+                    entries = CutArchive.GetFileList(_archivePath);
                     break;
                 case ".pak" or ".ps2" or ".ngc" when PakArchive.IsPakArchive(_archivePath):
                     _archiveType = "PAK";
@@ -241,6 +247,9 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                         break;
                     case "ZIP":
                         QZipArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
+                        break;
+                    case "CUT":
+                        CutArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
                         break;
                 }
             }, token);
