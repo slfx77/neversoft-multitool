@@ -152,10 +152,26 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
   names are all there is), and the remaining ~9k GC keys hash vocabulary that ships in no
   wordlist (gameplay-anim/CAS-part names in the skaterparts/anims apks: .ska 2,582, .img 1,970,
   .stex 1,263).
-- 🔴 **Priority 2 — archives/containers**: `.zip.wpc`/`.zip.ngc` (1,337, THAW PC/GC) are literal
-  PKZip — wire into `unpack`/recursive extraction and census what's inside. `.cut.ps2`/`.cut.xbx`
-  (215, THUG/THUG2) binary cutscene containers — the THAW-cutscene predecessor; likely reveal
-  nested anim/cam data. `.prd`/`.prf` (316, THUG2) unknown binary — probe.
+- ✅ **Priority 2 — archives/containers** (DONE 2026-07-11, commits cda9589/7008c2c/6b5388f/89ac11d/3a98f0d):
+  - `.zip.wpc`/`.zip.ngc` (1,337) = QTex texture-SOURCE bundles (STORE PKZip, malformed central
+    dir → `QZipArchive` local-header walker); hold original TIFF/PNG art + `debug.log`. Wired into
+    `unpack`/probe/CLI/GUI. Sweep 1,337/1,337.
+  - `.cut`/`.cut.ps2`/`.cut.xbx` (215) = `CFileLibrary` cutscene containers → `CutArchive`; extract
+    SKA/CAM/OBA/SKE anims + SKIN/MDL/GEOM models + TEX + QB + CIF/CAS/WGT, plus a `{stem}.cif.json`
+    object-binding manifest. Sweep 215/215. Cutscene anim payloads now convert (OBA bit24 skip,
+    headerless SKE gate, `pre/Bits/anims` compress-table path — SKA+SKE → validator-clean GLB).
+  - `.prd`/`.prf`/`.prg` (316) = German/French PRE v3 localizations, byte-identical to `.pre` — pure
+    routing through `CompressedPreArchive` + full-name extraction dirs. Sweep 316/316.
+  - Name harvest: `QbKeyNames.CutScenes.txt` (2,032 proven cut names) + zip-vocabulary GC pak names
+    (+159); corpus pak naming 57.2% → 57.5%.
+  - **Still open (not blockers):** `0x508AE2F2` CIF2 layout (THUG2 CIF replacement, dumped raw) —
+    identify via dictionary reverse-lookup → `tools/qbkey_pipeline` brute 6-9 char → GHIDRA string
+    scan → content probe for sibling TOC keys. Bare-`.cut` ver=3 INTERMEDIATE|UNCOMPRESSED master
+    anims (43 files, the richest uncompressed authoring keys) — extract raw now, parse in the
+    animation phase. WGT/CAS payload decoding beyond raw dump — no consumer yet.
+  - **Deferred to Priority 3 (images):** the `debug.log` texture-checksum→source-name side map
+    (2,005 platform-invariant pairs) for THAW texture export naming — belongs with texture work,
+    NOT in `QbKeyNames*.txt` (those aren't CRC(name) pairs and would poison the harvest scripts).
 - 🔴 **Priority 3 — image formats**: caveat from user experience: **`.tga`/`.tim` files sometimes
   use hardware-specific encodings that standard editors reject** — verify each against a real
   decoder rather than assuming stock TGA/TIM. Candidates: `.tim` (5, Spider-Man PC), `.tga` (4).
