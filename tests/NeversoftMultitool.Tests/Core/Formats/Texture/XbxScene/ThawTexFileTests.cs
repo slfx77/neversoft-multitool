@@ -110,7 +110,7 @@ public sealed class ThawTexFileTests(TestPaths paths)
 
     // ── Batch parse all TEX files ──
 
-    [Fact]
+    [CorpusFact]
     public void BatchParse_AllThawTexWpc_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

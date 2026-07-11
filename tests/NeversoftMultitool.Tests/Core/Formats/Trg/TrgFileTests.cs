@@ -128,7 +128,7 @@ public class TrgFileTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllTrgFiles_NoExceptions()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

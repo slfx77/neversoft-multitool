@@ -91,7 +91,7 @@ public class QbSectionParserTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_ThawQbPak_AllScriptFilesDecompile()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

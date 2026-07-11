@@ -31,7 +31,7 @@ public class QbFileTests(TestPaths paths)
             .FirstOrDefault(f => Path.GetFileName(f).Equals(fileName, StringComparison.OrdinalIgnoreCase));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllQbFiles_NoExceptions()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -170,7 +170,7 @@ public class QbFileTests(TestPaths paths)
         Assert.Equal(1, scriptCount);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Decompile_AllQbFiles_NoExceptions()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

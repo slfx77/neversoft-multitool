@@ -196,7 +196,7 @@ public class PakArchiveTests(TestPaths paths)
             PakArchive.GetPabPath(Path.Combine("dir", "global.pak.xen")));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllPakFiles_NoExceptions()
     {
         var pakDir = GetPakDir();
@@ -354,7 +354,7 @@ public class NgcPakArchiveTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void BatchParse_AllGcPaks_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

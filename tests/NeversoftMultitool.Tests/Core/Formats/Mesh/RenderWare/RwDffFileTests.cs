@@ -122,7 +122,7 @@ public sealed class RwDffFileTests(TestPaths paths)
 
     // ── Batch parse all 331 SKN files ──
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllSknFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

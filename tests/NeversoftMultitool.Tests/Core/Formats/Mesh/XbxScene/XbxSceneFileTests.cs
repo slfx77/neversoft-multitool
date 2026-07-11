@@ -91,7 +91,7 @@ public sealed class XbxSceneFileTests(TestPaths paths)
 
     // ── Batch parse all SKIN files ──
 
-    [Fact]
+    [CorpusFact]
     public void BatchParse_AllSkinFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -125,7 +125,7 @@ public sealed class XbxSceneFileTests(TestPaths paths)
 
     // ── Batch parse all MDL files ──
 
-    [Fact]
+    [CorpusFact]
     public void BatchParse_AllMdlFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

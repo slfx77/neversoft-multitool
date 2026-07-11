@@ -223,7 +223,7 @@ public sealed class ColFileTests(TestPaths paths)
 
     // ── Batch glTF Output ──
 
-    [Fact]
+    [CorpusFact]
     public void Write_AllColFiles_ZeroGlbFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

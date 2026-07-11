@@ -110,7 +110,7 @@ public sealed class XbxTexFileTests(TestPaths paths)
 
     // ── Batch parse all TEX files ──
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllTexFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -178,7 +178,7 @@ public sealed class XbxTexFileTests(TestPaths paths)
 
     // ── Batch parse all IMG files ──
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllImgFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

@@ -92,7 +92,7 @@ public sealed class NgcSceneFileTests(TestPaths paths)
 
     // ── Batch parse ──
 
-    [Fact]
+    [CorpusFact]
     public void BatchParse_AllSkinFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -122,7 +122,7 @@ public sealed class NgcSceneFileTests(TestPaths paths)
         Assert.True(totalTris > 0, "Expected total triangles > 0");
     }
 
-    [Fact]
+    [CorpusFact]
     public void BatchParse_AllMdlFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

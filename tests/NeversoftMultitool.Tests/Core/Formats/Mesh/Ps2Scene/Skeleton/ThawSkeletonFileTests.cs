@@ -81,7 +81,7 @@ public class ThawSkeletonFileTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllThawSkeletons_FullCorpusSweep()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

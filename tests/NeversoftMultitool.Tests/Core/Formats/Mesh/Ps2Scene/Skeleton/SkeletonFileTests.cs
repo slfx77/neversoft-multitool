@@ -149,7 +149,7 @@ public sealed class SkeletonFileTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllThug2SkeFiles_NoneThrow()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

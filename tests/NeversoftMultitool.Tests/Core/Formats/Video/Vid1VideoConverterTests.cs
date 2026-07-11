@@ -86,7 +86,7 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
         Assert.Equal(2, atviProbe.AudioChannels);
     }
 
-    [Fact]
+    [CorpusFact]
     public void TryWriteDeterministicVideoStream_AllThawVidSamples_WritesNonEmptyM4v()
     {
         Assert.SkipWhen(!Directory.Exists(ThawGcVidDir), "THAW GameCube VID sample directory not found");
@@ -118,7 +118,7 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void ConvertToMp4_RepresentativeSamples_WritePlayableMp4()
     {
         Assert.SkipWhen(!File.Exists(LongFormSample), "Representative THAW GameCube long-form VID sample not found");
@@ -145,7 +145,7 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFrames_RepresentativeLongForm_WritesAtLeastOnePng()
     {
         Assert.SkipWhen(!File.Exists(LongFormSample), "Representative THAW GameCube long-form VID sample not found");

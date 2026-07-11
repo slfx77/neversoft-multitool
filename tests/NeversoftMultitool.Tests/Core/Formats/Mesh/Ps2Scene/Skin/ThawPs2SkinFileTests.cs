@@ -271,7 +271,7 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void BatchParse_AllThawSkinFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

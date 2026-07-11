@@ -18,7 +18,7 @@ public class Vid1NativeConvertSmokeTest(TestPaths paths)
         return File.Exists(candidate) ? candidate : null;
     }
 
-    [Fact]
+    [CorpusFact]
     public void ConvertToMp4_IntroVid_ProducesNonEmptyFile()
     {
         var input = FindIntroVid();

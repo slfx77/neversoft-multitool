@@ -94,7 +94,7 @@ public class ThawSkaFileTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllThawSka_FullCorpusSweep()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

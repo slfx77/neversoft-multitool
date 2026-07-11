@@ -47,7 +47,16 @@ dotnet build src/NeversoftMultitool/NeversoftMultitool.csproj
 # Run tests (use exe directly; VSTest adapter has testhost issues with xunit.v3)
 dotnet build tests/NeversoftMultitool.Tests/NeversoftMultitool.Tests.csproj
 tests/NeversoftMultitool.Tests/bin/Debug/net10.0/NeversoftMultitool.Tests.exe
+
+# Full-corpus sweeps (tests that walk entire Sample/Builds trees or convert video)
+# are marked [CorpusFact]/[CorpusTheory] (xunit Explicit) and DON'T run by default —
+# the default run is ~1 min instead of ~4.5 min. Include them when a format parser
+# or archive reader changed:
+tests/NeversoftMultitool.Tests/bin/Debug/net10.0/NeversoftMultitool.Tests.exe --explicit on    # everything
+tests/NeversoftMultitool.Tests/bin/Debug/net10.0/NeversoftMultitool.Tests.exe --explicit only  # sweeps only
 ```
+
+New tests that enumerate an unbounded set of real files (`FindSampleFiles`, directory walks over builds) must use `[CorpusFact]` (`tests/.../Helpers/CorpusFactAttribute.cs`); bounded single-fixture tests reading one or two sample files stay `[Fact]`.
 
 ## Output Directory
 

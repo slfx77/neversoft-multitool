@@ -104,7 +104,7 @@ public sealed class ThawSceneTexFileTests(TestPaths paths)
 
     // ── Batch parse all TEX files ──
 
-    [Fact]
+    [CorpusFact]
     public void BatchParse_AllThawSceneTex_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

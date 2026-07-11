@@ -250,7 +250,7 @@ public class MdecDecoderTests(TestPaths paths)
 
     // ── Batch Demux Test ───────────────────────────────────────────────
 
-    [Fact]
+    [CorpusFact]
     public void Demux_AllStrFiles_NoExceptions()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

@@ -111,7 +111,7 @@ public class CompressedPreArchiveTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void GetFileList_AllPs2PreFiles_ParseWithoutErrors()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

@@ -136,7 +136,7 @@ public sealed class ThawSceneFileTests(TestPaths paths)
 
     // ── Batch parse ──
 
-    [Fact]
+    [CorpusFact]
     public void BatchParse_AllThawSkinFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -166,7 +166,7 @@ public sealed class ThawSceneFileTests(TestPaths paths)
         Assert.True(totalTris > 0, "Expected total triangles > 0");
     }
 
-    [Fact]
+    [CorpusFact]
     public void BatchParse_AllThawMdlFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
