@@ -57,6 +57,8 @@
 
     <EmbeddedResource Include="Core\QbKey\QbKeyNames.ThawGcPaks.txt" LogicalName="QbKeyNames.ThawGcPaks.txt" />
 
+    <EmbeddedResource Include="Core\QbKey\QbKeyNames.CutScenes.txt" LogicalName="QbKeyNames.CutScenes.txt" />
+
   </ItemGroup>
 
 

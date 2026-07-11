@@ -186,6 +186,34 @@ def main() -> None:
                 proven[h] = cand
     print(f"after QB-string + dictionary harvest: {len(proven):,} proven")
 
+    # Source 4: QTex zip debug.log vocabulary × path templates. The zips carry
+    # `texturetool "...\<Name>.png"` build lines whose <Name> stems are the CAS/skater
+    # part vocabulary that ships in no other wordlist. Crossing those stems with the
+    # (prefix, extension) templates mined from already-resolved GC keys reconstructs
+    # sibling keys like `models\skater_male\<part>.tex/.skin` — still hash-proven.
+    templates: set[tuple[str, str]] = set()
+    for name in candidates | set(proven.values()):
+        n = name.lower().replace("/", "\\")
+        slash, dot = n.rfind("\\"), n.rfind(".")
+        if slash > 0 and dot > slash:
+            templates.add((n[: slash + 1], n[dot:]))
+    zip_stems: set[str] = set()
+    tool_re = re.compile(rb'"([^"]+\.(?:png|tif|tga))"', re.IGNORECASE)
+    zip_builds = [(GC_BUILD, "*.zip.ngc")] + [(b, "*.zip.wpc") for b, _ in LE_BUILDS]
+    for build, pattern in zip_builds:
+        for zp in build.rglob(pattern):
+            for m in tool_re.finditer(zp.read_bytes()):
+                stem = m.group(1).decode("latin1").lower().replace("/", "\\").rsplit("\\", 1)[-1]
+                zip_stems.add(stem.rsplit(".", 1)[0])
+    remaining = gc_keys - set(proven)
+    for pre, ext in templates:
+        for stem in zip_stems:
+            h = qbkey(pre + stem + ext)
+            if h in remaining and h not in proven:
+                proven[h] = pre + stem + ext
+    print(f"after zip-vocab × template harvest ({len(zip_stems):,} stems, "
+          f"{len(templates):,} templates): {len(proven):,} proven")
+
     lines = sorted((f"{name}=0x{crc:08X}" for crc, name in proven.items()), key=str.lower)
     OUT_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote {len(lines)} entries to {OUT_PATH.relative_to(REPO)}")
