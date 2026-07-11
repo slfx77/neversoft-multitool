@@ -59,6 +59,8 @@
 
     <EmbeddedResource Include="Core\QbKey\QbKeyNames.CutScenes.txt" LogicalName="QbKeyNames.CutScenes.txt" />
 
+    <EmbeddedResource Include="Core\QbKey\QbKeyNames.DiscNames.txt" LogicalName="QbKeyNames.DiscNames.txt" />
+
   </ItemGroup>
 
 

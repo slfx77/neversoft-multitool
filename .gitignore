@@ -131,6 +131,8 @@ tools/diagnostics/*
 !tools/diagnostics/ska_version_census.py
 !tools/diagnostics/corpus_extension_census.py
 !tools/diagnostics/pak_name_coverage.py
+!tools/diagnostics/filesystem_name_probe.py
+!tools/diagnostics/filesystem_script_probe.py
 !tools/diagnostics/capture_pcsx2_rt_dumps.ps1
 !tools/diagnostics/fb_state_bisect.py
 !tools/diagnostics/inspect_blend_distribution.py
