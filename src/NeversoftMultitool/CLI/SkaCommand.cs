@@ -482,8 +482,11 @@ public static class SkaCommand
             //   ../Bits/anims/standardkey{Q,T}.bin  (THPS4 PS2: pre/Bits/anims/, THUG PS2: Pre/Bits/anims/)
             //   ../anims/standardkey{Q,T}.bin       (THUG2/THAW/P8/PG PS2: DATAP/anims/, THAW GC)
             //   ../bits/anims/standardkey{Q,T}.bin  (THUG2 nested: DATAP/pre/bits/anims/)
+            //   ../pre/Bits/anims/standardkey{Q,T}.bin (THUG2 Xbox: data/pre/Bits/anims/, tables
+            //                                          under pre/ while cutscenes sit in data/)
             //   ../BIN/standardkey{Q,T}.bin         (reserved for future builds if any use it)
-            foreach (var subdir in new[] { "BIN", "bin", "anims", "Bits/anims", "bits/anims" })
+            foreach (var subdir in new[]
+                     { "BIN", "bin", "anims", "Bits/anims", "bits/anims", "pre/anims", "pre/Bits/anims", "pre/bits/anims" })
             {
                 var qPath = Path.Combine(dir, subdir, "standardkeyQ.bin");
                 var tPath = Path.Combine(dir, subdir, "standardkeyT.bin");

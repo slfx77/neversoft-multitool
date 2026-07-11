@@ -34,6 +34,12 @@ public static class SkeletonFile
         if (data.Length >= 16 && TryParseThugFormat(data, out var skeleton))
             return skeleton;
 
+        // Cutscene .ske extracted from a .cut library: identical to THUG but with the
+        // leading checksum dropped (the .cut TOC name key supplies it), so version(2) +
+        // flags(0) + numBones + data. Size = 12 + N×44 vs standalone's 16 + N×44.
+        if (data.Length >= 12 && TryParseCutsceneThugFormat(data, out skeleton))
+            return skeleton;
+
         // Try THPS4 format: checksum + numBones + 3 name tables (no poses)
         if (TryParseThps4Format(data, out skeleton))
             return skeleton;
@@ -109,19 +115,46 @@ public static class SkeletonFile
 
         // Bone data size: 3 name tables (N×4 each) + neutral poses (N × (quat(16) + vec(16)))
         var boneDataSize = numBones * 12 + numBones * 32;
+        // Standalone: checksum(4) + version(4) + flags(4) + numBones(4) header
         var expectedMinSize = 16 + boneDataSize;
 
         // File may have trailing timestamp string — allow extra bytes
         if (data.Length < expectedMinSize)
             return false;
 
+        skeleton = BuildThugSkeleton(data, 16, version, flags, numBones);
+        return true;
+    }
+
+    /// <summary>
+    ///     Cutscene .ske variant (from a .cut library): THUG layout with the leading
+    ///     checksum dropped, i.e. version(2) + flags(0) + numBones + tables + poses.
+    ///     Gated exactly (version==2, flags==0, size==12+N×44) so it can't shadow the
+    ///     standalone format, whose first field is a non-2 checksum.
+    /// </summary>
+    private static bool TryParseCutsceneThugFormat(byte[] data, out Ps2Skeleton skeleton)
+    {
+        skeleton = null!;
+
+        var version = BitConverter.ToInt32(data, 0);
+        var flags = BitConverter.ToInt32(data, 4);
+        var numBones = BitConverter.ToInt32(data, 8);
+        if (version != 2 || flags != 0 || numBones is <= 0 or > 256)
+            return false;
+
+        // version(4) + flags(4) + numBones(4) header + 3 name tables + neutral poses
+        if (data.Length != 12 + numBones * 44)
+            return false;
+
+        skeleton = BuildThugSkeleton(data, 12, version, flags, numBones);
+        return true;
+    }
+
+    private static Ps2Skeleton BuildThugSkeleton(byte[] data, int bodyOffset, int version, int flags, int numBones)
+    {
         using var ms = new MemoryStream(data);
         using var r = new BinaryReader(ms);
-
-        _ = r.ReadUInt32(); // checksum
-        _ = r.ReadInt32(); // version
-        _ = r.ReadInt32(); // flags
-        _ = r.ReadInt32(); // numBones
+        ms.Position = bodyOffset;
 
         // Read name tables
         var boneNames = ReadUInt32Array(r, numBones);
@@ -185,8 +218,7 @@ public static class SkeletonFile
 
         // Remaining bytes (if any) are a null-terminated build timestamp string — ignored
 
-        skeleton = new Ps2Skeleton { Version = version, Flags = flags, Bones = bones };
-        return true;
+        return new Ps2Skeleton { Version = version, Flags = flags, Bones = bones };
     }
 
     private static uint[] ReadUInt32Array(BinaryReader r, int count)

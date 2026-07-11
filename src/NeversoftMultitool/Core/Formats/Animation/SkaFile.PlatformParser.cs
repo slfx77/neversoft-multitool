@@ -17,6 +17,31 @@ internal static partial class SkaFile
         var numTKeys = (int)BitConverter.ToUInt32(data[(off + 8)..]);
         off += 16;
 
+        // OBJECTANIMDATA (cutscene object anims): a numBones × u32 array of the QbKeys
+        // of the objects each track drives, BEFORE the per-bone frame counts
+        // (THUG BonedAnim.cpp plat_read_stream:1105-1111). Without skipping it the
+        // per-bone counts read from the wrong offset and the whole file mis-parses.
+        uint[]? boneNames = null;
+        if ((flags & FlagObjectAnimData) != 0)
+        {
+            boneNames = new uint[numBones];
+            for (var i = 0; i < numBones; i++)
+            {
+                boneNames[i] = BitConverter.ToUInt32(data[off..]);
+                off += 4;
+            }
+        }
+
+        // PARTIALANIM: original bone count + a bit mask of which bones are present
+        // (plat_read_stream:1117-1129), also before the per-bone frames.
+        if ((flags & FlagPartialAnim) != 0)
+        {
+            var originalBones = (int)BitConverter.ToUInt32(data[off..]);
+            off += 4;
+            var numMasks = (originalBones - 1) / 32 + 1;
+            off += numMasks * 4;
+        }
+
         // Per-bone frame counts
         var perBoneQCount = new int[numBones];
         var perBoneTCount = new int[numBones];
@@ -117,7 +142,8 @@ internal static partial class SkaFile
             {
                 BoneIndex = bone,
                 RotationKeys = rotKeys,
-                TranslationKeys = transKeys
+                TranslationKeys = transKeys,
+                BoneNameChecksum = boneNames?[bone]
             };
         }
 
