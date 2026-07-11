@@ -207,7 +207,8 @@ public static class PsxAnimDumpCommand
                 if (animFile.IsDirectMatrix)
                 {
                     animation = PsxAnimDecoder.DecodeDirectMatrix(
-                        slice, boneCount, entry.FrameCount, entry.TweenFlag);
+                        slice, boneCount, entry.FrameCount, entry.TweenFlag,
+                        transposedRotation: animFile.UsesTransposedRotation);
                 }
                 else
                 {

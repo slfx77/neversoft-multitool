@@ -253,6 +253,32 @@ public class PsxAnimDecoderTests(TestPaths paths)
     }
 
     [Fact]
+    public void DecodeDirectMatrix_TransposedRotation_DecodesInverseOfStraightRead()
+    {
+        // v3-era files (Apocalypse/THPS1-proto) store the 9 rotation cells
+        // transposed relative to the v4/v6 layout (render-A/B verified:
+        // bruce/hawk/rasta_fe need the transposed read, mullen/CARNAGE the
+        // straight one). For an orthonormal matrix the transposed read is
+        // the inverse rotation, so the two decodes must be conjugates.
+        var stride = PsxAnimDecoder.DirectMatrixStrideBytes;
+        var stream = new byte[stride];
+        // +90° about Y (v4 orientation): non-symmetric so the reads differ.
+        WriteSMatrix(stream, 0, 0, -4096, 0, 4096, 0, 4096, 0, 0);
+
+        var straight = PsxAnimDecoder.DecodeDirectMatrix(stream, boneCount: 1, frameCount: 1);
+        var transposed = PsxAnimDecoder.DecodeDirectMatrix(
+            stream, boneCount: 1, frameCount: 1, transposedRotation: true);
+
+        var a = straight.DirectRotations![0, 0];
+        var b = transposed.DirectRotations![0, 0];
+        var expected = Quaternion.Conjugate(a);
+        // Compare up to quaternion double-cover (q ≡ −q).
+        var dot = Math.Abs(Quaternion.Dot(b, expected));
+        Assert.True(dot > 0.9999f, $"expected conjugate rotation, dot={dot}");
+        Assert.NotEqual(a, b);
+    }
+
+    [Fact]
     public void DecodeDirectMatrix_CycleDefault_FinalIntervalWrapsTowardFrameZero()
     {
         // CycleAnim end handling (M3dUtils_InterpolateVectors cycle branch,
