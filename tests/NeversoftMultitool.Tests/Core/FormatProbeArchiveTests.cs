@@ -54,6 +54,25 @@ public sealed class FormatProbeArchiveTests
     }
 
     [Fact]
+    public void ProbeArchive_LocalizedPre_SupportedWithLanguage()
+    {
+        var data = new byte[8];
+        BitConverter.GetBytes(0xABCD0003u).CopyTo(data, 4);
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".prd", data);
+        try
+        {
+            var result = FormatProbe.ProbeArchive(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Contains("Compressed", result.FormatName);
+            Assert.Contains("German", result.FormatName);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public void ProbeArchive_BonV1_Supported()
     {
         var data = new byte[8];

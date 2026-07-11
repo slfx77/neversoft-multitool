@@ -11,7 +11,7 @@ namespace NeversoftMultitool.Core;
 public static class RecursiveUnpacker
 {
     private static readonly string[] ArchiveExtensions =
-        [".wad", ".pre", ".prx", ".pkr", ".ddx", ".bon", ".pak", ".apk"];
+        [".wad", ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".ddx", ".bon", ".pak", ".apk"];
 
     /// <summary>
     ///     Scans a directory tree for all archive files, returning them with already-extracted status.
@@ -53,7 +53,7 @@ public static class RecursiveUnpacker
         if (string.IsNullOrEmpty(parentDir))
             return false;
 
-        var stem = Path.GetFileNameWithoutExtension(archivePath);
+        var stem = ArchiveNaming.GetExtractionStem(archivePath);
         var extractDir = Path.Combine(parentDir, stem);
 
         return Directory.Exists(extractDir) &&
@@ -88,10 +88,16 @@ public static class RecursiveUnpacker
                 WadArchive.ExtractFiles(archivePath, outputDir, null, ct);
                 break;
             case ".pre" when CompressedPreArchive.IsCompressedPre(archivePath):
+            case ".prd" when CompressedPreArchive.IsCompressedPre(archivePath):
+            case ".prf" when CompressedPreArchive.IsCompressedPre(archivePath):
+            case ".prg" when CompressedPreArchive.IsCompressedPre(archivePath):
             case ".prx":
                 CompressedPreArchive.ExtractFiles(archivePath, outputDir, null, ct);
                 break;
             case ".pre":
+            case ".prd":
+            case ".prf":
+            case ".prg":
                 PreArchive.ExtractFiles(archivePath, outputDir, null, ct);
                 break;
             case ".pkr":
@@ -121,6 +127,8 @@ public static class RecursiveUnpacker
             ".wad" => "WAD",
             ".pre" => CompressedPreArchive.IsCompressedPre(filePath) ? "PRE3" : "PRE",
             ".prx" => "PRE3",
+            ".prd" or ".prg" => CompressedPreArchive.IsCompressedPre(filePath) ? "PRE3 (German)" : "PRE (German)",
+            ".prf" => CompressedPreArchive.IsCompressedPre(filePath) ? "PRE3 (French)" : "PRE (French)",
             ".pkr" => "PKR",
             ".ddx" => "DDX",
             ".bon" => "BON",

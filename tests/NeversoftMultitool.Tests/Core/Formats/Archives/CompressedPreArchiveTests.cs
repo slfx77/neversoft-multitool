@@ -130,6 +130,75 @@ public class CompressedPreArchiveTests(TestPaths paths)
         Assert.True(totalEntries > 0, "No entries found across all PS2 PRE files");
     }
 
+    [Fact]
+    public void LocalizedPre_Prd_ParsesAndExtractsToFullNameDir()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var prdFile = paths.FindSampleFiles(Thug2XboxBuild, "*.prd").OrderBy(p => p, StringComparer.Ordinal)
+            .FirstOrDefault();
+        Assert.SkipWhen(prdFile == null, "No .prd file found in THUG2 Xbox build");
+
+        Assert.True(CompressedPreArchive.IsCompressedPre(prdFile!));
+        var entries = CompressedPreArchive.GetFileList(prdFile!);
+        Assert.NotEmpty(entries);
+
+        // Localized variants must extract to a full-name dir (anims.prd/) so they
+        // don't merge with the same-stem .pre/.prx siblings.
+        var tempDir = Path.Combine(Path.GetTempPath(), "NsMultitool_Test_Prd_" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            CompressedPreArchive.ExtractFiles(prdFile!, tempDir, null, TestContext.Current.CancellationToken);
+
+            var expectedDir = Path.Combine(tempDir, Path.GetFileName(prdFile!));
+            Assert.True(Directory.Exists(expectedDir), $"Expected extraction dir {Path.GetFileName(prdFile!)}/");
+            var extractedPath = Path.Combine(expectedDir, entries[0].FullName);
+            Assert.True(File.Exists(extractedPath), $"Extracted file not found: {entries[0].FullName}");
+            Assert.Equal(entries[0].Size, new FileInfo(extractedPath).Length);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [CorpusFact]
+    public void GetFileList_AllPrdPrfFiles_ParseClean()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var files = new[] { Thug2XboxBuild, Thug2WindowsBuild }
+            .SelectMany(build => paths.FindSampleFiles(build, "*.prd")
+                .Concat(paths.FindSampleFiles(build, "*.prf")))
+            .ToList();
+        Assert.SkipWhen(files.Count == 0, "No .prd/.prf files found");
+
+        var failures = new List<string>();
+        var totalEntries = 0;
+        foreach (var file in files)
+        {
+            try
+            {
+                Assert.True(CompressedPreArchive.IsCompressedPre(file), "not PRE v2/v3");
+                var entries = CompressedPreArchive.GetFileList(file);
+                Assert.NotEmpty(entries);
+                totalEntries += entries.Count;
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{Path.GetFileName(file)}: {ex.Message}");
+            }
+        }
+
+        Assert.True(failures.Count == 0, $"{failures.Count} failures:\n{string.Join("\n", failures.Take(10))}");
+        Assert.Equal(316, files.Count);
+        Assert.True(totalEntries > 0);
+    }
+
+    private const string Thug2XboxBuild = "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)";
+    private const string Thug2WindowsBuild = "Tony Hawks Underground 2 (2004-10-4, Windows - Final)";
+
     // -------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------

@@ -19,7 +19,7 @@ public static class UnpackCommand
         };
 
         var command = new Command("unpack",
-            "Recursively extract all archives in-place (WAD/PRE/PKR/DDX/BON)");
+            "Recursively extract all archives in-place (WAD/PRE/PRX/PRD/PRF/PKR/DDX/BON/PAK)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(verboseOption);
 

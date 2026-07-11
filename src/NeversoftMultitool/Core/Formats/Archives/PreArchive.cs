@@ -45,7 +45,7 @@ public static class PreArchive
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)
     {
         var entries = GetFileList(prePath);
-        var archiveName = Path.GetFileNameWithoutExtension(prePath);
+        var archiveName = ArchiveNaming.GetExtractionStem(prePath);
 
         using var stream = File.OpenRead(prePath);
 

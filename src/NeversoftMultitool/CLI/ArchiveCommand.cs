@@ -12,7 +12,7 @@ public static class ArchiveCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to archive file (WAD, PKR, PRE, PRX, DDX, BON, or PAK)"
+            Description = "Path to archive file (WAD, PKR, PRE, PRX, PRD/PRF localized PRE, DDX, BON, or PAK)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -24,7 +24,7 @@ public static class ArchiveCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("archive", "Extract files from WAD/PKR/PRE/PRX/DDX/BON/PAK archives");
+        var command = new Command("archive", "Extract files from WAD/PKR/PRE/PRX/PRD/PRF/DDX/BON/PAK archives");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -108,6 +108,9 @@ public static class ArchiveCommand
                         break;
 
                     case ".pre" when CompressedPreArchive.IsCompressedPre(input):
+                    case ".prd" when CompressedPreArchive.IsCompressedPre(input):
+                    case ".prf" when CompressedPreArchive.IsCompressedPre(input):
+                    case ".prg" when CompressedPreArchive.IsCompressedPre(input):
                     case ".prx":
                         AnsiConsole.MarkupLine("[blue]PRE v3[/] archive detected (LZSS compressed)");
                         var compressedPreEntries = CompressedPreArchive.GetFileList(input);
@@ -124,6 +127,9 @@ public static class ArchiveCommand
                         break;
 
                     case ".pre":
+                    case ".prd":
+                    case ".prf":
+                    case ".prg":
                         AnsiConsole.MarkupLine("[blue]PRE[/] archive detected");
                         var preEntries = PreArchive.GetFileList(input);
                         AnsiConsole.MarkupLine($"Found [green]{preEntries.Count}[/] files");

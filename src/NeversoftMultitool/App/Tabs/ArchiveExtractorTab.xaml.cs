@@ -37,6 +37,8 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
         picker.FileTypeFilter.Add(".pkr");
         picker.FileTypeFilter.Add(".pre");
         picker.FileTypeFilter.Add(".prx");
+        picker.FileTypeFilter.Add(".prd");
+        picker.FileTypeFilter.Add(".prf");
         picker.FileTypeFilter.Add(".ddx");
         picker.FileTypeFilter.Add(".bon");
         picker.FileTypeFilter.Add(".pak");
@@ -69,11 +71,17 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                     entries = PkrArchive.GetFileList(_archivePath);
                     break;
                 case ".pre" when CompressedPreArchive.IsCompressedPre(_archivePath):
+                case ".prd" when CompressedPreArchive.IsCompressedPre(_archivePath):
+                case ".prf" when CompressedPreArchive.IsCompressedPre(_archivePath):
+                case ".prg" when CompressedPreArchive.IsCompressedPre(_archivePath):
                 case ".prx":
                     _archiveType = "PRE3";
                     entries = CompressedPreArchive.GetFileList(_archivePath);
                     break;
                 case ".pre":
+                case ".prd":
+                case ".prf":
+                case ".prg":
                     _archiveType = "PRE";
                     entries = PreArchive.GetFileList(_archivePath);
                     break;

@@ -13,6 +13,8 @@ internal static class FormatProbeArchive
             ".pkr" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PKR3 Archive"),
             ".prx" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Compressed PRE"),
             ".pre" => ProbePreArchive(filePath),
+            ".prd" or ".prg" => ProbeLocalizedPre(filePath, "German"),
+            ".prf" => ProbeLocalizedPre(filePath, "French"),
             ".ddx" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "DDX Archive"),
             ".bon" => ProbeBonArchive(filePath),
             ".pak" => ProbePakArchive(filePath),
@@ -32,6 +34,12 @@ internal static class FormatProbeArchive
                 FormatProbe.FormatSupport.Unsupported,
                 "PAK Raw Data",
                 "PAK file without entry table (raw data, not an archive)");
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeLocalizedPre(string filePath, string language)
+    {
+        var result = ProbePreArchive(filePath);
+        return result with { FormatName = $"{result.FormatName} ({language})" };
     }
 
     private static FormatProbe.FormatProbeResult ProbePreArchive(string filePath)
