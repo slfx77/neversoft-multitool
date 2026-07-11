@@ -42,8 +42,10 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
         picker.FileTypeFilter.Add(".ddx");
         picker.FileTypeFilter.Add(".bon");
         picker.FileTypeFilter.Add(".pak");
+        picker.FileTypeFilter.Add(".zip");
         picker.FileTypeFilter.Add(".ps2");
         picker.FileTypeFilter.Add(".ngc");
+        picker.FileTypeFilter.Add(".wpc");
         var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
         InitializeWithWindow.Initialize(picker, hwnd);
 
@@ -92,6 +94,10 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                 case ".bon":
                     _archiveType = "BON";
                     entries = BonArchive.GetFileList(_archivePath);
+                    break;
+                case ".zip" or ".wpc" or ".ngc" when QZipArchive.IsZip(_archivePath):
+                    _archiveType = "ZIP";
+                    entries = QZipArchive.GetFileList(_archivePath);
                     break;
                 case ".pak" or ".ps2" or ".ngc" when PakArchive.IsPakArchive(_archivePath):
                     _archiveType = "PAK";
@@ -232,6 +238,9 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                         break;
                     case "PAK":
                         PakArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
+                        break;
+                    case "ZIP":
+                        QZipArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
                         break;
                 }
             }, token);

@@ -19,6 +19,12 @@ internal static class FormatProbeArchive
             ".bon" => ProbeBonArchive(filePath),
             ".pak" => ProbePakArchive(filePath),
             ".apk" => ProbePakArchive(filePath),
+            ".zip" => QZipArchive.IsZip(filePath)
+                ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "QTex ZIP")
+                : new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    "ZIP",
+                    "Not a PKZip file (no local file header magic)"),
             _ => new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
                 "Unknown",

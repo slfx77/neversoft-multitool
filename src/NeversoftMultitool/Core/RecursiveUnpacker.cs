@@ -11,7 +11,7 @@ namespace NeversoftMultitool.Core;
 public static class RecursiveUnpacker
 {
     private static readonly string[] ArchiveExtensions =
-        [".wad", ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".ddx", ".bon", ".pak", ".apk"];
+        [".wad", ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".ddx", ".bon", ".pak", ".apk", ".zip"];
 
     /// <summary>
     ///     Scans a directory tree for all archive files, returning them with already-extracted status.
@@ -27,8 +27,8 @@ public static class RecursiveUnpacker
 
             var archiveType = ClassifyArchive(file);
 
-            // Skip PAK raw data files (no entry table)
-            if (archiveType == "PAK (raw)")
+            // Skip raw-data files that carry an archive extension but no parseable structure
+            if (archiveType.EndsWith("(raw)", StringComparison.Ordinal))
                 continue;
 
             results.Add(new ArchiveInfo
@@ -113,6 +113,9 @@ public static class RecursiveUnpacker
             case ".apk" when PakArchive.IsPakArchive(archivePath):
                 PakArchive.ExtractFiles(archivePath, outputDir, null, ct);
                 break;
+            case ".zip" when QZipArchive.IsZip(archivePath):
+                QZipArchive.ExtractFiles(archivePath, outputDir, null, ct);
+                break;
         }
     }
 
@@ -134,6 +137,7 @@ public static class RecursiveUnpacker
             ".bon" => "BON",
             ".pak" => PakArchive.IsPakArchive(filePath) ? "PAK" : "PAK (raw)",
             ".apk" => PakArchive.IsPakArchive(filePath) ? "PAK (GC)" : "PAK (raw)",
+            ".zip" => QZipArchive.IsZip(filePath) ? "ZIP" : "ZIP (raw)",
             _ => "?"
         };
     }

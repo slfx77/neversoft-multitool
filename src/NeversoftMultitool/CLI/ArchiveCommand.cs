@@ -12,7 +12,7 @@ public static class ArchiveCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to archive file (WAD, PKR, PRE, PRX, PRD/PRF localized PRE, DDX, BON, or PAK)"
+            Description = "Path to archive file (WAD, PKR, PRE, PRX, PRD/PRF localized PRE, DDX, BON, PAK, or ZIP)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -24,7 +24,7 @@ public static class ArchiveCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("archive", "Extract files from WAD/PKR/PRE/PRX/PRD/PRF/DDX/BON/PAK archives");
+        var command = new Command("archive", "Extract files from WAD/PKR/PRE/PRX/PRD/PRF/DDX/BON/PAK/ZIP archives");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -163,6 +163,25 @@ public static class ArchiveCommand
                     case ".apk":
                         AnsiConsole.MarkupLine(
                             "[red]PAK raw data file[/] (no entry table, not an extractable archive)");
+                        return Task.FromResult(1);
+
+                    case ".zip" when QZipArchive.IsZip(input):
+                        AnsiConsole.MarkupLine("[blue]QTex ZIP[/] archive detected");
+                        var zipEntries = QZipArchive.GetFileList(input);
+                        AnsiConsole.MarkupLine($"Found [green]{zipEntries.Count}[/] files");
+                        QZipArchive.ExtractFiles(input, output, (current, total) =>
+                        {
+                            filesExtracted = current;
+                            if (verbose)
+                            {
+                                AnsiConsole.MarkupLine(
+                                    $"  [[{current}/{total}]] {zipEntries[current - 1].FullName}");
+                            }
+                        }, cancellationToken);
+                        break;
+
+                    case ".zip":
+                        AnsiConsole.MarkupLine("[red]Not a PKZip file[/] (no local file header magic)");
                         return Task.FromResult(1);
 
                     default:
