@@ -61,6 +61,9 @@
 
     <EmbeddedResource Include="Core\QbKey\QbKeyNames.DiscNames.txt" LogicalName="QbKeyNames.DiscNames.txt" />
 
+    <!-- ScriptRefs sorts last so the first-wins loader prefers the proven dictionaries -->
+    <EmbeddedResource Include="Core\QbKey\QbKeyNames.ScriptRefs.txt" LogicalName="QbKeyNames.ScriptRefs.txt" />
+
   </ItemGroup>
 
 
