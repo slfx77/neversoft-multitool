@@ -28,7 +28,7 @@ import numpy as np
 
 M = np.diag([1.0, -1.0, -1.0])
 COMP = {5126: ('f', 4), 5123: ('H', 2), 5121: ('B', 1), 5125: ('I', 4)}
-NCOMP = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4}
+NCOMP = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4, 'MAT4': 16}
 
 
 def load_glb(path):
@@ -75,6 +75,18 @@ class Scene:
         for n in self.joints:
             r = self.doc['nodes'][n].get('rotation', [0, 0, 0, 1])
             self.bind_rot.append(quat_to_mat(r))
+        # Inverse bind matrices (glTF column-major mat4). Skinning must go
+        # through these — using bind_local as a world origin is only valid for
+        # FLAT skeletons and silently mis-skins parented (v2) ones.
+        self.ibm_r = [np.eye(3)] * self.nb
+        self.ibm_t = [np.zeros(3)] * self.nb
+        if 'inverseBindMatrices' in skin:
+            mats = accessor(self.doc, self.blob, skin['inverseBindMatrices'])
+            self.ibm_r, self.ibm_t = [], []
+            for row in mats:
+                m4 = row.reshape(4, 4).T  # column-major -> row-index [r][c]
+                self.ibm_r.append(m4[:3, :3])
+                self.ibm_t.append(m4[:3, 3])
         node_parent = {}
         for i, nd in enumerate(self.doc['nodes']):
             for c in nd.get('children', []):
@@ -83,15 +95,21 @@ class Scene:
         for n in self.joints:
             p = node_parent.get(n)
             self.parents.append(self.n2b.get(p, -1) if p is not None else -1)
-        anim = self.doc['animations'][0]
+        self.set_anim(0)
+
+    def set_anim(self, idx):
+        anim = self.doc['animations'][idx]
+        self.anim_name = anim.get('name', str(idx))
         self.rc, self.tc = {}, {}
+        self.duration = 0.0
         for ch in anim['channels']:
             b = self.n2b.get(ch['target']['node'])
             if b is None:
                 continue
             s = anim['samplers'][ch['sampler']]
-            pair = (accessor(self.doc, self.blob, s['input']).flatten(),
-                    accessor(self.doc, self.blob, s['output']))
+            times = accessor(self.doc, self.blob, s['input']).flatten()
+            self.duration = max(self.duration, float(times[-1]))
+            pair = (times, accessor(self.doc, self.blob, s['output']))
             path = ch['target']['path']
             (self.rc if path == 'rotation' else self.tc if path == 'translation' else {})[b] = pair
 
@@ -164,10 +182,46 @@ def seam(scene, frames, fps):
         W = np.empty_like(P)
         for i in range(len(P)):
             j = J[i]
-            W[i] = Rw[j] @ (P[i] - scene.bind_local[j]) + Tw[j]
+            W[i] = Rw[j] @ (scene.ibm_r[j] @ P[i] + scene.ibm_t[j]) + Tw[j]
         g = np.array([np.linalg.norm(W[u] - W[v]) for u, v in edges]) - bl
         print(f"  seam frame {f:>3}: mean={g.mean():7.2f} p90={np.percentile(g, 90):7.2f} "
               f"max={g.max():7.2f} (edges={len(edges)})")
+
+
+def seam_stats(scene, t):
+    """Worst-edge seam growth at time t (returns mean, p90, max)."""
+    P, J, T3 = scene.skinned_vertices()
+    edges = set()
+    for a, b, c in T3:
+        for u, v in ((a, b), (b, c), (c, a)):
+            if J[u] != J[v]:
+                edges.add((min(u, v), max(u, v)))
+    edges = list(edges)
+    bl = np.array([np.linalg.norm(P[u] - P[v]) for u, v in edges])
+    Rw, Tw = scene.world(t)
+    W = np.empty_like(P)
+    for i in range(len(P)):
+        j = J[i]
+        W[i] = Rw[j] @ (scene.ibm_r[j] @ P[i] + scene.ibm_t[j]) + Tw[j]
+    g = np.array([np.linalg.norm(W[u] - W[v]) for u, v in edges]) - bl
+    return g.mean(), np.percentile(g, 90), g.max()
+
+
+def sweep(scene, fps):
+    """Score every animation in the GLB: seam growth sampled at start/mid/end."""
+    rows = []
+    for idx in range(len(scene.doc['animations'])):
+        scene.set_anim(idx)
+        worst = (0.0, 0.0, 0.0)
+        for t in (0.0, scene.duration / 2, scene.duration):
+            s = seam_stats(scene, t)
+            if s[2] > worst[2]:
+                worst = s
+        rows.append((idx, scene.anim_name, scene.duration, *worst))
+    rows.sort(key=lambda r: -r[5])
+    print(f"{'idx':>4} {'name':<24} {'dur':>6} {'mean':>8} {'p90':>8} {'max':>8}")
+    for idx, name, dur, m, p, x in rows:
+        print(f"{idx:>4} {name:<24} {dur:>6.2f} {m:>8.2f} {p:>8.2f} {x:>8.2f}")
 
 
 def main():
@@ -177,10 +231,17 @@ def main():
     ap.add_argument('--divisor', type=float, default=36.0)
     ap.add_argument('--seam-frames', default='0,1')
     ap.add_argument('--fps', type=float, default=30.0)
+    ap.add_argument('--anim', type=int, default=0, help='animation index to verify')
+    ap.add_argument('--sweep', action='store_true',
+                    help='score seam growth for EVERY animation, worst-first')
     args = ap.parse_args()
 
     scene = Scene(args.glb)
     print(args.glb)
+    if args.sweep:
+        sweep(scene, args.fps)
+        return
+    scene.set_anim(args.anim)
     if args.gt:
         gt = json.load(open(args.gt))
         sample = gt['frames'][next(iter(gt['frames']))][0]

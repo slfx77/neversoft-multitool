@@ -42,6 +42,37 @@ public class PsxAnimDecoderTests(TestPaths paths)
     }
 
     [Fact]
+    public void Decompress_BitPackedSegment_EndpointIsStartPlusDelta_NotInterpAccumulated()
+    {
+        // Engine contract (DECOMP.cpp 0x80023B38): the segment endpoint is
+        // computed from the segment-START value BEFORE the interpolation
+        // writes (endpoint = start + delta), NOT from the interp-accumulated
+        // value (which overshoots by ~delta again and compounds per segment).
+        // This is the exact bone-0 Ry stream of spidey.psx anim 89: header
+        // 0xAB = expansion factor 11, mode 11 (12-bit deltas); start -63;
+        // deltas -1739 then -119 (remainder). The old accumulate-then-add
+        // decode produced -3382/-3501 at frames 11/12 — a 153° single-frame
+        // pelvis snap; the engine plays -1802/-1921 (smooth -158/frame).
+        // Trailing pad bytes: the decoder (like the engine) reads a 3-byte
+        // window per bit-packed delta, so real streams always have successor
+        // data in range; only 6 bytes are consumed.
+        byte[] stream = [0xAB, 0xC1, 0xFF, 0x93, 0x5F, 0x89, 0x00, 0x00];
+        Span<short> output = stackalloc short[13];
+
+        var consumed = PsxAnimDecompressor.Decompress(stream, output, step: 1, streamLength: 13);
+
+        Assert.Equal(6, consumed);
+        Assert.Equal(
+            new short[]
+            {
+                -63, -221, -379, -537, -695, -853, -1011, -1169, -1327, -1485, -1643,
+                -1802, // frame 11: segment endpoint from the segment START; the old decode gave -3382
+                -1921 // frame 12: remainder endpoint continuing from -1802
+            },
+            output.ToArray());
+    }
+
+    [Fact]
     public void Decompress_BitPackedRemainder_WritesExactEndpoint()
     {
         // 0x32 => segment length 4, mode 2 (3-bit deltas). With 7 output

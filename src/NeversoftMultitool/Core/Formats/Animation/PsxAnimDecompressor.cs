@@ -154,14 +154,26 @@ internal static class PsxAnimDecompressor
         for (var seg = 0; seg < segLength; seg++)
         {
             var delta = ReadSignedBits(src, ref byteIdx, ref bitOff, bitWidth);
+            // Engine (DECOMP.cpp 0x80023B38) computes the segment endpoint from
+            // the segment-START value BEFORE the interpolation writes, then
+            // snaps to it: endpoint = start + delta, interp steps of
+            // trunc(delta/numSegments) walk toward it. Adding delta to the
+            // interp-accumulated value instead overshoots each segment by
+            // ~(numSegments-1)/numSegments·delta and compounds across segments
+            // (spidey.psx pelvis: 153° single-frame snap from one -1739 delta
+            // at expansion factor 11).
+            var stepValue = (short)(delta / numSegments);
+            var endpoint = (short)(prev + delta);
+            // The engine accumulates the interp value as a raw int (casting
+            // only on write) and re-sign-extends via the endpoint assignment.
             for (var k = 0; k < numSegments - 1; k++)
             {
-                prev = (short)(prev + (short)(delta / numSegments));
+                prev += stepValue;
                 dst[dstIdx] = (short)prev;
                 dstIdx += step;
             }
 
-            prev = (short)(prev + delta);
+            prev = endpoint;
             dst[dstIdx] = (short)prev;
             dstIdx += step;
         }
@@ -169,12 +181,13 @@ internal static class PsxAnimDecompressor
         if (remainder > 0)
         {
             var delta = ReadSignedBits(src, ref byteIdx, ref bitOff, bitWidth);
+            var stepValue = (short)(delta / remainder);
             var endpoint = (short)(prev + delta);
             // Remainder writes (remainder - 1) interpolated + 1 endpoint = `remainder`
             // samples total. The endpoint IS written here (no next iter to absorb).
             for (var k = 0; k < remainder - 1; k++)
             {
-                prev = (short)(prev + (short)(delta / remainder));
+                prev += stepValue;
                 dst[dstIdx] = (short)prev;
                 dstIdx += step;
             }

@@ -102,6 +102,9 @@ tools/diagnostics/*
 !tools/diagnostics/sfx_cue_probe.py
 !tools/diagnostics/psx_abr_survey.py
 !tools/diagnostics/psx_anim_verify.py
+!tools/diagnostics/psx_anim_render.py
+!tools/diagnostics/psx_anim_bank_match.py
+!tools/diagnostics/psx_anim_v2_stream_walk.py
 !tools/diagnostics/ps2_scene_trace.py
 !tools/diagnostics/ps2_geom_trace.py
 !tools/diagnostics/ps2_geom_gscontext.py
