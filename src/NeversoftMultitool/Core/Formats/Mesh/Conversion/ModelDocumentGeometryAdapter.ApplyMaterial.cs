@@ -34,11 +34,12 @@ internal static partial class ModelDocumentGeometryAdapter
                     ? MeshTextureHelper.ConvertLuminanceToAlpha(loaded.Value.Bytes)
                     : loaded.Value.Bytes;
                 renderMaterial.TextureIndex ??= AddTexture(document, material.TextureName, pngBytes);
-                renderMaterial.AlphaMode = isAdditive || loaded.Value.HasAlpha
-                    ? ModelAlphaMode.Blend
-                    : material.BlendMode == 2
-                        ? ModelAlphaMode.Mask
-                        : ModelAlphaMode.Opaque;
+                if (isAdditive || loaded.Value.HasAlpha)
+                    renderMaterial.AlphaMode = ModelAlphaMode.Blend;
+                else if (material.BlendMode == 2)
+                    renderMaterial.AlphaMode = ModelAlphaMode.Mask;
+                else
+                    renderMaterial.AlphaMode = ModelAlphaMode.Opaque;
             }
         }
 

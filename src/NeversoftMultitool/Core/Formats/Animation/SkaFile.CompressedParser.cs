@@ -8,16 +8,14 @@ internal static partial class SkaFile
     {
         var off = 12;
 
-        // Platform header (16 bytes)
+        // Platform header (16 bytes): numBones, numQKeys@+4, numTKeys@+8,
+        // numCustomAnimKeys@+12 — only numBones drives the parse; the key
+        // totals are recomputed from the per-bone size tables below.
         var numBones = (int)BitConverter.ToUInt32(data[off..]);
-        var numQKeys = (int)BitConverter.ToUInt32(data[(off + 4)..]);
-        var numTKeys = (int)BitConverter.ToUInt32(data[(off + 8)..]);
-        // numCustomAnimKeys at off+12 (skip for now)
         off += 16;
 
-        // Alloc sizes
+        // Alloc sizes: qAllocSize, tAllocSize@+4 — only qAllocSize is consumed.
         var qAllocSize = (int)BitConverter.ToUInt32(data[off..]);
-        var tAllocSize = (int)BitConverter.ToUInt32(data[(off + 4)..]);
         off += 8;
 
         // Per-bone frame byte sizes
@@ -54,12 +52,10 @@ internal static partial class SkaFile
         for (var bone = 0; bone < numBones; bone++)
         {
             var qEnd = qOff + perBoneQSize[bone];
-            var rotKeys = DecodeCompressedQKeys(data, ref qOff, qEnd, duration,
-                (flags & FlagCompressedTime) != 0, compressTable);
+            var rotKeys = DecodeCompressedQKeys(data, ref qOff, qEnd, compressTable);
 
             var tEnd = tOff + perBoneTSize[bone];
-            var transKeys = DecodeCompressedTKeys(data, ref tOff, tEnd, duration,
-                (flags & FlagCompressedTime) != 0, compressTable);
+            var transKeys = DecodeCompressedTKeys(data, ref tOff, tEnd, compressTable);
 
             tracks[bone] = new SkaBoneTrack
             {

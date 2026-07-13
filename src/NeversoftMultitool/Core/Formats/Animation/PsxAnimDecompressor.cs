@@ -6,7 +6,7 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 ///     decompilation
 ///     (<c>\\wsl.localhost\Ubuntu\home\slfx77\thps2-psx-proto\src\DECOMP.cpp</c>,
 ///     lines 37–250). One stream produces <c>streamLength</c> 16-bit signed
-///     samples scattered through <paramref name="dst" /> with a writer-controlled
+///     samples scattered through the destination buffer with a writer-controlled
 ///     stride, so 6 channels × N bones can be filled into a single buffer by
 ///     consecutive calls at staggered start offsets.
 ///     Wire format (per stream):

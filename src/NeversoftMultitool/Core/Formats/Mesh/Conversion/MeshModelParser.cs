@@ -393,11 +393,12 @@ public sealed class MeshModelParser : IModelParser
     {
         var data = request.Source.ReadBytes();
         var isNgc = NgcSceneFile.IsNgcScene(data);
-        var scene = isNgc
-            ? NgcSceneFile.Parse(data)
-            : ThawSceneFile.IsThawScene(data)
-                ? ThawSceneFile.Parse(data)
-                : XbxSceneFile.Parse(data);
+        var scene = true switch
+        {
+            _ when isNgc => NgcSceneFile.Parse(data),
+            _ when ThawSceneFile.IsThawScene(data) => ThawSceneFile.Parse(data),
+            _ => XbxSceneFile.Parse(data)
+        };
         var textureProvider = isNgc
             ? BuildNgcSceneTextureProvider(request.Source, request.OutputStem, request.TexturePath)
             : BuildXbxSceneTextureProvider(request.Source, request.OutputStem, request.TexturePath);

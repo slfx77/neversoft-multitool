@@ -252,7 +252,6 @@ internal static partial class ModelDocumentGeometryAdapter
                     nativeMesh.Vertices,
                     nativeMesh.StartsOnOddOutputSlot,
                     dedup,
-                    false,
                     preserveVertexAlpha,
                     false,
                     skeletonIndex);
@@ -294,7 +293,6 @@ internal static partial class ModelDocumentGeometryAdapter
                 leaf.Vertices,
                 false,
                 null,
-                true,
                 preserveVertexAlpha,
                 false);
             AddMeshNode(document, mesh.Name, mesh);

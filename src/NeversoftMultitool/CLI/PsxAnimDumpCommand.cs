@@ -562,8 +562,10 @@ public static class PsxAnimDumpCommand
         var bufSize = Math.Max(frameCount * 4, 64);
         var allBoneChannels = new short[numBones, channelsPerBone][];
         for (var b = 0; b < numBones; b++)
-        for (var c = 0; c < channelsPerBone; c++)
-            allBoneChannels[b, c] = new short[bufSize];
+        {
+            for (var c = 0; c < channelsPerBone; c++)
+                allBoneChannels[b, c] = new short[bufSize];
+        }
 
         var src = data.AsSpan(streamStart);
         var consumed = 0;

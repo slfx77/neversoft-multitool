@@ -13,7 +13,7 @@ internal static partial class ModelDocumentGeometryAdapter
         ModelDocument document,
         Ps2GeomScene scene,
         string mdlName,
-        IReadOnlyList<(Vector3 Position, Quaternion Rotation)> placements,
+        List<(Vector3 Position, Quaternion Rotation)> placements,
         Func<Ps2GeomLeaf, bool> leafFilter,
         Dictionary<Ps2WorldzoneMaterialKey, int> materialCache,
         MeshChecksumTextureResolver? textureProvider,
@@ -119,7 +119,6 @@ internal static partial class ModelDocumentGeometryAdapter
                     localizedVertices,
                     false,
                     null,
-                    true,
                     preserveVertexAlpha,
                     false);
 
@@ -210,7 +209,7 @@ internal static partial class ModelDocumentGeometryAdapter
         Ps2GeomLeaf leaf,
         uint textureChecksum,
         Ps2DestinationAlphaLeafGeometryKey geometryKey,
-        IReadOnlyDictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate> recentAlphaMasks)
+        Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate> recentAlphaMasks)
     {
         if (textureChecksum == 0 || leaf.IsBillboard)
             return false;
@@ -361,7 +360,7 @@ internal static partial class ModelDocumentGeometryAdapter
 
     private static Ps2Vertex[] OffsetPs2Vertices(Ps2Vertex[] vertices, Vector3 direction, float distance)
     {
-        if (vertices.Length == 0 || distance == 0 || direction.LengthSquared() <= 1e-8f)
+        if (vertices.Length == 0 || MathF.Abs(distance) <= 1e-8f || direction.LengthSquared() <= 1e-8f)
             return vertices;
 
         var offset = direction * distance;
@@ -399,14 +398,17 @@ internal static partial class ModelDocumentGeometryAdapter
             vertex.HasSkinData);
     }
 
-    private static (Vector3 Min, Vector3 Max) ComputeBbox(IReadOnlyList<Ps2Vertex> vertices)
+    private static (Vector3 Min, Vector3 Max) ComputeBbox(Ps2Vertex[] vertices)
     {
         var min = new Vector3(float.MaxValue);
         var max = new Vector3(float.MinValue);
-        foreach (var vertex in vertices)
+        // Single-pass indexed min/max — a Select(v => v.Position) projection would
+        // allocate an enumerator and still need this same reduction.
+        for (var i = 0; i < vertices.Length; i++)
         {
-            min = Vector3.Min(min, vertex.Position);
-            max = Vector3.Max(max, vertex.Position);
+            var position = vertices[i].Position;
+            min = Vector3.Min(min, position);
+            max = Vector3.Max(max, position);
         }
 
         return (min, max);

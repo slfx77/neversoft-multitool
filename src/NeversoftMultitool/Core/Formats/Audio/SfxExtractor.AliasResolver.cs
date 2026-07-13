@@ -115,8 +115,4 @@ public static partial class SfxExtractor
                ((uint)data[offset + 2] << 16) |
                ((uint)data[offset + 3] << 24);
     }
-
-    /// <summary>
-    ///     Explicit companion-bank bytes. Used by archive-sourced SFX extraction
-    ///     where the path-based cross-sibling alias fallback isn't available.
 }

@@ -64,7 +64,7 @@ internal static partial class ModelDocumentGeometryAdapter
         var r = bakeVertexColorsToWhite ? 1f : Math.Min(vertex.R / 128f, 1f);
         var g = bakeVertexColorsToWhite ? 1f : Math.Min(vertex.G / 128f, 1f);
         var b = bakeVertexColorsToWhite ? 1f : Math.Min(vertex.B / 128f, 1f);
-        var a = bakeVertexColorsToWhite ? 1f : preserveVertexAlpha ? Math.Min(vertex.A / 128f, 1f) : 1f;
+        var a = !bakeVertexColorsToWhite && preserveVertexAlpha ? Math.Min(vertex.A / 128f, 1f) : 1f;
 
         // Worldzone leaves rarely carry per-vertex normals in their source VIF
         // batches — `vertex.HasNormal == false` is common — so callers may pass

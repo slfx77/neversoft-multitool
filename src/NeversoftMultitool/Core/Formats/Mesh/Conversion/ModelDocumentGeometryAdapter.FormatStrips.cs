@@ -300,7 +300,6 @@ internal static partial class ModelDocumentGeometryAdapter
         Ps2Vertex[] sourceVertices,
         bool startsOnOddOutputSlot,
         HashSet<(Vector3, Vector3, Vector3)>? dedup,
-        bool resetOnRestart,
         bool preserveVertexAlpha,
         bool bakeVertexColorsToWhite,
         int? skeletonIndex = null)

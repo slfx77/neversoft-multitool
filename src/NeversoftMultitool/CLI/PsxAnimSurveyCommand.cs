@@ -281,7 +281,12 @@ public static class PsxAnimSurveyCommand
 
         public string RuntimeRevisionLabel => RuntimeRevision?.ToString() ?? "?";
 
-        public string LayoutLabel => Layout?.ToString() ?? (Error == "no mesh" ? "NoMesh" :
-            Error != null ? "Error" : "NoAnimBlock");
+        public string LayoutLabel => Layout?.ToString() ?? ErrorLayoutLabel();
+
+        private string ErrorLayoutLabel()
+        {
+            if (Error == "no mesh") return "NoMesh";
+            return Error != null ? "Error" : "NoAnimBlock";
+        }
     }
 }

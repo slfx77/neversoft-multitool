@@ -216,7 +216,7 @@ public static class PsxAnimTraceCommand
         var decoded = PsxAnimationBank.Decode(bank, targetBoneCount, selected, remap);
         if (decoded.Animations.Count != 1)
         {
-            var error = decoded.Diagnostics.FirstOrDefault()?.Error ?? "decode failed";
+            var error = (decoded.Diagnostics.Count > 0 ? decoded.Diagnostics[0].Error : null) ?? "decode failed";
             AnsiConsole.MarkupLine($"[red]Error:[/] Could not decode animation: {Markup.Escape(error)}");
             return 1;
         }
@@ -378,7 +378,7 @@ public static class PsxAnimTraceCommand
         Vector3[,] engineWorldRaw,
         float baseTranslationDivisor,
         float exporterDivisor,
-        IReadOnlyDictionary<int, Vector3>? glbSample)
+        Dictionary<int, Vector3>? glbSample)
     {
         var table = new Table().Border(TableBorder.Rounded).Title("Bone World Translation Trace");
         table.AddColumn("Bone");
@@ -441,7 +441,7 @@ public static class PsxAnimTraceCommand
         int frame,
         float baseTranslationDivisor,
         float exporterDivisor,
-        IReadOnlyDictionary<int, Vector3>? glbSample)
+        Dictionary<int, Vector3>? glbSample)
     {
         var interestingPairs = new[]
         {
@@ -493,12 +493,12 @@ public static class PsxAnimTraceCommand
         AnsiConsole.Write(table);
     }
 
-    private static IReadOnlyDictionary<int, Vector3>? LoadGlbSample(
+    private static Dictionary<int, Vector3>? LoadGlbSample(
         string? glbPath,
         int glbAnimIndex,
         float time,
         ModelSkeleton skeleton,
-        IReadOnlyList<int> bones,
+        List<int> bones,
         out string info)
     {
         info = "";
@@ -649,8 +649,8 @@ public static class PsxAnimTraceCommand
         RenderAnimOrder order,
         ModelSkeleton skeleton,
         IReadOnlyList<int> bones,
-        IReadOnlyList<int> targetParentIndices,
-        IReadOnlyList<int> sourceParentIndices)
+        int[] targetParentIndices,
+        int[] sourceParentIndices)
     {
         if (!string.IsNullOrWhiteSpace(order.Diagnostic))
             AnsiConsole.MarkupLine($"[yellow]render anim-order:[/] {Markup.Escape(order.Diagnostic)}");
@@ -677,10 +677,10 @@ public static class PsxAnimTraceCommand
                 continue;
 
             var source = order.TargetPartToSourceSlot[target];
-            var targetParent = target < targetParentIndices.Count
+            var targetParent = target < targetParentIndices.Length
                 ? targetParentIndices[target]
                 : -1;
-            var sourceParent = source >= 0 && source < sourceParentIndices.Count
+            var sourceParent = source >= 0 && source < sourceParentIndices.Length
                 ? sourceParentIndices[source]
                 : -1;
             var targetName = GetPshName(order.TargetPsh, target, skeleton.Bones[target].Name);
@@ -826,7 +826,7 @@ public static class PsxAnimTraceCommand
         return origin + Vector3.Transform(local, ToGltfRotation(psxRotation));
     }
 
-    private static IReadOnlyList<PsxRenderPartVertexSample> CollectPsxRenderPartVertexSamples(
+    private static List<PsxRenderPartVertexSample> CollectPsxRenderPartVertexSamples(
         PsxMeshFile psxFile,
         int partCount)
     {
@@ -1021,7 +1021,7 @@ public static class PsxAnimTraceCommand
         return bestWeight > 0f ? bestJoint : -1;
     }
 
-    private static IReadOnlyList<PsxBindVertexSample> CollectPsxBindVertexSamples(
+    private static List<PsxBindVertexSample> CollectPsxBindVertexSamples(
         PsxMeshFile psxFile,
         int boneCount)
     {
@@ -1386,8 +1386,9 @@ public static class PsxAnimTraceCommand
         int frame,
         float divisor)
     {
-        // Contract-absolute engine target: SMatrix.t IS the composed anim value;
-        // no bind anchoring (the engine has no bind fallback).
+        // Contract-absolute engine target: the stored SMatrix translation is
+        // already the composed anim value, with no bind anchoring (the engine
+        // has no bind fallback).
         return PsxMeshSemantics.ToGltfPosition(engineWorldRaw[bone, frame] / divisor);
     }
 
@@ -1476,7 +1477,7 @@ public static class PsxAnimTraceCommand
         return psh?.GetBoneName(index) ?? fallback;
     }
 
-    private static IReadOnlyList<int> ResolveBones(string? bonesSpec, int boneCount)
+    private static List<int> ResolveBones(string? bonesSpec, int boneCount)
     {
         if (string.IsNullOrWhiteSpace(bonesSpec))
             bonesSpec = "0,1,4,16-18";
@@ -1512,7 +1513,7 @@ public static class PsxAnimTraceCommand
         return result.ToList();
     }
 
-    private static IReadOnlySet<int>? ResolveOptionalBones(string? bonesSpec, int boneCount)
+    private static HashSet<int>? ResolveOptionalBones(string? bonesSpec, int boneCount)
     {
         if (string.IsNullOrWhiteSpace(bonesSpec))
             return null;
@@ -1632,7 +1633,13 @@ public static class PsxAnimTraceCommand
     private static string FormatDelta(Vector3 value)
     {
         var max = Math.Max(Math.Abs(value.X), Math.Max(Math.Abs(value.Y), Math.Abs(value.Z)));
-        var color = max < 0.01f ? "green" : max < 0.25f ? "yellow" : "red";
+        string color;
+        if (max < 0.01f)
+            color = "green";
+        else if (max < 0.25f)
+            color = "yellow";
+        else
+            color = "red";
         return $"[{color}]{Markup.Escape(FormatVector(value))}[/]";
     }
 

@@ -29,8 +29,9 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 internal static partial class SkaFile
 {
     private const uint FlagPlatform = 1u << 28;
-    private const uint FlagCompressedTime = 1u << 26;
-    private const uint FlagPreRotatedRoot = 1u << 25;
+    // bit 26 = compressed-time keys (the decoders infer per-key timing from the
+    // header/flag byte, so it isn't gated on); bit 25 = pre-rotated root
+    // (neither is consumed by this parser)
     private const uint FlagUseCompressTable = 1u << 23;
     private const uint FlagHiResFramePointers = 1u << 22;
 
@@ -133,10 +134,14 @@ internal static partial class SkaFile
     /// </summary>
     private static Quaternion ReconstructQuat(float x, float y, float z, bool signBit)
     {
-        if (x == 0 && y == 0 && z == 0)
+        // Components are integer multiples of 1/16384, so any nonzero record has
+        // magnitude >= (1/16384)^2 ~ 3.7e-9; below that the record is the exact
+        // zero sentinel -> canonical identity (never the signBit's (0,0,0,-1)).
+        var lengthSq = x * x + y * y + z * z;
+        if (lengthSq < 1e-9f)
             return Quaternion.Identity;
 
-        var sum = 1f - x * x - y * y - z * z;
+        var sum = 1f - lengthSq;
         var w = sum > 0 ? MathF.Sqrt(sum) : 0f;
         if (signBit) w = -w;
         return Quaternion.Conjugate(new Quaternion(x, y, z, w));

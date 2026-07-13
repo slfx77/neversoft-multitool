@@ -5,8 +5,7 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 internal static partial class SkaFile
 {
     private static SkaRotationKey[] DecodeCompressedQKeys(
-        ReadOnlySpan<byte> data, ref int off, int end, float duration,
-        bool compressedTime, SkaCompressTable? table)
+        ReadOnlySpan<byte> data, ref int off, int end, SkaCompressTable? table)
     {
         var keys = new List<SkaRotationKey>();
 
@@ -97,8 +96,7 @@ internal static partial class SkaFile
     }
 
     private static SkaTranslationKey[] DecodeCompressedTKeys(
-        ReadOnlySpan<byte> data, ref int off, int end, float duration,
-        bool compressedTime, SkaCompressTable? table)
+        ReadOnlySpan<byte> data, ref int off, int end, SkaCompressTable? table)
     {
         var keys = new List<SkaTranslationKey>();
 
@@ -155,14 +153,4 @@ internal static partial class SkaFile
 
         return keys.ToArray();
     }
-
-    /// <summary>
-    ///     Reconstruct unit quaternion W component from X, Y, Z, then conjugate.
-    ///     W = sqrt(1 - x² - y² - z²), sign from signBit.
-    ///     The THUG engine's QuatVecToMatrix conjugates the quaternion before
-    ///     building a rotation matrix — the file stores q but the engine uses q*.
-    ///     This matches Ps2SkeletonFile.cs:71 so animation and skeleton live in
-    ///     the same convention. Tested: not conjugating produces visibly worse
-    ///     motion (sideways/stretched character).
-    /// </summary>
 }

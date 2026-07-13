@@ -9,12 +9,12 @@ internal static partial class SkaFile
     {
         var off = 12;
         var isHiRes = (flags & FlagHiResFramePointers) != 0;
-        var isCompressedTime = (flags & FlagCompressedTime) != 0;
 
-        // Platform header
+        // Platform header: numBones, numQKeys@+4, numTKeys@+8. numTKeys is not
+        // needed — T data begins right after the Q block and each bone's T keys
+        // are read via its per-bone count below.
         var numBones = (int)BitConverter.ToUInt32(data[off..]);
         var numQKeys = (int)BitConverter.ToUInt32(data[(off + 4)..]);
-        var numTKeys = (int)BitConverter.ToUInt32(data[(off + 8)..]);
         off += 16;
 
         // OBJECTANIMDATA (cutscene object anims): a numBones × u32 array of the QbKeys
@@ -73,8 +73,8 @@ internal static partial class SkaFile
         var qDataStart = off;
         off += numQKeys * qKeySize;
 
-        // T keyframe data
-        var tKeySize = isHiRes ? 14 : 8;
+        // T keyframe data begins immediately after the Q block; each bone's
+        // T keys are sized inline in the decode loop (14 hi-res / 8 standard).
         var tDataStart = off;
 
         // Decode per-bone tracks

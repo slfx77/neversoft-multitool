@@ -29,7 +29,6 @@ internal static partial class SkaFile
         {
             // Don't crash on short files — cap numTKeys to what actually fits.
             numTKeys = Math.Max(0, (data.Length - tStart) / TRecordSize);
-            tEnd = tStart + numTKeys * TRecordSize;
         }
 
         var (qKeys, qSentinels) = ReadThps3Records(data, qStart, qActual, QRecordSize, ThpsRecordKind.Q);
@@ -146,7 +145,6 @@ internal static partial class SkaFile
                 if (result[track].Count == 0)
                 {
                     bestTrack = track;
-                    bestTime = float.NegativeInfinity;
                     break;
                 }
 

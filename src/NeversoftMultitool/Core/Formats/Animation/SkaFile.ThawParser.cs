@@ -40,7 +40,8 @@ internal static partial class SkaFile
     // T keys are THUG-classic on all variants (global T table, /32 scale).
     private const uint FlagThawHiResTimestamps = 1u << 8;
     private const uint FlagThawCompactKeys = 1u << 15;
-    private const uint FlagThawScalarTable = 1u << 16;
+    // bit 16 = scalar-table byte-width components (always set in-corpus; the
+    // decoders infer per-component width from the header, so it isn't gated on)
     private const uint FlagPartialAnim = 1u << 19;
     private const uint FlagObjectAnimData = 1u << 24;
 
@@ -121,7 +122,7 @@ internal static partial class SkaFile
         for (var bone = 0; bone < numBones; bone++)
         {
             var rotKeys = DecodeThawQKeys(data, ref qOff, qOff + qSizes[bone], compact, hiResTs, compressTable);
-            var transKeys = DecodeCompressedTKeys(data, ref tOff, tOff + tSizes[bone], duration, false, compressTable);
+            var transKeys = DecodeCompressedTKeys(data, ref tOff, tOff + tSizes[bone], compressTable);
             tracks[bone] = new SkaBoneTrack
             {
                 BoneIndex = bone,

@@ -116,11 +116,13 @@ internal static partial class ModelDocumentGeometryAdapter
         {
             // THAW additive anims (flags bits 14+17) store deltas over the
             // bone's neutral translation; other formats store absolute values.
-            var t = additive
-                ? bindTranslation + keys[i].Translation
-                : composition == SkaCompositionMode.BindComposed
-                    ? bindTranslation + (keys[i].Translation - anchor)
-                    : keys[i].Translation;
+            Vector3 t;
+            if (additive)
+                t = bindTranslation + keys[i].Translation;
+            else if (composition == SkaCompositionMode.BindComposed)
+                t = bindTranslation + (keys[i].Translation - anchor);
+            else
+                t = keys[i].Translation;
             times[i] = keys[i].Time;
             var offset = i * 3;
             values[offset] = t.X;
