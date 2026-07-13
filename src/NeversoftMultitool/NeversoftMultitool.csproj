@@ -64,6 +64,10 @@
     <!-- ScriptRefs sorts last so the first-wins loader prefers the proven dictionaries -->
     <EmbeddedResource Include="Core\QbKey\QbKeyNames.ScriptRefs.txt" LogicalName="QbKeyNames.ScriptRefs.txt" />
 
+    <!-- THAW texture side map: opaque build-tool checksum -> source-art name (NOT QbKeys;
+         kept out of Core\QbKey so it can never be loaded as a QbKeyNames dictionary). -->
+    <EmbeddedResource Include="Core\Formats\Texture\ThawTextureNames.txt" LogicalName="ThawTextureNames.txt" />
+
   </ItemGroup>
 
 

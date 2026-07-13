@@ -204,7 +204,8 @@ public static class ThawTexFile
                 }
 
                 textures.Add(new Ps2Texture(
-                    checksum, width, height, 0, 0, pixels, QbKey.QbKey.TryResolve(checksum)));
+                    checksum, width, height, 0, 0, pixels,
+                    ThawTextureNames.TryResolve(checksum) ?? QbKey.QbKey.TryResolve(checksum)));
             }
 
             return new Ps2TexResult(textures);

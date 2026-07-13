@@ -140,6 +140,8 @@ tools/diagnostics/*
 !tools/diagnostics/fb_state_bisect.py
 !tools/diagnostics/inspect_blend_distribution.py
 !tools/diagnostics/scan_pcsx2_frame_targets.py
+!tools/diagnostics/qtex_debuglog_probe.py
+!tools/diagnostics/qb_localname_census.py
 
 # Build/runtime noise inside curated tools/
 tools/**/bin/

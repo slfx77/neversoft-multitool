@@ -153,7 +153,7 @@ public static class NgcTexFile
                 0,
                 0,
                 pixels,
-                QbKey.QbKey.TryResolve(entry.Checksum)));
+                ThawTextureNames.TryResolve(entry.Checksum) ?? QbKey.QbKey.TryResolve(entry.Checksum)));
         }
 
         return new Ps2TexResult(textures);
