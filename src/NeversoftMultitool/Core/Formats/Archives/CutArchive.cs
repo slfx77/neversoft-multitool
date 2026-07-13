@@ -14,15 +14,17 @@ namespace NeversoftMultitool.Core.Formats.Archives;
 ///     u32 nameQbKey; u32 extQbKey } + contiguous data blobs (little-endian on all platforms).
 ///     Payloads are keyed by an extension checksum (SKA/CAM/OBA anims, SKIN/MDL/GEOM models,
 ///     TEX textures, QB script, CIF object-binding list, CAS, WGT head-morph weights;
-///     THUG2 adds SKE and an undecoded CIF replacement; bare THUG .cut masters add a
+///     THUG2 adds SKE and "cifstruct" (the CIF replacement — a CStruct WriteToBuffer
+///     stream, see <see cref="QbStructBuffer" />); bare THUG .cut masters add a
 ///     plaintext .q-style placement section). These extension checksums are NOT pak-style
 ///     QbKey(".ext") values — the map below comes from the case labels in
 ///     Sk/Objects/cutscenedetails.cpp:3098-3200.
-///     TOC name keys resolve 0% from the global dictionaries, so names are recovered from
+///     Few TOC name keys resolve from the global dictionaries, so names are recovered from
 ///     the embedded QB script's CHECKSUM_NAME pairs and (bare .cut) the plaintext section's
-///     identifiers, validated by hash before use. CIF payload (u32 ver; i32 count; count ×
-///     {obj, model, skeleton, anim, flags}) cross-links objects to sibling entries and is
-///     exported as a JSON manifest during extraction.
+///     identifiers, validated by hash before use. The object-binding table (THUG CIF:
+///     u32 ver; i32 count; count × {obj, model, skeleton, anim, flags} — THUG2 cifstruct:
+///     {Version, numObjects, camanimduration, Objects[]}) cross-links objects to sibling
+///     entries and is exported as a JSON manifest during extraction.
 /// </summary>
 public static partial class CutArchive
 {
@@ -42,7 +44,7 @@ public static partial class CutArchive
     private const uint ExtCas = 0xFFC529F4;
     private const uint ExtWgt = 0x2CD4107D;
     private const uint ExtSke = 0xEDD8D75F; // QbKey("ske"); THUG2 only
-    private const uint ExtCif2 = 0x508AE2F2; // THUG2 CIF replacement; layout unknown, dumped raw
+    private const uint ExtCif2 = 0x508AE2F2; // = QbKey("cifstruct"): THUG2 CIF replacement, CStruct stream
     private const uint ExtText = 0x2208E9E8; // bare-.cut masters: plaintext .q-style placement
 
     private static readonly Dictionary<uint, string> ExtensionByKey = new()
@@ -358,15 +360,26 @@ public static partial class CutArchive
         }
 
         List<CutManifestObject>? objects = null;
+        float? camAnimDuration = null;
         var cif = toc.FirstOrDefault(e => e.ExtKey == ExtCif);
         if (cif.Size >= 8)
         {
             objects = TryParseCif(data.AsSpan((int)cif.Offset, cif.Size), animFileByKey, modelFileByKey);
         }
+        else
+        {
+            var cifStruct = toc.FirstOrDefault(e => e.ExtKey == ExtCif2);
+            if (cifStruct.Size > 0)
+            {
+                objects = TryParseCifStruct(data.AsSpan((int)cifStruct.Offset, cifStruct.Size),
+                    animFileByKey, modelFileByKey, out camAnimDuration);
+            }
+        }
 
         return new CutManifest
         {
             Source = sourceName,
+            CamAnimDuration = camAnimDuration,
             Files = manifestEntries,
             Objects = objects
         };
@@ -408,14 +421,91 @@ public static partial class CutArchive
         }
 
         return objects;
-
-        static string? DescribeKey(uint key) =>
-            key == 0 ? null : QbKey.QbKey.TryResolve(key) ?? $"0x{key:X8}";
     }
+
+    /// <summary>
+    ///     THUG2 "cifstruct" payload: a CStruct WriteToBuffer stream of
+    ///     { Version, numObjects, camanimduration, Objects = array of struct
+    ///     { ObjectName, Type, [SkeletonName], [ExternalModelFile], [RefObjectName] } }.
+    ///     Field names are matched by QbKey; unknown/anonymous components are ignored
+    ///     (the raw payload is still extracted alongside).
+    /// </summary>
+    private static List<CutManifestObject>? TryParseCifStruct(ReadOnlySpan<byte> payload,
+        Dictionary<uint, string> animFileByKey, Dictionary<uint, string> modelFileByKey,
+        out float? camAnimDuration)
+    {
+        camAnimDuration = null;
+        List<QbStructBuffer.Component> components;
+        try
+        {
+            components = QbStructBuffer.Parse(payload);
+        }
+        catch (InvalidDataException)
+        {
+            return null;
+        }
+
+        List<CutManifestObject>? objects = null;
+        foreach (var component in components)
+        {
+            if (component.NameChecksum == FieldCamAnimDuration && component.Value is float duration)
+            {
+                camAnimDuration = duration;
+            }
+            else if (component.NameChecksum == FieldObjects && component.Value is QbStructBuffer.Array array)
+            {
+                objects = array.Elements
+                    .OfType<List<QbStructBuffer.Component>>()
+                    .Select(fields => ParseCifStructObject(fields, animFileByKey, modelFileByKey))
+                    .ToList();
+            }
+        }
+
+        return objects;
+    }
+
+    // QbKeys of the cifstruct component names (all field checksums hash lowercased).
+    private static readonly uint FieldCamAnimDuration = QbKey.QbKey.HashLower("camanimduration");
+    private static readonly uint FieldObjects = QbKey.QbKey.HashLower("Objects");
+    private static readonly uint FieldObjectName = QbKey.QbKey.HashLower("ObjectName");
+    private static readonly uint FieldType = QbKey.QbKey.HashLower("Type");
+    private static readonly uint FieldSkeletonName = QbKey.QbKey.HashLower("SkeletonName");
+    private static readonly uint FieldExternalModelFile = QbKey.QbKey.HashLower("ExternalModelFile");
+    private static readonly uint FieldRefObjectName = QbKey.QbKey.HashLower("RefObjectName");
+
+    private static CutManifestObject ParseCifStructObject(List<QbStructBuffer.Component> fields,
+        Dictionary<uint, string> animFileByKey, Dictionary<uint, string> modelFileByKey)
+    {
+        uint objectName = 0, typeName = 0, skeletonName = 0, refObjectName = 0;
+        string? externalModelFile = null;
+        foreach (var f in fields)
+        {
+            if (f.NameChecksum == FieldObjectName && f.Value is uint obj) objectName = obj;
+            else if (f.NameChecksum == FieldType && f.Value is uint type) typeName = type;
+            else if (f.NameChecksum == FieldSkeletonName && f.Value is uint skel) skeletonName = skel;
+            else if (f.NameChecksum == FieldRefObjectName && f.Value is uint refObj) refObjectName = refObj;
+            else if (f.NameChecksum == FieldExternalModelFile && f.Value is string ext) externalModelFile = ext;
+        }
+
+        return new CutManifestObject
+        {
+            Name = DescribeKey(objectName),
+            Type = DescribeKey(typeName),
+            Skeleton = DescribeKey(skeletonName),
+            RefObject = DescribeKey(refObjectName),
+            ExternalModelFile = externalModelFile,
+            AnimFile = animFileByKey.GetValueOrDefault(objectName),
+            ModelFile = modelFileByKey.GetValueOrDefault(objectName)
+        };
+    }
+
+    private static string? DescribeKey(uint key) =>
+        key == 0 ? null : QbKey.QbKey.TryResolve(key) ?? $"0x{key:X8}";
 
     private sealed class CutManifest
     {
         public string Source { get; init; } = "";
+        public float? CamAnimDuration { get; init; } // cifstruct only (seconds)
         public List<CutManifestEntry> Files { get; init; } = [];
         public List<CutManifestObject>? Objects { get; init; }
     }
@@ -437,6 +527,9 @@ public static partial class CutArchive
         public string? Flags { get; init; }
         public bool? IsSkater { get; init; }
         public bool? IsHead { get; init; }
+        public string? Type { get; init; } // cifstruct only (e.g. SkinnedModel)
+        public string? RefObject { get; init; } // cifstruct only
+        public string? ExternalModelFile { get; init; } // cifstruct only
         public string? AnimFile { get; init; }
         public string? ModelFile { get; init; }
     }

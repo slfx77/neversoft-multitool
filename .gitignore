@@ -142,6 +142,7 @@ tools/diagnostics/*
 !tools/diagnostics/scan_pcsx2_frame_targets.py
 !tools/diagnostics/qtex_debuglog_probe.py
 !tools/diagnostics/qb_localname_census.py
+!tools/diagnostics/cifstruct_probe.py
 
 # Build/runtime noise inside curated tools/
 tools/**/bin/

@@ -166,7 +166,13 @@ public class CutArchiveTests(TestPaths paths)
 
             var manifest = Path.Combine(tempDir, stem + ".cif.json");
             Assert.True(File.Exists(manifest), "cif.json manifest missing");
-            Assert.Contains("\"files\"", File.ReadAllText(manifest));
+            var json = File.ReadAllText(manifest);
+            Assert.Contains("\"files\"", json);
+
+            // THUG2 cuts carry a cifstruct (CStruct WriteToBuffer stream) instead of the
+            // THUG CIF v1 table; the manifest must decode it into the object list.
+            Assert.Contains("\"objects\"", json);
+            Assert.Contains("\"camAnimDuration\"", json);
         }
         finally
         {
