@@ -39,7 +39,7 @@ internal static partial class ModelDocumentGeometryAdapter
             DoubleSided = false
         });
 
-        var lodVariants = BuildPsxLodVariantSet(psxFile);
+        var lodVariants = PsxGeometryHelpers.BuildPsxLodVariantSet(psxFile);
         var alternateLeafObjects = PsxMeshSemantics.FindAlternateLeafObjectIndices(psxFile);
         var buckets = new Dictionary<int, PsxSkinnedBucket>();
 
@@ -108,7 +108,7 @@ internal static partial class ModelDocumentGeometryAdapter
             var worldBindGltf = bonePositionsGltf[i];
             var meshIndex = PsxMeshSemantics.GetCharacterMeshIndex(psxFile, i);
             var name = pshFile?.GetBoneName(i)
-                       ?? (meshIndex >= 0 ? ResolvePsxMeshName(psxFile, meshIndex) : null)
+                       ?? (meshIndex >= 0 ? PsxGeometryHelpers.ResolvePsxMeshName(psxFile, meshIndex) : null)
                        ?? $"bone_{i}";
 
             var parent = flatSkeleton || flatBoneIndices?.Contains(i) == true
@@ -168,7 +168,7 @@ internal static partial class ModelDocumentGeometryAdapter
         PsxFace face,
         (int Width, int Height) texDims)
     {
-        var (c0, c1, c2, c3) = ComputePsxFaceColors(psxFile.Version, face, psxFile.GouraudPalette);
+        var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(psxFile.Version, face, psxFile.GouraudPalette);
         var v0 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 0, c0, texDims, out var i0);
         var v1 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 1, c1, texDims, out var i1);
         var v2 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 2, c2, texDims, out var i2);
@@ -195,7 +195,7 @@ internal static partial class ModelDocumentGeometryAdapter
         (int Width, int Height) texDims,
         out ModelBoneInfluences influence)
     {
-        var vertexIndex = GetPsxFaceVertexIndex(face, slot);
+        var vertexIndex = PsxGeometryHelpers.GetPsxFaceVertexIndex(face, slot);
         var resolved = PsxCharacterMeshResolver.ResolveVertex(psxFile, meshIndex, vertexIndex);
 
         var normalMesh = mesh;
@@ -214,9 +214,9 @@ internal static partial class ModelDocumentGeometryAdapter
         var texCoord = face.GetTextureCoordinate(slot);
         var vertex = new ModelVertex(
             PsxMeshSemantics.ToGltfPosition(resolved.WorldPosition),
-            ComputePsxVertexNormal(normalMesh, face, normalVertexIndex),
+            PsxGeometryHelpers.ComputePsxVertexNormal(normalMesh, face, normalVertexIndex),
             color,
-            ComputePsxTextureUv(psxFile.Version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height));
+            PsxGeometryHelpers.ComputePsxTextureUv(psxFile.Version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height));
 
         var jointIndex = resolved.SourceObjectIndex >= 0 ? resolved.SourceObjectIndex : objectIndex;
         influence = ModelBoneInfluences.Single(jointIndex);

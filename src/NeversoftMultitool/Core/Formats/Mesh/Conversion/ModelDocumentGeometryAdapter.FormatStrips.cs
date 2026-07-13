@@ -205,7 +205,7 @@ internal static partial class ModelDocumentGeometryAdapter
         if (psxMesh.Faces.Count == 0)
             return;
 
-        var mesh = new ModelMesh { Name = ResolvePsxMeshName(psxFile, meshIndex) };
+        var mesh = new ModelMesh { Name = PsxGeometryHelpers.ResolvePsxMeshName(psxFile, meshIndex) };
         foreach (var group in psxMesh.Faces.GroupBy(face =>
                      face.IsTextured && face.TextureHash != 0
                          ? (Hash: face.TextureHash, SemiTransparent: face.IsSemiTransparent,
@@ -259,7 +259,7 @@ internal static partial class ModelDocumentGeometryAdapter
         Vector4[]? gouraudPalette,
         (int Width, int Height) texDims)
     {
-        var (c0, c1, c2, c3) = ComputePsxFaceColors(version, face, gouraudPalette);
+        var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(version, face, gouraudPalette);
         var v0 = MakePsxVertex(version, mesh, face, 0, c0, texDims);
         var v1 = MakePsxVertex(version, mesh, face, 1, c1, texDims);
         var v2 = MakePsxVertex(version, mesh, face, 2, c2, texDims);

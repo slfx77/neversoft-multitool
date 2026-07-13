@@ -12,7 +12,7 @@ namespace NeversoftMultitool.CLI;
 ///     and emit an animated <c>.glb</c> through the unified
 ///     <see cref="ModelExportService" /> pipeline.
 /// </summary>
-public static partial class PsxAnimExportCommand
+public static class PsxAnimExportCommand
 {
     public static Command Create()
     {
@@ -197,7 +197,7 @@ public static partial class PsxAnimExportCommand
                 AbsoluteTranslation: transAbsolute,
                 EngineWorldTranslation: transEngineWorld,
                 OneShot: oneShot);
-            return Task.FromResult(Execute(
+            return Task.FromResult(PsxAnimExportRunner.Run(
                 input, output, animSource, anim, name, opts, format, blenderHelper,
                 flatSkeleton, flatBoneFilter, verbose));
         });

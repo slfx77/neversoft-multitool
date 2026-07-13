@@ -179,12 +179,12 @@ public sealed class MeshModelParser : IModelParser
             var clips = request.PsxAnimationClips;
             if (clips is { Count: > 0 })
             {
-                ModelDocumentGeometryAdapter.PopulatePsxAnimationClips(
+                PsxAnimationChannelWriter.PopulatePsxAnimationClips(
                     document, psxFile, skeletonIndex: 0, clips, animationOptions);
             }
             else if (request.PsxDecodedAnimations is { Count: > 0 } animations)
             {
-                ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+                PsxAnimationChannelWriter.PopulatePsxAnimations(
                     document, psxFile, skeletonIndex: 0, animations, animationOptions);
             }
         }

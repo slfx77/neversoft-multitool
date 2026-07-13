@@ -4,12 +4,23 @@ using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
 
-public static partial class PsxAnimDumpCommand
+/// <summary>Located monolithic anim table: chunk base + entry table.</summary>
+internal sealed record PsxAnimHierLocation(
+    long Base,
+    int NumStreams,
+    int[] FrameCounts,
+    int[] PoolOffsets);
+
+/// <summary>
+///     Layers 1-3 of the psxanim probe: raw hex/u32 dumps and the
+///     speculative anim-packet + per-bone hierarchy walks.
+/// </summary>
+internal static class PsxAnimDumpWalker
 {
 
     // ─── Layer 1 helpers ────────────────────────────────────────────────
 
-    private static void DumpHex(byte[] data, long offset, int length)
+    internal static void DumpHex(byte[] data, long offset, int length)
     {
         const int bytesPerLine = 16;
         for (var i = 0; i < length; i += bytesPerLine)
@@ -27,7 +38,7 @@ public static partial class PsxAnimDumpCommand
         }
     }
 
-    private static void DumpFirstU32s(byte[] data, long offset, int count)
+    internal static void DumpFirstU32s(byte[] data, long offset, int count)
     {
         AnsiConsole.MarkupLine("[grey]  First u32 values (LE):[/]");
         for (var i = 0; i < count; i++)
@@ -56,7 +67,7 @@ public static partial class PsxAnimDumpCommand
     ///     packet, or <paramref name="offset" /> unchanged if the structure
     ///     doesn't validate against <paramref name="meshCount" />.
     /// </summary>
-    private static long TryWalkAnimPacket(byte[] data, long offset, int meshCount, bool verbose)
+    internal static long TryWalkAnimPacket(byte[] data, long offset, int meshCount, bool verbose)
     {
         var pos = (int)offset;
         if (pos + 4 > data.Length) return offset;
@@ -151,7 +162,7 @@ public static partial class PsxAnimDumpCommand
     ///         <item>Stream pool normally starts at <c>+0x04 + numEntries*8</c>.</item>
     ///     </list>
     /// </summary>
-    private static HierLocation? TryWalkHierarchy(byte[] data, long startOffset, PshFile? psh, bool verbose)
+    internal static PsxAnimHierLocation? TryWalkHierarchy(byte[] data, long startOffset, PshFile? psh, bool verbose)
     {
         if (startOffset + 4 > data.Length) return null;
 
@@ -208,6 +219,6 @@ public static partial class PsxAnimDumpCommand
                 $"frames={frameCounts[i],4} tween={tweenFlags[i],3}");
         }
 
-        return new HierLocation(pos, (int)numEntries, frameCounts, poolOffsets);
+        return new PsxAnimHierLocation(pos, (int)numEntries, frameCounts, poolOffsets);
     }
 }

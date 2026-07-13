@@ -4,7 +4,12 @@ using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
-internal static partial class ModelDocumentGeometryAdapter
+/// <summary>
+///     Builds glTF translation channels for PSX character clips — the
+///     engine-local path and the engine-world solve (which composes the
+///     emitted rotations via <see cref="PsxAnimationChannelWriter" />).
+/// </summary>
+internal static class PsxTranslationChannelWriter
 {
 
     /// <summary>
@@ -16,14 +21,14 @@ internal static partial class ModelDocumentGeometryAdapter
     ///     world-solve path: their engine world position carries the
     ///     rotated-bind term that per-node local emission cannot express.
     /// </summary>
-    private static void EmitPsxTranslationChannels(
+    internal static void EmitPsxTranslationChannels(
         ModelAnimation modelAnim,
         in PsxTranslationChannelContext ctx,
         PsxAnimationOptions options)
     {
         if (ctx.FlatTranslations
             || options.EngineWorldTranslation
-            || !ParentIndicesMatch(ctx.EngineParentIndices, ctx.GltfParentIndices, ctx.BoneCount))
+            || !PsxAnimationChannelWriter.ParentIndicesMatch(ctx.EngineParentIndices, ctx.GltfParentIndices, ctx.BoneCount))
         {
             AppendPsxEngineWorldTranslationChannels(
                 modelAnim, in ctx, options.TranslationBoneFilter);
@@ -51,7 +56,7 @@ internal static partial class ModelDocumentGeometryAdapter
     ///     (Per-bone zeros inside a clip that DOES carry translation data are
     ///     engine truth — that bone sits at its parent's origin — and are emitted.)
     /// </summary>
-    private static bool HasTranslationData(PsxAnimation animation, int boneCount)
+    internal static bool HasTranslationData(PsxAnimation animation, int boneCount)
     {
         for (var bone = 0; bone < boneCount; bone++)
         {
@@ -95,7 +100,7 @@ internal static partial class ModelDocumentGeometryAdapter
         };
     }
 
-    private readonly record struct PsxTranslationChannelContext(
+    internal readonly record struct PsxTranslationChannelContext(
         int SkeletonIndex,
         ModelSkeleton Skeleton,
         PsxAnimation Animation,
@@ -118,16 +123,16 @@ internal static partial class ModelDocumentGeometryAdapter
         in PsxTranslationChannelContext ctx,
         IReadOnlySet<int>? filter)
     {
-        var rotationContext = new PsxRotationChannelContext(
+        var rotationContext = new PsxAnimationChannelWriter.PsxRotationChannelContext(
             ctx.SkeletonIndex, ctx.Animation, ctx.GltfParentIndices, ctx.BoneCount,
             ctx.FrameCount, ctx.Fps, ctx.Compose, ctx.LegacyRotationChain,
             ctx.RotationScale);
-        var engineLocalRotations = MaterialiseEngineLocalRotations(in rotationContext);
+        var engineLocalRotations = PsxAnimationChannelWriter.MaterialiseEngineLocalRotations(in rotationContext);
         var bindWorldTranslations = MaterialiseBindWorldTranslations(
             ctx.Skeleton, ctx.GltfParentIndices, ctx.BoneCount);
         var engineWorldTranslations = MaterialiseEngineWorldTranslations(
             in ctx, engineLocalRotations);
-        var gltfWorldRotations = MaterialiseGltfWorldRotations(
+        var gltfWorldRotations = PsxAnimationChannelWriter.MaterialiseGltfWorldRotations(
             in rotationContext, engineLocalRotations, ctx.SkipRotation);
         var targetWorldTranslations = MaterialiseTargetWorldTranslations(
             in ctx, bindWorldTranslations, engineWorldTranslations);
@@ -168,7 +173,7 @@ internal static partial class ModelDocumentGeometryAdapter
 
         var local = skeleton.Bones[bone].LocalTransform.Translation;
         var parent = parentIndices[bone];
-        world[bone] = IsUsableParent(parent, bone, boneCount)
+        world[bone] = PsxAnimationChannelWriter.IsUsableParent(parent, bone, boneCount)
             ? MaterialiseBindWorldTranslation(skeleton, parentIndices, boneCount, world, computed, parent) + local
             : local;
         computed[bone] = true;
@@ -210,7 +215,7 @@ internal static partial class ModelDocumentGeometryAdapter
         // a pHierarchy bind vector that ships ~zero in real data.
         var rawTranslation = ctx.Animation.GetBoneTranslation(bone, frame);
         var parent = ctx.EngineParentIndices[bone];
-        if (IsUsableParent(parent, bone, ctx.BoneCount))
+        if (PsxAnimationChannelWriter.IsUsableParent(parent, bone, ctx.BoneCount))
         {
             var parentWorld = MaterialiseEngineWorldTranslation(
                 in ctx, engineLocalRotations, world, computed, parent, frame);
@@ -261,7 +266,7 @@ internal static partial class ModelDocumentGeometryAdapter
             var target = targetWorldTranslations[bone, frame];
             var parent = ctx.GltfParentIndices[bone];
             var gltfT = target;
-            if (IsUsableParent(parent, bone, ctx.BoneCount))
+            if (PsxAnimationChannelWriter.IsUsableParent(parent, bone, ctx.BoneCount))
             {
                 var parentDelta = target - targetWorldTranslations[parent, frame];
                 gltfT = Vector3.Transform(

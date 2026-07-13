@@ -6,7 +6,11 @@ using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
 
-public static partial class PsxAnimExportCommand
+/// <summary>
+///     The psx-anim-export pipeline: parse the character, probe/decode the
+///     embedded and external animation banks, and export the animated GLB.
+/// </summary>
+internal static class PsxAnimExportRunner
 {
     private static string FormatSkeletonMode(bool flatSkeleton, IReadOnlySet<int>? flatBoneFilter)
     {
@@ -17,7 +21,7 @@ public static partial class PsxAnimExportCommand
         return "hier";
     }
 
-    private static int Execute(
+    internal static int Run(
         string input, string? output, string? animSourcePath, int animIndex, string? animName,
         PsxAnimationOptions opts, MeshOutputFormat format, string? blenderHelper,
         bool flatSkeleton, IReadOnlySet<int>? flatBoneFilter, bool verbose)

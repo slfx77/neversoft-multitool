@@ -4,10 +4,14 @@ using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
 
-public static partial class PsxAnimDumpCommand
+/// <summary>
+///     Layer 4 of the psxanim probe: full DecompressStream decode of an
+///     animation slot plus the per-bone motion-span rank diagnostic.
+/// </summary>
+internal static class PsxAnimDumpDecoder
 {
 
-    private static int DumpRankedBoneMotion(
+    internal static int DumpRankedBoneMotion(
         PsxAnimFile? animFile,
         int boneCount,
         int boneIndex,
@@ -141,8 +145,8 @@ public static partial class PsxAnimDumpCommand
     ///     produces the full per-bone (Rx, Ry, Rz, Tx, Ty, Tz) trajectory for
     ///     all <paramref name="numBones" /> bones across <c>frameCount</c> frames.
     /// </summary>
-    private static void DumpAnimationSlot(
-        byte[] data, HierLocation hier, int animIndex, int boneIndex, int numBones, bool verbose)
+    internal static void DumpAnimationSlot(
+        byte[] data, PsxAnimHierLocation hier, int animIndex, int boneIndex, int numBones, bool verbose)
     {
         if (animIndex < 0 || animIndex >= hier.NumStreams)
         {
@@ -344,4 +348,16 @@ public static partial class PsxAnimDumpCommand
 
         return (min, max);
     }
+
+    private sealed record BoneMotionRankRow(
+        int AnimIndex,
+        int FrameCount,
+        int TxSpan,
+        int TySpan,
+        int TzSpan,
+        float TranslationLength,
+        int RxSpan,
+        int RySpan,
+        int RzSpan,
+        string? Error);
 }

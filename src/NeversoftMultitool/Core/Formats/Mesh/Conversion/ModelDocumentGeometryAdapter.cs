@@ -151,7 +151,7 @@ internal static partial class ModelDocumentGeometryAdapter
         bool flatSkeleton = false,
         IReadOnlySet<int>? flatBoneIndices = null)
     {
-        if (UsesCombinedPsxCharacterAssembly(psxFile))
+        if (PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(psxFile))
         {
             PopulatePsxSkinned(
                 document, psxFile, pshFile, textureProvider,
@@ -732,7 +732,7 @@ internal static partial class ModelDocumentGeometryAdapter
             .Sum(static primitive => primitive.TriangleCount);
     }
 
-    private static Vector3 NormalizeOrDefault(Vector3 value)
+    internal static Vector3 NormalizeOrDefault(Vector3 value)
     {
         var length = value.Length();
         return length > 0.001f && float.IsFinite(length) ? value / length : Vector3.UnitY;
@@ -801,7 +801,7 @@ internal static partial class ModelDocumentGeometryAdapter
                name.Contains("_CR_VertPoly", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string ResolveQbName(uint checksum, string fallback)
+    internal static string ResolveQbName(uint checksum, string fallback)
     {
         return QbKey.QbKey.TryResolve(checksum) ?? fallback;
     }

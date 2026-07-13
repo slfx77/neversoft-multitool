@@ -42,7 +42,7 @@ internal static partial class ModelDocumentGeometryAdapter
         Vector4 color,
         (int Width, int Height) texDims)
     {
-        var vertexIndex = GetPsxFaceVertexIndex(face, slot);
+        var vertexIndex = PsxGeometryHelpers.GetPsxFaceVertexIndex(face, slot);
         if (vertexIndex >= mesh.Vertices.Count)
             return new ModelVertex(Vector3.Zero, Vector3.UnitY, color, Vector2.Zero);
 
@@ -50,9 +50,9 @@ internal static partial class ModelDocumentGeometryAdapter
         var texCoord = face.GetTextureCoordinate(slot);
         return new ModelVertex(
             new Vector3(nativeVertex.X, -nativeVertex.Y, -nativeVertex.Z),
-            ComputePsxVertexNormal(mesh, face, vertexIndex),
+            PsxGeometryHelpers.ComputePsxVertexNormal(mesh, face, vertexIndex),
             color,
-            ComputePsxTextureUv(version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height));
+            PsxGeometryHelpers.ComputePsxTextureUv(version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height));
     }
 
     private static ModelVertex MakePs2Vertex(

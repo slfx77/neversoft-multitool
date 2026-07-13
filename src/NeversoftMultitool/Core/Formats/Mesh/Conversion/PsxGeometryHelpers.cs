@@ -3,9 +3,14 @@ using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
-internal static partial class ModelDocumentGeometryAdapter
+/// <summary>
+///     PSX face/vertex decode helpers shared by the character-skin,
+///     level-strip, and vertex-factory paths of
+///     <see cref="ModelDocumentGeometryAdapter" />.
+/// </summary>
+internal static class PsxGeometryHelpers
 {
-    private static (Vector4 C0, Vector4 C1, Vector4 C2, Vector4 C3) ComputePsxFaceColors(
+    internal static (Vector4 C0, Vector4 C1, Vector4 C2, Vector4 C3) ComputePsxFaceColors(
         ushort version,
         PsxFace face,
         Vector4[]? gouraudPalette)
@@ -29,7 +34,7 @@ internal static partial class ModelDocumentGeometryAdapter
         return (flat, flat, flat, flat);
     }
 
-    private static Vector3 ComputePsxVertexNormal(PsxMesh mesh, PsxFace face, uint vertexIndex)
+    internal static Vector3 ComputePsxVertexNormal(PsxMesh mesh, PsxFace face, uint vertexIndex)
     {
         var normalIndex = mesh.HasPerVertexNormals && vertexIndex < mesh.VertexCount
             ? vertexIndex
@@ -38,10 +43,10 @@ internal static partial class ModelDocumentGeometryAdapter
             return Vector3.UnitY;
 
         var normal = mesh.Normals[(int)normalIndex];
-        return NormalizeOrDefault(new Vector3(normal.X, -normal.Y, -normal.Z));
+        return ModelDocumentGeometryAdapter.NormalizeOrDefault(new Vector3(normal.X, -normal.Y, -normal.Z));
     }
 
-    private static Vector2 ComputePsxTextureUv(
+    internal static Vector2 ComputePsxTextureUv(
         ushort version,
         PsxFace face,
         int u,
@@ -64,7 +69,7 @@ internal static partial class ModelDocumentGeometryAdapter
             : new Vector2(u / (float)Math.Max(texWidth, 1), v / (float)Math.Max(texHeight, 1));
     }
 
-    private static uint GetPsxFaceVertexIndex(PsxFace face, int slot)
+    internal static uint GetPsxFaceVertexIndex(PsxFace face, int slot)
     {
         return slot switch
         {
@@ -76,7 +81,7 @@ internal static partial class ModelDocumentGeometryAdapter
         };
     }
 
-    private static bool UsesCombinedPsxCharacterAssembly(PsxMeshFile psxFile)
+    internal static bool UsesCombinedPsxCharacterAssembly(PsxMeshFile psxFile)
     {
         // A HIER chunk alone is not a character marker: level files carry one
         // for their placed animated objects (THPS1-proto skdown/skvans) and
@@ -87,7 +92,7 @@ internal static partial class ModelDocumentGeometryAdapter
                (psxFile.HasHierarchy && psxFile.IsSuperModel);
     }
 
-    private static HashSet<int> BuildPsxLodVariantSet(PsxMeshFile psxFile)
+    internal static HashSet<int> BuildPsxLodVariantSet(PsxMeshFile psxFile)
     {
         return psxFile.Meshes
             .Select(static mesh => (int)mesh.LodNextMeshIndex)
@@ -95,9 +100,9 @@ internal static partial class ModelDocumentGeometryAdapter
             .ToHashSet();
     }
 
-    private static string ResolvePsxMeshName(PsxMeshFile psxFile, int meshIndex)
+    internal static string ResolvePsxMeshName(PsxMeshFile psxFile, int meshIndex)
     {
         var nameHash = meshIndex < psxFile.MeshNameHashes.Length ? psxFile.MeshNameHashes[meshIndex] : 0u;
-        return ResolveQbName(nameHash, $"mesh_{meshIndex:X8}");
+        return ModelDocumentGeometryAdapter.ResolveQbName(nameHash, $"mesh_{meshIndex:X8}");
     }
 }

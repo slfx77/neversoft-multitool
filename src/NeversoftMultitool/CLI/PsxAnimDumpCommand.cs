@@ -5,7 +5,7 @@ using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
 
-public static partial class PsxAnimDumpCommand
+public static class PsxAnimDumpCommand
 {
     public static Command Create()
     {
@@ -111,7 +111,7 @@ public static partial class PsxAnimDumpCommand
         }
 
         if (rankBoneIndex is { } rankedBone)
-            return DumpRankedBoneMotion(parsedAnimFile, meshFile.Objects.Count, rankedBone, rankTop);
+            return PsxAnimDumpDecoder.DumpRankedBoneMotion(parsedAnimFile, meshFile.Objects.Count, rankedBone, rankTop);
 
         var boundary = PsxMeshFile.GetMeshBlockEnd(data);
         if (boundary <= 0 || boundary >= data.Length)
@@ -132,12 +132,12 @@ public static partial class PsxAnimDumpCommand
 
         // ─── Layer 1: hex dump + u32 interpretation ─────────────────────
         AnsiConsole.MarkupLine("\n[bold underline]Layer 1[/] [grey]— hex dump after boundary[/]");
-        DumpHex(data, boundary, (int)Math.Min(hexBytes, trailing));
-        DumpFirstU32s(data, boundary, (int)Math.Min(16, trailing / 4));
+        PsxAnimDumpWalker.DumpHex(data, boundary, (int)Math.Min(hexBytes, trailing));
+        PsxAnimDumpWalker.DumpFirstU32s(data, boundary, (int)Math.Min(16, trailing / 4));
 
         // ─── Layer 2: speculative anim-packet walk ──────────────────────
         AnsiConsole.MarkupLine("\n[bold underline]Layer 2[/] [grey]— anim packet walk (PreProcessAnimPacket)[/]");
-        var afterAnimPacket = TryWalkAnimPacket(data, boundary, meshFile.Meshes.Count, verbose);
+        var afterAnimPacket = PsxAnimDumpWalker.TryWalkAnimPacket(data, boundary, meshFile.Meshes.Count, verbose);
 
         var hierarchyStart = afterAnimPacket;
         if (PsxMeshFile.TryGetAnimChunkTag(data, out var animChunkTag, out var chunkDataOffset))
@@ -150,14 +150,14 @@ public static partial class PsxAnimDumpCommand
         // ─── Layer 3: speculative hierarchy walk ────────────────────────
         AnsiConsole.MarkupLine("\n[bold underline]Layer 3[/] [grey]— per-bone hierarchy walk[/]");
         var psh = TryLoadPshCompanion(input);
-        var hierResult = TryWalkHierarchy(data, hierarchyStart, psh, verbose);
+        var hierResult = PsxAnimDumpWalker.TryWalkHierarchy(data, hierarchyStart, psh, verbose);
 
         // ─── Layer 4: decompress one whole animation (all bones, 6 channels each) ───
         if (hierResult is not null)
         {
             AnsiConsole.MarkupLine(
                 $"\n[bold underline]Layer 4[/] [grey]— decompress animation {animIndex} (all bones)[/]");
-            DumpAnimationSlot(data, hierResult, animIndex, boneIndex, meshFile.Objects.Count, verbose);
+            PsxAnimDumpDecoder.DumpAnimationSlot(data, hierResult, animIndex, boneIndex, meshFile.Objects.Count, verbose);
         }
         else
         {
@@ -178,23 +178,4 @@ public static partial class PsxAnimDumpCommand
         return File.Exists(stem) ? PshFile.Parse(stem) : null;
     }
 
-    // ─── Layer 3: hierarchy walk ────────────────────────────────────────
-
-    private sealed record HierLocation(
-        long Base,
-        int NumStreams,
-        int[] FrameCounts,
-        int[] PoolOffsets);
-
-    private sealed record BoneMotionRankRow(
-        int AnimIndex,
-        int FrameCount,
-        int TxSpan,
-        int TySpan,
-        int TzSpan,
-        float TranslationLength,
-        int RxSpan,
-        int RySpan,
-        int RzSpan,
-        string? Error);
 }

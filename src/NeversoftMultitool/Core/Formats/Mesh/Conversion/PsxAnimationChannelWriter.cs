@@ -4,7 +4,13 @@ using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
-internal static partial class ModelDocumentGeometryAdapter
+/// <summary>
+///     Builds glTF animation clips for PSX characters: rotation channels
+///     (engine piecewise-rigid absolute rotations re-expressed as glTF
+///     parent-chained locals) and the per-clip dispatch that hands
+///     translation work to <see cref="PsxTranslationChannelWriter" />.
+/// </summary>
+internal static class PsxAnimationChannelWriter
 {
 
     /// <summary>
@@ -133,14 +139,14 @@ internal static partial class ModelDocumentGeometryAdapter
                 AppendPsxRotationChannels(modelAnim, rotationContext);
             }
 
-            if (!options.SkipTranslation && HasTranslationData(animation, boneCount))
+            if (!options.SkipTranslation && PsxTranslationChannelWriter.HasTranslationData(animation, boneCount))
             {
-                var translationContext = new PsxTranslationChannelContext(
+                var translationContext = new PsxTranslationChannelWriter.PsxTranslationChannelContext(
                     skeletonIndex, skeleton, animation, gltfParentIndices, engineParentIndices, boneCount,
                     frameCount, fps, translationDivisor, options.RotationCompose,
                     options.LegacyRotationChain, options.RotationScale,
                     options.AbsoluteTranslation, options.SkipRotation, flatTranslations);
-                EmitPsxTranslationChannels(modelAnim, in translationContext, options);
+                PsxTranslationChannelWriter.EmitPsxTranslationChannels(modelAnim, in translationContext, options);
             }
 
             if (modelAnim.Channels.Count > 0)
@@ -153,7 +159,7 @@ internal static partial class ModelDocumentGeometryAdapter
     ///     individual builder helpers stay well under the codebase's per-method
     ///     parameter ceiling.
     /// </summary>
-    private readonly record struct PsxRotationChannelContext(
+    internal readonly record struct PsxRotationChannelContext(
         int SkeletonIndex,
         PsxAnimation Animation,
         int[] ParentIndices,
@@ -234,7 +240,7 @@ internal static partial class ModelDocumentGeometryAdapter
         return parents;
     }
 
-    private static bool ParentIndicesMatch(int[] engineParents, int[] gltfParents, int boneCount)
+    internal static bool ParentIndicesMatch(int[] engineParents, int[] gltfParents, int boneCount)
     {
         for (var bone = 0; bone < boneCount; bone++)
         {
@@ -260,7 +266,7 @@ internal static partial class ModelDocumentGeometryAdapter
         return parents;
     }
 
-    private static Quaternion[,] MaterialiseEngineLocalRotations(in PsxRotationChannelContext ctx)
+    internal static Quaternion[,] MaterialiseEngineLocalRotations(in PsxRotationChannelContext ctx)
     {
         // Materialise per-frame engine-local rotations once so the correction
         // step can read any bone's parent without recomputing trig.
@@ -373,7 +379,7 @@ internal static partial class ModelDocumentGeometryAdapter
         return parents;
     }
 
-    private static Quaternion[,] MaterialiseGltfWorldRotations(
+    internal static Quaternion[,] MaterialiseGltfWorldRotations(
         in PsxRotationChannelContext ctx,
         Quaternion[,] engineLocalRotations,
         bool skipRotation)
@@ -442,7 +448,7 @@ internal static partial class ModelDocumentGeometryAdapter
             : Quaternion.Identity;
     }
 
-    private static bool IsUsableParent(int parent, int bone, int boneCount)
+    internal static bool IsUsableParent(int parent, int bone, int boneCount)
     {
         return parent >= 0 && parent < boneCount && parent != bone;
     }
