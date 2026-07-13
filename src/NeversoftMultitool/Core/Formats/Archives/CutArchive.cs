@@ -300,9 +300,8 @@ public static partial class CutArchive
             else if (e.ExtKey == ExtText)
             {
                 var text = Encoding.ASCII.GetString(data, (int)e.Offset, e.Size);
-                foreach (Match m in IdentifierRegex().Matches(text))
+                foreach (var candidate in IdentifierRegex().Matches(text).Select(m => m.Value))
                 {
-                    var candidate = m.Value;
                     var lower = QbKey.QbKey.HashLower(candidate);
                     if (wanted.Contains(lower))
                         harvested.TryAdd(lower, candidate);
