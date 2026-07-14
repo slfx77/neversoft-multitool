@@ -8,15 +8,6 @@ namespace NeversoftMultitool.CLI;
 
 public static class GlbRenderCommand
 {
-    private static readonly IReadOnlyList<RenderView> ObjectReviewViews =
-    [
-        new("front_left", -45f, 20f),
-        new("front_right", 45f, 20f),
-        new("rear_right", 135f, 20f),
-        new("rear_left", -135f, 20f),
-        new("top", -45f, 75f)
-    ];
-
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
@@ -166,7 +157,7 @@ public static class GlbRenderCommand
 
         if (string.Equals(preset, "object-review", StringComparison.OrdinalIgnoreCase))
         {
-            views = ObjectReviewViews;
+            views = GlbRenderPresets.ObjectReview;
             return true;
         }
 
@@ -199,6 +190,4 @@ public static class GlbRenderCommand
         var dir = Path.GetDirectoryName(inputFile) ?? ".";
         return Path.Combine(dir, stem + suffix + ".png");
     }
-
-    private readonly record struct RenderView(string Name, float Azimuth, float Elevation);
 }
