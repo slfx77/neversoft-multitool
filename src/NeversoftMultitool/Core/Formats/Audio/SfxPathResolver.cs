@@ -1,8 +1,12 @@
 namespace NeversoftMultitool.Core.Formats.Audio;
 
-public static partial class SfxExtractor
+/// <summary>
+///     Filesystem-path resolution for SFX extraction: locate the companion
+///     sample bank next to a .SFX file and build the extraction plan.
+/// </summary>
+internal static class SfxPathResolver
 {
-    private static bool TryResolvePlan(string inputPath, out SfxExtractionPlan plan, out string error)
+    internal static bool TryResolvePlan(string inputPath, out SfxExtractionPlan plan, out string error)
     {
         plan = new SfxExtractionPlan(new SfxBankSource("", "", []), []);
 
@@ -18,7 +22,7 @@ public static partial class SfxExtractor
         if (!TryResolveBankSource(inputPath, cues, out var bankSource, out error))
             return false;
 
-        var mappings = CreateCueMappings(cues, bankSource);
+        var mappings = SfxCueResolver.CreateCueMappings(cues, bankSource);
         if (mappings.Count == 0)
         {
             error = $"Companion {bankSource.BankFormat} soundbank could not be parsed";
@@ -32,17 +36,17 @@ public static partial class SfxExtractor
 
     private static bool TryResolveBankSource(
         string inputPath,
-        IReadOnlyList<SfxCue> entries,
+        List<SfxCue> entries,
         out SfxBankSource bankSource,
         out string error)
     {
-        if (TryFindCompanionBank(inputPath, out var bankPath) &&
+        if (SfxAliasResolver.TryFindCompanionBank(inputPath, out var bankPath) &&
             TryCreateBankSource(bankPath, out bankSource, out error))
         {
             return true;
         }
 
-        if (TryFindAliasBank(inputPath, entries, out bankPath, out error) &&
+        if (SfxAliasResolver.TryFindAliasBank(inputPath, entries, out bankPath, out error) &&
             TryCreateBankSource(bankPath, out bankSource, out error))
         {
             return true;
@@ -111,7 +115,7 @@ public static partial class SfxExtractor
         }
     }
 
-    private static bool TryParseEntries(string inputPath, out List<SfxCue> cues, out string error)
+    internal static bool TryParseEntries(string inputPath, out List<SfxCue> cues, out string error)
     {
         cues = [];
 
@@ -121,17 +125,17 @@ public static partial class SfxExtractor
             return false;
         }
 
-        return TryParseCues(data, out cues, out error);
+        return SfxCueResolver.TryParseCues(data, out cues, out error);
     }
 
-    private static List<SfxCueMapping> CreateFullBankMappings(SfxBankSource bankSource)
+    internal static List<SfxCueMapping> CreateFullBankMappings(SfxBankSource bankSource)
     {
         return bankSource.Samples
             .Select(sample => new SfxCueMapping(sample.ExternalIndex, null, sample, bankSource.BankFormat))
             .ToList();
     }
 
-    private static string? ExtractBankSampleToWav(
+    internal static string? ExtractBankSampleToWav(
         SfxBankSource bankSource,
         int sampleIndex,
         string outputDir,

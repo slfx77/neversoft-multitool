@@ -2,7 +2,11 @@ using System.Buffers.Binary;
 
 namespace NeversoftMultitool.Core.Formats.Audio;
 
-public static partial class SfxExtractor
+/// <summary>
+///     Engine-exact cue-to-sample resolution: the VAB tone-table walk
+///     (playSFX) and the KAT direct program mapping.
+/// </summary>
+internal static class SfxCueResolver
 {
     // VAB header/tone-table geometry as playSFX walks it (THPS2 PSX proto decomp):
     // 32-byte header + 128 × 16-byte program attrs end at 0x820, then one 0x200-byte
@@ -23,27 +27,27 @@ public static partial class SfxExtractor
     ///     parsing stops at the 0xFFFFFFFF terminator word (SFX_ParseSFXFile) or at a
     ///     fully-zero record (sector padding on prototype disc rips).
     /// </summary>
-    private static bool TryParseCues(byte[] data, out List<SfxCue> cues, out string error)
+    internal static bool TryParseCues(byte[] data, out List<SfxCue> cues, out string error)
     {
         cues = [];
 
-        if (data.Length < EntrySize)
+        if (data.Length < SfxExtractor.EntrySize)
         {
             error = "Invalid SFX file layout";
             return false;
         }
 
-        for (var offset = 0; offset + EntrySize <= data.Length; offset += EntrySize)
+        for (var offset = 0; offset + SfxExtractor.EntrySize <= data.Length; offset += SfxExtractor.EntrySize)
         {
-            if (ReadUInt32LittleEndian(data, offset) == CueTerminator)
+            if (SfxAliasResolver.ReadUInt32LittleEndian(data, offset) == SfxExtractor.CueTerminator)
                 break;
 
-            if (IsZeroedEntry(data, offset))
+            if (SfxAliasResolver.IsZeroedEntry(data, offset))
                 break;
 
             // The 6 trailing bytes of every real cue record are zero pad; a nonzero
             // pad byte means this is not a THPS2-era cue table.
-            for (var padIndex = 10; padIndex < EntrySize; padIndex++)
+            for (var padIndex = 10; padIndex < SfxExtractor.EntrySize; padIndex++)
             {
                 if (data[offset + padIndex] != 0)
                 {
@@ -55,7 +59,7 @@ public static partial class SfxExtractor
 
             cues.Add(new SfxCue(
                 cues.Count,
-                data[offset] == LoopMarker,
+                data[offset] == SfxExtractor.LoopMarker,
                 data[offset + 1],
                 data[offset + 2],
                 data[offset + 3],
@@ -79,7 +83,7 @@ public static partial class SfxExtractor
     ///     exact playSFX tone walk, KAT companions get the Spider-Man-style direct rule,
     ///     and anything unresolved falls back to full companion-bank extraction.
     /// </summary>
-    private static List<SfxCueMapping> CreateCueMappings(IReadOnlyList<SfxCue> cues, SfxBankSource bankSource)
+    internal static List<SfxCueMapping> CreateCueMappings(IReadOnlyList<SfxCue> cues, SfxBankSource bankSource)
     {
         switch (bankSource.BankFormat)
         {
@@ -88,7 +92,7 @@ public static partial class SfxExtractor
             case "KAT" when TryCreateKatDirectMappings(cues, bankSource, out var katMappings):
                 return katMappings;
             default:
-                return CreateFullBankMappings(bankSource);
+                return SfxPathResolver.CreateFullBankMappings(bankSource);
         }
     }
 
@@ -117,7 +121,7 @@ public static partial class SfxExtractor
         }
 
         if (vab == null || vab.Length < VabToneTablesStart ||
-            ReadUInt32LittleEndian(vab, 0) != VabMagic)
+            SfxAliasResolver.ReadUInt32LittleEndian(vab, 0) != VabMagic)
         {
             return false;
         }

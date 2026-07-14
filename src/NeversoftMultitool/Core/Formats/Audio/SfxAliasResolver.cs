@@ -1,8 +1,12 @@
 namespace NeversoftMultitool.Core.Formats.Audio;
 
-public static partial class SfxExtractor
+/// <summary>
+///     Cross-sibling alias-bank scoring: picks the companion bank whose
+///     cue table best matches a bankless .SFX file.
+/// </summary>
+internal static class SfxAliasResolver
 {
-    private static bool TryFindCompanionBank(string inputPath, out string bankPath)
+    internal static bool TryFindCompanionBank(string inputPath, out string bankPath)
     {
         foreach (var extension in new[] { ".kat", ".KAT", ".vab", ".VAB" })
         {
@@ -18,9 +22,9 @@ public static partial class SfxExtractor
         return false;
     }
 
-    private static bool TryFindAliasBank(
+    internal static bool TryFindAliasBank(
         string inputPath,
-        IReadOnlyList<SfxCue> entries,
+        List<SfxCue> entries,
         out string bankPath,
         out string error)
     {
@@ -42,7 +46,7 @@ public static partial class SfxExtractor
             if (!TryFindCompanionBank(siblingPath, out var siblingBankPath))
                 continue;
 
-            if (!TryParseEntries(siblingPath, out var siblingEntries, out _))
+            if (!SfxPathResolver.TryParseEntries(siblingPath, out var siblingEntries, out _))
                 continue;
 
             if (siblingEntries.Count == 0)
@@ -62,7 +66,7 @@ public static partial class SfxExtractor
 
         var best = ordered[0];
         var secondBestScore = ordered.Count > 1 ? ordered[1].Score : int.MaxValue;
-        if (best.Score > AliasScoreThreshold || secondBestScore - best.Score < AliasMarginThreshold)
+        if (best.Score > SfxExtractor.AliasScoreThreshold || secondBestScore - best.Score < SfxExtractor.AliasMarginThreshold)
         {
             error = "Companion KAT/VAB soundbank not found and no high-confidence sibling SFX alias was found";
             return false;
@@ -73,7 +77,7 @@ public static partial class SfxExtractor
         return true;
     }
 
-    private static int ScoreEntries(IReadOnlyList<SfxCue> left, IReadOnlyList<SfxCue> right)
+    private static int ScoreEntries(List<SfxCue> left, List<SfxCue> right)
     {
         var count = Math.Min(left.Count, right.Count);
         var score = Math.Abs(left.Count - right.Count) * 20;
@@ -97,9 +101,9 @@ public static partial class SfxExtractor
         return score;
     }
 
-    private static bool IsZeroedEntry(byte[] data, int offset)
+    internal static bool IsZeroedEntry(byte[] data, int offset)
     {
-        for (var i = 0; i < EntrySize; i++)
+        for (var i = 0; i < SfxExtractor.EntrySize; i++)
         {
             if (data[offset + i] != 0)
                 return false;
@@ -108,7 +112,7 @@ public static partial class SfxExtractor
         return true;
     }
 
-    private static uint ReadUInt32LittleEndian(byte[] data, int offset)
+    internal static uint ReadUInt32LittleEndian(byte[] data, int offset)
     {
         return data[offset] |
                ((uint)data[offset + 1] << 8) |

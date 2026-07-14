@@ -1,13 +1,17 @@
 namespace NeversoftMultitool.Core.Formats.Audio;
 
-public static partial class SfxExtractor
+/// <summary>
+///     Archive-sourced SFX extraction: builds the plan from explicit
+///     companion-bank bytes when no filesystem siblings exist.
+/// </summary>
+internal static class SfxByteBankResolver
 {
-    private static bool TryResolvePlanFromBytes(
-        byte[] sfxData, SfxBankBytes? bankBytes, out SfxExtractionPlan plan, out string error)
+    internal static bool TryResolvePlanFromBytes(
+        byte[] sfxData, SfxExtractor.SfxBankBytes? bankBytes, out SfxExtractionPlan plan, out string error)
     {
         plan = new SfxExtractionPlan(new SfxBankSource("", "", []), []);
 
-        if (!TryParseCues(sfxData, out var cues, out error))
+        if (!SfxCueResolver.TryParseCues(sfxData, out var cues, out error))
             return false;
 
         if (bankBytes is not { } bb)
@@ -19,7 +23,7 @@ public static partial class SfxExtractor
         if (!TryCreateBankSourceFromBytes(bb, out var bankSource, out error))
             return false;
 
-        var mappings = CreateCueMappings(cues, bankSource);
+        var mappings = SfxCueResolver.CreateCueMappings(cues, bankSource);
         if (mappings.Count == 0)
         {
             error = $"Companion {bankSource.BankFormat} soundbank could not be parsed";
@@ -32,7 +36,7 @@ public static partial class SfxExtractor
     }
 
     private static bool TryCreateBankSourceFromBytes(
-        SfxBankBytes bankBytes, out SfxBankSource bankSource, out string error)
+        SfxExtractor.SfxBankBytes bankBytes, out SfxBankSource bankSource, out string error)
     {
         switch (bankBytes.Format)
         {
