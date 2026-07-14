@@ -45,7 +45,7 @@
       SelectionChanged="NavView_SelectionChanged">
 
       <NavigationView.MenuItems>
-        <NavigationViewItemHeader Content="Textures" />
+        <NavigationViewItemHeader Content="Images" />
 
         <!--  Texture Extraction  -->
         <NavigationViewItem
@@ -57,9 +57,9 @@
           </NavigationViewItem.Icon>
         </NavigationViewItem>
 
-        <!--  RLE / BMR Bitmap Conversion  -->
+        <!--  Bitmap Conversion (RLE/BMR/ZLB/BMP/TGA)  -->
         <NavigationViewItem
-          Content="RLE / BMR"
+          Content="Bitmap Converter"
           Tag="RleBitmaps">
           <NavigationViewItem.Icon>
             <FontIcon Glyph="&#xE8B9;" />
@@ -138,6 +138,19 @@
 
         <NavigationViewItemSeparator />
 
+        <NavigationViewItemHeader Content="Scripts" />
+
+        <!--  Script Decompiler  -->
+        <NavigationViewItem
+          Content="Script Decompiler"
+          Tag="ScriptDecompiler">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE943;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+
+        <NavigationViewItemSeparator />
+
         <NavigationViewItemHeader Content="Tools" />
 
         <!--  Hash Reviewer  -->
@@ -146,19 +159,6 @@
           Tag="HashReviewer">
           <NavigationViewItem.Icon>
             <FontIcon Glyph="&#xE71C;" />
-          </NavigationViewItem.Icon>
-        </NavigationViewItem>
-
-        <NavigationViewItemSeparator />
-
-        <NavigationViewItemHeader Content="Scripts" />
-
-        <!--  Script Decompiler  -->
-        <NavigationViewItem
-          Content="Script Decompiler"
-          Tag="ScriptDecompiler">
-          <NavigationViewItem.Icon>
-            <FontIcon Glyph="&#xE81E;" />
           </NavigationViewItem.Icon>
         </NavigationViewItem>
       </NavigationView.MenuItems>
@@ -184,7 +184,7 @@
               x:Name="TextureTabContent"
               VerticalAlignment="Stretch"
               Visibility="Visible" />
-            <tabs:RleBitmapTab
+            <tabs:BitmapConverterTab
               x:Name="RleBitmapTabContent"
               VerticalAlignment="Stretch"
               Visibility="Collapsed" />

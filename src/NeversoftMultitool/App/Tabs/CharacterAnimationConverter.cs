@@ -29,8 +29,29 @@ internal static class CharacterAnimationConverter
         MeshFileEntry character,
         IReadOnlyList<AnimationProbe> animations)
     {
+        var (document, error) = BuildDocument(character, animations);
+        if (document == null)
+            return new Result(null, 0, error);
+
+        var (glbBytes, triangles) = new GltfModelExporter().BuildGlbBytes(document);
+        if (triangles == 0 || glbBytes == null)
+            return new Result(null, 0, "Mesh has no triangles after skinning.");
+
+        return new Result(glbBytes, triangles, null);
+    }
+
+    /// <summary>
+    ///     Build the animated model document for a character + N animations.
+    ///     The document feeds either exporter (GLB via
+    ///     <see cref="GltfModelExporter" />, .blend via
+    ///     <see cref="ModelExportService" />).
+    /// </summary>
+    public static DocumentResult BuildDocument(
+        MeshFileEntry character,
+        IReadOnlyList<AnimationProbe> animations)
+    {
         if (animations.Count == 0)
-            return new Result(null, 0, "No animations selected.");
+            return new DocumentResult(null, "No animations selected.");
 
         if (character.IsRwDff)
             return BuildRwDff(character, animations);
@@ -41,7 +62,7 @@ internal static class CharacterAnimationConverter
         if (character.IsPsx && character.PsxHasHierarchy)
             return BuildPsx(character, animations);
 
-        return new Result(null, 0,
+        return new DocumentResult(null,
             $"Animated preview not supported for {character.FormatDisplay}.");
     }
 
@@ -83,13 +104,13 @@ internal static class CharacterAnimationConverter
         return null;
     }
 
-    private static Result BuildPs2Scene(
+    private static DocumentResult BuildPs2Scene(
         MeshFileEntry character, IReadOnlyList<AnimationProbe> animations)
     {
         var stem = MeshConverterTabFileScanner.StripCompoundExtension(character.FileName);
         var skeleton = MeshConverterTabFileConverter.TryLoadPs2Skeleton(character, stem);
         if (skeleton == null)
-            return new Result(null, 0, "No skeleton found for this character.");
+            return new DocumentResult(null, "No skeleton found for this character.");
 
         // V1 (THPS4) skeletons have no native bind pose; enrich from a default
         // animation in the same archetype subtree if available.
@@ -110,7 +131,7 @@ internal static class CharacterAnimationConverter
         }
 
         if (named.Count == 0)
-            return new Result(null, 0, "No animations matched the character's skeleton.");
+            return new DocumentResult(null, "No animations matched the character's skeleton.");
 
         var fileName = Path.GetFileName(character.Source.FileSystemPath ?? character.FileName);
         var document = new MeshModelParser().Parse(new MeshImportRequest
@@ -124,20 +145,16 @@ internal static class CharacterAnimationConverter
             SkaAnimations = named
         });
 
-        var (glbBytes, triangles) = new GltfModelExporter().BuildGlbBytes(document);
-        if (triangles == 0 || glbBytes == null)
-            return new Result(null, 0, "Mesh has no triangles after skinning.");
-
-        return new Result(glbBytes, triangles, null);
+        return new DocumentResult(document, null);
     }
 
-    private static Result BuildRwDff(
+    private static DocumentResult BuildRwDff(
         MeshFileEntry character, IReadOnlyList<AnimationProbe> animations)
     {
         var clump = RwDffFile.Parse(character.Source.ReadBytes());
         var skin = clump.Atomics.FirstOrDefault(a => a.SkinData != null)?.SkinData;
         if (skin == null)
-            return new Result(null, 0, "DFF clump is not skinned.");
+            return new DocumentResult(null, "DFF clump is not skinned.");
 
         var named = new List<(string Name, SkaAnimation Animation)>();
         foreach (var probe in animations)
@@ -149,7 +166,7 @@ internal static class CharacterAnimationConverter
         }
 
         if (named.Count == 0)
-            return new Result(null, 0, "No animations matched the character's bone count.");
+            return new DocumentResult(null, "No animations matched the character's bone count.");
 
         var fileName = Path.GetFileName(character.Source.FileSystemPath ?? character.FileName);
         var document = new MeshModelParser().Parse(new MeshImportRequest
@@ -161,22 +178,18 @@ internal static class CharacterAnimationConverter
             SkaAnimations = named
         });
 
-        var (glbBytes, triangles) = new GltfModelExporter().BuildGlbBytes(document);
-        if (triangles == 0 || glbBytes == null)
-            return new Result(null, 0, "DFF produced no triangles.");
-
-        return new Result(glbBytes, triangles, null);
+        return new DocumentResult(document, null);
     }
 
-    private static Result BuildPsx(
+    private static DocumentResult BuildPsx(
         MeshFileEntry character, IReadOnlyList<AnimationProbe> animations)
     {
         var data = character.Source.ReadBytes();
         var psxFile = PsxMeshFile.Parse(data);
         if (psxFile == null)
-            return new Result(null, 0, "PSX file has no parseable mesh data.");
+            return new DocumentResult(null, "PSX file has no parseable mesh data.");
         if (!psxFile.HasHierarchy)
-            return new Result(null, 0, "PSX file is not a hierarchical character.");
+            return new DocumentResult(null, "PSX file is not a hierarchical character.");
 
         // Translation channels compose through the hierarchy that ships with
         // the anim data, so clips from an external bank (e.g. sk2anim.psx)
@@ -207,7 +220,7 @@ internal static class CharacterAnimationConverter
         }
 
         if (clips.Count == 0)
-            return new Result(null, 0, "No animations decoded successfully for this PSX character.");
+            return new DocumentResult(null, "No animations decoded successfully for this PSX character.");
 
         var fileName = Path.GetFileName(character.Source.FileSystemPath ?? character.FileName);
         var document = new MeshModelParser().Parse(new MeshImportRequest
@@ -220,11 +233,7 @@ internal static class CharacterAnimationConverter
             PsxAnimationClips = clips
         });
 
-        var (glbBytes, triangles) = new GltfModelExporter().BuildGlbBytes(document);
-        if (triangles == 0 || glbBytes == null)
-            return new Result(null, 0, "PSX mesh produced no triangles.");
-
-        return new Result(glbBytes, triangles, null);
+        return new DocumentResult(document, null);
     }
 
     private static MeshChecksumTextureResolver? BuildPsxTextureProvider(MeshFileEntry character)
@@ -305,4 +314,6 @@ internal static class CharacterAnimationConverter
     }
 
     public sealed record Result(byte[]? GlbBytes, int Triangles, string? Error);
+
+    public sealed record DocumentResult(ModelDocument? Document, string? Error);
 }

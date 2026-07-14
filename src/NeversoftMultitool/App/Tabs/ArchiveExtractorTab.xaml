@@ -25,7 +25,7 @@
           Text="Archive Extraction"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Extract files from WAD, PKR, PRE, DDX, and BON archives"
+          Text="Extract files from WAD, PKR, PRE, DDX, and BON archives, or disc images (ISO, BIN+CUE, IMG+CCD, GDI)"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>
@@ -83,12 +83,14 @@
               Style="{StaticResource ColumnHeaderGridStyle}">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="80" />
-            <ColumnDefinition Width="100" />
+            <ColumnDefinition Width="0.7*" />
+            <ColumnDefinition Width="90" />
+            <ColumnDefinition Width="90" />
           </Grid.ColumnDefinitions>
           <TextBlock Grid.Column="0" Text="File Name" FontWeight="SemiBold" />
-          <TextBlock Grid.Column="1" Text="Size" FontWeight="SemiBold" HorizontalAlignment="Right" />
-          <TextBlock Grid.Column="2" Text="Status" FontWeight="SemiBold" />
+          <TextBlock Grid.Column="1" Text="Folder" FontWeight="SemiBold" />
+          <TextBlock Grid.Column="2" Text="Size" FontWeight="SemiBold" HorizontalAlignment="Right" Margin="0,0,16,0" />
+          <TextBlock Grid.Column="3" Text="Status" FontWeight="SemiBold" />
         </Grid>
 
         <!-- Files ListView -->
@@ -101,8 +103,9 @@
               <Grid Style="{StaticResource ListItemRowGridStyle}">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="80" />
-                  <ColumnDefinition Width="100" />
+                  <ColumnDefinition Width="0.7*" />
+                  <ColumnDefinition Width="90" />
+                  <ColumnDefinition Width="90" />
                 </Grid.ColumnDefinitions>
                 <TextBlock
                   Grid.Column="0"
@@ -113,10 +116,18 @@
                 <TextBlock
                   Grid.Column="1"
                   VerticalAlignment="Center"
-                  HorizontalAlignment="Right"
-                  Text="{x:Bind SizeDisplay}" />
+                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                  Text="{x:Bind Folder}"
+                  TextTrimming="CharacterEllipsis"
+                  ToolTipService.ToolTip="{x:Bind Folder}" />
                 <TextBlock
                   Grid.Column="2"
+                  VerticalAlignment="Center"
+                  HorizontalAlignment="Right"
+                  Margin="0,0,16,0"
+                  Text="{x:Bind SizeDisplay}" />
+                <TextBlock
+                  Grid.Column="3"
                   VerticalAlignment="Center"
                   Foreground="{x:Bind StatusColor, Mode=OneWay}"
                   Text="{x:Bind StatusDisplay, Mode=OneWay}" />
@@ -176,10 +187,12 @@
                Grid.Row="0" Grid.Column="1"
                IsReadOnly="True"
                Style="{StaticResource IoTextBoxStyle}" />
-      <Button Grid.Row="0" Grid.Column="2"
-              Content="Browse..."
-              MinWidth="120"
-              Click="OpenArchiveButton_Click" />
+      <StackPanel Grid.Row="0" Grid.Column="2"
+                  Style="{StaticResource IoButtonsPanelStyle}">
+        <Button Content="Select archive..."
+                MinWidth="120"
+                Click="OpenArchiveButton_Click" />
+      </StackPanel>
 
       <TextBlock Grid.Row="1" Grid.Column="0"
                  Text="Output:"
@@ -188,10 +201,26 @@
                Grid.Row="1" Grid.Column="1"
                IsReadOnly="True"
                Style="{StaticResource IoTextBoxStyle}" />
-      <Button Grid.Row="1" Grid.Column="2"
-              Content="Browse..."
-              MinWidth="120"
-              Click="OutputBrowse_Click" />
+      <StackPanel Grid.Row="1" Grid.Column="2"
+                  Style="{StaticResource IoButtonsPanelStyle}">
+        <Button Content="Browse folder..."
+                MinWidth="120"
+                Click="OutputBrowse_Click" />
+        <!-- Cancel occupies Extract's slot while an extraction runs. -->
+        <Button
+          x:Name="CancelButton"
+          Content="Cancel"
+          MinWidth="120"
+          Click="CancelButton_Click"
+          Visibility="Collapsed" />
+        <Button
+          x:Name="ExtractButton"
+          Content="Extract"
+          MinWidth="120"
+          Click="ExtractButton_Click"
+          IsEnabled="False"
+          Style="{StaticResource AccentButtonStyle}" />
+      </StackPanel>
     </Grid>
 
     <!-- Progress Bar -->
@@ -200,27 +229,5 @@
       Grid.Row="3"
       Maximum="100"
       Style="{StaticResource TabProgressBarStyle}" />
-
-    <!-- Action Buttons -->
-    <StackPanel
-      Grid.Row="5"
-      HorizontalAlignment="Right"
-      Orientation="Horizontal"
-      Spacing="8"
-      Margin="0,8,0,0">
-      <Button
-        x:Name="CancelButton"
-        Content="Cancel"
-        MinWidth="80"
-        Click="CancelButton_Click"
-        Visibility="Collapsed" />
-      <Button
-        x:Name="ExtractButton"
-        Content="Extract"
-        MinWidth="120"
-        Click="ExtractButton_Click"
-        IsEnabled="False"
-        Style="{StaticResource AccentButtonStyle}" />
-    </StackPanel>
   </Grid>
 </UserControl>

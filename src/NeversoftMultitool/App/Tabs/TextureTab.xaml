@@ -15,11 +15,12 @@
         <DataTemplate x:DataType="local:PsxFileEntry">
           <Grid Style="{StaticResource ListItemRowGridStyle}">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="28" />
+              <ColumnDefinition Width="56" />
               <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="80" />
-              <ColumnDefinition Width="80" />
-              <ColumnDefinition Width="100" />
+              <ColumnDefinition Width="0.7*" />
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="90" />
             </Grid.ColumnDefinitions>
             <Button
               Grid.Column="0"
@@ -29,9 +30,10 @@
               Width="24" Height="24"
               Background="Transparent"
               BorderThickness="0"
+              HorizontalAlignment="Left"
               Click="ExpandCollapse_Click"
               Tag="{x:Bind}"
-              IsEnabled="{x:Bind HasTextures, Mode=OneWay}"
+              Visibility="{x:Bind ExpanderVisibility, Mode=OneWay}"
               VerticalAlignment="Center">
               <FontIcon
                 FontSize="10"
@@ -42,19 +44,26 @@
               VerticalAlignment="Center"
               Text="{x:Bind FileName}"
               TextTrimming="CharacterEllipsis"
-              ToolTipService.ToolTip="{x:Bind FileName}" />
+              ToolTipService.ToolTip="{x:Bind RelativePath}" />
             <TextBlock
               Grid.Column="2"
               VerticalAlignment="Center"
-              HorizontalAlignment="Center"
-              Text="{x:Bind TextureCountDisplay, Mode=OneWay}" />
+              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+              Text="{x:Bind FolderDisplay}"
+              TextTrimming="CharacterEllipsis"
+              ToolTipService.ToolTip="{x:Bind FolderDisplay}" />
             <TextBlock
               Grid.Column="3"
               VerticalAlignment="Center"
               HorizontalAlignment="Center"
-              Text="{x:Bind ExtractedCountDisplay, Mode=OneWay}" />
+              Text="{x:Bind TextureCountDisplay, Mode=OneWay}" />
             <TextBlock
               Grid.Column="4"
+              VerticalAlignment="Center"
+              HorizontalAlignment="Center"
+              Text="{x:Bind ExtractedCountDisplay, Mode=OneWay}" />
+            <TextBlock
+              Grid.Column="5"
               VerticalAlignment="Center"
               Foreground="{x:Bind StatusColor, Mode=OneWay}"
               Text="{x:Bind StatusDisplay, Mode=OneWay}" />
@@ -104,7 +113,6 @@
       <RowDefinition Height="*" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
-      <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
     <!-- Header row -->
@@ -127,9 +135,9 @@
     <!-- Main content: file list + preview -->
     <Grid Grid.Row="1">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*" MinWidth="200" />
-        <ColumnDefinition x:Name="SplitterColumn" Width="0" />
-        <ColumnDefinition x:Name="PreviewColumn" Width="0" />
+        <ColumnDefinition Width="1*" MinWidth="200" />
+        <ColumnDefinition x:Name="SplitterColumn" Width="8" />
+        <ColumnDefinition x:Name="PreviewColumn" Width="2*" MinWidth="220" />
       </Grid.ColumnDefinitions>
 
       <controls:GridSplitter
@@ -137,8 +145,7 @@
         Grid.Column="1"
         Width="8"
         ResizeBehavior="PreviousAndNext"
-        ResizeDirection="Columns"
-        Visibility="Collapsed" />
+        ResizeDirection="Columns" />
 
       <!-- File list card -->
       <Border
@@ -157,12 +164,37 @@
           <Grid Grid.Row="0"
                 Style="{StaticResource ColumnHeaderGridStyle}">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="28" />
+              <ColumnDefinition Width="56" />
               <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="80" />
-              <ColumnDefinition Width="80" />
-              <ColumnDefinition Width="100" />
+              <ColumnDefinition Width="0.7*" />
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="90" />
             </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
+              <Button
+                Padding="0"
+                MinWidth="0"
+                MinHeight="0"
+                Width="24" Height="24"
+                Background="Transparent"
+                BorderThickness="0"
+                Click="ExpandAll_Click"
+                ToolTipService.ToolTip="Expand all">
+                <FontIcon FontSize="10" Glyph="&#xE70D;" />
+              </Button>
+              <Button
+                Padding="0"
+                MinWidth="0"
+                MinHeight="0"
+                Width="24" Height="24"
+                Background="Transparent"
+                BorderThickness="0"
+                Click="CollapseAll_Click"
+                ToolTipService.ToolTip="Collapse all">
+                <FontIcon FontSize="10" Glyph="&#xE70E;" />
+              </Button>
+            </StackPanel>
             <Button
               Grid.Column="1"
               Style="{StaticResource SortableColumnHeaderButtonStyle}"
@@ -175,6 +207,15 @@
             <Button
               Grid.Column="2"
               Style="{StaticResource SortableColumnHeaderButtonStyle}"
+              Click="SortByFolder_Click">
+              <StackPanel Orientation="Horizontal" Spacing="4">
+                <TextBlock Text="Folder" FontWeight="SemiBold" />
+                <FontIcon x:Name="FolderSortIcon" Style="{StaticResource SortIconStyle}" />
+              </StackPanel>
+            </Button>
+            <Button
+              Grid.Column="3"
+              Style="{StaticResource SortableColumnHeaderButtonStyle}"
               Click="SortByTextures_Click">
               <StackPanel Orientation="Horizontal" Spacing="4">
                 <TextBlock Text="Textures" FontWeight="SemiBold" />
@@ -182,7 +223,7 @@
               </StackPanel>
             </Button>
             <Button
-              Grid.Column="3"
+              Grid.Column="4"
               Style="{StaticResource SortableColumnHeaderButtonStyle}"
               Click="SortByExtracted_Click">
               <StackPanel Orientation="Horizontal" Spacing="4">
@@ -191,7 +232,7 @@
               </StackPanel>
             </Button>
             <Button
-              Grid.Column="4"
+              Grid.Column="5"
               Style="{StaticResource SortableColumnHeaderButtonStyle}"
               Click="SortByStatus_Click">
               <StackPanel Orientation="Horizontal" Spacing="4">
@@ -253,48 +294,23 @@
       <Border
         x:Name="PreviewPanel"
         Grid.Column="2"
-        VerticalAlignment="Top"
-        Style="{StaticResource CardBorderStyle}"
-        Visibility="Collapsed">
-        <StackPanel Spacing="8" Margin="4">
-          <Border Background="#FF1E1E1E"
-                  CornerRadius="4"
-                  MinHeight="200"
-                  Padding="4"
-                  HorizontalAlignment="Stretch">
-            <Grid>
-              <Image x:Name="TexturePreview"
-                     MaxWidth="264"
-                     MaxHeight="264"
-                     Stretch="Uniform"
-                     HorizontalAlignment="Center"
-                     VerticalAlignment="Center" />
-              <FontIcon x:Name="NoPreviewIcon"
-                        FontSize="48"
-                        Glyph="&#xE8B9;"
-                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Visibility="Collapsed" />
-              <ProgressRing x:Name="PreviewLoading"
-                            IsActive="False"
-                            Width="32" Height="32"
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Center" />
-            </Grid>
-          </Border>
-          <TextBlock x:Name="PreviewDimensionsText"
-                     HorizontalAlignment="Center"
-                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                     FontSize="11" />
+        VerticalAlignment="Stretch"
+        Style="{StaticResource CardBorderStyle}">
+        <Grid Margin="4" RowSpacing="8">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <local:ImagePreviewControl x:Name="TexturePreview"
+                                     Grid.Row="0" />
           <TextBlock x:Name="PreviewInfoText"
+                     Grid.Row="1"
                      HorizontalAlignment="Center"
                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                      FontSize="11"
                      TextWrapping="Wrap"
-                     TextAlignment="Center"
-                     MaxWidth="264" />
-        </StackPanel>
+                     TextAlignment="Center" />
+        </Grid>
       </Border>
     </Grid>
 
@@ -302,6 +318,7 @@
     <Grid Grid.Row="3"
           Style="{StaticResource IoSectionGridStyle}">
       <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
@@ -319,7 +336,7 @@
                IsReadOnly="True"
                Style="{StaticResource IoTextBoxStyle}" />
       <StackPanel Grid.Row="0" Grid.Column="2"
-                  Orientation="Horizontal" Spacing="4">
+                  Style="{StaticResource IoButtonsPanelStyle}">
         <Button Content="Browse folder..."
                 MinWidth="120"
                 Click="InputBrowse_Click" />
@@ -335,23 +352,31 @@
                Grid.Row="1" Grid.Column="1"
                IsReadOnly="True"
                Style="{StaticResource IoTextBoxStyle}" />
-      <Button Grid.Row="1" Grid.Column="2"
-              Content="Browse..."
-              MinWidth="120"
-              Click="OutputBrowse_Click" />
-    </Grid>
+      <StackPanel Grid.Row="1" Grid.Column="2"
+                  Style="{StaticResource IoButtonsPanelStyle}">
+        <Button Content="Browse folder..."
+                MinWidth="120"
+                Click="OutputBrowse_Click" />
+        <Button
+          x:Name="CancelButton"
+          Content="Cancel"
+          MinWidth="120"
+          Click="CancelButton_Click"
+          Visibility="Collapsed" />
+        <Button
+          x:Name="ExtractButton"
+          Content="Extract"
+          Click="ExtractButton_Click"
+          IsEnabled="False"
+          MinWidth="120"
+          Style="{StaticResource AccentButtonStyle}" />
+      </StackPanel>
 
-    <!-- Progress Bar -->
-    <ProgressBar
-      x:Name="ExtractionProgress"
-      Grid.Row="2"
-      Maximum="100"
-      Style="{StaticResource TabProgressBarStyle}" />
-
-    <!-- Action Row -->
-    <Grid Grid.Row="4" Margin="0,8,0,0">
-      <StackPanel Orientation="Horizontal" Spacing="16"
-                  HorizontalAlignment="Left" VerticalAlignment="Center">
+      <TextBlock Grid.Row="2" Grid.Column="0"
+                 Text="Options:"
+                 Style="{StaticResource IoLabelStyle}" />
+      <StackPanel Grid.Row="2" Grid.Column="1"
+                  Orientation="Horizontal" Spacing="16">
         <CheckBox
           x:Name="CreateSubDirsCheckbox"
           Content="Create Subdirectories"
@@ -368,21 +393,13 @@
           MinWidth="0"
           IsChecked="False" />
       </StackPanel>
-      <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
-        <Button
-          x:Name="CancelButton"
-          Content="Cancel"
-          MinWidth="80"
-          Click="CancelButton_Click"
-          Visibility="Collapsed" />
-        <Button
-          x:Name="ExtractButton"
-          Content="Extract"
-          MinWidth="120"
-          Click="ExtractButton_Click"
-          IsEnabled="False"
-          Style="{StaticResource AccentButtonStyle}" />
-      </StackPanel>
     </Grid>
+
+    <!-- Progress Bar -->
+    <ProgressBar
+      x:Name="ExtractionProgress"
+      Grid.Row="2"
+      Maximum="100"
+      Style="{StaticResource TabProgressBarStyle}" />
   </Grid>
 </UserControl>

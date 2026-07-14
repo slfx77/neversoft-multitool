@@ -16,6 +16,7 @@ public sealed partial class TextureTab : UserControl, IDisposable
     private CancellationTokenSource? _cts;
     private string _inputDir = "";
     private string _outputDir = "";
+    private bool _outputManuallySet;
     private CancellationTokenSource? _previewCts;
     private bool _sortAscending = true;
     private string _sortColumn = "";
@@ -43,12 +44,13 @@ public sealed partial class TextureTab : UserControl, IDisposable
 
         _inputDir = path;
         InputPathText.Text = _inputDir;
+        DefaultOutputToInput(path);
 
         _items.Clear();
         _parentFiles.Clear();
         var candidateFiles = Directory.EnumerateFiles(_inputDir, "*", SearchOption.AllDirectories)
             .Where(TextureTabTextureOperations.IsTextureFile)
-            .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
+            .OrderBy(f => MakeRelativePath(f, _inputDir), StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         // Probe files for format support
@@ -96,6 +98,8 @@ public sealed partial class TextureTab : UserControl, IDisposable
 
         _inputDir = Path.GetDirectoryName(path) ?? "";
         InputPathText.Text = path;
+        if (_inputDir.Length > 0)
+            DefaultOutputToInput(_inputDir);
 
         _items.Clear();
         _parentFiles.Clear();
@@ -129,7 +133,7 @@ public sealed partial class TextureTab : UserControl, IDisposable
 
             DispatcherQueue.TryEnqueue(() =>
             {
-                foreach (var entry in entries)
+                foreach (var entry in entries.OrderBy(en => en.RelativePath, StringComparer.OrdinalIgnoreCase))
                 {
                     _parentFiles.Add(entry);
                     _items.Add(entry);
@@ -189,7 +193,18 @@ public sealed partial class TextureTab : UserControl, IDisposable
         if (path == null) return;
 
         _outputDir = path;
+        _outputManuallySet = true;
         OutputPathText.Text = _outputDir;
+        UpdateUiState();
+    }
+
+    private void DefaultOutputToInput(string dir)
+    {
+        if (_outputManuallySet)
+            return;
+
+        _outputDir = dir;
+        OutputPathText.Text = dir;
         UpdateUiState();
     }
 
@@ -208,37 +223,87 @@ public sealed partial class TextureTab : UserControl, IDisposable
         if (sender is not Button { Tag: PsxFileEntry parent }) return;
         if (!parent.HasTextures) return;
 
-        var parentIndex = _items.IndexOf(parent);
-        if (parentIndex < 0) return;
-
         if (parent.IsExpanded)
-        {
-            parent.IsExpanded = false;
-            var removeIndex = parentIndex + 1;
-            while (removeIndex < _items.Count && _items[removeIndex].IsChildEntry)
-                _items.RemoveAt(removeIndex);
-        }
+            CollapseEntry(parent);
         else
+            ExpandEntry(parent);
+    }
+
+    private void ExpandEntry(PsxFileEntry parent)
+    {
+        var parentIndex = _items.IndexOf(parent);
+        if (parentIndex < 0 || parent.IsExpanded) return;
+
+        EnsureChildren(parent);
+        parent.IsExpanded = true;
+        for (var i = 0; i < parent.CachedChildren!.Count; i++)
+            _items.Insert(parentIndex + 1 + i, parent.CachedChildren[i]);
+    }
+
+    private void CollapseEntry(PsxFileEntry parent)
+    {
+        var parentIndex = _items.IndexOf(parent);
+        if (parentIndex < 0 || !parent.IsExpanded) return;
+
+        parent.IsExpanded = false;
+        var removeIndex = parentIndex + 1;
+        while (removeIndex < _items.Count && _items[removeIndex].IsChildEntry)
+            _items.RemoveAt(removeIndex);
+    }
+
+    private static void EnsureChildren(PsxFileEntry parent)
+    {
+        if (parent.CachedChildren != null) return;
+
+        try
         {
-            if (parent.CachedChildren == null)
-            {
-                try
-                {
-                    parent.CachedChildren = TextureTabTextureOperations.EnumerateChildren(
-                        parent.Source,
-                        parent.FileName,
-                        parent.Format);
-                }
-                catch
-                {
-                    parent.CachedChildren = [];
-                }
-            }
+            parent.CachedChildren = TextureTabTextureOperations.EnumerateChildren(
+                parent.Source,
+                parent.FileName,
+                parent.Format);
+        }
+        catch
+        {
+            parent.CachedChildren = [];
+        }
+    }
+
+    private async void ExpandAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (_parentFiles.Count == 0) return;
+
+        // Children enumerate lazily (each parse opens the file) — build them
+        // off-thread, then rebuild the flat list in one pass.
+        var parents = _parentFiles.Where(p => p.HasTextures).ToList();
+        await Task.Run(() =>
+        {
+            foreach (var parent in parents)
+                EnsureChildren(parent);
+        });
+
+        _items.Clear();
+        foreach (var parent in _parentFiles)
+        {
+            _items.Add(parent);
+            if (!parent.HasTextures || parent.CachedChildren is not { Count: > 0 } children)
+                continue;
 
             parent.IsExpanded = true;
-            for (var i = 0; i < parent.CachedChildren.Count; i++)
-                _items.Insert(parentIndex + 1 + i, parent.CachedChildren[i]);
+            foreach (var child in children)
+                _items.Add(child);
         }
+    }
+
+    private void CollapseAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (_parentFiles.Count == 0) return;
+
+        foreach (var parent in _parentFiles)
+            parent.IsExpanded = false;
+
+        _items.Clear();
+        foreach (var parent in _parentFiles)
+            _items.Add(parent);
     }
 
     private async void ExtractButton_Click(object sender, RoutedEventArgs e)
@@ -266,7 +331,7 @@ public sealed partial class TextureTab : UserControl, IDisposable
             file.Status = ExtractionStatus.Pending;
         }
 
-        ExtractButton.IsEnabled = false;
+        ExtractButton.Visibility = Visibility.Collapsed;
         CancelButton.Visibility = Visibility.Visible;
         ExtractionProgress.Visibility = Visibility.Visible;
         ExtractionProgress.Value = 0;
@@ -328,7 +393,7 @@ public sealed partial class TextureTab : UserControl, IDisposable
         stopwatch.Stop();
         ExtractionProgress.Value = 100;
         CancelButton.Visibility = Visibility.Collapsed;
-        ExtractButton.IsEnabled = true;
+        ExtractButton.Visibility = Visibility.Visible;
         MainWindow.Instance?.SetStatus($"Completed in {stopwatch.Elapsed.TotalSeconds:F2}s");
     }
 
@@ -343,13 +408,18 @@ public sealed partial class TextureTab : UserControl, IDisposable
         }
 
         CancelButton.Visibility = Visibility.Collapsed;
-        ExtractButton.IsEnabled = true;
+        ExtractButton.Visibility = Visibility.Visible;
         MainWindow.Instance?.SetStatus("Extraction cancelled");
     }
 
     private void SortByFileName_Click(object sender, RoutedEventArgs e)
     {
         SortFiles("FileName", f => f.FileName);
+    }
+
+    private void SortByFolder_Click(object sender, RoutedEventArgs e)
+    {
+        SortFiles("Folder", f => f.RelativePath);
     }
 
     private void SortByTextures_Click(object sender, RoutedEventArgs e)
@@ -400,6 +470,7 @@ public sealed partial class TextureTab : UserControl, IDisposable
     {
         var glyph = _sortAscending ? "" : "";
         FileNameSortIcon.Glyph = _sortColumn == "FileName" ? glyph : "";
+        FolderSortIcon.Glyph = _sortColumn == "Folder" ? glyph : "";
         TexturesSortIcon.Glyph = _sortColumn == "Textures" ? glyph : "";
         ExtractedSortIcon.Glyph = _sortColumn == "Extracted" ? glyph : "";
         StatusSortIcon.Glyph = _sortColumn == "Status" ? glyph : "";
@@ -407,10 +478,25 @@ public sealed partial class TextureTab : UserControl, IDisposable
 
     private async void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (FilesListView.SelectedItem is PsxTextureEntry texture)
-            await LoadTexturePreview(texture);
-        else
-            ClearPreview();
+        switch (FilesListView.SelectedItem)
+        {
+            case PsxTextureEntry texture:
+                await LoadTexturePreview(texture);
+                return;
+
+            case PsxFileEntry { HasTextures: true } parent:
+                // One click on a file: expand it and preview its first texture
+                // (selecting the child re-enters this handler on the case above).
+                if (!parent.IsExpanded)
+                    ExpandEntry(parent);
+                if (parent.CachedChildren is { Count: > 0 } children)
+                    FilesListView.SelectedItem = children[0];
+                return;
+
+            default:
+                ClearPreview();
+                return;
+        }
     }
 
     private async Task LoadTexturePreview(PsxTextureEntry texture)
@@ -426,24 +512,15 @@ public sealed partial class TextureTab : UserControl, IDisposable
         var cts = new CancellationTokenSource();
         _previewCts = cts;
 
-        PreviewPanel.Visibility = Visibility.Visible;
-        PreviewSplitter.Visibility = Visibility.Visible;
-        SplitterColumn.Width = new GridLength(8);
-        if (PreviewColumn.Width.Value <= 0)
-            PreviewColumn.Width = new GridLength(280);
-        TexturePreview.Source = null;
-        NoPreviewIcon.Visibility = Visibility.Collapsed;
-        PreviewLoading.IsActive = true;
-        PreviewDimensionsText.Text = "";
+        TexturePreview.SetLoading(true);
         PreviewInfoText.Text = "";
 
         var parent = _parentFiles.FirstOrDefault(p =>
             p.FileName.Equals(texture.ParentFileName, StringComparison.OrdinalIgnoreCase));
         if (parent == null)
         {
-            PreviewLoading.IsActive = false;
-            NoPreviewIcon.Visibility = Visibility.Visible;
-            PreviewDimensionsText.Text = "Parent not found";
+            TexturePreview.Clear();
+            PreviewInfoText.Text = "Parent not found";
             return;
         }
 
@@ -457,19 +534,16 @@ public sealed partial class TextureTab : UserControl, IDisposable
 
         if (cts.Token.IsCancellationRequested) return;
 
-        PreviewLoading.IsActive = false;
-
         if (result != null)
         {
             var (rgba, width, height) = result.Value;
-            TexturePreview.Source = BitmapHelper.CreateFromRgba(width, height, rgba);
-            PreviewDimensionsText.Text = $"{width} x {height}";
+            TexturePreview.SetSource(BitmapHelper.CreateFromRgba(width, height, rgba));
             PreviewInfoText.Text = $"{texture.PaletteType}\n{texture.NameDisplay}";
         }
         else
         {
-            NoPreviewIcon.Visibility = Visibility.Visible;
-            PreviewDimensionsText.Text = "Failed to decode";
+            TexturePreview.Clear();
+            PreviewInfoText.Text = "Failed to decode";
         }
     }
 
@@ -478,14 +552,7 @@ public sealed partial class TextureTab : UserControl, IDisposable
         _previewCts?.Cancel();
         _previewCts?.Dispose();
         _previewCts = null;
-        PreviewPanel.Visibility = Visibility.Collapsed;
-        PreviewSplitter.Visibility = Visibility.Collapsed;
-        SplitterColumn.Width = new GridLength(0);
-        PreviewColumn.Width = new GridLength(0);
-        TexturePreview.Source = null;
-        PreviewLoading.IsActive = false;
-        NoPreviewIcon.Visibility = Visibility.Collapsed;
-        PreviewDimensionsText.Text = "";
+        TexturePreview.Clear();
         PreviewInfoText.Text = "";
     }
 

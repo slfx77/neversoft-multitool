@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
+using NeversoftMultitool.Core.Rendering;
 
 namespace NeversoftMultitool;
 
@@ -14,6 +15,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     private CancellationTokenSource? _cts;
     private string _inputDir = "";
     private string _outputDir = "";
+    private bool _outputManuallySet;
     private MeshConverterTabPreview? _preview;
     private CancellationTokenSource? _scanCts;
 
@@ -21,12 +23,14 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     {
         InitializeComponent();
         FilesListView.ItemsSource = _items;
+        ModelViewer.ModelLoaded += ModelViewer_ModelLoaded;
         Unloaded += MeshConverterTab_Unloaded;
     }
 
     public void Dispose()
     {
         Unloaded -= MeshConverterTab_Unloaded;
+        ModelViewer.ModelLoaded -= ModelViewer_ModelLoaded;
         _cts?.Dispose();
         _cts = null;
         _scanCts?.Dispose();
@@ -42,6 +46,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
         _inputDir = path;
         InputPathText.Text = _inputDir;
+        DefaultOutputToInput(path);
         await RunRecursiveScan(path);
     }
 
@@ -53,6 +58,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
         _inputDir = Path.GetDirectoryName(path) ?? "";
         InputPathText.Text = path;
+        if (_inputDir.Length > 0)
+            DefaultOutputToInput(_inputDir);
 
         await CancelInFlightScan();
 
@@ -187,7 +194,18 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         if (path == null) return;
 
         _outputDir = path;
+        _outputManuallySet = true;
         OutputPathText.Text = _outputDir;
+        UpdateUiState();
+    }
+
+    private void DefaultOutputToInput(string dir)
+    {
+        if (_outputManuallySet)
+            return;
+
+        _outputDir = dir;
+        OutputPathText.Text = dir;
         UpdateUiState();
     }
 
@@ -195,10 +213,18 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     {
         var hasFiles = _items.Count > 0;
         var hasOutput = !string.IsNullOrEmpty(_outputDir);
+        var hasFormat = ExportGlbCheckbox.IsChecked == true || ExportBlendCheckbox.IsChecked == true;
 
         EmptyStatePanel.Visibility = hasFiles ? Visibility.Collapsed : Visibility.Visible;
         FileListCard.Visibility = hasFiles ? Visibility.Visible : Visibility.Collapsed;
-        ConvertButton.IsEnabled = hasFiles && hasOutput;
+        ConvertButton.IsEnabled = hasFiles && hasOutput && hasFormat;
+    }
+
+    private void ExportFormatCheckbox_Changed(object sender, RoutedEventArgs e)
+    {
+        // Fires during InitializeComponent before later-declared elements exist.
+        if (ConvertButton == null) return;
+        UpdateUiState();
     }
 
     private async void ConvertButton_Click(object sender, RoutedEventArgs e)
@@ -228,7 +254,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             file.Status = ExtractionStatus.Pending;
         }
 
-        ConvertButton.IsEnabled = false;
+        ConvertButton.Visibility = Visibility.Collapsed;
         CancelButton.Visibility = Visibility.Visible;
         ConversionProgress.Visibility = Visibility.Visible;
         ConversionProgress.Value = 0;
@@ -291,7 +317,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         stopwatch.Stop();
         ConversionProgress.Value = 100;
         CancelButton.Visibility = Visibility.Collapsed;
-        ConvertButton.IsEnabled = true;
+        ConvertButton.Visibility = Visibility.Visible;
         var status = $"Converted {totalConverted}/{totalFiles} files " +
                      $"({totalTriangles:N0} triangles) in {stopwatch.Elapsed.TotalSeconds:F2}s";
         if (firstError != null)
@@ -301,13 +327,10 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
     private MeshOutputFormat GetSelectedOutputFormat()
     {
-        var tag = (OutputFormatCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString();
-        return tag switch
-        {
-            "blend" => MeshOutputFormat.Blend,
-            "both" => MeshOutputFormat.Both,
-            _ => MeshOutputFormat.Glb
-        };
+        var glb = ExportGlbCheckbox.IsChecked == true;
+        var blend = ExportBlendCheckbox.IsChecked == true;
+        if (glb && blend) return MeshOutputFormat.Both;
+        return blend ? MeshOutputFormat.Blend : MeshOutputFormat.Glb;
     }
 
     private WorldzoneTimeOfDay GetSelectedWorldzoneTimeOfDay()
@@ -346,42 +369,161 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         }
 
         CancelButton.Visibility = Visibility.Collapsed;
-        ConvertButton.IsEnabled = true;
+        ConvertButton.Visibility = Visibility.Visible;
         MainWindow.Instance?.SetStatus("Conversion cancelled");
     }
 
     private async void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        RenderPngButton.IsEnabled = false;
+        RenderGifButton.IsEnabled = false;
+
         if (FilesListView.SelectedItem is not MeshFileEntry entry)
         {
-            // Deselected — hide preview
             if (_preview != null)
                 await _preview.ClearAsync();
-
-            PreviewPanel.Visibility = Visibility.Collapsed;
-            PreviewSplitter.Visibility = Visibility.Collapsed;
-            SplitterColumn.Width = new GridLength(0);
-            PreviewColumn.Width = new GridLength(0);
             return;
         }
 
         // Lazy-init the preview helper
-        _preview ??= new MeshConverterTabPreview(
-            ModelViewer,
-            PreviewLoadingRing,
-            PreviewInfoText,
-            PreviewErrorText,
-            DispatcherQueue);
-
-        // Show the preview column
-        PreviewPanel.Visibility = Visibility.Visible;
-        PreviewSplitter.Visibility = Visibility.Visible;
-        SplitterColumn.Width = new GridLength(8);
-        if (PreviewColumn.Width.Value <= 0)
-            PreviewColumn.Width = new GridLength(400);
+        _preview ??= new MeshConverterTabPreview(ModelViewer);
 
         await _preview.InitializeAsync();
         await _preview.LoadPreviewAsync(entry);
+        UpdateRenderButtons();
+    }
+
+    // ─── Render section (glb-render / glb-gif in-app) ─────────────────────
+
+    private void ModelViewer_ModelLoaded(object? sender, EventArgs e)
+    {
+        UpdateRenderButtons();
+    }
+
+    private void UpdateRenderButtons()
+    {
+        var hasGlb = ModelViewer.LastGlbBytes != null;
+        RenderPngButton.IsEnabled = hasGlb;
+        RenderGifButton.IsEnabled = hasGlb && ModelViewer.HasAnimations;
+    }
+
+    private async void RenderPng_Click(object sender, RoutedEventArgs e)
+    {
+        var glbBytes = ModelViewer.LastGlbBytes;
+        if (glbBytes == null) return;
+
+        var outputDir = await FolderPickerHelper.PickFolderAsync();
+        if (outputDir == null) return;
+
+        var stem = GetSelectedStem();
+        var size = (int)RenderSizeBox.Value;
+        var azimuth = (float)RenderAzimuthBox.Value;
+        var elevation = (float)RenderElevationBox.Value;
+        var useObjectReview = ObjectReviewCheckbox.IsChecked == true;
+
+        RenderPngButton.IsEnabled = false;
+        ConversionProgress.IsIndeterminate = true;
+        ConversionProgress.Visibility = Visibility.Visible;
+
+        try
+        {
+            var outputs = await Task.Run(() =>
+            {
+                var tempGlb = GlbScratchFile.Write(glbBytes, "MeshRender");
+                try
+                {
+                    IReadOnlyList<RenderView> views = useObjectReview
+                        ? GlbRenderPresets.ObjectReview
+                        : [new RenderView("", azimuth, elevation)];
+
+                    var written = new List<string>();
+                    foreach (var view in views)
+                    {
+                        var suffix = view.Name.Length > 0 ? "_" + view.Name : "";
+                        var pngPath = Path.Combine(outputDir, stem + suffix + ".png");
+                        GlbRenderer.RenderToFile(tempGlb, pngPath, size, view.Azimuth, view.Elevation);
+                        written.Add(pngPath);
+                    }
+
+                    return written;
+                }
+                finally
+                {
+                    GlbScratchFile.TryDelete(tempGlb);
+                }
+            });
+
+            MainWindow.Instance?.SetStatus(outputs.Count == 1
+                ? $"Rendered → {Path.GetFileName(outputs[0])}"
+                : $"Rendered {outputs.Count} views → {outputDir}");
+        }
+        catch (Exception ex)
+        {
+            MainWindow.Instance?.SetStatus($"Render failed: {ex.Message}");
+        }
+        finally
+        {
+            ConversionProgress.IsIndeterminate = false;
+            ConversionProgress.Visibility = Visibility.Collapsed;
+            UpdateRenderButtons();
+        }
+    }
+
+    private async void RenderGif_Click(object sender, RoutedEventArgs e)
+    {
+        var glbBytes = ModelViewer.LastGlbBytes;
+        if (glbBytes == null) return;
+
+        var outputDir = await FolderPickerHelper.PickFolderAsync();
+        if (outputDir == null) return;
+
+        var stem = GetSelectedStem();
+        var outputPath = Path.Combine(outputDir, stem + ".gif");
+        var size = (int)RenderSizeBox.Value;
+        var fps = (int)RenderFpsBox.Value;
+        var azimuth = (float)RenderAzimuthBox.Value;
+        var elevation = (float)RenderElevationBox.Value;
+
+        RenderGifButton.IsEnabled = false;
+        ConversionProgress.IsIndeterminate = true;
+        ConversionProgress.Visibility = Visibility.Visible;
+
+        try
+        {
+            var (frames, duration) = await Task.Run(() =>
+            {
+                var tempGlb = GlbScratchFile.Write(glbBytes, "MeshRender");
+                try
+                {
+                    return GlbGifRenderer.RenderToFile(
+                        tempGlb, outputPath, size, fps, azimuth, elevation);
+                }
+                finally
+                {
+                    GlbScratchFile.TryDelete(tempGlb);
+                }
+            });
+
+            MainWindow.Instance?.SetStatus(
+                $"Rendered {frames} frames ({duration:0.00}s) → {Path.GetFileName(outputPath)}");
+        }
+        catch (Exception ex)
+        {
+            MainWindow.Instance?.SetStatus($"GIF render failed: {ex.Message}");
+        }
+        finally
+        {
+            ConversionProgress.IsIndeterminate = false;
+            ConversionProgress.Visibility = Visibility.Collapsed;
+            UpdateRenderButtons();
+        }
+    }
+
+    private string GetSelectedStem()
+    {
+        return FilesListView.SelectedItem is MeshFileEntry entry
+            ? MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName)
+            : "render";
     }
 
     private void MeshConverterTab_Unloaded(object sender, RoutedEventArgs e)

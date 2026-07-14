@@ -1,16 +1,12 @@
-using CommunityToolkit.WinUI.Controls;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
 namespace NeversoftMultitool;
 
 internal sealed class VideoPreviewView
 {
-    public required Border PreviewPanel { get; init; }
-    public required GridSplitter PreviewSplitter { get; init; }
-    public required ColumnDefinition SplitterColumn { get; init; }
-    public required ColumnDefinition PreviewColumn { get; init; }
     public required ProgressRing PreviewLoading { get; init; }
-    public required FontIcon VideoPlaceholderIcon { get; init; }
+    public required UIElement VideoPlaceholderPanel { get; init; }
     public required TextBlock PreviewFileNameText { get; init; }
     public required TextBlock PreviewInfoText { get; init; }
     public required TextBlock PreviewErrorText { get; init; }

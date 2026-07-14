@@ -92,7 +92,7 @@ public sealed partial class UnpackTab : UserControl, IDisposable
 
         var cts = new CancellationTokenSource();
         _cts = cts;
-        UnpackButton.IsEnabled = false;
+        UnpackButton.Visibility = Visibility.Collapsed;
         CancelButton.Visibility = Visibility.Visible;
         UnpackProgress.Visibility = Visibility.Visible;
         UnpackProgress.Value = 0;
@@ -179,6 +179,7 @@ public sealed partial class UnpackTab : UserControl, IDisposable
         {
             DisposeCancellationTokenSource();
             CancelButton.Visibility = Visibility.Collapsed;
+            UnpackButton.Visibility = Visibility.Visible;
             UpdateUiState();
         }
     }
@@ -224,6 +225,7 @@ public sealed partial class UnpackTab : UserControl, IDisposable
         }
 
         CancelButton.Visibility = Visibility.Collapsed;
+        UnpackButton.Visibility = Visibility.Visible;
         UpdateUiState();
         MainWindow.Instance?.SetStatus("Unpack cancelled");
     }

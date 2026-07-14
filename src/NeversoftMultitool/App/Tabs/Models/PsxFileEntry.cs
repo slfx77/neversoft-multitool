@@ -1,3 +1,4 @@
+using Microsoft.UI.Xaml;
 using NeversoftMultitool.Core.Formats;
 
 namespace NeversoftMultitool;
@@ -55,6 +56,7 @@ public class PsxFileEntry : BaseFileEntry, IListEntry
             _hasTextures = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(ChevronGlyph));
+            OnPropertyChanged(nameof(ExpanderVisibility));
         }
     }
 
@@ -63,6 +65,16 @@ public class PsxFileEntry : BaseFileEntry, IListEntry
         false => "",
         true => _isExpanded ? "\uE70D" : "\uE76C"
     };
+
+    /// <summary>
+    ///     Files with no textures hide the expander button entirely instead of
+    ///     rendering a dead blank glyph in the chevron column.
+    /// </summary>
+    public Visibility ExpanderVisibility => _hasTextures ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>Directory portion of the relative path, for the Folder column.</summary>
+    public string FolderDisplay =>
+        Path.GetDirectoryName(RelativePath.Replace("::", "/"))?.Replace('\\', '/') ?? "";
 
     /// <summary>
     ///     Cached child texture entries, populated on first expand.

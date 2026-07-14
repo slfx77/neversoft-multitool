@@ -18,29 +18,32 @@ internal static class VideoConverterTabOperations
 
     public static IEnumerable<string> FindVideoFiles(string inputDir)
     {
-        return Directory.EnumerateFiles(inputDir, "*", SearchOption.TopDirectoryOnly)
-            .Where(static path => OrdinalFileName.HasExtension(path, ".sfd")
-                                  || OrdinalFileName.HasExtension(path, ".pss")
+        return Directory.EnumerateFiles(inputDir, "*", SearchOption.AllDirectories)
+            .Where(static path => (OrdinalFileName.HasExtension(path, ".sfd") && IsMpegPsVideoFile(path))
+                                  || (OrdinalFileName.HasExtension(path, ".pss") && IsMpegPsVideoFile(path))
                                   || OrdinalFileName.HasExtension(path, ".bik")
                                   || (OrdinalFileName.HasExtension(path, ".vid") && IsVidVideoFile(path))
                                   || (OrdinalFileName.HasExtension(path, ".str") && IsStrVideoFile(path)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(static path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase);
+            .OrderBy(path => Path.GetRelativePath(inputDir, path), StringComparer.OrdinalIgnoreCase);
     }
 
-    public static SfdFileEntry CreateEntry(string filePath)
+    /// <summary>
+    ///     Creates an entry without probing: recursive scans can hit hundreds of
+    ///     files, and ffprobe spawns a process per file. Duration/resolution are
+    ///     filled in by a background pass (see the tab's ProbeEntriesAsync).
+    /// </summary>
+    public static SfdFileEntry CreateEntry(string filePath, string inputDir)
     {
         var fileInfo = new FileInfo(filePath);
-        var (duration, resolution) = ProbeFile(filePath);
 
         return new SfdFileEntry
         {
             FileName = Path.GetFileName(filePath),
             FilePath = filePath,
-            DurationDisplay = duration,
-            ResolutionDisplay = resolution,
             SizeDisplay = FormatFileSize(fileInfo.Length),
-            Source = new FileSystemAssetSource(filePath)
+            Source = new FileSystemAssetSource(filePath),
+            RelativePath = Path.GetRelativePath(inputDir, filePath)
         };
     }
 
@@ -95,6 +98,19 @@ internal static class VideoConverterTabOperations
         return Vid1VideoConverter.Probe(path) != null;
     }
 
+    /// <summary>
+    ///     SFD/PSS are MPEG program streams (pack header 00 00 01 BA). The sniff
+    ///     keeps unrelated same-extension files (e.g. FontForge .sfd sources) out
+    ///     of recursive scans over arbitrary folders.
+    /// </summary>
+    public static bool IsMpegPsVideoFile(string path)
+    {
+        if (!BinaryProbeReader.TryReadHeader(path, 4, out var header, out var bytesRead) || bytesRead < 4)
+            return false;
+
+        return header[0] == 0x00 && header[1] == 0x00 && header[2] == 0x01 && header[3] == 0xBA;
+    }
+
     public static (string duration, string resolution) ProbeFile(string path)
     {
         if (IsStrFormat(path))
@@ -118,6 +134,7 @@ internal static class VideoConverterTabOperations
         string path,
         string outputDir,
         IProgress<double>? progress = null,
+        bool previewQuality = false,
         CancellationToken cancellationToken = default)
     {
         if (IsStrFormat(path))
@@ -126,7 +143,7 @@ internal static class VideoConverterTabOperations
         if (OrdinalFileName.HasExtension(path, ".vid"))
             return Vid1VideoConverter.ConvertToMp4(path, outputDir, progress, cancellationToken);
 
-        return SfdConverter.ConvertToMp4(path, outputDir, progress, cancellationToken);
+        return SfdConverter.ConvertToMp4(path, outputDir, progress, previewQuality, cancellationToken);
     }
 
     public static SfdConvertResult ConvertFromSource(
@@ -138,7 +155,7 @@ internal static class VideoConverterTabOperations
         // Filesystem-backed entries go through the existing path-based pipeline
         // (preserves PSS audio muxing + STR/VID codepaths).
         if (entry.Source.FileSystemPath is { } filePath)
-            return ConvertFile(filePath, outputDir, progress, cancellationToken);
+            return ConvertFile(filePath, outputDir, progress, cancellationToken: cancellationToken);
 
         // Archive-backed: for SFD, pipe bytes to ffmpeg stdin. For STR/VID, fall
         // back to a temp file since those converters need a seekable path for
@@ -149,7 +166,7 @@ internal static class VideoConverterTabOperations
         if (OrdinalFileName.HasExtension(entry.FileName, ".sfd") ||
             OrdinalFileName.HasExtension(entry.FileName, ".bik"))
         {
-            return SfdConverter.ConvertToMp4(data, stem, outputDir, progress, cancellationToken);
+            return SfdConverter.ConvertToMp4(data, stem, outputDir, progress, cancellationToken: cancellationToken);
         }
 
         // Temp-file fallback for STR / VID / PSS from archives.
@@ -160,7 +177,7 @@ internal static class VideoConverterTabOperations
         {
             Directory.CreateDirectory(Path.GetDirectoryName(tempPath)!);
             File.WriteAllBytes(tempPath, data);
-            return ConvertFile(tempPath, outputDir, progress, cancellationToken);
+            return ConvertFile(tempPath, outputDir, progress, cancellationToken: cancellationToken);
         }
         finally
         {

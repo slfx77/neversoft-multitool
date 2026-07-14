@@ -43,7 +43,7 @@ internal sealed class AudioConverterTabConversionController : IDisposable
             file.Status = ExtractionStatus.Pending;
         }
 
-        convertButton.IsEnabled = false;
+        convertButton.Visibility = Visibility.Collapsed;
         cancelButton.Visibility = Visibility.Visible;
         conversionProgress.Visibility = Visibility.Visible;
         conversionProgress.Value = 0;
@@ -105,7 +105,7 @@ internal sealed class AudioConverterTabConversionController : IDisposable
         {
             DisposeCancellationTokenSource();
             cancelButton.Visibility = Visibility.Collapsed;
-            convertButton.IsEnabled = true;
+            convertButton.Visibility = Visibility.Visible;
         }
     }
 
@@ -120,7 +120,7 @@ internal sealed class AudioConverterTabConversionController : IDisposable
         }
 
         cancelButton.Visibility = Visibility.Collapsed;
-        convertButton.IsEnabled = true;
+        convertButton.Visibility = Visibility.Visible;
         MainWindow.Instance?.SetStatus("Conversion cancelled");
     }
 

@@ -3,6 +3,10 @@ namespace NeversoftMultitool;
 public class ArchiveFileEntry : BaseFileEntry
 {
     public required string FileName { get; init; }
+
+    /// <summary>Directory portion of the entry's path inside the archive.</summary>
+    public string Folder { get; init; } = "";
+
     public long Size { get; init; }
 
     protected override string ProcessingVerb => "Extracting...";

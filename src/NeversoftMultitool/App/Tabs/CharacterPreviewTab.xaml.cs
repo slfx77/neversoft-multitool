@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Rendering;
 
 namespace NeversoftMultitool;
@@ -91,6 +92,7 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
         AddAnimArchiveButton.IsEnabled = false;
         RenderGifButton.IsEnabled = false;
         ConvertGlbButton.IsEnabled = false;
+        ConvertBlendButton.IsEnabled = false;
         if (_preview != null) await _preview.ClearAsync();
         UpdateUiState();
     }
@@ -121,6 +123,7 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
         _animations.Clear();
         RenderGifButton.IsEnabled = false;
         ConvertGlbButton.IsEnabled = false;
+        ConvertBlendButton.IsEnabled = false;
 
         if (entry == null)
         {
@@ -132,12 +135,7 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
         }
 
         // Lazy-init preview helper now that the user has shown intent
-        _preview ??= new CharacterPreviewTabPreview(
-            ModelViewer,
-            PreviewLoadingRing,
-            PreviewInfoText,
-            PreviewErrorText,
-            DispatcherQueue);
+        _preview ??= new CharacterPreviewTabPreview(ModelViewer);
         await _preview.InitializeAsync();
 
         // Cancel any prior animation discovery in flight
@@ -179,6 +177,15 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
                 ? "No animations auto-discovered. Use Add folder… / Add archive… to broaden the search."
                 : $"Found {_animations.Count} animation(s)"
                   + (boneCount.HasValue ? $" — skeleton has {boneCount} bones" : "");
+
+            // Bring the mesh up immediately: auto-select the first animation
+            // that matches the skeleton so the user doesn't need a second click.
+            if (AnimationListView.SelectedItem == null)
+            {
+                var firstMatch = _animations.FirstOrDefault(a => a.MatchesSkeleton);
+                if (firstMatch != null)
+                    AnimationListView.SelectedItem = firstMatch;
+            }
         }
         catch (OperationCanceledException)
         {
@@ -208,15 +215,14 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
 
         if (!entry.MatchesSkeleton)
         {
-            PreviewErrorText.Text = entry.MismatchTooltip;
-            PreviewErrorText.Visibility = Visibility.Visible;
+            ModelViewer.SetError(entry.MismatchTooltip);
             RenderGifButton.IsEnabled = false;
             return;
         }
 
         entry.IsActive = true;
         await _preview.LoadPreviewAsync(_selectedCharacter.Mesh, entry.Probe);
-        RenderGifButton.IsEnabled = _preview.LastGlbBytes != null;
+        RenderGifButton.IsEnabled = ModelViewer.LastGlbBytes != null;
     }
 
     // ─── Manual anim folder / archive add ─────────────────────────────────
@@ -278,14 +284,17 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
             _animations.Add(new AnimationListEntry { Probe = probe });
         }
 
-        ConvertGlbButton.IsEnabled = _animations.Any(a => a.MatchesSkeleton);
+        var hasMatching = _animations.Any(a => a.MatchesSkeleton);
+        ConvertGlbButton.IsEnabled = hasMatching;
+        ConvertBlendButton.IsEnabled = hasMatching;
     }
 
     // ─── Export actions ───────────────────────────────────────────────────
 
     private async void RenderGif_Click(object sender, RoutedEventArgs e)
     {
-        if (_preview?.LastGlbBytes == null || _selectedCharacter == null) return;
+        var glbBytes = ModelViewer.LastGlbBytes;
+        if (glbBytes == null || _selectedCharacter == null) return;
         var activeAnim = _animations.FirstOrDefault(a => a.IsActive);
         if (activeAnim == null) return;
 
@@ -299,7 +308,6 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
         OperationProgress.Value = 0;
         OperationProgress.Visibility = Visibility.Visible;
         CancelButton.Visibility = Visibility.Visible;
-        var glbBytes = _preview.LastGlbBytes;
 
         var cts = new CancellationTokenSource();
         var previousCts = _operationCts;
@@ -311,25 +319,14 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
         {
             var (frames, duration) = await Task.Run(() =>
             {
-                var tempGlb = Path.Combine(
-                    Path.GetTempPath(), "NeversoftMultitool", "CharacterPreview",
-                    $"{Guid.NewGuid():N}.glb");
-                Directory.CreateDirectory(Path.GetDirectoryName(tempGlb)!);
-                File.WriteAllBytes(tempGlb, glbBytes);
+                var tempGlb = GlbScratchFile.Write(glbBytes, "CharacterPreview");
                 try
                 {
                     return GlbGifRenderer.RenderToFile(tempGlb, outputPath);
                 }
                 finally
                 {
-                    try
-                    {
-                        if (File.Exists(tempGlb)) File.Delete(tempGlb);
-                    }
-                    catch
-                    {
-                        /* ignore */
-                    }
+                    GlbScratchFile.TryDelete(tempGlb);
                 }
             }, cts.Token);
 
@@ -407,6 +404,74 @@ public sealed partial class CharacterPreviewTab : UserControl, IDisposable
         catch (Exception ex)
         {
             MainWindow.Instance?.SetStatus($"Export failed: {ex.Message}");
+        }
+        finally
+        {
+            OperationProgress.Visibility = Visibility.Collapsed;
+            CancelButton.Visibility = Visibility.Collapsed;
+            if (_operationCts == cts) _operationCts = null;
+            cts.Dispose();
+        }
+    }
+
+    private async void ConvertBlend_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedCharacter == null) return;
+
+        var checkedAnims = _animations
+            .Where(a => a.IsChecked && a.MatchesSkeleton)
+            .Select(a => a.Probe)
+            .ToList();
+        if (checkedAnims.Count == 0)
+        {
+            MainWindow.Instance?.SetStatus("Check at least one matching animation to export.");
+            return;
+        }
+
+        var outputDir = await FolderPickerHelper.PickFolderAsync();
+        if (outputDir == null) return;
+
+        var characterStem = MeshConverterTabFileScanner.StripCompoundExtension(_selectedCharacter.FileName);
+        var character = _selectedCharacter.Mesh;
+
+        OperationProgress.Value = 0;
+        OperationProgress.Visibility = Visibility.Visible;
+        CancelButton.Visibility = Visibility.Visible;
+
+        var cts = new CancellationTokenSource();
+        var previousCts = _operationCts;
+        _operationCts = cts;
+        previousCts?.Cancel();
+        previousCts?.Dispose();
+
+        try
+        {
+            var result = await Task.Run(() =>
+            {
+                var (document, error) = CharacterAnimationConverter.BuildDocument(character, checkedAnims);
+                if (document == null)
+                    throw new InvalidOperationException(error ?? "Convert failed.");
+
+                return ModelExportService.Export(document, new MeshExportRequest
+                {
+                    OutputDirectory = outputDir,
+                    Format = MeshOutputFormat.Blend,
+                    OutputStem = characterStem,
+                    CancellationToken = cts.Token
+                });
+            }, cts.Token);
+
+            MainWindow.Instance?.SetStatus(result.OutputPaths.Count > 0
+                ? $"Exported {checkedAnims.Count} animation(s) → {Path.GetFileName(result.OutputPaths[0])}"
+                : "Blend export produced no output.");
+        }
+        catch (OperationCanceledException)
+        {
+            MainWindow.Instance?.SetStatus("Export cancelled");
+        }
+        catch (Exception ex)
+        {
+            MainWindow.Instance?.SetStatus($"Blend export failed: {ex.Message}");
         }
         finally
         {

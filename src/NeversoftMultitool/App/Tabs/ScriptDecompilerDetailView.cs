@@ -1,13 +1,10 @@
-using CommunityToolkit.WinUI.Controls;
 using Microsoft.UI.Xaml.Controls;
 
 namespace NeversoftMultitool;
 
 internal sealed class ScriptDecompilerDetailView(
-    Border detailPanel,
-    ColumnDefinition detailSplitterColumn,
-    GridSplitter detailSplitter,
-    ColumnDefinition detailColumn,
+    TextBlock detailPlaceholderText,
+    Border detailTypeBadge,
     TextBlock detailTypeText,
     TextBlock detailIndexText,
     StackPanel propertiesSection,
@@ -30,10 +27,8 @@ internal sealed class ScriptDecompilerDetailView(
     TextBlock sourceHeaderText,
     TextBlock detailSourceText)
 {
-    public Border DetailPanel { get; } = detailPanel;
-    public ColumnDefinition DetailSplitterColumn { get; } = detailSplitterColumn;
-    public GridSplitter DetailSplitter { get; } = detailSplitter;
-    public ColumnDefinition DetailColumn { get; } = detailColumn;
+    public TextBlock DetailPlaceholderText { get; } = detailPlaceholderText;
+    public Border DetailTypeBadge { get; } = detailTypeBadge;
     public TextBlock DetailTypeText { get; } = detailTypeText;
     public TextBlock DetailIndexText { get; } = detailIndexText;
     public StackPanel PropertiesSection { get; } = propertiesSection;

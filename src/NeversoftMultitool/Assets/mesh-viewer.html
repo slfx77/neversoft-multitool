@@ -37,15 +37,55 @@
               environment-image="neutral"
               interaction-prompt="none">
 </model-viewer>
-<div id="status">Select a file to preview</div>
+<div id="status">Click on an entry to preview.</div>
 <script>
     const viewer = document.getElementById('viewer');
     const status = document.getElementById('status');
     let currentBlobUrl = null;
+    let timeTimer = null;
+    let lastPostedTime = -1;
+
+    // Messages to the WinUI host (ModelViewerControl). Always JSON strings.
+    function post(obj) {
+      if (window.chrome && window.chrome.webview)
+        window.chrome.webview.postMessage(JSON.stringify(obj));
+    }
+
+    function startTimeLoop() {
+      stopTimeLoop();
+      timeTimer = setInterval(() => {
+        // Only cross the WebView2 boundary when the slider-resolution value
+        // actually changed.
+        const t = Math.round((viewer.currentTime || 0) * 100) / 100;
+        if (t === lastPostedTime) return;
+        lastPostedTime = t;
+        post({ type: 'time', value: t });
+      }, 100);
+    }
+
+    // viewer.duration is populated asynchronously once the clip is bound;
+    // retry a few frames so the host never sees duration=0 for an animated
+    // model (which would hide the transport).
+    function postLoadedWhenReady(anims, attempts) {
+      const d = viewer.duration || 0;
+      if (anims.length > 0 && d === 0 && attempts > 0) {
+        requestAnimationFrame(() => postLoadedWhenReady(anims, attempts - 1));
+        return;
+      }
+      post({ type: 'loaded', animations: anims, duration: d });
+    }
+
+    function stopTimeLoop() {
+      if (timeTimer) {
+        clearInterval(timeTimer);
+        timeTimer = null;
+      }
+    }
 
     function loadModel(base64Glb) {
       status.textContent = 'Loading model...';
       status.classList.remove('hidden');
+      stopTimeLoop();
 
       if (currentBlobUrl) {
         URL.revokeObjectURL(currentBlobUrl);
@@ -64,6 +104,13 @@
 
         viewer.addEventListener('load', () => {
           status.classList.add('hidden');
+          const anims = viewer.availableAnimations || [];
+          if (anims.length > 0) {
+            viewer.animationName = anims[0];
+            viewer.play();
+            startTimeLoop();
+          }
+          postLoadedWhenReady(anims, 30);
         }, { once: true });
 
         viewer.addEventListener('error', () => {
@@ -76,13 +123,37 @@
       }
     }
 
+    function playAnim() {
+      viewer.play();
+      startTimeLoop();
+    }
+
+    function pauseAnim() {
+      viewer.pause();
+      stopTimeLoop();
+      post({ type: 'time', value: viewer.currentTime || 0 });
+    }
+
+    function seekAnim(t) {
+      viewer.currentTime = t;
+      if (viewer.paused)
+        post({ type: 'time', value: t });
+    }
+
+    function setAnim(name) {
+      viewer.animationName = name;
+      viewer.currentTime = 0;
+      postLoadedWhenReady(viewer.availableAnimations || [], 30);
+    }
+
     function clearModel() {
+      stopTimeLoop();
       if (currentBlobUrl) {
         URL.revokeObjectURL(currentBlobUrl);
         currentBlobUrl = null;
       }
       viewer.src = '';
-      status.textContent = 'Select a file to preview';
+      status.textContent = 'Click on an entry to preview.';
       status.classList.remove('hidden');
     }
 

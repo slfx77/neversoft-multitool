@@ -26,6 +26,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
     // Playback
     private MediaPlayer? _mediaPlayer;
     private string _outputDir = "";
+    private bool _outputManuallySet;
     private DispatcherTimer? _positionTimer;
     private CancellationTokenSource? _previewCts;
     private bool _updatingSlider;
@@ -35,6 +36,18 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         InitializeComponent();
         FilesListView.ItemsSource = _items;
         Unloaded += AudioConverterTab_Unloaded;
+
+        // Reclaim preview WAVs left behind if a previous session crashed
+        // before Dispose could clean the temp root.
+        try
+        {
+            if (Directory.Exists(_tempDir))
+                Directory.Delete(_tempDir, true);
+        }
+        catch
+        {
+            /* another instance may hold a lock — ignore */
+        }
     }
 
     public void Dispose()
@@ -42,6 +55,17 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         Unloaded -= AudioConverterTab_Unloaded;
         ClearPreview();
         _conversionController.Dispose();
+
+        // Preview WAVs accumulate in per-conversion GUID subdirectories.
+        try
+        {
+            if (Directory.Exists(_tempDir))
+                Directory.Delete(_tempDir, true);
+        }
+        catch
+        {
+            // A file may still be locked by a just-disposed MediaPlayer.
+        }
     }
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
@@ -51,6 +75,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
 
         _inputDir = path;
         InputPathText.Text = _inputDir;
+        DefaultOutputToInput(path);
 
         ClearPreview();
         _previewCache.Clear();
@@ -79,7 +104,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
             if (!proceed) return;
         }
 
-        foreach (var filePath in supported.OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase))
+        foreach (var filePath in supported.OrderBy(f => MakeRelativePath(f, _inputDir), StringComparer.OrdinalIgnoreCase))
         {
             var fileName = Path.GetFileName(filePath)!;
             var ext = Path.GetExtension(filePath).ToLowerInvariant();
@@ -104,6 +129,8 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
 
         _inputDir = Path.GetDirectoryName(path) ?? "";
         InputPathText.Text = path;
+        if (_inputDir.Length > 0)
+            DefaultOutputToInput(_inputDir);
 
         ClearPreview();
         _previewCache.Clear();
@@ -140,7 +167,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
 
             DispatcherQueue.TryEnqueue(() =>
             {
-                foreach (var entry in entries.OrderBy(e => e.FileName, StringComparer.OrdinalIgnoreCase))
+                foreach (var entry in entries.OrderBy(e => e.RelativePath, StringComparer.OrdinalIgnoreCase))
                 {
                     _parentFiles.Add(entry);
                     _items.Add(entry);
@@ -174,7 +201,18 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         if (path == null) return;
 
         _outputDir = path;
+        _outputManuallySet = true;
         OutputPathText.Text = _outputDir;
+        UpdateUiState();
+    }
+
+    private void DefaultOutputToInput(string dir)
+    {
+        if (_outputManuallySet)
+            return;
+
+        _outputDir = dir;
+        OutputPathText.Text = dir;
         UpdateUiState();
     }
 
@@ -204,27 +242,72 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         }
         else
         {
-            if (parent.CachedChildren == null)
-            {
-                try
-                {
-                    parent.CachedChildren = AudioConverterTabOperations.EnumerateChildren(
-                        parent.Source,
-                        parent.FileName,
-                        parent.AudioFormat);
-                }
-                catch
-                {
-                    parent.CachedChildren = [];
-                }
-            }
-
+            EnsureChildren(parent);
             parent.IsExpanded = true;
-            for (var i = 0; i < parent.CachedChildren.Count; i++)
+            for (var i = 0; i < parent.CachedChildren!.Count; i++)
                 _items.Insert(parentIndex + 1 + i, parent.CachedChildren[i]);
         }
     }
 
+    private static void EnsureChildren(AudioFileEntry parent)
+    {
+        if (parent.CachedChildren != null) return;
+
+        try
+        {
+            parent.CachedChildren = AudioConverterTabOperations.EnumerateChildren(
+                parent.Source,
+                parent.FileName,
+                parent.AudioFormat);
+        }
+        catch
+        {
+            parent.CachedChildren = [];
+        }
+    }
+
+    private async void ExpandAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (_parentFiles.Count == 0) return;
+
+        // Children enumerate lazily (each bank parses on demand) — build them
+        // off-thread, then rebuild the flat list in one pass.
+        var parents = _parentFiles.Where(p => p.IsExpandable).ToList();
+        await Task.Run(() =>
+        {
+            foreach (var parent in parents)
+                EnsureChildren(parent);
+        });
+
+        _items.Clear();
+        foreach (var parent in _parentFiles)
+        {
+            _items.Add(parent);
+            if (!parent.IsExpandable || parent.CachedChildren is not { Count: > 0 } children)
+                continue;
+
+            parent.IsExpanded = true;
+            foreach (var child in children)
+                _items.Add(child);
+        }
+    }
+
+    private void CollapseAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (_parentFiles.Count == 0) return;
+
+        foreach (var parent in _parentFiles)
+            parent.IsExpanded = false;
+
+        _items.Clear();
+        foreach (var parent in _parentFiles)
+            _items.Add(parent);
+    }
+
+    /// <summary>
+    ///     Selected VAB output rate; 0 = auto, letting the extractor derive each
+    ///     sample's rate from its tone table (center note + fine tune).
+    /// </summary>
     private int GetSelectedVabSampleRate()
     {
         var selected = (VabSampleRateCombo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "";
@@ -233,8 +316,32 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
             "11025 Hz" => 11025,
             "22050 Hz" => 22050,
             "44100 Hz" => 44100,
-            _ => VabExtractor.DefaultSampleRate
+            _ => 0
         };
+    }
+
+    /// <summary>
+    ///     Reflects the selected VAB bank's dominant tone-table rate in the
+    ///     "Auto" combo item so the user can see what detection resolved to.
+    /// </summary>
+    private async Task UpdateDetectedVabRateAsync(AudioFileEntry parent)
+    {
+        if (parent.AudioFormat != "VAB")
+            return;
+
+        if (parent.CachedChildren == null)
+            await Task.Run(() => EnsureChildren(parent));
+
+        var dominant = parent.CachedChildren!
+            .Where(c => c.SampleRate > 0)
+            .GroupBy(c => c.SampleRate)
+            .OrderByDescending(g => g.Count())
+            .Select(g => g.Key)
+            .FirstOrDefault();
+
+        VabAutoRateItem.Content = dominant > 0
+            ? $"Auto (detected: {dominant} Hz)"
+            : "Auto (detected)";
     }
 
     private async void ConvertButton_Click(object sender, RoutedEventArgs e)
@@ -264,6 +371,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         {
             case AudioFileEntry { IsExpandable: true } parent:
                 ShowParentInfo(parent);
+                await UpdateDetectedVabRateAsync(parent);
                 break;
             case AudioFileEntry parent:
                 await LoadAudioPreview(parent);
@@ -280,11 +388,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
     private void ShowParentInfo(AudioFileEntry parent)
     {
         StopPlayback();
-        PreviewPanel.Visibility = Visibility.Visible;
-        PreviewSplitter.Visibility = Visibility.Visible;
-        SplitterColumn.Width = new GridLength(8);
-        if (PreviewColumn.Width.Value <= 0)
-            PreviewColumn.Width = new GridLength(280);
+        PreviewPlaceholderText.Visibility = Visibility.Collapsed;
         PreviewFileNameText.Text = parent.FileName;
         PreviewInfoText.Text = $"{parent.AudioFormat} soundbank\nSelect a sample to preview";
         PreviewLoading.IsActive = false;
@@ -312,12 +416,8 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
 
         StopPlayback();
 
-        // Show preview panel with loading state
-        PreviewPanel.Visibility = Visibility.Visible;
-        PreviewSplitter.Visibility = Visibility.Visible;
-        SplitterColumn.Width = new GridLength(8);
-        if (PreviewColumn.Width.Value <= 0)
-            PreviewColumn.Width = new GridLength(280);
+        // Loading state
+        PreviewPlaceholderText.Visibility = Visibility.Collapsed;
         PreviewLoading.IsActive = true;
         AudioIcon.Visibility = Visibility.Collapsed;
         PreviewErrorText.Visibility = Visibility.Collapsed;
@@ -327,19 +427,23 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         CurrentTimeText.Text = "0:00";
         TotalTimeText.Text = "0:00";
 
+        // The selected VAB rate is part of the cache identity — without it,
+        // changing the rate would replay a stale WAV converted at the old one.
+        var vabSampleRate = GetSelectedVabSampleRate();
+
         string cacheKey;
         string displayName;
         string infoText;
 
         if (item is AudioFileEntry parent)
         {
-            cacheKey = Path.Combine(_inputDir, parent.FileName);
+            cacheKey = $"{Path.Combine(_inputDir, parent.FileName)}@{vabSampleRate}";
             displayName = parent.FileName;
             infoText = parent.AudioFormat;
         }
         else if (item is AudioSampleEntry sample)
         {
-            cacheKey = $"{Path.Combine(_inputDir, sample.ParentFileName)}#{sample.SampleIndex}";
+            cacheKey = $"{Path.Combine(_inputDir, sample.ParentFileName)}#{sample.SampleIndex}@{vabSampleRate}";
             displayName = $"{sample.ParentFileName} #{sample.SampleIndex:D3}";
             infoText = sample.InfoDisplay;
         }
@@ -362,7 +466,6 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         {
             try
             {
-                var vabSampleRate = GetSelectedVabSampleRate();
                 wavPath = await Task.Run(
                     () => AudioConverterTabOperations.ConvertForPreview(
                         item,
@@ -548,10 +651,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         _previewCts?.Cancel();
         _previewCts?.Dispose();
         _previewCts = null;
-        PreviewPanel.Visibility = Visibility.Collapsed;
-        PreviewSplitter.Visibility = Visibility.Collapsed;
-        SplitterColumn.Width = new GridLength(0);
-        PreviewColumn.Width = new GridLength(0);
+        PreviewPlaceholderText.Visibility = Visibility.Visible;
         PreviewLoading.IsActive = false;
         PreviewFileNameText.Text = "";
         PreviewInfoText.Text = "";

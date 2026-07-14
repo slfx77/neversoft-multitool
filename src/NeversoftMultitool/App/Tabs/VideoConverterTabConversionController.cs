@@ -25,6 +25,14 @@ internal sealed class VideoConverterTabConversionController : IDisposable
         if (entries.Count == 0 || string.IsNullOrEmpty(outputDir))
             return;
 
+        // Only checked rows participate; unchecked ones are skipped entirely.
+        var items = entries.Where(entry => entry.IsChecked).ToList();
+        if (items.Count == 0)
+        {
+            MainWindow.Instance?.SetStatus("No files checked for conversion.");
+            return;
+        }
+
         var previousCts = _cts;
         if (previousCts != null)
         {
@@ -36,10 +44,10 @@ internal sealed class VideoConverterTabConversionController : IDisposable
         var cts = new CancellationTokenSource();
         _cts = cts;
 
-        foreach (var entry in entries)
+        foreach (var entry in items)
             entry.Status = ExtractionStatus.Pending;
 
-        convertButton.IsEnabled = false;
+        convertButton.Visibility = Visibility.Collapsed;
         cancelButton.Visibility = Visibility.Visible;
         conversionProgress.Visibility = Visibility.Visible;
         conversionProgress.Value = 0;
@@ -47,9 +55,8 @@ internal sealed class VideoConverterTabConversionController : IDisposable
         var stopwatch = Stopwatch.StartNew();
         var filesProcessed = 0;
         var totalConverted = 0;
-        var totalFiles = entries.Count;
+        var totalFiles = items.Count;
         var token = cts.Token;
-        var items = entries.ToList();
 
         try
         {
@@ -94,7 +101,7 @@ internal sealed class VideoConverterTabConversionController : IDisposable
         {
             DisposeCancellationTokenSource();
             cancelButton.Visibility = Visibility.Collapsed;
-            convertButton.IsEnabled = true;
+            convertButton.Visibility = Visibility.Visible;
         }
     }
 
@@ -109,7 +116,7 @@ internal sealed class VideoConverterTabConversionController : IDisposable
         }
 
         cancelButton.Visibility = Visibility.Collapsed;
-        convertButton.IsEnabled = true;
+        convertButton.Visibility = Visibility.Visible;
         MainWindow.Instance?.SetStatus("Conversion cancelled");
     }
 

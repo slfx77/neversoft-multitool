@@ -14,7 +14,6 @@
       <RowDefinition Height="*" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
-      <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
     <!-- Header row -->
@@ -25,26 +24,31 @@
           Text="Mesh Conversion"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Convert mesh files to glTF (.glb) or Blender (.blend)"
+          Text="Convert mesh files to glTF (.glb) or Blender (.blend), preview in 3D, and render to PNG/GIF"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>
 
-    <!-- Main content: file list + preview -->
+    <!-- Main content: file list | 3D viewer | options panel -->
     <Grid Grid.Row="1">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*" MinWidth="200" />
-        <ColumnDefinition x:Name="SplitterColumn" Width="0" />
-        <ColumnDefinition x:Name="PreviewColumn" Width="0" />
+        <ColumnDefinition Width="1.2*" MinWidth="360" />
+        <ColumnDefinition Width="8" />
+        <ColumnDefinition Width="*" MinWidth="300" />
+        <ColumnDefinition Width="8" />
+        <ColumnDefinition Width="300" MinWidth="260" />
       </Grid.ColumnDefinitions>
 
       <controls:GridSplitter
-        x:Name="PreviewSplitter"
         Grid.Column="1"
         Width="8"
         ResizeBehavior="PreviousAndNext"
-        ResizeDirection="Columns"
-        Visibility="Collapsed" />
+        ResizeDirection="Columns" />
+      <controls:GridSplitter
+        Grid.Column="3"
+        Width="8"
+        ResizeBehavior="PreviousAndNext"
+        ResizeDirection="Columns" />
 
       <!-- Left: file list -->
       <Grid Grid.Column="0">
@@ -175,49 +179,155 @@
         </Border>
       </Grid>
 
-      <!-- Right: 3D preview panel -->
-      <Grid x:Name="PreviewPanel"
-            Grid.Column="2"
-            Margin="8,0,0,0"
-            Visibility="Collapsed">
+      <!-- Middle: 3D viewer -->
+      <Grid Grid.Column="2">
         <Border Style="{StaticResource CardBorderStyle}">
-          <Grid>
-            <Grid.RowDefinitions>
-              <RowDefinition Height="*" />
-              <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
+          <local:ModelViewerControl x:Name="ModelViewer" />
+        </Border>
+      </Grid>
 
-            <!-- WebView2 3D viewer -->
-            <WebView2
-              x:Name="ModelViewer"
-              Grid.Row="0" />
+      <!-- Right: export + render options -->
+      <Grid Grid.Column="4">
+        <Border Style="{StaticResource CardBorderStyle}">
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Padding="12"
+                        Spacing="8">
 
-            <!-- Loading overlay -->
-            <ProgressRing
-              x:Name="PreviewLoadingRing"
-              Grid.Row="0"
-              HorizontalAlignment="Center"
-              VerticalAlignment="Center"
-              IsActive="False"
-              Visibility="Collapsed" />
+              <!-- Export options -->
+              <TextBlock Text="Export"
+                         FontWeight="SemiBold" />
+              <CheckBox
+                x:Name="ExportGlbCheckbox"
+                Content="Export GLB"
+                MinWidth="0"
+                IsChecked="True"
+                Checked="ExportFormatCheckbox_Changed"
+                Unchecked="ExportFormatCheckbox_Changed" />
+              <CheckBox
+                x:Name="ExportBlendCheckbox"
+                Content="Export Blend"
+                MinWidth="0"
+                IsChecked="False"
+                Checked="ExportFormatCheckbox_Changed"
+                Unchecked="ExportFormatCheckbox_Changed" />
 
-            <!-- Model info + error -->
-            <StackPanel Grid.Row="1"
-                        Padding="12,8"
-                        Spacing="2">
+              <TextBlock Text="Worldzone"
+                         FontWeight="SemiBold"
+                         Margin="0,8,0,0" />
+              <Grid ColumnSpacing="8" RowSpacing="8">
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="70" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0"
+                           Text="Time"
+                           VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <ComboBox x:Name="WorldzoneTimeCombo"
+                          Grid.Row="0" Grid.Column="1"
+                          HorizontalAlignment="Stretch"
+                          SelectedIndex="0">
+                  <ComboBoxItem Content="All" Tag="all" />
+                  <ComboBoxItem Content="Day" Tag="day" />
+                  <ComboBoxItem Content="Night" Tag="night" />
+                </ComboBox>
+                <TextBlock Grid.Row="1" Grid.Column="0"
+                           Text="Scale"
+                           VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBox x:Name="WorldzoneScaleText"
+                         Grid.Row="1" Grid.Column="1"
+                         Text="1" />
+              </Grid>
+
+              <!-- Render section -->
+              <TextBlock Text="Render"
+                         FontWeight="SemiBold"
+                         Margin="0,8,0,0" />
               <TextBlock
-                x:Name="PreviewInfoText"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="Renders the previewed model with the headless rasterizer (same as the glb-render / glb-gif CLI commands)."
+                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                 FontSize="12"
                 TextWrapping="Wrap" />
-              <TextBlock
-                x:Name="PreviewErrorText"
-                Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                FontSize="12"
-                TextWrapping="Wrap"
-                Visibility="Collapsed" />
+              <Grid ColumnSpacing="8" RowSpacing="8">
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="70" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0"
+                           Text="Size"
+                           VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <NumberBox x:Name="RenderSizeBox"
+                           Grid.Row="0" Grid.Column="1"
+                           Minimum="16"
+                           Maximum="4096"
+                           Value="512"
+                           SpinButtonPlacementMode="Compact"
+                           SmallChange="64" />
+                <TextBlock Grid.Row="1" Grid.Column="0"
+                           Text="Azimuth"
+                           VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <NumberBox x:Name="RenderAzimuthBox"
+                           Grid.Row="1" Grid.Column="1"
+                           Minimum="-360"
+                           Maximum="360"
+                           Value="-90"
+                           SpinButtonPlacementMode="Compact"
+                           SmallChange="15" />
+                <TextBlock Grid.Row="2" Grid.Column="0"
+                           Text="Elevation"
+                           VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <NumberBox x:Name="RenderElevationBox"
+                           Grid.Row="2" Grid.Column="1"
+                           Minimum="-90"
+                           Maximum="90"
+                           Value="10"
+                           SpinButtonPlacementMode="Compact"
+                           SmallChange="5" />
+                <TextBlock Grid.Row="3" Grid.Column="0"
+                           Text="GIF FPS"
+                           VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <NumberBox x:Name="RenderFpsBox"
+                           Grid.Row="3" Grid.Column="1"
+                           Minimum="1"
+                           Maximum="60"
+                           Value="15"
+                           SpinButtonPlacementMode="Compact"
+                           SmallChange="5" />
+              </Grid>
+              <CheckBox
+                x:Name="ObjectReviewCheckbox"
+                Content="Object-review preset (5 views)"
+                MinWidth="0"
+                IsChecked="False" />
+              <Button
+                x:Name="RenderPngButton"
+                Content="Render PNG..."
+                HorizontalAlignment="Stretch"
+                IsEnabled="False"
+                Click="RenderPng_Click" />
+              <Button
+                x:Name="RenderGifButton"
+                Content="Render GIF..."
+                HorizontalAlignment="Stretch"
+                IsEnabled="False"
+                Click="RenderGif_Click" />
             </StackPanel>
-          </Grid>
+          </ScrollViewer>
         </Border>
       </Grid>
     </Grid>
@@ -233,8 +343,6 @@
     <Grid Grid.Row="3"
           Style="{StaticResource IoSectionGridStyle}">
       <Grid.RowDefinitions>
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
@@ -253,8 +361,7 @@
                IsReadOnly="True"
                Style="{StaticResource IoTextBoxStyle}" />
       <StackPanel Grid.Row="0" Grid.Column="2"
-                  Orientation="Horizontal"
-                  Spacing="4">
+                  Style="{StaticResource IoButtonsPanelStyle}">
         <Button Content="Browse folder..."
                 MinWidth="120"
                 Click="InputBrowse_Click" />
@@ -271,63 +378,23 @@
                Grid.Row="1" Grid.Column="1"
                IsReadOnly="True"
                Style="{StaticResource IoTextBoxStyle}" />
-      <Button Grid.Row="1" Grid.Column="2"
-              Content="Browse..."
-              MinWidth="120"
-              Click="OutputBrowse_Click" />
-
-      <TextBlock Grid.Row="2" Grid.Column="0"
-                 Text="Format:"
-                 Style="{StaticResource IoLabelStyle}" />
-      <ComboBox x:Name="OutputFormatCombo"
-                Grid.Row="2" Grid.Column="1"
-                Width="120"
-                SelectedIndex="0">
-        <ComboBoxItem Content="GLB" Tag="glb" />
-        <ComboBoxItem Content="BLEND" Tag="blend" />
-        <ComboBoxItem Content="Both" Tag="both" />
-      </ComboBox>
-
-      <TextBlock Grid.Row="3" Grid.Column="0"
-                 Text="Worldzone:"
-                 Style="{StaticResource IoLabelStyle}" />
-      <StackPanel Grid.Row="3" Grid.Column="1"
-                  Orientation="Horizontal"
-                  Spacing="8">
-        <TextBlock Text="Time"
-                   VerticalAlignment="Center"
-                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        <ComboBox x:Name="WorldzoneTimeCombo"
-                  Width="120"
-                  SelectedIndex="0">
-          <ComboBoxItem Content="All" Tag="all" />
-          <ComboBoxItem Content="Day" Tag="day" />
-          <ComboBoxItem Content="Night" Tag="night" />
-        </ComboBox>
-        <TextBlock Text="Scale"
-                   VerticalAlignment="Center"
-                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        <TextBox x:Name="WorldzoneScaleText"
-                 Width="80"
-                 Text="1" />
-      </StackPanel>
-    </Grid>
-
-    <!-- Action Row -->
-    <Grid Grid.Row="4" Margin="0,8,0,0">
-      <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+      <StackPanel Grid.Row="1" Grid.Column="2"
+                  Style="{StaticResource IoButtonsPanelStyle}">
+        <Button Content="Browse folder..."
+                MinWidth="120"
+                Click="OutputBrowse_Click" />
         <Button
           x:Name="CancelButton"
           Content="Cancel"
-          MinWidth="80"
+          MinWidth="120"
           Click="CancelButton_Click"
           Visibility="Collapsed" />
         <Button
           x:Name="ConvertButton"
           Content="Convert"
-          MinWidth="120"
           Click="ConvertButton_Click"
           IsEnabled="False"
+          MinWidth="120"
           Style="{StaticResource AccentButtonStyle}" />
       </StackPanel>
     </Grid>

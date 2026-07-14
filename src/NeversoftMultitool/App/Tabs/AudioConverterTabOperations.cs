@@ -158,13 +158,19 @@ internal static class AudioConverterTabOperations
         IReadOnlyList<AudioFileEntry> parentFiles,
         int vabSampleRate)
     {
-        Directory.CreateDirectory(tempDir);
+        // Unique per-conversion directory: the decoders derive output names
+        // from the file stem, so rapid selection switches would otherwise race
+        // on the same path (the old decode keeps writing — decoders don't
+        // observe cancellation — and the MediaPlayer holds a lock on the WAV
+        // it is playing). See "sound fails to preview while another plays".
+        var conversionDir = Path.Combine(tempDir, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(conversionDir);
 
         if (item is AudioFileEntry parent)
-            return ConvertFilePreview(parent, tempDir);
+            return ConvertFilePreview(parent, conversionDir);
 
         if (item is AudioSampleEntry sample)
-            return ConvertSamplePreview(sample, tempDir, parentFiles, vabSampleRate);
+            return ConvertSamplePreview(sample, conversionDir, parentFiles, vabSampleRate);
 
         return null;
     }

@@ -106,6 +106,23 @@
             Value="16" />
   </Style>
 
+  <!-- Button panel in the I/O grid's rightmost column (uniform spacing so
+       buttons column-align across Input/Output rows) -->
+  <Style x:Key="IoButtonsPanelStyle"
+         TargetType="StackPanel">
+    <Setter Property="Orientation"
+            Value="Horizontal" />
+    <Setter Property="Spacing"
+            Value="8" />
+  </Style>
+
+  <!-- I/O grid buttons set MinWidth=120 directly on the element (plus
+       AccentButtonStyle for primary actions). Do NOT reintroduce a keyed
+       Button style here: without BasedOn it silently drops the default
+       style's CornerRadius (square buttons), and BasedOn on system styles
+       can't resolve from a merged dictionary (it doesn't see sibling
+       XamlControlsResources) — it crashes at parse time. -->
+
   <!-- Tab header with title and subtitle -->
   <Style x:Key="TabHeaderStackPanelStyle"
          TargetType="StackPanel">

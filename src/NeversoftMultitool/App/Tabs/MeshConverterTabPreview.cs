@@ -1,38 +1,18 @@
-using Microsoft.UI.Dispatching;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.Web.WebView2.Core;
-
 namespace NeversoftMultitool;
 
 /// <summary>
-///     Handles 3D model preview for MeshConverterTab using WebView2 + model-viewer.
-///     Converts selected mesh files to GLB on a background thread, then loads
-///     the result into an interactive 3D viewer via base64.
+///     Handles 3D model preview for MeshConverterTab. Converts selected mesh
+///     files to GLB on a background thread, then loads the result into the
+///     shared <see cref="ModelViewerControl" /> (WebView2 + model-viewer).
 /// </summary>
 internal sealed class MeshConverterTabPreview : IDisposable
 {
-    private readonly DispatcherQueue _dispatcher;
-    private readonly TextBlock _errorText;
-    private readonly TextBlock _infoText;
-    private readonly ProgressRing _loadingRing;
-    private readonly WebView2 _webView;
+    private readonly ModelViewerControl _viewer;
     private CancellationTokenSource? _previewCts;
 
-    private bool _webViewInitialized;
-
-    public MeshConverterTabPreview(
-        WebView2 webView,
-        ProgressRing loadingRing,
-        TextBlock infoText,
-        TextBlock errorText,
-        DispatcherQueue dispatcher)
+    public MeshConverterTabPreview(ModelViewerControl viewer)
     {
-        _webView = webView;
-        _loadingRing = loadingRing;
-        _infoText = infoText;
-        _errorText = errorText;
-        _dispatcher = dispatcher;
+        _viewer = viewer;
     }
 
     public void Dispose()
@@ -41,29 +21,9 @@ internal sealed class MeshConverterTabPreview : IDisposable
         _previewCts = null;
     }
 
-    public async Task InitializeAsync()
+    public Task InitializeAsync()
     {
-        if (_webViewInitialized) return;
-
-        try
-        {
-            await _webView.EnsureCoreWebView2Async();
-
-            var assetsDir = Path.Combine(AppContext.BaseDirectory, "Assets");
-            _webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
-                "mesh-viewer-assets",
-                assetsDir,
-                CoreWebView2HostResourceAccessKind.Allow);
-
-            _webView.CoreWebView2.Navigate(
-                new UriBuilder(Uri.UriSchemeHttps, "mesh-viewer-assets") { Path = "mesh-viewer.html" }.Uri.ToString());
-            _webViewInitialized = true;
-        }
-        catch (Exception ex)
-        {
-            _errorText.Text = $"WebView2 init failed: {ex.Message}";
-            _errorText.Visibility = Visibility.Visible;
-        }
+        return _viewer.InitializeAsync();
     }
 
     public async Task LoadPreviewAsync(MeshFileEntry entry)
@@ -81,22 +41,10 @@ internal sealed class MeshConverterTabPreview : IDisposable
         _previewCts = cts;
         var token = cts.Token;
 
-        _errorText.Visibility = Visibility.Collapsed;
-        _infoText.Text = $"Converting {entry.FileName}...";
-        _loadingRing.IsActive = true;
-        _loadingRing.Visibility = Visibility.Visible;
-
-        if (_webViewInitialized)
-        {
-            try
-            {
-                await _webView.ExecuteScriptAsync("setStatus('Converting...')");
-            }
-            catch
-            {
-                /* WebView may not be ready */
-            }
-        }
+        _viewer.SetError(null);
+        _viewer.SetInfo($"Converting {entry.FileName}...");
+        _viewer.SetLoading(true);
+        await _viewer.SetViewerStatusAsync("Converting...");
 
         try
         {
@@ -107,28 +55,18 @@ internal sealed class MeshConverterTabPreview : IDisposable
 
             if (glbBytes == null || glbBytes.Length == 0)
             {
-                _dispatcher.TryEnqueue(() =>
-                {
-                    _infoText.Text = "No geometry in this file";
-                    _loadingRing.IsActive = false;
-                    _loadingRing.Visibility = Visibility.Collapsed;
-                });
-                if (_webViewInitialized)
-                    await _webView.ExecuteScriptAsync("setStatus('No geometry')");
+                // Clear the previous model so render buttons can't act on
+                // stale bytes under this file's name.
+                await _viewer.ClearAsync();
+                _viewer.SetInfo("No geometry in this file");
+                await _viewer.SetViewerStatusAsync("No geometry");
                 return;
             }
 
-            var base64 = Convert.ToBase64String(glbBytes);
-
-            _dispatcher.TryEnqueue(() =>
-            {
-                _infoText.Text = $"{entry.FormatDisplay} | {triangles:N0} triangles | {glbBytes.Length / 1024:N0} KB";
-                _loadingRing.IsActive = false;
-                _loadingRing.Visibility = Visibility.Collapsed;
-            });
-
-            if (_webViewInitialized)
-                await _webView.ExecuteScriptAsync($"loadModel('{base64}')");
+            _viewer.SetInfo(
+                $"{entry.FormatDisplay} | {triangles:N0} triangles | {glbBytes.Length / 1024:N0} KB");
+            _viewer.SetLoading(false);
+            await _viewer.LoadGlbAsync(glbBytes);
         }
         catch (OperationCanceledException)
         {
@@ -138,27 +76,9 @@ internal sealed class MeshConverterTabPreview : IDisposable
         {
             if (token.IsCancellationRequested) return;
 
-            _dispatcher.TryEnqueue(() =>
-            {
-                _infoText.Text = "";
-                _errorText.Text = $"Preview failed: {ex.Message}";
-                _errorText.Visibility = Visibility.Visible;
-                _loadingRing.IsActive = false;
-                _loadingRing.Visibility = Visibility.Collapsed;
-            });
-
-            if (_webViewInitialized)
-            {
-                try
-                {
-                    await _webView.ExecuteScriptAsync(
-                        $"setStatus('Error: {EscapeJsString(ex.Message)}')");
-                }
-                catch
-                {
-                    /* WebView may not be ready */
-                }
-            }
+            await _viewer.ClearAsync();
+            _viewer.SetError($"Preview failed: {ex.Message}");
+            await _viewer.SetViewerStatusAsync($"Error: {ex.Message}");
         }
     }
 
@@ -172,26 +92,6 @@ internal sealed class MeshConverterTabPreview : IDisposable
             cts.Dispose();
         }
 
-        _infoText.Text = "";
-        _errorText.Visibility = Visibility.Collapsed;
-        _loadingRing.IsActive = false;
-        _loadingRing.Visibility = Visibility.Collapsed;
-
-        if (_webViewInitialized)
-        {
-            try
-            {
-                await _webView.ExecuteScriptAsync("clearModel()");
-            }
-            catch
-            {
-                /* ignore */
-            }
-        }
-    }
-
-    private static string EscapeJsString(string s)
-    {
-        return s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n").Replace("\r", "");
+        await _viewer.ClearAsync();
     }
 }

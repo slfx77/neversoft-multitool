@@ -13,6 +13,10 @@ public class RleFileEntry : BaseFileEntry
     /// <summary>Display path relative to the browsed root ("archive.wad::frame.rle" for archive sources).</summary>
     public string RelativePath { get; init; } = "";
 
+    /// <summary>Directory portion of the relative path, for the Folder column.</summary>
+    public string FolderDisplay =>
+        Path.GetDirectoryName(RelativePath.Replace("::", "/"))?.Replace('\\', '/') ?? "";
+
     protected override string ProcessingVerb => "Converting...";
 
     public int DetectedWidth

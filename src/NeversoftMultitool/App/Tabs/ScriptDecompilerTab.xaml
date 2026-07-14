@@ -4,95 +4,7 @@
   x:Class="NeversoftMultitool.ScriptDecompilerTab"
   xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-  xmlns:local="using:NeversoftMultitool"
   xmlns:controls="using:CommunityToolkit.WinUI.Controls">
-
-  <UserControl.Resources>
-    <local:ExpandableListTemplateSelector x:Key="ListTemplateSelector">
-
-      <!-- Parent row: script file (TRG or QB) -->
-      <local:ExpandableListTemplateSelector.ParentTemplate>
-        <DataTemplate>
-          <Grid Style="{StaticResource ListItemRowGridStyle}">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="28" />
-              <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="60" />
-              <ColumnDefinition Width="60" />
-              <ColumnDefinition Width="100" />
-            </Grid.ColumnDefinitions>
-            <Button
-              Grid.Column="0"
-              Padding="0"
-              MinWidth="0"
-              MinHeight="0"
-              Width="24" Height="24"
-              Background="Transparent"
-              BorderThickness="0"
-              Click="ExpandCollapse_Click"
-              Tag="{Binding}"
-              VerticalAlignment="Center">
-              <FontIcon
-                FontSize="10"
-                Glyph="{Binding ChevronGlyph}" />
-            </Button>
-            <TextBlock
-              Grid.Column="1"
-              VerticalAlignment="Center"
-              Text="{Binding FileName}"
-              TextTrimming="CharacterEllipsis"
-              ToolTipService.ToolTip="{Binding FileName}" />
-            <TextBlock
-              Grid.Column="2"
-              VerticalAlignment="Center"
-              HorizontalAlignment="Center"
-              Text="{Binding VersionDisplay}" />
-            <TextBlock
-              Grid.Column="3"
-              VerticalAlignment="Center"
-              HorizontalAlignment="Center"
-              Text="{Binding NodeCountDisplay}" />
-            <TextBlock
-              Grid.Column="4"
-              VerticalAlignment="Center"
-              Foreground="{Binding StatusColor}"
-              Text="{Binding StatusDisplay}" />
-          </Grid>
-        </DataTemplate>
-      </local:ExpandableListTemplateSelector.ParentTemplate>
-
-      <!-- Child row: TRG node or QB item -->
-      <local:ExpandableListTemplateSelector.ChildTemplate>
-        <DataTemplate>
-          <Grid Style="{StaticResource ListItemRowGridStyle}"
-                Padding="28,0,0,0">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="50" />
-              <ColumnDefinition Width="120" />
-              <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <TextBlock
-              Grid.Column="0"
-              VerticalAlignment="Center"
-              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-              Text="{Binding IndexDisplay}" />
-            <TextBlock
-              Grid.Column="1"
-              VerticalAlignment="Center"
-              FontWeight="SemiBold"
-              Text="{Binding TypeDisplay}" />
-            <TextBlock
-              Grid.Column="2"
-              VerticalAlignment="Center"
-              Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-              Text="{Binding SummaryDisplay}"
-              TextTrimming="CharacterEllipsis" />
-          </Grid>
-        </DataTemplate>
-      </local:ExpandableListTemplateSelector.ChildTemplate>
-
-    </local:ExpandableListTemplateSelector>
-  </UserControl.Resources>
 
   <Grid Padding="16"
         VerticalAlignment="Stretch">
@@ -116,21 +28,26 @@
       </StackPanel>
     </Grid>
 
-    <!-- Main content: file list + detail panel -->
+    <!-- Main content: file list | node list | detail panel -->
     <Grid Grid.Row="1">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*" MinWidth="200" />
-        <ColumnDefinition x:Name="DetailSplitterColumn" Width="0" />
-        <ColumnDefinition x:Name="DetailColumn" Width="0" />
+        <ColumnDefinition Width="1*" MinWidth="200" />
+        <ColumnDefinition Width="8" />
+        <ColumnDefinition Width="1*" MinWidth="200" />
+        <ColumnDefinition Width="8" />
+        <ColumnDefinition Width="1.2*" MinWidth="260" />
       </Grid.ColumnDefinitions>
 
       <controls:GridSplitter
-        x:Name="DetailSplitter"
         Grid.Column="1"
         Width="8"
         ResizeBehavior="PreviousAndNext"
-        ResizeDirection="Columns"
-        Visibility="Collapsed" />
+        ResizeDirection="Columns" />
+      <controls:GridSplitter
+        Grid.Column="3"
+        Width="8"
+        ResizeBehavior="PreviousAndNext"
+        ResizeDirection="Columns" />
 
       <!-- File list card -->
       <Border
@@ -149,26 +66,58 @@
           <Grid Grid.Row="0"
                 Style="{StaticResource ColumnHeaderGridStyle}">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="28" />
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="60" />
               <ColumnDefinition Width="60" />
-              <ColumnDefinition Width="100" />
+              <ColumnDefinition Width="90" />
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="1" Text="File Name" FontWeight="SemiBold" />
-            <TextBlock Grid.Column="2" Text="Format" FontWeight="SemiBold" HorizontalAlignment="Center" />
-            <TextBlock Grid.Column="3" Text="Items" FontWeight="SemiBold" HorizontalAlignment="Center" />
-            <TextBlock Grid.Column="4" Text="Status" FontWeight="SemiBold" />
+            <TextBlock Grid.Column="0" Text="File Name" FontWeight="SemiBold" />
+            <TextBlock Grid.Column="1" Text="Format" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            <TextBlock Grid.Column="2" Text="Items" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            <TextBlock Grid.Column="3" Text="Status" FontWeight="SemiBold" />
           </Grid>
 
-          <!-- Files ListView -->
+          <!-- Files ListView (TrgFileEntry / QbFileEntry share the row shape) -->
           <ListView
             x:Name="FilesListView"
             Grid.Row="1"
             SelectionMode="Single"
             Style="{StaticResource FileListViewStyle}"
-            SelectionChanged="FilesListView_SelectionChanged"
-            ItemTemplateSelector="{StaticResource ListTemplateSelector}" />
+            SelectionChanged="FilesListView_SelectionChanged">
+            <ListView.ItemTemplate>
+              <DataTemplate>
+                <Grid Style="{StaticResource ListItemRowGridStyle}">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="60" />
+                    <ColumnDefinition Width="60" />
+                    <ColumnDefinition Width="90" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="{Binding FileName}"
+                    TextTrimming="CharacterEllipsis"
+                    ToolTipService.ToolTip="{Binding FilePath}" />
+                  <TextBlock
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center"
+                    Text="{Binding VersionDisplay}" />
+                  <TextBlock
+                    Grid.Column="2"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center"
+                    Text="{Binding NodeCountDisplay}" />
+                  <TextBlock
+                    Grid.Column="3"
+                    VerticalAlignment="Center"
+                    Foreground="{Binding StatusColor}"
+                    Text="{Binding StatusDisplay}" />
+                </Grid>
+              </DataTemplate>
+            </ListView.ItemTemplate>
+          </ListView>
         </Grid>
       </Border>
 
@@ -182,7 +131,7 @@
                     VerticalAlignment="Center"
                     Spacing="16">
           <FontIcon FontSize="64"
-                    Glyph="&#xE81E;"
+                    Glyph="&#xE943;"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
           <TextBlock
             Text="No files loaded"
@@ -194,20 +143,101 @@
             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
             TextAlignment="Center" />
           <Button
-            Content="Browse..."
+            Content="Browse folder..."
             HorizontalAlignment="Center"
             Click="InputBrowse_Click"
             Style="{StaticResource AccentButtonStyle}" />
         </StackPanel>
       </Border>
 
+      <!-- Node list card -->
+      <Border
+        Grid.Column="2"
+        VerticalAlignment="Stretch"
+        Style="{StaticResource CardBorderStyle}">
+        <Grid VerticalAlignment="Stretch">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+          </Grid.RowDefinitions>
+
+          <Grid Grid.Row="0"
+                Style="{StaticResource ColumnHeaderGridStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="50" />
+              <ColumnDefinition Width="110" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="#" FontWeight="SemiBold" />
+            <TextBlock Grid.Column="1" Text="Type" FontWeight="SemiBold" />
+            <TextBlock Grid.Column="2" Text="Summary" FontWeight="SemiBold" />
+          </Grid>
+
+          <!-- Nodes ListView (TrgNodeEntry / QbItemEntry share the row shape) -->
+          <ListView
+            x:Name="NodesListView"
+            Grid.Row="1"
+            SelectionMode="Single"
+            Style="{StaticResource FileListViewStyle}"
+            SelectionChanged="NodesListView_SelectionChanged">
+            <ListView.ItemTemplate>
+              <DataTemplate>
+                <Grid Style="{StaticResource ListItemRowGridStyle}">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="50" />
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{Binding IndexDisplay}" />
+                  <TextBlock
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    FontWeight="SemiBold"
+                    Text="{Binding TypeDisplay}"
+                    TextTrimming="CharacterEllipsis" />
+                  <TextBlock
+                    Grid.Column="2"
+                    VerticalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    Text="{Binding SummaryDisplay}"
+                    TextTrimming="CharacterEllipsis"
+                    ToolTipService.ToolTip="{Binding SummaryDisplay}" />
+                </Grid>
+              </DataTemplate>
+            </ListView.ItemTemplate>
+          </ListView>
+
+          <TextBlock
+            x:Name="NodesPlaceholderText"
+            Grid.Row="1"
+            Text="Select a file to list its nodes."
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            TextWrapping="Wrap"
+            TextAlignment="Center"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        </Grid>
+      </Border>
+
       <!-- Detail panel -->
       <Border
         x:Name="DetailPanel"
-        Grid.Column="2"
+        Grid.Column="4"
         VerticalAlignment="Stretch"
-        Style="{StaticResource CardBorderStyle}"
-        Visibility="Collapsed">
+        Style="{StaticResource CardBorderStyle}">
+        <Grid>
+        <TextBlock
+          x:Name="DetailPlaceholderText"
+          Text="Click on an entry to preview."
+          HorizontalAlignment="Center"
+          VerticalAlignment="Center"
+          TextWrapping="Wrap"
+          TextAlignment="Center"
+          Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel Spacing="8" Margin="4">
 
@@ -217,8 +247,10 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
               </Grid.ColumnDefinitions>
-              <Border Background="{ThemeResource AccentFillColorDefaultBrush}"
-                      CornerRadius="4" Padding="8,2">
+              <Border x:Name="DetailTypeBadge"
+                      Background="{ThemeResource AccentFillColorDefaultBrush}"
+                      CornerRadius="4" Padding="8,2"
+                      Visibility="Collapsed">
                 <TextBlock x:Name="DetailTypeText" FontWeight="SemiBold"
                            FontSize="12"
                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
@@ -308,6 +340,7 @@
             </StackPanel>
           </StackPanel>
         </ScrollViewer>
+        </Grid>
       </Border>
     </Grid>
 
@@ -339,13 +372,12 @@
                IsReadOnly="True"
                Style="{StaticResource IoTextBoxStyle}" />
       <StackPanel Grid.Row="0" Grid.Column="2"
-                  Orientation="Horizontal"
-                  Spacing="8">
-        <Button Content="Open File..."
-                MinWidth="100"
+                  Style="{StaticResource IoButtonsPanelStyle}">
+        <Button Content="Select file..."
+                MinWidth="120"
                 Click="OpenFile_Click" />
-        <Button Content="Browse Dir..."
-                MinWidth="100"
+        <Button Content="Browse folder..."
+                MinWidth="120"
                 Click="InputBrowse_Click" />
       </StackPanel>
 
@@ -357,23 +389,23 @@
                IsReadOnly="True"
                Style="{StaticResource IoTextBoxStyle}" />
       <StackPanel Grid.Row="1" Grid.Column="2"
-                  Orientation="Horizontal"
-                  Spacing="8">
-        <Button Content="Browse..."
-                MinWidth="80"
+                  Style="{StaticResource IoButtonsPanelStyle}">
+        <Button Content="Browse folder..."
+                MinWidth="120"
                 Click="OutputBrowse_Click" />
+        <!-- Cancel occupies Export's slot while an export runs. -->
         <Button
           x:Name="CancelButton"
           Content="Cancel"
-          MinWidth="80"
+          MinWidth="120"
           Click="CancelButton_Click"
           Visibility="Collapsed" />
         <Button
           x:Name="ExportButton"
           Content="Export"
-          MinWidth="120"
           Click="ExportButton_Click"
           IsEnabled="False"
+          MinWidth="120"
           Style="{StaticResource AccentButtonStyle}" />
       </StackPanel>
     </Grid>

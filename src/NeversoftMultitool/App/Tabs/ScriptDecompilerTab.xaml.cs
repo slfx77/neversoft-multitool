@@ -38,19 +38,21 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
     private readonly ScriptDecompilerDetailPresenter _detailPresenter;
     private readonly ScriptDecompilerTabExporter _exporter = new();
     private readonly ObservableCollection<IListEntry> _items = [];
+    private readonly ObservableCollection<IListEntry> _nodeItems = [];
     private readonly List<IListEntry> _parentFiles = [];
+    private int _nodeListRequestId;
     private string _outputDir = string.Empty;
+    private bool _outputManuallySet;
 
     public ScriptDecompilerTab()
     {
         InitializeComponent();
         FilesListView.ItemsSource = _items;
+        NodesListView.ItemsSource = _nodeItems;
         Unloaded += ScriptDecompilerTab_Unloaded;
         _detailPresenter = new ScriptDecompilerDetailPresenter(new ScriptDecompilerDetailView(
-            DetailPanel,
-            DetailSplitterColumn,
-            DetailSplitter,
-            DetailColumn,
+            DetailPlaceholderText,
+            DetailTypeBadge,
             DetailTypeText,
             DetailIndexText,
             PropertiesSection,
@@ -97,6 +99,8 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
         if (file == null) return;
 
         InputPathText.Text = file.Path;
+        if (Path.GetDirectoryName(file.Path) is { Length: > 0 } fileDir)
+            DefaultOutputToInput(fileDir);
         ClearDetail();
         _items.Clear();
         _parentFiles.Clear();
@@ -123,6 +127,7 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
         if (path == null) return;
 
         InputPathText.Text = path;
+        DefaultOutputToInput(path);
         ClearDetail();
         _items.Clear();
         _parentFiles.Clear();
@@ -241,7 +246,18 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
         if (path == null) return;
 
         _outputDir = path;
+        _outputManuallySet = true;
         OutputPathText.Text = _outputDir;
+        UpdateUiState();
+    }
+
+    private void DefaultOutputToInput(string dir)
+    {
+        if (_outputManuallySet)
+            return;
+
+        _outputDir = dir;
+        OutputPathText.Text = dir;
         UpdateUiState();
     }
 
@@ -255,13 +271,138 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
         ExportButton.IsEnabled = hasFiles && hasOutput;
     }
 
-    private void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    // ─── Selection: file → node list, node → detail ───────────────────────
+
+    private async void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        _detailPresenter.ShowSelection(FilesListView.SelectedItem);
+        var selected = FilesListView.SelectedItem;
+        _detailPresenter.ShowSelection(selected);
+
+        var requestId = ++_nodeListRequestId;
+        _nodeItems.Clear();
+        NodesPlaceholderText.Text = "Select a file to list its nodes.";
+        NodesPlaceholderText.Visibility = Visibility.Visible;
+
+        List<IListEntry> children;
+        switch (selected)
+        {
+            case TrgFileEntry trg:
+                children = await Task.Run(() => GetTrgChildren(trg));
+                if (requestId != _nodeListRequestId) return;
+                RefreshTrgDisplay(trg);
+                break;
+
+            case QbFileEntry qb:
+                children = await Task.Run(() => GetQbChildren(qb));
+                if (requestId != _nodeListRequestId) return;
+                RefreshQbDisplay(qb);
+                break;
+
+            default:
+                return;
+        }
+
+        foreach (var child in children)
+            _nodeItems.Add(child);
+
+        NodesPlaceholderText.Text = children.Count > 0
+            ? "Select a file to list its nodes."
+            : "No nodes in this file.";
+        NodesPlaceholderText.Visibility = children.Count > 0
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
+        // The file detail may have been shown before the parse finished —
+        // re-present it now that counts/version are known.
+        if (ReferenceEquals(FilesListView.SelectedItem, selected))
+            _detailPresenter.ShowSelection(selected);
+    }
+
+    private void NodesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (NodesListView.SelectedItem is { } node)
+            _detailPresenter.ShowSelection(node);
+    }
+
+    private static List<IListEntry> GetTrgChildren(TrgFileEntry parent)
+    {
+        if (parent.CachedChildren == null)
+        {
+            if (parent.CachedParsedFile == null)
+            {
+                try
+                {
+                    parent.CachedParsedFile = TrgFile.Parse(parent.FilePath);
+                }
+                catch
+                {
+                    parent.CachedChildren = [];
+                    return [];
+                }
+            }
+
+            parent.CachedChildren = parent.CachedParsedFile.Nodes
+                .Select((node, index) => new TrgNodeEntry
+                {
+                    ParentFileName = parent.FileName,
+                    NodeIndex = index,
+                    Node = node
+                }).ToList();
+        }
+
+        return [.. parent.CachedChildren];
+    }
+
+    private static List<IListEntry> GetQbChildren(QbFileEntry parent)
+    {
+        if (parent.CachedChildren == null)
+        {
+            if (parent.CachedParsedFile == null)
+            {
+                try
+                {
+                    parent.CachedParsedFile = QbFile.Parse(parent.FilePath);
+                }
+                catch
+                {
+                    parent.CachedChildren = [];
+                    return [];
+                }
+            }
+
+            parent.CachedChildren = parent.CachedParsedFile.Items
+                .Select((item, index) => new QbItemEntry
+                {
+                    ParentFileName = parent.FileName,
+                    ItemIndex = index,
+                    Item = item,
+                    QbFile = parent.CachedParsedFile
+                }).ToList();
+        }
+
+        return [.. parent.CachedChildren];
+    }
+
+    private static void RefreshTrgDisplay(TrgFileEntry entry)
+    {
+        if (entry.CachedParsedFile is not { } trg) return;
+        entry.NodeCount = trg.NodeCount;
+        entry.VersionDisplay = $"{trg.VersionMajor}.{trg.VersionMinor}";
+    }
+
+    private static void RefreshQbDisplay(QbFileEntry entry)
+    {
+        if (entry.CachedParsedFile is not { } qb) return;
+        entry.NodeCount = qb.Items.Count;
+        entry.VersionDisplay = "QB";
     }
 
     private void ClearDetail()
     {
+        _nodeListRequestId++;
+        _nodeItems.Clear();
+        NodesPlaceholderText.Text = "Select a file to list its nodes.";
+        NodesPlaceholderText.Visibility = Visibility.Visible;
         _detailPresenter.Clear();
     }
 
@@ -279,116 +420,6 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
     private async void CancelButton_Click(object sender, RoutedEventArgs e)
     {
         await _exporter.CancelAsync(ExportButton, CancelButton);
-    }
-
-    private void ExpandCollapse_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button button) return;
-
-        switch (button.Tag)
-        {
-            case TrgFileEntry trgParent:
-                ExpandCollapseTrg(trgParent);
-                break;
-            case QbFileEntry qbParent:
-                ExpandCollapseQb(qbParent);
-                break;
-        }
-    }
-
-    private void ExpandCollapseTrg(TrgFileEntry parent)
-    {
-        if (parent.NodeCount == 0) return;
-        var parentIndex = _items.IndexOf(parent);
-        if (parentIndex < 0) return;
-
-        if (parent.IsExpanded)
-        {
-            parent.IsExpanded = false;
-            var removeIndex = parentIndex + 1;
-            while (removeIndex < _items.Count && _items[removeIndex].IsChildEntry)
-                _items.RemoveAt(removeIndex);
-        }
-        else
-        {
-            if (parent.CachedChildren == null)
-            {
-                if (parent.CachedParsedFile == null)
-                {
-                    try
-                    {
-                        parent.CachedParsedFile = TrgFile.Parse(parent.FilePath);
-                        parent.NodeCount = parent.CachedParsedFile.NodeCount;
-                        parent.VersionDisplay =
-                            $"{parent.CachedParsedFile.VersionMajor}.{parent.CachedParsedFile.VersionMinor}";
-                    }
-                    catch
-                    {
-                        parent.CachedChildren = [];
-                        return;
-                    }
-                }
-
-                parent.CachedChildren = parent.CachedParsedFile.Nodes
-                    .Select((node, index) => new TrgNodeEntry
-                    {
-                        ParentFileName = parent.FileName,
-                        NodeIndex = index,
-                        Node = node
-                    }).ToList();
-            }
-
-            parent.IsExpanded = true;
-            for (var i = 0; i < parent.CachedChildren.Count; i++)
-                _items.Insert(parentIndex + 1 + i, parent.CachedChildren[i]);
-        }
-    }
-
-    private void ExpandCollapseQb(QbFileEntry parent)
-    {
-        if (parent.NodeCount == 0) return;
-        var parentIndex = _items.IndexOf(parent);
-        if (parentIndex < 0) return;
-
-        if (parent.IsExpanded)
-        {
-            parent.IsExpanded = false;
-            var removeIndex = parentIndex + 1;
-            while (removeIndex < _items.Count && _items[removeIndex].IsChildEntry)
-                _items.RemoveAt(removeIndex);
-        }
-        else
-        {
-            if (parent.CachedChildren == null)
-            {
-                if (parent.CachedParsedFile == null)
-                {
-                    try
-                    {
-                        parent.CachedParsedFile = QbFile.Parse(parent.FilePath);
-                        parent.NodeCount = parent.CachedParsedFile.Items.Count;
-                    }
-                    catch
-                    {
-                        parent.CachedChildren = [];
-                        return;
-                    }
-                }
-
-                parent.CachedChildren = parent.CachedParsedFile.Items
-                    .Select((item, index) => new QbItemEntry
-                    {
-                        ParentFileName = parent.FileName,
-                        ItemIndex = index,
-                        Item = item,
-                        QbFile = parent.CachedParsedFile
-                    }).ToList();
-            }
-
-            parent.IsExpanded = true;
-            for (var i = 0; i < parent.CachedChildren.Count; i++)
-                _items.Insert(parentIndex + 1 + i, parent.CachedChildren[i]);
-        }
     }
 
     private void ScriptDecompilerTab_Unloaded(object sender, RoutedEventArgs e)

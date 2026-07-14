@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
+using NeversoftMultitool.Core.Formats.DiscImage;
 using WinRT.Interop;
 
 namespace NeversoftMultitool;
@@ -16,6 +17,7 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
     private string _archiveType = "";
     private CancellationTokenSource? _cts;
     private string _outputDir = "";
+    private bool _outputManuallySet;
 
     public ArchiveExtractorTab()
     {
@@ -48,6 +50,11 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
         picker.FileTypeFilter.Add(".ngc");
         picker.FileTypeFilter.Add(".wpc");
         picker.FileTypeFilter.Add(".xbx");
+        picker.FileTypeFilter.Add(".iso");
+        picker.FileTypeFilter.Add(".cue");
+        picker.FileTypeFilter.Add(".gdi");
+        picker.FileTypeFilter.Add(".img");
+        picker.FileTypeFilter.Add(".bin");
         var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
         InitializeWithWindow.Initialize(picker, hwnd);
 
@@ -109,6 +116,11 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                     _archiveType = "PAK";
                     entries = PakArchive.GetFileList(_archivePath);
                     break;
+                case ".iso" or ".cue" or ".gdi" or ".img" or ".bin"
+                    when DiscImageArchive.IsDiscImage(_archivePath):
+                    _archiveType = "DISC";
+                    entries = DiscImageArchive.GetFileList(_archivePath);
+                    break;
                 default:
                     var probe = FormatProbe.ProbeArchive(_archivePath);
                     var reason = probe.UnsupportedReason ?? $"Unsupported archive format: {ext}";
@@ -120,9 +132,17 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
             {
                 _files.Add(new ArchiveFileEntry
                 {
-                    FileName = entry.FullName,
+                    FileName = entry.Name,
+                    Folder = entry.Directory.Replace('\\', '/'),
                     Size = entry.Size
                 });
+            }
+
+            // Default the output next to the archive unless the user chose one.
+            if (!_outputManuallySet && Path.GetDirectoryName(_archivePath) is { Length: > 0 } archiveDir)
+            {
+                _outputDir = archiveDir;
+                OutputPathText.Text = archiveDir;
             }
 
             ArchiveNameText.Text = Path.GetFileName(_archivePath);
@@ -158,6 +178,7 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
         if (path == null) return;
 
         _outputDir = path;
+        _outputManuallySet = true;
         OutputPathText.Text = _outputDir;
         UpdateUiState();
     }
@@ -192,7 +213,7 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
             file.Status = ExtractionStatus.Pending;
         }
 
-        ExtractButton.IsEnabled = false;
+        ExtractButton.Visibility = Visibility.Collapsed;
         CancelButton.Visibility = Visibility.Visible;
         ExtractionProgress.Visibility = Visibility.Visible;
         ExtractionProgress.Value = 0;
@@ -251,6 +272,9 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                     case "CUT":
                         CutArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
                         break;
+                    case "DISC":
+                        DiscImageArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
+                        break;
                 }
             }, token);
 
@@ -278,7 +302,7 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
         {
             DisposeCancellationTokenSource();
             CancelButton.Visibility = Visibility.Collapsed;
-            ExtractButton.IsEnabled = true;
+            ExtractButton.Visibility = Visibility.Visible;
         }
     }
 
@@ -293,7 +317,7 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
         }
 
         CancelButton.Visibility = Visibility.Collapsed;
-        ExtractButton.IsEnabled = true;
+        ExtractButton.Visibility = Visibility.Visible;
         MainWindow.Instance?.SetStatus("Extraction cancelled");
     }
 

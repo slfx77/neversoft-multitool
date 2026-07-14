@@ -44,7 +44,7 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
                 baseEntry.Status = ExtractionStatus.Pending;
         }
 
-        exportButton.IsEnabled = false;
+        exportButton.Visibility = Visibility.Collapsed;
         cancelButton.Visibility = Visibility.Visible;
         exportProgress.Visibility = Visibility.Visible;
         exportProgress.Value = 0;
@@ -91,7 +91,7 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
         {
             DisposeCancellationTokenSource();
             cancelButton.Visibility = Visibility.Collapsed;
-            exportButton.IsEnabled = true;
+            exportButton.Visibility = Visibility.Visible;
         }
     }
 
@@ -106,7 +106,7 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
         }
 
         cancelButton.Visibility = Visibility.Collapsed;
-        exportButton.IsEnabled = true;
+        exportButton.Visibility = Visibility.Visible;
         MainWindow.Instance?.SetStatus("Export cancelled");
     }
 

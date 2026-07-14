@@ -33,10 +33,23 @@
     <!-- Main content: character list | 3D viewer | animation panel -->
     <Grid Grid.Row="1">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="280" MinWidth="220" />
-        <ColumnDefinition Width="*" MinWidth="320" />
+        <ColumnDefinition Width="1*" MinWidth="220" />
+        <ColumnDefinition Width="8" />
+        <ColumnDefinition Width="2*" MinWidth="320" />
+        <ColumnDefinition Width="8" />
         <ColumnDefinition Width="320" MinWidth="240" />
       </Grid.ColumnDefinitions>
+
+      <controls:GridSplitter
+        Grid.Column="1"
+        Width="8"
+        ResizeBehavior="PreviousAndNext"
+        ResizeDirection="Columns" />
+      <controls:GridSplitter
+        Grid.Column="3"
+        Width="8"
+        ResizeBehavior="PreviousAndNext"
+        ResizeDirection="Columns" />
 
       <!-- Left: character list -->
       <Grid Grid.Column="0">
@@ -132,48 +145,14 @@
       </Grid>
 
       <!-- Middle: 3D viewer -->
-      <Grid Grid.Column="1"
-            Margin="8,0,8,0">
+      <Grid Grid.Column="2">
         <Border Style="{StaticResource CardBorderStyle}">
-          <Grid>
-            <Grid.RowDefinitions>
-              <RowDefinition Height="*" />
-              <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-
-            <WebView2
-              x:Name="ModelViewer"
-              Grid.Row="0" />
-
-            <ProgressRing
-              x:Name="PreviewLoadingRing"
-              Grid.Row="0"
-              HorizontalAlignment="Center"
-              VerticalAlignment="Center"
-              IsActive="False"
-              Visibility="Collapsed" />
-
-            <StackPanel Grid.Row="1"
-                        Padding="12,8"
-                        Spacing="2">
-              <TextBlock
-                x:Name="PreviewInfoText"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                FontSize="12"
-                TextWrapping="Wrap" />
-              <TextBlock
-                x:Name="PreviewErrorText"
-                Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                FontSize="12"
-                TextWrapping="Wrap"
-                Visibility="Collapsed" />
-            </StackPanel>
-          </Grid>
+          <local:ModelViewerControl x:Name="ModelViewer" />
         </Border>
       </Grid>
 
       <!-- Right: animation panel -->
-      <Grid Grid.Column="2">
+      <Grid Grid.Column="4">
         <Border Style="{StaticResource CardBorderStyle}">
           <Grid>
             <Grid.RowDefinitions>
@@ -277,6 +256,12 @@
                 IsEnabled="False"
                 Click="RenderGif_Click" />
               <Button
+                x:Name="ConvertBlendButton"
+                Content="Convert to Blend..."
+                HorizontalAlignment="Stretch"
+                IsEnabled="False"
+                Click="ConvertBlend_Click" />
+              <Button
                 x:Name="ConvertGlbButton"
                 Content="Convert to GLB..."
                 HorizontalAlignment="Stretch"
@@ -316,8 +301,7 @@
                IsReadOnly="True"
                Style="{StaticResource IoTextBoxStyle}" />
       <StackPanel Grid.Row="0" Grid.Column="2"
-                  Orientation="Horizontal"
-                  Spacing="4">
+                  Style="{StaticResource IoButtonsPanelStyle}">
         <Button Content="Browse folder..."
                 MinWidth="120"
                 Click="InputBrowse_Click" />

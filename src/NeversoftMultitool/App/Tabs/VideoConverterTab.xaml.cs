@@ -1,7 +1,10 @@
 using System.Collections.ObjectModel;
+using Windows.Foundation;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Video;
 
@@ -17,6 +20,12 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
     private bool _ffmpegAvailable;
     private string _inputDir = string.Empty;
     private string _outputDir = string.Empty;
+    private bool _outputManuallySet;
+    private CancellationTokenSource? _probeCts;
+    private bool _videoDragging;
+    private Point _videoDragStart;
+    private double _videoDragStartH;
+    private double _videoDragStartV;
 
     public VideoConverterTab()
     {
@@ -25,12 +34,8 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
         Unloaded += VideoConverterTab_Unloaded;
         _previewController = new VideoConverterTabPreviewController(new VideoPreviewView
         {
-            PreviewPanel = PreviewPanel,
-            PreviewSplitter = PreviewSplitter,
-            SplitterColumn = SplitterColumn,
-            PreviewColumn = PreviewColumn,
             PreviewLoading = PreviewLoading,
-            VideoPlaceholderIcon = VideoPlaceholderIcon,
+            VideoPlaceholderPanel = VideoPlaceholderPanel,
             PreviewFileNameText = PreviewFileNameText,
             PreviewInfoText = PreviewInfoText,
             PreviewErrorText = PreviewErrorText,
@@ -43,12 +48,19 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
             PlayPauseIcon = PlayPauseIcon,
             TempDir = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "VideoPreview")
         });
+        // 100% zoom needs the opened stream's natural size, so re-apply
+        // whenever a new source finishes opening.
+        _previewController.MediaOpened = ApplyVideoZoom;
+        RoundedClipHelper.Apply(VideoPlayer, 8);
         CheckFfmpeg();
     }
 
     public void Dispose()
     {
         Unloaded -= VideoConverterTab_Unloaded;
+        _probeCts?.Cancel();
+        _probeCts?.Dispose();
+        _probeCts = null;
         _previewController.Dispose();
         _conversionController.Dispose();
     }
@@ -67,13 +79,22 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
 
         _inputDir = path;
         InputPathText.Text = _inputDir;
+        DefaultOutputToInput(path);
         _previewController.ClearPreview();
-
         _items.Clear();
-        foreach (var filePath in VideoConverterTabOperations.FindVideoFiles(_inputDir))
-            _items.Add(VideoConverterTabOperations.CreateEntry(filePath));
+
+        // The recursive scan sniffs headers per file — keep it off the UI thread.
+        var inputDir = _inputDir;
+        var entries = await Task.Run(() =>
+            VideoConverterTabOperations.FindVideoFiles(inputDir)
+                .Select(filePath => VideoConverterTabOperations.CreateEntry(filePath, inputDir))
+                .ToList());
+
+        foreach (var entry in entries)
+            _items.Add(entry);
 
         UpdateUiState();
+        StartBackgroundProbe();
     }
 
     private async void SelectArchive_Click(object sender, RoutedEventArgs e)
@@ -83,6 +104,8 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
 
         _inputDir = Path.GetDirectoryName(path) ?? "";
         InputPathText.Text = path;
+        if (_inputDir.Length > 0)
+            DefaultOutputToInput(_inputDir);
         _previewController.ClearPreview();
         _items.Clear();
 
@@ -109,7 +132,7 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
 
             DispatcherQueue.TryEnqueue(() =>
             {
-                foreach (var entry in entries.OrderBy(en => en.FileName, StringComparer.OrdinalIgnoreCase))
+                foreach (var entry in entries.OrderBy(en => en.RelativePath, StringComparer.OrdinalIgnoreCase))
                     _items.Add(entry);
 
                 MainWindow.Instance?.SetStatus(entries.Count == 0
@@ -128,8 +151,50 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
             return;
 
         _outputDir = path;
+        _outputManuallySet = true;
         OutputPathText.Text = _outputDir;
         UpdateUiState();
+    }
+
+    private void DefaultOutputToInput(string dir)
+    {
+        if (_outputManuallySet)
+            return;
+
+        _outputDir = dir;
+        OutputPathText.Text = dir;
+    }
+
+    /// <summary>
+    ///     Fills Duration/Resolution after the list is shown: ffprobe spawns a
+    ///     process per file, far too slow to run inline on a recursive scan.
+    /// </summary>
+    private void StartBackgroundProbe()
+    {
+        _probeCts?.Cancel();
+        _probeCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _probeCts = cts;
+        var token = cts.Token;
+        var entries = _items.ToList();
+
+        _ = Task.Run(() =>
+        {
+            foreach (var entry in entries)
+            {
+                if (token.IsCancellationRequested)
+                    return;
+                if (entry.Source.FileSystemPath is not { } filePath)
+                    continue;
+
+                var (duration, resolution) = VideoConverterTabOperations.ProbeFile(filePath);
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    entry.DurationDisplay = duration;
+                    entry.ResolutionDisplay = resolution;
+                });
+            }
+        }, token);
     }
 
     private void UpdateUiState()
@@ -140,6 +205,13 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
         EmptyStatePanel.Visibility = hasFiles ? Visibility.Collapsed : Visibility.Visible;
         FileListCard.Visibility = hasFiles ? Visibility.Visible : Visibility.Collapsed;
         ConvertButton.IsEnabled = hasFiles && hasOutput && _ffmpegAvailable;
+    }
+
+    private void CheckAll_Click(object sender, RoutedEventArgs e)
+    {
+        var isChecked = CheckAllBox.IsChecked == true;
+        foreach (var entry in _items)
+            entry.IsChecked = isChecked;
     }
 
     private async void ConvertButton_Click(object sender, RoutedEventArgs e)
@@ -182,6 +254,80 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
     private void PlaybackSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
         _previewController.Seek(e.NewValue);
+    }
+
+    // ─── Zoom (fit / 100%) ────────────────────────────────────────────────
+
+    private bool IsVideoActualSize => VideoZoomCombo.SelectedIndex == 1;
+
+    private void VideoZoomCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        ApplyVideoZoom();
+    }
+
+    private void ApplyVideoZoom()
+    {
+        // SelectedIndex="0" raises SelectionChanged during InitializeComponent,
+        // before the later-declared elements (and the controller) exist.
+        if (VideoScroller is null || VideoPlayer is null || _previewController is null)
+            return;
+
+        if (IsVideoActualSize && _previewController.NaturalVideoSize is { } size)
+        {
+            // 1:1 pixels — size the player to the stream, scrollbars when larger.
+            VideoPlayer.Stretch = Stretch.None;
+            VideoPlayer.Width = size.Width;
+            VideoPlayer.Height = size.Height;
+            VideoScroller.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+            VideoScroller.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            VideoScroller.HorizontalScrollMode = ScrollMode.Enabled;
+            VideoScroller.VerticalScrollMode = ScrollMode.Enabled;
+        }
+        else
+        {
+            VideoPlayer.Stretch = Stretch.Uniform;
+            VideoPlayer.ClearValue(WidthProperty);
+            VideoPlayer.ClearValue(HeightProperty);
+            VideoScroller.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            VideoScroller.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            VideoScroller.HorizontalScrollMode = ScrollMode.Disabled;
+            VideoScroller.VerticalScrollMode = ScrollMode.Disabled;
+            VideoScroller.ChangeView(0, 0, null, true);
+        }
+    }
+
+    // ─── Drag-to-pan (100% mode) ──────────────────────────────────────────
+
+    private void VideoHost_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!IsVideoActualSize) return;
+
+        _videoDragging = true;
+        _videoDragStart = e.GetCurrentPoint(VideoScroller).Position;
+        _videoDragStartH = VideoScroller.HorizontalOffset;
+        _videoDragStartV = VideoScroller.VerticalOffset;
+        VideoHost.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void VideoHost_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_videoDragging) return;
+
+        var pos = e.GetCurrentPoint(VideoScroller).Position;
+        VideoScroller.ChangeView(
+            _videoDragStartH - (pos.X - _videoDragStart.X),
+            _videoDragStartV - (pos.Y - _videoDragStart.Y),
+            null,
+            true);
+        e.Handled = true;
+    }
+
+    private void VideoHost_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_videoDragging) return;
+        _videoDragging = false;
+        VideoHost.ReleasePointerCaptures();
     }
 
     private void VideoConverterTab_Unloaded(object sender, RoutedEventArgs e)
