@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.Formats.Archives;
+using NeversoftMultitool.Core.Formats.DiscImage;
 
 namespace NeversoftMultitool.Core;
 
@@ -10,8 +11,14 @@ namespace NeversoftMultitool.Core;
 /// </summary>
 public static class RecursiveUnpacker
 {
+    // .img is gated on a same-stem .ccd sibling inside DiscImageArchive
+    // because bare .img files are PS2 IOP modules / GC textures rather than
+    // disc images. Bare .bin track files are reached through their .cue.
     private static readonly string[] ArchiveExtensions =
-        [".wad", ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".ddx", ".bon", ".pak", ".apk", ".zip", ".cut"];
+    [
+        ".wad", ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".ddx", ".bon", ".pak", ".apk", ".zip", ".cut",
+        ".iso", ".cue", ".gdi", ".img"
+    ];
 
     /// <summary>
     ///     Scans a directory tree for all archive files, returning them with already-extracted status.
@@ -68,12 +75,13 @@ public static class RecursiveUnpacker
         var parentDir = Path.GetDirectoryName(archivePath)!;
         var ext = GetArchiveExtension(archivePath);
 
-        // PKR uses internal directory names directly under outputDir (no stem subdir),
-        // so wrap it in a stem subdirectory for consistency.
+        // PKR and disc images use internal directory names directly under
+        // outputDir (no stem subdir), so wrap them in a stem subdirectory
+        // for consistency.
         string outputDir;
-        if (ext == ".pkr")
+        if (ext is ".pkr" or ".iso" or ".cue" or ".gdi" or ".img")
         {
-            var stem = Path.GetFileNameWithoutExtension(archivePath);
+            var stem = ArchiveNaming.GetExtractionStem(archivePath);
             outputDir = Path.Combine(parentDir, stem);
             Directory.CreateDirectory(outputDir);
         }
@@ -87,18 +95,8 @@ public static class RecursiveUnpacker
             case ".wad":
                 WadArchive.ExtractFiles(archivePath, outputDir, null, ct);
                 break;
-            case ".pre" when CompressedPreArchive.IsCompressedPre(archivePath):
-            case ".prd" when CompressedPreArchive.IsCompressedPre(archivePath):
-            case ".prf" when CompressedPreArchive.IsCompressedPre(archivePath):
-            case ".prg" when CompressedPreArchive.IsCompressedPre(archivePath):
-            case ".prx":
-                CompressedPreArchive.ExtractFiles(archivePath, outputDir, null, ct);
-                break;
-            case ".pre":
-            case ".prd":
-            case ".prf":
-            case ".prg":
-                PreArchive.ExtractFiles(archivePath, outputDir, null, ct);
+            case ".pre" or ".prd" or ".prf" or ".prg" or ".prx":
+                ExtractPreFamily(archivePath, outputDir, ext, ct);
                 break;
             case ".pkr":
                 PkrArchive.ExtractFiles(archivePath, outputDir, null, ct);
@@ -119,7 +117,18 @@ public static class RecursiveUnpacker
             case ".cut" when CutArchive.IsCut(archivePath):
                 CutArchive.ExtractFiles(archivePath, outputDir, null, ct);
                 break;
+            case ".iso" or ".cue" or ".gdi" or ".img" when DiscImageArchive.IsDiscImage(archivePath):
+                DiscImageArchive.ExtractFiles(archivePath, outputDir, null, ct);
+                break;
         }
+    }
+
+    private static void ExtractPreFamily(string archivePath, string outputDir, string ext, CancellationToken ct)
+    {
+        if (ext == ".prx" || CompressedPreArchive.IsCompressedPre(archivePath))
+            CompressedPreArchive.ExtractFiles(archivePath, outputDir, null, ct);
+        else
+            PreArchive.ExtractFiles(archivePath, outputDir, null, ct);
     }
 
     /// <summary>
@@ -142,6 +151,8 @@ public static class RecursiveUnpacker
             ".apk" => PakArchive.IsPakArchive(filePath) ? "PAK (GC)" : "PAK (raw)",
             ".zip" => QZipArchive.IsZip(filePath) ? "ZIP" : "ZIP (raw)",
             ".cut" => CutArchive.IsCut(filePath) ? "CUT" : "CUT (raw)",
+            ".iso" or ".cue" or ".gdi" or ".img" =>
+                DiscImageArchive.IsDiscImage(filePath) ? "DISC" : "DISC (raw)",
             _ => "?"
         };
     }

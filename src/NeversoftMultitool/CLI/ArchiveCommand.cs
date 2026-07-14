@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
+using NeversoftMultitool.Core.Formats.DiscImage;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -12,7 +13,9 @@ public static class ArchiveCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to archive file (WAD, PKR, PRE, PRX, PRD/PRF localized PRE, DDX, BON, PAK, ZIP, or CUT)"
+            Description =
+                "Path to archive file (WAD, PKR, PRE, PRX, PRD/PRF localized PRE, DDX, BON, PAK, ZIP, CUT) " +
+                "or disc image (ISO, CUE, GDI, IMG+CCD, BIN)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -203,6 +206,16 @@ public static class ArchiveCommand
                         AnsiConsole.MarkupLine("[red]Not a cutscene file library[/] (bad header or layout)");
                         return Task.FromResult(1);
 
+                    case ".iso" or ".cue" or ".gdi" or ".img" or ".bin"
+                        when DiscImageArchive.IsDiscImage(input):
+                        filesExtracted = ExtractDiscImage(input, output, verbose, cancellationToken);
+                        break;
+
+                    case ".iso" or ".cue" or ".gdi" or ".img" or ".bin":
+                        AnsiConsole.MarkupLine(
+                            "[red]Not a recognized disc image[/] (no ISO9660/XDVDFS/GCM filesystem found)");
+                        return Task.FromResult(1);
+
                     default:
                         AnsiConsole.MarkupLine($"[red]Unsupported archive format:[/] {ext}");
                         return Task.FromResult(1);
@@ -222,5 +235,20 @@ public static class ArchiveCommand
         });
 
         return command;
+    }
+
+    private static int ExtractDiscImage(string input, string output, bool verbose, CancellationToken cancellationToken)
+    {
+        AnsiConsole.MarkupLine("[blue]Disc image[/] detected");
+        var entries = DiscImageArchive.GetFileList(input);
+        AnsiConsole.MarkupLine($"Found [green]{entries.Count}[/] files");
+        var filesExtracted = 0;
+        DiscImageArchive.ExtractFiles(input, output, (current, total) =>
+        {
+            filesExtracted = current;
+            if (verbose)
+                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {entries[current - 1].FullName}");
+        }, cancellationToken);
+        return filesExtracted;
     }
 }
