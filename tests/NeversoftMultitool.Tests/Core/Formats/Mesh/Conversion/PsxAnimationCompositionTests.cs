@@ -7,7 +7,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 
 /// <summary>
 ///     Verifies the piecewise-rigid rotation composition fix in
-///     <see cref="ModelDocumentGeometryAdapter.PopulatePsxAnimations" />. The
+///     <see cref="PsxAnimationChannelWriter.PopulatePsxAnimations" />. The
 ///     THPS2 PSX engine's <c>Decomp_GetAnimTransform</c> writes each bone's
 ///     world rotation as its own local Euler matrix only — no parent
 ///     multiplication. To reproduce that invariant inside glTF's chained scene
@@ -31,7 +31,7 @@ public sealed class PsxAnimationCompositionTests
         );
 
         var document = CreateThreeBoneDocument();
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             document, BuildPsxFile(), skeletonIndex: 0,
             [("walk", animation)],
             new PsxAnimationOptions());
@@ -55,7 +55,7 @@ public sealed class PsxAnimationCompositionTests
         );
 
         var document = CreateThreeBoneDocument();
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             document, BuildPsxFile(), skeletonIndex: 0,
             [("walk", animation)],
             new PsxAnimationOptions());
@@ -84,7 +84,7 @@ public sealed class PsxAnimationCompositionTests
         var animation = BuildAnimation();
         var document = CreateThreeBoneDocument();
 
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             document, BuildPsxFile(), skeletonIndex: 0,
             [("rest", animation)],
             new PsxAnimationOptions());
@@ -103,7 +103,7 @@ public sealed class PsxAnimationCompositionTests
         var animation = BuildAnimation();
         var document = CreateThreeBoneDocument();
 
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             document, BuildPsxFile(), skeletonIndex: 0,
             [("with_trans", animation)],
             new PsxAnimationOptions(SkipRotation: true, SkipTranslation: false));
@@ -124,7 +124,7 @@ public sealed class PsxAnimationCompositionTests
             (bone: 2, channelIndex: 3, frame: 1, s16Value: 30));
         var document = CreateThreeBoneDocument();
 
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             document, BuildPsxFile(), skeletonIndex: 0,
             [("board_only", animation)],
             new PsxAnimationOptions(
@@ -150,7 +150,7 @@ public sealed class PsxAnimationCompositionTests
             (bone: 1, channelIndex: 3, frame: 1, s16Value: 820));
         var document = CreateTranslatedThreeBoneDocument();
 
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             document, BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f),
             skeletonIndex: 0,
             [("with_trans", animation)],
@@ -176,7 +176,7 @@ public sealed class PsxAnimationCompositionTests
             (bone: 1, channelIndex: 3, frame: 1, s16Value: 820));
         var document = CreateTranslatedThreeBoneDocument();
 
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             document, BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f),
             skeletonIndex: 0,
             [("with_trans", animation)],
@@ -205,7 +205,7 @@ public sealed class PsxAnimationCompositionTests
             (bone: 1, channelIndex: 3, frame: 0, s16Value: 72));
         var document = CreateTranslatedThreeBoneDocument();
 
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             document, BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f),
             skeletonIndex: 0,
             [("absolute_trans", animation)],
@@ -236,13 +236,13 @@ public sealed class PsxAnimationCompositionTests
         var psxFile = BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f, withHierarchy: true);
 
         var localDocument = CreateTranslatedThreeBoneDocument();
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             localDocument, psxFile, skeletonIndex: 0,
             [("local", animation)],
             new PsxAnimationOptions(SkipTranslation: false));
 
         var worldDocument = CreateTranslatedThreeBoneDocument();
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             worldDocument, psxFile, skeletonIndex: 0,
             [("engine_world", animation)],
             new PsxAnimationOptions(
@@ -288,7 +288,7 @@ public sealed class PsxAnimationCompositionTests
             (bone: 1, channelIndex: 3, frame: 1, s16Value: 72));
         var document = CreateTranslatedThreeBoneDocument();
 
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             document, BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f, withHierarchy: true),
             skeletonIndex: 0,
             [("local_trans", animation)],
@@ -318,7 +318,7 @@ public sealed class PsxAnimationCompositionTests
             (bone: 1, channelIndex: 3, frame: 1, s16Value: 72));
         var document = CreateTranslatedThreeBoneDocument();
 
-        ModelDocumentGeometryAdapter.PopulatePsxAnimationClips(
+        PsxAnimationChannelWriter.PopulatePsxAnimationClips(
             document,
             BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f, withHierarchy: true),
             skeletonIndex: 0,
@@ -373,7 +373,7 @@ public sealed class PsxAnimationCompositionTests
         skeleton.Bones.Add(new ModelBone { Name = "c", ParentIndex = -1 });
         document.Skeletons.Add(skeleton);
 
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             document, psxFile, skeletonIndex: 0,
             [("flat", animation)],
             new PsxAnimationOptions(SkipRotation: true, SkipTranslation: false));
@@ -400,7 +400,7 @@ public sealed class PsxAnimationCompositionTests
         );
 
         var document = CreateThreeBoneDocument();
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             document, BuildPsxFile(), skeletonIndex: 0,
             [("walk", animation)],
             new PsxAnimationOptions(LegacyRotationChain: true));
@@ -425,7 +425,7 @@ public sealed class PsxAnimationCompositionTests
         );
 
         var document = CreateThreeBoneDocument();
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             document, BuildPsxFile(), skeletonIndex: 0,
             [("walk", animation)],
             new PsxAnimationOptions());
@@ -452,7 +452,7 @@ public sealed class PsxAnimationCompositionTests
         );
 
         var document = CreateForwardParentDocument();
-        ModelDocumentGeometryAdapter.PopulatePsxAnimations(
+        PsxAnimationChannelWriter.PopulatePsxAnimations(
             document, BuildPsxFile(), skeletonIndex: 0,
             [("idle", animation)],
             new PsxAnimationOptions());
