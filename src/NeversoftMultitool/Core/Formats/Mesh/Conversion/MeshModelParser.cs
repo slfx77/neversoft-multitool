@@ -25,11 +25,6 @@ public sealed class MeshModelParser : IModelParser
 {
     private static readonly string[] Ps2TexExtensions = [".tex.ps2", ".tex", ".img.ps2"];
     private static readonly string[] Ps2TexSubdirs = ["TEX", "Textures", "IMG"];
-    private static readonly string[] XbxTexExtensions = [".tex.xbx", ".tex.wpc"];
-    private static readonly string[] NgcTexExtensions = [".tex.ngc"];
-    private static readonly string[] XbxTexSubdirs = ["TEX", "Textures"];
-    private static readonly string[] RwTexExtensions = [".tex"];
-    private static readonly string[] RwTexSubdirs = ["TEX", "Textures"];
     private static readonly string[] PcSkinExtensions = [".skin.wpc", ".skin.xbx"];
     private static readonly string[] PcSkinSubdirs = ["SKIN", "Models"];
 
@@ -68,8 +63,8 @@ public sealed class MeshModelParser : IModelParser
     private static ModelDocument ParseDdm(MeshImportRequest request)
     {
         var ddm = DdmFile.Parse(request.Source.ReadBytes());
-        var ddxTextures = LoadDdxCompanion(request.Source, request.OutputStem, request.DdxPath);
-        var lights = LoadLitCompanion(request.Source, request.OutputStem);
+        var ddxTextures = MeshCompanionResolver.LoadDdxCompanion(request.Source, request.OutputStem, request.DdxPath);
+        var lights = MeshCompanionResolver.LoadLitCompanion(request.Source, request.OutputStem);
         var textureDirs = MeshTextureHelper.BuildTextureSearchPaths(request.DdmTexturePath, request.OutputStem);
         var document = ModelDocument.CreateNative(
             request.OutputStem,
@@ -100,7 +95,7 @@ public sealed class MeshModelParser : IModelParser
         if (ddmPath == null)
             return ParseDdm(request);
 
-        var companionPsx = ResolveCompanionPath(
+        var companionPsx = MeshCompanionResolver.ResolveCompanionPath(
             request.Source,
             request.OutputStem,
             ".psx",
@@ -110,7 +105,7 @@ public sealed class MeshModelParser : IModelParser
 
         var objectsDdm = request.Source.TryResolveCompanionPath(request.OutputStem + "_o.ddm");
         var objectsPsx = objectsDdm != null
-            ? ResolveCompanionPath(request.Source, request.OutputStem + "_o", ".psx", request.PsxPath)
+            ? MeshCompanionResolver.ResolveCompanionPath(request.Source, request.OutputStem + "_o", ".psx", request.PsxPath)
             : null;
 
         var source = new DdmPlacedLevelNativeSource(
@@ -125,7 +120,7 @@ public sealed class MeshModelParser : IModelParser
         var levelPsx = PsxLayoutFile.Parse(companionPsx);
         var objectDdm = objectsDdm != null ? DdmFile.Parse(objectsDdm) : null;
         var objectPsx = objectsPsx != null ? PsxLayoutFile.Parse(objectsPsx) : null;
-        var ddxTextures = LoadDdxCompanion(request.Source, request.OutputStem, request.DdxPath);
+        var ddxTextures = MeshCompanionResolver.LoadDdxCompanion(request.Source, request.OutputStem, request.DdxPath);
         var textureDirs = MeshTextureHelper.BuildTextureSearchPaths(request.DdmTexturePath, request.OutputStem);
         DdmGeometryWriter.PopulateDdmPlacedLevel(
             document,
@@ -144,7 +139,7 @@ public sealed class MeshModelParser : IModelParser
         var psxFile = PsxMeshFile.Parse(psxData)
                       ?? throw new InvalidOperationException("No mesh data");
 
-        var textureProvider = BuildPsxTextureProvider(request.Source, request.FileName, psxData);
+        var textureProvider = MeshCompanionResolver.BuildPsxTextureProvider(request.Source, request.FileName, psxData);
         PshFile? pshFile = null;
         if (psxFile.HasHierarchy)
         {
@@ -211,13 +206,13 @@ public sealed class MeshModelParser : IModelParser
     private static ModelDocument ParsePs2Scene(MeshImportRequest request)
     {
         var data = request.Source.ReadBytes();
-        var companionTexData = ReadTextureCompanion(
+        var companionTexData = MeshCompanionResolver.ReadTextureCompanion(
             request.Source,
             request.OutputStem,
             Ps2TexExtensions,
             Ps2TexSubdirs,
             request.TexturePath);
-        var textureProvider = BuildPs2TextureProvider(companionTexData);
+        var textureProvider = MeshCompanionResolver.BuildPs2TextureProvider(companionTexData);
 
         if (request.Ps2SubFormat == Ps2SceneSubFormat.PakMdl)
         {
@@ -232,7 +227,7 @@ public sealed class MeshModelParser : IModelParser
             _ => Ps2SceneFile.Parse(data)
         };
 
-        var skeleton = request.PreparedSkeleton ?? TryLoadPs2Skeleton(
+        var skeleton = request.PreparedSkeleton ?? MeshCompanionResolver.TryLoadPs2Skeleton(
             request.Source,
             request.OutputStem,
             request.Ps2SubFormat,
@@ -288,13 +283,13 @@ public sealed class MeshModelParser : IModelParser
     private static ModelDocument ParsePs2Geom(MeshImportRequest request)
     {
         var scene = Ps2GeomFile.Parse(request.Source.ReadBytes());
-        var companionTexData = ReadTextureCompanion(
+        var companionTexData = MeshCompanionResolver.ReadTextureCompanion(
             request.Source,
             request.OutputStem,
             Ps2TexExtensions,
             Ps2TexSubdirs,
             request.TexturePath);
-        var textureProvider = BuildPs2TextureProvider(companionTexData);
+        var textureProvider = MeshCompanionResolver.BuildPs2TextureProvider(companionTexData);
         return BuildPs2GeomDocument(request.OutputStem, scene, textureProvider, null);
     }
 
@@ -400,8 +395,8 @@ public sealed class MeshModelParser : IModelParser
             _ => XbxSceneFile.Parse(data)
         };
         var textureProvider = isNgc
-            ? BuildNgcSceneTextureProvider(request.Source, request.OutputStem, request.TexturePath)
-            : BuildXbxSceneTextureProvider(request.Source, request.OutputStem, request.TexturePath);
+            ? MeshCompanionResolver.BuildNgcSceneTextureProvider(request.Source, request.OutputStem, request.TexturePath)
+            : MeshCompanionResolver.BuildXbxSceneTextureProvider(request.Source, request.OutputStem, request.TexturePath);
         var document = ModelDocument.CreateNative(
             request.OutputStem,
             ModelSourceKind.XbxScene,
@@ -432,7 +427,7 @@ public sealed class MeshModelParser : IModelParser
     private static ModelDocument ParseRwDff(MeshImportRequest request)
     {
         var clump = RwDffFile.Parse(request.Source.ReadBytes());
-        var textureProvider = BuildRwTxdTextureProvider(
+        var textureProvider = MeshCompanionResolver.BuildRwTxdTextureProvider(
             request.Source,
             request.FileName,
             request.TexturePath);
@@ -463,7 +458,7 @@ public sealed class MeshModelParser : IModelParser
             ModelSourceKind.RenderWareBsp,
             new RenderWareBspNativeSource(
                 world,
-                BuildRwTxdTextureProvider(request.Source, request.FileName, request.TexturePath)));
+                MeshCompanionResolver.BuildRwTxdTextureProvider(request.Source, request.FileName, request.TexturePath)));
 
         foreach (var material in world.Materials)
         {
@@ -486,306 +481,5 @@ public sealed class MeshModelParser : IModelParser
             world,
             ((RenderWareBspNativeSource)document.NativeSource!).TextureProvider);
         return document;
-    }
-
-    private static Dictionary<string, byte[]>? LoadDdxCompanion(
-        AssetSource source,
-        string stem,
-        string? explicitPath = null)
-    {
-        var ddxPath = ResolveExplicitPath(explicitPath, stem, [".ddx"], []);
-        if (ddxPath != null)
-            return DdxArchive.ReadAllEntries(ddxPath);
-
-        var ddxBytes = source.TryReadCompanion(stem + ".ddx");
-        return ddxBytes != null ? DdxArchive.ReadAllEntries(ddxBytes) : null;
-    }
-
-    private static List<LitLight>? LoadLitCompanion(AssetSource source, string stem)
-    {
-        var litBytes = source.TryReadCompanion(stem + ".lit");
-        if (litBytes == null) return null;
-        try
-        {
-            return LitFile.Parse(litBytes);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static MeshNamedTextureResolver? BuildRwTxdTextureProvider(
-        AssetSource source,
-        string fileName,
-        string? explicitTexturePath = null)
-    {
-        var stem = Path.GetFileNameWithoutExtension(fileName);
-        var texBytes = ReadTextureCompanion(source, stem, RwTexExtensions, RwTexSubdirs, explicitTexturePath);
-        if (texBytes == null) return null;
-        var txdResult = RwTxdFile.Parse(texBytes);
-        if (!txdResult.Success) return null;
-
-        var lookup = new Dictionary<string, Ps2Texture>(StringComparer.OrdinalIgnoreCase);
-        foreach (var tex in txdResult.Textures)
-            if (tex.Pixels != null && tex.Name != null)
-                lookup.TryAdd(tex.Name, tex);
-
-        return textureName =>
-        {
-            if (!lookup.TryGetValue(textureName, out var tex))
-            {
-                var extIdx = textureName.LastIndexOf('.');
-                if (extIdx <= 0 || !lookup.TryGetValue(textureName[..extIdx], out tex))
-                    return null;
-            }
-
-            return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels!);
-        };
-    }
-
-    /// <summary>
-    ///     THAW GC material passes reference textures by ORDER in the companion
-    ///     .tex.ngc dictionary; the parser stores index+1 in TextureChecksum.
-    /// </summary>
-    private static MeshChecksumTextureResolver? BuildNgcSceneTextureProvider(
-        AssetSource source,
-        string stem,
-        string? explicitTexturePath = null)
-    {
-        var texBytes = ReadTextureCompanion(source, stem, NgcTexExtensions, XbxTexSubdirs, explicitTexturePath);
-        if (texBytes == null) return null;
-
-        var texResult = NgcTexFile.Parse(texBytes);
-        if (!texResult.Success) return null;
-
-        var ordered = texResult.Textures;
-        return value =>
-        {
-            var index = (int)value - 1;
-            if (index < 0 || index >= ordered.Count || ordered[index].Pixels == null)
-                return null;
-            var tex = ordered[index];
-            return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels!);
-        };
-    }
-
-    private static MeshChecksumTextureResolver? BuildXbxSceneTextureProvider(
-        AssetSource source,
-        string stem,
-        string? explicitTexturePath = null)
-    {
-        var texBytes = ReadTextureCompanion(source, stem, XbxTexExtensions, XbxTexSubdirs, explicitTexturePath);
-        if (texBytes == null) return null;
-
-        var texResult = XbxTexFile.Parse(texBytes);
-        if (!texResult.Success)
-            texResult = ThawTexFile.Parse(texBytes);
-        if (!texResult.Success) return null;
-
-        var cache = new Dictionary<uint, Ps2Texture>();
-        foreach (var tex in texResult.Textures)
-            if (tex.Pixels != null)
-                cache.TryAdd(tex.Checksum, tex);
-
-        return checksum =>
-        {
-            if (!cache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
-                return null;
-            return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
-        };
-    }
-
-    private static MeshChecksumTextureResolver BuildPsxTextureProvider(
-        AssetSource source,
-        string fileName,
-        byte[] psxData)
-    {
-        var meshLabel = fileName;
-        var stem = Path.GetFileNameWithoutExtension(fileName);
-
-        // Sibling texture libraries per the same candidate rules as
-        // PsxTextureProviderFactory (retail *_g/_l pairs, proto {stem}_l /
-        // base _l / shared skatelib+sub_lib).
-        var libraries = new List<(byte[] Bytes, string Label)>();
-        foreach (var candidate in PsxTextureProviderFactory.GetCompanionLibraryStems(stem))
-        {
-            var libraryName = candidate + ".psx";
-            var bytes = source.TryReadCompanion(libraryName);
-            if (bytes != null)
-                libraries.Add((bytes, libraryName));
-        }
-
-        return hash =>
-        {
-            var result = PsxLibrary.ExtractTextureByHash(psxData, hash, meshLabel);
-            for (var i = 0; result == null && i < libraries.Count; i++)
-                result = PsxLibrary.ExtractTextureByHash(libraries[i].Bytes, hash, libraries[i].Label);
-            if (result == null)
-                return null;
-            var (rgba, width, height) = result.Value;
-            return ImageWriter.WritePngToMemory(width, height, rgba);
-        };
-    }
-
-    private static MeshChecksumTextureResolver? BuildPs2TextureProvider(byte[]? textureBytes)
-    {
-        if (textureBytes == null) return null;
-
-        var texResult = Ps2TexFile.Parse(textureBytes);
-        if (!texResult.Success)
-            texResult = ThawSceneTexFile.Parse(textureBytes);
-        if (!texResult.Success)
-            return null;
-
-        var cache = new Dictionary<uint, Ps2Texture>();
-        foreach (var tex in texResult.Textures)
-            if (tex.Pixels != null)
-                cache.TryAdd(tex.Checksum, tex);
-
-        return checksum =>
-        {
-            if (!cache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
-                return null;
-            return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
-        };
-    }
-
-    private static Ps2Skeleton? TryLoadPs2Skeleton(
-        AssetSource source,
-        string stem,
-        Ps2SceneSubFormat subFormat,
-        string? explicitSkeletonPath = null)
-    {
-        var explicitPath = ResolveExplicitPath(
-            explicitSkeletonPath,
-            stem,
-            [".ske.ps2", ".ske.ngc", ".ske"],
-            ["SKE", "Skeletons"]);
-        if (explicitPath != null)
-        {
-            try
-            {
-                return explicitPath.EndsWith(".ske.ps2", StringComparison.OrdinalIgnoreCase)
-                    ? Ps2SkeletonFile.Parse(explicitPath)
-                    : SkeletonFile.Parse(explicitPath);
-            }
-            catch
-            {
-                /* fall through to automatic discovery */
-            }
-        }
-
-        var ps2Bytes = source.TryReadCompanion(stem + ".ske.ps2");
-        if (ps2Bytes != null)
-        {
-            try
-            {
-                return Ps2SkeletonFile.Parse(ps2Bytes);
-            }
-            catch
-            {
-                /* fall through */
-            }
-        }
-
-        // Cross-platform .ske and GC big-endian .ske.ngc both route through
-        // SkeletonFile.Parse (which gates the THAW variant first).
-        foreach (var extension in new[] { ".ske", ".ske.ngc" })
-        {
-            var skeBytes = source.TryReadCompanion(stem + extension);
-            if (skeBytes == null)
-                continue;
-            try
-            {
-                return SkeletonFile.Parse(skeBytes);
-            }
-            catch
-            {
-                /* fall through */
-            }
-        }
-
-        if (subFormat == Ps2SceneSubFormat.ThawSkin && source.FileSystemPath != null)
-        {
-            var skeletonPath = ThawSkeletonDiscovery.FindSkeletonPath(
-                source.FileSystemPath, stem, true);
-            if (skeletonPath != null)
-            {
-                try
-                {
-                    return skeletonPath.EndsWith(".ske.ps2", StringComparison.OrdinalIgnoreCase)
-                        ? Ps2SkeletonFile.Parse(skeletonPath)
-                        : SkeletonFile.Parse(skeletonPath);
-                }
-                catch
-                {
-                    /* proceed without skeleton */
-                }
-            }
-        }
-
-        if (subFormat == Ps2SceneSubFormat.ThawSkin && source is ArchiveAssetSource archiveSource)
-        {
-            var archiveResult = ThawSkeletonDiscovery.FindInArchive(
-                archiveSource.Backend.Entries, archiveSource.Backend, stem, true);
-            if (archiveResult is { } result)
-            {
-                try
-                {
-                    return result.EntryName.EndsWith(".ske.ps2", StringComparison.OrdinalIgnoreCase)
-                        ? Ps2SkeletonFile.Parse(result.Bytes)
-                        : SkeletonFile.Parse(result.Bytes);
-                }
-                catch
-                {
-                    /* proceed without skeleton */
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private static byte[]? ReadTextureCompanion(
-        AssetSource source,
-        string stem,
-        string[] extensions,
-        string[] subdirs,
-        string? explicitPath = null)
-    {
-        var path = ResolveExplicitPath(explicitPath, stem, extensions, subdirs);
-        if (path != null)
-            return File.ReadAllBytes(path);
-
-        return source.TryReadCompanion(stem, extensions, subdirs);
-    }
-
-    private static string? ResolveCompanionPath(
-        AssetSource source,
-        string stem,
-        string extension,
-        string? explicitPath)
-    {
-        var path = ResolveExplicitPath(explicitPath, stem, [extension], []);
-        return path ?? source.TryResolveCompanionPath(stem + extension);
-    }
-
-    private static string? ResolveExplicitPath(
-        string? explicitPath,
-        string stem,
-        string[] extensions,
-        string[] subdirs)
-    {
-        if (string.IsNullOrWhiteSpace(explicitPath))
-            return null;
-
-        if (File.Exists(explicitPath))
-            return explicitPath;
-
-        if (!Directory.Exists(explicitPath))
-            return null;
-
-        return CompanionSearch.FindCompanion(explicitPath, stem, extensions, subdirs);
     }
 }
