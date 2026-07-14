@@ -11,41 +11,54 @@ namespace NeversoftMultitool.Core.Formats.Vid1;
 
 /// <summary>
 ///     Direct WinUI playback source for GameCube VID1 streams.
-///     Video is decoded natively in presentation order; audio is decoded to
-///     PCM16 through the existing VID1 Vorbis/ffmpeg path.
+///     A dedicated worker thread decodes ahead into a bounded frame queue;
+///     sample requests that outrun the decoder take a deferral instead of
+///     blocking the media pipeline (the old synchronous design froze playback
+///     whenever decode fell behind real time, and ended the stream outright on
+///     any mid-stream decode hiccup). Seeks reposition on the worker: forward
+///     seeks fast-forward the decoder, backward seeks restart it (VID1 frames
+///     are inter-predicted with no random access), so scrubbing never stalls
+///     the UI thread.
 /// </summary>
 public sealed class Vid1MediaSource : IDisposable
 {
-    private const int DecodeAheadFrames = 3;
+    private const int QueueDepth = 24;
     // Extra slots cover samples still in flight while WinUI requests the next frame.
-    private const int VideoBufferCount = DecodeAheadFrames + 4;
+    private const int VideoBufferCount = QueueDepth + 8;
 
     private readonly Vid1AudioExtractor.Vid1PcmAudio? _audio;
     private readonly Vid1VideoFile _file;
     private readonly double _frameRate;
-    private readonly byte[] _seekScratchBuffer;
     private readonly Queue<VideoBufferSlot> _freeVideoBuffers = new(VideoBufferCount);
-    private readonly int _videoFrameByteLength;
-    private readonly Queue<QueuedVideoFrame> _videoQueue = new(VideoBufferCount);
+    private readonly byte[] _lastGoodFrame;
+    private readonly Vid1BgraPresentationFrameProvider _provider;
+    private readonly byte[] _seekScratchBuffer;
+    private readonly object _sync = new();
     private readonly VideoBufferSlot[] _videoBuffers = new VideoBufferSlot[VideoBufferCount];
-    private readonly object _videoSync = new();
+    private readonly Queue<QueuedVideoFrame> _videoQueue = new(VideoBufferCount);
     private int _audioByteOffset;
     private bool _disposed;
-    private int _nextQueuedPresentationIndex;
-    private readonly Vid1BgraPresentationFrameProvider _provider;
+    private bool _endOfStream;
+    private bool _hasLastGoodFrame;
+    private int _nextDecodeIndex;
+    private MediaStreamSourceSampleRequestDeferral? _pendingVideoDeferral;
+    private MediaStreamSourceSampleRequest? _pendingVideoRequest;
+    private int _pendingSeekIndex = -1;
+    private Thread? _worker;
 
     private Vid1MediaSource(Vid1VideoFile file, Vid1AudioExtractor.Vid1PcmAudio? audio)
     {
         _file = file;
         _audio = audio;
         _frameRate = file.FrameRate;
-        _videoFrameByteLength = file.Width * file.Height * 4;
-        _seekScratchBuffer = new byte[_videoFrameByteLength];
+        var videoFrameByteLength = file.Width * file.Height * 4;
+        _seekScratchBuffer = new byte[videoFrameByteLength];
+        _lastGoodFrame = new byte[videoFrameByteLength];
         _provider = new Vid1BgraPresentationFrameProvider(file);
 
         for (var i = 0; i < _videoBuffers.Length; i++)
         {
-            var slot = new VideoBufferSlot(this, _videoFrameByteLength);
+            var slot = new VideoBufferSlot(this, videoFrameByteLength);
             _videoBuffers[i] = slot;
             _freeVideoBuffers.Enqueue(slot);
         }
@@ -53,13 +66,24 @@ public sealed class Vid1MediaSource : IDisposable
 
     public void Dispose()
     {
-        lock (_videoSync)
+        Thread? worker;
+        lock (_sync)
         {
             if (_disposed)
                 return;
 
             _disposed = true;
-            RecycleQueuedVideoBuffers();
+            worker = _worker;
+            _worker = null;
+            CompletePendingVideoRequestLocked(deliver: false);
+            Monitor.PulseAll(_sync);
+        }
+
+        worker?.Join(TimeSpan.FromSeconds(3));
+
+        lock (_sync)
+        {
+            RecycleQueuedVideoBuffersLocked();
 
             foreach (var slot in _videoBuffers)
             {
@@ -112,11 +136,24 @@ public sealed class Vid1MediaSource : IDisposable
 
         streamSource.CanSeek = true;
         streamSource.Duration = file.Duration;
+        streamSource.BufferTime = TimeSpan.Zero;
         streamSource.SampleRequested += source.OnSampleRequested;
         streamSource.Starting += source.OnStarting;
         streamSource.Closed += source.OnClosed;
 
+        source.StartWorker();
         return MediaSource.CreateFromMediaStreamSource(streamSource);
+    }
+
+    private void StartWorker()
+    {
+        var worker = new Thread(WorkerLoop)
+        {
+            IsBackground = true,
+            Name = "Vid1 decode"
+        };
+        _worker = worker;
+        worker.Start();
     }
 
     private void OnStarting(MediaStreamSource sender, MediaStreamSourceStartingEventArgs args)
@@ -129,14 +166,19 @@ public sealed class Vid1MediaSource : IDisposable
                 (int)(position.TotalSeconds * _frameRate),
                 0,
                 Math.Max(0, _file.FrameCount - 1));
-            _audioByteOffset = ComputeAudioOffset(position);
+            _audioByteOffset = ComputeAudioOffset(TimeSpan.FromSeconds(presentationIndex / _frameRate));
         }
         else
         {
             _audioByteOffset = 0;
         }
 
-        ResetVideo(presentationIndex);
+        lock (_sync)
+        {
+            _pendingSeekIndex = presentationIndex;
+            Monitor.PulseAll(_sync);
+        }
+
         args.Request.SetActualStartPosition(TimeSpan.FromSeconds(presentationIndex / _frameRate));
     }
 
@@ -150,24 +192,56 @@ public sealed class Vid1MediaSource : IDisposable
 
     private void ProvideVideoSample(MediaStreamSourceSampleRequest request)
     {
-        lock (_videoSync)
+        lock (_sync)
         {
-            EnsureVideoQueue(DecodeAheadFrames);
-            if (_videoQueue.Count == 0)
+            if (_videoQueue.Count > 0)
+            {
+                DeliverVideoSampleLocked(request);
+                return;
+            }
+
+            if (_endOfStream || _disposed)
             {
                 request.Sample = null;
                 return;
             }
 
-            var queued = _videoQueue.Dequeue();
-            var slot = queued.Slot;
-            var timestamp = TimeSpan.FromSeconds(queued.PresentationIndex / _frameRate);
-            var duration = TimeSpan.FromSeconds(1.0 / _frameRate);
-            var sample = MediaStreamSample.CreateFromBuffer(slot.BufferView, timestamp);
-            slot.AttachToSample(sample);
-            sample.Duration = duration;
-            request.Sample = sample;
+            // Decoder hasn't caught up — defer; the worker completes this as
+            // soon as the next frame lands in the queue.
+            _pendingVideoRequest = request;
+            _pendingVideoDeferral = request.GetDeferral();
+            Monitor.PulseAll(_sync);
         }
+    }
+
+    private void DeliverVideoSampleLocked(MediaStreamSourceSampleRequest request)
+    {
+        var queued = _videoQueue.Dequeue();
+        var slot = queued.Slot;
+        var timestamp = TimeSpan.FromSeconds(queued.PresentationIndex / _frameRate);
+        var sample = MediaStreamSample.CreateFromBuffer(slot.BufferView, timestamp);
+        slot.AttachToSample(sample);
+        sample.Duration = TimeSpan.FromSeconds(1.0 / _frameRate);
+        request.Sample = sample;
+        Monitor.PulseAll(_sync);
+    }
+
+    /// <summary>Worker → pipeline handoff when a deferred request is waiting.</summary>
+    private void CompletePendingVideoRequestLocked(bool deliver)
+    {
+        if (_pendingVideoDeferral == null)
+            return;
+
+        if (deliver && _videoQueue.Count > 0)
+            DeliverVideoSampleLocked(_pendingVideoRequest!);
+        else if (!deliver || _endOfStream)
+            _pendingVideoRequest!.Sample = null;
+        else
+            return;
+
+        _pendingVideoDeferral.Complete();
+        _pendingVideoRequest = null;
+        _pendingVideoDeferral = null;
     }
 
     private void ProvideAudioSample(MediaStreamSourceSampleRequest request)
@@ -202,46 +276,158 @@ public sealed class Vid1MediaSource : IDisposable
 
     private void OnClosed(MediaStreamSource sender, MediaStreamSourceClosedEventArgs args)
     {
-        ResetVideo(0);
-        _audioByteOffset = 0;
+        Dispose();
     }
 
-    private void ResetVideo(int presentationIndex)
+    // ─── Decode worker ────────────────────────────────────────────────────
+
+    private void WorkerLoop()
     {
-        lock (_videoSync)
+        while (true)
         {
-            _provider.Reset();
-            RecycleQueuedVideoBuffers();
-            _nextQueuedPresentationIndex = 0;
+            VideoBufferSlot? slot = null;
+            int seekTarget;
 
-            for (var i = 0; i < presentationIndex; i++)
+            lock (_sync)
             {
-                if (!_provider.TryDecodeNextFrame(_seekScratchBuffer, out _))
-                    break;
+                while (true)
+                {
+                    if (_disposed)
+                        return;
 
-                _nextQueuedPresentationIndex++;
+                    seekTarget = _pendingSeekIndex;
+                    if (seekTarget >= 0)
+                    {
+                        _pendingSeekIndex = -1;
+                        _endOfStream = false;
+                        RecycleQueuedVideoBuffersLocked();
+                        break;
+                    }
+
+                    if (!_endOfStream && _videoQueue.Count < QueueDepth && _freeVideoBuffers.Count > 0)
+                    {
+                        slot = _freeVideoBuffers.Dequeue();
+                        slot.MarkQueued();
+                        break;
+                    }
+
+                    Monitor.Wait(_sync);
+                }
             }
+
+            if (seekTarget >= 0)
+            {
+                Reposition(seekTarget);
+                continue;
+            }
+
+            DecodeIntoSlot(slot!);
         }
     }
 
-    private void EnsureVideoQueue(int targetCount)
+    /// <summary>
+    ///     VID1 has no random access (frames are inter-predicted): forward
+    ///     seeks decode-and-discard up to the target; backward seeks restart
+    ///     the provider first. A newer seek arriving mid-scan supersedes this
+    ///     one, so scrubbing stays responsive.
+    /// </summary>
+    private void Reposition(int targetIndex)
     {
-        while (_videoQueue.Count < targetCount && _freeVideoBuffers.Count > 0)
+        if (targetIndex < _nextDecodeIndex)
         {
-            var slot = _freeVideoBuffers.Dequeue();
-            slot.MarkQueued();
-            if (!_provider.TryDecodeNextFrame(slot.WritableFrame, out _))
+            _provider.Reset();
+            _nextDecodeIndex = 0;
+            _hasLastGoodFrame = false;
+        }
+
+        while (_nextDecodeIndex < targetIndex)
+        {
+            lock (_sync)
+            {
+                if (_disposed || _pendingSeekIndex >= 0)
+                    return;
+            }
+
+            bool ok;
+            try
+            {
+                ok = _provider.TryDecodeNextFrame(_seekScratchBuffer, out _);
+            }
+            catch
+            {
+                ok = false;
+            }
+
+            if (!ok)
+            {
+                lock (_sync)
+                {
+                    _endOfStream = true;
+                    CompletePendingVideoRequestLocked(deliver: true);
+                }
+
+                return;
+            }
+
+            _seekScratchBuffer.CopyTo(_lastGoodFrame, 0);
+            _hasLastGoodFrame = true;
+            _nextDecodeIndex++;
+        }
+    }
+
+    private void DecodeIntoSlot(VideoBufferSlot slot)
+    {
+        bool ok;
+        try
+        {
+            ok = _provider.TryDecodeNextFrame(slot.WritableFrame, out _);
+        }
+        catch
+        {
+            ok = false;
+        }
+
+        lock (_sync)
+        {
+            if (_disposed)
+            {
+                slot.ReleaseToPool();
+                return;
+            }
+
+            if (_pendingSeekIndex >= 0)
             {
                 slot.MarkFree();
                 _freeVideoBuffers.Enqueue(slot);
-                break;
+                return;
             }
 
-            _videoQueue.Enqueue(new QueuedVideoFrame(_nextQueuedPresentationIndex++, slot));
+            if (ok)
+            {
+                slot.WritableFrame.CopyTo(_lastGoodFrame);
+                _hasLastGoodFrame = true;
+                _videoQueue.Enqueue(new QueuedVideoFrame(_nextDecodeIndex++, slot));
+            }
+            else if (_nextDecodeIndex < _file.FrameCount && _hasLastGoodFrame)
+            {
+                // Mid-stream decode hiccup: hold the last good frame instead of
+                // ending playback (the old behavior made such files "not play").
+                _lastGoodFrame.CopyTo(slot.WritableFrame);
+                _videoQueue.Enqueue(new QueuedVideoFrame(_nextDecodeIndex++, slot));
+            }
+            else
+            {
+                slot.MarkFree();
+                _freeVideoBuffers.Enqueue(slot);
+                _endOfStream = true;
+            }
+
+            CompletePendingVideoRequestLocked(deliver: true);
+            Monitor.PulseAll(_sync);
         }
     }
 
-    private void RecycleQueuedVideoBuffers()
+    private void RecycleQueuedVideoBuffersLocked()
     {
         while (_videoQueue.Count > 0)
         {
@@ -259,7 +445,7 @@ public sealed class Vid1MediaSource : IDisposable
 
     private void OnVideoSlotProcessed(VideoBufferSlot slot)
     {
-        lock (_videoSync)
+        lock (_sync)
         {
             if (_disposed || slot.ReleaseWhenAvailable)
             {
@@ -269,6 +455,7 @@ public sealed class Vid1MediaSource : IDisposable
 
             slot.MarkFree();
             _freeVideoBuffers.Enqueue(slot);
+            Monitor.PulseAll(_sync);
         }
     }
 

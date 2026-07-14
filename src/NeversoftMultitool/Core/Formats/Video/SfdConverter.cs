@@ -134,6 +134,7 @@ public static partial class SfdConverter
         string inputPath,
         string outputDir,
         IProgress<double>? progress = null,
+        bool previewQuality = false,
         CancellationToken cancellationToken = default)
     {
         var ffmpeg = FindFfmpeg();
@@ -154,7 +155,8 @@ public static partial class SfdConverter
 
             if (Path.GetExtension(inputPath).Equals(".pss", StringComparison.OrdinalIgnoreCase))
             {
-                if (!TryBuildPssArguments(inputPath, outputPath, out arguments, out tempAudioPath, out var tempError))
+                if (!TryBuildPssArguments(inputPath, outputPath, previewQuality, out arguments, out tempAudioPath,
+                        out var tempError))
                 {
                     TryDeleteFile(tempAudioPath);
                     throw new InvalidOperationException(tempError);
@@ -163,7 +165,7 @@ public static partial class SfdConverter
             else
             {
                 arguments =
-                    $"-y -i \"{inputPath}\" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k \"{outputPath}\"";
+                    $"-y -i \"{inputPath}\" {VideoEncodeArgs(previewQuality)} -c:a aac -b:a 192k \"{outputPath}\"";
             }
 
             var result = RunFfmpeg(ffmpeg, arguments, outputPath, totalSeconds, progress, cancellationToken);
@@ -189,6 +191,7 @@ public static partial class SfdConverter
         string stem,
         string outputDir,
         IProgress<double>? progress = null,
+        bool previewQuality = false,
         CancellationToken cancellationToken = default)
     {
         var ffmpeg = FindFfmpeg();
@@ -205,7 +208,7 @@ public static partial class SfdConverter
         {
             // ffmpeg stdin input — `-i -` tells ffmpeg to read from stdin.
             var arguments =
-                $"-y -i - -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k \"{outputPath}\"";
+                $"-y -i - {VideoEncodeArgs(previewQuality)} -c:a aac -b:a 192k \"{outputPath}\"";
             return RunFfmpeg(ffmpeg, arguments, outputPath, totalSeconds, progress, cancellationToken, data);
         }
         catch (Exception ex)
@@ -218,6 +221,7 @@ public static partial class SfdConverter
     private static bool TryBuildPssArguments(
         string inputPath,
         string outputPath,
+        bool previewQuality,
         out string arguments,
         out string? tempAudioPath,
         out string error)
@@ -233,9 +237,20 @@ public static partial class SfdConverter
         }
 
         arguments =
-            $"-y -i \"{inputPath}\" -i \"{tempAudioPath}\" -map 0:v:0 -map 1:a:0 -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k -shortest \"{outputPath}\"";
+            $"-y -i \"{inputPath}\" -i \"{tempAudioPath}\" -map 0:v:0 -map 1:a:0 {VideoEncodeArgs(previewQuality)} -c:a aac -b:a 192k -shortest \"{outputPath}\"";
         error = "";
         return true;
+    }
+
+    /// <summary>
+    ///     Shared H.264 encode options. faststart moves the moov atom to the
+    ///     front (seekable/streamable output, matching the STR/VID paths);
+    ///     previews trade compression for startup latency with ultrafast.
+    /// </summary>
+    private static string VideoEncodeArgs(bool previewQuality)
+    {
+        var preset = previewQuality ? "ultrafast" : "fast";
+        return $"-c:v libx264 -preset {preset} -crf 23 -pix_fmt yuv420p -movflags +faststart";
     }
 
     private static SfdConvertResult RunFfmpeg(
