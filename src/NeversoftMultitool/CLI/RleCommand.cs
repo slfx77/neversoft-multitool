@@ -1,6 +1,5 @@
 using System.CommandLine;
 using System.Diagnostics;
-using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Rle;
 using Spectre.Console;
 
@@ -12,7 +11,7 @@ public static class RleCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to directory containing .rle/.bmr/.zlb files"
+            Description = "Path to directory containing .rle/.bmr/.zlb/.bmp/.tga files"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -21,7 +20,7 @@ public static class RleCommand
         };
         var widthOption = new Option<int>("-w", "--width")
         {
-            Description = "Image width in pixels (0 = auto-detect)",
+            Description = "Image width in pixels for RLE/BMR (0 = auto-detect; ignored for BMP/TGA)",
             DefaultValueFactory = _ => 0
         };
         var verboseOption = new Option<bool>("-v", "--verbose")
@@ -29,7 +28,7 @@ public static class RleCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("rle", "Convert RLE/BMR/ZLB bitmap files to PNG");
+        var command = new Command("rle", "Convert RLE/BMR/ZLB/BMP/TGA bitmap files to PNG");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(widthOption);
@@ -49,22 +48,21 @@ public static class RleCommand
             }
 
             var rleFiles = Directory.GetFiles(input)
-                .Where(f => f.EndsWith(".rle", StringComparison.OrdinalIgnoreCase) ||
-                            f.EndsWith(".bmr", StringComparison.OrdinalIgnoreCase) ||
-                            f.EndsWith(".zlb", StringComparison.OrdinalIgnoreCase))
+                .Where(BitmapFile.IsSupportedExtension)
                 .ToArray();
 
             if (rleFiles.Length == 0)
             {
-                AnsiConsole.MarkupLine("[yellow]No .rle, .bmr, or .zlb files found in the specified directory.[/]");
+                AnsiConsole.MarkupLine(
+                    "[yellow]No .rle, .bmr, .zlb, .bmp, or .tga files found in the specified directory.[/]");
                 return Task.FromResult(0);
             }
 
             Directory.CreateDirectory(output);
             var autoDetect = width == 0;
             AnsiConsole.MarkupLine(autoDetect
-                ? $"Found [green]{rleFiles.Length}[/] RLE/BMR/ZLB file(s), width=auto"
-                : $"Found [green]{rleFiles.Length}[/] RLE/BMR/ZLB file(s), width={width}px");
+                ? $"Found [green]{rleFiles.Length}[/] bitmap file(s), width=auto"
+                : $"Found [green]{rleFiles.Length}[/] bitmap file(s), width={width}px");
 
             var stopwatch = Stopwatch.StartNew();
             var converted = 0;
@@ -72,15 +70,14 @@ public static class RleCommand
             foreach (var file in rleFiles)
             {
                 var filename = Path.GetFileName(file);
-                var result = autoDetect
-                    ? RleImage.Convert(file)
-                    : RleImage.Convert(file, width);
+                var result = BitmapFile.Convert(
+                    File.ReadAllBytes(file), filename, autoDetect ? null : width);
 
                 if (result.Success)
                 {
                     var outputFile = Path.Combine(output,
                         Path.GetFileNameWithoutExtension(filename) + ".png");
-                    ImageWriter.WritePngRgb(outputFile, result.Width, result.Height, result.RgbPixels);
+                    BitmapFile.SavePng(result, outputFile);
                     converted++;
 
                     if (verbose)
