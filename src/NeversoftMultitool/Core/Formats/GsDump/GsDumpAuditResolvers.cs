@@ -6,9 +6,13 @@ using SixLabors.ImageSharp.Processing;
 
 namespace NeversoftMultitool.Core.Formats.GsDump;
 
-internal static partial class GsDumpAuditRunner
+/// <summary>
+///     Reference/context resolution for gsdump audits: PNG paths, render
+///     dimensions, embedded screenshots, and texture/transfer statistics.
+/// </summary>
+internal static class GsDumpAuditResolvers
 {
-    private static string? ResolvePngPath(string gsPath, string? explicitPng)
+    internal static string? ResolvePngPath(string gsPath, string? explicitPng)
     {
         if (!string.IsNullOrWhiteSpace(explicitPng))
             return File.Exists(explicitPng) ? explicitPng : null;
@@ -17,7 +21,7 @@ internal static partial class GsDumpAuditRunner
         return File.Exists(sibling) ? sibling : null;
     }
 
-    private static (int Width, int Height) ResolveRenderDimensions(GsDumpFile dump, string? pngPath)
+    internal static (int Width, int Height) ResolveRenderDimensions(GsDumpFile dump, string? pngPath)
     {
         if (dump.ScreenshotWidth > 0 && dump.ScreenshotHeight > 0)
             return (dump.ScreenshotWidth, dump.ScreenshotHeight);
@@ -32,23 +36,23 @@ internal static partial class GsDumpAuditRunner
         return (640, 448);
     }
 
-    private static (float X, float Y) ResolveCoordinateScale(GsDumpFile dump)
+    internal static (float X, float Y) ResolveCoordinateScale(GsDumpFile dump)
     {
         _ = dump;
         return (1f, 1f);
     }
 
-    private static bool HasEmbeddedScreenshot(GsDumpFile dump)
+    internal static bool HasEmbeddedScreenshot(GsDumpFile dump)
     {
         return dump.ScreenshotWidth > 0 &&
                dump.ScreenshotHeight > 0 &&
                dump.ScreenshotPixels.Length == dump.ScreenshotWidth * dump.ScreenshotHeight * 4;
     }
 
-    private static ReferencePixels? LoadReferencePixels(GsDumpFile dump, string? pngPath)
+    internal static GsDumpAuditRunner.ReferencePixels? LoadReferencePixels(GsDumpFile dump, string? pngPath)
     {
         if (HasEmbeddedScreenshot(dump))
-            return new ReferencePixels(
+            return new GsDumpAuditRunner.ReferencePixels(
                 ConvertEmbeddedScreenshotToRgba(dump),
                 dump.ScreenshotWidth,
                 dump.ScreenshotHeight);
@@ -59,10 +63,10 @@ internal static partial class GsDumpAuditRunner
         using var reference = Image.Load<Rgba32>(pngPath);
         var pixels = new byte[reference.Width * reference.Height * 4];
         reference.CopyPixelDataTo(pixels);
-        return new ReferencePixels(pixels, reference.Width, reference.Height);
+        return new GsDumpAuditRunner.ReferencePixels(pixels, reference.Width, reference.Height);
     }
 
-    private static bool TryFitToReferencePresentation(
+    internal static bool TryFitToReferencePresentation(
         byte[] sourcePixels,
         int width,
         int height,
@@ -119,7 +123,7 @@ internal static partial class GsDumpAuditRunner
                referenceLetterboxed;
     }
 
-    private static byte[] ConvertEmbeddedScreenshotToRgba(GsDumpFile dump)
+    internal static byte[] ConvertEmbeddedScreenshotToRgba(GsDumpFile dump)
     {
         var rgba = new byte[dump.ScreenshotPixels.Length];
         for (var i = 0; i < dump.ScreenshotPixels.Length; i += 4)
@@ -133,13 +137,13 @@ internal static partial class GsDumpAuditRunner
         return rgba;
     }
 
-    private static void AddCount(Dictionary<string, long> counts, string key)
+    internal static void AddCount(Dictionary<string, long> counts, string key)
     {
         counts.TryGetValue(key, out var current);
         counts[key] = current + 1;
     }
 
-    private static GsTextureContext? BuildTextureContext(string? texturePath)
+    internal static GsDumpAuditRunner.GsTextureContext? BuildTextureContext(string? texturePath)
     {
         if (string.IsNullOrWhiteSpace(texturePath))
             return null;
@@ -147,10 +151,10 @@ internal static partial class GsDumpAuditRunner
         if (!ZoneTextureCatalog.TryBuild(texturePath, out var catalog) || catalog == null)
             return null;
 
-        return new GsTextureContext(catalog.CreateTextureResolver(), catalog.CreateDebugTex0Resolver(texturePath));
+        return new GsDumpAuditRunner.GsTextureContext(catalog.CreateTextureResolver(), catalog.CreateDebugTex0Resolver(texturePath));
     }
 
-    private static Dictionary<string, long> BuildPacketTypeCounts(GsDumpFile dump)
+    internal static Dictionary<string, long> BuildPacketTypeCounts(GsDumpFile dump)
     {
         return dump.Packets
             .GroupBy(static packet => packet.Kind.ToString())
@@ -158,7 +162,7 @@ internal static partial class GsDumpAuditRunner
             .ToDictionary(static group => group.Key, static group => (long)group.Count());
     }
 
-    private static Dictionary<string, GsTransferStats> BuildTransferStats(GsDumpFile dump)
+    internal static Dictionary<string, GsTransferStats> BuildTransferStats(GsDumpFile dump)
     {
         var stats = new Dictionary<string, GsTransferStats>(StringComparer.Ordinal);
         foreach (var packet in dump.Packets.Where(static packet => packet.Kind == GsDumpPacketKind.Transfer))
@@ -177,7 +181,7 @@ internal static partial class GsDumpAuditRunner
         return stats;
     }
 
-    private static void SaveRgba(string path, byte[] pixels, int width, int height)
+    internal static void SaveRgba(string path, byte[] pixels, int width, int height)
     {
         using var image = Image.LoadPixelData<Rgba32>(pixels, width, height);
         image.SaveAsPng(path);

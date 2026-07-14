@@ -4,9 +4,13 @@ using SixLabors.ImageSharp.Processing;
 
 namespace NeversoftMultitool.Core.Formats.GsDump;
 
-internal static partial class GsDumpAuditRunner
+/// <summary>
+///     Pixel-level diffing of rendered output against reference PNGs or
+///     embedded screenshots.
+/// </summary>
+internal static class GsDumpAuditPixelDiff
 {
-    private static GsPixelDiffStats CompareAgainstPng(
+    internal static GsPixelDiffStats CompareAgainstPng(
         byte[] renderPixels,
         int width,
         int height,
@@ -22,7 +26,7 @@ internal static partial class GsDumpAuditRunner
         return CompareAgainstPixels(renderPixels, width, height, referencePixels, width, height, diffPath);
     }
 
-    private static GsPixelDiffStats CompareAgainstPixels(
+    internal static GsPixelDiffStats CompareAgainstPixels(
         byte[] renderPixels,
         int width,
         int height,
@@ -63,7 +67,7 @@ internal static partial class GsDumpAuditRunner
         }
 
         if (diffPath != null)
-            SaveRgba(diffPath, diffPixels, width, height);
+            GsDumpAuditResolvers.SaveRgba(diffPath, diffPixels, width, height);
 
         return new GsPixelDiffStats
         {
@@ -78,7 +82,7 @@ internal static partial class GsDumpAuditRunner
         };
     }
 
-    private static GsPixelBounds? BuildPixelBounds(byte[] pixels, int width, int height)
+    internal static GsPixelBounds? BuildPixelBounds(byte[] pixels, int width, int height)
     {
         var minX = width;
         var minY = height;

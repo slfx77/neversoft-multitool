@@ -5,14 +5,18 @@ using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 
-public static partial class Ps2GeomFile
+/// <summary>
+///     THAW worldzone object-MDL node trees: recursive CGeomNode walk with
+///     per-node leaf extraction.
+/// </summary>
+internal static class Ps2ObjectMdlParser
 {
     /// <summary>
     ///     Object-MDL path (THAW worldzone object MDLs — cars etc., 0x9BCC234D). These have
     ///     explicit bone sections and few preamble records; the scanner + ScanBatchForCenter
     ///     combo has historically worked for them.
     /// </summary>
-    private static Ps2GeomScene ParseObjectMdl(
+    internal static Ps2GeomScene ParseObjectMdl(
         byte[] data,
         Ps2MdlPreamble.Preamble? preamble,
         IReadOnlyList<Ps2MdlPreamble.MdlBone>? bones,
@@ -54,25 +58,25 @@ public static partial class Ps2GeomFile
                 batchVerts = Ps2MdlPlacementResolver.ApplyPlacement(batchVerts, placement);
             if (batchVerts.Length == 0)
             {
-                rejectionLogger?.Invoke(MakeRejection(
+                rejectionLogger?.Invoke(Ps2GeomFile.MakeRejection(
                     diagnosticsName, "parse", "empty_batch", batchIndex, batchVerts, currentGsCtx.Tex0));
                 continue;
             }
 
-            if (ShouldSkipWorldZoneBatch(batchVerts))
+            if (Ps2GeomFile.ShouldSkipWorldZoneBatch(batchVerts))
             {
-                rejectionLogger?.Invoke(MakeRejection(
+                rejectionLogger?.Invoke(Ps2GeomFile.MakeRejection(
                     diagnosticsName, "parse", "huge_origin_helper_batch", batchIndex, batchVerts, currentGsCtx.Tex0));
                 continue;
             }
 
-            leaves.Add(MakeLeafFromMdlMesh(batchVerts, hasGsContext ? currentGsCtx : new Ps2GeomGsContext()));
+            leaves.Add(Ps2GeomFile.MakeLeafFromMdlMesh(batchVerts, hasGsContext ? currentGsCtx : new Ps2GeomGsContext()));
         }
 
         return new Ps2GeomScene { Leaves = leaves, MdlPreamble = preamble, Bones = bones };
     }
 
-    private static void WalkNodeTree(byte[] data, int baseOffset, int rootNodeOffset, List<Ps2GeomLeaf> leaves)
+    internal static void WalkNodeTree(byte[] data, int baseOffset, int rootNodeOffset, List<Ps2GeomLeaf> leaves)
     {
         var stack = new Stack<int>();
         var visited = new HashSet<int>();
@@ -101,7 +105,7 @@ public static partial class Ps2GeomFile
             var colour = BinaryPrimitives.ReadUInt32LittleEndian(span[0x3C..]);
             var textureChecksum = BinaryPrimitives.ReadUInt32LittleEndian(span[0x44..]);
             var nextLod = BinaryPrimitives.ReadInt32LittleEndian(span[0x4C..]);
-            var isLeaf = (flags & NodeFlagLeaf) != 0;
+            var isLeaf = (flags & Ps2GeomFile.NodeFlagLeaf) != 0;
 
             if (isLeaf && u1 != -1)
             {

@@ -4,14 +4,18 @@ using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 
-public static partial class Ps2GeomFile
+/// <summary>
+///     THAW worldzone level-MDL leaves: per-leaf VIF stream extents from the
+///     preamble records with inherited GS context.
+/// </summary>
+internal static class Ps2LevelMdlParser
 {
 
     /// <summary>
     ///     Level-MDL identification: no bones, thousands of preamble records. Object MDLs have
     ///     ~5-15 records; level MDLs have thousands (5,649 for z_bh's 003B1940.mdl).
     /// </summary>
-    private static bool IsLevelMdl(Ps2MdlPreamble.Preamble? preamble)
+    internal static bool IsLevelMdl(Ps2MdlPreamble.Preamble? preamble)
     {
         return preamble is not null
                && preamble.Bones.Count == 0
@@ -35,7 +39,7 @@ public static partial class Ps2GeomFile
     ///     scanning for the first <c>OFFSET(0) + STCYCL(1,1)</c> pair in the low file region and
     ///     subtracting the smallest leaf Field40.
     /// </summary>
-    private static Ps2GeomScene ParseLevelMdlFromLeaves(
+    internal static Ps2GeomScene ParseLevelMdlFromLeaves(
         byte[] data,
         Ps2MdlPreamble.Preamble preamble,
         string? diagnosticsName,
@@ -49,7 +53,7 @@ public static partial class Ps2GeomFile
         if (sortedLeaves.Count == 0)
             return new Ps2GeomScene { Leaves = [], MdlPreamble = preamble, Bones = null };
 
-        var preambleStart = sortedLeaves.First().Offset;
+        var preambleStart = sortedLeaves[0].Offset;
         foreach (var r in preamble.Records.Values)
             preambleStart = Math.Min(preambleStart, r.Offset);
 
@@ -72,7 +76,7 @@ public static partial class Ps2GeomFile
             var absStart = k + (int)leaf.Field40;
             if (absStart < 0 || absStart + 16 > data.Length)
             {
-                rejectionLogger?.Invoke(MakeRejection(
+                rejectionLogger?.Invoke(Ps2GeomFile.MakeRejection(
                     diagnosticsName, "parse", "invalid_leaf_offset", i, [], inheritedGsCtx.Tex0));
                 continue;
             }
@@ -81,7 +85,7 @@ public static partial class Ps2GeomFile
             var qwc = BinaryPrimitives.ReadUInt16LittleEndian(span);
             if (qwc == 0)
             {
-                rejectionLogger?.Invoke(MakeRejection(
+                rejectionLogger?.Invoke(Ps2GeomFile.MakeRejection(
                     diagnosticsName, "parse", "zero_qwc", i, [], inheritedGsCtx.Tex0));
                 continue;
             }
@@ -92,7 +96,7 @@ public static partial class Ps2GeomFile
             var vifStreamEnd = absStart + 16 + qwc * 16;
             if (vifStreamEnd > data.Length)
             {
-                rejectionLogger?.Invoke(MakeRejection(
+                rejectionLogger?.Invoke(Ps2GeomFile.MakeRejection(
                     diagnosticsName, "parse", "vif_range_past_end", i, [], inheritedGsCtx.Tex0));
                 continue;
             }
@@ -103,7 +107,7 @@ public static partial class Ps2GeomFile
             var inlineStcycl = BinaryPrimitives.ReadUInt32LittleEndian(span[12..]);
             if (inlineOffset != 0x02000000u || inlineStcycl != 0x01000101u)
             {
-                rejectionLogger?.Invoke(MakeRejection(
+                rejectionLogger?.Invoke(Ps2GeomFile.MakeRejection(
                     diagnosticsName, "parse", "invalid_leaf_prologue", i, [], inheritedGsCtx.Tex0));
                 continue;
             }
@@ -127,7 +131,7 @@ public static partial class Ps2GeomFile
                         data, billboard.Value.VifStart, billboard.Value.VifEnd);
                     var bbGsCtx = ResolveInheritedGsContext(inheritedGsCtx, scanned, out var updatesGsState);
                     if (updatesGsState) inheritedGsCtx = bbGsCtx;
-                    outLeaves.Add(MakeLeafFromMdlMesh(
+                    outLeaves.Add(Ps2GeomFile.MakeLeafFromMdlMesh(
                         billboard.Value.Vertices,
                         bbGsCtx,
                         leaf.MaterialGroup,
@@ -136,33 +140,33 @@ public static partial class Ps2GeomFile
                 }
                 else
                 {
-                    rejectionLogger?.Invoke(MakeRejection(
+                    rejectionLogger?.Invoke(Ps2GeomFile.MakeRejection(
                         diagnosticsName, "parse", "no_batches_or_billboard", i, [], inheritedGsCtx.Tex0));
                 }
 
                 continue;
             }
 
-            var placement = new LeafPlacement(leaf.Centre, leaf.Size, true);
+            var placement = new Ps2GeomFile.LeafPlacement(leaf.Centre, leaf.Size, true);
             foreach (var batch in batches)
             {
                 if (batch.Vertices.Length == 0)
                 {
-                    rejectionLogger?.Invoke(MakeRejection(
+                    rejectionLogger?.Invoke(Ps2GeomFile.MakeRejection(
                         diagnosticsName, "parse", "empty_batch", i, batch.Vertices, inheritedGsCtx.Tex0));
                     continue;
                 }
 
-                if (ShouldSkipWorldZoneBatch(batch.Vertices))
+                if (Ps2GeomFile.ShouldSkipWorldZoneBatch(batch.Vertices))
                 {
-                    rejectionLogger?.Invoke(MakeRejection(
+                    rejectionLogger?.Invoke(Ps2GeomFile.MakeRejection(
                         diagnosticsName, "parse", "huge_origin_helper_batch", i, batch.Vertices, inheritedGsCtx.Tex0));
                     continue;
                 }
 
-                if (!IsBatchCoherent(batch.Vertices, placement))
+                if (!Ps2GeomFile.IsBatchCoherent(batch.Vertices, placement))
                 {
-                    rejectionLogger?.Invoke(MakeRejection(
+                    rejectionLogger?.Invoke(Ps2GeomFile.MakeRejection(
                         diagnosticsName, "parse", "incoherent_batch", i, batch.Vertices, inheritedGsCtx.Tex0));
                     continue;
                 }
@@ -170,7 +174,7 @@ public static partial class Ps2GeomFile
                 var scanned = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(data, batch.VifStart, batch.VifEnd);
                 var gsCtx = ResolveInheritedGsContext(inheritedGsCtx, scanned, out var updatesGsState);
                 if (updatesGsState) inheritedGsCtx = gsCtx;
-                outLeaves.Add(MakeLeafFromMdlMesh(batch.Vertices, gsCtx, leaf.MaterialGroup));
+                outLeaves.Add(Ps2GeomFile.MakeLeafFromMdlMesh(batch.Vertices, gsCtx, leaf.MaterialGroup));
             }
         }
 

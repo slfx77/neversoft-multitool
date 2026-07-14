@@ -11,9 +11,9 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 ///     PAK MDL files contain the same VIF vertex format but with a variable-length preamble
 ///     instead of the CGeomNode tree header.
 /// </summary>
-public static partial class Ps2GeomFile
+public static class Ps2GeomFile
 {
-    private const uint NodeFlagLeaf = 1 << 1;
+    internal const uint NodeFlagLeaf = 1 << 1;
 
     public static Ps2GeomScene Parse(string filePath)
     {
@@ -35,7 +35,7 @@ public static partial class Ps2GeomFile
             throw new InvalidDataException($"Invalid root node offset: 0x{rootNodeOffset:X}");
 
         var leaves = new List<Ps2GeomLeaf>();
-        WalkNodeTree(data, baseOffset, rootNodeOffset, leaves);
+        Ps2ObjectMdlParser.WalkNodeTree(data, baseOffset, rootNodeOffset, leaves);
         return new Ps2GeomScene { Leaves = leaves };
     }
 
@@ -69,12 +69,12 @@ public static partial class Ps2GeomFile
         // Level MDLs (0x7EA7357B) carry no bone section but thousands of preamble records; the
         // leaves among them drive the authoritative sub-chunk list (see ParseLevelMdlFromLeaves
         // for the field-by-field derivation). Object MDLs take the scanner path below.
-        if (IsLevelMdl(preamble))
-            return ParseLevelMdlFromLeaves(data, preamble!, diagnosticsName, rejectionLogger);
+        if (Ps2LevelMdlParser.IsLevelMdl(preamble))
+            return Ps2LevelMdlParser.ParseLevelMdlFromLeaves(data, preamble!, diagnosticsName, rejectionLogger);
 
-        return ParseObjectMdl(data, preamble, bones, vifStart, diagnosticsName, rejectionLogger);
+        return Ps2ObjectMdlParser.ParseObjectMdl(data, preamble, bones, vifStart, diagnosticsName, rejectionLogger);
     }
-    private static Ps2GeomLeaf MakeLeafFromMdlMesh(
+    internal static Ps2GeomLeaf MakeLeafFromMdlMesh(
         IReadOnlyList<Ps2Vertex> vertices,
         Ps2GeomGsContext gsCtx,
         uint groupChecksum = 0,
@@ -113,9 +113,11 @@ public static partial class Ps2GeomFile
 
         var min = new Vector3(float.MaxValue);
         var max = new Vector3(float.MinValue);
-        foreach (var vertex in vertices)
+        // Single-pass indexed min/max - a Select(v => v.Position) projection would
+        // allocate an enumerator and still need this same reduction.
+        for (var i = 0; i < vertices.Count; i++)
         {
-            var pos = vertex.Position;
+            var pos = vertices[i].Position;
             min = Vector3.Min(min, pos);
             max = Vector3.Max(max, pos);
         }
@@ -171,10 +173,10 @@ public static partial class Ps2GeomFile
     ///     garbage vertices that still pass the ±1M sanity envelope but land hundreds of units
     ///     away from the matched leaf's sector. Those are what generate the scattered polygons
     ///     piercing the scene. Reject any batch whose centroid is further than
-    ///     max(leaf.Size * <paramref name="inflate" />, <paramref name="minMargin" />) from the
+    ///     max(leaf.Size x inflate, the minimum margin) from the
     ///     leaf centre.
     /// </summary>
-    private static bool IsBatchCoherent(Ps2Vertex[] vertices, LeafPlacement placement)
+    internal static bool IsBatchCoherent(Ps2Vertex[] vertices, LeafPlacement placement)
     {
         if (vertices.Length == 0)
             return true;
@@ -193,7 +195,7 @@ public static partial class Ps2GeomFile
         return delta.X <= margin.X && delta.Y <= margin.Y && delta.Z <= margin.Z;
     }
 
-    private static bool ShouldSkipWorldZoneBatch(Ps2Vertex[] vertices)
+    internal static bool ShouldSkipWorldZoneBatch(Ps2Vertex[] vertices)
     {
         if (vertices.Length > 8)
             return false;
@@ -220,7 +222,7 @@ public static partial class Ps2GeomFile
                && Math.Abs(center.Z) <= 10f;
     }
 
-    private static Ps2GeomLeafRejection MakeRejection(
+    internal static Ps2GeomLeafRejection MakeRejection(
         string? mdlName,
         string stage,
         string reason,
@@ -245,5 +247,5 @@ public static partial class Ps2GeomFile
     ///     each decoded sint16 position) and half-extent used by the coherence filter to reject
     ///     sub-chunks that decoded to positions far outside the expected bbox.
     /// </summary>
-    private readonly record struct LeafPlacement(Vector3 Centre, Vector3 Size, bool Matched);
+    internal readonly record struct LeafPlacement(Vector3 Centre, Vector3 Size, bool Matched);
 }

@@ -3,9 +3,13 @@ using System.Text;
 
 namespace NeversoftMultitool.Core.Formats.GsDump;
 
-internal static partial class GsDumpAuditRunner
+/// <summary>
+///     CSV report emission for gsdump audits (materials, bounds, and
+///     per-draw summaries).
+/// </summary>
+internal static class GsDumpAuditCsvReports
 {
-    private static void SaveMaterialCsv(string path, IReadOnlyList<GsMaterialAuditRow> materials)
+    internal static void SaveMaterialCsv(string path, IReadOnlyList<GsMaterialAuditRow> materials)
     {
         var csv = new StringBuilder();
         AppendCsvRow(
