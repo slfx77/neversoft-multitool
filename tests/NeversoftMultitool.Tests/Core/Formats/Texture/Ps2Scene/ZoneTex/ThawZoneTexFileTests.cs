@@ -31,7 +31,13 @@ public class ThawZoneTexFileTests
                     return candidate;
             }
 
-            dir = Path.GetDirectoryName(dir)!;
+            // Stop at the drive root (GetDirectoryName returns null there) —
+            // shallow checkouts hit it before the 10-level budget runs out.
+            var parent = Path.GetDirectoryName(dir);
+            if (parent == null)
+                return null;
+
+            dir = parent;
         }
 
         return null;
