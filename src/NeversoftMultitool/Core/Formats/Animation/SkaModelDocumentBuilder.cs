@@ -18,8 +18,8 @@ public static class SkaModelDocumentBuilder
     {
         var document = new ModelDocument { Name = name ?? "skeleton" };
         var skeletonIndex = document.Skeletons.Count;
-        document.Skeletons.Add(ModelDocumentGeometryAdapter.BuildPs2Skeleton(skeleton));
-        ModelDocumentGeometryAdapter.PopulateSkaAnimations(document, skeletonIndex, animations);
+        document.Skeletons.Add(Ps2SceneGeometryWriter.BuildPs2Skeleton(skeleton));
+        SkaAnimationWriter.PopulateSkaAnimations(document, skeletonIndex, animations);
         return document;
     }
 }

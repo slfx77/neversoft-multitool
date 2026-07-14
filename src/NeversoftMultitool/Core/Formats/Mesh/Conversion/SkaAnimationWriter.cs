@@ -1,10 +1,14 @@
-using System.Numerics;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
+using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
-internal static partial class ModelDocumentGeometryAdapter
+/// <summary>
+///     SKA animation clips onto ModelDocument skeletons: per-bone channels with
+///     placeholder-track suppression and bind-pose fallbacks.
+/// </summary>
+internal static class SkaAnimationWriter
 {
     public static void PopulateSkaAnimations(
         ModelDocument document,

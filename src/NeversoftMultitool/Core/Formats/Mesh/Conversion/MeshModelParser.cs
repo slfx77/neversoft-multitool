@@ -61,7 +61,7 @@ public sealed class MeshModelParser : IModelParser
             new CollisionNativeSource(scene),
             scene.Objects.Sum(static obj => obj.Faces.Length));
         document.NativeMetadata.Add(new CollisionRenderMetadata(scene.Objects.Length));
-        ModelDocumentGeometryAdapter.PopulateCollision(document, scene);
+        CollisionGeometryWriter.PopulateCollision(document, scene);
         return document;
     }
 
@@ -90,7 +90,7 @@ public sealed class MeshModelParser : IModelParser
             document.Materials.Add(renderMaterial);
         }
 
-        ModelDocumentGeometryAdapter.PopulateDdm(document, ddm, ddxTextures, textureDirs);
+        DdmGeometryWriter.PopulateDdm(document, ddm, ddxTextures, textureDirs);
         return document;
     }
 
@@ -127,7 +127,7 @@ public sealed class MeshModelParser : IModelParser
         var objectPsx = objectsPsx != null ? PsxLayoutFile.Parse(objectsPsx) : null;
         var ddxTextures = LoadDdxCompanion(request.Source, request.OutputStem, request.DdxPath);
         var textureDirs = MeshTextureHelper.BuildTextureSearchPaths(request.DdmTexturePath, request.OutputStem);
-        ModelDocumentGeometryAdapter.PopulateDdmPlacedLevel(
+        DdmGeometryWriter.PopulateDdmPlacedLevel(
             document,
             levelDdm,
             levelPsx,
@@ -169,7 +169,7 @@ public sealed class MeshModelParser : IModelParser
         // so this only changes HIER+v1 characters; v2-compressed clips keep the
         // parented skeleton (they chain translations through the hierarchy).
         var forceFlatSkeleton = request.PsxFlatSkeleton || DrivingAnimationsAreV1Absolute(request);
-        ModelDocumentGeometryAdapter.PopulatePsx(
+        PsxGeometryWriter.PopulatePsx(
             document, psxFile, textureProvider, pshFile,
             forceFlatSkeleton, request.PsxFlatBoneIndices);
 
@@ -274,11 +274,11 @@ public sealed class MeshModelParser : IModelParser
             document.Materials.Add(renderMaterial);
         }
 
-        ModelDocumentGeometryAdapter.PopulatePs2Scene(document, scene, textureProvider, skeleton);
+        Ps2SceneGeometryWriter.PopulatePs2Scene(document, scene, textureProvider, skeleton);
 
         if (request.SkaAnimations is { Count: > 0 } ps2Animations && document.Skeletons.Count > 0)
         {
-            ModelDocumentGeometryAdapter.PopulateSkaAnimations(
+            SkaAnimationWriter.PopulateSkaAnimations(
                 document, skeletonIndex: 0, ps2Animations);
         }
 
@@ -334,7 +334,7 @@ public sealed class MeshModelParser : IModelParser
             document.Materials.Add(renderMaterial);
         }
 
-        ModelDocumentGeometryAdapter.PopulatePs2Geom(document, scene, textureProvider, tex0Resolver);
+        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, textureProvider, tex0Resolver);
         return document;
     }
 
@@ -375,7 +375,7 @@ public sealed class MeshModelParser : IModelParser
             tex0Resolver = textureCatalog.CreateTex0ChecksumResolver(textureSourceHint);
         }
 
-        ModelDocumentGeometryAdapter.PopulatePs2Worldzone(
+        Ps2WorldzoneGeometryWriter.PopulatePs2Worldzone(
             document,
             pakBytes,
             request.Source.EntryName,
@@ -425,7 +425,7 @@ public sealed class MeshModelParser : IModelParser
             document.Materials.Add(renderMaterial);
         }
 
-        ModelDocumentGeometryAdapter.PopulateXbxScene(document, scene, textureProvider, request.WorldzoneScale);
+        XbxGeometryWriter.PopulateXbxScene(document, scene, textureProvider, request.WorldzoneScale);
         return document;
     }
 
@@ -440,15 +440,15 @@ public sealed class MeshModelParser : IModelParser
             request.OutputStem,
             ModelSourceKind.RenderWareDff,
             new RenderWareDffNativeSource(clump, textureProvider));
-        ModelDocumentGeometryAdapter.PopulateRwDff(document, clump, textureProvider);
+        RwGeometryWriter.PopulateRwDff(document, clump, textureProvider);
 
         if (request.SkaAnimations is { Count: > 0 } rwAnimations && document.Skeletons.Count > 0)
         {
             var skin = clump.Atomics
                 .Select(static a => a.SkinData)
                 .FirstOrDefault(static s => s != null);
-            var boneMap = ModelDocumentGeometryAdapter.BuildRwDffBoneIndexMap(skin);
-            ModelDocumentGeometryAdapter.PopulateSkaAnimations(
+            var boneMap = SkaAnimationWriter.BuildRwDffBoneIndexMap(skin);
+            SkaAnimationWriter.PopulateSkaAnimations(
                 document, skeletonIndex: 0, rwAnimations, SkaCompositionMode.BindComposed, boneMap);
         }
 
@@ -481,7 +481,7 @@ public sealed class MeshModelParser : IModelParser
             document.Materials.Add(renderMaterial);
         }
 
-        ModelDocumentGeometryAdapter.PopulateRwBsp(
+        RwBspGeometryWriter.PopulateRwBsp(
             document,
             world,
             ((RenderWareBspNativeSource)document.NativeSource!).TextureProvider);

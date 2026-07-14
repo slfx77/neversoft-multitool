@@ -105,4 +105,81 @@ internal static class PsxGeometryHelpers
         var nameHash = meshIndex < psxFile.MeshNameHashes.Length ? psxFile.MeshNameHashes[meshIndex] : 0u;
         return ModelDocumentGeometryAdapter.ResolveQbName(nameHash, $"mesh_{meshIndex:X8}");
     }
+
+    internal static int GetOrCreatePsxMaterial(
+        ModelDocument document,
+        uint textureHash,
+        bool semiTransparent,
+        bool doubleSided,
+        int blendRate,
+        MeshChecksumTextureResolver? textureProvider,
+        Dictionary<uint, (int Width, int Height)> textureDims,
+        Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int> materialCache)
+    {
+        var key = (textureHash, semiTransparent, doubleSided, blendRate);
+        if (materialCache.TryGetValue(key, out var existing))
+            return existing;
+
+        var name = ModelDocumentGeometryAdapter.ResolveQbName(textureHash, $"tex_{textureHash:X8}");
+        if (semiTransparent)
+            name += $"__st{blendRate}";
+        if (doubleSided)
+            name += "__2sided";
+
+        // PS1 backface-culls every face unless flag bit 9 is set
+        // (M3dAsm_ProcessPolys @0x80099B04), so PSX materials are
+        // single-sided by default — unlike the RenderMaterial default.
+        var material = new RenderMaterial
+        {
+            Name = name,
+            AlphaMode = semiTransparent ? ModelAlphaMode.Blend : ModelAlphaMode.Opaque,
+            DoubleSided = doubleSided
+        };
+
+        if (textureProvider != null)
+        {
+            var pngBytes = textureProvider(textureHash);
+            if (pngBytes != null)
+            {
+                var (processed, hasAlpha) = MeshTextureHelper.ApplyColorKey(pngBytes);
+                if (semiTransparent)
+                {
+                    processed = ConvertPsxSemiTransparentTexture(processed, blendRate);
+                    hasAlpha = true;
+                }
+
+                material.TextureIndex = ModelDocumentGeometryAdapter.AddTexture(document, name, processed, textureHash);
+                if (hasAlpha)
+                    material.AlphaMode = semiTransparent ? ModelAlphaMode.Blend : ModelAlphaMode.Mask;
+                if (ModelDocumentGeometryAdapter.TryExtractPngDimensions(processed) is { } dims)
+                    textureDims[textureHash] = dims;
+            }
+        }
+
+        var index = ModelDocumentGeometryAdapter.AddMaterial(document, material);
+        materialCache[key] = index;
+        return index;
+    }
+
+    /// <summary>
+    ///     Bakes one of the four PS1 ABR blend equations into the texture,
+    ///     since glTF has only OPAQUE/MASK/BLEND (face_flag_semantics.md §3b;
+    ///     conversions mirror the RW BSP precedent in RwBspGltfWriter):
+    ///     rate 0 (0.5B+0.5F, the common glass/water/shadow average) keeps the
+    ///     texture's hue at uniform 50% alpha; rate 1 (B+F additive) bakes
+    ///     luminance-to-alpha (dark→transparent, bright→white glow); rate 2
+    ///     (B−F subtractive) darkens via black RGB with brightness-driven
+    ///     alpha; rate 3 (B+0.25F) is quarter-strength additive.
+    /// </summary>
+    private static byte[] ConvertPsxSemiTransparentTexture(byte[] pngBytes, int blendRate)
+    {
+        return blendRate switch
+        {
+            1 => MeshTextureHelper.ConvertLuminanceToAlpha(pngBytes),
+            2 => MeshTextureHelper.ConvertBlendTexture(pngBytes, 0, 0, 0),
+            3 => MeshTextureHelper.ScaleTextureAlpha(
+                MeshTextureHelper.ConvertLuminanceToAlpha(pngBytes), 0.25f),
+            _ => MeshTextureHelper.ScaleTextureAlpha(pngBytes, 0.5f)
+        };
+    }
 }

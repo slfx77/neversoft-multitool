@@ -1,21 +1,154 @@
-using System.Numerics;
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
+using NeversoftMultitool.Core.Formats.Collision;
+using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
+using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
+using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene.Ps2Scene;
+using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
+using System.Buffers.Binary;
+using System.Diagnostics.CodeAnalysis;
+using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
-internal static partial class ModelDocumentGeometryAdapter
+/// <summary>
+///     THAW PS2 worldzone leaves: per-sector placement, leaf filtering, and
+///     billboard/overlay vertex transforms.
+/// </summary>
+internal static class Ps2WorldzoneGeometryWriter
 {
+    public static void PopulatePs2Worldzone(
+        ModelDocument document,
+        byte[] pakBytes,
+        string sourceName,
+        MeshChecksumTextureResolver? textureProvider,
+        Ps2TexaTextureResolver? texaTextureProvider,
+        Ps2Tex0ChecksumResolver? tex0Resolver,
+        ZoneTextureCatalog? textureCatalog,
+        string? textureSourceHint,
+        WorldzoneTimeOfDay timeOfDay,
+        float coordinateScale,
+        Ps2WorldzoneLighting? lighting = null)
+    {
+        if (!float.IsFinite(coordinateScale) || coordinateScale <= 0f)
+            throw new ArgumentOutOfRangeException(nameof(coordinateScale), coordinateScale,
+                "Worldzone coordinate scale must be a finite positive value.");
+
+        // THAW worldzone MDLs normally do not expose a trusted normal stream.
+        // Leave vertex colours as parsed unless a caller explicitly opts into
+        // the synthetic worldzone lighting model.
+        ModelDocumentGeometryAdapter.ActivePs2WorldzoneLighting = lighting;
+
+        var typedEntries = PakArchive.GetTypedEntries(pakBytes);
+        var mdlEntries = typedEntries
+            .Where(static entry => entry.TypeHash is
+                Ps2WorldzoneDetection.WorldzoneMdlTypeHash or
+                Ps2WorldzoneDetection.WorldzoneLevelMdlTypeHash)
+            .Select(static entry => entry.Entry)
+            .ToList();
+
+        if (mdlEntries.Count == 0)
+        {
+            ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
+            return;
+        }
+
+        document.NativeMetadata.Add(new Ps2WorldzoneRenderMetadata(
+            sourceName,
+            mdlEntries.Count,
+            timeOfDay.ToString(),
+            coordinateScale));
+
+        var materialCache = new Dictionary<Ps2WorldzoneMaterialWriter.Ps2WorldzoneMaterialKey, int>();
+        try
+        {
+            foreach (var mdlEntry in mdlEntries)
+            {
+                if (mdlEntry.Offset < 0 ||
+                    mdlEntry.Size <= 0 ||
+                    mdlEntry.Offset + mdlEntry.Size > pakBytes.Length)
+                {
+                    continue;
+                }
+
+                var mdlData = new byte[mdlEntry.Size];
+                Array.Copy(pakBytes, mdlEntry.Offset, mdlData, 0, (int)mdlEntry.Size);
+                var mdlName = $"{mdlEntry.Offset:X8}";
+                mdlData = Ps2WorldzoneMdlPreamble.ExtendLevelMdlPreambleIfNeeded(pakBytes, mdlEntry, mdlData);
+                if (!Ps2GeomFile.IsPakMdl(mdlData))
+                    continue;
+
+                var mdlTextureHint = textureCatalog?.FindTextureEntryHintBefore(textureSourceHint, mdlEntry.Offset)
+                                     ?? textureSourceHint;
+                var mdlTex0Resolver = textureCatalog?.CreateTex0ChecksumResolver(mdlTextureHint)
+                                      ?? tex0Resolver;
+                var geomScene = Ps2GeomFile.ParsePakMdl(mdlData, mdlName);
+                var placements = geomScene.MdlPreamble?.Bones.Count > 0
+                    ? Ps2MdlPlacementResolver.ResolveWorldzonePlacements(geomScene.MdlPreamble)
+                    : [];
+
+                var rootPlacements = new List<(Vector3 Position, Quaternion Rotation)>(1);
+                var bonePlacements = new List<(Vector3 Position, Quaternion Rotation)>();
+                if (placements.Count > 0)
+                {
+                    rootPlacements.Add((placements[0].Position, placements[0].Rotation));
+                    bonePlacements.AddRange(placements.Skip(1).Select(static p => (p.Position, p.Rotation)));
+                }
+                else
+                {
+                    rootPlacements.Add((Vector3.Zero, Quaternion.Identity));
+                }
+
+                PopulatePs2WorldzoneLeaves(
+                    document,
+                    geomScene,
+                    mdlName,
+                    rootPlacements,
+                    leaf => !leaf.IsLocalSpace && ShouldIncludeWorldzoneLeaf(leaf, timeOfDay),
+                    materialCache,
+                    textureProvider,
+                    texaTextureProvider,
+                    mdlTex0Resolver,
+                    coordinateScale,
+                    "world");
+
+                if (bonePlacements.Count > 0)
+                {
+                    PopulatePs2WorldzoneLeaves(
+                        document,
+                        geomScene,
+                        mdlName,
+                        bonePlacements,
+                        leaf => leaf.IsLocalSpace && ShouldIncludeWorldzoneLeaf(leaf, timeOfDay),
+                        materialCache,
+                        textureProvider,
+                        texaTextureProvider,
+                        mdlTex0Resolver,
+                        coordinateScale,
+                        "local");
+                }
+            }
+        }
+        finally
+        {
+            ModelDocumentGeometryAdapter.ActivePs2WorldzoneLighting = null;
+        }
+
+        ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
+    }
     private static void PopulatePs2WorldzoneLeaves(
         ModelDocument document,
         Ps2GeomScene scene,
         string mdlName,
         List<(Vector3 Position, Quaternion Rotation)> placements,
         Func<Ps2GeomLeaf, bool> leafFilter,
-        Dictionary<Ps2WorldzoneMaterialKey, int> materialCache,
+        Dictionary<Ps2WorldzoneMaterialWriter.Ps2WorldzoneMaterialKey, int> materialCache,
         MeshChecksumTextureResolver? textureProvider,
         Ps2TexaTextureResolver? texaTextureProvider,
         Ps2Tex0ChecksumResolver? tex0Resolver,
@@ -26,7 +159,7 @@ internal static partial class ModelDocumentGeometryAdapter
             ? placements
             : [(Vector3.Zero, Quaternion.Identity)];
         var orderedLeaves = Ps2GeomRenderSemantics.OrderWorldzoneLeavesForDraw(scene.Leaves);
-        var sourceTextureProvider = ResolvePs2TexaAwareProvider(textureProvider, texaTextureProvider);
+        var sourceTextureProvider = Ps2WorldzoneMaterialWriter.ResolvePs2TexaAwareProvider(textureProvider, texaTextureProvider);
         var syntheticTextures = new Dictionary<uint, byte[]>();
         Ps2TexaTextureResolver? effectiveTexaTextureProvider = sourceTextureProvider == null
             ? null
@@ -52,9 +185,9 @@ internal static partial class ModelDocumentGeometryAdapter
                 continue;
             }
 
-            var textureChecksum = ResolvePs2GeomTextureChecksum(leaf, tex0Resolver);
+            var textureChecksum = Ps2WorldzoneMaterialWriter.ResolvePs2GeomTextureChecksum(leaf, tex0Resolver);
             var geometryKey = Ps2GeomDestinationAlphaSynthesis.CreateLeafGeometryKey(leaf);
-            if (ShouldSkipRedundantWorldzoneBlendLayer(leaf, textureChecksum, geometryKey, recentAlphaMasks))
+            if (Ps2WorldzoneMaterialWriter.ShouldSkipRedundantWorldzoneBlendLayer(leaf, textureChecksum, geometryKey, recentAlphaMasks))
                 continue;
 
             var usesSynthesizedDestinationAlpha = false;
@@ -76,7 +209,7 @@ internal static partial class ModelDocumentGeometryAdapter
             var alphaModePng = textureChecksum != 0
                 ? effectiveTexaTextureProvider?.Invoke(textureChecksum, leaf.DmaTexa)
                 : null;
-            var alphaMode = ClassifyPs2GeomEffectiveAlphaMode(leaf, alphaModePng, usesSynthesizedDestinationAlpha);
+            var alphaMode = Ps2MaterialWriter.ClassifyPs2GeomEffectiveAlphaMode(leaf, alphaModePng, usesSynthesizedDestinationAlpha);
             var depthBias = Ps2GeomRenderSemantics.ComputeWorldzoneMaterialDepthBias(leaf, alphaMode);
             // Preserve the shared PS2 group/mode bias formula, then add only a
             // tiny draw-order stagger for coplanar same-group passes that the PS2
@@ -92,7 +225,7 @@ internal static partial class ModelDocumentGeometryAdapter
             var localOrigin = (min + max) * 0.5f;
             var localizedVertices = LocalizePs2Vertices(sourceVertices, localOrigin, coordinateScale);
 
-            var materialIndex = GetOrCreatePs2WorldzoneMaterial(
+            var materialIndex = Ps2WorldzoneMaterialWriter.GetOrCreatePs2WorldzoneMaterial(
                 document,
                 materialCache,
                 leaf,
@@ -102,7 +235,7 @@ internal static partial class ModelDocumentGeometryAdapter
                 textureChecksum,
                 usesSynthesizedDestinationAlpha,
                 alphaMode);
-            var preserveVertexAlpha = ShouldPreservePs2GeomVertexAlpha(leaf, alphaMode);
+            var preserveVertexAlpha = Ps2SceneGeometryWriter.ShouldPreservePs2GeomVertexAlpha(leaf, alphaMode);
 
             var emittedLeaf = false;
             for (var placementIndex = 0; placementIndex < instances.Count; placementIndex++)
@@ -112,7 +245,7 @@ internal static partial class ModelDocumentGeometryAdapter
                 {
                     Name = $"{mdlName}_{space}_leaf_{leafIndex:D5}"
                 };
-                var primitive = AddPs2StripPrimitive(
+                var primitive = Ps2SceneGeometryWriter.AddPs2StripPrimitive(
                     mesh,
                     "strip",
                     materialIndex,
@@ -126,7 +259,7 @@ internal static partial class ModelDocumentGeometryAdapter
                     continue;
 
                 emittedLeaf = true;
-                primitive.NativeMetadata.Add(MakePs2GsMetadata(leaf, tex0Resolver, "ps2_worldzone_leaf"));
+                primitive.NativeMetadata.Add(Ps2WorldzoneMaterialWriter.MakePs2GsMetadata(leaf, tex0Resolver, "ps2_worldzone_leaf"));
                 primitive.NativeMetadata.Add(new Ps2WorldzoneLeafRenderMetadata(
                     mdlName,
                     leafIndex,
@@ -152,7 +285,7 @@ internal static partial class ModelDocumentGeometryAdapter
                 var nodeName = instances.Count == 1
                     ? mesh.Name
                     : $"{mesh.Name}_p{placementIndex:D4}";
-                AddMeshNode(document, nodeName, mesh, CreateTransform(rotation, nodePosition));
+                ModelDocumentGeometryAdapter.AddMeshNode(document, nodeName, mesh, CreateTransform(rotation, nodePosition));
             }
 
             if (emittedLeaf &&
@@ -203,144 +336,6 @@ internal static partial class ModelDocumentGeometryAdapter
 
         var restartCount = leaf.Vertices.Count(static vertex => vertex.IsStripRestart);
         return restartCount >= Math.Max(2, leaf.Vertices.Length / 5);
-    }
-
-    private static bool ShouldSkipRedundantWorldzoneBlendLayer(
-        Ps2GeomLeaf leaf,
-        uint textureChecksum,
-        Ps2DestinationAlphaLeafGeometryKey geometryKey,
-        Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate> recentAlphaMasks)
-    {
-        if (textureChecksum == 0 || leaf.IsBillboard)
-            return false;
-
-        var alphaBlend = (byte)(leaf.DmaAlpha1 & 0xFF);
-        if (!Ps2GeomRenderSemantics.IsStandardSourceAlphaBlend(alphaBlend))
-            return false;
-
-        if (!recentAlphaMasks.TryGetValue(geometryKey, out var previous) ||
-            previous.TextureChecksum != textureChecksum)
-        {
-            return false;
-        }
-
-        var previousAlphaBlend = (byte)(previous.Leaf.DmaAlpha1 & 0xFF);
-        if (previousAlphaBlend is not (0x0A or 0x1A or 0x00))
-            return false;
-
-        var (min, max) = ComputeBbox(leaf.Vertices);
-        var size = max - min;
-        var maxDimension = Math.Max(Math.Abs(size.X), Math.Max(Math.Abs(size.Y), Math.Abs(size.Z)));
-        return maxDimension >= 250f;
-    }
-
-    private static bool ShouldPreservePs2SceneVertexAlpha(Ps2Material material)
-    {
-        var fixedOpacity = material.FixedBlendOpacity;
-        return !fixedOpacity.HasValue ||
-               fixedOpacity.Value >= Ps2SceneRenderSemantics.FixBlendOpaqueThreshold / 128f;
-    }
-
-    private static bool ShouldPreservePs2GeomVertexAlpha(Ps2GeomLeaf leaf, string alphaMode)
-    {
-        if (!string.Equals(alphaMode, "BLEND", StringComparison.Ordinal))
-            return true;
-
-        var alphaBlend = (byte)(leaf.DmaAlpha1 & 0xFF);
-        return Ps2GeomRenderSemantics.BlendUsesSourceAlpha(alphaBlend);
-    }
-
-    private static int GetOrCreatePs2WorldzoneMaterial(
-        ModelDocument document,
-        Dictionary<Ps2WorldzoneMaterialKey, int> materialCache,
-        Ps2GeomLeaf leaf,
-        MeshChecksumTextureResolver? textureProvider,
-        Ps2TexaTextureResolver? texaTextureProvider,
-        Ps2Tex0ChecksumResolver? tex0Resolver,
-        uint? textureChecksumOverride = null,
-        bool useTextureAlphaMode = false,
-        string? alphaModeOverride = null)
-    {
-        var textureChecksum = textureChecksumOverride ?? ResolvePs2GeomTextureChecksum(leaf, tex0Resolver);
-        var alphaModeKey = alphaModeOverride ?? Ps2GeomRenderSemantics.ClassifyWorldzoneAlphaMode(leaf);
-        var key = new Ps2WorldzoneMaterialKey(
-            textureChecksum,
-            leaf.DmaClamp1 & 0x0F,
-            leaf.DmaAlpha1,
-            leaf.DmaTest1,
-            leaf.DmaTexa,
-            leaf.GroupChecksum,
-            leaf.IsBillboard,
-            alphaModeKey);
-        if (materialCache.TryGetValue(key, out var existing))
-            return existing;
-
-        var materialName = textureChecksum != 0
-            ? ResolveQbName(textureChecksum, $"tex_{textureChecksum:X8}")
-            : "default";
-        var renderMaterial = new RenderMaterial
-        {
-            Name = $"{materialName}_{materialCache.Count:D5}"
-        };
-        renderMaterial.NativeMetadata.Add(MakePs2GsMetadata(
-            leaf,
-            tex0Resolver,
-            "ps2_worldzone_material",
-            textureChecksum));
-        ApplyPs2GeomMaterial(
-            document,
-            renderMaterial,
-            leaf,
-            textureProvider,
-            tex0Resolver,
-            texaTextureProvider,
-            textureChecksum,
-            useTextureAlphaMode,
-            alphaModeOverride);
-        var index = AddMaterial(document, renderMaterial);
-        materialCache[key] = index;
-        return index;
-    }
-
-    private static Ps2GsRenderMetadata MakePs2GsMetadata(
-        Ps2GeomLeaf leaf,
-        Ps2Tex0ChecksumResolver? tex0Resolver,
-        string source,
-        uint? textureChecksumOverride = null)
-    {
-        var textureChecksum = textureChecksumOverride ?? ResolvePs2GeomTextureChecksum(leaf, tex0Resolver);
-        return new Ps2GsRenderMetadata(
-            leaf.DmaAlpha1,
-            leaf.DmaTest1,
-            leaf.DmaTex0,
-            leaf.DmaTex1,
-            leaf.DmaTexa,
-            leaf.DmaClamp1,
-            textureChecksum != 0 ? textureChecksum : null,
-            leaf.GroupChecksum,
-            (int)((leaf.DmaTest1 >> 4) & 0xFF),
-            source,
-            leaf.DmaFrame1);
-    }
-
-    private static uint ResolvePs2GeomTextureChecksum(
-        Ps2GeomLeaf leaf,
-        Ps2Tex0ChecksumResolver? tex0Resolver)
-    {
-        return leaf.TextureChecksum != 0
-            ? leaf.TextureChecksum
-            : tex0Resolver?.Invoke(leaf.DmaTex0, leaf.GroupChecksum) ?? 0;
-    }
-
-    private static Ps2TexaTextureResolver? ResolvePs2TexaAwareProvider(
-        MeshChecksumTextureResolver? textureProvider,
-        Ps2TexaTextureResolver? texaTextureProvider)
-    {
-        if (texaTextureProvider != null)
-            return texaTextureProvider;
-        if (textureProvider == null)
-            return null;
-        return (checksum, _) => textureProvider(checksum);
     }
 
     private static Ps2Vertex[] LocalizePs2Vertices(Ps2Vertex[] vertices, Vector3 origin, float scale)
@@ -398,7 +393,7 @@ internal static partial class ModelDocumentGeometryAdapter
             vertex.HasSkinData);
     }
 
-    private static (Vector3 Min, Vector3 Max) ComputeBbox(Ps2Vertex[] vertices)
+    internal static (Vector3 Min, Vector3 Max) ComputeBbox(Ps2Vertex[] vertices)
     {
         var min = new Vector3(float.MaxValue);
         var max = new Vector3(float.MinValue);
@@ -472,103 +467,5 @@ internal static partial class ModelDocumentGeometryAdapter
         var transform = Matrix4x4.CreateFromQuaternion(rotation);
         transform.Translation = translation;
         return transform;
-    }
-
-    // THAW level-MDL preamble repair. Some entries end in the middle of a
-    // 0x50-byte preamble record (z_sm's COL entry starts with the continuation),
-    // and those records point back at valid VIF chunks before the root node. The
-    // game reads the contiguous PAK bytes; our extracted entry slice must do the
-    // same. Lifted out of the now-deleted Ps2WorldzoneConverter as a private
-    // adapter helper because PopulatePs2Worldzone is the only caller.
-    private const uint MdlPreambleRecordSignature = 0x4B189680;
-    private const int MdlPreambleRecordSize = 0x50;
-    private const int MdlPreambleRecordSignatureOffset = 0x18;
-    private const int MinLevelMdlPreambleRecords = 100;
-    private const int MaxLevelMdlPreambleExtensionBytes = 0x4000;
-
-    private static byte[] ExtendLevelMdlPreambleIfNeeded(
-        byte[] pakBytes,
-        ArchiveEntry mdlEntry,
-        byte[] mdlData)
-    {
-        var preambleStart = FindMdlPreambleStart(mdlData);
-        if (preambleStart < 0)
-            return mdlData;
-
-        var fullRecordEnd = preambleStart;
-        var existingRecords = 0;
-        while (fullRecordEnd + MdlPreambleRecordSize <= mdlData.Length
-               && ReadUInt32(mdlData, fullRecordEnd + MdlPreambleRecordSignatureOffset) ==
-               MdlPreambleRecordSignature)
-        {
-            existingRecords++;
-            fullRecordEnd += MdlPreambleRecordSize;
-        }
-
-        if (existingRecords < MinLevelMdlPreambleRecords)
-            return mdlData;
-
-        var trailingBytes = mdlData.Length - fullRecordEnd;
-        if (trailingBytes <= 0 || trailingBytes >= MdlPreambleRecordSize)
-            return mdlData;
-
-        var logicalBase = checked((int)mdlEntry.Offset);
-        var maxLogicalLength = Math.Min(
-            pakBytes.Length - logicalBase,
-            mdlData.Length + MaxLevelMdlPreambleExtensionBytes);
-
-        var extendedEnd = fullRecordEnd;
-        var addedRecords = 0;
-        while (extendedEnd + MdlPreambleRecordSize <= maxLogicalLength
-               && ReadUInt32(pakBytes, logicalBase + extendedEnd + MdlPreambleRecordSignatureOffset) ==
-               MdlPreambleRecordSignature)
-        {
-            addedRecords++;
-            extendedEnd += MdlPreambleRecordSize;
-        }
-
-        if (addedRecords == 0 || extendedEnd <= mdlData.Length)
-            return mdlData;
-
-        var addedLeafRefsIntoMdl = 0;
-        for (var recordOffset = fullRecordEnd;
-             recordOffset + MdlPreambleRecordSize <= extendedEnd;
-             recordOffset += MdlPreambleRecordSize)
-        {
-            var flags = ReadUInt32(pakBytes, logicalBase + recordOffset + 0x3C);
-            if ((flags & 0x2u) == 0)
-                continue;
-
-            var field40 = ReadUInt32(pakBytes, logicalBase + recordOffset + 0x40);
-            if (field40 < mdlData.Length)
-                addedLeafRefsIntoMdl++;
-        }
-
-        if (addedLeafRefsIntoMdl == 0)
-            return mdlData;
-
-        var extended = new byte[extendedEnd];
-        Array.Copy(pakBytes, logicalBase, extended, 0, extended.Length);
-        return extended;
-    }
-
-    private static int FindMdlPreambleStart(byte[] data)
-    {
-        for (var i = 0; i + 4 <= data.Length; i += 4)
-        {
-            if (ReadUInt32(data, i) != MdlPreambleRecordSignature)
-                continue;
-
-            return i >= MdlPreambleRecordSignatureOffset
-                ? i - MdlPreambleRecordSignatureOffset
-                : -1;
-        }
-
-        return -1;
-    }
-
-    private static uint ReadUInt32(byte[] data, int offset)
-    {
-        return BitConverter.ToUInt32(data, offset);
     }
 }

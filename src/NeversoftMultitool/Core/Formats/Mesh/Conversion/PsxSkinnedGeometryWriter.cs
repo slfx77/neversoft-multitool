@@ -1,10 +1,14 @@
-using System.Numerics;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
+using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
-internal static partial class ModelDocumentGeometryAdapter
+/// <summary>
+///     PSX character assembly: object-parent skeleton, combined skinned mesh
+///     binned by material, single-bone influences via the resolver.
+/// </summary>
+internal static class PsxSkinnedGeometryWriter
 {
     /// <summary>
     ///     Character-hierarchy populator for PSX models. Emits a skeleton derived
@@ -18,7 +22,7 @@ internal static partial class ModelDocumentGeometryAdapter
     ///     bind placement, while animation channels compensate for glTF's parent
     ///     rotation chaining.
     /// </summary>
-    private static void PopulatePsxSkinned(
+    internal static void PopulatePsxSkinned(
         ModelDocument document,
         PsxMeshFile psxFile,
         PshFile? pshFile,
@@ -32,7 +36,7 @@ internal static partial class ModelDocumentGeometryAdapter
 
         var textureDims = new Dictionary<uint, (int Width, int Height)>();
         var materialCache = new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>();
-        var untexturedMaterial = AddMaterial(document, new RenderMaterial
+        var untexturedMaterial = ModelDocumentGeometryAdapter.AddMaterial(document, new RenderMaterial
         {
             Name = "untextured",
             BaseColor = new Vector4(0.7f, 0.7f, 0.7f, 1f),
@@ -76,7 +80,7 @@ internal static partial class ModelDocumentGeometryAdapter
         var combinedMesh = new ModelMesh { Name = "combined_mesh" };
         foreach (var (materialIndex, bucket) in buckets)
         {
-            AddPrimitive(combinedMesh, $"mat_{materialIndex:D3}", materialIndex,
+            ModelDocumentGeometryAdapter.AddPrimitive(combinedMesh, $"mat_{materialIndex:D3}", materialIndex,
                 bucket.Vertices, bucket.Indices,
                 new ModelSkinBinding
                 {
@@ -85,7 +89,7 @@ internal static partial class ModelDocumentGeometryAdapter
                 });
         }
 
-        AddMeshNode(document, "combined_mesh", combinedMesh);
+        ModelDocumentGeometryAdapter.AddMeshNode(document, "combined_mesh", combinedMesh);
     }
 
     private static ModelSkeleton BuildPsxSkeleton(
@@ -148,7 +152,7 @@ internal static partial class ModelDocumentGeometryAdapter
 
         var materialIndex = key.Hash == 0 && !key.DoubleSided
             ? untexturedMaterial
-            : GetOrCreatePsxMaterial(document, key.Hash, key.SemiTransparent, key.DoubleSided,
+            : PsxGeometryHelpers.GetOrCreatePsxMaterial(document, key.Hash, key.SemiTransparent, key.DoubleSided,
                 key.BlendRate, textureProvider, textureDims, materialCache);
 
         var texDims = key.Hash != 0 && textureDims.TryGetValue(key.Hash, out var dims)
@@ -175,12 +179,12 @@ internal static partial class ModelDocumentGeometryAdapter
         // glTF front faces are CCW; PSX slot order is CW under the (X,-Y,-Z)
         // handedness map, so emit reversed to make winding agree with the
         // stored (outward) normals. Probe: psx_lod_part_probe.py --normals.
-        AddSkinnedTriangle(vertices, indices, influences, v0, i0, v2, i2, v1, i1);
+        ModelDocumentGeometryAdapter.AddSkinnedTriangle(vertices, indices, influences, v0, i0, v2, i2, v1, i1);
 
         if (face.IsQuad)
         {
             var v3 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 3, c3, texDims, out var i3);
-            AddSkinnedTriangle(vertices, indices, influences, v1, i1, v2, i2, v3, i3);
+            ModelDocumentGeometryAdapter.AddSkinnedTriangle(vertices, indices, influences, v1, i1, v2, i2, v3, i3);
         }
     }
 
@@ -229,5 +233,4 @@ internal static partial class ModelDocumentGeometryAdapter
         public List<int> Indices { get; } = [];
         public List<ModelBoneInfluences> Influences { get; } = [];
     }
-
 }
