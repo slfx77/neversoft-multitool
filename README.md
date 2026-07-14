@@ -11,7 +11,8 @@
 | PSX (PS1)     | 4-bit / 8-bit paletted textures → PNG                                           | All PS1 titles                          |
 | PSX (Xbox/DC) | 16-bit PowerVR textures (twiddled, VQ, rectangle) → PNG/DDS                     | THPS2X, Spider-Man DC, THPS2 DC         |
 | PVR           | Standalone Dreamcast GBIX+PVRT textures (ARGB1555, RGB565, ARGB4444) → PNG/DDS  | THPS2 DC, Spider-Man DC                 |
-| RLE / BMR     | Neversoft custom RLE bitmaps — RGBA5551 (PS1) + BMP-wrapped 24-bit RGB (DC)     | All titles                              |
+| RLE / BMR / ZLB | Neversoft RLE bitmaps — RGBA5551 (PS1), BMP-wrapped 24-bit RGB (DC), gzip ZLB | All titles                              |
+| BMP / TGA     | Standard bitmaps as shipped on disc (incl. 32-bit TGA alpha) → PNG              | THPS1/2, THPS3+, Spider-Man             |
 | PS2 TEX / IMG | Version-tagged GS textures (PSMCT32/16, PSMT8/4, CLUT swizzle) → PNG            | THPS4, THUG, THUG2, THAW                |
 | RW TXD        | RenderWare 3.x Texture Dictionaries (PS2-native rasters) → PNG                  | THPS3 PS2                               |
 | Xbox TEX / IMG| DXT1/DXT5, paletted, and raw BGRA textures → PNG                                | THUG2 Xbox/PC                           |
@@ -27,8 +28,9 @@
 | DDX       | Xbox texture archives containing DDS files                        | THPS2X                            |
 | BON       | Dreamcast v1 (PVR → PNG) and Xbox v3/v4 (raw DDS)                 | THPS2 DC, THPS2X                  |
 | PAK       | Neversoft PAK archives (+ companion .pab data)                    | THUG2, THAW, Guitar Hero (PS2)    |
+| Disc images | ISO9660 / Xbox XDVDFS / GameCube GCM filesystems from .iso, .bin+.cue, .img+.ccd, and Dreamcast .gdi dumps; PS1 STR/XA streams extract losslessly (2336-byte sectors) and CD audio tracks extract as WAV | All platforms |
 
-The **Game Unpacker** recursively extracts every archive under a directory in one pass — including nested archives (a WAD containing PREs, a PAK inside a WAD) — reproducing the game's on-disc directory tree.
+The **Game Unpacker** recursively extracts every archive under a directory in one pass — including nested archives (a disc image containing WADs, a WAD containing PREs, a PAK inside a WAD) — reproducing the game's on-disc directory tree.
 
 ### Audio
 
@@ -60,7 +62,7 @@ The **Audio Converter** offers in-app playback with a seekable timeline for the 
 | SKE / SKA       | Cross-platform skeletons + bone animations → glTF animation tracks        | THPS4, THUG, THUG2          |
 | PSX animation   | PS1 character skeletal animation → animated glTF (.glb / .gif)            | THPS1/2, Spider-Man, Apoc.   |
 
-Mesh conversion writes glTF (.glb), and — where a Blender helper is configured — Blender (.blend) scenes. Skinned meshes export with joints, weights, and inverse-bind matrices; the **Character Preview** tab renders models and plays back animations in-app.
+Mesh conversion writes glTF (.glb), and — where a Blender helper is configured — Blender (.blend) scenes. Skinned meshes export with joints, weights, and inverse-bind matrices. The **Character Preview** tab renders models and plays back animations in-app with a play/pause/seek transport, and exports animated GLB, Blender scenes, or GIF renders. The **Mesh Converter** tab shares the same 3D preview and can render any previewed model to PNG stills or animated GIF with the built-in headless rasterizer.
 
 ### Scripts & Levels
 
@@ -77,7 +79,7 @@ Mesh conversion writes glTF (.glb), and — where a Blender helper is configured
 | STR    | PS1 MDEC video streams → MP4 (pure C# decoder)        | Apocalypse, Spider-Man, THPS1/2 |
 | VID1   | THAW GameCube movie container (MPEG-4) → MP4          | THAW GameCube                |
 
-Both SFD and STR play back in-app in the **Video Converter** tab.
+All video formats play back in-app in the **Video Converter** tab — STR and VID1 stream directly through their native decoders (with seek support); SFD/PSS/BIK convert on first preview and cache on disk so later previews start instantly.
 
 ### Tested Games
 
@@ -128,16 +130,16 @@ dotnet run --project src/NeversoftMultitool -f net10.0-windows10.0.19041.0
 
 The GUI is organized into tabs with batch-processing support:
 
-- **Textures** — PSX, PVR, PS2 TEX/IMG, RW TXD, Xbox TEX, and NGC textures → PNG
-- **RLE / BMR** — Neversoft RLE bitmaps with auto width detection
-- **Archive Extractor** — WAD, PKR, PRE, DDX, BON, PAK
-- **Game Unpacker** — recursive extraction of every archive in a game directory
-- **Audio Converter** — all audio formats with in-app playback
-- **Video Converter** — SFD, STR, and VID1 with playback preview
-- **Mesh Converter** — every mesh format above → glTF/Blender, with texture and skeleton binding
-- **Character Preview** — model + animation preview
+- **Textures** — PSX, PVR, PS2 TEX/IMG, RW TXD, Xbox TEX, and NGC textures → PNG, with zoomable preview (fit / 100% + pan, optional pixel-perfect integer scaling)
+- **Bitmap Converter** — Neversoft RLE/BMR/ZLB (auto width detection) and standard BMP/TGA → PNG
+- **Archive Extractor** — WAD, PKR, PRE, DDX, BON, PAK, and disc images (ISO / BIN+CUE / IMG+CCD / GDI)
+- **Game Unpacker** — recursive extraction of every archive in a game directory (disc images included)
+- **Audio Converter** — all audio formats with in-app playback; VAB banks auto-detect their tone-table sample rate
+- **Video Converter** — SFD, PSS, BIK, STR, and VID1 with playback preview, per-file conversion checkboxes, and recursive folder scans
+- **Mesh Converter** — every mesh format above → glTF/Blender, with 3D preview (animation playback) and PNG/GIF rendering
+- **Character Preview** — animated 3D preview with play/pause/seek; exports GLB, Blender, or GIF
+- **Script Decompiler** — TRG triggers → JSON and QB scripts → `.q` source, in a three-pane file / node / detail layout
 - **Hash Reviewer** — QBKey hash → name resolution review
-- **Script Decompiler** — TRG triggers → JSON and QB scripts → `.q` source
 
 ### CLI Mode
 
@@ -156,8 +158,8 @@ Every command takes an input file or directory, an `-o/--output` directory, and 
 | `ps2tex`   | Convert PS2 TEX/IMG and RW TXD textures → PNG               |
 | `xbxtex`   | Convert Xbox/PC TEX/IMG textures → PNG                      |
 | `ngctex`   | Convert GameCube texture dictionaries → PNG                 |
-| `rle`      | Convert RLE/BMR/ZLB bitmaps → PNG                           |
-| `archive`  | Extract a WAD/PKR/PRE/PRX/DDX/BON/PAK archive               |
+| `rle`      | Convert RLE/BMR/ZLB/BMP/TGA bitmaps → PNG                   |
+| `archive`  | Extract a WAD/PKR/PRE/PRX/DDX/BON/PAK archive or disc image (ISO/CUE/GDI/IMG) |
 | `unpack`   | Recursively extract every archive under a directory         |
 | `audio`    | Convert ADX/XA/VAB/VAG/KAT/SFX/PSS/VID audio → WAV          |
 | `sfd`      | Convert SFD (Sofdec) / PSS video → MP4                      |
@@ -181,6 +183,9 @@ Every command takes an input file or directory, an `-o/--output` directory, and 
 ```bash
 # Extract every archive in a game directory (nested archives included)
 NeversoftMultitool unpack "path/to/game" -v
+
+# Extract a disc image (PS1 bin+cue, Dreamcast gdi, PS2/Xbox/GC iso, ...)
+NeversoftMultitool archive "Tony Hawk's Pro Skater (USA).cue" -o out
 
 # Convert a THAW PS2 character to glTF (textures + skeleton auto-discovered)
 NeversoftMultitool mesh skater_muska.skin.ps2 -o out
@@ -209,6 +214,7 @@ src/NeversoftMultitool/
       Psx/                 # PSX texture extraction + PS1 mesh geometry
       Rle/                 # RLE/BMR bitmap conversion
       Archives/            # WAD, PKR, PRE, DDX, BON, PAK extraction
+      DiscImage/           # ISO9660/XDVDFS/GCM disc images (iso, cue, ccd, gdi)
       Audio/               # XA, VAB, VAG, ADX, KAT, SFX, PSS decoding
       Texture/             # PS2 TEX, RW TXD, Xbox TEX, NGC decoding
       Mesh/                # PSX/DDM/RW/COL/PS2/Xbox meshes → glTF

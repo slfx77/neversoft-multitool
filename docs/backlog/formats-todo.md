@@ -172,9 +172,13 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
   - **Deferred to Priority 3 (images):** the `debug.log` texture-checksum→source-name side map
     (2,005 platform-invariant pairs) for THAW texture export naming — belongs with texture work,
     NOT in `QbKeyNames*.txt` (those aren't CRC(name) pairs and would poison the harvest scripts).
-- 🔴 **Priority 3 — image formats**: caveat from user experience: **`.tga`/`.tim` files sometimes
-  use hardware-specific encodings that standard editors reject** — verify each against a real
-  decoder rather than assuming stock TGA/TIM. Candidates: `.tim` (5, Spider-Man PC), `.tga` (4).
+- 🔴 **Priority 3 — image formats**: `.tga` DONE 2026-07-11 — all 4 corpus TGAs verified standard
+  (types 1/2 uncompressed, one 32-bit with real alpha); decoded via ImageSharp through the
+  `Core/Formats/Rle/BitmapFile.cs` facade (`rle` CLI + Bitmap Converter tab), alpha preserved.
+  Standard `.bmp` (3,535 files, all `BM`/BITMAPINFOHEADER) shipped in the same pass. Remaining:
+  `.tim` (5 files) — standard PSX TIM headers, but they live in the multi-game demo-disc build
+  (`Spider-Man (2000-2-4, PSX)`, not "Spider-Man PC" as the earlier census said) under third-party
+  dirs (`DD/`, `WTC/` = TOCA) — out of scope as non-Neversoft content.
 - 🔴 **Priority 4/5 — mesh/anim formats**: `.dff` (477, THPS3) = standard RW clumps, our
   `RwDffFile` already parses the format — **routing-only gap** (add `.dff` to rwdff/mesh
   discovery). `.anim` (193, THPS2X, `Anm\0` magic) — Xbox-era animation format, unstudied.
