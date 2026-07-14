@@ -2,9 +2,13 @@ using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Animation;
 
-internal static partial class SkaFile
+/// <summary>
+///     THPS3 RenderWare rpHAnim SKA: raw Q/T record tables with runtime
+///     bone-track assignment via the prev-chain / time-order heuristics.
+/// </summary>
+internal static class SkaThps3Parser
 {
-    private static SkaAnimation ParseThps3(
+    internal static SkaAnimation ParseThps3(
         ReadOnlySpan<byte> data, uint version, uint flags, float duration)
     {
         const int HeaderSize = 28;
@@ -280,5 +284,36 @@ internal static partial class SkaFile
         var arr = new ThpsRawKey[numBones][];
         for (var b = 0; b < numBones; b++) arr[b] = result[b].ToArray();
         return arr;
+    }
+
+    /// <summary>
+    ///     Parse THPS3 PS2 SKA format (RenderWare rpHAnim variant).
+    ///     File layout (verified on Bird_A_Flap 524 B + Crowd_A_CrowdClap 6844 B):
+    ///     <code>
+    ///     [File header]       28 bytes: version(u32) + flags(u32) + duration(f32)
+    ///                                   + numQKeys(u32) + numTKeys(u32) + unk[2](u32)
+    ///     [Pre-Q metadata]    12 bytes: reserved (possibly interpolation-scheme ID)
+    ///     [Q keyframes]       (numQKeys − 1) × 24 B: prev(i32) + quat(4×f32) + time(f32)
+    ///     [T keyframes]       numTKeys × 20 B: trans(3×f32) + time(f32) + prev(i32)
+    ///     [Trailing pad]      4 bytes
+    ///     </code>
+    ///     T uses <c>prev-at-end</c>. numQKeys is always 1 greater than the
+    ///     actual stored record count (RW allocates an extra slot at serialise
+    ///     time). T <c>prev</c> is a byte offset back into the array, chaining
+    ///     same-bone keys. A bone's first T key has <c>prev</c> set to a
+    ///     per-file sentinel value (an uninitialised pointer from RW's writer).
+    ///     Q <c>prev</c> does not identify runtime bone tracks; the game loads
+    ///     Q records into non-root bone tracks using serialized time order.
+    ///     Record strides and field offsets were confirmed against the THPS3
+    ///     PS2 in-memory interpolator (FUN_00230f68 / FUN_00231048 at
+    ///     SLUS_200.13 +0x230F68): 0x18 stride for Q, 0x14 stride for T,
+    ///     Hamilton product composing quat.w via <c>pfVar[3]</c>.
+    /// </summary>
+    private readonly record struct ThpsRawKey(float X, float Y, float Z, float W, float Time, int Prev, int RecIndex);
+
+    private enum ThpsRecordKind
+    {
+        Q,
+        T
     }
 }

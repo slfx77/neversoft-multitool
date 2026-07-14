@@ -3,7 +3,11 @@ using NeversoftMultitool.Core.BinaryIO;
 
 namespace NeversoftMultitool.Core.Formats.Animation;
 
-internal static partial class SkaFile
+/// <summary>
+///     THAW-generation SKA v0x28 (PS2/PC/GC): compressed family with
+///     byte-width scalar components and the hi-res cutscene family.
+/// </summary>
+internal static class SkaThawParser
 {
     // THAW v0x28 container (THAW PS2/PC/GC + Project 8 + Proving Ground).
     // Little-endian on PS2/PC, big-endian on GC for the header, size tables,
@@ -42,8 +46,6 @@ internal static partial class SkaFile
     private const uint FlagThawCompactKeys = 1u << 15;
     // bit 16 = scalar-table byte-width components (always set in-corpus; the
     // decoders infer per-component width from the header, so it isn't gated on)
-    private const uint FlagPartialAnim = 1u << 19;
-    private const uint FlagObjectAnimData = 1u << 24;
 
     internal const uint ThawVersion = 0x28;
 
@@ -69,10 +71,10 @@ internal static partial class SkaFile
                 return false;
 
         var flags = new EndianSpanReader(data, bigEndian).U32(4);
-        return (flags & (FlagUseCompressTable | FlagPlatform)) != 0;
+        return (flags & (SkaFile.FlagUseCompressTable | SkaFile.FlagPlatform)) != 0;
     }
 
-    private static SkaAnimation ParseThaw(ReadOnlySpan<byte> data, bool bigEndian, SkaCompressTable? compressTable)
+    internal static SkaAnimation ParseThaw(ReadOnlySpan<byte> data, bool bigEndian, SkaCompressTable? compressTable)
     {
         var r = new EndianSpanReader(data, bigEndian);
         var flags = r.U32(4);
@@ -81,9 +83,9 @@ internal static partial class SkaFile
         int numQKeys = r.U16(0x0E);
         int numTKeys = r.U16(0x10);
 
-        if ((flags & FlagUseCompressTable) != 0)
+        if ((flags & SkaFile.FlagUseCompressTable) != 0)
             return ParseThawCompressed(data, r, flags, duration, numBones, compressTable);
-        if ((flags & FlagPlatform) != 0)
+        if ((flags & SkaFile.FlagPlatform) != 0)
             return ParseThawHiRes(data, r, flags, duration, numBones, numQKeys, numTKeys);
 
         throw new InvalidDataException(
@@ -105,7 +107,7 @@ internal static partial class SkaFile
         for (var i = 0; i < numBones; i++, off += 2)
             tSizes[i] = r.U16(off);
 
-        if ((flags & FlagPartialAnim) != 0)
+        if ((flags & SkaFile.FlagPartialAnim) != 0)
         {
             // u32 original bone count + one mask u32 per 32 original bones,
             // between the size tables and the key blobs.
@@ -122,7 +124,7 @@ internal static partial class SkaFile
         for (var bone = 0; bone < numBones; bone++)
         {
             var rotKeys = DecodeThawQKeys(data, ref qOff, qOff + qSizes[bone], compact, hiResTs, compressTable);
-            var transKeys = DecodeCompressedTKeys(data, ref tOff, tOff + tSizes[bone], compressTable);
+            var transKeys = SkaCompressedKeyDecoders.DecodeCompressedTKeys(data, ref tOff, tOff + tSizes[bone], compressTable);
             tracks[bone] = new SkaBoneTrack
             {
                 BoneIndex = bone,
@@ -218,7 +220,7 @@ internal static partial class SkaFile
                 }
             }
 
-            keys.Add(new SkaRotationKey(timestamp / 60f, ReconstructQuat(qx, qy, qz, signBit)));
+            keys.Add(new SkaRotationKey(timestamp / 60f, SkaFile.ReconstructQuat(qx, qy, qz, signBit)));
         }
 
         if (off != end)
@@ -264,14 +266,14 @@ internal static partial class SkaFile
         var off = 0x28;
 
         uint[]? boneNames = null;
-        if ((flags & FlagObjectAnimData) != 0)
+        if ((flags & SkaFile.FlagObjectAnimData) != 0)
         {
             boneNames = new uint[numBones];
             for (var i = 0; i < numBones; i++, off += 4)
                 boneNames[i] = r.U32(off);
         }
 
-        if ((flags & FlagPartialAnim) != 0)
+        if ((flags & SkaFile.FlagPartialAnim) != 0)
         {
             var origBones = (int)r.U32(off);
             off += 4 + 4 * ((origBones - 1) / 32 + 1);
@@ -281,7 +283,7 @@ internal static partial class SkaFile
         // keys (bit22 HIRESFRAMEPOINTERS, same as THUG).
         var qCounts = new int[numBones];
         var tCounts = new int[numBones];
-        if ((flags & FlagHiResFramePointers) != 0)
+        if ((flags & SkaFile.FlagHiResFramePointers) != 0)
         {
             for (var i = 0; i < numBones; i++)
             {
@@ -324,7 +326,7 @@ internal static partial class SkaFile
                 var ts = r.U16(qOff);
                 rotKeys[k] = new SkaRotationKey(
                     (ts & 0x7FFF) / 60f,
-                    ReconstructQuat(r.F32(qOff + 4), r.F32(qOff + 8), r.F32(qOff + 12), (ts & 0x8000) != 0));
+                    SkaFile.ReconstructQuat(r.F32(qOff + 4), r.F32(qOff + 8), r.F32(qOff + 12), (ts & 0x8000) != 0));
             }
 
             var transKeys = new SkaTranslationKey[tCounts[bone]];

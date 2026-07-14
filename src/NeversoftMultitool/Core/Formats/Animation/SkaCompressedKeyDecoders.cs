@@ -2,9 +2,13 @@ using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Animation;
 
-internal static partial class SkaFile
+/// <summary>
+///     Shared THUG-era compressed key grammar: table-lookup / per-component
+///     variable-width Q keys and flag-byte T keys (also used by THAW).
+/// </summary>
+internal static class SkaCompressedKeyDecoders
 {
-    private static SkaRotationKey[] DecodeCompressedQKeys(
+    internal static SkaRotationKey[] DecodeCompressedQKeys(
         ReadOnlySpan<byte> data, ref int off, int end, SkaCompressTable? table)
     {
         var keys = new List<SkaRotationKey>();
@@ -89,13 +93,13 @@ internal static partial class SkaFile
             }
 
             var time = timestamp / 60f;
-            keys.Add(new SkaRotationKey(time, ReconstructQuat(qx, qy, qz, signBit)));
+            keys.Add(new SkaRotationKey(time, SkaFile.ReconstructQuat(qx, qy, qz, signBit)));
         }
 
         return keys.ToArray();
     }
 
-    private static SkaTranslationKey[] DecodeCompressedTKeys(
+    internal static SkaTranslationKey[] DecodeCompressedTKeys(
         ReadOnlySpan<byte> data, ref int off, int end, SkaCompressTable? table)
     {
         var keys = new List<SkaTranslationKey>();

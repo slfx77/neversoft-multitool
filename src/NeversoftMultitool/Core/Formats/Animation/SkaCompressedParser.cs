@@ -1,8 +1,12 @@
 namespace NeversoftMultitool.Core.Formats.Animation;
 
-internal static partial class SkaFile
+/// <summary>
+///     THUG/THUG2 compressed SKA (USECOMPRESSTABLE): per-bone byte-sized
+///     key blobs decoded via the shared compressed-key grammar.
+/// </summary>
+internal static class SkaCompressedParser
 {
-    private static SkaAnimation ParseCompressed(
+    internal static SkaAnimation ParseCompressed(
         ReadOnlySpan<byte> data, uint version, uint flags, float duration,
         SkaCompressTable? compressTable)
     {
@@ -52,10 +56,10 @@ internal static partial class SkaFile
         for (var bone = 0; bone < numBones; bone++)
         {
             var qEnd = qOff + perBoneQSize[bone];
-            var rotKeys = DecodeCompressedQKeys(data, ref qOff, qEnd, compressTable);
+            var rotKeys = SkaCompressedKeyDecoders.DecodeCompressedQKeys(data, ref qOff, qEnd, compressTable);
 
             var tEnd = tOff + perBoneTSize[bone];
-            var transKeys = DecodeCompressedTKeys(data, ref tOff, tEnd, compressTable);
+            var transKeys = SkaCompressedKeyDecoders.DecodeCompressedTKeys(data, ref tOff, tEnd, compressTable);
 
             tracks[bone] = new SkaBoneTrack
             {

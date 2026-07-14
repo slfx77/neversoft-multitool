@@ -2,13 +2,17 @@ using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Animation;
 
-internal static partial class SkaFile
+/// <summary>
+///     PLATFORM-flag SKA (cutscene object/camera masters): standard or
+///     hi-res keys with optional OBJECTANIMDATA/PARTIALANIM preludes.
+/// </summary>
+internal static class SkaPlatformParser
 {
-    private static SkaAnimation ParsePlatform(
+    internal static SkaAnimation ParsePlatform(
         ReadOnlySpan<byte> data, uint version, uint flags, float duration)
     {
         var off = 12;
-        var isHiRes = (flags & FlagHiResFramePointers) != 0;
+        var isHiRes = (flags & SkaFile.FlagHiResFramePointers) != 0;
 
         // Platform header: numBones, numQKeys@+4, numTKeys@+8. numTKeys is not
         // needed — T data begins right after the Q block and each bone's T keys
@@ -22,7 +26,7 @@ internal static partial class SkaFile
         // (THUG BonedAnim.cpp plat_read_stream:1105-1111). Without skipping it the
         // per-bone counts read from the wrong offset and the whole file mis-parses.
         uint[]? boneNames = null;
-        if ((flags & FlagObjectAnimData) != 0)
+        if ((flags & SkaFile.FlagObjectAnimData) != 0)
         {
             boneNames = new uint[numBones];
             for (var i = 0; i < numBones; i++)
@@ -34,7 +38,7 @@ internal static partial class SkaFile
 
         // PARTIALANIM: original bone count + a bit mask of which bones are present
         // (plat_read_stream:1117-1129), also before the per-bone frames.
-        if ((flags & FlagPartialAnim) != 0)
+        if ((flags & SkaFile.FlagPartialAnim) != 0)
         {
             var originalBones = (int)BitConverter.ToUInt32(data[off..]);
             off += 4;
@@ -96,7 +100,7 @@ internal static partial class SkaFile
                     var qy = BitConverter.ToSingle(data[(qOff + 6)..]);
                     var qz = BitConverter.ToSingle(data[(qOff + 10)..]);
                     var time = timestamp / 60f;
-                    rotKeys[k] = new SkaRotationKey(time, ReconstructQuat(qx, qy, qz, signBit));
+                    rotKeys[k] = new SkaRotationKey(time, SkaFile.ReconstructQuat(qx, qy, qz, signBit));
                     qOff += 14;
                 }
                 else
@@ -108,7 +112,7 @@ internal static partial class SkaFile
                     var qy = BitConverter.ToInt16(data[(qOff + 4)..]) / 16384f;
                     var qz = BitConverter.ToInt16(data[(qOff + 6)..]) / 16384f;
                     var time = timestamp / 60f;
-                    rotKeys[k] = new SkaRotationKey(time, ReconstructQuat(qx, qy, qz, signBit));
+                    rotKeys[k] = new SkaRotationKey(time, SkaFile.ReconstructQuat(qx, qy, qz, signBit));
                     qOff += 8;
                 }
             }

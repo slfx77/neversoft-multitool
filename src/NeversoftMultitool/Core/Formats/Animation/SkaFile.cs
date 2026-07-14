@@ -26,14 +26,16 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 ///     [T keyframe data]   numTKeys × 8 bytes (standard) or × 14 bytes (hi-res)
 ///     </code>
 /// </summary>
-internal static partial class SkaFile
+internal static class SkaFile
 {
-    private const uint FlagPlatform = 1u << 28;
+    internal const uint FlagPlatform = 1u << 28;
     // bit 26 = compressed-time keys (the decoders infer per-key timing from the
     // header/flag byte, so it isn't gated on); bit 25 = pre-rotated root
     // (neither is consumed by this parser)
-    private const uint FlagUseCompressTable = 1u << 23;
-    private const uint FlagHiResFramePointers = 1u << 22;
+    internal const uint FlagUseCompressTable = 1u << 23;
+    internal const uint FlagHiResFramePointers = 1u << 22;
+    internal const uint FlagPartialAnim = 1u << 19;
+    internal const uint FlagObjectAnimData = 1u << 24;
 
     // THPS3 uses RenderWare rpHAnim instead of Neversoft's BonedAnim engine.
     // Discriminator: flags has bit 31 set, PLATFORM/USECOMPRESSTABLE clear.
@@ -43,7 +45,7 @@ internal static partial class SkaFile
     internal static bool IsSkaFile(ReadOnlySpan<byte> data)
     {
         if (data.Length < 28) return false;
-        if (IsThawSka(data, out _)) return true;
+        if (SkaThawParser.IsThawSka(data, out _)) return true;
         var flags = BitConverter.ToUInt32(data[4..]);
         return (flags & FlagPlatform) != 0
                || (flags & FlagUseCompressTable) != 0
@@ -60,7 +62,7 @@ internal static partial class SkaFile
     {
         if (!IsSkaFile(data)) return null;
 
-        if (IsThawSka(data, out var thawBigEndian))
+        if (SkaThawParser.IsThawSka(data, out var thawBigEndian))
         {
             var thawReader = new BinaryIO.EndianSpanReader(data, thawBigEndian);
             return new SkaProbeResult(thawReader.F32(8), data[0x0D]);
@@ -90,8 +92,8 @@ internal static partial class SkaFile
         // THAW-era v0x28 container (LE PS2/PC, BE GC) — version-gated BEFORE
         // the flag dispatch because its flags also carry bit23/bit28 and the
         // THUG-era paths would silently mis-parse the reshaped header.
-        if (IsThawSka(data, out var thawBigEndian))
-            return ParseThaw(data, thawBigEndian, compressTable);
+        if (SkaThawParser.IsThawSka(data, out var thawBigEndian))
+            return SkaThawParser.ParseThaw(data, thawBigEndian, compressTable);
 
         // File header (12 bytes)
         var version = BitConverter.ToUInt32(data);
@@ -99,40 +101,22 @@ internal static partial class SkaFile
         var duration = BitConverter.ToSingle(data[8..]);
 
         if ((flags & FlagUseCompressTable) != 0)
-            return ParseCompressed(data, version, flags, duration, compressTable);
+            return SkaCompressedParser.ParseCompressed(data, version, flags, duration, compressTable);
         if ((flags & FlagPlatform) != 0)
-            return ParsePlatform(data, version, flags, duration);
+            return SkaPlatformParser.ParsePlatform(data, version, flags, duration);
         if ((flags & FlagThps3RpHAnim) != 0)
-            return ParseThps3(data, version, flags, duration);
+            return SkaThps3Parser.ParseThps3(data, version, flags, duration);
 
         throw new InvalidDataException(
             $"SKA: unrecognized flags 0x{flags:X8} (neither PLATFORM nor USECOMPRESSTABLE nor THPS3)");
     }
 
     /// <summary>
-    ///     Parse THPS3 PS2 SKA format (RenderWare rpHAnim variant).
-    ///     File layout (verified on Bird_A_Flap 524 B + Crowd_A_CrowdClap 6844 B):
-    ///     <code>
-    ///     [File header]       28 bytes: version(u32) + flags(u32) + duration(f32)
-    ///                                   + numQKeys(u32) + numTKeys(u32) + unk[2](u32)
-    ///     [Pre-Q metadata]    12 bytes: reserved (possibly interpolation-scheme ID)
-    ///     [Q keyframes]       (numQKeys − 1) × 24 B: prev(i32) + quat(4×f32) + time(f32)
-    ///     [T keyframes]       numTKeys × 20 B: trans(3×f32) + time(f32) + prev(i32)
-    ///     [Trailing pad]      4 bytes
-    ///     </code>
-    ///     T uses <c>prev-at-end</c>. numQKeys is always 1 greater than the
-    ///     actual stored record count (RW allocates an extra slot at serialise
-    ///     time). T <c>prev</c> is a byte offset back into the array, chaining
-    ///     same-bone keys. A bone's first T key has <c>prev</c> set to a
-    ///     per-file sentinel value (an uninitialised pointer from RW's writer).
-    ///     Q <c>prev</c> does not identify runtime bone tracks; the game loads
-    ///     Q records into non-root bone tracks using serialized time order.
-    ///     Record strides and field offsets were confirmed against the THPS3
-    ///     PS2 in-memory interpolator (FUN_00230f68 / FUN_00231048 at
-    ///     SLUS_200.13 +0x230F68): 0x18 stride for Q, 0x14 stride for T,
-    ///     Hamilton product composing quat.w via <c>pfVar[3]</c>.
+    ///     Reconstruct unit quaternion W from X,Y,Z (sign from signBit), then
+    ///     conjugate: the engine's QuatVecToMatrix uses q* (matches
+    ///     Ps2SkeletonFile so animation and skeleton share one convention).
     /// </summary>
-    private static Quaternion ReconstructQuat(float x, float y, float z, bool signBit)
+    internal static Quaternion ReconstructQuat(float x, float y, float z, bool signBit)
     {
         // Components are integer multiples of 1/16384, so any nonzero record has
         // magnitude >= (1/16384)^2 ~ 3.7e-9; below that the record is the exact
@@ -145,13 +129,5 @@ internal static partial class SkaFile
         var w = sum > 0 ? MathF.Sqrt(sum) : 0f;
         if (signBit) w = -w;
         return Quaternion.Conjugate(new Quaternion(x, y, z, w));
-    }
-
-    private readonly record struct ThpsRawKey(float X, float Y, float Z, float W, float Time, int Prev, int RecIndex);
-
-    private enum ThpsRecordKind
-    {
-        Q,
-        T
     }
 }
