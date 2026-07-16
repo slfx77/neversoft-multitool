@@ -24,6 +24,18 @@ public static class PkrArchive
     }
 
     /// <summary>
+    ///     In-memory variant for PKR archives nested inside another archive.
+    /// </summary>
+    public static List<ArchiveEntry> GetFileList(byte[] data)
+    {
+        using var stream = new MemoryStream(data, false);
+        using var reader = new BinaryReader(stream);
+
+        var (dirs, _) = SetupDirectories(reader);
+        return ReadAllFileEntries(reader, dirs);
+    }
+
+    /// <summary>
     ///     Extracts all files from a PKR archive.
     /// </summary>
     public static void ExtractFiles(string pkrPath, string outputDir,

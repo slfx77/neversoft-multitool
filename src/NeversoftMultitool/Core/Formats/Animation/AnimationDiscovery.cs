@@ -20,25 +20,28 @@ internal static class AnimationDiscovery
     ///     </list>
     /// </summary>
     private static readonly string[] AnimSubdirNames =
-        ["anims", "Bits/anims", "bits/anims", "pre/anims", "Pre/anims"];
+        ["anims", "Anims", "Bits/anims", "bits/anims", "pre/anims", "Pre/anims"];
 
     /// <summary>
     ///     Walk the character's parent directories looking for known animation
     ///     subdirs and probe every <c>.ska*</c> file under them. PS1 character
-    ///     <c>.psx</c> files are special-cased: their animations are embedded
-    ///     in the same file, not stored as separate <c>.ska</c> files.
+    ///     <c>.psx</c> files are special-cased: their animations may be embedded
+    ///     in the same file or ship in sibling animation-bank <c>.psx</c> files.
     /// </summary>
     public static IReadOnlyList<AnimationProbe> FindForCharacter(
         AssetSource skinSource, int? skeletonBoneCount, CancellationToken ct)
     {
         if (IsPsxCharacter(skinSource))
-            return FindForPsxCharacter(skinSource);
+            return FindForPsxCharacter(skinSource, ct);
 
         var fsPath = skinSource.FileSystemPath;
         if (fsPath == null)
         {
-            // Archive-backed characters: fall back to scanning the archive itself.
-            return [];
+            // Archive-backed characters: scan the same archive (THPS3 packs a
+            // character's Models/<char>/ and Anims/<char>/ in one PRE).
+            return skinSource is ArchiveAssetSource archiveSource
+                ? FindForArchiveCharacter(archiveSource, skeletonBoneCount, ct)
+                : [];
         }
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -136,7 +139,40 @@ internal static class AnimationDiscovery
         return source.EntryName.EndsWith(".psx", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static IReadOnlyList<AnimationProbe> FindForPsxCharacter(AssetSource skinSource)
+    /// <summary>
+    ///     Same-archive discovery: prefer entries under an anims directory scoped
+    ///     to the character's stem, then any anims directory, then every .ska*.
+    /// </summary>
+    private static IReadOnlyList<AnimationProbe> FindForArchiveCharacter(
+        ArchiveAssetSource archiveSource, int? skeletonBoneCount, CancellationToken ct)
+    {
+        var backend = archiveSource.Backend;
+        var charStem = Path.GetFileNameWithoutExtension(archiveSource.EntryName);
+
+        var animDirEntries = backend.Entries
+            .Where(e => IsAnimFileName(e.Name) &&
+                        e.Directory.Contains("anims", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var charScoped = animDirEntries
+            .Where(e => e.Directory.Contains(charStem, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var candidates = charScoped.Count > 0 ? charScoped : animDirEntries;
+
+        var results = new List<AnimationProbe>();
+        foreach (var entry in candidates)
+        {
+            ct.ThrowIfCancellationRequested();
+            var source = new ArchiveAssetSource(backend, entry);
+            var probe = TryProbe(source, source.DisplayName, skeletonBoneCount);
+            if (probe != null) results.Add(probe);
+        }
+
+        // No anims directory in this archive at all — probe every .ska* entry
+        // (the bone-count flag still separates mismatches).
+        return results.Count > 0 ? results : FindInArchive(backend, skeletonBoneCount, ct);
+    }
+
+    private static List<AnimationProbe> FindForPsxCharacter(AssetSource skinSource, CancellationToken ct)
     {
         byte[] data;
         try
@@ -160,10 +196,72 @@ internal static class AnimationDiscovery
 
         if (psxFile == null) return [];
 
-        return PsxAnimationBank.CreateProbes(
-            skinSource,
-            psxFile.Objects.Count,
-            i => $"anim_{i}");
+        var boneCount = psxFile.Objects.Count;
+        var results = new List<AnimationProbe>();
+        results.AddRange(PsxAnimationBank.CreateProbes(skinSource, boneCount, i => $"anim_{i}"));
+
+        // Most PS1 characters don't embed their own anim table — animations ship
+        // in sibling bank .psx files (anims_*.psx, companion libraries). This was
+        // previously reachable only through the manual Add-folder picker.
+        AddSiblingPsxBanks(skinSource, boneCount, results, ct);
+        return results;
+    }
+
+    private static void AddSiblingPsxBanks(
+        AssetSource skinSource, int boneCount, List<AnimationProbe> results, CancellationToken ct)
+    {
+        var charStem = Path.GetFileNameWithoutExtension(skinSource.EntryName);
+
+        if (skinSource.FileSystemPath is { } fsPath)
+        {
+            var fullPath = Path.GetFullPath(fsPath);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { fullPath };
+            var dir = Path.GetDirectoryName(fullPath);
+            for (var depth = 0; depth < 2 && !string.IsNullOrEmpty(dir); depth++, dir = Path.GetDirectoryName(dir))
+            {
+                foreach (var path in Directory.EnumerateFiles(dir, "*.psx"))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (!seen.Add(Path.GetFullPath(path))) continue;
+                    if (!IsPsxBankCandidate(Path.GetFileNameWithoutExtension(path), charStem)) continue;
+
+                    var bankSource = new FileSystemAssetSource(path);
+                    var remap = CreatePsxBoneRemap(bankSource, skinSource, boneCount);
+                    results.AddRange(PsxAnimationBank.CreateProbes(bankSource, boneCount, boneRemap: remap));
+                }
+            }
+
+            return;
+        }
+
+        if (skinSource is not ArchiveAssetSource archiveSource)
+            return;
+
+        foreach (var entry in archiveSource.Backend.Entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!IsPsxAnimationBankFileName(entry.Name)) continue;
+            if (entry.Name.Equals(archiveSource.EntryName, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!IsPsxBankCandidate(Path.GetFileNameWithoutExtension(entry.Name), charStem)) continue;
+
+            var bankSource = new ArchiveAssetSource(archiveSource.Backend, entry);
+            var remap = CreatePsxBoneRemap(bankSource, skinSource, boneCount);
+            results.AddRange(PsxAnimationBank.CreateProbes(bankSource, boneCount, boneRemap: remap));
+        }
+    }
+
+    /// <summary>
+    ///     Sibling banks worth probing for a character: anything anim-named plus
+    ///     the character's companion-library stems. Banks without an anim table
+    ///     yield zero probes, so a broad-ish filter only costs parse time.
+    /// </summary>
+    private static bool IsPsxBankCandidate(string bankStem, string charStem)
+    {
+        if (bankStem.Contains("anim", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return PsxTextureProviderFactory.GetCompanionLibraryStems(charStem)
+            .Any(candidate => candidate.Equals(bankStem, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void AddFromDirectory(

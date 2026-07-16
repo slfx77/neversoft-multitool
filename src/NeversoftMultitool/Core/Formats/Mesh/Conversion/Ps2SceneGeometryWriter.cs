@@ -46,6 +46,17 @@ internal static class Ps2SceneGeometryWriter
             document.Skeletons.Add(BuildPs2Skeleton(skeleton));
         }
 
+        // THPS4 (mesh version 4) strips carry no reliable winding: the ADC
+        // stream mixes CW/CCW sub-strips (~half the triangles disagree with the
+        // authored float32 normals — anl_cockatoo 192/400, Anl_Pigeon 13/29),
+        // which culling/lit viewers show as missing faces ("incomplete") and
+        // inverted shading. The stored normals are coherently outward
+        // (normal-oriented signed volume is positive on the closed bodies), so
+        // orient each emitted triangle to agree with them. THUG/THUG2
+        // (mesh version 6) keep the raw strip order so their output is
+        // byte-identical to previous releases.
+        var orientToStoredNormals = scene.MeshVersion <= 4;
+
         var dedupByMaterial = new Dictionary<uint, HashSet<(Vector3, Vector3, Vector3)>>();
         // When the scene is skinned, fold every primitive into a single combined mesh
         // so the glTF exporter emits one skin shared across the whole character —
@@ -85,7 +96,8 @@ internal static class Ps2SceneGeometryWriter
                     dedup,
                     preserveVertexAlpha,
                     false,
-                    skeletonIndex);
+                    skeletonIndex,
+                    orientToStoredNormals);
                 if (skinnedMesh == null)
                     ModelDocumentGeometryAdapter.AddMeshNode(document, groupName, mesh);
             }
@@ -141,7 +153,8 @@ internal static class Ps2SceneGeometryWriter
         HashSet<(Vector3, Vector3, Vector3)>? dedup,
         bool preserveVertexAlpha,
         bool bakeVertexColorsToWhite,
-        int? skeletonIndex = null)
+        int? skeletonIndex = null,
+        bool orientToStoredNormals = false)
     {
         var vertices = new List<ModelVertex>();
         var indices = new List<int>();
@@ -206,6 +219,25 @@ internal static class Ps2SceneGeometryWriter
             faceNormal = faceNormal.LengthSquared() > 1e-12f
                 ? Vector3.Normalize(faceNormal)
                 : Vector3.Zero;
+
+            // THPS4 strips have no reliable winding — orient each triangle so
+            // its geometric normal agrees with the authored vertex normals
+            // (see the mesh-version gate in PopulatePs2Scene).
+            if (orientToStoredNormals &&
+                sourceVertices[aIdx].HasNormal &&
+                sourceVertices[bIdx].HasNormal &&
+                sourceVertices[cIdx].HasNormal)
+            {
+                var storedNormalSum = sourceVertices[aIdx].Normal
+                                      + sourceVertices[bIdx].Normal
+                                      + sourceVertices[cIdx].Normal;
+                if (Vector3.Dot(faceNormal, storedNormalSum) < 0f)
+                {
+                    (aIdx, bIdx) = (bIdx, aIdx);
+                    faceNormal = -faceNormal;
+                }
+            }
+
             triangles.Add((aIdx, bIdx, cIdx, faceNormal));
         }
 

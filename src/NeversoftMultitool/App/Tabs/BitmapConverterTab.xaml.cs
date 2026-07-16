@@ -301,6 +301,10 @@ public sealed partial class BitmapConverterTab : UserControl, IDisposable
 
         var cts = new CancellationTokenSource();
         _previewCts = cts;
+        // Snapshot the token before any await: tab teardown disposes _previewCts
+        // (this same object) mid-flight, and the CancellationTokenSource.Token
+        // GETTER throws ObjectDisposedException — the token struct stays safe.
+        var token = cts.Token;
 
         BitmapPreview.SetLoading(true);
         PreviewInfoText.Text = "";
@@ -309,29 +313,36 @@ public sealed partial class BitmapConverterTab : UserControl, IDisposable
         var fileName = entry.FileName;
         var width = entry.EffectiveWidth;
 
-        var result = await Task.Run(
-            () => BitmapFile.Convert(source.ReadBytes(), fileName, width),
-            cts.Token);
-
-        if (cts.Token.IsCancellationRequested) return;
-
-        if (result.Success)
+        try
         {
-            var bitmap = result.RgbaPixels is { Length: > 0 }
-                ? BitmapHelper.CreateFromRgba(result.Width, result.Height, result.RgbaPixels)
-                : BitmapHelper.CreateFromRgb(result.Width, result.Height, result.RgbPixels);
-            BitmapPreview.SetSource(bitmap);
-            if (BitmapFile.HasSelfDescribedDimensions(fileName))
-                PreviewInfoText.Text = "Dimensions from file header";
+            var result = await Task.Run(
+                () => BitmapFile.Convert(source.ReadBytes(), fileName, width),
+                token);
+
+            if (token.IsCancellationRequested) return;
+
+            if (result.Success)
+            {
+                var bitmap = result.RgbaPixels is { Length: > 0 }
+                    ? BitmapHelper.CreateFromRgba(result.Width, result.Height, result.RgbaPixels)
+                    : BitmapHelper.CreateFromRgb(result.Width, result.Height, result.RgbPixels);
+                BitmapPreview.SetSource(bitmap);
+                if (BitmapFile.HasSelfDescribedDimensions(fileName))
+                    PreviewInfoText.Text = "Dimensions from file header";
+                else
+                    PreviewInfoText.Text = entry.WidthOverride.HasValue
+                        ? "Manual width override"
+                        : "Width auto-detected";
+            }
             else
-                PreviewInfoText.Text = entry.WidthOverride.HasValue
-                    ? "Manual width override"
-                    : "Width auto-detected";
+            {
+                BitmapPreview.Clear();
+                PreviewInfoText.Text = result.ErrorMessage ?? "Failed to decode";
+            }
         }
-        else
+        catch (OperationCanceledException)
         {
-            BitmapPreview.Clear();
-            PreviewInfoText.Text = result.ErrorMessage ?? "Failed to decode";
+            // Superseded by a newer selection or torn down mid-decode.
         }
     }
 
@@ -354,11 +365,12 @@ public sealed partial class BitmapConverterTab : UserControl, IDisposable
 
         var cts = new CancellationTokenSource();
         _debounceCts = cts;
+        var token = cts.Token;
 
         try
         {
-            await Task.Delay(300, cts.Token);
-            if (!cts.Token.IsCancellationRequested)
+            await Task.Delay(300, token);
+            if (!token.IsCancellationRequested)
                 await LoadBitmapPreview(entry);
         }
         catch (TaskCanceledException)

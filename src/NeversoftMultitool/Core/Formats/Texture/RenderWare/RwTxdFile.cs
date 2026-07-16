@@ -120,7 +120,10 @@ public static class RwTxdFile
         var height = BitConverter.ToInt32(data, hdr + 4);
         var depth = BitConverter.ToInt32(data, hdr + 8);
         var rasterFormat = BitConverter.ToUInt16(data, hdr + 12);
-        // version at hdr+14, tex0 at hdr+16, paletteOffset at hdr+24, tex1low at hdr+28
+        // version=1 marks PSMT8 pixel data swizzled into PSMCT32 block layout
+        // (THPS3 MODEL TXDs; level TXDs ship version=0 linear)
+        var rasterVersion = BitConverter.ToUInt16(data, hdr + 14);
+        // tex0 at hdr+16, paletteOffset at hdr+24, tex1low at hdr+28
         // miptbp1 at hdr+32, miptbp2 at hdr+40
         var pixelSize = BitConverter.ToInt32(data, hdr + 48);
         var paletteSize = BitConverter.ToInt32(data, hdr + 52);
@@ -152,7 +155,7 @@ public static class RwTxdFile
 
         // Decode to RGBA
         var pixelData = data.AsSpan(pixelDataOffset, actualPixelSize);
-        var pixels = DecodeRaster(pixelData, width, height, depth, rasterFormat, paletteData);
+        var pixels = DecodeRaster(pixelData, width, height, depth, rasterFormat, paletteData, rasterVersion);
         if (pixels == null)
             return null;
 
@@ -172,7 +175,7 @@ public static class RwTxdFile
     }
 
     private static byte[]? DecodeRaster(ReadOnlySpan<byte> pixelData, int width, int height,
-        int depth, int rasterFormat, byte[]? paletteData)
+        int depth, int rasterFormat, byte[]? paletteData, ushort rasterVersion = 0)
     {
         var pixels = new byte[width * height * 4];
         var isPal4 = (rasterFormat & FMT_PAL4) != 0;
@@ -191,7 +194,19 @@ public static class RwTxdFile
             // PSMT8 256-entry CLUTs are stored in CSM1 order — un-swizzle after
             // any 16-bit→32-bit expansion so we always operate on 4-byte entries
             SwizzleCsm1(paletteData);
-            DecodePsmt8(pixelData, pixels, width, height, paletteData);
+
+            // Raster version 1 (THPS3 model TXDs, 115 textures across ~93 files)
+            // stores the 8-bit indices swizzled into PSMCT32 block layout —
+            // reading them linear scrambles the atlas (e.g. ped_Bum_A).
+            if (rasterVersion == 1)
+            {
+                var linear = Unswizzle8(pixelData, width, height);
+                DecodePsmt8(linear, pixels, width, height, paletteData);
+            }
+            else
+            {
+                DecodePsmt8(pixelData, pixels, width, height, paletteData);
+            }
         }
         else if (depth == 32)
         {
@@ -211,6 +226,32 @@ public static class RwTxdFile
     }
 
     // ── Pixel decode methods (self-contained, matching PS2 GS formats) ──
+
+    /// <summary>
+    ///     Standard PS2 GS un-swizzle for 8-bit indices stored in PSMCT32 block
+    ///     layout (the classic block/column/byte formula used by every PS2
+    ///     texture tool). Applies to RW raster version 1.
+    /// </summary>
+    private static byte[] Unswizzle8(ReadOnlySpan<byte> src, int width, int height)
+    {
+        var dst = new byte[width * height];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var block = (y & ~0xF) * width + (x & ~0xF) * 2;
+                var swap = (((y + 2) >> 2) & 1) * 4;
+                var ypos = (((y & ~3) >> 1) + (y & 1)) & 7;
+                var column = ypos * width * 2 + ((x + swap) & 7) * 4;
+                var byteNum = ((y >> 1) & 1) + ((x >> 2) & 2);
+                var idx = block + column + byteNum;
+                if (idx < src.Length)
+                    dst[y * width + x] = src[idx];
+            }
+        }
+
+        return dst;
+    }
 
     private static void DecodePsmct32(ReadOnlySpan<byte> src, byte[] dst, int width, int height)
     {

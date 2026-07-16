@@ -23,6 +23,8 @@ public class PsxFileEntry : BaseFileEntry, IListEntry
             _textureCount = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(TextureCountDisplay));
+            OnPropertyChanged(nameof(ChevronGlyph));
+            OnPropertyChanged(nameof(ExpanderVisibility));
         }
     }
 
@@ -60,17 +62,23 @@ public class PsxFileEntry : BaseFileEntry, IListEntry
         }
     }
 
-    public string ChevronGlyph => _hasTextures switch
-    {
-        false => "",
-        true => _isExpanded ? "\uE70D" : "\uE76C"
-    };
+    /// <summary>
+    ///     Single-texture files (every .img variant, some one-entry dictionaries)
+    ///     render as flat rows \u2014 selecting the row previews the texture directly,
+    ///     so a chevron would only add a dead click target. Count 0 means "not
+    ///     yet enumerated" and keeps the chevron until the count arrives.
+    /// </summary>
+    public bool IsExpandable => _hasTextures && _textureCount != 1;
+
+    public string ChevronGlyph => IsExpandable
+        ? _isExpanded ? "\uE70D" : "\uE76C"
+        : "";
 
     /// <summary>
-    ///     Files with no textures hide the expander button entirely instead of
-    ///     rendering a dead blank glyph in the chevron column.
+    ///     Files with no textures (or exactly one) hide the expander button
+    ///     entirely instead of rendering a dead blank glyph in the chevron column.
     /// </summary>
-    public Visibility ExpanderVisibility => _hasTextures ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ExpanderVisibility => IsExpandable ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>Directory portion of the relative path, for the Folder column.</summary>
     public string FolderDisplay =>

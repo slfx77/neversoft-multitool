@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text;
 using NeversoftMultitool.Core.BinaryIO;
 
@@ -32,10 +33,34 @@ public static class CompressedPreArchive
         return version is VersionV2 or VersionV3;
     }
 
+    /// <summary>
+    ///     In-memory variant for entries nested inside another archive.
+    /// </summary>
+    public static bool IsCompressedPre(ReadOnlySpan<byte> data)
+    {
+        if (data.Length < HeaderSize) return false;
+        var version = BinaryPrimitives.ReadUInt32LittleEndian(data[4..]);
+        return version is VersionV2 or VersionV3;
+    }
+
     public static List<ArchiveEntry> GetFileList(string prePath)
     {
         using var stream = File.OpenRead(prePath);
-        using var reader = new BinaryReader(stream);
+        return GetFileList(stream);
+    }
+
+    /// <summary>
+    ///     In-memory variant for PRE archives nested inside another archive.
+    /// </summary>
+    public static List<ArchiveEntry> GetFileList(byte[] data)
+    {
+        using var stream = new MemoryStream(data, false);
+        return GetFileList(stream);
+    }
+
+    private static List<ArchiveEntry> GetFileList(Stream stream)
+    {
+        using var reader = new BinaryReader(stream, Encoding.ASCII, leaveOpen: true);
 
         _ = reader.ReadInt32(); // totalFileSize (not needed for parsing)
         var version = reader.ReadUInt32();

@@ -11,15 +11,6 @@ namespace NeversoftMultitool.Core;
 /// </summary>
 public static class RecursiveUnpacker
 {
-    // .img is gated on a same-stem .ccd sibling inside DiscImageArchive
-    // because bare .img files are PS2 IOP modules / GC textures rather than
-    // disc images. Bare .bin track files are reached through their .cue.
-    private static readonly string[] ArchiveExtensions =
-    [
-        ".wad", ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".ddx", ".bon", ".pak", ".apk", ".zip", ".cut",
-        ".iso", ".cue", ".gdi", ".img"
-    ];
-
     /// <summary>
     ///     Scans a directory tree for all archive files, returning them with already-extracted status.
     /// </summary>
@@ -136,25 +127,7 @@ public static class RecursiveUnpacker
     /// </summary>
     public static string ClassifyArchive(string filePath)
     {
-        var ext = GetArchiveExtension(filePath);
-        return ext switch
-        {
-            ".wad" => "WAD",
-            ".pre" => CompressedPreArchive.IsCompressedPre(filePath) ? "PRE3" : "PRE",
-            ".prx" => "PRE3",
-            ".prd" or ".prg" => CompressedPreArchive.IsCompressedPre(filePath) ? "PRE3 (German)" : "PRE (German)",
-            ".prf" => CompressedPreArchive.IsCompressedPre(filePath) ? "PRE3 (French)" : "PRE (French)",
-            ".pkr" => "PKR",
-            ".ddx" => "DDX",
-            ".bon" => "BON",
-            ".pak" => PakArchive.IsPakArchive(filePath) ? "PAK" : "PAK (raw)",
-            ".apk" => PakArchive.IsPakArchive(filePath) ? "PAK (GC)" : "PAK (raw)",
-            ".zip" => QZipArchive.IsZip(filePath) ? "ZIP" : "ZIP (raw)",
-            ".cut" => CutArchive.IsCut(filePath) ? "CUT" : "CUT (raw)",
-            ".iso" or ".cue" or ".gdi" or ".img" =>
-                DiscImageArchive.IsDiscImage(filePath) ? "DISC" : "DISC (raw)",
-            _ => "?"
-        };
+        return ArchiveTypeDetector.Classify(filePath);
     }
 
     /// <summary>
@@ -162,8 +135,7 @@ public static class RecursiveUnpacker
     /// </summary>
     public static bool IsArchiveFile(string filePath)
     {
-        var ext = GetArchiveExtension(filePath);
-        return ArchiveExtensions.Contains(ext);
+        return ArchiveTypeDetector.IsArchiveFile(filePath);
     }
 
     /// <summary>
@@ -171,18 +143,7 @@ public static class RecursiveUnpacker
     /// </summary>
     public static string GetArchiveExtension(string filePath)
     {
-        var name = Path.GetFileName(filePath).ToLowerInvariant();
-
-        // Check for double extensions (e.g. .pak.ps2, .pak.xen)
-        foreach (var archiveExt in ArchiveExtensions)
-        {
-            var pattern = archiveExt + ".";
-            var idx = name.IndexOf(pattern, StringComparison.Ordinal);
-            if (idx >= 0 && idx > 0)
-                return archiveExt;
-        }
-
-        return Path.GetExtension(filePath).ToLowerInvariant();
+        return ArchiveTypeDetector.GetArchiveExtension(filePath);
     }
 
     /// <summary>

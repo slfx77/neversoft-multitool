@@ -1,89 +1,70 @@
-using System.IO.Compression;
-using NeversoftMultitool.Core.BinaryIO;
+using NeversoftMultitool.Core.Formats.ArchiveFs;
 using NeversoftMultitool.Core.Formats.Archives;
 
 namespace NeversoftMultitool.Core.Formats;
 
 /// <summary>
 ///     Shared access to an archive's entry table plus per-entry byte reads.
-///     One instance per archive path; created once by a tab's scanner and
-///     referenced by every <see cref="ArchiveAssetSource" /> it produces, so the
-///     archive file is memory-mapped once and entries are decompressed on
-///     demand.
+///     One instance per archive (or nested archive); created once by a tab's
+///     scanner and referenced by every <see cref="ArchiveAssetSource" /> it
+///     produces. A thin compatibility shim over <see cref="IArchiveFileSystem" />
+///     — reads are handle-based and thread-safe, with no whole-file buffering,
+///     so archives beyond 2 GB open fine.
 /// </summary>
 public sealed class ArchiveAssetBackend
 {
-    private readonly byte[] _archiveBytes;
-    private readonly Dictionary<string, ArchiveEntry> _entriesByBasename;
+    // The historical tab-enumerable set. DDX/BON/ZIP/CUT open via
+    // ArchiveFileSystem directly when a consumer opts in.
+    private static readonly ArchiveAssetType[] LegacyEnumerableTypes =
+    [
+        ArchiveAssetType.Wad, ArchiveAssetType.Pre, ArchiveAssetType.CompressedPre,
+        ArchiveAssetType.Pkr, ArchiveAssetType.Pak
+    ];
 
-    public ArchiveAssetBackend(string archivePath, ArchiveAssetType type, IReadOnlyList<ArchiveEntry> entries)
+    private ArchiveAssetBackend(IArchiveFileSystem fileSystem)
     {
-        ArchivePath = archivePath;
-        Type = type;
-        Entries = entries;
-        _archiveBytes = File.ReadAllBytes(archivePath);
-        _entriesByBasename = BuildBasenameIndex(entries);
+        FileSystem = fileSystem;
     }
 
-    public string ArchivePath { get; }
-    public ArchiveAssetType Type { get; }
-    public IReadOnlyList<ArchiveEntry> Entries { get; }
+    /// <summary>The underlying filesystem, for consumers that need nested opens or path lookups.</summary>
+    public IArchiveFileSystem FileSystem { get; }
+
+    /// <summary>Real disk path of the outermost container file.</summary>
+    public string ArchivePath => FileSystem.ContainerPath;
+
+    /// <summary>"SKATE3.WAD" for roots, "SKATE3.WAD::pre/Ap.pre" for nested archives.</summary>
+    public string DisplayPath => FileSystem.DisplayPath;
+
+    public ArchiveAssetType Type => FileSystem.Type;
+    public IReadOnlyList<ArchiveEntry> Entries => FileSystem.Entries;
 
     /// <summary>
     ///     Probes <paramref name="path" /> and returns a backend if it's a supported
     ///     archive, or null otherwise. PAK archives that look like THAW worldzones
-    ///     are NOT returned here — they go through the dedicated worldzone
-    ///     pipeline instead of per-entry enumeration.
+    ///     are filtered by the callers' scan gates — they go through the dedicated
+    ///     worldzone pipeline instead of per-entry enumeration.
     /// </summary>
     public static ArchiveAssetBackend? TryOpen(string path)
     {
-        if (!File.Exists(path)) return null;
+        var fs = ArchiveFileSystem.TryOpen(path);
+        if (fs == null)
+            return null;
 
-        var type = DetectType(path);
-        if (type == null) return null;
-
-        var entries = type switch
+        if (!LegacyEnumerableTypes.Contains(fs.Type))
         {
-            ArchiveAssetType.Wad => WadArchive.GetFileList(path),
-            ArchiveAssetType.Pre => PreArchive.GetFileList(path),
-            ArchiveAssetType.CompressedPre => CompressedPreArchive.GetFileList(path),
-            ArchiveAssetType.Pkr => PkrArchive.GetFileList(path),
-            ArchiveAssetType.Pak => PakArchive.GetFileList(path),
-            _ => throw new InvalidOperationException()
-        };
+            fs.Dispose();
+            return null;
+        }
 
-        return new ArchiveAssetBackend(path, type.Value, entries);
+        return new ArchiveAssetBackend(fs);
     }
 
     /// <summary>
-    ///     Decompressed/raw bytes of one entry from the archive.
+    ///     Decompressed/raw bytes of one entry from the archive. Thread-safe.
     /// </summary>
     public byte[] ReadEntryBytes(ArchiveEntry entry)
     {
-        var offset = (int)entry.Offset;
-
-        if (entry.IsCompressed && Type == ArchiveAssetType.CompressedPre)
-        {
-            var compressedSize = (int)entry.CompressedSize;
-            var compressed = new byte[compressedSize];
-            Array.Copy(_archiveBytes, offset, compressed, 0, compressedSize);
-            return LzssDecoder.Decode(compressed, (int)entry.Size);
-        }
-
-        if (entry.IsCompressed && Type == ArchiveAssetType.Pkr)
-        {
-            var compressedSize = (int)entry.CompressedSize;
-            using var input = new MemoryStream(_archiveBytes, offset, compressedSize);
-            using var zlib = new ZLibStream(input, CompressionMode.Decompress);
-            var output = new byte[entry.Size];
-            zlib.ReadExactly(output);
-            return output;
-        }
-
-        var size = (int)entry.Size;
-        var raw = new byte[size];
-        Array.Copy(_archiveBytes, offset, raw, 0, size);
-        return raw;
+        return FileSystem.ReadEntry(entry);
     }
 
     /// <summary>
@@ -92,46 +73,28 @@ public sealed class ArchiveAssetBackend
     /// </summary>
     public ArchiveEntry? FindEntry(string basename)
     {
-        return _entriesByBasename.TryGetValue(basename, out var entry) ? entry : null;
+        return FileSystem.FindByName(basename);
     }
 
-    private static Dictionary<string, ArchiveEntry> BuildBasenameIndex(IReadOnlyList<ArchiveEntry> entries)
+    /// <summary>Full relative-path lookup; case-insensitive; '\' and '/' both accepted.</summary>
+    public ArchiveEntry? FindByPath(string relativePath)
     {
-        var index = new Dictionary<string, ArchiveEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in entries)
-        {
-            // If two entries share a basename (rare but possible with PAK directory prefixes),
-            // the first one wins; consumers can still iterate Entries directly if needed.
-            index.TryAdd(entry.Name, entry);
-        }
-
-        return index;
+        return FileSystem.FindByPath(relativePath);
     }
 
-    private static ArchiveAssetType? DetectType(string path)
+    /// <summary>All entries sharing a basename — lets locators disambiguate by directory.</summary>
+    public IReadOnlyList<ArchiveEntry> FindAllByName(string basename)
     {
-        var lower = path.ToLowerInvariant();
+        return FileSystem.FindAllByName(basename);
+    }
 
-        if (lower.EndsWith(".pak") || lower.EndsWith(".pak.ps2"))
-            return PakArchive.IsPakArchive(path) ? ArchiveAssetType.Pak : null;
-
-        if (lower.EndsWith(".pkr"))
-            return ArchiveAssetType.Pkr;
-
-        if (lower.EndsWith(".prx"))
-            return ArchiveAssetType.CompressedPre;
-
-        if (lower.EndsWith(".pre"))
-            return CompressedPreArchive.IsCompressedPre(path)
-                ? ArchiveAssetType.CompressedPre
-                : ArchiveAssetType.Pre;
-
-        if (lower.EndsWith(".wad"))
-        {
-            // WAD needs a sibling .HED — without it, the listing is unreadable.
-            return File.Exists(WadArchive.GetHedPath(path)) ? ArchiveAssetType.Wad : null;
-        }
-
-        return null;
+    /// <summary>
+    ///     Opens a nested archive entry (.pre/.prx/.pkr/.pak inside a WAD/PRE) as a
+    ///     child backend, or null when the entry is not a parseable nested archive.
+    /// </summary>
+    public ArchiveAssetBackend? TryOpenNested(ArchiveEntry entry)
+    {
+        var child = FileSystem.TryOpenNested(entry);
+        return child == null ? null : new ArchiveAssetBackend(child);
     }
 }

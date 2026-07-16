@@ -32,7 +32,7 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
             ]
         };
 
-        ModelDocumentGeometryAdapter.PopulatePs2Geom(document, scene, textureProvider: null, tex0Resolver: null);
+        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, textureProvider: null, tex0Resolver: null);
 
         var material = Assert.Single(document.Materials);
         Assert.Equal(ModelAlphaMode.Blend, material.AlphaMode);
@@ -59,7 +59,7 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
             ]
         };
 
-        ModelDocumentGeometryAdapter.PopulatePs2Geom(document, scene, textureProvider: null, tex0Resolver: null);
+        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, textureProvider: null, tex0Resolver: null);
 
         var material = Assert.Single(document.Materials);
         Assert.Equal(ModelAlphaMode.Blend, material.AlphaMode);
@@ -86,7 +86,7 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
             ]
         };
 
-        ModelDocumentGeometryAdapter.PopulatePs2Geom(document, scene, OpaqueTextureProvider, tex0Resolver: null);
+        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, OpaqueTextureProvider, tex0Resolver: null);
 
         var material = Assert.Single(document.Materials);
         Assert.Equal(ModelAlphaMode.Opaque, material.AlphaMode);
@@ -111,11 +111,12 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
             ]
         };
 
-        ModelDocumentGeometryAdapter.PopulatePs2Geom(document, scene, OpaqueTextureProvider, tex0Resolver: null);
+        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, OpaqueTextureProvider, tex0Resolver: null);
 
         var material = Assert.Single(document.Materials);
         Assert.Equal(ModelAlphaMode.Mask, material.AlphaMode);
-        Assert.Equal(1f / 255f, material.AlphaCutoff, 4);
+        // AREF/128: cutoffs live in the exported-PNG alpha domain (×255/128).
+        Assert.Equal(1f / 128f, material.AlphaCutoff, 4);
     }
 
     [Fact]
@@ -136,7 +137,7 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
             ]
         };
 
-        ModelDocumentGeometryAdapter.PopulatePs2Geom(document, scene, OpaqueTextureProvider, tex0Resolver: null);
+        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, OpaqueTextureProvider, tex0Resolver: null);
 
         var material = Assert.Single(document.Materials);
         Assert.Equal(ModelAlphaMode.Blend, material.AlphaMode);
@@ -179,7 +180,7 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
             ]
         };
 
-        ModelDocumentGeometryAdapter.PopulatePs2Scene(document, scene, textureProvider: null);
+        Ps2SceneGeometryWriter.PopulatePs2Scene(document, scene, textureProvider: null);
 
         var material = Assert.Single(document.Materials);
         Assert.Equal(ModelAlphaMode.Blend, material.AlphaMode);

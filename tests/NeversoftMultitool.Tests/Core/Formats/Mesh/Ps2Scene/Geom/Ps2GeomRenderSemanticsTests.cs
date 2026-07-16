@@ -58,8 +58,10 @@ public sealed class Ps2GeomRenderSemanticsTests
     [Fact]
     public void ComputeAlphaMaskCutoff_UsesExclusiveThresholdForGreaterThanAlphaTest()
     {
-        Assert.Equal(32 / 255f, Ps2GeomRenderSemantics.ComputeAlphaMaskCutoff(MakeTest(atst: 5, aref: 32)));
-        Assert.Equal(33 / 255f, Ps2GeomRenderSemantics.ComputeAlphaMaskCutoff(MakeTest(atst: 6, aref: 32)));
+        // Cutoffs live in the exported-PNG alpha domain (GS alpha ×255/128),
+        // so AREF scales by /128, not /255 (two-domain rule).
+        Assert.Equal(32 / 128f, Ps2GeomRenderSemantics.ComputeAlphaMaskCutoff(MakeTest(atst: 5, aref: 32)));
+        Assert.Equal(33 / 128f, Ps2GeomRenderSemantics.ComputeAlphaMaskCutoff(MakeTest(atst: 6, aref: 32)));
     }
 
     [Fact]

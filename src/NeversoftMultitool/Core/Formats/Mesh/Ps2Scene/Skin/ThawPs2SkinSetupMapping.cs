@@ -76,7 +76,9 @@ internal static class ThawPs2SkinSetupMapping
                     entries.Count);
                 var rawSectionAlphaRefs = BuildSectionAlphaRefMapping(data, rawDirectOffsets);
                 var entryAlphaRefs = BuildEntryAlphaRefOverrides(rawSectionAlphaRefs, setupEntryIndices, 0);
-                return new SetupMappingInfo(setupEntryIndices, null, entryAlphaRefs);
+                var preambleTextureOverrides = AugmentTextureOverridesWithTex0Fallback(
+                    data, companionTexData, entries, rawDirectOffsets, setupEntryIndices, null);
+                return new SetupMappingInfo(setupEntryIndices, preambleTextureOverrides, entryAlphaRefs);
             }
         }
 
@@ -86,13 +88,127 @@ internal static class ThawPs2SkinSetupMapping
             var setupEntryIndices =
                 BuildSetupEntryIndices(entries, setupStarts.Count, sectionTextures, setupSectionAlphaRefs);
             var entryTextureOverrides = BuildEntryTextureOverrides(sectionTextures, setupEntryIndices, 1);
+            entryTextureOverrides = AugmentTextureOverridesWithTex0Fallback(
+                data, companionTexData, entries,
+                BuildSlotDirectOffsets(setupStarts), setupEntryIndices, entryTextureOverrides);
             var entryAlphaRefs = BuildEntryAlphaRefOverrides(setupSectionAlphaRefs, setupEntryIndices, 1);
             return new SetupMappingInfo(setupEntryIndices, entryTextureOverrides, entryAlphaRefs);
         }
 
         var identitySetupEntryIndices = BuildIdentitySetupEntryIndices(setupStarts.Count + 1, entries.Count);
         var identityAlphaRefs = BuildEntryAlphaRefOverrides(setupSectionAlphaRefs, identitySetupEntryIndices, 1);
-        return new SetupMappingInfo(identitySetupEntryIndices, null, identityAlphaRefs);
+        var identityTextureOverrides = AugmentTextureOverridesWithTex0Fallback(
+            data, companionTexData, entries,
+            BuildSlotDirectOffsets(setupStarts), identitySetupEntryIndices, null);
+        return new SetupMappingInfo(identitySetupEntryIndices, identityTextureOverrides, identityAlphaRefs);
+    }
+
+    /// <summary>
+    ///     Setup-slot → DIRECT-block offset list for the branches whose slot 0 is
+    ///     the VIF preamble (which has no DIRECT block of its own): slot i+1 maps
+    ///     to setup boundary i (the 0x50/0x51 DIRECT VIF code offset).
+    /// </summary>
+    private static int[] BuildSlotDirectOffsets(IReadOnlyList<int> setupStarts)
+    {
+        var slots = new int[setupStarts.Count + 1];
+        slots[0] = -1;
+        for (var i = 0; i < setupStarts.Count; i++)
+            slots[i + 1] = setupStarts[i];
+        return slots;
+    }
+
+    /// <summary>
+    ///     Fallback texture join: when an entry-table TextureChecksum is absent
+    ///     from the companion .tex.ps2 (checksum mismatch, or a zeroed entry),
+    ///     resolve the texture from GS state instead — the TEX0 register in the
+    ///     setup's DIRECT block is what the engine binds before drawing, and the
+    ///     companion metadata records carry the same TBP/CBP values. The direct
+    ///     checksum join always wins: entries whose table checksum exists in the
+    ///     companion are never touched, so currently-working files cannot change.
+    /// </summary>
+    private static Dictionary<int, uint>? AugmentTextureOverridesWithTex0Fallback(
+        byte[] data,
+        byte[]? companionTexData,
+        IReadOnlyList<EntryRecord> entries,
+        IReadOnlyList<int> slotDirectOffsets,
+        int[] setupEntryIndices,
+        Dictionary<int, uint>? overrides)
+    {
+        if (companionTexData is null || entries.Count == 0)
+            return overrides;
+
+        Dictionary<(uint, uint), uint>? tbpCbpToChecksum = null;
+        HashSet<uint>? companionChecksums = null;
+        Dictionary<uint, uint>? tbpToChecksum = null;
+
+        var slotCount = Math.Min(setupEntryIndices.Length, slotDirectOffsets.Count);
+        for (var slot = 0; slot < slotCount; slot++)
+        {
+            var directOffset = slotDirectOffsets[slot];
+            if (directOffset < 0)
+                continue;
+
+            var entryIndex = setupEntryIndices[slot];
+            if ((uint)entryIndex >= (uint)entries.Count)
+                continue;
+
+            if (overrides != null && overrides.ContainsKey(entryIndex))
+                continue;
+
+            tbpCbpToChecksum ??= BuildTbpCbpMap(companionTexData);
+            if (tbpCbpToChecksum.Count == 0)
+                return overrides;
+
+            companionChecksums ??= [.. tbpCbpToChecksum.Values];
+            if (companionChecksums.Contains(entries[entryIndex].TextureChecksum))
+                continue;
+
+            var tex0 = ExtractTex0FromDirect(data, directOffset);
+            if (tex0 is null)
+                continue;
+
+            if (!tbpCbpToChecksum.TryGetValue(tex0.Value, out var rescued))
+            {
+                tbpToChecksum ??= BuildUnambiguousTbpMap(tbpCbpToChecksum);
+                if (!tbpToChecksum.TryGetValue(tex0.Value.Tbp, out rescued))
+                    continue;
+            }
+
+            overrides ??= [];
+            overrides[entryIndex] = rescued;
+        }
+
+        return overrides;
+    }
+
+    /// <summary>
+    ///     TBP-only fallback map for TEX0 joins whose CBP differs from the
+    ///     companion record (e.g. relocated CLUTs). TBPs reused by more than one
+    ///     distinct texture (VRAM reuse across frames) are ambiguous and dropped.
+    /// </summary>
+    private static Dictionary<uint, uint> BuildUnambiguousTbpMap(
+        Dictionary<(uint Tbp, uint Cbp), uint> tbpCbpToChecksum)
+    {
+        var map = new Dictionary<uint, uint>();
+        var ambiguous = new HashSet<uint>();
+        foreach (var ((tbp, _), checksum) in tbpCbpToChecksum)
+        {
+            if (ambiguous.Contains(tbp))
+                continue;
+            if (map.TryGetValue(tbp, out var existing))
+            {
+                if (existing != checksum)
+                {
+                    map.Remove(tbp);
+                    ambiguous.Add(tbp);
+                }
+                continue;
+            }
+
+            map[tbp] = checksum;
+        }
+
+        return map;
     }
 
     internal static byte[]? TryLoadCompanionTexData(string filePath)

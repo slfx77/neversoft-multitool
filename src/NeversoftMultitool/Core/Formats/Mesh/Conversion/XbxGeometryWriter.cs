@@ -96,22 +96,27 @@ internal static class XbxGeometryWriter
             }
         }
 
+        // Pass-0 blend mode — not the texture's alpha histogram — decides
+        // framebuffer blending: the engine alpha-BLENDS hair/overlay cards
+        // (vBLEND_MODE_ADD..BLEND_FIXED = 1..6, DrawOrder-sorted, with
+        // AlphaCutoff usually 1 just to kill a==0 texels). Classifying those
+        // bimodal textures as MASK@cutoff-1/255 rendered every fringe texel
+        // fully opaque WITH depth-write → hair-card z-fighting (billyjoe,
+        // boone). Sorted alone never forces BLEND.
         var firstBlendMode = material.Passes.Length > 0 ? material.Passes[0].BlendMode : 0;
-        if (textureAlphaMode == "BLEND" && (firstBlendMode != 0 || material.Sorted))
+        var framebufferBlends = firstBlendMode is >= 1 and <= 6;
+        if (framebufferBlends && textureAlphaMode != "OPAQUE")
         {
             renderMaterial.AlphaMode = ModelAlphaMode.Blend;
         }
         else if (textureAlphaMode == "MASK" ||
                  (material.AlphaCutoff >= 1 && textureAlphaMode != "OPAQUE"))
         {
+            // Opaque framebuffer write + D3D alpha test (ALPHAREF 0-255, GEQUAL).
             renderMaterial.AlphaMode = ModelAlphaMode.Mask;
             renderMaterial.AlphaCutoff = material.AlphaCutoff >= 1
                 ? material.AlphaCutoff / 255f
                 : 0.5f;
-        }
-        else if (textureAlphaMode == "BLEND")
-        {
-            renderMaterial.AlphaMode = ModelAlphaMode.Blend;
         }
     }
 

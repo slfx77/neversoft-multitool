@@ -27,7 +27,7 @@ public sealed class ArchiveAssetSource : AssetSource
     /// <summary>The specific entry this source represents within the archive.</summary>
     public ArchiveEntry Entry { get; }
 
-    public override string DisplayName => $"{Path.GetFileName(Backend.ArchivePath)}::{Entry.Name}";
+    public override string DisplayName => $"{Backend.DisplayPath}::{Entry.Name}";
     public override string EntryName => Entry.Name;
 
     public override byte[] ReadBytes()

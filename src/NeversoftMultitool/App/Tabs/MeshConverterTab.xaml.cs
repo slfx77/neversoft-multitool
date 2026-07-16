@@ -1,18 +1,24 @@
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
-using NeversoftMultitool.Core.Rendering;
 
 namespace NeversoftMultitool;
 
+/// <summary>
+///     Merged mesh + character tab: one file list (with batch checkboxes), one
+///     3D viewer, and a tabbed right panel (Animations / Settings / Export).
+///     Selecting a skinned character resolves its skeleton and populates the
+///     Animations pane; everything else previews statically.
+/// </summary>
 public sealed partial class MeshConverterTab : UserControl, IDisposable
 {
+    private readonly MeshConverterTabAnimationExporter _animExporter;
+    private readonly MeshConverterTabAnimationPanel _animPanel;
+    private readonly MeshConverterTabBatchRunner _batchRunner;
     private readonly ObservableCollection<MeshFileEntry> _items = [];
-    private CancellationTokenSource? _cts;
     private string _inputDir = "";
     private string _outputDir = "";
     private bool _outputManuallySet;
@@ -23,21 +29,42 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     {
         InitializeComponent();
         FilesListView.ItemsSource = _items;
+
+        _animPanel = new MeshConverterTabAnimationPanel(
+            AnimDiscoveryStatusText,
+            AddAnimFolderButton,
+            AddAnimArchiveButton,
+            ConvertGlbButton,
+            ConvertBlendButton,
+            ShowAllAnimsCheckBox);
+        AnimationListView.ItemsSource = _animPanel.Animations;
+
+        _animExporter = new MeshConverterTabAnimationExporter(ConversionProgress, CancelButton);
+        _batchRunner = new MeshConverterTabBatchRunner(
+            ConversionProgress, ConvertButton, CancelButton, DispatcherQueue);
+
         ModelViewer.ModelLoaded += ModelViewer_ModelLoaded;
         Unloaded += MeshConverterTab_Unloaded;
+
+        // Selected here rather than in XAML so SelectionChanged can't fire
+        // mid-InitializeComponent against not-yet-created elements.
+        PanelSelector.SelectedItem = ExportPanelItem;
     }
 
     public void Dispose()
     {
         Unloaded -= MeshConverterTab_Unloaded;
         ModelViewer.ModelLoaded -= ModelViewer_ModelLoaded;
-        _cts?.Dispose();
-        _cts = null;
         _scanCts?.Dispose();
         _scanCts = null;
         _preview?.Dispose();
         _preview = null;
+        _animPanel.Dispose();
+        _animExporter.Dispose();
+        _batchRunner.Dispose();
     }
+
+    // ─── Scanning ─────────────────────────────────────────────────────────
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
     {
@@ -74,8 +101,11 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         {
             MainWindow.Instance?.SetStatus($"Scanning {Path.GetFileName(path)}...");
 
+            var progress = new Progress<int>(count =>
+                MainWindow.Instance?.SetStatus($"Scanning {Path.GetFileName(path)}: {count} entries probed..."));
+
             var entries = await Task.Run(
-                () => MeshConverterTabFileScanner.ScanArchive(path, token),
+                () => MeshConverterTabFileScanner.ScanArchive(path, progress, token),
                 token);
 
             token.ThrowIfCancellationRequested();
@@ -117,7 +147,6 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         var cts = new CancellationTokenSource();
         _scanCts = cts;
         var token = cts.Token;
-        var dispatcher = DispatcherQueue;
 
         MainWindow.Instance?.SetStatus("Scanning directory...");
 
@@ -188,6 +217,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         existing.Dispose();
     }
 
+    // ─── I/O + shared UI state ────────────────────────────────────────────
+
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
     {
         var path = await FolderPickerHelper.PickFolderAsync();
@@ -212,12 +243,14 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     private void UpdateUiState()
     {
         var hasFiles = _items.Count > 0;
+        var hasChecked = _items.Any(i => i.IsChecked);
         var hasOutput = !string.IsNullOrEmpty(_outputDir);
         var hasFormat = ExportGlbCheckbox.IsChecked == true || ExportBlendCheckbox.IsChecked == true;
 
         EmptyStatePanel.Visibility = hasFiles ? Visibility.Collapsed : Visibility.Visible;
         FileListCard.Visibility = hasFiles ? Visibility.Visible : Visibility.Collapsed;
-        ConvertButton.IsEnabled = hasFiles && hasOutput && hasFormat;
+        ConvertButton.IsEnabled = hasChecked && hasOutput && hasFormat;
+        UpdateRenderButtons();
     }
 
     private void ExportFormatCheckbox_Changed(object sender, RoutedEventArgs e)
@@ -227,9 +260,172 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         UpdateUiState();
     }
 
+    private void FileCheckbox_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateUiState();
+    }
+
+    private void FilesSelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var item in _items)
+            item.IsChecked = true;
+        UpdateUiState();
+    }
+
+    private void FilesSelectNone_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var item in _items)
+            item.IsChecked = false;
+        UpdateUiState();
+    }
+
+    // ─── Right panel pane switching ───────────────────────────────────────
+
+    private void PanelSelector_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+    {
+        if (AnimationsPane == null || SettingsPane == null || ExportPane == null) return;
+
+        var selected = PanelSelector.SelectedItem;
+        AnimationsPane.Visibility = ReferenceEquals(selected, AnimationsPanelItem)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        SettingsPane.Visibility = ReferenceEquals(selected, SettingsPanelItem)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        ExportPane.Visibility = ReferenceEquals(selected, ExportPanelItem)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    // ─── Selection reconciliation ─────────────────────────────────────────
+
+    private async void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        RenderPngButton.IsEnabled = false;
+        RenderGifButton.IsEnabled = false;
+
+        if (FilesListView.SelectedItem is not MeshFileEntry entry)
+        {
+            _animPanel.Reset("Select a skinned character to scan for animations.");
+            if (_preview != null)
+                await _preview.ClearAsync();
+            UpdateRenderButtons();
+            return;
+        }
+
+        _preview ??= new MeshConverterTabPreview(ModelViewer);
+        await _preview.InitializeAsync();
+
+        if (!entry.IsAnimatableCharacter)
+        {
+            _animPanel.Reset("Selected file has no skeleton — pick a skinned character to browse animations.");
+            await _preview.LoadPreviewAsync(entry);
+            UpdateRenderButtons();
+            return;
+        }
+
+        // Character path: bring the Animations pane forward, resolve the
+        // skeleton + discover animations, then auto-preview the first match.
+        PanelSelector.SelectedItem = AnimationsPanelItem;
+        var completed = await _animPanel.LoadForCharacterAsync(entry);
+        if (!completed || !ReferenceEquals(FilesListView.SelectedItem, entry))
+            return;
+
+        var firstMatch = _animPanel.FirstMatch;
+        if (firstMatch != null)
+        {
+            if (AnimationListView.SelectedItem == null)
+                AnimationListView.SelectedItem = firstMatch;
+        }
+        else
+        {
+            // No matching animations — show the mesh statically so the user
+            // always sees something.
+            await _preview.LoadPreviewAsync(entry);
+        }
+
+        UpdateRenderButtons();
+    }
+
+    // ─── Animations pane ──────────────────────────────────────────────────
+
+    private async void AnimationListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        foreach (var anim in _animPanel.Animations)
+            if (anim.IsActive)
+                anim.IsActive = false;
+
+        var entry = AnimationListView.SelectedItem as AnimationListEntry;
+        var character = _animPanel.Character;
+        if (entry == null || character == null || _preview == null)
+        {
+            UpdateRenderButtons();
+            return;
+        }
+
+        if (!entry.MatchesSkeleton)
+        {
+            ModelViewer.SetError(entry.MismatchTooltip);
+            UpdateRenderButtons();
+            return;
+        }
+
+        entry.IsActive = true;
+        await _preview.LoadPreviewAsync(character, entry.Probe);
+        UpdateRenderButtons();
+    }
+
+    private async void AddAnimFolder_Click(object sender, RoutedEventArgs e)
+    {
+        await _animPanel.AddFolderAsync();
+    }
+
+    private async void AddAnimArchive_Click(object sender, RoutedEventArgs e)
+    {
+        await _animPanel.AddArchiveAsync();
+    }
+
+    private void AnimsSelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        _animPanel.SetAllChecked(true);
+    }
+
+    private void AnimsSelectNone_Click(object sender, RoutedEventArgs e)
+    {
+        _animPanel.SetAllChecked(false);
+    }
+
+    private void ShowAllAnims_Click(object sender, RoutedEventArgs e)
+    {
+        _animPanel.RefreshFilter();
+    }
+
+    private async void ConvertGlb_Click(object sender, RoutedEventArgs e)
+    {
+        var character = _animPanel.Character;
+        if (character == null) return;
+        await _animExporter.ExportGlbAsync(character, _animPanel.CheckedMatchingProbes());
+    }
+
+    private async void ConvertBlend_Click(object sender, RoutedEventArgs e)
+    {
+        var character = _animPanel.Character;
+        if (character == null) return;
+        await _animExporter.ExportBlendAsync(character, _animPanel.CheckedMatchingProbes());
+    }
+
+    // ─── Convert (batch over checked files) ───────────────────────────────
+
     private async void ConvertButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_items.Count == 0 || string.IsNullOrEmpty(_outputDir)) return;
+        if (string.IsNullOrEmpty(_outputDir)) return;
+
+        var checkedEntries = _items.Where(i => i.IsChecked).ToList();
+        if (checkedEntries.Count == 0)
+        {
+            MainWindow.Instance?.SetStatus("Check at least one file to convert.");
+            return;
+        }
 
         if (!TryGetWorldzoneScale(out var worldzoneScale))
         {
@@ -237,92 +433,19 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             return;
         }
 
-        var previousCts = _cts;
-        if (previousCts != null)
-        {
-            _cts = null;
-            await previousCts.CancelAsync();
-            previousCts.Dispose();
-        }
+        await _batchRunner.ConvertAsync(
+            checkedEntries,
+            _outputDir,
+            GetSelectedWorldzoneTimeOfDay(),
+            worldzoneScale,
+            GetSelectedOutputFormat());
+    }
 
-        var cts = new CancellationTokenSource();
-        _cts = cts;
-
-        foreach (var file in _items)
-        {
-            file.TriangleCount = 0;
-            file.Status = ExtractionStatus.Pending;
-        }
-
-        ConvertButton.Visibility = Visibility.Collapsed;
-        CancelButton.Visibility = Visibility.Visible;
-        ConversionProgress.Visibility = Visibility.Visible;
-        ConversionProgress.Value = 0;
-
-        var stopwatch = Stopwatch.StartNew();
-        var filesProcessed = 0;
-        var totalTriangles = 0;
-        var totalConverted = 0;
-        var totalFiles = _items.Count;
-        string? firstError = null;
-        var dispatcher = DispatcherQueue;
-        var outputDir = _outputDir;
-        var token = cts.Token;
-        var entries = _items.ToList();
-        var worldzoneTimeOfDay = GetSelectedWorldzoneTimeOfDay();
-        var outputFormat = GetSelectedOutputFormat();
-
-        await Task.Run(() =>
-        {
-            foreach (var entry in entries)
-            {
-                if (token.IsCancellationRequested)
-                    break;
-
-                dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
-
-                try
-                {
-                    var result = MeshConverterTabFileConverter.ConvertFile(
-                        entry,
-                        outputDir,
-                        worldzoneTimeOfDay,
-                        worldzoneScale,
-                        outputFormat,
-                        cancellationToken: token);
-                    Interlocked.Add(ref totalTriangles, result.Triangles);
-                    Interlocked.Increment(ref totalConverted);
-
-                    var processed = Interlocked.Increment(ref filesProcessed);
-                    dispatcher.TryEnqueue(() =>
-                    {
-                        entry.TriangleCount = result.Triangles;
-                        entry.Status = ExtractionStatus.Done;
-                        ConversionProgress.Value = (double)processed / totalFiles * 100;
-                    });
-                }
-                catch (Exception ex)
-                {
-                    firstError ??= ex.Message;
-                    var processed = Interlocked.Increment(ref filesProcessed);
-                    dispatcher.TryEnqueue(() =>
-                    {
-                        entry.Status = ExtractionStatus.Error;
-                        ConversionProgress.Value = (double)processed / totalFiles * 100;
-                    });
-                }
-            }
-        }, token).ContinueWith(_ => { }, TaskScheduler.Default);
-
-        stopwatch.Stop();
-        ConversionProgress.Value = 100;
-        CancelButton.Visibility = Visibility.Collapsed;
-        ConvertButton.Visibility = Visibility.Visible;
-        var status = $"Converted {totalConverted}/{totalFiles} files " +
-                     $"({totalTriangles:N0} triangles) in {stopwatch.Elapsed.TotalSeconds:F2}s";
-        if (firstError != null)
-            status += $". First error: {firstError}";
-        MainWindow.Instance?.SetStatus(status);
+    private async void CancelButton_Click(object sender, RoutedEventArgs e)
+    {
+        await _batchRunner.CancelAsync();
+        _animExporter.Cancel();
+        MainWindow.Instance?.SetStatus("Operation cancelled");
     }
 
     private MeshOutputFormat GetSelectedOutputFormat()
@@ -358,42 +481,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
                && scale > 0f;
     }
 
-    private async void CancelButton_Click(object sender, RoutedEventArgs e)
-    {
-        var cts = _cts;
-        if (cts != null)
-        {
-            _cts = null;
-            await cts.CancelAsync();
-            cts.Dispose();
-        }
-
-        CancelButton.Visibility = Visibility.Collapsed;
-        ConvertButton.Visibility = Visibility.Visible;
-        MainWindow.Instance?.SetStatus("Conversion cancelled");
-    }
-
-    private async void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        RenderPngButton.IsEnabled = false;
-        RenderGifButton.IsEnabled = false;
-
-        if (FilesListView.SelectedItem is not MeshFileEntry entry)
-        {
-            if (_preview != null)
-                await _preview.ClearAsync();
-            return;
-        }
-
-        // Lazy-init the preview helper
-        _preview ??= new MeshConverterTabPreview(ModelViewer);
-
-        await _preview.InitializeAsync();
-        await _preview.LoadPreviewAsync(entry);
-        UpdateRenderButtons();
-    }
-
-    // ─── Render section (glb-render / glb-gif in-app) ─────────────────────
+    // ─── Render (single preview or batch over checked files) ─────────────
 
     private void ModelViewer_ModelLoaded(object? sender, EventArgs e)
     {
@@ -403,127 +491,104 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     private void UpdateRenderButtons()
     {
         var hasGlb = ModelViewer.LastGlbBytes != null;
-        RenderPngButton.IsEnabled = hasGlb;
-        RenderGifButton.IsEnabled = hasGlb && ModelViewer.HasAnimations;
+        var checkedCount = _items.Count(i => i.IsChecked);
+        RenderPngButton.IsEnabled = hasGlb || checkedCount > 0;
+        RenderGifButton.IsEnabled = (hasGlb && ModelViewer.HasAnimations) || checkedCount > 1;
     }
 
     private async void RenderPng_Click(object sender, RoutedEventArgs e)
     {
-        var glbBytes = ModelViewer.LastGlbBytes;
-        if (glbBytes == null) return;
+        if (!TryGetWorldzoneScale(out var worldzoneScale))
+        {
+            MainWindow.Instance?.SetStatus("Worldzone scale must be a positive number.");
+            return;
+        }
+
+        var checkedEntries = _items.Where(i => i.IsChecked).ToList();
+        var previewGlb = ModelViewer.LastGlbBytes;
 
         var outputDir = await FolderPickerHelper.PickFolderAsync();
         if (outputDir == null) return;
 
-        var stem = GetSelectedStem();
         var size = (int)RenderSizeBox.Value;
         var azimuth = (float)RenderAzimuthBox.Value;
         var elevation = (float)RenderElevationBox.Value;
-        var useObjectReview = ObjectReviewCheckbox.IsChecked == true;
+        var objectReview = ObjectReviewCheckbox.IsChecked == true;
 
-        RenderPngButton.IsEnabled = false;
-        ConversionProgress.IsIndeterminate = true;
-        ConversionProgress.Visibility = Visibility.Visible;
-
-        try
+        if (checkedEntries.Count > 1)
         {
-            var outputs = await Task.Run(() =>
-            {
-                var tempGlb = GlbScratchFile.Write(glbBytes, "MeshRender");
-                try
-                {
-                    IReadOnlyList<RenderView> views = useObjectReview
-                        ? GlbRenderPresets.ObjectReview
-                        : [new RenderView("", azimuth, elevation)];
-
-                    var written = new List<string>();
-                    foreach (var view in views)
-                    {
-                        var suffix = view.Name.Length > 0 ? "_" + view.Name : "";
-                        var pngPath = Path.Combine(outputDir, stem + suffix + ".png");
-                        GlbRenderer.RenderToFile(tempGlb, pngPath, size, view.Azimuth, view.Elevation);
-                        written.Add(pngPath);
-                    }
-
-                    return written;
-                }
-                finally
-                {
-                    GlbScratchFile.TryDelete(tempGlb);
-                }
-            });
-
-            MainWindow.Instance?.SetStatus(outputs.Count == 1
-                ? $"Rendered → {Path.GetFileName(outputs[0])}"
-                : $"Rendered {outputs.Count} views → {outputDir}");
+            await _batchRunner.RenderPngBatchAsync(
+                checkedEntries, outputDir, size, azimuth, elevation, objectReview,
+                GetSelectedWorldzoneTimeOfDay(), worldzoneScale);
         }
-        catch (Exception ex)
+        else if (previewGlb != null)
         {
-            MainWindow.Instance?.SetStatus($"Render failed: {ex.Message}");
+            await _batchRunner.RenderPngSingleAsync(
+                previewGlb, outputDir, GetSelectedStem(), size, azimuth, elevation, objectReview);
         }
-        finally
+        else if (checkedEntries.Count == 1)
         {
-            ConversionProgress.IsIndeterminate = false;
-            ConversionProgress.Visibility = Visibility.Collapsed;
-            UpdateRenderButtons();
+            await _batchRunner.RenderPngBatchAsync(
+                checkedEntries, outputDir, size, azimuth, elevation, objectReview,
+                GetSelectedWorldzoneTimeOfDay(), worldzoneScale);
         }
     }
 
     private async void RenderGif_Click(object sender, RoutedEventArgs e)
     {
-        var glbBytes = ModelViewer.LastGlbBytes;
-        if (glbBytes == null) return;
+        if (!TryGetWorldzoneScale(out var worldzoneScale))
+        {
+            MainWindow.Instance?.SetStatus("Worldzone scale must be a positive number.");
+            return;
+        }
+
+        var checkedEntries = _items.Where(i => i.IsChecked).ToList();
+        var previewGlb = ModelViewer.LastGlbBytes;
+        var hasAnimatedPreview = previewGlb != null && ModelViewer.HasAnimations;
 
         var outputDir = await FolderPickerHelper.PickFolderAsync();
         if (outputDir == null) return;
 
-        var stem = GetSelectedStem();
-        var outputPath = Path.Combine(outputDir, stem + ".gif");
         var size = (int)RenderSizeBox.Value;
         var fps = (int)RenderFpsBox.Value;
         var azimuth = (float)RenderAzimuthBox.Value;
         var elevation = (float)RenderElevationBox.Value;
 
-        RenderGifButton.IsEnabled = false;
-        ConversionProgress.IsIndeterminate = true;
-        ConversionProgress.Visibility = Visibility.Visible;
-
-        try
+        if (hasAnimatedPreview && checkedEntries.Count <= 1)
         {
-            var (frames, duration) = await Task.Run(() =>
-            {
-                var tempGlb = GlbScratchFile.Write(glbBytes, "MeshRender");
-                try
-                {
-                    return GlbGifRenderer.RenderToFile(
-                        tempGlb, outputPath, size, fps, azimuth, elevation);
-                }
-                finally
-                {
-                    GlbScratchFile.TryDelete(tempGlb);
-                }
-            });
-
-            MainWindow.Instance?.SetStatus(
-                $"Rendered {frames} frames ({duration:0.00}s) → {Path.GetFileName(outputPath)}");
+            var outputPath = Path.Combine(outputDir, GetSelectedStem() + ".gif");
+            await _batchRunner.RenderGifSingleAsync(
+                previewGlb!, outputPath, size, fps, azimuth, elevation);
         }
-        catch (Exception ex)
+        else
         {
-            MainWindow.Instance?.SetStatus($"GIF render failed: {ex.Message}");
-        }
-        finally
-        {
-            ConversionProgress.IsIndeterminate = false;
-            ConversionProgress.Visibility = Visibility.Collapsed;
-            UpdateRenderButtons();
+            await _batchRunner.RenderGifBatchAsync(
+                checkedEntries, outputDir, size, fps, azimuth, elevation,
+                GetSelectedWorldzoneTimeOfDay(), worldzoneScale);
         }
     }
 
+    /// <summary>
+    ///     Output stem for single renders: the selected file, with the active
+    ///     animation appended when the loaded preview is an animated character
+    ///     (matches the old Character Preview GIF naming).
+    /// </summary>
     private string GetSelectedStem()
     {
-        return FilesListView.SelectedItem is MeshFileEntry entry
-            ? MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName)
-            : "render";
+        if (FilesListView.SelectedItem is not MeshFileEntry entry)
+            return "render";
+
+        var stem = MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
+        var activeAnim = _animPanel.ActiveEntry;
+        if (activeAnim != null && ReferenceEquals(_animPanel.Character, entry))
+            stem += "_" + StripAnimExtension(activeAnim.DisplayName);
+        return stem;
+    }
+
+    private static string StripAnimExtension(string fileName)
+    {
+        var idx = fileName.IndexOf(".ska", StringComparison.OrdinalIgnoreCase);
+        return idx > 0 ? fileName[..idx] : Path.GetFileNameWithoutExtension(fileName);
     }
 
     private void MeshConverterTab_Unloaded(object sender, RoutedEventArgs e)

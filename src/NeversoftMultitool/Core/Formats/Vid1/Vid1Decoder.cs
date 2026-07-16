@@ -125,6 +125,31 @@ public sealed class Vid1Decoder
         Vid1YuvToRgb.ConvertToRgb(_context.OutputY, _context.OutputCb, _context.OutputCr, Width, Height, destination);
     }
 
+    /// <summary>
+    ///     Decode without the YUV→BGRA conversion — used by seek fast-forwards,
+    ///     where the pixels are discarded and only the reference state matters.
+    /// </summary>
+    internal void DecodeFrameToPlanesOnly(Vid1VideoFrame frame)
+    {
+        DecodeFrameToPlanes(frame);
+    }
+
+    /// <summary>Seek-anchor capture/restore of the cross-frame prediction state.</summary>
+    internal Vid1ReferenceSnapshot CaptureReferenceState() => _context.CaptureReferenceState();
+
+    internal void RestoreReferenceState(Vid1ReferenceSnapshot snapshot) => _context.RestoreReferenceState(snapshot);
+
+    /// <summary>
+    ///     Rebuilds the BGRA image of the current reference frame. Valid
+    ///     whenever the last promoted frame is the one being presented (the
+    ///     presentation provider's held frame is always the last promoted
+    ///     reference — B-frames never promote).
+    /// </summary>
+    internal void ConvertReferencePlanesToBgra(Span<byte> destination)
+    {
+        Vid1YuvToRgb.ConvertToBgra(_context.ReferenceY, _context.ReferenceCb, _context.ReferenceCr, Width, Height, destination);
+    }
+
     private void DecodeFrameToPlanes(Vid1VideoFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);

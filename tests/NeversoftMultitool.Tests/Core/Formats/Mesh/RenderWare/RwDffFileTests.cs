@@ -120,6 +120,83 @@ public sealed class RwDffFileTests(TestPaths paths)
         }
     }
 
+    // ── LOD UV fidelity (2026-07-16 LOD 2/3 texture-mapping audit) ──
+    //
+    // The LOD 2/3 "texture mapping off" report was root-caused to the SHIPPED file
+    // data (sloppy LOD UV authoring), not the decoder: the raw UV array, the binmesh
+    // strips, normals, and skin weights all cross-validate the current decode
+    // (tools/diagnostics/rwdff_lod_uv_probe.py). These tests pin the exact UV↔vertex
+    // pairing on two LOD fixtures so any future change to the geometry-struct walk
+    // (surface-property skip, PRELIT block, UV-set count) fails loudly instead of
+    // silently re-pairing UVs.
+
+    [Theory]
+    // pedestrian_a_LOD02.skn: 190 verts; first / middle / last vertex.
+    [InlineData("pedestrian_a_LOD02.skn", 190, 0, 7.593017578125f, -6.6396074295043945f, -0.7926748991012573f, 0.8252797722816467f, 0.4846044182777405f)]
+    [InlineData("pedestrian_a_LOD02.skn", 190, 95, 8.909504890441895f, 2.8484222888946533f, -2.5893735885620117f, 0.21281440556049347f, 0.2966340184211731f)]
+    [InlineData("pedestrian_a_LOD02.skn", 190, 189, 2.599452018737793f, -4.124118804931641f, 32.48052215576172f, 0.30156517028808594f, 0.5579977035522461f)]
+    // ped_canada_a_LOD03.skn: 199 verts; note the authored +1 U-tile offset (wraps under REPEAT).
+    [InlineData("ped_canada_a_LOD03.skn", 199, 0, -1.6966094970703125f, -3.9007437229156494f, 24.144573211669922f, 1.3206835985183716f, 0.8163937926292419f)]
+    [InlineData("ped_canada_a_LOD03.skn", 199, 99, -10.073600769042969f, 3.7604992389678955f, 8.866317749023438f, 1.314725637435913f, 0.6667559146881104f)]
+    [InlineData("ped_canada_a_LOD03.skn", 199, 198, 4.384754657745361f, 4.607649326324463f, -39.62012481689453f, 1.0068659782409668f, 0.4907910227775574f)]
+    public void Parse_LodFixture_UvVertexPairingIsBitExact(
+        string filename, int vertexCount, int index,
+        float px, float py, float pz, float u, float v)
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var file = paths.FindSampleFile(BuildName, filename);
+        Assert.SkipWhen(file is null, $"{filename} not found");
+
+        var clump = RwDffFile.Parse(file);
+        var geom = clump.Geometries[0];
+
+        Assert.Equal(vertexCount, geom.Vertices.Length);
+        Assert.NotNull(geom.UVs);
+        Assert.Equal(vertexCount, geom.UVs.Length);
+
+        Assert.Equal(px, geom.Vertices[index].X);
+        Assert.Equal(py, geom.Vertices[index].Y);
+        Assert.Equal(pz, geom.Vertices[index].Z);
+        Assert.Equal(u, geom.UVs[index].X);
+        Assert.Equal(v, geom.UVs[index].Y);
+    }
+
+    [Theory]
+    [InlineData("pedestrian_a.skn")]
+    [InlineData("pedestrian_a_LOD01.skn")]
+    [InlineData("pedestrian_a_LOD02.skn")]
+    [InlineData("pedestrian_a_LOD03.skn")]
+    public void Parse_PedestrianFamily_UvLayoutIsSane(string filename)
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var file = paths.FindSampleFile(BuildName, filename);
+        Assert.SkipWhen(file is null, $"{filename} not found");
+
+        var clump = RwDffFile.Parse(file);
+        var geom = clump.Geometries[0];
+
+        // One UV per vertex, all finite and within the wrap-tile range these
+        // characters author into ([0,1] plus whole-tile offsets, never garbage).
+        Assert.NotNull(geom.UVs);
+        Assert.Equal(geom.Vertices.Length, geom.UVs.Length);
+        foreach (var uv in geom.UVs)
+        {
+            Assert.True(float.IsFinite(uv.X) && float.IsFinite(uv.Y), "UV should be finite");
+            Assert.InRange(uv.X, -8f, 8f);
+            Assert.InRange(uv.Y, -8f, 8f);
+        }
+
+        // Every triangle's material id must resolve inside the material list.
+        Assert.NotEmpty(geom.Materials);
+        foreach (var tri in geom.Triangles)
+        {
+            Assert.InRange(tri.MaterialIndex, 0, geom.Materials.Length - 1);
+            Assert.InRange(tri.V0, 0, geom.Vertices.Length - 1);
+            Assert.InRange(tri.V1, 0, geom.Vertices.Length - 1);
+            Assert.InRange(tri.V2, 0, geom.Vertices.Length - 1);
+        }
+    }
+
     // ── Batch parse all 331 SKN files ──
 
     [CorpusFact]

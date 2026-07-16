@@ -111,6 +111,8 @@ tools/diagnostics/*
 !tools/diagnostics/ps2_vram_sim.py
 !tools/diagnostics/thaw_ps2_vif_walk.py
 !tools/diagnostics/thaw_ps2_strip_decode.py
+!tools/diagnostics/thaw_ps2_skin_texture_match.py
+!tools/diagnostics/thaw_ps2_scene_tex_walk_check.py
 !tools/diagnostics/thaw_pcsx2_mdl_locator.py
 !tools/diagnostics/thaw_pcsx2_runbook.md
 !tools/diagnostics/thaw_pcsx2_findings.md
@@ -144,6 +146,8 @@ tools/diagnostics/*
 !tools/diagnostics/qb_localname_census.py
 !tools/diagnostics/cifstruct_probe.py
 !tools/diagnostics/trg_hash_probe.py
+!tools/diagnostics/rwdff_lod_uv_probe.py
+!tools/diagnostics/thaw_ps2_texture_regression_check.py
 
 # Build/runtime noise inside curated tools/
 tools/**/bin/

@@ -7,20 +7,110 @@
 
   <Grid>
     <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
+    <!-- Camera toolbar: projection presets + named views + 90° azimuth snap.
+         The projection ComboBox gets its initial selection in the constructor
+         (a XAML SelectedIndex would fire SelectionChanged mid-InitializeComponent). -->
+    <Grid x:Name="CameraToolbar"
+          Grid.Row="0"
+          Padding="12,8,12,4"
+          ColumnSpacing="8">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+
+      <ComboBox
+        x:Name="ProjectionCombo"
+        Grid.Column="0"
+        MinWidth="150"
+        SelectionChanged="ProjectionCombo_SelectionChanged">
+        <ComboBoxItem Content="Perspective" />
+        <ComboBoxItem Content="Orthographic (top)" />
+        <ComboBoxItem Content="Isometric" />
+        <ComboBoxItem Content="Trimetric" />
+      </ComboBox>
+
+      <DropDownButton Grid.Column="1" Content="View">
+        <DropDownButton.Flyout>
+          <MenuFlyout>
+            <MenuFlyoutItem Text="Front" Tag="Front" Click="ViewPreset_Click" />
+            <MenuFlyoutItem Text="Back" Tag="Back" Click="ViewPreset_Click" />
+            <MenuFlyoutItem Text="Left" Tag="Left" Click="ViewPreset_Click" />
+            <MenuFlyoutItem Text="Right" Tag="Right" Click="ViewPreset_Click" />
+            <MenuFlyoutItem Text="Top" Tag="Top" Click="ViewPreset_Click" />
+          </MenuFlyout>
+        </DropDownButton.Flyout>
+      </DropDownButton>
+
+      <!-- Camera control mode. Orbit is the classic model orbit; Fly/Walk are
+           first-person (WASD + mouse-look, perspective-only). The active
+           toggle is set in the constructor / from the page's controlMode
+           messages, never in XAML (a XAML IsChecked would fire handlers
+           mid-InitializeComponent). -->
+      <StackPanel
+        Grid.Column="2"
+        Orientation="Horizontal"
+        Spacing="4"
+        ToolTipService.ToolTip="F toggles Fly/Walk on levels, Fly/Orbit on models">
+        <ToggleButton
+          x:Name="OrbitModeButton"
+          Height="32"
+          Content="Orbit"
+          Tag="orbit"
+          Click="ModeButton_Click" />
+        <ToggleButton
+          x:Name="FlyModeButton"
+          Height="32"
+          Content="Fly"
+          Tag="fly"
+          Click="ModeButton_Click" />
+        <ToggleButton
+          x:Name="WalkModeButton"
+          Height="32"
+          Content="Walk"
+          Tag="walk"
+          Click="ModeButton_Click" />
+      </StackPanel>
+
+      <Button
+        Grid.Column="4"
+        Width="36"
+        Height="32"
+        Padding="0"
+        ToolTipService.ToolTip="Rotate 90° left"
+        Click="StepAzimuthLeft_Click">
+        <FontIcon FontSize="12" Glyph="&#xE76B;" />
+      </Button>
+      <Button
+        Grid.Column="5"
+        Width="36"
+        Height="32"
+        Padding="0"
+        ToolTipService.ToolTip="Rotate 90° right"
+        Click="StepAzimuthRight_Click">
+        <FontIcon FontSize="12" Glyph="&#xE76C;" />
+      </Button>
+    </Grid>
+
     <!-- WebView2 3D viewer -->
     <WebView2
       x:Name="ModelWebView"
-      Grid.Row="0" />
+      Grid.Row="1" />
 
     <!-- Placeholder before the WebView2 is initialized -->
     <TextBlock
       x:Name="PlaceholderText"
-      Grid.Row="0"
+      Grid.Row="1"
       Text="Click on an entry to preview."
       HorizontalAlignment="Center"
       VerticalAlignment="Center"
@@ -31,7 +121,7 @@
     <!-- Loading overlay -->
     <ProgressRing
       x:Name="LoadingRing"
-      Grid.Row="0"
+      Grid.Row="1"
       HorizontalAlignment="Center"
       VerticalAlignment="Center"
       IsActive="False"
@@ -39,7 +129,7 @@
 
     <!-- Animation transport (visible only when the GLB has animations) -->
     <Grid x:Name="TransportPanel"
-          Grid.Row="1"
+          Grid.Row="2"
           Padding="12,8,12,0"
           ColumnSpacing="8"
           Visibility="Collapsed">
@@ -84,7 +174,7 @@
     </Grid>
 
     <!-- Model info + error -->
-    <StackPanel Grid.Row="2"
+    <StackPanel Grid.Row="3"
                 Padding="12,8"
                 Spacing="2">
       <TextBlock

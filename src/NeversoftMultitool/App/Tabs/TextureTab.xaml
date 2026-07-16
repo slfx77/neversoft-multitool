@@ -253,6 +253,17 @@
         </Grid>
       </Border>
 
+      <!-- Scan-in-progress indicator (overlays whichever card is visible) -->
+      <ProgressRing
+        x:Name="ScanProgressRing"
+        Grid.Column="0"
+        Width="48" Height="48"
+        HorizontalAlignment="Center"
+        VerticalAlignment="Center"
+        IsActive="False"
+        Visibility="Collapsed"
+        Canvas.ZIndex="10" />
+
       <!-- Empty state when no directory selected -->
       <Border
         x:Name="EmptyStatePanel"

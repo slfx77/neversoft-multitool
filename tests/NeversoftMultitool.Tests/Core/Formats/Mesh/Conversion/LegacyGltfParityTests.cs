@@ -30,7 +30,7 @@ public sealed class LegacyGltfParityTests
 
         var oldStats = ExportLegacy("collision", temp, path => ColGltfWriter.Write(scene, path));
         var document = new ModelDocument { Name = "collision", SourceKind = ModelSourceKind.Collision };
-        ModelDocumentGeometryAdapter.PopulateCollision(document, scene);
+        CollisionGeometryWriter.PopulateCollision(document, scene);
         var genericStats = ExportGeneric("collision", temp, document);
 
         AssertStructuralParity("collision", oldStats, genericStats);
@@ -48,7 +48,7 @@ public sealed class LegacyGltfParityTests
             path => GltfWriter.WriteDdm(ddm, path));
         var document = new ModelDocument { Name = "ddm", SourceKind = ModelSourceKind.Ddm };
         SeedDdmMaterials(document, ddm);
-        ModelDocumentGeometryAdapter.PopulateDdm(document, ddm, ddxTextures: null);
+        DdmGeometryWriter.PopulateDdm(document, ddm, ddxTextures: null);
         var genericStats = ExportGeneric("ddm", temp, document);
 
         AssertStructuralParity("ddm", oldStats, genericStats);
@@ -66,7 +66,7 @@ public sealed class LegacyGltfParityTests
             path => Ps2SceneGltfWriter.Write(scene, path, ResolveTextureByChecksum));
         var document = new ModelDocument { Name = "ps2_scene", SourceKind = ModelSourceKind.Ps2Scene };
         SeedPs2SceneMaterials(document, scene);
-        ModelDocumentGeometryAdapter.PopulatePs2Scene(document, scene, ResolveTextureByChecksum);
+        Ps2SceneGeometryWriter.PopulatePs2Scene(document, scene, ResolveTextureByChecksum);
         var genericStats = ExportGeneric("ps2_scene", temp, document);
 
         AssertStructuralParity("ps2_scene", oldStats, genericStats);
@@ -84,7 +84,7 @@ public sealed class LegacyGltfParityTests
             path => XbxSceneGltfWriter.Write(scene, path, ResolveTextureByChecksum));
         var document = new ModelDocument { Name = "xbx_scene", SourceKind = ModelSourceKind.XbxScene };
         SeedXbxMaterials(document, scene);
-        ModelDocumentGeometryAdapter.PopulateXbxScene(document, scene, ResolveTextureByChecksum);
+        XbxGeometryWriter.PopulateXbxScene(document, scene, ResolveTextureByChecksum);
         var genericStats = ExportGeneric("xbx_scene", temp, document);
 
         AssertStructuralParity("xbx_scene", oldStats, genericStats);
@@ -101,7 +101,7 @@ public sealed class LegacyGltfParityTests
             temp,
             path => RwDffGltfWriter.Write(clump, path, ResolveTextureByName));
         var document = new ModelDocument { Name = "rw_dff", SourceKind = ModelSourceKind.RenderWareDff };
-        ModelDocumentGeometryAdapter.PopulateRwDff(document, clump, ResolveTextureByName);
+        RwGeometryWriter.PopulateRwDff(document, clump, ResolveTextureByName);
         var genericStats = ExportGeneric("rw_dff", temp, document);
 
         AssertStructuralParity("rw_dff", oldStats, genericStats);
@@ -118,7 +118,7 @@ public sealed class LegacyGltfParityTests
             temp,
             path => RwBspGltfWriter.Write(world, path, ResolveTextureByName));
         var document = new ModelDocument { Name = "rw_bsp", SourceKind = ModelSourceKind.RenderWareBsp };
-        ModelDocumentGeometryAdapter.PopulateRwBsp(document, world, ResolveTextureByName);
+        RwBspGeometryWriter.PopulateRwBsp(document, world, ResolveTextureByName);
         var genericStats = ExportGeneric("rw_bsp", temp, document);
 
         AssertStructuralParity("rw_bsp", oldStats, genericStats);

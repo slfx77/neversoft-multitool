@@ -3,6 +3,7 @@ using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
+using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
 using NeversoftMultitool.Core.Formats.Texture.Pvr;
 using NeversoftMultitool.Core.Formats.Texture.XbxScene;
@@ -15,11 +16,14 @@ internal static class TextureTabTextureOperations
     private static readonly string[] CompoundTextureExtensions =
     [
         ".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc",
-        ".tex.ps2", ".img.ps2", ".tex.ngc", ".img.ngc"
+        ".tex.ps2", ".img.ps2", ".tex.ngc", ".img.ngc", ".stex"
     ];
 
     private static readonly string[] NgcTexExtensions = [".tex.ngc", ".img.ngc"];
-    private static readonly string[] XboxTexExtensions = [".tex.xbx", ".tex.wpc"];
+
+    // .stex = THAW level/zone textures: DXT containers on PC, zone TEX on PS2 —
+    // ParseXbxTextures dispatches by content, mirroring the CLI xbxtex/ps2tex routing.
+    private static readonly string[] XboxTexExtensions = [".tex.xbx", ".tex.wpc", ".stex"];
     private static readonly string[] XboxImgExtensions = [".img.xbx", ".img.wpc"];
     private static readonly string[] Ps2TexExtensions = [".tex.ps2", ".img.ps2", ".tex", ".img"];
 
@@ -341,7 +345,23 @@ internal static class TextureTabTextureOperations
         }
 
         var texResult = XbxTexFile.Parse(data);
-        return texResult.Success ? texResult : ThawTexFile.Parse(data);
+        if (texResult.Success)
+            return texResult;
+
+        var thawResult = ThawTexFile.Parse(data);
+        if (thawResult.Success)
+            return thawResult;
+
+        // THAW PS2 .stex zone textures (per-file decode; the CLI merges VRAM
+        // across a zone's files, but every texture also decodes standalone).
+        if (ThawZoneTexFile.IsThawZoneTex(data))
+        {
+            var textures = ThawZoneTexFile.DecodeAllFromFile(data);
+            if (textures.Count > 0)
+                return new Ps2TexResult(textures);
+        }
+
+        return thawResult;
     }
 
     private static string StripCompoundExtension(string filename)

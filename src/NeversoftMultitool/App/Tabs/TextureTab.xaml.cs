@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using Microsoft.UI.Xaml;
@@ -18,6 +19,8 @@ public sealed partial class TextureTab : UserControl, IDisposable
     private string _outputDir = "";
     private bool _outputManuallySet;
     private CancellationTokenSource? _previewCts;
+    private CancellationTokenSource? _scanCts;
+    private bool _disposed;
     private bool _sortAscending = true;
     private string _sortColumn = "";
 
@@ -30,11 +33,18 @@ public sealed partial class TextureTab : UserControl, IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
         Unloaded -= TextureTab_Unloaded;
+        // Detach before disposing the CTSes: teardown clears the list, which
+        // fires SelectionChanged and would re-enter the preview path.
+        FilesListView.SelectionChanged -= FilesListView_SelectionChanged;
         _cts?.Dispose();
         _cts = null;
         _previewCts?.Dispose();
         _previewCts = null;
+        _scanCts?.Cancel();
+        _scanCts?.Dispose();
+        _scanCts = null;
     }
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
@@ -46,49 +56,10 @@ public sealed partial class TextureTab : UserControl, IDisposable
         InputPathText.Text = _inputDir;
         DefaultOutputToInput(path);
 
-        _items.Clear();
-        _parentFiles.Clear();
-        var candidateFiles = Directory.EnumerateFiles(_inputDir, "*", SearchOption.AllDirectories)
-            .Where(TextureTabTextureOperations.IsTextureFile)
-            .OrderBy(f => MakeRelativePath(f, _inputDir), StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        // Probe files for format support
-        var unsupported = new List<ScanSummaryDialog.UnsupportedFile>();
-        var supported = new List<string>();
-        foreach (var file in candidateFiles)
-        {
-            var probe = FormatProbe.ProbeTexture(file);
-            if (probe.Support == FormatProbe.FormatSupport.Unsupported)
-                unsupported.Add(new ScanSummaryDialog.UnsupportedFile(Path.GetFileName(file)!,
-                    probe.UnsupportedReason ?? "Unknown format"));
-            else
-                supported.Add(file);
-        }
-
-        if (unsupported.Count > 0)
-        {
-            var proceed = await ScanSummaryDialog.ShowIfNeeded(
-                XamlRoot, supported.Count, unsupported);
-            if (!proceed) return;
-        }
-
-        foreach (var file in supported)
-        {
-            var fileName = Path.GetFileName(file)!;
-            var entry = new PsxFileEntry
-            {
-                FileName = fileName,
-                Source = new FileSystemAssetSource(file),
-                RelativePath = MakeRelativePath(file, _inputDir),
-                Format = TextureTabTextureOperations.ClassifyFormat(fileName)
-            };
-            _parentFiles.Add(entry);
-            _items.Add(entry);
-        }
-
-        UpdateUiState();
-        RunCountEnumeration();
+        await RunScan(
+            $"Scanning {Path.GetFileName(path)}...",
+            (progress, token) => TextureTabFileScanner.ScanDirectory(path, progress, token),
+            "files probed");
     }
 
     private async void SelectArchive_Click(object sender, RoutedEventArgs e)
@@ -101,52 +72,92 @@ public sealed partial class TextureTab : UserControl, IDisposable
         if (_inputDir.Length > 0)
             DefaultOutputToInput(_inputDir);
 
+        await RunScan(
+            $"Scanning {Path.GetFileName(path)}...",
+            (progress, token) => TextureTabFileScanner.ScanArchive(path, progress, token),
+            "entries found");
+    }
+
+    /// <summary>
+    ///     Shared scan driver: enumeration + probing run off-thread with progress
+    ///     (the old folder path did everything ON the UI thread — a 10k-file THUG
+    ///     tree froze the app for minutes with no indication), then results
+    ///     bulk-add on the dispatcher.
+    /// </summary>
+    private async Task RunScan(
+        string statusPrefix,
+        Func<IProgress<int>, CancellationToken, TextureTabFileScanner.ScanResult> scan,
+        string progressNoun)
+    {
+        var previousScanCts = _scanCts;
+        if (previousScanCts != null)
+        {
+            _scanCts = null;
+            await previousScanCts.CancelAsync();
+            previousScanCts.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        _scanCts = cts;
+        var token = cts.Token;
+
         _items.Clear();
         _parentFiles.Clear();
+        UpdateUiState();
+        SetScanIndicator(true, statusPrefix);
 
-        await Task.Run(() =>
+        try
         {
-            var backend = ArchiveAssetBackend.TryOpen(path);
-            if (backend == null)
+            var progress = new Progress<int>(count =>
+                SetScanIndicator(true, $"{statusPrefix} {count} {progressNoun}"));
+
+            var result = await Task.Run(() => scan(progress, token), token);
+            if (_disposed || token.IsCancellationRequested) return;
+
+            if (result.Unsupported.Count > 0)
             {
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    MainWindow.Instance?.SetStatus($"{Path.GetFileName(path)}: unsupported archive.");
-                    UpdateUiState();
-                });
-                return;
+                var proceed = await ScanSummaryDialog.ShowIfNeeded(
+                    XamlRoot, result.Supported.Count, result.Unsupported);
+                if (!proceed) return;
             }
 
-            var archiveName = Path.GetFileName(path);
-            var entries = new List<PsxFileEntry>();
-            foreach (var archiveEntry in backend.Entries)
+            foreach (var entry in result.Supported)
             {
-                if (!TextureTabTextureOperations.IsTextureFile(archiveEntry.Name)) continue;
-                entries.Add(new PsxFileEntry
-                {
-                    FileName = archiveEntry.Name,
-                    Source = new ArchiveAssetSource(backend, archiveEntry),
-                    RelativePath = $"{archiveName}::{archiveEntry.Name}",
-                    Format = TextureTabTextureOperations.ClassifyFormat(archiveEntry.Name)
-                });
+                _parentFiles.Add(entry);
+                _items.Add(entry);
             }
 
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                foreach (var entry in entries.OrderBy(en => en.RelativePath, StringComparer.OrdinalIgnoreCase))
-                {
-                    _parentFiles.Add(entry);
-                    _items.Add(entry);
-                }
+            MainWindow.Instance?.SetStatus(result.Supported.Count == 0
+                ? "No texture files found."
+                : $"Found {result.Supported.Count} texture file(s).");
 
-                MainWindow.Instance?.SetStatus(entries.Count == 0
-                    ? $"{archiveName}: no texture entries."
-                    : $"Found {entries.Count} texture entrie(s) in {archiveName}.");
+            UpdateUiState();
+            RunCountEnumeration();
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer scan or torn down.
+        }
+        catch (Exception ex)
+        {
+            MainWindow.Instance?.SetStatus($"Scan failed: {ex.Message}");
+        }
+        finally
+        {
+            if (!_disposed)
+                SetScanIndicator(false, "");
+            if (ReferenceEquals(_scanCts, cts))
+                _scanCts = null;
+            cts.Dispose();
+        }
+    }
 
-                UpdateUiState();
-                RunCountEnumeration();
-            });
-        });
+    private void SetScanIndicator(bool scanning, string statusText)
+    {
+        ScanProgressRing.IsActive = scanning;
+        ScanProgressRing.Visibility = scanning ? Visibility.Visible : Visibility.Collapsed;
+        if (scanning && statusText.Length > 0)
+            MainWindow.Instance?.SetStatus(statusText);
     }
 
     private void RunCountEnumeration()
@@ -155,36 +166,49 @@ public sealed partial class TextureTab : UserControl, IDisposable
         var dispatcher = DispatcherQueue;
         _ = Task.Run(() =>
         {
-            foreach (var entry in entries)
+            // Counting parses every file, so it parallelizes; UI updates flush in
+            // batches instead of one dispatcher hop per file.
+            var pendingUpdates = new ConcurrentQueue<(PsxFileEntry Entry, int Count)>();
+
+            void Flush()
             {
-                try
+                if (pendingUpdates.IsEmpty) return;
+                var batch = new List<(PsxFileEntry Entry, int Count)>();
+                while (pendingUpdates.TryDequeue(out var update))
+                    batch.Add(update);
+                dispatcher.TryEnqueue(() =>
                 {
-                    var count = TextureTabTextureOperations.CountTextures(entry.Source, entry.Format);
-                    dispatcher.TryEnqueue(() =>
+                    foreach (var (entry, count) in batch)
                     {
                         entry.TextureCount = count;
                         entry.HasTextures = count > 0;
-                    });
-                }
-                catch
-                {
-                    dispatcher.TryEnqueue(() => entry.HasTextures = false);
-                }
+                    }
+                });
             }
-        });
-    }
 
-    private static string MakeRelativePath(string file, string rootDir)
-    {
-        if (string.IsNullOrEmpty(rootDir)) return Path.GetFileName(file);
-        try
-        {
-            return Path.GetRelativePath(rootDir, file);
-        }
-        catch
-        {
-            return Path.GetFileName(file);
-        }
+            var processed = 0;
+            Parallel.ForEach(
+                entries,
+                new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
+                entry =>
+                {
+                    int count;
+                    try
+                    {
+                        count = TextureTabTextureOperations.CountTextures(entry.Source, entry.Format);
+                    }
+                    catch
+                    {
+                        count = 0;
+                    }
+
+                    pendingUpdates.Enqueue((entry, count));
+                    if (Interlocked.Increment(ref processed) % 64 == 0)
+                        Flush();
+                });
+
+            Flush();
+        });
     }
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
@@ -221,7 +245,7 @@ public sealed partial class TextureTab : UserControl, IDisposable
     private void ExpandCollapse_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: PsxFileEntry parent }) return;
-        if (!parent.HasTextures) return;
+        if (!parent.IsExpandable) return;
 
         if (parent.IsExpanded)
             CollapseEntry(parent);
@@ -235,6 +259,15 @@ public sealed partial class TextureTab : UserControl, IDisposable
         if (parentIndex < 0 || parent.IsExpanded) return;
 
         EnsureChildren(parent);
+        if (parent.CachedChildren!.Count == 1)
+        {
+            // Single-texture file discovered on first expand (count enumeration
+            // may not have landed yet): flatten it — the row previews directly —
+            // instead of inserting a one-child sublist.
+            parent.TextureCount = 1;
+            return;
+        }
+
         parent.IsExpanded = true;
         for (var i = 0; i < parent.CachedChildren!.Count; i++)
             _items.Insert(parentIndex + 1 + i, parent.CachedChildren[i]);
@@ -285,7 +318,7 @@ public sealed partial class TextureTab : UserControl, IDisposable
         foreach (var parent in _parentFiles)
         {
             _items.Add(parent);
-            if (!parent.HasTextures || parent.CachedChildren is not { Count: > 0 } children)
+            if (!parent.HasTextures || parent.CachedChildren is not { Count: > 1 } children)
                 continue;
 
             parent.IsExpanded = true;
@@ -485,12 +518,28 @@ public sealed partial class TextureTab : UserControl, IDisposable
                 return;
 
             case PsxFileEntry { HasTextures: true } parent:
-                // One click on a file: expand it and preview its first texture
-                // (selecting the child re-enters this handler on the case above).
-                if (!parent.IsExpanded)
-                    ExpandEntry(parent);
-                if (parent.CachedChildren is { Count: > 0 } children)
-                    FilesListView.SelectedItem = children[0];
+                // One click on a file: expand it (multi-texture only) and preview
+                // its first texture WITHOUT moving the ListView selection —
+                // reassigning SelectedItem onto a just-inserted, not-yet-realized
+                // container forces a visible re-realize pass over the panel (the
+                // whole list flashes) and re-enters this handler. Deferred past
+                // this handler: mutating the bound collection while the ListView
+                // is still dispatching SelectionChanged makes it regenerate every
+                // container; after it unwinds the inserts apply incrementally,
+                // same as the chevron path.
+                DispatcherQueue.TryEnqueue(async () =>
+                {
+                    if (_disposed) return;
+
+                    await Task.Run(() => EnsureChildren(parent));
+                    if (_disposed) return;
+
+                    if (!parent.IsExpanded)
+                        ExpandEntry(parent);
+
+                    if (parent.CachedChildren is { Count: > 0 } children)
+                        await LoadTexturePreview(children[0]);
+                });
                 return;
 
             default:
@@ -511,6 +560,11 @@ public sealed partial class TextureTab : UserControl, IDisposable
 
         var cts = new CancellationTokenSource();
         _previewCts = cts;
+        // Snapshot the token before any await: window close disposes _previewCts
+        // (the same object as this local) mid-flight, and the
+        // CancellationTokenSource.Token GETTER throws ObjectDisposedException —
+        // the token struct itself stays safe to read.
+        var token = cts.Token;
 
         TexturePreview.SetLoading(true);
         PreviewInfoText.Text = "";
@@ -528,22 +582,29 @@ public sealed partial class TextureTab : UserControl, IDisposable
         var nameHash = texture.NameHash;
         var format = parent.Format;
 
-        var result = await Task.Run(
-            () => TextureTabTextureOperations.GetPreviewRgba(source, nameHash, format),
-            cts.Token);
-
-        if (cts.Token.IsCancellationRequested) return;
-
-        if (result != null)
+        try
         {
-            var (rgba, width, height) = result.Value;
-            TexturePreview.SetSource(BitmapHelper.CreateFromRgba(width, height, rgba));
-            PreviewInfoText.Text = $"{texture.PaletteType}\n{texture.NameDisplay}";
+            var result = await Task.Run(
+                () => TextureTabTextureOperations.GetPreviewRgba(source, nameHash, format),
+                token);
+
+            if (_disposed || token.IsCancellationRequested) return;
+
+            if (result != null)
+            {
+                var (rgba, width, height) = result.Value;
+                TexturePreview.SetSource(BitmapHelper.CreateFromRgba(width, height, rgba));
+                PreviewInfoText.Text = $"{texture.PaletteType}\n{texture.NameDisplay}";
+            }
+            else
+            {
+                TexturePreview.Clear();
+                PreviewInfoText.Text = "Failed to decode";
+            }
         }
-        else
+        catch (OperationCanceledException)
         {
-            TexturePreview.Clear();
-            PreviewInfoText.Text = "Failed to decode";
+            // Superseded by a newer selection or torn down mid-decode.
         }
     }
 

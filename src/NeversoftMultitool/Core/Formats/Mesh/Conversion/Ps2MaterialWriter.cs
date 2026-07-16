@@ -34,9 +34,10 @@ internal static class Ps2MaterialWriter
         Ps2Material material,
         MeshChecksumTextureResolver? textureProvider)
     {
+        byte[]? pngBytes = null;
         if (textureProvider != null && material.TextureChecksum != 0)
         {
-            var pngBytes = textureProvider(material.TextureChecksum);
+            pngBytes = textureProvider(material.TextureChecksum);
             if (pngBytes != null)
             {
                 renderMaterial.TextureIndex ??= ModelDocumentGeometryAdapter.AddTexture(
@@ -49,9 +50,15 @@ internal static class Ps2MaterialWriter
             }
         }
 
+        // AREF <= 1 is the GS default always-pass alpha test (ATE=1/AGEQUAL/AREF=1
+        // kills only a == 0) — a pass-through the engine programs unconditionally,
+        // NOT a cutout. Exporting it as MASK@1/128 forced every semi-transparent
+        // overlay (stubble/hair cards) fully opaque — the THAW "corrupted textures"
+        // regression introduced by 884d018. Only a deliberately programmed higher
+        // AREF exports as a mask cutoff.
         if ((material.Flags & (uint)Ps2MaterialFlags.Transparent) == 0)
         {
-            if (material.AlphaRef >= 1)
+            if (material.AlphaRef >= 2)
             {
                 renderMaterial.AlphaMode = ModelAlphaMode.Mask;
                 renderMaterial.AlphaCutoff = GsAlphaRefToCutoff(material.AlphaRef);
@@ -62,18 +69,68 @@ internal static class Ps2MaterialWriter
 
         if (material.IsOpaqueBlend)
         {
-            renderMaterial.AlphaMode = ModelAlphaMode.Mask;
-            // Alpha-tested cutout (hair, clothing fringes). Use the AREF the game's own
-            // DIRECT block programmed when we captured one; the 0.5 default only covers
-            // entries whose setup block carried no alpha test.
-            if (material.AlphaRef >= 1)
+            // Alpha-tested cutout (hair, clothing fringes). Use the AREF the game's
+            // own DIRECT block programmed when it exceeds the always-pass default;
+            // at the pass-through AREF<=1 the texture's alpha decides — hard-edged
+            // cutouts stay MASK at the 0.5 default, graduated art exports BLEND
+            // (the engine shows those texels; hiding half of them behind a 0.5
+            // cutoff was the v1.2.x "missing hair" content loss).
+            if (material.AlphaRef >= 2)
+            {
+                renderMaterial.AlphaMode = ModelAlphaMode.Mask;
                 renderMaterial.AlphaCutoff = GsAlphaRefToCutoff(material.AlphaRef);
+                return;
+            }
+
+            if (pngBytes != null &&
+                Ps2GeomDestinationAlphaSynthesis.ClassifyTextureAlphaMode(pngBytes) == "BLEND")
+            {
+                renderMaterial.AlphaMode = ModelAlphaMode.Blend;
+                return;
+            }
+
+            renderMaterial.AlphaMode = ModelAlphaMode.Mask;
             return;
         }
 
         var fixedOpacity = material.FixedBlendOpacity;
         if (fixedOpacity.HasValue && fixedOpacity.Value >= Ps2SceneRenderSemantics.FixBlendOpaqueThreshold / 128f)
             return;
+
+        // Dest-alpha blend (C = Ad): glTF has no destination alpha. Opaque base
+        // passes write A=128 so Ad resolves to 1.0 and the layer reduces to Cs —
+        // export OPAQUE (or the real alpha test when one is programmed) instead
+        // of BLEND, which disabled depth-write and z-fought (Crown envmap layer).
+        var blendCSource = (int)((material.RegAlpha >> 4) & 0x3);
+        if (blendCSource == 1)
+        {
+            if (material.AlphaRef >= 2)
+            {
+                renderMaterial.AlphaMode = ModelAlphaMode.Mask;
+                renderMaterial.AlphaCutoff = GsAlphaRefToCutoff(material.AlphaRef);
+            }
+
+            return;
+        }
+
+        // Standard source-alpha blend whose texture is really a hard-edged
+        // cutout (or that carries a real alpha test): de-escalate to MASK so
+        // depth-write stays on — mirrors the geom path's classification.
+        // AREF <= 1 (the always-pass default) does NOT count as a real test;
+        // graduated overlays at the default AREF stay BLEND.
+        if (pngBytes != null &&
+            Ps2GeomRenderSemantics.IsStandardSourceAlphaBlend((byte)(material.RegAlpha & 0xFF)))
+        {
+            var textureAlphaMode = Ps2GeomDestinationAlphaSynthesis.ClassifyTextureAlphaMode(pngBytes);
+            if (material.AlphaRef >= 2 || textureAlphaMode == "MASK")
+            {
+                renderMaterial.AlphaMode = ModelAlphaMode.Mask;
+                renderMaterial.AlphaCutoff = material.AlphaRef >= 2
+                    ? GsAlphaRefToCutoff(material.AlphaRef)
+                    : 0.5f;
+                return;
+            }
+        }
 
         renderMaterial.AlphaMode = ModelAlphaMode.Blend;
         if (fixedOpacity.HasValue)
@@ -116,9 +173,13 @@ internal static class Ps2MaterialWriter
         if (alphaMode == "MASK")
         {
             renderMaterial.AlphaMode = ModelAlphaMode.Mask;
-            renderMaterial.AlphaCutoff = useTextureAlphaMode
-                ? 0.5f
-                : Ps2GeomRenderSemantics.ComputeAlphaMaskCutoff(leaf.DmaTest1);
+            // Guard: MASK can be reached via texture classification while the
+            // GS test register only holds the engine's always-pass default —
+            // a computed cutoff of 0 would make the material fully opaque.
+            renderMaterial.AlphaCutoff =
+                useTextureAlphaMode || !Ps2GeomRenderSemantics.UsesAlphaTestMask(leaf.DmaTest1)
+                    ? 0.5f
+                    : Ps2GeomRenderSemantics.ComputeAlphaMaskCutoff(leaf.DmaTest1);
             return;
         }
 
@@ -144,13 +205,22 @@ internal static class Ps2MaterialWriter
 
         var alphaMode = Ps2GeomRenderSemantics.ClassifyWorldzoneAlphaMode(leaf);
         var alphaBlend = (byte)(leaf.DmaAlpha1 & 0xFF);
-        if (alphaMode == "BLEND" &&
-            Ps2GeomRenderSemantics.IsStandardSourceAlphaBlend(alphaBlend) &&
-            Ps2GeomSourceAlphaIsOpaque(leaf, pngBytes))
+        if (alphaMode == "BLEND" && Ps2GeomRenderSemantics.IsStandardSourceAlphaBlend(alphaBlend))
         {
-            return Ps2GeomRenderSemantics.UsesAlphaTestMask(leaf.DmaTest1)
-                ? "MASK"
-                : "OPAQUE";
+            if (Ps2GeomSourceAlphaIsOpaque(leaf, pngBytes))
+            {
+                return Ps2GeomRenderSemantics.UsesAlphaTestMask(leaf.DmaTest1)
+                    ? "MASK"
+                    : "OPAQUE";
+            }
+
+            // Bimodal cutout textures (crosses, fringes) render better as MASK:
+            // hard edges are preserved and depth-write stays on.
+            if (pngBytes != null &&
+                Ps2GeomDestinationAlphaSynthesis.ClassifyTextureAlphaMode(pngBytes) == "MASK")
+            {
+                return "MASK";
+            }
         }
 
         return alphaMode;

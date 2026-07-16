@@ -21,22 +21,22 @@
           Margin="0,0,0,8">
       <StackPanel Style="{StaticResource TabHeaderStackPanelStyle}">
         <TextBlock
-          Text="Mesh Conversion"
+          Text="Meshes &amp; Characters"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Convert mesh files to glTF (.glb) or Blender (.blend), preview in 3D, and render to PNG/GIF"
+          Text="Convert meshes to glTF (.glb) or Blender (.blend), preview in 3D, browse character animations, and render to PNG/GIF"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>
 
-    <!-- Main content: file list | 3D viewer | options panel -->
+    <!-- Main content: file list | 3D viewer | tabbed panel -->
     <Grid Grid.Row="1">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="1.2*" MinWidth="360" />
         <ColumnDefinition Width="8" />
         <ColumnDefinition Width="*" MinWidth="300" />
         <ColumnDefinition Width="8" />
-        <ColumnDefinition Width="300" MinWidth="260" />
+        <ColumnDefinition Width="320" MinWidth="280" />
       </Grid.ColumnDefinitions>
 
       <controls:GridSplitter
@@ -62,13 +62,26 @@
           <Grid VerticalAlignment="Stretch">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
               <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
+            <!-- Batch-selection toolbar -->
+            <StackPanel Grid.Row="0"
+                        Orientation="Horizontal"
+                        Padding="8,0,8,4"
+                        Spacing="8">
+              <Button Content="Select all"
+                      Click="FilesSelectAll_Click" />
+              <Button Content="Select none"
+                      Click="FilesSelectNone_Click" />
+            </StackPanel>
+
             <!-- Column headers -->
-            <Grid Grid.Row="0"
+            <Grid Grid.Row="1"
                   Style="{StaticResource ColumnHeaderGridStyle}">
               <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="32" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="70" />
                 <ColumnDefinition Width="70" />
@@ -76,18 +89,19 @@
                 <ColumnDefinition Width="80" />
                 <ColumnDefinition Width="100" />
               </Grid.ColumnDefinitions>
-              <TextBlock Grid.Column="0" Text="File Name" FontWeight="SemiBold" Margin="8,0,0,0" />
-              <TextBlock Grid.Column="1" Text="Format" FontWeight="SemiBold" HorizontalAlignment="Center" />
-              <TextBlock Grid.Column="2" Text="Objects" FontWeight="SemiBold" HorizontalAlignment="Center" />
-              <TextBlock Grid.Column="3" Text="Meshes" FontWeight="SemiBold" HorizontalAlignment="Center" />
-              <TextBlock Grid.Column="4" Text="Triangles" FontWeight="SemiBold" HorizontalAlignment="Center" />
-              <TextBlock Grid.Column="5" Text="Status" FontWeight="SemiBold" />
+              <TextBlock Grid.Column="0" Text="" />
+              <TextBlock Grid.Column="1" Text="File Name" FontWeight="SemiBold" Margin="8,0,0,0" />
+              <TextBlock Grid.Column="2" Text="Format" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              <TextBlock Grid.Column="3" Text="Objects" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              <TextBlock Grid.Column="4" Text="Meshes" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              <TextBlock Grid.Column="5" Text="Triangles" FontWeight="SemiBold" HorizontalAlignment="Center" />
+              <TextBlock Grid.Column="6" Text="Status" FontWeight="SemiBold" />
             </Grid>
 
             <!-- Files ListView -->
             <ListView
               x:Name="FilesListView"
-              Grid.Row="1"
+              Grid.Row="2"
               SelectionMode="Single"
               SelectionChanged="FilesListView_SelectionChanged"
               Style="{StaticResource FileListViewStyle}">
@@ -95,6 +109,7 @@
                 <DataTemplate x:DataType="local:MeshFileEntry">
                   <Grid Style="{StaticResource ListItemRowGridStyle}">
                     <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="32" />
                       <ColumnDefinition Width="*" />
                       <ColumnDefinition Width="70" />
                       <ColumnDefinition Width="70" />
@@ -102,36 +117,43 @@
                       <ColumnDefinition Width="80" />
                       <ColumnDefinition Width="100" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock
+                    <CheckBox
                       Grid.Column="0"
+                      VerticalAlignment="Center"
+                      Margin="6,0,0,0"
+                      MinWidth="24"
+                      IsChecked="{x:Bind IsChecked, Mode=TwoWay}"
+                      Click="FileCheckbox_Click" />
+                    <TextBlock
+                      Grid.Column="1"
                       VerticalAlignment="Center"
                       Margin="8,0,0,0"
                       Text="{x:Bind RelativePath}"
                       TextTrimming="CharacterEllipsis"
                       ToolTipService.ToolTip="{x:Bind FilePath}" />
                     <TextBlock
-                      Grid.Column="1"
+                      Grid.Column="2"
                       VerticalAlignment="Center"
                       HorizontalAlignment="Center"
                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                       Text="{x:Bind FormatDisplay}" />
                     <TextBlock
-                      Grid.Column="2"
+                      Grid.Column="3"
                       VerticalAlignment="Center"
                       HorizontalAlignment="Center"
                       Text="{x:Bind ObjectsDisplay}" />
                     <TextBlock
-                      Grid.Column="3"
+                      Grid.Column="4"
                       VerticalAlignment="Center"
                       HorizontalAlignment="Center"
                       Text="{x:Bind MeshesDisplay}" />
                     <TextBlock
-                      Grid.Column="4"
+                      Grid.Column="5"
                       VerticalAlignment="Center"
                       HorizontalAlignment="Center"
                       Text="{x:Bind TrianglesDisplay, Mode=OneWay}" />
                     <TextBlock
-                      Grid.Column="5"
+                      Grid.Column="6"
                       VerticalAlignment="Center"
                       Foreground="{x:Bind StatusColor, Mode=OneWay}"
                       Text="{x:Bind StatusDisplay, Mode=OneWay}" />
@@ -159,7 +181,7 @@
               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
               TextAlignment="Center" />
             <TextBlock
-              Text="Select a folder (scanned recursively) or a .pak.ps2 worldzone archive. Companion files (DDX, PSX, TEX, SKE) are resolved automatically."
+              Text="Select a folder (scanned recursively) or a game archive. Companion files (DDX, PSX, TEX, SKE) are resolved automatically; skinned characters get an Animations panel."
               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
               TextAlignment="Center"
               TextWrapping="Wrap"
@@ -186,148 +208,312 @@
         </Border>
       </Grid>
 
-      <!-- Right: export + render options -->
+      <!-- Right: Animations / Settings / Export panes.
+           The SelectorBar's initial selection is set in the constructor —
+           a XAML default would fire SelectionChanged mid-InitializeComponent. -->
       <Grid Grid.Column="4">
         <Border Style="{StaticResource CardBorderStyle}">
-          <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <StackPanel Padding="12"
-                        Spacing="8">
+          <Grid>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
 
-              <!-- Export options -->
-              <TextBlock Text="Export"
-                         FontWeight="SemiBold" />
-              <CheckBox
-                x:Name="ExportGlbCheckbox"
-                Content="Export GLB"
-                MinWidth="0"
-                IsChecked="True"
-                Checked="ExportFormatCheckbox_Changed"
-                Unchecked="ExportFormatCheckbox_Changed" />
-              <CheckBox
-                x:Name="ExportBlendCheckbox"
-                Content="Export Blend"
-                MinWidth="0"
-                IsChecked="False"
-                Checked="ExportFormatCheckbox_Changed"
-                Unchecked="ExportFormatCheckbox_Changed" />
+            <SelectorBar x:Name="PanelSelector"
+                         Grid.Row="0"
+                         Margin="4,0,4,4"
+                         SelectionChanged="PanelSelector_SelectionChanged">
+              <SelectorBarItem x:Name="AnimationsPanelItem" Text="Animations" />
+              <SelectorBarItem x:Name="SettingsPanelItem" Text="Settings" />
+              <SelectorBarItem x:Name="ExportPanelItem" Text="Export" />
+            </SelectorBar>
 
-              <TextBlock Text="Worldzone"
-                         FontWeight="SemiBold"
-                         Margin="0,8,0,0" />
-              <Grid ColumnSpacing="8" RowSpacing="8">
+            <Grid Grid.Row="1">
+
+              <!-- Animations pane -->
+              <Grid x:Name="AnimationsPane"
+                    Visibility="Collapsed">
                 <Grid.RowDefinitions>
                   <RowDefinition Height="Auto" />
                   <RowDefinition Height="Auto" />
+                  <RowDefinition Height="*" />
+                  <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="70" />
-                  <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Row="0" Grid.Column="0"
-                           Text="Time"
-                           VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <ComboBox x:Name="WorldzoneTimeCombo"
-                          Grid.Row="0" Grid.Column="1"
-                          HorizontalAlignment="Stretch"
-                          SelectedIndex="0">
-                  <ComboBoxItem Content="All" Tag="all" />
-                  <ComboBoxItem Content="Day" Tag="day" />
-                  <ComboBoxItem Content="Night" Tag="night" />
-                </ComboBox>
-                <TextBlock Grid.Row="1" Grid.Column="0"
-                           Text="Scale"
-                           VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <TextBox x:Name="WorldzoneScaleText"
-                         Grid.Row="1" Grid.Column="1"
-                         Text="1" />
+
+                <!-- Panel header (left-aligned with the column header below) -->
+                <StackPanel Grid.Row="0"
+                            Padding="8,4,8,8"
+                            Spacing="6">
+                  <TextBlock
+                    x:Name="AnimDiscoveryStatusText"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    FontSize="12"
+                    TextWrapping="Wrap"
+                    Text="Select a skinned character to scan for animations." />
+                  <StackPanel Orientation="Horizontal" Spacing="4">
+                    <Button
+                      x:Name="AddAnimFolderButton"
+                      Content="Add folder..."
+                      Click="AddAnimFolder_Click"
+                      IsEnabled="False" />
+                    <Button
+                      x:Name="AddAnimArchiveButton"
+                      Content="Add archive..."
+                      Click="AddAnimArchive_Click"
+                      IsEnabled="False" />
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" Spacing="4">
+                    <Button Content="Select all"
+                            Click="AnimsSelectAll_Click" />
+                    <Button Content="Select none"
+                            Click="AnimsSelectNone_Click" />
+                    <CheckBox
+                      x:Name="ShowAllAnimsCheckBox"
+                      Content="Show all"
+                      MinWidth="0"
+                      IsChecked="False"
+                      ToolTipService.ToolTip="Also list animations whose bone count doesn't match this skeleton"
+                      Click="ShowAllAnims_Click" />
+                  </StackPanel>
+                </StackPanel>
+
+                <!-- List header -->
+                <Grid Grid.Row="1"
+                      Style="{StaticResource ColumnHeaderGridStyle}">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="32" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="60" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Grid.Column="0" Text="" />
+                  <TextBlock Grid.Column="1" Text="Animation" FontWeight="SemiBold" Margin="8,0,0,0" />
+                  <TextBlock Grid.Column="2" Text="Length" FontWeight="SemiBold" HorizontalAlignment="Right"
+                             Margin="0,0,8,0" />
+                </Grid>
+
+                <!-- Animation list -->
+                <ListView
+                  x:Name="AnimationListView"
+                  Grid.Row="2"
+                  SelectionMode="Single"
+                  SelectionChanged="AnimationListView_SelectionChanged"
+                  Style="{StaticResource FileListViewStyle}">
+                  <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="local:AnimationListEntry">
+                      <Grid Style="{StaticResource ListItemRowGridStyle}"
+                            ToolTipService.ToolTip="{x:Bind MismatchTooltip}">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="32" />
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="60" />
+                        </Grid.ColumnDefinitions>
+                        <CheckBox
+                          Grid.Column="0"
+                          VerticalAlignment="Center"
+                          Margin="6,0,0,0"
+                          MinWidth="24"
+                          IsChecked="{x:Bind IsChecked, Mode=TwoWay}"
+                          IsEnabled="{x:Bind MatchesSkeleton}" />
+                        <TextBlock
+                          Grid.Column="1"
+                          VerticalAlignment="Center"
+                          Margin="8,0,0,0"
+                          Text="{x:Bind DisplayName}"
+                          Foreground="{x:Bind RowForeground}"
+                          TextTrimming="CharacterEllipsis" />
+                        <TextBlock
+                          Grid.Column="2"
+                          VerticalAlignment="Center"
+                          HorizontalAlignment="Right"
+                          Margin="0,0,8,0"
+                          Text="{x:Bind DurationDisplay}"
+                          Foreground="{x:Bind RowForeground}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ListView.ItemTemplate>
+                </ListView>
+
+                <!-- Animated export actions -->
+                <StackPanel Grid.Row="3"
+                            Padding="8,8"
+                            Spacing="4">
+                  <Button
+                    x:Name="ConvertBlendButton"
+                    Content="Export animated Blend..."
+                    HorizontalAlignment="Stretch"
+                    IsEnabled="False"
+                    Click="ConvertBlend_Click" />
+                  <Button
+                    x:Name="ConvertGlbButton"
+                    Content="Export animated GLB..."
+                    HorizontalAlignment="Stretch"
+                    IsEnabled="False"
+                    Click="ConvertGlb_Click"
+                    Style="{StaticResource AccentButtonStyle}" />
+                </StackPanel>
               </Grid>
 
-              <!-- Render section -->
-              <TextBlock Text="Render"
-                         FontWeight="SemiBold"
-                         Margin="0,8,0,0" />
-              <TextBlock
-                Text="Renders the previewed model with the headless rasterizer (same as the glb-render / glb-gif CLI commands)."
-                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                FontSize="12"
-                TextWrapping="Wrap" />
-              <Grid ColumnSpacing="8" RowSpacing="8">
-                <Grid.RowDefinitions>
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="70" />
-                  <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Row="0" Grid.Column="0"
-                           Text="Size"
-                           VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <NumberBox x:Name="RenderSizeBox"
-                           Grid.Row="0" Grid.Column="1"
-                           Minimum="16"
-                           Maximum="4096"
-                           Value="512"
-                           SpinButtonPlacementMode="Compact"
-                           SmallChange="64" />
-                <TextBlock Grid.Row="1" Grid.Column="0"
-                           Text="Azimuth"
-                           VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <NumberBox x:Name="RenderAzimuthBox"
-                           Grid.Row="1" Grid.Column="1"
-                           Minimum="-360"
-                           Maximum="360"
-                           Value="-90"
-                           SpinButtonPlacementMode="Compact"
-                           SmallChange="15" />
-                <TextBlock Grid.Row="2" Grid.Column="0"
-                           Text="Elevation"
-                           VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <NumberBox x:Name="RenderElevationBox"
-                           Grid.Row="2" Grid.Column="1"
-                           Minimum="-90"
-                           Maximum="90"
-                           Value="10"
-                           SpinButtonPlacementMode="Compact"
-                           SmallChange="5" />
-                <TextBlock Grid.Row="3" Grid.Column="0"
-                           Text="GIF FPS"
-                           VerticalAlignment="Center"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <NumberBox x:Name="RenderFpsBox"
-                           Grid.Row="3" Grid.Column="1"
-                           Minimum="1"
-                           Maximum="60"
-                           Value="15"
-                           SpinButtonPlacementMode="Compact"
-                           SmallChange="5" />
-              </Grid>
-              <CheckBox
-                x:Name="ObjectReviewCheckbox"
-                Content="Object-review preset (5 views)"
-                MinWidth="0"
-                IsChecked="False" />
-              <Button
-                x:Name="RenderPngButton"
-                Content="Render PNG..."
-                HorizontalAlignment="Stretch"
-                IsEnabled="False"
-                Click="RenderPng_Click" />
-              <Button
-                x:Name="RenderGifButton"
-                Content="Render GIF..."
-                HorizontalAlignment="Stretch"
-                IsEnabled="False"
-                Click="RenderGif_Click" />
-            </StackPanel>
-          </ScrollViewer>
+              <!-- Settings pane -->
+              <ScrollViewer x:Name="SettingsPane"
+                            Visibility="Collapsed"
+                            VerticalScrollBarVisibility="Auto">
+                <StackPanel Padding="8,4,8,8"
+                            Spacing="8">
+                  <TextBlock Text="Worldzone"
+                             FontWeight="SemiBold" />
+                  <Grid ColumnSpacing="8" RowSpacing="8">
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="70" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                               Text="Time"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <ComboBox x:Name="WorldzoneTimeCombo"
+                              Grid.Row="0" Grid.Column="1"
+                              HorizontalAlignment="Stretch"
+                              SelectedIndex="0">
+                      <ComboBoxItem Content="All" Tag="all" />
+                      <ComboBoxItem Content="Day" Tag="day" />
+                      <ComboBoxItem Content="Night" Tag="night" />
+                    </ComboBox>
+                    <TextBlock Grid.Row="1" Grid.Column="0"
+                               Text="Scale"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBox x:Name="WorldzoneScaleText"
+                             Grid.Row="1" Grid.Column="1"
+                             Text="1" />
+                  </Grid>
+
+                </StackPanel>
+              </ScrollViewer>
+
+              <!-- Export pane -->
+              <ScrollViewer x:Name="ExportPane"
+                            VerticalScrollBarVisibility="Auto">
+                <StackPanel Padding="8,4,8,8"
+                            Spacing="8">
+                  <TextBlock Text="Convert"
+                             FontWeight="SemiBold" />
+                  <CheckBox
+                    x:Name="ExportGlbCheckbox"
+                    Content="Export GLB"
+                    MinWidth="0"
+                    IsChecked="True"
+                    Checked="ExportFormatCheckbox_Changed"
+                    Unchecked="ExportFormatCheckbox_Changed" />
+                  <CheckBox
+                    x:Name="ExportBlendCheckbox"
+                    Content="Export Blend"
+                    MinWidth="0"
+                    IsChecked="False"
+                    Checked="ExportFormatCheckbox_Changed"
+                    Unchecked="ExportFormatCheckbox_Changed" />
+                  <Button
+                    x:Name="ConvertButton"
+                    Content="Convert checked files"
+                    HorizontalAlignment="Stretch"
+                    Click="ConvertButton_Click"
+                    IsEnabled="False"
+                    Style="{StaticResource AccentButtonStyle}" />
+                  <Button
+                    x:Name="CancelButton"
+                    Content="Cancel"
+                    HorizontalAlignment="Stretch"
+                    Click="CancelButton_Click"
+                    Visibility="Collapsed" />
+
+                  <TextBlock Text="Render"
+                             FontWeight="SemiBold"
+                             Margin="0,8,0,0" />
+                  <TextBlock
+                    Text="Headless rasterizer — not the interactive viewport camera. One checked file renders the loaded preview; several checked files convert and render each in turn."
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    FontSize="12"
+                    TextWrapping="Wrap" />
+                  <Grid ColumnSpacing="8" RowSpacing="8">
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="70" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                               Text="Size"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <NumberBox x:Name="RenderSizeBox"
+                               Grid.Row="0" Grid.Column="1"
+                               Minimum="16"
+                               Maximum="4096"
+                               Value="512"
+                               SpinButtonPlacementMode="Compact"
+                               SmallChange="64" />
+                    <TextBlock Grid.Row="1" Grid.Column="0"
+                               Text="Azimuth"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <NumberBox x:Name="RenderAzimuthBox"
+                               Grid.Row="1" Grid.Column="1"
+                               Minimum="-360"
+                               Maximum="360"
+                               Value="-90"
+                               SpinButtonPlacementMode="Compact"
+                               SmallChange="15" />
+                    <TextBlock Grid.Row="2" Grid.Column="0"
+                               Text="Elevation"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <NumberBox x:Name="RenderElevationBox"
+                               Grid.Row="2" Grid.Column="1"
+                               Minimum="-90"
+                               Maximum="90"
+                               Value="10"
+                               SpinButtonPlacementMode="Compact"
+                               SmallChange="5" />
+                    <TextBlock Grid.Row="3" Grid.Column="0"
+                               Text="GIF FPS"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <NumberBox x:Name="RenderFpsBox"
+                               Grid.Row="3" Grid.Column="1"
+                               Minimum="1"
+                               Maximum="60"
+                               Value="15"
+                               SpinButtonPlacementMode="Compact"
+                               SmallChange="5" />
+                  </Grid>
+                  <CheckBox
+                    x:Name="ObjectReviewCheckbox"
+                    Content="Object-review preset (5 views)"
+                    MinWidth="0"
+                    IsChecked="False" />
+                  <Button
+                    x:Name="RenderPngButton"
+                    Content="Render PNG..."
+                    HorizontalAlignment="Stretch"
+                    IsEnabled="False"
+                    Click="RenderPng_Click" />
+                  <Button
+                    x:Name="RenderGifButton"
+                    Content="Render GIF..."
+                    HorizontalAlignment="Stretch"
+                    IsEnabled="False"
+                    Click="RenderGif_Click" />
+                </StackPanel>
+              </ScrollViewer>
+            </Grid>
+          </Grid>
         </Border>
       </Grid>
     </Grid>
@@ -383,19 +569,6 @@
         <Button Content="Browse folder..."
                 MinWidth="120"
                 Click="OutputBrowse_Click" />
-        <Button
-          x:Name="CancelButton"
-          Content="Cancel"
-          MinWidth="120"
-          Click="CancelButton_Click"
-          Visibility="Collapsed" />
-        <Button
-          x:Name="ConvertButton"
-          Content="Convert"
-          Click="ConvertButton_Click"
-          IsEnabled="False"
-          MinWidth="120"
-          Style="{StaticResource AccentButtonStyle}" />
       </StackPanel>
     </Grid>
   </Grid>

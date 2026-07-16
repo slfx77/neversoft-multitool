@@ -1,5 +1,6 @@
 using System.Numerics;
 using NeversoftMultitool.Core.BinaryIO;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Texture;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;
@@ -333,7 +334,9 @@ public static class RwDffGltfWriter
             color = new Vector4(c.R / 255f, c.G / 255f, c.B / 255f, c.A / 255f);
         }
 
-        // UVs: already V-flipped during parsing
+        // UVs pass through unflipped: RW TXD PNGs decode top-down, matching glTF's V=0-at-top.
+        // Verified byte-faithful against raw DFF UV arrays (LOD 2/3 audit 2026-07-16,
+        // tools/diagnostics/rwdff_lod_uv_probe.py).
         var uv = Vector2.Zero;
         if (geometry.UVs != null && index < geometry.UVs.Length)
             uv = geometry.UVs[index];
@@ -408,6 +411,7 @@ public static class RwDffGltfWriter
         builder.WithBaseColor(baseColor);
 
         // Embed texture if available
+        var textureAlphaMode = "OPAQUE";
         if (textureProvider != null && !string.IsNullOrEmpty(material.TextureName))
         {
             var pngBytes = textureProvider(material.TextureName);
@@ -415,12 +419,16 @@ public static class RwDffGltfWriter
             {
                 var memImage = new MemoryImage(pngBytes);
                 builder.WithChannelImage(KnownChannel.BaseColor, memImage);
+                textureAlphaMode = Ps2GeomDestinationAlphaSynthesis.ClassifyTextureAlphaMode(pngBytes);
             }
         }
 
-        // Alpha handling
-        if (material.A < 255)
+        // Alpha handling: flat material alpha OR embedded texture alpha
+        // (cutouts must be MASK — BLEND disables depth-write in the web viewer).
+        if (material.A < 255 || textureAlphaMode == "BLEND")
             builder.WithAlpha(AlphaMode.BLEND);
+        else if (textureAlphaMode == "MASK")
+            builder.WithAlpha(AlphaMode.MASK, 0.5f);
 
         cache[key] = builder;
         return builder;

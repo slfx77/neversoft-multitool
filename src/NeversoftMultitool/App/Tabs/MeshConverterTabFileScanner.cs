@@ -123,7 +123,7 @@ internal static class MeshConverterTabFileScanner
 
         Parallel.ForEach(buckets.PakSceneFiles, parallelOptions, file =>
         {
-            AddIfNotNull(results, ScanPs2SceneFile(new FileSystemAssetSource(file), file, inputDir, iskinStems: null));
+            AddIfNotNull(results, ScanPs2SceneFile(new FileSystemAssetSource(file), file, inputDir, buckets.IskinStems));
             Report();
         });
 
@@ -142,13 +142,25 @@ internal static class MeshConverterTabFileScanner
     ///     Entry point used when the user picks a single archive file. Routes THAW
     ///     worldzone PAKs to the single-entry worldzone path; for other archive
     ///     types (WAD, PRE, PRE3/PRX, PKR, non-worldzone PAK), opens the archive
-    ///     in-memory and enumerates every entry that looks like a supported mesh
-    ///     file. Every returned entry carries an <see cref="ArchiveAssetSource" />.
+    ///     and enumerates every entry that looks like a supported mesh file —
+    ///     including entries inside NESTED archives (THPS3 packs its level .bsp
+    ///     and .skn inside .pre entries of SKATE3.WAD). Phase 1 walks the entry
+    ///     tables breadth-first (collecting .iskin.ps2 stems across all levels so
+    ///     pre-compiled skins defer to their companions); phase 2 probes the
+    ///     candidates in parallel. Every returned entry carries an
+    ///     <see cref="ArchiveAssetSource" />.
     /// </summary>
-    public static List<MeshFileEntry> ScanArchive(string archivePath, CancellationToken ct = default)
+    public static List<MeshFileEntry> ScanArchive(
+        string archivePath,
+        IProgress<int>? progress = null,
+        CancellationToken ct = default)
     {
-        // Worldzone PAKs stay on their dedicated single-entry path.
-        if (Ps2WorldzoneDetection.IsWorldzonePak(archivePath))
+        // Worldzone PAKs stay on their dedicated single-entry path. Extension-gated:
+        // the content check alone also matches archives that merely CONTAIN worldzone
+        // PAKs (DATAP.WAD embeds 52 of them) and would list the whole archive as one
+        // "mesh" named after itself.
+        if ((EndsWith(archivePath, ".pak.ps2") || EndsWith(archivePath, ".pak")) &&
+            Ps2WorldzoneDetection.IsWorldzonePak(archivePath))
         {
             var worldzone = ScanPakWorldzoneFile(new FileSystemAssetSource(archivePath), archivePath, rootDir: "");
             return worldzone != null ? [worldzone] : [];
@@ -158,29 +170,136 @@ internal static class MeshConverterTabFileScanner
         if (backend == null)
             return [];
 
-        var archiveName = Path.GetFileName(archivePath);
-        var results = new List<MeshFileEntry>();
-        foreach (var archiveEntry in backend.Entries)
+        var (workItems, iskinStems) = CollectArchiveWorkItems(backend, ct);
+
+        var results = new ConcurrentBag<MeshFileEntry>();
+        var processed = 0;
+        var parallelOptions = new ParallelOptions
+        {
+            CancellationToken = ct,
+            MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount)
+        };
+
+        Parallel.ForEach(workItems, parallelOptions, item =>
+        {
+            var source = new ArchiveAssetSource(item.Backend, item.Entry);
+            var virtualPath = $"{item.Backend.DisplayPath}::{item.Entry.FullName}";
+            var entry = item.IsWorldzoneProbe
+                ? ScanPakWorldzoneFile(source, virtualPath, rootDir: "")
+                : TryScanEntry(source, virtualPath, rootDir: "", iskinStems);
+            AddIfNotNull(results, entry);
+
+            if (progress != null)
+                progress.Report(Interlocked.Increment(ref processed));
+        });
+
+        var list = results.ToList();
+        list.Sort(RelativePathComparer);
+        return list;
+    }
+
+    /// <summary>
+    ///     Breadth-first walk over an archive and its nested archives, returning
+    ///     scan candidates plus the .iskin.ps2 stem set across ALL levels. Only
+    ///     nested-container payloads are read here; candidate payloads wait for
+    ///     the parallel phase.
+    /// </summary>
+    private static (List<ArchiveScanItem> WorkItems, HashSet<string> IskinStems) CollectArchiveWorkItems(
+        ArchiveAssetBackend root, CancellationToken ct)
+    {
+        var workItems = new List<ArchiveScanItem>();
+        var iskinStems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pending = new Queue<ArchiveAssetBackend>();
+        pending.Enqueue(root);
+
+        while (pending.Count > 0)
         {
             ct.ThrowIfCancellationRequested();
-            var source = new ArchiveAssetSource(backend, archiveEntry);
-            var virtualPath = $"{archiveName}::{archiveEntry.FullName}";
-            var entry = TryScanEntry(source, virtualPath, rootDir: "", iskinStems: null);
+            var backend = pending.Dequeue();
 
-            // Nested worldzone PAKs (z_*.pak.ps2 inside DATAP.WAD) aren't mesh
-            // files themselves — probe them as worldzone containers.
-            if (entry == null &&
-                (EndsWith(archiveEntry.Name, ".pak.ps2") || EndsWith(archiveEntry.Name, ".pak")))
+            foreach (var archiveEntry in backend.Entries)
             {
-                entry = ScanPakWorldzoneFile(source, virtualPath, rootDir: "");
-            }
+                ct.ThrowIfCancellationRequested();
+                var name = archiveEntry.Name;
 
-            if (entry != null)
-                results.Add(entry);
+                if (EndsWith(name, ".iskin.ps2"))
+                    iskinStems.Add(StripCompoundExtension(name));
+
+                if (IsScanCandidate(name))
+                {
+                    workItems.Add(new ArchiveScanItem(backend, archiveEntry, IsWorldzoneProbe: false));
+                    continue;
+                }
+
+                if (EndsWith(name, ".pak.ps2") || EndsWith(name, ".pak"))
+                {
+                    // A .pak entry is either a THAW worldzone (probe it as one in
+                    // the parallel phase) or a plain nested archive to recurse.
+                    byte[] data;
+                    try
+                    {
+                        data = backend.ReadEntryBytes(archiveEntry);
+                    }
+                    catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException)
+                    {
+                        continue;
+                    }
+
+                    if (Ps2WorldzoneDetection.IsWorldzonePak(data))
+                    {
+                        workItems.Add(new ArchiveScanItem(backend, archiveEntry, IsWorldzoneProbe: true));
+                        continue;
+                    }
+                }
+
+                var nested = backend.TryOpenNested(archiveEntry);
+                if (nested != null)
+                    pending.Enqueue(nested);
+            }
         }
 
-        results.Sort(RelativePathComparer);
-        return results;
+        return (workItems, iskinStems);
+    }
+
+    private sealed record ArchiveScanItem(
+        ArchiveAssetBackend Backend, ArchiveEntry Entry, bool IsWorldzoneProbe);
+
+    /// <summary>
+    ///     True when the entry name matches any suffix <see cref="TryScanEntry" />
+    ///     can route. Mirrors TryScanEntry's gates exactly.
+    /// </summary>
+    private static bool IsScanCandidate(string name)
+    {
+        if (EndsWith(name, ".iskin.ps2") || EndsWith(name, ".skin.ps2") || EndsWith(name, ".mdl.ps2") ||
+            EndsWith(name, ".geom.ps2"))
+        {
+            return true;
+        }
+
+        if (EndsWith(name, ".skin.xbx") || EndsWith(name, ".mdl.xbx") ||
+            EndsWith(name, ".scn.xbx") || EndsWith(name, ".scn.wpc") ||
+            EndsWith(name, ".skin.wpc") || EndsWith(name, ".mdl.wpc") ||
+            EndsWith(name, ".skin.ngc") || EndsWith(name, ".mdl.ngc") ||
+            EndsWith(name, ".scn.ngc"))
+        {
+            return true;
+        }
+
+        if (OrdinalFileName.HasAnySuffix(name, ColSuffixes) || EndsWith(name, ".col"))
+            return true;
+
+        if (EndsWith(name, ".skn") || EndsWith(name, ".bsp"))
+            return true;
+
+        if (OrdinalFileName.HasExtension(name, ".ddm") &&
+            !Path.GetFileNameWithoutExtension(name).EndsWith("_o", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return OrdinalFileName.HasExtension(name, ".psx") ||
+               OrdinalFileName.HasExtension(name, ".skin") ||
+               OrdinalFileName.HasExtension(name, ".mdl");
     }
 
     /// <summary>
@@ -257,7 +376,7 @@ internal static class MeshConverterTabFileScanner
             return ScanPsxFile(source, displayPath, rootDir);
 
         if (OrdinalFileName.HasExtension(name, ".skin") || OrdinalFileName.HasExtension(name, ".mdl"))
-            return ScanPs2SceneFile(source, displayPath, rootDir, iskinStems: null);
+            return ScanPs2SceneFile(source, displayPath, rootDir, iskinStems);
 
         return null;
     }

@@ -42,10 +42,35 @@ public static class ThawPs2SkinFile
         var bsR = BitConverter.ToSingle(data, 0x1C);
         if (float.IsNaN(bsR) || float.IsInfinity(bsR) || bsR <= 0) return false;
 
-        if (data.Length > 32)
+        return data.Length <= 32 || EntryTableIsValid(data, fileSize, numObjects, totalMeshes2);
+    }
+
+    /// <summary>
+    ///     THUG2 pre-compiled skins share the THAW header shape but their 64-byte
+    ///     records are laid out differently: the u32 at entry+44 (THAW's owner-object
+    ///     checksum) holds unrelated data there. In genuine THAW skins every entry's
+    ///     owner is either 0 (unowned) or one of the object-table checksums —
+    ///     validated at 332/332 THAW accepts vs 746 THUG2 rejects, see
+    ///     tools/diagnostics/ps2_skin_header_probe.py.
+    /// </summary>
+    private static bool EntryTableIsValid(byte[] data, long fileSize, uint numObjects, uint totalMeshes2)
+    {
+        var entryTableEnd = 32 + numObjects * 8 + totalMeshes2 * 64;
+        if (entryTableEnd > fileSize) return false;
+
+        // Header-only prefix (FormatProbeMesh) — table not in the buffer, can't validate.
+        if (entryTableEnd > data.Length) return true;
+
+        Span<uint> objectChecksums = stackalloc uint[(int)numObjects];
+        for (var i = 0; i < numObjects; i++)
+            objectChecksums[i] = BitConverter.ToUInt32(data, 0x20 + i * 8);
+
+        var entryBase = 0x20 + (int)numObjects * 8;
+        for (var i = 0; i < totalMeshes2; i++)
         {
-            var entryTableEnd = 32 + numObjects * 8 + totalMeshes2 * 64;
-            if (entryTableEnd > fileSize) return false;
+            var owner = BitConverter.ToUInt32(data, entryBase + i * 64 + 44);
+            if (owner != 0 && !objectChecksums.Contains(owner))
+                return false;
         }
 
         return true;

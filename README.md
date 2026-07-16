@@ -38,7 +38,7 @@ The **Game Unpacker** recursively extracts every archive under a directory in on
 | ------ | -------------------------------------------------------------- | ---------------------------- |
 | XA     | PS1 ADPCM audio (sectored and raw) → WAV                       | All PS1 titles               |
 | VAB    | PS1 sound bank (multi-sample) → WAV                            | All PS1 titles               |
-| VAG    | PS2 SPU-ADPCM (headered + headerless) → WAV                    | THPS3+ PS2                    |
+| VAG    | PS2 SPU-ADPCM (headered + headerless; music streams decode as stereo 48 kHz) → WAV | THPS3+ PS2                    |
 | PSS    | Headerless SPU-ADPCM → WAV                                     | Spider-Man PC, THPS3+ PS2     |
 | ADX    | CRI Middleware audio → WAV                                     | THPS2 DC, Spider-Man DC       |
 | KAT    | Dreamcast audio soundbank (ADPCM + PCM) → WAV                  | THPS2 DC, Spider-Man DC       |
@@ -130,14 +130,13 @@ dotnet run --project src/NeversoftMultitool -f net10.0-windows10.0.19041.0
 
 The GUI is organized into tabs with batch-processing support:
 
-- **Textures** — PSX, PVR, PS2 TEX/IMG, RW TXD, Xbox TEX, and NGC textures → PNG, with zoomable preview (fit / 100% + pan, optional pixel-perfect integer scaling)
+- **Textures** — PSX, PVR, PS2 TEX/IMG, RW TXD, Xbox TEX, and NGC textures → PNG, with zoomable preview (fit / 100% + pan, optional pixel-perfect integer scaling); folder and archive scans run in the background with progress, and archives are browsed *through* their nested archives (level textures inside a WAD's PREs list directly)
 - **Bitmap Converter** — Neversoft RLE/BMR/ZLB (auto width detection) and standard BMP/TGA → PNG
 - **Archive Extractor** — WAD, PKR, PRE, DDX, BON, PAK, and disc images (ISO / BIN+CUE / IMG+CCD / GDI)
 - **Game Unpacker** — recursive extraction of every archive in a game directory (disc images included)
 - **Audio Converter** — all audio formats with in-app playback; VAB banks auto-detect their tone-table sample rate
-- **Video Converter** — SFD, PSS, BIK, STR, and VID1 with playback preview, per-file conversion checkboxes, and recursive folder scans
-- **Mesh Converter** — every mesh format above → glTF/Blender, with 3D preview (animation playback) and PNG/GIF rendering
-- **Character Preview** — animated 3D preview with play/pause/seek; exports GLB, Blender, or GIF
+- **Video Converter** — SFD, PSS, BIK, STR, and VID1 with playback preview, per-file conversion checkboxes, and recursive folder scans; VID1 seeks resume from decode anchors instead of re-decoding from frame 0
+- **Meshes & Characters** — every mesh format above → glTF/Blender in one tab: batch conversion/rendering over checked files, a three.js 3D preview with camera presets (perspective / true orthographic / isometric / trimetric, named views, 90° snap) plus **Orbit / Fly / Walk** control modes (WASD + Q/E, Shift/Ctrl speed, mouse-look; levels start in Fly and F toggles Walk, other models toggle Fly/Orbit), and an Animations pane for skinned characters (bone-count-filtered discovery, animated preview, GLB/Blender/GIF export). Archives over 2 GB open fine, and meshes inside nested archives (SKATE3.WAD's level PREs) scan directly
 - **Script Decompiler** — TRG triggers → JSON and QB scripts → `.q` source, in a three-pane file / node / detail layout
 - **Hash Reviewer** — QBKey hash → name resolution review
 

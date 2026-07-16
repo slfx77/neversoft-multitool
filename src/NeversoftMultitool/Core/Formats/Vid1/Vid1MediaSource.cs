@@ -18,13 +18,23 @@ namespace NeversoftMultitool.Core.Formats.Vid1;
 ///     any mid-stream decode hiccup). Seeks reposition on the worker: forward
 ///     seeks fast-forward the decoder, backward seeks restart it (VID1 frames
 ///     are inter-predicted with no random access), so scrubbing never stalls
-///     the UI thread.
+///     the UI thread. Startup avoids stutter two ways: the pipeline's initial
+///     Starting at position 0 reuses the pre-decoded queue instead of
+///     repositioning (<see cref="Vid1StartupSeekPolicy" />), and every Starting
+///     handshake holds a deferral until a small pre-roll of frames is queued.
 /// </summary>
 public sealed class Vid1MediaSource : IDisposable
 {
     private const int QueueDepth = 24;
     // Extra slots cover samples still in flight while WinUI requests the next frame.
     private const int VideoBufferCount = QueueDepth + 8;
+    // Frames the queue should hold before a Starting handshake completes
+    // (~200 ms at 29.97 fps) — enough headroom that the reorder hold and an
+    // occasional slow decode don't make the opening cadence uneven.
+    private const int PrerollFrameCount = 6;
+    // Safety valve: a short or broken file (or a decoder stall) must still
+    // start rather than hold the pipeline's Starting handshake open forever.
+    private static readonly TimeSpan PrerollTimeout = TimeSpan.FromMilliseconds(500);
 
     private readonly Vid1AudioExtractor.Vid1PcmAudio? _audio;
     private readonly Vid1VideoFile _file;
@@ -32,7 +42,6 @@ public sealed class Vid1MediaSource : IDisposable
     private readonly Queue<VideoBufferSlot> _freeVideoBuffers = new(VideoBufferCount);
     private readonly byte[] _lastGoodFrame;
     private readonly Vid1BgraPresentationFrameProvider _provider;
-    private readonly byte[] _seekScratchBuffer;
     private readonly object _sync = new();
     private readonly VideoBufferSlot[] _videoBuffers = new VideoBufferSlot[VideoBufferCount];
     private readonly Queue<QueuedVideoFrame> _videoQueue = new(VideoBufferCount);
@@ -44,6 +53,10 @@ public sealed class Vid1MediaSource : IDisposable
     private MediaStreamSourceSampleRequestDeferral? _pendingVideoDeferral;
     private MediaStreamSourceSampleRequest? _pendingVideoRequest;
     private int _pendingSeekIndex = -1;
+    private bool _startHandled;
+    private MediaStreamSourceStartingRequestDeferral? _startingDeferral;
+    private int _startingDeferralGeneration;
+    private Timer? _startingDeferralTimer;
     private Thread? _worker;
 
     private Vid1MediaSource(Vid1VideoFile file, Vid1AudioExtractor.Vid1PcmAudio? audio)
@@ -52,9 +65,8 @@ public sealed class Vid1MediaSource : IDisposable
         _audio = audio;
         _frameRate = file.FrameRate;
         var videoFrameByteLength = file.Width * file.Height * 4;
-        _seekScratchBuffer = new byte[videoFrameByteLength];
         _lastGoodFrame = new byte[videoFrameByteLength];
-        _provider = new Vid1BgraPresentationFrameProvider(file);
+        _provider = new Vid1BgraPresentationFrameProvider(file, enableSeekAnchors: true);
 
         for (var i = 0; i < _videoBuffers.Length; i++)
         {
@@ -76,6 +88,7 @@ public sealed class Vid1MediaSource : IDisposable
             worker = _worker;
             _worker = null;
             CompletePendingVideoRequestLocked(deliver: false);
+            CompleteStartingDeferralLocked();
             Monitor.PulseAll(_sync);
         }
 
@@ -136,6 +149,9 @@ public sealed class Vid1MediaSource : IDisposable
 
         streamSource.CanSeek = true;
         streamSource.Duration = file.Duration;
+        // Pre-roll is enforced via the Starting deferral (see OnStarting), not
+        // BufferTime: pipeline-side buffering of uncompressed BGRA frames is
+        // expensive and adds latency to every seek, not just the first start.
         streamSource.BufferTime = TimeSpan.Zero;
         streamSource.SampleRequested += source.OnSampleRequested;
         streamSource.Starting += source.OnStarting;
@@ -166,20 +182,100 @@ public sealed class Vid1MediaSource : IDisposable
                 (int)(position.TotalSeconds * _frameRate),
                 0,
                 Math.Max(0, _file.FrameCount - 1));
-            _audioByteOffset = ComputeAudioOffset(TimeSpan.FromSeconds(presentationIndex / _frameRate));
         }
-        else
-        {
-            _audioByteOffset = 0;
-        }
+
+        _audioByteOffset = ComputeAudioOffset(TimeSpan.FromSeconds(presentationIndex / _frameRate));
+
+        // Must be set before the request completes; the deferral below may be
+        // completed by the worker the moment the lock is released.
+        args.Request.SetActualStartPosition(TimeSpan.FromSeconds(presentationIndex / _frameRate));
 
         lock (_sync)
         {
-            _pendingSeekIndex = presentationIndex;
+            // The worker has been pre-decoding from frame 0 since Create, so
+            // the initial start at position 0 must not reposition — that would
+            // recycle the warm queue and re-decode frame 0 onward (a startup
+            // stutter). Real seeks (including back to 0 after playing) still
+            // reposition.
+            var queueHeadIndex = _videoQueue.Count > 0 ? _videoQueue.Peek().PresentationIndex : -1;
+            var redundantStart = Vid1StartupSeekPolicy.IsRedundantStartAtZero(
+                presentationIndex,
+                repositionPending: _pendingSeekIndex >= 0,
+                queueHeadIndex,
+                startHandledBefore: _startHandled);
+            _startHandled = true;
+            if (!redundantStart)
+                _pendingSeekIndex = presentationIndex;
+
+            BeginStartingPrerollLocked(args.Request);
             Monitor.PulseAll(_sync);
         }
+    }
 
-        args.Request.SetActualStartPosition(TimeSpan.FromSeconds(presentationIndex / _frameRate));
+    /// <summary>
+    ///     Pre-roll: holds the Starting handshake open (via its deferral) until
+    ///     the queue has <see cref="PrerollFrameCount" /> frames in hand, so the
+    ///     first sample requests are served from a warm queue instead of racing
+    ///     the decoder frame-by-frame. <see cref="PrerollTimeout" /> bounds the
+    ///     wait so short or broken files still start.
+    /// </summary>
+    private void BeginStartingPrerollLocked(MediaStreamSourceStartingRequest request)
+    {
+        CompleteStartingDeferralLocked();
+
+        if (_disposed)
+            return;
+
+        var repositioning = _pendingSeekIndex >= 0;
+        if (!repositioning && (_endOfStream || _videoQueue.Count >= PrerollFrameCount))
+            return;
+
+        _startingDeferral = request.GetDeferral();
+        var generation = ++_startingDeferralGeneration;
+        _startingDeferralTimer = new Timer(
+            _ => OnStartingPrerollTimeout(generation),
+            null,
+            PrerollTimeout,
+            Timeout.InfiniteTimeSpan);
+    }
+
+    private void OnStartingPrerollTimeout(int generation)
+    {
+        lock (_sync)
+        {
+            // A disposed Timer can still have a queued callback; the generation
+            // check keeps it from completing a newer handshake early.
+            if (generation != _startingDeferralGeneration)
+                return;
+
+            CompleteStartingDeferralLocked();
+        }
+    }
+
+    /// <summary>Worker → pipeline handoff once the pre-roll target is met (or the stream ended).</summary>
+    private void TryCompleteStartingPrerollLocked()
+    {
+        if (_startingDeferral == null)
+            return;
+
+        // An unconsumed seek means the queue is about to be recycled — keep
+        // holding until frames for the new position land.
+        if (_pendingSeekIndex >= 0)
+            return;
+
+        if (!_endOfStream && !_disposed && _videoQueue.Count < PrerollFrameCount)
+            return;
+
+        CompleteStartingDeferralLocked();
+    }
+
+    private void CompleteStartingDeferralLocked()
+    {
+        _startingDeferralGeneration++;
+        _startingDeferralTimer?.Dispose();
+        _startingDeferralTimer = null;
+        _startingDeferral?.Complete();
+        _startingDeferral = null;
     }
 
     private void OnSampleRequested(MediaStreamSource sender, MediaStreamSourceSampleRequestedEventArgs args)
@@ -326,53 +422,46 @@ public sealed class Vid1MediaSource : IDisposable
     }
 
     /// <summary>
-    ///     VID1 has no random access (frames are inter-predicted): forward
-    ///     seeks decode-and-discard up to the target; backward seeks restart
-    ///     the provider first. A newer seek arriving mid-scan supersedes this
-    ///     one, so scrubbing stays responsive.
+    ///     Repositions via the provider's anchor-based seek: it resumes from
+    ///     the nearest reference-state snapshot / intra frame instead of
+    ///     re-decoding from frame 0, and fast-forwards with plane-only decodes.
+    ///     A newer seek arriving mid-scan supersedes this one (polled via the
+    ///     cancellation callback), so scrubbing stays responsive.
     /// </summary>
     private void Reposition(int targetIndex)
     {
-        if (targetIndex < _nextDecodeIndex)
+        int resumedAt;
+        try
         {
-            _provider.Reset();
-            _nextDecodeIndex = 0;
-            _hasLastGoodFrame = false;
-        }
-
-        while (_nextDecodeIndex < targetIndex)
-        {
-            lock (_sync)
-            {
-                if (_disposed || _pendingSeekIndex >= 0)
-                    return;
-            }
-
-            bool ok;
-            try
-            {
-                ok = _provider.TryDecodeNextFrame(_seekScratchBuffer, out _);
-            }
-            catch
-            {
-                ok = false;
-            }
-
-            if (!ok)
+            resumedAt = _provider.SeekToEmissionOrdinal(targetIndex, () =>
             {
                 lock (_sync)
                 {
-                    _endOfStream = true;
-                    CompletePendingVideoRequestLocked(deliver: true);
+                    return _disposed || _pendingSeekIndex >= 0;
                 }
+            });
+        }
+        catch
+        {
+            resumedAt = -1;
+        }
 
-                return;
+        if (resumedAt < 0)
+        {
+            lock (_sync)
+            {
+                _endOfStream = true;
+                CompletePendingVideoRequestLocked(deliver: true);
+                TryCompleteStartingPrerollLocked();
             }
 
-            _seekScratchBuffer.CopyTo(_lastGoodFrame, 0);
-            _hasLastGoodFrame = true;
-            _nextDecodeIndex++;
+            return;
         }
+
+        _nextDecodeIndex = resumedAt;
+        // The decode position moved; the previously captured frame no longer
+        // matches the stream position, so the hiccup fallback must re-arm.
+        _hasLastGoodFrame = false;
     }
 
     private void DecodeIntoSlot(VideoBufferSlot slot)
@@ -423,6 +512,7 @@ public sealed class Vid1MediaSource : IDisposable
             }
 
             CompletePendingVideoRequestLocked(deliver: true);
+            TryCompleteStartingPrerollLocked();
             Monitor.PulseAll(_sync);
         }
     }

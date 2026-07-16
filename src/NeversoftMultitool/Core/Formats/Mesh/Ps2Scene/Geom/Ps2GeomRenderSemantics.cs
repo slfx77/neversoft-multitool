@@ -170,6 +170,15 @@ internal static class Ps2GeomRenderSemantics
         if (atst == 1) // ATST_ALWAYS is a pass-through.
             return false;
 
+        // GEQUAL vs AREF=0 always passes — THUG mesh.cpp:402 programs
+        // ATE=1/AGEQUAL/AREF unconditionally for every material, so this
+        // engine-default state is not a real cutout test (treating it as one
+        // exported MASK-cutoff-0 == fully-opaque materials, e.g. the Crown
+        // chrome envmap stripe).
+        var arefValue = (int)((test >> 4) & 0xFF);
+        if (atst == 5 && arefValue == 0)
+            return false;
+
         var afail = (int)((test >> 12) & 0x3);
         return afail is 0 or 2;
     }
@@ -181,6 +190,9 @@ internal static class Ps2GeomRenderSemantics
         if (atst == 6) // ATST_GREATER is exclusive: pass when alpha > AREF.
             aref = Math.Min(255, aref + 1);
 
-        return aref / 255f;
+        // Two-domain rule: exported PNG alpha is rescaled ×255/128 (GS 128 =
+        // opaque), so the cutoff must live in the same domain — AREF/128, not
+        // AREF/255 (a GS AREF of 20 cuts at ~0.156 of PNG alpha).
+        return Math.Min(aref / 128f, 1f);
     }
 }

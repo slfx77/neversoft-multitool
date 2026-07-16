@@ -37,9 +37,12 @@ internal static class MeshConverterTabFileConverter
     ///     Converts a mesh file to GLB bytes in memory (no temp files).
     ///     Used by the preview panel for on-select 3D viewing.
     /// </summary>
-    public static (byte[]? GlbBytes, int Triangles) ConvertToGlbBytes(MeshFileEntry entry)
+    public static (byte[]? GlbBytes, int Triangles) ConvertToGlbBytes(
+        MeshFileEntry entry,
+        WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
+        float worldzoneScale = 1f)
     {
-        var document = Parser.Parse(CreateImportRequest(entry));
+        var document = Parser.Parse(CreateImportRequest(entry, worldzoneTimeOfDay, worldzoneScale));
         return ModelExportService.BuildGlbBytes(document);
     }
 
@@ -193,15 +196,10 @@ internal static class MeshConverterTabFileConverter
     internal static MeshNamedTextureResolver? BuildRwDffTextureProvider(MeshFileEntry entry)
         => BuildRwTxdTextureProvider(entry);
 
+    // Delegates to the Core resolver so the THPS3 LOD-stem fallback
+    // (*_LOD00.skn → base .tex) applies to the GUI preview path too.
     private static MeshNamedTextureResolver? BuildRwTxdTextureProvider(MeshFileEntry entry)
-    {
-        var stem = Path.GetFileNameWithoutExtension(entry.FileName);
-        var texBytes = entry.Source.TryReadCompanion(stem, RwTexExtensions, RwTexSubdirs);
-        if (texBytes == null) return null;
-        var txdResult = RwTxdFile.Parse(texBytes);
-        if (!txdResult.Success) return null;
-        return RwDffGltfWriter.BuildTxdTextureProvider(txdResult);
-    }
+        => MeshCompanionResolver.BuildRwTxdTextureProvider(entry.Source, entry.FileName);
 
     internal static MeshChecksumTextureResolver? BuildPs2TextureProvider(byte[]? textureBytes)
     {

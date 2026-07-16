@@ -124,11 +124,17 @@ internal static class FormatProbeTexture
         if (version == 0xABADD00D)
             return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "THAW PC TEX");
 
-        if (BinaryProbeReader.TryReadAllBytes(filePath, out var data)
-            && ThawTexFile.TryFindEmbeddedDictionaryOffset(data, out var offset))
+        if (BinaryProbeReader.TryReadAllBytes(filePath, out var data))
         {
-            var formatName = offset == 0 ? "THAW PC TEX" : "THAW PC TEX (embedded)";
-            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, formatName);
+            if (ThawTexFile.TryFindEmbeddedDictionaryOffset(data, out var offset))
+            {
+                var formatName = offset == 0 ? "THAW PC TEX" : "THAW PC TEX (embedded)";
+                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, formatName);
+            }
+
+            // THAW PS2 .stex zone textures share the extension with the PC DXT containers
+            if (ThawZoneTexFile.IsThawZoneTex(data))
+                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "THAW Zone TEX");
         }
 
         return new FormatProbe.FormatProbeResult(

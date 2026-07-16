@@ -12,7 +12,21 @@ public static class PreArchive
     public static List<ArchiveEntry> GetFileList(string prePath)
     {
         using var stream = File.OpenRead(prePath);
-        using var reader = new BinaryReader(stream);
+        return GetFileList(stream);
+    }
+
+    /// <summary>
+    ///     In-memory variant for PRE archives nested inside another archive.
+    /// </summary>
+    public static List<ArchiveEntry> GetFileList(byte[] data)
+    {
+        using var stream = new MemoryStream(data, false);
+        return GetFileList(stream);
+    }
+
+    private static List<ArchiveEntry> GetFileList(Stream stream)
+    {
+        using var reader = new BinaryReader(stream, Encoding.ASCII, leaveOpen: true);
 
         var entryCount = reader.ReadUInt32();
         var entries = new List<ArchiveEntry>((int)entryCount);

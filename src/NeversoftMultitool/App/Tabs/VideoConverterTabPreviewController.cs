@@ -108,6 +108,10 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
 
         var cts = new CancellationTokenSource();
         _previewCts = cts;
+        // Snapshot the token before any await: tab teardown disposes _previewCts
+        // (this same object) mid-flight, and the CancellationTokenSource.Token
+        // GETTER throws ObjectDisposedException — the token struct stays safe.
+        var token = cts.Token;
 
         StopPlayback();
         ShowPreviewShell(entry);
@@ -124,13 +128,13 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
         }
 
         if (OrdinalIsStr(entry.FileName)
-            && await TryStartDirectStrPlaybackAsync(previewPath, cts.Token))
+            && await TryStartDirectStrPlaybackAsync(previewPath, token))
         {
             return;
         }
 
         if (OrdinalIsVid(entry.FileName)
-            && await TryStartDirectVidPlaybackAsync(previewPath, cts.Token))
+            && await TryStartDirectVidPlaybackAsync(previewPath, token))
         {
             return;
         }
@@ -162,7 +166,7 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
                     var result = VideoConverterTabOperations.ConvertFile(
                         previewPath,
                         scratchDir,
-                        cancellationToken: cts.Token,
+                        cancellationToken: token,
                         previewQuality: true);
                     if (!result.Success || result.OutputPath == null)
                         return null;
@@ -182,7 +186,7 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
                         /* ignore */
                     }
                 }
-            }, cts.Token);
+            }, token);
             _previewTask = conversionTask;
 
             try
@@ -195,7 +199,7 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
             }
             catch (Exception ex)
             {
-                if (cts.Token.IsCancellationRequested)
+                if (token.IsCancellationRequested)
                     return;
 
                 ShowPreviewError($"Preview error: {ex.Message}");
@@ -203,7 +207,7 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
             }
         }
 
-        if (cts.Token.IsCancellationRequested)
+        if (token.IsCancellationRequested)
             return;
 
         _view.PreviewLoading.IsActive = false;

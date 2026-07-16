@@ -112,7 +112,7 @@
   <ItemGroup Condition="$(TargetFramework.Contains('windows'))">
     <Content Include="Assets\AppIcon.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\mesh-viewer.html" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Assets\model-viewer.min.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\three\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Exclude GUI code from cross-platform build -->

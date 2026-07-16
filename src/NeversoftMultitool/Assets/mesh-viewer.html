@@ -2,16 +2,10 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <script type="module" src="model-viewer.min.js"></script>
     <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #202020; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
-    model-viewer {
-      width: 100vw;
-      height: 100vh;
-      --poster-color: transparent;
-      --progress-bar-color: #60cdff;
-    }
+    #canvas-host { width: 100vw; height: 100vh; }
     #status {
       position: absolute;
       top: 50%;
@@ -27,28 +21,106 @@
     }
     #status.hidden { opacity: 0; }
   </style>
+    <script type="importmap">
+    { "imports": { "three": "./three/three.module.min.js" } }
+  </script>
 </head>
 <body>
-<model-viewer id="viewer"
-              camera-controls
-              camera-orbit="0deg 90deg auto"
-              shadow-intensity="0.5"
-              exposure="1.0"
-              environment-image="neutral"
-              interaction-prompt="none">
-</model-viewer>
+<div id="canvas-host"></div>
 <div id="status">Click on an entry to preview.</div>
-<script>
-    const viewer = document.getElementById('viewer');
+<script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from './three/loaders/GLTFLoader.js';
+    import { OrbitControls } from './three/controls/OrbitControls.js';
+
     const status = document.getElementById('status');
-    let currentBlobUrl = null;
+    const host = document.getElementById('canvas-host');
+
+    // ─── Renderer / scene ────────────────────────────────────────────────
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    host.appendChild(renderer.domElement);
+
+    const canvas = renderer.domElement;
+    canvas.tabIndex = 0;            // keyboard reach for WASD / F
+    canvas.style.outline = 'none';
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x202020);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 2.4));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
+    keyLight.position.set(1, 2, 1.5);
+    scene.add(keyLight);
+
+    // ─── Cameras: shared orbit target, perspective + true orthographic ───
+    // Elevation convention matches BethesdaMultitool's OrthoViewProjBuilder:
+    // 0° = side view, 90° = top-down (three.js polar = 90° − elevation).
+    const PROJECTION_ELEVATION = { orthographic: 90, isometric: 30, trimetric: 25.65891 };
+    const perspCamera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+    const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 1000);
+    let camera = perspCamera;
+    let projectionMode = 'perspective';
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = false;
+
+    let modelRoot = null;
+    let framingRadius = 1;
+    let framingCenter = new THREE.Vector3();
+
+    // ─── Control modes: orbit / fly / walk ────────────────────────────────
+    // Fly/walk are first-person and perspective-only, modeled on
+    // Xbox360MemoryCarver's FlythroughCameraController with its Z-up world-up
+    // mapped to three.js Y-up. Orbit is the classic OrbitControls behavior.
+    const FLY_SPEED_FACTOR = 0.6;    // base fly speed = framingRadius × 0.6 /s
+    const WALK_SPEED_FACTOR = 0.12;  // base walk speed = framingRadius × 0.12 /s
+    // Standing eye height = 1.7 × (framingRadius / 50): human-sized when the
+    // model's bounding sphere is skate-level scale, clamped to sane bounds.
+    const EYE_HEIGHT_FACTOR = 0.034;
+    const MOUSE_SENSITIVITY = 0.003;                 // rad per dragged px
+    const PITCH_LIMIT = THREE.MathUtils.degToRad(89.9);
+    const WALK_STEP_SMOOTHING = 12;                  // 1/s exponential approach
+    const WORLD_UP = new THREE.Vector3(0, 1, 0);
+    const WORLD_DOWN = new THREE.Vector3(0, -1, 0);
+    const TRACKED_KEYS = new Set([
+      'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE',
+      'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight']);
+
+    let controlMode = 'orbit';
+    let isLevelModel = false;
+    let flySpeed = 1;
+    let walkSpeed = 0.2;
+    let eyeHeight = 0.1;
+    let lastGroundY = null;     // last known ground height — raycast misses keep it
+    let walkYSettled = false;   // first grounded frame after entering walk snaps
+    let lookPointerId = null;
+    let lookLastX = 0;
+    let lookLastY = 0;
+    const keysDown = new Set();
+    const flyEuler = new THREE.Euler(0, 0, 0, 'YXZ'); // yaw about world Y, pitch clamped, roll 0
+    const raycaster = new THREE.Raycaster();
+    const tmpForward = new THREE.Vector3();
+    const tmpRight = new THREE.Vector3();
+    const tmpMove = new THREE.Vector3();
+    const tmpRayOrigin = new THREE.Vector3();
+
+    // ─── Animation ────────────────────────────────────────────────────────
+    let mixer = null;
+    let activeAction = null;
+    let clips = [];
+    let playing = false;
     let timeTimer = null;
     let lastPostedTime = -1;
+    const clock = new THREE.Clock();
 
-    // Messages to the WinUI host (ModelViewerControl). Always JSON strings.
     function post(obj) {
       if (window.chrome && window.chrome.webview)
         window.chrome.webview.postMessage(JSON.stringify(obj));
+    }
+
+    function currentAnimTime() {
+      return activeAction ? activeAction.time : 0;
     }
 
     function startTimeLoop() {
@@ -56,23 +128,11 @@
       timeTimer = setInterval(() => {
         // Only cross the WebView2 boundary when the slider-resolution value
         // actually changed.
-        const t = Math.round((viewer.currentTime || 0) * 100) / 100;
+        const t = Math.round(currentAnimTime() * 100) / 100;
         if (t === lastPostedTime) return;
         lastPostedTime = t;
         post({ type: 'time', value: t });
       }, 100);
-    }
-
-    // viewer.duration is populated asynchronously once the clip is bound;
-    // retry a few frames so the host never sees duration=0 for an animated
-    // model (which would hide the transport).
-    function postLoadedWhenReady(anims, attempts) {
-      const d = viewer.duration || 0;
-      if (anims.length > 0 && d === 0 && attempts > 0) {
-        requestAnimationFrame(() => postLoadedWhenReady(anims, attempts - 1));
-        return;
-      }
-      post({ type: 'loaded', animations: anims, duration: d });
     }
 
     function stopTimeLoop() {
@@ -82,15 +142,395 @@
       }
     }
 
-    function loadModel(base64Glb) {
+    // ─── Render loop ──────────────────────────────────────────────────────
+    renderer.setAnimationLoop(() => {
+      const dt = clock.getDelta();
+      if (mixer && playing) mixer.update(dt);
+      if (controlMode === 'orbit') controls.update();
+      else updateFlyWalk(Math.min(dt, 0.1)); // clamp tab-stall dt spikes
+      renderer.render(scene, camera);
+    });
+
+    window.addEventListener('resize', () => {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      updateCameraFrustum();
+    });
+
+    // ─── Framing / projection ─────────────────────────────────────────────
+    function updateCameraFrustum() {
+      const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+      perspCamera.aspect = aspect;
+      perspCamera.updateProjectionMatrix();
+
+      const halfH = framingRadius * 1.15;
+      orthoCamera.left = -halfH * aspect;
+      orthoCamera.right = halfH * aspect;
+      orthoCamera.top = halfH;
+      orthoCamera.bottom = -halfH;
+      orthoCamera.updateProjectionMatrix();
+    }
+
+    function frameModel(root) {
+      const box = new THREE.Box3().setFromObject(root);
+      if (box.isEmpty()) {
+        framingRadius = 1;
+        framingCenter.set(0, 0, 0);
+      } else {
+        const sphere = box.getBoundingSphere(new THREE.Sphere());
+        framingRadius = Math.max(sphere.radius, 1e-4);
+        framingCenter.copy(sphere.center);
+      }
+
+      const near = framingRadius / 100;
+      const far = framingRadius * 100;
+      perspCamera.near = near;
+      perspCamera.far = far;
+      orthoCamera.near = near;
+      orthoCamera.far = far;
+      orthoCamera.zoom = 1;
+      updateCameraFrustum();
+
+      // Scale the first-person tuning to the model so tiny props and whole
+      // worldzones both feel right; the wheel adjusts from these bases.
+      flySpeed = framingRadius * FLY_SPEED_FACTOR;
+      walkSpeed = framingRadius * WALK_SPEED_FACTOR;
+      eyeHeight = THREE.MathUtils.clamp(
+        framingRadius * EYE_HEIGHT_FACTOR, framingRadius * 0.01, framingRadius * 0.1);
+      lastGroundY = null;
+      walkYSettled = false;
+
+      controls.target.copy(framingCenter);
+      placeCamera(0, projectionElevation());
+      if (controlMode === 'orbit') controls.update();
+    }
+
+    function projectionElevation() {
+      return PROJECTION_ELEVATION[projectionMode] ?? 0;
+    }
+
+    function orbitDistance() {
+      return projectionMode === 'perspective'
+        ? framingRadius / Math.tan(THREE.MathUtils.degToRad(perspCamera.fov / 2)) * 1.15
+        : framingRadius * 4;
+    }
+
+    function placeCamera(azimuthDeg, elevationDeg) {
+      const az = THREE.MathUtils.degToRad(azimuthDeg);
+      const el = THREE.MathUtils.degToRad(elevationDeg);
+      const r = orbitDistance();
+      camera.position.set(
+        framingCenter.x + r * Math.cos(el) * Math.sin(az),
+        framingCenter.y + r * Math.sin(el),
+        framingCenter.z + r * Math.cos(el) * Math.cos(az));
+      camera.lookAt(framingCenter);
+      if (controlMode === 'orbit') controls.update();
+    }
+
+    function applyPolarLock() {
+      if (projectionMode === 'perspective') {
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+      } else {
+        const polar = THREE.MathUtils.degToRad(90 - projectionElevation());
+        controls.minPolarAngle = polar;
+        controls.maxPolarAngle = polar;
+      }
+    }
+
+    function applyProjection(mode) {
+      const azimuthDeg = THREE.MathUtils.radToDeg(controls.getAzimuthalAngle());
+      projectionMode = mode;
+      camera = mode === 'perspective' ? perspCamera : orthoCamera;
+      controls.object = camera;
+      applyPolarLock();
+      const baseAz = mode === 'isometric' || mode === 'trimetric' ? 45 : azimuthDeg;
+      placeCamera(mode === 'perspective' ? azimuthDeg : baseAz,
+                  mode === 'perspective' ? 10 : projectionElevation());
+    }
+
+    function setProjection(mode) {
+      if (!(mode === 'perspective' || mode in PROJECTION_ELEVATION)) return;
+      if (controlMode !== 'orbit') {
+        // Fly/walk are perspective-only — remember the choice and apply it
+        // when control returns to orbit.
+        projectionMode = mode;
+        return;
+      }
+      applyProjection(mode);
+    }
+
+    function setCamera(azimuthDeg, elevationDeg) {
+      exitToOrbitForPreset();
+      if (projectionMode !== 'perspective') {
+        // Elevation is locked by the projection; only azimuth applies.
+        elevationDeg = projectionElevation();
+      }
+      placeCamera(azimuthDeg, elevationDeg);
+    }
+
+    // ◄ ► 90° snap, ported from BethesdaMultitool WorldView3DControl:
+    // aligned → step a full quadrant; off-axis → snap to the next aligned
+    // azimuth in the arrow's direction.
+    function stepAzimuth(dir) {
+      exitToOrbitForPreset();
+      const baseDeg = projectionMode === 'isometric' || projectionMode === 'trimetric' ? 45 : 0;
+      const azDeg = THREE.MathUtils.radToDeg(controls.getAzimuthalAngle());
+      const rel = (azDeg - baseDeg) / 90;
+      const nearest = Math.round(rel);
+      let quad;
+      if (Math.abs(rel - nearest) < 0.01)
+        quad = nearest + dir;
+      else
+        quad = dir > 0 ? Math.ceil(rel) : Math.floor(rel);
+      const elevationDeg = projectionMode === 'perspective'
+        ? THREE.MathUtils.radToDeg(Math.PI / 2 - controls.getPolarAngle())
+        : projectionElevation();
+      placeCamera(quad * 90 + baseDeg, elevationDeg);
+    }
+
+    // ─── Fly / walk control modes ─────────────────────────────────────────
+    function setControlMode(mode) {
+      if (!(mode === 'orbit' || mode === 'fly' || mode === 'walk')) return;
+      if (mode === controlMode) return;
+      controlMode = mode;
+      if (mode === 'orbit') enterOrbit('ahead');
+      else enterFlyWalk(mode);
+      post({ type: 'controlMode', mode: mode });
+    }
+
+    // F key: levels toggle Fly ↔ Walk (orbit → fly); models toggle
+    // Orbit ↔ Fly (walk → orbit).
+    function cycleControlMode() {
+      if (!modelRoot) return;
+      if (isLevelModel)
+        setControlMode(controlMode === 'fly' ? 'walk' : 'fly');
+      else
+        setControlMode(controlMode === 'orbit' ? 'fly' : 'orbit');
+    }
+
+    function enterOrbit(retarget) {
+      camera = perspCamera;
+      controls.object = perspCamera;
+      perspCamera.near = framingRadius / 100;
+      perspCamera.updateProjectionMatrix();
+      if (retarget === 'ahead' && projectionMode === 'perspective') {
+        // Keep the camera pose and aim the orbit pivot at a point ahead of it
+        // so handing control back to OrbitControls doesn't jump the view.
+        perspCamera.getWorldDirection(tmpForward);
+        controls.target.copy(perspCamera.position)
+          .addScaledVector(tmpForward, framingRadius * 0.75);
+      } else {
+        // Ortho/iso/trimetric vantages are center-locked, so a pending
+        // non-perspective projection re-applies around the model center.
+        controls.target.copy(framingCenter);
+      }
+      controls.enabled = true;
+      controls.update();
+      if (projectionMode !== 'perspective') applyProjection(projectionMode);
+    }
+
+    function enterFlyWalk(mode) {
+      if (camera !== perspCamera) {
+        // Fly/walk are perspective-only. Seed the perspective camera from the
+        // current ortho pose; the projection re-applies on return to orbit.
+        perspCamera.position.copy(camera.position);
+        perspCamera.quaternion.copy(camera.quaternion);
+        camera = perspCamera;
+      }
+      controls.enabled = false;
+      // Walls at walking distance clip at the orbit near plane (radius/100).
+      perspCamera.near = framingRadius / 300;
+      perspCamera.updateProjectionMatrix();
+      flyEuler.setFromQuaternion(perspCamera.quaternion);
+      flyEuler.z = 0; // no roll
+      perspCamera.quaternion.setFromEuler(flyEuler);
+      if (mode === 'walk') walkYSettled = false; // seat on the ground directly
+    }
+
+    // Named views / azimuth snaps are orbit vantages — using one from
+    // fly/walk returns to orbit around the model center first.
+    function exitToOrbitForPreset() {
+      if (controlMode === 'orbit') return;
+      controlMode = 'orbit';
+      enterOrbit('center');
+      post({ type: 'controlMode', mode: 'orbit' });
+    }
+
+    // Default mode after framing: levels start flying, everything else orbits.
+    function applyDefaultControlMode() {
+      const mode = isLevelModel ? 'fly' : 'orbit';
+      if (mode === controlMode) {
+        // Same mode as the previous model — still re-seed fly state (and the
+        // walk ground snap) from the freshly framed camera.
+        if (mode !== 'orbit') enterFlyWalk(mode);
+        return;
+      }
+      controlMode = mode;
+      if (mode === 'orbit') enterOrbit('center');
+      else enterFlyWalk(mode);
+      post({ type: 'controlMode', mode: mode });
+    }
+
+    function applyMouseLook(dx, dy) {
+      // FPS-style: drag right looks right, drag down looks down (carver
+      // non-inverted semantics), pitch clamped just short of vertical.
+      flyEuler.y -= dx * MOUSE_SENSITIVITY;
+      flyEuler.x = THREE.MathUtils.clamp(
+        flyEuler.x - dy * MOUSE_SENSITIVITY, -PITCH_LIMIT, PITCH_LIMIT);
+      perspCamera.quaternion.setFromEuler(flyEuler);
+    }
+
+    function updateFlyWalk(dt) {
+      if (dt <= 0) return;
+      let mult = 1;
+      if (keysDown.has('ShiftLeft') || keysDown.has('ShiftRight')) mult *= 4;
+      if (keysDown.has('ControlLeft') || keysDown.has('ControlRight')) mult *= 0.25;
+      const speed = (controlMode === 'walk' ? walkSpeed : flySpeed) * mult;
+
+      perspCamera.getWorldDirection(tmpForward);
+      tmpRight.crossVectors(tmpForward, WORLD_UP).normalize();
+      tmpMove.set(0, 0, 0);
+
+      if (controlMode === 'walk') {
+        // Ground-plane projection: looking up must not turn W into a climb.
+        tmpForward.y = 0;
+        if (tmpForward.lengthSq() > 1e-8) tmpForward.normalize();
+        if (keysDown.has('KeyW')) tmpMove.add(tmpForward);
+        if (keysDown.has('KeyS')) tmpMove.sub(tmpForward);
+        if (keysDown.has('KeyD')) tmpMove.add(tmpRight);
+        if (keysDown.has('KeyA')) tmpMove.sub(tmpRight);
+        // Q/E intentionally ignored — the ground raycast owns the Y axis.
+      } else {
+        if (keysDown.has('KeyW')) tmpMove.add(tmpForward);
+        if (keysDown.has('KeyS')) tmpMove.sub(tmpForward);
+        if (keysDown.has('KeyD')) tmpMove.add(tmpRight);
+        if (keysDown.has('KeyA')) tmpMove.sub(tmpRight);
+        if (keysDown.has('KeyE')) tmpMove.add(WORLD_UP);
+        if (keysDown.has('KeyQ')) tmpMove.sub(WORLD_UP);
+      }
+
+      if (tmpMove.lengthSq() > 0)
+        perspCamera.position.addScaledVector(tmpMove.normalize(), speed * dt);
+
+      if (controlMode === 'walk') updateWalkHeight(dt);
+    }
+
+    function updateWalkHeight(dt) {
+      if (!modelRoot) return;
+      const pos = perspCamera.position;
+      // Cast from one eye-height above the eye so kerbs/ramps up to roughly
+      // 2× eye height above the ground are climbable without snapping onto
+      // roofs far overhead.
+      tmpRayOrigin.set(pos.x, pos.y + eyeHeight, pos.z);
+      raycaster.set(tmpRayOrigin, WORLD_DOWN);
+      raycaster.far = framingRadius * 4;
+      const hits = raycaster.intersectObject(modelRoot, true);
+      if (hits.length > 0) lastGroundY = hits[0].point.y;
+      if (lastGroundY === null) return; // never saw ground — keep the current height
+      const targetY = lastGroundY + eyeHeight;
+      if (!walkYSettled) {
+        walkYSettled = true;
+        pos.y = targetY;
+        return;
+      }
+      // Frame-rate-independent exponential approach (~12/s) so a stair step
+      // reads as stepping up instead of a snap cut.
+      pos.y += (targetY - pos.y) * (1 - Math.exp(-WALK_STEP_SMOOTHING * dt));
+      if (Math.abs(targetY - pos.y) < framingRadius * 1e-4) pos.y = targetY;
+    }
+
+    // ─── First-person input (fly/walk) ────────────────────────────────────
+    canvas.addEventListener('pointerdown', e => {
+      canvas.focus(); // keyboard reach after any click
+      if (controlMode === 'orbit' || e.button !== 0) return;
+      lookPointerId = e.pointerId;
+      lookLastX = e.clientX;
+      lookLastY = e.clientY;
+      canvas.setPointerCapture(e.pointerId);
+    });
+
+    canvas.addEventListener('pointermove', e => {
+      if (controlMode === 'orbit' || e.pointerId !== lookPointerId) return;
+      const dx = e.clientX - lookLastX;
+      const dy = e.clientY - lookLastY;
+      lookLastX = e.clientX;
+      lookLastY = e.clientY;
+      if (dx !== 0 || dy !== 0) applyMouseLook(dx, dy);
+    });
+
+    function endLookDrag(e) {
+      if (e.pointerId !== lookPointerId) return;
+      lookPointerId = null;
+      if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    }
+    canvas.addEventListener('pointerup', endLookDrag);
+    canvas.addEventListener('pointercancel', endLookDrag);
+
+    canvas.addEventListener('wheel', e => {
+      if (controlMode === 'orbit') return; // OrbitControls owns the wheel
+      e.preventDefault();
+      // ×1.2 per notch (Chromium reports ~100 deltaY per notch), clamped so
+      // one inertial burst can't run the speed away.
+      const ticks = THREE.MathUtils.clamp(-e.deltaY / 100, -3, 3);
+      const factor = Math.pow(1.2, ticks);
+      if (controlMode === 'walk')
+        walkSpeed = THREE.MathUtils.clamp(
+          walkSpeed * factor, framingRadius * 0.005, framingRadius * 2);
+      else
+        flySpeed = THREE.MathUtils.clamp(
+          flySpeed * factor, framingRadius * 0.01, framingRadius * 10);
+    }, { passive: false });
+
+    window.addEventListener('keydown', e => {
+      if (e.code === 'KeyF') {
+        if (!e.repeat) cycleControlMode();
+        e.preventDefault();
+        return;
+      }
+      if (!TRACKED_KEYS.has(e.code)) return;
+      // Per-frame integration reads the held set — key auto-repeat is a no-op.
+      keysDown.add(e.code);
+      if (controlMode !== 'orbit') e.preventDefault();
+    });
+    window.addEventListener('keyup', e => keysDown.delete(e.code));
+    window.addEventListener('blur', () => keysDown.clear()); // stuck-key guard
+
+    // ─── Model lifecycle ──────────────────────────────────────────────────
+    function disposeModel(root) {
+      root.traverse(obj => {
+        if (obj.geometry) obj.geometry.dispose();
+        const materials = Array.isArray(obj.material) ? obj.material : obj.material ? [obj.material] : [];
+        for (const mat of materials) {
+          for (const key of Object.keys(mat)) {
+            const value = mat[key];
+            if (value && value.isTexture) value.dispose();
+          }
+          mat.dispose();
+        }
+      });
+    }
+
+    function unloadCurrent() {
+      stopTimeLoop();
+      playing = false;
+      if (mixer) {
+        mixer.stopAllAction();
+        mixer = null;
+      }
+      activeAction = null;
+      clips = [];
+      if (modelRoot) {
+        scene.remove(modelRoot);
+        disposeModel(modelRoot);
+        modelRoot = null;
+      }
+    }
+
+    function loadModel(base64Glb, isLevel) {
       status.textContent = 'Loading model...';
       status.classList.remove('hidden');
-      stopTimeLoop();
-
-      if (currentBlobUrl) {
-        URL.revokeObjectURL(currentBlobUrl);
-        currentBlobUrl = null;
-      }
+      unloadCurrent();
+      isLevelModel = isLevel === true;
 
       try {
         const binary = atob(base64Glb);
@@ -98,25 +538,32 @@
         for (let i = 0; i < binary.length; i++) {
           bytes[i] = binary.charCodeAt(i);
         }
-        const blob = new Blob([bytes], { type: 'model/gltf-binary' });
-        currentBlobUrl = URL.createObjectURL(blob);
-        viewer.src = currentBlobUrl;
 
-        viewer.addEventListener('load', () => {
-          status.classList.add('hidden');
-          const anims = viewer.availableAnimations || [];
-          if (anims.length > 0) {
-            viewer.animationName = anims[0];
-            viewer.play();
+        new GLTFLoader().parse(bytes.buffer, '', gltf => {
+          modelRoot = gltf.scene;
+          scene.add(modelRoot);
+          frameModel(modelRoot);
+          applyDefaultControlMode();
+          canvas.focus();
+
+          clips = gltf.animations || [];
+          const names = clips.map(c => c.name);
+          let duration = 0;
+          if (clips.length > 0) {
+            mixer = new THREE.AnimationMixer(modelRoot);
+            activeAction = mixer.clipAction(clips[0]);
+            activeAction.play();
+            duration = clips[0].duration || 0;
+            playing = true;
             startTimeLoop();
           }
-          postLoadedWhenReady(anims, 30);
-        }, { once: true });
 
-        viewer.addEventListener('error', () => {
+          status.classList.add('hidden');
+          post({ type: 'loaded', animations: names, duration: duration });
+        }, () => {
           status.textContent = 'Failed to load model';
           status.classList.remove('hidden');
-        }, { once: true });
+        });
       } catch (e) {
         status.textContent = 'Error: ' + e.message;
         status.classList.remove('hidden');
@@ -124,35 +571,44 @@
     }
 
     function playAnim() {
-      viewer.play();
+      playing = true;
       startTimeLoop();
     }
 
     function pauseAnim() {
-      viewer.pause();
+      playing = false;
       stopTimeLoop();
-      post({ type: 'time', value: viewer.currentTime || 0 });
+      post({ type: 'time', value: currentAnimTime() });
     }
 
     function seekAnim(t) {
-      viewer.currentTime = t;
-      if (viewer.paused)
+      if (activeAction) {
+        activeAction.time = t;
+        if (mixer && !playing) mixer.update(0);
+      }
+      if (!playing)
         post({ type: 'time', value: t });
     }
 
     function setAnim(name) {
-      viewer.animationName = name;
-      viewer.currentTime = 0;
-      postLoadedWhenReady(viewer.availableAnimations || [], 30);
+      if (!mixer) return;
+      const clip = clips.find(c => c.name === name);
+      if (!clip) return;
+      if (activeAction) activeAction.stop();
+      activeAction = mixer.clipAction(clip);
+      activeAction.play();
+      if (!playing) mixer.update(0);
+      post({ type: 'loaded', animations: clips.map(c => c.name), duration: clip.duration || 0 });
     }
 
     function clearModel() {
-      stopTimeLoop();
-      if (currentBlobUrl) {
-        URL.revokeObjectURL(currentBlobUrl);
-        currentBlobUrl = null;
+      unloadCurrent();
+      isLevelModel = false;
+      if (controlMode !== 'orbit') {
+        controlMode = 'orbit';
+        enterOrbit('center');
+        post({ type: 'controlMode', mode: 'orbit' });
       }
-      viewer.src = '';
       status.textContent = 'Click on an entry to preview.';
       status.classList.remove('hidden');
     }
@@ -161,6 +617,19 @@
       status.textContent = text;
       status.classList.remove('hidden');
     }
+
+    // ExecuteScriptAsync calls arrive as plain script — expose the contract.
+    window.loadModel = loadModel;
+    window.clearModel = clearModel;
+    window.setStatus = setStatus;
+    window.playAnim = playAnim;
+    window.pauseAnim = pauseAnim;
+    window.seekAnim = seekAnim;
+    window.setAnim = setAnim;
+    window.setProjection = setProjection;
+    window.setCamera = setCamera;
+    window.stepAzimuth = stepAzimuth;
+    window.setControlMode = setControlMode;
   </script>
 </body>
 </html>

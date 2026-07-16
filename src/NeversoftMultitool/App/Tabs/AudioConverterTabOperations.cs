@@ -17,7 +17,7 @@ internal static class AudioConverterTabOperations
 
     public static List<string> FindAudioFiles(string inputDir)
     {
-        var allFiles = Directory.GetFiles(inputDir);
+        var allFiles = Directory.GetFiles(inputDir, "*", SearchOption.AllDirectories);
         var audioFiles = allFiles
             .Where(static file => SupportedExtensions.Contains(Path.GetExtension(file).ToLowerInvariant()))
             .ToList();

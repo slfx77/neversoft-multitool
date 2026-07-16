@@ -195,6 +195,39 @@ internal sealed class Vid1FrameContext
         SpriteChromaTransformShift = 0;
     }
 
+    /// <summary>Deep-copies the cross-frame prediction state (seek anchor).</summary>
+    public Vid1ReferenceSnapshot CaptureReferenceState()
+    {
+        return new Vid1ReferenceSnapshot
+        {
+            ReferenceY = (byte[])ReferenceY.Clone(),
+            ReferenceCb = (byte[])ReferenceCb.Clone(),
+            ReferenceCr = (byte[])ReferenceCr.Clone(),
+            PreviousReferenceY = (byte[])PreviousReferenceY.Clone(),
+            PreviousReferenceCb = (byte[])PreviousReferenceCb.Clone(),
+            PreviousReferenceCr = (byte[])PreviousReferenceCr.Clone(),
+            ReferenceMbState = (byte[])ReferenceMbState.Clone(),
+            PreviousReferenceMbState = (byte[])PreviousReferenceMbState.Clone(),
+            ReferenceStateWord = ReferenceStateWord,
+            PreviousReferenceStateWord = PreviousReferenceStateWord
+        };
+    }
+
+    /// <summary>Restores the cross-frame prediction state from a seek anchor.</summary>
+    public void RestoreReferenceState(Vid1ReferenceSnapshot snapshot)
+    {
+        snapshot.ReferenceY.CopyTo(ReferenceY, 0);
+        snapshot.ReferenceCb.CopyTo(ReferenceCb, 0);
+        snapshot.ReferenceCr.CopyTo(ReferenceCr, 0);
+        snapshot.PreviousReferenceY.CopyTo(PreviousReferenceY, 0);
+        snapshot.PreviousReferenceCb.CopyTo(PreviousReferenceCb, 0);
+        snapshot.PreviousReferenceCr.CopyTo(PreviousReferenceCr, 0);
+        snapshot.ReferenceMbState.CopyTo(ReferenceMbState, 0);
+        snapshot.PreviousReferenceMbState.CopyTo(PreviousReferenceMbState, 0);
+        ReferenceStateWord = snapshot.ReferenceStateWord;
+        PreviousReferenceStateWord = snapshot.PreviousReferenceStateWord;
+    }
+
     /// <summary>
     ///     Copy the just-decoded output planes into the reference buffers
     ///     so the next frame can use them as prediction source.

@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using Microsoft.UI;
 using Microsoft.UI.Xaml.Media;
 using NeversoftMultitool.Core.Formats.Animation;
 using Windows.UI;
@@ -55,12 +54,13 @@ internal sealed class AnimationListEntry : INotifyPropertyChanged
     }
 
     /// <summary>
-    ///     Foreground brush for the row. Greyed-out for skeleton mismatches so
-    ///     the user can see the file but knows it won't preview meaningfully.
+    ///     Foreground brush for the row. Null (= inherited theme foreground)
+    ///     for matches; greyed-out for skeleton mismatches so the user can see
+    ///     the file but knows it won't preview meaningfully.
     /// </summary>
-    public Brush RowForeground => MatchesSkeleton
-        ? new SolidColorBrush(Colors.White)
-        : new SolidColorBrush(Color.FromArgb(0x80, 0xFF, 0xFF, 0xFF));
+    public Brush? RowForeground => MatchesSkeleton
+        ? null
+        : new SolidColorBrush(Color.FromArgb(0x80, 0x80, 0x80, 0x80));
 
     public string MismatchTooltip => MatchesSkeleton
         ? ""

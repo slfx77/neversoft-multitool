@@ -67,6 +67,18 @@ internal static class MeshCompanionResolver
     {
         var stem = Path.GetFileNameWithoutExtension(fileName);
         var texBytes = ReadTextureCompanion(source, stem, RwTexExtensions, RwTexSubdirs, explicitTexturePath);
+        if (texBytes == null)
+        {
+            // THPS3 LOD variants (*_LOD00.skn etc., 237 files) ship no same-stem
+            // .tex — their textures live in the base model's dictionary in the
+            // same directory (verified 237/237 name-resolvable there).
+            var baseStem = System.Text.RegularExpressions.Regex.Replace(
+                stem, @"_LOD\d+$", string.Empty,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!string.Equals(baseStem, stem, StringComparison.Ordinal))
+                texBytes = ReadTextureCompanion(source, baseStem, RwTexExtensions, RwTexSubdirs, explicitTexturePath);
+        }
+
         if (texBytes == null) return null;
         var txdResult = RwTxdFile.Parse(texBytes);
         if (!txdResult.Success) return null;
@@ -297,13 +309,17 @@ internal static class MeshCompanionResolver
         string stem,
         string[] extensions,
         string[] subdirs,
-        string? explicitPath = null)
+        string? explicitPath = null,
+        bool searchBuildTree = false)
     {
         var path = ResolveExplicitPath(explicitPath, stem, extensions, subdirs);
         if (path != null)
             return File.ReadAllBytes(path);
 
-        return source.TryReadCompanion(stem, extensions, subdirs);
+        var bytes = source.TryReadCompanion(stem, extensions, subdirs);
+        if (bytes == null && searchBuildTree)
+            bytes = BuildTreeCompanionLocator.TryReadTextureCompanion(source, stem, extensions);
+        return bytes;
     }
 
     internal static string? ResolveCompanionPath(

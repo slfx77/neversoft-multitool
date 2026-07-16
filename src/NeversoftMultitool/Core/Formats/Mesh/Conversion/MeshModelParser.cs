@@ -211,7 +211,8 @@ public sealed class MeshModelParser : IModelParser
             request.OutputStem,
             Ps2TexExtensions,
             Ps2TexSubdirs,
-            request.TexturePath);
+            request.TexturePath,
+            searchBuildTree: true);
         var textureProvider = MeshCompanionResolver.BuildPs2TextureProvider(companionTexData);
 
         if (request.Ps2SubFormat == Ps2SceneSubFormat.PakMdl)
@@ -288,9 +289,58 @@ public sealed class MeshModelParser : IModelParser
             request.OutputStem,
             Ps2TexExtensions,
             Ps2TexSubdirs,
-            request.TexturePath);
+            request.TexturePath,
+            searchBuildTree: true);
         var textureProvider = MeshCompanionResolver.BuildPs2TextureProvider(companionTexData);
-        return BuildPs2GeomDocument(request.OutputStem, scene, textureProvider, null);
+        var tex0Resolver = BuildPs2GeomTex0Resolver(companionTexData);
+        return BuildPs2GeomDocument(request.OutputStem, scene, textureProvider, tex0Resolver);
+    }
+
+    /// <summary>
+    ///     THPS4 GEOM leaves carry CGeomNode.texture_checksum = 0; their textures are
+    ///     addressed by the GS TEX0 register (TBP/CBP VRAM pointers) embedded in the DMA
+    ///     chain. Simulate the engine's LoadTextureGroup VRAM allocation over the
+    ///     companion TEX dictionary to map (GroupChecksum, TBP, CBP) back to texture
+    ///     checksums. THUG/THUG2 leaves have non-zero checksums and never consult this.
+    /// </summary>
+    private static Ps2Tex0ChecksumResolver? BuildPs2GeomTex0Resolver(byte[]? companionTexData)
+    {
+        if (companionTexData == null)
+            return null;
+
+        var vramMap = Ps2VramAllocator.BuildMapping(companionTexData);
+        if (vramMap.Count == 0)
+            return null;
+
+        // TBP+CBP fallback for leaves whose group checksum diverges from the TEX
+        // group (only unambiguous addresses resolve, mirroring the diagnostic sim).
+        var byTbpCbp = new Dictionary<(uint Tbp, uint Cbp), uint>();
+        var ambiguous = new HashSet<(uint Tbp, uint Cbp)>();
+        foreach (var ((_, tbp, cbp), checksum) in vramMap)
+        {
+            if (ambiguous.Contains((tbp, cbp)))
+                continue;
+            if (byTbpCbp.TryGetValue((tbp, cbp), out var existing))
+            {
+                if (existing != checksum)
+                {
+                    byTbpCbp.Remove((tbp, cbp));
+                    ambiguous.Add((tbp, cbp));
+                }
+
+                continue;
+            }
+
+            byTbpCbp[(tbp, cbp)] = checksum;
+        }
+
+        return (dmaTex0, groupChecksum) =>
+        {
+            var key = Ps2VramAllocator.DecodeTex0Key(dmaTex0, groupChecksum);
+            if (vramMap.TryGetValue(key, out var checksum))
+                return checksum;
+            return byTbpCbp.TryGetValue((key.Tbp, key.Cbp), out var fallback) ? fallback : 0u;
+        };
     }
 
     private static ModelDocument BuildPs2GeomDocument(

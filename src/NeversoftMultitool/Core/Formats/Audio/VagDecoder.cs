@@ -55,9 +55,23 @@ public static class VagDecoder
                 var dataLength = Math.Min(header.DataSize, data.Length - VagHeaderSize);
                 adpcmData = data.AsSpan(VagHeaderSize, dataLength);
             }
+            else if (SpuStereoMusicStream.IsStereoMusic(data))
+            {
+                // Neversoft PS2 music stream: chunk-interleaved stereo at 48 kHz
+                // (see SpuStereoMusicStream for the engine-source derivation).
+                var stereoPcm = SpuStereoMusicStream.DecodeInterleaved(data);
+                if (stereoPcm.Length == 0)
+                    return new AudioConvertResult { ErrorMessage = "No audio samples decoded" };
+
+                var stereoRate = overrideSampleRate > 0 ? overrideSampleRate : SpuStereoMusicStream.SampleRate;
+                var stereoWavPath = Path.Combine(outputDir, $"{stem}.wav");
+                WavWriter.WritePcm16(stereoWavPath, stereoRate, 2, stereoPcm);
+
+                return new AudioConvertResult { Success = true, SamplesWritten = 1 };
+            }
             else
             {
-                // Headerless raw SPU-ADPCM
+                // Headerless raw SPU-ADPCM (voice streams — mono at STREAM_PITCH 22050 Hz)
                 sampleRate = overrideSampleRate > 0 ? overrideSampleRate : DefaultSampleRate;
                 adpcmData = data.AsSpan();
             }
@@ -95,6 +109,16 @@ public static class VagDecoder
                     header.Name);
             }
 
+            if (SpuStereoMusicStream.IsStereoMusic(data))
+            {
+                return new VagProbeResult(
+                    SpuStereoMusicStream.SampleRate,
+                    SpuStereoMusicStream.EstimateDuration(data.Length),
+                    false,
+                    null,
+                    Channels: 2);
+            }
+
             var blocks = data.Length / SpuAdpcm.BlockSize;
             var samples = blocks * SpuAdpcm.SamplesPerBlock;
             var duration = samples / (double)DefaultSampleRate;
@@ -129,6 +153,27 @@ public static class VagDecoder
                     totalSamples / (double)header.SampleRate,
                     true,
                     header.Name);
+            }
+
+            // Headerless music streams are chunk-interleaved stereo — detection
+            // needs a bounded prefix (only files big enough to hold 2 L/R chunk
+            // pairs pay this read; voice streams skip it on size alone).
+            if (stream.Length >= SpuStereoMusicStream.ChunkSize * 4)
+            {
+                var prefixLength = (int)Math.Min(stream.Length, SpuStereoMusicStream.ChunkSize * 2L * 24);
+                var prefix = new byte[prefixLength];
+                stream.Position = 0;
+                stream.ReadExactly(prefix);
+
+                if (SpuStereoMusicStream.IsStereoMusic(prefix))
+                {
+                    return new VagProbeResult(
+                        SpuStereoMusicStream.SampleRate,
+                        SpuStereoMusicStream.EstimateDuration(stream.Length),
+                        false,
+                        null,
+                        Channels: 2);
+                }
             }
 
             // Headerless: estimate from file size
@@ -173,5 +218,10 @@ public static class VagDecoder
 
     private readonly record struct VagHeader(int Version, int DataSize, int SampleRate, string? Name);
 
-    public sealed record VagProbeResult(int SampleRate, double DurationSeconds, bool HasHeader, string? Name);
+    public sealed record VagProbeResult(
+        int SampleRate,
+        double DurationSeconds,
+        bool HasHeader,
+        string? Name,
+        int Channels = 1);
 }

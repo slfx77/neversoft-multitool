@@ -150,6 +150,7 @@ internal static class RwGeometryWriter
             material.A / 255f);
 
         var textureHasAlpha = false;
+        var textureAlphaMode = "OPAQUE";
         if (textureProvider != null && !string.IsNullOrEmpty(material.TextureName))
         {
             var pngBytes = textureProvider(material.TextureName);
@@ -169,6 +170,12 @@ internal static class RwGeometryWriter
                 {
                     (pngBytes, textureHasAlpha) = MeshTextureHelper.ApplyColorKey(pngBytes);
                 }
+                else
+                {
+                    // DFF path: TXD textures carry real alpha (e.g. THPS3 Bird_B wings).
+                    // Classify it so cutouts get MASK (BLEND disables depth-write in the viewer).
+                    textureAlphaMode = Ps2GeomDestinationAlphaSynthesis.ClassifyTextureAlphaMode(pngBytes);
+                }
 
                 renderMaterial.TextureIndex ??= ModelDocumentGeometryAdapter.AddTexture(document, material.TextureName, pngBytes);
             }
@@ -176,8 +183,10 @@ internal static class RwGeometryWriter
 
         if (material.A < 255 || material.IsBlend)
             renderMaterial.AlphaMode = ModelAlphaMode.Blend;
-        else if (textureHasAlpha)
+        else if (textureHasAlpha || textureAlphaMode == "MASK")
             renderMaterial.AlphaMode = ModelAlphaMode.Mask;
+        else if (textureAlphaMode == "BLEND")
+            renderMaterial.AlphaMode = ModelAlphaMode.Blend;
     }
     // Row-vector convention: vertex' = vertex * R rotates Z-up RW data to Y-up glTF.
     private static readonly Matrix4x4 RwDffZupToYupRotation = new(

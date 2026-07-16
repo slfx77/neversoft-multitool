@@ -101,10 +101,14 @@ public class ThawSkaFileTests(TestPaths paths)
 
         var failures = new List<string>();
         var total = 0;
+        // Minimums calibrated against the 2026-07-16 regeneration (header-relative
+        // pak reads): PS2 6,616 / GC 7,354 / PC 6,455 extracted anims. The old GC
+        // floor of 8,000 was measured on a stale pre-pak-fix tree whose misparsed
+        // entry tables emitted extra bogus files.
         foreach (var (build, pattern, minimum) in new[]
                  {
                      (ThawPs2Build, "*.ska", 6000),
-                     (ThawGcBuild, "*.ska.ngc", 8000),
+                     (ThawGcBuild, "*.ska.ngc", 7000),
                      (ThawPcBuild, "*.ska", 6000),
                  })
         {

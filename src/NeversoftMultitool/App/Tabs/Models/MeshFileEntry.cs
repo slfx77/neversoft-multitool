@@ -5,6 +5,7 @@ namespace NeversoftMultitool;
 
 public class MeshFileEntry : BaseFileEntry
 {
+    private bool _isChecked = true;
     private int _triangleCount;
 
     public required string FileName { get; init; }
@@ -44,6 +45,21 @@ public class MeshFileEntry : BaseFileEntry
 
     internal bool IsPakWorldzone => Ps2SubFormat == Ps2SceneSubFormat.PakWorldzone;
 
+    // Skeleton resolution cache for the Animations panel (probed once per entry).
+    internal int? SkeletonBoneCount { get; set; }
+    internal bool SkeletonProbed { get; set; }
+
+    /// <summary>
+    ///     Formats that can drive the Animations panel: skinned meshes with a
+    ///     resolvable skeleton (was the Character Preview tab's filter).
+    /// </summary>
+    internal bool IsAnimatableCharacter =>
+        IsRwDff
+        || (IsPs2Scene && Ps2SubFormat is Ps2SceneSubFormat.ThawSkin
+            or Ps2SceneSubFormat.PakSkin
+            or Ps2SceneSubFormat.Standard)
+        || (IsPsx && PsxHasHierarchy);
+
     internal bool IsPs2Scene => Format is "PS2 (THPS4)" or "PS2 (THUG)"
         or "PS2 (THUG2)" or "PS2 (THAW)" or "PS2 (pre-compiled)";
 
@@ -56,6 +72,18 @@ public class MeshFileEntry : BaseFileEntry
     public string FormatDisplay => Format;
     public string ObjectsDisplay => ObjectCount.ToString("N0");
     public string MeshesDisplay => MeshCount.ToString("N0");
+
+    /// <summary>Included in batch Convert / Render runs (default: everything).</summary>
+    public bool IsChecked
+    {
+        get => _isChecked;
+        set
+        {
+            if (_isChecked == value) return;
+            _isChecked = value;
+            OnPropertyChanged();
+        }
+    }
 
     public int TriangleCount
     {

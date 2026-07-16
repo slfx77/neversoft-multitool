@@ -47,7 +47,7 @@ public static class Ps2TexFile
 
             return version switch
             {
-                2 => ParseImg(data),
+                2 => Ps2ImgV2File.Parse(data),
                 3 or 4 or 5 => ParseTex(data, (int)version),
                 0x0016 => RwTxdFile.Parse(data), // RenderWare TXD (THPS3 PS2)
                 _ => Ps2TexResult.Fail($"Unsupported version {version} (expected 2-5)")
@@ -320,48 +320,6 @@ public static class Ps2TexFile
         }
 
         return new Ps2TexResult(textures);
-    }
-
-    /// <summary>
-    ///     Parses an IMG single-texture file (version 2).
-    ///     Format: version(u32), checksum(u32), TW(u32), TH(u32), PSM(u32), CPSM(u32),
-    ///     MXL(u32), orig_width(u16), orig_height(u16), [pad to 16], CLUT, pixels.
-    ///     From sprite.cpp InitTexture(): pixel data is stored at orig_width x orig_height,
-    ///     NOT at (1&lt;&lt;TW) x (1&lt;&lt;TH).
-    /// </summary>
-    private static Ps2TexResult ParseImg(byte[] data)
-    {
-        if (data.Length < 32) return Ps2TexResult.Fail("IMG file too small");
-
-        var offset = 4; // skip version
-        var checksum = ReadU32(data, ref offset);
-        var tw = ReadU32(data, ref offset);
-        var th = ReadU32(data, ref offset);
-        var psm = ReadU32(data, ref offset);
-        var cpsm = ReadU32(data, ref offset);
-        ReadU32(data, ref offset); // MXL (always 0 for IMG, per Dbg_Assert)
-
-        // Actual pixel dimensions (may differ from 1<<TW / 1<<TH for non-power-of-2 loadscreens)
-        var origWidth = BitConverter.ToUInt16(data, offset);
-        offset += 2;
-        var origHeight = BitConverter.ToUInt16(data, offset);
-        offset += 2;
-
-        // Validate
-        if (tw > 11 || th > 11) return Ps2TexResult.Fail($"Invalid dimensions TW={tw} TH={th}");
-        if (!Ps2TexPixelDecoder.IsValidPsm(psm)) return Ps2TexResult.Fail($"Invalid PSM 0x{psm:X2}");
-
-        // Use orig dimensions if present, fall back to power-of-2
-        var width = origWidth > 0 ? origWidth : (int)(1u << (int)tw);
-        var height = origHeight > 0 ? origHeight : (int)(1u << (int)th);
-
-        // Align to 16 (header is 32 bytes -> already aligned)
-        offset = Align16(offset);
-
-        var pixels = ReadTextureData(data, ref offset, width, height, psm, cpsm, 0, false);
-        if (pixels == null) return Ps2TexResult.Fail("Failed to decode pixel data");
-
-        return new Ps2TexResult([new Ps2Texture(checksum, width, height, psm, cpsm, pixels)]);
     }
 
     /// <summary>

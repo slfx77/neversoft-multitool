@@ -16,6 +16,7 @@ public sealed partial class ModelViewerControl : UserControl
     private const string GlyphPlay = "\uE768";
     private const string GlyphPause = "\uE769";
 
+    private string _controlMode = "orbit";
     private double _duration;
     private bool _isPlaying;
     private DateTime _suppressTimeUntil = DateTime.MinValue;
@@ -28,6 +29,10 @@ public sealed partial class ModelViewerControl : UserControl
         // WebView2 renders through its own visual tree and ignores ancestor
         // rounded corners; clip it to match the card it sits in.
         RoundedClipHelper.Apply(ModelWebView, 8);
+        // Selected here rather than in XAML so SelectionChanged can't fire
+        // mid-InitializeComponent against not-yet-created elements.
+        ProjectionCombo.SelectedIndex = (int)ViewerProjection.Perspective;
+        UpdateModeUi("orbit");
     }
 
     /// <summary>The most recently loaded GLB, for render/export reuse.</summary>
@@ -46,6 +51,10 @@ public sealed partial class ModelViewerControl : UserControl
         try
         {
             await ModelWebView.EnsureCoreWebView2Async();
+
+            // Fly/walk use Ctrl as a slow-move modifier; without this,
+            // Ctrl+W(=close)/Ctrl+F(=find) reach the browser instead of the page.
+            ModelWebView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
 
             var assetsDir = Path.Combine(AppContext.BaseDirectory, "Assets");
             ModelWebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
@@ -68,8 +77,12 @@ public sealed partial class ModelViewerControl : UserControl
         }
     }
 
-    /// <summary>Load a GLB into the viewer. Animated models start playing.</summary>
-    public async Task LoadGlbAsync(byte[] glbBytes)
+    /// <summary>
+    ///     Load a GLB into the viewer. Animated models start playing.
+    ///     <paramref name="isLevel" /> marks level geometry: levels default to
+    ///     the first-person Fly mode (F toggles Fly/Walk), everything else to Orbit.
+    /// </summary>
+    public async Task LoadGlbAsync(byte[] glbBytes, bool isLevel = false)
     {
         LastGlbBytes = glbBytes;
         HasAnimations = false;
@@ -79,7 +92,7 @@ public sealed partial class ModelViewerControl : UserControl
 
         // Base64 of a multi-MB GLB is CPU-bound — keep it off the UI thread.
         var base64 = await Task.Run(() => Convert.ToBase64String(glbBytes));
-        await ExecuteScriptSafeAsync($"loadModel('{base64}')");
+        await ExecuteScriptSafeAsync($"loadModel('{base64}', {(isLevel ? "true" : "false")})");
     }
 
     public async Task ClearAsync()
@@ -120,6 +133,89 @@ public sealed partial class ModelViewerControl : UserControl
     {
         LoadingRing.IsActive = loading;
         LoadingRing.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // ─── Camera presets ───────────────────────────────────────────────────
+
+    /// <summary>Switch projection (true orthographic for Ortho/Iso/Trimetric).</summary>
+    public Task SetProjectionAsync(ViewerProjection projection)
+    {
+        return ExecuteScriptSafeAsync($"setProjection('{ViewerCameraPresets.ScriptName(projection)}')");
+    }
+
+    /// <summary>Point the camera at the model from the given orbit angles.</summary>
+    public Task SetViewAsync(float azimuthDeg, float elevationDeg)
+    {
+        return ExecuteScriptSafeAsync(FormattableString.Invariant(
+            $"setCamera({azimuthDeg}, {elevationDeg})"));
+    }
+
+    /// <summary>◄ ► 90°-snap azimuth step (direction −1 or +1).</summary>
+    public Task StepAzimuthAsync(int direction)
+    {
+        return ExecuteScriptSafeAsync($"stepAzimuth({Math.Sign(direction)})");
+    }
+
+    // ─── Control modes (orbit / fly / walk) ───────────────────────────────
+
+    /// <summary>
+    ///     Switch the camera control mode ("orbit", "fly", or "walk"). The page
+    ///     echoes a controlMode message back, which keeps the toolbar in sync
+    ///     (the same path F-key toggles inside the viewer arrive on).
+    /// </summary>
+    public Task SetControlModeAsync(string mode)
+    {
+        if (mode is not ("orbit" or "fly" or "walk")) return Task.CompletedTask;
+        return ExecuteScriptSafeAsync($"setControlMode('{mode}')");
+    }
+
+    private async void ModeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton { Tag: string mode }) return;
+        if (mode == _controlMode)
+        {
+            // Re-clicking the active toggle would just uncheck it — restore.
+            UpdateModeUi(mode);
+            return;
+        }
+
+        // Reflect the click immediately; the page's echo confirms or corrects it.
+        UpdateModeUi(mode);
+        await SetControlModeAsync(mode);
+    }
+
+    /// <summary>Radio-group the three mode toggles and gate the projection combo
+    /// (fly/walk are perspective-only; the combo applies to orbit).</summary>
+    private void UpdateModeUi(string mode)
+    {
+        _controlMode = mode;
+        OrbitModeButton.IsChecked = mode == "orbit";
+        FlyModeButton.IsChecked = mode == "fly";
+        WalkModeButton.IsChecked = mode == "walk";
+        ProjectionCombo.IsEnabled = mode == "orbit";
+    }
+
+    private async void ProjectionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ProjectionCombo == null || ProjectionCombo.SelectedIndex < 0) return;
+        await SetProjectionAsync((ViewerProjection)ProjectionCombo.SelectedIndex);
+    }
+
+    private async void ViewPreset_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem { Tag: string name }) return;
+        var (azimuth, elevation) = ViewerCameraPresets.NamedView(name);
+        await SetViewAsync(azimuth, elevation);
+    }
+
+    private async void StepAzimuthLeft_Click(object sender, RoutedEventArgs e)
+    {
+        await StepAzimuthAsync(-1);
+    }
+
+    private async void StepAzimuthRight_Click(object sender, RoutedEventArgs e)
+    {
+        await StepAzimuthAsync(1);
     }
 
     // ─── Transport ────────────────────────────────────────────────────────
@@ -210,7 +306,21 @@ public sealed partial class ModelViewerControl : UserControl
                         HideTransport();
                     }
 
+                    // Keyboard reach: WASD/F land in the page only while the
+                    // WebView has focus.
+                    ModelWebView.Focus(FocusState.Programmatic);
                     ModelLoaded?.Invoke(this, EventArgs.Empty);
+                    break;
+
+                case "controlMode":
+                    // Page-side mode changes (F key, level-load defaults,
+                    // preset-triggered orbit returns) sync the toolbar here.
+                    if (root.TryGetProperty("mode", out var modeProp)
+                        && modeProp.GetString() is { } newMode)
+                    {
+                        UpdateModeUi(newMode);
+                    }
+
                     break;
 
                 case "time":

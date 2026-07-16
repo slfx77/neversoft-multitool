@@ -413,6 +413,10 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
 
         var cts = new CancellationTokenSource();
         _previewCts = cts;
+        // Snapshot the token before any await: tab teardown disposes _previewCts
+        // (this same object) mid-flight, and the CancellationTokenSource.Token
+        // GETTER throws ObjectDisposedException — the token struct stays safe.
+        var token = cts.Token;
 
         StopPlayback();
 
@@ -472,7 +476,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
                         _tempDir,
                         _parentFiles,
                         vabSampleRate),
-                    cts.Token);
+                    token);
             }
             catch (OperationCanceledException)
             {
@@ -480,7 +484,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
             }
             catch (Exception ex)
             {
-                if (cts.Token.IsCancellationRequested) return;
+                if (token.IsCancellationRequested) return;
 
                 PreviewLoading.IsActive = false;
                 AudioIcon.Visibility = Visibility.Visible;
@@ -493,7 +497,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
                 _previewCache[cacheKey] = wavPath;
         }
 
-        if (cts.Token.IsCancellationRequested) return;
+        if (token.IsCancellationRequested) return;
 
         PreviewLoading.IsActive = false;
         AudioIcon.Visibility = Visibility.Visible;
