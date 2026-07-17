@@ -10,4 +10,24 @@ internal sealed record AnimationProbe(
     string DisplayName,
     float DurationSec,
     int? BoneCount,
-    bool MatchesSkeleton);
+    bool MatchesSkeleton)
+{
+    /// <summary>
+    ///     Non-empty label used by animation lists. Some formats do not store
+    ///     clip names, so fall back to the source's synthetic entry name.
+    /// </summary>
+    public string ResolvedDisplayName
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(DisplayName))
+                return DisplayName;
+
+            var sourceName = Path.GetFileName(Source.EntryName);
+            return string.IsNullOrWhiteSpace(sourceName) ? "Unnamed animation" : sourceName;
+        }
+    }
+
+    /// <summary>Formatted duration used by animation lists.</summary>
+    public string DurationDisplay => $"{DurationSec:0.00} s";
+}

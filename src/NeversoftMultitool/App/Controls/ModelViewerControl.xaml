@@ -89,7 +89,10 @@
         Padding="0"
         ToolTipService.ToolTip="Rotate 90° left"
         Click="StepAzimuthLeft_Click">
-        <FontIcon FontSize="12" Glyph="&#xE76B;" />
+        <FontIcon
+          FontFamily="Segoe UI Symbol"
+          FontSize="17"
+          Glyph="&#x21B6;" />
       </Button>
       <Button
         Grid.Column="5"
@@ -98,7 +101,10 @@
         Padding="0"
         ToolTipService.ToolTip="Rotate 90° right"
         Click="StepAzimuthRight_Click">
-        <FontIcon FontSize="12" Glyph="&#xE76C;" />
+        <FontIcon
+          FontFamily="Segoe UI Symbol"
+          FontSize="17"
+          Glyph="&#x21B7;" />
       </Button>
     </Grid>
 

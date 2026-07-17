@@ -13,9 +13,10 @@
       <!-- Parent row: audio file -->
       <local:ExpandableListTemplateSelector.ParentTemplate>
         <DataTemplate x:DataType="local:AudioFileEntry">
-          <Grid Style="{StaticResource ListItemRowGridStyle}">
+          <Grid Style="{StaticResource ListItemRowGridStyle}"
+                local:FileTableBehavior.IsRow="True">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="56" />
+              <ColumnDefinition Width="56" MinWidth="56" />
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="0.6*" />
               <ColumnDefinition Width="60" />
@@ -74,25 +75,30 @@
       <local:ExpandableListTemplateSelector.ChildTemplate>
         <DataTemplate x:DataType="local:AudioSampleEntry">
           <Grid Style="{StaticResource ListItemRowGridStyle}"
-                Padding="28,0,0,0">
+                local:FileTableBehavior.IsRow="True">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="50" />
+              <ColumnDefinition Width="56" MinWidth="56" />
               <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="80" />
+              <ColumnDefinition Width="0.6*" />
+              <ColumnDefinition Width="60" />
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="90" />
             </Grid.ColumnDefinitions>
             <TextBlock
               Grid.Column="0"
+              Margin="28,0,0,0"
               VerticalAlignment="Center"
               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
               Text="{x:Bind IndexDisplay}" />
             <TextBlock
               Grid.Column="1"
+              Grid.ColumnSpan="4"
               VerticalAlignment="Center"
               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
               Text="{x:Bind InfoDisplay}"
               TextTrimming="CharacterEllipsis" />
             <TextBlock
-              Grid.Column="2"
+              Grid.Column="5"
               VerticalAlignment="Center"
               HorizontalAlignment="Right"
               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -148,7 +154,8 @@
         VerticalAlignment="Stretch"
         Style="{StaticResource CardBorderStyle}"
         Visibility="Collapsed">
-        <Grid VerticalAlignment="Stretch">
+        <Grid VerticalAlignment="Stretch"
+              local:FileTableBehavior.IsEnabled="True">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -158,7 +165,7 @@
           <Grid Grid.Row="0"
                 Style="{StaticResource ColumnHeaderGridStyle}">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="56" />
+              <ColumnDefinition Width="56" MinWidth="56" />
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="0.6*" />
               <ColumnDefinition Width="60" />
@@ -189,11 +196,27 @@
                 <FontIcon FontSize="10" Glyph="&#xE70E;" />
               </Button>
             </StackPanel>
-            <TextBlock Grid.Column="1" Text="File Name" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <TextBlock Grid.Column="2" Text="Folder" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <TextBlock Grid.Column="3" Text="Format" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <TextBlock Grid.Column="4" Text="Samples" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
-            <TextBlock Grid.Column="5" Text="Status" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <Button Grid.Column="1"
+                    Content="File Name"
+                    Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                    local:FileTableBehavior.SortProperty="FileName" />
+            <Button Grid.Column="2"
+                    Content="Folder"
+                    Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                    local:FileTableBehavior.SortProperty="FolderDisplay" />
+            <Button Grid.Column="3"
+                    Content="Format"
+                    Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                    local:FileTableBehavior.SortProperty="AudioFormat" />
+            <Button Grid.Column="4"
+                    Content="Samples"
+                    HorizontalContentAlignment="Center"
+                    Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                    local:FileTableBehavior.SortProperty="SampleCount" />
+            <Button Grid.Column="5"
+                    Content="Status"
+                    Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                    local:FileTableBehavior.SortProperty="Status" />
           </Grid>
 
           <!-- Files ListView -->

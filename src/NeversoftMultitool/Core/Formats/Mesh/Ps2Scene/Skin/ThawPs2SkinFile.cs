@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Replay;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 
@@ -21,6 +22,12 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 /// </summary>
 public static class ThawPs2SkinFile
 {
+    private readonly record struct PakSkinMaterialKey(
+        ulong Tex0,
+        uint TextureChecksum,
+        ulong RegAlpha,
+        byte AlphaRef);
+
     public static bool IsThawPs2Skin(byte[] data, long fileSize = 0)
     {
         if (data.Length < 32) return false;
@@ -280,7 +287,9 @@ public static class ThawPs2SkinFile
         return false;
     }
 
-    public static Scene.Ps2Scene ParsePakSkin(byte[] data)
+    public static Scene.Ps2Scene ParsePakSkin(
+        byte[] data,
+        Ps2Tex0ChecksumResolver? tex0Resolver = null)
     {
         var emptyScene = new Scene.Ps2Scene
         {
@@ -308,28 +317,15 @@ public static class ThawPs2SkinFile
         if (setupStarts.Count == 0)
             return emptyScene;
 
-        var materialMap = new Dictionary<uint, Ps2Material>();
-        var setupMaterialChecksums = new uint[setupStarts.Count];
+        var setupRegisters = new GsRegisters[setupStarts.Count];
 
         for (var setupIndex = 0; setupIndex < setupStarts.Count; setupIndex++)
         {
             var directOffset = VifNextCode(data, setupStarts[setupIndex], data.Length);
-            var gsRegisters = ThawPs2SkinSetupMapping.ParseDirectBlockRegisters(data, directOffset);
-            var materialChecksum = gsRegisters.Tex0Cbp;
-            setupMaterialChecksums[setupIndex] = materialChecksum;
-
-            if (!materialMap.ContainsKey(materialChecksum))
-            {
-                materialMap[materialChecksum] = new Ps2Material
-                {
-                    Checksum = materialChecksum,
-                    TextureChecksum = gsRegisters.Tex0Cbp,
-                    RegAlpha = gsRegisters.Alpha1,
-                    Flags = 0,
-                    AlphaRef = gsRegisters.AlphaRef
-                };
-            }
+            setupRegisters[setupIndex] = ThawPs2SkinSetupMapping.ParseDirectBlockRegisters(data, directOffset);
         }
+
+        var (materials, setupMaterialChecksums) = BuildPakSkinMaterials(setupRegisters, tex0Resolver);
 
         var replayBatches = ThawPs2ReplayEngine.ReplayBatches(data, vifStart, data.Length, setupStarts);
 
@@ -370,9 +366,51 @@ public static class ThawPs2SkinFile
             MaterialVersion = 0,
             MeshVersion = 0,
             VertexVersion = 0,
-            Materials = [.. materialMap.Values],
+            Materials = [.. materials],
             MeshGroups = meshGroups
         };
+    }
+
+    internal static (IReadOnlyList<Ps2Material> Materials, uint[] SetupMaterialChecksums)
+        BuildPakSkinMaterials(
+            IReadOnlyList<GsRegisters> setupRegisters,
+            Ps2Tex0ChecksumResolver? tex0Resolver = null)
+    {
+        var materialChecksums = new Dictionary<PakSkinMaterialKey, uint>();
+        var materials = new List<Ps2Material>();
+        var setupMaterialChecksums = new uint[setupRegisters.Count];
+
+        for (var setupIndex = 0; setupIndex < setupRegisters.Count; setupIndex++)
+        {
+            var gsRegisters = setupRegisters[setupIndex];
+            var textureChecksum = tex0Resolver?.Invoke(gsRegisters.Tex0, 0) ?? 0;
+            if (textureChecksum == 0)
+                textureChecksum = gsRegisters.Tex0Cbp;
+
+            var key = new PakSkinMaterialKey(
+                gsRegisters.Tex0,
+                textureChecksum,
+                gsRegisters.Alpha1,
+                gsRegisters.AlphaRef);
+
+            if (!materialChecksums.TryGetValue(key, out var materialChecksum))
+            {
+                materialChecksum = checked((uint)(materialChecksums.Count + 1));
+                materialChecksums.Add(key, materialChecksum);
+                materials.Add(new Ps2Material
+                {
+                    Checksum = materialChecksum,
+                    TextureChecksum = textureChecksum,
+                    RegAlpha = gsRegisters.Alpha1,
+                    Flags = 0,
+                    AlphaRef = gsRegisters.AlphaRef
+                });
+            }
+
+            setupMaterialChecksums[setupIndex] = materialChecksum;
+        }
+
+        return (materials, setupMaterialChecksums);
     }
 
     internal static int VifNextCode(byte[] data, int offset, int end)

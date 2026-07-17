@@ -15,6 +15,7 @@ using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.SceneTex;
+using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
 using NeversoftMultitool.Core.Formats.Texture.RenderWare;
 using NeversoftMultitool.Core.Formats.Texture.XbxScene;
@@ -23,7 +24,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
 public sealed class MeshModelParser : IModelParser
 {
-    private static readonly string[] Ps2TexExtensions = [".tex.ps2", ".tex", ".img.ps2"];
+    private static readonly string[] Ps2TexExtensions = [".tex.ps2", ".tex", ".img.ps2", ".stex", ".img"];
     private static readonly string[] Ps2TexSubdirs = ["TEX", "Textures", "IMG"];
     private static readonly string[] PcSkinExtensions = [".skin.wpc", ".skin.xbx"];
     private static readonly string[] PcSkinSubdirs = ["SKIN", "Models"];
@@ -214,17 +215,18 @@ public sealed class MeshModelParser : IModelParser
             request.TexturePath,
             searchBuildTree: true);
         var textureProvider = MeshCompanionResolver.BuildPs2TextureProvider(companionTexData);
+        var tex0Resolver = BuildPs2GeomTex0Resolver(companionTexData);
 
         if (request.Ps2SubFormat == Ps2SceneSubFormat.PakMdl)
         {
             var geomScene = Ps2GeomFile.ParsePakMdl(data);
-            return BuildPs2GeomDocument(request.OutputStem, geomScene, textureProvider, null);
+            return BuildPs2GeomDocument(request.OutputStem, geomScene, textureProvider, tex0Resolver);
         }
 
         var scene = request.Ps2SubFormat switch
         {
             Ps2SceneSubFormat.ThawSkin => ThawPs2SkinFile.Parse(data, companionTexData),
-            Ps2SceneSubFormat.PakSkin => ThawPs2SkinFile.ParsePakSkin(data),
+            Ps2SceneSubFormat.PakSkin => ThawPs2SkinFile.ParsePakSkin(data, tex0Resolver),
             _ => Ps2SceneFile.Parse(data)
         };
 
@@ -310,7 +312,13 @@ public sealed class MeshModelParser : IModelParser
 
         var vramMap = Ps2VramAllocator.BuildMapping(companionTexData);
         if (vramMap.Count == 0)
-            return null;
+        {
+            var source = new ZoneTextureCatalog.ZoneTexSource(
+                "archive_companion.stex", companionTexData, IsMain: true);
+            return ZoneTextureCatalog.TryBuild([source], out var catalog) && catalog != null
+                ? catalog.CreateTex0ChecksumResolver(source.Label)
+                : null;
+        }
 
         // TBP+CBP fallback for leaves whose group checksum diverges from the TEX
         // group (only unambiguous addresses resolve, mirroring the diagnostic sim).

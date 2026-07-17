@@ -15,6 +15,7 @@ using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.SceneTex;
+using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
 using NeversoftMultitool.Core.Formats.Texture.RenderWare;
 using NeversoftMultitool.Core.Formats.Texture.XbxScene;
@@ -173,6 +174,23 @@ internal static class MeshCompanionResolver
                 libraries.Add((bytes, libraryName));
         }
 
+        // THPS1's selected skateboard equipment is stored separately from the
+        // character PSX. The 16x16 w_*.bmp wheel and 32x16 wt*.bmp truck art
+        // carry the authored magenta cutout that is absent from several embedded
+        // character palettes. Only board-subtree material hashes may consume the
+        // masks, so unrelated textures of the same dimensions remain untouched.
+        var boardEquipmentHashes = FindPsxBoardEquipmentTextureHashes(psxData);
+        var equipmentMasks = new List<byte[]>(2);
+        if (boardEquipmentHashes.Count > 0)
+        {
+            var wheelMask = source.TryReadCompanion("w_blue01.bmp");
+            if (wheelMask != null)
+                equipmentMasks.Add(wheelMask);
+            var truckMask = source.TryReadCompanion("wtblue01.bmp");
+            if (truckMask != null)
+                equipmentMasks.Add(truckMask);
+        }
+
         return hash =>
         {
             var result = PsxLibrary.ExtractTextureByHash(psxData, hash, meshLabel);
@@ -181,8 +199,78 @@ internal static class MeshCompanionResolver
             if (result == null)
                 return null;
             var (rgba, width, height) = result.Value;
-            return ImageWriter.WritePngToMemory(width, height, rgba);
+            var pngBytes = ImageWriter.WritePngToMemory(width, height, rgba);
+            if (!boardEquipmentHashes.Contains(hash))
+                return pngBytes;
+
+            foreach (var mask in equipmentMasks)
+            {
+                var masked = MeshTextureHelper.ApplyExternalMagentaMask(pngBytes, mask);
+                if (masked.Applied)
+                    return masked.Bytes;
+            }
+
+            return pngBytes;
         };
+    }
+
+    private static HashSet<uint> FindPsxBoardEquipmentTextureHashes(byte[] psxData)
+    {
+        try
+        {
+            var psxFile = PsxMeshFile.Parse(psxData);
+            if (psxFile == null || psxFile.Objects.Count == 0)
+                return [];
+
+            var equipmentObjects = new HashSet<int>();
+            for (var meshIndex = 0; meshIndex < psxFile.Meshes.Count; meshIndex++)
+            {
+                var meshName = PsxGeometryHelpers.ResolvePsxMeshName(psxFile, meshIndex);
+                if (!meshName.Equals("board", StringComparison.OrdinalIgnoreCase) &&
+                    !meshName.EndsWith("_board", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                for (var objectIndex = 0; objectIndex < psxFile.Objects.Count; objectIndex++)
+                    if (psxFile.Objects[objectIndex].MeshIndex == meshIndex)
+                        equipmentObjects.Add(objectIndex);
+            }
+
+            if (equipmentObjects.Count == 0)
+                return [];
+
+            // Wheel objects are children of the board object. Walk to a fixed
+            // point rather than assuming the bone/mesh order (Hawk and Muska
+            // use different orders, and Muska combines both wheels in one mesh).
+            var added = true;
+            while (added)
+            {
+                added = false;
+                for (var objectIndex = 0; objectIndex < psxFile.Objects.Count; objectIndex++)
+                {
+                    var parent = psxFile.Objects[objectIndex].ParentIndex;
+                    if (parent < 0 || !equipmentObjects.Contains(parent))
+                        continue;
+                    added |= equipmentObjects.Add(objectIndex);
+                }
+            }
+
+            var hashes = new HashSet<uint>();
+            foreach (var objectIndex in equipmentObjects)
+            {
+                var meshIndex = psxFile.Objects[objectIndex].MeshIndex;
+                if (meshIndex >= psxFile.Meshes.Count)
+                    continue;
+                foreach (var face in psxFile.Meshes[meshIndex].Faces)
+                    if (face.IsTextured && face.TextureHash != 0)
+                        hashes.Add(face.TextureHash);
+            }
+
+            return hashes;
+        }
+        catch
+        {
+            return [];
+        }
     }
 
     internal static MeshChecksumTextureResolver? BuildPs2TextureProvider(byte[]? textureBytes)
@@ -192,6 +280,8 @@ internal static class MeshCompanionResolver
         var texResult = Ps2TexFile.Parse(textureBytes);
         if (!texResult.Success)
             texResult = ThawSceneTexFile.Parse(textureBytes);
+        if (!texResult.Success && ThawZoneTexFile.IsThawZoneTex(textureBytes))
+            texResult = new Ps2TexResult(ThawZoneTexFile.DecodeAllFromFile(textureBytes));
         if (!texResult.Success)
             return null;
 
@@ -317,9 +407,46 @@ internal static class MeshCompanionResolver
             return File.ReadAllBytes(path);
 
         var bytes = source.TryReadCompanion(stem, extensions, subdirs);
+        if (bytes == null && source is ArchiveAssetSource archiveSource)
+            bytes = TryReadNearestPrecedingArchiveCompanion(archiveSource, extensions);
         if (bytes == null && searchBuildTree)
             bytes = BuildTreeCompanionLocator.TryReadTextureCompanion(source, stem, extensions);
         return bytes;
+    }
+
+    /// <summary>
+    ///     THAW packages with stripped filenames store an anonymous texture entry
+    ///     immediately before its anonymous MDL/SKIN entry (for example
+    ///     000061B0.stex then 0000EEC0.mdl). Same-stem lookup cannot work for
+    ///     those generated offset names, so fall back to the closest preceding
+    ///     texture in the selected entry's package directory.
+    /// </summary>
+    private static byte[]? TryReadNearestPrecedingArchiveCompanion(
+        ArchiveAssetSource source,
+        IReadOnlyList<string> extensions)
+    {
+        if (source.Backend.Type != ArchiveAssetType.Pak || !HasOffsetGeneratedName(source.Entry.Name))
+            return null;
+
+        var entry = source.Backend.Entries
+            .Where(candidate => candidate.Offset < source.Entry.Offset)
+            .Where(candidate => string.Equals(
+                candidate.Directory, source.Entry.Directory, StringComparison.OrdinalIgnoreCase))
+            .Where(candidate => extensions.Any(extension =>
+                candidate.Name.EndsWith(extension, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(static candidate => candidate.Offset)
+            .FirstOrDefault();
+
+        return entry == null ? null : source.Backend.ReadEntryBytes(entry);
+    }
+
+    private static bool HasOffsetGeneratedName(string entryName)
+    {
+        var stem = Path.GetFileNameWithoutExtension(entryName);
+        return stem.Length == 8 && stem.All(static character =>
+            character is >= '0' and <= '9'
+                or >= 'A' and <= 'F'
+                or >= 'a' and <= 'f');
     }
 
     internal static string? ResolveCompanionPath(

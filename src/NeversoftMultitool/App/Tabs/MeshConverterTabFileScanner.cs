@@ -139,6 +139,68 @@ internal static class MeshConverterTabFileScanner
     }
 
     /// <summary>
+    ///     THPS3 repeats some root character assets verbatim inside level PREs.
+    ///     Showing every copy produces indistinguishable rows and, more importantly,
+    ///     makes the nested package copy the animation panel's source. Remove only a
+    ///     nested RW-DFF whose mesh and same-stem TEX payloads both exactly match a
+    ///     root-archive entry with the same filename. Nested-only variants, missing
+    ///     companions, and package-specific texture variants remain separate rows.
+    /// </summary>
+    private static List<MeshFileEntry> RemoveNestedRwDffCopiesThatMatchRoot(
+        List<MeshFileEntry> entries, CancellationToken ct)
+    {
+        var removed = new HashSet<MeshFileEntry>();
+        var candidateGroups = entries
+            .Where(static entry => entry.IsRwDff && entry.Source is ArchiveAssetSource)
+            .GroupBy(static entry => entry.FileName, StringComparer.OrdinalIgnoreCase)
+            .Where(static group => group.Count() > 1);
+
+        foreach (var candidateGroup in candidateGroups)
+        {
+            ct.ThrowIfCancellationRequested();
+            var groupEntries = candidateGroup.ToList();
+            var candidates = groupEntries.Select(entry =>
+            {
+                ct.ThrowIfCancellationRequested();
+                return new ArchiveRwDffCopyCandidate(
+                    entry.FileName,
+                    ((ArchiveAssetSource)entry.Source).Backend.FileSystem.NestingDepth,
+                    TryFingerprintRwDffWithTexture(entry));
+            }).ToList();
+            var keep = ArchiveRwDffCopyDeduplicator.SelectIndicesToKeep(candidates).ToHashSet();
+
+            for (var index = 0; index < groupEntries.Count; index++)
+            {
+                if (!keep.Contains(index))
+                    removed.Add(groupEntries[index]);
+            }
+        }
+
+        return removed.Count == 0
+            ? entries
+            : entries.Where(entry => !removed.Contains(entry)).ToList();
+    }
+
+    private static ArchiveRwDffFingerprint? TryFingerprintRwDffWithTexture(MeshFileEntry entry)
+    {
+        try
+        {
+            var stem = Path.GetFileNameWithoutExtension(entry.Source.EntryName);
+            var textureBytes = entry.Source.TryReadCompanion(stem + ".tex");
+            if (textureBytes == null)
+                return null;
+
+            return ArchiveRwDffCopyDeduplicator.Fingerprint(entry.Source.ReadBytes(), textureBytes);
+        }
+        catch
+        {
+            // Deduplication is best-effort. A read failure must not hide an entry
+            // or turn an otherwise successful archive scan into a failure.
+            return null;
+        }
+    }
+
+    /// <summary>
     ///     Entry point used when the user picks a single archive file. Routes THAW
     ///     worldzone PAKs to the single-entry worldzone path; for other archive
     ///     types (WAD, PRE, PRE3/PRX, PKR, non-worldzone PAK), opens the archive
@@ -193,7 +255,7 @@ internal static class MeshConverterTabFileScanner
                 progress.Report(Interlocked.Increment(ref processed));
         });
 
-        var list = results.ToList();
+        var list = RemoveNestedRwDffCopiesThatMatchRoot(results.ToList(), ct);
         list.Sort(RelativePathComparer);
         return list;
     }
@@ -518,7 +580,7 @@ internal static class MeshConverterTabFileScanner
                 Format = "PSX",
                 ObjectCount = psxFile.Objects.Count,
                 MeshCount = psxFile.Meshes.Count,
-                PsxHasHierarchy = psxFile.HasHierarchy,
+                PsxIsSuperModel = psxFile.IsSuperModel,
                 Source = source
             };
         }

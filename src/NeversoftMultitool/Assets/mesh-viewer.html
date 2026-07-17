@@ -64,6 +64,13 @@
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = false;
+    // Make vertical translation available through right/middle drag and the
+    // arrow keys.  OrbitControls does not subscribe to keyboard events until
+    // listenToKeyEvents is called explicitly.
+    controls.enablePan = true;
+    controls.screenSpacePanning = true;
+    controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
+    controls.listenToKeyEvents(window);
 
     let modelRoot = null;
     let framingRadius = 1;
@@ -75,6 +82,7 @@
     // mapped to three.js Y-up. Orbit is the classic OrbitControls behavior.
     const FLY_SPEED_FACTOR = 0.6;    // base fly speed = framingRadius × 0.6 /s
     const WALK_SPEED_FACTOR = 0.12;  // base walk speed = framingRadius × 0.12 /s
+    const ORBIT_VERTICAL_SPEED_FACTOR = 0.5;
     // Standing eye height = 1.7 × (framingRadius / 50): human-sized when the
     // model's bounding sphere is skate-level scale, clamped to sane bounds.
     const EYE_HEIGHT_FACTOR = 0.034;
@@ -92,6 +100,7 @@
     let flySpeed = 1;
     let walkSpeed = 0.2;
     let eyeHeight = 0.1;
+    let walkEyeHeightHint = null;
     let lastGroundY = null;     // last known ground height — raycast misses keep it
     let walkYSettled = false;   // first grounded frame after entering walk snaps
     let lookPointerId = null;
@@ -146,7 +155,7 @@
     renderer.setAnimationLoop(() => {
       const dt = clock.getDelta();
       if (mixer && playing) mixer.update(dt);
-      if (controlMode === 'orbit') controls.update();
+      if (controlMode === 'orbit') updateOrbit(Math.min(dt, 0.1));
       else updateFlyWalk(Math.min(dt, 0.1)); // clamp tab-stall dt spikes
       renderer.render(scene, camera);
     });
@@ -194,8 +203,10 @@
       // worldzones both feel right; the wheel adjusts from these bases.
       flySpeed = framingRadius * FLY_SPEED_FACTOR;
       walkSpeed = framingRadius * WALK_SPEED_FACTOR;
-      eyeHeight = THREE.MathUtils.clamp(
-        framingRadius * EYE_HEIGHT_FACTOR, framingRadius * 0.01, framingRadius * 0.1);
+      eyeHeight = Number.isFinite(walkEyeHeightHint) && walkEyeHeightHint > 0
+        ? walkEyeHeightHint
+        : THREE.MathUtils.clamp(
+            framingRadius * EYE_HEIGHT_FACTOR, framingRadius * 0.01, framingRadius * 0.1);
       lastGroundY = null;
       walkYSettled = false;
 
@@ -415,6 +426,22 @@
       if (controlMode === 'walk') updateWalkHeight(dt);
     }
 
+    function updateOrbit(dt) {
+      controls.update();
+      if (dt <= 0) return;
+
+      // Q/E retain their Fly-mode meaning while orbiting: translate both the
+      // camera and pivot vertically, rather than changing the look angle.
+      const direction = (keysDown.has('KeyE') ? 1 : 0) - (keysDown.has('KeyQ') ? 1 : 0);
+      if (direction === 0) return;
+      const distance = Math.max(controls.getDistance(), framingRadius * 0.1);
+      tmpMove.copy(WORLD_UP).multiplyScalar(
+        direction * distance * ORBIT_VERTICAL_SPEED_FACTOR * dt);
+      camera.position.add(tmpMove);
+      controls.target.add(tmpMove);
+      controls.update();
+    }
+
     function updateWalkHeight(dt) {
       if (!modelRoot) return;
       const pos = perspCamera.position;
@@ -490,7 +517,8 @@
       if (!TRACKED_KEYS.has(e.code)) return;
       // Per-frame integration reads the held set — key auto-repeat is a no-op.
       keysDown.add(e.code);
-      if (controlMode !== 'orbit') e.preventDefault();
+      if (controlMode !== 'orbit' || e.code === 'KeyQ' || e.code === 'KeyE')
+        e.preventDefault();
     });
     window.addEventListener('keyup', e => keysDown.delete(e.code));
     window.addEventListener('blur', () => keysDown.clear()); // stuck-key guard
@@ -526,11 +554,14 @@
       }
     }
 
-    function loadModel(base64Glb, isLevel) {
+    function loadModel(base64Glb, isLevel, eyeHeightHint) {
       status.textContent = 'Loading model...';
       status.classList.remove('hidden');
       unloadCurrent();
       isLevelModel = isLevel === true;
+      walkEyeHeightHint = Number.isFinite(eyeHeightHint) && eyeHeightHint > 0
+        ? eyeHeightHint
+        : null;
 
       try {
         const binary = atob(base64Glb);
@@ -604,6 +635,7 @@
     function clearModel() {
       unloadCurrent();
       isLevelModel = false;
+      walkEyeHeightHint = null;
       if (controlMode !== 'orbit') {
         controlMode = 'orbit';
         enterOrbit('center');

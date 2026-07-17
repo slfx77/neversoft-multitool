@@ -42,10 +42,14 @@ internal static class PsxGeometryWriter
 
         var textureDims = new Dictionary<uint, (int Width, int Height)>();
         var materialCache = new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>();
+        var coplanarOverlays = PsxCoplanarOverlayDetector.Find(psxFile);
         var untexturedMaterial = ModelDocumentGeometryAdapter.AddMaterial(document, new RenderMaterial
         {
             Name = "untextured",
-            BaseColor = new Vector4(0.7f, 0.7f, 0.7f, 1f),
+            // Flat PS1 primitives already carry their final display RGB.  A
+            // grey material multiplier changes the authored colour a second
+            // time, so keep the material neutral.
+            BaseColor = Vector4.One,
             DoubleSided = false
         });
 
@@ -60,13 +64,15 @@ internal static class PsxGeometryWriter
             PopulatePsxMeshNode(
                 document,
                 psxFile,
+                objectIndex,
                 obj.MeshIndex,
                 $"object_{objectIndex:D3}",
                 transform,
                 materialCache,
                 textureDims,
                 untexturedMaterial,
-                textureProvider);
+                textureProvider,
+                coplanarOverlays);
         }
 
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
@@ -75,27 +81,28 @@ internal static class PsxGeometryWriter
     private static void PopulatePsxMeshNode(
         ModelDocument document,
         PsxMeshFile psxFile,
+        int objectIndex,
         int meshIndex,
         string nodeName,
         Matrix4x4 transform,
         Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int> materialCache,
         Dictionary<uint, (int Width, int Height)> textureDims,
         int untexturedMaterial,
-        MeshChecksumTextureResolver? textureProvider)
+        MeshChecksumTextureResolver? textureProvider,
+        IReadOnlySet<PsxFaceInstanceKey> coplanarOverlays)
     {
         var psxMesh = psxFile.Meshes[meshIndex];
         if (psxMesh.Faces.Count == 0)
             return;
 
         var mesh = new ModelMesh { Name = PsxGeometryHelpers.ResolvePsxMeshName(psxFile, meshIndex) };
-        foreach (var group in psxMesh.Faces.GroupBy(face =>
-                     face.IsTextured && face.TextureHash != 0
-                         ? (Hash: face.TextureHash, SemiTransparent: face.IsSemiTransparent,
-                             DoubleSided: face.IsDoubleSided, BlendRate: face.BlendRate)
-                         : (Hash: 0u, SemiTransparent: false, DoubleSided: face.IsDoubleSided,
-                             BlendRate: 0)))
+        var indexedFaces = psxMesh.Faces.Select((face, faceIndex) => (Face: face, FaceIndex: faceIndex));
+        foreach (var group in indexedFaces.GroupBy(item =>
+                     PsxGeometryHelpers.GetPsxMaterialKey(item.Face)))
         {
-            var materialIndex = group.Key.Hash == 0 && !group.Key.DoubleSided
+            var materialIndex = group.Key.Hash == 0 &&
+                                !group.Key.SemiTransparent &&
+                                !group.Key.DoubleSided
                 ? untexturedMaterial
                 : PsxGeometryHelpers.GetOrCreatePsxMaterial(
                     document,
@@ -112,8 +119,16 @@ internal static class PsxGeometryWriter
                 : (Width: 256, Height: 256);
             var vertices = new List<ModelVertex>();
             var indices = new List<int>();
-            foreach (var face in group)
-                AddPsxFace(vertices, indices, psxFile.Version, psxMesh, face, psxFile.GouraudPalette, texDims);
+            foreach (var item in group)
+                AddPsxFace(
+                    vertices,
+                    indices,
+                    psxFile.Version,
+                    psxMesh,
+                    item.Face,
+                    psxFile.GouraudPalette,
+                    texDims,
+                    coplanarOverlays.Contains(new PsxFaceInstanceKey(objectIndex, item.FaceIndex)));
 
             ModelDocumentGeometryAdapter.AddPrimitive(mesh, $"mat_{materialIndex:D3}", materialIndex, vertices, indices);
         }
@@ -122,15 +137,14 @@ internal static class PsxGeometryWriter
     }
 
     /// <summary>
-    ///     Lift applied to semi-transparent level faces along their outward
-    ///     normal, in glTF units. The PS1 has no depth buffer — shadow meshes
-    ///     and decals (road stripes etc.) sit exactly coplanar with the ground
-    ///     and win by ordering-table draw order — but depth-tested glTF
-    ///     viewers z-fight on coplanar geometry. 0.25 units is below the
-    ///     minimum level-geometry grid step (1 raw unit / 2.25 ≈ 0.44), so
-    ///     the lift is invisible while clearing depth-buffer precision.
+    ///     Lift applied to ordering-table overlays along their outward normal,
+    ///     in glTF units. The PS1 has no depth buffer — transparent shadows and
+    ///     opaque decals alike can sit exactly coplanar with their base face and
+    ///     win by draw order — but depth-tested glTF viewers z-fight. 0.25 is
+    ///     below the minimum level-geometry grid step (1 raw unit / 2.25 ≈
+    ///     0.44), so the lift is invisible while clearing depth precision.
     /// </summary>
-    private const float PsxSemiTransparentFaceLift = 0.25f;
+    private const float PsxOverlayFaceLift = 0.25f;
 
     private static void AddPsxFace(
         List<ModelVertex> vertices,
@@ -139,15 +153,20 @@ internal static class PsxGeometryWriter
         PsxMesh mesh,
         PsxFace face,
         Vector4[]? gouraudPalette,
-        (int Width, int Height) texDims)
+        (int Width, int Height) texDims,
+        bool isCoplanarOverlay)
     {
         var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(version, face, gouraudPalette);
+        c0 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c0);
+        c1 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c1);
+        c2 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c2);
+        c3 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c3);
         var v0 = MakePsxVertex(version, mesh, face, 0, c0, texDims);
         var v1 = MakePsxVertex(version, mesh, face, 1, c1, texDims);
         var v2 = MakePsxVertex(version, mesh, face, 2, c2, texDims);
         var v3 = face.IsQuad ? MakePsxVertex(version, mesh, face, 3, c3, texDims) : default;
 
-        if (face.IsSemiTransparent)
+        if (face.IsSemiTransparent || isCoplanarOverlay)
         {
             // Geometric normal of the emitted CCW triangle (v0, v2, v1) —
             // outward per the winding convention below — so shadows/decals
@@ -157,7 +176,7 @@ internal static class PsxGeometryWriter
             var lengthSquared = geometricNormal.LengthSquared();
             if (lengthSquared > 1e-12f)
             {
-                var lift = geometricNormal / MathF.Sqrt(lengthSquared) * PsxSemiTransparentFaceLift;
+                var lift = geometricNormal / MathF.Sqrt(lengthSquared) * PsxOverlayFaceLift;
                 v0 = v0 with { Position = v0.Position + lift };
                 v1 = v1 with { Position = v1.Position + lift };
                 v2 = v2 with { Position = v2.Position + lift };

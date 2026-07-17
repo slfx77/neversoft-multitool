@@ -15,7 +15,11 @@ internal static class PsxGeometryHelpers
         PsxFace face,
         Vector4[]? gouraudPalette)
     {
-        if (face.IsGouraud && gouraudPalette != null && version != 0x06)
+        // RGBs chunks remain authoritative in the PC/DC v6 layout. The four
+        // face bytes are palette indices there too; ignoring a present palette
+        // strips colored baked lighting to grayscale/white. Some v6 assets omit
+        // RGBs, so retain direct intensity as the evidence-backed fallback.
+        if (face.IsGouraud && gouraudPalette != null)
         {
             var c0 = face.R < gouraudPalette.Length ? gouraudPalette[face.R] : Vector4.One;
             var c1 = face.G < gouraudPalette.Length ? gouraudPalette[face.G] : Vector4.One;
@@ -24,14 +28,38 @@ internal static class PsxGeometryHelpers
             return (c0, c1, c2, c3);
         }
 
+        if (version == 0x06 && face.IsGouraud)
+        {
+            var c0 = ToDirectIntensity(face.R);
+            var c1 = ToDirectIntensity(face.G);
+            var c2 = ToDirectIntensity(face.B);
+            var c3 = face.IsQuad ? ToDirectIntensity(face.Mode) : c0;
+            return (c0, c1, c2, c3);
+        }
+
         var flat = face.IsGouraud
             ? Vector4.One
-            : new Vector4(
-                Math.Min(face.R / 128f, 1f),
-                Math.Min(face.G / 128f, 1f),
-                Math.Min(face.B / 128f, 1f),
-                1f);
+            : ToFlatColor(version, face);
         return (flat, flat, flat, flat);
+    }
+
+    private static Vector4 ToFlatColor(ushort version, PsxFace face)
+    {
+        // PS1 textured primitives modulate texels with 128 as neutral.  Flat
+        // untextured primitives, and the later PC/DC direct-colour layout,
+        // instead carry display RGB in the ordinary 0..255 domain.
+        var divisor = version == 0x06 || !face.IsTextured ? 255f : 128f;
+        return new Vector4(
+            Math.Min(face.R / divisor, 1f),
+            Math.Min(face.G / divisor, 1f),
+            Math.Min(face.B / divisor, 1f),
+            1f);
+    }
+
+    private static Vector4 ToDirectIntensity(byte intensity)
+    {
+        var value = intensity / 255f;
+        return new Vector4(value, value, value, 1f);
     }
 
     internal static Vector3 ComputePsxVertexNormal(PsxMesh mesh, PsxFace face, uint vertexIndex)
@@ -106,6 +134,36 @@ internal static class PsxGeometryHelpers
         return ModelDocumentGeometryAdapter.ResolveQbName(nameHash, $"mesh_{meshIndex:X8}");
     }
 
+    internal static (uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate)
+        GetPsxMaterialKey(PsxFace face)
+    {
+        // A zero/missing texture hash still carries real primitive render
+        // state. THPS1 skware has untextured ABR1 planes; collapsing them into
+        // the opaque fallback material makes those planes solid in glTF.
+        var hash = face.IsTextured ? face.TextureHash : 0u;
+        return (hash, face.IsSemiTransparent, face.IsDoubleSided, face.BlendRate);
+    }
+
+    internal static Vector4 ApplyPsxUntexturedBlend(PsxFace face, Vector4 color)
+    {
+        if ((face.IsTextured && face.TextureHash != 0) || !face.IsSemiTransparent)
+            return color;
+
+        var luminance = Math.Max(color.X, Math.Max(color.Y, color.Z));
+        return face.BlendRate switch
+        {
+            // B + F: approximate additive output with white whose alpha is
+            // the authored vertex intensity, matching ConvertBlendTexture.
+            1 => new Vector4(1f, 1f, 1f, color.W * luminance),
+            // B - F: the same intensity drives a black subtractive overlay.
+            2 => new Vector4(0f, 0f, 0f, color.W * luminance),
+            // B + 0.25F: quarter-strength additive approximation.
+            3 => new Vector4(1f, 1f, 1f, color.W * luminance * 0.25f),
+            // 0.5B + 0.5F: preserve the authored hue at half opacity.
+            _ => new Vector4(color.X, color.Y, color.Z, color.W * 0.5f)
+        };
+    }
+
     internal static int GetOrCreatePsxMaterial(
         ModelDocument document,
         uint textureHash,
@@ -120,7 +178,9 @@ internal static class PsxGeometryHelpers
         if (materialCache.TryGetValue(key, out var existing))
             return existing;
 
-        var name = ModelDocumentGeometryAdapter.ResolveQbName(textureHash, $"tex_{textureHash:X8}");
+        var name = textureHash == 0
+            ? "untextured"
+            : ModelDocumentGeometryAdapter.ResolveQbName(textureHash, $"tex_{textureHash:X8}");
         if (semiTransparent)
             name += $"__st{blendRate}";
         if (doubleSided)
@@ -136,7 +196,7 @@ internal static class PsxGeometryHelpers
             DoubleSided = doubleSided
         };
 
-        if (textureProvider != null)
+        if (textureProvider != null && textureHash != 0)
         {
             var pngBytes = textureProvider(textureHash);
             if (pngBytes != null)

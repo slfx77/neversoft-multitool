@@ -44,6 +44,13 @@
             Style="{StaticResource DarkCardBorderStyle}"
             Padding="4">
       <Grid>
+        <!-- A neutral checkerboard makes retained alpha immediately visible.
+             It sits behind the image rather than being baked into exports. -->
+        <Image
+          x:Name="TransparencyBackground"
+          Stretch="Fill"
+          Visibility="Collapsed"
+          IsHitTestVisible="False" />
         <ScrollViewer
           x:Name="Scroller"
           HorizontalScrollBarVisibility="Disabled"

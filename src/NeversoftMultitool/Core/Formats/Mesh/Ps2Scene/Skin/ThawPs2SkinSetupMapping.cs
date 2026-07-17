@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
+using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 
@@ -39,6 +40,7 @@ internal static class ThawPs2SkinSetupMapping
             switch (regAddr)
             {
                 case 0x06:
+                    result.Tex0 = dataVal;
                     result.Tex0Cbp = (uint)((dataVal >> 37) & 0x3FFF);
                     break;
                 case 0x42:
@@ -357,7 +359,16 @@ internal static class ThawPs2SkinSetupMapping
 
         var version = BitConverter.ToUInt16(texData, 0);
         if (version != 6)
+        {
+            foreach (var entry in ThawZoneTexFile.ParseHeaderEntries(texData))
+            {
+                var tbp = (uint)(entry.Tex0 & 0x3FFF);
+                var cbp = (uint)((entry.Tex0 >> 37) & 0x3FFF);
+                map.TryAdd((tbp, cbp), entry.Checksum);
+            }
+
             return map;
+        }
 
         var off1 = (int)BitConverter.ToUInt32(texData, 8);
         if (off1 <= 0x40 || off1 >= texData.Length)

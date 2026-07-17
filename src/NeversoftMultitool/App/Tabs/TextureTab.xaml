@@ -13,9 +13,10 @@
       <!-- Parent row: PSX file -->
       <local:ExpandableListTemplateSelector.ParentTemplate>
         <DataTemplate x:DataType="local:PsxFileEntry">
-          <Grid Style="{StaticResource ListItemRowGridStyle}">
+          <Grid Style="{StaticResource ListItemRowGridStyle}"
+                local:FileTableBehavior.IsRow="True">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="56" />
+              <ColumnDefinition Width="56" MinWidth="56" />
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="0.7*" />
               <ColumnDefinition Width="70" />
@@ -75,27 +76,33 @@
       <local:ExpandableListTemplateSelector.ChildTemplate>
         <DataTemplate x:DataType="local:PsxTextureEntry">
           <Grid Style="{StaticResource ListItemRowGridStyle}"
-                Padding="28,0,0,0">
+                local:FileTableBehavior.IsRow="True">
             <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="56" MinWidth="56" />
               <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="100" />
-              <ColumnDefinition Width="160" />
+              <ColumnDefinition Width="0.7*" />
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="90" />
             </Grid.ColumnDefinitions>
             <TextBlock
               Grid.Column="0"
+              Grid.ColumnSpan="3"
+              Margin="28,0,0,0"
               VerticalAlignment="Center"
               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
               Text="{x:Bind NameDisplay}"
               TextTrimming="CharacterEllipsis"
               ToolTipService.ToolTip="{x:Bind HashDisplay}" />
             <TextBlock
-              Grid.Column="1"
+              Grid.Column="3"
               VerticalAlignment="Center"
               HorizontalAlignment="Center"
               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
               Text="{x:Bind DimensionsDisplay}" />
             <TextBlock
-              Grid.Column="2"
+              Grid.Column="4"
+              Grid.ColumnSpan="2"
               VerticalAlignment="Center"
               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
               Text="{x:Bind PaletteType}" />
@@ -154,7 +161,8 @@
         VerticalAlignment="Stretch"
         Style="{StaticResource CardBorderStyle}"
         Visibility="Collapsed">
-        <Grid VerticalAlignment="Stretch">
+        <Grid VerticalAlignment="Stretch"
+              local:FileTableBehavior.IsEnabled="True">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -164,7 +172,7 @@
           <Grid Grid.Row="0"
                 Style="{StaticResource ColumnHeaderGridStyle}">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="56" />
+              <ColumnDefinition Width="56" MinWidth="56" />
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="0.7*" />
               <ColumnDefinition Width="70" />
@@ -197,49 +205,31 @@
             </StackPanel>
             <Button
               Grid.Column="1"
+              Content="File Name"
               Style="{StaticResource SortableColumnHeaderButtonStyle}"
-              Click="SortByFileName_Click">
-              <StackPanel Orientation="Horizontal" Spacing="4">
-                <TextBlock Text="File Name" FontWeight="SemiBold" />
-                <FontIcon x:Name="FileNameSortIcon" Style="{StaticResource SortIconStyle}" />
-              </StackPanel>
-            </Button>
+              local:FileTableBehavior.SortProperty="FileName" />
             <Button
               Grid.Column="2"
+              Content="Folder"
               Style="{StaticResource SortableColumnHeaderButtonStyle}"
-              Click="SortByFolder_Click">
-              <StackPanel Orientation="Horizontal" Spacing="4">
-                <TextBlock Text="Folder" FontWeight="SemiBold" />
-                <FontIcon x:Name="FolderSortIcon" Style="{StaticResource SortIconStyle}" />
-              </StackPanel>
-            </Button>
+              local:FileTableBehavior.SortProperty="FolderDisplay" />
             <Button
               Grid.Column="3"
+              Content="Textures"
+              HorizontalContentAlignment="Center"
               Style="{StaticResource SortableColumnHeaderButtonStyle}"
-              Click="SortByTextures_Click">
-              <StackPanel Orientation="Horizontal" Spacing="4">
-                <TextBlock Text="Textures" FontWeight="SemiBold" />
-                <FontIcon x:Name="TexturesSortIcon" Style="{StaticResource SortIconStyle}" />
-              </StackPanel>
-            </Button>
+              local:FileTableBehavior.SortProperty="TextureCount" />
             <Button
               Grid.Column="4"
+              Content="Extracted"
+              HorizontalContentAlignment="Center"
               Style="{StaticResource SortableColumnHeaderButtonStyle}"
-              Click="SortByExtracted_Click">
-              <StackPanel Orientation="Horizontal" Spacing="4">
-                <TextBlock Text="Extracted" FontWeight="SemiBold" />
-                <FontIcon x:Name="ExtractedSortIcon" Style="{StaticResource SortIconStyle}" />
-              </StackPanel>
-            </Button>
+              local:FileTableBehavior.SortProperty="ExtractedCount" />
             <Button
               Grid.Column="5"
+              Content="Status"
               Style="{StaticResource SortableColumnHeaderButtonStyle}"
-              Click="SortByStatus_Click">
-              <StackPanel Orientation="Horizontal" Spacing="4">
-                <TextBlock Text="Status" FontWeight="SemiBold" />
-                <FontIcon x:Name="StatusSortIcon" Style="{StaticResource SortIconStyle}" />
-              </StackPanel>
-            </Button>
+              local:FileTableBehavior.SortProperty="Status" />
           </Grid>
 
           <!-- Files ListView -->

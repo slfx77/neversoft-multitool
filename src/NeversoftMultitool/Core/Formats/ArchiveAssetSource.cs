@@ -6,11 +6,10 @@ namespace NeversoftMultitool.Core.Formats;
 ///     <see cref="AssetSource" /> backed by a single entry inside an archive.
 ///     Shares an <see cref="ArchiveAssetBackend" /> with every other entry from
 ///     the same archive, so the archive bytes are read once and entry lookups
-///     are a cheap dictionary hit. Companion resolution is a flat basename
-///     match over the backend's entry index — directory prefixes inside a PAK
-///     are ignored for companion purposes. <see cref="FileSystemPath" /> is
-///     always null; callers that truly need a path must degrade to byte-based
-///     APIs.
+///     are a cheap dictionary hit. Companion resolution prefers a basename
+///     match in the selected entry's directory, then falls back to the legacy
+///     flat lookup. <see cref="AssetSource.FileSystemPath" /> is always null;
+///     callers that truly need a path must degrade to byte-based APIs.
 /// </summary>
 public sealed class ArchiveAssetSource : AssetSource
 {
@@ -27,7 +26,7 @@ public sealed class ArchiveAssetSource : AssetSource
     /// <summary>The specific entry this source represents within the archive.</summary>
     public ArchiveEntry Entry { get; }
 
-    public override string DisplayName => $"{Backend.DisplayPath}::{Entry.Name}";
+    public override string DisplayName => $"{Backend.DisplayPath}::{Entry.FullName}";
     public override string EntryName => Entry.Name;
 
     public override byte[] ReadBytes()
@@ -37,12 +36,12 @@ public sealed class ArchiveAssetSource : AssetSource
 
     public override bool CompanionExists(string nameWithExtension)
     {
-        return Backend.FindEntry(nameWithExtension) != null;
+        return FindCompanionEntry(nameWithExtension) != null;
     }
 
     public override byte[]? TryReadCompanion(string nameWithExtension)
     {
-        var entry = Backend.FindEntry(nameWithExtension);
+        var entry = FindCompanionEntry(nameWithExtension);
         return entry == null ? null : Backend.ReadEntryBytes(entry);
     }
 
@@ -59,5 +58,53 @@ public sealed class ArchiveAssetSource : AssetSource
         }
 
         return null;
+    }
+
+    private ArchiveEntry? FindCompanionEntry(string nameWithExtension)
+    {
+        IReadOnlyList<ArchiveEntry> candidates = Backend.FindAllByName(nameWithExtension);
+        if (candidates.Count == 0)
+        {
+            // Plaintext HED/WAD entries historically retain their full relative
+            // path in ArchiveEntry.Name instead of splitting Directory + Name.
+            // Fall back to a basename scan so those archives receive the same
+            // directory-aware companion behavior as normalized entry tables.
+            candidates = Backend.Entries
+                .Where(candidate => string.Equals(
+                    GetEntryBasename(candidate),
+                    nameWithExtension,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        if (candidates.Count == 0)
+            return null;
+
+        // Archives such as THAW DATAP.WAD contain same-named male/female CAS
+        // textures. The game resolves those relative to the model directory;
+        // a flat first-wins lookup silently binds the other model's texture.
+        var sameDirectory = candidates.FirstOrDefault(candidate =>
+            string.Equals(
+                GetEntryDirectory(candidate),
+                GetEntryDirectory(Entry),
+                StringComparison.OrdinalIgnoreCase));
+        return sameDirectory ?? candidates[0];
+    }
+
+    private static string GetEntryBasename(ArchiveEntry entry)
+    {
+        var normalized = entry.Name.Replace('\\', '/');
+        var separator = normalized.LastIndexOf('/');
+        return separator < 0 ? normalized : normalized[(separator + 1)..];
+    }
+
+    private static string GetEntryDirectory(ArchiveEntry entry)
+    {
+        if (!string.IsNullOrEmpty(entry.Directory))
+            return entry.Directory.Replace('\\', '/').Trim('/');
+
+        var normalized = entry.Name.Replace('\\', '/');
+        var separator = normalized.LastIndexOf('/');
+        return separator < 0 ? string.Empty : normalized[..separator].Trim('/');
     }
 }

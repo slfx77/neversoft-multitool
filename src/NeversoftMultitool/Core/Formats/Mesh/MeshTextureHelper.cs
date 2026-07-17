@@ -232,6 +232,51 @@ internal static class MeshTextureHelper
         return (ms.ToArray(), true);
     }
 
+    /// <summary>
+    ///     Applies the exact magenta cutout pixels from a separate source image to a
+    ///     decoded texture. THPS1 keeps the skateboard wheel/truck cutout in its
+    ///     <c>w_*.bmp</c>/<c>wt*.bmp</c> equipment assets even when the copy embedded
+    ///     in a character PSX has an opaque palette. This transfers only that authored
+    ///     mask; it does not infer transparency from black pixels.
+    /// </summary>
+    internal static (byte[] Bytes, bool Applied) ApplyExternalMagentaMask(
+        byte[] pngBytes,
+        byte[] maskImageBytes)
+    {
+        using var image = Image.Load<Rgba32>(pngBytes);
+        using var mask = Image.Load<Rgba32>(maskImageBytes);
+        if (image.Width != mask.Width || image.Height != mask.Height)
+            return (pngBytes, false);
+
+        var maskPixels = new Rgba32[mask.Width * mask.Height];
+        mask.CopyPixelDataTo(maskPixels);
+        var applied = false;
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                var maskRow = maskPixels.AsSpan(y * mask.Width, mask.Width);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var key = maskRow[x];
+                    if (key.R != 255 || key.G != 0 || key.B != 255)
+                        continue;
+
+                    row[x] = new Rgba32(0, 0, 0, 0);
+                    applied = true;
+                }
+            }
+        });
+
+        if (!applied)
+            return (pngBytes, false);
+
+        using var ms = new MemoryStream();
+        image.SaveAsPng(ms);
+        return (ms.ToArray(), true);
+    }
+
     /// <summary>Scans an image for exact magenta pixels and any existing alpha content.</summary>
     private static (bool HasMagenta, bool HasExistingAlpha) ScanForColorKey(Image<Rgba32> img)
     {

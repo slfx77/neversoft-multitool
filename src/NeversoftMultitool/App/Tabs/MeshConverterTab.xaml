@@ -59,7 +59,8 @@
           VerticalAlignment="Stretch"
           Style="{StaticResource CardBorderStyle}"
           Visibility="Collapsed">
-          <Grid VerticalAlignment="Stretch">
+          <Grid VerticalAlignment="Stretch"
+                local:FileTableBehavior.IsEnabled="True">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
@@ -90,12 +91,35 @@
                 <ColumnDefinition Width="100" />
               </Grid.ColumnDefinitions>
               <TextBlock Grid.Column="0" Text="" />
-              <TextBlock Grid.Column="1" Text="File Name" FontWeight="SemiBold" Margin="8,0,0,0" />
-              <TextBlock Grid.Column="2" Text="Format" FontWeight="SemiBold" HorizontalAlignment="Center" />
-              <TextBlock Grid.Column="3" Text="Objects" FontWeight="SemiBold" HorizontalAlignment="Center" />
-              <TextBlock Grid.Column="4" Text="Meshes" FontWeight="SemiBold" HorizontalAlignment="Center" />
-              <TextBlock Grid.Column="5" Text="Triangles" FontWeight="SemiBold" HorizontalAlignment="Center" />
-              <TextBlock Grid.Column="6" Text="Status" FontWeight="SemiBold" />
+              <Button Grid.Column="1"
+                      Content="File Name"
+                      Margin="8,0,0,0"
+                      Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                      local:FileTableBehavior.SortProperty="RelativePath" />
+              <Button Grid.Column="2"
+                      Content="Format"
+                      HorizontalContentAlignment="Center"
+                      Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                      local:FileTableBehavior.SortProperty="Format" />
+              <Button Grid.Column="3"
+                      Content="Objects"
+                      HorizontalContentAlignment="Center"
+                      Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                      local:FileTableBehavior.SortProperty="ObjectCount" />
+              <Button Grid.Column="4"
+                      Content="Meshes"
+                      HorizontalContentAlignment="Center"
+                      Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                      local:FileTableBehavior.SortProperty="MeshCount" />
+              <Button Grid.Column="5"
+                      Content="Triangles"
+                      HorizontalContentAlignment="Center"
+                      Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                      local:FileTableBehavior.SortProperty="TriangleCount" />
+              <Button Grid.Column="6"
+                      Content="Status"
+                      Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                      local:FileTableBehavior.SortProperty="Status" />
             </Grid>
 
             <!-- Files ListView -->
@@ -107,7 +131,8 @@
               Style="{StaticResource FileListViewStyle}">
               <ListView.ItemTemplate>
                 <DataTemplate x:DataType="local:MeshFileEntry">
-                  <Grid Style="{StaticResource ListItemRowGridStyle}">
+                  <Grid Style="{StaticResource ListItemRowGridStyle}"
+                        local:FileTableBehavior.IsRow="True">
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="32" />
                       <ColumnDefinition Width="*" />
@@ -232,6 +257,7 @@
 
               <!-- Animations pane -->
               <Grid x:Name="AnimationsPane"
+                    local:FileTableBehavior.IsEnabled="True"
                     Visibility="Collapsed">
                 <Grid.RowDefinitions>
                   <RowDefinition Height="Auto" />
@@ -250,31 +276,50 @@
                     FontSize="12"
                     TextWrapping="Wrap"
                     Text="Select a skinned character to scan for animations." />
-                  <StackPanel Orientation="Horizontal" Spacing="4">
+                  <Grid ColumnSpacing="4"
+                        RowSpacing="4">
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
                     <Button
                       x:Name="AddAnimFolderButton"
+                      Grid.Row="0"
+                      Grid.Column="0"
                       Content="Add folder..."
                       Click="AddAnimFolder_Click"
+                      HorizontalAlignment="Stretch"
                       IsEnabled="False" />
                     <Button
                       x:Name="AddAnimArchiveButton"
+                      Grid.Row="0"
+                      Grid.Column="1"
                       Content="Add archive..."
                       Click="AddAnimArchive_Click"
+                      HorizontalAlignment="Stretch"
                       IsEnabled="False" />
-                  </StackPanel>
-                  <StackPanel Orientation="Horizontal" Spacing="4">
-                    <Button Content="Select all"
+                    <Button Grid.Row="1"
+                            Grid.Column="0"
+                            Content="Select all"
+                            HorizontalAlignment="Stretch"
                             Click="AnimsSelectAll_Click" />
-                    <Button Content="Select none"
+                    <Button Grid.Row="1"
+                            Grid.Column="1"
+                            Content="Select none"
+                            HorizontalAlignment="Stretch"
                             Click="AnimsSelectNone_Click" />
-                    <CheckBox
-                      x:Name="ShowAllAnimsCheckBox"
-                      Content="Show all"
-                      MinWidth="0"
-                      IsChecked="False"
-                      ToolTipService.ToolTip="Also list animations whose bone count doesn't match this skeleton"
-                      Click="ShowAllAnims_Click" />
-                  </StackPanel>
+                  </Grid>
+                  <CheckBox
+                    x:Name="ShowAllAnimsCheckBox"
+                    Content="Show all"
+                    MinWidth="0"
+                    IsChecked="False"
+                    ToolTipService.ToolTip="Also list animations whose bone count doesn't match this skeleton"
+                    Click="ShowAllAnims_Click" />
                 </StackPanel>
 
                 <!-- List header -->
@@ -286,9 +331,17 @@
                     <ColumnDefinition Width="60" />
                   </Grid.ColumnDefinitions>
                   <TextBlock Grid.Column="0" Text="" />
-                  <TextBlock Grid.Column="1" Text="Animation" FontWeight="SemiBold" Margin="8,0,0,0" />
-                  <TextBlock Grid.Column="2" Text="Length" FontWeight="SemiBold" HorizontalAlignment="Right"
-                             Margin="0,0,8,0" />
+                  <Button Grid.Column="1"
+                          Content="Animation"
+                          Margin="8,0,0,0"
+                          Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                          local:FileTableBehavior.SortProperty="DisplayName" />
+                  <Button Grid.Column="2"
+                          Content="Length"
+                          Margin="0,0,8,0"
+                          HorizontalContentAlignment="Right"
+                          Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                          local:FileTableBehavior.SortProperty="Probe.DurationSec" />
                 </Grid>
 
                 <!-- Animation list -->
@@ -301,6 +354,7 @@
                   <ListView.ItemTemplate>
                     <DataTemplate x:DataType="local:AnimationListEntry">
                       <Grid Style="{StaticResource ListItemRowGridStyle}"
+                            local:FileTableBehavior.IsRow="True"
                             ToolTipService.ToolTip="{x:Bind MismatchTooltip}">
                         <Grid.ColumnDefinitions>
                           <ColumnDefinition Width="32" />

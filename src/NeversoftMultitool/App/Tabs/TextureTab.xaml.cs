@@ -21,8 +21,6 @@ public sealed partial class TextureTab : UserControl, IDisposable
     private CancellationTokenSource? _previewCts;
     private CancellationTokenSource? _scanCts;
     private bool _disposed;
-    private bool _sortAscending = true;
-    private string _sortColumn = "";
 
     public TextureTab()
     {
@@ -443,70 +441,6 @@ public sealed partial class TextureTab : UserControl, IDisposable
         CancelButton.Visibility = Visibility.Collapsed;
         ExtractButton.Visibility = Visibility.Visible;
         MainWindow.Instance?.SetStatus("Extraction cancelled");
-    }
-
-    private void SortByFileName_Click(object sender, RoutedEventArgs e)
-    {
-        SortFiles("FileName", f => f.FileName);
-    }
-
-    private void SortByFolder_Click(object sender, RoutedEventArgs e)
-    {
-        SortFiles("Folder", f => f.RelativePath);
-    }
-
-    private void SortByTextures_Click(object sender, RoutedEventArgs e)
-    {
-        SortFiles("Textures", f => f.TextureCount);
-    }
-
-    private void SortByExtracted_Click(object sender, RoutedEventArgs e)
-    {
-        SortFiles("Extracted", f => f.ExtractedCount);
-    }
-
-    private void SortByStatus_Click(object sender, RoutedEventArgs e)
-    {
-        SortFiles("Status", f => (int)f.Status);
-    }
-
-    private void SortFiles<T>(string column, Func<PsxFileEntry, T> keySelector)
-    {
-        if (_parentFiles.Count == 0) return;
-
-        if (_sortColumn == column)
-            _sortAscending = !_sortAscending;
-        else
-        {
-            _sortColumn = column;
-            _sortAscending = true;
-        }
-
-        foreach (var parent in _parentFiles)
-            parent.IsExpanded = false;
-
-        var sorted = _sortAscending
-            ? _parentFiles.OrderBy(keySelector).ToList()
-            : _parentFiles.OrderByDescending(keySelector).ToList();
-
-        _parentFiles.Clear();
-        _parentFiles.AddRange(sorted);
-
-        _items.Clear();
-        foreach (var item in sorted)
-            _items.Add(item);
-
-        UpdateSortIcons();
-    }
-
-    private void UpdateSortIcons()
-    {
-        var glyph = _sortAscending ? "" : "";
-        FileNameSortIcon.Glyph = _sortColumn == "FileName" ? glyph : "";
-        FolderSortIcon.Glyph = _sortColumn == "Folder" ? glyph : "";
-        TexturesSortIcon.Glyph = _sortColumn == "Textures" ? glyph : "";
-        ExtractedSortIcon.Glyph = _sortColumn == "Extracted" ? glyph : "";
-        StatusSortIcon.Glyph = _sortColumn == "Status" ? glyph : "";
     }
 
     private async void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)

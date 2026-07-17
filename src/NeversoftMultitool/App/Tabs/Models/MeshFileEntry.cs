@@ -32,9 +32,10 @@ public class MeshFileEntry : BaseFileEntry
     // Internal: PS2 scene sub-format routing
     internal Ps2SceneSubFormat Ps2SubFormat { get; init; }
 
-    // Internal: PSX hierarchical-character flag — only character/creature .psx files
-    // (not levels or texture libraries) have animations to preview.
-    internal bool PsxHasHierarchy { get; init; }
+    // Internal: PSX structure flag used by the animation panel. Older flat
+    // supers (Apocalypse / THPS1) have no HIER table but are still animated
+    // characters, so PsxIsSuperModel is the authoritative character gate.
+    internal bool PsxIsSuperModel { get; init; }
 
     internal bool IsPlacedLevel => HasPlacedPsxCompanion;
 
@@ -58,7 +59,7 @@ public class MeshFileEntry : BaseFileEntry
         || (IsPs2Scene && Ps2SubFormat is Ps2SceneSubFormat.ThawSkin
             or Ps2SceneSubFormat.PakSkin
             or Ps2SceneSubFormat.Standard)
-        || (IsPsx && PsxHasHierarchy);
+        || (IsPsx && PsxIsSuperModel);
 
     internal bool IsPs2Scene => Format is "PS2 (THPS4)" or "PS2 (THUG)"
         or "PS2 (THUG2)" or "PS2 (THAW)" or "PS2 (pre-compiled)";

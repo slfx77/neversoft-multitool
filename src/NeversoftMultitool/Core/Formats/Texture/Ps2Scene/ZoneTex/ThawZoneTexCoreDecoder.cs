@@ -27,6 +27,22 @@ internal static class ThawZoneTexCoreDecoder
     /// </summary>
     internal static (int TableStart, int RecordCount) DiscoverRecordTable(ReadOnlySpan<byte> data)
     {
+        // The owner header carries the authoritative primary/secondary counts. Prefer
+        // it over the legacy backward-from-first-CNT walk: several shipped worldzone
+        // object blobs insert a RET segment before the first CNT, and the old walk
+        // interpreted that DMA tag/payload as one bogus texture record.
+        if (ThawZoneTexOwnerBlobDecoder.TryFindOwnerBlobHeader(
+                data,
+                out var headerOffset,
+                out var primaryCount,
+                out var secondaryCount,
+                out _,
+                out _,
+                out _))
+        {
+            return (headerOffset + 0x10 + primaryCount * 0x50, secondaryCount);
+        }
+
         var dmaStart = FindDmaChainStart(data);
         if (dmaStart < 0)
             return (-1, 0);

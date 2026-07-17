@@ -13,6 +13,12 @@ namespace NeversoftMultitool;
 /// </summary>
 internal sealed class MeshConverterTabPreview : IDisposable
 {
+    // PSX world and character exports use the same coordinate domain.  The
+    // current Spider-Man player mesh is about 91 units tall, so an 82-unit
+    // standing eye is a format-grounded scale.  A level bounding sphere is
+    // thousands of units across and cannot serve as a human-height proxy.
+    private const double PsxLevelWalkEyeHeight = 82d;
+
     private readonly ModelViewerControl _viewer;
     private CancellationTokenSource? _previewCts;
 
@@ -99,7 +105,11 @@ internal sealed class MeshConverterTabPreview : IDisposable
             _viewer.SetInfo(
                 $"{entry.FormatDisplay} | {triangles:N0} triangles | {glbBytes.Length / 1024:N0} KB");
             _viewer.SetLoading(false);
-            await _viewer.LoadGlbAsync(glbBytes, IsLevelModel(entry));
+            var isLevel = IsLevelModel(entry);
+            var walkEyeHeight = isLevel && entry.IsPsx
+                ? PsxLevelWalkEyeHeight
+                : (double?)null;
+            await _viewer.LoadGlbAsync(glbBytes, isLevel, walkEyeHeight);
         }
         catch (OperationCanceledException)
         {
@@ -156,6 +166,10 @@ internal sealed class MeshConverterTabPreview : IDisposable
                 return;
             }
 
+            // Animated character selection takes this path instead of the
+            // static preview path, so publish the already-computed count to
+            // the shared file-table row here as well.
+            character.TriangleCount = result.Triangles;
             _viewer.SetInfo(
                 $"{character.FormatDisplay} | {animation.DisplayName} | "
                 + $"{animation.DurationSec:0.00} s | {result.Triangles:N0} triangles");

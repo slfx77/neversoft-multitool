@@ -334,4 +334,47 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
 
         Assert.Equal(0, CountStripTriangles(verts));
     }
+
+    [Fact]
+    public void BuildPakSkinMaterials_DoesNotCollapseDistinctTex0ValuesThatShareCbp()
+    {
+        const ulong sharedCbp = 42UL << 37;
+        var registers = new[]
+        {
+            new GsRegisters { Tex0 = sharedCbp | 1, Tex0Cbp = 42, Alpha1 = 0x44, AlphaRef = 12 },
+            new GsRegisters { Tex0 = sharedCbp | 2, Tex0Cbp = 42, Alpha1 = 0x44, AlphaRef = 12 },
+            new GsRegisters { Tex0 = sharedCbp | 1, Tex0Cbp = 42, Alpha1 = 0x44, AlphaRef = 12 }
+        };
+
+        var (materials, setupChecksums) = ThawPs2SkinFile.BuildPakSkinMaterials(
+            registers,
+            static (tex0, _) => (uint)(tex0 & 0x3FFF) + 0x1000);
+
+        Assert.Equal(2, materials.Count);
+        Assert.NotEqual(setupChecksums[0], setupChecksums[1]);
+        Assert.Equal(setupChecksums[0], setupChecksums[2]);
+        Assert.Equal(new uint[] { 0x1001, 0x1002 },
+            materials.Select(static material => material.TextureChecksum));
+    }
+
+    [Fact]
+    public void BuildPakSkinMaterials_PreservesDistinctRenderStateForTheSameTexture()
+    {
+        var registers = new[]
+        {
+            new GsRegisters { Tex0 = 7, Alpha1 = 0x11, AlphaRef = 8 },
+            new GsRegisters { Tex0 = 7, Alpha1 = 0x22, AlphaRef = 8 },
+            new GsRegisters { Tex0 = 7, Alpha1 = 0x11, AlphaRef = 16 }
+        };
+
+        var (materials, setupChecksums) = ThawPs2SkinFile.BuildPakSkinMaterials(
+            registers,
+            static (_, _) => 0xDEADBEEF);
+
+        Assert.Equal(3, materials.Count);
+        Assert.Equal(3, setupChecksums.Distinct().Count());
+        Assert.All(materials,
+            static material => Assert.Equal(0xDEADBEEFu, material.TextureChecksum));
+    }
+
 }

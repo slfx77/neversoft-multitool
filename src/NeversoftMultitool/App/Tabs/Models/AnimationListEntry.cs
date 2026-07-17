@@ -1,8 +1,8 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using NeversoftMultitool.Core.Formats.Animation;
-using Windows.UI;
 
 namespace NeversoftMultitool;
 
@@ -21,9 +21,9 @@ internal sealed class AnimationListEntry : INotifyPropertyChanged
 
     public required AnimationProbe Probe { get; init; }
 
-    public string DisplayName => Probe.DisplayName;
+    public string DisplayName => Probe.ResolvedDisplayName;
 
-    public string DurationDisplay => $"{Probe.DurationSec:0.00} s";
+    public string DurationDisplay => Probe.DurationDisplay;
 
     public string BoneCountDisplay => Probe.BoneCount.HasValue
         ? Probe.BoneCount.Value.ToString()
@@ -54,13 +54,12 @@ internal sealed class AnimationListEntry : INotifyPropertyChanged
     }
 
     /// <summary>
-    ///     Foreground brush for the row. Null (= inherited theme foreground)
-    ///     for matches; greyed-out for skeleton mismatches so the user can see
-    ///     the file but knows it won't preview meaningfully.
+    ///     Foreground brush for the row. A bound null brush does not inherit the
+    ///     theme foreground in WinUI, which made matching animation names and
+    ///     durations render blank. Resolve both states to real theme brushes.
     /// </summary>
-    public Brush? RowForeground => MatchesSkeleton
-        ? null
-        : new SolidColorBrush(Color.FromArgb(0x80, 0x80, 0x80, 0x80));
+    public Brush RowForeground => (Brush)Application.Current.Resources[
+        MatchesSkeleton ? "TextFillColorPrimaryBrush" : "TextFillColorDisabledBrush"];
 
     public string MismatchTooltip => MatchesSkeleton
         ? ""

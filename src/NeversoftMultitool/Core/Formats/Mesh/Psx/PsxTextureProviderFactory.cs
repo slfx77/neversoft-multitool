@@ -43,6 +43,34 @@ public static class PsxTextureProviderFactory
             }
         }
 
+        // Apocalypse level regions use family libraries rather than the later
+        // *_g / *_l convention. Most are a single shared file (city_1.psx,
+        // city_2.psx, ... -> city_lib.psx), while the interior sequence adds
+        // cumulative int2_lib/int3_lib files. Try the current and preceding
+        // numbered libraries before the family base. The retail death region
+        // uses the older spelling deathlib.psx, hence the final no-underscore
+        // candidate. Keep these after the native pair candidates so later
+        // games retain their own pairing when both conventions are present.
+        var familySeparator = stem.IndexOf('_');
+        if (familySeparator > 0)
+        {
+            var family = stem[..familySeparator];
+            var suffix = stem.AsSpan(familySeparator + 1);
+            var digitCount = 0;
+            while (digitCount < suffix.Length && char.IsAsciiDigit(suffix[digitCount]))
+                digitCount++;
+            if (digitCount > 0 &&
+                int.TryParse(suffix[..digitCount], out var regionNumber) &&
+                regionNumber <= 32)
+            {
+                for (var region = regionNumber; region >= 2; region--)
+                    candidates.Add($"{family}{region}_lib");
+            }
+
+            candidates.Add(family + "_lib");
+            candidates.Add(family + "lib");
+        }
+
         // THPS1-proto shared texture libraries, loaded alongside every level
         // region. Harmless elsewhere (candidates that don't exist are skipped).
         candidates.Add("skatelib");

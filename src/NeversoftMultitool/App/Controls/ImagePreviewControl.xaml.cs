@@ -29,16 +29,46 @@ public sealed partial class ImagePreviewControl : UserControl
     public ImagePreviewControl()
     {
         InitializeComponent();
+        TransparencyBackground.Source = CreateCheckerboard();
     }
 
     private bool IsActualSize => ZoomModeCombo.SelectedIndex == 1;
 
     private bool IsFilteringEnabled => FilteringCheckbox?.IsChecked != false;
 
+    private static WriteableBitmap CreateCheckerboard()
+    {
+        // A moderately large source keeps the squares useful after Stretch=Fill
+        // maps the pattern to differently sized preview panes.
+        const int size = 512;
+        const int cellSize = 16;
+        var pixels = new byte[size * size * 4];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var light = ((x / cellSize) + (y / cellSize)) % 2 == 0;
+                var value = light ? (byte)148 : (byte)96;
+                var offset = (y * size + x) * 4;
+                pixels[offset] = value;
+                pixels[offset + 1] = value;
+                pixels[offset + 2] = value;
+                pixels[offset + 3] = byte.MaxValue;
+            }
+        }
+
+        var bitmap = new WriteableBitmap(size, size);
+        using (var stream = bitmap.PixelBuffer.AsStream())
+            stream.Write(pixels, 0, pixels.Length);
+        bitmap.Invalidate();
+        return bitmap;
+    }
+
     /// <summary>Show an image (clears loading + placeholder states).</summary>
     public void SetSource(WriteableBitmap bitmap)
     {
         _bitmap = bitmap;
+        TransparencyBackground.Visibility = Visibility.Visible;
         DimensionsText.Text = $"{bitmap.PixelWidth} × {bitmap.PixelHeight}";
         PlaceholderText.Visibility = Visibility.Collapsed;
         SetLoading(false);
@@ -52,6 +82,7 @@ public sealed partial class ImagePreviewControl : UserControl
         _scaledBitmap = null;
         _scaledSourceOf = null;
         PreviewImage.Source = null;
+        TransparencyBackground.Visibility = Visibility.Collapsed;
         DimensionsText.Text = "";
         PlaceholderText.Visibility = Visibility.Visible;
         SetLoading(false);

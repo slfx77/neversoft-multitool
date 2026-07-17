@@ -82,7 +82,10 @@ public sealed partial class ModelViewerControl : UserControl
     ///     <paramref name="isLevel" /> marks level geometry: levels default to
     ///     the first-person Fly mode (F toggles Fly/Walk), everything else to Orbit.
     /// </summary>
-    public async Task LoadGlbAsync(byte[] glbBytes, bool isLevel = false)
+    public async Task LoadGlbAsync(
+        byte[] glbBytes,
+        bool isLevel = false,
+        double? walkEyeHeight = null)
     {
         LastGlbBytes = glbBytes;
         HasAnimations = false;
@@ -92,7 +95,11 @@ public sealed partial class ModelViewerControl : UserControl
 
         // Base64 of a multi-MB GLB is CPU-bound — keep it off the UI thread.
         var base64 = await Task.Run(() => Convert.ToBase64String(glbBytes));
-        await ExecuteScriptSafeAsync($"loadModel('{base64}', {(isLevel ? "true" : "false")})");
+        var eyeHeightScript = walkEyeHeight is > 0 && double.IsFinite(walkEyeHeight.Value)
+            ? JsonSerializer.Serialize(walkEyeHeight.Value)
+            : "null";
+        await ExecuteScriptSafeAsync(
+            $"loadModel('{base64}', {(isLevel ? "true" : "false")}, {eyeHeightScript})");
     }
 
     public async Task ClearAsync()

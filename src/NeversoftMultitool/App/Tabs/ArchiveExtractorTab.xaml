@@ -72,7 +72,8 @@
       VerticalAlignment="Stretch"
       Style="{StaticResource CardBorderStyle}"
       Visibility="Collapsed">
-      <Grid VerticalAlignment="Stretch">
+      <Grid VerticalAlignment="Stretch"
+            local:FileTableBehavior.IsEnabled="True">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto" />
           <RowDefinition Height="*" />
@@ -87,10 +88,24 @@
             <ColumnDefinition Width="90" />
             <ColumnDefinition Width="90" />
           </Grid.ColumnDefinitions>
-          <TextBlock Grid.Column="0" Text="File Name" FontWeight="SemiBold" />
-          <TextBlock Grid.Column="1" Text="Folder" FontWeight="SemiBold" />
-          <TextBlock Grid.Column="2" Text="Size" FontWeight="SemiBold" HorizontalAlignment="Right" Margin="0,0,16,0" />
-          <TextBlock Grid.Column="3" Text="Status" FontWeight="SemiBold" />
+          <Button Grid.Column="0"
+                  Content="File Name"
+                  Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                  local:FileTableBehavior.SortProperty="FileName" />
+          <Button Grid.Column="1"
+                  Content="Folder"
+                  Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                  local:FileTableBehavior.SortProperty="Folder" />
+          <Button Grid.Column="2"
+                  Content="Size"
+                  Margin="0,0,16,0"
+                  HorizontalContentAlignment="Right"
+                  Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                  local:FileTableBehavior.SortProperty="Size" />
+          <Button Grid.Column="3"
+                  Content="Status"
+                  Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                  local:FileTableBehavior.SortProperty="Status" />
         </Grid>
 
         <!-- Files ListView -->
@@ -100,7 +115,8 @@
           Style="{StaticResource FileListViewStyle}">
           <ListView.ItemTemplate>
             <DataTemplate x:DataType="local:ArchiveFileEntry">
-              <Grid Style="{StaticResource ListItemRowGridStyle}">
+              <Grid Style="{StaticResource ListItemRowGridStyle}"
+                    local:FileTableBehavior.IsRow="True">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*" />
                   <ColumnDefinition Width="0.7*" />

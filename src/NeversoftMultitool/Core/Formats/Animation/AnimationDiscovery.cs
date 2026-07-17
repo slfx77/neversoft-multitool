@@ -194,7 +194,11 @@ internal static class AnimationDiscovery
             return [];
         }
 
-        if (psxFile == null) return [];
+        // HIER is not a universal character marker. Apocalypse and THPS1
+        // prototype characters are flat supers with valid 0x2A/0x2C animation
+        // chunks, while some large level files carry animation data for placed
+        // objects. The parser's super classification distinguishes the two.
+        if (psxFile is not { IsSuperModel: true }) return [];
 
         var boneCount = psxFile.Objects.Count;
         var results = new List<AnimationProbe>();
@@ -327,18 +331,25 @@ internal static class AnimationDiscovery
             var probe = SkaFile.TryProbe(data);
             if (probe == null) return null;
 
+            // THPS3 RpHAnim files do not store a bone count in their header, but
+            // the full parser derives the track count without any external
+            // compression table. Resolve it here so an unrelated level PRE clip
+            // is not treated as compatible merely because its header count is
+            // unknown (for example a 3-bone bird animation beside a 29-bone pro).
+            var boneCount = probe.BoneCount;
+            if (!boneCount.HasValue && source is ArchiveAssetSource)
+                boneCount = SkaFile.Parse(data).BoneTracks.Length;
+
             // Bone-count match: only flag mismatched when both counts are known.
-            // THPS3 anims have null BoneCount → we cannot disqualify them, so they
-            // render as "matches" and the user can still preview / convert.
             var matches = !skeletonBoneCount.HasValue
-                          || !probe.BoneCount.HasValue
-                          || probe.BoneCount.Value == skeletonBoneCount.Value;
+                          || !boneCount.HasValue
+                          || boneCount.Value == skeletonBoneCount.Value;
 
             return new AnimationProbe(
                 source,
                 displayName,
                 probe.Duration,
-                probe.BoneCount,
+                boneCount,
                 matches);
         }
         catch

@@ -47,10 +47,11 @@ internal static class ThawZoneTexOwnerBlobDecoder
     ///     Returns false if no header could be found.
     /// </summary>
     /// <remarks>
-    ///     The header position is found by scanning for any (header_offset, primary_count,
-    ///     secondary_count) triple such that
-    ///     <c>header_offset + 0x10 + primary_count * 0x50 + secondary_count * 0x40 == dma_chain_start</c>,
-    ///     where the DMA chain start is the first <c>0x10000006</c> CNT tag in the file.
+    ///     The header position is found by scanning for a structurally valid
+    ///     (header_offset, primary_count, secondary_count) triple. Most owner tables end
+    ///     at the first <c>0x10000006</c> CNT tag. A small set of worldzone object texture
+    ///     blobs instead start the DMA chain with one 0x30-byte RET segment before that
+    ///     CNT tag; the header's base-A relocation still points exactly at the true table end.
     /// </remarks>
     internal static bool TryFindOwnerBlobHeader(
         ReadOnlySpan<byte> data,
@@ -68,8 +69,9 @@ internal static class ThawZoneTexOwnerBlobDecoder
         baseBOffset = 0;
         dmaChainStart = 0;
 
-        // Find DMA chain start (first 0x10000006 CNT tag followed by GIF A+D)
-        var dmaStart = -1;
+        // Find the first CNT tag followed by GIF A+D. This is normally the DMA-chain
+        // start, but some owner blobs put one RET segment immediately before it.
+        var firstCntStart = -1;
         for (var off = 0; off + 32 <= data.Length; off += 16)
         {
             var tag = BitConverter.ToUInt32(data[off..]);
@@ -79,39 +81,66 @@ internal static class ThawZoneTexOwnerBlobDecoder
             if (gifHi != 0x0E) continue;
             var nloop = (int)(gifLo & 0x7FFF);
             if (nloop is < 1 or > 32) continue;
-            dmaStart = off;
+            firstCntStart = off;
             break;
         }
 
-        if (dmaStart < 0) return false;
+        if (firstCntStart < 0) return false;
 
-        // Scan for a header that ends exactly at dmaStart. Start at 0x10 (after the
-        // minimal file header) to support both small .stex companion files (header
-        // near the beginning, around 0xC0) and large zone .tex files (header deeper
-        // in the file, around 0xFC0). The validation below (prim/sec ranges plus
-        // layout-end-matches-dma-start) keeps false positives out.
-        for (var off = 0x10; off + 0x10 < dmaStart; off += 4)
+        // Standalone .stex owner blobs put this header at byte 0, while prefixed
+        // diagnostic captures can place it deeper in the file. Validate base-A against
+        // the computed table end; unlike the old backward-from-CNT scan, this cannot
+        // mistake the final RET tag for a texture record.
+        for (var off = 0; off + 0x10 < firstCntStart; off += 4)
         {
             var prim = BitConverter.ToUInt16(data[(off + 2)..]);
             var sec = BitConverter.ToInt32(data[(off + 4)..]);
             if (prim is < 0 or > 200) continue;
             if (sec is < 1 or > 5000) continue;
-            var expectedEnd = off + 0x10 + prim * 0x50 + sec * 0x40;
-            if (expectedEnd != dmaStart) continue;
+            var expectedEndLong = (long)off + 0x10L + prim * 0x50L + sec * 0x40L;
+            if (expectedEndLong > int.MaxValue) continue;
+            var expectedEnd = (int)expectedEndLong;
             var ba = BitConverter.ToInt32(data[(off + 8)..]);
             var bb = BitConverter.ToInt32(data[(off + 0xc)..]);
             if (ba < 0 || ba >= data.Length) continue;
             if (bb < 0 || bb >= data.Length) continue;
+            if ((long)off + ba != expectedEnd) continue;
+            if (expectedEnd != firstCntStart &&
+                !IsSingleDmaPrelude(data, expectedEnd, firstCntStart))
+            {
+                continue;
+            }
+
             headerOffset = off;
             primaryCount = prim;
             secondaryCount = sec;
             baseAOffset = ba;
             baseBOffset = bb;
-            dmaChainStart = dmaStart;
+            dmaChainStart = firstCntStart;
             return true;
         }
 
         return false;
+    }
+
+    /// <summary>
+    ///     Accept the alternate owner-blob shape where a single DMA tag and its payload
+    ///     sit between the owner table and the first CNT+GIF A+D block. The exact shipped
+    ///     cases use a two-QWC RET tag (0x30 bytes total), but deriving the end from QWC
+    ///     is both stricter and clearer than a raw 0x30 gap check.
+    /// </summary>
+    private static bool IsSingleDmaPrelude(ReadOnlySpan<byte> data, int tableEnd, int firstCntStart)
+    {
+        if (tableEnd < 0 || tableEnd + 0x10 > data.Length || tableEnd >= firstCntStart)
+            return false;
+
+        var tag = BitConverter.ToUInt64(data[tableEnd..]);
+        var qwc = (int)(tag & 0xFFFF);
+        var tagId = (int)((tag >> 28) & 0x07);
+        if (qwc <= 0 || tagId != 6) // RET
+            return false;
+
+        return (long)tableEnd + 0x10L + qwc * 0x10L == firstCntStart;
     }
 
     /// <summary>

@@ -59,7 +59,7 @@ internal static class CharacterAnimationConverter
         if (character.IsPs2Scene)
             return BuildPs2Scene(character, animations);
 
-        if (character.IsPsx && character.PsxHasHierarchy)
+        if (character.IsPsx && character.PsxIsSuperModel)
             return BuildPsx(character, animations);
 
         return new DocumentResult(null,
@@ -88,9 +88,10 @@ internal static class CharacterAnimationConverter
                 return skel?.Bones.Length;
             }
 
-            if (character.IsPsx && character.PsxHasHierarchy)
+            if (character.IsPsx && character.PsxIsSuperModel)
             {
-                // PSX characters use Objects as bones (1:1 with the joint hierarchy).
+                // PSX supers use Objects as bones. Apocalypse / THPS1 flat
+                // supers have all-root joints rather than a HIER table.
                 return character.ObjectCount;
             }
         }
@@ -188,8 +189,8 @@ internal static class CharacterAnimationConverter
         var psxFile = PsxMeshFile.Parse(data);
         if (psxFile == null)
             return new DocumentResult(null, "PSX file has no parseable mesh data.");
-        if (!psxFile.HasHierarchy)
-            return new DocumentResult(null, "PSX file is not a hierarchical character.");
+        if (!psxFile.IsSuperModel)
+            return new DocumentResult(null, "PSX file is not a character super model.");
 
         // Translation channels compose through the hierarchy that ships with
         // the anim data, so clips from an external bank (e.g. sk2anim.psx)

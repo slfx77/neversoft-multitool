@@ -62,7 +62,8 @@
       VerticalAlignment="Stretch"
       Style="{StaticResource CardBorderStyle}"
       Visibility="Collapsed">
-      <Grid VerticalAlignment="Stretch">
+      <Grid VerticalAlignment="Stretch"
+            local:FileTableBehavior.IsEnabled="True">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto" />
           <RowDefinition Height="*" />
@@ -76,9 +77,18 @@
             <ColumnDefinition Width="60" />
             <ColumnDefinition Width="100" />
           </Grid.ColumnDefinitions>
-          <TextBlock Grid.Column="0" Text="Archive" FontWeight="SemiBold" />
-          <TextBlock Grid.Column="1" Text="Type" FontWeight="SemiBold" />
-          <TextBlock Grid.Column="2" Text="Status" FontWeight="SemiBold" />
+          <Button Grid.Column="0"
+                  Content="Archive"
+                  Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                  local:FileTableBehavior.SortProperty="RelativePath" />
+          <Button Grid.Column="1"
+                  Content="Type"
+                  Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                  local:FileTableBehavior.SortProperty="ArchiveType" />
+          <Button Grid.Column="2"
+                  Content="Status"
+                  Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                  local:FileTableBehavior.SortProperty="Status" />
         </Grid>
 
         <!-- Archives ListView -->
@@ -88,7 +98,8 @@
           Style="{StaticResource FileListViewStyle}">
           <ListView.ItemTemplate>
             <DataTemplate x:DataType="local:UnpackArchiveEntry">
-              <Grid Style="{StaticResource ListItemRowGridStyle}">
+              <Grid Style="{StaticResource ListItemRowGridStyle}"
+                    local:FileTableBehavior.IsRow="True">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*" />
                   <ColumnDefinition Width="60" />

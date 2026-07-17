@@ -39,7 +39,7 @@ internal static class PsxSkinnedGeometryWriter
         var untexturedMaterial = ModelDocumentGeometryAdapter.AddMaterial(document, new RenderMaterial
         {
             Name = "untextured",
-            BaseColor = new Vector4(0.7f, 0.7f, 0.7f, 1f),
+            BaseColor = Vector4.One,
             DoubleSided = false
         });
 
@@ -145,12 +145,11 @@ internal static class PsxSkinnedGeometryWriter
         Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int> materialCache,
         int untexturedMaterial)
     {
-        var key = face.IsTextured && face.TextureHash != 0
-            ? (Hash: face.TextureHash, SemiTransparent: face.IsSemiTransparent,
-                DoubleSided: face.IsDoubleSided, BlendRate: face.BlendRate)
-            : (Hash: 0u, SemiTransparent: false, DoubleSided: face.IsDoubleSided, BlendRate: 0);
+        var key = PsxGeometryHelpers.GetPsxMaterialKey(face);
 
-        var materialIndex = key.Hash == 0 && !key.DoubleSided
+        var materialIndex = key.Hash == 0 &&
+                            !key.SemiTransparent &&
+                            !key.DoubleSided
             ? untexturedMaterial
             : PsxGeometryHelpers.GetOrCreatePsxMaterial(document, key.Hash, key.SemiTransparent, key.DoubleSided,
                 key.BlendRate, textureProvider, textureDims, materialCache);
@@ -173,6 +172,10 @@ internal static class PsxSkinnedGeometryWriter
         (int Width, int Height) texDims)
     {
         var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(psxFile.Version, face, psxFile.GouraudPalette);
+        c0 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c0);
+        c1 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c1);
+        c2 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c2);
+        c3 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c3);
         var v0 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 0, c0, texDims, out var i0);
         var v1 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 1, c1, texDims, out var i1);
         var v2 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 2, c2, texDims, out var i2);
