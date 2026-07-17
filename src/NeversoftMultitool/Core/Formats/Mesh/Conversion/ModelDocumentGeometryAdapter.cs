@@ -160,12 +160,19 @@ internal static class ModelDocumentGeometryAdapter
         byte[] pngBytes,
         uint? checksum = null,
         ModelTextureWrap wrapU = ModelTextureWrap.Repeat,
-        ModelTextureWrap wrapV = ModelTextureWrap.Repeat)
+        ModelTextureWrap wrapV = ModelTextureWrap.Repeat,
+        bool distinguishChecksumVariantsByContent = false)
     {
         for (var i = 0; i < document.Textures.Count; i++)
         {
             var texture = document.Textures[i];
-            if (checksum.HasValue && texture.NativeChecksum == checksum)
+            if (checksum.HasValue &&
+                texture.NativeChecksum == checksum &&
+                (!distinguishChecksumVariantsByContent ||
+                 texture.WrapU == wrapU &&
+                 texture.WrapV == wrapV &&
+                 texture.PngBytes is { } existingBytes &&
+                 existingBytes.AsSpan().SequenceEqual(pngBytes)))
                 return i;
             if (!checksum.HasValue && string.Equals(texture.Name, name, StringComparison.OrdinalIgnoreCase))
                 return i;

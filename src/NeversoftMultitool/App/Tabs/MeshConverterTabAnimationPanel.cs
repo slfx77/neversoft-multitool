@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Microsoft.UI.Xaml.Controls;
+using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
 
@@ -211,7 +212,7 @@ internal sealed class MeshConverterTabAnimationPanel(
         foreach (var probe in _allProbes
                      .Where(p => showAll || p.MatchesSkeleton)
                      .OrderBy(p => p.MatchesSkeleton ? 0 : 1)
-                     .ThenBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase))
+                     .ThenBy(p => p.DisplayName, NaturalStringComparer.OrdinalIgnoreCase))
         {
             Animations.Add(new AnimationListEntry
             {

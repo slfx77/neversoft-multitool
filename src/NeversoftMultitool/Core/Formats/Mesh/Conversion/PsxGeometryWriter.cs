@@ -29,13 +29,18 @@ internal static class PsxGeometryWriter
         MeshChecksumTextureResolver? textureProvider,
         PshFile? pshFile = null,
         bool flatSkeleton = false,
-        IReadOnlySet<int>? flatBoneIndices = null)
+        IReadOnlySet<int>? flatBoneIndices = null,
+        PsxMeshFile? splineClawFile = null,
+        MeshChecksumTextureResolver? splineClawTextureProvider = null,
+        IReadOnlySet<int>? hiddenMeshIndices = null,
+        bool reconstructSplineAppendages = false)
     {
         if (PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(psxFile))
         {
             PsxSkinnedGeometryWriter.PopulatePsxSkinned(
                 document, psxFile, pshFile, textureProvider,
-                flatSkeleton, flatBoneIndices);
+                flatSkeleton, flatBoneIndices, splineClawFile,
+                splineClawTextureProvider, reconstructSplineAppendages);
             ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
             return;
         }
@@ -57,6 +62,8 @@ internal static class PsxGeometryWriter
         {
             var obj = psxFile.Objects[objectIndex];
             if (obj.MeshIndex >= psxFile.Meshes.Count)
+                continue;
+            if (hiddenMeshIndices?.Contains(obj.MeshIndex) == true)
                 continue;
 
             var transform = Matrix4x4.CreateTranslation(
@@ -161,6 +168,10 @@ internal static class PsxGeometryWriter
         c1 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c1);
         c2 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c2);
         c3 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c3);
+        c0 = PsxGeometryHelpers.DisplayRgbToLinear(c0);
+        c1 = PsxGeometryHelpers.DisplayRgbToLinear(c1);
+        c2 = PsxGeometryHelpers.DisplayRgbToLinear(c2);
+        c3 = PsxGeometryHelpers.DisplayRgbToLinear(c3);
         var v0 = MakePsxVertex(version, mesh, face, 0, c0, texDims);
         var v1 = MakePsxVertex(version, mesh, face, 1, c1, texDims);
         var v2 = MakePsxVertex(version, mesh, face, 2, c2, texDims);

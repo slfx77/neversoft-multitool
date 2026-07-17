@@ -16,13 +16,14 @@ public sealed class PsxMeshFile
     public required uint[] MeshNameHashes { get; init; }
     public required uint[] TextureHashes { get; init; }
     public Vector4[]? GouraudPalette { get; init; }
+    public IReadOnlyList<PsxColourPulse> ColourPulses { get; init; } = [];
     public bool HasHierarchy { get; init; }
 
     /// <summary>
     ///     True when the file is a super (character or small animated prop)
-    ///     per <see cref="PsxMeshHeader.IsSuperModel" />. Level files that
-    ///     carry HIER/anim chunks for their placed animated objects are NOT
-    ///     supers and must convert through the per-object level path.
+    ///     per <see cref="PsxMeshHeader.IsSuperModel" />. HIER-only level
+    ///     files remain non-super and convert through the per-object level
+    ///     path.
     /// </summary>
     public bool IsSuperModel { get; init; }
 
@@ -139,6 +140,8 @@ public sealed class PsxMeshFile
 
         var hasStitchedReferences = ApplyPositionalBindingIfStitchedSuper(
             header, meshes, meshToObjectIndex, attachmentVertices);
+        var surfaceAnimation = PsxSurfaceAnimationReader.ApplyStaticFrame(
+            reader, header.Objects, meshes, header.GouraudPalette);
 
         return new PsxMeshFile
         {
@@ -148,7 +151,8 @@ public sealed class PsxMeshFile
             Meshes = meshes,
             MeshNameHashes = header.MeshNameHashes,
             TextureHashes = header.TextureHashes,
-            GouraudPalette = header.GouraudPalette,
+            GouraudPalette = surfaceAnimation.Palette,
+            ColourPulses = surfaceAnimation.ColourPulses,
             HasHierarchy = header.HasHierarchy,
             IsSuperModel = header.IsSuperModel,
             ScaleDivisor = header.ScaleDivisor,

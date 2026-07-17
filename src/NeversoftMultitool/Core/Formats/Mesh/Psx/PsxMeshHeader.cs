@@ -15,9 +15,9 @@ internal sealed class PsxMeshHeader
     public bool HasAnimChunk { get; init; }
 
     /// <summary>
-    ///     True when the file is a super (character or small animated prop):
-    ///     it has a HIER or anim chunk AND a super-plausible part count. Level
-    ///     files with hier/anim chunks for their placed objects are NOT supers.
+    ///     True when the file's chunk stream contains the 0x2A/0x2C animation
+    ///     chunk that sets the runtime's IsSuper flag. A HIER chunk alone only
+    ///     supplies parent indices and does not make the file a super.
     /// </summary>
     public bool IsSuperModel { get; init; }
 

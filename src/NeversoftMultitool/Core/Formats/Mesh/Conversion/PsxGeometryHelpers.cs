@@ -21,10 +21,20 @@ internal static class PsxGeometryHelpers
         // RGBs, so retain direct intensity as the evidence-backed fallback.
         if (face.IsGouraud && gouraudPalette != null)
         {
-            var c0 = face.R < gouraudPalette.Length ? gouraudPalette[face.R] : Vector4.One;
-            var c1 = face.G < gouraudPalette.Length ? gouraudPalette[face.G] : Vector4.One;
-            var c2 = face.B < gouraudPalette.Length ? gouraudPalette[face.B] : Vector4.One;
-            var c3 = face.IsQuad && face.Mode < gouraudPalette.Length ? gouraudPalette[face.Mode] : c0;
+            // RGBs entries are raw GPU RGB bytes stored here in the ordinary
+            // 0..255 domain. M3dAsm_ProcessPolys writes them unchanged to
+            // G3/G4 (untextured) and GT3/GT4 (textured) packets. Untextured
+            // PS1 primitives therefore use display RGB (/255), while textured
+            // primitives use the PS1 GPU's 128-neutral texel modulation. The
+            // PC v6 renderer copies RGBs entries directly to D3D diffuse colors
+            // and uses D3DTOP_MODULATE, so both of its paths use display RGB.
+            var usesDisplayRgb = version == 0x06 || !face.IsTextured;
+            var c0 = ResolvePaletteColor(gouraudPalette, face.R, usesDisplayRgb);
+            var c1 = ResolvePaletteColor(gouraudPalette, face.G, usesDisplayRgb);
+            var c2 = ResolvePaletteColor(gouraudPalette, face.B, usesDisplayRgb);
+            var c3 = face.IsQuad
+                ? ResolvePaletteColor(gouraudPalette, face.Mode, usesDisplayRgb)
+                : c0;
             return (c0, c1, c2, c3);
         }
 
@@ -41,6 +51,26 @@ internal static class PsxGeometryHelpers
             ? Vector4.One
             : ToFlatColor(version, face);
         return (flat, flat, flat, flat);
+    }
+
+    private static Vector4 ResolvePaletteColor(
+        Vector4[] palette,
+        byte index,
+        bool usesDisplayRgb)
+    {
+        if (index >= palette.Length)
+            return Vector4.One;
+
+        var color = palette[index];
+        if (usesDisplayRgb)
+            return color;
+
+        const float ps1ModulationScale = 255f / 128f;
+        return new Vector4(
+            Math.Min(color.X * ps1ModulationScale, 1f),
+            Math.Min(color.Y * ps1ModulationScale, 1f),
+            Math.Min(color.Z * ps1ModulationScale, 1f),
+            color.W);
     }
 
     private static Vector4 ToFlatColor(ushort version, PsxFace face)
@@ -92,9 +122,19 @@ internal static class PsxGeometryHelpers
         // fixture and the DC/PC level sweeps (validator-clean, textures land
         // correctly) — not a decomp-verified contract; the DC exe is SH-4,
         // outside the MIPS decomp toolkit.
-        return version == 0x06
-            ? new Vector2(u / 512f, v / 512f)
-            : new Vector2(u / (float)Math.Max(texWidth, 1), v / (float)Math.Max(texHeight, 1));
+        if (version == 0x06)
+            return new Vector2(u / 512f, v / 512f);
+
+        // PS1 UV bytes identify integer texels and the GPU samples them with
+        // nearest-neighbour filtering. glTF UVs identify texel boundaries and
+        // viewers normally filter linearly; mapping byte 0 directly to 0.0
+        // therefore blends the first row/column with the opposite edge under
+        // REPEAT (visible as the texture's bottom row at a model's top seam).
+        // Address the texel centres instead. Coordinates beyond a cropped
+        // texture still repeat naturally, preserving authored tiling.
+        return new Vector2(
+            (u + 0.5f) / Math.Max(texWidth, 1),
+            (v + 0.5f) / Math.Max(texHeight, 1));
     }
 
     internal static uint GetPsxFaceVertexIndex(PsxFace face, int slot)
@@ -115,7 +155,8 @@ internal static class PsxGeometryHelpers
         // for their placed animated objects (THPS1-proto skdown/skvans) and
         // must stay on the per-object level path — routing them through the
         // combined skinned assembly scatters hundreds of meshes across bind
-        // pivots ("dust" renders). IsSuperModel bounds the part count.
+        // pivots ("dust" renders). IsSuperModel mirrors the animation-chunk
+        // flag that selects the runtime super path.
         return psxFile.HasStitchedReferences ||
                (psxFile.HasHierarchy && psxFile.IsSuperModel);
     }
@@ -164,6 +205,33 @@ internal static class PsxGeometryHelpers
         };
     }
 
+    /// <summary>
+    ///     Converts the fixed-function renderer's display-domain RGB into the
+    ///     linear multiplier required by glTF <c>COLOR_0</c>. PS1 GPU packet
+    ///     colours and D3D diffuse bytes are multiplied in their native 8-bit
+    ///     domain, while glTF base-colour textures are decoded from sRGB before
+    ///     a linear vertex colour is applied. Writing the normalized packet
+    ///     bytes directly therefore gamma-encodes them a second time in a
+    ///     conforming viewer (128 displays near 188). Alpha is coverage, not
+    ///     colour data, and must remain unchanged.
+    /// </summary>
+    internal static Vector4 DisplayRgbToLinear(Vector4 color)
+    {
+        return new Vector4(
+            SrgbChannelToLinear(color.X),
+            SrgbChannelToLinear(color.Y),
+            SrgbChannelToLinear(color.Z),
+            color.W);
+    }
+
+    private static float SrgbChannelToLinear(float value)
+    {
+        value = Math.Clamp(value, 0f, 1f);
+        return value <= 0.04045f
+            ? value / 12.92f
+            : MathF.Pow((value + 0.055f) / 1.055f, 2.4f);
+    }
+
     internal static int GetOrCreatePsxMaterial(
         ModelDocument document,
         uint textureHash,
@@ -183,6 +251,10 @@ internal static class PsxGeometryHelpers
             : ModelDocumentGeometryAdapter.ResolveQbName(textureHash, $"tex_{textureHash:X8}");
         if (semiTransparent)
             name += $"__st{blendRate}";
+        // Face ABR state can produce several different PNGs from the same
+        // native texture. Keep the sidedness suffix on the material only so
+        // otherwise-identical one/two-sided materials can share an image.
+        var textureName = name;
         if (doubleSided)
             name += "__2sided";
 
@@ -208,7 +280,12 @@ internal static class PsxGeometryHelpers
                     hasAlpha = true;
                 }
 
-                material.TextureIndex = ModelDocumentGeometryAdapter.AddTexture(document, name, processed, textureHash);
+                material.TextureIndex = ModelDocumentGeometryAdapter.AddTexture(
+                    document,
+                    textureName,
+                    processed,
+                    textureHash,
+                    distinguishChecksumVariantsByContent: true);
                 if (hasAlpha)
                     material.AlphaMode = semiTransparent ? ModelAlphaMode.Blend : ModelAlphaMode.Mask;
                 if (ModelDocumentGeometryAdapter.TryExtractPngDimensions(processed) is { } dims)

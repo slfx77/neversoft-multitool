@@ -22,15 +22,11 @@ public class TrgFileTests(TestPaths paths)
     {
         if (!paths.HasSampleBuilds) return [];
         return Directory.GetDirectories(paths.SampleBuildsDir!)
-            .SelectMany(build =>
-            {
-                var trgDir = Path.Combine(build, "TRG");
-                return Directory.Exists(trgDir)
-                    ? Directory.GetFiles(trgDir, "*.trg", SearchOption.TopDirectoryOnly)
-                        .Concat(Directory.GetFiles(trgDir, "*.TRG", SearchOption.TopDirectoryOnly))
-                    : [];
-            })
-            .Distinct()
+            .SelectMany(static build => Directory.EnumerateFiles(
+                build, "*", SearchOption.AllDirectories))
+            .Where(static file => Path.GetExtension(file)
+                .Equals(".trg", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
 
@@ -78,6 +74,107 @@ public class TrgFileTests(TestPaths paths)
         Assert.Equal(1, trg.VersionMinor);
         Assert.True(trg.NodeCount > 0);
         Assert.Equal("TERMINATOR", trg.Nodes[^1].Type);
+    }
+
+    [Fact]
+    public void Parse_RejectsNodeCountLargerThanRemainingOffsetTable()
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write(0x4752545Fu);
+            writer.Write((ushort)2);
+            writer.Write((ushort)1);
+            writer.Write(1_000_000u);
+        }
+        stream.Position = 0;
+        using var reader = new BinaryReader(stream);
+
+        var error = Assert.Throws<InvalidDataException>(() => TrgFile.Parse(reader));
+
+        Assert.Contains("node table", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Parse_RejectsDecreasingNodeOffsets()
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write(0x4752545Fu);
+            writer.Write((ushort)2);
+            writer.Write((ushort)1);
+            writer.Write(2u);
+            writer.Write(24u);
+            writer.Write(20u);
+            writer.Write(new byte[12]);
+        }
+        stream.Position = 0;
+        using var reader = new BinaryReader(stream);
+
+        var error = Assert.Throws<InvalidDataException>(() => TrgFile.Parse(reader));
+
+        Assert.Contains("decreases", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Parse_AllowsAdjacentNodeIdsToAliasTheSamePayload()
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write(0x4752545Fu);
+            writer.Write((ushort)2);
+            writer.Write((ushort)1);
+            writer.Write(2u);
+            writer.Write(20u);
+            writer.Write(20u);
+            writer.Write((ushort)255); // shared TERMINATOR payload
+        }
+        stream.Position = 0;
+        using var reader = new BinaryReader(stream);
+
+        var trg = TrgFile.Parse(reader);
+
+        Assert.Equal(2, trg.NodeCount);
+        Assert.Equal([255, 255], trg.Nodes.Select(static node => node.TypeId));
+    }
+
+    [Fact]
+    public void ParseCommandList_SetVisibilityByName_ConsumesSuffixRangeAndVisibility()
+    {
+        byte[] bytes =
+        [
+            0xBF, 0x00,
+            (byte)'K', (byte)'e', (byte)'v', (byte)'i', (byte)'n', (byte)'_', 0x00, 0x00,
+            0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
+            0xFF, 0xFF
+        ];
+        using var stream = new MemoryStream(bytes, writable: false);
+        using var reader = new BinaryReader(stream);
+
+        var command = Assert.Single(TrgCommandList.ParseCommandList(reader, bytes.Length));
+
+        Assert.Equal(0xBF, command.Opcode);
+        Assert.Equal("SetVisibilityByName", command.Name);
+        Assert.Equal(["Kevin_", (ushort)0, (ushort)5, (ushort)0], command.Args);
+    }
+
+    [Fact]
+    public void Parse_SpiderManL8a4_ReadsDefaultKevinVisibilityRange()
+    {
+        var file = paths.FindSampleFile("Spider-Man (2000-9-1, PSX - Final)", "l8a4_t.trg");
+        Assert.SkipWhen(file == null, "Spider-Man l8a4_t.trg not found");
+
+        var trg = TrgFile.Parse(file!);
+        var restart = Assert.Single(trg.Nodes, static node => node.Type == "RESTART");
+        var command = Assert.Single(
+            restart.Commands!,
+            static item => item.Opcode == 0xBF
+                           && item.Args is { Count: > 0 }
+                           && Equals(item.Args[0], "Kevin_"));
+
+        Assert.Equal(["Kevin_", (ushort)0, (ushort)5, (ushort)0], command.Args);
     }
 
     [Fact]

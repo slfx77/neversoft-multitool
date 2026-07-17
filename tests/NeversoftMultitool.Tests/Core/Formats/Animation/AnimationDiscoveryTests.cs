@@ -90,6 +90,85 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
         Assert.Equal(firstProbe.DisplayName, document.Animations[0].Name);
     }
 
+    [Theory]
+    [InlineData("superock.psx", 45, 22, 17)]
+    [InlineData("docock.psx", 46, 43, 18)]
+    public void FindForCharacter_FromWad_DiscoversLargeArticulatedSuperAnimations(
+        string characterName,
+        int expectedBones,
+        int expectedEmbeddedAnimations,
+        int firstAppendageBone)
+    {
+        const string buildName = "Spider-Man (2000-9-1, PSX - Final)";
+        var wadPath = paths.FindSampleFile(buildName, "CD.WAD");
+        Assert.SkipWhen(wadPath == null, "Spider-Man CD.WAD not found in sample builds");
+
+        var backend = ArchiveAssetBackend.TryOpen(wadPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend.FileSystem;
+        var entry = backend.FindEntry(characterName);
+        Assert.NotNull(entry);
+
+        var source = new ArchiveAssetSource(backend, entry);
+        var psxFile = PsxMeshFile.Parse(source.ReadBytes());
+        Assert.NotNull(psxFile);
+
+        // These characters exceed the old 32-part heuristic because their
+        // appendages consist of many separately transformed box segments.
+        // The 0x2C animation chunk is the runtime's authoritative IsSuper
+        // marker, so all parts use the super vertex scale and remain animatable.
+        Assert.True(psxFile.HasHierarchy);
+        Assert.True(psxFile.IsSuperModel);
+        Assert.Equal(expectedBones, psxFile.Objects.Count);
+        Assert.Equal(expectedBones, psxFile.Meshes.Count);
+        Assert.Equal(psxFile.TranslationDivisor * 16f, psxFile.ScaleDivisor);
+
+        var probes = AnimationDiscovery.FindForCharacter(
+            source,
+            expectedBones,
+            TestContext.Current.CancellationToken);
+        var embedded = probes
+            .Where(probe => probe.Source is PsxAnimationSource animationSource
+                            && ReferenceEquals(animationSource.BankSource, source))
+            .ToList();
+
+        Assert.Equal(expectedEmbeddedAnimations, embedded.Count);
+        Assert.All(embedded, probe => Assert.True(probe.MatchesSkeleton));
+
+        // At least one decoded clip must carry motion on the appendage segment
+        // bones, not merely on the conventional humanoid prefix.
+        PsxAnimation? appendageAnimation = null;
+        foreach (var probe in embedded)
+        {
+            var decoded = Assert.IsType<PsxAnimationSource>(probe.Source).Decode();
+            if (Enumerable.Range(firstAppendageBone, expectedBones - firstAppendageBone)
+                .Any(decoded.IsTranslationAnimated))
+            {
+                appendageAnimation = decoded;
+                break;
+            }
+        }
+
+        Assert.NotNull(appendageAnimation);
+
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = source,
+            FileName = characterName,
+            OutputStem = Path.GetFileNameWithoutExtension(characterName),
+            SourceKind = ModelSourceKind.Psx,
+            PsxAnimationOptions = new PsxAnimationOptions(Fps: PsxAnimationBank.DefaultPreviewFps),
+            PsxAnimationClips = [new PsxAnimationClip("appendage_motion", appendageAnimation)]
+        });
+
+        var skeleton = Assert.Single(document.Skeletons);
+        Assert.Equal(expectedBones, skeleton.Bones.Count);
+        var animation = Assert.Single(document.Animations);
+        Assert.Contains(animation.Channels, channel =>
+            channel.BoneIndex >= firstAppendageBone
+            && channel.Property == ModelAnimationProperty.Translation);
+    }
+
     [Fact]
     public void ArchiveAssetSource_DisplayName_IncludesEntryDirectory()
     {

@@ -28,7 +28,10 @@ internal static class PsxSkinnedGeometryWriter
         PshFile? pshFile,
         MeshChecksumTextureResolver? textureProvider,
         bool flatSkeleton,
-        IReadOnlySet<int>? flatBoneIndices)
+        IReadOnlySet<int>? flatBoneIndices,
+        PsxMeshFile? splineClawFile,
+        MeshChecksumTextureResolver? splineClawTextureProvider,
+        bool reconstructSplineAppendages)
     {
         var skeletonIndex = document.Skeletons.Count;
         document.Skeletons.Add(BuildPsxSkeleton(
@@ -45,11 +48,17 @@ internal static class PsxSkinnedGeometryWriter
 
         var lodVariants = PsxGeometryHelpers.BuildPsxLodVariantSet(psxFile);
         var alternateLeafObjects = PsxMeshSemantics.FindAlternateLeafObjectIndices(psxFile);
+        var splineChains = PsxSplineAppendageGeometry.FindControllerChains(psxFile);
+        var splineControllerObjects = PsxSplineAppendageGeometry.BuildControllerObjectSet(splineChains);
+        var embeddedTipPlacements = PsxSplineAppendageGeometry.FindEmbeddedTipPlacements(
+            psxFile, splineChains);
         var buckets = new Dictionary<int, PsxSkinnedBucket>();
 
         for (var objectIndex = 0; objectIndex < psxFile.Objects.Count; objectIndex++)
         {
-            if (alternateLeafObjects.Contains(objectIndex))
+            if (alternateLeafObjects.Contains(objectIndex)
+                || splineControllerObjects.Contains(objectIndex)
+                || !reconstructSplineAppendages && embeddedTipPlacements.ContainsKey(objectIndex))
                 continue;
 
             var meshIndex = PsxMeshSemantics.GetCharacterMeshIndex(psxFile, objectIndex);
@@ -73,7 +82,63 @@ internal static class PsxSkinnedGeometryWriter
 
                 AddPsxSkinnedFace(
                     bucket.Vertices, bucket.Indices, bucket.Influences,
-                    psxFile, objectIndex, meshIndex, psxMesh, face, texDims);
+                    psxFile, objectIndex, meshIndex, psxMesh, face, texDims,
+                    embeddedTipPlacements.TryGetValue(objectIndex, out var tipPlacement)
+                        ? tipPlacement
+                        : null);
+            }
+        }
+
+        if (reconstructSplineAppendages && splineChains.Count > 0)
+        {
+            if (!buckets.TryGetValue(untexturedMaterial, out var bucket))
+            {
+                bucket = new PsxSkinnedBucket();
+                buckets[untexturedMaterial] = bucket;
+            }
+
+            PsxSplineAppendageGeometry.AppendGeneratedTubes(
+                splineChains,
+                bucket.Vertices,
+                bucket.Indices,
+                bucket.Influences);
+        }
+
+        if (reconstructSplineAppendages
+            && splineChains.Count > 1
+            && splineClawFile is { Meshes.Count: > 0 })
+        {
+            // claw.psx is a separate model and its small numeric texture
+            // checksums can overlap the parent character. Keep its material
+            // and dimension caches isolated so a parent material cannot steal
+            // a claw image (or vice versa) merely because the native hash is
+            // the same. ModelDocument still de-duplicates identical images.
+            var clawTextureDims = new Dictionary<uint, (int Width, int Height)>();
+            var clawMaterialCache =
+                new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>();
+            const int clawObjectIndex = 0;
+            const int clawMeshIndex = 0;
+            var clawMesh = splineClawFile.Meshes[clawMeshIndex];
+
+            foreach (var chain in splineChains)
+            {
+                var placement = PsxSplineAppendageGeometry.CreateTipPlacement(chain);
+                foreach (var face in clawMesh.Faces)
+                {
+                    var (materialIndex, texDims) = ResolvePsxFaceMaterial(
+                        document, face, splineClawTextureProvider,
+                        clawTextureDims, clawMaterialCache, untexturedMaterial);
+                    if (!buckets.TryGetValue(materialIndex, out var bucket))
+                    {
+                        bucket = new PsxSkinnedBucket();
+                        buckets[materialIndex] = bucket;
+                    }
+
+                    AddPsxSkinnedFace(
+                        bucket.Vertices, bucket.Indices, bucket.Influences,
+                        splineClawFile, clawObjectIndex, clawMeshIndex,
+                        clawMesh, face, texDims, placement);
+                }
             }
         }
 
@@ -169,16 +234,21 @@ internal static class PsxSkinnedGeometryWriter
         int meshIndex,
         PsxMesh mesh,
         PsxFace face,
-        (int Width, int Height) texDims)
+        (int Width, int Height) texDims,
+        PsxSplineTipPlacement? tipPlacement)
     {
         var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(psxFile.Version, face, psxFile.GouraudPalette);
         c0 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c0);
         c1 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c1);
         c2 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c2);
         c3 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c3);
-        var v0 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 0, c0, texDims, out var i0);
-        var v1 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 1, c1, texDims, out var i1);
-        var v2 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 2, c2, texDims, out var i2);
+        c0 = PsxGeometryHelpers.DisplayRgbToLinear(c0);
+        c1 = PsxGeometryHelpers.DisplayRgbToLinear(c1);
+        c2 = PsxGeometryHelpers.DisplayRgbToLinear(c2);
+        c3 = PsxGeometryHelpers.DisplayRgbToLinear(c3);
+        var v0 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 0, c0, texDims, tipPlacement, out var i0);
+        var v1 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 1, c1, texDims, tipPlacement, out var i1);
+        var v2 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 2, c2, texDims, tipPlacement, out var i2);
         // glTF front faces are CCW; PSX slot order is CW under the (X,-Y,-Z)
         // handedness map, so emit reversed to make winding agree with the
         // stored (outward) normals. Probe: psx_lod_part_probe.py --normals.
@@ -186,7 +256,7 @@ internal static class PsxSkinnedGeometryWriter
 
         if (face.IsQuad)
         {
-            var v3 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 3, c3, texDims, out var i3);
+            var v3 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 3, c3, texDims, tipPlacement, out var i3);
             ModelDocumentGeometryAdapter.AddSkinnedTriangle(vertices, indices, influences, v1, i1, v2, i2, v3, i3);
         }
     }
@@ -200,6 +270,7 @@ internal static class PsxSkinnedGeometryWriter
         int slot,
         Vector4 color,
         (int Width, int Height) texDims,
+        PsxSplineTipPlacement? tipPlacement,
         out ModelBoneInfluences influence)
     {
         var vertexIndex = PsxGeometryHelpers.GetPsxFaceVertexIndex(face, slot);
@@ -218,14 +289,26 @@ internal static class PsxSkinnedGeometryWriter
             }
         }
 
+        var worldPosition = resolved.WorldPosition;
+        var normal = PsxGeometryHelpers.ComputePsxVertexNormal(normalMesh, face, normalVertexIndex);
+        var jointIndex = resolved.SourceObjectIndex >= 0 ? resolved.SourceObjectIndex : objectIndex;
+        if (tipPlacement is { } placement)
+        {
+            var source = mesh.Vertices[(int)vertexIndex];
+            worldPosition = placement.TransformPosition(new Vector3(source.X, source.Y, source.Z));
+            var nativeNormal = PsxMeshSemantics.ToGltfPosition(normal);
+            normal = Vector3.Normalize(PsxMeshSemantics.ToGltfPosition(
+                placement.TransformDirection(nativeNormal)));
+            jointIndex = placement.JointIndex;
+        }
+
         var texCoord = face.GetTextureCoordinate(slot);
         var vertex = new ModelVertex(
-            PsxMeshSemantics.ToGltfPosition(resolved.WorldPosition),
-            PsxGeometryHelpers.ComputePsxVertexNormal(normalMesh, face, normalVertexIndex),
+            PsxMeshSemantics.ToGltfPosition(worldPosition),
+            normal,
             color,
             PsxGeometryHelpers.ComputePsxTextureUv(psxFile.Version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height));
 
-        var jointIndex = resolved.SourceObjectIndex >= 0 ? resolved.SourceObjectIndex : objectIndex;
         influence = ModelBoneInfluences.Single(jointIndex);
         return vertex;
     }

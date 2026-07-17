@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Tests.Helpers;
 
@@ -209,9 +210,9 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
     public void CharacterRouting_HierLevelFilesAreNotCharacterOrdered()
     {
         // Level files carry a HIER chunk for their placed animated objects
-        // (THPS1-proto skdown/skvans) but are NOT supers — the header marks
-        // them IsSuperModel=false (large object count) and they must keep the
-        // item-path obj.MeshIndex routing rather than positional part order.
+        // (THPS1-proto skdown/skvans), but HIER alone does not set the engine's
+        // region IsSuper flag. They must keep item-path obj.MeshIndex routing
+        // rather than positional part order.
         var psxFile = new PsxMeshFile
         {
             Version = 3,
@@ -237,6 +238,24 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
 
         Assert.False(PsxMeshSemantics.UsesCharacterObjectOrder(psxFile));
         Assert.Equal(2, PsxMeshSemantics.GetCharacterMeshIndex(psxFile, 0));
+    }
+
+    [Theory]
+    [InlineData("skvans.psx")]
+    [InlineData("skvans_t.psx")]
+    [InlineData("skdown.psx")]
+    public void CharacterRouting_HierOnlyLevelFixturesRemainNonSuper(string fileName)
+    {
+        var path = paths.FindSampleFile(Thps1ProtoBuild, fileName);
+        Assert.SkipWhen(path == null, $"{fileName} not found in sample builds");
+
+        var psxFile = PsxMeshFile.Parse(path!);
+        Assert.NotNull(psxFile);
+
+        Assert.True(psxFile.HasHierarchy);
+        Assert.False(psxFile.IsSuperModel);
+        Assert.Equal(psxFile.TranslationDivisor, psxFile.ScaleDivisor);
+        Assert.False(PsxMeshSemantics.UsesCharacterObjectOrder(psxFile));
     }
 
     [Fact]
@@ -362,6 +381,94 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         var alternates = PsxMeshSemantics.FindAlternateLeafObjectIndices(psxFile);
 
         Assert.Equal([6, 11], alternates.OrderBy(static i => i).ToArray());
+    }
+
+    [Fact]
+    public void CharacterAlternates_PcSpAlt01BakedSeamHandIsStillDetected()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var path = RequireSampleBuildFile(
+            @"Spider-Man (2001-9-17, PC - Final)\Setup\data\data\sp_alt01.PSX");
+        var psxFile = PsxMeshFile.Parse(path);
+        Assert.NotNull(psxFile);
+        Assert.Equal((ushort)0x0004, psxFile.Version);
+
+        // This alternate left hand stores its four seam vertices as ordinary
+        // type-0 positions rather than the type-2 references used by the
+        // otherwise equivalent final-PSX hand. The narrow two-leaf mixed
+        // fallback must recognize it without relaxing larger part groups.
+        Assert.DoesNotContain(psxFile.Meshes[6].Vertices,
+            static vertex => PsxMeshSemantics.IsExactStitchedReference(vertex.Type));
+
+        var alternates = PsxMeshSemantics.FindAlternateLeafObjectIndices(psxFile);
+
+        Assert.Equal([6, 11], alternates.OrderBy(static i => i).ToArray());
+    }
+
+    [Fact]
+    public void CharacterAlternates_Thps2HeadVariantsAreDetected()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var path = RequireSampleBuildFile(
+            @"Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)\CD\sk2def.psx");
+        var psxFile = PsxMeshFile.Parse(path);
+        Assert.NotNull(psxFile);
+        Assert.Equal((ushort)0x0004, psxFile.Version);
+
+        // These hashes resolve to default_head, skin_head, baldblack_head and
+        // slick_head. They share one placement and are interchangeable heads,
+        // not four simultaneous character parts.
+        Assert.Equal(0x1DFD3265u, psxFile.MeshNameHashes[9]);
+        Assert.Equal(0x4D7DBE2Au, psxFile.MeshNameHashes[16]);
+        Assert.Equal(0xCA5AD4F7u, psxFile.MeshNameHashes[17]);
+        Assert.Equal(0x9061B849u, psxFile.MeshNameHashes[18]);
+
+        var alternates = PsxMeshSemantics.FindAlternateLeafObjectIndices(psxFile);
+
+        Assert.Equal([16, 17, 18], alternates.OrderBy(static i => i).ToArray());
+    }
+
+    [Theory]
+    [InlineData("docock.psx")]
+    [InlineData("superock.psx")]
+    public void CharacterAlternates_OckAppendageSegmentsRemainSimultaneous(string fileName)
+    {
+        var path = paths.FindSampleFile(SpiderManBuild, fileName);
+        Assert.SkipWhen(path == null, $"{fileName} not found in sample builds");
+
+        var psxFile = PsxMeshFile.Parse(path!);
+        Assert.NotNull(psxFile);
+        Assert.Equal((ushort)0x0004, psxFile.Version);
+
+        // Ock's many same-pivot leaves are simultaneous multi-joint appendage
+        // segments. They are not a two-leaf pose pair or a four-head variant
+        // set, even where individual bounds overlap substantially.
+        var alternates = PsxMeshSemantics.FindAlternateLeafObjectIndices(psxFile);
+
+        Assert.Empty(alternates);
+    }
+
+    [Fact]
+    public void CharacterAlternates_ControlSharedPivotPartsAreAllEmitted()
+    {
+        var path = paths.FindSampleFile(SpiderManBuild, "control.psx");
+        Assert.SkipWhen(path == null, "control.psx not found in sample builds");
+
+        var psxFile = PsxMeshFile.Parse(path!);
+        Assert.NotNull(psxFile);
+
+        // The left/right grip pair (objects 2/3) and left/right thumbstick
+        // pair (objects 4/5) share parent pivots, but occupy disjoint geometry.
+        // They are simultaneous controller parts, not alternate hand poses.
+        var alternates = PsxMeshSemantics.FindAlternateLeafObjectIndices(psxFile);
+        Assert.Empty(alternates);
+
+        var document = new ModelDocument { Name = "control" };
+        PsxGeometryWriter.PopulatePsx(document, psxFile, null);
+
+        Assert.Equal(1_560, document.TriangleCount);
     }
 
     [Fact]

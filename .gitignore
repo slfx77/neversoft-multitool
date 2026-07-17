@@ -101,6 +101,12 @@ tools/diagnostics/*
 !tools/diagnostics/cross_game_anim_functions.md
 !tools/diagnostics/sfx_cue_probe.py
 !tools/diagnostics/psx_abr_survey.py
+!tools/diagnostics/psx_alternate_leaf_survey.csx
+!tools/diagnostics/psx_super_classification_survey.csx
+!tools/diagnostics/psx_cross_port_face_compare.py
+!tools/diagnostics/psx_material_probe.py
+!tools/diagnostics/psx_surface_animation_probe.py
+!tools/diagnostics/psx_texture_slot_probe.csx
 !tools/diagnostics/psx_anim_verify.py
 !tools/diagnostics/psx_anim_render.py
 !tools/diagnostics/psx_anim_bank_match.py

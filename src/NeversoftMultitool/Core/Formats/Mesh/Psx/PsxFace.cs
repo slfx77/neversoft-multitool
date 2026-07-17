@@ -53,6 +53,14 @@ public sealed class PsxFace
     public byte U3 { get; init; }
     public byte V3 { get; init; }
 
+    /// <summary>
+    ///     Texture scrolling/wibble metadata when this face is covered by a
+    ///     tag-6 animation record. The face's effective texture coordinates
+    ///     are initialized from <see cref="PsxTextureWibbleVertex.U" /> and
+    ///     <see cref="PsxTextureWibbleVertex.V" /> (the base static frame).
+    /// </summary>
+    public PsxTextureWibble? TextureWibble { get; internal set; }
+
     internal PsxTextureCoordinate[] TextureCoordinates { get; init; } =
     [
         default,
@@ -64,5 +72,15 @@ public sealed class PsxFace
     internal PsxTextureCoordinate GetTextureCoordinate(int slot)
     {
         return TextureCoordinates[slot];
+    }
+
+    internal void ApplyTextureWibble(PsxTextureWibble wibble)
+    {
+        TextureWibble = wibble;
+        for (var slot = 0; slot < Math.Min(TextureCoordinates.Length, wibble.Vertices.Length); slot++)
+        {
+            var vertex = wibble.Vertices[slot];
+            TextureCoordinates[slot] = new PsxTextureCoordinate(vertex.U, vertex.V);
+        }
     }
 }

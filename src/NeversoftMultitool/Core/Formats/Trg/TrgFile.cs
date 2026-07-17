@@ -54,29 +54,76 @@ public sealed class TrgFile
             throw new InvalidDataException(
                 $"Unsupported TRG version: {versionMajor}.{versionMinor} (expected 2.x)");
 
-        var nodeCount = (int)reader.ReadUInt32();
-        if (nodeCount < 1)
+        var nodeCountValue = reader.ReadUInt32();
+        if (nodeCountValue < 1)
             throw new InvalidDataException("TRG file has no nodes");
+        if (nodeCountValue > int.MaxValue)
+            throw new InvalidDataException($"TRG node count is too large: {nodeCountValue}");
+
+        var fileLength = reader.BaseStream.Length;
+        var offsetTableStart = reader.BaseStream.Position;
+        var remainingBytes = fileLength - offsetTableStart;
+        if (remainingBytes < 0 || nodeCountValue > (ulong)remainingBytes / sizeof(uint))
+        {
+            throw new InvalidDataException(
+                $"TRG node table ({nodeCountValue} entries) exceeds the file length");
+        }
+
+        var nodeCount = (int)nodeCountValue;
+        var offsetTableEnd = offsetTableStart + (long)nodeCount * sizeof(uint);
 
         // Read offset table
         var offsets = new uint[nodeCount];
         for (var i = 0; i < nodeCount; i++)
-            offsets[i] = reader.ReadUInt32();
+        {
+            var offset = reader.ReadUInt32();
+            if (offset < offsetTableEnd || offset >= fileLength)
+            {
+                throw new InvalidDataException(
+                    $"TRG node {i} offset 0x{offset:X8} is outside the node-data range");
+            }
+            if (i > 0 && offset < offsets[i - 1])
+            {
+                throw new InvalidDataException(
+                    $"TRG node {i} offset 0x{offset:X8} decreases from the previous offset");
+            }
 
-        var fileLength = reader.BaseStream.Length;
+            offsets[i] = offset;
+        }
+
         var isSpiderMan = versionMinor == 1;
 
         // Parse each node
         var nodes = new List<TrgNode>(nodeCount);
-        for (var i = 0; i < nodeCount; i++)
+        for (var runStart = 0; runStart < nodeCount;)
         {
-            reader.BaseStream.Position = offsets[i];
-            var nodeSize = i < nodeCount - 1
-                ? (int)(offsets[i + 1] - offsets[i])
-                : (int)(fileLength - offsets[i]);
+            // A few shipped Enter Electro files intentionally alias adjacent
+            // node IDs to the same serialized node. Give every member of such
+            // a run the payload through the next distinct offset, instead of
+            // treating the first alias as a zero-sized corrupt node.
+            var runEnd = runStart + 1;
+            while (runEnd < nodeCount && offsets[runEnd] == offsets[runStart])
+                runEnd++;
 
-            var node = TrgNode.Parse(reader, i, offsets[i], nodeSize, isSpiderMan);
-            nodes.Add(node);
+            var nodeSizeValue = runEnd < nodeCount
+                ? offsets[runEnd] - (long)offsets[runStart]
+                : fileLength - offsets[runStart];
+            if (nodeSizeValue <= 0 || nodeSizeValue > int.MaxValue)
+            {
+                throw new InvalidDataException(
+                    $"TRG node {runStart} has invalid size {nodeSizeValue}");
+            }
+            var nodeSize = (int)nodeSizeValue;
+
+            for (var nodeIndex = runStart; nodeIndex < runEnd; nodeIndex++)
+            {
+                reader.BaseStream.Position = offsets[nodeIndex];
+                var node = TrgNode.Parse(
+                    reader, nodeIndex, offsets[nodeIndex], nodeSize, isSpiderMan);
+                nodes.Add(node);
+            }
+
+            runStart = runEnd;
         }
 
         return new TrgFile

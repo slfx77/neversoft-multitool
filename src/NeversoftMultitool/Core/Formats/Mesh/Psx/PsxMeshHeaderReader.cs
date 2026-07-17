@@ -55,8 +55,7 @@ internal static class PsxMeshHeaderReader
 
         const float baseScale = 2.25f;
         var (isApocalypse, isSuperModel, scaleDivisor) = ClassifyModelScale(
-            reader, version, meshTopPointers, objects.Count,
-            hasHierarchy, hasAnimChunk, baseScale);
+            reader, version, meshTopPointers, hasAnimChunk, baseScale);
         var formatRevision = ClassifyFormatRevision(version, isApocalypse);
         var hasMeshLodField = version != 0x03 || !isApocalypse;
 
@@ -86,35 +85,32 @@ internal static class PsxMeshHeaderReader
 
     /// <summary>
     ///     Decides whether the file is a super (character/animated prop) and
-    ///     which vertex scale applies. Super-character rendering shifts vertex
-    ///     XYZ right by 4 before the GTE transform, so supers store vertices
-    ///     ×16 (divisor 36 = 2.25×16). Two carve-outs:
+    ///     which vertex scale applies. <c>ProcessNewPSX</c> clears the region's
+    ///     <c>IsSuper</c> flag, then sets it only while processing a 0x2A/0x2C
+    ///     animation chunk. A HIER chunk merely supplies parent indices and is
+    ///     not itself a super marker. Mirroring that flag is more reliable than
+    ///     guessing from a part-count ceiling: Spider-Man's Super-Ock and
+    ///     Doc Ock have 45/46 animated parts because their articulated
+    ///     appendages are built from many separately transformed meshes.
+    ///     Super rendering shifts vertex XYZ right by 4 before the GTE
+    ///     transform, so supers store vertices ×16 (divisor 36 = 2.25×16).
+    ///     One runtime-specific carve-out remains:
     ///     <list type="bullet">
     ///         <item>Apocalypse (1998) v3 models use raw vertex coordinates
     ///         (no /16). Detected by probing the first mesh's header — its v3
     ///         lacks the LOD field after the bbox.</item>
-    ///         <item>Level files also carry HIER/anim chunks for their placed
-    ///         animated objects (THPS1-proto skdown: 836 objects with
-    ///         car/door animations), but their geometry is item-path world
-    ///         data with no &gt;&gt;4. The CSuper part loop tops out at a
-    ///         couple dozen parts (largest known character: 19), so a large
-    ///         object count disqualifies the file from super status.</item>
     ///     </list>
     /// </summary>
     private static (bool IsApocalypse, bool IsSuperModel, float ScaleDivisor) ClassifyModelScale(
         BinaryReader reader,
         ushort version,
         uint[] meshTopPointers,
-        int objectCount,
-        bool hasHierarchy,
         bool hasAnimChunk,
         float baseScale)
     {
-        const int maxSuperParts = 32;
         var isApocalypse = version == 0x03 && meshTopPointers.Length > 0
                            && !MajorityProbeV3HasLod(reader, meshTopPointers);
-        var isSuperModel = (hasHierarchy || hasAnimChunk)
-                           && objectCount <= maxSuperParts;
+        var isSuperModel = hasAnimChunk;
         var scaleDivisor = isSuperModel && !isApocalypse ? baseScale * 16f : baseScale;
         return (isApocalypse, isSuperModel, scaleDivisor);
     }
@@ -240,9 +236,9 @@ internal static class PsxMeshHeaderReader
                     var b = reader.ReadByte();
                     reader.ReadByte();
                     gouraudPalette[i] = new Vector4(
-                        Math.Min(r / 128f, 1f),
-                        Math.Min(g / 128f, 1f),
-                        Math.Min(b / 128f, 1f),
+                        r / 255f,
+                        g / 255f,
+                        b / 255f,
                         1f);
                 }
             }

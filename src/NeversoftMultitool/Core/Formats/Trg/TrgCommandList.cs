@@ -27,7 +27,13 @@ public static class TrgCommandList
             var name = CommandNames.GetValueOrDefault(opcode, $"Unknown_0x{opcode:X4}");
             var args = new List<object>();
 
-            if (StringCommands.Contains(opcode))
+            if (opcode == 0xBF) // SetVisibilityByName — string, first suffix, last suffix, visible
+            {
+                args.Add(ReadString(reader));
+                for (var i = 0; i < 3 && reader.BaseStream.Position + 2 <= endPos; i++)
+                    args.Add(reader.ReadUInt16());
+            }
+            else if (StringCommands.Contains(opcode))
             {
                 args.Add(ReadString(reader));
             }

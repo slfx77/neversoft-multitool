@@ -165,9 +165,43 @@ public sealed class MeshModelParser : IModelParser
         // so this only changes HIER+v1 characters; v2-compressed clips keep the
         // parented skeleton (they chain translations through the hierarchy).
         var forceFlatSkeleton = request.PsxFlatSkeleton || DrivingAnimationsAreV1Absolute(request);
+        var hiddenMeshIndices = PsxTriggerVisibilityResolver.FindInitiallyHiddenMeshes(
+            request.Source, request.FileName, psxFile);
+        var reconstructSplineAppendages = request.PsxAnimationOptions != null
+            && (request.PsxAnimationClips is { Count: > 0 }
+                || request.PsxDecodedAnimations is { Count: > 0 });
+        PsxMeshFile? splineClawFile = null;
+        MeshChecksumTextureResolver? splineClawTextureProvider = null;
+        if (reconstructSplineAppendages
+            && PsxSplineAppendageGeometry.FindControllerChains(psxFile).Count == 4
+            && request.Source.TryReadCompanion("claw.psx") is { } clawBytes)
+        {
+            try
+            {
+                splineClawFile = PsxMeshFile.Parse(clawBytes);
+                if (splineClawFile != null)
+                {
+                    // The runtime claw is a complete sibling PSX with its own
+                    // embedded texture slots. Resolve those slots against the
+                    // claw bytes, not the Ock character that instances it.
+                    splineClawTextureProvider = MeshCompanionResolver.BuildPsxTextureProvider(
+                        request.Source, "claw.psx", clawBytes);
+                }
+            }
+            catch (Exception ex)
+            {
+                // The controller tubes remain useful when an archive lacks or
+                // truncates the optional runtime claw model.
+                System.Diagnostics.Debug.WriteLine(
+                    $"Unable to parse optional PSX spline claw companion: {ex.Message}");
+            }
+        }
+
         PsxGeometryWriter.PopulatePsx(
             document, psxFile, textureProvider, pshFile,
-            forceFlatSkeleton, request.PsxFlatBoneIndices);
+            forceFlatSkeleton, request.PsxFlatBoneIndices, splineClawFile,
+            splineClawTextureProvider, hiddenMeshIndices,
+            reconstructSplineAppendages);
 
         if (request.PsxAnimationOptions is { } animationOptions
             && document.Skeletons.Count > 0)

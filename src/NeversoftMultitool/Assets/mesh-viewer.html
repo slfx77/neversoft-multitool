@@ -641,6 +641,26 @@
 
     let modelLoadGeneration = 0;
 
+    function applyNativeMaterialBlending(root) {
+      root.traverse(obj => {
+        const materials = Array.isArray(obj.material)
+          ? obj.material
+          : obj.material ? [obj.material] : [];
+        for (const material of materials) {
+          // PS1 ABR 1/3 are B+F and B+0.25F. Core glTF has no additive
+          // blend mode, so the exporter identifies its portable alpha
+          // approximation in the material name. Restore the native equation
+          // in our three.js viewer: unlike normal source-alpha blending this
+          // never darkens the destination behind fire, spotlights, or glows.
+          if (!/__st[13](?:__2sided)?$/.test(material.name || '')) continue;
+          material.transparent = true;
+          material.blending = THREE.AdditiveBlending;
+          material.depthWrite = false;
+          material.needsUpdate = true;
+        }
+      });
+    }
+
     function cancelModelLoad() {
       modelLoadGeneration++;
     }
@@ -685,6 +705,7 @@
             return;
           }
           modelRoot = gltf.scene;
+          applyNativeMaterialBlending(modelRoot);
           scene.add(modelRoot);
           frameModel(modelRoot);
           applyDefaultControlMode();

@@ -9,8 +9,8 @@ using AlphaMode = SharpGLTF.Materials.AlphaMode;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
-using GltfVertex = VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>;
-using GltfSkinnedVertex = VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4>;
+using GltfVertex = VertexBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexEmpty>;
+using GltfSkinnedVertex = VertexBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexJoints4>;
 
 public sealed class GltfModelExporter : IModelExporter
 {
@@ -315,7 +315,7 @@ public sealed class GltfModelExporter : IModelExporter
         IReadOnlyList<MaterialBuilder> materials,
         Matrix4x4 worldTransform)
     {
-        var mesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty>(modelMesh.Name);
+        var mesh = new MeshBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexEmpty>(modelMesh.Name);
         var totalTriangles = 0;
         foreach (var primitive in modelMesh.Primitives)
         {
@@ -334,7 +334,7 @@ public sealed class GltfModelExporter : IModelExporter
         IReadOnlyList<MaterialBuilder> materials,
         IReadOnlyList<(NodeBuilder Node, Matrix4x4 InverseBindMatrix)[]> skeletonJoints)
     {
-        var mesh = new MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexJoints4>(modelMesh.Name);
+        var mesh = new MeshBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexJoints4>(modelMesh.Name);
         var totalTriangles = 0;
         var skeletonIndex = -1;
         foreach (var primitive in modelMesh.Primitives)
@@ -437,7 +437,7 @@ public sealed class GltfModelExporter : IModelExporter
     }
 
     private static int AddTriangles(
-        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexEmpty> prim,
+        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexEmpty> prim,
         ModelPrimitive primitive)
     {
         var triangles = 0;
@@ -467,11 +467,11 @@ public sealed class GltfModelExporter : IModelExporter
     {
         return new GltfVertex(
             new VertexPositionNormal(vertex.Position, vertex.Normal),
-            new VertexColor1Texture1(vertex.Color, vertex.TexCoord));
+            new HighPrecisionVertexColor1Texture1(vertex.Color, vertex.TexCoord));
     }
 
     private static int AddSkinnedTriangles(
-        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, VertexColor1Texture1, VertexJoints4> prim,
+        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexJoints4> prim,
         ModelPrimitive primitive,
         ModelSkinBinding skin)
     {
@@ -502,7 +502,7 @@ public sealed class GltfModelExporter : IModelExporter
     {
         return new GltfSkinnedVertex(
             new VertexPositionNormal(vertex.Position, vertex.Normal),
-            new VertexColor1Texture1(vertex.Color, vertex.TexCoord),
+            new HighPrecisionVertexColor1Texture1(vertex.Color, vertex.TexCoord),
             new VertexJoints4(
                 (influences.Joint0, influences.Weight0),
                 (influences.Joint1, influences.Weight1),

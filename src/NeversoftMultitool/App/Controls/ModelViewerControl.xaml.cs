@@ -66,9 +66,17 @@ public sealed partial class ModelViewerControl : UserControl
         {
             await ModelWebView.EnsureCoreWebView2Async();
 
+            var settings = ModelWebView.CoreWebView2.Settings;
+
+            // The WebView is an application-owned renderer, not a browser surface.
+            // Keep right-click available to the page's camera controls without
+            // exposing browser actions such as Save as or Inspect.
+            settings.AreDefaultContextMenusEnabled = false;
+            settings.AreDevToolsEnabled = false;
+
             // Fly/walk use Ctrl as a slow-move modifier; without this,
             // Ctrl+W(=close)/Ctrl+F(=find) reach the browser instead of the page.
-            ModelWebView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
+            settings.AreBrowserAcceleratorKeysEnabled = false;
 
             var assetsDir = Path.Combine(AppContext.BaseDirectory, "Assets");
             ModelWebView.CoreWebView2.SetVirtualHostNameToFolderMapping(

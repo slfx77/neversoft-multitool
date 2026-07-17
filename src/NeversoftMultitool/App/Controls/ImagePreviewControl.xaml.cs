@@ -16,7 +16,14 @@ namespace NeversoftMultitool;
 /// </summary>
 public sealed partial class ImagePreviewControl : UserControl
 {
+    private const int CheckerboardMaximumDimension = 1024;
+    private const double CheckerboardCellSize = 16;
+
     private WriteableBitmap? _bitmap;
+    private int _checkerboardCellSize;
+    private int _checkerboardHeight;
+    private bool _checkerboardPending;
+    private int _checkerboardWidth;
     private bool _dragging;
     private Point _dragStart;
     private double _dragStartH;
@@ -29,27 +36,22 @@ public sealed partial class ImagePreviewControl : UserControl
     public ImagePreviewControl()
     {
         InitializeComponent();
-        TransparencyBackground.Source = CreateCheckerboard();
     }
 
     private bool IsActualSize => ZoomModeCombo.SelectedIndex == 1;
 
     private bool IsFilteringEnabled => FilteringCheckbox?.IsChecked != false;
 
-    private static WriteableBitmap CreateCheckerboard()
+    private static WriteableBitmap CreateCheckerboard(int width, int height, int cellSize)
     {
-        // A moderately large source keeps the squares useful after Stretch=Fill
-        // maps the pattern to differently sized preview panes.
-        const int size = 512;
-        const int cellSize = 16;
-        var pixels = new byte[size * size * 4];
-        for (var y = 0; y < size; y++)
+        var pixels = new byte[width * height * 4];
+        for (var y = 0; y < height; y++)
         {
-            for (var x = 0; x < size; x++)
+            for (var x = 0; x < width; x++)
             {
                 var light = ((x / cellSize) + (y / cellSize)) % 2 == 0;
                 var value = light ? (byte)148 : (byte)96;
-                var offset = (y * size + x) * 4;
+                var offset = (y * width + x) * 4;
                 pixels[offset] = value;
                 pixels[offset + 1] = value;
                 pixels[offset + 2] = value;
@@ -57,7 +59,7 @@ public sealed partial class ImagePreviewControl : UserControl
             }
         }
 
-        var bitmap = new WriteableBitmap(size, size);
+        var bitmap = new WriteableBitmap(width, height);
         using (var stream = bitmap.PixelBuffer.AsStream())
             stream.Write(pixels, 0, pixels.Length);
         bitmap.Invalidate();
@@ -69,6 +71,7 @@ public sealed partial class ImagePreviewControl : UserControl
     {
         _bitmap = bitmap;
         TransparencyBackground.Visibility = Visibility.Visible;
+        QueueCheckerboardUpdate();
         DimensionsText.Text = $"{bitmap.PixelWidth} × {bitmap.PixelHeight}";
         PlaceholderText.Visibility = Visibility.Collapsed;
         SetLoading(false);
@@ -119,6 +122,60 @@ public sealed partial class ImagePreviewControl : UserControl
             _rescalePending = false;
             ApplyZoomMode();
         });
+    }
+
+    private void TransparencyBackground_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (TransparencyBackground.Visibility == Visibility.Visible)
+            QueueCheckerboardUpdate();
+    }
+
+    private void QueueCheckerboardUpdate()
+    {
+        if (_checkerboardPending) return;
+
+        _checkerboardPending = true;
+        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                _checkerboardPending = false;
+                UpdateCheckerboard();
+            }))
+        {
+            _checkerboardPending = false;
+        }
+    }
+
+    private void UpdateCheckerboard()
+    {
+        var displayWidth = TransparencyBackground.ActualWidth;
+        var displayHeight = TransparencyBackground.ActualHeight;
+        if (!double.IsFinite(displayWidth) || !double.IsFinite(displayHeight) ||
+            displayWidth < 1 || displayHeight < 1)
+        {
+            return;
+        }
+
+        // Match the source bitmap's aspect ratio to the pane. Stretch=Fill can
+        // then scale both axes by the same amount, preserving square checks.
+        // Cap the bitmap so a very large/maximized pane does not allocate a
+        // full display-sized backing buffer merely for a repeating pattern.
+        var divisor = Math.Max(
+            1,
+            Math.Max(displayWidth, displayHeight) / CheckerboardMaximumDimension);
+        var width = Math.Max(1, (int)Math.Round(displayWidth / divisor));
+        var height = Math.Max(1, (int)Math.Round(displayHeight / divisor));
+        var cellSize = Math.Max(1, (int)Math.Round(CheckerboardCellSize / divisor));
+        if (width == _checkerboardWidth
+            && height == _checkerboardHeight
+            && cellSize == _checkerboardCellSize)
+        {
+            return;
+        }
+
+        TransparencyBackground.Source = CreateCheckerboard(width, height, cellSize);
+        _checkerboardWidth = width;
+        _checkerboardHeight = height;
+        _checkerboardCellSize = cellSize;
     }
 
     private void ApplyZoomMode()

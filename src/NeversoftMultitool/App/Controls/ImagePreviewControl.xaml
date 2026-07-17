@@ -50,7 +50,8 @@
           x:Name="TransparencyBackground"
           Stretch="Fill"
           Visibility="Collapsed"
-          IsHitTestVisible="False" />
+          IsHitTestVisible="False"
+          SizeChanged="TransparencyBackground_SizeChanged" />
         <ScrollViewer
           x:Name="Scroller"
           HorizontalScrollBarVisibility="Disabled"
