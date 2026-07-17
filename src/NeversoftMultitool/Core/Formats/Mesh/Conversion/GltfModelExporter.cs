@@ -24,6 +24,7 @@ public sealed class GltfModelExporter : IModelExporter
         return ExportGeneric(document, request);
     }
 
+#pragma warning disable CA1822, S2325 // Preserve the public instance API used alongside Export.
     public (byte[]? GlbBytes, int Triangles) BuildGlbBytes(ModelDocument document)
     {
         var (model, triangles) = BuildGenericModel(document);
@@ -36,6 +37,7 @@ public sealed class GltfModelExporter : IModelExporter
         model.WriteGLB(ms);
         return (ms.ToArray(), triangles);
     }
+#pragma warning restore CA1822, S2325
 
     private static MeshExportResult ExportGeneric(ModelDocument document, MeshExportRequest request)
     {
@@ -95,14 +97,14 @@ public sealed class GltfModelExporter : IModelExporter
     }
 
     private static void ApplyAnimations(
-        IReadOnlyList<(NodeBuilder Node, Matrix4x4 InverseBindMatrix)[]> skeletonJoints,
+        (NodeBuilder Node, Matrix4x4 InverseBindMatrix)[][] skeletonJoints,
         IReadOnlyList<ModelAnimation> animations)
     {
         foreach (var animation in animations)
         {
             foreach (var channel in animation.Channels)
             {
-                if ((uint)channel.SkeletonIndex >= (uint)skeletonJoints.Count)
+                if ((uint)channel.SkeletonIndex >= (uint)skeletonJoints.Length)
                     continue;
                 var joints = skeletonJoints[channel.SkeletonIndex];
                 if ((uint)channel.BoneIndex >= (uint)joints.Length)
@@ -172,7 +174,7 @@ public sealed class GltfModelExporter : IModelExporter
     }
 
     private static ((NodeBuilder Node, Matrix4x4 InverseBindMatrix)[][] Joints, NodeBuilder[] SyntheticRoots)
-        BuildSkeletonJointTrees(IReadOnlyList<ModelSkeleton> skeletons)
+        BuildSkeletonJointTrees(List<ModelSkeleton> skeletons)
     {
         var joints = new (NodeBuilder, Matrix4x4)[skeletons.Count][];
         var roots = new NodeBuilder[skeletons.Count];
@@ -222,7 +224,7 @@ public sealed class GltfModelExporter : IModelExporter
     ///     references are appended at the end so every bone still appears
     ///     exactly once (they hang from the synthetic root in that case).
     /// </summary>
-    private static IEnumerable<int> TopologicalOrder(IReadOnlyList<ModelBone> bones)
+    private static List<int> TopologicalOrder(List<ModelBone> bones)
     {
         var count = bones.Count;
         var emitted = new bool[count];
@@ -247,7 +249,7 @@ public sealed class GltfModelExporter : IModelExporter
         return order;
     }
 
-    private static IEnumerable<int> EnumerateRoots(IReadOnlyList<ModelBone> bones)
+    private static IEnumerable<int> EnumerateRoots(List<ModelBone> bones)
     {
         var count = bones.Count;
         for (var i = 0; i < count; i++)
@@ -259,7 +261,7 @@ public sealed class GltfModelExporter : IModelExporter
     }
 
     private static void EnqueueChildren(
-        IReadOnlyList<ModelBone> bones, bool[] emitted, Queue<int> queue, int parent)
+        List<ModelBone> bones, bool[] emitted, Queue<int> queue, int parent)
     {
         for (var c = 0; c < bones.Count; c++)
         {
@@ -304,13 +306,7 @@ public sealed class GltfModelExporter : IModelExporter
 
     private static bool IsSkinnedMesh(ModelMesh mesh)
     {
-        foreach (var primitive in mesh.Primitives)
-        {
-            if (primitive.Skin is not null)
-                return true;
-        }
-
-        return false;
+        return mesh.Primitives.Any(static primitive => primitive.Skin is not null);
     }
 
     private static int AddRigidMesh(
@@ -365,7 +361,7 @@ public sealed class GltfModelExporter : IModelExporter
             : new MaterialBuilder("default").WithUnlitShader().WithDoubleSide(true);
     }
 
-    private static MaterialBuilder BuildMaterial(RenderMaterial material, IReadOnlyList<ModelTexture> textures)
+    private static MaterialBuilder BuildMaterial(RenderMaterial material, List<ModelTexture> textures)
     {
         var builder = new MaterialBuilder(material.Name)
             .WithBaseColor(material.BaseColor)

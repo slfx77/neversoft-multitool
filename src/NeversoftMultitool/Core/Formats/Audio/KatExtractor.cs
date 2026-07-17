@@ -311,12 +311,7 @@ public static class KatExtractor
 
     private static bool IsAllZeros(byte[] data)
     {
-        foreach (var b in data)
-        {
-            if (b != 0) return false;
-        }
-
-        return true;
+        return data.AsSpan().IndexOfAnyExcept((byte)0) < 0;
     }
 
     public sealed record KatSampleInfo(int Index, int DataSize, int SampleRate, int Channels, string Encoding);

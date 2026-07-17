@@ -341,8 +341,6 @@ public class Ps2GsVramTests
             $"Expected non-zero PSMZ16 readback but got ({fromZ.R}, {fromZ.G}, {fromZ.B})");
     }
 
-    private static byte Expand5To8(int v) => (byte)((v << 3) | (v >> 2));
-
     [Fact]
     public void ReadPixelRgba_Psmct24_ReturnsPreviousPsmct32Alpha()
     {

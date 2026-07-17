@@ -17,8 +17,8 @@ namespace NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 ///     objects, into the skin vertex list (positions s16/32 — THAW halved
 ///     THUG's 1.9.6 shift to double the range, normals s16/16384). Skin data
 ///     is single/double/add bone lists per NX/mesh.cpp ApplyMeshScaling and
-///     NX/instance.cpp (doubles pack two palette indices as mtx&255 and
-///     (mtx>>8)&255; add lists accumulate a third bone onto existing verts).
+///     NX/instance.cpp (doubles pack two palette indices as mtx &amp; 255 and
+///     (mtx &gt;&gt; 8) &amp; 255; add lists accumulate a third bone onto existing verts).
 ///
 ///     Material passes reference textures by INDEX into the companion
 ///     .tex.ngc dictionary (record order); XbxPass.TextureChecksum stores
@@ -248,11 +248,11 @@ public static class NgcSceneFile
         }
 
         var sectorFlags = 0;
-        foreach (var mesh in meshes)
+        foreach (var vertices in meshes.Select(static mesh => mesh.Vertices))
         {
-            if (mesh.Vertices.Length == 0) continue;
-            if (mesh.Vertices[0].HasNormal) sectorFlags |= 0x04;
-            if (mesh.Vertices[0].HasColor) sectorFlags |= 0x02;
+            if (vertices.Length == 0) continue;
+            if (vertices[0].HasNormal) sectorFlags |= 0x04;
+            if (vertices[0].HasColor) sectorFlags |= 0x02;
             sectorFlags |= 0x01;
         }
 

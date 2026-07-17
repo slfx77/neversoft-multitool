@@ -61,7 +61,12 @@ internal static class Ps2GeomRenderSemantics
             return "BLEND";
 
         if (isFixedStandardBlend)
-            return fixValue < FixBlendOpaqueThreshold ? "BLEND" : alphaTestMask ? "MASK" : "OPAQUE";
+        {
+            if (fixValue < FixBlendOpaqueThreshold)
+                return "BLEND";
+
+            return alphaTestMask ? "MASK" : "OPAQUE";
+        }
 
         if (UsesDestinationAlphaBlend(alphaBlend))
             return alphaTestMask ? "MASK" : "OPAQUE";

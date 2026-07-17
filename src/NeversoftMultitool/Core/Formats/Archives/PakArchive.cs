@@ -316,9 +316,9 @@ public static class PakArchive
                 continue;
             }
 
-            // Determine data source: GC companion entries carry raw .mpk.ngc positions;
-            // LE resolved positions past the .pak length continue into the .pab at
-            // (resolved − pak length).
+            // GameCube companion offsets point directly into MPK data. Little-endian
+            // offsets beyond the PAK length continue into PAB data after subtracting
+            // the PAK length.
             var sourceData = pakData;
             var position = entry.Offset;
             if (entry.InCompanion && pabData != null)

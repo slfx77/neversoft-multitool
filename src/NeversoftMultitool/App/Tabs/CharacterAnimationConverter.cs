@@ -248,12 +248,6 @@ internal static class CharacterAnimationConverter
         return new DocumentResult(document, null);
     }
 
-    private static MeshChecksumTextureResolver? BuildPsxTextureProvider(MeshFileEntry character)
-    {
-        var fsPath = character.Source.FileSystemPath;
-        return fsPath == null ? null : PsxTextureProviderFactory.FromFile(fsPath);
-    }
-
     private static SkaAnimation? TryParseAnimation(AnimationProbe probe)
     {
         try
@@ -261,9 +255,9 @@ internal static class CharacterAnimationConverter
             var bytes = probe.Source.ReadBytes();
             if (!SkaFile.IsSkaFile(bytes)) return null;
 
-            // Find compress table for filesystem-backed anims; archive-backed
-            // anims fall back to no table (uncompressed anims still parse;
-            // compressed ones throw and we skip).
+            // Filesystem animations can use a nearby compression table. Archive
+            // sources cannot resolve one here: uncompressed clips still parse,
+            // while compressed clips are rejected and omitted.
             SkaCompressTable? table = null;
             var fsPath = probe.Source.FileSystemPath;
             if (fsPath != null)
@@ -302,20 +296,6 @@ internal static class CharacterAnimationConverter
         {
             return null;
         }
-    }
-
-    private static MeshNamedTextureResolver? BuildRwDffTextureProvider(MeshFileEntry character)
-    {
-        // RW DFF textures live in companion .tex files. Reuse the existing helper
-        // that handles both filesystem and archive sources.
-        return MeshConverterTabFileConverter.BuildRwDffTextureProvider(character);
-    }
-
-    private static byte[] WriteGlbToMemory(SharpGLTF.Schema2.ModelRoot model)
-    {
-        using var ms = new MemoryStream();
-        model.WriteGLB(ms);
-        return ms.ToArray();
     }
 
     private static string StripAnimExtension(string fileName)

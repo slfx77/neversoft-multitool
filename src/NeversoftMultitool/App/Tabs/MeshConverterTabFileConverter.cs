@@ -28,8 +28,6 @@ internal static class MeshConverterTabFileConverter
 
     internal static readonly string[] Ps2TexExtensions = [".tex.ps2", ".tex", ".img.ps2"];
     internal static readonly string[] Ps2TexSubdirs = ["TEX", "Textures", "IMG"];
-    private static readonly string[] RwTexExtensions = [".tex"];
-    private static readonly string[] RwTexSubdirs = ["TEX", "Textures"];
     internal static readonly string[] PcSkinExtensions = [".skin.wpc", ".skin.xbx"];
     internal static readonly string[] PcSkinSubdirs = ["SKIN", "Models"];
 

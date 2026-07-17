@@ -78,12 +78,12 @@ public sealed class FileTableBehavior : DependencyObject
 
         if (Tables.TryGetValue(host, out var state))
         {
-            state.Disable();
+            state.Dispose();
             Tables.Remove(host);
         }
     }
 
-    private sealed class TableState
+    private sealed class TableState : IDisposable
     {
         private const double SplitterWidth = 8;
         private const double CellFitPadding = 8;
@@ -143,6 +143,8 @@ public sealed class FileTableBehavior : DependencyObject
                 _sourceItems = null;
             }
         }
+
+        public void Dispose() => Disable();
 
         private void Host_Loaded(object sender, RoutedEventArgs e) => Start();
 
@@ -433,16 +435,19 @@ public sealed class FileTableBehavior : DependencyObject
             var widths = _header.ColumnDefinitions.Select(column => column.ActualWidth).ToArray();
             if (widths.Length < 2 || widths.Any(width => width <= 0)) return;
 
-            foreach (var row in DescendantsAndSelf(_listView).OfType<Grid>().Where(GetIsRow))
+            foreach (var columns in DescendantsAndSelf(_listView)
+                         .OfType<Grid>()
+                         .Where(GetIsRow)
+                         .Select(row => row.ColumnDefinitions))
             {
-                if (row.ColumnDefinitions.Count != widths.Length) continue;
+                if (columns.Count != widths.Length) continue;
 
                 // Pixel widths keep every boundary aligned with the header. The
                 // last column stays fluid so a visible scrollbar cannot force
                 // the row wider than the ListView viewport.
                 for (var index = 0; index < widths.Length - 1; index++)
-                    row.ColumnDefinitions[index].Width = new GridLength(widths[index], GridUnitType.Pixel);
-                row.ColumnDefinitions[^1].Width = new GridLength(1, GridUnitType.Star);
+                    columns[index].Width = new GridLength(widths[index], GridUnitType.Pixel);
+                columns[^1].Width = new GridLength(1, GridUnitType.Star);
             }
         }
 
@@ -609,29 +614,6 @@ public sealed class FileTableBehavior : DependencyObject
             Clipboard.SetContent(package);
         }
 
-        private static List<SortGroup> BuildSortGroups(IReadOnlyList<object?> items)
-        {
-            var hasParentRows = items.Any(item => item is IListEntry { IsChildEntry: false });
-            if (!hasParentRows)
-                return items.Select((item, index) => new SortGroup(item, [item], index)).ToList();
-
-            var groups = new List<SortGroup>();
-            SortGroup? current = null;
-            for (var index = 0; index < items.Count; index++)
-            {
-                var item = items[index];
-                if (item is not IListEntry { IsChildEntry: true } || current == null)
-                {
-                    current = new SortGroup(item, [], index);
-                    groups.Add(current);
-                }
-
-                current.Items.Add(item);
-            }
-
-            return groups;
-        }
-
         private static object? GetPropertyValue(object? item, string path)
         {
             var value = item;
@@ -640,7 +622,7 @@ public sealed class FileTableBehavior : DependencyObject
                 if (value == null) return null;
                 var property = value.GetType().GetProperty(
                     segment,
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    BindingFlags.Instance | BindingFlags.Public);
                 if (property == null) return null;
                 value = property.GetValue(value);
             }
@@ -651,10 +633,10 @@ public sealed class FileTableBehavior : DependencyObject
         private static T? FindDescendant<T>(DependencyObject root, Func<T, bool>? predicate = null)
             where T : DependencyObject
         {
-            foreach (var element in DescendantsAndSelf(root).Skip(1).OfType<T>())
-                if (predicate == null || predicate(element))
-                    return element;
-            return null;
+            return DescendantsAndSelf(root)
+                .Skip(1)
+                .OfType<T>()
+                .FirstOrDefault(element => predicate == null || predicate(element));
         }
 
         private static DependencyObject? FindAncestor(
@@ -856,7 +838,7 @@ public sealed class FileTableBehavior : DependencyObject
                 }
             }
 
-            private void ReconcileItems(IReadOnlyList<object?> desired)
+            private void ReconcileItems(List<object?> desired)
             {
                 // Remove vanished rows first. Otherwise a single removal near
                 // the top would be expressed as a Move for every following row.
@@ -867,7 +849,7 @@ public sealed class FileTableBehavior : DependencyObject
                 {
                     var item = _items[index];
                     if (item != null && desiredItems.Contains(item)) continue;
-                    if (item == null && desired.Any(static desiredItem => desiredItem == null)) continue;
+                    if (item == null && desired.Contains(null)) continue;
 
                     _items.RemoveAt(index);
                     CollectionChanged?.Invoke(
@@ -922,6 +904,29 @@ public sealed class FileTableBehavior : DependencyObject
                             removed,
                             index));
                 }
+            }
+
+            private static List<SortGroup> BuildSortGroups(List<object?> items)
+            {
+                var hasParentRows = items.Any(item => item is IListEntry { IsChildEntry: false });
+                if (!hasParentRows)
+                    return items.Select((item, index) => new SortGroup(item, [item], index)).ToList();
+
+                var groups = new List<SortGroup>();
+                SortGroup? current = null;
+                for (var index = 0; index < items.Count; index++)
+                {
+                    var item = items[index];
+                    if (item is not IListEntry { IsChildEntry: true } || current == null)
+                    {
+                        current = new SortGroup(item, [], index);
+                        groups.Add(current);
+                    }
+
+                    current.Items.Add(item);
+                }
+
+                return groups;
             }
 
             private int IndexOfReference(object? value, int startIndex)

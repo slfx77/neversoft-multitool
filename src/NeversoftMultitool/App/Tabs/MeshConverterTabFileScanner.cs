@@ -379,7 +379,7 @@ internal static class MeshConverterTabFileScanner
         return OrdinalFileName.StripCompoundSuffix(filename, CompoundExtensions);
     }
 
-    private static IReadOnlyList<string> EnumerateFiles(string inputDir, CancellationToken ct)
+    private static List<string> EnumerateFiles(string inputDir, CancellationToken ct)
     {
         var list = new List<string>();
         foreach (var file in Directory.EnumerateFiles(inputDir, "*", SearchOption.AllDirectories))

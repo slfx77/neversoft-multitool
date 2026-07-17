@@ -132,7 +132,8 @@ public class ArchiveFileSystemTests(TestPaths paths)
             Assert.NotNull(fs);
             Assert.Equal(ArchiveAssetType.Wad, fs!.Type);
 
-            var preEntry = fs.FindByName("pre\\ApBSP.pre") ?? fs.Entries.First(e => e.Name.EndsWith(".pre"));
+            var preEntry = fs.FindByName("pre\\ApBSP.pre") ??
+                           fs.Entries.First(e => e.Name.EndsWith(".pre", StringComparison.OrdinalIgnoreCase));
             using var nested = fs.TryOpenNested(preEntry);
 
             Assert.NotNull(nested);
@@ -242,5 +243,32 @@ public class ArchiveFileSystemTests(TestPaths paths)
         var bytes = backend.ReadEntryBytes(first);
         Assert.Equal(first.Size, bytes.Length);
         Assert.NotNull(backend.FindEntry(first.Name));
+    }
+
+    [Fact]
+    public void Dispose_RepeatedCalls_InvokeCleanupOnce()
+    {
+        var filesystem = new TrackingArchiveFileSystem();
+
+        filesystem.Dispose();
+        filesystem.Dispose();
+
+        Assert.Equal(1, filesystem.DisposeCalls);
+    }
+
+    private sealed class TrackingArchiveFileSystem()
+        : ArchiveFileSystemBase("test", "test", ArchiveAssetType.Wad, 0, [], null)
+    {
+        public int DisposeCalls { get; private set; }
+
+        public override byte[] ReadEntry(ArchiveEntry entry) => [];
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                DisposeCalls++;
+
+            base.Dispose(disposing);
+        }
     }
 }

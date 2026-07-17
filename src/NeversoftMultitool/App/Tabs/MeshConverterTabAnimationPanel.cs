@@ -140,17 +140,18 @@ internal sealed class MeshConverterTabAnimationPanel(
         var boneCount = Character.SkeletonBoneCount;
         var isPsx = Character.IsPsx;
         var characterSource = Character.Source;
+        var targetCharacterSource = isPsx ? characterSource : null;
         var probes = await Task.Run(() =>
         {
             var backend = ArchiveAssetBackend.TryOpen(path);
-            return backend == null
-                ? []
-                : (IReadOnlyList<AnimationProbe>)AnimationDiscovery.FindInArchive(
-                    backend,
-                    boneCount,
-                    CancellationToken.None,
-                    includePsxAnimationBanks: isPsx,
-                    targetCharacterSource: isPsx ? characterSource : null);
+            if (backend == null) return [];
+
+            return AnimationDiscovery.FindInArchive(
+                backend,
+                boneCount,
+                CancellationToken.None,
+                includePsxAnimationBanks: isPsx,
+                targetCharacterSource: targetCharacterSource);
         });
         MergeAnimationProbes(probes);
         UpdateStatus(boneCount);
@@ -190,10 +191,9 @@ internal sealed class MeshConverterTabAnimationPanel(
             .Select(p => p.Source.DisplayName)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var probe in probes)
+        foreach (var probe in probes.Where(probe => seen.Add(probe.Source.DisplayName)))
         {
-            if (seen.Add(probe.Source.DisplayName))
-                _allProbes.Add(probe);
+            _allProbes.Add(probe);
         }
 
         RebuildList();

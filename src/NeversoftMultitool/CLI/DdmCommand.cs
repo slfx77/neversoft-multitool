@@ -185,8 +185,8 @@ public static class DdmCommand
     }
 
     private static int ExecuteCoreExport(
-        IReadOnlyList<string> standaloneDdmFiles,
-        IReadOnlyDictionary<string, string> placedLevels,
+        string[] standaloneDdmFiles,
+        Dictionary<string, string> placedLevels,
         string output,
         bool verbose,
         string? texturePath,
@@ -258,7 +258,7 @@ public static class DdmCommand
             }
         }
 
-        var total = standaloneDdmFiles.Count + placedLevels.Count;
+        var total = standaloneDdmFiles.Length + placedLevels.Count;
         AnsiConsole.MarkupLine(
             $"Converted [green]{converted}[/]/{total} files " +
             $"({totalTriangles:N0} triangles)" +

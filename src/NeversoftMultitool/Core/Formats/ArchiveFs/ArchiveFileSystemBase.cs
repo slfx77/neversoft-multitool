@@ -7,11 +7,13 @@ namespace NeversoftMultitool.Core.Formats.ArchiveFs;
 ///     Indexes build lazily (scans list thousands of entries but look up few)
 ///     and are case-insensitive with '\'-vs-'/' normalized on both sides.
 /// </summary>
+#pragma warning disable S3881 // Dispose stays virtual to preserve the public 1.x subclassing contract.
 public abstract class ArchiveFileSystemBase : IArchiveFileSystem
 {
     private readonly Lazy<Dictionary<string, ArchiveEntry>> _byName;
     private readonly Lazy<Dictionary<string, ArchiveEntry>> _byPath;
     private readonly Lazy<Dictionary<string, List<ArchiveEntry>>> _allByName;
+    private int _disposeState;
 
     protected ArchiveFileSystemBase(
         string displayPath, string containerPath, ArchiveAssetType type, int nestingDepth,
@@ -100,7 +102,15 @@ public abstract class ArchiveFileSystemBase : IArchiveFileSystem
 
     public virtual void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
+            return;
+
+        Dispose(true);
         GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
     }
 
     private static string NormalizePath(string path)
@@ -146,3 +156,4 @@ public abstract class ArchiveFileSystemBase : IArchiveFileSystem
         return index;
     }
 }
+#pragma warning restore S3881

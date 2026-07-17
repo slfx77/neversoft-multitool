@@ -7,6 +7,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.RenderWare;
 
 public sealed class ArchiveRwDffCopyDeduplicatorTests(TestPaths paths)
 {
+    private static readonly int[] ExpectedRootIndex = [0];
+
     [Fact]
     public void PedProMuska_Skate3Wad_SelectsOnlyRootExactCopy()
     {
@@ -63,6 +65,6 @@ public sealed class ArchiveRwDffCopyDeduplicatorTests(TestPaths paths)
         });
 
         var keptIndices = ArchiveRwDffCopyDeduplicator.SelectIndicesToKeep(candidates);
-        Assert.Equal(new[] { 0 }, keptIndices);
+        Assert.Equal(ExpectedRootIndex, keptIndices);
     }
 }

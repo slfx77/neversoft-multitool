@@ -256,9 +256,7 @@ public class Vid1DecoderTests(TestPaths paths)
         var provider = new Vid1BgraPresentationFrameProvider(file);
         var frameLimit = Math.Min(300, file.FrameCount);
 
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
+        PrepareAllocationMeasurement();
         var before = GC.GetAllocatedBytesForCurrentThread();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var decoded = 0;
@@ -289,9 +287,7 @@ public class Vid1DecoderTests(TestPaths paths)
         var destination = new byte[file.Width * file.Height * 4];
         var frameLimit = Math.Min(300, file.FrameCount);
 
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
+        PrepareAllocationMeasurement();
         var before = GC.GetAllocatedBytesForCurrentThread();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var decoded = 0;
@@ -323,9 +319,7 @@ public class Vid1DecoderTests(TestPaths paths)
         var frameLimit = Math.Min(300, file.FrameCount);
         using var sink = Stream.Null;
 
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
+        PrepareAllocationMeasurement();
         var before = GC.GetAllocatedBytesForCurrentThread();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var decoded = 0;
@@ -465,5 +459,16 @@ public class Vid1DecoderTests(TestPaths paths)
             expectedSha256,
             actualSha256);
         Assert.Equal(frameLimit, decoded);
+    }
+
+    private static void PrepareAllocationMeasurement()
+    {
+        // These opt-in performance tests deliberately establish a quiet allocation
+        // baseline before measuring. A forced full collection is part of that test setup.
+#pragma warning disable S1215
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+#pragma warning restore S1215
     }
 }

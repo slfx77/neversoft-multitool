@@ -40,15 +40,6 @@ internal sealed partial class GsGifInterpreter
         state.ColorA = qword[12];
     }
 
-    private void SetRgbaq(ReadOnlySpan<byte> qword)
-    {
-        state.ColorR = qword[0];
-        state.ColorG = qword[1];
-        state.ColorB = qword[2];
-        state.ColorA = qword[3];
-        state.Q = BitConverter.ToSingle(qword[4..8]);
-    }
-
     private void SetRgbaq(ulong value)
     {
         state.ColorR = (byte)value;

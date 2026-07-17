@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Globalization;
 using NeversoftMultitool.Core.Formats.GsDump;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -613,8 +614,8 @@ public sealed class GsDumpAuditTests
         // After a draw with PSMZ24 ZBUF and ZMSK=0 the Z value must be persisted to VRAM
         // at the ZBP so subsequent texture samples at (TBP=ZBP, PSM=PSMZ24) — the game's
         // own depth-feedback path for SSAO / blur / fog cones — read real depth bytes
-        // instead of the leftover seed. The depthBuffers dictionary is screen-space only;
-        // VRAM is the source of truth for texture reads.
+        // instead of the leftover seed. The screen-space depth buffer is not sampled
+        // by textures; VRAM is the source of truth for texture reads.
         // ZBP is in 32-block PAGE units; TBP0 is in BLOCK units. ZBP=4 → BLOCK address 128.
         const uint zbpPage = 4;
         const uint tbpBlock = zbpPage * 32;
@@ -1043,7 +1044,9 @@ public sealed class GsDumpAuditTests
         var nonZeroBytes = 0;
         for (var i = 0; i < rgba.Length; i++)
             if (rgba[i] != 0) nonZeroBytes++;
-        var pixelsHex = string.Join(" ", rgba.Take(64).Select(b => b.ToString("X2")));
+        var pixelsHex = string.Join(
+            " ",
+            rgba.Take(64).Select(b => b.ToString("X2", CultureInfo.InvariantCulture)));
         Assert.True(
             nonZeroBytes > 0,
             $"Expected non-zero seed data at FBP=4480 PSMCT16, but the round-trip returned all zeros. First 64 bytes: {pixelsHex}");
@@ -1093,9 +1096,6 @@ public sealed class GsDumpAuditTests
     private static byte[] BuildRawDump(params IGsPacket[] packets) =>
         BuildRawDump(packets, screenshotPixels: null, registers: null);
 
-    private static byte[] BuildRawDumpWithRegisters(byte[] registers, params IGsPacket[] packets) =>
-        BuildRawDump(packets, screenshotPixels: null, registers: registers);
-
     private static byte[] BuildRawDump(IGsPacket[] packets, byte[]? screenshotPixels, byte[]? registers = null)
     {
         using var stream = new MemoryStream();
@@ -1130,6 +1130,9 @@ public sealed class GsDumpAuditTests
             packet.Write(stream);
         return stream.ToArray();
     }
+
+    private static byte[] BuildRawDumpWithRegisters(byte[] registers, params IGsPacket[] packets) =>
+        BuildRawDump(packets, screenshotPixels: null, registers: registers);
 
     private static byte[] DisabledGif() => GifTag(nloop: 0, flg: 3, nreg: 1, regs: 0);
 
@@ -1231,9 +1234,6 @@ public sealed class GsDumpAuditTests
 
     private static ulong Xyz(int x, int y, int z = 10) =>
         (uint)(x * 16) | ((ulong)(uint)(y * 16) << 16) | ((ulong)(uint)z << 32);
-
-    private static ulong Uv(int u, int v) =>
-        (uint)u | ((ulong)(uint)v << 16);
 
     private static ulong MakeTex0(
         int widthPow,

@@ -84,9 +84,13 @@ internal static class AudioConverterTabOperations
         var bankBytes = TryResolveSfxBankFromSource(source);
         var filesystemPath = source.FileSystemPath;
 
-        var samples = bankBytes is { } bb
-            ? SfxExtractor.EnumerateSamples(data, bb)
-            : (filesystemPath != null ? SfxExtractor.EnumerateSamples(filesystemPath) : []);
+        List<SfxExtractor.SfxSampleInfo> samples;
+        if (bankBytes is { } bb)
+            samples = SfxExtractor.EnumerateSamples(data, bb);
+        else if (filesystemPath != null)
+            samples = SfxExtractor.EnumerateSamples(filesystemPath);
+        else
+            samples = [];
 
         return samples.Select(sample => new AudioSampleEntry
         {

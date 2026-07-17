@@ -5,6 +5,7 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>NeversoftMultitool</RootNamespace>
     <AssemblyName>NeversoftMultitool</AssemblyName>
+    <Version>1.3.0</Version>
     <Platforms>x64;AnyCPU</Platforms>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>

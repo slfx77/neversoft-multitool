@@ -175,8 +175,8 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
                 var track = tracks[i];
                 Assert.Equal(i, track.TrackIndex);
 
-                // Each track's synthetic AUDD packet encodes its own track index at byte 1;
-                // packets must not be mixed across tracks.
+                // Byte 1 of each synthetic AUDD packet identifies its track.
+                // Packets from different tracks must remain separate.
                 var packet = Assert.Single(track.AudioPackets);
                 Assert.Equal(0x60, packet[0]);
                 Assert.Equal((byte)(0x10 + i), packet[1]);

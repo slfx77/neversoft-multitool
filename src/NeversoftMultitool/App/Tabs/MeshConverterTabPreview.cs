@@ -132,16 +132,6 @@ internal sealed class MeshConverterTabPreview : IDisposable
         }
     }
 
-    private static double? ResolveWalkEyeHeight(MeshFileEntry entry, bool isLevel)
-    {
-        if (!isLevel) return null;
-        if (entry.IsPakWorldzone) return ThawWorldzoneWalkEyeHeight;
-        if (!entry.IsPsx) return null;
-        return entry.PsxFormatRevision == PsxMeshFormatRevision.ApocalypseV3
-            ? ApocalypseLevelWalkEyeHeight
-            : PsxLevelWalkEyeHeight;
-    }
-
     /// <summary>
     ///     Build a single-animation preview GLB for a character and push it
     ///     into the viewer (ported from the Character Preview tab).
@@ -201,6 +191,16 @@ internal sealed class MeshConverterTabPreview : IDisposable
             if (!IsCurrentPreview(cts)) return;
             _viewer.SetError($"Preview failed: {ex.Message}");
         }
+    }
+
+    private static double? ResolveWalkEyeHeight(MeshFileEntry entry, bool isLevel)
+    {
+        if (!isLevel) return null;
+        if (entry.IsPakWorldzone) return ThawWorldzoneWalkEyeHeight;
+        if (!entry.IsPsx) return null;
+        return entry.PsxFormatRevision == PsxMeshFormatRevision.ApocalypseV3
+            ? ApocalypseLevelWalkEyeHeight
+            : PsxLevelWalkEyeHeight;
     }
 
     public async Task ClearAsync()

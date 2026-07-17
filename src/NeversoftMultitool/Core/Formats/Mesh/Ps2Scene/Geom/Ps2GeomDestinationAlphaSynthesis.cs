@@ -22,9 +22,8 @@ internal static class Ps2GeomDestinationAlphaSynthesis
         }
 
         var candidates = new List<Ps2DestinationAlphaMaskCandidate>();
-        foreach (var item in orderedLeaves)
+        foreach (var leaf in orderedLeaves.Select(static item => item.Leaf))
         {
-            var leaf = item.Leaf;
             if (leaf.Vertices.Length < 3 ||
                 (leafFilter != null && !leafFilter(leaf)) ||
                 (skipLeaf != null && skipLeaf(leaf)) ||
@@ -97,11 +96,13 @@ internal static class Ps2GeomDestinationAlphaSynthesis
             return false;
 
         var maskIsOpaqueWriter = maskAlphaBlend is 0x0A or 0x1A or 0x00;
-        var effectiveMaskPng = maskIsOpaqueWriter
-            ? CreateUniformOpaqueMask()
-            : MaskShouldFlattenToAverage(maskPng, maskCandidate.Leaf)
-                ? FlattenMaskAlphaToAverage(maskPng)
-                : maskPng;
+        byte[] effectiveMaskPng;
+        if (maskIsOpaqueWriter)
+            effectiveMaskPng = CreateUniformOpaqueMask();
+        else if (MaskShouldFlattenToAverage(maskPng, maskCandidate.Leaf))
+            effectiveMaskPng = FlattenMaskAlphaToAverage(maskPng);
+        else
+            effectiveMaskPng = maskPng;
 
         var hasUvTransform = TryComputeDestinationAlphaUvTransform(
             sourceLeaf,
@@ -655,17 +656,17 @@ internal static class Ps2GeomDestinationAlphaSynthesis
         return ms.ToArray();
     }
 
-    private static (Vector3 Min, Vector3 Max) ComputeBbox(IReadOnlyList<Ps2Vertex> vertices)
+    private static (Vector3 Min, Vector3 Max) ComputeBbox(Ps2Vertex[] vertices)
     {
-        if (vertices.Count == 0)
+        if (vertices.Length == 0)
             return (Vector3.Zero, Vector3.Zero);
 
         var min = new Vector3(float.MaxValue);
         var max = new Vector3(float.MinValue);
-        foreach (var vertex in vertices)
+        foreach (var position in vertices.Select(static vertex => vertex.Position))
         {
-            min = Vector3.Min(min, vertex.Position);
-            max = Vector3.Max(max, vertex.Position);
+            min = Vector3.Min(min, position);
+            max = Vector3.Max(max, position);
         }
 
         return (min, max);

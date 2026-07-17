@@ -40,9 +40,6 @@ internal static class Vid1Prediction
 
         // Find left, top, top-left neighbor block prediction sources.
         // Decomp: a neighbor contributes only if mb_state[0] is 3 or 4 (a878 intra).
-        var leftBlockOffset = -1;
-        var topBlockOffset = -1;
-        var topLeftBlockOffset = -1;
         var leftQuant = quantizer;
         var topQuant = quantizer;
 

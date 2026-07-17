@@ -88,10 +88,14 @@ public sealed class FileArchiveFileSystem : ArchiveFileSystemBase
         return ArchiveEntryDecoder.Decode(Type, entry, stored);
     }
 
-    public override void Dispose()
+    protected override void Dispose(bool disposing)
     {
-        _handle.Dispose();
-        _companionHandle?.Dispose();
-        base.Dispose();
+        if (disposing)
+        {
+            _handle.Dispose();
+            _companionHandle?.Dispose();
+        }
+
+        base.Dispose(disposing);
     }
 }

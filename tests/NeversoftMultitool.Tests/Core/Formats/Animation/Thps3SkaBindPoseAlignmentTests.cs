@@ -35,6 +35,8 @@ public class Thps3SkaBindPoseAlignmentTests
 
         var clump = RwDffFile.Parse(SknPath);
         var skin = clump.Atomics.First(a => a.SkinData != null).SkinData!;
+        Assert.NotEmpty(anim.BoneTracks);
+        Assert.True(skin.NumBones > 0, "Expected the diagnostic skin to contain bones.");
 
         // Reconstruct bind-pose local transform per bone via the same logic
         // RwDffGltfWriter uses.

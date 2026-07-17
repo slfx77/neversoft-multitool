@@ -8,9 +8,9 @@ public class Vid1VlcDecoderTests
     private static Vid1BitReader MakeReader(params byte[] data) => new(data);
 
     [Theory]
-    [InlineData(false, 0x0F)] // SelectorTable[48] = 0x0004000F → consume 2, value 0xF; !invert → 0xF
-    [InlineData(true, 0x0F)]  // invert → value itself = 0xF
-    public void DecodeSelector_TopBitsAllOnes_Returns0xF(bool invert, int expected)
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DecodeSelector_TopBitsAllOnes_Returns0xF(bool invert)
     {
         // Peek-6 = 0b110000 = 48 → SelectorTable[48] = 0x0004000F
         // bits_to_consume = 0x0004000F >> 17 = 2, value = 0xF

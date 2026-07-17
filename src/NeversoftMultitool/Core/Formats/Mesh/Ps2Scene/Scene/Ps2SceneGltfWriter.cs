@@ -326,11 +326,9 @@ public static class Ps2SceneGltfWriter
         var r = bakeVertexColorsToWhite ? 1f : Math.Min(v.R / 128f, 1f);
         var g = bakeVertexColorsToWhite ? 1f : Math.Min(v.G / 128f, 1f);
         var b = bakeVertexColorsToWhite ? 1f : Math.Min(v.B / 128f, 1f);
-        var a = bakeVertexColorsToWhite
-            ? 1f
-            : preserveVertexAlpha
-                ? Math.Min(v.A / 128f, 1f)
-                : 1f;
+        var a = !bakeVertexColorsToWhite && preserveVertexAlpha
+            ? Math.Min(v.A / 128f, 1f)
+            : 1f;
 
         // UV: flip V. PS2 GS samples bottom-up but our TEX pipeline flips
         // pixel data to top-down PNGs; mesh UVs remain in bottom-up space.
@@ -413,9 +411,14 @@ public static class Ps2SceneGltfWriter
         using var img = Image.Load<Rgba32>(pngBytes);
         var firstPixel = img[0, 0];
         for (var y = 0; y < img.Height; y++)
-        for (var x = 0; x < img.Width; x++)
-            if (img[x, y] != firstPixel)
-                return false;
+        {
+            for (var x = 0; x < img.Width; x++)
+            {
+                if (img[x, y] != firstPixel)
+                    return false;
+            }
+        }
+
         return true;
     }
 

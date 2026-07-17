@@ -256,8 +256,8 @@ internal static class ThpgPositionUnwrapper
             list.Add(idx);
         }
 
-        // Diagnostic switch (THPG_UNWRAP_DBG=1): component structure + placement
-        // decisions, for continuing the residual band-placement work (see backlog).
+        // Setting the THPG_UNWRAP_DBG environment variable to one logs component
+        // structure and placement decisions for residual band-placement work.
         var debug = Environment.GetEnvironmentVariable("THPG_UNWRAP_DBG") == "1";
         if (debug)
         {

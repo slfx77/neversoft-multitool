@@ -1,6 +1,7 @@
 using NeversoftMultitool.Core.Formats.Video;
 using NeversoftMultitool.Tests.Helpers;
 using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using NeversoftMultitool.Core.Formats.Vid1;
 
@@ -187,9 +188,11 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
 
     private static void SkipMatrix(Vid1BitReader reader)
     {
-        while (reader.ReadBits(8) != 0)
+        int value;
+        do
         {
-        }
+            value = reader.ReadBits(8);
+        } while (value != 0);
     }
 
     private static Vid1ControlProbe ProbeControl(Vid1VideoFrame frame, Vid1BitReader vlcReader, Vid1BitReader flagReader, int currentQuantizer)
@@ -258,15 +261,6 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         return readers;
     }
 
-    private static Vid1BitReader CreateFlagReader(Vid1VideoFrame frame) => CreateDiagnosticReaders(frame).FlagReader;
-
-    private static Vid1BitReader CreateFlagReaderAtBit(Vid1VideoFrame frame, int bitPosition)
-    {
-        var reader = CreateFlagReader(frame);
-        reader.SetBitPosition(bitPosition);
-        return reader;
-    }
-
     private static string GetRepoRoot()
     {
         var current = AppContext.BaseDirectory;
@@ -307,17 +301,17 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             startInfo.ArgumentList.Add("tools/diagnostics/dump_vid1_coeffs.py");
             startInfo.ArgumentList.Add(path);
             startInfo.ArgumentList.Add("--frame");
-            startInfo.ArgumentList.Add(frameIndex.ToString());
+            startInfo.ArgumentList.Add(frameIndex.ToString(CultureInfo.InvariantCulture));
             startInfo.ArgumentList.Add("--offsets");
-            startInfo.ArgumentList.Add(bitOffset.ToString());
+            startInfo.ArgumentList.Add(bitOffset.ToString(CultureInfo.InvariantCulture));
             startInfo.ArgumentList.Add("--bundle");
             startInfo.ArgumentList.Add(bundleName);
             startInfo.ArgumentList.Add("--scan");
             startInfo.ArgumentList.Add(scanName);
             startInfo.ArgumentList.Add("--initial-index");
-            startInfo.ArgumentList.Add(initialIndex.ToString());
+            startInfo.ArgumentList.Add(initialIndex.ToString(CultureInfo.InvariantCulture));
             startInfo.ArgumentList.Add("--dc-value");
-            startInfo.ArgumentList.Add(dcValue.ToString());
+            startInfo.ArgumentList.Add(dcValue.ToString(CultureInfo.InvariantCulture));
 
             using var process = Process.Start(startInfo);
             if (process == null)
@@ -861,7 +855,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             if (!isCoded)
                 continue;
 
-            Span<short> quant = stackalloc short[64];
+            var quant = new short[64];
             Vid1CoefficientDecoder.DecodeBlock(
                 vlcReader,
                 useBundleB: true,
@@ -1269,6 +1263,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         log.Add($"reader_mode={readers.Mode}");
 
         var currentQuantizer = frame.Quantizer;
+        var stopAfterAcFailure = false;
         try
         {
             for (var mbIdx = 0; mbIdx < 5; mbIdx++)
@@ -1314,10 +1309,14 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                             catch (Exception ex)
                             {
                                 log.Add($"    AC FAIL: {ex.GetType().Name}: {ex.Message}");
-                                goto done;
+                                stopAfterAcFailure = true;
+                                break;
                             }
                         }
                     }
+
+                    if (stopAfterAcFailure)
+                        break;
                 }
             }
         }
@@ -1325,8 +1324,6 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         {
             log.Add($"  EXCEPTION: {ex.GetType().Name}: {ex.Message}");
         }
-
-        done:
         var message = string.Join("\n", log);
         Console.WriteLine(message);
 
@@ -1507,7 +1504,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
 
                     if (coded)
                     {
-                        Span<short> quant = stackalloc short[64];
+                        var quant = new short[64];
                         if (dcPreDecode)
                             quant[0] = (short)dcValue;
 
@@ -1638,7 +1635,6 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         log.Add($"parsed frame: qp={frame.Quantizer} fwd={frame.ForwardCode} thr={frame.IntraDcThresholdIndex} coded={frame.CodedPayload.Length}");
 
         var spritePointCount = frame.SpritePointCount;
-        var spriteWarpAccuracy = frame.SpriteWarpAccuracy;
 
         _ = reader.ReadBits(16);
         var preambleClass = reader.ReadBits(2);
@@ -1652,7 +1648,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             if (spriteConfigPresent)
             {
                 spritePointCount = reader.ReadBits(2);
-                spriteWarpAccuracy = reader.ReadBits(2);
+                var spriteWarpAccuracy = reader.ReadBits(2);
                 log.Add($"spritePointCount={spritePointCount} spriteWarpAccuracy={spriteWarpAccuracy} bit={reader.BitPosition}");
             }
         }

@@ -70,9 +70,14 @@ public class PsxFileEntry : BaseFileEntry, IListEntry
     /// </summary>
     public bool IsExpandable => _hasTextures && _textureCount != 1;
 
-    public string ChevronGlyph => IsExpandable
-        ? _isExpanded ? "\uE70D" : "\uE76C"
-        : "";
+    public string ChevronGlyph
+    {
+        get
+        {
+            if (!IsExpandable) return "";
+            return _isExpanded ? "\uE70D" : "\uE76C";
+        }
+    }
 
     /// <summary>
     ///     Files with no textures (or exactly one) hide the expander button

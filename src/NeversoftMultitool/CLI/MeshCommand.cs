@@ -300,13 +300,17 @@ public static class MeshCommand
 
         if (OrdinalFileName.HasAnySuffix(name, XbxSceneSuffixes))
         {
+            var platformLabel = "Xbox Scene";
+            if (name.EndsWith(".wpc", StringComparison.OrdinalIgnoreCase))
+                platformLabel = "PC Scene";
+            else if (name.EndsWith(".ngc", StringComparison.OrdinalIgnoreCase))
+                platformLabel = "GameCube Scene";
+
             candidate = new MeshCandidate(
                 file,
                 ModelSourceKind.XbxScene,
                 MeshExportCliOptions.StripKnownExtension(file, XbxSceneSuffixes),
-                name.EndsWith(".wpc", StringComparison.OrdinalIgnoreCase) ? "PC Scene"
-                : name.EndsWith(".ngc", StringComparison.OrdinalIgnoreCase) ? "GameCube Scene"
-                : "Xbox Scene");
+                platformLabel);
             return true;
         }
 

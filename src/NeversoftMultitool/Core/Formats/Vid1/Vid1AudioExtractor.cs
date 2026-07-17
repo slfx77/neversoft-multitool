@@ -955,9 +955,17 @@ public static class Vid1AudioExtractor
     {
         public int BytesPerSecond => SampleRate * Channels * 2;
 
-        public TimeSpan Duration => TotalSamples > 0 && SampleRate > 0
-            ? TimeSpan.FromSeconds((double)TotalSamples / SampleRate)
-            : TimeSpan.FromSeconds(BytesPerSecond > 0 ? (double)Pcm16.Length / BytesPerSecond : 0);
+        public TimeSpan Duration
+        {
+            get
+            {
+                if (TotalSamples > 0 && SampleRate > 0)
+                    return TimeSpan.FromSeconds((double)TotalSamples / SampleRate);
+
+                var seconds = BytesPerSecond > 0 ? (double)Pcm16.Length / BytesPerSecond : 0;
+                return TimeSpan.FromSeconds(seconds);
+            }
+        }
     }
 
     public sealed record Vid1AudioProbeResult(

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -186,7 +187,8 @@ public sealed partial class ModelViewerControl : UserControl
     /// <summary>Point the camera at the model from the given orbit angles.</summary>
     public Task SetViewAsync(float azimuthDeg, float elevationDeg)
     {
-        return ExecuteScriptSafeAsync(FormattableString.Invariant(
+        return ExecuteScriptSafeAsync(string.Create(
+            CultureInfo.InvariantCulture,
             $"setCamera({azimuthDeg}, {elevationDeg})"));
     }
 

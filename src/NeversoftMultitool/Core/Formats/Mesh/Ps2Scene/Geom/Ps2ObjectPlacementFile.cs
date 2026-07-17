@@ -157,6 +157,7 @@ public static class Ps2ObjectPlacementFile
         ///     Flag word at item+0x40. High byte encoded build-tool discriminator; bits 0x10/0x200/0x400 control
         ///     post-processing.
         /// </summary>
+#pragma warning disable CA1707 // Unknown binary fields retain their hexadecimal byte offsets in their names.
         public required uint Field_40 { get; init; }
 
         /// <summary>
@@ -167,5 +168,6 @@ public static class Ps2ObjectPlacementFile
 
         /// <summary>Class/instance hash. Item 0 holds a render-side class hash; item 1 typically holds 0xFFFFFFFF.</summary>
         public required uint Field_4C { get; init; }
+#pragma warning restore CA1707
     }
 }

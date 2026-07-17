@@ -183,9 +183,9 @@ public sealed class Vid1Decoder
             return;
         }
 
-        // Current validated wiring keeps macroblock control bits and VLC tokens
-        // on the post-header payload reader. VID1_READER_MODE is diagnostic;
-        // forcing a separate bitstream flag reader is not score-correct yet.
+        // The validated decoder reads macroblock controls and VLC tokens from the
+        // payload after its header. Alternative reader layouts remain diagnostic
+        // until their decoding scores match.
         var readerMode = Environment.GetEnvironmentVariable("VID1_READER_MODE");
         var skipFlagBitOffset = true;
         byte[]? legacyHeaderPayload = null;
@@ -252,91 +252,92 @@ public sealed class Vid1Decoder
             implicitSkips = stats.FallbackMacroblocks;
             unsupportedClass2Branches = stats.UnsupportedBranches;
             class2FieldOrGmcBranches = stats.FieldOrGmcBranches;
-            goto done;
         }
-
-        for (var mbIndex = 0; mbIndex < totalMacroblocks;)
+        else
         {
-            var mbX = mbIndex % mbCols;
-            var mbY = mbIndex / mbCols;
-            CaptureSnapshot(mbIndex, totalMacroblocks, vlcReader, flagReader);
-
-            try
+            for (var mbIndex = 0; mbIndex < totalMacroblocks;)
             {
-                DecodeMacroblock(
-                    frame,
-                    vlcReader,
-                    flagReader,
-                    mbX,
-                    mbY,
-                    true,
-                    ref intraMacroblocks,
-                    ref motionMacroblocks,
-                    ref fourMotionMacroblocks,
-                    ref fieldPredictionMacroblocks,
-                    ref spriteWarpMacroblocks);
-                mbOk++;
-                mbIndex++;
-            }
-            catch (EndOfStreamException)
-            {
-                if (ShouldTreatEndOfStreamAsImplicitSkips(frame))
-                {
-                    implicitSkips += CopyRemainingMacroblocksFromReference(mbIndex, totalMacroblocks, mbCols);
-                    mbOk = totalMacroblocks;
-                }
-
-                goto done;
-            }
-            catch (InvalidDataException ex)
-            {
-                if (recoveryCount < MaxRecoveriesPerFrame &&
-                    TryRecoverMacroblocks(
-                        frame,
-                        mbIndex,
-                        mbCols,
-                        totalMacroblocks,
-                        vlcReader,
-                        flagReader,
-                        out var recoveredCount,
-                        out var vlcDelta,
-                        out var flagDelta))
-                {
-                    recoveryCount++;
-                    mbOk += recoveredCount;
-                    mbIndex += recoveredCount;
-                    if (ShouldLogFrame(frame.Index) && recoveryCount <= 8)
-                        Console.Error.WriteLine(
-                            $"  RECOVER MB({mbX},{mbY}) count={recoveredCount} vlcDelta={vlcDelta:+#;-#;0} flagDelta={flagDelta:+#;-#;0} vlc@{vlcReader.BitPosition} flag@{flagReader.BitPosition}");
-                    continue;
-                }
-
-                RestoreSnapshot(vlcReader, flagReader);
-                mbFail++;
-                if (ShouldLogFrame(frame.Index) && mbFail <= 5)
-                    Console.Error.WriteLine(
-                        $"  FAIL MB({mbX},{mbY}) #{mbOk + mbFail}: {ex.Message} vlc@{vlcReader.BitPosition} flag@{flagReader.BitPosition}");
+                var mbX = mbIndex % mbCols;
+                var mbY = mbIndex / mbCols;
+                CaptureSnapshot(mbIndex, totalMacroblocks, vlcReader, flagReader);
 
                 try
                 {
-                    vlcReader.SkipBits(1);
+                    DecodeMacroblock(
+                        frame,
+                        vlcReader,
+                        flagReader,
+                        mbX,
+                        mbY,
+                        true,
+                        ref intraMacroblocks,
+                        ref motionMacroblocks,
+                        ref fourMotionMacroblocks,
+                        ref fieldPredictionMacroblocks,
+                        ref spriteWarpMacroblocks);
+                    mbOk++;
+                    mbIndex++;
                 }
                 catch (EndOfStreamException)
                 {
                     if (ShouldTreatEndOfStreamAsImplicitSkips(frame))
                     {
-                        implicitSkips += CopyRemainingMacroblocksFromReference(mbIndex + 1, totalMacroblocks, mbCols);
-                        mbOk = Math.Max(mbOk, totalMacroblocks - mbFail);
+                        implicitSkips += CopyRemainingMacroblocksFromReference(mbIndex, totalMacroblocks, mbCols);
+                        mbOk = totalMacroblocks;
                     }
 
-                    goto done;
+                    break;
                 }
+                catch (InvalidDataException ex)
+                {
+                    if (recoveryCount < MaxRecoveriesPerFrame &&
+                        TryRecoverMacroblocks(
+                            frame,
+                            mbIndex,
+                            mbCols,
+                            totalMacroblocks,
+                            vlcReader,
+                            flagReader,
+                            out var recoveredCount,
+                            out var vlcDelta,
+                            out var flagDelta))
+                    {
+                        recoveryCount++;
+                        mbOk += recoveredCount;
+                        mbIndex += recoveredCount;
+                        if (ShouldLogFrame(frame.Index) && recoveryCount <= 8)
+                            Console.Error.WriteLine(
+                                $"  RECOVER MB({mbX},{mbY}) count={recoveredCount} vlcDelta={vlcDelta:+#;-#;0} flagDelta={flagDelta:+#;-#;0} vlc@{vlcReader.BitPosition} flag@{flagReader.BitPosition}");
+                        continue;
+                    }
 
-                mbIndex++;
+                    RestoreSnapshot(vlcReader, flagReader);
+                    mbFail++;
+                    if (ShouldLogFrame(frame.Index) && mbFail <= 5)
+                        Console.Error.WriteLine(
+                            $"  FAIL MB({mbX},{mbY}) #{mbOk + mbFail}: {ex.Message} vlc@{vlcReader.BitPosition} flag@{flagReader.BitPosition}");
+
+                    try
+                    {
+                        vlcReader.SkipBits(1);
+                    }
+                    catch (EndOfStreamException)
+                    {
+                        if (ShouldTreatEndOfStreamAsImplicitSkips(frame))
+                        {
+                            implicitSkips +=
+                                CopyRemainingMacroblocksFromReference(mbIndex + 1, totalMacroblocks, mbCols);
+                            mbOk = Math.Max(mbOk, totalMacroblocks - mbFail);
+                        }
+
+                        break;
+                    }
+
+                    mbIndex++;
+                }
             }
         }
 
-        done:
         LastFrameStats = new Vid1FrameDecodeStats(
             frame.Index,
             frame.PreambleClass,

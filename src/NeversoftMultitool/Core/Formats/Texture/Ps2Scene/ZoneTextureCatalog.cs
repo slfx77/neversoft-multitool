@@ -28,10 +28,12 @@ public sealed class ZoneTextureCatalog
     private readonly Dictionary<(int Source, ulong Key), List<EntryRecord>> entriesBySourceIdentity;
     private readonly Dictionary<(int Source, uint Tbp, uint Cbp), List<EntryRecord>> entriesBySourceTbpCbp;
     private readonly Dictionary<(uint Tbp, uint Cbp), List<EntryRecord>> entriesByTbpCbp;
+    private readonly IReadOnlyList<ZoneTextureCatalogEntry> publicEntries;
     private readonly SourceInfo mainSource;
     private readonly Dictionary<uint, byte[]?> pngCache = [];
 
     private readonly List<SourceInfo> sources;
+    private readonly IReadOnlyList<string> sourceLabels;
 
     // PNG cache keyed on (checksum, normalized TEXA). For texture formats whose
     // alpha channel doesn't depend on TEXA (PSMCT32 direct, PSMT4/PSMT8 with
@@ -49,7 +51,14 @@ public sealed class ZoneTextureCatalog
         this.sources = sources;
         this.entries = entries;
         var mainSourceIndex = sources.FindIndex(static source => source.IsMain);
-        mainSource = mainSourceIndex >= 0 ? sources[mainSourceIndex] : sources.First();
+        mainSource = mainSourceIndex >= 0 ? sources[mainSourceIndex] : sources[0];
+        sourceLabels = sources.ConvertAll(static source => source.Label).AsReadOnly();
+        publicEntries = entries.ConvertAll(static entry => new ZoneTextureCatalogEntry(
+                entry.Entry.Checksum,
+                entry.Entry.Tex0,
+                entry.Source.Label,
+                entry.EntryLabel))
+            .AsReadOnly();
 
         entriesBySourceIdentity = entries
             .GroupBy(static entry =>
@@ -66,15 +75,9 @@ public sealed class ZoneTextureCatalog
             .ToDictionary(static group => group.Key, static group => group.ToList());
     }
 
-    public IReadOnlyList<string> SourceLabels => sources.Select(static source => source.Label).ToList();
+    public IReadOnlyList<string> SourceLabels => sourceLabels;
 
-    public IReadOnlyList<ZoneTextureCatalogEntry> Entries => entries
-        .Select(static entry => new ZoneTextureCatalogEntry(
-            entry.Entry.Checksum,
-            entry.Entry.Tex0,
-            entry.Source.Label,
-            entry.EntryLabel))
-        .ToList();
+    public IReadOnlyList<ZoneTextureCatalogEntry> Entries => publicEntries;
 
     public static bool TryBuild(
         string? texPath,
@@ -400,13 +403,15 @@ public sealed class ZoneTextureCatalog
         var textureDir = Path.Combine(debugDir, "textures");
         Directory.CreateDirectory(textureDir);
 
-        foreach (var texture in textureCache.Values.OrderBy(static texture => texture.Checksum))
+        foreach (var checksum in textureCache.Values
+                     .OrderBy(static texture => texture.Checksum)
+                     .Select(static texture => texture.Checksum))
         {
-            var png = GetPng(texture.Checksum);
+            var png = GetPng(checksum);
             if (png == null)
                 continue;
 
-            File.WriteAllBytes(Path.Combine(textureDir, $"{texture.Checksum:X8}.png"), png);
+            File.WriteAllBytes(Path.Combine(textureDir, $"{checksum:X8}.png"), png);
         }
 
         WriteTextureCatalogCsv(Path.Combine(debugDir, "texture_catalog.csv"));
@@ -468,7 +473,7 @@ public sealed class ZoneTextureCatalog
                 .Append(name)
                 .Append("</div><div>")
                 .Append(texture.Width)
-                .Append("x")
+                .Append('x')
                 .Append(texture.Height)
                 .AppendLine("</div></div>");
         }

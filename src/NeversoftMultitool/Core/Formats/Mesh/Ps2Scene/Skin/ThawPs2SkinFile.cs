@@ -207,8 +207,8 @@ public static class ThawPs2SkinFile
         var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
         var (vifStart, setupStarts) = ThawPs2SkinVifLayout.ResolveThawSetupBoundaries(data, entryTableEnd, vifEnd);
 
-        // Proving Ground re-encodes positions as Q4.12 (see ThpgPositionUnwrapper);
-        // decode fine positions at that scale, then unwrap after kick extraction.
+        // Proving Ground stores positions in Q4.12 fixed-point form. Decode at
+        // that finer scale, then unwrap after kick extraction.
         var usesQ412 = ThpgPositionUnwrapper.UsesQ412Positions(data, entryTableEnd, vifEnd);
         var positionScale = usesQ412
             ? ThawPs2ReplayVertexDecoder.Q412PositionScale

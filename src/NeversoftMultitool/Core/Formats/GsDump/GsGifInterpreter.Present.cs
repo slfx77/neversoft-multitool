@@ -108,14 +108,12 @@ internal sealed partial class GsGifInterpreter
 
                 // Sample each circuit (or zero when disabled / out of bounds).
                 var (c1R, c1G, c1B, c1A) = SampleCircuit(circuit1, x, y, en1);
-                var (c2R, c2G, c2B, c2A) = SampleCircuit(circuit2, x, y, en2);
+                var (c2R, c2G, c2B, _) = SampleCircuit(circuit2, x, y, en2);
 
                 // PCRTC behaviour:
-                //   - When SLBG=1, circuit 1 is alpha-blended with BGCOLOR (circuit 2 ignored).
-                //   - When only one circuit is enabled, that circuit is output directly with no blend.
-                //   - When both are enabled and SLBG=0, alpha-blend circuit 1 over circuit 2.
-                //   - MMOD=1 uses circuit 1's per-pixel alpha as the blend factor (PS2 nominal 128 = 1.0);
-                //     MMOD=0 uses the constant ALP from PMODE (0..255 mapped to 0..1.0).
+                // SLBG blends circuit 1 with BGCOLOR and ignores circuit 2. A single
+                // enabled circuit is output directly; otherwise circuit 1 blends over
+                // circuit 2. MMOD chooses per-pixel alpha instead of PMODE's constant ALP.
                 byte outR, outG, outB;
                 if (!en1 && en2)
                 {

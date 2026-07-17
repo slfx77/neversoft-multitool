@@ -86,25 +86,16 @@ internal sealed partial class GsGifInterpreter
                     texaSensitive ? state.Texa : null,
                     usesClutSnapshot ? state.ClutSnapshot : null,
                     rawGsAlpha: true); // GS blend math consumes raw GS alpha (/128), not PNG-scaled.
-                if (pixelsFromVram != null)
+                // Use VRAM decode whenever any pixel has RGB or alpha data. A fully
+                // empty upload falls through to an external resolver, while RGB with
+                // zero alpha is intentional and must remain transparent. Substituting
+                // catalog RGB for the latter caused cyan patches on character backs.
+                if (pixelsFromVram != null && !IsAllPixelsZero(pixelsFromVram))
                 {
-                    // Use VRAM decode whenever there's *any* pixel data (RGB or alpha).
-                    // Distinguish two cases the renderer must handle differently:
-                    //   1. Fully empty VRAM (all bytes zero) — texture was never uploaded;
-                    //      let TextureResolver / ZoneTextureCatalog provide a fallback so
-                    //      synthetic tests + dumps with missing uploads still see content.
-                    //   2. RGB present but alpha=0 — game-intentional signal that this draw
-                    //      shouldn't contribute (e.g. character rim lighting in inactive state).
-                    //      PCSX2 SW uses VRAM as-is here.
-                    // Prior over-aggressive external-fallback caused cyan "silver patch" on
-                    // character backs by substituting static catalog RGB into case (2).
-                    if (!IsAllPixelsZero(pixelsFromVram))
-                    {
-                        texture = new GsTexture(width, height, pixelsFromVram);
-                        textureSource = IsAllAlphaZero(pixelsFromVram) ? "vram_all_alpha_zero" : "vram";
-                        if (textureSource == "vram_all_alpha_zero")
-                            NoteApproximation("texture_vram_all_alpha_zero");
-                    }
+                    texture = new GsTexture(width, height, pixelsFromVram);
+                    textureSource = IsAllAlphaZero(pixelsFromVram) ? "vram_all_alpha_zero" : "vram";
+                    if (textureSource == "vram_all_alpha_zero")
+                        NoteApproximation("texture_vram_all_alpha_zero");
                 }
             }
         }

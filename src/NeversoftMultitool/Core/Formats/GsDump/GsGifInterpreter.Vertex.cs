@@ -101,6 +101,9 @@ internal sealed partial class GsGifInterpreter
         return state.Fst ? 1f : state.Q;
     }
 
+    // Projected coordinates originate from the same integer GS fixed-point values,
+    // so exact equality is required to identify deliberate strip-restart vertices.
+#pragma warning disable S1244
     private static bool IsDegenerateXy(GsVertex a, GsVertex b, GsVertex c)
     {
         // Compare in fixed-point screen-space (PCSX2 uses integer XY pre-offset for this cull).
@@ -110,6 +113,7 @@ internal sealed partial class GsGifInterpreter
                || (a.X == c.X && a.Y == c.Y)
                || (b.X == c.X && b.Y == c.Y);
     }
+#pragma warning restore S1244
 
     private void EmitVertex(GsVertex vertex)
     {

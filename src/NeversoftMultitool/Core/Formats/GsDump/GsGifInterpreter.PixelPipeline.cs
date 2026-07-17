@@ -452,7 +452,13 @@ internal sealed partial class GsGifInterpreter
         }
 
         var zbp = (uint)(context.Zbuf & 0x1FFu) << 5;
-        var zi = z <= 0f ? 0u : z >= 4294967295f ? 0xFFFFFFFFu : (uint)z;
+        uint zi;
+        if (z <= 0f)
+            zi = 0;
+        else if (z >= uint.MaxValue)
+            zi = uint.MaxValue;
+        else
+            zi = (uint)z;
         var r = (byte)(zi & 0xFFu);
         var g = (byte)((zi >> 8) & 0xFFu);
         var b = (byte)((zi >> 16) & 0xFFu);
@@ -590,7 +596,7 @@ internal sealed partial class GsGifInterpreter
         return value / q;
     }
 
-    private GsSample Sample(GsContext context, GsTexture? texture, float u, float v)
+    private static GsSample Sample(GsContext context, GsTexture? texture, float u, float v)
     {
         if (texture == null)
             return new GsSample(255, 255, 255, 255);

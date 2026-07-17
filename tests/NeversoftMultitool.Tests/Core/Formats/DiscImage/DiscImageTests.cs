@@ -5,7 +5,7 @@ using Xunit;
 
 namespace NeversoftMultitool.Tests.Core.Formats.DiscImage;
 
-public class DiscImageTests : IDisposable
+public sealed class DiscImageTests : IDisposable
 {
     private readonly string _tempDir =
         Path.Combine(Path.GetTempPath(), "NeversoftMultitoolTests", Guid.NewGuid().ToString("N"));
@@ -94,7 +94,10 @@ public class DiscImageTests : IDisposable
         Assert.Contains(entries, e => e.Name == "NESTED.BIN" && e.Directory == "DATA" && e.Size == 5);
 
         var outDir = Path.Combine(_tempDir, "out_iso");
-        DiscImageArchive.ExtractFiles(isoPath, outDir);
+        DiscImageArchive.ExtractFiles(
+            isoPath,
+            outDir,
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("Hello, disc!\n", File.ReadAllText(Path.Combine(outDir, "HELLO.TXT")));
         Assert.Equal([1, 2, 3, 4, 5], File.ReadAllBytes(Path.Combine(outDir, "DATA", "NESTED.BIN")));
@@ -117,7 +120,10 @@ public class DiscImageTests : IDisposable
         Assert.True(DiscImageArchive.IsDiscImage(cuePath));
 
         var outDir = Path.Combine(_tempDir, "out_cue");
-        DiscImageArchive.ExtractFiles(cuePath, outDir);
+        DiscImageArchive.ExtractFiles(
+            cuePath,
+            outDir,
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("Hello, disc!\n", File.ReadAllText(Path.Combine(outDir, "HELLO.TXT")));
         Assert.Equal([1, 2, 3, 4, 5], File.ReadAllBytes(Path.Combine(outDir, "DATA", "NESTED.BIN")));
@@ -141,7 +147,10 @@ public class DiscImageTests : IDisposable
         ]);
 
         var outDir = Path.Combine(_tempDir, "out_xa");
-        DiscImageArchive.ExtractFiles(cuePath, outDir);
+        DiscImageArchive.ExtractFiles(
+            cuePath,
+            outDir,
+            cancellationToken: TestContext.Current.CancellationToken);
 
         var xaFile = File.ReadAllBytes(Path.Combine(outDir, "HELLO.TXT"));
         Assert.Equal(2336, xaFile.Length);

@@ -28,10 +28,10 @@ public class ThawSkeletonFileTests(TestPaths paths)
     private static string[] OrderedSkeletonFiles(string pakPath, string extractDir, string suffix)
     {
         var byName = Directory.GetFiles(extractDir, "*" + suffix, SearchOption.AllDirectories)
-            .ToDictionary(Path.GetFileName!, f => f);
+            .ToDictionary(static file => Path.GetFileName(file)!, static file => file);
         return PakArchive.GetFileList(pakPath)
             .Where(e => e.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-            .Select(e => byName[Path.GetFileName(e.Name)])
+            .Select(e => byName[Path.GetFileName(e.Name)!])
             .ToArray();
     }
 

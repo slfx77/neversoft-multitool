@@ -181,8 +181,9 @@ public static class SkaCommand
                     if (defaultAnim.BoneTracks.Length == skeleton.Bones.Length)
                     {
                         skeleton = Ps2SkeletonDefaultPose.EnrichWithDefaultPose(skeleton, defaultAnim);
-                        var relPath = Path.GetFileName(Path.GetDirectoryName(defaultSkaPath))
-                                      + "/" + Path.GetFileName(defaultSkaPath);
+                        var relPath = Path.Combine(
+                            Path.GetFileName(Path.GetDirectoryName(defaultSkaPath)) ?? string.Empty,
+                            Path.GetFileName(defaultSkaPath));
                         AnsiConsole.MarkupLine(
                             $"Enriched V1 skeleton bind pose from [green]{relPath}[/]");
                     }

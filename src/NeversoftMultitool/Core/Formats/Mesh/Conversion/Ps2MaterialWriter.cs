@@ -69,12 +69,9 @@ internal static class Ps2MaterialWriter
 
         if (material.IsOpaqueBlend)
         {
-            // Alpha-tested cutout (hair, clothing fringes). Use the AREF the game's
-            // own DIRECT block programmed when it exceeds the always-pass default;
-            // at the pass-through AREF<=1 the texture's alpha decides — hard-edged
-            // cutouts stay MASK at the 0.5 default, graduated art exports BLEND
-            // (the engine shows those texels; hiding half of them behind a 0.5
-            // cutoff was the v1.2.x "missing hair" content loss).
+            // A non-default alpha reference explicitly requests a cutout. Otherwise,
+            // infer cutout versus graduated transparency from the texture itself so
+            // partially transparent details such as hair remain visible.
             if (material.AlphaRef >= 2)
             {
                 renderMaterial.AlphaMode = ModelAlphaMode.Mask;
@@ -116,8 +113,8 @@ internal static class Ps2MaterialWriter
         // Standard source-alpha blend whose texture is really a hard-edged
         // cutout (or that carries a real alpha test): de-escalate to MASK so
         // depth-write stays on — mirrors the geom path's classification.
-        // AREF <= 1 (the always-pass default) does NOT count as a real test;
-        // graduated overlays at the default AREF stay BLEND.
+        // An AREF of one or less (the always-pass default) is not a real test,
+        // so graduated overlays remain blended when that default is used.
         if (pngBytes != null &&
             Ps2GeomRenderSemantics.IsStandardSourceAlphaBlend((byte)(material.RegAlpha & 0xFF)))
         {

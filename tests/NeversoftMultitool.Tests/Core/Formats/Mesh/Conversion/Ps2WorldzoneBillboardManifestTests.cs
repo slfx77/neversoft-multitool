@@ -5,6 +5,11 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 
 public sealed class Ps2WorldzoneBillboardManifestTests
 {
+    private static readonly float[] ExpectedAnchor = [100f, 50f, 200f];
+    private static readonly float[] ExpectedAxis = [0f, 1f, 0f];
+    private static readonly float[] ExpectedPivot = [0f, 0f, 5f];
+    private static readonly float[] ExpectedSize = [4f, 12f];
+
     [Fact]
     public void BlendPackageManifest_SerializesBillboardMetadataAsJson()
     {
@@ -25,13 +30,13 @@ public sealed class Ps2WorldzoneBillboardManifestTests
         Assert.Equal("ps2_worldzone_billboard", dict["kind"]);
         Assert.Equal("LongAxis", dict["billboardKind"]);
         var anchor = Assert.IsType<float[]>(dict["anchor"]);
-        Assert.Equal(new[] { 100f, 50f, 200f }, anchor);
+        Assert.Equal(ExpectedAnchor, anchor);
         var size = Assert.IsType<float[]>(dict["size"]);
-        Assert.Equal(new[] { 4f, 12f }, size);
+        Assert.Equal(ExpectedSize, size);
         var pivot = Assert.IsType<float[]>(dict["pivot"]);
-        Assert.Equal(new[] { 0f, 0f, 5f }, pivot);
+        Assert.Equal(ExpectedPivot, pivot);
         var axis = Assert.IsType<float[]>(dict["axis"]);
-        Assert.Equal(new[] { 0f, 1f, 0f }, axis);
+        Assert.Equal(ExpectedAxis, axis);
 
         // The dictionary survives JSON round-trip — the Blender script reads the
         // manifest after a JSON encode/decode through the package zip.

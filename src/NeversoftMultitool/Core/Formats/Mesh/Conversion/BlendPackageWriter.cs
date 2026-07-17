@@ -256,10 +256,11 @@ internal static class BlendPackageWriter
         var invalid = Path.GetInvalidFileNameChars();
         var chars = name.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray();
         var sanitized = new string(chars).Trim();
-        return string.IsNullOrWhiteSpace(sanitized)
-            ? "texture"
-            : sanitized.Length <= 80
-                ? sanitized
-                : sanitized[..80].TrimEnd('_', '.', ' ');
+        if (string.IsNullOrWhiteSpace(sanitized))
+            return "texture";
+
+        return sanitized.Length <= 80
+            ? sanitized
+            : sanitized[..80].TrimEnd('_', '.', ' ');
     }
 }

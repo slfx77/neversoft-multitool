@@ -118,14 +118,14 @@ internal sealed partial class Ps2GsVram
         WriteRectPSMCT16Core(dbp, dbw, rrw, rrh, data, 0, 0, false, false);
     }
 
-    public void WriteRectPSMCT16S(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
-    {
-        WriteRectPSMCT16Core(dbp, dbw, rrw, rrh, data, 0, 0, true, false);
-    }
-
     public void WriteRectPSMCT16(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)
     {
         WriteRectPSMCT16Core(dbp, dbw, rrw, rrh, data, dsax, dsay, false, false);
+    }
+
+    public void WriteRectPSMCT16S(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
+    {
+        WriteRectPSMCT16Core(dbp, dbw, rrw, rrh, data, 0, 0, true, false);
     }
 
     public void WriteRectPSMCT16S(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data, int dsax, int dsay)

@@ -395,7 +395,7 @@ public static class GsDumpCommand
     ///     end-of-frame VRAM dump sink. Returns null when no specs are supplied so the
     ///     interpreter skips the dump pass entirely.
     /// </summary>
-    private static IReadOnlyList<(uint Tbp, uint Fbw, uint Psm, int Width, int Height)>? ParseDumpVramRegionSpecs(
+    private static List<(uint Tbp, uint Fbw, uint Psm, int Width, int Height)>? ParseDumpVramRegionSpecs(
         string[]? specs)
     {
         if (specs == null || specs.Length == 0)

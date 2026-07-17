@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
-using System.Text.RegularExpressions;
 using NeversoftMultitool.Core.Formats.Audio;
 using NeversoftMultitool.Core.Formats.Video;
 
@@ -22,7 +21,7 @@ public static partial class Vid1VideoConverter
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        if (!TryProbe(inputPath, out var probe, out var error))
+        if (!TryProbe(inputPath, out _, out var error))
             return new SfdConvertResult { ErrorMessage = error };
 
         var ffmpeg = SfdConverter.FindFfmpeg();
@@ -268,7 +267,7 @@ public static partial class Vid1VideoConverter
     private static bool RunNativeDecodePipeline(
         string ffmpegPath,
         Vid1VideoFile file,
-        IReadOnlyList<string> audioPaths,
+        List<string> audioPaths,
         string outputPath,
         IProgress<double>? progress,
         CancellationToken cancellationToken,
@@ -550,64 +549,6 @@ public static partial class Vid1VideoConverter
         return Math.Min(requested, availableFrames);
     }
 
-    private static bool RunFfmpeg(
-        string ffmpegPath,
-        string arguments,
-        string outputPath,
-        double totalSeconds,
-        IProgress<double>? progress,
-        CancellationToken cancellationToken,
-        out string error)
-    {
-        error = "";
-
-        using var process = new Process();
-        process.StartInfo = new ProcessStartInfo
-        {
-            FileName = ffmpegPath,
-            Arguments = arguments,
-            UseShellExecute = false,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-
-        process.Start();
-
-        while (!process.StandardError.EndOfStream)
-        {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                process.Kill();
-                TryDeleteFile(outputPath);
-                error = "Cancelled";
-                return false;
-            }
-
-            var line = process.StandardError.ReadLine();
-            if (line == null || totalSeconds <= 0)
-                continue;
-
-            var match = TimePattern().Match(line);
-            if (!match.Success)
-                continue;
-
-            var currentSeconds =
-                double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) * 3600 +
-                double.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture) * 60 +
-                double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture) +
-                double.Parse(match.Groups[4].Value, CultureInfo.InvariantCulture) / 100.0;
-            progress?.Report(Math.Min(0.35 + currentSeconds / totalSeconds * 0.65, 1.0));
-        }
-
-        process.WaitForExit(30_000);
-        if (process.ExitCode == 0)
-            return true;
-
-        TryDeleteFile(outputPath);
-        error = $"ffmpeg exited with code {process.ExitCode}";
-        return false;
-    }
-
     internal static void TryDeleteFile(string? path)
     {
         try
@@ -633,7 +574,4 @@ public static partial class Vid1VideoConverter
             // Best-effort cleanup only.
         }
     }
-
-    [GeneratedRegex(@"time=(\d+):(\d+):(\d+)\.(\d+)")]
-    private static partial Regex TimePattern();
 }

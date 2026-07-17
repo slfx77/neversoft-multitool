@@ -131,8 +131,9 @@ public static class ThawSkeletonFile
                 ? pi
                 : -1;
 
-            // local = inverse(IBM_bone) × IBM_parent (row-vector convention);
-            // for the root, local = the bone's world pose.
+            // Under row-vector convention, derive a child's local transform by
+            // multiplying its world pose by the parent's inverse bind matrix.
+            // A root's local transform is its world pose.
             Matrix4x4.Invert(inverseBinds[i], out var world);
             var local = parentIndex >= 0 ? world * inverseBinds[parentIndex] : world;
 

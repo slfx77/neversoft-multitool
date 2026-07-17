@@ -48,14 +48,9 @@ public class PsxAnimDecoderTests(TestPaths paths)
         // computed from the segment-START value BEFORE the interpolation
         // writes (endpoint = start + delta), NOT from the interp-accumulated
         // value (which overshoots by ~delta again and compounds per segment).
-        // This is the exact bone-0 Ry stream of spidey.psx anim 89: header
-        // 0xAB = expansion factor 11, mode 11 (12-bit deltas); start -63;
-        // deltas -1739 then -119 (remainder). The old accumulate-then-add
-        // decode produced -3382/-3501 at frames 11/12 — a 153° single-frame
-        // pelvis snap; the engine plays -1802/-1921 (smooth -158/frame).
-        // Trailing pad bytes: the decoder (like the engine) reads a 3-byte
-        // window per bit-packed delta, so real streams always have successor
-        // data in range; only 6 bytes are consumed.
+        // This fixture is the exact bone-0 rotation stream from a Spider-Man
+        // animation. It catches the former endpoint-accumulation bug that caused
+        // a large one-frame pelvis snap. Padding mirrors the engine's read window.
         byte[] stream = [0xAB, 0xC1, 0xFF, 0x93, 0x5F, 0x89, 0x00, 0x00];
         Span<short> output = stackalloc short[13];
 

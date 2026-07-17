@@ -64,7 +64,7 @@ public static class NgcTexFile
         return dataOffset >= EntrySize && dataOffset <= (uint)data.Length;
     }
 
-    private static Ps2TexResult DecodeEntries(ReadOnlySpan<byte> data, IReadOnlyList<NgcTexEntry> entries)
+    private static Ps2TexResult DecodeEntries(ReadOnlySpan<byte> data, List<NgcTexEntry> entries)
     {
         var textures = new List<Ps2Texture>(entries.Count);
         for (var index = 0; index < entries.Count; index++)

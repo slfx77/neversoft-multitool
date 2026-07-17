@@ -1,3 +1,4 @@
+using System.Globalization;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 using NeversoftMultitool.Tests.Helpers;
 
@@ -63,18 +64,20 @@ public sealed class ThpgQ412UnwrapTests(TestPaths paths)
                 var maxY = a.Max(static v => v.Position.Y);
                 var minX = a.Min(static v => v.Position.X);
                 var maxX = a.Max(static v => v.Position.X);
-                report.AppendLine(
-                    $"mesh {m}: {meshMismatch}/{a.Length} mismatched " +
-                    $"(material {p8Meshes[m].MaterialChecksum:X8}, true x[{minX:F1},{maxX:F1}] y[{minY:F1},{maxY:F1}])");
+                report.AppendLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"mesh {m}: {meshMismatch}/{a.Length} mismatched (material {p8Meshes[m].MaterialChecksum:X8}, true x[{minX:F1},{maxX:F1}] y[{minY:F1},{maxY:F1}])"));
             }
         }
 
         if (mismatched > 0)
         {
-            report.AppendLine($"TOTAL: {mismatched}/{total} mismatched");
+            report.AppendLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"TOTAL: {mismatched}/{total} mismatched"));
             report.AppendLine("band-error histogram (dx,dy,dz in 16-unit bands -> count):");
             foreach (var (key, n) in bandErrors.OrderByDescending(static kv => kv.Value).Take(12))
-                report.AppendLine($"  {key}: {n}");
+                report.AppendLine(string.Create(CultureInfo.InvariantCulture, $"  {key}: {n}"));
         }
 
         // Known limitation: three small detail pieces (~4% of vertices on gped_bam)

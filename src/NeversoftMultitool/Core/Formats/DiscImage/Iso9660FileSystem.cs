@@ -62,9 +62,6 @@ public static class Iso9660FileSystem
                     jolietRoot ??= sector.AsSpan(156, 34).ToArray();
                     break;
 
-                case 255:
-                    lba = long.MaxValue - 1; // terminator
-                    break;
             }
 
             if (sector[0] == 255)

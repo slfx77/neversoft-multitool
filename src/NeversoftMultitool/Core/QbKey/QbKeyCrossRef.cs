@@ -269,20 +269,14 @@ public static class QbKeyCrossRef
         // Also check v6 extended header names against PSX hashes
         if (psxHashes?.DetailTextureNames != null)
         {
-            foreach (var name in psxHashes.DetailTextureNames)
-            {
-                if (!string.IsNullOrEmpty(name))
-                    nameToSource.TryAdd(name, QbKeyMappingSource.DetailTextureName);
-            }
+            foreach (var name in psxHashes.DetailTextureNames.Where(static name => !string.IsNullOrEmpty(name)))
+                nameToSource.TryAdd(name, QbKeyMappingSource.DetailTextureName);
         }
 
         if (psxHashes?.CubemapNames != null)
         {
-            foreach (var name in psxHashes.CubemapNames)
-            {
-                if (!string.IsNullOrEmpty(name))
-                    nameToSource.TryAdd(name, QbKeyMappingSource.CubemapName);
-            }
+            foreach (var name in psxHashes.CubemapNames.Where(static name => !string.IsNullOrEmpty(name)))
+                nameToSource.TryAdd(name, QbKeyMappingSource.CubemapName);
         }
 
         // Cross-reference: hash each name, check if hash exists in PSX
