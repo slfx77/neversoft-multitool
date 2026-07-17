@@ -70,7 +70,7 @@
             <!-- Batch-selection toolbar -->
             <StackPanel Grid.Row="0"
                         Orientation="Horizontal"
-                        Padding="8,0,8,4"
+                        Padding="0,0,8,4"
                         Spacing="8">
               <Button Content="Select all"
                       Click="FilesSelectAll_Click" />
@@ -328,7 +328,7 @@
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="32" />
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="60" />
+                    <ColumnDefinition Width="80" />
                   </Grid.ColumnDefinitions>
                   <TextBlock Grid.Column="0" Text="" />
                   <Button Grid.Column="1"
@@ -359,7 +359,7 @@
                         <Grid.ColumnDefinitions>
                           <ColumnDefinition Width="32" />
                           <ColumnDefinition Width="*" />
-                          <ColumnDefinition Width="60" />
+                          <ColumnDefinition Width="80" />
                         </Grid.ColumnDefinitions>
                         <CheckBox
                           Grid.Column="0"
@@ -413,11 +413,10 @@
                             VerticalScrollBarVisibility="Auto">
                 <StackPanel Padding="8,4,8,8"
                             Spacing="8">
-                  <TextBlock Text="Worldzone"
+                  <TextBlock Text="Viewport"
                              FontWeight="SemiBold" />
                   <Grid ColumnSpacing="8" RowSpacing="8">
                     <Grid.RowDefinitions>
-                      <RowDefinition Height="Auto" />
                       <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
@@ -425,24 +424,17 @@
                       <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Row="0" Grid.Column="0"
-                               Text="Time"
+                               Text="Lighting"
                                VerticalAlignment="Center"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     <ComboBox x:Name="WorldzoneTimeCombo"
                               Grid.Row="0" Grid.Column="1"
                               HorizontalAlignment="Stretch"
-                              SelectedIndex="0">
-                      <ComboBoxItem Content="All" Tag="all" />
+                              SelectedIndex="0"
+                              SelectionChanged="WorldzoneTimeCombo_SelectionChanged">
                       <ComboBoxItem Content="Day" Tag="day" />
                       <ComboBoxItem Content="Night" Tag="night" />
                     </ComboBox>
-                    <TextBlock Grid.Row="1" Grid.Column="0"
-                               Text="Scale"
-                               VerticalAlignment="Center"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <TextBox x:Name="WorldzoneScaleText"
-                             Grid.Row="1" Grid.Column="1"
-                             Text="1" />
                   </Grid>
 
                 </StackPanel>
@@ -455,6 +447,35 @@
                             Spacing="8">
                   <TextBlock Text="Convert"
                              FontWeight="SemiBold" />
+                  <TextBlock Text="Worldzone"
+                             FontWeight="SemiBold"
+                             Margin="0,4,0,0" />
+                  <Grid ColumnSpacing="8" RowSpacing="8">
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="70" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                               Text="Lighting"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <ToggleSwitch x:Name="ExportWorldzoneNightToggle"
+                                  Grid.Row="0" Grid.Column="1"
+                                  OffContent="Day"
+                                  OnContent="Night"
+                                  IsOn="False" />
+                    <TextBlock Grid.Row="1" Grid.Column="0"
+                               Text="Scale"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBox x:Name="WorldzoneScaleText"
+                             Grid.Row="1" Grid.Column="1"
+                             Text="1" />
+                  </Grid>
                   <CheckBox
                     x:Name="ExportGlbCheckbox"
                     Content="Export GLB"

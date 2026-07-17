@@ -581,6 +581,7 @@ internal static class MeshConverterTabFileScanner
                 ObjectCount = psxFile.Objects.Count,
                 MeshCount = psxFile.Meshes.Count,
                 PsxIsSuperModel = psxFile.IsSuperModel,
+                PsxFormatRevision = psxFile.FormatRevision,
                 Source = source
             };
         }

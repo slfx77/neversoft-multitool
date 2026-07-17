@@ -61,7 +61,7 @@
         Grid.Column="2"
         Orientation="Horizontal"
         Spacing="4"
-        ToolTipService.ToolTip="F toggles Fly/Walk on levels, Fly/Orbit on models">
+        ToolTipService.ToolTip="F toggles Fly/Walk; O toggles Orbit">
         <ToggleButton
           x:Name="OrbitModeButton"
           Height="32"

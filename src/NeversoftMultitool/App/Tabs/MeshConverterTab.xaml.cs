@@ -24,6 +24,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     private bool _outputManuallySet;
     private MeshConverterTabPreview? _preview;
     private CancellationTokenSource? _scanCts;
+    private bool _suppressAnimationSelectionChanged;
 
     public MeshConverterTab()
     {
@@ -315,11 +316,18 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
         _preview ??= new MeshConverterTabPreview(ModelViewer);
         await _preview.InitializeAsync();
+        await ModelViewer.SetLightingModeAsync(GetSelectedPreviewLightingMode());
+        if (!ReferenceEquals(FilesListView.SelectedItem, entry))
+            return;
 
         if (!entry.IsAnimatableCharacter)
         {
             _animPanel.Reset("Selected file has no skeleton — pick a skinned character to browse animations.");
-            await _preview.LoadPreviewAsync(entry);
+            await _preview.LoadPreviewAsync(
+                entry,
+                entry.IsPakWorldzone
+                    ? GetSelectedPreviewWorldzoneTimeOfDay()
+                    : WorldzoneTimeOfDay.All);
             UpdateRenderButtons();
             return;
         }
@@ -334,8 +342,15 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         var firstMatch = _animPanel.FirstMatch;
         if (firstMatch != null)
         {
-            if (AnimationListView.SelectedItem == null)
-                AnimationListView.SelectedItem = firstMatch;
+            // ListView can transiently retain the previous character's
+            // SelectedItem while its observable source is being rebuilt. The
+            // old null-only guard then selected nothing and no preview was
+            // requested. Reconcile selection explicitly and load the preview
+            // here rather than relying on a SelectionChanged side effect.
+            if (!await ReconcileAnimationSelectionAsync(entry, firstMatch))
+                return;
+
+            await LoadAnimationPreviewAsync(entry, firstMatch);
         }
         else
         {
@@ -347,32 +362,85 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         UpdateRenderButtons();
     }
 
+    private Task<bool> ReconcileAnimationSelectionAsync(
+        MeshFileEntry character, AnimationListEntry animation)
+    {
+        var completion = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void ApplySelection()
+        {
+            if (!ReferenceEquals(FilesListView.SelectedItem, character) ||
+                !ReferenceEquals(_animPanel.Character, character))
+            {
+                completion.TrySetResult(false);
+                return;
+            }
+
+            _suppressAnimationSelectionChanged = true;
+            try
+            {
+                AnimationListView.SelectedItem = null;
+                AnimationListView.SelectedItem = animation;
+                completion.TrySetResult(true);
+            }
+            finally
+            {
+                _suppressAnimationSelectionChanged = false;
+            }
+        }
+
+        // FileTableBehavior rebuilds a sorted projection on the dispatcher.
+        // Queue behind that rebuild so the new character's first row exists
+        // before assigning SelectedItem.
+        if (!DispatcherQueue.TryEnqueue(ApplySelection))
+            ApplySelection();
+        return completion.Task;
+    }
+
     // ─── Animations pane ──────────────────────────────────────────────────
 
     private async void AnimationListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        foreach (var anim in _animPanel.Animations)
-            if (anim.IsActive)
-                anim.IsActive = false;
+        if (_suppressAnimationSelectionChanged)
+            return;
 
         var entry = AnimationListView.SelectedItem as AnimationListEntry;
         var character = _animPanel.Character;
         if (entry == null || character == null || _preview == null)
         {
+            ClearActiveAnimation();
             UpdateRenderButtons();
             return;
         }
 
+        await LoadAnimationPreviewAsync(character, entry);
+        UpdateRenderButtons();
+    }
+
+    private async Task LoadAnimationPreviewAsync(
+        MeshFileEntry character, AnimationListEntry entry)
+    {
+        ClearActiveAnimation();
+
+        if (_preview == null)
+            return;
+
         if (!entry.MatchesSkeleton)
         {
             ModelViewer.SetError(entry.MismatchTooltip);
-            UpdateRenderButtons();
             return;
         }
 
         entry.IsActive = true;
         await _preview.LoadPreviewAsync(character, entry.Probe);
-        UpdateRenderButtons();
+    }
+
+    private void ClearActiveAnimation()
+    {
+        foreach (var anim in _animPanel.Animations)
+            if (anim.IsActive)
+                anim.IsActive = false;
     }
 
     private async void AddAnimFolder_Click(object sender, RoutedEventArgs e)
@@ -436,7 +504,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         await _batchRunner.ConvertAsync(
             checkedEntries,
             _outputDir,
-            GetSelectedWorldzoneTimeOfDay(),
+            GetSelectedExportWorldzoneTimeOfDay(),
             worldzoneScale,
             GetSelectedOutputFormat());
     }
@@ -456,15 +524,41 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         return blend ? MeshOutputFormat.Blend : MeshOutputFormat.Glb;
     }
 
-    private WorldzoneTimeOfDay GetSelectedWorldzoneTimeOfDay()
+    private WorldzoneTimeOfDay GetSelectedPreviewWorldzoneTimeOfDay()
     {
         var tag = (WorldzoneTimeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString();
-        return tag switch
-        {
-            "day" => WorldzoneTimeOfDay.Day,
-            "night" => WorldzoneTimeOfDay.Night,
-            _ => WorldzoneTimeOfDay.All
-        };
+        return tag == "night" ? WorldzoneTimeOfDay.Night : WorldzoneTimeOfDay.Day;
+    }
+
+    private string GetSelectedPreviewLightingMode() =>
+        GetSelectedPreviewWorldzoneTimeOfDay() == WorldzoneTimeOfDay.Night
+            ? "night"
+            : "day";
+
+    private WorldzoneTimeOfDay GetSelectedExportWorldzoneTimeOfDay() =>
+        ExportWorldzoneNightToggle.IsOn
+            ? WorldzoneTimeOfDay.Night
+            : WorldzoneTimeOfDay.Day;
+
+    private async void WorldzoneTimeCombo_SelectionChanged(
+        object sender, SelectionChangedEventArgs e)
+    {
+        if (WorldzoneTimeCombo == null || ModelViewer == null) return;
+
+        var selectedTime = GetSelectedPreviewWorldzoneTimeOfDay();
+        await ModelViewer.SetLightingModeAsync(
+            selectedTime == WorldzoneTimeOfDay.Night ? "night" : "day");
+        if (FilesListView?.SelectedItem is not MeshFileEntry { IsPakWorldzone: true } entry)
+            return;
+
+        _preview ??= new MeshConverterTabPreview(ModelViewer);
+        await _preview.InitializeAsync();
+        if (!ReferenceEquals(FilesListView.SelectedItem, entry) ||
+            GetSelectedPreviewWorldzoneTimeOfDay() != selectedTime)
+            return;
+
+        await _preview.LoadPreviewAsync(entry, selectedTime);
+        UpdateRenderButtons();
     }
 
     private bool TryGetWorldzoneScale(out float scale)
@@ -519,7 +613,16 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         {
             await _batchRunner.RenderPngBatchAsync(
                 checkedEntries, outputDir, size, azimuth, elevation, objectReview,
-                GetSelectedWorldzoneTimeOfDay(), worldzoneScale);
+                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale);
+        }
+        else if (FilesListView.SelectedItem is MeshFileEntry { IsPakWorldzone: true } selectedWorldzone)
+        {
+            // A worldzone's preview uses the viewport lighting choice. Rebuild it
+            // for export so the independent export lighting and scale controls
+            // also apply when rendering just the selected worldzone.
+            await _batchRunner.RenderPngBatchAsync(
+                new[] { selectedWorldzone }, outputDir, size, azimuth, elevation, objectReview,
+                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale);
         }
         else if (previewGlb != null)
         {
@@ -530,7 +633,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         {
             await _batchRunner.RenderPngBatchAsync(
                 checkedEntries, outputDir, size, azimuth, elevation, objectReview,
-                GetSelectedWorldzoneTimeOfDay(), worldzoneScale);
+                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale);
         }
     }
 
@@ -564,7 +667,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         {
             await _batchRunner.RenderGifBatchAsync(
                 checkedEntries, outputDir, size, fps, azimuth, elevation,
-                GetSelectedWorldzoneTimeOfDay(), worldzoneScale);
+                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale);
         }
     }
 

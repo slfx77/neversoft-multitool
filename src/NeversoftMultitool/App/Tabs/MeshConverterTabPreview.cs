@@ -1,5 +1,7 @@
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool;
 
@@ -13,11 +15,14 @@ namespace NeversoftMultitool;
 /// </summary>
 internal sealed class MeshConverterTabPreview : IDisposable
 {
-    // PSX world and character exports use the same coordinate domain.  The
-    // current Spider-Man player mesh is about 91 units tall, so an 82-unit
-    // standing eye is a format-grounded scale.  A level bounding sphere is
-    // thousands of units across and cannot serve as a human-height proxy.
+    // Explicit player-scale hints keep walk height independent of a level's
+    // bounding sphere. SM2:EE's player is 90.861 units tall, so 82 remains the
+    // observed-correct eye. THAW's skater is 73 units tall, yielding 66. The
+    // older Apocalypse v3 level space needs the lower empirically requested
+    // height while retaining a stable header-based classification.
     private const double PsxLevelWalkEyeHeight = 82d;
+    private const double ApocalypseLevelWalkEyeHeight = 56d;
+    private const double ThawWorldzoneWalkEyeHeight = 66d;
 
     private readonly ModelViewerControl _viewer;
     private CancellationTokenSource? _previewCts;
@@ -29,8 +34,10 @@ internal sealed class MeshConverterTabPreview : IDisposable
 
     public void Dispose()
     {
-        _previewCts?.Dispose();
-        _previewCts = null;
+        var cts = Interlocked.Exchange(ref _previewCts, null);
+        if (cts == null) return;
+        cts.Cancel();
+        cts.Dispose();
     }
 
     public Task InitializeAsync()
@@ -39,13 +46,17 @@ internal sealed class MeshConverterTabPreview : IDisposable
     }
 
     /// <summary>
-    ///     Level-scale content starts the viewer in Fly mode (F toggles Walk);
-    ///     props/characters keep the Orbit default. Worldzones, RW BSP worlds,
-    ///     scene files, DDM levels, and _g.psx level geometry qualify.
+    ///     Identifies level-scale content for walk-height tuning. Worldzones,
+    ///     Apocalypse level files, RW BSP worlds, scene files, DDM levels, and
+    ///     _g.psx level geometry qualify.
     /// </summary>
     internal static bool IsLevelModel(MeshFileEntry entry)
     {
         if (entry.Ps2SubFormat == Ps2SceneSubFormat.PakWorldzone)
+            return true;
+
+        if (entry.IsPsx && !entry.PsxIsSuperModel &&
+            entry.PsxFormatRevision == PsxMeshFormatRevision.ApocalypseV3)
             return true;
 
         var name = entry.FileName;
@@ -61,38 +72,35 @@ internal sealed class MeshConverterTabPreview : IDisposable
         return name.EndsWith("_g.psx", StringComparison.OrdinalIgnoreCase);
     }
 
-    public async Task LoadPreviewAsync(MeshFileEntry entry)
+    public async Task LoadPreviewAsync(
+        MeshFileEntry entry,
+        WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All)
     {
-        // Cancel any in-flight preview
-        var previousCts = _previewCts;
-        if (previousCts != null)
-        {
-            _previewCts = null;
-            await previousCts.CancelAsync();
-            previousCts.Dispose();
-        }
-
-        var cts = new CancellationTokenSource();
-        _previewCts = cts;
+        var cts = await ReplacePreviewCancellationAsync();
+        if (cts == null) return;
         var token = cts.Token;
 
+        await _viewer.CancelPendingLoadAsync();
+        if (!IsCurrentPreview(cts)) return;
         _viewer.SetError(null);
         _viewer.SetInfo($"Converting {entry.FileName}...");
         _viewer.SetLoading(true);
         await _viewer.SetViewerStatusAsync("Converting...");
+        if (!IsCurrentPreview(cts)) return;
 
         try
         {
             var (glbBytes, triangles) = await Task.Run(() =>
-                MeshConverterTabFileConverter.ConvertToGlbBytes(entry), token);
+                MeshConverterTabFileConverter.ConvertToGlbBytes(entry, worldzoneTimeOfDay), token);
 
-            if (token.IsCancellationRequested) return;
+            if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return;
 
             if (glbBytes == null || glbBytes.Length == 0)
             {
                 // Clear the previous model so render buttons can't act on
                 // stale bytes under this file's name.
                 await _viewer.ClearAsync();
+                if (!IsCurrentPreview(cts)) return;
                 _viewer.SetInfo("No geometry in this file");
                 await _viewer.SetViewerStatusAsync("No geometry");
                 return;
@@ -106,9 +114,7 @@ internal sealed class MeshConverterTabPreview : IDisposable
                 $"{entry.FormatDisplay} | {triangles:N0} triangles | {glbBytes.Length / 1024:N0} KB");
             _viewer.SetLoading(false);
             var isLevel = IsLevelModel(entry);
-            var walkEyeHeight = isLevel && entry.IsPsx
-                ? PsxLevelWalkEyeHeight
-                : (double?)null;
+            var walkEyeHeight = ResolveWalkEyeHeight(entry, isLevel);
             await _viewer.LoadGlbAsync(glbBytes, isLevel, walkEyeHeight);
         }
         catch (OperationCanceledException)
@@ -117,12 +123,23 @@ internal sealed class MeshConverterTabPreview : IDisposable
         }
         catch (Exception ex)
         {
-            if (token.IsCancellationRequested) return;
+            if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return;
 
             await _viewer.ClearAsync();
+            if (!IsCurrentPreview(cts)) return;
             _viewer.SetError($"Preview failed: {ex.Message}");
             await _viewer.SetViewerStatusAsync($"Error: {ex.Message}");
         }
+    }
+
+    private static double? ResolveWalkEyeHeight(MeshFileEntry entry, bool isLevel)
+    {
+        if (!isLevel) return null;
+        if (entry.IsPakWorldzone) return ThawWorldzoneWalkEyeHeight;
+        if (!entry.IsPsx) return null;
+        return entry.PsxFormatRevision == PsxMeshFormatRevision.ApocalypseV3
+            ? ApocalypseLevelWalkEyeHeight
+            : PsxLevelWalkEyeHeight;
     }
 
     /// <summary>
@@ -131,22 +148,17 @@ internal sealed class MeshConverterTabPreview : IDisposable
     /// </summary>
     public async Task LoadPreviewAsync(MeshFileEntry character, AnimationProbe animation)
     {
-        var previousCts = _previewCts;
-        if (previousCts != null)
-        {
-            _previewCts = null;
-            await previousCts.CancelAsync();
-            previousCts.Dispose();
-        }
-
-        var cts = new CancellationTokenSource();
-        _previewCts = cts;
+        var cts = await ReplacePreviewCancellationAsync();
+        if (cts == null) return;
         var token = cts.Token;
 
+        await _viewer.CancelPendingLoadAsync();
+        if (!IsCurrentPreview(cts)) return;
         _viewer.SetError(null);
         _viewer.SetInfo($"Building preview for {animation.DisplayName}…");
         _viewer.SetLoading(true);
         await _viewer.SetViewerStatusAsync("Building preview...");
+        if (!IsCurrentPreview(cts)) return;
 
         try
         {
@@ -154,13 +166,14 @@ internal sealed class MeshConverterTabPreview : IDisposable
                 () => CharacterAnimationConverter.BuildAnimatedGlb(character, [animation]),
                 token);
 
-            if (token.IsCancellationRequested) return;
+            if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return;
 
             if (result.GlbBytes == null || result.Triangles == 0)
             {
                 // Clear the previous model so "Render GIF..." can't act on
                 // stale bytes for a failed selection.
                 await _viewer.ClearAsync();
+                if (!IsCurrentPreview(cts)) return;
                 _viewer.SetError(result.Error ?? "Preview build returned no geometry.");
                 await _viewer.SetViewerStatusAsync("No preview");
                 return;
@@ -182,23 +195,45 @@ internal sealed class MeshConverterTabPreview : IDisposable
         }
         catch (Exception ex)
         {
-            if (token.IsCancellationRequested) return;
+            if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return;
 
             await _viewer.ClearAsync();
+            if (!IsCurrentPreview(cts)) return;
             _viewer.SetError($"Preview failed: {ex.Message}");
         }
     }
 
     public async Task ClearAsync()
     {
-        var cts = _previewCts;
+        var cts = Interlocked.Exchange(ref _previewCts, null);
         if (cts != null)
         {
-            _previewCts = null;
             await cts.CancelAsync();
             cts.Dispose();
         }
 
+        // A newer selection may have started while cancellation callbacks ran.
+        // In that case its preview owns the viewer and must not be cleared.
+        if (Volatile.Read(ref _previewCts) != null) return;
         await _viewer.ClearAsync();
     }
+
+    private async Task<CancellationTokenSource?> ReplacePreviewCancellationAsync()
+    {
+        // Publish the replacement before awaiting cancellation. Otherwise a
+        // newer request can install its CTS during the await and then be
+        // overwritten when this older request resumes.
+        var replacement = new CancellationTokenSource();
+        var previous = Interlocked.Exchange(ref _previewCts, replacement);
+        if (previous != null)
+        {
+            await previous.CancelAsync();
+            previous.Dispose();
+        }
+
+        return IsCurrentPreview(replacement) ? replacement : null;
+    }
+
+    private bool IsCurrentPreview(CancellationTokenSource cts) =>
+        ReferenceEquals(Volatile.Read(ref _previewCts), cts) && !cts.IsCancellationRequested;
 }

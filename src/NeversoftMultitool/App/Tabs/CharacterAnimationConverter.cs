@@ -123,12 +123,15 @@ internal static class CharacterAnimationConverter
         }
 
         var named = new List<(string Name, SkaAnimation Animation)>();
+        var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var probe in animations)
         {
             var anim = TryParseAnimation(probe);
             if (anim == null) continue;
             if (anim.BoneTracks.Length != skeleton.Bones.Length) continue;
-            named.Add((StripAnimExtension(probe.DisplayName), anim));
+            var animationName = AnimationExportName.ForMesh(
+                stem, StripAnimExtension(probe.ResolvedDisplayName), usedNames);
+            named.Add((animationName, anim));
         }
 
         if (named.Count == 0)
@@ -157,24 +160,28 @@ internal static class CharacterAnimationConverter
         if (skin == null)
             return new DocumentResult(null, "DFF clump is not skinned.");
 
+        var fileName = Path.GetFileName(character.Source.FileSystemPath ?? character.FileName);
+        var stem = Path.GetFileNameWithoutExtension(fileName);
         var named = new List<(string Name, SkaAnimation Animation)>();
+        var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var probe in animations)
         {
             var anim = TryParseAnimation(probe);
             if (anim == null) continue;
             if (anim.BoneTracks.Length != skin.NumBones) continue;
-            named.Add((StripAnimExtension(probe.DisplayName), anim));
+            var animationName = AnimationExportName.ForMesh(
+                stem, StripAnimExtension(probe.ResolvedDisplayName), usedNames);
+            named.Add((animationName, anim));
         }
 
         if (named.Count == 0)
             return new DocumentResult(null, "No animations matched the character's bone count.");
 
-        var fileName = Path.GetFileName(character.Source.FileSystemPath ?? character.FileName);
         var document = new MeshModelParser().Parse(new MeshImportRequest
         {
             Source = character.Source,
             FileName = fileName,
-            OutputStem = Path.GetFileNameWithoutExtension(fileName),
+            OutputStem = stem,
             SourceKind = ModelSourceKind.RenderWareDff,
             SkaAnimations = named
         });
@@ -196,8 +203,10 @@ internal static class CharacterAnimationConverter
         // the anim data, so clips from an external bank (e.g. sk2anim.psx)
         // carry that bank's parent table. Cache per bank — probes from the
         // same bank share it.
+        var stem = MeshConverterTabFileScanner.StripCompoundExtension(character.FileName);
         var parentsByBank = new Dictionary<AssetSource, int[]?>();
         var clips = new List<PsxAnimationClip>();
+        var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var probe in animations)
         {
             if (probe.Source is not PsxAnimationSource psxSource) continue;
@@ -212,7 +221,9 @@ internal static class CharacterAnimationConverter
                     parentsByBank[psxSource.BankSource] = parents;
                 }
 
-                clips.Add(new PsxAnimationClip(probe.DisplayName, animation, parents));
+                var animationName = AnimationExportName.ForMesh(
+                    stem, probe.ResolvedDisplayName, usedNames);
+                clips.Add(new PsxAnimationClip(animationName, animation, parents));
             }
             catch
             {

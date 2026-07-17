@@ -16,9 +16,14 @@ public sealed partial class ModelViewerControl : UserControl
     private const string GlyphPlay = "\uE768";
     private const string GlyphPause = "\uE769";
 
-    private string _controlMode = "orbit";
+    private string _controlMode = "fly";
+    private string _lightingMode = "day";
     private double _duration;
     private bool _isPlaying;
+    private Task? _initializationTask;
+    private TaskCompletionSource<bool>? _pageReady;
+    private long _loadGeneration;
+    private bool _webMessageHooked;
     private DateTime _suppressTimeUntil = DateTime.MinValue;
     private bool _updatingSlider;
     private bool _webViewInitialized;
@@ -32,7 +37,7 @@ public sealed partial class ModelViewerControl : UserControl
         // Selected here rather than in XAML so SelectionChanged can't fire
         // mid-InitializeComponent against not-yet-created elements.
         ProjectionCombo.SelectedIndex = (int)ViewerProjection.Perspective;
-        UpdateModeUi("orbit");
+        UpdateModeUi("fly");
     }
 
     /// <summary>The most recently loaded GLB, for render/export reuse.</summary>
@@ -48,6 +53,14 @@ public sealed partial class ModelViewerControl : UserControl
     {
         if (_webViewInitialized) return;
 
+        var initialization = _initializationTask ??= InitializeCoreAsync();
+        await initialization;
+        if (!_webViewInitialized && ReferenceEquals(_initializationTask, initialization))
+            _initializationTask = null;
+    }
+
+    private async Task InitializeCoreAsync()
+    {
         try
         {
             await ModelWebView.EnsureCoreWebView2Async();
@@ -62,10 +75,18 @@ public sealed partial class ModelViewerControl : UserControl
                 assetsDir,
                 CoreWebView2HostResourceAccessKind.Allow);
 
-            ModelWebView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+            if (!_webMessageHooked)
+            {
+                ModelWebView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+                _webMessageHooked = true;
+            }
+
+            _pageReady = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
             ModelWebView.CoreWebView2.Navigate(
                 new UriBuilder(Uri.UriSchemeHttps, "model-viewer-assets")
                     { Path = "mesh-viewer.html" }.Uri.ToString());
+            await _pageReady.Task.WaitAsync(TimeSpan.FromSeconds(15));
             _webViewInitialized = true;
 
             // The page's own status overlay takes over from here.
@@ -79,14 +100,15 @@ public sealed partial class ModelViewerControl : UserControl
 
     /// <summary>
     ///     Load a GLB into the viewer. Animated models start playing.
-    ///     <paramref name="isLevel" /> marks level geometry: levels default to
-    ///     the first-person Fly mode (F toggles Fly/Walk), everything else to Orbit.
+    ///     All meshes default to first-person Fly mode. <paramref name="isLevel" />
+    ///     remains available to page-side level behavior such as walk tuning.
     /// </summary>
     public async Task LoadGlbAsync(
         byte[] glbBytes,
         bool isLevel = false,
         double? walkEyeHeight = null)
     {
+        var generation = Interlocked.Increment(ref _loadGeneration);
         LastGlbBytes = glbBytes;
         HasAnimations = false;
         HideTransport();
@@ -95,15 +117,26 @@ public sealed partial class ModelViewerControl : UserControl
 
         // Base64 of a multi-MB GLB is CPU-bound — keep it off the UI thread.
         var base64 = await Task.Run(() => Convert.ToBase64String(glbBytes));
+        if (generation != Volatile.Read(ref _loadGeneration)) return;
         var eyeHeightScript = walkEyeHeight is > 0 && double.IsFinite(walkEyeHeight.Value)
             ? JsonSerializer.Serialize(walkEyeHeight.Value)
             : "null";
+        await ExecuteScriptSafeAsync($"setLightingMode('{_lightingMode}')");
+        if (generation != Volatile.Read(ref _loadGeneration)) return;
         await ExecuteScriptSafeAsync(
             $"loadModel('{base64}', {(isLevel ? "true" : "false")}, {eyeHeightScript})");
     }
 
+    /// <summary>Invalidate conversion/GLTF work started for an older selection.</summary>
+    public async Task CancelPendingLoadAsync()
+    {
+        Interlocked.Increment(ref _loadGeneration);
+        await ExecuteScriptSafeAsync("cancelModelLoad()");
+    }
+
     public async Task ClearAsync()
     {
+        Interlocked.Increment(ref _loadGeneration);
         LastGlbBytes = null;
         HasAnimations = false;
         HideTransport();
@@ -174,6 +207,17 @@ public sealed partial class ModelViewerControl : UserControl
     {
         if (mode is not ("orbit" or "fly" or "walk")) return Task.CompletedTask;
         return ExecuteScriptSafeAsync($"setControlMode('{mode}')");
+    }
+
+    /// <summary>
+    ///     Apply the live viewport's time-of-day lighting. "all" uses the day
+    ///     rig while allowing a host to preview/export both worldzone variants.
+    /// </summary>
+    public Task SetLightingModeAsync(string mode)
+    {
+        if (mode is not ("all" or "day" or "night")) return Task.CompletedTask;
+        _lightingMode = mode;
+        return ExecuteScriptSafeAsync($"setLightingMode('{mode}')");
     }
 
     private async void ModeButton_Click(object sender, RoutedEventArgs e)
@@ -288,6 +332,10 @@ public sealed partial class ModelViewerControl : UserControl
 
             switch (type)
             {
+                case "ready":
+                    _pageReady?.TrySetResult(true);
+                    break;
+
                 case "loaded":
                     var animCount = root.TryGetProperty("animations", out var anims)
                         ? anims.GetArrayLength()

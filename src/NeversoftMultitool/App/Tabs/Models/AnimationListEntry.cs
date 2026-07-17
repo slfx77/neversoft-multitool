@@ -61,8 +61,8 @@ internal sealed class AnimationListEntry : INotifyPropertyChanged
     public Brush RowForeground => (Brush)Application.Current.Resources[
         MatchesSkeleton ? "TextFillColorPrimaryBrush" : "TextFillColorDisabledBrush"];
 
-    public string MismatchTooltip => MatchesSkeleton
-        ? ""
+    public string? MismatchTooltip => MatchesSkeleton
+        ? null
         : $"Bone count {BoneCountDisplay} doesn't match this character's skeleton.";
 
     public event PropertyChangedEventHandler? PropertyChanged;

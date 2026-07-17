@@ -1,5 +1,6 @@
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool;
 
@@ -36,6 +37,10 @@ public class MeshFileEntry : BaseFileEntry
     // supers (Apocalypse / THPS1) have no HIER table but are still animated
     // characters, so PsxIsSuperModel is the authoritative character gate.
     internal bool PsxIsSuperModel { get; init; }
+
+    // Raw format classification is stable across archive/folder names and is
+    // used for format-scale viewer tuning (notably Apocalypse v3 levels).
+    internal PsxMeshFormatRevision PsxFormatRevision { get; init; }
 
     internal bool IsPlacedLevel => HasPlacedPsxCompanion;
 

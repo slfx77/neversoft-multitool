@@ -86,6 +86,8 @@ public sealed class FileTableBehavior : DependencyObject
     private sealed class TableState
     {
         private const double SplitterWidth = 8;
+        private const double CellFitPadding = 8;
+        private const double SortGlyphAllowance = 18;
 
         private readonly Grid _host;
         private readonly List<GridSplitter> _splitters = [];
@@ -125,7 +127,10 @@ public sealed class FileTableBehavior : DependencyObject
             if (_header != null)
             {
                 foreach (var splitter in _splitters)
+                {
+                    splitter.DoubleTapped -= Splitter_DoubleTapped;
                     _header.Children.Remove(splitter);
+                }
             }
             _splitters.Clear();
 
@@ -229,19 +234,162 @@ public sealed class FileTableBehavior : DependencyObject
                     ResizeDirection = GridSplitter.GridResizeDirection.Columns,
                     ResizeBehavior = GridSplitter.GridResizeBehavior.CurrentAndNext,
                     Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
-                    IsTabStop = true
+                    IsTabStop = true,
+                    IsDoubleTapEnabled = true
                 };
 
                 Grid.SetColumn(splitter, index);
                 Canvas.SetZIndex(splitter, 100);
-                ToolTipService.SetToolTip(splitter, "Drag to resize columns");
+                splitter.DoubleTapped += Splitter_DoubleTapped;
+                ToolTipService.SetToolTip(splitter, "Drag to resize; double-click to fit contents");
                 AutomationProperties.SetName(splitter, $"Resize column {index + 1}");
+                AutomationProperties.SetHelpText(
+                    splitter,
+                    "Drag to resize the column, or double-click to fit its contents");
                 _header.Children.Add(splitter);
                 _splitters.Add(splitter);
             }
 
             var lastColumn = _header.ColumnDefinitions[^1];
             if (lastColumn.MinWidth <= 0) lastColumn.MinWidth = 44;
+        }
+
+        private void Splitter_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        {
+            if (sender is not GridSplitter splitter || _header == null) return;
+
+            var columnIndex = Grid.GetColumn(splitter);
+            if (columnIndex < 0 || columnIndex >= _header.ColumnDefinitions.Count - 1) return;
+
+            FitColumnToContents(columnIndex);
+            e.Handled = true;
+        }
+
+        private void FitColumnToContents(int columnIndex)
+        {
+            if (_header == null || _listView == null) return;
+
+            var desiredWidth = MeasureColumnContents(_header, columnIndex, includeSortGlyph: true);
+            foreach (var row in DescendantsAndSelf(_listView).OfType<Grid>().Where(GetIsRow))
+                desiredWidth = Math.Max(
+                    desiredWidth,
+                    MeasureColumnContents(row, columnIndex, includeSortGlyph: false));
+            desiredWidth = Math.Max(desiredWidth, MeasureSourceContents(columnIndex));
+
+            if (desiredWidth <= 0) return;
+
+            var column = _header.ColumnDefinitions[columnIndex];
+            var fluidIndex = Enumerable.Range(0, _header.ColumnDefinitions.Count)
+                .FirstOrDefault(index => index != columnIndex &&
+                                         _header.ColumnDefinitions[index].Width.IsStar, -1);
+            if (fluidIndex < 0)
+                fluidIndex = columnIndex == _header.ColumnDefinitions.Count - 1 ? 0 :
+                    _header.ColumnDefinitions.Count - 1;
+
+            var fluidColumn = _header.ColumnDefinitions[fluidIndex];
+            var availableWidth = column.ActualWidth +
+                                 Math.Max(0, fluidColumn.ActualWidth - fluidColumn.MinWidth);
+            if (availableWidth <= 0) return;
+
+            // Let the table's fluid column absorb the change. This can borrow
+            // spare filename width for a long Format value and, unlike turning
+            // both sides of the clicked separator into pixels, keeps the table
+            // responsive when its window is resized.
+            var minimum = Math.Max(0, column.MinWidth);
+            var fittedWidth = Math.Clamp(
+                Math.Ceiling(desiredWidth + CellFitPadding),
+                minimum,
+                Math.Max(minimum, availableWidth));
+
+            column.Width = new GridLength(fittedWidth, GridUnitType.Pixel);
+            if (!fluidColumn.Width.IsStar)
+                fluidColumn.Width = new GridLength(1, GridUnitType.Star);
+            QueueColumnSync();
+        }
+
+        private double MeasureSourceContents(int columnIndex)
+        {
+            if (_listView == null) return 0;
+
+            var registration = _headers.FirstOrDefault(header =>
+                Grid.GetColumn(header.Button) == columnIndex);
+            if (registration == null) return 0;
+
+            var source = _sourceItems ?? _listView.ItemsSource as IList;
+            if (source == null) return 0;
+
+            object?[] items;
+            try
+            {
+                items = source.Cast<object?>().ToArray();
+            }
+            catch (InvalidOperationException)
+            {
+                // A producer may be publishing a scan result on the same turn.
+                // Realized rows still provide a useful best-effort fit.
+                return 0;
+            }
+
+            var probe = new TextBlock { TextWrapping = TextWrapping.NoWrap };
+            var width = 0d;
+            foreach (var item in items)
+            {
+                var text = GetSourceDisplayText(item, registration);
+                if (string.IsNullOrEmpty(text)) continue;
+                probe.Text = text;
+                probe.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                width = Math.Max(width, probe.DesiredSize.Width);
+            }
+
+            return width;
+        }
+
+        private static string? GetSourceDisplayText(object? item, HeaderRegistration registration)
+        {
+            if (item == null) return null;
+
+            var labelProperty = string.Concat(registration.Label.Where(char.IsLetterOrDigit)) + "Display";
+            var leafProperty = registration.Property.Split('.', StringSplitOptions.RemoveEmptyEntries)[^1];
+            var value = GetPropertyValue(item, labelProperty)
+                        ?? GetPropertyValue(item, leafProperty + "Display");
+            if (value == null && leafProperty.Equals("DurationSec", StringComparison.Ordinal))
+                value = GetPropertyValue(item, "DurationDisplay");
+            value ??= GetPropertyValue(item, registration.Property);
+
+            return value switch
+            {
+                null => null,
+                string text => text,
+                byte or sbyte or short or ushort or int or uint or long or ulong =>
+                    ((IFormattable)value).ToString("N0", CultureInfo.CurrentCulture),
+                IFormattable formattable => formattable.ToString(null, CultureInfo.CurrentCulture),
+                _ => value.ToString()
+            };
+        }
+
+        private static double MeasureColumnContents(Grid grid, int columnIndex, bool includeSortGlyph)
+        {
+            var width = 0d;
+            foreach (var element in grid.Children.OfType<FrameworkElement>())
+            {
+                if (element is GridSplitter ||
+                    Grid.GetColumn(element) != columnIndex ||
+                    Grid.GetColumnSpan(element) != 1)
+                    continue;
+
+                element.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                var elementWidth = element.DesiredSize.Width;
+                if (includeSortGlyph &&
+                    element is Button button &&
+                    !string.IsNullOrWhiteSpace(GetSortProperty(button)) &&
+                    button.Content?.ToString()?.Contains('▲') != true &&
+                    button.Content?.ToString()?.Contains('▼') != true)
+                    elementWidth += SortGlyphAllowance;
+
+                width = Math.Max(width, elementWidth);
+            }
+
+            return width;
         }
 
         private void RegisterColumnCallbacks()

@@ -48,10 +48,24 @@
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x202020);
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 2.4));
+    const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x445566, 2.4);
+    scene.add(hemisphereLight);
     const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
     keyLight.position.set(1, 2, 1.5);
     scene.add(keyLight);
+    let lightingMode = 'day';
+
+    function setLightingMode(mode) {
+      if (!(mode === 'all' || mode === 'day' || mode === 'night')) return;
+      lightingMode = mode;
+      const night = mode === 'night';
+      scene.background.setHex(night ? 0x101622 : 0x202020);
+      hemisphereLight.color.setHex(night ? 0x9bbcff : 0xffffff);
+      hemisphereLight.groundColor.setHex(night ? 0x172033 : 0x445566);
+      hemisphereLight.intensity = night ? 0.85 : 2.4;
+      keyLight.color.setHex(night ? 0xadc6ff : 0xffffff);
+      keyLight.intensity = night ? 0.9 : 1.6;
+    }
 
     // ─── Cameras: shared orbit target, perspective + true orthographic ───
     // Elevation convention matches BethesdaMultitool's OrthoViewProjBuilder:
@@ -82,6 +96,8 @@
     // mapped to three.js Y-up. Orbit is the classic OrbitControls behavior.
     const FLY_SPEED_FACTOR = 0.6;    // base fly speed = framingRadius × 0.6 /s
     const WALK_SPEED_FACTOR = 0.12;  // base walk speed = framingRadius × 0.12 /s
+    const WALK_SPEED_EYE_FACTOR = 1.2;
+    const WALK_NEAR_EYE_FACTOR = 0.08;
     const ORBIT_VERTICAL_SPEED_FACTOR = 0.5;
     // Standing eye height = 1.7 × (framingRadius / 50): human-sized when the
     // model's bounding sphere is skate-level scale, clamped to sane bounds.
@@ -95,7 +111,8 @@
       'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE',
       'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight']);
 
-    let controlMode = 'orbit';
+    let controlMode = 'fly';
+    controls.enabled = false;
     let isLevelModel = false;
     let flySpeed = 1;
     let walkSpeed = 0.2;
@@ -201,12 +218,15 @@
 
       // Scale the first-person tuning to the model so tiny props and whole
       // worldzones both feel right; the wheel adjusts from these bases.
+      const hasEyeHeightHint = Number.isFinite(walkEyeHeightHint) && walkEyeHeightHint > 0;
       flySpeed = framingRadius * FLY_SPEED_FACTOR;
-      walkSpeed = framingRadius * WALK_SPEED_FACTOR;
-      eyeHeight = Number.isFinite(walkEyeHeightHint) && walkEyeHeightHint > 0
+      eyeHeight = hasEyeHeightHint
         ? walkEyeHeightHint
         : THREE.MathUtils.clamp(
             framingRadius * EYE_HEIGHT_FACTOR, framingRadius * 0.01, framingRadius * 0.1);
+      walkSpeed = hasEyeHeightHint
+        ? eyeHeight * WALK_SPEED_EYE_FACTOR
+        : framingRadius * WALK_SPEED_FACTOR;
       lastGroundY = null;
       walkYSettled = false;
 
@@ -309,14 +329,16 @@
       post({ type: 'controlMode', mode: mode });
     }
 
-    // F key: levels toggle Fly ↔ Walk (orbit → fly); models toggle
-    // Orbit ↔ Fly (walk → orbit).
-    function cycleControlMode() {
+    // F always selects/toggles the two first-person modes. O independently
+    // toggles Orbit, returning to Fly when Orbit is switched off.
+    function toggleFlyWalkMode() {
       if (!modelRoot) return;
-      if (isLevelModel)
-        setControlMode(controlMode === 'fly' ? 'walk' : 'fly');
-      else
-        setControlMode(controlMode === 'orbit' ? 'fly' : 'orbit');
+      setControlMode(controlMode === 'fly' ? 'walk' : 'fly');
+    }
+
+    function toggleOrbitMode() {
+      if (!modelRoot) return;
+      setControlMode(controlMode === 'orbit' ? 'fly' : 'orbit');
     }
 
     function enterOrbit(retarget) {
@@ -350,7 +372,10 @@
       }
       controls.enabled = false;
       // Walls at walking distance clip at the orbit near plane (radius/100).
-      perspCamera.near = framingRadius / 300;
+      const radiusNear = framingRadius / 300;
+      perspCamera.near = Number.isFinite(walkEyeHeightHint) && walkEyeHeightHint > 0
+        ? Math.max(1e-4, Math.min(radiusNear, walkEyeHeightHint * WALK_NEAR_EYE_FACTOR))
+        : radiusNear;
       perspCamera.updateProjectionMatrix();
       flyEuler.setFromQuaternion(perspCamera.quaternion);
       flyEuler.z = 0; // no roll
@@ -367,9 +392,10 @@
       post({ type: 'controlMode', mode: 'orbit' });
     }
 
-    // Default mode after framing: levels start flying, everything else orbits.
+    // Fly is the predictable default for every mesh. Orbit and Walk remain
+    // one-key alternatives, independent of whether the mesh is level-sized.
     function applyDefaultControlMode() {
-      const mode = isLevelModel ? 'fly' : 'orbit';
+      const mode = 'fly';
       if (mode === controlMode) {
         // Same mode as the previous model — still re-seed fly state (and the
         // walk ground snap) from the freshly framed camera.
@@ -467,7 +493,47 @@
     }
 
     // ─── First-person input (fly/walk) ────────────────────────────────────
+    const activePointers = new Map();
+
+    function buttonMask(button) {
+      if (button === 0) return 1;
+      if (button === 1) return 4;
+      if (button === 2) return 2;
+      return 0;
+    }
+
+    function cancelPointerInteraction(pointerId, pointerType = 'mouse') {
+      if (!activePointers.delete(pointerId)) return;
+      // OrbitControls and first-person look both listen for pointercancel.
+      // Sending the normal cancellation path also releases pointer capture
+      // and removes OrbitControls' temporary move/up listeners.
+      canvas.dispatchEvent(new PointerEvent('pointercancel', {
+        pointerId: pointerId,
+        pointerType: pointerType,
+        buttons: 0
+      }));
+    }
+
+    function cancelAllPointerInteractions() {
+      for (const pointerId of [...activePointers.keys()])
+        cancelPointerInteraction(pointerId);
+    }
+
+    // A mouse-up can occur outside the WebView while Chromium still considers
+    // the canvas to own pointer capture. Cancel before either controller sees
+    // the returning move, otherwise it applies the entire off-view delta and
+    // the camera snaps to the cursor.
+    canvas.addEventListener('pointermove', e => {
+      const pressedMask = activePointers.get(e.pointerId);
+      if (pressedMask !== undefined && e.pointerType === 'mouse'
+          && (e.buttons & pressedMask) === 0) {
+        cancelPointerInteraction(e.pointerId, e.pointerType);
+      }
+    }, { capture: true });
+
     canvas.addEventListener('pointerdown', e => {
+      const mask = buttonMask(e.button);
+      if (mask !== 0) activePointers.set(e.pointerId, mask);
       canvas.focus(); // keyboard reach after any click
       if (controlMode === 'orbit' || e.button !== 0) return;
       lookPointerId = e.pointerId;
@@ -486,12 +552,28 @@
     });
 
     function endLookDrag(e) {
+      activePointers.delete(e.pointerId);
       if (e.pointerId !== lookPointerId) return;
       lookPointerId = null;
       if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
     }
     canvas.addEventListener('pointerup', endLookDrag);
     canvas.addEventListener('pointercancel', endLookDrag);
+    canvas.addEventListener('pointerleave', cancelAllPointerInteractions);
+    function endWindowPointer(e) {
+      // Normal canvas events already removed this id before bubbling here.
+      // A page-level up/cancel means capture was lost, so route it through
+      // the same cancellation event that resets OrbitControls too.
+      if (activePointers.has(e.pointerId))
+        cancelPointerInteraction(e.pointerId, e.pointerType);
+      else
+        endLookDrag(e);
+    }
+    window.addEventListener('pointerup', endWindowPointer);
+    window.addEventListener('pointercancel', endWindowPointer);
+    window.addEventListener('mouseout', e => {
+      if (e.relatedTarget === null) cancelAllPointerInteractions();
+    });
 
     canvas.addEventListener('wheel', e => {
       if (controlMode === 'orbit') return; // OrbitControls owns the wheel
@@ -501,8 +583,13 @@
       const ticks = THREE.MathUtils.clamp(-e.deltaY / 100, -3, 3);
       const factor = Math.pow(1.2, ticks);
       if (controlMode === 'walk')
+      {
+        const walkScale = Number.isFinite(walkEyeHeightHint) && walkEyeHeightHint > 0
+          ? walkEyeHeightHint
+          : framingRadius;
         walkSpeed = THREE.MathUtils.clamp(
-          walkSpeed * factor, framingRadius * 0.005, framingRadius * 2);
+          walkSpeed * factor, walkScale * 0.1, walkScale * 20);
+      }
       else
         flySpeed = THREE.MathUtils.clamp(
           flySpeed * factor, framingRadius * 0.01, framingRadius * 10);
@@ -510,7 +597,12 @@
 
     window.addEventListener('keydown', e => {
       if (e.code === 'KeyF') {
-        if (!e.repeat) cycleControlMode();
+        if (!e.repeat) toggleFlyWalkMode();
+        e.preventDefault();
+        return;
+      }
+      if (e.code === 'KeyO') {
+        if (!e.repeat) toggleOrbitMode();
         e.preventDefault();
         return;
       }
@@ -521,7 +613,16 @@
         e.preventDefault();
     });
     window.addEventListener('keyup', e => keysDown.delete(e.code));
-    window.addEventListener('blur', () => keysDown.clear()); // stuck-key guard
+    window.addEventListener('blur', () => {
+      keysDown.clear();
+      cancelAllPointerInteractions();
+    }); // stuck-input guard
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        keysDown.clear();
+        cancelAllPointerInteractions();
+      }
+    });
 
     // ─── Model lifecycle ──────────────────────────────────────────────────
     function disposeModel(root) {
@@ -538,7 +639,14 @@
       });
     }
 
+    let modelLoadGeneration = 0;
+
+    function cancelModelLoad() {
+      modelLoadGeneration++;
+    }
+
     function unloadCurrent() {
+      cancelModelLoad();
       stopTimeLoop();
       playing = false;
       if (mixer) {
@@ -558,6 +666,7 @@
       status.textContent = 'Loading model...';
       status.classList.remove('hidden');
       unloadCurrent();
+      const loadGeneration = modelLoadGeneration;
       isLevelModel = isLevel === true;
       walkEyeHeightHint = Number.isFinite(eyeHeightHint) && eyeHeightHint > 0
         ? eyeHeightHint
@@ -571,6 +680,10 @@
         }
 
         new GLTFLoader().parse(bytes.buffer, '', gltf => {
+          if (loadGeneration !== modelLoadGeneration) {
+            disposeModel(gltf.scene);
+            return;
+          }
           modelRoot = gltf.scene;
           scene.add(modelRoot);
           frameModel(modelRoot);
@@ -592,6 +705,7 @@
           status.classList.add('hidden');
           post({ type: 'loaded', animations: names, duration: duration });
         }, () => {
+          if (loadGeneration !== modelLoadGeneration) return;
           status.textContent = 'Failed to load model';
           status.classList.remove('hidden');
         });
@@ -636,10 +750,10 @@
       unloadCurrent();
       isLevelModel = false;
       walkEyeHeightHint = null;
-      if (controlMode !== 'orbit') {
-        controlMode = 'orbit';
-        enterOrbit('center');
-        post({ type: 'controlMode', mode: 'orbit' });
+      if (controlMode !== 'fly') {
+        controlMode = 'fly';
+        enterFlyWalk('fly');
+        post({ type: 'controlMode', mode: 'fly' });
       }
       status.textContent = 'Click on an entry to preview.';
       status.classList.remove('hidden');
@@ -662,6 +776,9 @@
     window.setCamera = setCamera;
     window.stepAzimuth = stepAzimuth;
     window.setControlMode = setControlMode;
+    window.setLightingMode = setLightingMode;
+    window.cancelModelLoad = cancelModelLoad;
+    post({ type: 'ready' });
   </script>
 </body>
 </html>
