@@ -11,7 +11,7 @@ Created 2026-07-03. Distilled from `memory/` + `CLAUDE.md` + `docs/thps3-ska-ani
 ### 🔶 THPS3 SKA animation is visually wrong (spasms, not motion)
 - Source: `memory/thps3_ska_format_notes.md`, `memory/thps3_ska_animation_correctness_handoff.md`, `docs/thps3-ska-animation-correctness-handoff.md`.
 - Evidence: the SKA parser is done — the pipeline emits **646/648 validator-clean GLBs with textures** for THPS3 DFF-skinned models — but applied animation **spasms** rather than producing subtle idle/breathing motion. Root cause not yet isolated.
-- What's left: work the handoff doc's test matrix + bone-level diagnostics. The RW DFF applier (`SkaPoseEvaluator` / `Thps3SkaPoseApplier`) and pose composition are the suspect surfaces. Contrast against the working THPS4/THUG SKA path (below), which shares the evaluator.
+- What's left: work the handoff doc's test matrix + bone-level diagnostics. The RW DFF applier (`SkaPoseEvaluator`) and pose composition are the suspect surfaces. Contrast against the working THPS4/THUG SKA path (below), which shares the evaluator.
 
 ### 🔶 PSX (PS1) character animation — per-game partial correctness
 - Source: `memory/psx_anim_status.md`, MEMORY.md index (committed 3-way `ad7ac17` / `2d03896` / `11f63d5`).

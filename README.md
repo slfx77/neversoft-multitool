@@ -62,7 +62,7 @@ The **Audio Converter** offers in-app playback with a seekable timeline for the 
 | SKE / SKA       | Cross-platform skeletons + bone animations → glTF animation tracks        | THPS4, THUG, THUG2          |
 | PSX animation   | PS1 character skeletal animation → animated glTF (.glb / .gif)            | THPS1/2, Spider-Man, Apoc.   |
 
-Mesh conversion writes glTF (.glb), and — where a Blender helper is configured — Blender (.blend) scenes. Skinned meshes export with joints, weights, and inverse-bind matrices. The **Character Preview** tab renders models and plays back animations in-app with a play/pause/seek transport, and exports animated GLB, Blender scenes, or GIF renders. The **Mesh Converter** tab shares the same 3D preview and can render any previewed model to PNG stills or animated GIF with the built-in headless rasterizer.
+Mesh conversion writes glTF (.glb), and — where a Blender helper is configured — Blender (.blend) scenes. Skinned meshes export with joints, weights, and inverse-bind matrices. The **Meshes & Characters** tab renders models and plays back animations in-app with a play/pause/seek transport, exports animated GLB, Blender scenes, or GIF renders, and can render any previewed model to PNG stills or animated GIF with the built-in headless rasterizer.
 
 ### Scripts & Levels
 
@@ -103,7 +103,7 @@ is a newer unsupported version. They are not validated targets.
 ## Requirements
 
 - [.NET 10.0 SDK](https://dotnet.microsoft.com/download)
-- Windows 10 version 1903+ (for GUI mode)
+- Windows 10 version 1809+ (for GUI mode)
 - CLI mode works on Windows, Linux, and macOS
 - [ffmpeg](https://ffmpeg.org/) on `PATH` for SFD/VID1 video conversion
 
@@ -210,17 +210,19 @@ src/NeversoftMultitool/
   Core/                    # Shared format logic
     BinaryIO/              # BinaryReader extensions, ImageWriter
     Formats/
-      Psx/                 # PSX texture extraction + PS1 mesh geometry
+      Texture/             # PSX, PVR, PS2 TEX, RW TXD, Xbox TEX, NGC decoding
       Rle/                 # RLE/BMR bitmap conversion
       Archives/            # WAD, PKR, PRE, DDX, BON, PAK extraction
+      ArchiveFs/           # Read-only filesystem over any archive (nested opens)
       DiscImage/           # ISO9660/XDVDFS/GCM disc images (iso, cue, ccd, gdi)
       Audio/               # XA, VAB, VAG, ADX, KAT, SFX, PSS decoding
-      Texture/             # PS2 TEX, RW TXD, Xbox TEX, NGC decoding
-      Mesh/                # PSX/DDM/RW/COL/PS2/Xbox meshes → glTF
+      Mesh/                # PSX/DDM/RW/PS2/Xbox meshes → glTF
+      Collision/           # COL collision meshes → glTF
       Animation/           # SKA + PSX skeletal animation
       Trg/                 # TRG level trigger/script parsing
       Qb/                  # QB compiled-script decompilation
-      Video/               # SFD, STR, VID1 video conversion
+      Video/               # SFD, STR video conversion
+      Vid1/                # THAW GameCube VID1 decoder
       GsDump/              # Software GS replay (PCSX2 .gs validation)
   CLI/                     # Command-line interface
   App/                     # WinUI 3 GUI (Windows only)

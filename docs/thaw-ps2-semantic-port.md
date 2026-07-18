@@ -2,11 +2,13 @@
 
 ## Status
 
-The current THAW PS2 shipping path stays on the existing heuristic mesh extractor in
-`ThawPs2SkinFile`. This document locks the replacement plan and the internal seams for
-the semantic-port replay layer. The first milestone scaffolding now exists in
-`ThawPs2Replay.cs` and is exposed through `ThawPs2SkinFile.ReplayBatches(...)` for
-trace-oriented tests and diagnostics.
+**Updated 2026-07-18: the replay layer this document planned has SHIPPED as the
+production path.** `ThawPs2SkinFile.Parse` now routes through the replay engine
+(`ThawPs2ReplayEngine.cs`, formerly `ThawPs2Replay.cs`) and extracts meshes from
+replayed kicks (`ThawReplayKickExtractor` / `ThawReplayKickMeshBuilder`) rather than
+the bespoke heuristic VIF walk. The milestone plan and seam descriptions below are
+kept as design context; the "planned" seams (`GsVertexEvent`, replay-driven
+extraction) now exist under `Core/Formats/Mesh/Ps2Scene/Replay/`.
 
 ## z_sm Worldzone Audit (2026-05-08)
 
@@ -341,13 +343,12 @@ later milestones should expand instead of adding more parser heuristics.
     set of `UNPACK` commands that produced the batch.
 - `GifKickPacket` and `GsVertexEvent`
   - `GifKickPacket` is the replay-side packet summary that already exists.
-  - `GsVertexEvent` is the next seam to add when replay moves from batch snapshots to
-    deterministic strip emission.
-  - It should carry the ordered GS queue events, including `ADC/no-kick`.
-- `ThawReplayMeshExtractor`
-  - Planned replacement for the current `c2/c3`-driven topology reconstruction path.
-  - Its input is replayed kick and vertex events, not parser heuristics.
-  - Its output remains `Ps2Mesh` and `Ps2Vertex` so the existing writer can stay in place.
+  - `GsVertexEvent` (implemented in `Replay/`) carries the ordered GS queue events,
+    including `ADC/no-kick`, for deterministic strip emission.
+- `ThawReplayKickExtractor` / `ThawReplayKickMeshBuilder` (planned here as `ThawReplayMeshExtractor`)
+  - The shipped replacement for the `c2/c3`-driven topology reconstruction path.
+  - Input is replayed kick and vertex events, not parser heuristics.
+  - Output remains `Ps2Mesh` and `Ps2Vertex` so the existing writer stays in place.
 
 ## Corpus And Proving Set
 
@@ -414,7 +415,7 @@ Stop/go gate:
 Replay-driven mesh extraction for the fixed proving set.
 
 - Add ordered GS queue events.
-- Add `ThawReplayMeshExtractor`.
+- Add the replay-driven extractor (shipped as `ThawReplayKickExtractor`).
 - Compare replay-driven strips against the current heuristic output and PC meshes.
 
 Stop/go gate:

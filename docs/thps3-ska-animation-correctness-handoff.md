@@ -4,7 +4,7 @@ Date: 2026-04-21
 
 ## Current Status
 
-- `SkaFile.ParseThps3` now reproduces the game-loaded Q-track linearization:
+- `SkaThps3Parser.ParseThps3` (formerly `SkaFile.ParseThps3`, split out in the 2026-07-14 de-partialization) now reproduces the game-loaded Q-track linearization:
   root rotation is implicit/identity, serialized record 28 is treated as the
   root/end marker for the 29-bone skater rig, and records are scheduled into
   28 non-root Q tracks by serialized time order.
@@ -22,7 +22,7 @@ Date: 2026-04-21
 
 ## Implemented
 
-- THPS3 pose application is now isolated in `Thps3SkaPoseApplier`.
+- THPS3 pose application is isolated in the shared `SkaPoseEvaluator` (the standalone `Thps3SkaPoseApplier` named here originally no longer exists).
 - THPS3 SKA Q records are parsed using the runtime Q-blob grouping rule instead
   of the serialized `prev / 24` chains. T records still use `prev / 20`.
 - `ska --skn` accepts `--thps3-mode` with these diagnostic modes:
@@ -218,7 +218,7 @@ Interpretation: the serialized Q records are `prev + q/time`, but the THPS3
 loader strips `prev` and linearizes Q keys into runtime bone tracks before
 interpolation. Root rotation appears implicit/identity; the loaded blob has 28
 animated Q tracks for bones 1-28, while translation has 29 tracks including
-root. `SkaFile.ParseThps3` now implements this rule.
+root. `SkaThps3Parser.ParseThps3` now implements this rule.
 
 Matrix-palette scan:
 

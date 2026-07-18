@@ -34,7 +34,7 @@ established by the enclosing PAK entry's type-hash field, which equals
 `0x7EA7357B` for level MDLs.
 
 In this parser we distinguish level MDLs from object MDLs after parsing, using
-a structural rule (see [`Ps2GeomFile.IsLevelMdl`](../../src/NeversoftMultitool/Core/Formats/Mesh/Ps2Scene/Geom/Ps2GeomFile.cs)):
+a structural rule (see [`Ps2LevelMdlParser.IsLevelMdl`](../../src/NeversoftMultitool/Core/Formats/Mesh/Ps2Scene/Geom/Ps2LevelMdlParser.cs)):
 
 - **Object MDL** (`0x9BCC234D`, cars and similar): a bone table follows a
   `CDCDCDCD` sentinel, and there are ~5–15 preamble records.
@@ -110,7 +110,7 @@ A level MDL has three conceptual sections at known byte offsets:
 `0x1040`, `0x10A0`, `0x10B0`. Our parser derives `K` heuristically by scanning
 the low file region for the first `OFFSET(0) + STCYCL(1,1)` VIF pair and
 subtracting the smallest leaf's `Field40`
-([`Ps2GeomFile.TryDeriveDataSectionOffset`](../../src/NeversoftMultitool/Core/Formats/Mesh/Ps2Scene/Geom/Ps2GeomFile.cs)).
+([`Ps2LevelMdlParser.TryDeriveDataSectionOffset`](../../src/NeversoftMultitool/Core/Formats/Mesh/Ps2Scene/Geom/Ps2LevelMdlParser.cs)).
 The engine path for obtaining `K` is still partly unresolved; see
 §6.3 "The relocation base" below.
 

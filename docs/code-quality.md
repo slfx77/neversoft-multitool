@@ -41,7 +41,7 @@ That includes:
 ## Repo Rules
 
 - Run `.\tools\verify-repo-structure.ps1` for repo-structure checks. This is intentionally a script, not a unit test.
-- Partial classes are limited to XAML code-behind and generated-regex bridge types.
+- Partial classes are limited to XAML code-behind, source-generation bridge types (`[GeneratedRegex]`, `JsonSerializerContext`), and the explicitly-tracked stateful splits (`GsGifInterpreter`, `Ps2GsVram`); the authoritative allowlist lives in `tools/verify-repo-structure.ps1`.
 - Tracked C# files under `src` and `tests` should stay near the soft `<=500` line target.
 - Any intentional exceptions to the soft size target must stay explicit in `tools/verify-repo-structure.ps1`.
 - GUI code-behind should remain UI wiring only; non-UI workflows belong in helpers/controllers/services.

@@ -18,17 +18,17 @@ Sources: the **THPG/Project 8** stream is **verified this session** (conversions
 
 | File | Stream | Headline gap | Status |
 |---|---|---|---|
-| `game-thpg-p8.md` | THPG + Project 8 (PS2) support | **P8 skins work**; THPG (2007) skins garble (VIF re-encode); `.col` unsupported | 🟢🔶 verified |
+| `game-thpg-p8.md` | THPG + Project 8 (PS2) support | **P8 + THPG skins work** (2026-07-06: THPG wrap-garble files are unused old-scale legacy data, ⚪); newer `.col` version unsupported | 🟢🔶 |
 | `mesh-fidelity.md` | Mesh reconstruction correctness | **Claimed meshes verified good at HEAD**; remaining work = QA harness, worldzone, filename-free PSX appendage discovery | 🟢/🔴/🔶 |
 | `animation.md` | Skeletal animation | THPS3 SKA spasms; RW DFF T-pose only; PSX anim per-game | 🔶 |
 | `gsreplay-fidelity.md` | THAW GS-replay render fidelity | Shadow-decal streaks; residual over-brightness | 🔶 (research) |
-| `formats-todo.md` | Unimplemented / deferred formats | THAW `.tex.ps2` metadata; PPV container; STR VLC drift | 🔴/🔶 |
+| `formats-todo.md` | Unimplemented / deferred formats | THAW `.tex.ps2` metadata; `.stex`; STR VLC drift | 🔴/🔶 |
 
 > **Mesh-fidelity sweep (2026-07-03):** the meshes we *claim* to support are healthy at HEAD — THAW skins **332/332** convert (Muska fixed; `skater_lasek` 100% recall); PSX characters (Spider-Man, THPS2) render correctly. The `CLAUDE.md`/`memory` "garbled character mesh" notes are **stale**. The only genuinely-broken mesh path is **Proving Ground (2007) character skins** — a VIF re-encoding; Project 8 skins render fine (`game-thpg-p8.md`). See `mesh-fidelity.md` for the sweep evidence.
 
 ## Highest-leverage / start-here
 
-1. **`game-thpg-p8.md`** — the freshest, best-evidenced stream, and the reason this backlog exists. Two concrete, bounded gaps (mesh strip layout for version-triple `(1,8,8)`; a newer `.col` version). Fixing the skin path likely also lifts the general **mesh-fidelity** stream, since THPG skins ride the THAW pre-compiled VIF/DMA path.
+1. **`game-thpg-p8.md`** — the THPG skin garble was RESOLVED 2026-07-06 (support is complete for everything the game renders; the wrapping files are unused old-scale legacy data with no reconstruction mechanism — see the stream file). The remaining bounded gap is the newer `.col` collision version.
 2. **`mesh-fidelity.md`** — shares a root with THPG/P8 skins (strip-topology reconstruction) and with the long-standing PSX character-model problem. High cross-cut value.
 3. **`gsreplay-fidelity.md`** — deep, well-documented research stream (several `memory/gsdump_*` files). Self-contained; needs PCSX2 reference captures. Lowest urgency (it's a validation reference, not a user-facing converter), highest depth.
 
