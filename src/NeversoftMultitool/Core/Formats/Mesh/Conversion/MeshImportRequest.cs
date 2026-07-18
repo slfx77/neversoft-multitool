@@ -29,6 +29,13 @@ public sealed class MeshImportRequest
     /// </summary>
     public IReadOnlyDictionary<string, bool>? VisibilityOverrides { get; init; }
 
+    /// <summary>
+    ///     Include supported level-object companions when the selected level has
+    ///     one. This currently applies to Spider-Man PSX <c>*_g.psx</c> levels
+    ///     with a sibling <c>*_o.psx</c> model bank.
+    /// </summary>
+    public bool IncludeLevelObjects { get; init; } = true;
+
     public WorldzoneTimeOfDay WorldzoneTimeOfDay { get; init; } =
         WorldzoneTimeOfDay.All;
 

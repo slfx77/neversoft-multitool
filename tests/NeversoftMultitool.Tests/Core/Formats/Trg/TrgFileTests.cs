@@ -140,6 +140,54 @@ public class TrgFileTests(TestPaths paths)
         Assert.Equal([255, 255], trg.Nodes.Select(static node => node.TypeId));
     }
 
+    [Theory]
+    [InlineData(0x1000)]
+    [InlineData(0x1001)]
+    public void Parse_BaddyRetainsUnalignedRuntimeFlagsAndExactPlacementValues(
+        int priority)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write(0x4752545Fu);
+            writer.Write((ushort)2);
+            writer.Write((ushort)1);
+            writer.Write(1u);
+            writer.Write(16u);
+
+            writer.Write((ushort)TrgNodeMetadata.TypeBaddy);
+            writer.Write((ushort)0x192);
+            writer.Write((ushort)priority);
+            writer.Write((ushort)1); // odd link count: flags begin unaligned
+            writer.Write((ushort)77);
+            writer.Write(new byte[] { 0, 2, 5, byte.MaxValue });
+            writer.Write((ushort)0); // align position to four bytes
+            writer.Write(-14_571);
+            writer.Write(-5_954);
+            writer.Write(-246);
+            writer.Write((short)0);
+            writer.Write((short)3_243);
+            writer.Write((short)0);
+            writer.Write((ushort)0x212F);
+            writer.Write(0x12345678u);
+            writer.Write((ushort)0x4100);
+        }
+
+        stream.Position = 0;
+        using var reader = new BinaryReader(stream);
+        var trg = TrgFile.Parse(reader, "synthetic_t.trg");
+
+        var node = Assert.Single(trg.Nodes);
+        Assert.Equal([77], node.Links);
+        Assert.Equal([0, 2, 5], node.BaddyFlags);
+        Assert.Equal(-14_571, node.Position!.RawX);
+        Assert.Equal(-5_954, node.Position.RawY);
+        Assert.Equal(-246, node.Position.RawZ);
+        Assert.Equal(3_243, node.Angles!.RawY);
+        Assert.Equal("0x12345678", Assert.Single(
+            node.Script!, static op => op.Opcode == "0x212F").Value);
+    }
+
     [Fact]
     public void ParseCommandList_SetVisibilityByName_ConsumesSuffixRangeAndVisibility()
     {
@@ -158,6 +206,33 @@ public class TrgFileTests(TestPaths paths)
         Assert.Equal(0xBF, command.Opcode);
         Assert.Equal("SetVisibilityByName", command.Name);
         Assert.Equal(["Kevin_", (ushort)0, (ushort)5, (ushort)0], command.Args);
+    }
+
+    [Fact]
+    public void ParseScript_SpatialIfConsumesBothSignedOperands()
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write((ushort)0x4118);
+            writer.Write((short)-321);
+            writer.Write((short)654);
+            writer.Write((ushort)0x212F);
+            writer.Write(0x12345678u);
+            writer.Write((ushort)0x4120);
+            writer.Write((ushort)0x4100);
+        }
+
+        stream.Position = 0;
+        using var reader = new BinaryReader(stream);
+        var ops = TrgCommandList.ParseScript(reader, checked((int)stream.Length));
+
+        Assert.Equal(["0x4118", "0x212F", "0x4120", "0x4100"],
+            ops.Select(static op => op.Opcode));
+        var operands = Assert.IsType<object[]>(ops[0].Value);
+        Assert.Equal((short)-321, Assert.IsType<short>(operands[0]));
+        Assert.Equal((short)654, Assert.IsType<short>(operands[1]));
+        Assert.Equal("0x12345678", ops[1].Value);
     }
 
     [Fact]

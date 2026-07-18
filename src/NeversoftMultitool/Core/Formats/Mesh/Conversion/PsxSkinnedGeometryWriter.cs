@@ -271,14 +271,29 @@ internal static class PsxSkinnedGeometryWriter
         c1 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c1);
         c2 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c2);
         c3 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c3);
-        var isPs1TexturedModulation = psxFile.Version != 0x06 && face.IsTextured;
+        var isPs1 = psxFile.Version != 0x06;
+        var isPs1TexturedModulation = isPs1 && face.IsTextured;
+        var packetUsesTexturedScale = face.IsTextured &&
+                                      (face.TextureHash != 0 || !face.IsSemiTransparent);
+        Vector4? p0 = isPs1
+            ? PsxGeometryHelpers.ToPsxPacketColor(c0, packetUsesTexturedScale)
+            : null;
+        Vector4? p1 = isPs1
+            ? PsxGeometryHelpers.ToPsxPacketColor(c1, packetUsesTexturedScale)
+            : null;
+        Vector4? p2 = isPs1
+            ? PsxGeometryHelpers.ToPsxPacketColor(c2, packetUsesTexturedScale)
+            : null;
+        Vector4? p3 = isPs1
+            ? PsxGeometryHelpers.ToPsxPacketColor(c3, packetUsesTexturedScale)
+            : null;
         c0 = PsxGeometryHelpers.DisplayRgbToLinear(c0, isPs1TexturedModulation);
         c1 = PsxGeometryHelpers.DisplayRgbToLinear(c1, isPs1TexturedModulation);
         c2 = PsxGeometryHelpers.DisplayRgbToLinear(c2, isPs1TexturedModulation);
         c3 = PsxGeometryHelpers.DisplayRgbToLinear(c3, isPs1TexturedModulation);
-        var v0 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 0, c0, texDims, tipPlacement, out var i0);
-        var v1 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 1, c1, texDims, tipPlacement, out var i1);
-        var v2 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 2, c2, texDims, tipPlacement, out var i2);
+        var v0 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 0, c0, p0, texDims, tipPlacement, out var i0);
+        var v1 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 1, c1, p1, texDims, tipPlacement, out var i1);
+        var v2 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 2, c2, p2, texDims, tipPlacement, out var i2);
         // glTF front faces are CCW; PSX slot order is CW under the (X,-Y,-Z)
         // handedness map, so emit reversed to make winding agree with the
         // stored (outward) normals. Probe: psx_lod_part_probe.py --normals.
@@ -286,7 +301,7 @@ internal static class PsxSkinnedGeometryWriter
 
         if (face.IsQuad)
         {
-            var v3 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 3, c3, texDims, tipPlacement, out var i3);
+            var v3 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 3, c3, p3, texDims, tipPlacement, out var i3);
             ModelDocumentGeometryAdapter.AddSkinnedTriangle(vertices, indices, influences, v1, i1, v2, i2, v3, i3);
         }
     }
@@ -299,6 +314,7 @@ internal static class PsxSkinnedGeometryWriter
         PsxFace face,
         int slot,
         Vector4 color,
+        Vector4? psxPacketColor,
         (int Width, int Height) texDims,
         PsxSplineTipPlacement? tipPlacement,
         out ModelBoneInfluences influence)
@@ -333,12 +349,24 @@ internal static class PsxSkinnedGeometryWriter
         }
 
         var texCoord = face.GetTextureCoordinate(slot);
+        var psxPrimitiveFlags = Vector3.Zero;
+        if (psxPacketColor.HasValue)
+        {
+            var texturedFlag = face.IsTextured &&
+                               (face.TextureHash != 0 || !face.IsSemiTransparent)
+                ? 1f
+                : 0f;
+            var gouraudFlag = face.IsGouraud ? 1f : 0f;
+            psxPrimitiveFlags = new Vector3(texturedFlag, gouraudFlag, 1f);
+        }
         var vertex = new ModelVertex(
             PsxMeshSemantics.ToGltfPosition(worldPosition),
             normal,
             color,
             PsxGeometryHelpers.ComputePsxTextureUv(psxFile.Version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height))
         {
+            PsxPacketColor = psxPacketColor,
+            PsxPrimitiveFlags = psxPrimitiveFlags,
             TextureWibble = ModelTextureWibble.FromFace(psxFile.Version, face, slot, texDims)
         };
 

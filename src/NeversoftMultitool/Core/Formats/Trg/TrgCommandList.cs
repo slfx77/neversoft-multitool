@@ -323,6 +323,8 @@ public static class TrgCommandList
                 case 0x2200: // V_COLLISION_COUNT
                 case 0x4105: // C_READ_LABELS
                 case 0x4107: // C_STOP
+                case 0x4117: // C_IF_WHAT_IF
+                case 0x4119: // C_IF_INVULNERABLE
                 case 0x4120: // C_ENDIF
                 case 0x4203: // C_DISPLAY_ON
                 case 0x4204: // C_DISPLAY_OFF
@@ -339,6 +341,11 @@ public static class TrgCommandList
                 case 0x4300: // C_WAIT_FOR_COLLISION
                 case 0x4301: // C_SHATTER
                 case 0x4509: // C_STOP_LOOPING_SFX
+                    break;
+
+                case 0x4118: // C_IF_SPATIAL — two int16 operands
+                    if (reader.BaseStream.Position + 4 <= endPos)
+                        op.Value = new object[] { reader.ReadInt16(), reader.ReadInt16() };
                     break;
 
                 // Opcodes that take a script value (recursive-ish in the reference impl)

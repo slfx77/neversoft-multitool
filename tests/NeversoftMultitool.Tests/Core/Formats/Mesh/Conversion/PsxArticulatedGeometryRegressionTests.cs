@@ -579,10 +579,24 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
                 static face => face.IsQuad ? 2 : 1));
         Assert.Equal(384, initiallyHiddenTriangles);
 
+        var objectEntry = fixture.Source.Backend.FindEntry("l8a4_o.psx");
+        Assert.NotNull(objectEntry);
+        var objectDocument = Parse(
+            new ArchiveAssetSource(fixture.Source.Backend, objectEntry!),
+            "l8a4_o.psx");
+        Assert.Equal(766, objectDocument.TriangleCount);
+
         var document = Parse(fixture.Source, "l8a4_g.psx");
         // With a single unambiguous restart, apply the whole authored default
         // state: Kevin_ plus the A/B/C/D On/Glowing alternates start hidden.
-        Assert.Equal(452, document.TriangleCount);
+        // Opening the geometry entry also instantiates the PLATFORM references
+        // from the level-object bank, which remains independently openable
+        // above as a set of model definitions.
+        Assert.Equal(1_488, document.TriangleCount);
+        const int placedObjectTriangleCount = 1_036;
+        Assert.Equal(
+            placedObjectTriangleCount,
+            document.TriangleCount - (authoredTriangleCount - initiallyHiddenTriangles));
         Assert.DoesNotContain(document.Textures,
             static texture => texture.NativeChecksum == 0x7398654Bu);
         Assert.Contains(document.Textures,
@@ -622,7 +636,9 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
                 static group => group.Id,
                 static _ => true,
                 StringComparer.Ordinal));
-        Assert.Equal(authoredTriangleCount, allAuthoredGeometry.TriangleCount);
+        Assert.Equal(
+            authoredTriangleCount + placedObjectTriangleCount,
+            allAuthoredGeometry.TriangleCount);
     }
 
     [Fact]

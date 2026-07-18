@@ -15,6 +15,7 @@ internal struct PsxAnimatedVertexColor1Texture1 :
     IEquatable<PsxAnimatedVertexColor1Texture1>
 {
     internal const string ColorAttributeName = "_PSX_COLOR_0";
+    internal const string FlagsAttributeName = "_PSX_FLAGS_0";
     internal const string MotionAttributeName = "_PSX_UV_WIBBLE_0";
     internal const string WaveAttributeName = "_PSX_UV_WIBBLE_1";
     internal const string SizeAttributeName = "_PSX_UV_WIBBLE_2";
@@ -25,6 +26,7 @@ internal struct PsxAnimatedVertexColor1Texture1 :
             DimensionType.VEC4, EncodingType.UNSIGNED_SHORT, true)),
         new("TEXCOORD_0", new AttributeFormat(DimensionType.VEC2)),
         new(ColorAttributeName, new AttributeFormat(DimensionType.VEC4)),
+        new(FlagsAttributeName, new AttributeFormat(DimensionType.VEC3)),
         new(MotionAttributeName, new AttributeFormat(DimensionType.VEC4)),
         new(WaveAttributeName, new AttributeFormat(DimensionType.VEC4)),
         new(SizeAttributeName, new AttributeFormat(DimensionType.VEC2))
@@ -33,6 +35,7 @@ internal struct PsxAnimatedVertexColor1Texture1 :
     private static readonly string[] CustomAttributeNames =
     [
         ColorAttributeName,
+        FlagsAttributeName,
         MotionAttributeName,
         WaveAttributeName,
         SizeAttributeName
@@ -41,7 +44,8 @@ internal struct PsxAnimatedVertexColor1Texture1 :
     internal PsxAnimatedVertexColor1Texture1(ModelVertex vertex)
     {
         PortableColor = Vector4.Clamp(vertex.Color, Vector4.Zero, Vector4.One);
-        PsxColor = vertex.Color;
+        PsxColor = vertex.PsxPacketColor ?? vertex.Color;
+        PsxFlags = vertex.PsxPrimitiveFlags;
         TexCoord = vertex.TexCoord;
 
         if (vertex.TextureWibble is { } wibble)
@@ -68,6 +72,7 @@ internal struct PsxAnimatedVertexColor1Texture1 :
 
     public Vector4 PortableColor;
     public Vector4 PsxColor;
+    public Vector3 PsxFlags;
     public Vector2 TexCoord;
     public Vector4 Motion;
     public Vector4 Wave;
@@ -111,6 +116,7 @@ internal struct PsxAnimatedVertexColor1Texture1 :
         value = attributeName switch
         {
             ColorAttributeName => PsxColor,
+            FlagsAttributeName => PsxFlags,
             MotionAttributeName => Motion,
             WaveAttributeName => Wave,
             SizeAttributeName => TextureSize,
@@ -126,6 +132,9 @@ internal struct PsxAnimatedVertexColor1Texture1 :
             case (ColorAttributeName, Vector4 color):
                 PsxColor = color;
                 break;
+            case (FlagsAttributeName, Vector3 flags):
+                PsxFlags = flags;
+                break;
             case (MotionAttributeName, Vector4 motion):
                 Motion = motion;
                 break;
@@ -140,7 +149,7 @@ internal struct PsxAnimatedVertexColor1Texture1 :
 
     public readonly void Validate()
     {
-        if (!IsFinite(PortableColor) || !IsFinite(PsxColor) ||
+        if (!IsFinite(PortableColor) || !IsFinite(PsxColor) || !IsFinite(PsxFlags) ||
             !IsFinite(TexCoord) || !IsFinite(Motion) ||
             !IsFinite(Wave) || !IsFinite(TextureSize))
         {
@@ -174,6 +183,7 @@ internal struct PsxAnimatedVertexColor1Texture1 :
     {
         return PortableColor.Equals(other.PortableColor)
                && PsxColor.Equals(other.PsxColor)
+               && PsxFlags.Equals(other.PsxFlags)
                && TexCoord.Equals(other.TexCoord)
                && Motion.Equals(other.Motion)
                && Wave.Equals(other.Wave)
@@ -187,13 +197,19 @@ internal struct PsxAnimatedVertexColor1Texture1 :
 
     public override readonly int GetHashCode()
     {
-        var first = HashCode.Combine(PortableColor, PsxColor, TexCoord, Motion);
+        var first = HashCode.Combine(PortableColor, PsxColor, PsxFlags, TexCoord, Motion);
         return HashCode.Combine(first, Wave, TextureSize);
     }
 
     private static bool IsFinite(Vector2 value)
     {
         return float.IsFinite(value.X) && float.IsFinite(value.Y);
+    }
+
+    private static bool IsFinite(Vector3 value)
+    {
+        return float.IsFinite(value.X) && float.IsFinite(value.Y) &&
+               float.IsFinite(value.Z);
     }
 
     private static bool IsFinite(Vector4 value)

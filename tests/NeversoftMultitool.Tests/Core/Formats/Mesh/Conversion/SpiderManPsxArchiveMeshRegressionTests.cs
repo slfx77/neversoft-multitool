@@ -17,8 +17,8 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
     private const string PcBuildName = "Spider-Man (2001-9-17, PC - Final)";
 
     [Theory]
-    [InlineData("l1a3_g.psx", 5036, 101)]
-    [InlineData("l2a1_g.psx", 8470, 100)]
+    [InlineData("l1a3_g.psx", 5134, 104)]
+    [InlineData("l2a1_g.psx", 8904, 120)]
     public void LevelMesh_FromCdWad_ResolvesCompanionTextures(
         string entryName,
         int expectedTriangles,
@@ -35,7 +35,21 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         var source = new ArchiveAssetSource(backend, entry!);
         var parsed = PsxMeshFile.Parse(source.ReadBytes());
         Assert.NotNull(parsed);
-        var usedTextureHashes = parsed.Meshes
+        var objectEntryName = Path.GetFileNameWithoutExtension(entryName)[..^2] + "_o.psx";
+        var objectBytes = source.TryReadCompanion(objectEntryName);
+        Assert.NotNull(objectBytes);
+        var objectLayer = PsxMeshFile.Parse(objectBytes!);
+        Assert.NotNull(objectLayer);
+        var objectPlacements = PsxLevelObjectPlacementResolver.Resolve(
+            source,
+            entryName,
+            objectLayer!);
+        var emittedObjectMeshes = objectPlacements.Keys
+            .Select(objectIndex => objectLayer!.Objects[objectIndex].MeshIndex)
+            .Distinct()
+            .Select(meshIndex => objectLayer!.Meshes[meshIndex]);
+        var usedTextureHashes = parsed!.Meshes
+            .Concat(emittedObjectMeshes)
             .SelectMany(static mesh => mesh.Faces)
             .Where(static face => face.IsTextured && face.TextureHash != 0)
             .Select(static face => face.TextureHash)
@@ -166,6 +180,44 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
     }
 
     [Fact]
+    public void L5A1_EnvironmentVisibilityDoesNotSuppressPlacedObjectBankGeometry()
+    {
+        var wadPath = paths.FindSampleFile(BuildName, "CD.WAD");
+        Assert.SkipWhen(wadPath == null, "Spider-Man PSX CD.WAD sample not available");
+
+        var backend = ArchiveAssetBackend.TryOpen(wadPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend!.FileSystem;
+        var entry = backend.FindEntry("l5a1_g.psx");
+        Assert.NotNull(entry);
+        var source = new ArchiveAssetSource(backend, entry!);
+
+        var document = ParseDocument(source, entry.Name);
+        Assert.Equal(7_149, document.TriangleCount);
+        Assert.Equal(14, document.VisibilityGroups.Count);
+        var billboard = Assert.Single(document.VisibilityGroups,
+            static group => group.Label.Equals("billboard_01", StringComparison.OrdinalIgnoreCase));
+        Assert.False(billboard.IsEnabled);
+
+        var shown = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = source,
+            FileName = entry.Name,
+            OutputStem = "l5a1_g",
+            SourceKind = ModelSourceKind.Psx,
+            VisibilityOverrides = new Dictionary<string, bool>(StringComparer.Ordinal)
+            {
+                [billboard.Id] = true
+            }
+        });
+
+        Assert.True(shown.TriangleCount > document.TriangleCount);
+        Assert.True(Assert.Single(shown.VisibilityGroups,
+            group => group.Id == billboard.Id).IsEnabled);
+        Assert.Equal(PlacedObjectTriangles(document), PlacedObjectTriangles(shown));
+    }
+
+    [Fact]
     public void Lda3_FromCdWad_DecodesEveryBillboardPaletteKeySlot()
     {
         const uint billboardTextureHash = 0x856A83ABu;
@@ -263,8 +315,8 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
                 static _ => true,
                 StringComparer.Ordinal)
         });
-        Assert.Equal(3838, allVisible.TriangleCount);
-        Assert.Equal(3828, document.TriangleCount);
+        Assert.Equal(4082, allVisible.TriangleCount);
+        Assert.Equal(4072, document.TriangleCount);
     }
 
     [Theory]
@@ -1052,6 +1104,20 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
             primitive.Vertices.GroupBy(static vertex => vertex.Position),
             static group => Assert.Single(
                 group.Select(static vertex => vertex.TexCoord).Distinct()));
+    }
+
+    private static (string Name, int Triangles)[] PlacedObjectTriangles(ModelDocument document)
+    {
+        return document.Nodes
+            .Where(static node =>
+                node.MeshIndex.HasValue &&
+                node.Name.StartsWith("objects_", StringComparison.Ordinal))
+            .Select(node => (
+                node.Name,
+                document.Meshes[node.MeshIndex!.Value].Primitives.Sum(
+                    static primitive => primitive.TriangleCount)))
+            .OrderBy(static item => item.Name, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static ModelDocument ParseDocument(AssetSource source, string fileName)

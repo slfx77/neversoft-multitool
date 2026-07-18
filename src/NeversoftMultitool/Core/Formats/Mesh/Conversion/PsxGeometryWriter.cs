@@ -33,7 +33,10 @@ internal static class PsxGeometryWriter
         PsxMeshFile? splineClawFile = null,
         MeshChecksumTextureResolver? splineClawTextureProvider = null,
         IReadOnlySet<int>? hiddenObjectIndices = null,
-        bool reconstructSplineAppendages = false)
+        bool reconstructSplineAppendages = false,
+        string nodeNamePrefix = "object",
+        PsxGeometryWriterContext? context = null,
+        IReadOnlyDictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>? objectPlacements = null)
     {
         if (PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(psxFile))
         {
@@ -46,18 +49,20 @@ internal static class PsxGeometryWriter
             return;
         }
 
-        var textureDims = new Dictionary<uint, (int Width, int Height)>();
-        var materialCache = new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>();
+        context ??= new PsxGeometryWriterContext();
+        var textureDims = context.TextureDimensions;
+        var materialCache = context.Materials;
         var coplanarOverlays = PsxCoplanarOverlayDetector.Find(psxFile);
-        var untexturedMaterial = ModelDocumentGeometryAdapter.AddMaterial(document, new RenderMaterial
-        {
-            Name = "untextured",
-            // Flat PS1 primitives already carry their final display RGB.  A
-            // grey material multiplier changes the authored colour a second
-            // time, so keep the material neutral.
-            BaseColor = Vector4.One,
-            DoubleSided = false
-        });
+        var untexturedMaterial = context.UntexturedMaterialIndex ??=
+            ModelDocumentGeometryAdapter.AddMaterial(document, new RenderMaterial
+            {
+                Name = "untextured",
+                // Flat PS1 primitives already carry their final display RGB.  A
+                // grey material multiplier changes the authored colour a second
+                // time, so keep the material neutral.
+                BaseColor = Vector4.One,
+                DoubleSided = false
+            });
 
         for (var objectIndex = 0; objectIndex < psxFile.Objects.Count; objectIndex++)
         {
@@ -67,23 +72,65 @@ internal static class PsxGeometryWriter
             if (hiddenObjectIndices?.Contains(objectIndex) == true)
                 continue;
 
-            var transform = Matrix4x4.CreateTranslation(
-                PsxMeshSemantics.ToGltfPosition(PsxMeshSemantics.GetObjectOffset(psxFile, obj)));
-            PopulatePsxMeshNode(
-                document,
-                psxFile,
-                objectIndex,
-                obj.MeshIndex,
-                $"object_{objectIndex:D3}",
-                transform,
-                materialCache,
-                textureDims,
-                untexturedMaterial,
-                textureProvider,
-                coplanarOverlays);
+            if (objectPlacements != null)
+            {
+                if (!objectPlacements.TryGetValue(objectIndex, out var placements))
+                    continue;
+
+                for (var placementIndex = 0; placementIndex < placements.Count; placementIndex++)
+                {
+                    var placement = placements[placementIndex];
+                    var nodeName = placements.Count == 1
+                        ? $"{nodeNamePrefix}_{objectIndex:D3}"
+                        : $"{nodeNamePrefix}_{objectIndex:D3}_node_{placement.TriggerNodeIndex:D3}";
+                    PopulatePsxMeshNode(
+                        document,
+                        psxFile,
+                        objectIndex,
+                        obj.MeshIndex,
+                        nodeName,
+                        placement.Transform,
+                        materialCache,
+                        textureDims,
+                        untexturedMaterial,
+                        textureProvider,
+                        coplanarOverlays);
+                }
+            }
+            else
+            {
+                var transform = Matrix4x4.CreateTranslation(
+                    PsxMeshSemantics.ToGltfPosition(PsxMeshSemantics.GetObjectOffset(psxFile, obj)));
+                PopulatePsxMeshNode(
+                    document,
+                    psxFile,
+                    objectIndex,
+                    obj.MeshIndex,
+                    $"{nodeNamePrefix}_{objectIndex:D3}",
+                    transform,
+                    materialCache,
+                    textureDims,
+                    untexturedMaterial,
+                    textureProvider,
+                    coplanarOverlays);
+            }
         }
 
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
+    }
+
+    internal sealed class PsxGeometryWriterContext
+    {
+        // Level geometry and object regions are loaded into one runtime hash
+        // namespace. Share their material cache so an identical native
+        // texture/render-state tuple remains one material in the assembled
+        // document, just as it is in the game.
+        internal Dictionary<uint, (int Width, int Height)> TextureDimensions { get; } = [];
+
+        internal Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>
+            Materials { get; } = [];
+
+        internal int? UntexturedMaterialIndex { get; set; }
     }
 
     private static void PopulatePsxMeshNode(
@@ -170,15 +217,35 @@ internal static class PsxGeometryWriter
         c1 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c1);
         c2 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c2);
         c3 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c3);
-        var isPs1TexturedModulation = version != 0x06 && face.IsTextured;
+        var isPs1 = version != 0x06;
+        var isPs1TexturedModulation = isPs1 && face.IsTextured;
+        // A semi-transparent zero-hash primitive has just been converted into
+        // an untextured display proxy. Every other textured PS1 colour is still
+        // in the native 128-neutral modulation domain at this point.
+        var packetUsesTexturedScale = face.IsTextured &&
+                                      (face.TextureHash != 0 || !face.IsSemiTransparent);
+        Vector4? p0 = isPs1
+            ? PsxGeometryHelpers.ToPsxPacketColor(c0, packetUsesTexturedScale)
+            : null;
+        Vector4? p1 = isPs1
+            ? PsxGeometryHelpers.ToPsxPacketColor(c1, packetUsesTexturedScale)
+            : null;
+        Vector4? p2 = isPs1
+            ? PsxGeometryHelpers.ToPsxPacketColor(c2, packetUsesTexturedScale)
+            : null;
+        Vector4? p3 = isPs1
+            ? PsxGeometryHelpers.ToPsxPacketColor(c3, packetUsesTexturedScale)
+            : null;
         c0 = PsxGeometryHelpers.DisplayRgbToLinear(c0, isPs1TexturedModulation);
         c1 = PsxGeometryHelpers.DisplayRgbToLinear(c1, isPs1TexturedModulation);
         c2 = PsxGeometryHelpers.DisplayRgbToLinear(c2, isPs1TexturedModulation);
         c3 = PsxGeometryHelpers.DisplayRgbToLinear(c3, isPs1TexturedModulation);
-        var v0 = MakePsxVertex(version, mesh, face, 0, c0, texDims);
-        var v1 = MakePsxVertex(version, mesh, face, 1, c1, texDims);
-        var v2 = MakePsxVertex(version, mesh, face, 2, c2, texDims);
-        var v3 = face.IsQuad ? MakePsxVertex(version, mesh, face, 3, c3, texDims) : default;
+        var v0 = MakePsxVertex(version, mesh, face, 0, c0, p0, texDims);
+        var v1 = MakePsxVertex(version, mesh, face, 1, c1, p1, texDims);
+        var v2 = MakePsxVertex(version, mesh, face, 2, c2, p2, texDims);
+        var v3 = face.IsQuad
+            ? MakePsxVertex(version, mesh, face, 3, c3, p3, texDims)
+            : default;
 
         if (face.IsSemiTransparent || isCoplanarOverlay)
         {
@@ -214,11 +281,28 @@ internal static class PsxGeometryWriter
         PsxFace face,
         int slot,
         Vector4 color,
+        Vector4? psxPacketColor,
         (int Width, int Height) texDims)
     {
         var vertexIndex = PsxGeometryHelpers.GetPsxFaceVertexIndex(face, slot);
+        var psxPrimitiveFlags = Vector3.Zero;
+        if (psxPacketColor.HasValue)
+        {
+            var texturedFlag = face.IsTextured &&
+                               (face.TextureHash != 0 || !face.IsSemiTransparent)
+                ? 1f
+                : 0f;
+            var gouraudFlag = face.IsGouraud ? 1f : 0f;
+            psxPrimitiveFlags = new Vector3(texturedFlag, gouraudFlag, 1f);
+        }
         if (vertexIndex >= mesh.Vertices.Count)
-            return new ModelVertex(Vector3.Zero, Vector3.UnitY, color, Vector2.Zero);
+        {
+            return new ModelVertex(Vector3.Zero, Vector3.UnitY, color, Vector2.Zero)
+            {
+                PsxPacketColor = psxPacketColor,
+                PsxPrimitiveFlags = psxPrimitiveFlags
+            };
+        }
 
         var nativeVertex = mesh.Vertices[(int)vertexIndex];
         var texCoord = face.GetTextureCoordinate(slot);
@@ -228,6 +312,8 @@ internal static class PsxGeometryWriter
             color,
             PsxGeometryHelpers.ComputePsxTextureUv(version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height))
         {
+            PsxPacketColor = psxPacketColor,
+            PsxPrimitiveFlags = psxPrimitiveFlags,
             TextureWibble = ModelTextureWibble.FromFace(version, face, slot, texDims)
         };
     }

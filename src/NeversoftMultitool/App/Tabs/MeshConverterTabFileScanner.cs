@@ -4,6 +4,7 @@ using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Collision;
 using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
@@ -582,6 +583,10 @@ internal static class MeshConverterTabFileScanner
                 MeshCount = psxFile.Meshes.Count,
                 PsxIsSuperModel = psxFile.IsSuperModel,
                 PsxFormatRevision = psxFile.FormatRevision,
+                HasSupportedLevelObjectCompanion =
+                    MeshCompanionResolver.HasSupportedLevelObjectCompanion(
+                        source,
+                        source.EntryName),
                 Source = source
             };
         }

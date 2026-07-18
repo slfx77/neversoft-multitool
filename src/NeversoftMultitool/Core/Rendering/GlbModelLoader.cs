@@ -83,9 +83,7 @@ internal static class GlbModelLoader
 
         // Read optional attributes
         var normalAccessor = prim.GetVertexAccessor("NORMAL");
-        var colorAccessor = prim.GetVertexAccessor(
-                                PsxOverbrightVertexColor1Texture1.AttributeName)
-                            ?? prim.GetVertexAccessor("COLOR_0");
+        var colorAccessor = ResolvePortableColorAccessor(prim);
         var jointsAccessor = prim.GetVertexAccessor("JOINTS_0");
         var weightsAccessor = prim.GetVertexAccessor("WEIGHTS_0");
 
@@ -201,9 +199,10 @@ internal static class GlbModelLoader
             }
         }
 
-        // Prefer the extended PSX multiplier when present. COLOR_0 remains a
-        // normalized fallback for other glTF consumers, while this renderer
-        // must retain values above one for PNG/GIF parity with the live view.
+        // The live WebGL viewer understands raw PS1 packet RGB. The software
+        // renderer does not emulate that GPU path, so it consumes the linear
+        // COLOR_0 fallback. Retain the legacy extended-colour path only for
+        // non-packet custom attributes that actually contain values above one.
         float[]? vertexColors = null;
         if (colorAccessor != null)
         {
@@ -301,6 +300,29 @@ internal static class GlbModelLoader
             AlphaMode = alphaMode,
             AlphaCutoff = alphaCutoff
         };
+    }
+
+    private static Accessor? ResolvePortableColorAccessor(MeshPrimitive primitive)
+    {
+        var portable = primitive.GetVertexAccessor("COLOR_0");
+        var custom = primitive.GetVertexAccessor(
+            PsxOverbrightVertexColor1Texture1.AttributeName);
+        if (custom == null)
+            return portable;
+
+        var flags = primitive.GetVertexAccessor(
+            PsxOverbrightVertexColor1Texture1.FlagsAttributeName);
+        if (flags?.AsVector3Array().Any(static value => value.Z >= 0.5f) == true)
+            return portable ?? custom;
+
+        var customColors = custom.AsVector4Array();
+        return customColors.Any(static color =>
+            color.X is < 0f or > 1f ||
+            color.Y is < 0f or > 1f ||
+            color.Z is < 0f or > 1f ||
+            color.W is < 0f or > 1f)
+            ? custom
+            : portable ?? custom;
     }
 
     private static void ApplyJointWeightNormal(ref Vector3 result, Vector3 normal,

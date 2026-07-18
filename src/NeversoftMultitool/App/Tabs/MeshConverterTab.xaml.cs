@@ -9,7 +9,7 @@ namespace NeversoftMultitool;
 
 /// <summary>
 ///     Merged mesh + character tab: one file list (with batch checkboxes), one
-///     3D viewer, and a tabbed right panel (Animations / Settings / Export).
+///     3D viewer, and a tabbed right panel (Animations / Display Settings / Export).
 ///     Selecting a skinned character resolves its skeleton and populates the
 ///     Animations pane; everything else previews statically.
 /// </summary>
@@ -225,6 +225,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         FileListCard.Visibility = hasFiles ? Visibility.Visible : Visibility.Collapsed;
         ConvertButton.IsEnabled = hasChecked && hasFormat;
         UpdateWorldzoneExportSettingsVisibility();
+        UpdateLevelObjectExportSettingsVisibility();
         UpdateRenderButtons();
     }
 
@@ -272,12 +273,17 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             : Visibility.Collapsed;
     }
 
-    private void UpdateWorldzoneSettingsVisibility(MeshFileEntry? entry)
+    private void UpdateDisplaySettingsVisibility(MeshFileEntry? entry)
     {
         WorldzoneViewportSettingsSection.Visibility = entry?.IsPakWorldzone == true
             ? Visibility.Visible
             : Visibility.Collapsed;
+        DisplayIncludeLevelObjectsCheckbox.Visibility =
+            entry?.HasSupportedLevelObjectCompanion == true
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         UpdateWorldzoneExportSettingsVisibility();
+        UpdateLevelObjectExportSettingsVisibility();
     }
 
     private void UpdateWorldzoneExportSettingsVisibility()
@@ -291,6 +297,17 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
         WorldzoneExportSettingsSection.Visibility = _items.Any(static entry =>
             entry.IsChecked && entry.IsPakWorldzone)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void UpdateLevelObjectExportSettingsVisibility()
+    {
+        if (ExportIncludeLevelObjectsCheckbox == null)
+            return;
+
+        ExportIncludeLevelObjectsCheckbox.Visibility = _items.Any(static entry =>
+            entry.IsChecked && entry.HasSupportedLevelObjectCompanion)
             ? Visibility.Visible
             : Visibility.Collapsed;
     }
@@ -420,7 +437,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             entry,
             worldzoneTimeOfDay,
             GetVisibilityOverridesSnapshot(entry),
-            preserveCamera);
+            preserveCamera,
+            includeLevelObjects: DisplayIncludeLevelObjectsCheckbox.IsChecked != false);
         if (!ReferenceEquals(FilesListView.SelectedItem, entry)) return;
 
         if (groups != null)
@@ -438,7 +456,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
         if (FilesListView.SelectedItem is not MeshFileEntry entry)
         {
-            UpdateWorldzoneSettingsVisibility(null);
+            UpdateDisplaySettingsVisibility(null);
             ResetVisibilityGroups(null);
             _animPanel.Reset("Select a skinned character to scan for animations.");
             if (_preview != null)
@@ -450,7 +468,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             return;
         }
 
-        UpdateWorldzoneSettingsVisibility(entry);
+        UpdateDisplaySettingsVisibility(entry);
         ResetVisibilityGroups(entry);
         _preview ??= new MeshConverterTabPreview(ModelViewer);
         await _preview.InitializeAsync();
@@ -677,7 +695,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             visibilityEntry: visibilityEntry,
             visibilityOverrides: visibilityEntry == null
                 ? null
-                : GetVisibilityOverridesSnapshot(visibilityEntry));
+                : GetVisibilityOverridesSnapshot(visibilityEntry),
+            includeLevelObjects: ShouldIncludeLevelObjectsInExport());
     }
 
     private async Task<(string OutputDirectory, string? OutputStem)?> PickConvertDestinationAsync(
@@ -771,6 +790,30 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             ? WorldzoneTimeOfDay.Night
             : WorldzoneTimeOfDay.Day;
 
+    private bool ShouldIncludeLevelObjectsInExport() =>
+        ExportIncludeLevelObjectsCheckbox.IsChecked != false;
+
+    private async void DisplayIncludeLevelObjectsCheckbox_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (FilesListView.SelectedItem is not MeshFileEntry
+            {
+                HasSupportedLevelObjectCompanion: true
+            } entry)
+        {
+            return;
+        }
+
+        await LoadStaticPreviewAsync(
+            entry,
+            entry.IsPakWorldzone
+                ? GetSelectedPreviewWorldzoneTimeOfDay()
+                : WorldzoneTimeOfDay.All,
+            preserveCamera: true);
+        UpdateRenderButtons();
+    }
+
     private async void WorldzoneTimeCombo_SelectionChanged(
         object sender, SelectionChangedEventArgs e)
     {
@@ -844,6 +887,9 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         var visibilityOverrides = selectedEntry == null
             ? null
             : GetVisibilityOverridesSnapshot(selectedEntry);
+        var includeLevelObjects = ShouldIncludeLevelObjectsInExport();
+        var selectedNeedsExportRebuild = selectedEntry?.IsPakWorldzone == true
+                                         || selectedEntry?.HasSupportedLevelObjectCompanion == true;
         IEnumerable<MeshFileEntry> worldzoneEntries = checkedEntries;
         if (checkedEntries.Count <= 1 && selectedEntry != null)
             worldzoneEntries = [selectedEntry];
@@ -867,7 +913,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             await _batchRunner.RenderPngBatchAsync(
                 checkedEntries, outputDir, size, azimuth, elevation, objectReview,
                 GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale,
-                selectedEntry, visibilityOverrides);
+                selectedEntry, visibilityOverrides,
+                includeLevelObjects: includeLevelObjects);
             return;
         }
 
@@ -878,11 +925,12 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             var outputDir = await FolderPickerHelper.PickFolderAsync();
             if (outputDir == null) return;
 
-            if (selectedEntry is { IsPakWorldzone: true })
+            if (selectedNeedsExportRebuild && selectedEntry != null)
             {
                 await _batchRunner.RenderPngEntryAsync(
                     selectedEntry, outputDir, GetSelectedStem(), size, azimuth, elevation, true,
-                    GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale, visibilityOverrides);
+                    GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale, visibilityOverrides,
+                    includeLevelObjects: includeLevelObjects);
             }
             else if (previewGlb != null)
             {
@@ -896,14 +944,15 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
                 await _batchRunner.RenderPngEntryAsync(
                     entry, outputDir, stem, size, azimuth, elevation, true,
                     GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale,
-                    ReferenceEquals(entry, selectedEntry) ? visibilityOverrides : null);
+                    ReferenceEquals(entry, selectedEntry) ? visibilityOverrides : null,
+                    includeLevelObjects: includeLevelObjects);
             }
 
             return;
         }
 
         var suggestedStem = "render";
-        if (previewGlb != null || selectedEntry is { IsPakWorldzone: true })
+        if (previewGlb != null || selectedNeedsExportRebuild)
             suggestedStem = GetSelectedStem();
         else if (checkedEntries.Count == 1)
             suggestedStem = MeshConverterTabFileScanner.StripCompoundExtension(checkedEntries[0].FileName);
@@ -916,13 +965,14 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         if (string.IsNullOrEmpty(singleOutputDir)) return;
         var outputStem = Path.GetFileNameWithoutExtension(outputPath);
 
-        if (selectedEntry is { IsPakWorldzone: true })
+        if (selectedNeedsExportRebuild && selectedEntry != null)
         {
-            // A worldzone's preview uses the viewport lighting choice. Rebuild it
-            // so the independent export lighting and scale controls apply.
+            // Worldzones and companion-backed levels have independent display
+            // and export settings, so rebuild instead of reusing the viewport GLB.
             await _batchRunner.RenderPngEntryAsync(
                 selectedEntry, singleOutputDir, outputStem, size, azimuth, elevation, false,
-                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale, visibilityOverrides);
+                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale, visibilityOverrides,
+                includeLevelObjects: includeLevelObjects);
         }
         else if (previewGlb != null)
         {
@@ -934,7 +984,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             await _batchRunner.RenderPngEntryAsync(
                 checkedEntries[0], singleOutputDir, outputStem, size, azimuth, elevation, false,
                 GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale,
-                ReferenceEquals(checkedEntries[0], selectedEntry) ? visibilityOverrides : null);
+                ReferenceEquals(checkedEntries[0], selectedEntry) ? visibilityOverrides : null,
+                includeLevelObjects: includeLevelObjects);
         }
     }
 
@@ -947,6 +998,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         var visibilityOverrides = selectedEntry == null
             ? null
             : GetVisibilityOverridesSnapshot(selectedEntry);
+        var includeLevelObjects = ShouldIncludeLevelObjectsInExport();
         IEnumerable<MeshFileEntry> worldzoneEntries = checkedEntries;
         if (checkedEntries.Count <= 1 && selectedEntry != null)
             worldzoneEntries = [selectedEntry];
@@ -980,7 +1032,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             await _batchRunner.RenderGifBatchAsync(
                 checkedEntries, outputDir, size, fps, azimuth, elevation,
                 GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale,
-                selectedEntry, visibilityOverrides);
+                selectedEntry, visibilityOverrides,
+                includeLevelObjects: includeLevelObjects);
         }
     }
 

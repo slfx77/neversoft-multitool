@@ -233,7 +233,7 @@
         </Border>
       </Grid>
 
-      <!-- Right: Animations / Settings / Export panes.
+      <!-- Right: Animations / Display Settings / Export panes.
            The SelectorBar's initial selection is set in the constructor —
            a XAML default would fire SelectionChanged mid-InitializeComponent. -->
       <Grid Grid.Column="4">
@@ -249,7 +249,7 @@
                          Margin="4,0,4,4"
                          SelectionChanged="PanelSelector_SelectionChanged">
               <SelectorBarItem x:Name="AnimationsPanelItem" Text="Animations" />
-              <SelectorBarItem x:Name="SettingsPanelItem" Text="Settings" />
+              <SelectorBarItem x:Name="SettingsPanelItem" Text="Display Settings" />
               <SelectorBarItem x:Name="ExportPanelItem" Text="Export" />
             </SelectorBar>
 
@@ -415,6 +415,14 @@
                             Spacing="8">
                   <TextBlock Text="Viewport"
                              FontWeight="SemiBold" />
+                  <CheckBox
+                    x:Name="DisplayIncludeLevelObjectsCheckbox"
+                    Content="Include level object"
+                    MinWidth="0"
+                    IsChecked="True"
+                    Visibility="Collapsed"
+                    ToolTipService.ToolTip="Include authored objects from the level's companion object file"
+                    Click="DisplayIncludeLevelObjectsCheckbox_Click" />
                   <Grid x:Name="WorldzoneViewportSettingsSection"
                         ColumnSpacing="8"
                         RowSpacing="8"
@@ -461,6 +469,13 @@
                             Spacing="8">
                   <TextBlock Text="Convert"
                              FontWeight="SemiBold" />
+                  <CheckBox
+                    x:Name="ExportIncludeLevelObjectsCheckbox"
+                    Content="Include level object"
+                    MinWidth="0"
+                    IsChecked="True"
+                    Visibility="Collapsed"
+                    ToolTipService.ToolTip="Include authored objects from companion object files in exported output" />
                   <StackPanel x:Name="WorldzoneExportSettingsSection"
                               Spacing="8"
                               Visibility="Collapsed">

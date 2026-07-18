@@ -77,7 +77,8 @@ internal sealed class MeshConverterTabPreview : IDisposable
         MeshFileEntry entry,
         WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
-        bool preserveCamera = false)
+        bool preserveCamera = false,
+        bool includeLevelObjects = true)
     {
         var cts = await ReplacePreviewCancellationAsync();
         if (cts == null) return null;
@@ -97,7 +98,8 @@ internal sealed class MeshConverterTabPreview : IDisposable
                 MeshConverterTabFileConverter.ConvertToGlbPreview(
                     entry,
                     worldzoneTimeOfDay,
-                    visibilityOverrides: visibilityOverrides), token);
+                    visibilityOverrides: visibilityOverrides,
+                    includeLevelObjects: includeLevelObjects), token);
 
             if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return null;
 

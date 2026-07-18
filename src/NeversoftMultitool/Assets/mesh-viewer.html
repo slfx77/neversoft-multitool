@@ -140,6 +140,8 @@
     let lastPostedTime = -1;
     let textureWibbleMeshes = [];
     let textureWibbleFrame = 0;
+    let psxGpuMaterials = [];
+    const psxDrawingBufferSize = new THREE.Vector2();
     const clock = new THREE.Clock();
 
     // rcossin_tbl samples used to construct the PS1 engine's 16 x 64
@@ -189,6 +191,7 @@
       const dt = clock.getDelta();
       if (mixer && playing) mixer.update(dt);
       updatePsxTextureWibbles(Math.min(dt, 0.1));
+      updatePsxGpuShaderUniforms();
       if (controlMode === 'orbit') updateOrbit(Math.min(dt, 0.1));
       else updateFlyWalk(Math.min(dt, 0.1)); // clamp tab-stall dt spikes
       renderer.render(scene, camera);
@@ -658,15 +661,201 @@
 
     let modelLoadGeneration = 0;
 
-    function applyPsxOverbrightVertexColors(root) {
+    function updatePsxGpuShaderUniforms() {
+      if (psxGpuMaterials.length === 0) return;
+      renderer.getDrawingBufferSize(psxDrawingBufferSize);
+      for (const material of psxGpuMaterials) {
+        const shader = material.userData.psxGpuShader;
+        if (shader) shader.uniforms.psxViewportHeight.value = psxDrawingBufferSize.y;
+      }
+    }
+
+    function configurePsxGpuVertexColors(root) {
+      psxGpuMaterials = [];
+      const materialStates = new Map();
       root.traverse(obj => {
         if (!obj.isMesh || !obj.geometry) return;
         // GLTFLoader preserves unknown glTF attributes by lowercasing their
-        // semantic. COLOR_0 remains a spec-valid, clamped fallback for other
-        // consumers; our viewer substitutes the original PS1 GPU multiplier.
+        // semantic. Keep its standard COLOR_0 binding intact: packet-valid
+        // flags select the native path, while synthetic/non-PS1 vertices keep
+        // the portable linear colour without any geometry mutation.
         const psxColor = obj.geometry.getAttribute('_psx_color_0');
-        if (psxColor) obj.geometry.setAttribute('color', psxColor);
+        const psxFlags = obj.geometry.getAttribute('_psx_flags_0');
+        if (!psxColor || !psxFlags || psxColor.count !== psxFlags.count) return;
+
+        let hasPacket = false;
+        let hasTexturedPacket = false;
+        for (let i = 0; i < psxFlags.count; i++) {
+          if (psxFlags.getZ(i) < 0.5) continue;
+          hasPacket = true;
+          if (psxFlags.getX(i) >= 0.5) {
+            hasTexturedPacket = true;
+            break;
+          }
+        }
+
+        const materials = Array.isArray(obj.material)
+          ? obj.material
+          : obj.material ? [obj.material] : [];
+        for (const material of materials) {
+          const state = materialStates.get(material) || {
+            hasPacket: false,
+            hasTexturedPacket: false
+          };
+          state.hasPacket ||= hasPacket;
+          state.hasTexturedPacket ||= hasTexturedPacket;
+          materialStates.set(material, state);
+        }
       });
+
+      for (const [material, state] of materialStates) {
+        if (!state.hasPacket) continue;
+        psxGpuMaterials.push(material);
+
+        // PS1 sampling is nearest-neighbour with no mip levels. Do not apply
+        // this to PC wibble or synthetic-only materials whose flags keep them
+        // on the portable path.
+        if (state.hasTexturedPacket && material.map) {
+          material.map.magFilter = THREE.NearestFilter;
+          material.map.minFilter = THREE.NearestFilter;
+          material.map.generateMipmaps = false;
+          material.map.needsUpdate = true;
+        }
+
+        const previousOnBeforeCompile = material.onBeforeCompile;
+        material.onBeforeCompile = function(shader, webglRenderer) {
+          previousOnBeforeCompile.call(this, shader, webglRenderer);
+          renderer.getDrawingBufferSize(psxDrawingBufferSize);
+          shader.uniforms.psxViewportHeight = { value: psxDrawingBufferSize.y };
+
+          // WebGL interpolates varyings perspective-correctly. Multiplying
+          // both custom attributes and a companion varying by clip W, then
+          // dividing them in the fragment shader, recovers the PS1 GPU's
+          // affine screen-space Gouraud interpolation. Standard vColor stays
+          // untouched for packet-invalid procedural and non-PS1 geometry.
+          shader.vertexShader = shader.vertexShader
+            .replace(
+              '#include <color_pars_vertex>',
+              `#include <color_pars_vertex>
+attribute vec4 _psx_color_0;
+attribute vec3 _psx_flags_0;
+varying vec4 vPsxPacketColorTimesW;
+varying vec3 vPsxFlagsTimesW;
+varying float vPsxClipW;`)
+            .replace(
+              '#include <project_vertex>',
+              `#include <project_vertex>
+vPsxPacketColorTimesW = _psx_color_0 * gl_Position.w;
+vPsxFlagsTimesW = _psx_flags_0 * gl_Position.w;
+vPsxClipW = gl_Position.w;`);
+
+          shader.fragmentShader = shader.fragmentShader
+            .replace(
+              '#include <color_pars_fragment>',
+              `#include <color_pars_fragment>
+uniform float psxViewportHeight;
+varying vec4 vPsxPacketColorTimesW;
+varying vec3 vPsxFlagsTimesW;
+varying float vPsxClipW;
+
+float psxLinearToSrgbChannel(float value) {
+  value = max(value, 0.0);
+  return value <= 0.0031308
+    ? value * 12.92
+    : 1.055 * pow(value, 1.0 / 2.4) - 0.055;
+}
+
+float psxSrgbToLinearChannel(float value) {
+  value = max(value, 0.0);
+  return value <= 0.04045
+    ? value / 12.92
+    : pow((value + 0.055) / 1.055, 2.4);
+}
+
+vec3 psxLinearToSrgb(vec3 value) {
+  return vec3(
+    psxLinearToSrgbChannel(value.r),
+    psxLinearToSrgbChannel(value.g),
+    psxLinearToSrgbChannel(value.b));
+}
+
+vec3 psxSrgbToLinear(vec3 value) {
+  return vec3(
+    psxSrgbToLinearChannel(value.r),
+    psxSrgbToLinearChannel(value.g),
+    psxSrgbToLinearChannel(value.b));
+}
+
+float psxDitherValue() {
+  float x = mod(floor(gl_FragCoord.x), 4.0);
+  float y = mod(floor(psxViewportHeight - gl_FragCoord.y), 4.0);
+  if (y < 1.0) {
+    if (x < 1.0) return -4.0;
+    if (x < 2.0) return 0.0;
+    if (x < 3.0) return -3.0;
+    return 1.0;
+  }
+  if (y < 2.0) {
+    if (x < 1.0) return 2.0;
+    if (x < 2.0) return -2.0;
+    if (x < 3.0) return 3.0;
+    return -1.0;
+  }
+  if (y < 3.0) {
+    if (x < 1.0) return -3.0;
+    if (x < 2.0) return 1.0;
+    if (x < 3.0) return -4.0;
+    return 0.0;
+  }
+  if (x < 1.0) return 3.0;
+  if (x < 2.0) return -1.0;
+  if (x < 3.0) return 2.0;
+  return -2.0;
+}
+
+vec3 psxQuantize5(vec3 display8, float ditherValue) {
+  return clamp(floor((display8 + vec3(ditherValue)) / 8.0), 0.0, 31.0) / 31.0;
+}`)
+            .replace(
+              '#include <color_fragment>',
+              `float psxSafeClipW = max(vPsxClipW, 0.000001);
+vec4 psxPacketColor = vPsxPacketColorTimesW / psxSafeClipW;
+vec3 psxFlags = vPsxFlagsTimesW / psxSafeClipW;
+if (psxFlags.z < 0.5) {
+  #if defined( USE_COLOR_ALPHA )
+    diffuseColor *= vColor;
+  #elif defined( USE_COLOR )
+    diffuseColor.rgb *= vColor;
+  #endif
+} else {
+  vec3 packet8 = floor(clamp(psxPacketColor.rgb, 0.0, 1.0) * 255.0 + 0.0001);
+  float ditherValue = psxDitherValue();
+  if (psxFlags.x >= 0.5) {
+    // Authored textured faces remain texture-modulated even when their image
+    // could not be resolved. A white 5-bit texel is the neutral missing-image
+    // fallback; treating packet RGB as flat colour halves neutral modulation.
+    vec3 texel5 = vec3(31.0);
+    #ifdef USE_MAP
+      texel5 = floor(clamp(psxLinearToSrgb(diffuseColor.rgb), 0.0, 1.0) * 31.0 + 0.5);
+    #endif
+    // Retail PS1 GPU v2: (5-bit texel * 8-bit packet colour) >> 4,
+    // followed by the 4x4 dither and conversion back to 5-bit display RGB.
+    vec3 modulated8 = floor(texel5 * packet8 / 16.0);
+    diffuseColor.rgb = psxSrgbToLinear(psxQuantize5(modulated8, ditherValue));
+  } else {
+    // Flat untextured primitives bypass dithering; authored Gouraud state is
+    // explicit instead of being guessed from screen-space derivatives.
+    float flatDither = psxFlags.y >= 0.5 ? ditherValue : 0.0;
+    diffuseColor.rgb = psxSrgbToLinear(psxQuantize5(packet8, flatDither));
+  }
+  diffuseColor.a *= clamp(psxPacketColor.a, 0.0, 1.0);
+}`);
+
+          material.userData.psxGpuShader = shader;
+        };
+        material.customProgramCacheKey = () => 'psx-gpu-color-v2';
+        material.needsUpdate = true;
+      }
     }
 
     function configurePsxTextureWibbles(root) {
@@ -769,6 +958,7 @@
       activeAction = null;
       clips = [];
       textureWibbleMeshes = [];
+      psxGpuMaterials = [];
       textureWibbleFrame = 0;
       if (modelRoot) {
         scene.remove(modelRoot);
@@ -885,7 +1075,7 @@
             return;
           }
           modelRoot = gltf.scene;
-          applyPsxOverbrightVertexColors(modelRoot);
+          configurePsxGpuVertexColors(modelRoot);
           configurePsxTextureWibbles(modelRoot);
           applyNativeMaterialBlending(modelRoot);
           scene.add(modelRoot);

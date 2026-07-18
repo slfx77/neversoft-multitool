@@ -235,6 +235,31 @@ public sealed class PsxGeometryHelpersTests
     }
 
     [Fact]
+    public void ToPsxPacketColor_RecoversTexturedPacketBytesAndPreservesAlpha()
+    {
+        var packet = PsxGeometryHelpers.ToPsxPacketColor(
+            new Vector4(144f / 128f, 119f / 128f, 223f / 128f, 0.37f),
+            isTexturedModulation: true);
+
+        Assert.Equal(144f / 255f, packet.X, 6);
+        Assert.Equal(119f / 255f, packet.Y, 6);
+        Assert.Equal(223f / 255f, packet.Z, 6);
+        Assert.Equal(0.37f, packet.W);
+    }
+
+    [Fact]
+    public void ToPsxPacketColor_LeavesUntexturedDisplayRgbUnchanged()
+    {
+        var display = new Vector4(17f / 255f, 89f / 255f, 201f / 255f, 0.5f);
+
+        var packet = PsxGeometryHelpers.ToPsxPacketColor(
+            display,
+            isTexturedModulation: false);
+
+        Assert.Equal(display, packet);
+    }
+
+    [Fact]
     public void DisplayRgbToLinear_Ps1TexturedModulationPreservesNeutralGreyEdgeAndOverbrightRange()
     {
         var paletteDisplay = new Vector4(144f / 255f, 119f / 255f, 223f / 255f, 1f);

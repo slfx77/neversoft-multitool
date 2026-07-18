@@ -256,6 +256,27 @@ internal static class PsxGeometryHelpers
             color.W);
     }
 
+    /// <summary>
+    ///     Recovers the raw PS1 packet bytes from the native-domain colour
+    ///     returned by <see cref="ComputePsxFaceColors(ushort, PsxMesh, PsxFace, Vector4[])" />.
+    ///     Textured primitives use 128 as the neutral multiplier, whereas
+    ///     untextured primitives already use ordinary 0..255 display RGB.
+    /// </summary>
+    internal static Vector4 ToPsxPacketColor(
+        Vector4 color,
+        bool isTexturedModulation)
+    {
+        if (!isTexturedModulation)
+            return color;
+
+        const float modulationToByteScale = 128f / 255f;
+        return new Vector4(
+            color.X * modulationToByteScale,
+            color.Y * modulationToByteScale,
+            color.Z * modulationToByteScale,
+            color.W);
+    }
+
     private static float SrgbChannelToLinear(float value)
     {
         // Preserve extended multipliers in the intermediate model. PS1

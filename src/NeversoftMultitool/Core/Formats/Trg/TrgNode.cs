@@ -22,6 +22,7 @@ public sealed class TrgNode
     public uint? Checksum { get; set; }
     public int? SubType { get; set; }
     public string? SubTypeName { get; set; }
+    public List<byte>? BaddyFlags { get; set; }
     public int? CameraRadius { get; set; }
     public int? CameraMode { get; set; }
     public string? CameraModeName { get; set; }
@@ -132,15 +133,15 @@ public sealed class TrgNode
         return node;
     }
 
-    private static List<int> ReadLinks(BinaryReader reader)
+    private static List<int> ReadLinks(BinaryReader reader, bool align = true)
     {
         var count = reader.ReadUInt16();
         var links = new List<int>(count);
         for (var i = 0; i < count; i++)
             links.Add(reader.ReadUInt16());
 
-        // Align to 4-byte boundary
-        AlignTo4(reader);
+        if (align)
+            AlignTo4(reader);
         return links;
     }
 
@@ -153,11 +154,22 @@ public sealed class TrgNode
 
     private static TrgPosition ReadPosition(BinaryReader reader)
     {
+        // TRG positions are serialized as whole engine/model units. Runtime
+        // SquirtPos/Trig_GetPosition shifts each component left by 12 when it
+        // copies it into a 20.12 CVector. Keep the legacy decoded properties
+        // stable for JSON consumers, but retain the exact integers for code
+        // which needs to reproduce runtime placement.
+        var rawX = reader.ReadInt32();
+        var rawY = reader.ReadInt32();
+        var rawZ = reader.ReadInt32();
         return new TrgPosition
         {
-            X = reader.ReadInt32() / 4096.0,
-            Y = reader.ReadInt32() / 4096.0,
-            Z = reader.ReadInt32() / 4096.0
+            RawX = rawX,
+            RawY = rawY,
+            RawZ = rawZ,
+            X = rawX / 4096.0,
+            Y = rawY / 4096.0,
+            Z = rawZ / 4096.0
         };
     }
 
@@ -169,6 +181,9 @@ public sealed class TrgNode
         var rawZ = reader.ReadInt16();
         return new TrgAngles
         {
+            RawX = rawX,
+            RawY = rawY,
+            RawZ = rawZ,
             X = Math.Round(rawX * 360.0 / 4096.0, 2),
             Y = Math.Round(rawY * 360.0 / 4096.0, 2),
             Z = Math.Round(rawZ * 360.0 / 4096.0, 2)
@@ -252,26 +267,17 @@ public sealed class TrgNode
 
         var priority = reader.ReadUInt16();
 
-        if (priority == 0x1001)
+        if (priority is 0x1000 or 0x1001)
         {
-            // Simple placement
-            node.Links = ReadLinks(reader);
-            node.Position = ReadPosition(reader);
-            node.Angles = ReadAngles(reader);
-
-            var remaining = (int)(startPos + nodeSize - reader.BaseStream.Position);
-            if (remaining > 2)
-                node.Script = TrgCommandList.ParseScript(reader, remaining);
-        }
-        else if (priority == 0x1000)
-        {
-            // Full baddy with script
-            // Ghidra: flags are a byte array terminated by 0xFF:
-            //   flag 2 = initially active, flag 4 = initially invisible
-            //   v4/v5 are packed flag bytes (e.g., 0x0200 = [0x00, 0x02], 0xFF04 = [0x04, 0xFF])
-            node.Links = ReadLinks(reader);
-            reader.ReadUInt16(); // flag bytes (packed): active/visible state
-            reader.ReadUInt16(); // flag bytes (packed): 0xFF terminator + next byte
+            // Runtime type-1/type-7 parsing always reads a byte flag list
+            // immediately after the links, regardless of priority, and only
+            // aligns after the 0xFF terminator. Flag 1 creates type-1 baddies
+            // during the level-start scan; flag 2 places a created baddy on
+            // the active list; without it Trig_CreateObject
+            // immediately moves the instance to SuspendedList. Flag 4 clears
+            // distance-based autosuspension; it is not a visibility bit.
+            node.Links = ReadLinks(reader, align: false);
+            node.BaddyFlags = ReadBaddyFlags(reader, startPos + nodeSize);
             AlignTo4(reader);
             node.Position = ReadPosition(reader);
             node.Angles = ReadAngles(reader);
@@ -288,6 +294,20 @@ public sealed class TrgNode
             if (remaining >= 12)
                 node.Position = ReadPosition(reader);
         }
+    }
+
+    private static List<byte> ReadBaddyFlags(BinaryReader reader, long endPosition)
+    {
+        var flags = new List<byte>();
+        while (reader.BaseStream.Position < endPosition)
+        {
+            var flag = reader.ReadByte();
+            if (flag == byte.MaxValue)
+                break;
+            flags.Add(flag);
+        }
+
+        return flags;
     }
 
     private static void ParseTrickOrGoalOb(BinaryReader reader, TrgNode node, bool isSpiderMan)

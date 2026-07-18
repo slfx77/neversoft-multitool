@@ -42,6 +42,11 @@ public class MeshFileEntry : BaseFileEntry
     // used for format-scale viewer tuning (notably Apocalypse v3 levels).
     internal PsxMeshFormatRevision PsxFormatRevision { get; init; }
 
+    // True only when the scanner found a companion that the current parser can
+    // assemble with this mesh. Unsupported formats remain false even if they
+    // happen to use a similarly named sibling file.
+    internal bool HasSupportedLevelObjectCompanion { get; init; }
+
     internal bool IsPlacedLevel => HasPlacedPsxCompanion;
 
     internal bool IsPsx => Format == "PSX";

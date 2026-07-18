@@ -322,7 +322,7 @@ public sealed class GltfModelExporter : IModelExporter
         if (HasTextureWibble(modelMesh))
             return AddPsxAnimatedRigidMesh(scene, modelMesh, materials, worldTransform);
 
-        if (HasOutOfRangeVertexColor(modelMesh))
+        if (HasPsxPacketColor(modelMesh) || HasOutOfRangeVertexColor(modelMesh))
             return AddPsxOverbrightRigidMesh(scene, modelMesh, materials, worldTransform);
 
         var mesh = new MeshBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexEmpty>(modelMesh.Name);
@@ -347,7 +347,7 @@ public sealed class GltfModelExporter : IModelExporter
         if (HasTextureWibble(modelMesh))
             return AddPsxAnimatedSkinnedMesh(scene, modelMesh, materials, skeletonJoints);
 
-        if (HasOutOfRangeVertexColor(modelMesh))
+        if (HasPsxPacketColor(modelMesh) || HasOutOfRangeVertexColor(modelMesh))
             return AddPsxOverbrightSkinnedMesh(scene, modelMesh, materials, skeletonJoints);
 
         var mesh = new MeshBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexJoints4>(modelMesh.Name);
@@ -478,6 +478,12 @@ public sealed class GltfModelExporter : IModelExporter
                 vertex.Color.Y is < 0f or > 1f ||
                 vertex.Color.Z is < 0f or > 1f ||
                 vertex.Color.W is < 0f or > 1f));
+    }
+
+    private static bool HasPsxPacketColor(ModelMesh mesh)
+    {
+        return mesh.Primitives.Any(static primitive =>
+            primitive.Vertices.Any(static vertex => vertex.PsxPacketColor.HasValue));
     }
 
     private static bool HasTextureWibble(ModelMesh mesh)
@@ -667,7 +673,7 @@ public sealed class GltfModelExporter : IModelExporter
     {
         return new PsxOverbrightGltfVertex(
             new VertexPositionNormal(vertex.Position, vertex.Normal),
-            new PsxOverbrightVertexColor1Texture1(vertex.Color, vertex.TexCoord));
+            new PsxOverbrightVertexColor1Texture1(vertex));
     }
 
     private static int AddSkinnedTriangles(
@@ -786,7 +792,7 @@ public sealed class GltfModelExporter : IModelExporter
     {
         return new PsxOverbrightGltfSkinnedVertex(
             new VertexPositionNormal(vertex.Position, vertex.Normal),
-            new PsxOverbrightVertexColor1Texture1(vertex.Color, vertex.TexCoord),
+            new PsxOverbrightVertexColor1Texture1(vertex),
             new VertexJoints4(
                 (influences.Joint0, influences.Weight0),
                 (influences.Joint1, influences.Weight1),

@@ -47,7 +47,8 @@ internal sealed class MeshConverterTabBatchRunner(
         MeshOutputFormat outputFormat,
         string? singleOutputStem = null,
         MeshFileEntry? visibilityEntry = null,
-        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
+        bool includeLevelObjects = true)
     {
         var cts = await BeginOperationAsync();
 
@@ -86,6 +87,7 @@ internal sealed class MeshConverterTabBatchRunner(
                         visibilityOverrides: ReferenceEquals(entry, visibilityEntry)
                             ? visibilityOverrides
                             : null,
+                        includeLevelObjects: includeLevelObjects,
                         cancellationToken: token);
                     Interlocked.Add(ref totalTriangles, result.Triangles);
                     Interlocked.Increment(ref totalConverted);
@@ -136,7 +138,8 @@ internal sealed class MeshConverterTabBatchRunner(
         WorldzoneTimeOfDay worldzoneTimeOfDay,
         float worldzoneScale,
         MeshFileEntry? visibilityEntry = null,
-        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
+        bool includeLevelObjects = true)
     {
         var cts = await BeginOperationAsync();
         var token = cts.Token;
@@ -157,7 +160,8 @@ internal sealed class MeshConverterTabBatchRunner(
                         entry,
                         worldzoneTimeOfDay,
                         worldzoneScale,
-                        ReferenceEquals(entry, visibilityEntry) ? visibilityOverrides : null);
+                        ReferenceEquals(entry, visibilityEntry) ? visibilityOverrides : null,
+                        includeLevelObjects);
                     if (glb == null || glb.Length == 0)
                     {
                         skipped++;
@@ -238,7 +242,8 @@ internal sealed class MeshConverterTabBatchRunner(
         bool objectReview,
         WorldzoneTimeOfDay worldzoneTimeOfDay,
         float worldzoneScale,
-        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
+        bool includeLevelObjects = true)
     {
         var cts = await BeginOperationAsync();
         try
@@ -246,7 +251,11 @@ internal sealed class MeshConverterTabBatchRunner(
             var outputs = await Task.Run(() =>
             {
                 var (glb, _) = MeshConverterTabFileConverter.ConvertToGlbBytes(
-                    entry, worldzoneTimeOfDay, worldzoneScale, visibilityOverrides);
+                    entry,
+                    worldzoneTimeOfDay,
+                    worldzoneScale,
+                    visibilityOverrides,
+                    includeLevelObjects);
                 if (glb == null || glb.Length == 0)
                     throw new InvalidOperationException("The selected mesh produced no geometry.");
 
@@ -286,7 +295,8 @@ internal sealed class MeshConverterTabBatchRunner(
         WorldzoneTimeOfDay worldzoneTimeOfDay,
         float worldzoneScale,
         MeshFileEntry? visibilityEntry = null,
-        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
+        bool includeLevelObjects = true)
     {
         var cts = await BeginOperationAsync();
         var token = cts.Token;
@@ -307,7 +317,8 @@ internal sealed class MeshConverterTabBatchRunner(
                         entry,
                         worldzoneTimeOfDay,
                         worldzoneScale,
-                        ReferenceEquals(entry, visibilityEntry) ? visibilityOverrides : null);
+                        ReferenceEquals(entry, visibilityEntry) ? visibilityOverrides : null,
+                        includeLevelObjects);
                     if (glb == null || glb.Length == 0 || !GlbHasAnimations(glb))
                     {
                         skipped++;

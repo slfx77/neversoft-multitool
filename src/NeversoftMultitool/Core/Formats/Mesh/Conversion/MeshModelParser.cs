@@ -202,11 +202,16 @@ public sealed class MeshModelParser : IModelParser
             }
         }
 
+        var geometryContext = new PsxGeometryWriter.PsxGeometryWriterContext();
         PsxGeometryWriter.PopulatePsx(
             document, psxFile, textureProvider, pshFile,
             forceFlatSkeleton, request.PsxFlatBoneIndices, splineClawFile,
             splineClawTextureProvider, visibility.HiddenObjectIndices,
-            reconstructSplineAppendages);
+            reconstructSplineAppendages, context: geometryContext);
+
+        if (request.IncludeLevelObjects
+            && !PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(psxFile))
+            PopulatePsxLevelObjectCompanion(document, request, geometryContext);
 
         if (request.PsxAnimationOptions is { } animationOptions
             && document.Skeletons.Count > 0)
@@ -242,6 +247,62 @@ public sealed class MeshModelParser : IModelParser
         }
 
         return document;
+    }
+
+    /// <summary>
+    ///     Spider-Man levels attach <c>*_g.psx</c> as environment geometry and
+    ///     spool <c>*_o.psx</c> as a model bank. PLATFORM nodes in sibling TRG
+    ///     data supply the runtime position, rotation, and model checksum. The
+    ///     bank's object-table transforms are definitions rather than authored
+    ///     instances and must never be appended wholesale.
+    /// </summary>
+    private static void PopulatePsxLevelObjectCompanion(
+        ModelDocument document,
+        MeshImportRequest request,
+        PsxGeometryWriter.PsxGeometryWriterContext geometryContext)
+    {
+        if (!MeshCompanionResolver.TryGetPsxLevelObjectCompanionName(
+                request.FileName,
+                out var companionName))
+            return;
+
+        try
+        {
+            var companionBytes = request.Source.TryReadCompanion(companionName);
+            if (companionBytes == null)
+                return;
+
+            var companionFile = PsxMeshFile.Parse(companionBytes);
+            if (companionFile == null
+                || PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(companionFile))
+            {
+                return;
+            }
+
+            var companionTextureProvider = MeshCompanionResolver.BuildPsxTextureProvider(
+                request.Source, companionName, companionBytes);
+            var placements = PsxLevelObjectPlacementResolver.Resolve(
+                request.Source,
+                request.FileName,
+                companionFile);
+            if (placements.Count == 0)
+                return;
+
+            PsxGeometryWriter.PopulatePsx(
+                document,
+                companionFile,
+                companionTextureProvider,
+                nodeNamePrefix: "objects",
+                context: geometryContext,
+                objectPlacements: placements);
+        }
+        catch (Exception ex)
+        {
+            // The model bank is optional. A malformed or unrelated sibling
+            // must not prevent the selected geometry layer from opening.
+            System.Diagnostics.Debug.WriteLine(
+                $"Unable to parse optional PSX level-object companion: {ex.Message}");
+        }
     }
 
     /// <summary>

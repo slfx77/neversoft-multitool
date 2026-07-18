@@ -39,10 +39,15 @@ internal static class MeshConverterTabFileConverter
         MeshFileEntry entry,
         WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
         float worldzoneScale = 1f,
-        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
+        bool includeLevelObjects = true)
     {
         var (glbBytes, triangles, _) = ConvertToGlbPreview(
-            entry, worldzoneTimeOfDay, worldzoneScale, visibilityOverrides);
+            entry,
+            worldzoneTimeOfDay,
+            worldzoneScale,
+            visibilityOverrides,
+            includeLevelObjects);
         return (glbBytes, triangles);
     }
 
@@ -51,10 +56,15 @@ internal static class MeshConverterTabFileConverter
             MeshFileEntry entry,
             WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
             float worldzoneScale = 1f,
-            IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
+            IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
+            bool includeLevelObjects = true)
     {
         var document = Parser.Parse(CreateImportRequest(
-            entry, worldzoneTimeOfDay, worldzoneScale, visibilityOverrides));
+            entry,
+            worldzoneTimeOfDay,
+            worldzoneScale,
+            visibilityOverrides,
+            includeLevelObjects));
         var groups = document.VisibilityGroups.ToArray();
         var (glbBytes, triangles) = ModelExportService.BuildGlbBytes(document);
         return (glbBytes, triangles, groups);
@@ -69,10 +79,15 @@ internal static class MeshConverterTabFileConverter
         string? outputStem = null,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         string? blenderHelperPath = null,
+        bool includeLevelObjects = true,
         CancellationToken cancellationToken = default)
     {
         var document = Parser.Parse(CreateImportRequest(
-            entry, worldzoneTimeOfDay, worldzoneScale, visibilityOverrides));
+            entry,
+            worldzoneTimeOfDay,
+            worldzoneScale,
+            visibilityOverrides,
+            includeLevelObjects));
         return ModelExportService.Export(
             document,
             new MeshExportRequest
@@ -91,7 +106,8 @@ internal static class MeshConverterTabFileConverter
         MeshFileEntry entry,
         WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
         float worldzoneScale = 1f,
-        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
+        bool includeLevelObjects = true)
     {
         return new MeshImportRequest
         {
@@ -102,6 +118,7 @@ internal static class MeshConverterTabFileConverter
             Ps2SubFormat = entry.Ps2SubFormat,
             HasPlacedPsxCompanion = entry.HasPlacedPsxCompanion,
             VisibilityOverrides = visibilityOverrides,
+            IncludeLevelObjects = includeLevelObjects,
             WorldzoneTimeOfDay = worldzoneTimeOfDay,
             WorldzoneScale = worldzoneScale
         };

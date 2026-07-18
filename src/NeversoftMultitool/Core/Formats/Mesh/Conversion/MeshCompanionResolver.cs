@@ -34,6 +34,37 @@ internal static class MeshCompanionResolver
     private static readonly string[] RwTexExtensions = [".tex"];
     private static readonly string[] RwTexSubdirs = ["TEX", "Textures"];
 
+    /// <summary>
+    ///     Resolve the supported Spider-Man PSX level-object naming convention.
+    ///     Keeping this beside the other companion rules lets scanners and the
+    ///     parser use the same format gate.
+    /// </summary>
+    internal static bool TryGetPsxLevelObjectCompanionName(
+        string fileName,
+        out string companionName)
+    {
+        var extension = Path.GetExtension(fileName);
+        var stem = Path.GetFileNameWithoutExtension(fileName);
+        if (!extension.Equals(".psx", StringComparison.OrdinalIgnoreCase)
+            || !stem.EndsWith("_g", StringComparison.OrdinalIgnoreCase)
+            || stem.Length <= 2)
+        {
+            companionName = string.Empty;
+            return false;
+        }
+
+        companionName = stem[..^2] + "_o" + extension;
+        return true;
+    }
+
+    internal static bool HasSupportedLevelObjectCompanion(
+        AssetSource source,
+        string fileName)
+    {
+        return TryGetPsxLevelObjectCompanionName(fileName, out var companionName)
+               && source.CompanionExists(companionName);
+    }
+
     internal static Dictionary<string, byte[]>? LoadDdxCompanion(
         AssetSource source,
         string stem,

@@ -6,16 +6,17 @@ using SharpGLTF.Schema2;
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
 /// <summary>
-///     Transports a PS1 GPU colour multiplier without violating the normalized
-///     range required by glTF's standard <c>COLOR_0</c> semantic. Portable glTF
-///     consumers receive a clamped, normalized fallback; NeversoftMultitool's
-///     renderers prefer the original floating-point custom attribute.
+///     Transports raw PS1 GPU packet RGB without violating the normalized range
+///     required by glTF's standard <c>COLOR_0</c> semantic. Portable glTF
+///     consumers receive the linear fallback; NeversoftMultitool's live viewer
+///     uses the custom attribute for native display-domain interpolation.
 /// </summary>
 internal struct PsxOverbrightVertexColor1Texture1 :
     IVertexCustom,
     IEquatable<PsxOverbrightVertexColor1Texture1>
 {
     internal const string AttributeName = "_PSX_COLOR_0";
+    internal const string FlagsAttributeName = "_PSX_FLAGS_0";
 
     private static readonly KeyValuePair<string, AttributeFormat>[] EncodingAttributes =
     [
@@ -23,20 +24,25 @@ internal struct PsxOverbrightVertexColor1Texture1 :
             DimensionType.VEC4, EncodingType.UNSIGNED_SHORT, true)),
         new("TEXCOORD_0", new AttributeFormat(DimensionType.VEC2)),
         new(AttributeName, new AttributeFormat(
-            DimensionType.VEC4, EncodingType.FLOAT, false))
+            DimensionType.VEC4, EncodingType.FLOAT, false)),
+        new(FlagsAttributeName, new AttributeFormat(
+            DimensionType.VEC3, EncodingType.FLOAT, false))
     ];
 
-    private static readonly string[] CustomAttributeNames = [AttributeName];
+    private static readonly string[] CustomAttributeNames =
+        [AttributeName, FlagsAttributeName];
 
-    internal PsxOverbrightVertexColor1Texture1(Vector4 color, Vector2 texCoord)
+    internal PsxOverbrightVertexColor1Texture1(ModelVertex vertex)
     {
-        PortableColor = Vector4.Clamp(color, Vector4.Zero, Vector4.One);
-        PsxColor = color;
-        TexCoord = texCoord;
+        PortableColor = Vector4.Clamp(vertex.Color, Vector4.Zero, Vector4.One);
+        PsxColor = vertex.PsxPacketColor ?? vertex.Color;
+        PsxFlags = vertex.PsxPrimitiveFlags;
+        TexCoord = vertex.TexCoord;
     }
 
     public Vector4 PortableColor;
     public Vector4 PsxColor;
+    public Vector3 PsxFlags;
     public Vector2 TexCoord;
 
     public readonly int MaxColors => 1;
@@ -80,14 +86,27 @@ internal struct PsxOverbrightVertexColor1Texture1 :
             return true;
         }
 
+        if (attributeName == FlagsAttributeName)
+        {
+            value = PsxFlags;
+            return true;
+        }
+
         value = null;
         return false;
     }
 
     public void SetCustomAttribute(string attributeName, object value)
     {
-        if (attributeName == AttributeName && value is Vector4 color)
-            PsxColor = color;
+        switch (attributeName, value)
+        {
+            case (AttributeName, Vector4 color):
+                PsxColor = color;
+                break;
+            case (FlagsAttributeName, Vector3 flags):
+                PsxFlags = flags;
+                break;
+        }
     }
 
     public readonly void Validate()
@@ -96,6 +115,8 @@ internal struct PsxOverbrightVertexColor1Texture1 :
             !IsFinite(PortableColor.Z) || !IsFinite(PortableColor.W) ||
             !IsFinite(PsxColor.X) || !IsFinite(PsxColor.Y) ||
             !IsFinite(PsxColor.Z) || !IsFinite(PsxColor.W) ||
+            !IsFinite(PsxFlags.X) || !IsFinite(PsxFlags.Y) ||
+            !IsFinite(PsxFlags.Z) ||
             !IsFinite(TexCoord.X) || !IsFinite(TexCoord.Y))
         {
             throw new InvalidOperationException(
@@ -128,6 +149,7 @@ internal struct PsxOverbrightVertexColor1Texture1 :
     {
         return PortableColor.Equals(other.PortableColor)
                && PsxColor.Equals(other.PsxColor)
+               && PsxFlags.Equals(other.PsxFlags)
                && TexCoord.Equals(other.TexCoord);
     }
 
@@ -138,7 +160,7 @@ internal struct PsxOverbrightVertexColor1Texture1 :
 
     public override readonly int GetHashCode()
     {
-        return HashCode.Combine(PortableColor, PsxColor, TexCoord);
+        return HashCode.Combine(PortableColor, PsxColor, PsxFlags, TexCoord);
     }
 
     private static bool IsFinite(float value)
