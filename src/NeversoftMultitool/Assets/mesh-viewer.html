@@ -138,7 +138,23 @@
     let playing = false;
     let timeTimer = null;
     let lastPostedTime = -1;
+    let textureWibbleMeshes = [];
+    let textureWibbleFrame = 0;
     const clock = new THREE.Clock();
+
+    // rcossin_tbl samples used to construct the PS1 engine's 16 x 64
+    // texture-wibble table. Keeping the integer samples reproduces the native
+    // fixed-point result instead of substituting a subtly different host sine.
+    const PSX_WIBBLE_SINE = new Int16Array([
+      0, 401, 799, 1189, 1567, 1931, 2276, 2598,
+      2896, 3166, 3406, 3612, 3784, 3920, 4017, 4076,
+      4096, 4076, 4017, 3920, 3784, 3612, 3406, 3166,
+      2896, 2598, 2276, 1931, 1567, 1189, 799, 401,
+      0, -401, -799, -1189, -1567, -1931, -2276, -2598,
+      -2896, -3166, -3406, -3612, -3784, -3920, -4017, -4076,
+      -4096, -4076, -4017, -3920, -3784, -3612, -3406, -3166,
+      -2896, -2598, -2276, -1931, -1567, -1189, -799, -401
+    ]);
 
     function post(obj) {
       if (window.chrome && window.chrome.webview)
@@ -172,6 +188,7 @@
     renderer.setAnimationLoop(() => {
       const dt = clock.getDelta();
       if (mixer && playing) mixer.update(dt);
+      updatePsxTextureWibbles(Math.min(dt, 0.1));
       if (controlMode === 'orbit') updateOrbit(Math.min(dt, 0.1));
       else updateFlyWalk(Math.min(dt, 0.1)); // clamp tab-stall dt spikes
       renderer.render(scene, camera);
@@ -641,6 +658,82 @@
 
     let modelLoadGeneration = 0;
 
+    function applyPsxOverbrightVertexColors(root) {
+      root.traverse(obj => {
+        if (!obj.isMesh || !obj.geometry) return;
+        // GLTFLoader preserves unknown glTF attributes by lowercasing their
+        // semantic. COLOR_0 remains a spec-valid, clamped fallback for other
+        // consumers; our viewer substitutes the original PS1 GPU multiplier.
+        const psxColor = obj.geometry.getAttribute('_psx_color_0');
+        if (psxColor) obj.geometry.setAttribute('color', psxColor);
+      });
+    }
+
+    function configurePsxTextureWibbles(root) {
+      textureWibbleMeshes = [];
+      textureWibbleFrame = 0;
+      root.traverse(obj => {
+        if (!obj.isMesh || !obj.geometry) return;
+        const geometry = obj.geometry;
+        const uv = geometry.getAttribute('uv');
+        const motion = geometry.getAttribute('_psx_uv_wibble_0');
+        const wave = geometry.getAttribute('_psx_uv_wibble_1');
+        const size = geometry.getAttribute('_psx_uv_wibble_2');
+        if (!uv || !motion || !wave || !size ||
+            uv.count !== motion.count || uv.count !== wave.count || uv.count !== size.count) {
+          return;
+        }
+
+        const baseUv = new Float32Array(uv.count * 2);
+        for (let i = 0; i < uv.count; i++) {
+          baseUv[i * 2] = uv.getX(i);
+          baseUv[i * 2 + 1] = uv.getY(i);
+        }
+        textureWibbleMeshes.push({ uv, motion, wave, size, baseUv });
+      });
+    }
+
+    function psxWibbleSample(basePhase, phase, amplitude) {
+      const sampleIndex = ((basePhase + phase * 4) % 64 + 64) % 64;
+      // The native table stores (rcossin_tbl[sample] * amplitude) >> 4.
+      return (PSX_WIBBLE_SINE[sampleIndex] * amplitude) >> 4;
+    }
+
+    function updatePsxTextureWibbles(dt) {
+      if (textureWibbleMeshes.length === 0) return;
+      textureWibbleFrame = (textureWibbleFrame + dt * 60) % 0x100000;
+      const nativeFrame = Math.floor(textureWibbleFrame);
+
+      for (const entry of textureWibbleMeshes) {
+        const { uv, motion, wave, size, baseUv } = entry;
+        for (let i = 0; i < uv.count; i++) {
+          const baseU = baseUv[i * 2];
+          const baseV = baseUv[i * 2 + 1];
+          if (motion.getW(i) < 0.5) {
+            uv.setXY(i, baseU, baseV);
+            continue;
+          }
+
+          const width = Math.max(1, size.getX(i));
+          const height = Math.max(1, size.getY(i));
+          const frequency = Math.round(motion.getZ(i));
+          const basePhase = Math.floor(nativeFrame * frequency / 1024);
+          const uScroll = Math.floor(nativeFrame * motion.getX(i) / 16);
+          const vScroll = Math.floor(nativeFrame * motion.getY(i) / 16);
+          const uWibble = psxWibbleSample(
+            basePhase, Math.round(wave.getY(i)), Math.round(wave.getX(i)));
+          const vWibble = psxWibbleSample(
+            basePhase, Math.round(wave.getW(i)), Math.round(wave.getZ(i)));
+
+          uv.setXY(
+            i,
+            baseU + (uScroll + uWibble) / (256 * width),
+            baseV + (vScroll + vWibble) / (256 * height));
+        }
+        uv.needsUpdate = true;
+      }
+    }
+
     function applyNativeMaterialBlending(root) {
       root.traverse(obj => {
         const materials = Array.isArray(obj.material)
@@ -649,8 +742,8 @@
         for (const material of materials) {
           // PS1 ABR 1/3 are B+F and B+0.25F. Core glTF has no additive
           // blend mode, so the exporter identifies its portable alpha
-          // approximation in the material name. Restore the native equation
-          // in our three.js viewer: unlike normal source-alpha blending this
+          // approximation in the material name. Apply the closest three.js
+          // additive equation in our viewer: unlike normal source-alpha blending this
           // never darkens the destination behind fire, spotlights, or glows.
           if (!/__st[13](?:__2sided)?$/.test(material.name || '')) continue;
           material.transparent = true;
@@ -675,6 +768,8 @@
       }
       activeAction = null;
       clips = [];
+      textureWibbleMeshes = [];
+      textureWibbleFrame = 0;
       if (modelRoot) {
         scene.remove(modelRoot);
         disposeModel(modelRoot);
@@ -682,7 +777,92 @@
       }
     }
 
-    function loadModel(base64Glb, isLevel, eyeHeightHint) {
+    function captureCameraState() {
+      if (!modelRoot) return null;
+      return {
+        projectionMode: projectionMode,
+        controlMode: controlMode,
+        position: camera.position.toArray(),
+        quaternion: camera.quaternion.toArray(),
+        target: controls.target.toArray(),
+        orthoZoom: orthoCamera.zoom,
+        flySpeed: flySpeed,
+        walkSpeed: walkSpeed
+      };
+    }
+
+    function isFiniteArray(value, length) {
+      return Array.isArray(value)
+        && value.length === length
+        && value.every(Number.isFinite);
+    }
+
+    function restoreCameraState(state) {
+      if (!state
+          || !isFiniteArray(state.position, 3)
+          || !isFiniteArray(state.quaternion, 4)
+          || !isFiniteArray(state.target, 3)) {
+        return false;
+      }
+
+      projectionMode = state.projectionMode === 'perspective'
+        || state.projectionMode in PROJECTION_ELEVATION
+        ? state.projectionMode
+        : 'perspective';
+      controlMode = state.controlMode === 'orbit'
+        || state.controlMode === 'fly'
+        || state.controlMode === 'walk'
+        ? state.controlMode
+        : 'fly';
+
+      camera = controlMode === 'orbit' && projectionMode !== 'perspective'
+        ? orthoCamera
+        : perspCamera;
+      controls.object = camera;
+      camera.position.fromArray(state.position);
+      camera.quaternion.fromArray(state.quaternion).normalize();
+      controls.target.fromArray(state.target);
+      if (Number.isFinite(state.orthoZoom) && state.orthoZoom > 0)
+        orthoCamera.zoom = state.orthoZoom;
+
+      // A visibility variant can have smaller bounds than the full mesh. Keep
+      // a previously distant camera inside the new far plane instead of
+      // preserving its coordinates only to clip the replacement model away.
+      const distance = camera.position.distanceTo(framingCenter);
+      const restoredFar = Math.max(
+        framingRadius * 100,
+        distance + framingRadius * 4);
+      perspCamera.far = restoredFar;
+      orthoCamera.far = restoredFar;
+      perspCamera.updateProjectionMatrix();
+      orthoCamera.updateProjectionMatrix();
+
+      applyPolarLock();
+      controls.enabled = controlMode === 'orbit';
+      if (controlMode === 'orbit') {
+        controls.update();
+      } else {
+        // Reapply the first-person near plane and Euler state that frameModel
+        // intentionally resets for a fresh model, without moving the camera.
+        enterFlyWalk(controlMode);
+        if (Number.isFinite(state.flySpeed) && state.flySpeed > 0)
+          flySpeed = state.flySpeed;
+        if (Number.isFinite(state.walkSpeed) && state.walkSpeed > 0)
+          walkSpeed = state.walkSpeed;
+        // Do not snap a preserved walk camera on its first rendered frame.
+        // The next raycast can still ease it onto newly visible ground.
+        lastGroundY = null;
+        walkYSettled = true;
+      }
+
+      post({ type: 'controlMode', mode: controlMode });
+      return true;
+    }
+
+    function loadModel(base64Glb, isLevel, eyeHeightHint, preserveCamera) {
+      // Snapshot immediately before unloading. Conversion happens host-side,
+      // so this also retains any camera movement made while it was running.
+      const cameraState = preserveCamera === true ? captureCameraState() : null;
       status.textContent = 'Loading model...';
       status.classList.remove('hidden');
       unloadCurrent();
@@ -705,10 +885,12 @@
             return;
           }
           modelRoot = gltf.scene;
+          applyPsxOverbrightVertexColors(modelRoot);
+          configurePsxTextureWibbles(modelRoot);
           applyNativeMaterialBlending(modelRoot);
           scene.add(modelRoot);
           frameModel(modelRoot);
-          applyDefaultControlMode();
+          if (!restoreCameraState(cameraState)) applyDefaultControlMode();
           canvas.focus();
 
           clips = gltf.animations || [];

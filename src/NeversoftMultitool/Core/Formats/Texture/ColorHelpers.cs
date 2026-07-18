@@ -23,14 +23,17 @@ public static class ColorHelpers
     /// <summary>
     ///     Converts a 16-bit PS1 color to RGBA bytes.
     /// </summary>
-    public static void Ps1To32Bpp(ushort color, Span<byte> rgba)
+    public static void Ps1To32Bpp(
+        ushort color,
+        Span<byte> rgba,
+        bool treatMagentaAsTransparent = true)
     {
         var r = color & 0x1F;
         var g = (color >> 5) & 0x1F;
         var b = (color >> 10) & 0x1F;
 
         // Fully transparent (magenta)
-        if (r == 31 && g == 0 && b == 31)
+        if (treatMagentaAsTransparent && r == 31 && g == 0 && b == 31)
         {
             rgba[0] = 0;
             rgba[1] = 0;

@@ -144,21 +144,24 @@ internal static class SoftwareRasterizer
                     var bcR = submesh!.BaseColorR;
                     var bcG = submesh.BaseColorG;
                     var bcB = submesh.BaseColorB;
+                    var linearTexR = SrgbByteToLinear(texR);
+                    var linearTexG = SrgbByteToLinear(texG);
+                    var linearTexB = SrgbByteToLinear(texB);
 
                     if (tri.HasVertexColors)
                     {
-                        var cr = (tri.R0 * w0 + tri.R1 * w1 + tri.R2 * w2) / 255f;
-                        var cg = (tri.G0 * w0 + tri.G1 * w1 + tri.G2 * w2) / 255f;
-                        var cb = (tri.B0 * w0 + tri.B1 * w1 + tri.B2 * w2) / 255f;
-                        fr = texR * cr * bcR * shade;
-                        fg = texG * cg * bcG * shade;
-                        fb = texB * cb * bcB * shade;
+                        var cr = tri.R0 * w0 + tri.R1 * w1 + tri.R2 * w2;
+                        var cg = tri.G0 * w0 + tri.G1 * w1 + tri.G2 * w2;
+                        var cb = tri.B0 * w0 + tri.B1 * w1 + tri.B2 * w2;
+                        fr = LinearToSrgbByte(linearTexR * cr * bcR * shade);
+                        fg = LinearToSrgbByte(linearTexG * cg * bcG * shade);
+                        fb = LinearToSrgbByte(linearTexB * cb * bcB * shade);
                     }
                     else
                     {
-                        fr = texR * bcR * shade;
-                        fg = texG * bcG * shade;
-                        fb = texB * bcB * shade;
+                        fr = LinearToSrgbByte(linearTexR * bcR * shade);
+                        fg = LinearToSrgbByte(linearTexG * bcG * shade);
+                        fb = LinearToSrgbByte(linearTexB * bcB * shade);
                     }
                 }
                 else if (tri.HasVertexColors)
@@ -166,9 +169,9 @@ internal static class SoftwareRasterizer
                     var cr = tri.R0 * w0 + tri.R1 * w1 + tri.R2 * w2;
                     var cg = tri.G0 * w0 + tri.G1 * w1 + tri.G2 * w2;
                     var cb = tri.B0 * w0 + tri.B1 * w1 + tri.B2 * w2;
-                    fr = cr * shade;
-                    fg = cg * shade;
-                    fb = cb * shade;
+                    fr = cr * 255f * shade;
+                    fg = cg * 255f * shade;
+                    fb = cb * 255f * shade;
                 }
                 else
                 {
@@ -184,6 +187,23 @@ internal static class SoftwareRasterizer
                 pixels[pIdx + 3] = 255;
             }
         }
+    }
+
+    private static float SrgbByteToLinear(float value)
+    {
+        value = Math.Clamp(value / 255f, 0f, 1f);
+        return value <= 0.04045f
+            ? value / 12.92f
+            : MathF.Pow((value + 0.055f) / 1.055f, 2.4f);
+    }
+
+    private static float LinearToSrgbByte(float value)
+    {
+        value = Math.Max(value, 0f);
+        var encoded = value <= 0.0031308f
+            ? value * 12.92f
+            : 1.055f * MathF.Pow(value, 1f / 2.4f) - 0.055f;
+        return Math.Clamp(encoded * 255f, 0f, 255f);
     }
 
     /// <summary>

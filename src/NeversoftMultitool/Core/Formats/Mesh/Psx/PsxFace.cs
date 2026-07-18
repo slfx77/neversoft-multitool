@@ -55,9 +55,10 @@ public sealed class PsxFace
 
     /// <summary>
     ///     Texture scrolling/wibble metadata when this face is covered by a
-    ///     tag-6 animation record. The face's effective texture coordinates
-    ///     are initialized from <see cref="PsxTextureWibbleVertex.U" /> and
-    ///     <see cref="PsxTextureWibbleVertex.V" /> (the base static frame).
+    ///     tag-6 animation record. PS1 faces take their base static frame from
+    ///     <see cref="PsxTextureWibbleVertex.U" /> and
+    ///     <see cref="PsxTextureWibbleVertex.V" />; PC/DC v6 faces retain the
+    ///     widened coordinates authored in the face payload instead.
     /// </summary>
     public PsxTextureWibble? TextureWibble { get; internal set; }
 
@@ -77,6 +78,9 @@ public sealed class PsxFace
     internal void ApplyTextureWibble(PsxTextureWibble wibble)
     {
         TextureWibble = wibble;
+        if (wibble.UsesFaceTextureCoordinates)
+            return;
+
         for (var slot = 0; slot < Math.Min(TextureCoordinates.Length, wibble.Vertices.Length); slot++)
         {
             var vertex = wibble.Vertices[slot];

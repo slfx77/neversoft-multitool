@@ -94,7 +94,7 @@ internal static class PsxMeshGeometryReader
         uint[] textureHashes, IReadOnlyDictionary<uint, PsxAttachmentVertex>? attachmentVertices = null,
         bool hasMeshLodField = true)
     {
-        _ = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
+        var flags = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
         var vertexCount = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
         var normalCount = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
         var faceCount = version == 0x03 ? reader.ReadUInt32() : reader.ReadUInt16();
@@ -170,6 +170,7 @@ internal static class PsxMeshGeometryReader
 
         return new PsxMesh
         {
+            Flags = flags,
             Vertices = vertices,
             Normals = normals,
             Faces = faces,
@@ -325,7 +326,11 @@ internal static class PsxMeshGeometryReader
             BytesConsumed = bytesConsumed,
             UnderreadBytes = underreadBytes,
             OverreadBytes = overreadBytes,
-            IsLengthAligned = (faceLength & 0x0003) == 0
+            IsLengthAligned = (faceLength & 0x0003) == 0,
+            TextureHash = textureIndex < textureHashes.Length
+                ? textureHashes[textureIndex]
+                : 0,
+            TextureCoordinates = textureCoordinates
         };
 
         if (invisible)

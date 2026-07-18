@@ -3,7 +3,7 @@ using System.Numerics;
 namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 /// <summary>
-///     Applies a deterministic static state of the PS1 renderer's tagged
+///     Applies a deterministic static state of the PSX-era renderer's tagged
 ///     texture-wibble (tag 6) and colour-pulse (tag 7) tables. The binary
 ///     contracts and runtime interpolation are decompilation-verified in
 ///     <c>docs/wibbly_texture_animation.md</c> in the THPS2 matching project.
@@ -26,6 +26,7 @@ internal static class PsxSurfaceAnimationReader
 
     internal static PsxSurfaceAnimationResult ApplyStaticFrame(
         BinaryReader reader,
+        ushort version,
         IReadOnlyList<PsxMeshObject> objects,
         IReadOnlyList<PsxMesh> meshes,
         Vector4[]? sourcePalette)
@@ -62,7 +63,7 @@ internal static class PsxSurfaceAnimationReader
                 switch (tag)
                 {
                     case TextureWibbleTag:
-                        ApplyTextureWibbles(reader, chunkEnd, objects, meshes);
+                        ApplyTextureWibbles(reader, chunkEnd, version, objects, meshes);
                         break;
                     case ColourPulseTag when palette is { Length: > 0 }:
                         palette = (Vector4[])palette.Clone();
@@ -90,6 +91,7 @@ internal static class PsxSurfaceAnimationReader
     private static void ApplyTextureWibbles(
         BinaryReader reader,
         long chunkEnd,
+        ushort version,
         IReadOnlyList<PsxMeshObject> objects,
         IReadOnlyList<PsxMesh> meshes)
     {
@@ -145,7 +147,14 @@ internal static class PsxSurfaceAnimationReader
                     Frequency = frequency,
                     ZeroUAmplitudes = zeroUAmplitudes,
                     ZeroVAmplitudes = zeroVAmplitudes,
-                    Vertices = vertices
+                    Vertices = vertices,
+                    // Spider-Man PC's v6 path ignores the two legacy base-UV
+                    // bytes in each wibble vertex and starts from the face's
+                    // widened u16/i16 coordinates instead. The shipped PC
+                    // executable does this at 0x0047619F-0x00476204. Port
+                    // assets use zero placeholders or redundant byte-range
+                    // copies there, never values that differ from face UVs.
+                    UsesFaceTextureCoordinates = version == 0x06
                 });
             }
 

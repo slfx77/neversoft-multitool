@@ -1,7 +1,7 @@
 namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 /// <summary>
-///     Per-face PS1 texture motion from tagged chunk 6. The engine evaluates
+///     Per-face PSX/PC texture motion from tagged chunk 6. The engine evaluates
 ///     these values against its frame counter; the parser also applies each
 ///     vertex's base U/V as the deterministic static frame used by glTF.
 /// </summary>
@@ -13,10 +13,18 @@ public sealed class PsxTextureWibble
     public required bool ZeroUAmplitudes { get; init; }
     public required bool ZeroVAmplitudes { get; init; }
     public required PsxTextureWibbleVertex[] Vertices { get; init; }
+
+    /// <summary>
+    ///     True for the widened Spider-Man PC/DC v6 geometry path, whose
+    ///     renderer keeps the base UVs stored on the face. Its legacy byte
+    ///     slots are non-authoritative placeholders or redundant copies beside
+    ///     the amplitude/phase data.
+    /// </summary>
+    public bool UsesFaceTextureCoordinates { get; init; }
 }
 
 /// <summary>
-///     One vertex in a PS1 texture-wibble record. The upper nibble of each
+///     One vertex in a texture-wibble record. The upper nibble of each
 ///     amplitude/phase byte is the sine amplitude and the lower nibble is its
 ///     phase.
 /// </summary>

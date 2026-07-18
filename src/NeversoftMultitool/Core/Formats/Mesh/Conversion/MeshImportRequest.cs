@@ -20,6 +20,15 @@ public sealed class MeshImportRequest
     public bool PsxFlatSkeleton { get; init; }
     public IReadOnlySet<int>? PsxFlatBoneIndices { get; init; }
 
+    /// <summary>
+    ///     Optional visibility selections keyed by
+    ///     <see cref="ModelVisibilityGroup.Id" />. Missing and unknown keys are
+    ///     ignored, so a caller can retain selections while changing assets.
+    ///     The parser uses each source-authored default when this is null or a
+    ///     group has no entry.
+    /// </summary>
+    public IReadOnlyDictionary<string, bool>? VisibilityOverrides { get; init; }
+
     public WorldzoneTimeOfDay WorldzoneTimeOfDay { get; init; } =
         WorldzoneTimeOfDay.All;
 

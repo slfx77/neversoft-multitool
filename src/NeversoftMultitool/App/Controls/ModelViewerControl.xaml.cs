@@ -111,11 +111,14 @@ public sealed partial class ModelViewerControl : UserControl
     ///     Load a GLB into the viewer. Animated models start playing.
     ///     All meshes default to first-person Fly mode. <paramref name="isLevel" />
     ///     remains available to page-side level behavior such as walk tuning.
+    ///     <paramref name="preserveCamera" /> keeps the current page-side pose
+    ///     when rebuilding the same mesh with different visibility settings.
     /// </summary>
     public async Task LoadGlbAsync(
         byte[] glbBytes,
         bool isLevel = false,
-        double? walkEyeHeight = null)
+        double? walkEyeHeight = null,
+        bool preserveCamera = false)
     {
         var generation = Interlocked.Increment(ref _loadGeneration);
         LastGlbBytes = glbBytes;
@@ -133,7 +136,8 @@ public sealed partial class ModelViewerControl : UserControl
         await ExecuteScriptSafeAsync($"setLightingMode('{_lightingMode}')");
         if (generation != Volatile.Read(ref _loadGeneration)) return;
         await ExecuteScriptSafeAsync(
-            $"loadModel('{base64}', {(isLevel ? "true" : "false")}, {eyeHeightScript})");
+            $"loadModel('{base64}', {(isLevel ? "true" : "false")}, {eyeHeightScript}, "
+            + $"{(preserveCamera ? "true" : "false")})");
     }
 
     /// <summary>Invalidate conversion/GLTF work started for an older selection.</summary>

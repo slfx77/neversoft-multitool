@@ -19,12 +19,12 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     private readonly MeshConverterTabAnimationPanel _animPanel;
     private readonly MeshConverterTabBatchRunner _batchRunner;
     private readonly ObservableCollection<MeshFileEntry> _items = [];
-    private string _inputDir = "";
-    private string _outputDir = "";
-    private bool _outputManuallySet;
+    private readonly Dictionary<string, bool> _visibilityOverrides =
+        new(StringComparer.Ordinal);
     private MeshConverterTabPreview? _preview;
     private CancellationTokenSource? _scanCts;
     private bool _suppressAnimationSelectionChanged;
+    private MeshFileEntry? _visibilityEntry;
 
     public MeshConverterTab()
     {
@@ -72,9 +72,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         var path = await FolderPickerHelper.PickFolderAsync();
         if (path == null) return;
 
-        _inputDir = path;
-        InputPathText.Text = _inputDir;
-        DefaultOutputToInput(path);
+        InputPathText.Text = path;
         await RunRecursiveScan(path);
     }
 
@@ -84,10 +82,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr"]);
         if (path == null) return;
 
-        _inputDir = Path.GetDirectoryName(path) ?? "";
         InputPathText.Text = path;
-        if (_inputDir.Length > 0)
-            DefaultOutputToInput(_inputDir);
 
         await CancelInFlightScan();
 
@@ -220,37 +215,16 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
     // ─── I/O + shared UI state ────────────────────────────────────────────
 
-    private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
-    {
-        var path = await FolderPickerHelper.PickFolderAsync();
-        if (path == null) return;
-
-        _outputDir = path;
-        _outputManuallySet = true;
-        OutputPathText.Text = _outputDir;
-        UpdateUiState();
-    }
-
-    private void DefaultOutputToInput(string dir)
-    {
-        if (_outputManuallySet)
-            return;
-
-        _outputDir = dir;
-        OutputPathText.Text = dir;
-        UpdateUiState();
-    }
-
     private void UpdateUiState()
     {
         var hasFiles = _items.Count > 0;
         var hasChecked = _items.Any(i => i.IsChecked);
-        var hasOutput = !string.IsNullOrEmpty(_outputDir);
         var hasFormat = ExportGlbCheckbox.IsChecked == true || ExportBlendCheckbox.IsChecked == true;
 
         EmptyStatePanel.Visibility = hasFiles ? Visibility.Collapsed : Visibility.Visible;
         FileListCard.Visibility = hasFiles ? Visibility.Visible : Visibility.Collapsed;
-        ConvertButton.IsEnabled = hasChecked && hasOutput && hasFormat;
+        ConvertButton.IsEnabled = hasChecked && hasFormat;
+        UpdateWorldzoneExportSettingsVisibility();
         UpdateRenderButtons();
     }
 
@@ -298,6 +272,163 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             : Visibility.Collapsed;
     }
 
+    private void UpdateWorldzoneSettingsVisibility(MeshFileEntry? entry)
+    {
+        WorldzoneViewportSettingsSection.Visibility = entry?.IsPakWorldzone == true
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        UpdateWorldzoneExportSettingsVisibility();
+    }
+
+    private void UpdateWorldzoneExportSettingsVisibility()
+    {
+        // Export settings apply to checked rows, which need not be the row
+        // currently selected for preview. Keep the viewport control tied to
+        // selection, but expose export lighting/scale whenever the operation
+        // scope contains an actual content-detected worldzone.
+        if (WorldzoneExportSettingsSection == null)
+            return;
+
+        WorldzoneExportSettingsSection.Visibility = _items.Any(static entry =>
+            entry.IsChecked && entry.IsPakWorldzone)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void ResetVisibilityGroups(MeshFileEntry? entry, string? status = null)
+    {
+        _visibilityEntry = entry;
+        _visibilityOverrides.Clear();
+        VisibilityGroupsList.Children.Clear();
+        VisibilityGroupsStatusText.Text = status ?? (entry == null
+            ? "Select a mesh to inspect its visibility groups."
+            : "Loading visibility groups...");
+        VisibilityGroupsStatusText.Visibility = Visibility.Visible;
+    }
+
+    private void ApplyVisibilityGroups(
+        MeshFileEntry entry,
+        IReadOnlyList<ModelVisibilityGroup> groups)
+    {
+        if (!ReferenceEquals(FilesListView.SelectedItem, entry) ||
+            !ReferenceEquals(_visibilityEntry, entry))
+        {
+            return;
+        }
+
+        _visibilityOverrides.Clear();
+        VisibilityGroupsList.Children.Clear();
+
+        foreach (var group in groups)
+        {
+            _visibilityOverrides[group.Id] = group.IsEnabled;
+            var toggle = new CheckBox
+            {
+                Content = group.Label,
+                IsChecked = group.IsEnabled,
+                MinWidth = 0,
+                Tag = group
+            };
+            if (!string.IsNullOrWhiteSpace(group.SourceReference))
+                ToolTipService.SetToolTip(toggle, group.SourceReference);
+            toggle.Click += VisibilityGroupToggle_Click;
+            VisibilityGroupsList.Children.Add(toggle);
+        }
+
+        VisibilityGroupsStatusText.Text = groups.Count == 0
+            ? "No visibility groups in this mesh."
+            : "Toggle source-authored geometry variants for preview and export.";
+        VisibilityGroupsStatusText.Visibility = Visibility.Visible;
+    }
+
+    private Dictionary<string, bool>? GetVisibilityOverridesSnapshot(
+        MeshFileEntry entry)
+    {
+        return ReferenceEquals(_visibilityEntry, entry) && _visibilityOverrides.Count > 0
+            ? new Dictionary<string, bool>(_visibilityOverrides, StringComparer.Ordinal)
+            : null;
+    }
+
+    private async void VisibilityGroupToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { Tag: ModelVisibilityGroup group } toggle ||
+            _visibilityEntry is not { } entry ||
+            !ReferenceEquals(FilesListView.SelectedItem, entry))
+        {
+            return;
+        }
+
+        var isEnabled = toggle.IsChecked == true;
+        if (isEnabled && group.ExclusiveSetId is { } exclusiveSetId)
+        {
+            foreach (var sibling in VisibilityGroupsList.Children.OfType<CheckBox>())
+            {
+                if (ReferenceEquals(sibling, toggle)
+                    || sibling.Tag is not ModelVisibilityGroup siblingGroup
+                    || !string.Equals(
+                        siblingGroup.ExclusiveSetId,
+                        exclusiveSetId,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                sibling.IsChecked = false;
+                _visibilityOverrides[siblingGroup.Id] = false;
+            }
+        }
+
+        _visibilityOverrides[group.Id] = isEnabled;
+        await ReloadPreviewForVisibilityAsync(entry);
+    }
+
+    private async Task ReloadPreviewForVisibilityAsync(MeshFileEntry entry)
+    {
+        if (!ReferenceEquals(FilesListView.SelectedItem, entry)) return;
+
+        var activeAnimation = _animPanel.ActiveEntry;
+        if (entry.IsAnimatableCharacter &&
+            activeAnimation != null &&
+            ReferenceEquals(_animPanel.Character, entry))
+        {
+            await LoadAnimationPreviewAsync(
+                entry,
+                activeAnimation,
+                preserveCamera: true);
+        }
+        else
+        {
+            await LoadStaticPreviewAsync(
+                entry,
+                entry.IsPakWorldzone
+                    ? GetSelectedPreviewWorldzoneTimeOfDay()
+                    : WorldzoneTimeOfDay.All,
+                preserveCamera: true);
+        }
+
+        UpdateRenderButtons();
+    }
+
+    private async Task LoadStaticPreviewAsync(
+        MeshFileEntry entry,
+        WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
+        bool preserveCamera = false)
+    {
+        if (_preview == null) return;
+
+        var groups = await _preview.LoadPreviewAsync(
+            entry,
+            worldzoneTimeOfDay,
+            GetVisibilityOverridesSnapshot(entry),
+            preserveCamera);
+        if (!ReferenceEquals(FilesListView.SelectedItem, entry)) return;
+
+        if (groups != null)
+            ApplyVisibilityGroups(entry, groups);
+        else if (ReferenceEquals(_visibilityEntry, entry))
+            VisibilityGroupsStatusText.Text = "Visibility groups unavailable for this preview.";
+    }
+
     // ─── Selection reconciliation ─────────────────────────────────────────
 
     private async void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -307,23 +438,33 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
         if (FilesListView.SelectedItem is not MeshFileEntry entry)
         {
+            UpdateWorldzoneSettingsVisibility(null);
+            ResetVisibilityGroups(null);
             _animPanel.Reset("Select a skinned character to scan for animations.");
             if (_preview != null)
                 await _preview.ClearAsync();
+            if (FilesListView.SelectedItem != null)
+                return;
+            await ModelViewer.SetLightingModeAsync("day");
             UpdateRenderButtons();
             return;
         }
 
+        UpdateWorldzoneSettingsVisibility(entry);
+        ResetVisibilityGroups(entry);
         _preview ??= new MeshConverterTabPreview(ModelViewer);
         await _preview.InitializeAsync();
-        await ModelViewer.SetLightingModeAsync(GetSelectedPreviewLightingMode());
+        if (!ReferenceEquals(FilesListView.SelectedItem, entry))
+            return;
+        await ModelViewer.SetLightingModeAsync(
+            entry.IsPakWorldzone ? GetSelectedPreviewLightingMode() : "day");
         if (!ReferenceEquals(FilesListView.SelectedItem, entry))
             return;
 
         if (!entry.IsAnimatableCharacter)
         {
             _animPanel.Reset("Selected file has no skeleton — pick a skinned character to browse animations.");
-            await _preview.LoadPreviewAsync(
+            await LoadStaticPreviewAsync(
                 entry,
                 entry.IsPakWorldzone
                     ? GetSelectedPreviewWorldzoneTimeOfDay()
@@ -356,7 +497,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         {
             // No matching animations — show the mesh statically so the user
             // always sees something.
-            await _preview.LoadPreviewAsync(entry);
+            await LoadStaticPreviewAsync(entry);
         }
 
         UpdateRenderButtons();
@@ -419,7 +560,9 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     }
 
     private async Task LoadAnimationPreviewAsync(
-        MeshFileEntry character, AnimationListEntry entry)
+        MeshFileEntry character,
+        AnimationListEntry entry,
+        bool preserveCamera = false)
     {
         ClearActiveAnimation();
 
@@ -433,7 +576,21 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         }
 
         entry.IsActive = true;
-        await _preview.LoadPreviewAsync(character, entry.Probe);
+        var groups = await _preview.LoadPreviewAsync(
+            character,
+            entry.Probe,
+            GetVisibilityOverridesSnapshot(character),
+            preserveCamera);
+        if (!ReferenceEquals(FilesListView.SelectedItem, character) ||
+            !ReferenceEquals(_animPanel.Character, character))
+        {
+            return;
+        }
+
+        if (groups != null)
+            ApplyVisibilityGroups(character, groups);
+        else if (ReferenceEquals(_visibilityEntry, character))
+            VisibilityGroupsStatusText.Text = "Visibility groups unavailable for this preview.";
     }
 
     private void ClearActiveAnimation()
@@ -472,22 +629,26 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     {
         var character = _animPanel.Character;
         if (character == null) return;
-        await _animExporter.ExportGlbAsync(character, _animPanel.CheckedMatchingProbes());
+        await _animExporter.ExportGlbAsync(
+            character,
+            _animPanel.CheckedMatchingProbes(),
+            GetVisibilityOverridesSnapshot(character));
     }
 
     private async void ConvertBlend_Click(object sender, RoutedEventArgs e)
     {
         var character = _animPanel.Character;
         if (character == null) return;
-        await _animExporter.ExportBlendAsync(character, _animPanel.CheckedMatchingProbes());
+        await _animExporter.ExportBlendAsync(
+            character,
+            _animPanel.CheckedMatchingProbes(),
+            GetVisibilityOverridesSnapshot(character));
     }
 
     // ─── Convert (batch over checked files) ───────────────────────────────
 
     private async void ConvertButton_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrEmpty(_outputDir)) return;
-
         var checkedEntries = _items.Where(i => i.IsChecked).ToList();
         if (checkedEntries.Count == 0)
         {
@@ -495,18 +656,88 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             return;
         }
 
-        if (!TryGetWorldzoneScale(out var worldzoneScale))
+        if (!TryGetWorldzoneScale(checkedEntries, out var worldzoneScale))
         {
             MainWindow.Instance?.SetStatus("Worldzone scale must be a positive number.");
             return;
         }
 
+        var outputFormat = GetSelectedOutputFormat();
+        var destination = await PickConvertDestinationAsync(checkedEntries, outputFormat);
+        if (destination == null) return;
+        var visibilityEntry = FilesListView.SelectedItem as MeshFileEntry;
+
         await _batchRunner.ConvertAsync(
             checkedEntries,
-            _outputDir,
+            destination.Value.OutputDirectory,
             GetSelectedExportWorldzoneTimeOfDay(),
             worldzoneScale,
-            GetSelectedOutputFormat());
+            outputFormat,
+            singleOutputStem: destination.Value.OutputStem,
+            visibilityEntry: visibilityEntry,
+            visibilityOverrides: visibilityEntry == null
+                ? null
+                : GetVisibilityOverridesSnapshot(visibilityEntry));
+    }
+
+    private async Task<(string OutputDirectory, string? OutputStem)?> PickConvertDestinationAsync(
+        List<MeshFileEntry> entries,
+        MeshOutputFormat outputFormat)
+    {
+        if (entries.Count > 1)
+        {
+            var folder = await FolderPickerHelper.PickFolderAsync();
+            if (folder == null) return null;
+            return (folder, null);
+        }
+
+        var stem = MeshConverterTabFileScanner.StripCompoundExtension(entries[0].FileName);
+        var path = outputFormat switch
+        {
+            MeshOutputFormat.Blend => await FilePickerHelper.PickSaveFileAsync(
+                stem,
+                ("Blender model", [".blend"])),
+            MeshOutputFormat.Both => await FilePickerHelper.PickSaveFileAsync(
+                stem,
+                ("Model files", [".glb", ".blend"])),
+            _ => await FilePickerHelper.PickSaveFileAsync(
+                stem,
+                ("glTF model", [".glb"]))
+        };
+        if (path == null) return null;
+
+        var directory = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(directory))
+            return null;
+
+        var outputStem = Path.GetFileNameWithoutExtension(path);
+        if (outputFormat == MeshOutputFormat.Both)
+        {
+            var pickedExtension = Path.GetExtension(path);
+            var companionExtension = pickedExtension.Equals(
+                ".blend", StringComparison.OrdinalIgnoreCase)
+                ? ".glb"
+                : ".blend";
+            var companionPath = Path.Combine(directory, outputStem + companionExtension);
+            if (File.Exists(companionPath) && !await ConfirmCompanionOverwriteAsync(companionPath))
+                return null;
+        }
+
+        return (directory, outputStem);
+    }
+
+    private async Task<bool> ConfirmCompanionOverwriteAsync(string companionPath)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Replace both model files?",
+            Content = $"{Path.GetFileName(companionPath)} already exists beside the file you selected.",
+            PrimaryButtonText = "Replace both",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
     private async void CancelButton_Click(object sender, RoutedEventArgs e)
@@ -546,10 +777,14 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         if (WorldzoneTimeCombo == null || ModelViewer == null) return;
 
         var selectedTime = GetSelectedPreviewWorldzoneTimeOfDay();
+        if (FilesListView?.SelectedItem is not MeshFileEntry { IsPakWorldzone: true } entry)
+        {
+            await ModelViewer.SetLightingModeAsync("day");
+            return;
+        }
+
         await ModelViewer.SetLightingModeAsync(
             selectedTime == WorldzoneTimeOfDay.Night ? "night" : "day");
-        if (FilesListView?.SelectedItem is not MeshFileEntry { IsPakWorldzone: true } entry)
-            return;
 
         _preview ??= new MeshConverterTabPreview(ModelViewer);
         await _preview.InitializeAsync();
@@ -557,7 +792,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             GetSelectedPreviewWorldzoneTimeOfDay() != selectedTime)
             return;
 
-        await _preview.LoadPreviewAsync(entry, selectedTime);
+        await LoadStaticPreviewAsync(entry, selectedTime);
         UpdateRenderButtons();
     }
 
@@ -573,6 +808,17 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         return float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out scale)
                && float.IsFinite(scale)
                && scale > 0f;
+    }
+
+    private bool TryGetWorldzoneScale(IEnumerable<MeshFileEntry> entries, out float scale)
+    {
+        if (!entries.Any(entry => entry.IsPakWorldzone))
+        {
+            scale = 1f;
+            return true;
+        }
+
+        return TryGetWorldzoneScale(out scale);
     }
 
     // ─── Render (single preview or batch over checked files) ─────────────
@@ -592,17 +838,21 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
     private async void RenderPng_Click(object sender, RoutedEventArgs e)
     {
-        if (!TryGetWorldzoneScale(out var worldzoneScale))
+        var checkedEntries = _items.Where(i => i.IsChecked).ToList();
+        var previewGlb = ModelViewer.LastGlbBytes;
+        var selectedEntry = FilesListView.SelectedItem as MeshFileEntry;
+        var visibilityOverrides = selectedEntry == null
+            ? null
+            : GetVisibilityOverridesSnapshot(selectedEntry);
+        IEnumerable<MeshFileEntry> worldzoneEntries = checkedEntries;
+        if (checkedEntries.Count <= 1 && selectedEntry != null)
+            worldzoneEntries = [selectedEntry];
+
+        if (!TryGetWorldzoneScale(worldzoneEntries, out var worldzoneScale))
         {
             MainWindow.Instance?.SetStatus("Worldzone scale must be a positive number.");
             return;
         }
-
-        var checkedEntries = _items.Where(i => i.IsChecked).ToList();
-        var previewGlb = ModelViewer.LastGlbBytes;
-
-        var outputDir = await FolderPickerHelper.PickFolderAsync();
-        if (outputDir == null) return;
 
         var size = (int)RenderSizeBox.Value;
         var azimuth = (float)RenderAzimuthBox.Value;
@@ -611,46 +861,101 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
         if (checkedEntries.Count > 1)
         {
+            var outputDir = await FolderPickerHelper.PickFolderAsync();
+            if (outputDir == null) return;
+
             await _batchRunner.RenderPngBatchAsync(
                 checkedEntries, outputDir, size, azimuth, elevation, objectReview,
-                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale);
+                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale,
+                selectedEntry, visibilityOverrides);
+            return;
         }
-        else if (FilesListView.SelectedItem is MeshFileEntry { IsPakWorldzone: true } selectedWorldzone)
+
+        // The object-review preset emits five named views, so it remains a
+        // folder operation even though it starts from one input mesh.
+        if (objectReview)
+        {
+            var outputDir = await FolderPickerHelper.PickFolderAsync();
+            if (outputDir == null) return;
+
+            if (selectedEntry is { IsPakWorldzone: true })
+            {
+                await _batchRunner.RenderPngEntryAsync(
+                    selectedEntry, outputDir, GetSelectedStem(), size, azimuth, elevation, true,
+                    GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale, visibilityOverrides);
+            }
+            else if (previewGlb != null)
+            {
+                await _batchRunner.RenderPngSingleAsync(
+                    previewGlb, outputDir, GetSelectedStem(), size, azimuth, elevation, true);
+            }
+            else if (checkedEntries.Count == 1)
+            {
+                var entry = checkedEntries[0];
+                var stem = MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
+                await _batchRunner.RenderPngEntryAsync(
+                    entry, outputDir, stem, size, azimuth, elevation, true,
+                    GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale,
+                    ReferenceEquals(entry, selectedEntry) ? visibilityOverrides : null);
+            }
+
+            return;
+        }
+
+        var suggestedStem = "render";
+        if (previewGlb != null || selectedEntry is { IsPakWorldzone: true })
+            suggestedStem = GetSelectedStem();
+        else if (checkedEntries.Count == 1)
+            suggestedStem = MeshConverterTabFileScanner.StripCompoundExtension(checkedEntries[0].FileName);
+        var outputPath = await FilePickerHelper.PickSaveFileAsync(
+            suggestedStem,
+            ("PNG image", [".png"]));
+        if (outputPath == null) return;
+
+        var singleOutputDir = Path.GetDirectoryName(outputPath);
+        if (string.IsNullOrEmpty(singleOutputDir)) return;
+        var outputStem = Path.GetFileNameWithoutExtension(outputPath);
+
+        if (selectedEntry is { IsPakWorldzone: true })
         {
             // A worldzone's preview uses the viewport lighting choice. Rebuild it
-            // for export so the independent export lighting and scale controls
-            // also apply when rendering just the selected worldzone.
-            await _batchRunner.RenderPngBatchAsync(
-                new[] { selectedWorldzone }, outputDir, size, azimuth, elevation, objectReview,
-                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale);
+            // so the independent export lighting and scale controls apply.
+            await _batchRunner.RenderPngEntryAsync(
+                selectedEntry, singleOutputDir, outputStem, size, azimuth, elevation, false,
+                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale, visibilityOverrides);
         }
         else if (previewGlb != null)
         {
             await _batchRunner.RenderPngSingleAsync(
-                previewGlb, outputDir, GetSelectedStem(), size, azimuth, elevation, objectReview);
+                previewGlb, singleOutputDir, outputStem, size, azimuth, elevation, false);
         }
         else if (checkedEntries.Count == 1)
         {
-            await _batchRunner.RenderPngBatchAsync(
-                checkedEntries, outputDir, size, azimuth, elevation, objectReview,
-                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale);
+            await _batchRunner.RenderPngEntryAsync(
+                checkedEntries[0], singleOutputDir, outputStem, size, azimuth, elevation, false,
+                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale,
+                ReferenceEquals(checkedEntries[0], selectedEntry) ? visibilityOverrides : null);
         }
     }
 
     private async void RenderGif_Click(object sender, RoutedEventArgs e)
     {
-        if (!TryGetWorldzoneScale(out var worldzoneScale))
+        var checkedEntries = _items.Where(i => i.IsChecked).ToList();
+        var previewGlb = ModelViewer.LastGlbBytes;
+        var hasAnimatedPreview = previewGlb != null && ModelViewer.HasAnimations;
+        var selectedEntry = FilesListView.SelectedItem as MeshFileEntry;
+        var visibilityOverrides = selectedEntry == null
+            ? null
+            : GetVisibilityOverridesSnapshot(selectedEntry);
+        IEnumerable<MeshFileEntry> worldzoneEntries = checkedEntries;
+        if (checkedEntries.Count <= 1 && selectedEntry != null)
+            worldzoneEntries = [selectedEntry];
+
+        if (!TryGetWorldzoneScale(worldzoneEntries, out var worldzoneScale))
         {
             MainWindow.Instance?.SetStatus("Worldzone scale must be a positive number.");
             return;
         }
-
-        var checkedEntries = _items.Where(i => i.IsChecked).ToList();
-        var previewGlb = ModelViewer.LastGlbBytes;
-        var hasAnimatedPreview = previewGlb != null && ModelViewer.HasAnimations;
-
-        var outputDir = await FolderPickerHelper.PickFolderAsync();
-        if (outputDir == null) return;
 
         var size = (int)RenderSizeBox.Value;
         var fps = (int)RenderFpsBox.Value;
@@ -659,15 +964,23 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
         if (hasAnimatedPreview && checkedEntries.Count <= 1)
         {
-            var outputPath = Path.Combine(outputDir, GetSelectedStem() + ".gif");
+            var outputPath = await FilePickerHelper.PickSaveFileAsync(
+                GetSelectedStem(),
+                ("GIF image", [".gif"]));
+            if (outputPath == null) return;
+
             await _batchRunner.RenderGifSingleAsync(
                 previewGlb!, outputPath, size, fps, azimuth, elevation);
         }
         else
         {
+            var outputDir = await FolderPickerHelper.PickFolderAsync();
+            if (outputDir == null) return;
+
             await _batchRunner.RenderGifBatchAsync(
                 checkedEntries, outputDir, size, fps, azimuth, elevation,
-                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale);
+                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale,
+                selectedEntry, visibilityOverrides);
         }
     }
 

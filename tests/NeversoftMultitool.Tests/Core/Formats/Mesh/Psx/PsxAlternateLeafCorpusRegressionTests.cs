@@ -8,6 +8,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Psx;
 public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
 {
     private const string SpiderManBuild = "Spider-Man (2000-9-1, PSX - Final)";
+    private const string SpiderManPcBuild = "Spider-Man (2001-9-17, PC - Final)";
     private const string SpiderManPrototypeBuild = "Spider-Man (2000-2-18, PSX - Prototype)";
     private const string EnterElectroBuild = "Spider-Man 2 - Enter Electro (2001-8-15, PSX - Final)";
     private const string Thps2Build = "Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)";
@@ -81,6 +82,55 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
             return;
 
         Assert.Empty(PsxMeshSemantics.FindAlternateLeafObjectIndices(file));
+    }
+
+    [Fact]
+    public void SpiderManPcController_FromDataPkr_KeepsAllSharedPivotParts()
+    {
+        var pkrPath = paths.FindSampleFile(SpiderManPcBuild, "data.pkr");
+        Assert.SkipWhen(pkrPath == null, "Spider-Man PC data.pkr sample not available");
+
+        var backend = ArchiveAssetBackend.TryOpen(pkrPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend!.FileSystem;
+        var entry = backend.FindEntry("control.psx");
+        Assert.NotNull(entry);
+        var source = new ArchiveAssetSource(backend, entry!);
+        var file = PsxMeshFile.Parse(source.ReadBytes());
+        Assert.NotNull(file);
+
+        Assert.Equal(0x06, file!.Version);
+        Assert.Equal(16, file.Objects.Count);
+        Assert.Empty(PsxMeshSemantics.FindAlternateLeafObjectGroups(file));
+
+        var authoredTriangleCount = file.Meshes.Sum(static mesh =>
+            mesh.Faces.Sum(static face => face.IsQuad ? 2 : 1));
+        Assert.Equal(3389, authoredTriangleCount);
+
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = source,
+            FileName = entry!.Name,
+            OutputStem = "control",
+            SourceKind = ModelSourceKind.Psx
+        });
+        Assert.Empty(document.VisibilityGroups);
+        Assert.Equal(authoredTriangleCount, document.TriangleCount);
+    }
+
+    [Fact]
+    public void SpiderManPcCarnage_FromDataPkr_RetainsTrueHandAlternates()
+    {
+        var file = ReadArchiveMesh(SpiderManPcBuild, "data.pkr", "carnage.psx");
+        if (file == null)
+            return;
+
+        Assert.Equal(0x06, file.Version);
+        Assert.Equal(
+            [14, 18],
+            PsxMeshSemantics.FindAlternateLeafObjectIndices(file)
+                .OrderBy(static index => index)
+                .ToArray());
     }
 
     [Fact]

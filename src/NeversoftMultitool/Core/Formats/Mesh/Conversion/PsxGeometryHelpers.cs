@@ -1,5 +1,8 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
+using NeversoftMultitool.Core.Formats.Texture.Ps1;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -12,6 +15,24 @@ internal static class PsxGeometryHelpers
 {
     internal static (Vector4 C0, Vector4 C1, Vector4 C2, Vector4 C3) ComputePsxFaceColors(
         ushort version,
+        PsxMesh mesh,
+        PsxFace face,
+        Vector4[]? gouraudPalette)
+    {
+        // Spider-Man PC derives a runtime-lighting bit by aggregating native
+        // face flags (loader 0x0045377A-0x004537F2), then tests that bit in the
+        // model renderer at 0x00473FDF-0x00473FE9. The dynamically lit path
+        // bypasses flat face RGB and RGBs palette indices. Neutral vertex
+        // modulation lets glTF lighting shade the supplied normals. Exporting
+        // the bypassed values creates rainbow bands on models such as Jameson.
+        if (version == 0x06 && mesh.UsesDynamicLighting)
+            return (Vector4.One, Vector4.One, Vector4.One, Vector4.One);
+
+        return ComputePsxFaceColors(version, face, gouraudPalette);
+    }
+
+    internal static (Vector4 C0, Vector4 C1, Vector4 C2, Vector4 C3) ComputePsxFaceColors(
+        ushort version,
         PsxFace face,
         Vector4[]? gouraudPalette)
     {
@@ -22,8 +43,8 @@ internal static class PsxGeometryHelpers
         if (face.IsGouraud && gouraudPalette != null)
         {
             // RGBs entries are raw GPU RGB bytes stored here in the ordinary
-            // 0..255 domain. M3dAsm_ProcessPolys writes them unchanged to
-            // G3/G4 (untextured) and GT3/GT4 (textured) packets. Untextured
+            // 0..255 domain. M3dAsm_ProcessPolys uses them as the primitive
+            // colors before later GPU/GTE effects such as depth cueing. Untextured
             // PS1 primitives therefore use display RGB (/255), while textured
             // primitives use the PS1 GPU's 128-neutral texel modulation. The
             // PC v6 renderer copies RGBs entries directly to D3D diffuse colors
@@ -67,9 +88,9 @@ internal static class PsxGeometryHelpers
 
         const float ps1ModulationScale = 255f / 128f;
         return new Vector4(
-            Math.Min(color.X * ps1ModulationScale, 1f),
-            Math.Min(color.Y * ps1ModulationScale, 1f),
-            Math.Min(color.Z * ps1ModulationScale, 1f),
+            color.X * ps1ModulationScale,
+            color.Y * ps1ModulationScale,
+            color.Z * ps1ModulationScale,
             color.W);
     }
 
@@ -80,9 +101,9 @@ internal static class PsxGeometryHelpers
         // instead carry display RGB in the ordinary 0..255 domain.
         var divisor = version == 0x06 || !face.IsTextured ? 255f : 128f;
         return new Vector4(
-            Math.Min(face.R / divisor, 1f),
-            Math.Min(face.G / divisor, 1f),
-            Math.Min(face.B / divisor, 1f),
+            face.R / divisor,
+            face.G / divisor,
+            face.B / divisor,
             1f);
     }
 
@@ -215,8 +236,19 @@ internal static class PsxGeometryHelpers
     ///     conforming viewer (128 displays near 188). Alpha is coverage, not
     ///     colour data, and must remain unchanged.
     /// </summary>
-    internal static Vector4 DisplayRgbToLinear(Vector4 color)
+    internal static Vector4 DisplayRgbToLinear(
+        Vector4 color,
+        bool isPs1TexturedModulation = false)
     {
+        if (isPs1TexturedModulation)
+        {
+            return new Vector4(
+                Ps1TexturedModulationToLinear(color.X),
+                Ps1TexturedModulationToLinear(color.Y),
+                Ps1TexturedModulationToLinear(color.Z),
+                color.W);
+        }
+
         return new Vector4(
             SrgbChannelToLinear(color.X),
             SrgbChannelToLinear(color.Y),
@@ -226,10 +258,29 @@ internal static class PsxGeometryHelpers
 
     private static float SrgbChannelToLinear(float value)
     {
-        value = Math.Clamp(value, 0f, 1f);
+        // Preserve extended multipliers in the intermediate model. PS1
+        // textured packet RGB spans 0..255 with 128 neutral, so its linear
+        // modulation can exceed 1.0. Exporters must carry that separately from
+        // glTF COLOR_0, whose values remain normalized.
+        value = Math.Max(value, 0f);
         return value <= 0.04045f
             ? value / 12.92f
             : MathF.Pow((value + 0.055f) / 1.055f, 2.4f);
+    }
+
+    private static float Ps1TexturedModulationToLinear(float modulation)
+    {
+        // Compute a linear multiplier relative to the decoded PS1 texture's
+        // neutral grey. Native GT primitives treat packet RGB 128 as neutral.
+        // The corresponding 5-bit texel midpoint (16) is expanded by the PS1
+        // decoder to floor(16*255/31) == 131. Dividing by that texel's linear
+        // value makes a neutral-grey textured edge reproduce the same display
+        // RGB as an adjacent untextured primitive carrying the same RGBs index.
+        // Values above 128 intentionally return multipliers above one.
+        const float packetByteScale = 128f / 255f;
+        const float decodedNeutral = 131f / 255f;
+        var packetDisplay = Math.Max(modulation * packetByteScale, 0f);
+        return SrgbChannelToLinear(packetDisplay) / SrgbChannelToLinear(decodedNeutral);
     }
 
     internal static int GetOrCreatePsxMaterial(
@@ -258,41 +309,65 @@ internal static class PsxGeometryHelpers
         if (doubleSided)
             name += "__2sided";
 
-        // PS1 backface-culls every face unless flag bit 9 is set
-        // (M3dAsm_ProcessPolys @0x80099B04), so PSX materials are
-        // single-sided by default — unlike the RenderMaterial default.
-        var material = new RenderMaterial
-        {
-            Name = name,
-            AlphaMode = semiTransparent ? ModelAlphaMode.Blend : ModelAlphaMode.Opaque,
-            DoubleSided = doubleSided
-        };
+        var alphaMode = semiTransparent ? ModelAlphaMode.Blend : ModelAlphaMode.Opaque;
+        int? textureIndex = null;
 
         if (textureProvider != null && textureHash != 0)
         {
             var pngBytes = textureProvider(textureHash);
             if (pngBytes != null)
             {
-                var (processed, hasAlpha) = MeshTextureHelper.ApplyColorKey(pngBytes);
+                // PS1 palette decoding already identifies exact authored CLUT
+                // key entries, including duplicate key slots used by billboard
+                // art. Do not run the generic DXT-style fringe heuristic:
+                // nearby STP texels are blend state, not edge coverage.
+                var processed = pngBytes;
+                var hasAlpha = false;
                 if (semiTransparent)
                 {
-                    processed = ConvertPsxSemiTransparentTexture(processed, blendRate);
+                    var converted = ConvertPsxSemiTransparentTexture(processed, blendRate);
+                    processed = converted.Bytes;
+                    if (converted.HasRuntimeOpaqueTexels && blendRate is 1 or 3)
+                    {
+                        // The viewer applies an additive blend approximation only for
+                        // terminal __st1/__st3 names. A runtime palette with
+                        // ordinary texels cannot use whole-material additive
+                        // blending, so keep the portable alpha approximation.
+                        name += "__conditional";
+                    }
                     hasAlpha = true;
                 }
+                else
+                {
+                    // STP is conditional GPU state, not source coverage. Opaque
+                    // faces ignore it, so normalize the mesh-only palette
+                    // markers back to opaque while retaining a transparent key.
+                    (processed, hasAlpha) = NormalizeOpaquePs1Texture(processed);
+                }
 
-                material.TextureIndex = ModelDocumentGeometryAdapter.AddTexture(
+                textureIndex = ModelDocumentGeometryAdapter.AddTexture(
                     document,
                     textureName,
                     processed,
                     textureHash,
                     distinguishChecksumVariantsByContent: true);
                 if (hasAlpha)
-                    material.AlphaMode = semiTransparent ? ModelAlphaMode.Blend : ModelAlphaMode.Mask;
+                    alphaMode = semiTransparent ? ModelAlphaMode.Blend : ModelAlphaMode.Mask;
                 if (ModelDocumentGeometryAdapter.TryExtractPngDimensions(processed) is { } dims)
                     textureDims[textureHash] = dims;
             }
         }
 
+        // PS1 backface-culls every face unless flag bit 9 is set
+        // (M3dAsm_ProcessPolys @0x80099B04), so PSX materials are
+        // single-sided by default — unlike the RenderMaterial default.
+        var material = new RenderMaterial
+        {
+            Name = name,
+            TextureIndex = textureIndex,
+            AlphaMode = alphaMode,
+            DoubleSided = doubleSided
+        };
         var index = ModelDocumentGeometryAdapter.AddMaterial(document, material);
         materialCache[key] = index;
         return index;
@@ -308,9 +383,67 @@ internal static class PsxGeometryHelpers
     ///     (B−F subtractive) darkens via black RGB with brightness-driven
     ///     alpha; rate 3 (B+0.25F) is quarter-strength additive.
     /// </summary>
-    private static byte[] ConvertPsxSemiTransparentTexture(byte[] pngBytes, int blendRate)
+    private static (byte[] Bytes, bool HasRuntimeOpaqueTexels) ConvertPsxSemiTransparentTexture(
+        byte[] pngBytes,
+        int blendRate)
     {
-        return blendRate switch
+        using var image = Image.Load<Rgba32>(pngBytes);
+        var markers = FindRuntimePaletteMarkers(image);
+
+        if (markers.HasOpaque || markers.HasStp)
+        {
+            // On a textured PS1 primitive, ABE/ABR only applies to texels whose
+            // CLUT entry carries STP. Preserve ordinary palette entries at
+            // alpha=1 even though they share the same semi-transparent face.
+            image.ProcessPixelRows(accessor =>
+            {
+                for (var y = 0; y < accessor.Height; y++)
+                {
+                    var row = accessor.GetRowSpan(y);
+                    for (var x = 0; x < row.Length; x++)
+                    {
+                        ref var pixel = ref row[x];
+                        if (pixel.A == Ps1TextureDecoder.RuntimeOpaqueAlpha)
+                        {
+                            pixel.A = byte.MaxValue;
+                            continue;
+                        }
+
+                        if (pixel.A != Ps1TextureDecoder.RuntimeSemiTransparencyAlpha)
+                            continue;
+
+                        var luminance = (pixel.R * 77 + pixel.G * 150 + pixel.B * 29) >> 8;
+                        var maxChannel = Math.Max(pixel.R, Math.Max(pixel.G, pixel.B));
+                        pixel = blendRate switch
+                        {
+                            // A wholly-STP texture can use the viewer's
+                            // additive material without affecting ordinary
+                            // texels. Keep its authored hue and encode the ABR
+                            // strength in alpha. Mixed palettes retain the
+                            // portable alpha-over approximation instead.
+                            1 when !markers.HasOpaque =>
+                                new Rgba32(pixel.R, pixel.G, pixel.B, 255),
+                            1 => new Rgba32(255, 255, 255, (byte)luminance),
+                            2 => new Rgba32(0, 0, 0, maxChannel),
+                            3 when !markers.HasOpaque =>
+                                new Rgba32(pixel.R, pixel.G, pixel.B, 64),
+                            3 => new Rgba32(
+                                255,
+                                255,
+                                255,
+                                (byte)Math.Clamp((int)MathF.Round(luminance * 0.25f), 0, 255)),
+                            _ => new Rgba32(pixel.R, pixel.G, pixel.B, 128)
+                        };
+                    }
+                }
+            });
+
+            using var stream = new MemoryStream();
+            image.SaveAsPng(stream);
+            return (stream.ToArray(), markers.HasOpaque);
+        }
+
+        var converted = blendRate switch
         {
             1 => MeshTextureHelper.ConvertLuminanceToAlpha(pngBytes),
             2 => MeshTextureHelper.ConvertBlendTexture(pngBytes, 0, 0, 0),
@@ -318,5 +451,62 @@ internal static class PsxGeometryHelpers
                 MeshTextureHelper.ConvertLuminanceToAlpha(pngBytes), 0.25f),
             _ => MeshTextureHelper.ScaleTextureAlpha(pngBytes, 0.5f)
         };
+        return (converted, false);
+    }
+
+    private static (bool HasOpaque, bool HasStp) FindRuntimePaletteMarkers(Image<Rgba32> image)
+    {
+        var hasOpaque = false;
+        var hasStp = false;
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height && !(hasOpaque && hasStp); y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    hasOpaque |= row[x].A == Ps1TextureDecoder.RuntimeOpaqueAlpha;
+                    hasStp |= row[x].A == Ps1TextureDecoder.RuntimeSemiTransparencyAlpha;
+                    if (hasOpaque && hasStp)
+                        break;
+                }
+            }
+        });
+        return (hasOpaque, hasStp);
+    }
+
+    private static (byte[] Bytes, bool HasAlpha) NormalizeOpaquePs1Texture(byte[] pngBytes)
+    {
+        using var image = Image.Load<Rgba32>(pngBytes);
+        var foundRuntimeMarker = false;
+        var hasAlpha = false;
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    ref var pixel = ref row[x];
+                    if (pixel.A == Ps1TextureDecoder.RuntimeOpaqueAlpha ||
+                        pixel.A == Ps1TextureDecoder.RuntimeSemiTransparencyAlpha)
+                    {
+                        pixel.A = byte.MaxValue;
+                        foundRuntimeMarker = true;
+                    }
+                    else if (pixel.A < byte.MaxValue)
+                    {
+                        hasAlpha = true;
+                    }
+                }
+            }
+        });
+
+        if (!foundRuntimeMarker)
+            return (pngBytes, hasAlpha);
+
+        using var stream = new MemoryStream();
+        image.SaveAsPng(stream);
+        return (stream.ToArray(), hasAlpha);
     }
 }

@@ -122,6 +122,14 @@ internal static class BlendPackageWriter
                     };
                 }
 
+                string? textureWibblePath = null;
+                if (primitive.Vertices.Any(static vertex => vertex.TextureWibble.HasValue))
+                {
+                    var wibbleFileName = $"mesh_{meshIndex:D4}_prim_{primitiveIndex:D4}.wibble.bin";
+                    textureWibblePath = $"buffers/{wibbleFileName}";
+                    WriteTextureWibbleBuffer(archive, textureWibblePath, primitive.Vertices);
+                }
+
                 primitives.Add(new BlendPrimitiveManifest
                 {
                     Name = primitive.Name,
@@ -132,6 +140,7 @@ internal static class BlendPackageWriter
                     IndexCount = primitive.Indices.Length,
                     TriangleCount = primitive.TriangleCount,
                     Skin = skin,
+                    TextureWibbleBuffer = textureWibblePath,
                     NativeMetadata = primitive.NativeMetadata.Select(BlendPackageManifest.ToDictionary).ToList()
                 });
             }
@@ -237,6 +246,41 @@ internal static class BlendPackageWriter
             writer.Write(influence.Weight1);
             writer.Write(influence.Weight2);
             writer.Write(influence.Weight3);
+        }
+    }
+
+    private static void WriteTextureWibbleBuffer(
+        ZipArchive archive,
+        string path,
+        IReadOnlyList<ModelVertex> vertices)
+    {
+        // Parallel-to-vertex layout, 10 x float32:
+        // uVel, vVel, frequency, enabled, uAmp, uPhase, vAmp, vPhase, width, height.
+        var entry = archive.CreateEntry(path, CompressionLevel.Fastest);
+        using var stream = entry.Open();
+        using var writer = new BinaryWriter(stream);
+        foreach (var vertex in vertices)
+        {
+            if (vertex.TextureWibble is { } wibble)
+            {
+                writer.Write((float)wibble.UVelocity);
+                writer.Write((float)wibble.VVelocity);
+                writer.Write((float)wibble.Frequency);
+                writer.Write(1f);
+                writer.Write((float)wibble.UAmplitude);
+                writer.Write((float)wibble.UPhase);
+                writer.Write((float)wibble.VAmplitude);
+                writer.Write((float)wibble.VPhase);
+                writer.Write((float)wibble.TextureWidth);
+                writer.Write((float)wibble.TextureHeight);
+            }
+            else
+            {
+                for (var i = 0; i < 8; i++)
+                    writer.Write(0f);
+                writer.Write(1f);
+                writer.Write(1f);
+            }
         }
     }
 

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Tests.Helpers;
 
@@ -6,6 +7,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Archives;
 
 public class PkrArchiveTests(TestPaths paths)
 {
+    private const string SpiderManPcBuild = "Spider-Man (2001-9-17, PC - Final)";
+
     [Fact]
     public void GetFileList_MatchesGoldenManifest()
     {
@@ -95,5 +98,24 @@ public class PkrArchiveTests(TestPaths paths)
             if (File.Exists(tempFile))
                 File.Delete(tempFile);
         }
+    }
+
+    [Fact]
+    public void SpiderManPcDataPkr_NormalizesDirectorySeparatorsInDisplayPaths()
+    {
+        var pkrPath = paths.FindSampleFile(SpiderManPcBuild, "data.pkr");
+        Assert.SkipWhen(pkrPath == null, "Spider-Man PC data.pkr sample not available");
+
+        var backend = ArchiveAssetBackend.TryOpen(pkrPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend!.FileSystem;
+        var entry = backend.FindEntry("jameson.psx");
+        Assert.NotNull(entry);
+
+        Assert.Equal("data", entry!.Directory);
+        Assert.Equal("data/jameson.PSX", entry.FullName);
+        Assert.Equal(
+            "data.pkr::data/jameson.PSX",
+            new ArchiveAssetSource(backend, entry).DisplayName);
     }
 }

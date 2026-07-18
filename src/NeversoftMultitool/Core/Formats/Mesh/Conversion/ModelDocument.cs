@@ -12,6 +12,7 @@ public sealed class ModelDocument
     public List<RenderMaterial> Materials { get; } = [];
     public List<ModelTexture> Textures { get; } = [];
     public List<NativeRenderMetadata> NativeMetadata { get; } = [];
+    public List<ModelVisibilityGroup> VisibilityGroups { get; } = [];
     public ModelNativeSource? NativeSource { get; init; }
     public int TriangleCount { get; set; }
 

@@ -415,7 +415,10 @@
                             Spacing="8">
                   <TextBlock Text="Viewport"
                              FontWeight="SemiBold" />
-                  <Grid ColumnSpacing="8" RowSpacing="8">
+                  <Grid x:Name="WorldzoneViewportSettingsSection"
+                        ColumnSpacing="8"
+                        RowSpacing="8"
+                        Visibility="Collapsed">
                     <Grid.RowDefinitions>
                       <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
@@ -437,6 +440,17 @@
                     </ComboBox>
                   </Grid>
 
+                  <TextBlock Text="Visibility groups"
+                             FontWeight="SemiBold"
+                             Margin="0,8,0,0" />
+                  <TextBlock x:Name="VisibilityGroupsStatusText"
+                             Text="Select a mesh to inspect its visibility groups."
+                             FontSize="12"
+                             TextWrapping="Wrap"
+                             Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                  <StackPanel x:Name="VisibilityGroupsList"
+                              Spacing="4" />
+
                 </StackPanel>
               </ScrollViewer>
 
@@ -447,35 +461,39 @@
                             Spacing="8">
                   <TextBlock Text="Convert"
                              FontWeight="SemiBold" />
-                  <TextBlock Text="Worldzone"
-                             FontWeight="SemiBold"
-                             Margin="0,4,0,0" />
-                  <Grid ColumnSpacing="8" RowSpacing="8">
-                    <Grid.RowDefinitions>
-                      <RowDefinition Height="Auto" />
-                      <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                      <ColumnDefinition Width="70" />
-                      <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Row="0" Grid.Column="0"
-                               Text="Lighting"
-                               VerticalAlignment="Center"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <ToggleSwitch x:Name="ExportWorldzoneNightToggle"
-                                  Grid.Row="0" Grid.Column="1"
-                                  OffContent="Day"
-                                  OnContent="Night"
-                                  IsOn="False" />
-                    <TextBlock Grid.Row="1" Grid.Column="0"
-                               Text="Scale"
-                               VerticalAlignment="Center"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <TextBox x:Name="WorldzoneScaleText"
-                             Grid.Row="1" Grid.Column="1"
-                             Text="1" />
-                  </Grid>
+                  <StackPanel x:Name="WorldzoneExportSettingsSection"
+                              Spacing="8"
+                              Visibility="Collapsed">
+                    <TextBlock Text="Worldzone"
+                               FontWeight="SemiBold"
+                               Margin="0,4,0,0" />
+                    <Grid ColumnSpacing="8" RowSpacing="8">
+                      <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                      </Grid.RowDefinitions>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="70" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Grid.Row="0" Grid.Column="0"
+                                 Text="Lighting"
+                                 VerticalAlignment="Center"
+                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                      <ToggleSwitch x:Name="ExportWorldzoneNightToggle"
+                                    Grid.Row="0" Grid.Column="1"
+                                    OffContent="Day"
+                                    OnContent="Night"
+                                    IsOn="False" />
+                      <TextBlock Grid.Row="1" Grid.Column="0"
+                                 Text="Scale"
+                                 VerticalAlignment="Center"
+                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                      <TextBox x:Name="WorldzoneScaleText"
+                               Grid.Row="1" Grid.Column="1"
+                               Text="1" />
+                    </Grid>
+                  </StackPanel>
                   <CheckBox
                     x:Name="ExportGlbCheckbox"
                     Content="Export GLB"
@@ -605,7 +623,6 @@
           Style="{StaticResource IoSectionGridStyle}">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="Auto" />
@@ -631,20 +648,6 @@
                 Click="SelectArchive_Click" />
       </StackPanel>
 
-      <!-- Output directory -->
-      <TextBlock Grid.Row="1" Grid.Column="0"
-                 Text="Output:"
-                 Style="{StaticResource IoLabelStyle}" />
-      <TextBox x:Name="OutputPathText"
-               Grid.Row="1" Grid.Column="1"
-               IsReadOnly="True"
-               Style="{StaticResource IoTextBoxStyle}" />
-      <StackPanel Grid.Row="1" Grid.Column="2"
-                  Style="{StaticResource IoButtonsPanelStyle}">
-        <Button Content="Browse folder..."
-                MinWidth="120"
-                Click="OutputBrowse_Click" />
-      </StackPanel>
     </Grid>
   </Grid>
 </UserControl>

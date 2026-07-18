@@ -118,10 +118,12 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
   resolves via .ZOO tables). Disposition: out of scope like `.bik` — Codemasters formats belong
   to Codemasters tooling. Same applies to the `.zoo`/`.bfx` census entries.
 
-### 🔶 PSX wibbly/animated texture + pulsing colour metadata export
+### 🟡 PSX animated surfaces — UV wibble supported; pulsing-colour playback pending
 - Source: decomp contract `thps2-psx-proto docs/wibbly_texture_animation.md` (2026-07-09; `M3dInit_FlagZeroWibbles` + `uWibble`/`vWibble` PERFECT).
-- **Not a correctness bug**: face bit5 (0x20) "animated texture" is UV scroll + per-vertex sine wibble, never an image flipbook. Disc face UVs on bit5 faces are normal texture-relative base values (verified: skmar 1,774 bit5 faces, skdown 3,693 — zero degenerate UVs), so current GLB output already renders the correct t=0 frame. Bit5 is set on >50% of level faces; actual animation membership comes from the wibble table, not the flag.
-- What's left (additive): parse `pTexWibData` (16-byte `STexWibItemInfo` items: ItemOffset/uVel/vVel/Frequency/NumFaces/ZeroU/V + per-face 4×(u,v,uAmpPhase,vAmpPhase), 0-terminated) and `pColourPulseData` (per-entry `{r,g,b,Interval}` keyframe lists) and export as glTF extras/animation metadata. UV formula: `U = (u<<8) + (t*uVel>>4) + WibbleTables[amp][(t*Freq>>10)+phase*4 & 63]`, LUT = 16 amp rows × 64 s16 @0x800CE02C.
+- Face bit5 (0x20) "animated texture" is UV scroll + per-vertex sine wibble, never an image flipbook. Actual animation membership comes from tagged chunk 6's wibble table, not the flag alone.
+- **Implemented 2026-07-17:** parse `pTexWibData`, retain every emitted vertex's velocity/frequency/amplitude/phase and texture dimensions in `ModelDocument`, write a correct frame-zero fallback, transport the parameters as application-specific GLB vertex attributes, reproduce the native 64-sample fixed-point table in the live viewer, and build a timeline-driven UV shader in `.blend` exports. Core glTF consumers that ignore custom attributes continue to display frame zero; core glTF has no portable per-vertex UV-animation channel.
+- **Spider-Man PC v6 contract (verified against `SpideyPC.exe` 0x0047619F-0x00476259):** tag-6's legacy base-UV bytes are non-authoritative (zero placeholders or redundant byte-range copies); animation starts from each face's widened UVs in the fixed 512-coordinate space. The PC path doubles only the scrolling term. Treating L2A1's zero placeholders as base UVs collapsed animated faces to one texel, while normalizing motion by the decoded (often much smaller) texture dimensions made it appear several times too fast.
+- What's left: animate parsed `pColourPulseData` (`{r,g,b,Interval}` keyframe lists) instead of exporting only its authored initial phase. UV formula now implemented by the viewer: `U = (u<<8) + (t*uVel>>4) + WibbleTables[amp][(t*Freq>>10)+phase*4 & 63]`, with the engine's 16×64 LUT reconstructed from `rcossin_tbl`.
 
 ### 🔶 PSX level-object animation export (skeletal path)
 - Source: decomp contract `thps2-psx-proto docs/level_object_anim_binding.md` (2026-07-09; RunAnim/CycleAnim/CalculateAnimOrder PERFECT).

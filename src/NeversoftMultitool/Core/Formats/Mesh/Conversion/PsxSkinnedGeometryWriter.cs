@@ -31,6 +31,7 @@ internal static class PsxSkinnedGeometryWriter
         IReadOnlySet<int>? flatBoneIndices,
         PsxMeshFile? splineClawFile,
         MeshChecksumTextureResolver? splineClawTextureProvider,
+        IReadOnlySet<int>? hiddenObjectIndices,
         bool reconstructSplineAppendages)
     {
         var skeletonIndex = document.Skeletons.Count;
@@ -47,16 +48,22 @@ internal static class PsxSkinnedGeometryWriter
         });
 
         var lodVariants = PsxGeometryHelpers.BuildPsxLodVariantSet(psxFile);
-        var alternateLeafObjects = PsxMeshSemantics.FindAlternateLeafObjectIndices(psxFile);
         var splineChains = PsxSplineAppendageGeometry.FindControllerChains(psxFile);
         var splineControllerObjects = PsxSplineAppendageGeometry.BuildControllerObjectSet(splineChains);
         var embeddedTipPlacements = PsxSplineAppendageGeometry.FindEmbeddedTipPlacements(
             psxFile, splineChains);
         var buckets = new Dictionary<int, PsxSkinnedBucket>();
+        // claw.psx is a separate model and its small numeric texture
+        // checksums can overlap the parent character. Keep its material and
+        // dimension caches isolated so a parent material cannot steal a claw
+        // or tentacle image merely because the native hash is the same.
+        var splineTextureDims = new Dictionary<uint, (int Width, int Height)>();
+        var splineMaterialCache =
+            new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>();
 
         for (var objectIndex = 0; objectIndex < psxFile.Objects.Count; objectIndex++)
         {
-            if (alternateLeafObjects.Contains(objectIndex)
+            if (hiddenObjectIndices?.Contains(objectIndex) == true
                 || splineControllerObjects.Contains(objectIndex)
                 || !reconstructSplineAppendages && embeddedTipPlacements.ContainsKey(objectIndex))
                 continue;
@@ -91,43 +98,64 @@ internal static class PsxSkinnedGeometryWriter
 
         if (reconstructSplineAppendages && splineChains.Count > 0)
         {
-            if (!buckets.TryGetValue(untexturedMaterial, out var bucket))
+            var tubeTextureHash = splineClawFile == null
+                ? PsxSplineAppendageGeometry.FindEmbeddedTailTextureHash(
+                    psxFile, embeddedTipPlacements, textureProvider)
+                : PsxSplineAppendageGeometry.FindTubeTextureHash(
+                    splineClawFile, splineClawTextureProvider);
+            var tubeTextureProvider = splineClawFile == null
+                ? textureProvider
+                : splineClawTextureProvider;
+            var tubeTextureDims = splineClawFile == null
+                ? textureDims
+                : splineTextureDims;
+            var tubeMaterialCache = splineClawFile == null
+                ? materialCache
+                : splineMaterialCache;
+            var tubeMaterial = tubeTextureHash is { } hash
+                ? PsxGeometryHelpers.GetOrCreatePsxMaterial(
+                    document,
+                    hash,
+                    semiTransparent: false,
+                    doubleSided: false,
+                    blendRate: 0,
+                    tubeTextureProvider,
+                    tubeTextureDims,
+                    tubeMaterialCache)
+                : untexturedMaterial;
+
+            if (!buckets.TryGetValue(tubeMaterial, out var bucket))
             {
                 bucket = new PsxSkinnedBucket();
-                buckets[untexturedMaterial] = bucket;
+                buckets[tubeMaterial] = bucket;
             }
 
             PsxSplineAppendageGeometry.AppendGeneratedTubes(
                 splineChains,
                 bucket.Vertices,
                 bucket.Indices,
-                bucket.Influences);
+                bucket.Influences,
+                hasAuthoredTexture: tubeTextureHash.HasValue);
         }
 
         if (reconstructSplineAppendages
             && splineChains.Count > 1
             && splineClawFile is { Meshes.Count: > 0 })
         {
-            // claw.psx is a separate model and its small numeric texture
-            // checksums can overlap the parent character. Keep its material
-            // and dimension caches isolated so a parent material cannot steal
-            // a claw image (or vice versa) merely because the native hash is
-            // the same. ModelDocument still de-duplicates identical images.
-            var clawTextureDims = new Dictionary<uint, (int Width, int Height)>();
-            var clawMaterialCache =
-                new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>();
             const int clawObjectIndex = 0;
             const int clawMeshIndex = 0;
             var clawMesh = splineClawFile.Meshes[clawMeshIndex];
+            var clawForwardSign = PsxSplineAppendageGeometry.DetermineTipForwardSign(clawMesh);
 
             foreach (var chain in splineChains)
             {
-                var placement = PsxSplineAppendageGeometry.CreateTipPlacement(chain);
+                var placement = PsxSplineAppendageGeometry.CreateTipPlacement(
+                    chain, clawForwardSign);
                 foreach (var face in clawMesh.Faces)
                 {
                     var (materialIndex, texDims) = ResolvePsxFaceMaterial(
                         document, face, splineClawTextureProvider,
-                        clawTextureDims, clawMaterialCache, untexturedMaterial);
+                        splineTextureDims, splineMaterialCache, untexturedMaterial);
                     if (!buckets.TryGetValue(materialIndex, out var bucket))
                     {
                         bucket = new PsxSkinnedBucket();
@@ -237,15 +265,17 @@ internal static class PsxSkinnedGeometryWriter
         (int Width, int Height) texDims,
         PsxSplineTipPlacement? tipPlacement)
     {
-        var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(psxFile.Version, face, psxFile.GouraudPalette);
+        var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(
+            psxFile.Version, mesh, face, psxFile.GouraudPalette);
         c0 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c0);
         c1 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c1);
         c2 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c2);
         c3 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c3);
-        c0 = PsxGeometryHelpers.DisplayRgbToLinear(c0);
-        c1 = PsxGeometryHelpers.DisplayRgbToLinear(c1);
-        c2 = PsxGeometryHelpers.DisplayRgbToLinear(c2);
-        c3 = PsxGeometryHelpers.DisplayRgbToLinear(c3);
+        var isPs1TexturedModulation = psxFile.Version != 0x06 && face.IsTextured;
+        c0 = PsxGeometryHelpers.DisplayRgbToLinear(c0, isPs1TexturedModulation);
+        c1 = PsxGeometryHelpers.DisplayRgbToLinear(c1, isPs1TexturedModulation);
+        c2 = PsxGeometryHelpers.DisplayRgbToLinear(c2, isPs1TexturedModulation);
+        c3 = PsxGeometryHelpers.DisplayRgbToLinear(c3, isPs1TexturedModulation);
         var v0 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 0, c0, texDims, tipPlacement, out var i0);
         var v1 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 1, c1, texDims, tipPlacement, out var i1);
         var v2 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 2, c2, texDims, tipPlacement, out var i2);
@@ -307,7 +337,10 @@ internal static class PsxSkinnedGeometryWriter
             PsxMeshSemantics.ToGltfPosition(worldPosition),
             normal,
             color,
-            PsxGeometryHelpers.ComputePsxTextureUv(psxFile.Version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height));
+            PsxGeometryHelpers.ComputePsxTextureUv(psxFile.Version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height))
+        {
+            TextureWibble = ModelTextureWibble.FromFace(psxFile.Version, face, slot, texDims)
+        };
 
         influence = ModelBoneInfluences.Single(jointIndex);
         return vertex;

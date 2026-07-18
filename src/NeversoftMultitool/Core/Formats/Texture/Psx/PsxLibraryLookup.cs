@@ -8,13 +8,19 @@ internal static class PsxLibraryLookup
     public static (byte[] Rgba, int Width, int Height)? ExtractTextureByHash(
         string psxFilePath,
         uint targetHash,
-        List<string>? diagnostics = null)
+        List<string>? diagnostics = null,
+        bool preserveRuntimeSemiTransparency = false)
     {
         try
         {
             using var stream = File.OpenRead(psxFilePath);
             using var reader = new BinaryReader(stream);
-            return ExtractTextureByHashCore(reader, targetHash, diagnostics, Path.GetFileName(psxFilePath));
+            return ExtractTextureByHashCore(
+                reader,
+                targetHash,
+                diagnostics,
+                Path.GetFileName(psxFilePath),
+                preserveRuntimeSemiTransparency);
         }
         catch (Exception ex)
         {
@@ -27,13 +33,19 @@ internal static class PsxLibraryLookup
         byte[] data,
         uint targetHash,
         string label,
-        List<string>? diagnostics = null)
+        List<string>? diagnostics = null,
+        bool preserveRuntimeSemiTransparency = false)
     {
         try
         {
             using var stream = new MemoryStream(data, false);
             using var reader = new BinaryReader(stream);
-            return ExtractTextureByHashCore(reader, targetHash, diagnostics, label);
+            return ExtractTextureByHashCore(
+                reader,
+                targetHash,
+                diagnostics,
+                label,
+                preserveRuntimeSemiTransparency);
         }
         catch (Exception ex)
         {
@@ -46,7 +58,8 @@ internal static class PsxLibraryLookup
         BinaryReader reader,
         uint targetHash,
         List<string>? diagnostics,
-        string label)
+        string label,
+        bool preserveRuntimeSemiTransparency)
     {
         var magic = reader.ReadBytes(4);
         if (!PsxLibrary.IsValidMagic(magic))
@@ -79,7 +92,8 @@ internal static class PsxLibraryLookup
             palette4Bit,
             palette8Bit,
             diagnostics,
-            label);
+            label,
+            preserveRuntimeSemiTransparency);
     }
 
     public static List<(PsxTextureHeader Header, uint NameHash)> EnumerateTextures(string inputFile)
@@ -145,7 +159,8 @@ internal static class PsxLibraryLookup
         List<PsxPalette> palette4Bit,
         List<PsxPalette> palette8Bit,
         List<string>? diagnostics,
-        string fileName)
+        string fileName,
+        bool preserveRuntimeSemiTransparency)
     {
         for (var i = 0; i < textureCount; i++)
         {
@@ -167,7 +182,12 @@ internal static class PsxLibraryLookup
                 continue;
             }
 
-            var pixels = DecodeTexture(reader, header, palette4Bit, palette8Bit);
+            var pixels = DecodeTexture(
+                reader,
+                header,
+                palette4Bit,
+                palette8Bit,
+                preserveRuntimeSemiTransparency);
             if (pixels == null)
             {
                 diagnostics?.Add($"{fileName}: texture at index {i} (pal={header.PalSize}) decode returned null");
@@ -189,12 +209,21 @@ internal static class PsxLibraryLookup
         BinaryReader reader,
         PsxTextureHeader header,
         List<PsxPalette> palette4Bit,
-        List<PsxPalette> palette8Bit)
+        List<PsxPalette> palette8Bit,
+        bool preserveRuntimeSemiTransparency)
     {
         if (header.PalSize == 16)
-            return Ps1TextureDecoder.Extract4BitTexture(reader, header, palette4Bit);
+            return Ps1TextureDecoder.Extract4BitTexture(
+                reader,
+                header,
+                palette4Bit,
+                preserveRuntimeSemiTransparency);
         if (header.PalSize == 256)
-            return Ps1TextureDecoder.Extract8BitTexture(reader, header, palette8Bit);
+            return Ps1TextureDecoder.Extract8BitTexture(
+                reader,
+                header,
+                palette8Bit,
+                preserveRuntimeSemiTransparency);
         if (header.PalSize != 65536)
             return null;
 

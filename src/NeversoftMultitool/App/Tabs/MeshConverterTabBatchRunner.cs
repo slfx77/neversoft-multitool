@@ -44,7 +44,10 @@ internal sealed class MeshConverterTabBatchRunner(
         string outputDir,
         WorldzoneTimeOfDay worldzoneTimeOfDay,
         float worldzoneScale,
-        MeshOutputFormat outputFormat)
+        MeshOutputFormat outputFormat,
+        string? singleOutputStem = null,
+        MeshFileEntry? visibilityEntry = null,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
     {
         var cts = await BeginOperationAsync();
 
@@ -79,6 +82,10 @@ internal sealed class MeshConverterTabBatchRunner(
                         worldzoneTimeOfDay,
                         worldzoneScale,
                         outputFormat,
+                        outputStem: entries.Count == 1 ? singleOutputStem : null,
+                        visibilityOverrides: ReferenceEquals(entry, visibilityEntry)
+                            ? visibilityOverrides
+                            : null,
                         cancellationToken: token);
                     Interlocked.Add(ref totalTriangles, result.Triangles);
                     Interlocked.Increment(ref totalConverted);
@@ -127,7 +134,9 @@ internal sealed class MeshConverterTabBatchRunner(
         float elevation,
         bool objectReview,
         WorldzoneTimeOfDay worldzoneTimeOfDay,
-        float worldzoneScale)
+        float worldzoneScale,
+        MeshFileEntry? visibilityEntry = null,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
     {
         var cts = await BeginOperationAsync();
         var token = cts.Token;
@@ -145,7 +154,10 @@ internal sealed class MeshConverterTabBatchRunner(
                 try
                 {
                     var (glb, _) = MeshConverterTabFileConverter.ConvertToGlbBytes(
-                        entry, worldzoneTimeOfDay, worldzoneScale);
+                        entry,
+                        worldzoneTimeOfDay,
+                        worldzoneScale,
+                        ReferenceEquals(entry, visibilityEntry) ? visibilityOverrides : null);
                     if (glb == null || glb.Length == 0)
                     {
                         skipped++;
@@ -212,6 +224,55 @@ internal sealed class MeshConverterTabBatchRunner(
     }
 
     /// <summary>
+    ///     Converts and renders one entry. This is used when a worldzone must be
+    ///     rebuilt with export-only lighting/scale settings or when no preview
+    ///     GLB has been loaded yet.
+    /// </summary>
+    public async Task RenderPngEntryAsync(
+        MeshFileEntry entry,
+        string outputDir,
+        string stem,
+        int size,
+        float azimuth,
+        float elevation,
+        bool objectReview,
+        WorldzoneTimeOfDay worldzoneTimeOfDay,
+        float worldzoneScale,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
+    {
+        var cts = await BeginOperationAsync();
+        try
+        {
+            var outputs = await Task.Run(() =>
+            {
+                var (glb, _) = MeshConverterTabFileConverter.ConvertToGlbBytes(
+                    entry, worldzoneTimeOfDay, worldzoneScale, visibilityOverrides);
+                if (glb == null || glb.Length == 0)
+                    throw new InvalidOperationException("The selected mesh produced no geometry.");
+
+                return RenderGlbToPngs(
+                    glb, outputDir, stem, size, azimuth, elevation, objectReview);
+            }, cts.Token);
+
+            MainWindow.Instance?.SetStatus(outputs.Count == 1
+                ? $"Rendered → {Path.GetFileName(outputs[0])}"
+                : $"Rendered {outputs.Count} views → {outputDir}");
+        }
+        catch (OperationCanceledException)
+        {
+            MainWindow.Instance?.SetStatus("Render cancelled");
+        }
+        catch (Exception ex)
+        {
+            MainWindow.Instance?.SetStatus($"Render failed: {ex.Message}");
+        }
+        finally
+        {
+            EndOperation(cts);
+        }
+    }
+
+    /// <summary>
     ///     Renders each checked entry to an animated GIF; entries whose GLB has
     ///     no animation clips are skipped (plain meshes convert clip-less).
     /// </summary>
@@ -223,7 +284,9 @@ internal sealed class MeshConverterTabBatchRunner(
         float azimuth,
         float elevation,
         WorldzoneTimeOfDay worldzoneTimeOfDay,
-        float worldzoneScale)
+        float worldzoneScale,
+        MeshFileEntry? visibilityEntry = null,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
     {
         var cts = await BeginOperationAsync();
         var token = cts.Token;
@@ -241,7 +304,10 @@ internal sealed class MeshConverterTabBatchRunner(
                 try
                 {
                     var (glb, _) = MeshConverterTabFileConverter.ConvertToGlbBytes(
-                        entry, worldzoneTimeOfDay, worldzoneScale);
+                        entry,
+                        worldzoneTimeOfDay,
+                        worldzoneScale,
+                        ReferenceEquals(entry, visibilityEntry) ? visibilityOverrides : null);
                     if (glb == null || glb.Length == 0 || !GlbHasAnimations(glb))
                     {
                         skipped++;

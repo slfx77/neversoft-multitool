@@ -1,5 +1,6 @@
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
@@ -72,38 +73,43 @@ internal sealed class MeshConverterTabPreview : IDisposable
         return name.EndsWith("_g.psx", StringComparison.OrdinalIgnoreCase);
     }
 
-    public async Task LoadPreviewAsync(
+    public async Task<IReadOnlyList<ModelVisibilityGroup>?> LoadPreviewAsync(
         MeshFileEntry entry,
-        WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All)
+        WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
+        bool preserveCamera = false)
     {
         var cts = await ReplacePreviewCancellationAsync();
-        if (cts == null) return;
+        if (cts == null) return null;
         var token = cts.Token;
 
         await _viewer.CancelPendingLoadAsync();
-        if (!IsCurrentPreview(cts)) return;
+        if (!IsCurrentPreview(cts)) return null;
         _viewer.SetError(null);
         _viewer.SetInfo($"Converting {entry.FileName}...");
         _viewer.SetLoading(true);
         await _viewer.SetViewerStatusAsync("Converting...");
-        if (!IsCurrentPreview(cts)) return;
+        if (!IsCurrentPreview(cts)) return null;
 
         try
         {
-            var (glbBytes, triangles) = await Task.Run(() =>
-                MeshConverterTabFileConverter.ConvertToGlbBytes(entry, worldzoneTimeOfDay), token);
+            var (glbBytes, triangles, visibilityGroups) = await Task.Run(() =>
+                MeshConverterTabFileConverter.ConvertToGlbPreview(
+                    entry,
+                    worldzoneTimeOfDay,
+                    visibilityOverrides: visibilityOverrides), token);
 
-            if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return;
+            if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return null;
 
             if (glbBytes == null || glbBytes.Length == 0)
             {
                 // Clear the previous model so render buttons can't act on
                 // stale bytes under this file's name.
                 await _viewer.ClearAsync();
-                if (!IsCurrentPreview(cts)) return;
+                if (!IsCurrentPreview(cts)) return null;
                 _viewer.SetInfo("No geometry in this file");
                 await _viewer.SetViewerStatusAsync("No geometry");
-                return;
+                return visibilityGroups;
             }
 
             // Surface the count in the file list too — before this, the Triangles
@@ -115,20 +121,27 @@ internal sealed class MeshConverterTabPreview : IDisposable
             _viewer.SetLoading(false);
             var isLevel = IsLevelModel(entry);
             var walkEyeHeight = ResolveWalkEyeHeight(entry, isLevel);
-            await _viewer.LoadGlbAsync(glbBytes, isLevel, walkEyeHeight);
+            await _viewer.LoadGlbAsync(
+                glbBytes,
+                isLevel,
+                walkEyeHeight,
+                preserveCamera);
+            return IsCurrentPreview(cts) ? visibilityGroups : null;
         }
         catch (OperationCanceledException)
         {
             // Expected when switching selection rapidly
+            return null;
         }
         catch (Exception ex)
         {
-            if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return;
+            if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return null;
 
             await _viewer.ClearAsync();
-            if (!IsCurrentPreview(cts)) return;
+            if (!IsCurrentPreview(cts)) return null;
             _viewer.SetError($"Preview failed: {ex.Message}");
             await _viewer.SetViewerStatusAsync($"Error: {ex.Message}");
+            return null;
         }
     }
 
@@ -136,37 +149,42 @@ internal sealed class MeshConverterTabPreview : IDisposable
     ///     Build a single-animation preview GLB for a character and push it
     ///     into the viewer (ported from the Character Preview tab).
     /// </summary>
-    public async Task LoadPreviewAsync(MeshFileEntry character, AnimationProbe animation)
+    public async Task<IReadOnlyList<ModelVisibilityGroup>?> LoadPreviewAsync(
+        MeshFileEntry character,
+        AnimationProbe animation,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
+        bool preserveCamera = false)
     {
         var cts = await ReplacePreviewCancellationAsync();
-        if (cts == null) return;
+        if (cts == null) return null;
         var token = cts.Token;
 
         await _viewer.CancelPendingLoadAsync();
-        if (!IsCurrentPreview(cts)) return;
+        if (!IsCurrentPreview(cts)) return null;
         _viewer.SetError(null);
         _viewer.SetInfo($"Building preview for {animation.DisplayName}…");
         _viewer.SetLoading(true);
         await _viewer.SetViewerStatusAsync("Building preview...");
-        if (!IsCurrentPreview(cts)) return;
+        if (!IsCurrentPreview(cts)) return null;
 
         try
         {
             var result = await Task.Run(
-                () => CharacterAnimationConverter.BuildAnimatedGlb(character, [animation]),
+                () => CharacterAnimationConverter.BuildAnimatedGlb(
+                    character, [animation], visibilityOverrides),
                 token);
 
-            if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return;
+            if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return null;
 
             if (result.GlbBytes == null || result.Triangles == 0)
             {
                 // Clear the previous model so "Render GIF..." can't act on
                 // stale bytes for a failed selection.
                 await _viewer.ClearAsync();
-                if (!IsCurrentPreview(cts)) return;
+                if (!IsCurrentPreview(cts)) return null;
                 _viewer.SetError(result.Error ?? "Preview build returned no geometry.");
                 await _viewer.SetViewerStatusAsync("No preview");
-                return;
+                return result.VisibilityGroups;
             }
 
             // Animated character selection takes this path instead of the
@@ -177,19 +195,24 @@ internal sealed class MeshConverterTabPreview : IDisposable
                 $"{character.FormatDisplay} | {animation.DisplayName} | "
                 + $"{animation.DurationSec:0.00} s | {result.Triangles:N0} triangles");
             _viewer.SetLoading(false);
-            await _viewer.LoadGlbAsync(result.GlbBytes);
+            await _viewer.LoadGlbAsync(
+                result.GlbBytes,
+                preserveCamera: preserveCamera);
+            return IsCurrentPreview(cts) ? result.VisibilityGroups : null;
         }
         catch (OperationCanceledException)
         {
             // Expected when switching selection rapidly.
+            return null;
         }
         catch (Exception ex)
         {
-            if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return;
+            if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return null;
 
             await _viewer.ClearAsync();
-            if (!IsCurrentPreview(cts)) return;
+            if (!IsCurrentPreview(cts)) return null;
             _viewer.SetError($"Preview failed: {ex.Message}");
+            return null;
         }
     }
 

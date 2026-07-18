@@ -11,6 +11,10 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
 using GltfVertex = VertexBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexEmpty>;
 using GltfSkinnedVertex = VertexBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexJoints4>;
+using PsxOverbrightGltfVertex = VertexBuilder<VertexPositionNormal, PsxOverbrightVertexColor1Texture1, VertexEmpty>;
+using PsxOverbrightGltfSkinnedVertex = VertexBuilder<VertexPositionNormal, PsxOverbrightVertexColor1Texture1, VertexJoints4>;
+using PsxAnimatedGltfVertex = VertexBuilder<VertexPositionNormal, PsxAnimatedVertexColor1Texture1, VertexEmpty>;
+using PsxAnimatedGltfSkinnedVertex = VertexBuilder<VertexPositionNormal, PsxAnimatedVertexColor1Texture1, VertexJoints4>;
 
 public sealed class GltfModelExporter : IModelExporter
 {
@@ -315,6 +319,12 @@ public sealed class GltfModelExporter : IModelExporter
         IReadOnlyList<MaterialBuilder> materials,
         Matrix4x4 worldTransform)
     {
+        if (HasTextureWibble(modelMesh))
+            return AddPsxAnimatedRigidMesh(scene, modelMesh, materials, worldTransform);
+
+        if (HasOutOfRangeVertexColor(modelMesh))
+            return AddPsxOverbrightRigidMesh(scene, modelMesh, materials, worldTransform);
+
         var mesh = new MeshBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexEmpty>(modelMesh.Name);
         var totalTriangles = 0;
         foreach (var primitive in modelMesh.Primitives)
@@ -334,6 +344,12 @@ public sealed class GltfModelExporter : IModelExporter
         IReadOnlyList<MaterialBuilder> materials,
         IReadOnlyList<(NodeBuilder Node, Matrix4x4 InverseBindMatrix)[]> skeletonJoints)
     {
+        if (HasTextureWibble(modelMesh))
+            return AddPsxAnimatedSkinnedMesh(scene, modelMesh, materials, skeletonJoints);
+
+        if (HasOutOfRangeVertexColor(modelMesh))
+            return AddPsxOverbrightSkinnedMesh(scene, modelMesh, materials, skeletonJoints);
+
         var mesh = new MeshBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexJoints4>(modelMesh.Name);
         var totalTriangles = 0;
         var skeletonIndex = -1;
@@ -352,6 +368,122 @@ public sealed class GltfModelExporter : IModelExporter
             scene.AddSkinnedMesh(mesh, skeletonJoints[skeletonIndex]);
 
         return totalTriangles;
+    }
+
+    private static int AddPsxAnimatedRigidMesh(
+        SceneBuilder scene,
+        ModelMesh modelMesh,
+        IReadOnlyList<MaterialBuilder> materials,
+        Matrix4x4 worldTransform)
+    {
+        var mesh = new MeshBuilder<VertexPositionNormal, PsxAnimatedVertexColor1Texture1, VertexEmpty>(
+            modelMesh.Name);
+        var totalTriangles = 0;
+        foreach (var primitive in modelMesh.Primitives)
+        {
+            var material = ResolveMaterial(primitive, materials);
+            var prim = mesh.UsePrimitive(material);
+            totalTriangles += AddPsxAnimatedTriangles(prim, primitive);
+        }
+
+        scene.AddRigidMesh(mesh, worldTransform);
+        return totalTriangles;
+    }
+
+    private static int AddPsxAnimatedSkinnedMesh(
+        SceneBuilder scene,
+        ModelMesh modelMesh,
+        IReadOnlyList<MaterialBuilder> materials,
+        IReadOnlyList<(NodeBuilder Node, Matrix4x4 InverseBindMatrix)[]> skeletonJoints)
+    {
+        var mesh = new MeshBuilder<VertexPositionNormal, PsxAnimatedVertexColor1Texture1, VertexJoints4>(
+            modelMesh.Name);
+        var totalTriangles = 0;
+        var skeletonIndex = -1;
+        foreach (var primitive in modelMesh.Primitives)
+        {
+            if (primitive.Skin is not { } skin ||
+                (uint)skin.SkeletonIndex >= (uint)skeletonJoints.Count)
+            {
+                continue;
+            }
+
+            skeletonIndex = skin.SkeletonIndex;
+            var material = ResolveMaterial(primitive, materials);
+            var prim = mesh.UsePrimitive(material);
+            totalTriangles += AddPsxAnimatedSkinnedTriangles(prim, primitive, skin);
+        }
+
+        if (totalTriangles > 0 && skeletonIndex >= 0)
+            scene.AddSkinnedMesh(mesh, skeletonJoints[skeletonIndex]);
+
+        return totalTriangles;
+    }
+
+    private static int AddPsxOverbrightRigidMesh(
+        SceneBuilder scene,
+        ModelMesh modelMesh,
+        IReadOnlyList<MaterialBuilder> materials,
+        Matrix4x4 worldTransform)
+    {
+        var mesh = new MeshBuilder<VertexPositionNormal, PsxOverbrightVertexColor1Texture1, VertexEmpty>(
+            modelMesh.Name);
+        var totalTriangles = 0;
+        foreach (var primitive in modelMesh.Primitives)
+        {
+            var material = ResolveMaterial(primitive, materials);
+            var prim = mesh.UsePrimitive(material);
+            totalTriangles += AddPsxOverbrightTriangles(prim, primitive);
+        }
+
+        scene.AddRigidMesh(mesh, worldTransform);
+        return totalTriangles;
+    }
+
+    private static int AddPsxOverbrightSkinnedMesh(
+        SceneBuilder scene,
+        ModelMesh modelMesh,
+        IReadOnlyList<MaterialBuilder> materials,
+        IReadOnlyList<(NodeBuilder Node, Matrix4x4 InverseBindMatrix)[]> skeletonJoints)
+    {
+        var mesh = new MeshBuilder<VertexPositionNormal, PsxOverbrightVertexColor1Texture1, VertexJoints4>(
+            modelMesh.Name);
+        var totalTriangles = 0;
+        var skeletonIndex = -1;
+        foreach (var primitive in modelMesh.Primitives)
+        {
+            if (primitive.Skin is not { } skin ||
+                (uint)skin.SkeletonIndex >= (uint)skeletonJoints.Count)
+            {
+                continue;
+            }
+
+            skeletonIndex = skin.SkeletonIndex;
+            var material = ResolveMaterial(primitive, materials);
+            var prim = mesh.UsePrimitive(material);
+            totalTriangles += AddPsxOverbrightSkinnedTriangles(prim, primitive, skin);
+        }
+
+        if (totalTriangles > 0 && skeletonIndex >= 0)
+            scene.AddSkinnedMesh(mesh, skeletonJoints[skeletonIndex]);
+
+        return totalTriangles;
+    }
+
+    private static bool HasOutOfRangeVertexColor(ModelMesh mesh)
+    {
+        return mesh.Primitives.Any(static primitive =>
+            primitive.Vertices.Any(static vertex =>
+                vertex.Color.X is < 0f or > 1f ||
+                vertex.Color.Y is < 0f or > 1f ||
+                vertex.Color.Z is < 0f or > 1f ||
+                vertex.Color.W is < 0f or > 1f));
+    }
+
+    private static bool HasTextureWibble(ModelMesh mesh)
+    {
+        return mesh.Primitives.Any(static primitive =>
+            primitive.Vertices.Any(static vertex => vertex.TextureWibble.HasValue));
     }
 
     private static MaterialBuilder ResolveMaterial(ModelPrimitive primitive, IReadOnlyList<MaterialBuilder> materials)
@@ -470,6 +602,74 @@ public sealed class GltfModelExporter : IModelExporter
             new HighPrecisionVertexColor1Texture1(vertex.Color, vertex.TexCoord));
     }
 
+    private static int AddPsxAnimatedTriangles(
+        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, PsxAnimatedVertexColor1Texture1, VertexEmpty> prim,
+        ModelPrimitive primitive)
+    {
+        var triangles = 0;
+        for (var i = 0; i + 2 < primitive.Indices.Length; i += 3)
+        {
+            var ia = primitive.Indices[i];
+            var ib = primitive.Indices[i + 1];
+            var ic = primitive.Indices[i + 2];
+            if ((uint)ia >= (uint)primitive.Vertices.Length ||
+                (uint)ib >= (uint)primitive.Vertices.Length ||
+                (uint)ic >= (uint)primitive.Vertices.Length)
+            {
+                continue;
+            }
+
+            prim.AddTriangle(
+                MakePsxAnimatedVertex(primitive.Vertices[ia]),
+                MakePsxAnimatedVertex(primitive.Vertices[ib]),
+                MakePsxAnimatedVertex(primitive.Vertices[ic]));
+            triangles++;
+        }
+
+        return triangles;
+    }
+
+    private static PsxAnimatedGltfVertex MakePsxAnimatedVertex(ModelVertex vertex)
+    {
+        return new PsxAnimatedGltfVertex(
+            new VertexPositionNormal(vertex.Position, vertex.Normal),
+            new PsxAnimatedVertexColor1Texture1(vertex));
+    }
+
+    private static int AddPsxOverbrightTriangles(
+        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, PsxOverbrightVertexColor1Texture1, VertexEmpty> prim,
+        ModelPrimitive primitive)
+    {
+        var triangles = 0;
+        for (var i = 0; i + 2 < primitive.Indices.Length; i += 3)
+        {
+            var ia = primitive.Indices[i];
+            var ib = primitive.Indices[i + 1];
+            var ic = primitive.Indices[i + 2];
+            if ((uint)ia >= (uint)primitive.Vertices.Length ||
+                (uint)ib >= (uint)primitive.Vertices.Length ||
+                (uint)ic >= (uint)primitive.Vertices.Length)
+            {
+                continue;
+            }
+
+            prim.AddTriangle(
+                MakePsxOverbrightVertex(primitive.Vertices[ia]),
+                MakePsxOverbrightVertex(primitive.Vertices[ib]),
+                MakePsxOverbrightVertex(primitive.Vertices[ic]));
+            triangles++;
+        }
+
+        return triangles;
+    }
+
+    private static PsxOverbrightGltfVertex MakePsxOverbrightVertex(ModelVertex vertex)
+    {
+        return new PsxOverbrightGltfVertex(
+            new VertexPositionNormal(vertex.Position, vertex.Normal),
+            new PsxOverbrightVertexColor1Texture1(vertex.Color, vertex.TexCoord));
+    }
+
     private static int AddSkinnedTriangles(
         PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexJoints4> prim,
         ModelPrimitive primitive,
@@ -503,6 +703,90 @@ public sealed class GltfModelExporter : IModelExporter
         return new GltfSkinnedVertex(
             new VertexPositionNormal(vertex.Position, vertex.Normal),
             new HighPrecisionVertexColor1Texture1(vertex.Color, vertex.TexCoord),
+            new VertexJoints4(
+                (influences.Joint0, influences.Weight0),
+                (influences.Joint1, influences.Weight1),
+                (influences.Joint2, influences.Weight2),
+                (influences.Joint3, influences.Weight3)));
+    }
+
+    private static int AddPsxAnimatedSkinnedTriangles(
+        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, PsxAnimatedVertexColor1Texture1, VertexJoints4> prim,
+        ModelPrimitive primitive,
+        ModelSkinBinding skin)
+    {
+        var triangles = 0;
+        for (var i = 0; i + 2 < primitive.Indices.Length; i += 3)
+        {
+            var ia = primitive.Indices[i];
+            var ib = primitive.Indices[i + 1];
+            var ic = primitive.Indices[i + 2];
+            if ((uint)ia >= (uint)primitive.Vertices.Length ||
+                (uint)ib >= (uint)primitive.Vertices.Length ||
+                (uint)ic >= (uint)primitive.Vertices.Length)
+            {
+                continue;
+            }
+
+            prim.AddTriangle(
+                MakePsxAnimatedSkinnedVertex(primitive.Vertices[ia], skin.Influences[ia]),
+                MakePsxAnimatedSkinnedVertex(primitive.Vertices[ib], skin.Influences[ib]),
+                MakePsxAnimatedSkinnedVertex(primitive.Vertices[ic], skin.Influences[ic]));
+            triangles++;
+        }
+
+        return triangles;
+    }
+
+    private static PsxAnimatedGltfSkinnedVertex MakePsxAnimatedSkinnedVertex(
+        ModelVertex vertex,
+        ModelBoneInfluences influences)
+    {
+        return new PsxAnimatedGltfSkinnedVertex(
+            new VertexPositionNormal(vertex.Position, vertex.Normal),
+            new PsxAnimatedVertexColor1Texture1(vertex),
+            new VertexJoints4(
+                (influences.Joint0, influences.Weight0),
+                (influences.Joint1, influences.Weight1),
+                (influences.Joint2, influences.Weight2),
+                (influences.Joint3, influences.Weight3)));
+    }
+
+    private static int AddPsxOverbrightSkinnedTriangles(
+        PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, PsxOverbrightVertexColor1Texture1, VertexJoints4> prim,
+        ModelPrimitive primitive,
+        ModelSkinBinding skin)
+    {
+        var triangles = 0;
+        for (var i = 0; i + 2 < primitive.Indices.Length; i += 3)
+        {
+            var ia = primitive.Indices[i];
+            var ib = primitive.Indices[i + 1];
+            var ic = primitive.Indices[i + 2];
+            if ((uint)ia >= (uint)primitive.Vertices.Length ||
+                (uint)ib >= (uint)primitive.Vertices.Length ||
+                (uint)ic >= (uint)primitive.Vertices.Length)
+            {
+                continue;
+            }
+
+            prim.AddTriangle(
+                MakePsxOverbrightSkinnedVertex(primitive.Vertices[ia], skin.Influences[ia]),
+                MakePsxOverbrightSkinnedVertex(primitive.Vertices[ib], skin.Influences[ib]),
+                MakePsxOverbrightSkinnedVertex(primitive.Vertices[ic], skin.Influences[ic]));
+            triangles++;
+        }
+
+        return triangles;
+    }
+
+    private static PsxOverbrightGltfSkinnedVertex MakePsxOverbrightSkinnedVertex(
+        ModelVertex vertex,
+        ModelBoneInfluences influences)
+    {
+        return new PsxOverbrightGltfSkinnedVertex(
+            new VertexPositionNormal(vertex.Position, vertex.Normal),
+            new PsxOverbrightVertexColor1Texture1(vertex.Color, vertex.TexCoord),
             new VertexJoints4(
                 (influences.Joint0, influences.Weight0),
                 (influences.Joint1, influences.Weight1),

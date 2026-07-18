@@ -90,9 +90,23 @@ internal static class PsxMeshSemantics
 
     internal static HashSet<int> FindAlternateLeafObjectIndices(PsxMeshFile psxFile)
     {
-        var alternates = new HashSet<int>();
+        return FindAlternateLeafObjectGroups(psxFile)
+            .Select(static group => group.AlternateObjectIndex)
+            .ToHashSet();
+    }
+
+    /// <summary>
+    ///     Finds conservative, pairwise geometry alternatives at a character
+    ///     leaf placement. Keeping the default/alternate relationship (rather
+    ///     than only returning the discarded leaves) lets callers expose the
+    ///     runtime-style choice without making either mesh unrecoverable.
+    /// </summary>
+    internal static IReadOnlyList<PsxAlternateLeafGroup> FindAlternateLeafObjectGroups(
+        PsxMeshFile psxFile)
+    {
+        var groups = new List<PsxAlternateLeafGroup>();
         if (!psxFile.HasHierarchy || psxFile.Objects.Count == 0)
-            return alternates;
+            return groups;
 
         var hasChild = new bool[psxFile.Objects.Count];
         for (var i = 0; i < psxFile.Objects.Count; i++)
@@ -135,11 +149,16 @@ internal static class PsxMeshSemantics
             if (leaves.Count < 2)
                 continue;
 
-            // Preserve the original placement-only behavior outside the v4
-            // corpus covered by the geometry-based repair.
-            if (psxFile.Version != 0x04)
+            // The PS1 v4 and PC/DC v6 super formats both place simultaneous
+            // parts at identical parent-local pivots. A placement-only rule
+            // mistakes Spider-Man PC's controller pieces, VMU shell, and Ock
+            // spline controllers for visibility variants. Use topology plus
+            // bounding-envelope evidence for both understood layouts, while
+            // retaining the legacy behavior for older, uncovered revisions.
+            if (psxFile.Version is not (0x04 or 0x06))
             {
-                alternates.UnionWith(leaves.Skip(1));
+                for (var leafIndex = 1; leafIndex < leaves.Count; leafIndex++)
+                    groups.Add(CreateAlternateLeafGroup(psxFile, leaves[0], leaves[leafIndex]));
                 continue;
             }
 
@@ -149,7 +168,8 @@ internal static class PsxMeshSemantics
             // topology peer of the first.
             if (IsTightlyOverlappingUnstitchedFourLeafGroup(psxFile, leaves))
             {
-                alternates.UnionWith(leaves.Skip(1));
+                for (var leafIndex = 1; leafIndex < leaves.Count; leafIndex++)
+                    groups.Add(CreateAlternateLeafGroup(psxFile, leaves[0], leaves[leafIndex]));
                 continue;
             }
 
@@ -166,15 +186,16 @@ internal static class PsxMeshSemantics
                 // directions: control.psx models both controller grips and
                 // both thumbsticks this way. The old placement-only test
                 // discarded one member of each pair.
-                var isAlternate = retainedLeaves.Any(retainedObjectIndex =>
+                var defaultObjectIndex = retainedLeaves.FirstOrDefault(retainedObjectIndex =>
                     IsSupportedAlternatePair(
                         psxFile,
                         retainedObjectIndex,
                         objectIndex,
-                        allowTwoLeafFallback: leaves.Count == 2));
-                if (isAlternate)
+                        allowTwoLeafFallback: leaves.Count == 2), -1);
+                if (defaultObjectIndex >= 0)
                 {
-                    alternates.Add(objectIndex);
+                    groups.Add(CreateAlternateLeafGroup(
+                        psxFile, defaultObjectIndex, objectIndex));
                 }
                 else
                 {
@@ -183,7 +204,18 @@ internal static class PsxMeshSemantics
             }
         }
 
-        return alternates;
+        return groups;
+    }
+
+    private static PsxAlternateLeafGroup CreateAlternateLeafGroup(
+        PsxMeshFile psxFile,
+        int defaultObjectIndex,
+        int alternateObjectIndex)
+    {
+        return new PsxAlternateLeafGroup(
+            defaultObjectIndex,
+            alternateObjectIndex,
+            psxFile.Objects[defaultObjectIndex].ParentIndex);
     }
 
     private static bool IsSupportedAlternatePair(
@@ -393,3 +425,8 @@ internal static class PsxMeshSemantics
 
     private readonly record struct PsxBounds(Vector3 Min, Vector3 Max);
 }
+
+internal readonly record struct PsxAlternateLeafGroup(
+    int DefaultObjectIndex,
+    int AlternateObjectIndex,
+    int ParentObjectIndex);

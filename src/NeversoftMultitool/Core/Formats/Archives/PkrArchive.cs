@@ -120,7 +120,15 @@ public static class PkrArchive
         for (var i = 0; i < numDirs; i++)
         {
             var nameBytes = reader.ReadBytes(32);
-            var name = Encoding.ASCII.GetString(nameBytes).TrimEnd('\0').Replace('\\', '/');
+            // PKR directory records are inconsistent about carrying a trailing
+            // slash (Spider-Man PC's data.pkr stores "data/"). ArchiveEntry
+            // supplies the separator in FullName, so retain a canonical
+            // relative directory here rather than producing "data//file" in
+            // scanner rows, tooltips, and path indexes.
+            var name = Encoding.ASCII.GetString(nameBytes)
+                .TrimEnd('\0')
+                .Replace('\\', '/')
+                .Trim('/');
             var dirUnk = reader.ReadUInt32();
             var dirNumFiles = reader.ReadUInt32();
             dirs.Add(new PkrDir(name, dirUnk, (int)dirNumFiles));

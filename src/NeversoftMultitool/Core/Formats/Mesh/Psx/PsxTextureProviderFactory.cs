@@ -93,9 +93,17 @@ public static class PsxTextureProviderFactory
 
         return hash =>
         {
-            var result = PsxLibrary.ExtractTextureByHash(psxPath, hash);
+            var result = PsxLibrary.ExtractTextureByHash(
+                psxPath,
+                hash,
+                preserveRuntimeSemiTransparency: true);
             for (var i = 0; result == null && i < libraries.Count; i++)
-                result = PsxLibrary.ExtractTextureByHash(libraries[i], hash);
+            {
+                result = PsxLibrary.ExtractTextureByHash(
+                    libraries[i],
+                    hash,
+                    preserveRuntimeSemiTransparency: true);
+            }
             if (result == null) return null;
             var (rgba, w, h) = result.Value;
             return ImageWriter.WritePngToMemory(w, h, rgba);

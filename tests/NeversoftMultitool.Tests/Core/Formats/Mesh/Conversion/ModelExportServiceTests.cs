@@ -172,6 +172,26 @@ public sealed class ModelExportServiceTests
 
         using var temp = new TempDirectory();
         var document = CreateTriangleDocument();
+        document.Textures.Add(new ModelTexture
+        {
+            Name = "animated_texture",
+            PngBytes = CreatePngBytes(new Rgba32(10, 20, 30, 255))
+        });
+        document.Materials[0].TextureIndex = 0;
+        var primitive = Assert.Single(Assert.Single(document.Meshes).Primitives);
+        primitive.Vertices[0] = primitive.Vertices[0] with
+        {
+            TextureWibble = new ModelTextureWibble(
+                UVelocity: 4096,
+                VVelocity: -2048,
+                Frequency: 595,
+                UAmplitude: 7,
+                UPhase: 3,
+                VAmplitude: 11,
+                VPhase: 9,
+                TextureWidth: 64,
+                TextureHeight: 128)
+        };
 
         var result = ModelExportService.Export(
             document,
@@ -244,6 +264,50 @@ public sealed class ModelExportServiceTests
         Assert.NotNull(archive.GetEntry("buffers/mesh_0000_prim_0000.vertices.bin"));
         Assert.NotNull(archive.GetEntry("buffers/mesh_0000_prim_0000.indices.bin"));
         Assert.NotNull(archive.GetEntry("textures/0000_unit_texture.rgba"));
+    }
+
+    [Fact]
+    public void BlendPackageWriter_WritesParallelPsxTextureWibbleBuffer()
+    {
+        var document = CreateTriangleDocument();
+        var primitive = Assert.Single(Assert.Single(document.Meshes).Primitives);
+        primitive.Vertices[1] = primitive.Vertices[1] with
+        {
+            TextureWibble = new ModelTextureWibble(
+                UVelocity: 4096,
+                VVelocity: -2048,
+                Frequency: 595,
+                UAmplitude: 7,
+                UPhase: 3,
+                VAmplitude: 11,
+                VPhase: 9,
+                TextureWidth: 64,
+                TextureHeight: 128)
+        };
+        using var payload = new MemoryStream();
+
+        BlendPackageWriter.Write(document, payload, "triangle.blend");
+
+        payload.Position = 0;
+        using var archive = new ZipArchive(payload, ZipArchiveMode.Read);
+        var entry = archive.GetEntry("buffers/mesh_0000_prim_0000.wibble.bin");
+        Assert.NotNull(entry);
+        Assert.Equal(3 * 10 * sizeof(float), entry.Length);
+
+        using var stream = entry.Open();
+        using var reader = new BinaryReader(stream);
+        for (var i = 0; i < 10; i++)
+            _ = reader.ReadSingle();
+        Assert.Equal(4096f, reader.ReadSingle());
+        Assert.Equal(-2048f, reader.ReadSingle());
+        Assert.Equal(595f, reader.ReadSingle());
+        Assert.Equal(1f, reader.ReadSingle());
+        Assert.Equal(7f, reader.ReadSingle());
+        Assert.Equal(3f, reader.ReadSingle());
+        Assert.Equal(11f, reader.ReadSingle());
+        Assert.Equal(9f, reader.ReadSingle());
+        Assert.Equal(64f, reader.ReadSingle());
+        Assert.Equal(128f, reader.ReadSingle());
     }
 
     private static ModelDocument CreateTriangleDocument()

@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
@@ -79,6 +80,136 @@ internal static class PsxSplineAppendageGeometry
         return chains.SelectMany(static chain => chain.ObjectIndices).ToHashSet();
     }
 
+    /// <summary>
+    ///     Finds the authored spline skin bundled beside the claw geometry.
+    ///     Spider-Man's claw asset carries one ordinary texture used by the
+    ///     rendered claw and additional square strip textures that are not
+    ///     referenced by its ordinary face list. The level object banks carry
+    ///     the same content: those otherwise-unused images are the runtime
+    ///     tentacle skins, not unrelated character textures.
+    /// </summary>
+    internal static uint? FindTubeTextureHash(
+        PsxMeshFile clawFile,
+        MeshChecksumTextureResolver? textureProvider)
+    {
+        if (textureProvider == null)
+            return null;
+
+        var renderedTextureHashes = clawFile.Meshes
+            .SelectMany(static mesh => mesh.Faces)
+            .Where(static face => face.IsTextured && face.TextureHash != 0)
+            .Select(static face => face.TextureHash)
+            .ToHashSet();
+
+        // The claw's terminal invisible face is a fully UV-mapped spline
+        // template. Its preceding invisible face carries a degenerate preload
+        // mapping, while unrelated unused texture slots have no template face
+        // at all. Follow that source association instead of relying on texture
+        // table order.
+        foreach (var faceRead in clawFile.Meshes
+                     .SelectMany(static mesh => mesh.FaceReadInfos)
+                     .Reverse())
+        {
+            var textureHash = faceRead.TextureHash;
+            if (textureHash == 0 || renderedTextureHashes.Contains(textureHash))
+                continue;
+            if (faceRead.IsAccepted
+                || !string.Equals(
+                    faceRead.RejectionReason,
+                    "invisible (M3dInit STP toggle)",
+                    StringComparison.Ordinal)
+                || !HasUsableTemplateMapping(faceRead))
+            {
+                continue;
+            }
+
+            var pngBytes = textureProvider(textureHash);
+            if (!IsSquareSplineTexture(pngBytes))
+                continue;
+
+            return textureHash;
+        }
+
+        // Older synthetic callers may not retain raw face diagnostics. A lone
+        // unused square texture is still unambiguous; multiple candidates are
+        // deliberately rejected rather than guessing by slot order.
+        var fallbackCandidates = clawFile.TextureHashes
+            .Where(textureHash => textureHash != 0 && !renderedTextureHashes.Contains(textureHash))
+            .Distinct()
+            .Where(textureHash => IsSquareSplineTexture(textureProvider(textureHash)))
+            .Take(2)
+            .ToArray();
+        return fallbackCandidates.Length == 1 ? fallbackCandidates[0] : null;
+    }
+
+    /// <summary>
+    ///     Finds the skin for a one-chain appendage from its authored endpoint
+    ///     mesh. Scorpion's hook is stored in the character itself and all of
+    ///     its drawable faces use the same 64x64 blue/green strip. The runtime
+    ///     continues that image along the procedural tail. Once the endpoint
+    ///     mesh has been identified, requiring one placed endpoint and one
+    ///     resolvable square texture avoids adding a character, filename, or
+    ///     texture-hash special case here.
+    /// </summary>
+    internal static uint? FindEmbeddedTailTextureHash(
+        PsxMeshFile psxFile,
+        IReadOnlyDictionary<int, PsxSplineTipPlacement> tipPlacements,
+        MeshChecksumTextureResolver? textureProvider)
+    {
+        if (textureProvider == null || tipPlacements.Count != 1)
+            return null;
+
+        var objectIndex = tipPlacements.Keys.Single();
+        var meshIndex = PsxMeshSemantics.GetCharacterMeshIndex(psxFile, objectIndex);
+        if (meshIndex < 0 || meshIndex >= psxFile.Meshes.Count)
+            return null;
+
+        var candidates = psxFile.Meshes[meshIndex].Faces
+            .Where(static face => face.IsTextured && face.TextureHash != 0)
+            .Select(static face => face.TextureHash)
+            .Distinct()
+            .Where(textureHash => IsSquareSplineTexture(textureProvider(textureHash)))
+            .Take(2)
+            .ToArray();
+        return candidates.Length == 1 ? candidates[0] : null;
+    }
+
+    private static bool HasUsableTemplateMapping(PsxFaceReadInfo faceRead)
+    {
+        var vertexCount = (faceRead.Flags & 0x0010) == 0 ? 4 : 3;
+        if (faceRead.TextureCoordinates.Count < vertexCount)
+            return false;
+
+        // PSX quads are emitted as (0,2,1) and (1,2,3). Treating their four
+        // slots as a polygon can report zero for the valid strip ordering
+        // 0,1 / 0,0 / 1,1 / 1,0 because that order self-crosses. Test the
+        // actual rendered triangles instead.
+        return TriangleUvArea(faceRead.TextureCoordinates, 0, 2, 1) != 0
+               || vertexCount == 4
+               && TriangleUvArea(faceRead.TextureCoordinates, 1, 2, 3) != 0;
+    }
+
+    private static long TriangleUvArea(
+        IReadOnlyList<PsxTextureCoordinate> textureCoordinates,
+        int first,
+        int second,
+        int third)
+    {
+        var a = textureCoordinates[first];
+        var b = textureCoordinates[second];
+        var c = textureCoordinates[third];
+        return (long)(b.U - a.U) * (c.V - a.V)
+               - (long)(c.U - a.U) * (b.V - a.V);
+    }
+
+    private static bool IsSquareSplineTexture(byte[]? pngBytes)
+    {
+        return pngBytes != null
+               && ModelDocumentGeometryAdapter.TryExtractPngDimensions(pngBytes) is { } dimensions
+               && dimensions.Width == dimensions.Height
+               && dimensions.Width >= 32;
+    }
+
     internal static IReadOnlyDictionary<int, PsxSplineTipPlacement> FindEmbeddedTipPlacements(
         PsxMeshFile psxFile,
         IReadOnlyList<PsxSplineControllerChain> chains)
@@ -109,12 +240,13 @@ internal static class PsxSplineAppendageGeometry
         IReadOnlyList<PsxSplineControllerChain> chains,
         List<ModelVertex> vertices,
         List<int> indices,
-        List<ModelBoneInfluences> influences)
+        List<ModelBoneInfluences> influences,
+        bool hasAuthoredTexture)
     {
         var isTail = chains.Count == 1;
         foreach (var chain in chains)
         {
-            AppendTube(chain, isTail, vertices, indices, influences);
+            AppendTube(chain, isTail, vertices, indices, influences, hasAuthoredTexture);
         }
     }
 
@@ -153,7 +285,8 @@ internal static class PsxSplineAppendageGeometry
         bool taperTail,
         List<ModelVertex> vertices,
         List<int> indices,
-        List<ModelBoneInfluences> influences)
+        List<ModelBoneInfluences> influences,
+        bool hasAuthoredTexture)
     {
         var averageSegmentLength = chain.Centers
             .Zip(chain.Centers.Skip(1), Vector3.Distance)
@@ -161,25 +294,47 @@ internal static class PsxSplineAppendageGeometry
         var baseRadius = Math.Clamp(averageSegmentLength / 10f, 3.25f, 4.75f);
         var samples = BuildSmoothedSamples(chain);
         var sampleCenters = samples.Select(static sample => sample.Center).ToArray();
+        var frames = BuildTransportFrames(sampleCenters);
+        var longitudinalDistances = new float[samples.Count];
+        for (var sampleIndex = 1; sampleIndex < samples.Count; sampleIndex++)
+        {
+            longitudinalDistances[sampleIndex] = longitudinalDistances[sampleIndex - 1]
+                                                 + Vector3.Distance(
+                                                     sampleCenters[sampleIndex - 1],
+                                                     sampleCenters[sampleIndex]);
+        }
+
+        // Match longitudinal and circumferential texel density. UVs may exceed
+        // one along a chain so the authored banded strip repeats instead of
+        // stretching once across an entire tentacle.
+        var textureRepeatLength = 2f * MathF.PI * baseRadius;
         var rings = new ModelVertex[samples.Count][];
 
         for (var ringIndex = 0; ringIndex < samples.Count; ringIndex++)
         {
-            var tangent = GetTangent(sampleCenters, ringIndex);
-            var (normal, binormal) = BuildFrame(tangent);
+            var (normal, binormal) = frames[ringIndex];
             var radius = taperTail
                 ? baseRadius * (1f - 0.45f * ringIndex / (samples.Count - 1f))
                 : baseRadius;
-            rings[ringIndex] = new ModelVertex[TubeSides];
-            for (var side = 0; side < TubeSides; side++)
+            // Duplicate side zero at side eight. Sharing it would interpolate
+            // UV .875 back to zero across the closing face and create a broad
+            // texture seam even though the positions themselves are joined.
+            rings[ringIndex] = new ModelVertex[TubeSides + 1];
+            for (var side = 0; side <= TubeSides; side++)
             {
                 var angle = 2f * MathF.PI * side / TubeSides;
                 var radial = normal * MathF.Cos(angle) + binormal * MathF.Sin(angle);
+                var texCoord = hasAuthoredTexture
+                    ? new Vector2(
+                        longitudinalDistances[ringIndex] / textureRepeatLength,
+                        side / (float)TubeSides)
+                    : new Vector2(side / (float)TubeSides,
+                        ringIndex / (float)(samples.Count - 1));
                 rings[ringIndex][side] = new ModelVertex(
                     PsxMeshSemantics.ToGltfPosition(samples[ringIndex].Center + radial * radius),
                     Vector3.Normalize(PsxMeshSemantics.ToGltfPosition(radial)),
-                    new Vector4(0.58f, 0.60f, 0.63f, 1f),
-                    new Vector2(side / (float)TubeSides, ringIndex / (float)(samples.Count - 1)));
+                    hasAuthoredTexture ? Vector4.One : new Vector4(0.58f, 0.60f, 0.63f, 1f),
+                    texCoord);
             }
         }
 
@@ -189,7 +344,7 @@ internal static class PsxSplineAppendageGeometry
             var secondInfluence = samples[ringIndex + 1].Influence;
             for (var side = 0; side < TubeSides; side++)
             {
-                var next = (side + 1) % TubeSides;
+                var next = side + 1;
                 ModelDocumentGeometryAdapter.AddSkinnedTriangle(
                     vertices, indices, influences,
                     rings[ringIndex][side], firstInfluence,
@@ -239,13 +394,231 @@ internal static class PsxSplineAppendageGeometry
         return samples;
     }
 
-    internal static PsxSplineTipPlacement CreateTipPlacement(PsxSplineControllerChain chain)
+    internal static int DetermineTipForwardSign(PsxMesh tipMesh)
     {
-        var last = chain.Centers.Count - 1;
-        var tangent = GetTangent(chain.Centers, last);
-        var (normal, binormal) = BuildFrame(tangent);
+        ArgumentNullException.ThrowIfNull(tipMesh);
+        if (tipMesh.Vertices.Count == 0)
+            return 1;
+
+        // Spline tips are authored around their attachment origin with local Z
+        // as their longitudinal axis. The claw's mounting block is the short
+        // side of that origin and its prongs are the long side. Infer which
+        // local-Z direction is distal from those authored extents instead of
+        // assigning an orientation to a character or filename.
+        var negativeReach = MathF.Max(0f, -tipMesh.Vertices.Min(static vertex => vertex.Z));
+        var positiveReach = MathF.Max(0f, tipMesh.Vertices.Max(static vertex => vertex.Z));
+        return negativeReach > positiveReach ? -1 : 1;
+    }
+
+    internal static PsxSplineTipPlacement CreateTipPlacement(
+        PsxSplineControllerChain chain,
+        int forwardSign = 1)
+    {
+        if (forwardSign is not (-1 or 1))
+            throw new ArgumentOutOfRangeException(nameof(forwardSign));
+
+        var centers = BuildSmoothedSamples(chain)
+            .Select(static sample => sample.Center)
+            .ToArray();
+        var last = centers.Length - 1;
+        var tangent = GetTangent(centers, last);
+        var (normal, binormal) = BuildTransportFrames(centers)[last];
         return new PsxSplineTipPlacement(
-            chain.ObjectIndices[last], chain.Centers[last], tangent, normal, binormal);
+            chain.ObjectIndices[^1], centers[last], tangent, normal, binormal, forwardSign);
+    }
+
+    /// <summary>
+    ///     Adds the frame rotations that the native runtime implicitly gets by
+    ///     rebuilding a spline surface from its translated control points each
+    ///     tick. The stored controller tracks carry positions but no rotations;
+    ///     ordinary glTF skinning would therefore bend the vertices while
+    ///     leaving their bind-pose radial normals behind. Deriving a transport
+    ///     frame at each key rotates both positions and normals with the curve.
+    /// </summary>
+    internal static void ApplyGeneratedFrameRotations(
+        ModelDocument document,
+        int skeletonIndex,
+        IReadOnlyList<PsxSplineControllerChain> chains,
+        IReadOnlyList<PsxAnimationClip> clips)
+    {
+        if (chains.Count == 0
+            || clips.Count == 0
+            || skeletonIndex < 0
+            || skeletonIndex >= document.Skeletons.Count)
+        {
+            return;
+        }
+
+        var skeleton = document.Skeletons[skeletonIndex];
+        var availableAnimations = document.Animations.ToList();
+        foreach (var clip in clips)
+        {
+            var animationIndex = availableAnimations.FindIndex(animation =>
+                string.Equals(animation.Name, clip.Name, StringComparison.Ordinal));
+            if (animationIndex < 0)
+                continue;
+
+            var modelAnimation = availableAnimations[animationIndex];
+            availableAnimations.RemoveAt(animationIndex);
+            foreach (var chain in chains)
+            {
+                if (chain.ObjectIndices.Any(index =>
+                        index < 0
+                        || index >= skeleton.Bones.Count
+                        || index >= clip.Animation.BoneCount
+                        || clip.Animation.IsRotationAnimated(index)))
+                {
+                    continue;
+                }
+
+                var parentIndices = chain.ObjectIndices
+                    .Select(index => skeleton.Bones[index].ParentIndex)
+                    .Distinct()
+                    .ToArray();
+                if (parentIndices.Length != 1)
+                    continue;
+
+                ApplyGeneratedFrameRotations(
+                    modelAnimation, skeletonIndex, skeleton, chain);
+            }
+        }
+    }
+
+    private static void ApplyGeneratedFrameRotations(
+        ModelAnimation animation,
+        int skeletonIndex,
+        ModelSkeleton skeleton,
+        PsxSplineControllerChain chain)
+    {
+        var translationChannels = animation.Channels
+            .Where(channel => channel.SkeletonIndex == skeletonIndex
+                              && channel.Property == ModelAnimationProperty.Translation
+                              && chain.ObjectIndices.Contains(channel.BoneIndex))
+            .ToDictionary(static channel => channel.BoneIndex);
+        var timeline = translationChannels.Values.FirstOrDefault()?.Times;
+        if (timeline is not { Length: > 0 }
+            || translationChannels.Count != chain.ObjectIndices.Count)
+            return;
+
+        var bindFrames = BuildTransportFrames(chain.Centers);
+        var valuesByBone = chain.ObjectIndices.ToDictionary(
+            static index => index,
+            _ => new float[timeline.Length * 4]);
+        var previousByBone = chain.ObjectIndices.ToDictionary(
+            static index => index,
+            static _ => Quaternion.Identity);
+
+        for (var frame = 0; frame < timeline.Length; frame++)
+        {
+            var currentCenters = new Vector3[chain.ObjectIndices.Count];
+            for (var controller = 0; controller < chain.ObjectIndices.Count; controller++)
+            {
+                var boneIndex = chain.ObjectIndices[controller];
+                var gltfPosition = translationChannels.TryGetValue(boneIndex, out var channel)
+                    ? SampleTranslation(channel, timeline[frame])
+                    : skeleton.Bones[boneIndex].LocalTransform.Translation;
+                currentCenters[controller] = PsxMeshSemantics.ToGltfPosition(gltfPosition);
+            }
+
+            if (currentCenters.Zip(currentCenters.Skip(1), Vector3.Distance)
+                .Any(static distance => distance <= 1e-4f || !float.IsFinite(distance)))
+            {
+                return;
+            }
+
+            var currentFrames = BuildTransportFrames(currentCenters);
+            for (var controller = 0; controller < chain.ObjectIndices.Count; controller++)
+            {
+                var boneIndex = chain.ObjectIndices[controller];
+                var bindTangent = GetTangent(chain.Centers, controller);
+                var currentTangent = GetTangent(currentCenters, controller);
+                var bindMatrix = CreateGltfFrameMatrix(
+                    bindFrames[controller], bindTangent);
+                var currentMatrix = CreateGltfFrameMatrix(
+                    currentFrames[controller], currentTangent);
+                var rotationMatrix = Matrix4x4.Transpose(bindMatrix) * currentMatrix;
+                var rotation = Quaternion.Normalize(
+                    Quaternion.CreateFromRotationMatrix(rotationMatrix));
+                if (!float.IsFinite(rotation.X)
+                    || !float.IsFinite(rotation.Y)
+                    || !float.IsFinite(rotation.Z)
+                    || !float.IsFinite(rotation.W))
+                {
+                    return;
+                }
+                var previous = previousByBone[boneIndex];
+                if (frame > 0 && Quaternion.Dot(previous, rotation) < 0f)
+                    rotation = new Quaternion(-rotation.X, -rotation.Y, -rotation.Z, -rotation.W);
+
+                var values = valuesByBone[boneIndex];
+                var offset = frame * 4;
+                values[offset] = rotation.X;
+                values[offset + 1] = rotation.Y;
+                values[offset + 2] = rotation.Z;
+                values[offset + 3] = rotation.W;
+                previousByBone[boneIndex] = rotation;
+            }
+        }
+
+        var controllerObjects = chain.ObjectIndices.ToHashSet();
+        animation.Channels.RemoveAll(channel =>
+            channel.SkeletonIndex == skeletonIndex
+            && channel.Property == ModelAnimationProperty.Rotation
+            && controllerObjects.Contains(channel.BoneIndex));
+        foreach (var boneIndex in chain.ObjectIndices)
+        {
+            animation.Channels.Add(new ModelAnimationChannel
+            {
+                SkeletonIndex = skeletonIndex,
+                BoneIndex = boneIndex,
+                Property = ModelAnimationProperty.Rotation,
+                Times = timeline.ToArray(),
+                Values = valuesByBone[boneIndex],
+                Interpolation = ModelAnimationInterpolation.Linear
+            });
+        }
+    }
+
+    private static Vector3 SampleTranslation(ModelAnimationChannel channel, float time)
+    {
+        if (channel.Times.Length == 1 || time <= channel.Times[0])
+            return ReadTranslation(channel.Values, 0);
+
+        var last = channel.Times.Length - 1;
+        if (time >= channel.Times[last])
+            return ReadTranslation(channel.Values, last);
+
+        var upper = Array.BinarySearch(channel.Times, time);
+        if (upper >= 0)
+            return ReadTranslation(channel.Values, upper);
+        upper = ~upper;
+        var lower = upper - 1;
+        var span = channel.Times[upper] - channel.Times[lower];
+        var amount = span > 0f ? (time - channel.Times[lower]) / span : 0f;
+        return Vector3.Lerp(
+            ReadTranslation(channel.Values, lower),
+            ReadTranslation(channel.Values, upper),
+            amount);
+    }
+
+    private static Vector3 ReadTranslation(float[] values, int index)
+    {
+        var offset = index * 3;
+        return new Vector3(values[offset], values[offset + 1], values[offset + 2]);
+    }
+
+    private static Matrix4x4 CreateGltfFrameMatrix(
+        (Vector3 Normal, Vector3 Binormal) nativeFrame,
+        Vector3 nativeTangent)
+    {
+        var normal = PsxMeshSemantics.ToGltfPosition(nativeFrame.Normal);
+        var binormal = PsxMeshSemantics.ToGltfPosition(nativeFrame.Binormal);
+        var tangent = PsxMeshSemantics.ToGltfPosition(nativeTangent);
+        return new Matrix4x4(
+            normal.X, normal.Y, normal.Z, 0f,
+            binormal.X, binormal.Y, binormal.Z, 0f,
+            tangent.X, tangent.Y, tangent.Z, 0f,
+            0f, 0f, 0f, 1f);
     }
 
     private static Vector3 GetTangent(IReadOnlyList<Vector3> centers, int index)
@@ -267,6 +640,48 @@ internal static class PsxSplineAppendageGeometry
         var normal = Vector3.Normalize(Vector3.Cross(tangent, reference));
         return (normal, Vector3.Normalize(Vector3.Cross(tangent, normal)));
     }
+
+    /// <summary>
+    ///     Builds a rotation-minimizing frame along a controller chain. Each
+    ///     normal is projected into the next tangent plane, avoiding the abrupt
+    ///     0.9-dot reference-axis switch that otherwise twists the tube and its
+    ///     UV seam as an animated tentacle crosses that threshold.
+    /// </summary>
+    internal static IReadOnlyList<(Vector3 Normal, Vector3 Binormal)> BuildTransportFrames(
+        IReadOnlyList<Vector3> centers)
+    {
+        ArgumentNullException.ThrowIfNull(centers);
+        if (centers.Count < 2)
+            throw new ArgumentException("At least two centers are required.", nameof(centers));
+
+        var frames = new (Vector3 Normal, Vector3 Binormal)[centers.Count];
+        var firstTangent = GetTangent(centers, 0);
+        frames[0] = BuildFrame(firstTangent);
+
+        for (var index = 1; index < centers.Count; index++)
+        {
+            var tangent = GetTangent(centers, index);
+            var previous = frames[index - 1];
+            var normal = previous.Normal - tangent * Vector3.Dot(previous.Normal, tangent);
+            if (normal.LengthSquared() < 1e-8f)
+                normal = previous.Binormal - tangent * Vector3.Dot(previous.Binormal, tangent);
+
+            if (normal.LengthSquared() < 1e-8f)
+            {
+                frames[index] = BuildFrame(tangent);
+                continue;
+            }
+
+            normal = Vector3.Normalize(normal);
+            if (Vector3.Dot(normal, previous.Normal) < 0f)
+                normal = -normal;
+            frames[index] = (
+                normal,
+                Vector3.Normalize(Vector3.Cross(tangent, normal)));
+        }
+
+        return frames;
+    }
 }
 
 internal sealed record PsxSplineControllerChain(
@@ -282,7 +697,8 @@ internal readonly record struct PsxSplineTipPlacement(
     Vector3 Center,
     Vector3 Tangent,
     Vector3 Normal,
-    Vector3 Binormal)
+    Vector3 Binormal,
+    int ForwardSign)
 {
     internal Vector3 TransformPosition(Vector3 local)
     {
@@ -291,6 +707,11 @@ internal readonly record struct PsxSplineTipPlacement(
 
     internal Vector3 TransformDirection(Vector3 local)
     {
-        return Normal * local.X + Binormal * local.Y + Tangent * local.Z;
+        // Reversing only local Z would reflect the tip and invert its winding.
+        // Reversing local X as well is a 180-degree rotation about local Y, so
+        // positions, normals, and front-face handedness remain consistent.
+        return Normal * (ForwardSign * local.X)
+               + Binormal * local.Y
+               + Tangent * (ForwardSign * local.Z);
     }
 }

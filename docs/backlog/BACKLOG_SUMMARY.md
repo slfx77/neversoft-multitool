@@ -19,7 +19,7 @@ Sources: the **THPG/Project 8** stream is **verified this session** (conversions
 | File | Stream | Headline gap | Status |
 |---|---|---|---|
 | `game-thpg-p8.md` | THPG + Project 8 (PS2) support | **P8 skins work**; THPG (2007) skins garble (VIF re-encode); `.col` unsupported | 🟢🔶 verified |
-| `mesh-fidelity.md` | Mesh reconstruction correctness | **Claimed meshes verified good at HEAD**; remaining work = a QA harness + worldzone | 🟢/🔴 |
+| `mesh-fidelity.md` | Mesh reconstruction correctness | **Claimed meshes verified good at HEAD**; remaining work = QA harness, worldzone, filename-free PSX appendage discovery | 🟢/🔴/🔶 |
 | `animation.md` | Skeletal animation | THPS3 SKA spasms; RW DFF T-pose only; PSX anim per-game | 🔶 |
 | `gsreplay-fidelity.md` | THAW GS-replay render fidelity | Shadow-decal streaks; residual over-brightness | 🔶 (research) |
 | `formats-todo.md` | Unimplemented / deferred formats | THAW `.tex.ps2` metadata; PPV container; STR VLC drift | 🔴/🔶 |

@@ -27,9 +27,10 @@ internal static class CharacterAnimationConverter
     /// </summary>
     public static Result BuildAnimatedGlb(
         MeshFileEntry character,
-        IReadOnlyList<AnimationProbe> animations)
+        IReadOnlyList<AnimationProbe> animations,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
     {
-        var (document, error) = BuildDocument(character, animations);
+        var (document, error) = BuildDocument(character, animations, visibilityOverrides);
         if (document == null)
             return new Result(null, 0, error);
 
@@ -37,7 +38,10 @@ internal static class CharacterAnimationConverter
         if (triangles == 0 || glbBytes == null)
             return new Result(null, 0, "Mesh has no triangles after skinning.");
 
-        return new Result(glbBytes, triangles, null);
+        return new Result(glbBytes, triangles, null)
+        {
+            VisibilityGroups = document.VisibilityGroups.ToArray()
+        };
     }
 
     /// <summary>
@@ -48,19 +52,20 @@ internal static class CharacterAnimationConverter
     /// </summary>
     public static DocumentResult BuildDocument(
         MeshFileEntry character,
-        IReadOnlyList<AnimationProbe> animations)
+        IReadOnlyList<AnimationProbe> animations,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
     {
         if (animations.Count == 0)
             return new DocumentResult(null, "No animations selected.");
 
         if (character.IsRwDff)
-            return BuildRwDff(character, animations);
+            return BuildRwDff(character, animations, visibilityOverrides);
 
         if (character.IsPs2Scene)
-            return BuildPs2Scene(character, animations);
+            return BuildPs2Scene(character, animations, visibilityOverrides);
 
         if (character.IsPsx && character.PsxIsSuperModel)
-            return BuildPsx(character, animations);
+            return BuildPsx(character, animations, visibilityOverrides);
 
         return new DocumentResult(null,
             $"Animated preview not supported for {character.FormatDisplay}.");
@@ -106,7 +111,9 @@ internal static class CharacterAnimationConverter
     }
 
     private static DocumentResult BuildPs2Scene(
-        MeshFileEntry character, IReadOnlyList<AnimationProbe> animations)
+        MeshFileEntry character,
+        IReadOnlyList<AnimationProbe> animations,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides)
     {
         var stem = MeshConverterTabFileScanner.StripCompoundExtension(character.FileName);
         var skeleton = MeshConverterTabFileConverter.TryLoadPs2Skeleton(character, stem);
@@ -146,14 +153,17 @@ internal static class CharacterAnimationConverter
             SourceKind = ModelSourceKind.Ps2Scene,
             Ps2SubFormat = character.Ps2SubFormat,
             PreparedSkeleton = skeleton,
-            SkaAnimations = named
+            SkaAnimations = named,
+            VisibilityOverrides = visibilityOverrides
         });
 
         return new DocumentResult(document, null);
     }
 
     private static DocumentResult BuildRwDff(
-        MeshFileEntry character, IReadOnlyList<AnimationProbe> animations)
+        MeshFileEntry character,
+        IReadOnlyList<AnimationProbe> animations,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides)
     {
         var clump = RwDffFile.Parse(character.Source.ReadBytes());
         var skin = clump.Atomics.FirstOrDefault(a => a.SkinData != null)?.SkinData;
@@ -183,14 +193,17 @@ internal static class CharacterAnimationConverter
             FileName = fileName,
             OutputStem = stem,
             SourceKind = ModelSourceKind.RenderWareDff,
-            SkaAnimations = named
+            SkaAnimations = named,
+            VisibilityOverrides = visibilityOverrides
         });
 
         return new DocumentResult(document, null);
     }
 
     private static DocumentResult BuildPsx(
-        MeshFileEntry character, IReadOnlyList<AnimationProbe> animations)
+        MeshFileEntry character,
+        IReadOnlyList<AnimationProbe> animations,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides)
     {
         var data = character.Source.ReadBytes();
         var psxFile = PsxMeshFile.Parse(data);
@@ -242,7 +255,8 @@ internal static class CharacterAnimationConverter
             OutputStem = Path.GetFileNameWithoutExtension(fileName),
             SourceKind = ModelSourceKind.Psx,
             PsxAnimationOptions = new PsxAnimationOptions(Fps: PsxAnimationBank.DefaultPreviewFps),
-            PsxAnimationClips = clips
+            PsxAnimationClips = clips,
+            VisibilityOverrides = visibilityOverrides
         });
 
         return new DocumentResult(document, null);
@@ -305,7 +319,10 @@ internal static class CharacterAnimationConverter
         return idx > 0 ? fileName[..idx] : Path.GetFileNameWithoutExtension(fileName);
     }
 
-    public sealed record Result(byte[]? GlbBytes, int Triangles, string? Error);
+    public sealed record Result(byte[]? GlbBytes, int Triangles, string? Error)
+    {
+        public IReadOnlyList<ModelVisibilityGroup> VisibilityGroups { get; init; } = [];
+    }
 
     public sealed record DocumentResult(ModelDocument? Document, string? Error);
 }

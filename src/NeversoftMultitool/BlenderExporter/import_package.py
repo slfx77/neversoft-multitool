@@ -4,6 +4,7 @@
 import json
 import io
 import os
+import re
 import struct
 import sys
 import zipfile
@@ -19,6 +20,9 @@ SKIN_STRUCT = struct.Struct("<4i4f")
 # Animation buffers are flat little-endian float32 arrays; size is implicit
 # from ValueStride × KeyCount in the manifest.
 ANIM_FLOAT_STRUCT = struct.Struct("<f")
+# Parallel-to-vertex PS1 UV animation payload:
+# uVel, vVel, frequency, enabled, uAmp, uPhase, vAmp, vPhase, width, height.
+WIBBLE_STRUCT = struct.Struct("<10f")
 
 # Source data is glTF-style Y-up (PS2 worldzones are emitted with Y as height,
 # X/Z forming the ground plane). Blender uses Z-up natively, so each imported
@@ -226,6 +230,25 @@ def _metadata_blend_hint(metadata):
             # combined texture alpha and pass blend state; trust AlphaMode.
             pass
     return hint, alpha_ref
+
+
+_PSX_ADDITIVE_MATERIAL_SUFFIX = re.compile(r"__st[13](?:__2sided)?$", re.IGNORECASE)
+
+
+def _is_psx_additive_material(material_name):
+    """Return whether a PS1 material uses an additive ABR equation.
+
+    ABR1 is B + F and ABR3 is B + F/4. The converted ABR3 texture already
+    carries its quarter strength in alpha, just like the live viewer expects,
+    so selecting the additive shader must not scale it a second time. Mixed
+    STP/non-STP palettes carry a terminal ``__conditional`` marker because
+    whole-material additive blending would incorrectly affect their ordinary
+    opaque texels; leave those on the portable alpha recipe.
+    """
+    name = str(material_name or "")
+    if "__conditional" in name.lower():
+        return False
+    return _PSX_ADDITIVE_MATERIAL_SUFFIX.search(name) is not None
 
 
 def _set_if_present(target, name, value):
@@ -609,7 +632,15 @@ def _build_opaque_shader(
         _set_blend_method(material, "OPAQUE")
 
 
-def _build_additive_shader(material, base_color, image, wrap_u="Repeat", wrap_v="Repeat", fix_scale=None):
+def _build_additive_shader(
+    material,
+    base_color,
+    image,
+    wrap_u="Repeat",
+    wrap_v="Repeat",
+    fix_scale=None,
+    force_texture_alpha=False,
+):
     """PS2 GS additive: Cs*As/128 + Cd. True additive isn't expressible in Eevee
     Next's BLEND mode (no native add blend), so approximate by alpha-blending an
     emissive texture: bright source pixels overlay as bright, dark/transparent
@@ -623,9 +654,14 @@ def _build_additive_shader(material, base_color, image, wrap_u="Repeat", wrap_v=
     _configure_unlit_principled(principled, base_color)
     if image is not None:
         tex = _new_image_node(nt, image, label="additive_color", wrap_u=wrap_u, wrap_v=wrap_v)
-        # If the texture has no real alpha variation, drive transparency from
-        # luminance so dark/black-keyed pixels become invisible.
-        alpha_source = "luminance" if _texture_has_uniform_alpha(image) else "alpha"
+        # PSX ABR conversion encodes blend strength in alpha even when that
+        # alpha is uniform (ABR3 uses 64/255), so it must bypass the generic
+        # PS2 luminance fallback for uniform-alpha glow textures.
+        alpha_source = (
+            "alpha"
+            if force_texture_alpha
+            else ("luminance" if _texture_has_uniform_alpha(image) else "alpha")
+        )
         scale = 1.0 if fix_scale is None else fix_scale
         _wire_unlit_texture(nt, principled, tex, alpha_source=alpha_source, alpha_scale=scale)
     nt.links.new(principled.outputs["BSDF"], output.inputs["Surface"])
@@ -708,6 +744,8 @@ def _apply_recipe(
     wrap_u="Repeat",
     wrap_v="Repeat",
     ps2_alpha_fields=None,
+    additive_scale=None,
+    additive_uses_texture_alpha=False,
     use_vertex_alpha=True,
 ):
     material["neversoft_viewport_blend_hint"] = recipe
@@ -720,7 +758,16 @@ def _apply_recipe(
         if ps2_alpha_fields.get("a") == 0 and ps2_alpha_fields.get("b") == 1 and ps2_alpha_fields.get("d") == 1:
             constant_alpha = fix_scale
     if recipe == "additive":
-        _build_additive_shader(material, base_color, image, wrap_u=wrap_u, wrap_v=wrap_v, fix_scale=fix_scale)
+        strength = additive_scale if additive_scale is not None else fix_scale
+        _build_additive_shader(
+            material,
+            base_color,
+            image,
+            wrap_u=wrap_u,
+            wrap_v=wrap_v,
+            fix_scale=strength,
+            force_texture_alpha=additive_uses_texture_alpha,
+        )
     elif recipe == "subtractive":
         _build_subtractive_shader(material, base_color, image, wrap_u=wrap_u, wrap_v=wrap_v, fix_scale=fix_scale)
     elif recipe == "mask":
@@ -991,11 +1038,13 @@ def _texture_has_uniform_alpha(image):
 def _make_materials(manifest, package, package_dir):
     textures = manifest.get("Textures", [])
     source_kind = str(manifest.get("SourceKind", ""))
+    is_psx = source_kind == "Psx"
     is_xbx_scene = source_kind == "XbxScene"
     synthesize_texture_alpha = not is_xbx_scene
     materials = []
     for index, entry in enumerate(manifest.get("Materials", [])):
-        material = bpy.data.materials.new(entry.get("Name") or f"material_{index:04d}")
+        material_name = entry.get("Name") or f"material_{index:04d}"
+        material = bpy.data.materials.new(material_name)
         material.use_nodes = True
 
         base_color = entry.get("BaseColor") or [1.0, 1.0, 1.0, 1.0]
@@ -1014,6 +1063,10 @@ def _make_materials(manifest, package, package_dir):
 
         metadata = entry.get("NativeMetadata", [])
         hint, alpha_ref = _metadata_blend_hint(metadata)
+        psx_additive = _is_psx_additive_material(material_name) if is_psx else False
+        if psx_additive:
+            hint = "additive"
+            alpha_ref = None
         alpha_mode = str(entry.get("AlphaMode", "")).lower()
         ps2_alpha_fields = _ps2_material_alpha_fields(metadata)
         # ModelDocument has texture and vertex-alpha context that the raw GS
@@ -1061,6 +1114,8 @@ def _make_materials(manifest, package, package_dir):
             wrap_u=wrap_u,
             wrap_v=wrap_v,
             ps2_alpha_fields=ps2_alpha_fields,
+            additive_scale=1.0 if psx_additive else None,
+            additive_uses_texture_alpha=psx_additive,
             use_vertex_alpha=not is_xbx_scene,
         )
 
@@ -1130,11 +1185,170 @@ def _assign_uvs(mesh, uvs):
                 uv_layer.data[loop_index].uv = (u, 1.0 - v)
 
 
+_PSX_WIBBLE_ATTRIBUTE_NAMES = (
+    "neversoft_psx_u_velocity",
+    "neversoft_psx_v_velocity",
+    "neversoft_psx_frequency",
+    "neversoft_psx_wibble_enabled",
+    "neversoft_psx_u_cos_phase",
+    "neversoft_psx_u_sin_phase",
+    "neversoft_psx_v_cos_phase",
+    "neversoft_psx_v_sin_phase",
+    "neversoft_psx_texture_width",
+    "neversoft_psx_texture_height",
+)
+
+
+def _read_texture_wibbles(package, package_dir, primitive):
+    path = primitive.get("TextureWibbleBuffer")
+    data = _read_package_bytes(package, package_dir, path)
+    if not data:
+        return []
+    return [
+        WIBBLE_STRUCT.unpack_from(data, offset)
+        for offset in range(0, len(data) - WIBBLE_STRUCT.size + 1, WIBBLE_STRUCT.size)
+    ]
+
+
+def _assign_texture_wibble_attributes(mesh, values):
+    if not values or len(values) != len(mesh.vertices):
+        return False
+
+    import math
+
+    columns = [[] for _ in _PSX_WIBBLE_ATTRIBUTE_NAMES]
+    for (u_vel, v_vel, frequency, enabled,
+         u_amp, u_phase, v_amp, v_phase, width, height) in values:
+        u_angle = u_phase * math.tau / 16.0
+        v_angle = v_phase * math.tau / 16.0
+        converted = (
+            u_vel,
+            v_vel,
+            frequency,
+            enabled,
+            u_amp * math.cos(u_angle),
+            u_amp * math.sin(u_angle),
+            v_amp * math.cos(v_angle),
+            v_amp * math.sin(v_angle),
+            max(width, 1.0),
+            max(height, 1.0),
+        )
+        for column, value in zip(columns, converted):
+            column.append(value)
+
+    try:
+        for name, column in zip(_PSX_WIBBLE_ATTRIBUTE_NAMES, columns):
+            attribute = mesh.attributes.new(name=name, type="FLOAT", domain="POINT")
+            attribute.data.foreach_set("value", column)
+        return True
+    except Exception:
+        return False
+
+
+def _named_float(node_tree, name):
+    node = node_tree.nodes.new("ShaderNodeAttribute")
+    node.attribute_name = name
+    return node.outputs["Fac"]
+
+
+def _math_binary(node_tree, operation, left, right=None, constant=None):
+    node = node_tree.nodes.new("ShaderNodeMath")
+    node.operation = operation
+    node_tree.links.new(left, node.inputs[0])
+    if right is not None:
+        node_tree.links.new(right, node.inputs[1])
+    elif constant is not None:
+        node.inputs[1].default_value = constant
+    return node.outputs["Value"]
+
+
+def _math_unary(node_tree, operation, value):
+    node = node_tree.nodes.new("ShaderNodeMath")
+    node.operation = operation
+    node_tree.links.new(value, node.inputs[0])
+    return node.outputs["Value"]
+
+
+def _enable_psx_texture_wibble_material(material):
+    if material is None or not material.use_nodes or material.get("neversoft_psx_texture_wibble"):
+        return
+    node_tree = material.node_tree
+    image_nodes = [node for node in node_tree.nodes if node.bl_idname == "ShaderNodeTexImage"]
+    if not image_nodes:
+        return
+
+    # The driver converts Blender timeline frames to the PS1's 60 Hz Xblank
+    # counter while remaining independent of the scene's chosen frame rate.
+    scene_fps = max(float(bpy.context.scene.render.fps), 1.0)
+    time_node = node_tree.nodes.new("ShaderNodeValue")
+    time_node.label = "PS1 Xblanks"
+    driver = time_node.outputs[0].driver_add("default_value").driver
+    driver.expression = f"(frame - 1.0) * {60.0 / scene_fps:.12g}"
+    native_time = time_node.outputs[0]
+
+    u_velocity = _named_float(node_tree, _PSX_WIBBLE_ATTRIBUTE_NAMES[0])
+    v_velocity = _named_float(node_tree, _PSX_WIBBLE_ATTRIBUTE_NAMES[1])
+    frequency = _named_float(node_tree, _PSX_WIBBLE_ATTRIBUTE_NAMES[2])
+    enabled = _named_float(node_tree, _PSX_WIBBLE_ATTRIBUTE_NAMES[3])
+    u_cos_phase = _named_float(node_tree, _PSX_WIBBLE_ATTRIBUTE_NAMES[4])
+    u_sin_phase = _named_float(node_tree, _PSX_WIBBLE_ATTRIBUTE_NAMES[5])
+    v_cos_phase = _named_float(node_tree, _PSX_WIBBLE_ATTRIBUTE_NAMES[6])
+    v_sin_phase = _named_float(node_tree, _PSX_WIBBLE_ATTRIBUTE_NAMES[7])
+    texture_width = _named_float(node_tree, _PSX_WIBBLE_ATTRIBUTE_NAMES[8])
+    texture_height = _named_float(node_tree, _PSX_WIBBLE_ATTRIBUTE_NAMES[9])
+
+    # baseAngle = Xblanks * Frequency * 2pi / (1024 * 64). Phase coefficients
+    # are stored as amp*cos(phase) and amp*sin(phase), so their interpolation
+    # reproduces interpolation of the per-vertex UV offsets across each face.
+    angle = _math_binary(node_tree, "MULTIPLY", native_time, frequency)
+    angle = _math_binary(node_tree, "MULTIPLY", angle, constant=6.283185307179586 / 65536.0)
+    sine = _math_unary(node_tree, "SINE", angle)
+    cosine = _math_unary(node_tree, "COSINE", angle)
+
+    def animated_axis(velocity, cos_phase, sin_phase, texture_size):
+        scroll = _math_binary(node_tree, "MULTIPLY", native_time, velocity)
+        scroll = _math_binary(node_tree, "MULTIPLY", scroll, constant=1.0 / 4096.0)
+        scroll = _math_binary(node_tree, "DIVIDE", scroll, texture_size)
+        wave_sine = _math_binary(node_tree, "MULTIPLY", sine, cos_phase)
+        wave_cosine = _math_binary(node_tree, "MULTIPLY", cosine, sin_phase)
+        wave = _math_binary(node_tree, "ADD", wave_sine, wave_cosine)
+        wave = _math_binary(node_tree, "DIVIDE", wave, texture_size)
+        offset = _math_binary(node_tree, "ADD", scroll, wave)
+        return _math_binary(node_tree, "MULTIPLY", offset, enabled)
+
+    u_offset = animated_axis(u_velocity, u_cos_phase, u_sin_phase, texture_width)
+    v_offset = animated_axis(v_velocity, v_cos_phase, v_sin_phase, texture_height)
+    v_offset = _math_binary(node_tree, "MULTIPLY", v_offset, constant=-1.0)
+
+    combine = node_tree.nodes.new("ShaderNodeCombineXYZ")
+    node_tree.links.new(u_offset, combine.inputs["X"])
+    node_tree.links.new(v_offset, combine.inputs["Y"])
+    uv_map = node_tree.nodes.new("ShaderNodeUVMap")
+    uv_map.uv_map = "UVMap"
+    add = node_tree.nodes.new("ShaderNodeVectorMath")
+    add.operation = "ADD"
+    node_tree.links.new(uv_map.outputs["UV"], add.inputs[0])
+    node_tree.links.new(combine.outputs["Vector"], add.inputs[1])
+    for image_node in image_nodes:
+        node_tree.links.new(add.outputs["Vector"], image_node.inputs["Vector"])
+
+    material["neversoft_psx_texture_wibble"] = True
+
+
 def _assign_colors(mesh, colors):
     if not colors:
         return
     try:
-        color_layer = mesh.color_attributes.new(name="Color", type="BYTE_COLOR", domain="CORNER")
+        # BYTE_COLOR is compact for ordinary normalized vertex colors but
+        # clips the PS1 GPU's overbright modulation values. Preserve those in
+        # Blender's float-backed color layer so the material node receives the
+        # same multiplier as the live and software renderers.
+        color_type = (
+            "FLOAT_COLOR"
+            if any(component < 0.0 or component > 1.0 for color in colors for component in color)
+            else "BYTE_COLOR"
+        )
+        color_layer = mesh.color_attributes.new(name="Color", type=color_type, domain="CORNER")
     except Exception:
         return
     for polygon in mesh.polygons:
@@ -1425,13 +1639,18 @@ def _make_objects(manifest, package, package_dir, materials, armatures=None):
         mesh.from_pydata(vertices, [], faces)
         mesh.update(calc_edges=True)
 
+        material = None
         material_index = primitive.get("MaterialIndex", -1)
         if 0 <= material_index < len(materials):
-            mesh.materials.append(materials[material_index])
+            material = materials[material_index]
+            mesh.materials.append(material)
             for polygon in mesh.polygons:
                 polygon.material_index = 0
 
         _assign_uvs(mesh, uvs)
+        wibbles = _read_texture_wibbles(package, package_dir, primitive)
+        if _assign_texture_wibble_attributes(mesh, wibbles):
+            _enable_psx_texture_wibble_material(material)
         _assign_colors(mesh, colors)
         try:
             mesh.normals_split_custom_set_from_vertices(normals)

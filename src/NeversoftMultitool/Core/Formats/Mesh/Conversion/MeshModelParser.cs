@@ -1,5 +1,6 @@
 using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Archives;
+using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Collision;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using NeversoftMultitool.Core.Formats.Mesh.Lit;
@@ -165,8 +166,12 @@ public sealed class MeshModelParser : IModelParser
         // so this only changes HIER+v1 characters; v2-compressed clips keep the
         // parented skeleton (they chain translations through the hierarchy).
         var forceFlatSkeleton = request.PsxFlatSkeleton || DrivingAnimationsAreV1Absolute(request);
-        var hiddenMeshIndices = PsxTriggerVisibilityResolver.FindInitiallyHiddenMeshes(
-            request.Source, request.FileName, psxFile);
+        var visibility = PsxVisibilityResolver.Resolve(
+            request.Source,
+            request.FileName,
+            psxFile,
+            request.VisibilityOverrides);
+        document.VisibilityGroups.AddRange(visibility.Groups);
         var reconstructSplineAppendages = request.PsxAnimationOptions != null
             && (request.PsxAnimationClips is { Count: > 0 }
                 || request.PsxDecodedAnimations is { Count: > 0 });
@@ -200,7 +205,7 @@ public sealed class MeshModelParser : IModelParser
         PsxGeometryWriter.PopulatePsx(
             document, psxFile, textureProvider, pshFile,
             forceFlatSkeleton, request.PsxFlatBoneIndices, splineClawFile,
-            splineClawTextureProvider, hiddenMeshIndices,
+            splineClawTextureProvider, visibility.HiddenObjectIndices,
             reconstructSplineAppendages);
 
         if (request.PsxAnimationOptions is { } animationOptions
@@ -211,11 +216,28 @@ public sealed class MeshModelParser : IModelParser
             {
                 PsxAnimationChannelWriter.PopulatePsxAnimationClips(
                     document, psxFile, skeletonIndex: 0, clips, animationOptions);
+                if (reconstructSplineAppendages)
+                {
+                    PsxSplineAppendageGeometry.ApplyGeneratedFrameRotations(
+                        document, skeletonIndex: 0,
+                        PsxSplineAppendageGeometry.FindControllerChains(psxFile),
+                        clips);
+                }
             }
             else if (request.PsxDecodedAnimations is { Count: > 0 } animations)
             {
                 PsxAnimationChannelWriter.PopulatePsxAnimations(
                     document, psxFile, skeletonIndex: 0, animations, animationOptions);
+                if (reconstructSplineAppendages)
+                {
+                    var clipsForFrames = animations
+                        .Select(static entry => new PsxAnimationClip(entry.Name, entry.Animation))
+                        .ToArray();
+                    PsxSplineAppendageGeometry.ApplyGeneratedFrameRotations(
+                        document, skeletonIndex: 0,
+                        PsxSplineAppendageGeometry.FindControllerChains(psxFile),
+                        clipsForFrames);
+                }
             }
         }
 

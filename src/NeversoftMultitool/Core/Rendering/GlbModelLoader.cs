@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using SharpGLTF.Schema2;
 using SixLabors.ImageSharp.PixelFormats;
 using Image = SixLabors.ImageSharp.Image;
@@ -82,7 +83,9 @@ internal static class GlbModelLoader
 
         // Read optional attributes
         var normalAccessor = prim.GetVertexAccessor("NORMAL");
-        var colorAccessor = prim.GetVertexAccessor("COLOR_0");
+        var colorAccessor = prim.GetVertexAccessor(
+                                PsxOverbrightVertexColor1Texture1.AttributeName)
+                            ?? prim.GetVertexAccessor("COLOR_0");
         var jointsAccessor = prim.GetVertexAccessor("JOINTS_0");
         var weightsAccessor = prim.GetVertexAccessor("WEIGHTS_0");
 
@@ -198,19 +201,21 @@ internal static class GlbModelLoader
             }
         }
 
-        // Read vertex colors (convert float [0-1] to byte [0-255])
-        byte[]? vertexColors = null;
+        // Prefer the extended PSX multiplier when present. COLOR_0 remains a
+        // normalized fallback for other glTF consumers, while this renderer
+        // must retain values above one for PNG/GIF parity with the live view.
+        float[]? vertexColors = null;
         if (colorAccessor != null)
         {
             var rawColors = colorAccessor.AsVector4Array();
-            vertexColors = new byte[vertexCount * 4];
+            vertexColors = new float[vertexCount * 4];
             for (var i = 0; i < vertexCount; i++)
             {
                 var c = rawColors[i];
-                vertexColors[i * 4] = (byte)Math.Clamp((int)(c.X * 255f), 0, 255);
-                vertexColors[i * 4 + 1] = (byte)Math.Clamp((int)(c.Y * 255f), 0, 255);
-                vertexColors[i * 4 + 2] = (byte)Math.Clamp((int)(c.Z * 255f), 0, 255);
-                vertexColors[i * 4 + 3] = (byte)Math.Clamp((int)(c.W * 255f), 0, 255);
+                vertexColors[i * 4] = c.X;
+                vertexColors[i * 4 + 1] = c.Y;
+                vertexColors[i * 4 + 2] = c.Z;
+                vertexColors[i * 4 + 3] = c.W;
             }
         }
 

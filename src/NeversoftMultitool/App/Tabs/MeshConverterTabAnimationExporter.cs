@@ -32,7 +32,10 @@ internal sealed class MeshConverterTabAnimationExporter(
         cts.Dispose();
     }
 
-    public async Task ExportGlbAsync(MeshFileEntry character, IReadOnlyList<AnimationProbe> animations)
+    public async Task ExportGlbAsync(
+        MeshFileEntry character,
+        IReadOnlyList<AnimationProbe> animations,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
     {
         if (animations.Count == 0)
         {
@@ -40,17 +43,18 @@ internal sealed class MeshConverterTabAnimationExporter(
             return;
         }
 
-        var outputDir = await FolderPickerHelper.PickFolderAsync();
-        if (outputDir == null) return;
-
         var characterStem = MeshConverterTabFileScanner.StripCompoundExtension(character.FileName);
-        var outputPath = Path.Combine(outputDir, $"{characterStem}.glb");
+        var outputPath = await FilePickerHelper.PickSaveFileAsync(
+            characterStem,
+            ("glTF model", [".glb"]));
+        if (outputPath == null) return;
 
         var cts = BeginOperation();
         try
         {
             var result = await Task.Run(
-                () => CharacterAnimationConverter.BuildAnimatedGlb(character, animations),
+                () => CharacterAnimationConverter.BuildAnimatedGlb(
+                    character, animations, visibilityOverrides),
                 cts.Token);
 
             if (result.GlbBytes == null)
@@ -77,7 +81,10 @@ internal sealed class MeshConverterTabAnimationExporter(
         }
     }
 
-    public async Task ExportBlendAsync(MeshFileEntry character, IReadOnlyList<AnimationProbe> animations)
+    public async Task ExportBlendAsync(
+        MeshFileEntry character,
+        IReadOnlyList<AnimationProbe> animations,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
     {
         if (animations.Count == 0)
         {
@@ -85,17 +92,23 @@ internal sealed class MeshConverterTabAnimationExporter(
             return;
         }
 
-        var outputDir = await FolderPickerHelper.PickFolderAsync();
-        if (outputDir == null) return;
-
         var characterStem = MeshConverterTabFileScanner.StripCompoundExtension(character.FileName);
+        var outputPath = await FilePickerHelper.PickSaveFileAsync(
+            characterStem,
+            ("Blender model", [".blend"]));
+        if (outputPath == null) return;
+
+        var outputDir = Path.GetDirectoryName(outputPath);
+        if (string.IsNullOrEmpty(outputDir)) return;
+        var outputStem = Path.GetFileNameWithoutExtension(outputPath);
 
         var cts = BeginOperation();
         try
         {
             var result = await Task.Run(() =>
             {
-                var (document, error) = CharacterAnimationConverter.BuildDocument(character, animations);
+                var (document, error) = CharacterAnimationConverter.BuildDocument(
+                    character, animations, visibilityOverrides);
                 if (document == null)
                     throw new InvalidOperationException(error ?? "Convert failed.");
 
@@ -103,7 +116,7 @@ internal sealed class MeshConverterTabAnimationExporter(
                 {
                     OutputDirectory = outputDir,
                     Format = MeshOutputFormat.Blend,
-                    OutputStem = characterStem,
+                    OutputStem = outputStem,
                     CancellationToken = cts.Token
                 });
             }, cts.Token);

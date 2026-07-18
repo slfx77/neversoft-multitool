@@ -32,7 +32,7 @@ internal static class PsxGeometryWriter
         IReadOnlySet<int>? flatBoneIndices = null,
         PsxMeshFile? splineClawFile = null,
         MeshChecksumTextureResolver? splineClawTextureProvider = null,
-        IReadOnlySet<int>? hiddenMeshIndices = null,
+        IReadOnlySet<int>? hiddenObjectIndices = null,
         bool reconstructSplineAppendages = false)
     {
         if (PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(psxFile))
@@ -40,7 +40,8 @@ internal static class PsxGeometryWriter
             PsxSkinnedGeometryWriter.PopulatePsxSkinned(
                 document, psxFile, pshFile, textureProvider,
                 flatSkeleton, flatBoneIndices, splineClawFile,
-                splineClawTextureProvider, reconstructSplineAppendages);
+                splineClawTextureProvider, hiddenObjectIndices,
+                reconstructSplineAppendages);
             ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
             return;
         }
@@ -63,7 +64,7 @@ internal static class PsxGeometryWriter
             var obj = psxFile.Objects[objectIndex];
             if (obj.MeshIndex >= psxFile.Meshes.Count)
                 continue;
-            if (hiddenMeshIndices?.Contains(obj.MeshIndex) == true)
+            if (hiddenObjectIndices?.Contains(objectIndex) == true)
                 continue;
 
             var transform = Matrix4x4.CreateTranslation(
@@ -163,15 +164,17 @@ internal static class PsxGeometryWriter
         (int Width, int Height) texDims,
         bool isCoplanarOverlay)
     {
-        var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(version, face, gouraudPalette);
+        var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(
+            version, mesh, face, gouraudPalette);
         c0 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c0);
         c1 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c1);
         c2 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c2);
         c3 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c3);
-        c0 = PsxGeometryHelpers.DisplayRgbToLinear(c0);
-        c1 = PsxGeometryHelpers.DisplayRgbToLinear(c1);
-        c2 = PsxGeometryHelpers.DisplayRgbToLinear(c2);
-        c3 = PsxGeometryHelpers.DisplayRgbToLinear(c3);
+        var isPs1TexturedModulation = version != 0x06 && face.IsTextured;
+        c0 = PsxGeometryHelpers.DisplayRgbToLinear(c0, isPs1TexturedModulation);
+        c1 = PsxGeometryHelpers.DisplayRgbToLinear(c1, isPs1TexturedModulation);
+        c2 = PsxGeometryHelpers.DisplayRgbToLinear(c2, isPs1TexturedModulation);
+        c3 = PsxGeometryHelpers.DisplayRgbToLinear(c3, isPs1TexturedModulation);
         var v0 = MakePsxVertex(version, mesh, face, 0, c0, texDims);
         var v1 = MakePsxVertex(version, mesh, face, 1, c1, texDims);
         var v2 = MakePsxVertex(version, mesh, face, 2, c2, texDims);
@@ -223,6 +226,9 @@ internal static class PsxGeometryWriter
             new Vector3(nativeVertex.X, -nativeVertex.Y, -nativeVertex.Z),
             PsxGeometryHelpers.ComputePsxVertexNormal(mesh, face, vertexIndex),
             color,
-            PsxGeometryHelpers.ComputePsxTextureUv(version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height));
+            PsxGeometryHelpers.ComputePsxTextureUv(version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height))
+        {
+            TextureWibble = ModelTextureWibble.FromFace(version, face, slot, texDims)
+        };
     }
 }

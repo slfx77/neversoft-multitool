@@ -370,19 +370,35 @@ public static class PsxLibrary
     ///     Returns null if the hash is not found or the texture can't be decoded.
     /// </summary>
     internal static (byte[] Rgba, int Width, int Height)? ExtractTextureByHash(
-        string psxFilePath, uint targetHash, List<string>? diagnostics = null)
+        string psxFilePath,
+        uint targetHash,
+        List<string>? diagnostics = null,
+        bool preserveRuntimeSemiTransparency = false)
     {
-        return PsxLibraryLookup.ExtractTextureByHash(psxFilePath, targetHash, diagnostics);
+        return PsxLibraryLookup.ExtractTextureByHash(
+            psxFilePath,
+            targetHash,
+            diagnostics,
+            preserveRuntimeSemiTransparency);
     }
 
     /// <summary>
-    ///     In-memory variant of <see cref="ExtractTextureByHash(string, uint, List{string}?)" />.
+    ///     In-memory variant of the file-path texture lookup overload.
     ///     <paramref name="label" /> is used purely for diagnostic messages.
     /// </summary>
     internal static (byte[] Rgba, int Width, int Height)? ExtractTextureByHash(
-        byte[] data, uint targetHash, string label, List<string>? diagnostics = null)
+        byte[] data,
+        uint targetHash,
+        string label,
+        List<string>? diagnostics = null,
+        bool preserveRuntimeSemiTransparency = false)
     {
-        return PsxLibraryLookup.ExtractTextureByHash(data, targetHash, label, diagnostics);
+        return PsxLibraryLookup.ExtractTextureByHash(
+            data,
+            targetHash,
+            label,
+            diagnostics,
+            preserveRuntimeSemiTransparency);
     }
 
     /// <summary>In-memory enumeration variant.</summary>

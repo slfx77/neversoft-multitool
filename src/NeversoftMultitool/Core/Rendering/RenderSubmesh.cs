@@ -15,8 +15,12 @@ internal sealed class RenderSubmesh
     /// <summary>X, Y, Z per vertex (optional, for shading). Same length as Positions.</summary>
     public float[]? Normals { get; init; }
 
-    /// <summary>R, G, B, A per vertex, 0-255 (optional). Length = vertexCount * 4.</summary>
-    public byte[]? VertexColors { get; init; }
+    /// <summary>
+    ///     Linear R, G, B, A multipliers per vertex (optional). Standard glTF
+    ///     colors are 0..1; the PSX custom attribute can intentionally exceed
+    ///     one. Length = vertexCount * 4.
+    /// </summary>
+    public float[]? VertexColors { get; init; }
 
     /// <summary>Whether this primitive's material is double-sided.</summary>
     public bool IsDoubleSided { get; init; }

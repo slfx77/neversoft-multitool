@@ -25,6 +25,12 @@ Conversion + `glb-render` inspection, current HEAD (post-v1.2.1 alpha fix `884d0
 
 ## Remaining — needs work
 
+### 🔶 Spider-Man PSX runtime appendages — replace asset-specific discovery
+- Source: 2026-07-17 archive-backed audit after implementing animated Scorpion/Doc Ock spline reconstruction.
+- Current state: controller chains are discovered structurally, but Doc Ock still loads the literal sibling `claw.psx`, assumes object/mesh zero, and Scorpion uses tip-mesh checksum `0xAF6C87FE` to reject the prototype Lizard's abandoned seven-controller rig. The generated tube also deliberately approximates the unknown runtime tessellation.
+- Evidence: `l8a4_o.psx` mesh 8 has the same 28-vertex / 22-face claw topology and hidden UV-template records as standalone `claw.psx`; `l8a6_o.psx` carries a related tip variant. A corpus scan found the complete standalone appendage-kit signature to be structurally distinctive. No direct character-rig → payload reference has yet been identified in the PSX files or THPS2 decomp.
+- What's left: enumerate sibling PSX assets, discover the unique appendage kit from drawable tip geometry + hidden STP UV template + unused square strip texture, carry discovered object/mesh indices through the writer, and fall back to tubes when discovery is ambiguous. Replace Scorpion's checksum with animation-aware controller-parentage and endpoint-tip validation so the Lizard rig remains rejected without an asset identifier. Cache discovery per archive/directory.
+
 ### 🔴 Build a mesh-QA regression harness (the real remaining fidelity work)
 - Source: this session — the fidelity story is currently "looks good when spot-checked," which is how the stale notes above went unnoticed.
 - What's left: a repeatable sweep that, across every supported mesh format + game, (1) batch-converts and flags hard failures (0-tri, glTF-validator errors), (2) where a PC/`.wpc` or other ground truth exists, computes **triangle recall** and flags files below a threshold, and (3) emits a render **contact sheet** for eyeball review. Wire it as a `tools/diagnostics/` script (Python over the CLI + `glb-render`) so regressions like the alpha bug are caught mechanically, not by a user noticing a hole months later. This is the durable answer to "are the meshes we claim to support actually perfect."

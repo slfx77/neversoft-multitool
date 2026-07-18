@@ -23,4 +23,38 @@ internal static class FilePickerHelper
         var file = await picker.PickSingleFileAsync();
         return file?.Path;
     }
+
+    /// <summary>
+    ///     Opens a save picker initialized for this unpackaged WinUI window.
+    ///     The picker owns filename validation and overwrite confirmation; the
+    ///     caller receives the selected filesystem path or null on cancellation.
+    /// </summary>
+    internal static async Task<string?> PickSaveFileAsync(
+        string suggestedFileName,
+        params (string Description, string[] Extensions)[] fileTypes)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(suggestedFileName);
+        ArgumentNullException.ThrowIfNull(fileTypes);
+        if (fileTypes.Length == 0)
+            throw new ArgumentException("At least one file type is required.", nameof(fileTypes));
+
+        var picker = new FileSavePicker
+        {
+            SuggestedFileName = Path.GetFileName(suggestedFileName)
+        };
+
+        foreach (var (description, extensions) in fileTypes)
+        {
+            if (extensions.Length == 0)
+                throw new ArgumentException("Each file type must have an extension.", nameof(fileTypes));
+
+            picker.FileTypeChoices.Add(description, extensions);
+        }
+
+        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
+        InitializeWithWindow.Initialize(picker, hwnd);
+
+        var file = await picker.PickSaveFileAsync();
+        return file?.Path;
+    }
 }

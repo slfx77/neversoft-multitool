@@ -141,7 +141,7 @@ public sealed class PsxMeshFile
         var hasStitchedReferences = ApplyPositionalBindingIfStitchedSuper(
             header, meshes, meshToObjectIndex, attachmentVertices);
         var surfaceAnimation = PsxSurfaceAnimationReader.ApplyStaticFrame(
-            reader, header.Objects, meshes, header.GouraudPalette);
+            reader, header.Version, header.Objects, meshes, header.GouraudPalette);
 
         return new PsxMeshFile
         {

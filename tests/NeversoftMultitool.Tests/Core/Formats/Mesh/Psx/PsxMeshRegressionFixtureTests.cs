@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Tests.Helpers;
@@ -428,6 +429,43 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         var alternates = PsxMeshSemantics.FindAlternateLeafObjectIndices(psxFile);
 
         Assert.Equal([16, 17, 18], alternates.OrderBy(static i => i).ToArray());
+    }
+
+    [Fact]
+    public void CharacterAlternates_Thps2HeadVariantsNormalizeConflictingSelections()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var path = RequireSampleBuildFile(
+            @"Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)\CD\sk2def.psx");
+        var source = new FileSystemAssetSource(path);
+        var psxFile = PsxMeshFile.Parse(path);
+        Assert.NotNull(psxFile);
+
+        var initial = PsxVisibilityResolver.Resolve(
+            source, "sk2def.psx", psxFile, overrides: null);
+        Assert.Equal(3, initial.Groups.Count);
+        Assert.All(initial.Groups, static group =>
+        {
+            Assert.False(group.IsEnabled);
+            Assert.NotNull(group.ExclusiveSetId);
+        });
+        var exclusiveSetId = Assert.Single(initial.Groups
+            .Select(static group => group.ExclusiveSetId)
+            .Distinct(StringComparer.Ordinal));
+        Assert.StartsWith("psx.altset.", exclusiveSetId, StringComparison.Ordinal);
+
+        var conflictingOverrides = initial.Groups.ToDictionary(
+            static group => group.Id,
+            group => group.Id == initial.Groups[0].Id
+                     || group.Id == initial.Groups[1].Id,
+            StringComparer.Ordinal);
+        var normalized = PsxVisibilityResolver.Resolve(
+            source, "sk2def.psx", psxFile, conflictingOverrides);
+
+        var selected = Assert.Single(normalized.Groups, static group => group.IsEnabled);
+        Assert.Equal(initial.Groups[0].Id, selected.Id);
+        Assert.Equal([9, 17, 18], normalized.HiddenObjectIndices.Order().ToArray());
     }
 
     [Theory]

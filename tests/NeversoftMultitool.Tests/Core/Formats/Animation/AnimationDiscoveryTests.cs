@@ -170,6 +170,50 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
     }
 
     [Fact]
+    public void SpideyEarlyStaticSlots_FromWad_AreAuthoredSingleFramePoses()
+    {
+        const string buildName = "Spider-Man (2000-9-1, PSX - Final)";
+        var wadPath = paths.FindSampleFile(buildName, "CD.WAD");
+        Assert.SkipWhen(wadPath == null, "Spider-Man CD.WAD not found in sample builds");
+
+        var backend = ArchiveAssetBackend.TryOpen(wadPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend.FileSystem;
+        var entry = backend.FindEntry("spidey.psx");
+        Assert.NotNull(entry);
+
+        var source = new ArchiveAssetSource(backend, entry);
+        var bytes = source.ReadBytes();
+        var file = PsxMeshFile.Parse(bytes);
+        Assert.NotNull(file);
+        var animFile = PsxAnimFile.Parse(bytes, file.Objects.Count);
+        Assert.NotNull(animFile);
+
+        Assert.Equal(
+            [40, 10, 1, 12, 1, 1, 1, 1, 1, 1, 1],
+            animFile.Entries.Take(11).Select(static item => item.FrameCount));
+
+        foreach (var index in new[] { 2, 4, 5, 6, 7, 8, 9, 10 })
+        {
+            var animEntry = animFile.Entries[index];
+            var animation = PsxAnimDecoder.Decode(
+                animFile.Pool.Span[animEntry.PoolOffset..],
+                file.Objects.Count,
+                animEntry.FrameCount,
+                out var consumed);
+
+            Assert.Equal(1, animation.FrameCount);
+            Assert.Equal(
+                animFile.Entries[index + 1].PoolOffset - animEntry.PoolOffset,
+                consumed);
+            Assert.Contains(
+                Enumerable.Range(0, animation.BoneCount),
+                bone => animation.IsRotationAnimated(bone)
+                        || animation.IsTranslationAnimated(bone));
+        }
+    }
+
+    [Fact]
     public void ArchiveAssetSource_DisplayName_IncludesEntryDirectory()
     {
         const string buildName = "Apocalypse (1998-11-17, PSX - Final)";

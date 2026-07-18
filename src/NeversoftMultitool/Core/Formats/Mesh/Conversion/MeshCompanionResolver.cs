@@ -193,9 +193,19 @@ internal static class MeshCompanionResolver
 
         return hash =>
         {
-            var result = PsxLibrary.ExtractTextureByHash(psxData, hash, meshLabel);
+            var result = PsxLibrary.ExtractTextureByHash(
+                psxData,
+                hash,
+                meshLabel,
+                preserveRuntimeSemiTransparency: true);
             for (var i = 0; result == null && i < libraries.Count; i++)
-                result = PsxLibrary.ExtractTextureByHash(libraries[i].Bytes, hash, libraries[i].Label);
+            {
+                result = PsxLibrary.ExtractTextureByHash(
+                    libraries[i].Bytes,
+                    hash,
+                    libraries[i].Label,
+                    preserveRuntimeSemiTransparency: true);
+            }
             if (result == null)
                 return null;
             var (rgba, width, height) = result.Value;

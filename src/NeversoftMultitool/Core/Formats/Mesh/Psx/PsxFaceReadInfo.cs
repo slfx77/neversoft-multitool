@@ -10,6 +10,8 @@ internal sealed class PsxFaceReadInfo
     public required int UnderreadBytes { get; init; }
     public required int OverreadBytes { get; init; }
     public required bool IsLengthAligned { get; init; }
+    public uint TextureHash { get; init; }
+    public IReadOnlyList<PsxTextureCoordinate> TextureCoordinates { get; init; } = [];
     public bool IsAccepted { get; set; }
     public int? AcceptedFaceIndex { get; set; }
     public string? RejectionReason { get; set; }

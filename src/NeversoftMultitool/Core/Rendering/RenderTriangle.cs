@@ -20,10 +20,10 @@ internal struct RenderTriangle
     public float Nx2, Ny2, Nz2;
     public bool HasNormals;
 
-    // Per-vertex colors (0-255 RGBA)
-    public byte R0, G0, B0, A0;
-    public byte R1, G1, B1, A1;
-    public byte R2, G2, B2, A2;
+    // Per-vertex linear color multipliers (RGBA; RGB may exceed one)
+    public float R0, G0, B0, A0;
+    public float R1, G1, B1, A1;
+    public float R2, G2, B2, A2;
     public bool HasVertexColors;
 
     // Per-vertex texture coordinates
