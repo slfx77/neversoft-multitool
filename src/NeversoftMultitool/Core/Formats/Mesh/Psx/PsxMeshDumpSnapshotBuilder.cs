@@ -143,6 +143,9 @@ internal static class PsxMeshDumpSnapshotBuilder
             meshes.Add(new PsxMeshDumpMeshSnapshot
             {
                 MeshIndex = meshIndex,
+                NameHash = meshIndex < psxFile.MeshNameHashes.Length
+                    ? psxFile.MeshNameHashes[meshIndex]
+                    : 0u,
                 ObjectIndex = objectIndex,
                 VertexCount = mesh.Vertices.Count,
                 NormalCount = mesh.Normals.Count,

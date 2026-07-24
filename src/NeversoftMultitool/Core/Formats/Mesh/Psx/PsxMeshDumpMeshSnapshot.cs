@@ -3,6 +3,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 internal sealed class PsxMeshDumpMeshSnapshot
 {
     public required int MeshIndex { get; init; }
+    public required uint NameHash { get; init; }
     public required int ObjectIndex { get; init; }
     public required int VertexCount { get; init; }
     public required int NormalCount { get; init; }

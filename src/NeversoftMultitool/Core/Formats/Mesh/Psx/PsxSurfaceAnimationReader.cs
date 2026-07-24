@@ -7,12 +7,20 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 ///     texture-wibble (tag 6) and colour-pulse (tag 7) tables. The binary
 ///     contracts and runtime interpolation are decompilation-verified in
 ///     <c>docs/wibbly_texture_animation.md</c> in the THPS2 matching project.
-///     Colour pulses retain the serialized playhead and accumulator as the
-///     authored pre-tick state: the Spider-Man renderer consumes those fields
-///     directly, and some assets deliberately start partway through a key
-///     interval (for example, fire that would be black at key zero). The exact
-///     first displayed value additionally depends on the runtime frame delta,
-///     which a standalone static export does not have.
+///     Colour pulses evaluate the serialized playhead and accumulator as the
+///     authored pre-tick state — some assets deliberately start partway
+///     through a key interval (fire that would be black at key zero).
+///     Whether that state is BAKED into the palette depends on the file class:
+///     level <c>_g</c> env regions tick every frame
+///     (M3d_PreprocessPulsingColours is called unconditionally in the THPS2
+///     proto) and standalone prop/item files (items.psx, fire.psx) serialize
+///     BLACK for pulsed entries — the pulse is their only colour source — so
+///     both bake. Level-object banks (<c>*_o.psx</c>) instead render at their
+///     raw serialized palette in-game: the l1a1 "?" bonus marker is dark blue
+///     on console while its pulse keys cycle pure R→G→B with staggered
+///     phases, and retail ships the identical data — so bank parses pass
+///     <c>bakeColourPulses: false</c> and keep the authored resting colours
+///     (baking painted the "?" rainbow). Pulse metadata is parsed either way.
 /// </summary>
 internal static class PsxSurfaceAnimationReader
 {
@@ -29,7 +37,8 @@ internal static class PsxSurfaceAnimationReader
         ushort version,
         IReadOnlyList<PsxMeshObject> objects,
         IReadOnlyList<PsxMesh> meshes,
-        Vector4[]? sourcePalette)
+        Vector4[]? sourcePalette,
+        bool bakeColourPulses)
     {
         var palette = sourcePalette;
         var pulses = new List<PsxColourPulse>();
@@ -66,8 +75,13 @@ internal static class PsxSurfaceAnimationReader
                         ApplyTextureWibbles(reader, chunkEnd, version, objects, meshes);
                         break;
                     case ColourPulseTag when palette is { Length: > 0 }:
-                        palette = (Vector4[])palette.Clone();
-                        ReadColourPulses(reader, chunkEnd, palette, pulses);
+                        if (bakeColourPulses)
+                            palette = (Vector4[])palette.Clone();
+                        ReadColourPulses(
+                            reader,
+                            chunkEnd,
+                            bakeColourPulses ? palette : null,
+                            pulses);
                         break;
                 }
 
@@ -165,7 +179,7 @@ internal static class PsxSurfaceAnimationReader
     private static void ReadColourPulses(
         BinaryReader reader,
         long chunkEnd,
-        Vector4[] palette,
+        Vector4[]? paletteToBake,
         List<PsxColourPulse> pulses)
     {
         var stream = reader.BaseStream;
@@ -197,10 +211,10 @@ internal static class PsxSurfaceAnimationReader
                 Keys = keys
             });
 
-            if (colourIndex >= palette.Length)
+            if (paletteToBake == null || colourIndex >= paletteToBake.Length)
                 continue;
             var initial = EvaluateInitialPulse(keys, initialKeyIndex, initialTimeAccumulator);
-            palette[colourIndex] = new Vector4(
+            paletteToBake[colourIndex] = new Vector4(
                 initial.X / 255f,
                 initial.Y / 255f,
                 initial.Z / 255f,

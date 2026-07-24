@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
+using NeversoftMultitool.Core.Settings;
 
 namespace NeversoftMultitool;
 
@@ -21,6 +22,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     private readonly ObservableCollection<MeshFileEntry> _items = [];
     private readonly Dictionary<string, bool> _visibilityOverrides =
         new(StringComparer.Ordinal);
+    private bool _blendExportAvailable = true;
     private MeshConverterTabPreview? _preview;
     private CancellationTokenSource? _scanCts;
     private bool _suppressAnimationSelectionChanged;
@@ -37,8 +39,16 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             AddAnimArchiveButton,
             ConvertGlbButton,
             ConvertBlendButton,
-            ShowAllAnimsCheckBox);
+            ShowAllAnimsCheckBox,
+            AnimFilterCombo,
+            () => _blendExportAvailable);
         AnimationListView.ItemsSource = _animPanel.Animations;
+
+        // Selected in code (like PanelSelector below) so the initial
+        // SelectionChanged can't fire before _animPanel exists.
+        AnimFilterCombo.SelectedIndex = 0;
+        RefreshBlendExportAvailability();
+        UserSettings.Changed += OnUserSettingsChanged;
 
         _animExporter = new MeshConverterTabAnimationExporter(ConversionProgress, CancelButton);
         _batchRunner = new MeshConverterTabBatchRunner(
@@ -54,6 +64,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
     public void Dispose()
     {
+        UserSettings.Changed -= OnUserSettingsChanged;
         Unloaded -= MeshConverterTab_Unloaded;
         ModelViewer.ModelLoaded -= ModelViewer_ModelLoaded;
         _scanCts?.Dispose();
@@ -643,6 +654,11 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         _animPanel.RefreshFilter();
     }
 
+    private void AnimFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        _animPanel?.RefreshFilter();
+    }
+
     private async void ConvertGlb_Click(object sender, RoutedEventArgs e)
     {
         var character = _animPanel.Character;
@@ -764,6 +780,47 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         await _batchRunner.CancelAsync();
         _animExporter.Cancel();
         MainWindow.Instance?.SetStatus("Operation cancelled");
+    }
+
+    // ─── Blender availability (drives the Blend export controls) ─────────
+
+    private const string BlenderMissingTooltip =
+        "Blender installation not found. Please install Blender 3.2+ to enable " +
+        "Blender exporting. If Blender is installed, please indicate the install " +
+        "location in the Settings pane.";
+
+    /// <summary>
+    ///     Enables/disables both Blend export controls based on whether
+    ///     <see cref="BlenderLocator" /> can find Blender, and hangs the
+    ///     explanatory tooltip on their hosts while disabled. Re-runs whenever
+    ///     the Settings drawer changes the pinned path.
+    /// </summary>
+    private void RefreshBlendExportAvailability()
+    {
+        _blendExportAvailable = BlenderLocator.Resolve(null) != null;
+
+        ExportBlendCheckbox.IsEnabled = _blendExportAvailable;
+        if (!_blendExportAvailable)
+            ExportBlendCheckbox.IsChecked = false;
+
+        var tooltip = _blendExportAvailable ? null : BlenderMissingTooltip;
+        ToolTipService.SetToolTip(ExportBlendCheckboxHost, tooltip);
+        ToolTipService.SetToolTip(ConvertBlendButtonHost, tooltip);
+
+        // Re-applies the animated-Blend button's enabled state for the
+        // currently loaded character (no-op before a character is selected).
+        _animPanel.RefreshFilter();
+    }
+
+    private void OnUserSettingsChanged()
+    {
+        if (!DispatcherQueue.HasThreadAccess)
+        {
+            DispatcherQueue.TryEnqueue(RefreshBlendExportAvailability);
+            return;
+        }
+
+        RefreshBlendExportAvailability();
     }
 
     private MeshOutputFormat GetSelectedOutputFormat()

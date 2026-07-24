@@ -27,6 +27,26 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
     }
 
     [Theory]
+    [InlineData(1, 0.033f, true)]
+    [InlineData(0, 0f, true)]
+    [InlineData(null, 0f, true)]
+    [InlineData(40, 1.33f, false)]
+    [InlineData(null, 2.0f, false)]
+    public void AnimationProbe_IsSinglePose_FlagsOneFrameAndZeroDuration(
+        int? frameCount, float durationSec, bool expected)
+    {
+        var probe = new AnimationProbe(
+            new FileSystemAssetSource("anim_0"),
+            "anim_0",
+            durationSec,
+            15,
+            MatchesSkeleton: true,
+            FrameCount: frameCount);
+
+        Assert.Equal(expected, probe.IsSinglePose);
+    }
+
+    [Theory]
     [InlineData("Apocalypse (1998-11-17, PSX - Final)", "bruce.psx", 19)]
     [InlineData("Tony Hawk's Pro Skater (1999-4-9, PSX - Prototype)", "hawk.psx", 63)]
     public void FindForCharacter_FromWad_DiscoversFlatSuperAnimations(
@@ -192,6 +212,16 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
         Assert.Equal(
             [40, 10, 1, 12, 1, 1, 1, 1, 1, 1, 1],
             animFile.Entries.Take(11).Select(static item => item.FrameCount));
+
+        // The Animations pane's single-frame filter keys off these probes:
+        // FrameCount flows through and one-frame pose slots flag IsSinglePose.
+        var probes = PsxAnimationBank.CreateProbes(source, file.Objects.Count);
+        Assert.Equal(animFile.Entries.Count, probes.Count);
+        Assert.Equal(
+            animFile.Entries.Select(static item => (int?)item.FrameCount),
+            probes.Select(static probe => probe.FrameCount));
+        Assert.False(probes[0].IsSinglePose);
+        Assert.True(probes[2].IsSinglePose);
 
         foreach (var index in new[] { 2, 4, 5, 6, 7, 8, 9, 10 })
         {

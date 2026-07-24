@@ -80,7 +80,12 @@ internal static class PsxGeometryWriter
                 for (var placementIndex = 0; placementIndex < placements.Count; placementIndex++)
                 {
                     var placement = placements[placementIndex];
+                    // The bank's own instance (and a sole placement of any kind)
+                    // keeps the plain object name; trigger re-instances carry
+                    // their node index so repeats stay distinguishable.
                     var nodeName = placements.Count == 1
+                                   || placement.TriggerNodeIndex ==
+                                       PsxLevelObjectPlacementResolver.BankInstanceNodeIndex
                         ? $"{nodeNamePrefix}_{objectIndex:D3}"
                         : $"{nodeNamePrefix}_{objectIndex:D3}_node_{placement.TriggerNodeIndex:D3}";
                     PopulatePsxMeshNode(

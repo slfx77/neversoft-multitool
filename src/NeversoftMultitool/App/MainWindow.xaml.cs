@@ -6,6 +6,8 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Settings;
 
 namespace NeversoftMultitool;
 
@@ -104,11 +106,30 @@ public sealed partial class MainWindow : Window
         titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
     }
 
+    private void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
+    {
+        if (args.InvokedItemContainer is not NavigationViewItem { Tag: "Settings" })
+            return;
+
+        if (SettingsDrawer.Visibility == Visibility.Visible)
+        {
+            SettingsDrawer.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            UpdateBlenderPathStatus();
+            SettingsDrawer.Visibility = Visibility.Visible;
+        }
+    }
+
     private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (args.SelectedItem is NavigationViewItem selectedItem)
         {
             var tag = selectedItem.Tag?.ToString();
+
+            // Close the settings drawer before switching tabs
+            SettingsDrawer.Visibility = Visibility.Collapsed;
 
             // Hide all content
             TextureTabContent.Visibility = Visibility.Collapsed;
@@ -163,5 +184,58 @@ public sealed partial class MainWindow : Window
     public void SetStatus(string message)
     {
         GlobalStatusTextBlock.Text = message;
+    }
+
+    // ─── Settings drawer ──────────────────────────────────────────────────
+
+    private async void LocateBlender_Click(object sender, RoutedEventArgs e)
+    {
+        var path = await FilePickerHelper.PickFileAsync([".exe"]);
+        if (path == null) return;
+
+        try
+        {
+            UserSettings.BlenderPath = path;
+            SetStatus($"Blender path saved: {path}");
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Could not save Blender path: {ex.Message}");
+        }
+
+        UpdateBlenderPathStatus();
+    }
+
+    private void BlenderAutoDetect_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            UserSettings.BlenderPath = null;
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Could not update settings: {ex.Message}");
+        }
+
+        UpdateBlenderPathStatus();
+    }
+
+    private void UpdateBlenderPathStatus()
+    {
+        var saved = UserSettings.BlenderPath;
+        BlenderAutoDetectButton.IsEnabled = !string.IsNullOrWhiteSpace(saved);
+
+        if (!string.IsNullOrWhiteSpace(saved))
+        {
+            BlenderPathStatusText.Text = BlenderLocator.NormalizeExecutable(saved) != null
+                ? $"Pinned: {saved}"
+                : $"Pinned path no longer exists: {saved}";
+            return;
+        }
+
+        var detected = BlenderLocator.Resolve(null);
+        BlenderPathStatusText.Text = detected != null
+            ? $"Auto-detected: {detected}"
+            : "Blender not found — install Blender 3.2+ or click Locate Blender.";
     }
 }

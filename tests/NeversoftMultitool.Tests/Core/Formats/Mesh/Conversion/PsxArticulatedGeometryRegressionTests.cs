@@ -589,11 +589,13 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
         var document = Parse(fixture.Source, "l8a4_g.psx");
         // With a single unambiguous restart, apply the whole authored default
         // state: Kevin_ plus the A/B/C/D On/Glowing alternates start hidden.
-        // Opening the geometry entry also instantiates the PLATFORM references
-        // from the level-object bank, which remains independently openable
-        // above as a set of model definitions.
-        Assert.Equal(1_488, document.TriangleCount);
-        const int placedObjectTriangleCount = 1_036;
+        // Opening the geometry entry also places the level-object bank (stored
+        // positions plus PLATFORM re-instances); the bank remains independently
+        // openable above as a set of model definitions.
+        // Re-pinned 2026-07-23: +316 from the POWERUP layer's items.psx pickups
+        // (folded into the placed-object total below).
+        Assert.Equal(2_495, document.TriangleCount);
+        const int placedObjectTriangleCount = 2_043;
         Assert.Equal(
             placedObjectTriangleCount,
             document.TriangleCount - (authoredTriangleCount - initiallyHiddenTriangles));

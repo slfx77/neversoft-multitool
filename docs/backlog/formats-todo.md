@@ -125,6 +125,72 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
 - **Spider-Man PC v6 contract (verified against `SpideyPC.exe` 0x0047619F-0x00476259):** tag-6's legacy base-UV bytes are non-authoritative (zero placeholders or redundant byte-range copies); animation starts from each face's widened UVs in the fixed 512-coordinate space. The PC path doubles only the scrolling term. Treating L2A1's zero placeholders as base UVs collapsed animated faces to one texel, while normalizing motion by the decoded (often much smaller) texture dimensions made it appear several times too fast.
 - What's left: animate parsed `pColourPulseData` (`{r,g,b,Interval}` keyframe lists) instead of exporting only its authored initial phase. UV formula now implemented by the viewer: `U = (u<<8) + (t*uVel>>4) + WibbleTables[amp][(t*Freq>>10)+phase*4 & 63]`, with the engine's 16×64 LUT reconstructed from `rcossin_tbl`.
 
+### ✅ Spider-Man TRG POWERUP placements from items.psx — SHIPPED 2026-07-23
+- Source: user request 2026-07-22 ("if we're going to place objects, we should probably also see if
+  the trg files mention objects directly or by filename, as I believe items.psx is used across most
+  levels") + the l1a1 "?" investigation.
+- Findings so far: TRG never references models by filename (0 filename strings). PLATFORM/MANIPOB
+  nodes reference bank models by NAME CHECKSUM (already placed); **POWERUP nodes carry a numeric
+  `pickupType`** (proto census: type 8 ×49, 15 ×25, 14 ×21, 11 ×6, 16 ×6 across 22 levels) that
+  indexes a game-code item table selecting an items.psx MODEL INDEX (`CItem::InitItem("items")` +
+  `mModel = N`, spidey-decomp `ob.cpp`/`shell.cpp`). Engine-proven mappings: in-world "?" marker =
+  items model 5 (`Spidey_CIcon`, scale 2048 = ×0.5); web projectiles use the items region at the
+  same half scale. items.psx (proto) = 6 models: 0 white wedge, 1 blue gear (web cartridge), 2
+  yellow gear, 3 grey gear, 4 grey dome, 5 the "?".
+- Shipped 2026-07-23 instead: `PsxItemsBankSubstitution` — bank meshes sharing a name hash with an
+  items model render from the items copy (fixes the l1a1 "?" to its vivid staggered-blue pulse).
+- **Table PINNED 2026-07-23** by disassembling the `CPowerUp` ctor's `switch(mType-8)` in both PSX
+  binaries (capstone via the THPS2 decomp's `tools/dis_crossgame.py`; ctor found by xref'ing the
+  `"items"` string + the 1.0-confidence `Spool_GetModel` anchor). The ctor stores its type arg to
+  `mType` (0x38 proto / 0x34 final) then loads an items.psx mesh-name hash per case →
+  `Spool_GetModel(hash, ItemsRegion)`. `Trig_CreateObject` passes the TRG node's `pickupType`
+  straight in, so **TRG pickupType == ctor mType** (verified: census values map to sensible models
+  — 8=web cartridge matches the user's screenshot, 11=the "?"). Re-verified on every run by
+  `tools/diagnostics/spiderman_pickup_table_probe.py` (reads the jump tables live from the EXEs +
+  resolves hashes against items.psx + censuses the TRGs). **No per-type scale** — the ctor's
+  0xDE/0xD8/0xD0 stores are spin/counter fields, not mScale; the spidey-decomp `Spidey_CIcon` ×0.5
+  is a DIFFERENT class (the HUD nav icon), not the type-11 CPowerUp "?".
+  - proto ctor @0x800349CC, jumptable @0x800B03A4 (mType 8..16):
+    8→0x17646B0D (web cartridge/m1), 9→0xC6739C3B (yellow gear/m2), 10/12/13→default,
+    11→0x7F648179 ("?"/m5), 14/15/16→0x7E74F3D4 (grey gear/m3). Census {8,11,14,15,16} 100% mapped.
+  - Apr-29 proto ctor @0x8001EA70, jumptable @0x80091570 (mType 8..16, 7-mesh items.psx):
+    8→0x17646B0D, 9→0xC6739C3B, 10→default, 11→0x7F648179, 12→0x12820A41 (m6), 13→0xC6739C3B,
+    14/15/16→0x7E74F3D4. A hybrid (Feb's 9-case structure + Sep's 12/13 assignments). Census
+    {8,11,12,13,14,15,16} 100% mapped.
+  - final ctor @0x8001DE00-region, jumptable @0x80093674 (mType 8..18, 9-mesh items.psx):
+    8→0x17646B0D, 9/17→default, 10&18→0xA092D785 (m7, the ubiquitous final pickup — type 18 ×210),
+    11→0x7F648179, 12→0x12820A41 (m6), 13→0xC6739C3B, 14/15/16→0x7E74F3D4. Census 100% mapped.
+  - **Census subset {8,11,14,15,16} is identical across ALL THREE builds** (three confirmations);
+    non-census types drift gradually Feb→Apr→Sep but no type ever maps to two DIFFERENT non-default
+    models. The per-build items.psx (6 / 7 / 9 meshes; m6=0x12820A41, m7=0xA092D785 presence)
+    selects the right table. April-29 added to Sample/Builds 2026-07-23.
+- **Placement layer SHIPPED 2026-07-23** (`PsxPowerupPlacementResolver`): POWERUP nodes render as
+  items.psx pickups (translation-only — POWERUP nodes carry no angles), merged into the single items
+  geometry pass in `MeshModelParser.PopulatePsxLevelObjectCompanion`; works with or without an `_o`
+  bank (the bank layer swallows its own failures so a missing/malformed/unreadable bank still emits
+  pickups). **POWERUP is authoritative for pickups**: bank objects whose mesh a POWERUP node already
+  places are suppressed (`PsxItemsBankSubstitution.Split(suppressHashes:)`) — l1a1's bank "?" drops
+  in favour of its 3 POWERUP "?" nodes; a bank pickup with no POWERUP node (the demo level lda1's
+  "?", the only such case corpus-wide) still redirects to the items copy. Required a TRG parser fix:
+  `ParsePowerup` now skips the node's link list before reading position (`ReadLinks`), which the old
+  "read link COUNT only" code botched — POWERUP nodes with links (the "?" markers, 4-5 links each)
+  had million-unit garbage coordinates. Grounded-flag terrain snap remains out of scope (authored Y).
+  Diagnostics: `spiderman_pickup_table_probe.py`. Tests: `PsxPowerupPlacementResolverTests`,
+  `PsxItemsBankSubstitutionTests`, `TrgFileTests.Parse_SpiderManPowerupWithLinks_*`.
+- **Generalized to the PS1 lineage 2026-07-24** (`MeshCompanionResolver.TryResolvePsxLevelCompanions`):
+  THPS1/THPS2 get the FULL bank + PLATFORM-overlay + POWERUP stack. THPS pickup table transcribed
+  verbatim from the **matched THPS2 decomp** `POWERUP.cpp` `CPowerUp::CPowerUp` (`switch(mType)`,
+  no `-8`): 4/5/6/10/15 = K/S/A/T/E letters, 16/18 = tape, 21-32 = bonus/money, medals 0x664-0x666
+  omitted (they spool from `skmedals`, not `items`). Letter/bonus hashes are byte-identical to THPS1's
+  items.psx → one hash-keyed table serves both; `SelectTable` picks it by the 'S' letter 0x311D55D4.
+  PLATFORM overlay verified coincident (THPS1 24/30, THPS2 12/17 refs at δ≈0, div 2.25). 6-12 proto
+  added to Sample/Builds (9-mesh items = final table). See memory `psx_crossgame_level_objects.md`.
+- **Apocalypse follow-up (deferred):** Apocalypse gets the coordinate-verified bank layer only. Its
+  `0x212F` refs sit on dynamic BADDY spawns that don't coincide with the static bank (1/125), and no
+  Apocalypse pickup table is RE'd (no decomp for the 1998 engine — would need PSX.EXE ctor RE via
+  Ghidra/signature). Overlay + POWERUP gated off (`PsxLevelCompanions.ApplyTriggerOverlay=false`) until
+  the coordinate model + a pickup table are validated.
+
 ### 🔶 PSX level-object animation export (skeletal path)
 - Source: decomp contract `thps2-psx-proto docs/level_object_anim_binding.md` (2026-07-09; RunAnim/CycleAnim/CalculateAnimOrder PERFECT).
 - Binding chain is fully known: item→region by filename (`Spool_FindRegion`), stream selected by the item's own `mAnim` index into the region's `pAnimFile` table (stride 8, count-prefixed — NOT stream-i→item-i), per-bone positional with parent tree from `pHierarchy` (`mapTable[bone]=parent`), cross-model retarget by name via CalculateAnimOrder. `has pAnimFile ≡ IsSuper` — animated level objects (traffic cars etc.) are CSuper instances on the same skeletal path as characters.

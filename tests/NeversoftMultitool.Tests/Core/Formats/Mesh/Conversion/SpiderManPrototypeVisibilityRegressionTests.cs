@@ -22,16 +22,26 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
         var objects = ParseDocument(fixture.Value.ObjectSource, ObjectEntryName);
 
         Assert.Equal(1_155, objects.TriangleCount);
-        Assert.Equal(4_179, combined.TriangleCount);
-        Assert.Equal(61, combined.Nodes.Count);
-        Assert.Equal(8, combined.Nodes.Count(
+        // Re-pinned 2026-07-23: the POWERUP placement layer adds l1a2's 7
+        // pickups (5 web cartridges + 2 grey gears, 72 tris each = +504) from
+        // items.psx as 7 items_* nodes.
+        Assert.Equal(5_432, combined.TriangleCount);
+        Assert.Equal(74, combined.Nodes.Count);
+        Assert.Equal(14, combined.Nodes.Count(
             static node => node.Name.StartsWith("objects_", StringComparison.Ordinal)));
-        Assert.DoesNotContain(combined.Nodes,
-            static node => node.Name is "objects_001" or "objects_002" or
-                "objects_010" or "objects_011");
+        // Bank objects without any TRG platform reference (the majority case
+        // corpus-wide) place at their stored bank positions.
+        Assert.Contains(combined.Nodes, static node => node.Name == "objects_001");
+        Assert.Contains(combined.Nodes, static node => node.Name == "objects_002");
+        Assert.Contains(combined.Nodes, static node => node.Name == "objects_010");
+        Assert.Contains(combined.Nodes, static node => node.Name == "objects_011");
 
+        // Object 3's PLATFORM node re-instances the model away from its bank
+        // home, so the rotated copy carries the trigger-node suffix while the
+        // bank's own instance keeps the plain name.
+        Assert.Contains(combined.Nodes, static node => node.Name == "objects_003");
         var rotatingBankPiece = Assert.Single(combined.Nodes,
-            static node => node.Name == "objects_003");
+            static node => node.Name == "objects_003_node_015");
         Assert.Equal(-6_476f, rotatingBankPiece.Transform.Translation.X, 3);
         Assert.Equal(2_646.222f, rotatingBankPiece.Transform.Translation.Y, 3);
         Assert.Equal(109.333f, rotatingBankPiece.Transform.Translation.Z, 3);
@@ -99,8 +109,12 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
             behavior);
         var document = ParseDocument(source, GeometryEntryName);
 
-        Assert.Equal(3_549, document.TriangleCount);
-        Assert.Equal(53, document.Nodes.Count);
+        // The POWERUP layer is independent of the *_o bank, so an unavailable /
+        // malformed / unreadable bank still places l1a2's 7 pickups from
+        // items.psx (+504 tris, +7 items_* nodes). Only the bank's own
+        // "objects_" nodes are absent.
+        Assert.Equal(4_053, document.TriangleCount);
+        Assert.Equal(60, document.Nodes.Count);
         Assert.DoesNotContain(document.Nodes,
             static node => node.Name.StartsWith("objects_", StringComparison.Ordinal));
     }

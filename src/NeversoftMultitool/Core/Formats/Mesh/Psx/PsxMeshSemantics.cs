@@ -17,6 +17,24 @@ internal static class PsxMeshSemantics
         return type == StitchedReferenceType;
     }
 
+    /// <summary>
+    ///     True when the file name follows the level-object bank convention
+    ///     (<c>*_o.psx</c>). Bank parses keep their raw serialized RGBs
+    ///     palette instead of baking colour-pulse initial states — see
+    ///     <see cref="PsxSurfaceAnimationReader" />.
+    /// </summary>
+    internal static bool IsLevelObjectBankName(string? fileName)
+    {
+        if (string.IsNullOrEmpty(fileName)
+            || !fileName.EndsWith(".psx", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return Path.GetFileNameWithoutExtension(fileName)
+            .EndsWith("_o", StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static Vector3 GetObjectOffset(PsxMeshObject obj, float translationDivisor)
     {
         return new Vector3(

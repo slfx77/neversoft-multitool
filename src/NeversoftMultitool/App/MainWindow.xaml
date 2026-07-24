@@ -42,6 +42,7 @@
       IsTitleBarAutoPaddingEnabled="True"
       OpenPaneLength="200"
       PaneDisplayMode="LeftCompact"
+      ItemInvoked="NavView_ItemInvoked"
       SelectionChanged="NavView_SelectionChanged">
 
       <NavigationView.MenuItems>
@@ -154,6 +155,19 @@
         </NavigationViewItem>
       </NavigationView.MenuItems>
 
+      <NavigationView.FooterMenuItems>
+        <!--  Settings drawer toggle (cog, meta-functionality → footer)  -->
+        <NavigationViewItem
+          x:Name="SettingsNavItem"
+          Content="Settings"
+          SelectsOnInvoked="False"
+          Tag="Settings">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE713;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+      </NavigationView.FooterMenuItems>
+
       <!--  Main content area  -->
       <Grid Background="Transparent">
         <Grid.RowDefinitions>
@@ -171,6 +185,47 @@
           Background="{ThemeResource LayerOnMicaBaseAltFillColorDefaultBrush}"
           CornerRadius="8,0,0,8">
           <Grid VerticalAlignment="Stretch">
+            <!--  Settings drawer (overlays the active tab, toggled by the footer cog)  -->
+            <Border
+              x:Name="SettingsDrawer"
+              Style="{StaticResource SettingsDrawerBorderStyle}">
+              <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="16">
+                  <TextBlock Text="Settings"
+                             Style="{StaticResource SubtitleTextBlockStyle}" />
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="Blender"
+                               FontWeight="SemiBold"
+                               FontSize="13"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock
+                      Text=".blend export runs Blender in the background. The path is auto-detected from PATH and standard install folders; pin it here if detection fails."
+                      FontSize="12"
+                      TextWrapping="Wrap"
+                      Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    <TextBlock
+                      x:Name="BlenderPathStatusText"
+                      Margin="0,4,0,4"
+                      FontSize="12"
+                      TextWrapping="Wrap"
+                      IsTextSelectionEnabled="True" />
+                    <Button
+                      Content="Locate Blender..."
+                      HorizontalAlignment="Stretch"
+                      ToolTipService.ToolTip="Pick blender.exe (or a Blender install folder)"
+                      Click="LocateBlender_Click" />
+                    <Button
+                      x:Name="BlenderAutoDetectButton"
+                      Content="Use auto-detect"
+                      HorizontalAlignment="Stretch"
+                      IsEnabled="False"
+                      ToolTipService.ToolTip="Forget the pinned Blender path and search PATH and standard install folders"
+                      Click="BlenderAutoDetect_Click" />
+                  </StackPanel>
+                </StackPanel>
+              </ScrollViewer>
+            </Border>
+
             <tabs:TextureTab
               x:Name="TextureTabContent"
               VerticalAlignment="Stretch"

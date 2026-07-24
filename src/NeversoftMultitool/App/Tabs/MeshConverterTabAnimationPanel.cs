@@ -12,7 +12,9 @@ namespace NeversoftMultitool;
 ///     manual folder/archive additions, and select-all/none. Ported from the
 ///     Character Preview tab; the filter change is deliberate — mismatched
 ///     animations are hidden by default instead of merely greyed out, with a
-///     "Show all" toggle to bring them back.
+///     "Show all" toggle to bring them back. The filter combo can additionally
+///     hide single-frame pose slots; hidden rows are excluded from select-all
+///     and from export.
 /// </summary>
 internal sealed class MeshConverterTabAnimationPanel(
     TextBlock statusText,
@@ -20,7 +22,9 @@ internal sealed class MeshConverterTabAnimationPanel(
     Button addArchiveButton,
     Button exportGlbButton,
     Button exportBlendButton,
-    CheckBox showAllCheckBox) : IDisposable
+    CheckBox showAllCheckBox,
+    ComboBox filterCombo,
+    Func<bool> blendExportAvailable) : IDisposable
 {
     private static readonly string[] ArchiveExtensions = [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr"];
 
@@ -167,11 +171,16 @@ internal sealed class MeshConverterTabAnimationPanel(
         }
     }
 
-    /// <summary>Re-applies the show-all filter to the already-discovered set.</summary>
+    /// <summary>
+    ///     Re-applies the show-all / single-pose filters to the already-
+    ///     discovered set. No-op before a character is selected so the initial
+    ///     filter-combo selection can't clobber the "select a character" status.
+    /// </summary>
     public void RefreshFilter()
     {
+        if (Character == null) return;
         RebuildList();
-        UpdateStatus(Character?.SkeletonBoneCount);
+        UpdateStatus(Character.SkeletonBoneCount);
     }
 
     public IReadOnlyList<AnimationProbe> CheckedMatchingProbes()
@@ -200,9 +209,13 @@ internal sealed class MeshConverterTabAnimationPanel(
         RebuildList();
     }
 
+    /// <summary>Filter combo index 1 = hide single-frame pose slots.</summary>
+    private bool HideSinglePoses => filterCombo.SelectedIndex == 1;
+
     private void RebuildList()
     {
         var showAll = showAllCheckBox.IsChecked == true;
+        var hidePoses = HideSinglePoses;
         var previouslyChecked = Animations
             .Where(a => a.IsChecked)
             .Select(a => a.Probe.Source.DisplayName)
@@ -211,6 +224,7 @@ internal sealed class MeshConverterTabAnimationPanel(
         Animations.Clear();
         foreach (var probe in _allProbes
                      .Where(p => showAll || p.MatchesSkeleton)
+                     .Where(p => !hidePoses || !p.IsSinglePose)
                      .OrderBy(p => p.MatchesSkeleton ? 0 : 1)
                      .ThenBy(p => p.DisplayName, NaturalStringComparer.OrdinalIgnoreCase))
         {
@@ -223,7 +237,7 @@ internal sealed class MeshConverterTabAnimationPanel(
 
         var hasMatching = Animations.Any(a => a.MatchesSkeleton);
         exportGlbButton.IsEnabled = hasMatching;
-        exportBlendButton.IsEnabled = hasMatching;
+        exportBlendButton.IsEnabled = hasMatching && blendExportAvailable();
     }
 
     private void UpdateStatus(int? boneCount)
@@ -244,6 +258,14 @@ internal sealed class MeshConverterTabAnimationPanel(
             text += showAll
                 ? $" ({hiddenMismatches} mismatched shown greyed)"
                 : $" ({hiddenMismatches} hidden: bone-count mismatch)";
+        if (HideSinglePoses)
+        {
+            var hiddenPoses = _allProbes.Count(p =>
+                p.IsSinglePose && (showAll || p.MatchesSkeleton));
+            if (hiddenPoses > 0)
+                text += $" ({hiddenPoses} single-frame pose(s) hidden)";
+        }
+
         if (boneCount.HasValue)
             text += $" — skeleton has {boneCount} bones";
         statusText.Text = text;

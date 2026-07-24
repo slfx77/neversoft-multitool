@@ -138,7 +138,9 @@ public sealed class MeshModelParser : IModelParser
     private static ModelDocument ParsePsx(MeshImportRequest request)
     {
         var psxData = request.Source.ReadBytes();
-        var psxFile = PsxMeshFile.Parse(psxData)
+        var psxFile = PsxMeshFile.Parse(
+                          psxData,
+                          bakeColourPulses: !PsxMeshSemantics.IsLevelObjectBankName(request.FileName))
                       ?? throw new InvalidOperationException("No mesh data");
 
         var textureProvider = MeshCompanionResolver.BuildPsxTextureProvider(request.Source, request.FileName, psxData);
@@ -178,19 +180,18 @@ public sealed class MeshModelParser : IModelParser
         PsxMeshFile? splineClawFile = null;
         MeshChecksumTextureResolver? splineClawTextureProvider = null;
         if (reconstructSplineAppendages
-            && PsxSplineAppendageGeometry.FindControllerChains(psxFile).Count == 4
-            && request.Source.TryReadCompanion("claw.psx") is { } clawBytes)
+            && PsxSplineAppendageGeometry.FindControllerChains(psxFile).Count == 4)
         {
             try
             {
-                splineClawFile = PsxMeshFile.Parse(clawBytes);
-                if (splineClawFile != null)
+                // Retail sibling claw.psx first, then the claw mesh shipped
+                // inside a sibling level-object bank (the February prototypes
+                // carry it in l8a4_o.psx instead of a standalone file).
+                var claw = PsxSplineClawLocator.Locate(request.Source);
+                if (claw != null)
                 {
-                    // The runtime claw is a complete sibling PSX with its own
-                    // embedded texture slots. Resolve those slots against the
-                    // claw bytes, not the Ock character that instances it.
-                    splineClawTextureProvider = MeshCompanionResolver.BuildPsxTextureProvider(
-                        request.Source, "claw.psx", clawBytes);
+                    splineClawFile = claw.File;
+                    splineClawTextureProvider = claw.TextureProvider;
                 }
             }
             catch (Exception ex)
@@ -198,7 +199,7 @@ public sealed class MeshModelParser : IModelParser
                 // The controller tubes remain useful when an archive lacks or
                 // truncates the optional runtime claw model.
                 System.Diagnostics.Debug.WriteLine(
-                    $"Unable to parse optional PSX spline claw companion: {ex.Message}");
+                    $"Unable to resolve optional PSX spline claw companion: {ex.Message}");
             }
         }
 
@@ -211,7 +212,8 @@ public sealed class MeshModelParser : IModelParser
 
         if (request.IncludeLevelObjects
             && !PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(psxFile))
-            PopulatePsxLevelObjectCompanion(document, request, geometryContext);
+            PopulatePsxLevelObjectCompanion(
+                document, request, geometryContext, psxFile.TranslationDivisor);
 
         if (request.PsxAnimationOptions is { } animationOptions
             && document.Skeletons.Count > 0)
@@ -251,57 +253,155 @@ public sealed class MeshModelParser : IModelParser
 
     /// <summary>
     ///     Spider-Man levels attach <c>*_g.psx</c> as environment geometry and
-    ///     spool <c>*_o.psx</c> as a model bank. PLATFORM nodes in sibling TRG
-    ///     data supply the runtime position, rotation, and model checksum. The
-    ///     bank's object-table transforms are definitions rather than authored
-    ///     instances and must never be appended wholesale.
+    ///     add two placement layers, both drawn from the sibling
+    ///     <c>items.psx</c>/<c>*_o.psx</c> banks:
+    ///     <list type="bullet">
+    ///       <item>the <c>*_o.psx</c> model bank, whose object table is itself a
+    ///       placed layer (stored positions are authored world instances — the
+    ///       DDM layout convention), with sibling TRG PLATFORM/MANIPOB nodes
+    ///       overlaying scripted re-instances; bank meshes shared with
+    ///       items.psx render from the items copy;</item>
+    ///       <item>TRG POWERUP nodes, rendered as items.psx pickups keyed by
+    ///       <c>pickupType</c> (<see cref="PsxPowerupPlacementResolver" />).</item>
+    ///     </list>
+    ///     Both merge into ONE items geometry pass. The POWERUP layer works even
+    ///     when no <c>*_o.psx</c> companion exists.
     /// </summary>
     private static void PopulatePsxLevelObjectCompanion(
         ModelDocument document,
         MeshImportRequest request,
-        PsxGeometryWriter.PsxGeometryWriterContext geometryContext)
+        PsxGeometryWriter.PsxGeometryWriterContext geometryContext,
+        float geometryTranslationDivisor)
     {
-        if (!MeshCompanionResolver.TryGetPsxLevelObjectCompanionName(
-                request.FileName,
-                out var companionName))
+        if (!MeshCompanionResolver.TryResolvePsxLevelCompanions(
+                request.Source, request.FileName, out var companions))
             return;
 
         try
         {
-            var companionBytes = request.Source.TryReadCompanion(companionName);
-            if (companionBytes == null)
-                return;
+            // Parse the level's TRG and items.psx once; both layers consume them.
+            var trg = PsxLevelObjectPlacementResolver.TryLoadTriggerCompanion(
+                request.Source, companions.LevelStem);
+            var items = PsxItemsBankSubstitution.TryLoadItems(request.Source);
 
-            var companionFile = PsxMeshFile.Parse(companionBytes);
-            if (companionFile == null
-                || PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(companionFile))
+            // items-object placements accumulated from the POWERUP layer and the
+            // bank substitution, emitted as a single items geometry pass.
+            var itemsPlacements = new Dictionary<int, List<PsxLevelObjectPlacement>>();
+
+            // POWERUP layer first: it is authoritative for pickups, so the bank
+            // layer drops any bank object whose mesh a POWERUP node already places.
+            var suppressHashes = PsxPowerupPlacementResolver.EmptyHashSet;
+            if (items != null
+                && PsxPowerupPlacementResolver.Resolve(trg, items.File, geometryTranslationDivisor)
+                    is { } powerupPlacements)
             {
-                return;
+                MergeItemsPlacements(itemsPlacements, powerupPlacements);
+                suppressHashes = PsxPowerupPlacementResolver.PlacedModelHashes(
+                    items.File, powerupPlacements);
             }
 
-            var companionTextureProvider = MeshCompanionResolver.BuildPsxTextureProvider(
-                request.Source, companionName, companionBytes);
-            var placements = PsxLevelObjectPlacementResolver.Resolve(
-                request.Source,
-                request.FileName,
-                companionFile);
-            if (placements.Count == 0)
-                return;
+            PopulatePsxBankLayer(
+                document, request, geometryContext, companions,
+                trg, items, itemsPlacements, suppressHashes);
 
-            PsxGeometryWriter.PopulatePsx(
-                document,
-                companionFile,
-                companionTextureProvider,
-                nodeNamePrefix: "objects",
-                context: geometryContext,
-                objectPlacements: placements);
+            if (items != null && itemsPlacements.Count > 0)
+            {
+                PsxGeometryWriter.PopulatePsx(
+                    document,
+                    items.File,
+                    items.TextureProvider,
+                    nodeNamePrefix: "items",
+                    context: geometryContext,
+                    objectPlacements: itemsPlacements.ToDictionary(
+                        static pair => pair.Key,
+                        static pair => (IReadOnlyList<PsxLevelObjectPlacement>)pair.Value));
+            }
         }
         catch (Exception ex)
         {
-            // The model bank is optional. A malformed or unrelated sibling
-            // must not prevent the selected geometry layer from opening.
+            // Both layers are optional. A malformed or unrelated sibling must
+            // not prevent the selected geometry layer from opening.
             System.Diagnostics.Debug.WriteLine(
                 $"Unable to parse optional PSX level-object companion: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    ///     Places the <c>*_o.psx</c> model bank when it exists: bank objects at
+    ///     their authored positions + TRG platform overlay, with items-shared
+    ///     meshes redirected onto <paramref name="itemsPlacements" /> and the
+    ///     remaining bank objects emitted directly.
+    /// </summary>
+    private static void PopulatePsxBankLayer(
+        ModelDocument document,
+        MeshImportRequest request,
+        PsxGeometryWriter.PsxGeometryWriterContext geometryContext,
+        MeshCompanionResolver.PsxLevelCompanions companions,
+        Trg.TrgFile? trg,
+        PsxItemsBankSubstitution.LoadedItems? items,
+        Dictionary<int, List<PsxLevelObjectPlacement>> itemsPlacements,
+        IReadOnlySet<uint> suppressHashes)
+    {
+        // The *_o.psx bank is optional and independent of the POWERUP layer: a
+        // missing, malformed, or unreadable bank must not prevent the items
+        // (pickup) geometry from being emitted, so this layer swallows its own
+        // failures rather than aborting the caller.
+        try
+        {
+            var companionName = companions.BankCompanionName;
+            if (request.Source.TryReadCompanion(companionName) is not { } companionBytes)
+                return;
+
+            var bank = PsxMeshFile.Parse(companionBytes, bakeColourPulses: false);
+            if (bank == null || PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(bank))
+                return;
+
+            var bankPlacements = PsxLevelObjectPlacementResolver.Resolve(
+                trg, bank, companions.ApplyTriggerOverlay);
+            if (bankPlacements.Count == 0)
+                return;
+
+            var remainingBank = bankPlacements;
+            if (items != null
+                && PsxItemsBankSubstitution.Split(items.File, bank, bankPlacements, suppressHashes)
+                    is { } split)
+            {
+                MergeItemsPlacements(itemsPlacements, split.ItemsPlacements);
+                remainingBank = split.RemainingBankPlacements;
+            }
+
+            if (remainingBank.Count > 0)
+            {
+                PsxGeometryWriter.PopulatePsx(
+                    document,
+                    bank,
+                    MeshCompanionResolver.BuildPsxTextureProvider(
+                        request.Source, companionName, companionBytes),
+                    nodeNamePrefix: "objects",
+                    context: geometryContext,
+                    objectPlacements: remainingBank);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"Unable to place optional PSX level-object bank: {ex.Message}");
+        }
+    }
+
+    private static void MergeItemsPlacements(
+        Dictionary<int, List<PsxLevelObjectPlacement>> accumulator,
+        IReadOnlyDictionary<int, IReadOnlyList<PsxLevelObjectPlacement>> additions)
+    {
+        foreach (var (objectIndex, placements) in additions)
+        {
+            if (!accumulator.TryGetValue(objectIndex, out var list))
+            {
+                list = [];
+                accumulator[objectIndex] = list;
+            }
+
+            list.AddRange(placements);
         }
     }
 

@@ -26,7 +26,8 @@ internal static class MeshExportCliOptions
     {
         return new Option<string?>("--blender-helper")
         {
-            Description = "Path to a Blender executable/helper for .blend export"
+            Description = "Path to the Blender executable for .blend export " +
+                          "(default: saved app setting, bundled helper, PATH, then standard install folders)"
         };
     }
 

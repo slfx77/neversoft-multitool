@@ -281,6 +281,7 @@
                     <Grid.RowDefinitions>
                       <RowDefinition Height="Auto" />
                       <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="*" />
@@ -312,6 +313,17 @@
                             Content="Select none"
                             HorizontalAlignment="Stretch"
                             Click="AnimsSelectNone_Click" />
+                    <ComboBox
+                      x:Name="AnimFilterCombo"
+                      Grid.Row="2"
+                      Grid.Column="0"
+                      Grid.ColumnSpan="2"
+                      HorizontalAlignment="Stretch"
+                      ToolTipService.ToolTip="Single-frame animations are static pose slots; hiding them also excludes them from Select all and export"
+                      SelectionChanged="AnimFilter_SelectionChanged">
+                      <ComboBoxItem Content="All animations" />
+                      <ComboBoxItem Content="Hide single-frame poses" />
+                    </ComboBox>
                   </Grid>
                   <CheckBox
                     x:Name="ShowAllAnimsCheckBox"
@@ -391,12 +403,17 @@
                 <StackPanel Grid.Row="3"
                             Padding="8,8"
                             Spacing="4">
-                  <Button
-                    x:Name="ConvertBlendButton"
-                    Content="Export animated Blend..."
-                    HorizontalAlignment="Stretch"
-                    IsEnabled="False"
-                    Click="ConvertBlend_Click" />
+                  <!--  Transparent host so the tooltip still shows while the
+                        button is disabled (disabled controls don't hit-test)  -->
+                  <Grid x:Name="ConvertBlendButtonHost"
+                        Background="Transparent">
+                    <Button
+                      x:Name="ConvertBlendButton"
+                      Content="Export animated Blend..."
+                      HorizontalAlignment="Stretch"
+                      IsEnabled="False"
+                      Click="ConvertBlend_Click" />
+                  </Grid>
                   <Button
                     x:Name="ConvertGlbButton"
                     Content="Export animated GLB..."
@@ -516,13 +533,18 @@
                     IsChecked="True"
                     Checked="ExportFormatCheckbox_Changed"
                     Unchecked="ExportFormatCheckbox_Changed" />
-                  <CheckBox
-                    x:Name="ExportBlendCheckbox"
-                    Content="Export Blend"
-                    MinWidth="0"
-                    IsChecked="False"
-                    Checked="ExportFormatCheckbox_Changed"
-                    Unchecked="ExportFormatCheckbox_Changed" />
+                  <!--  Transparent host so the tooltip still shows while the
+                        checkbox is disabled (disabled controls don't hit-test)  -->
+                  <Grid x:Name="ExportBlendCheckboxHost"
+                        Background="Transparent">
+                    <CheckBox
+                      x:Name="ExportBlendCheckbox"
+                      Content="Export Blend"
+                      MinWidth="0"
+                      IsChecked="False"
+                      Checked="ExportFormatCheckbox_Changed"
+                      Unchecked="ExportFormatCheckbox_Changed" />
+                  </Grid>
                   <Button
                     x:Name="ConvertButton"
                     Content="Convert checked files"

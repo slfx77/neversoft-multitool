@@ -23,6 +23,21 @@ public sealed class TrgNode
     public int? SubType { get; set; }
     public string? SubTypeName { get; set; }
     public List<byte>? BaddyFlags { get; set; }
+
+    /// <summary>Primary model placed by a MANIPOB (subtype 401) entity node.</summary>
+    public uint? ModelChecksum { get; set; }
+
+    /// <summary>
+    ///     Existing environment item a MANIPOB is associated with (looked up
+    ///     via Spool_FindEnviroItem, not instanced by the node).
+    /// </summary>
+    public uint? AssocModelChecksum { get; set; }
+
+    /// <summary>
+    ///     Alternate/damage-state models swapped in by events. Not placed at
+    ///     level start.
+    /// </summary>
+    public List<uint>? AlternateModelChecksums { get; set; }
     public int? CameraRadius { get; set; }
     public int? CameraMode { get; set; }
     public string? CameraModeName { get; set; }
@@ -282,9 +297,21 @@ public sealed class TrgNode
             node.Position = ReadPosition(reader);
             node.Angles = ReadAngles(reader);
 
-            var remaining = (int)(startPos + nodeSize - reader.BaseStream.Position);
-            if (remaining > 2)
-                node.Script = TrgCommandList.ParseScript(reader, remaining);
+            if (baddyType == BaddyTypeManipOb)
+            {
+                // MANIPOB payloads are a binary record, not bytecode
+                // (CManipOb ctor, spidey-decomp manipob.cpp): aligned u32
+                // list [primary, assoc?, alternates…, 0] then three u16s.
+                // The assoc entry only exists when nonzero — a zero in
+                // slot 1 is the list terminator.
+                ParseManipObRecord(reader, node, startPos + nodeSize);
+            }
+            else
+            {
+                var remaining = (int)(startPos + nodeSize - reader.BaseStream.Position);
+                if (remaining > 2)
+                    node.Script = TrgCommandList.ParseScript(reader, remaining);
+            }
         }
         else
         {
@@ -294,6 +321,34 @@ public sealed class TrgNode
             if (remaining >= 12)
                 node.Position = ReadPosition(reader);
         }
+    }
+
+    private static void ParseManipObRecord(BinaryReader reader, TrgNode node, long endPosition)
+    {
+        AlignTo4(reader);
+        if (reader.BaseStream.Position + 4 > endPosition)
+            return;
+
+        node.ModelChecksum = reader.ReadUInt32();
+
+        if (reader.BaseStream.Position + 4 > endPosition)
+            return;
+        var assoc = reader.ReadUInt32();
+        if (assoc == 0)
+            return;
+
+        node.AssocModelChecksum = assoc;
+        var alternates = new List<uint>();
+        while (reader.BaseStream.Position + 4 <= endPosition)
+        {
+            var alternate = reader.ReadUInt32();
+            if (alternate == 0)
+                break;
+            alternates.Add(alternate);
+        }
+
+        if (alternates.Count > 0)
+            node.AlternateModelChecksums = alternates;
     }
 
     private static List<byte> ReadBaddyFlags(BinaryReader reader, long endPosition)
@@ -338,8 +393,11 @@ public sealed class TrgNode
         node.PickupType = pickupType;
         node.PickupTypeName = isSpiderMan ? null : PickupTypeNames.GetValueOrDefault(pickupType);
 
-        reader.ReadUInt16(); // link count (used by Trig_GetPosition to skip links)
-        AlignTo4(reader);
+        // The engine's Trig_GetPosition skips this node's link list before
+        // reading the position. Earlier code consumed only the link COUNT, so
+        // any POWERUP with links (e.g. the l1a1 "?" markers, 4-5 links each)
+        // parsed its links as the position and produced garbage world coords.
+        node.Links = ReadLinks(reader);
         node.Position = ReadPosition(reader);
         reader.ReadUInt16(); // grounded check: 0 = grounded (snap to terrain)
         reader.ReadUInt16(); // respawn flag: 0 = one-time, 1 = respawning

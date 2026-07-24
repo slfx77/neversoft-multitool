@@ -9,11 +9,8 @@ public sealed class BlendModelExporter : IModelExporter
         request.CancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(request.OutputDirectory);
 
-        var helperPath = ResolveHelperPath(request.BlenderHelperPath)
-                         ?? throw new InvalidOperationException(
-                             "Blender export helper was not found. Expected a bundled helper at " +
-                             Path.Combine(AppContext.BaseDirectory, "BlenderExporter", "blender.exe") +
-                             " or pass an explicit helper path.");
+        var helperPath = BlenderLocator.Resolve(request.BlenderHelperPath, out var failureReason)
+                         ?? throw new InvalidOperationException(failureReason);
         var scriptPath = ResolveScriptPath()
                          ?? throw new InvalidOperationException(
                              "Blender export script was not found. Expected BlenderExporter/import_package.py next to the app.");
@@ -33,22 +30,6 @@ public sealed class BlendModelExporter : IModelExporter
             MaterialCount = document.Materials.Count,
             TextureCount = document.Textures.Count
         };
-    }
-
-    private static string? ResolveHelperPath(string? explicitPath)
-    {
-        if (!string.IsNullOrWhiteSpace(explicitPath))
-            return File.Exists(explicitPath) ? explicitPath : null;
-
-        var baseDir = AppContext.BaseDirectory;
-        var candidates = new[]
-        {
-            Path.Combine(baseDir, "BlenderExporter", "blender.exe"),
-            Path.Combine(baseDir, "BlenderExporter", "blender", "blender.exe"),
-            Path.Combine(baseDir, "BlenderExporter", "blender")
-        };
-
-        return candidates.FirstOrDefault(File.Exists);
     }
 
     private static string? ResolveScriptPath()

@@ -159,7 +159,10 @@ public sealed class ModelExportServiceTests
                     BlenderHelperPath = Path.Combine(temp.Path, "missing-blender.exe")
                 }));
 
-        Assert.Contains("Blender export helper was not found", ex.Message);
+        // An explicitly-passed path that doesn't exist must fail naming that
+        // path, not silently fall through to some other Blender install.
+        Assert.Contains("Blender was not found", ex.Message);
+        Assert.Contains("missing-blender.exe", ex.Message);
     }
 
     [Fact]

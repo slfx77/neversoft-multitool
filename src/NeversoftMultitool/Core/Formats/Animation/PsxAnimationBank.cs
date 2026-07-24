@@ -72,7 +72,8 @@ internal static class PsxAnimationBank
                 displayName,
                 entry.FrameCount / DefaultPreviewFps,
                 bank.BoneCount,
-                bank.MatchesTargetBoneCount));
+                bank.MatchesTargetBoneCount,
+                entry.FrameCount));
         }
 
         return results;

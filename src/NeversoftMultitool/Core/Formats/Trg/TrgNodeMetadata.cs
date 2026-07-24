@@ -4,6 +4,12 @@ internal static class TrgNodeMetadata
 {
     internal const int TypeBaddy = 1;
     internal const int TypeCrate = 2;
+
+    /// <summary>
+    ///     BADDY subtype 401: CManipOb — movable environment props (chairs,
+    ///     plants, papers). The node payload embeds the model checksums.
+    /// </summary>
+    internal const int BaddyTypeManipOb = 401;
     internal const int TypePoint = 3;
     internal const int TypeAutoexec = 4;
     internal const int TypePowerup = 5;
@@ -70,6 +76,7 @@ internal static class TrgNodeMetadata
         [318] = "BADDYCHOPPER",
         [319] = "BLACKCAT",
         [320] = "SWAT",
+        [BaddyTypeManipOb] = "MANIPOB",
         [402] = "PLATFORM",
         [403] = "LEVER",
         [404] = "LASERFENCE",

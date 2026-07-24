@@ -17,8 +17,10 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
     private const string PcBuildName = "Spider-Man (2001-9-17, PC - Final)";
 
     [Theory]
-    [InlineData("l1a3_g.psx", 5134, 104)]
-    [InlineData("l2a1_g.psx", 8904, 120)]
+    // Re-pinned 2026-07-23: the POWERUP layer adds items.psx pickups
+    // (l1a3 +796 tris/+3 textures, l2a1 +308 tris/+4 textures).
+    [InlineData("l1a3_g.psx", 6998, 111)]
+    [InlineData("l2a1_g.psx", 9722, 130)]
     public void LevelMesh_FromCdWad_ResolvesCompanionTextures(
         string entryName,
         int expectedTriangles,
@@ -48,8 +50,24 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
             .Select(objectIndex => objectLayer!.Objects[objectIndex].MeshIndex)
             .Distinct()
             .Select(meshIndex => objectLayer!.Meshes[meshIndex]);
+
+        // The POWERUP layer also emits items.psx pickups, whose textures the
+        // document embeds, so they belong in the "used" set.
+        var items = PsxItemsBankSubstitution.TryLoadItems(source);
+        var powerupTrg = PsxLevelObjectPlacementResolver.TryLoadTriggerCompanion(
+            source, Path.GetFileNameWithoutExtension(entryName)[..^2]);
+        var powerupPlacements = items == null
+            ? null
+            : PsxPowerupPlacementResolver.Resolve(powerupTrg, items.File, parsed!.TranslationDivisor);
+        var emittedItemsMeshes = powerupPlacements == null
+            ? Enumerable.Empty<PsxMesh>()
+            : powerupPlacements.Keys
+                .Select(objectIndex => items!.File.Objects[objectIndex].MeshIndex)
+                .Distinct()
+                .Select(meshIndex => items!.File.Meshes[meshIndex]);
         var usedTextureHashes = parsed!.Meshes
             .Concat(emittedObjectMeshes)
+            .Concat(emittedItemsMeshes)
             .SelectMany(static mesh => mesh.Faces)
             .Where(static face => face.IsTextured && face.TextureHash != 0)
             .Select(static face => face.TextureHash)
@@ -193,7 +211,8 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         var source = new ArchiveAssetSource(backend, entry!);
 
         var document = ParseDocument(source, entry.Name);
-        Assert.Equal(7_149, document.TriangleCount);
+        // Re-pinned 2026-07-23: +128 from the POWERUP layer's items.psx pickups.
+        Assert.Equal(7_723, document.TriangleCount);
         Assert.Equal(14, document.VisibilityGroups.Count);
         var billboard = Assert.Single(document.VisibilityGroups,
             static group => group.Label.Equals("billboard_01", StringComparison.OrdinalIgnoreCase));
@@ -315,8 +334,10 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
                 static _ => true,
                 StringComparer.Ordinal)
         });
-        Assert.Equal(4082, allVisible.TriangleCount);
-        Assert.Equal(4072, document.TriangleCount);
+        // Re-pinned 2026-07-23: +452 from the POWERUP layer (added to both the
+        // default and all-visible documents — pickups aren't visibility-gated).
+        Assert.Equal(5426, allVisible.TriangleCount);
+        Assert.Equal(5416, document.TriangleCount);
     }
 
     [Theory]

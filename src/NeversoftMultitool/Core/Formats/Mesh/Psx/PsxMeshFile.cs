@@ -48,29 +48,32 @@ public sealed class PsxMeshFile
     /// <summary>
     ///     Parses a PSX file for mesh geometry.
     ///     Returns null if the file has no mesh data (texture-only library).
+    ///     <paramref name="bakeColourPulses" /> should be false for level-object
+    ///     banks (<c>*_o.psx</c>), whose palettes stay raw on static export —
+    ///     see <see cref="PsxSurfaceAnimationReader" />.
     /// </summary>
-    public static PsxMeshFile? Parse(string filePath)
+    public static PsxMeshFile? Parse(string filePath, bool bakeColourPulses = true)
     {
         using var stream = File.OpenRead(filePath);
         using var reader = new BinaryReader(stream);
-        return Parse(reader);
+        return Parse(reader, bakeColourPulses);
     }
 
     /// <summary>
     ///     Parses a PSX file from an in-memory byte buffer.
     /// </summary>
-    public static PsxMeshFile? Parse(byte[] data)
+    public static PsxMeshFile? Parse(byte[] data, bool bakeColourPulses = true)
     {
         using var stream = new MemoryStream(data, false);
         using var reader = new BinaryReader(stream);
-        return Parse(reader);
+        return Parse(reader, bakeColourPulses);
     }
 
     /// <summary>
     ///     Parses a PSX file for mesh geometry from an existing reader.
     ///     Returns null if the file has no mesh data or is invalid.
     /// </summary>
-    public static PsxMeshFile? Parse(BinaryReader reader)
+    public static PsxMeshFile? Parse(BinaryReader reader, bool bakeColourPulses = true)
     {
         var header = PsxMeshHeaderReader.Parse(reader);
         if (header == null)
@@ -141,7 +144,8 @@ public sealed class PsxMeshFile
         var hasStitchedReferences = ApplyPositionalBindingIfStitchedSuper(
             header, meshes, meshToObjectIndex, attachmentVertices);
         var surfaceAnimation = PsxSurfaceAnimationReader.ApplyStaticFrame(
-            reader, header.Version, header.Objects, meshes, header.GouraudPalette);
+            reader, header.Version, header.Objects, meshes, header.GouraudPalette,
+            bakeColourPulses);
 
         return new PsxMeshFile
         {

@@ -10,8 +10,16 @@ internal sealed record AnimationProbe(
     string DisplayName,
     float DurationSec,
     int? BoneCount,
-    bool MatchesSkeleton)
+    bool MatchesSkeleton,
+    int? FrameCount = null)
 {
+    /// <summary>
+    ///     True for static single-pose "animations" (one keyframe, e.g. the
+    ///     hundreds of pose slots in Spider-Man's PSX banks). SKA headers don't
+    ///     expose a frame count, so a zero duration is the equivalent signal.
+    /// </summary>
+    public bool IsSinglePose => FrameCount is <= 1 || DurationSec <= 0f;
+
     /// <summary>
     ///     Non-empty label used by animation lists. Some formats do not store
     ///     clip names, so fall back to the source's synthetic entry name.

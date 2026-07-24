@@ -31,6 +31,34 @@ public class TrgFileTests(TestPaths paths)
     }
 
     [Fact]
+    public void Parse_SpiderManPowerupWithLinks_HasSaneWorldPosition()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var path = Path.Combine(paths.SampleBuildsDir!,
+            "Spider-Man (2000-2-18, PSX - Prototype)", "CD", "l1a1_t.trg");
+        Assert.SkipWhen(!File.Exists(path), "l1a1_t.trg not present");
+
+        var trg = TrgFile.Parse(path);
+
+        // The three type-11 "?" POWERUP nodes carry link lists (4-5 links). The
+        // parser must skip the links before reading position; consuming only the
+        // link COUNT produced million-unit garbage coordinates.
+        var linkedPowerups = trg.Nodes
+            .Where(node => node.TypeId == TrgNodeMetadata.TypePowerup
+                && node.Links is { Count: > 0 } && node.Position != null)
+            .ToList();
+        Assert.NotEmpty(linkedPowerups);
+        foreach (var node in linkedPowerups)
+        {
+            // Raw coordinates stay within a level's plausible fixed-point range
+            // (~±10^6). The bug produced RawX in the tens of millions.
+            Assert.InRange(node.Position!.X, -100_000, 100_000);
+            Assert.InRange(node.Position.Y, -100_000, 100_000);
+            Assert.InRange(node.Position.Z, -100_000, 100_000);
+        }
+    }
+
+    [Fact]
     public void Parse_ApocalypseCityT_HasExpectedNodeCount()
     {
         var file = FindTrgFile("Apocalypse", "city_t.trg");

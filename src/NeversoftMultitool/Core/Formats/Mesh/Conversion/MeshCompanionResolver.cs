@@ -35,34 +35,158 @@ internal static class MeshCompanionResolver
     private static readonly string[] RwTexSubdirs = ["TEX", "Textures"];
 
     /// <summary>
-    ///     Resolve the supported Spider-Man PSX level-object naming convention.
-    ///     Keeping this beside the other companion rules lets scanners and the
-    ///     parser use the same format gate.
+    ///     A PSX level file's companion naming: the trigger/items lookup stem, the
+    ///     model-bank filename, and whether the sibling TRG's PLATFORM/MANIPOB
+    ///     model overlay should be applied. The overlay is enabled for Spider-Man
+    ///     and THPS (their PLATFORM nodes are verified coincident with the bank at
+    ///     div 2.25) and disabled for Apocalypse, whose v2.0 TRG references sit on
+    ///     dynamic BADDY spawns that do not coincide with the static bank layer —
+    ///     its placement fidelity is unverified, so only the coordinate-verified
+    ///     bank objects are emitted.
     /// </summary>
-    internal static bool TryGetPsxLevelObjectCompanionName(
+    internal readonly record struct PsxLevelCompanions(
+        string LevelStem,
+        string BankCompanionName,
+        bool ApplyTriggerOverlay);
+
+    /// <summary>
+    ///     Classifies a PSX file as a placeable level and resolves its trigger
+    ///     stem and model-bank companion, across the engine lineage's naming
+    ///     schemes:
+    ///     <list type="bullet">
+    ///       <item>Spider-Man <c>*_g.psx</c> geometry → sibling <c>*_o.psx</c>
+    ///       bank, resolved unconditionally (the bank is optional — the
+    ///       POWERUP/items layer still runs without it).</item>
+    ///       <item>THPS1/THPS2 <c>*.psx</c> level geometry carries no marker
+    ///       suffix, so it qualifies only when both a sibling <c>*_o.psx</c> bank
+    ///       AND a <c>*_t.trg</c> trigger file exist. That sibling requirement
+    ///       self-excludes the <c>_o</c>/<c>_l</c>/<c>_2</c> companions (they have
+    ///       no <c>_o</c> of their own) and standalone character models (which
+    ///       have neither companion), so no suffix blocklist is needed.</item>
+    ///     </list>
+    ///     The bank object table is the same placed-layer convention in both
+    ///     families (authored world positions, div 2.25), and both ship v2.x TRGs
+    ///     whose PLATFORM nodes reference bank models — verified coincident with
+    ///     the bank instances (THPS1 24/30, THPS2 12/17 at δ≈0).
+    /// </summary>
+    internal static bool TryResolvePsxLevelCompanions(
+        AssetSource source,
         string fileName,
-        out string companionName)
+        out PsxLevelCompanions companions)
     {
-        var extension = Path.GetExtension(fileName);
+        companions = default;
+        if (!Path.GetExtension(fileName).Equals(".psx", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         var stem = Path.GetFileNameWithoutExtension(fileName);
-        if (!extension.Equals(".psx", StringComparison.OrdinalIgnoreCase)
-            || !stem.EndsWith("_g", StringComparison.OrdinalIgnoreCase)
-            || stem.Length <= 2)
+
+        if (stem.Length > 2 && stem.EndsWith("_g", StringComparison.OrdinalIgnoreCase))
         {
-            companionName = string.Empty;
+            var levelStem = stem[..^2];
+            companions = new PsxLevelCompanions(levelStem, levelStem + "_o.psx", ApplyTriggerOverlay: true);
+            return true;
+        }
+
+        if (source.CompanionExists(stem + "_o.psx")
+            && source.CompanionExists(stem + "_t.trg"))
+        {
+            companions = new PsxLevelCompanions(stem, stem + "_o.psx", ApplyTriggerOverlay: true);
+            return true;
+        }
+
+        return TryResolveApocalypseLevel(source, stem, out companions);
+    }
+
+    /// <summary>
+    ///     Apocalypse levels are split into <c>&lt;base&gt;_&lt;chunk&gt;</c>
+    ///     geometry pieces (chunk = a number with an optional letter, e.g.
+    ///     <c>city_8a</c>) plus an optional bare <c>&lt;base&gt;.psx</c>, sharing a
+    ///     model bank named <c>&lt;base&gt;_obj.psx</c> or (older, no separator)
+    ///     <c>&lt;base&gt;obj.psx</c> and a <c>&lt;base&gt;_t.trg</c> trigger. The
+    ///     bank is attached to exactly ONE primary per level so a batch convert
+    ///     does not place the shared bank once per chunk: the bare
+    ///     <c>&lt;base&gt;.psx</c> if present, otherwise the first chunk
+    ///     (<c>_1</c>/<c>_1a</c>). The overlay is disabled (see
+    ///     <see cref="PsxLevelCompanions" />).
+    /// </summary>
+    private static bool TryResolveApocalypseLevel(
+        AssetSource source,
+        string stem,
+        out PsxLevelCompanions companions)
+    {
+        companions = default;
+
+        // Bare primary: the file's own stem carries the bank + trigger.
+        if (TryGetApocalypseBankName(source, stem, out var bareBank)
+            && source.CompanionExists(stem + "_t.trg"))
+        {
+            companions = new PsxLevelCompanions(stem, bareBank, ApplyTriggerOverlay: false);
+            return true;
+        }
+
+        // Chunk primary: <base>_1 / <base>_1a, only when no bare <base>.psx owns
+        // the attach (which would double-place the shared bank).
+        var separator = stem.LastIndexOf('_');
+        if (separator <= 0 || separator == stem.Length - 1)
+            return false;
+
+        var chunk = stem[(separator + 1)..];
+        if (!IsApocalypseChunkSuffix(chunk)
+            || !(chunk is "1" or "1a"))
+        {
             return false;
         }
 
-        companionName = stem[..^2] + "_o" + extension;
+        var baseStem = stem[..separator];
+        if (source.CompanionExists(baseStem + ".psx")
+            || !TryGetApocalypseBankName(source, baseStem, out var bank)
+            || !source.CompanionExists(baseStem + "_t.trg"))
+        {
+            return false;
+        }
+
+        companions = new PsxLevelCompanions(baseStem, bank, ApplyTriggerOverlay: false);
         return true;
+    }
+
+    private static bool TryGetApocalypseBankName(AssetSource source, string baseStem, out string bankName)
+    {
+        if (source.CompanionExists(baseStem + "_obj.psx"))
+        {
+            bankName = baseStem + "_obj.psx";
+            return true;
+        }
+
+        if (source.CompanionExists(baseStem + "obj.psx"))
+        {
+            bankName = baseStem + "obj.psx";
+            return true;
+        }
+
+        bankName = string.Empty;
+        return false;
+    }
+
+    /// <summary>A chunk suffix is a run of digits with at most one trailing letter.</summary>
+    private static bool IsApocalypseChunkSuffix(string chunk)
+    {
+        var digits = 0;
+        while (digits < chunk.Length && char.IsAsciiDigit(chunk[digits]))
+            digits++;
+
+        if (digits == 0)
+            return false;
+
+        var rest = chunk.Length - digits;
+        return rest == 0 || (rest == 1 && char.IsAsciiLetter(chunk[digits]));
     }
 
     internal static bool HasSupportedLevelObjectCompanion(
         AssetSource source,
         string fileName)
     {
-        return TryGetPsxLevelObjectCompanionName(fileName, out var companionName)
-               && source.CompanionExists(companionName);
+        return TryResolvePsxLevelCompanions(source, fileName, out var companions)
+               && source.CompanionExists(companions.BankCompanionName);
     }
 
     internal static Dictionary<string, byte[]>? LoadDdxCompanion(

@@ -923,6 +923,35 @@ if (psxFlags.z < 0.5) {
       }
     }
 
+    function applyPsxSemiTransparentUnlit(root) {
+      // PS1 ABR 0 (average: B/2 + F/2) and ABR 2 (subtractive) draw with raw
+      // packet colours — the GPU never lit them. Scene lighting multiplies a
+      // dark blend colour above the background it should darken, inverting
+      // the effect (the l1a1 "?" marker's dark-blue glass sheets became a
+      // pale haze). Swap those materials to unlit equivalents; runs BEFORE
+      // configurePsxGpuVertexColors so the PS1 GPU patch lands on the
+      // replacement (MeshBasicMaterial shares the patched shader chunks).
+      const unlitBySource = new Map();
+      root.traverse(obj => {
+        if (!obj.isMesh || !obj.material) return;
+        const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+        let changed = false;
+        const replaced = materials.map(material => {
+          if (!/__st[02](?:__2sided)?$/.test(material.name || '')) return material;
+          let unlit = unlitBySource.get(material);
+          if (!unlit) {
+            unlit = new THREE.MeshBasicMaterial();
+            unlit.copy(material);
+            unlitBySource.set(material, unlit);
+          }
+          changed = true;
+          return unlit;
+        });
+        if (!changed) return;
+        obj.material = Array.isArray(obj.material) ? replaced : replaced[0];
+      });
+    }
+
     function applyNativeMaterialBlending(root) {
       root.traverse(obj => {
         const materials = Array.isArray(obj.material)
@@ -1075,6 +1104,7 @@ if (psxFlags.z < 0.5) {
             return;
           }
           modelRoot = gltf.scene;
+          applyPsxSemiTransparentUnlit(modelRoot);
           configurePsxGpuVertexColors(modelRoot);
           configurePsxTextureWibbles(modelRoot);
           applyNativeMaterialBlending(modelRoot);
