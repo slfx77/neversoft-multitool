@@ -3,7 +3,6 @@ using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.ArchiveFs;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
-using NeversoftMultitool.Tests.Helpers;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 

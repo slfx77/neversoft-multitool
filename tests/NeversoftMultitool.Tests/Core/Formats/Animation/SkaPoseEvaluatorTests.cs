@@ -2,12 +2,10 @@ using System.Numerics;
 using NeversoftMultitool.CLI;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
-using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
+using NeversoftMultitool.Core.QbKey;
 using NeversoftMultitool.Core.Rendering;
-using NeversoftMultitool.Tests.Helpers;
 using SharpGLTF.Schema2;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Animation;
@@ -57,8 +55,11 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
                 new SkaBoneTrack
                 {
                     BoneIndex = 2,
-                    RotationKeys = [new SkaRotationKey(0f,
-                        Quaternion.Normalize(Quaternion.CreateFromYawPitchRoll(0.75f, -0.25f, 0.10f)))],
+                    RotationKeys =
+                    [
+                        new SkaRotationKey(0f,
+                            Quaternion.Normalize(Quaternion.CreateFromYawPitchRoll(0.75f, -0.25f, 0.10f)))
+                    ],
                     TranslationKeys = [new SkaTranslationKey(0f, new Vector3(6.0f, -3.0f, 2.5f))]
                 },
                 new SkaBoneTrack
@@ -414,7 +415,7 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
         var nameToIndex = skeleton.Bones
             .Select((bone, index) => new
             {
-                Name = NeversoftMultitool.Core.QbKey.QbKey.TryResolve(bone.NameChecksum),
+                Name = QbKey.TryResolve(bone.NameChecksum),
                 Index = index
             })
             .Where(entry => entry.Name != null)
@@ -444,7 +445,7 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
         if (boneIndex == 0)
             return "root";
 
-        return NeversoftMultitool.Core.QbKey.QbKey.TryResolve(skeleton.Bones[boneIndex].NameChecksum)
+        return QbKey.TryResolve(skeleton.Bones[boneIndex].NameChecksum)
                ?? $"bone_{boneIndex}";
     }
 

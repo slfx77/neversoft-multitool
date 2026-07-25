@@ -1,7 +1,6 @@
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.ArchiveFs;
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.ArchiveFs;
 
@@ -60,7 +59,8 @@ public class ArchiveFileSystemParityTests(TestPaths paths)
                 var b = legacy[i];
                 if (a.FullName != b.FullName || a.Size != b.Size || a.Offset != b.Offset)
                 {
-                    mismatches.Add($"{path}[{i}]: {a.FullName}/{a.Size}/{a.Offset} != {b.FullName}/{b.Size}/{b.Offset}");
+                    mismatches.Add(
+                        $"{path}[{i}]: {a.FullName}/{a.Size}/{a.Offset} != {b.FullName}/{b.Size}/{b.Offset}");
                     break;
                 }
             }

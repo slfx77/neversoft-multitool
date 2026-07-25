@@ -28,12 +28,10 @@ public sealed class ZoneTextureCatalog
     private readonly Dictionary<(int Source, ulong Key), List<EntryRecord>> entriesBySourceIdentity;
     private readonly Dictionary<(int Source, uint Tbp, uint Cbp), List<EntryRecord>> entriesBySourceTbpCbp;
     private readonly Dictionary<(uint Tbp, uint Cbp), List<EntryRecord>> entriesByTbpCbp;
-    private readonly IReadOnlyList<ZoneTextureCatalogEntry> publicEntries;
     private readonly SourceInfo mainSource;
     private readonly Dictionary<uint, byte[]?> pngCache = [];
 
     private readonly List<SourceInfo> sources;
-    private readonly IReadOnlyList<string> sourceLabels;
 
     // PNG cache keyed on (checksum, normalized TEXA). For texture formats whose
     // alpha channel doesn't depend on TEXA (PSMCT32 direct, PSMT4/PSMT8 with
@@ -52,8 +50,8 @@ public sealed class ZoneTextureCatalog
         this.entries = entries;
         var mainSourceIndex = sources.FindIndex(static source => source.IsMain);
         mainSource = mainSourceIndex >= 0 ? sources[mainSourceIndex] : sources[0];
-        sourceLabels = sources.ConvertAll(static source => source.Label).AsReadOnly();
-        publicEntries = entries.ConvertAll(static entry => new ZoneTextureCatalogEntry(
+        SourceLabels = sources.ConvertAll(static source => source.Label).AsReadOnly();
+        Entries = entries.ConvertAll(static entry => new ZoneTextureCatalogEntry(
                 entry.Entry.Checksum,
                 entry.Entry.Tex0,
                 entry.Source.Label,
@@ -75,9 +73,9 @@ public sealed class ZoneTextureCatalog
             .ToDictionary(static group => group.Key, static group => group.ToList());
     }
 
-    public IReadOnlyList<string> SourceLabels => sourceLabels;
+    public IReadOnlyList<string> SourceLabels { get; }
 
-    public IReadOnlyList<ZoneTextureCatalogEntry> Entries => publicEntries;
+    public IReadOnlyList<ZoneTextureCatalogEntry> Entries { get; }
 
     public static bool TryBuild(
         string? texPath,
@@ -202,9 +200,6 @@ public sealed class ZoneTextureCatalog
         catalog = new ZoneTextureCatalog(textureCache, sources, entries);
         return true;
     }
-
-    /// <summary>One named zone-texture byte source (a .pak.ps2 blob or a raw zone tex file).</summary>
-    public readonly record struct ZoneTexSource(string Label, byte[] Data, bool IsMain);
 
     internal static ZoneTextureCatalog CreateForTests(
         string mainSourceLabel,
@@ -820,6 +815,9 @@ public sealed class ZoneTextureCatalog
     {
         return $"0x{value:X16}";
     }
+
+    /// <summary>One named zone-texture byte source (a .pak.ps2 blob or a raw zone tex file).</summary>
+    public readonly record struct ZoneTexSource(string Label, byte[] Data, bool IsMain);
 
     private readonly record struct SourceInfo(int Index, string Path, string Label, bool IsMain);
 

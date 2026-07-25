@@ -1,9 +1,4 @@
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
-using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 

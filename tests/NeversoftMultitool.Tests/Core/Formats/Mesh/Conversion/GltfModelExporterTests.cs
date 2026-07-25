@@ -43,14 +43,14 @@ public sealed class GltfModelExporterTests
     [InlineData(true)]
     public void BuildGlbBytes_TransportsOutOfRangeColorsInCustomFloatAccessor(bool skinned)
     {
-        var document = CreateTriangleDocument(overbright: true, skinned);
+        var document = CreateTriangleDocument(true, skinned);
 
         var (glbBytes, triangles) = new GltfModelExporter().BuildGlbBytes(document);
 
         Assert.Equal(1, triangles);
         Assert.NotNull(glbBytes);
 
-        using var stream = new MemoryStream(glbBytes, writable: false);
+        using var stream = new MemoryStream(glbBytes, false);
         var model = ModelRoot.ReadGLB(stream);
         var primitive = Assert.Single(Assert.Single(model.LogicalMeshes).Primitives);
         var portableColors = primitive.GetVertexAccessor("COLOR_0").AsVector4Array();
@@ -71,7 +71,7 @@ public sealed class GltfModelExporterTests
         Assert.Contains(psxColors, static color => color.X > 1f);
         Assert.All(psxFlags, static flags => Assert.Equal(Vector3.Zero, flags));
 
-        var renderScene = GlbModelLoader.Load(model, animation: null, time: 0f);
+        var renderScene = GlbModelLoader.Load(model, null, 0f);
         var renderColors = Assert.Single(renderScene.Submeshes).VertexColors;
         Assert.NotNull(renderColors);
         Assert.Contains(renderColors, static component => component > 1f);
@@ -118,13 +118,14 @@ public sealed class GltfModelExporterTests
                 PsxPrimitiveFlags = packetFlags
             };
         }
+
         primitive.Vertices[0] = primitive.Vertices[0] with { Color = portableLinear };
 
         var (glbBytes, triangles) = new GltfModelExporter().BuildGlbBytes(document);
 
         Assert.Equal(1, triangles);
         Assert.NotNull(glbBytes);
-        using var stream = new MemoryStream(glbBytes, writable: false);
+        using var stream = new MemoryStream(glbBytes, false);
         var model = ModelRoot.ReadGLB(stream);
         var exported = Assert.Single(Assert.Single(model.LogicalMeshes).Primitives);
         var portable = exported.GetVertexAccessor("COLOR_0").AsVector4Array()[0];
@@ -139,7 +140,7 @@ public sealed class GltfModelExporterTests
         AssertVectorNear(packetColor, packet, 1e-6f);
         Assert.All(flags, value => Assert.Equal(packetFlags, value));
 
-        var renderScene = GlbModelLoader.Load(model, animation: null, time: 0f);
+        var renderScene = GlbModelLoader.Load(model, null, 0f);
         var renderColors = Assert.Single(renderScene.Submeshes).VertexColors;
         Assert.NotNull(renderColors);
         AssertVectorNear(
@@ -153,7 +154,7 @@ public sealed class GltfModelExporterTests
     [InlineData(true)]
     public void BuildGlbBytes_PreservesPsxTextureWibbleInCustomVertexAttributes(bool skinned)
     {
-        var document = CreateTriangleDocument(overbright: true, skinned);
+        var document = CreateTriangleDocument(true, skinned);
         var primitive = Assert.Single(Assert.Single(document.Meshes).Primitives);
         var packetColor = new Vector4(144f / 255f, 119f / 255f, 223f / 255f, 1f);
         var packetFlags = new Vector3(1f, 1f, 1f);
@@ -165,25 +166,26 @@ public sealed class GltfModelExporterTests
                 PsxPrimitiveFlags = packetFlags
             };
         }
+
         primitive.Vertices[0] = primitive.Vertices[0] with
         {
             TextureWibble = new ModelTextureWibble(
-                UVelocity: 4096,
-                VVelocity: -2048,
-                Frequency: 595,
-                UAmplitude: 7,
-                UPhase: 3,
-                VAmplitude: 11,
-                VPhase: 9,
-                TextureWidth: 64,
-                TextureHeight: 128)
+                4096,
+                -2048,
+                595,
+                7,
+                3,
+                11,
+                9,
+                64,
+                128)
         };
 
         var (glbBytes, triangles) = new GltfModelExporter().BuildGlbBytes(document);
 
         Assert.Equal(1, triangles);
         Assert.NotNull(glbBytes);
-        using var stream = new MemoryStream(glbBytes, writable: false);
+        using var stream = new MemoryStream(glbBytes, false);
         var model = ModelRoot.ReadGLB(stream);
         var exported = Assert.Single(Assert.Single(model.LogicalMeshes).Primitives);
         var attributes = exported.VertexAccessors;
@@ -262,6 +264,7 @@ public sealed class GltfModelExporterTests
             skeleton.Bones.Add(new ModelBone { Name = "root" });
             document.Skeletons.Add(skeleton);
         }
+
         document.Nodes.Add(new ModelNode
         {
             Name = "triangle",
@@ -272,7 +275,7 @@ public sealed class GltfModelExporterTests
 
     private static JsonDocument ReadGlbJson(byte[] glbBytes)
     {
-        using var stream = new MemoryStream(glbBytes, writable: false);
+        using var stream = new MemoryStream(glbBytes, false);
         using var reader = new BinaryReader(stream);
         Assert.Equal(0x46546C67u, reader.ReadUInt32());
         Assert.Equal(2u, reader.ReadUInt32());

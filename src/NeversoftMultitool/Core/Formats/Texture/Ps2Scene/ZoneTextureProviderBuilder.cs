@@ -114,7 +114,7 @@ public static class ZoneTextureProviderBuilder
             }
         }
 
-        Add(mainEntry, isMain: true);
+        Add(mainEntry, true);
 
         var stem = GetZoneStem(mainEntry.Name);
         if (stem == null)
@@ -135,7 +135,7 @@ public static class ZoneTextureProviderBuilder
             if (string.Equals(candidateStem, stem, StringComparison.OrdinalIgnoreCase)
                 || candidateStem.StartsWith(stem + "_", StringComparison.OrdinalIgnoreCase))
             {
-                Add(candidate, isMain: false);
+                Add(candidate, false);
             }
         }
 

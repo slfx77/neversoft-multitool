@@ -38,6 +38,7 @@ public sealed class TrgNode
     ///     level start.
     /// </summary>
     public List<uint>? AlternateModelChecksums { get; set; }
+
     public int? CameraRadius { get; set; }
     public int? CameraMode { get; set; }
     public string? CameraModeName { get; set; }
@@ -291,7 +292,7 @@ public sealed class TrgNode
             // the active list; without it Trig_CreateObject
             // immediately moves the instance to SuspendedList. Flag 4 clears
             // distance-based autosuspension; it is not a visibility bit.
-            node.Links = ReadLinks(reader, align: false);
+            node.Links = ReadLinks(reader, false);
             node.BaddyFlags = ReadBaddyFlags(reader, startPos + nodeSize);
             AlignTo4(reader);
             node.Position = ReadPosition(reader);

@@ -1,6 +1,5 @@
 using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Rle;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Rle;
 

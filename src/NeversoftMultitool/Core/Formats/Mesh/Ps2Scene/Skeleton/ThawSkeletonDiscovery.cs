@@ -21,7 +21,8 @@ internal static class ThawSkeletonDiscovery
         if (dir is null)
             return null;
 
-        var direct = CompanionSearch.FindCompanion(dir, stem, [SkeletonExtensionPs2, SkeletonExtensionNgc, SkeletonExtensionCross],
+        var direct = CompanionSearch.FindCompanion(dir, stem,
+            [SkeletonExtensionPs2, SkeletonExtensionNgc, SkeletonExtensionCross],
             ["SKE", "Skeletons"]);
         if (direct != null)
             return direct;
@@ -65,7 +66,7 @@ internal static class ThawSkeletonDiscovery
         bool isThawSkin)
     {
         var direct = backend.FindEntry(stem + SkeletonExtensionPs2) ?? backend.FindEntry(stem + SkeletonExtensionNgc)
-                     ?? backend.FindEntry(stem + SkeletonExtensionCross);
+            ?? backend.FindEntry(stem + SkeletonExtensionCross);
         if (direct != null)
             return new Result(backend.ReadEntryBytes(direct), direct.Name);
 

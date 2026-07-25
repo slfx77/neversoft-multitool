@@ -428,7 +428,7 @@ public static class RwDffGltfWriter
         if (material.A < 255 || textureAlphaMode == "BLEND")
             builder.WithAlpha(AlphaMode.BLEND);
         else if (textureAlphaMode == "MASK")
-            builder.WithAlpha(AlphaMode.MASK, 0.5f);
+            builder.WithAlpha(AlphaMode.MASK);
 
         cache[key] = builder;
         return builder;

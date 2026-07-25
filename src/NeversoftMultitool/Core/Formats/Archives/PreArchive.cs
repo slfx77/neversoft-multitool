@@ -26,7 +26,7 @@ public static class PreArchive
 
     private static List<ArchiveEntry> GetFileList(Stream stream)
     {
-        using var reader = new BinaryReader(stream, Encoding.ASCII, leaveOpen: true);
+        using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         var entryCount = reader.ReadUInt32();
         var entries = new List<ArchiveEntry>((int)entryCount);

@@ -38,10 +38,10 @@ public sealed class PsxLevelObjectPlacementResolverTests
     }
 
     [Theory]
-    [InlineData("l1a2_o.psx")]  // the bank itself has no _o bank of its own
+    [InlineData("l1a2_o.psx")] // the bank itself has no _o bank of its own
     [InlineData("control.psx")] // a character model has neither companion
-    [InlineData("l1a2_g.ddm")]  // wrong extension
-    [InlineData("_g.psx")]      // too short for a _g stem, and no siblings
+    [InlineData("l1a2_g.ddm")] // wrong extension
+    [InlineData("_g.psx")] // too short for a _g stem, and no siblings
     public void Companions_RejectNonLevelInputs(string fileName)
     {
         Assert.False(MeshCompanionResolver.TryResolvePsxLevelCompanions(
@@ -62,7 +62,7 @@ public sealed class PsxLevelObjectPlacementResolverTests
     }
 
     [Fact]
-    public void Companions_ApocalypseBarePrimary_AttachesLegacyObjBankWithoutOverlay()
+    public void Companions_ApocalypseBarePrimary_AttachesLegacyObjBank()
     {
         // death.psx is the bare primary; its bank has no separator (deathobj.psx).
         Assert.True(MeshCompanionResolver.TryResolvePsxLevelCompanions(
@@ -71,11 +71,11 @@ public sealed class PsxLevelObjectPlacementResolverTests
             out var companions));
         Assert.Equal("death", companions.LevelStem);
         Assert.Equal("deathobj.psx", companions.BankCompanionName);
-        Assert.False(companions.ApplyTriggerOverlay);
+        Assert.True(companions.ApplyTriggerOverlay);
     }
 
     [Theory]
-    [InlineData("city_1.psx", "city")]  // numeric first chunk
+    [InlineData("city_1.psx", "city")] // numeric first chunk
     [InlineData("sewr_1a.psx", "sewr")] // lettered first chunk
     public void Companions_ApocalypseFirstChunkPrimary_AttachesSharedObjBank(
         string fileName,
@@ -87,7 +87,7 @@ public sealed class PsxLevelObjectPlacementResolverTests
             out var companions));
         Assert.Equal(expectedStem, companions.LevelStem);
         Assert.Equal(expectedStem + "_obj.psx", companions.BankCompanionName);
-        Assert.False(companions.ApplyTriggerOverlay);
+        Assert.True(companions.ApplyTriggerOverlay);
     }
 
     [Fact]
@@ -129,9 +129,9 @@ public sealed class PsxLevelObjectPlacementResolverTests
     public void Resolve_EmitsEveryAuthoredPlatformInstanceIncludingRuntimeSuspendedNodes()
     {
         var trg = BuildTriggerFile(
-            BuildPlatformNode(index: 3, rawX: 90, active: true),
-            BuildPlatformNode(index: 7, rawX: 180, active: false),
-            BuildPlatformNode(index: 11, rawX: 270, active: true));
+            BuildPlatformNode(3, 90, true),
+            BuildPlatformNode(7, 180, false),
+            BuildPlatformNode(11, 270, true));
 
         var resolved = PsxLevelObjectPlacementResolver.Resolve(trg, BuildObjectBank());
 
@@ -153,8 +153,8 @@ public sealed class PsxLevelObjectPlacementResolverTests
         // Bank object raws are 20.12 fixed-point: 900×4096 raw at translation
         // divisor 2.25 = world 400.
         var resolved = PsxLevelObjectPlacementResolver.Resolve(
-            (TrgFile?)null,
-            BuildObjectBank(objectRawX: 900 * 4096));
+            null,
+            BuildObjectBank(900 * 4096));
 
         var placement = Assert.Single(Assert.Single(resolved).Value);
         Assert.Equal(PsxLevelObjectPlacementResolver.BankInstanceNodeIndex, placement.TriggerNodeIndex);
@@ -168,11 +168,11 @@ public sealed class PsxLevelObjectPlacementResolverTests
         // the coincidence tolerance of the bank object's world 400 → the node
         // IS the bank's own instance, and its placement (which can carry an
         // authored rotation) supersedes the bank's translation-only one.
-        var trg = BuildTriggerFile(BuildPlatformNode(index: 3, rawX: 905, active: true));
+        var trg = BuildTriggerFile(BuildPlatformNode(3, 905, true));
 
         var resolved = PsxLevelObjectPlacementResolver.Resolve(
             trg,
-            BuildObjectBank(objectRawX: 900 * 4096));
+            BuildObjectBank(900 * 4096));
 
         var placement = Assert.Single(Assert.Single(resolved).Value);
         Assert.Equal(3, placement.TriggerNodeIndex);
@@ -182,7 +182,7 @@ public sealed class PsxLevelObjectPlacementResolverTests
     [Fact]
     public void Resolve_UsesUnconditionalDefaultBeforeConditionalReplacement()
     {
-        var node = BuildPlatformNode(index: 4, rawX: 90, active: true);
+        var node = BuildPlatformNode(4, 90, true);
         node.Script!.Add(new TrgScriptOp { Opcode = "0x4117", Name = "C_IF" });
         node.Script.Add(ModelChecksum(0x87654321));
         node.Script.Add(new TrgScriptOp { Opcode = "0x4120", Name = "C_ENDIF" });
@@ -198,7 +198,7 @@ public sealed class PsxLevelObjectPlacementResolverTests
     [Fact]
     public void Resolve_UsesUnconditionalFallbackAfterConditionalReplacement()
     {
-        var node = BuildPlatformNode(index: 5, rawX: 90, active: true);
+        var node = BuildPlatformNode(5, 90, true);
         node.Script =
         [
             new TrgScriptOp { Opcode = "0x4117", Name = "C_IF" },
@@ -218,7 +218,7 @@ public sealed class PsxLevelObjectPlacementResolverTests
     [Fact]
     public void Resolve_KeepsConditionalOnlyModelInAuthoredOverview()
     {
-        var node = BuildPlatformNode(index: 8, rawX: 90, active: true);
+        var node = BuildPlatformNode(8, 90, true);
         node.Script =
         [
             new TrgScriptOp { Opcode = "0x4117", Name = "C_IF_WHAT_IF" },
@@ -237,7 +237,7 @@ public sealed class PsxLevelObjectPlacementResolverTests
     [Fact]
     public void Resolve_PreservesNativeYxzRotationAcrossTheGltfBasisChange()
     {
-        var node = BuildPlatformNode(index: 6, rawX: 90, active: true);
+        var node = BuildPlatformNode(6, 90, true);
         node.Angles = new TrgAngles
         {
             RawX = 1024,
@@ -375,17 +375,28 @@ public sealed class PsxLevelObjectPlacementResolverTests
         public override string DisplayName => "synthetic";
         public override string EntryName => "l1a2_g.psx";
 
-        public override byte[] ReadBytes() => [];
+        public override byte[] ReadBytes()
+        {
+            return [];
+        }
 
-        public override bool CompanionExists(string nameWithExtension) =>
-            companionNames.Any(name =>
+        public override bool CompanionExists(string nameWithExtension)
+        {
+            return companionNames.Any(name =>
                 string.Equals(name, nameWithExtension, StringComparison.OrdinalIgnoreCase));
+        }
 
-        public override byte[]? TryReadCompanion(string nameWithExtension) => null;
+        public override byte[]? TryReadCompanion(string nameWithExtension)
+        {
+            return null;
+        }
 
         public override byte[]? TryReadCompanion(
             string stem,
             IReadOnlyList<string> extensions,
-            IReadOnlyList<string>? subdirs = null) => null;
+            IReadOnlyList<string>? subdirs = null)
+        {
+            return null;
+        }
     }
 }

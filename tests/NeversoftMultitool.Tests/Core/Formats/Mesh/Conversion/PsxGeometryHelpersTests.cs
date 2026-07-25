@@ -239,7 +239,7 @@ public sealed class PsxGeometryHelpersTests
     {
         var packet = PsxGeometryHelpers.ToPsxPacketColor(
             new Vector4(144f / 128f, 119f / 128f, 223f / 128f, 0.37f),
-            isTexturedModulation: true);
+            true);
 
         Assert.Equal(144f / 255f, packet.X, 6);
         Assert.Equal(119f / 255f, packet.Y, 6);
@@ -254,7 +254,7 @@ public sealed class PsxGeometryHelpersTests
 
         var packet = PsxGeometryHelpers.ToPsxPacketColor(
             display,
-            isTexturedModulation: false);
+            false);
 
         Assert.Equal(display, packet);
     }
@@ -268,7 +268,7 @@ public sealed class PsxGeometryHelpersTests
         var untexturedLinear = PsxGeometryHelpers.DisplayRgbToLinear(paletteDisplay);
         var texturedLinear = PsxGeometryHelpers.DisplayRgbToLinear(
             packetModulation,
-            isPs1TexturedModulation: true);
+            true);
         var decodedNeutralLinear = PsxGeometryHelpers.DisplayRgbToLinear(
             new Vector4(131f / 255f, 131f / 255f, 131f / 255f, 1f));
         var modulatedEdge = texturedLinear * decodedNeutralLinear;
@@ -434,7 +434,7 @@ public sealed class PsxGeometryHelpersTests
         using var source = new Image<Rgba32>(3, 1);
         source[0, 0] = new Rgba32(80, 96, 112, 253); // runtime-opaque CLUT entry
         source[1, 0] = new Rgba32(80, 96, 112, 254); // mesh-only STP sentinel
-        source[2, 0] = new Rgba32(0, 0, 0, 0);       // transparent key
+        source[2, 0] = new Rgba32(0, 0, 0, 0); // transparent key
         using var sourceStream = new MemoryStream();
         source.SaveAsPng(sourceStream);
         var sourcePng = sourceStream.ToArray();
@@ -472,9 +472,9 @@ public sealed class PsxGeometryHelpersTests
         var materialIndex = PsxGeometryHelpers.GetOrCreatePsxMaterial(
             document,
             mixedHash,
-            semiTransparent: true,
-            doubleSided: false,
-            blendRate: 1,
+            true,
+            false,
+            1,
             _ => mixedStream.ToArray(),
             new Dictionary<uint, (int Width, int Height)>(),
             new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>());
@@ -493,9 +493,9 @@ public sealed class PsxGeometryHelpersTests
         var allStpIndex = PsxGeometryHelpers.GetOrCreatePsxMaterial(
             document,
             allStpHash,
-            semiTransparent: true,
-            doubleSided: false,
-            blendRate: 1,
+            true,
+            false,
+            1,
             _ => allStpStream.ToArray(),
             new Dictionary<uint, (int Width, int Height)>(),
             new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>());
@@ -509,9 +509,9 @@ public sealed class PsxGeometryHelpersTests
         var allStpQuarterIndex = PsxGeometryHelpers.GetOrCreatePsxMaterial(
             document,
             allStpQuarterHash,
-            semiTransparent: true,
-            doubleSided: false,
-            blendRate: 3,
+            true,
+            false,
+            3,
             _ => allStpStream.ToArray(),
             new Dictionary<uint, (int Width, int Height)>(),
             new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>());
@@ -540,13 +540,13 @@ public sealed class PsxGeometryHelpersTests
         };
         // The decoder's native row order maps these to palette indices
         // 1, 2, 3, 4 in the returned pixel array.
-        using var input = new MemoryStream([1, 4, 3, 2], writable: false);
+        using var input = new MemoryStream([1, 4, 3, 2], false);
         using var reader = new BinaryReader(input);
         var pixels = Ps1TextureDecoder.Extract8BitTexture(
             reader,
             header,
             [palette],
-            preserveRuntimeSemiTransparency: true);
+            true);
 
         Assert.NotNull(pixels);
         Assert.Equal(new byte[] { 0, 0, 0, 0 }, pixels.AsSpan(0, 4).ToArray());
@@ -617,13 +617,13 @@ public sealed class PsxGeometryHelpersTests
             ]
         };
 
-        using var keyedInput = new MemoryStream([0x10, 0x32, 0x54, 0x76], writable: false);
+        using var keyedInput = new MemoryStream([0x10, 0x32, 0x54, 0x76], false);
         using var keyedReader = new BinaryReader(keyedInput);
         var keyedPixels = Ps1TextureDecoder.Extract4BitTexture(
             keyedReader,
             header,
             [keyedPalette],
-            preserveRuntimeSemiTransparency: true);
+            true);
 
         Assert.NotNull(keyedPixels);
         Assert.Equal(
@@ -641,13 +641,13 @@ public sealed class PsxGeometryHelpersTests
                 0x001F, 0x03E0, 0x7C00, 0x7FFF
             ]
         };
-        using var noKeyInput = new MemoryStream([0x10, 0x32, 0x54, 0x76], writable: false);
+        using var noKeyInput = new MemoryStream([0x10, 0x32, 0x54, 0x76], false);
         using var noKeyReader = new BinaryReader(noKeyInput);
         var noKeyPixels = Ps1TextureDecoder.Extract4BitTexture(
             noKeyReader,
             header,
             [noKeyPalette],
-            preserveRuntimeSemiTransparency: true);
+            true);
 
         Assert.NotNull(noKeyPixels);
         Assert.All(
@@ -672,13 +672,13 @@ public sealed class PsxGeometryHelpersTests
             TexId = hash,
             ColorData = [0x001F, 0x7C1F]
         };
-        using var input = new MemoryStream([0, 1, 0, 0], writable: false);
+        using var input = new MemoryStream([0, 1, 0, 0], false);
         using var reader = new BinaryReader(input);
         var pixels = Ps1TextureDecoder.Extract8BitTexture(
             reader,
             header,
             [palette],
-            preserveRuntimeSemiTransparency: true);
+            true);
 
         Assert.NotNull(pixels);
         Assert.Equal(new byte[] { 255, 0, 0, 253 }, pixels.AsSpan(0, 4).ToArray());
@@ -692,9 +692,9 @@ public sealed class PsxGeometryHelpersTests
         var materialIndex = PsxGeometryHelpers.GetOrCreatePsxMaterial(
             document,
             hash,
-            semiTransparent: true,
-            doubleSided: false,
-            blendRate: 0,
+            true,
+            false,
+            0,
             _ => decodedPng,
             new Dictionary<uint, (int Width, int Height)>(),
             new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>());

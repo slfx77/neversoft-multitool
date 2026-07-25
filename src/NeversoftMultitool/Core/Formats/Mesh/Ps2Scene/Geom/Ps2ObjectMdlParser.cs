@@ -1,7 +1,5 @@
 using System.Buffers.Binary;
 using System.Numerics;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 
@@ -70,7 +68,8 @@ internal static class Ps2ObjectMdlParser
                 continue;
             }
 
-            leaves.Add(Ps2GeomFile.MakeLeafFromMdlMesh(batchVerts, hasGsContext ? currentGsCtx : new Ps2GeomGsContext()));
+            leaves.Add(
+                Ps2GeomFile.MakeLeafFromMdlMesh(batchVerts, hasGsContext ? currentGsCtx : new Ps2GeomGsContext()));
         }
 
         return new Ps2GeomScene { Leaves = leaves, MdlPreamble = preamble, Bones = bones };

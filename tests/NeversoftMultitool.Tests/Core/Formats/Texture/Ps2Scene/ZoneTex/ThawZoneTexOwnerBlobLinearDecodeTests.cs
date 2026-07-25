@@ -1,6 +1,5 @@
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
-using NeversoftMultitool.Tests.Helpers;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -17,9 +16,11 @@ public class ThawZoneTexOwnerBlobLinearDecodeTests(TestPaths paths)
 {
     private const string ThawBuild = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
 
-    /// <summary>Per-channel mean-absolute-error budget. PC ground truth is DXT-compressed
+    /// <summary>
+    ///     Per-channel mean-absolute-error budget. PC ground truth is DXT-compressed
     ///     and PS2 paletted, so an exact RGBA match isn't expected — but visibly broken
-    ///     output (checkerboard, banding) blows past this threshold easily.</summary>
+    ///     output (checkerboard, banding) blows past this threshold easily.
+    /// </summary>
     private const double MaxMeanAbsoluteError = 32.0;
 
     public static IEnumerable<TheoryDataRow<string, uint, int, int>> AnchorAndFailingRows()
@@ -27,23 +28,23 @@ public class ThawZoneTexOwnerBlobLinearDecodeTests(TestPaths paths)
         // Anchor rows — currently decode pixel-perfect against PC ground truth.
         // Must remain green after the fix. Cover both PSMT4 and PSMT8 at 128x128
         // since the gate keeps Conv4to32 / Conv8to32 active for those dimensions.
-        yield return new("anchor_grass_PSMT4_128x128",      0x2AC5ACDEu, 128, 128);
-        yield return new("anchor_PSMT8_128x128_023292D1",   0x023292D1u, 128, 128);
-        yield return new("anchor_PSMT8_128x128_25423C23",   0x25423C23u, 128, 128);
+        yield return new TheoryDataRow<string, uint, int, int>("anchor_grass_PSMT4_128x128", 0x2AC5ACDEu, 128, 128);
+        yield return new TheoryDataRow<string, uint, int, int>("anchor_PSMT8_128x128_023292D1", 0x023292D1u, 128, 128);
+        yield return new TheoryDataRow<string, uint, int, int>("anchor_PSMT8_128x128_25423C23", 0x25423C23u, 128, 128);
 
         // Currently-failing rows — checkerboard / banding artifacts visible in
         // TestOutput/z_bh_v12/worldzone_debug/textures/. PC ground truth available
         // in TestOutput/z_bh_pc/textures/004537A0/.
-        yield return new("door_PSMT8_64x128",               0xD2411F1Au,  64, 128);
-        yield return new("pillar_PSMT8_64x128",             0x6CC9E390u,  64, 128);
-        yield return new("PSMT8_64x128_6F102B17",           0x6F102B17u,  64, 128);
-        yield return new("PSMT8_64x128_3A60C402",           0x3A60C402u,  64, 128);
-        yield return new("PSMT8_64x128_15E6005A",           0x15E6005Au,  64, 128);
-        yield return new("PSMT8_64x128_93BC556C",           0x93BC556Cu,  64, 128);
-        yield return new("PSMT8_64x128_B0F5C21F",           0xB0F5C21Fu,  64, 128);
-        yield return new("PSMT8_64x128_C5807499",           0xC5807499u,  64, 128);
-        yield return new("PSMT8_64x128_CD2F89B8",           0xCD2F89B8u,  64, 128);
-        yield return new("PSMT8_32x128_D96E1609",           0xD96E1609u,  32, 128);
+        yield return new TheoryDataRow<string, uint, int, int>("door_PSMT8_64x128", 0xD2411F1Au, 64, 128);
+        yield return new TheoryDataRow<string, uint, int, int>("pillar_PSMT8_64x128", 0x6CC9E390u, 64, 128);
+        yield return new TheoryDataRow<string, uint, int, int>("PSMT8_64x128_6F102B17", 0x6F102B17u, 64, 128);
+        yield return new TheoryDataRow<string, uint, int, int>("PSMT8_64x128_3A60C402", 0x3A60C402u, 64, 128);
+        yield return new TheoryDataRow<string, uint, int, int>("PSMT8_64x128_15E6005A", 0x15E6005Au, 64, 128);
+        yield return new TheoryDataRow<string, uint, int, int>("PSMT8_64x128_93BC556C", 0x93BC556Cu, 64, 128);
+        yield return new TheoryDataRow<string, uint, int, int>("PSMT8_64x128_B0F5C21F", 0xB0F5C21Fu, 64, 128);
+        yield return new TheoryDataRow<string, uint, int, int>("PSMT8_64x128_C5807499", 0xC5807499u, 64, 128);
+        yield return new TheoryDataRow<string, uint, int, int>("PSMT8_64x128_CD2F89B8", 0xCD2F89B8u, 64, 128);
+        yield return new TheoryDataRow<string, uint, int, int>("PSMT8_32x128_D96E1609", 0xD96E1609u, 32, 128);
     }
 
     [Theory]

@@ -1,7 +1,6 @@
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 using NeversoftMultitool.Core.Formats.Texture.RenderWare;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.RenderWare;
 

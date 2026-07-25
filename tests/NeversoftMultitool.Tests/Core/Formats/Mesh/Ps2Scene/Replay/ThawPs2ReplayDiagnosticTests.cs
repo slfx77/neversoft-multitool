@@ -1,6 +1,5 @@
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Replay;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Replay;
 

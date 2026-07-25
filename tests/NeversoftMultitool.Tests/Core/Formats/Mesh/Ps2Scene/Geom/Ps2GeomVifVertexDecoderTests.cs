@@ -10,21 +10,21 @@ public sealed class Ps2GeomVifVertexDecoderTests
     public void ExtractVerticesFromVif_DecodesV3_16UvAtVuAddressSeven()
     {
         var data = new List<byte>();
-        AddVifCode(data, 0, 0, 0x02);      // OFFSET(0)
+        AddVifCode(data, 0, 0, 0x02); // OFFSET(0)
         AddVifCode(data, 0x0101, 0, 0x01); // STCYCL(1,1)
         AddVifCode(data, 0x8007, 4, 0x69); // UNPACK V3_16 to address 0x007: S,T,Q
         AddUv(data, 0, 0, 1);
         AddUv(data, 4096, 0, 1);
         AddUv(data, 0, 8192, 1);
         AddUv(data, 4096, 8192, 1);
-        AddVifCode(data, 1, 0, 0x05);      // STMOD(1)
+        AddVifCode(data, 1, 0, 0x05); // STMOD(1)
         AddVifCode(data, 0x8009, 4, 0x6D); // UNPACK V4_16 positions
         AddPosition(data, 0, 0, 0, 0x8000);
         AddPosition(data, 16, 0, 0, 0x8000);
         AddPosition(data, 0, 16, 0, 0);
         AddPosition(data, 16, 16, 0, 0);
-        AddVifCode(data, 0, 0, 0x05);      // STMOD(0)
-        AddVifCode(data, 8, 0, 0x14);      // MSCAL
+        AddVifCode(data, 0, 0, 0x05); // STMOD(0)
+        AddVifCode(data, 8, 0, 0x14); // MSCAL
 
         var vertices = Ps2GeomVifVertexDecoder.ExtractVerticesFromVif(
             data.ToArray(), 0, data.Count, Vector3.Zero);
@@ -78,10 +78,10 @@ public sealed class Ps2GeomVifVertexDecoderTests
         // Mirrors the 145 axis-Y-aligned Format-B leaves found in z_sm by
         // tools/diagnostics/thaw_billboard_classify.py.
         var data = BuildBillboardStream(
-            anchor: new Vector3(10f, 20f, 30f),
-            size: new Vector2(4f, 6f),
-            pvl: Vector3.Zero,
-            axis: new Vector3(0f, 1f, 0f));
+            new Vector3(10f, 20f, 30f),
+            new Vector2(4f, 6f),
+            Vector3.Zero,
+            new Vector3(0f, 1f, 0f));
 
         var result = Ps2GeomVifVertexDecoder.ExtractBillboardFromVif(data, 0, data.Length);
 
@@ -98,10 +98,10 @@ public sealed class Ps2GeomVifVertexDecoderTests
     public void ExtractBillboardFromVif_ZeroAxis_ReturnsScreenAlignedDescriptor()
     {
         var data = BuildBillboardStream(
-            anchor: new Vector3(1f, 2f, 3f),
-            size: new Vector2(8f, 8f),
-            pvl: Vector3.Zero,
-            axis: Vector3.Zero);
+            new Vector3(1f, 2f, 3f),
+            new Vector2(8f, 8f),
+            Vector3.Zero,
+            Vector3.Zero);
 
         var result = Ps2GeomVifVertexDecoder.ExtractBillboardFromVif(data, 0, data.Length);
 
@@ -117,10 +117,10 @@ public sealed class Ps2GeomVifVertexDecoderTests
         // visually on z_sm lamp-post light flares: positive pvl.z along axis=+Y lifts
         // the glow into the glass housing instead of dropping it below the post).
         var data = BuildBillboardStream(
-            anchor: new Vector3(0f, 0f, 0f),
-            size: new Vector2(2f, 2f),
-            pvl: new Vector3(0f, 0f, 5f),
-            axis: new Vector3(0f, 1f, 0f));
+            new Vector3(0f, 0f, 0f),
+            new Vector2(2f, 2f),
+            new Vector3(0f, 0f, 5f),
+            new Vector3(0f, 1f, 0f));
 
         var result = Ps2GeomVifVertexDecoder.ExtractBillboardFromVif(data, 0, data.Length);
 
@@ -154,10 +154,10 @@ public sealed class Ps2GeomVifVertexDecoderTests
     public void ExtractBillboardFromVif_BogusSize_ReturnsNull()
     {
         var data = BuildBillboardStream(
-            anchor: new Vector3(0f, 0f, 0f),
-            size: new Vector2(-1f, 10f),
-            pvl: Vector3.Zero,
-            axis: Vector3.Zero);
+            new Vector3(0f, 0f, 0f),
+            new Vector2(-1f, 10f),
+            Vector3.Zero,
+            Vector3.Zero);
 
         var result = Ps2GeomVifVertexDecoder.ExtractBillboardFromVif(data, 0, data.Length);
 
@@ -168,10 +168,22 @@ public sealed class Ps2GeomVifVertexDecoderTests
     {
         var data = new List<byte>();
         AddVifCode(data, 0x8000, 4, 0x6C); // V4_32 UNPACK num=4, NOT STMOD-gated
-        AddFloat(data, anchor.X); AddFloat(data, anchor.Y); AddFloat(data, anchor.Z); AddFloat(data, 0f);
-        AddFloat(data, size.X);   AddFloat(data, size.Y);   AddFloat(data, 0f);        AddFloat(data, 0f);
-        AddFloat(data, pvl.X);    AddFloat(data, pvl.Y);    AddFloat(data, pvl.Z);     AddFloat(data, 0f);
-        AddFloat(data, axis.X);   AddFloat(data, axis.Y);   AddFloat(data, axis.Z);    AddFloat(data, 0f);
+        AddFloat(data, anchor.X);
+        AddFloat(data, anchor.Y);
+        AddFloat(data, anchor.Z);
+        AddFloat(data, 0f);
+        AddFloat(data, size.X);
+        AddFloat(data, size.Y);
+        AddFloat(data, 0f);
+        AddFloat(data, 0f);
+        AddFloat(data, pvl.X);
+        AddFloat(data, pvl.Y);
+        AddFloat(data, pvl.Z);
+        AddFloat(data, 0f);
+        AddFloat(data, axis.X);
+        AddFloat(data, axis.Y);
+        AddFloat(data, axis.Z);
+        AddFloat(data, 0f);
         AddVifCode(data, 0, 0, 0x14); // MSCAL
         return data.ToArray();
     }

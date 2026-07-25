@@ -63,7 +63,7 @@ public sealed class Ps2GeomGsContextScanTests
     public void ScanBatchForGsContext_CapturesFrame1Register()
     {
         const ulong frame = 0xFF000000000A0000;
-        var data = MakeGifRegisterBlock(reg: 0x4C, value: frame);
+        var data = MakeGifRegisterBlock(0x4C, frame);
 
         var scan = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(data, 0, data.Length);
 
@@ -72,17 +72,20 @@ public sealed class Ps2GeomGsContextScanTests
         Assert.Equal(frame, scan.Value.Context.Frame1);
     }
 
-    private static Ps2GeomGsContext MakeInheritedContext() => new()
+    private static Ps2GeomGsContext MakeInheritedContext()
     {
-        Tex0 = 0x10,
-        Tex1 = 0x20,
-        MipTbp1 = 0x30,
-        MipTbp2 = 0x40,
-        Clamp1 = 0x50,
-        Alpha1 = 0x60,
-        Test1 = 0x70,
-        Frame1 = 0x80
-    };
+        return new Ps2GeomGsContext
+        {
+            Tex0 = 0x10,
+            Tex1 = 0x20,
+            MipTbp1 = 0x30,
+            MipTbp2 = 0x40,
+            Clamp1 = 0x50,
+            Alpha1 = 0x60,
+            Test1 = 0x70,
+            Frame1 = 0x80
+        };
+    }
 
     private static byte[] MakeGifRegisterBlock(uint reg, ulong value)
     {

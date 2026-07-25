@@ -104,7 +104,8 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
             if (!proceed) return;
         }
 
-        foreach (var filePath in supported.OrderBy(f => MakeRelativePath(f, _inputDir), StringComparer.OrdinalIgnoreCase))
+        foreach (var filePath in supported.OrderBy(f => MakeRelativePath(f, _inputDir),
+                     StringComparer.OrdinalIgnoreCase))
         {
             var fileName = Path.GetFileName(filePath)!;
             var ext = Path.GetExtension(filePath).ToLowerInvariant();

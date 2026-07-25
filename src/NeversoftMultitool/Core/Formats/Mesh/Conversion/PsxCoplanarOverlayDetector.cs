@@ -3,8 +3,6 @@ using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
-internal readonly record struct PsxFaceInstanceKey(int ObjectIndex, int FaceIndex);
-
 /// <summary>
 ///     Finds small opaque faces authored directly on top of a larger face.
 ///     The PS1 resolves these ordering-table overlays by draw order and has no
@@ -12,15 +10,6 @@ internal readonly record struct PsxFaceInstanceKey(int ObjectIndex, int FaceInde
 /// </summary>
 internal static class PsxCoplanarOverlayDetector
 {
-    private readonly record struct PlaneKey(int X, int Y, int Z, int Distance);
-
-    private sealed record Candidate(
-        PsxFaceInstanceKey Key,
-        PsxFace Face,
-        Vector3[] Points,
-        float Area,
-        Vector3 Centroid);
-
     internal static IReadOnlySet<PsxFaceInstanceKey> Find(PsxMeshFile file)
     {
         var planes = new Dictionary<PlaneKey, List<Candidate>>();
@@ -134,7 +123,7 @@ internal static class PsxCoplanarOverlayDetector
     private static bool PointInsideFace(Vector3 point, Vector3[] face)
     {
         return PointInsideTriangle(point, face[0], face[2], face[1])
-               || face.Length == 4 && PointInsideTriangle(point, face[1], face[2], face[3]);
+               || (face.Length == 4 && PointInsideTriangle(point, face[1], face[2], face[3]));
     }
 
     private static bool PointInsideTriangle(Vector3 point, Vector3 a, Vector3 b, Vector3 c)
@@ -164,4 +153,13 @@ internal static class PsxCoplanarOverlayDetector
         if (MathF.Abs(value.Y) > 1e-6f) return value.Y;
         return value.Z;
     }
+
+    private readonly record struct PlaneKey(int X, int Y, int Z, int Distance);
+
+    private sealed record Candidate(
+        PsxFaceInstanceKey Key,
+        PsxFace Face,
+        Vector3[] Points,
+        float Area,
+        Vector3 Centroid);
 }

@@ -1,17 +1,5 @@
 namespace NeversoftMultitool.Core.Formats.DiscImage;
 
-public sealed record CueTrack(
-    int Number,
-    string Type,
-    string FilePath,
-    long FileLength,
-    int SectorSize,
-    long Index01Frames)
-{
-    public bool IsAudio => Type.Equals("AUDIO", StringComparison.OrdinalIgnoreCase);
-    public long SectorCount => FileLength / SectorSize;
-}
-
 /// <summary>
 ///     Minimal cue sheet parser: FILE/TRACK/INDEX statements, one or more
 ///     BINARY files (Redump-style one-file-per-track and single-file layouts).

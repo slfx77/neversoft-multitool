@@ -1,6 +1,5 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Skeleton;
 

@@ -1,5 +1,5 @@
-using System.Numerics;
 using System.IO.Compression;
+using System.Numerics;
 using System.Text.Json;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using SixLabors.ImageSharp;
@@ -92,7 +92,7 @@ public sealed class ModelExportServiceTests
         });
         document.Materials[0].TextureIndex = 0;
         document.Materials[0].AlphaMode = ModelAlphaMode.Blend;
-        document.Materials[0].NativeMetadata.Add(MakePs2GsMetadata(alpha: 0x48));
+        document.Materials[0].NativeMetadata.Add(MakePs2GsMetadata(0x48));
 
         var result = ModelExportService.Export(
             document,
@@ -124,7 +124,7 @@ public sealed class ModelExportServiceTests
         });
         document.Materials[0].TextureIndex = 0;
         document.Materials[0].AlphaMode = ModelAlphaMode.Blend;
-        document.Materials[0].NativeMetadata.Add(MakePs2GsMetadata(alpha: 0x42));
+        document.Materials[0].NativeMetadata.Add(MakePs2GsMetadata(0x42));
 
         var result = ModelExportService.Export(
             document,
@@ -171,7 +171,8 @@ public sealed class ModelExportServiceTests
         var helperPath = Environment.GetEnvironmentVariable("NEVERSOFT_BLENDER_HELPER");
         var scriptPath = Path.Combine(AppContext.BaseDirectory, "BlenderExporter", "import_package.py");
         if (string.IsNullOrWhiteSpace(helperPath) || !File.Exists(helperPath) || !File.Exists(scriptPath))
-            Assert.Skip("Set NEVERSOFT_BLENDER_HELPER and ensure BlenderExporter/import_package.py is copied to run this smoke test.");
+            Assert.Skip(
+                "Set NEVERSOFT_BLENDER_HELPER and ensure BlenderExporter/import_package.py is copied to run this smoke test.");
 
         using var temp = new TempDirectory();
         var document = CreateTriangleDocument();
@@ -185,15 +186,15 @@ public sealed class ModelExportServiceTests
         primitive.Vertices[0] = primitive.Vertices[0] with
         {
             TextureWibble = new ModelTextureWibble(
-                UVelocity: 4096,
-                VVelocity: -2048,
-                Frequency: 595,
-                UAmplitude: 7,
-                UPhase: 3,
-                VAmplitude: 11,
-                VPhase: 9,
-                TextureWidth: 64,
-                TextureHeight: 128)
+                4096,
+                -2048,
+                595,
+                7,
+                3,
+                11,
+                9,
+                64,
+                128)
         };
 
         var result = ModelExportService.Export(
@@ -215,17 +216,17 @@ public sealed class ModelExportServiceTests
     {
         var document = CreateTriangleDocument();
         document.Materials[0].NativeMetadata.Add(new Ps2GsRenderMetadata(
-            Alpha: 0x44,
-            Test: 0x13,
-            Tex0: 0x1234,
-            Tex1: null,
-            Texa: 0x80,
-            Clamp: 0x05,
-            TextureChecksum: 0xDEADBEEF,
-            GroupChecksum: 0xCAFEBABE,
-            AlphaRef: 64,
-            Source: "unit",
-            Frame: 0xFF000000000A0000));
+            0x44,
+            0x13,
+            0x1234,
+            null,
+            0x80,
+            0x05,
+            0xDEADBEEF,
+            0xCAFEBABE,
+            64,
+            "unit",
+            0xFF000000000A0000));
 
         var manifest = BlendPackageManifest.FromDocument(document, "triangle.blend");
 
@@ -277,15 +278,15 @@ public sealed class ModelExportServiceTests
         primitive.Vertices[1] = primitive.Vertices[1] with
         {
             TextureWibble = new ModelTextureWibble(
-                UVelocity: 4096,
-                VVelocity: -2048,
-                Frequency: 595,
-                UAmplitude: 7,
-                UPhase: 3,
-                VAmplitude: 11,
-                VPhase: 9,
-                TextureWidth: 64,
-                TextureHeight: 128)
+                4096,
+                -2048,
+                595,
+                7,
+                3,
+                11,
+                9,
+                64,
+                128)
         };
         using var payload = new MemoryStream();
 
@@ -356,18 +357,20 @@ public sealed class ModelExportServiceTests
         return document;
     }
 
-    private static Ps2GsRenderMetadata MakePs2GsMetadata(ulong alpha) =>
-        new(
-            Alpha: alpha,
-            Test: 0,
-            Tex0: null,
-            Tex1: null,
-            Texa: null,
-            Clamp: null,
-            TextureChecksum: null,
-            GroupChecksum: null,
-            AlphaRef: null,
-            Source: "unit");
+    private static Ps2GsRenderMetadata MakePs2GsMetadata(ulong alpha)
+    {
+        return new Ps2GsRenderMetadata(
+            alpha,
+            0,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "unit");
+    }
 
     private static byte[] CreatePngBytes(Rgba32 color)
     {
@@ -384,8 +387,10 @@ public sealed class ModelExportServiceTests
         return image[0, 0];
     }
 
-    private static int ReadSamplerWrap(JsonElement sampler, string propertyName) =>
-        sampler.TryGetProperty(propertyName, out var wrap) ? wrap.GetInt32() : 10497;
+    private static int ReadSamplerWrap(JsonElement sampler, string propertyName)
+    {
+        return sampler.TryGetProperty(propertyName, out var wrap) ? wrap.GetInt32() : 10497;
+    }
 
     private static Rgba32 ReadEmbeddedImageFirstPixel(JsonElement root, byte[] binBytes)
     {
@@ -436,7 +441,7 @@ public sealed class ModelExportServiceTests
             try
             {
                 if (Directory.Exists(Path))
-                    Directory.Delete(Path, recursive: true);
+                    Directory.Delete(Path, true);
             }
             catch
             {

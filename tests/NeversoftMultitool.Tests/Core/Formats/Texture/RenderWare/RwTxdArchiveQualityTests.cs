@@ -3,7 +3,6 @@ using System.Text;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 using NeversoftMultitool.Core.Formats.Texture.RenderWare;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Texture.RenderWare;
 
@@ -95,7 +94,8 @@ public sealed class RwTxdArchiveQualityTests(TestPaths paths)
             .ToArray();
 
         Assert.Equal(8, referencedNames.Length);
-        Assert.All(referencedNames, static name => Assert.EndsWith("_low.png", name!, StringComparison.OrdinalIgnoreCase));
+        Assert.All(referencedNames,
+            static name => Assert.EndsWith("_low.png", name!, StringComparison.OrdinalIgnoreCase));
 
         var textureBytes = source.TryReadCompanion("PedPro_Muska.tex");
         Assert.NotNull(textureBytes);

@@ -1,6 +1,5 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Psx;
 
@@ -38,7 +37,7 @@ public sealed class PsxColourPulseBakeTests(TestPaths paths)
         var bytes = ReadSample("l1a1_o.psx");
 
         var baked = PsxMeshFile.Parse(bytes);
-        var raw = PsxMeshFile.Parse(bytes, bakeColourPulses: false);
+        var raw = PsxMeshFile.Parse(bytes, false);
 
         Assert.NotNull(baked?.GouraudPalette);
         Assert.NotNull(raw?.GouraudPalette);
@@ -63,7 +62,7 @@ public sealed class PsxColourPulseBakeTests(TestPaths paths)
         var bytes = ReadSample("items.psx");
 
         var baked = PsxMeshFile.Parse(bytes);
-        var raw = PsxMeshFile.Parse(bytes, bakeColourPulses: false);
+        var raw = PsxMeshFile.Parse(bytes, false);
 
         Assert.NotNull(baked?.GouraudPalette);
         Assert.NotNull(raw?.GouraudPalette);

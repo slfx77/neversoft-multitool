@@ -1,19 +1,20 @@
 using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Texture.Ngc;
 
 public sealed class NgcTexFileTests(TestPaths paths)
 {
     private string RepresentativeSampleFile =>
-        paths.SampleBuildsDir is null ? string.Empty : Path.Combine(
-            paths.SampleBuildsDir,
-            "Tony Hawk's American Wasteland (2005-8-22, GC - Final)",
-            "models",
-            "Animals",
-            "Anl_Pigeon",
-            "anl_pigeon.tex.ngc");
+        paths.SampleBuildsDir is null
+            ? string.Empty
+            : Path.Combine(
+                paths.SampleBuildsDir,
+                "Tony Hawk's American Wasteland (2005-8-22, GC - Final)",
+                "models",
+                "Animals",
+                "Anl_Pigeon",
+                "anl_pigeon.tex.ngc");
 
     [Fact]
     public void TryReadHeader_ReadsBigEndianFields()
@@ -72,7 +73,7 @@ public sealed class NgcTexFileTests(TestPaths paths)
     [Fact]
     public void Parse_UnsupportedFormatPair_FailsExplicitly()
     {
-        var data = NgcTexTestBuilder.CreateDictionary(formatA: 0, formatB: 0);
+        var data = NgcTexTestBuilder.CreateDictionary(0, 0);
 
         var result = NgcTexFile.Parse(data);
 

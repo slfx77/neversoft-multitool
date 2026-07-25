@@ -1,8 +1,7 @@
-using NeversoftMultitool.Core.Formats.Video;
-using NeversoftMultitool.Tests.Helpers;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using System.Text;
 using NeversoftMultitool.Core.Formats.Vid1;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Video;
@@ -16,8 +15,6 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
 {
     private static readonly int[] IntraDcThresholdTable = [32, 13, 15, 17, 19, 21, 23, 1];
 
-    private sealed record DiagnosticReaders(Vid1BitReader VlcReader, Vid1BitReader FlagReader, string Mode);
-
     private string? FindIntroVid()
     {
         var repoCandidate = Path.Combine(GetRepoRoot(), "TestOutput", "intro_only_src", "intro.vid");
@@ -27,7 +24,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         if (!paths.HasSampleBuilds) return null;
         var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
             .FirstOrDefault(d => Path.GetFileName(d).Contains("American Wasteland", StringComparison.OrdinalIgnoreCase)
-                              && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
+                                 && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
         if (buildDir == null) return null;
 
         var candidate = Path.Combine(buildDir, "movies", "vid", "intro.vid");
@@ -43,24 +40,27 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         if (!paths.HasSampleBuilds) return null;
         var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
             .FirstOrDefault(d => Path.GetFileName(d).Contains("American Wasteland", StringComparison.OrdinalIgnoreCase)
-                              && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
+                                 && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
         if (buildDir == null) return null;
 
         var candidate = Path.Combine(buildDir, "movies", "vid", "credits.vid");
         return File.Exists(candidate) ? candidate : null;
     }
 
-    private static byte[] BuildDefaultIntraMatrix() =>
-    [
-        8, 17, 18, 19, 21, 23, 25, 27,
-        17, 18, 19, 21, 23, 25, 27, 28,
-        20, 21, 22, 23, 24, 26, 28, 30,
-        21, 22, 23, 24, 26, 28, 30, 32,
-        22, 23, 24, 26, 28, 30, 32, 35,
-        23, 24, 26, 28, 30, 32, 35, 38,
-        25, 26, 28, 30, 32, 35, 38, 41,
-        27, 28, 30, 32, 35, 38, 41, 45,
-    ];
+    private static byte[] BuildDefaultIntraMatrix()
+    {
+        return
+        [
+            8, 17, 18, 19, 21, 23, 25, 27,
+            17, 18, 19, 21, 23, 25, 27, 28,
+            20, 21, 22, 23, 24, 26, 28, 30,
+            21, 22, 23, 24, 26, 28, 30, 32,
+            22, 23, 24, 26, 28, 30, 32, 35,
+            23, 24, 26, 28, 30, 32, 35, 38,
+            25, 26, 28, 30, 32, 35, 38, 41,
+            27, 28, 30, 32, 35, 38, 41, 45
+        ];
+    }
 
     private static byte[] BuildDefaultInterMatrix()
     {
@@ -177,7 +177,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
 
     private static (string Tag, int Offset, int EndOffset) ReadChunk(byte[] data, int offset)
     {
-        var tag = System.Text.Encoding.ASCII.GetString(data, offset, 4);
+        var tag = Encoding.ASCII.GetString(data, offset, 4);
         var size =
             (data[offset + 4] << 24) |
             (data[offset + 5] << 16) |
@@ -195,14 +195,16 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         } while (value != 0);
     }
 
-    private static Vid1ControlProbe ProbeControl(Vid1VideoFrame frame, Vid1BitReader vlcReader, Vid1BitReader flagReader, int currentQuantizer)
+    private static Vid1ControlProbe ProbeControl(Vid1VideoFrame frame, Vid1BitReader vlcReader,
+        Vid1BitReader flagReader, int currentQuantizer)
     {
         return frame.PreambleClass switch
         {
             0 => Vid1ControlPrefix.Probe998F8(vlcReader, flagReader, currentQuantizer),
-            1 => Vid1ControlPrefix.Probe99A38(vlcReader, flagReader, currentQuantizer, callerCr4: 0, gmcEnabled: false),
-            3 => Vid1ControlPrefix.Probe99A38(vlcReader, flagReader, currentQuantizer, callerCr4: 1, gmcEnabled: (frame.SpritePointCount ?? 0) > 0),
-            _ => Vid1ControlPrefix.Probe99A38(vlcReader, flagReader, currentQuantizer, callerCr4: 0, gmcEnabled: false),
+            1 => Vid1ControlPrefix.Probe99A38(vlcReader, flagReader, currentQuantizer, 0, false),
+            3 => Vid1ControlPrefix.Probe99A38(vlcReader, flagReader, currentQuantizer, 1,
+                (frame.SpritePointCount ?? 0) > 0),
+            _ => Vid1ControlPrefix.Probe99A38(vlcReader, flagReader, currentQuantizer, 0, false)
         };
     }
 
@@ -231,7 +233,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         {
             "bitstream" => new Vid1BitReader(frame.Bitstream),
             "header" or "legacy-header" or "header-split" => new Vid1BitReader(legacyHeaderPayload),
-            _ => new Vid1BitReader(frame.CodedPayload),
+            _ => new Vid1BitReader(frame.CodedPayload)
         };
         var flagReader = readerMode switch
         {
@@ -241,7 +243,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             "split-no-flagskip" => new Vid1BitReader(frame.Bitstream),
             "bitstream" => new Vid1BitReader(frame.Bitstream),
             "header" or "legacy-header" => new Vid1BitReader(legacyHeaderPayload),
-            _ => new Vid1BitReader(frame.Bitstream),
+            _ => new Vid1BitReader(frame.Bitstream)
         };
 
         if (!ReferenceEquals(vlcReader, flagReader) && skipFlagBitOffset && frame.FlagBitOffset > 0)
@@ -296,7 +298,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                WorkingDirectory = GetRepoRoot(),
+                WorkingDirectory = GetRepoRoot()
             };
             startInfo.ArgumentList.Add("tools/diagnostics/dump_vid1_coeffs.py");
             startInfo.ArgumentList.Add(path);
@@ -347,7 +349,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         var path = FindCreditsVid();
         if (path == null) return;
 
-        var frameIndex = int.TryParse(Environment.GetEnvironmentVariable("VID1_CREDITS_DIAG_FRAME"), out var requestedFrame)
+        var frameIndex = int.TryParse(Environment.GetEnvironmentVariable("VID1_CREDITS_DIAG_FRAME"),
+            out var requestedFrame)
             ? requestedFrame
             : 100;
         var file = Vid1VideoFile.Parse(path);
@@ -382,11 +385,12 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             for (var x = 18; x <= 24; x++)
                 targets.Add((x, y));
         }
+
         var log = new List<string>
         {
             "=== credits.vid frame 100 motion residual diagnostic ===",
             $"path={path}",
-            $"frame={frame.Index} class={frame.PreambleClass} q={frame.Quantizer} fcode={frame.ForwardCode} gate={frame.HasSpecialCallerGate} flagOffset={frame.FlagBitOffset} readers={readers.Mode}",
+            $"frame={frame.Index} class={frame.PreambleClass} q={frame.Quantizer} fcode={frame.ForwardCode} gate={frame.HasSpecialCallerGate} flagOffset={frame.FlagBitOffset} readers={readers.Mode}"
         };
 
         var totalMacroblocks = context.MbCols * context.MbRows;
@@ -401,9 +405,12 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             if (targets.Contains((mbX, mbY)))
             {
                 log.Add("");
-                log.Add($"MB {mbIndex} ({mbX},{mbY}) control vlc@{vlcStart}->{vlcReader.BitPosition} flag@{flagStart}->{flagReader.BitPosition}");
-                log.Add($"  stage={control.Stage} type={control.MacroblockType} cp=0x{control.ControlPrefix:X} sel={control.Selector} cbp=0x{control.ControlWord & 0x3F:X2} q={control.Quantizer} flags=0x{control.BlockFlags:X2}");
-                if (control.Stage == Vid1ControlStage.Motion && control.MacroblockType < 2 && (control.BlockFlags & 0x0C) == 0)
+                log.Add(
+                    $"MB {mbIndex} ({mbX},{mbY}) control vlc@{vlcStart}->{vlcReader.BitPosition} flag@{flagStart}->{flagReader.BitPosition}");
+                log.Add(
+                    $"  stage={control.Stage} type={control.MacroblockType} cp=0x{control.ControlPrefix:X} sel={control.Selector} cbp=0x{control.ControlWord & 0x3F:X2} q={control.Quantizer} flags=0x{control.BlockFlags:X2}");
+                if (control.Stage == Vid1ControlStage.Motion && control.MacroblockType < 2 &&
+                    (control.BlockFlags & 0x0C) == 0)
                     TraceAndDecodeSimpleMotionMacroblock(vlcReader, control, context, mbX, mbY, log);
                 else
                     Vid1MacroblockDecoder.Decode(vlcReader, flagReader, control, context, mbX, mbY);
@@ -428,7 +435,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         var path = FindCreditsVid();
         if (path == null) return;
 
-        var frameIndex = int.TryParse(Environment.GetEnvironmentVariable("VID1_CREDITS_A878_FRAME"), out var requestedFrame)
+        var frameIndex = int.TryParse(Environment.GetEnvironmentVariable("VID1_CREDITS_A878_FRAME"),
+            out var requestedFrame)
             ? requestedFrame
             : 26;
         var minMbX = int.TryParse(Environment.GetEnvironmentVariable("VID1_CREDITS_A878_MIN_X"), out var requestedMinX)
@@ -476,7 +484,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             "=== credits.vid A878 stripe window diagnostic ===",
             $"path={path}",
             $"frame={frame.Index} class={frame.PreambleClass} q={frame.Quantizer} flagOffset={frame.FlagBitOffset} readers={readers.Mode}",
-            $"window=mbX[{minMbX}..{maxMbX}] mbY[{minMbY}..{maxMbY}]",
+            $"window=mbX[{minMbX}..{maxMbX}] mbY[{minMbY}..{maxMbY}]"
         };
 
         var totalMacroblocks = context.MbCols * context.MbRows;
@@ -515,7 +523,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         }
         catch (Exception ex)
         {
-            log.Add($"FAIL: {ex.GetType().Name}: {ex.Message} vlc@{vlcReader.BitPosition} flag@{flagReader.BitPosition}");
+            log.Add(
+                $"FAIL: {ex.GetType().Name}: {ex.Message} vlc@{vlcReader.BitPosition} flag@{flagReader.BitPosition}");
         }
 
         var message = string.Join("\n", log);
@@ -532,7 +541,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         int mbY,
         List<string> log)
     {
-        var mbBase = ((mbY * context.MbCols) + mbX) * Vid1FrameContext.MbStateStride;
+        var mbBase = (mbY * context.MbCols + mbX) * Vid1FrameContext.MbStateStride;
         context.CurrentQuantizer = control.Quantizer;
         context.MbState[mbBase] = (byte)(control.MacroblockType & 0xFF);
         context.MbState[mbBase + 1] = (byte)(control.Quantizer & 0xFF);
@@ -548,7 +557,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         for (var block = 0; block < 4; block++)
         {
             var offset = mbBase + 0x08 + block * 0x08;
-            log.Add($"  mv{block}=({ReadInt32BigEndian(context.MbState, offset)},{ReadInt32BigEndian(context.MbState, offset + 4)})");
+            log.Add(
+                $"  mv{block}=({ReadInt32BigEndian(context.MbState, offset)},{ReadInt32BigEndian(context.MbState, offset + 4)})");
         }
 
         var cbp = control.ControlWord & 0x3F;
@@ -577,8 +587,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
 
             if (block < 4)
             {
-                var dstX = mbX * 16 + ((block & 1) * 8);
-                var dstY = mbY * 16 + ((block >> 1) * 8);
+                var dstX = mbX * 16 + (block & 1) * 8;
+                var dstY = mbY * 16 + (block >> 1) * 8;
                 log.Add(
                     $"  block{block} coded={coded} bits={residualStart}->{residualEnd} " +
                     $"raw={FormatNonZero(quant)} deq={FormatNonZero(dequant)} " +
@@ -595,11 +605,11 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         int mbY,
         int block)
     {
-        var mbBase = ((mbY * context.MbCols) + mbX) * Vid1FrameContext.MbStateStride;
+        var mbBase = (mbY * context.MbCols + mbX) * Vid1FrameContext.MbStateStride;
         if (block < 4)
         {
-            var dstX = mbX * 16 + ((block & 1) * 8);
-            var dstY = mbY * 16 + ((block >> 1) * 8);
+            var dstX = mbX * 16 + (block & 1) * 8;
+            var dstY = mbY * 16 + (block >> 1) * 8;
             var mvOffset = mbBase + 0x08 + block * 0x08;
             var mvX = ReadInt32BigEndian(context.MbState, mvOffset);
             var mvY = ReadInt32BigEndian(context.MbState, mvOffset + 4);
@@ -631,13 +641,17 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
     }
 
     private static int ReadInt32BigEndian(byte[] buffer, int offset)
-        => (buffer[offset] << 24) |
-           (buffer[offset + 1] << 16) |
-           (buffer[offset + 2] << 8) |
-           buffer[offset + 3];
+    {
+        return (buffer[offset] << 24) |
+               (buffer[offset + 1] << 16) |
+               (buffer[offset + 2] << 8) |
+               buffer[offset + 3];
+    }
 
     private static int RoundHalfChromaForDiagnostic(int value)
-        => (value & 3) == 0 ? value / 2 : (value >> 1) | 1;
+    {
+        return (value & 3) == 0 ? value / 2 : (value >> 1) | 1;
+    }
 
     private static void TraceCreditsA878Macroblock(
         string path,
@@ -653,8 +667,10 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         List<string> log)
     {
         log.Add("");
-        log.Add($"MB ({mbX},{mbY}) control vlc@{controlVlcStart}->{vlcReader.BitPosition} flag@{controlFlagStart}->{flagReader.BitPosition}");
-        log.Add($"  stage={control.Stage} type={control.MacroblockType} cp=0x{control.ControlPrefix:X} sel={control.Selector} cw=0x{control.ControlWord:X2} feat={control.FeatureBit} q={control.Quantizer}");
+        log.Add(
+            $"MB ({mbX},{mbY}) control vlc@{controlVlcStart}->{vlcReader.BitPosition} flag@{controlFlagStart}->{flagReader.BitPosition}");
+        log.Add(
+            $"  stage={control.Stage} type={control.MacroblockType} cp=0x{control.ControlPrefix:X} sel={control.Selector} cw=0x{control.ControlWord:X2} feat={control.FeatureBit} q={control.Quantizer}");
 
         if (control.Stage != Vid1ControlStage.A878)
         {
@@ -664,7 +680,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         }
 
         context.CurrentQuantizer = control.Quantizer;
-        var mbBase = ((mbY * context.MbCols) + mbX) * Vid1FrameContext.MbStateStride;
+        var mbBase = (mbY * context.MbCols + mbX) * Vid1FrameContext.MbStateStride;
         context.MbState[mbBase] = (byte)(control.MacroblockType & 0xFF);
         context.MbState[mbBase + 1] = (byte)(control.Quantizer & 0xFF);
 
@@ -691,7 +707,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                 "all" => true,
                 "luma" => block < 4,
                 "chroma" => block >= 4,
-                _ => false,
+                _ => false
             };
 
             var scanTableIndex = 0;
@@ -716,7 +732,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                     "horizontal" => 1,
                     "vertical" => 2,
                     "zigzag" => 0,
-                    _ => scanTableIndex,
+                    _ => scanTableIndex
                 };
                 context.MbState[mbBase + 2 + block] = (byte)scanTableIndex;
             }
@@ -725,7 +741,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             {
                 1 => "horizontal",
                 2 => "vertical",
-                _ => "zigzag",
+                _ => "zigzag"
             };
 
             var startIndex = 0;
@@ -748,11 +764,12 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             {
                 Vid1CoefficientDecoder.DecodeBlock(
                     vlcReader,
-                    useBundleB: true,
+                    true,
                     Vid1CoefficientDecoder.GetScanTable(scanName),
                     quant,
                     startIndex);
             }
+
             var residualEnd = vlcReader.BitPosition;
 
             if (usePrediction)
@@ -780,9 +797,11 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                 $"  block{block} coded={coded} scan={scanName} dc@{dcStart} size={dcSize} val={dcValue} ac={residualStart}->{residualEnd} " +
                 $"pred={FormatFirstRow(predictions)} raw={FormatNonZero(quant)} deq={FormatNonZero(dequant)} idct0={FormatFirstRow(idct)} out0={FormatDiagnosticBlockRow(context, mbX, mbY, block)}");
 
-            var groundTruth = TryRunPythonGroundTruth(path, frame.Index, residualStart, "B", scanName, startIndex, dcValue);
+            var groundTruth =
+                TryRunPythonGroundTruth(path, frame.Index, residualStart, "B", scanName, startIndex, dcValue);
             if (groundTruth is { Summary: not null } python)
-                log.Add($"    python_raw={python.Summary} match={string.Equals(FormatNonZero(quant), python.Summary, StringComparison.Ordinal)}");
+                log.Add(
+                    $"    python_raw={python.Summary} match={string.Equals(FormatNonZero(quant), python.Summary, StringComparison.Ordinal)}");
         }
     }
 
@@ -796,8 +815,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
     {
         if (blockIndex < 4)
         {
-            var dstX = mbX * 16 + ((blockIndex & 1) * 8);
-            var dstY = mbY * 16 + ((blockIndex >> 1) * 8);
+            var dstX = mbX * 16 + (blockIndex & 1) * 8;
+            var dstY = mbY * 16 + (blockIndex >> 1) * 8;
             Vid1MotionComp.WriteIntraBlock(samples, context.OutputY, context.Width, dstX, dstY, intraWriteOffset);
             return;
         }
@@ -812,8 +831,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
     {
         if (blockIndex < 4)
         {
-            var dstX = mbX * 16 + ((blockIndex & 1) * 8);
-            var dstY = mbY * 16 + ((blockIndex >> 1) * 8);
+            var dstX = mbX * 16 + (blockIndex & 1) * 8;
+            var dstY = mbY * 16 + (blockIndex >> 1) * 8;
             return FormatByteRow(context.OutputY, context.Width, dstX, dstY);
         }
 
@@ -858,10 +877,10 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             var quant = new short[64];
             Vid1CoefficientDecoder.DecodeBlock(
                 vlcReader,
-                useBundleB: true,
+                true,
                 Vid1CoefficientDecoder.GetScanTable("zigzag"),
                 quant,
-                startIndex: dcPreDecode ? 1 : 0);
+                dcPreDecode ? 1 : 0);
         }
     }
 
@@ -902,7 +921,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
 
         var log = new List<string>();
         log.Add($"Frame 0: tag16=0x{frame.Tag16:X4} preamble_class={frame.PreambleClass}");
-        log.Add($"  quantizer={frame.Quantizer} forward_code={frame.ForwardCode} has_special_gate={frame.HasSpecialCallerGate}");
+        log.Add(
+            $"  quantizer={frame.Quantizer} forward_code={frame.ForwardCode} has_special_gate={frame.HasSpecialCallerGate}");
         log.Add($"  coded_payload={frame.CodedPayload.Length} bytes, intra_dc_threshold={frame.IntraDcThresholdIndex}");
         log.Add($"  state_word=0x{frame.CurrentFrameStateWord:X8} alt_state=0x{frame.AlternateFrameStateWord:X8}");
         log.Add($"  custom_matrices={frame.UsesCustomQuantMatrices}");
@@ -916,7 +936,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         log.Add("  binary: " + string.Join(" ", firstBytes.Select(b => Convert.ToString(b, 2).PadLeft(8, '0'))));
 
         var currentQuantizer = frame.Quantizer;
-        int mbIdx = 0;
+        var mbIdx = 0;
         try
         {
             for (; mbIdx < 10; mbIdx++)
@@ -924,7 +944,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                 var probeStartBit = reader.BitPosition;
                 var probe = ProbeControl(frame, reader, reader, currentQuantizer);
 
-                log.Add($"MB {mbIdx}: bit_range={probeStartBit}..{reader.BitPosition}  stage={probe.Stage} mb_type={probe.MacroblockType} cp={probe.ControlPrefix} sel={probe.Selector} cw=0x{probe.ControlWord:X2} cbp=0x{probe.ControlWord & 0x3F:X2} feat={probe.FeatureBit} q={probe.Quantizer}");
+                log.Add(
+                    $"MB {mbIdx}: bit_range={probeStartBit}..{reader.BitPosition}  stage={probe.Stage} mb_type={probe.MacroblockType} cp={probe.ControlPrefix} sel={probe.Selector} cw=0x{probe.ControlWord:X2} cbp=0x{probe.ControlWord & 0x3F:X2} feat={probe.FeatureBit} q={probe.Quantizer}");
                 currentQuantizer = probe.Quantizer;
 
                 // Try decoding per-block (DC pre-decode + AC VLC) for all 6 blocks.
@@ -945,7 +966,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                             var dcValue = Vid1IntraDc.DecodeValue(reader, dcSize);
                             if (dcSize > 8) reader.SkipBits(1);
                             var coded = (cbp & (1 << (5 - block))) != 0;
-                            log.Add($"    block {block}: DC @{savedBefore} size={dcSize} val={dcValue} coded={coded} AC@{reader.BitPosition}");
+                            log.Add(
+                                $"    block {block}: DC @{savedBefore} size={dcSize} val={dcValue} coded={coded} AC@{reader.BitPosition}");
                             if (coded)
                             {
                                 var acStart = reader.BitPosition;
@@ -960,10 +982,11 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                                 try
                                 {
                                     Vid1CoefficientDecoder.DecodeBlock(
-                                        attemptB, useBundleB: true,
+                                        attemptB, true,
                                         Vid1CoefficientDecoder.GetScanTable("zigzag"),
-                                        quantB, startIndex: 1);
-                                    log.Add($"      bundle B+start1 OK @{attemptB.BitPosition}, coeffs[0..3]: {quantB[0]},{quantB[1]},{quantB[2]},{quantB[3]}");
+                                        quantB, 1);
+                                    log.Add(
+                                        $"      bundle B+start1 OK @{attemptB.BitPosition}, coeffs[0..3]: {quantB[0]},{quantB[1]},{quantB[2]},{quantB[3]}");
                                     reader.SkipBits(attemptB.BitPosition - acStart);
                                     continue;
                                 }
@@ -980,10 +1003,11 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                                 try
                                 {
                                     Vid1CoefficientDecoder.DecodeBlock(
-                                        attemptA, useBundleB: false,
+                                        attemptA, false,
                                         Vid1CoefficientDecoder.GetScanTable("zigzag"),
-                                        quantA, startIndex: 1);
-                                    log.Add($"      bundle A+start1 OK @{attemptA.BitPosition}, coeffs[0..3]: {quantA[0]},{quantA[1]},{quantA[2]},{quantA[3]}");
+                                        quantA, 1);
+                                    log.Add(
+                                        $"      bundle A+start1 OK @{attemptA.BitPosition}, coeffs[0..3]: {quantA[0]},{quantA[1]},{quantA[2]},{quantA[3]}");
                                     reader.SkipBits(attemptA.BitPosition - acStart);
                                     continue;
                                 }
@@ -993,6 +1017,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                                     break;
                                 }
                             }
+
                             blockOk = block + 1;
                         }
                     }
@@ -1000,6 +1025,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                     {
                         log.Add($"    block {blockOk} decode failed: {bex.GetType().Name}: {bex.Message}");
                     }
+
                     break; // stop after first MB fully inspected
                 }
             }
@@ -1030,7 +1056,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         var frame = file.Frames[0];
         var log = new List<string>();
         log.Add("=== Frame 0 first coded luma block-0 pixel pipeline ===");
-        log.Add($"frame0: tag16=0x{frame.Tag16:X4} preamble_class={frame.PreambleClass} quantizer={frame.Quantizer} has_special_gate={frame.HasSpecialCallerGate}");
+        log.Add(
+            $"frame0: tag16=0x{frame.Tag16:X4} preamble_class={frame.PreambleClass} quantizer={frame.Quantizer} has_special_gate={frame.HasSpecialCallerGate}");
 
         var context = BuildFrameContext(file, frame);
         var readers = CreateDiagnosticReaders(frame);
@@ -1072,7 +1099,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         }
         catch (Exception ex)
         {
-            log.Add($"abort while searching target: {ex.GetType().Name}: {ex.Message} vlc={vlcReader.BitPosition} flag={flagReader.BitPosition}");
+            log.Add(
+                $"abort while searching target: {ex.GetType().Name}: {ex.Message} vlc={vlcReader.BitPosition} flag={flagReader.BitPosition}");
         }
 
         if (targetMbIndex < 0)
@@ -1085,7 +1113,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             return;
         }
 
-        log.Add($"control: stage={control.Stage} mb_type={control.MacroblockType} cp=0x{control.ControlPrefix:X} sel={control.Selector} cw=0x{control.ControlWord:X2} feat={control.FeatureBit} q={control.Quantizer}");
+        log.Add(
+            $"control: stage={control.Stage} mb_type={control.MacroblockType} cp=0x{control.ControlPrefix:X} sel={control.Selector} cw=0x{control.ControlWord:X2} feat={control.FeatureBit} q={control.Quantizer}");
         log.Add($"reader positions after control: vlc={vlcReader.BitPosition} flag={flagReader.BitPosition}");
 
         var cbp = control.ControlWord & 0x3F;
@@ -1105,7 +1134,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                 targetMbY,
                 targetBlock,
                 control.Quantizer,
-                Vid1MacroblockDecoder.ComputeDcScale(control.Quantizer, isLuma: true),
+                Vid1MacroblockDecoder.ComputeDcScale(control.Quantizer, true),
                 predictions);
             if (control.FeatureBit == 0)
             {
@@ -1118,7 +1147,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                 "horizontal" => 1,
                 "vertical" => 2,
                 "zigzag" => 0,
-                _ => scanTableIndex,
+                _ => scanTableIndex
             };
         }
 
@@ -1126,7 +1155,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         {
             1 => "horizontal",
             2 => "vertical",
-            _ => "zigzag",
+            _ => "zigzag"
         };
         var bundleName = "B";
 
@@ -1137,7 +1166,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         var dcStartBit = vlcReader.BitPosition;
         if (dcPreDecode)
         {
-            dcSize = Vid1IntraDc.DecodeSize(vlcReader, isLuma: true);
+            dcSize = Vid1IntraDc.DecodeSize(vlcReader, true);
             dcValue = dcSize == 0 ? 0 : Vid1IntraDc.DecodeValue(vlcReader, dcSize);
             if (dcSize > 8)
                 flagReader.SkipBits(1);
@@ -1149,7 +1178,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         var residualStartBit = vlcReader.BitPosition;
         Vid1CoefficientDecoder.DecodeBlock(
             vlcReader,
-            useBundleB: true,
+            true,
             Vid1CoefficientDecoder.GetScanTable(scanName),
             quant,
             startIndex);
@@ -1162,13 +1191,13 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                 targetMbX,
                 targetMbY,
                 targetBlock,
-                Vid1MacroblockDecoder.ComputeDcScale(control.Quantizer, isLuma: true),
+                Vid1MacroblockDecoder.ComputeDcScale(control.Quantizer, true),
                 predictions,
                 quant);
         }
 
         Span<short> dequant = stackalloc short[64];
-        var dcScale = Vid1MacroblockDecoder.ComputeDcScale(control.Quantizer, isLuma: targetBlock < 4);
+        var dcScale = Vid1MacroblockDecoder.ComputeDcScale(control.Quantizer, targetBlock < 4);
         var defaultIntraMatrix = BuildDefaultIntraMatrix();
         if (frame.UsesCustomQuantMatrices)
             Vid1Dequant.DequantIntra(dequant, quant, control.Quantizer, dcScale, defaultIntraMatrix);
@@ -1193,13 +1222,14 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         {
             Vid1MotionComp.PredictInterBlock(
                 referencePlane, 8, 8, 8,
-                srcX: 0, srcY: 0, halfX: 0, halfY: 0,
+                0, 0, 0, 0,
                 idctBlock,
                 outputPlane, 8,
-                dstX: 0, dstY: 0);
+                0, 0);
         }
 
-        log.Add($"block{targetBlock}: dc_threshold={dcThreshold} dc_predecode={dcPreDecode} coded={(cbp & (1 << (5 - targetBlock))) != 0} bundle={bundleName} scan={scanName} startIndex={startIndex}");
+        log.Add(
+            $"block{targetBlock}: dc_threshold={dcThreshold} dc_predecode={dcPreDecode} coded={(cbp & (1 << (5 - targetBlock))) != 0} bundle={bundleName} scan={scanName} startIndex={startIndex}");
         log.Add($"prediction: mode={predictionMode} enabled={usePrediction} preds={FormatFirstRow(predictions)}");
         log.Add($"dc: start={dcStartBit} size={dcSize} value={dcValue}");
         log.Add($"residual: start={residualStartBit} end={residualEndBit} bits={residualEndBit - residualStartBit}");
@@ -1211,12 +1241,14 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         log.Add($"write_path: {writePath}");
         log.Add($"output_row0: {FormatFirstPixels(outputPlane)}");
 
-        var groundTruth = TryRunPythonGroundTruth(path, frame.Index, residualStartBit, bundleName, scanName, startIndex, dcValue);
+        var groundTruth = TryRunPythonGroundTruth(path, frame.Index, residualStartBit, bundleName, scanName, startIndex,
+            dcValue);
         if (groundTruth is { } python)
         {
             log.Add($"python_raw_coeffs: {python.Summary ?? "<missing coeffs line>"}");
             if (python.Summary != null)
-                log.Add($"raw_coeff_match: {string.Equals(FormatNonZero(quant), python.Summary, StringComparison.Ordinal)}");
+                log.Add(
+                    $"raw_coeff_match: {string.Equals(FormatNonZero(quant), python.Summary, StringComparison.Ordinal)}");
             if (python.Summary == null)
                 log.Add("python_stdout_snippet: " + python.StdOut.Replace("\r", " ").Replace("\n", " ").Trim());
             if (!string.IsNullOrWhiteSpace(python.StdErr))
@@ -1248,12 +1280,13 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         log.Add($"CodedPayload length: {frame.CodedPayload.Length} bytes");
         log.Add($"Bitstream length: {frame.Bitstream.Length} bytes");
         log.Add($"FlagBitOffset: {frame.FlagBitOffset} bits");
-        log.Add("Bitstream start reflects the decomp-backed flag window: VIDD payload + 0x04 through the 8-byte trailer.");
+        log.Add(
+            "Bitstream start reflects the decomp-backed flag window: VIDD payload + 0x04 through the 8-byte trailer.");
 
-        log.Add($"First 8 bytes of CodedPayload (hex):");
+        log.Add("First 8 bytes of CodedPayload (hex):");
         var cpFirst = frame.CodedPayload.AsSpan(0, Math.Min(8, frame.CodedPayload.Length)).ToArray();
         log.Add("  " + string.Join(" ", cpFirst.Select(b => $"{b:X2}")));
-        log.Add($"First 8 bytes of Bitstream (hex):");
+        log.Add("First 8 bytes of Bitstream (hex):");
         var flagFirst = frame.Bitstream.AsSpan(0, Math.Min(8, frame.Bitstream.Length)).ToArray();
         log.Add("  " + string.Join(" ", flagFirst.Select(b => $"{b:X2}")));
 
@@ -1274,7 +1307,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                 var probe = ProbeControl(frame, vlcReader, flagReader, currentQuantizer);
 
                 log.Add($"\nMB {mbIdx}: flag@{flagPos}→{flagReader.BitPosition} vlc@{vlcPos}→{vlcReader.BitPosition}");
-                log.Add($"  stage={probe.Stage} mb_type={probe.MacroblockType} cp={probe.ControlPrefix} sel={probe.Selector} cw=0x{probe.ControlWord:X2} feat={probe.FeatureBit} q={probe.Quantizer}");
+                log.Add(
+                    $"  stage={probe.Stage} mb_type={probe.MacroblockType} cp={probe.ControlPrefix} sel={probe.Selector} cw=0x{probe.ControlWord:X2} feat={probe.FeatureBit} q={probe.Quantizer}");
                 currentQuantizer = probe.Quantizer;
 
                 if (probe.Stage == Vid1ControlStage.A878)
@@ -1289,7 +1323,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                         if (dcSize > 8)
                             flagReader.SkipBits(1);
                         var coded = (cbp & (1 << (5 - block))) != 0;
-                        log.Add($"  block {block}: DC vlc@{dcVlcPos}→{vlcReader.BitPosition} size={dcSize} val={dcValue} coded={coded}");
+                        log.Add(
+                            $"  block {block}: DC vlc@{dcVlcPos}→{vlcReader.BitPosition} size={dcSize} val={dcValue} coded={coded}");
                         if (coded)
                         {
                             var acStart = vlcReader.BitPosition;
@@ -1301,10 +1336,11 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                             try
                             {
                                 Vid1CoefficientDecoder.DecodeBlock(
-                                    vlcReader, useBundleB: true,
+                                    vlcReader, true,
                                     Vid1CoefficientDecoder.GetScanTable("zigzag"),
-                                    quantBuf, startIndex: 1);
-                                log.Add($"    AC OK vlc@{vlcReader.BitPosition}, coeffs[0..5]: {string.Join(",", quantBuf.Take(6))}");
+                                    quantBuf, 1);
+                                log.Add(
+                                    $"    AC OK vlc@{vlcReader.BitPosition}, coeffs[0..5]: {string.Join(",", quantBuf.Take(6))}");
                             }
                             catch (Exception ex)
                             {
@@ -1324,6 +1360,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         {
             log.Add($"  EXCEPTION: {ex.GetType().Name}: {ex.Message}");
         }
+
         var message = string.Join("\n", log);
         Console.WriteLine(message);
 
@@ -1405,7 +1442,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
 
                 if (succeeded > 0)
                 {
-                    candidates.Add((vlcDelta, flagDelta, succeeded, trialVlcReader.BitPosition, trialFlagReader.BitPosition, trialFailure));
+                    candidates.Add((vlcDelta, flagDelta, succeeded, trialVlcReader.BitPosition,
+                        trialFlagReader.BitPosition, trialFailure));
                 }
             }
         }
@@ -1499,8 +1537,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
 
                     var coded = (cbp & (1 << (5 - block))) != 0;
                     var acStart = vlcReader.BitPosition;
-                    string bundleABits = "-";
-                    string bundleBBits = "-";
+                    var bundleABits = "-";
+                    var bundleBBits = "-";
 
                     if (coded)
                     {
@@ -1514,12 +1552,12 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                                 frame.CodedPayload,
                                 acStart,
                                 dcPreDecode ? 1 : 0,
-                                useBundleB: false);
+                                false);
                             bundleBBits = ProbeResidualLength(
                                 frame.CodedPayload,
                                 acStart,
                                 dcPreDecode ? 1 : 0,
-                                useBundleB: true);
+                                true);
                         }
                         else
                         {
@@ -1529,10 +1567,10 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
 
                         Vid1CoefficientDecoder.DecodeBlock(
                             vlcReader,
-                            useBundleB: true,
+                            true,
                             Vid1CoefficientDecoder.GetScanTable("zigzag"),
                             quant,
-                            startIndex: dcPreDecode ? 1 : 0);
+                            dcPreDecode ? 1 : 0);
                     }
 
                     if (shouldLogMb)
@@ -1548,7 +1586,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         }
         catch (Exception ex)
         {
-            log.Add($"FAIL: {ex.GetType().Name}: {ex.Message} vlc@{vlcReader.BitPosition} flag@{flagReader.BitPosition}");
+            log.Add(
+                $"FAIL: {ex.GetType().Name}: {ex.Message} vlc@{vlcReader.BitPosition} flag@{flagReader.BitPosition}");
         }
 
         var message = string.Join("\n", log);
@@ -1609,7 +1648,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         catch (Exception ex)
         {
             log.Add($"FAIL: {ex.GetType().Name}: {ex.Message}");
-            log.Add($"reader state: vlc={vlcReader.BitPosition} flag={flagReader.BitPosition} current_q={currentQuantizer}");
+            log.Add(
+                $"reader state: vlc={vlcReader.BitPosition} flag={flagReader.BitPosition} current_q={currentQuantizer}");
         }
 
         var message = string.Join("\n", log);
@@ -1632,7 +1672,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         var reader = new Vid1BitReader(headerStream);
         var log = new List<string>();
         log.Add("=== Frame 1 header walk ===");
-        log.Add($"parsed frame: qp={frame.Quantizer} fwd={frame.ForwardCode} thr={frame.IntraDcThresholdIndex} coded={frame.CodedPayload.Length}");
+        log.Add(
+            $"parsed frame: qp={frame.Quantizer} fwd={frame.ForwardCode} thr={frame.IntraDcThresholdIndex} coded={frame.CodedPayload.Length}");
 
         var spritePointCount = frame.SpritePointCount;
 
@@ -1649,7 +1690,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             {
                 spritePointCount = reader.ReadBits(2);
                 var spriteWarpAccuracy = reader.ReadBits(2);
-                log.Add($"spritePointCount={spritePointCount} spriteWarpAccuracy={spriteWarpAccuracy} bit={reader.BitPosition}");
+                log.Add(
+                    $"spritePointCount={spritePointCount} spriteWarpAccuracy={spriteWarpAccuracy} bit={reader.BitPosition}");
             }
         }
 
@@ -1707,7 +1749,8 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
 
         reader.AlignToNextByte();
         log.Add($"alignedBit={reader.BitPosition} codedOffset={12 + reader.BytesConsumed}");
-        log.Add("coded first16 from payload walk: " + string.Join(" ", payload.Skip(12 + reader.BytesConsumed).Take(16).Select(static b => $"{b:X2}")));
+        log.Add("coded first16 from payload walk: " + string.Join(" ",
+            payload.Skip(12 + reader.BytesConsumed).Take(16).Select(static b => $"{b:X2}")));
 
         var message = string.Join("\n", log);
         Console.WriteLine(message);
@@ -1715,4 +1758,6 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
 
         Assert.NotEmpty(log);
     }
+
+    private sealed record DiagnosticReaders(Vid1BitReader VlcReader, Vid1BitReader FlagReader, string Mode);
 }

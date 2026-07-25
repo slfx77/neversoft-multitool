@@ -2,13 +2,6 @@ using System.Security.Cryptography;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 
-internal readonly record struct ArchiveRwDffFingerprint(string MeshSha256, string TextureSha256);
-
-internal readonly record struct ArchiveRwDffCopyCandidate(
-    string FileName,
-    int NestingDepth,
-    ArchiveRwDffFingerprint? Fingerprint);
-
 /// <summary>
 ///     Selects exact nested RW-DFF copies that can be hidden in favor of a root-archive copy.
 ///     Both the mesh and same-stem texture payload must match; missing companions and variants remain.

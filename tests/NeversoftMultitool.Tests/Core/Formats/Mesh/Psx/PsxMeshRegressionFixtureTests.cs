@@ -4,7 +4,6 @@ using System.Text;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Psx;
 
@@ -201,11 +200,11 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal(1, PsxCharacterMeshResolver.GetObjectIndex(psxFile, 1));
         Assert.Equal(2, PsxCharacterMeshResolver.GetObjectIndex(psxFile, 2));
 
-        var resolved = PsxCharacterMeshResolver.ResolveVertex(psxFile, meshIndex: 0, vertexIndex: 0);
+        var resolved = PsxCharacterMeshResolver.ResolveVertex(psxFile, 0, 0);
         Assert.Equal(0, resolved.SourceObjectIndex);
         Assert.Equal(new Vector3(21f, 0f, 0f), resolved.WorldPosition);
 
-        var meshTwoOffset = PsxCharacterMeshResolver.GetObjectOffset(psxFile, meshIndex: 2);
+        var meshTwoOffset = PsxCharacterMeshResolver.GetObjectOffset(psxFile, 2);
         Assert.Equal(new Vector3(3f, 0f, 0f), meshTwoOffset);
     }
 
@@ -294,7 +293,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal(2, PsxCharacterMeshResolver.GetObjectIndex(psxFile, 1));
         Assert.Equal(0, PsxCharacterMeshResolver.GetObjectIndex(psxFile, 2));
 
-        var resolved = PsxCharacterMeshResolver.ResolveVertex(psxFile, meshIndex: 2, vertexIndex: 0);
+        var resolved = PsxCharacterMeshResolver.ResolveVertex(psxFile, 2, 0);
         Assert.Equal(0, resolved.SourceObjectIndex);
         Assert.Equal(new Vector3(11f, 0f, 0f), resolved.WorldPosition);
     }
@@ -445,7 +444,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.NotNull(psxFile);
 
         var initial = PsxVisibilityResolver.Resolve(
-            source, "sk2def.psx", psxFile, overrides: null);
+            source, "sk2def.psx", psxFile, null);
         Assert.Equal(3, initial.Groups.Count);
         Assert.All(initial.Groups, static group =>
         {

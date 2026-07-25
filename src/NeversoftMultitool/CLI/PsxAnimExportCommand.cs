@@ -1,8 +1,6 @@
 using System.CommandLine;
-using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
-using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -186,17 +184,17 @@ public static class PsxAnimExportCommand
             if (!TryParseBoneList(flatBones, "--psx-flat-bones", out var flatBoneFilter))
                 return Task.FromResult(1);
             var opts = new PsxAnimationOptions(
-                SkipRotation: noRot,
-                SkipTranslation: noTrans,
-                RotationCompose: ParseRotCompose(rotCompose ?? "yxz"),
-                Fps: fps,
-                LegacyRotationChain: legacyChain,
-                RotationScale: SanitizeRotationScale(rotScale),
-                TranslationBoneFilter: translationBoneFilter,
-                TranslationDivisorScale: SanitizePositiveScale(transDivisorScale, "--trans-divisor-scale"),
-                AbsoluteTranslation: transAbsolute,
-                EngineWorldTranslation: transEngineWorld,
-                OneShot: oneShot);
+                noRot,
+                noTrans,
+                ParseRotCompose(rotCompose ?? "yxz"),
+                fps,
+                legacyChain,
+                SanitizeRotationScale(rotScale),
+                translationBoneFilter,
+                SanitizePositiveScale(transDivisorScale, "--trans-divisor-scale"),
+                transAbsolute,
+                transEngineWorld,
+                oneShot);
             return Task.FromResult(PsxAnimExportRunner.Run(
                 input, output, animSource, anim, name, opts, format, blenderHelper,
                 flatSkeleton, flatBoneFilter, verbose));
@@ -244,7 +242,8 @@ public static class PsxAnimExportCommand
             return true;
 
         var parsed = new HashSet<int>();
-        foreach (var rawPart in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var rawPart in value.Split(',',
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var dash = rawPart.IndexOf('-', StringComparison.Ordinal);
             if (dash > 0)

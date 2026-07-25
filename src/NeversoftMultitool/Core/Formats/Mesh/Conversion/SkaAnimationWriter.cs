@@ -1,6 +1,6 @@
+using System.Numerics;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -198,10 +198,4 @@ internal static class SkaAnimationWriter
 
         return null;
     }
-}
-
-internal enum SkaCompositionMode
-{
-    Raw,
-    BindComposed
 }

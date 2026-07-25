@@ -14,7 +14,9 @@ namespace NeversoftMultitool.CLI;
 
 public static class MeshCommand
 {
-    private static readonly string[] XbxSceneSuffixes = [".skin.xbx", ".mdl.xbx", ".scn.xbx", ".skin.wpc", ".mdl.wpc", ".scn.wpc", ".skin.ngc", ".mdl.ngc", ".scn.ngc"];
+    private static readonly string[] XbxSceneSuffixes =
+        [".skin.xbx", ".mdl.xbx", ".scn.xbx", ".skin.wpc", ".mdl.wpc", ".scn.wpc", ".skin.ngc", ".mdl.ngc", ".scn.ngc"];
+
     private static readonly string[] Ps2SceneSuffixes = [".skin.ps2", ".mdl.ps2", ".iskin.ps2"];
     private static readonly string[] CollisionSuffixes = [".col.xbx", ".col.wpc", ".col.ps2", ".col.psp"];
     private static readonly string[] AmbiguousSceneSuffixes = [".skin", ".mdl"];

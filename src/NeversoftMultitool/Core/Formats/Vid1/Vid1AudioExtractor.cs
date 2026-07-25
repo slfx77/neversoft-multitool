@@ -69,7 +69,8 @@ public static class Vid1AudioExtractor
             if (requestedTrack < 0 || requestedTrack >= tracks.Count)
                 return new AudioConvertResult { ErrorMessage = $"VID1 track {requestedTrack} does not exist" };
 
-            return ConvertTrackToWav(tracks[requestedTrack], TrackOutputPath(outputDir, stem, requestedTrack), ffmpeg, out error)
+            return ConvertTrackToWav(tracks[requestedTrack], TrackOutputPath(outputDir, stem, requestedTrack), ffmpeg,
+                out error)
                 ? new AudioConvertResult { Success = true, SamplesWritten = 1 }
                 : new AudioConvertResult { ErrorMessage = error };
         }
@@ -133,7 +134,8 @@ public static class Vid1AudioExtractor
         }
     }
 
-    internal static bool TryDecodeToPcm16(string inputPath, out Vid1PcmAudio? audio, out string error, int trackIndex = 0)
+    internal static bool TryDecodeToPcm16(string inputPath, out Vid1PcmAudio? audio, out string error,
+        int trackIndex = 0)
     {
         audio = null;
 
@@ -174,7 +176,8 @@ public static class Vid1AudioExtractor
         }
     }
 
-    internal static bool TryProbe(string inputPath, out Vid1AudioProbeResult? probe, out string error, int trackIndex = 0)
+    internal static bool TryProbe(string inputPath, out Vid1AudioProbeResult? probe, out string error,
+        int trackIndex = 0)
     {
         probe = null;
         if (!TryReadTrack(inputPath, trackIndex, out var track, out error, out var trackCount))
@@ -186,7 +189,8 @@ public static class Vid1AudioExtractor
         return true;
     }
 
-    internal static bool TryProbeTracks(string inputPath, out IReadOnlyList<Vid1AudioProbeResult> probes, out string error)
+    internal static bool TryProbeTracks(string inputPath, out IReadOnlyList<Vid1AudioProbeResult> probes,
+        out string error)
     {
         probes = [];
 

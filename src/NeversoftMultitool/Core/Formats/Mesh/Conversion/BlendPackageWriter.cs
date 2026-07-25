@@ -46,7 +46,8 @@ internal static class BlendPackageWriter
         }).ToList();
         var animations = WriteAnimations(document, archive);
 
-        var manifest = BlendPackageManifest.FromDocument(document, blendPath, textures, meshes, nodes, skeletons, animations);
+        var manifest =
+            BlendPackageManifest.FromDocument(document, blendPath, textures, meshes, nodes, skeletons, animations);
         var manifestEntry = archive.CreateEntry("manifest.json", CompressionLevel.Fastest);
         using var manifestStream = manifestEntry.Open();
         JsonSerializer.Serialize(manifestStream, manifest, BlendPackageManifest.JsonOptions);

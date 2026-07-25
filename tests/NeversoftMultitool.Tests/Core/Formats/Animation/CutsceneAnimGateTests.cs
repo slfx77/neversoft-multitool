@@ -22,22 +22,30 @@ public class CutsceneAnimGateTests
         // and the key totals would not match the header.
         using var ms = new MemoryStream();
         using var w = new BinaryWriter(ms);
-        w.Write(1u);                       // version
+        w.Write(1u); // version
         w.Write(FlagPlatform | FlagObjectAnimData); // flags
-        w.Write(0f);                       // duration
-        w.Write(2u);                       // numBones
-        w.Write(1u);                       // numQKeys
-        w.Write(1u);                       // numTKeys
-        w.Write(0u);                       // numCustomKeys
-        w.Write(0xAAAA0001u);              // bone-name QbKey [0]
-        w.Write(0xBBBB0002u);              // bone-name QbKey [1]
-        w.Write((byte)1); w.Write((byte)0); // bone 0: 1 Q, 0 T
-        w.Write((byte)0); w.Write((byte)1); // bone 1: 0 Q, 1 T
+        w.Write(0f); // duration
+        w.Write(2u); // numBones
+        w.Write(1u); // numQKeys
+        w.Write(1u); // numTKeys
+        w.Write(0u); // numCustomKeys
+        w.Write(0xAAAA0001u); // bone-name QbKey [0]
+        w.Write(0xBBBB0002u); // bone-name QbKey [1]
+        w.Write((byte)1);
+        w.Write((byte)0); // bone 0: 1 Q, 0 T
+        w.Write((byte)0);
+        w.Write((byte)1); // bone 1: 0 Q, 1 T
         // per-bone frames = 4 bytes, already 4-aligned
         // Q key (standard, 8 bytes): header + 3×i16
-        w.Write((ushort)0); w.Write((short)0); w.Write((short)0); w.Write((short)0);
+        w.Write((ushort)0);
+        w.Write((short)0);
+        w.Write((short)0);
+        w.Write((short)0);
         // T key (standard, 8 bytes): timestamp + 3×i16
-        w.Write((short)0); w.Write((short)32); w.Write((short)0); w.Write((short)0);
+        w.Write((short)0);
+        w.Write((short)32);
+        w.Write((short)0);
+        w.Write((short)0);
 
         var anim = SkaFile.Parse(ms.ToArray());
 
@@ -61,16 +69,25 @@ public class CutsceneAnimGateTests
         const int numBones = 2;
         using var ms = new MemoryStream();
         using var w = new BinaryWriter(ms);
-        w.Write(2);          // version
-        w.Write(0);          // flags
-        w.Write(numBones);   // numBones
-        w.Write(0x1111u); w.Write(0x2222u);   // bone names
-        w.Write(0u); w.Write(0x1111u);        // parents (bone 1's parent = bone 0)
-        w.Write(0u); w.Write(0u);             // flip names
+        w.Write(2); // version
+        w.Write(0); // flags
+        w.Write(numBones); // numBones
+        w.Write(0x1111u);
+        w.Write(0x2222u); // bone names
+        w.Write(0u);
+        w.Write(0x1111u); // parents (bone 1's parent = bone 0)
+        w.Write(0u);
+        w.Write(0u); // flip names
         for (var i = 0; i < numBones; i++)
         {
-            w.Write(0f); w.Write(0f); w.Write(0f); w.Write(1f); // identity quat
-            w.Write(0f); w.Write(0f); w.Write(0f); w.Write(0f); // zero translation + w
+            w.Write(0f);
+            w.Write(0f);
+            w.Write(0f);
+            w.Write(1f); // identity quat
+            w.Write(0f);
+            w.Write(0f);
+            w.Write(0f);
+            w.Write(0f); // zero translation + w
         }
 
         var data = ms.ToArray();
@@ -93,14 +110,20 @@ public class CutsceneAnimGateTests
         using var ms = new MemoryStream();
         using var w = new BinaryWriter(ms);
         w.Write(0x222756D5u); // constant THUG checksum
-        w.Write(2);           // version
-        w.Write(0);           // flags
-        w.Write(numBones);    // numBones
-        w.Write(0x3333u);     // bone name
-        w.Write(0u);          // parent
-        w.Write(0u);          // flip
-        w.Write(0f); w.Write(0f); w.Write(0f); w.Write(1f);
-        w.Write(0f); w.Write(0f); w.Write(0f); w.Write(0f);
+        w.Write(2); // version
+        w.Write(0); // flags
+        w.Write(numBones); // numBones
+        w.Write(0x3333u); // bone name
+        w.Write(0u); // parent
+        w.Write(0u); // flip
+        w.Write(0f);
+        w.Write(0f);
+        w.Write(0f);
+        w.Write(1f);
+        w.Write(0f);
+        w.Write(0f);
+        w.Write(0f);
+        w.Write(0f);
 
         var skeleton = SkeletonFile.Parse(ms.ToArray());
         Assert.Single(skeleton.Bones);

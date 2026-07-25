@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
-using NeversoftMultitool.Tests.Helpers;
 
 [assembly: AssemblyFixture(typeof(TestPaths))]
 
@@ -61,10 +60,10 @@ public class TestPaths
     public bool HasGoldenFiles => GoldenFilesDir != null && Directory.Exists(GoldenFilesDir);
 
     /// <summary>
-    /// Locates a file by its bare filename inside Sample/Builds/{buildName}/. The first call for a
-    /// given build builds an in-memory index by walking the build tree; subsequent calls hit the
-    /// cache. Lookup is case-insensitive. If multiple files share the same name, the indexer keeps
-    /// the last one encountered — callers needing disambiguation should use <see cref="FindSampleFiles"/>.
+    ///     Locates a file by its bare filename inside Sample/Builds/{buildName}/. The first call for a
+    ///     given build builds an in-memory index by walking the build tree; subsequent calls hit the
+    ///     cache. Lookup is case-insensitive. If multiple files share the same name, the indexer keeps
+    ///     the last one encountered — callers needing disambiguation should use <see cref="FindSampleFiles" />.
     /// </summary>
     public string? FindSampleFile(string buildName, string fileName)
     {
@@ -73,8 +72,8 @@ public class TestPaths
     }
 
     /// <summary>
-    /// Enumerates files matching a glob pattern under Sample/Builds/{buildName}/, recursively.
-    /// Returns an empty sequence when the build directory does not exist.
+    ///     Enumerates files matching a glob pattern under Sample/Builds/{buildName}/, recursively.
+    ///     Returns an empty sequence when the build directory does not exist.
     /// </summary>
     public IEnumerable<string> FindSampleFiles(string buildName, string searchPattern)
     {
@@ -85,8 +84,10 @@ public class TestPaths
             : [];
     }
 
-    private FrozenDictionary<string, string> GetBuildIndex(string buildName) =>
-        _buildIndex.GetOrAdd(buildName, BuildIndex);
+    private FrozenDictionary<string, string> GetBuildIndex(string buildName)
+    {
+        return _buildIndex.GetOrAdd(buildName, BuildIndex);
+    }
 
     private FrozenDictionary<string, string> BuildIndex(string buildName)
     {

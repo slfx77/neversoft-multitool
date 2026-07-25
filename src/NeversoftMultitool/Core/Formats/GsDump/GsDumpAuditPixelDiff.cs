@@ -154,5 +154,4 @@ internal static class GsDumpAuditPixelDiff
             .Take(10)
             .ToList();
     }
-
 }

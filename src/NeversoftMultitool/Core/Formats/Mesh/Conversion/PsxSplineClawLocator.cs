@@ -15,15 +15,11 @@ internal static class PsxSplineClawLocator
 {
     internal const uint ClawMeshHash = 0xCAB96557;
 
-    internal sealed record ResolvedClaw(
-        PsxMeshFile File,
-        MeshChecksumTextureResolver? TextureProvider);
-
     internal static ResolvedClaw? Locate(AssetSource characterSource)
     {
         if (characterSource.TryReadCompanion("claw.psx") is { } clawBytes)
         {
-            var clawFile = TryParse(clawBytes, bakeColourPulses: true);
+            var clawFile = TryParse(clawBytes, true);
             if (clawFile != null)
             {
                 // The retail claw is a complete sibling PSX with its own
@@ -55,7 +51,7 @@ internal static class PsxSplineClawLocator
 
             // Bank semantics: keep the raw serialized palette (see
             // PsxSurfaceAnimationReader — pulses don't bake for _o banks).
-            var bank = TryParse(bankBytes, bakeColourPulses: false);
+            var bank = TryParse(bankBytes, false);
             if (bank == null)
                 continue;
 
@@ -135,4 +131,8 @@ internal static class PsxSplineClawLocator
             return null;
         }
     }
+
+    internal sealed record ResolvedClaw(
+        PsxMeshFile File,
+        MeshChecksumTextureResolver? TextureProvider);
 }

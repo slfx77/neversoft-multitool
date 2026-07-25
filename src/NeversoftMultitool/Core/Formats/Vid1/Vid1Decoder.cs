@@ -135,9 +135,15 @@ public sealed class Vid1Decoder
     }
 
     /// <summary>Seek-anchor capture/restore of the cross-frame prediction state.</summary>
-    internal Vid1ReferenceSnapshot CaptureReferenceState() => _context.CaptureReferenceState();
+    internal Vid1ReferenceSnapshot CaptureReferenceState()
+    {
+        return _context.CaptureReferenceState();
+    }
 
-    internal void RestoreReferenceState(Vid1ReferenceSnapshot snapshot) => _context.RestoreReferenceState(snapshot);
+    internal void RestoreReferenceState(Vid1ReferenceSnapshot snapshot)
+    {
+        _context.RestoreReferenceState(snapshot);
+    }
 
     /// <summary>
     ///     Rebuilds the BGRA image of the current reference frame. Valid
@@ -147,7 +153,8 @@ public sealed class Vid1Decoder
     /// </summary>
     internal void ConvertReferencePlanesToBgra(Span<byte> destination)
     {
-        Vid1YuvToRgb.ConvertToBgra(_context.ReferenceY, _context.ReferenceCb, _context.ReferenceCr, Width, Height, destination);
+        Vid1YuvToRgb.ConvertToBgra(_context.ReferenceY, _context.ReferenceCb, _context.ReferenceCr, Width, Height,
+            destination);
     }
 
     private void DecodeFrameToPlanes(Vid1VideoFrame frame)
@@ -618,10 +625,10 @@ public sealed class Vid1Decoder
     }
 
     private static bool ShouldPromoteOutputToReference(Vid1VideoFrame frame)
-    // FUN_8029978C routes class-2 frames through the B-frame display path
-    // without making that output the future prediction reference.
+        // FUN_8029978C routes class-2 frames through the B-frame display path
+        // without making that output the future prediction reference.
     {
-    return frame.PreambleClass != 2;
+        return frame.PreambleClass != 2;
     }
 
     private static int GetRoundingBias(Vid1VideoFrame frame)

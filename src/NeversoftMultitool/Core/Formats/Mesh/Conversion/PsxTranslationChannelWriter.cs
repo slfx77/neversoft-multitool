@@ -11,7 +11,6 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 /// </summary>
 internal static class PsxTranslationChannelWriter
 {
-
     /// <summary>
     ///     Emits translation channels for one clip. When the translation
     ///     hierarchy differs from the glTF parent chain (external banks), the
@@ -28,7 +27,8 @@ internal static class PsxTranslationChannelWriter
     {
         if (ctx.FlatTranslations
             || options.EngineWorldTranslation
-            || !PsxAnimationChannelWriter.ParentIndicesMatch(ctx.EngineParentIndices, ctx.GltfParentIndices, ctx.BoneCount))
+            || !PsxAnimationChannelWriter.ParentIndicesMatch(ctx.EngineParentIndices, ctx.GltfParentIndices,
+                ctx.BoneCount))
         {
             AppendPsxEngineWorldTranslationChannels(
                 modelAnim, in ctx, options.TranslationBoneFilter);
@@ -99,23 +99,6 @@ internal static class PsxTranslationChannelWriter
             Interpolation = ModelAnimationInterpolation.Linear
         };
     }
-
-    internal readonly record struct PsxTranslationChannelContext(
-        int SkeletonIndex,
-        ModelSkeleton Skeleton,
-        PsxAnimation Animation,
-        int[] GltfParentIndices,
-        int[] EngineParentIndices,
-        int BoneCount,
-        int FrameCount,
-        float Fps,
-        float TranslationDivisor,
-        PsxRotationCompose Compose,
-        bool LegacyRotationChain,
-        float RotationScale,
-        bool AbsoluteTranslation,
-        bool SkipRotation,
-        bool FlatTranslations = false);
 
 
     private static void AppendPsxEngineWorldTranslationChannels(
@@ -290,4 +273,21 @@ internal static class PsxTranslationChannelWriter
             Interpolation = ModelAnimationInterpolation.Linear
         };
     }
+
+    internal readonly record struct PsxTranslationChannelContext(
+        int SkeletonIndex,
+        ModelSkeleton Skeleton,
+        PsxAnimation Animation,
+        int[] GltfParentIndices,
+        int[] EngineParentIndices,
+        int BoneCount,
+        int FrameCount,
+        float Fps,
+        float TranslationDivisor,
+        PsxRotationCompose Compose,
+        bool LegacyRotationChain,
+        float RotationScale,
+        bool AbsoluteTranslation,
+        bool SkipRotation,
+        bool FlatTranslations = false);
 }

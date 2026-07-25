@@ -1,19 +1,5 @@
-using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh.Ddm;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
-using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene.Ps2Scene;
-using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
-using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -23,6 +9,16 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 /// </summary>
 internal static class PsxGeometryWriter
 {
+    /// <summary>
+    ///     Lift applied to ordering-table overlays along their outward normal,
+    ///     in glTF units. The PS1 has no depth buffer — transparent shadows and
+    ///     opaque decals alike can sit exactly coplanar with their base face and
+    ///     win by draw order — but depth-tested glTF viewers z-fight. 0.25 is
+    ///     below the minimum level-geometry grid step (1 raw unit / 2.25 ≈
+    ///     0.44), so the lift is invisible while clearing depth precision.
+    /// </summary>
+    private const float PsxOverlayFaceLift = 0.25f;
+
     public static void PopulatePsx(
         ModelDocument document,
         PsxMeshFile psxFile,
@@ -85,7 +81,7 @@ internal static class PsxGeometryWriter
                     // their node index so repeats stay distinguishable.
                     var nodeName = placements.Count == 1
                                    || placement.TriggerNodeIndex ==
-                                       PsxLevelObjectPlacementResolver.BankInstanceNodeIndex
+                                   PsxLevelObjectPlacementResolver.BankInstanceNodeIndex
                         ? $"{nodeNamePrefix}_{objectIndex:D3}"
                         : $"{nodeNamePrefix}_{objectIndex:D3}_node_{placement.TriggerNodeIndex:D3}";
                     PopulatePsxMeshNode(
@@ -122,20 +118,6 @@ internal static class PsxGeometryWriter
         }
 
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
-    }
-
-    internal sealed class PsxGeometryWriterContext
-    {
-        // Level geometry and object regions are loaded into one runtime hash
-        // namespace. Share their material cache so an identical native
-        // texture/render-state tuple remains one material in the assembled
-        // document, just as it is in the game.
-        internal Dictionary<uint, (int Width, int Height)> TextureDimensions { get; } = [];
-
-        internal Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>
-            Materials { get; } = [];
-
-        internal int? UntexturedMaterialIndex { get; set; }
     }
 
     private static void PopulatePsxMeshNode(
@@ -190,21 +172,12 @@ internal static class PsxGeometryWriter
                     texDims,
                     coplanarOverlays.Contains(new PsxFaceInstanceKey(objectIndex, item.FaceIndex)));
 
-            ModelDocumentGeometryAdapter.AddPrimitive(mesh, $"mat_{materialIndex:D3}", materialIndex, vertices, indices);
+            ModelDocumentGeometryAdapter.AddPrimitive(mesh, $"mat_{materialIndex:D3}", materialIndex, vertices,
+                indices);
         }
 
         ModelDocumentGeometryAdapter.AddMeshNode(document, nodeName, mesh, transform);
     }
-
-    /// <summary>
-    ///     Lift applied to ordering-table overlays along their outward normal,
-    ///     in glTF units. The PS1 has no depth buffer — transparent shadows and
-    ///     opaque decals alike can sit exactly coplanar with their base face and
-    ///     win by draw order — but depth-tested glTF viewers z-fight. 0.25 is
-    ///     below the minimum level-geometry grid step (1 raw unit / 2.25 ≈
-    ///     0.44), so the lift is invisible while clearing depth precision.
-    /// </summary>
-    private const float PsxOverlayFaceLift = 0.25f;
 
     private static void AddPsxFace(
         List<ModelVertex> vertices,
@@ -300,6 +273,7 @@ internal static class PsxGeometryWriter
             var gouraudFlag = face.IsGouraud ? 1f : 0f;
             psxPrimitiveFlags = new Vector3(texturedFlag, gouraudFlag, 1f);
         }
+
         if (vertexIndex >= mesh.Vertices.Count)
         {
             return new ModelVertex(Vector3.Zero, Vector3.UnitY, color, Vector2.Zero)
@@ -315,11 +289,26 @@ internal static class PsxGeometryWriter
             new Vector3(nativeVertex.X, -nativeVertex.Y, -nativeVertex.Z),
             PsxGeometryHelpers.ComputePsxVertexNormal(mesh, face, vertexIndex),
             color,
-            PsxGeometryHelpers.ComputePsxTextureUv(version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height))
+            PsxGeometryHelpers.ComputePsxTextureUv(version, face, texCoord.U, texCoord.V, texDims.Width,
+                texDims.Height))
         {
             PsxPacketColor = psxPacketColor,
             PsxPrimitiveFlags = psxPrimitiveFlags,
             TextureWibble = ModelTextureWibble.FromFace(version, face, slot, texDims)
         };
+    }
+
+    internal sealed class PsxGeometryWriterContext
+    {
+        // Level geometry and object regions are loaded into one runtime hash
+        // namespace. Share their material cache so an identical native
+        // texture/render-state tuple remains one material in the assembled
+        // document, just as it is in the game.
+        internal Dictionary<uint, (int Width, int Height)> TextureDimensions { get; } = [];
+
+        internal Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>
+            Materials { get; } = [];
+
+        internal int? UntexturedMaterialIndex { get; set; }
     }
 }

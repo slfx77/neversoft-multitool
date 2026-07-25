@@ -4,20 +4,12 @@ using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
 
-/// <summary>Located monolithic anim table: chunk base + entry table.</summary>
-internal sealed record PsxAnimHierLocation(
-    long Base,
-    int NumStreams,
-    int[] FrameCounts,
-    int[] PoolOffsets);
-
 /// <summary>
 ///     Layers 1-3 of the psxanim probe: raw hex/u32 dumps and the
 ///     speculative anim-packet + per-bone hierarchy walks.
 /// </summary>
 internal static class PsxAnimDumpWalker
 {
-
     // ─── Layer 1 helpers ────────────────────────────────────────────────
 
     internal static void DumpHex(byte[] data, long offset, int length)
@@ -55,6 +47,7 @@ internal static class PsxAnimDumpWalker
             {
                 marker = "[yellow]neg/ptr[/]";
             }
+
             AnsiConsole.MarkupLine($"  [grey]+0x{i * 4:X2}[/] u32=0x{v:X8} ({sv,12:N0})  {marker}");
         }
     }
@@ -156,7 +149,9 @@ internal static class PsxAnimDumpWalker
     ///                 <item>
     ///                     <c>+0x04: u16 frameCount</c>
     ///                 </item>
-    ///                 <item><c>+0x06: u16 tweenFlag</c></item>
+    ///                 <item>
+    ///                     <c>+0x06: u16 tweenFlag</c>
+    ///                 </item>
     ///             </list>
     ///         </item>
     ///         <item>Stream pool normally starts at <c>+0x04 + numEntries*8</c>.</item>

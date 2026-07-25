@@ -1,6 +1,5 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
-using NeversoftMultitool.Core.Formats.Video;
-using NeversoftMultitool.Tests.Helpers;
 using NeversoftMultitool.Core.Formats.Vid1;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Video;
@@ -16,7 +15,7 @@ public class Vid1DecoderTests(TestPaths paths)
         if (!paths.HasSampleBuilds) return null;
         var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
             .FirstOrDefault(d => Path.GetFileName(d).Contains("American Wasteland", StringComparison.OrdinalIgnoreCase)
-                              && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
+                                 && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
         if (buildDir == null) return null;
 
         var candidate = Path.Combine(buildDir, "movies", "vid", "intro.vid");
@@ -32,7 +31,7 @@ public class Vid1DecoderTests(TestPaths paths)
         if (!paths.HasSampleBuilds) return null;
         var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
             .FirstOrDefault(d => Path.GetFileName(d).Contains("American Wasteland", StringComparison.OrdinalIgnoreCase)
-                              && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
+                                 && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
         if (buildDir == null) return null;
 
         var candidate = Path.Combine(buildDir, "movies", "vid", "atvi.vid");
@@ -48,7 +47,7 @@ public class Vid1DecoderTests(TestPaths paths)
         if (!paths.HasSampleBuilds) return null;
         var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
             .FirstOrDefault(d => Path.GetFileName(d).Contains("American Wasteland", StringComparison.OrdinalIgnoreCase)
-                              && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
+                                 && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
         if (buildDir == null) return null;
 
         var candidate = Path.Combine(buildDir, "movies", "vid", "credits.vid");
@@ -237,7 +236,7 @@ public class Vid1DecoderTests(TestPaths paths)
         var stats = decoder.LastFrameStats;
         Assert.Equal(0, stats.FrameIndex);
         Assert.Equal(file.Frames[0].PreambleClass, stats.PreambleClass);
-        Assert.Equal(((file.Width + 15) / 16) * ((file.Height + 15) / 16), stats.TotalMacroblocks);
+        Assert.Equal((file.Width + 15) / 16 * ((file.Height + 15) / 16), stats.TotalMacroblocks);
         Assert.InRange(stats.DecodedMacroblocks + stats.FailedMacroblocks, 1, stats.TotalMacroblocks);
         Assert.Equal(0, stats.UnsupportedClass2Branches);
         Assert.Equal(0, stats.Class2FieldOrGmcBranches);
@@ -258,7 +257,7 @@ public class Vid1DecoderTests(TestPaths paths)
 
         PrepareAllocationMeasurement();
         var before = GC.GetAllocatedBytesForCurrentThread();
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sw = Stopwatch.StartNew();
         var decoded = 0;
         while (decoded < frameLimit && provider.DecodeNextFrame() != null)
             decoded++;
@@ -270,7 +269,8 @@ public class Vid1DecoderTests(TestPaths paths)
         Console.WriteLine(
             $"VID1 BGRA object path: decoded={decoded} fps={fps:F2} alloc={allocatedBytesPerFrame / 1024.0:F1} KB/frame");
         Assert.True(fps >= 45.0, $"VID1 BGRA decode was {fps:F2} fps");
-        Assert.True(allocatedBytesPerFrame <= 2 * 1024 * 1024, $"VID1 BGRA allocated {allocatedBytesPerFrame / 1024.0:F1} KB/frame");
+        Assert.True(allocatedBytesPerFrame <= 2 * 1024 * 1024,
+            $"VID1 BGRA allocated {allocatedBytesPerFrame / 1024.0:F1} KB/frame");
     }
 
     [Fact]
@@ -289,7 +289,7 @@ public class Vid1DecoderTests(TestPaths paths)
 
         PrepareAllocationMeasurement();
         var before = GC.GetAllocatedBytesForCurrentThread();
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sw = Stopwatch.StartNew();
         var decoded = 0;
         while (decoded < frameLimit && provider.TryDecodeNextFrame(destination, out _))
             decoded++;
@@ -301,7 +301,8 @@ public class Vid1DecoderTests(TestPaths paths)
         Console.WriteLine(
             $"VID1 BGRA span path: decoded={decoded} fps={fps:F2} alloc={allocatedBytesPerFrame / 1024.0:F1} KB/frame");
         Assert.True(fps >= 60.0, $"VID1 BGRA span decode was {fps:F2} fps");
-        Assert.True(allocatedBytesPerFrame <= 64 * 1024, $"VID1 BGRA span decode allocated {allocatedBytesPerFrame / 1024.0:F1} KB/frame");
+        Assert.True(allocatedBytesPerFrame <= 64 * 1024,
+            $"VID1 BGRA span decode allocated {allocatedBytesPerFrame / 1024.0:F1} KB/frame");
     }
 
     [Fact]
@@ -321,7 +322,7 @@ public class Vid1DecoderTests(TestPaths paths)
 
         PrepareAllocationMeasurement();
         var before = GC.GetAllocatedBytesForCurrentThread();
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sw = Stopwatch.StartNew();
         var decoded = 0;
         while (decoded < frameLimit && provider.TryDecodeNextFrame(destination, out _))
         {
@@ -337,7 +338,8 @@ public class Vid1DecoderTests(TestPaths paths)
         Console.WriteLine(
             $"VID1 RGB span->null path: decoded={decoded} fps={fps:F2} alloc={allocatedBytesPerFrame / 1024.0:F1} KB/frame");
         Assert.True(fps >= 45.0, $"VID1 RGB span->null decode was {fps:F2} fps");
-        Assert.True(allocatedBytesPerFrame <= 16 * 1024, $"VID1 RGB span->null decode allocated {allocatedBytesPerFrame / 1024.0:F1} KB/frame");
+        Assert.True(allocatedBytesPerFrame <= 16 * 1024,
+            $"VID1 RGB span->null decode allocated {allocatedBytesPerFrame / 1024.0:F1} KB/frame");
     }
 
     [Fact]
@@ -351,8 +353,8 @@ public class Vid1DecoderTests(TestPaths paths)
 
         AssertPresentationHash(
             path,
-            frameLimit: 61,
-            expectedSha256: "edc66c3357309c403657c9c08030458e9728fdae3a9b0ce8bdaf7e2d9fec9eb7");
+            61,
+            "edc66c3357309c403657c9c08030458e9728fdae3a9b0ce8bdaf7e2d9fec9eb7");
     }
 
     [Fact]
@@ -366,8 +368,8 @@ public class Vid1DecoderTests(TestPaths paths)
 
         AssertPresentationHash(
             path,
-            frameLimit: 120,
-            expectedSha256: "9fd9d8a17506381f0cfdfc30ca6ed3646dbdac5caea1b48a05f494bd3994b2a4");
+            120,
+            "9fd9d8a17506381f0cfdfc30ca6ed3646dbdac5caea1b48a05f494bd3994b2a4");
     }
 
     [Fact]
@@ -381,8 +383,8 @@ public class Vid1DecoderTests(TestPaths paths)
 
         AssertPresentationHash(
             path,
-            frameLimit: 120,
-            expectedSha256: "c0909be665aec7be74ce7fde6493d1dbd862cdd2d7f45ea50e983c589581169a");
+            120,
+            "c0909be665aec7be74ce7fde6493d1dbd862cdd2d7f45ea50e983c589581169a");
     }
 
     [Fact]
@@ -406,7 +408,7 @@ public class Vid1DecoderTests(TestPaths paths)
         long sum = 0;
         for (var x = 0; x < result.Width; x++)
         {
-            var offset = rowOffset + (x * 3);
+            var offset = rowOffset + x * 3;
             sum += result.Rgb24[offset];
             sum += result.Rgb24[offset + 1];
             sum += result.Rgb24[offset + 2];

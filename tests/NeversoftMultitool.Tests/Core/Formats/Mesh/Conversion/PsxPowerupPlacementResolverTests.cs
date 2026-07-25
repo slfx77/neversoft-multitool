@@ -3,7 +3,6 @@ using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Trg;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 
@@ -16,11 +15,13 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 public sealed class PsxPowerupPlacementResolverTests(TestPaths paths)
 {
     private const uint WebCartridge = 0x17646B0D; // model 1, pickupType 8
-    private const uint QuestionMark = 0x7F648179;  // model 5, pickupType 11
-    private const uint PanelModel6 = 0x12820A41;   // model 6, April-29/final type 12
-    private const uint PanelModel7 = 0xA092D785;   // model 7, final types 10/18
-    private const uint ThpsLetterS = 0x311D55D4;   // THPS items 'S' letter, pickupType 5
-    private const uint ThpsLetterK = 0x2328A71C;   // THPS items 'K' letter, pickupType 4
+    private const uint QuestionMark = 0x7F648179; // model 5, pickupType 11
+    private const uint PanelModel6 = 0x12820A41; // model 6, April-29/final type 12
+    private const uint PanelModel7 = 0xA092D785; // model 7, final types 10/18
+    private const uint ThpsLetterS = 0x311D55D4; // THPS items 'S' letter, pickupType 5
+    private const uint ThpsLetterK = 0x2328A71C; // THPS items 'K' letter, pickupType 4
+    private const uint ApocMarker = 0x350E968C; // Apocalypse items, pickupType 4
+    private const uint ApocType5 = 0xD40B155E; // Apocalypse items, pickupType 5
     private const float Divisor = 2.25f;
 
     [Fact]
@@ -28,8 +29,8 @@ public sealed class PsxPowerupPlacementResolverTests(TestPaths paths)
     {
         // items with cartridge at object index 1.
         var items = BuildItems([0xB08EC1FB, WebCartridge]);
-        var trg = BuildTrg(spiderMan: true,
-            Powerup(index: 7, pickupType: 8, rawX: 900, rawY: 450, rawZ: -1800));
+        var trg = BuildTrg(true,
+            Powerup(7, 8, 900, 450, -1800));
 
         var placements = PsxPowerupPlacementResolver.Resolve(trg, items, Divisor);
 
@@ -47,9 +48,9 @@ public sealed class PsxPowerupPlacementResolverTests(TestPaths paths)
     public void Resolve_SkipsUnmappedAndUnresolvableTypes()
     {
         var items = BuildItems([WebCartridge]); // only cartridge present
-        var trg = BuildTrg(spiderMan: true,
-            Powerup(1, pickupType: 99, rawX: 1, rawY: 2, rawZ: 3),   // not in any table
-            Powerup(2, pickupType: 11, rawX: 4, rawY: 5, rawZ: 6));  // "?" not in this items.psx
+        var trg = BuildTrg(true,
+            Powerup(1, 99, 1, 2, 3), // not in any table
+            Powerup(2, 11, 4, 5, 6)); // "?" not in this items.psx
 
         Assert.Null(PsxPowerupPlacementResolver.Resolve(trg, items, Divisor));
     }
@@ -62,7 +63,7 @@ public sealed class PsxPowerupPlacementResolverTests(TestPaths paths)
         // items.psx whose mesh set matches no known table (Apocalypse / unknown)
         // resolves to no pickup layer, regardless of TRG version.
         var unknownItems = BuildItems([0xDEADBEEF, 0x12345678]);
-        var trg = BuildTrg(spiderMan: false, Powerup(1, 8, 1, 2, 3));
+        var trg = BuildTrg(false, Powerup(1, 8, 1, 2, 3));
         Assert.Null(PsxPowerupPlacementResolver.Resolve(trg, unknownItems, Divisor));
     }
 
@@ -72,9 +73,9 @@ public sealed class PsxPowerupPlacementResolverTests(TestPaths paths)
         // THPS items.psx (the 'S' letter marks it) → THPS table; a v2.0 TRG's
         // SKATE-letter POWERUP nodes place from the items copy, translation-only.
         var items = BuildItems([ThpsLetterS, ThpsLetterK]);
-        var trg = BuildTrg(spiderMan: false,
-            Powerup(index: 1, pickupType: 5, rawX: 900, rawY: 0, rawZ: 0),  // 'S'
-            Powerup(index: 2, pickupType: 4, rawX: 0, rawY: 0, rawZ: 900)); // 'K'
+        var trg = BuildTrg(false,
+            Powerup(1, 5, 900, 0, 0), // 'S'
+            Powerup(2, 4, 0, 0, 900)); // 'K'
 
         var placements = PsxPowerupPlacementResolver.Resolve(trg, items, Divisor);
 
@@ -85,11 +86,28 @@ public sealed class PsxPowerupPlacementResolverTests(TestPaths paths)
     }
 
     [Fact]
+    public void Resolve_PlacesApocalypsePickupsAndSkipsPlusOneRegion()
+    {
+        // Apocalypse items.psx (marked by its pickupType-4 model) → Apocalypse
+        // table. Type 17 spools the "plus_one" region, not items, so it is skipped.
+        var items = BuildItems([ApocMarker, ApocType5]);
+        var trg = BuildTrg(false,
+            Powerup(1, 4, 900, 0, 0),
+            Powerup(2, 5, 0, 0, 900),
+            Powerup(3, 17, 0, 450, 0));
+
+        var placements = PsxPowerupPlacementResolver.Resolve(trg, items, Divisor);
+
+        Assert.NotNull(placements);
+        Assert.Equal(2, placements!.Count); // types 4 and 5 placed; 17 skipped
+    }
+
+    [Fact]
     public void Resolve_SelectsFinalTableWhenItemsHasModel7()
     {
         // Final items.psx carries model 7 → type 18 resolves to it.
         var items = BuildItems([0xB08EC1FB, WebCartridge, PanelModel6, PanelModel7]);
-        var trg = BuildTrg(spiderMan: true, Powerup(1, pickupType: 18, rawX: 100, rawY: 0, rawZ: 0));
+        var trg = BuildTrg(true, Powerup(1, 18, 100, 0, 0));
 
         var placements = PsxPowerupPlacementResolver.Resolve(trg, items, Divisor);
 
@@ -103,9 +121,9 @@ public sealed class PsxPowerupPlacementResolverTests(TestPaths paths)
     {
         // Feb proto items.psx (no m6/m7): type 12 has no case → skipped; type 8 resolves.
         var items = BuildItems([0xB08EC1FB, WebCartridge, QuestionMark]);
-        var trg = BuildTrg(spiderMan: true,
-            Powerup(1, pickupType: 12, rawX: 1, rawY: 2, rawZ: 3),   // proto: default (no model)
-            Powerup(2, pickupType: 8, rawX: 4, rawY: 5, rawZ: 6));
+        var trg = BuildTrg(true,
+            Powerup(1, 12, 1, 2, 3), // proto: default (no model)
+            Powerup(2, 8, 4, 5, 6));
 
         var placements = PsxPowerupPlacementResolver.Resolve(trg, items, Divisor);
 
@@ -140,8 +158,9 @@ public sealed class PsxPowerupPlacementResolverTests(TestPaths paths)
         var placed = placements.Values.Sum(list => list.Count);
         var expected = trg!.Nodes.Count(node =>
             node.TypeId == TrgNodeMetadata.TypePowerup && node.PickupType is { } t
-            && PsxPowerupPlacementResolver.Resolve(
-                   BuildTrg(true, Powerup(0, t, 0, 0, 0)), items.File, Divisor) != null);
+                                                       && PsxPowerupPlacementResolver.Resolve(
+                                                           BuildTrg(true, Powerup(0, t, 0, 0, 0)), items.File,
+                                                           Divisor) != null);
         Assert.Equal(expected, placed);
         Assert.True(placed >= 3, $"expected at least the three '?' markers, got {placed}");
     }
@@ -173,12 +192,15 @@ public sealed class PsxPowerupPlacementResolverTests(TestPaths paths)
         {
             Version = 0x04,
             Objects = [.. meshHashes.Select((_, i) => new PsxMeshObject { MeshIndex = (ushort)i })],
-            Meshes = [.. meshHashes.Select(_ => new PsxMesh
-            {
-                Vertices = [],
-                Normals = [],
-                Faces = []
-            })],
+            Meshes =
+            [
+                .. meshHashes.Select(_ => new PsxMesh
+                {
+                    Vertices = [],
+                    Normals = [],
+                    Faces = []
+                })
+            ],
             MeshNameHashes = meshHashes,
             TextureHashes = []
         };

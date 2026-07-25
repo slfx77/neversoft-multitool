@@ -36,7 +36,7 @@ internal static class PsxSplineAppendageGeometry
             firstController--;
 
         var controllerCount = psxFile.Objects.Count - firstController;
-        if (controllerCount is not ControllersPerChain and not (4 * ControllersPerChain))
+        if (controllerCount is not ControllersPerChain and not 4 * ControllersPerChain)
             return [];
 
         // A lone seven-box run is not sufficient by itself. The February
@@ -185,8 +185,8 @@ internal static class PsxSplineAppendageGeometry
         // 0,1 / 0,0 / 1,1 / 1,0 because that order self-crosses. Test the
         // actual rendered triangles instead.
         return TriangleUvArea(faceRead.TextureCoordinates, 0, 2, 1) != 0
-               || vertexCount == 4
-               && TriangleUvArea(faceRead.TextureCoordinates, 1, 2, 3) != 0;
+               || (vertexCount == 4
+                   && TriangleUvArea(faceRead.TextureCoordinates, 1, 2, 3) != 0);
     }
 
     private static long TriangleUvArea(
@@ -221,7 +221,7 @@ internal static class PsxSplineAppendageGeometry
         {
             var meshIndex = PsxMeshSemantics.GetCharacterMeshIndex(psxFile, objectIndex);
             if (meshIndex < 0 || meshIndex >= psxFile.MeshNameHashes.Length
-                || psxFile.MeshNameHashes[meshIndex] != ScorpionHookMeshHash)
+                              || psxFile.MeshNameHashes[meshIndex] != ScorpionHookMeshHash)
             {
                 continue;
             }
@@ -546,6 +546,7 @@ internal static class PsxSplineAppendageGeometry
                 {
                     return;
                 }
+
                 var previous = previousByBone[boneIndex];
                 if (frame > 0 && Quaternion.Dot(previous, rotation) < 0f)
                     rotation = new Quaternion(-rotation.X, -rotation.Y, -rotation.Z, -rotation.W);
@@ -681,37 +682,5 @@ internal static class PsxSplineAppendageGeometry
         }
 
         return frames;
-    }
-}
-
-internal sealed record PsxSplineControllerChain(
-    IReadOnlyList<int> ObjectIndices,
-    IReadOnlyList<Vector3> Centers);
-
-internal readonly record struct PsxSplineSample(
-    Vector3 Center,
-    ModelBoneInfluences Influence);
-
-internal readonly record struct PsxSplineTipPlacement(
-    int JointIndex,
-    Vector3 Center,
-    Vector3 Tangent,
-    Vector3 Normal,
-    Vector3 Binormal,
-    int ForwardSign)
-{
-    internal Vector3 TransformPosition(Vector3 local)
-    {
-        return Center + TransformDirection(local);
-    }
-
-    internal Vector3 TransformDirection(Vector3 local)
-    {
-        // Reversing only local Z would reflect the tip and invert its winding.
-        // Reversing local X as well is a 180-degree rotation about local Y, so
-        // positions, normals, and front-face handedness remain consistent.
-        return Normal * (ForwardSign * local.X)
-               + Binormal * local.Y
-               + Tangent * (ForwardSign * local.Z);
     }
 }

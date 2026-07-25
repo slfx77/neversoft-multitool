@@ -1,16 +1,13 @@
 using System.CommandLine;
 using System.Diagnostics;
+using System.Numerics;
 using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
-using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Core.Formats.Texture.RenderWare;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -253,12 +250,14 @@ public static class SkaCommand
                     if (verbose)
                     {
                         if (result.Triangles > 0)
-                            AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] (RW skinned, {result.Triangles} triangles)");
+                            AnsiConsole.MarkupLine(
+                                $"    → [blue]{glbPath}[/] (RW skinned, {result.Triangles} triangles)");
                         else
                             AnsiConsole.MarkupLine("    [yellow]skipped (bone count or clump not skinned)[/]");
                     }
                 }
-                else if (skeleton != null && boneCount == skeleton.Bones.Length && skinPath != null && skinScene != null)
+                else if (skeleton != null && boneCount == skeleton.Bones.Length && skinPath != null &&
+                         skinScene != null)
                 {
                     // Combined mesh + animation via the unified pipeline.
                     var meshResult = ExportPs2SceneAnimated(skinPath, stem, anim, skeleton, output, texPath);
@@ -462,9 +461,9 @@ public static class SkaCommand
                 ParentChecksum = 0,
                 FlipChecksum = 0,
                 ParentIndex = -1,
-                LocalRotation = System.Numerics.Quaternion.Identity,
-                LocalTranslation = System.Numerics.Vector3.Zero,
-                InverseBindMatrix = System.Numerics.Matrix4x4.Identity
+                LocalRotation = Quaternion.Identity,
+                LocalTranslation = Vector3.Zero,
+                InverseBindMatrix = Matrix4x4.Identity
             };
         }
 
@@ -487,7 +486,10 @@ public static class SkaCommand
             //                                          under pre/ while cutscenes sit in data/)
             //   ../BIN/standardkey{Q,T}.bin         (reserved for future builds if any use it)
             foreach (var subdir in new[]
-                     { "BIN", "bin", "anims", "Bits/anims", "bits/anims", "pre/anims", "pre/Bits/anims", "pre/bits/anims" })
+                     {
+                         "BIN", "bin", "anims", "Bits/anims", "bits/anims", "pre/anims", "pre/Bits/anims",
+                         "pre/bits/anims"
+                     })
             {
                 var qPath = Path.Combine(dir, subdir, "standardkeyQ.bin");
                 var tPath = Path.Combine(dir, subdir, "standardkeyT.bin");

@@ -28,7 +28,7 @@ public class Ps2ImgV2DestrideTests
         var clut = new byte[256 * 4];
         SetClutEntry(clut, 42, 200, 10, 30);
 
-        var data = BuildImgV2(tw: 3, th: 3, Psmt8, Psmct32, origW: 6, origH: 4, clut, pixels);
+        var data = BuildImgV2(3, 3, Psmt8, Psmct32, 6, 4, clut, pixels);
         var result = Ps2TexFile.Parse(data);
 
         Assert.True(result.Success, result.ErrorMessage);
@@ -36,7 +36,7 @@ public class Ps2ImgV2DestrideTests
         Assert.Equal(6, tex.Width);
         Assert.Equal(4, tex.Height);
         Assert.NotNull(tex.Pixels);
-        AssertRgb(tex.Pixels, x: 0, y: 0, width: 6, 200, 10, 30);
+        AssertRgb(tex.Pixels, 0, 0, 6, 200, 10, 30);
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public class Ps2ImgV2DestrideTests
         var clut = new byte[256 * 4];
         SetClutEntry(clut, 42, 200, 10, 30);
 
-        var data = BuildImgV2(tw: 3, th: 3, Psmt8, Psmct32, origW: 6, origH: 4, clut, pixels);
+        var data = BuildImgV2(3, 3, Psmt8, Psmct32, 6, 4, clut, pixels);
         var result = Ps2TexFile.Parse(data);
 
         Assert.True(result.Success, result.ErrorMessage);
@@ -59,7 +59,7 @@ public class Ps2ImgV2DestrideTests
         Assert.Equal(6, tex.Width);
         Assert.Equal(4, tex.Height);
         Assert.NotNull(tex.Pixels);
-        AssertRgb(tex.Pixels, x: 0, y: 0, width: 6, 200, 10, 30);
+        AssertRgb(tex.Pixels, 0, 0, 6, 200, 10, 30);
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class Ps2ImgV2DestrideTests
         var clut = new byte[16 * 4];
         SetClutEntry(clut, 7, 55, 66, 77);
 
-        var data = BuildImgV2(tw: 3, th: 3, Psmt4, Psmct32, origW: 5, origH: 3, clut, pixels);
+        var data = BuildImgV2(3, 3, Psmt4, Psmct32, 5, 3, clut, pixels);
         var result = Ps2TexFile.Parse(data);
 
         Assert.True(result.Success, result.ErrorMessage);
@@ -83,7 +83,7 @@ public class Ps2ImgV2DestrideTests
         Assert.Equal(5, tex.Width);
         Assert.Equal(3, tex.Height);
         Assert.NotNull(tex.Pixels);
-        AssertRgb(tex.Pixels, x: 0, y: 0, width: 5, 55, 66, 77);
+        AssertRgb(tex.Pixels, 0, 0, 5, 55, 66, 77);
     }
 
     [Fact]
@@ -100,13 +100,13 @@ public class Ps2ImgV2DestrideTests
         SetClutEntry(clut, 8, 11, 22, 33);
         SetClutEntry(clut, 16, 99, 88, 77);
 
-        var data = BuildImgV2(tw: 2, th: 2, Psmt8, Psmct32, origW: 4, origH: 4, clut, pixels);
+        var data = BuildImgV2(2, 2, Psmt8, Psmct32, 4, 4, clut, pixels);
         var result = Ps2TexFile.Parse(data);
 
         Assert.True(result.Success, result.ErrorMessage);
         var tex = Assert.Single(result.Textures);
         Assert.NotNull(tex.Pixels);
-        AssertRgb(tex.Pixels, x: 1, y: 1, width: 4, 11, 22, 33);
+        AssertRgb(tex.Pixels, 1, 1, 4, 11, 22, 33);
     }
 
     /// <summary>

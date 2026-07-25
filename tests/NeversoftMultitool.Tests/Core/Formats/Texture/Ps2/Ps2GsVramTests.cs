@@ -5,9 +5,9 @@ namespace NeversoftMultitool.Tests.Core.Formats.Texture.Ps2;
 public class Ps2GsVramTests
 {
     [Theory]
-    [InlineData(0u, 5u, 320, 256, 0x01u)]   // THAW dump 0290: FBP=13632, FBW=5, PSMCT24 framebuffer.
-    [InlineData(0u, 10u, 640, 448, 0x00u)]  // Full-frame PSMCT32 main framebuffer.
-    [InlineData(0u, 1u, 4, 4, 0x31u)]       // Tiny PSMZ24 region (matches the depth test).
+    [InlineData(0u, 5u, 320, 256, 0x01u)] // THAW dump 0290: FBP=13632, FBW=5, PSMCT24 framebuffer.
+    [InlineData(0u, 10u, 640, 448, 0x00u)] // Full-frame PSMCT32 main framebuffer.
+    [InlineData(0u, 1u, 4, 4, 0x31u)] // Tiny PSMZ24 region (matches the depth test).
     public void WritePixelThenReadRect_RoundTrips(uint fbp, uint fbw, int width, int height, uint psm)
     {
         // Regression: when the game writes a framebuffer via per-pixel WritePixel calls (the
@@ -184,7 +184,7 @@ public class Ps2GsVramTests
         var vram = new Ps2GsVram();
 
         // TEXA register layout: TA0 at bits 0..7, AEM at bit 15, TA1 at bits 32..39.
-        const ulong texaTa0_00_Ta1_80 = 0x80UL << 32;                       // TA0=0x00, TA1=0x80
+        const ulong texaTa0_00_Ta1_80 = 0x80UL << 32; // TA0=0x00, TA1=0x80
         const ulong texaTa0_80_Ta1_FF_AemSet = (0xFFUL << 32) | (1UL << 15) | 0x80UL;
 
         // Alpha-bit=1 (a >= 128) -> read with TEXA -> alpha = TA1.

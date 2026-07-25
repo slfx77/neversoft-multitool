@@ -240,7 +240,7 @@
                 Click="ConvertButton_Click"
                 IsEnabled="False"
                 MinWidth="120"
-          Style="{StaticResource AccentButtonStyle}" />
+                Style="{StaticResource AccentButtonStyle}" />
       </StackPanel>
 
       <TextBlock Grid.Row="2" Grid.Column="0"

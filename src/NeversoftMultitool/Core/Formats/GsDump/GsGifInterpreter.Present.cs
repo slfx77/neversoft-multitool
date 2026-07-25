@@ -215,7 +215,8 @@ internal sealed partial class GsGifInterpreter
     private byte[]? TryReadCircuitFromFbpBuffer(uint fbp, uint fbw, uint psm,
         int dbx, int dby, int sourceWidth, int sourceHeight)
     {
-        if (!renderTargetCache.TryGetSurface(fbp, fbw, psm, out var surface, out var surfaceWidth, out var surfaceHeight))
+        if (!renderTargetCache.TryGetSurface(fbp, fbw, psm, out var surface, out var surfaceWidth,
+                out var surfaceHeight))
             return null;
         var output = new byte[sourceWidth * sourceHeight * 4];
         // PCRTC composition treats the source alpha as the per-pixel "circuit weight"
@@ -244,6 +245,7 @@ internal sealed partial class GsGifInterpreter
                 output[dstOff + 3] = 255;
             }
         }
+
         return output;
     }
 

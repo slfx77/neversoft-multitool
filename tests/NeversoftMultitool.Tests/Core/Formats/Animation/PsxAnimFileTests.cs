@@ -1,6 +1,5 @@
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Animation;
 
@@ -131,7 +130,7 @@ public class PsxAnimFileTests(TestPaths paths)
         // No metaTop pointer / no chunks ⇒ TryGetAnimChunkTag fails ⇒ Parse
         // returns null. Replaces the obsolete meshBlockEnd-based signature.
         var data = new byte[16];
-        var result = PsxAnimFile.Parse(data, boneCount: 19);
+        var result = PsxAnimFile.Parse(data, 19);
         Assert.Null(result);
     }
 

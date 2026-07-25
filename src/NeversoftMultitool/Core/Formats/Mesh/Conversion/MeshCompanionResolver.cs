@@ -1,19 +1,12 @@
+using System.Text.RegularExpressions;
 using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using NeversoftMultitool.Core.Formats.Mesh.Lit;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.SceneTex;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
@@ -35,34 +28,23 @@ internal static class MeshCompanionResolver
     private static readonly string[] RwTexSubdirs = ["TEX", "Textures"];
 
     /// <summary>
-    ///     A PSX level file's companion naming: the trigger/items lookup stem, the
-    ///     model-bank filename, and whether the sibling TRG's PLATFORM/MANIPOB
-    ///     model overlay should be applied. The overlay is enabled for Spider-Man
-    ///     and THPS (their PLATFORM nodes are verified coincident with the bank at
-    ///     div 2.25) and disabled for Apocalypse, whose v2.0 TRG references sit on
-    ///     dynamic BADDY spawns that do not coincide with the static bank layer —
-    ///     its placement fidelity is unverified, so only the coordinate-verified
-    ///     bank objects are emitted.
-    /// </summary>
-    internal readonly record struct PsxLevelCompanions(
-        string LevelStem,
-        string BankCompanionName,
-        bool ApplyTriggerOverlay);
-
-    /// <summary>
     ///     Classifies a PSX file as a placeable level and resolves its trigger
     ///     stem and model-bank companion, across the engine lineage's naming
     ///     schemes:
     ///     <list type="bullet">
-    ///       <item>Spider-Man <c>*_g.psx</c> geometry → sibling <c>*_o.psx</c>
-    ///       bank, resolved unconditionally (the bank is optional — the
-    ///       POWERUP/items layer still runs without it).</item>
-    ///       <item>THPS1/THPS2 <c>*.psx</c> level geometry carries no marker
-    ///       suffix, so it qualifies only when both a sibling <c>*_o.psx</c> bank
-    ///       AND a <c>*_t.trg</c> trigger file exist. That sibling requirement
-    ///       self-excludes the <c>_o</c>/<c>_l</c>/<c>_2</c> companions (they have
-    ///       no <c>_o</c> of their own) and standalone character models (which
-    ///       have neither companion), so no suffix blocklist is needed.</item>
+    ///         <item>
+    ///             Spider-Man <c>*_g.psx</c> geometry → sibling <c>*_o.psx</c>
+    ///             bank, resolved unconditionally (the bank is optional — the
+    ///             POWERUP/items layer still runs without it).
+    ///         </item>
+    ///         <item>
+    ///             THPS1/THPS2 <c>*.psx</c> level geometry carries no marker
+    ///             suffix, so it qualifies only when both a sibling <c>*_o.psx</c> bank
+    ///             AND a <c>*_t.trg</c> trigger file exist. That sibling requirement
+    ///             self-excludes the <c>_o</c>/<c>_l</c>/<c>_2</c> companions (they have
+    ///             no <c>_o</c> of their own) and standalone character models (which
+    ///             have neither companion), so no suffix blocklist is needed.
+    ///         </item>
     ///     </list>
     ///     The bank object table is the same placed-layer convention in both
     ///     families (authored world positions, div 2.25), and both ship v2.x TRGs
@@ -83,14 +65,14 @@ internal static class MeshCompanionResolver
         if (stem.Length > 2 && stem.EndsWith("_g", StringComparison.OrdinalIgnoreCase))
         {
             var levelStem = stem[..^2];
-            companions = new PsxLevelCompanions(levelStem, levelStem + "_o.psx", ApplyTriggerOverlay: true);
+            companions = new PsxLevelCompanions(levelStem, levelStem + "_o.psx", true);
             return true;
         }
 
         if (source.CompanionExists(stem + "_o.psx")
             && source.CompanionExists(stem + "_t.trg"))
         {
-            companions = new PsxLevelCompanions(stem, stem + "_o.psx", ApplyTriggerOverlay: true);
+            companions = new PsxLevelCompanions(stem, stem + "_o.psx", true);
             return true;
         }
 
@@ -106,8 +88,10 @@ internal static class MeshCompanionResolver
     ///     bank is attached to exactly ONE primary per level so a batch convert
     ///     does not place the shared bank once per chunk: the bare
     ///     <c>&lt;base&gt;.psx</c> if present, otherwise the first chunk
-    ///     (<c>_1</c>/<c>_1a</c>). The overlay is disabled (see
-    ///     <see cref="PsxLevelCompanions" />).
+    ///     (<c>_1</c>/<c>_1a</c>). The PLATFORM/POWERUP layers use the same
+    ///     div-2.25 node scale as the other games (see
+    ///     <see cref="PsxLevelCompanions" />), verified in-bounds against the
+    ///     Apocalypse binary's pickup constructor.
     /// </summary>
     private static bool TryResolveApocalypseLevel(
         AssetSource source,
@@ -120,7 +104,7 @@ internal static class MeshCompanionResolver
         if (TryGetApocalypseBankName(source, stem, out var bareBank)
             && source.CompanionExists(stem + "_t.trg"))
         {
-            companions = new PsxLevelCompanions(stem, bareBank, ApplyTriggerOverlay: false);
+            companions = new PsxLevelCompanions(stem, bareBank, true);
             return true;
         }
 
@@ -145,7 +129,7 @@ internal static class MeshCompanionResolver
             return false;
         }
 
-        companions = new PsxLevelCompanions(baseStem, bank, ApplyTriggerOverlay: false);
+        companions = new PsxLevelCompanions(baseStem, bank, true);
         return true;
     }
 
@@ -228,9 +212,9 @@ internal static class MeshCompanionResolver
             // THPS3 LOD variants (*_LOD00.skn etc., 237 files) ship no same-stem
             // .tex — their textures live in the base model's dictionary in the
             // same directory (verified 237/237 name-resolvable there).
-            var baseStem = System.Text.RegularExpressions.Regex.Replace(
+            var baseStem = Regex.Replace(
                 stem, @"_LOD\d+$", string.Empty,
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                RegexOptions.IgnoreCase);
             if (!string.Equals(baseStem, stem, StringComparison.Ordinal))
                 texBytes = ReadTextureCompanion(source, baseStem, RwTexExtensions, RwTexSubdirs, explicitTexturePath);
         }
@@ -361,6 +345,7 @@ internal static class MeshCompanionResolver
                     libraries[i].Label,
                     preserveRuntimeSemiTransparency: true);
             }
+
             if (result == null)
                 return null;
             var (rgba, width, height) = result.Value;
@@ -641,4 +626,19 @@ internal static class MeshCompanionResolver
 
         return CompanionSearch.FindCompanion(explicitPath, stem, extensions, subdirs);
     }
+
+    /// <summary>
+    ///     A PSX level file's companion naming: the trigger/items lookup stem, the
+    ///     model-bank filename, and whether the sibling TRG's PLATFORM/MANIPOB
+    ///     model overlay should be applied. Enabled for every supported game — all
+    ///     place their TRG nodes at div 2.25 (Spider-Man and THPS PLATFORM nodes
+    ///     are coincident with the bank; Apocalypse nodes are re-instances that
+    ///     stay in-bounds, verified against its pickup constructor's node scale).
+    ///     The per-game flag is retained as the knob to gate a build whose overlay
+    ///     placement later proves unfaithful.
+    /// </summary>
+    internal readonly record struct PsxLevelCompanions(
+        string LevelStem,
+        string BankCompanionName,
+        bool ApplyTriggerOverlay);
 }

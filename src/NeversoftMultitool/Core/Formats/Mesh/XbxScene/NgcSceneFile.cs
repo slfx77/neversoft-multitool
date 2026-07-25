@@ -9,7 +9,6 @@ namespace NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 ///     s_plat_load_scene_guts + p_nxsector.cpp LoadFromFile) with a 64-byte
 ///     extended scene header (THUG's 32-byte sSceneHeader + a 32-byte THAW
 ///     extension carrying the 0xAAFFEEFF sentinel at +0x2C).
-///
 ///     Geometry ships as GX display lists: CP loads set the vertex descriptor
 ///     (VCD_LO/VCD_HI), draw commands carry indexed vertex tuples. Index
 ///     arrays resolve into scene pools (positions f32, normals s16/16384,
@@ -19,22 +18,19 @@ namespace NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 ///     is single/double/add bone lists per NX/mesh.cpp ApplyMeshScaling and
 ///     NX/instance.cpp (doubles pack two palette indices as mtx &amp; 255 and
 ///     (mtx &gt;&gt; 8) &amp; 255; add lists accumulate a third bone onto existing verts).
-///
 ///     Material passes reference textures by INDEX into the companion
 ///     .tex.ngc dictionary (record order); XbxPass.TextureChecksum stores
 ///     index+1 so 0 keeps meaning "untextured".
-///
 ///     Validated against PC/PS2 Rosetta pairs (anl_pigeon, ped_baller):
 ///     positions/triangles exact, UVs and normals match the PS2 decode.
 /// </summary>
 public static class NgcSceneFile
 {
-    public static readonly string[] SupportedExtensions = [".skin.ngc", ".mdl.ngc", ".scn.ngc"];
-
     private const uint Sentinel = 0xAAFFEEFF;
     private const int HeaderSize = 64;
     private const int ObjectHeaderSize = 64;
     private const int DlHeaderSize = 64;
+    public static readonly string[] SupportedExtensions = [".skin.ngc", ".mdl.ngc", ".scn.ngc"];
 
     public static bool IsNgcScene(byte[] data)
     {
@@ -183,22 +179,6 @@ public static class NgcSceneFile
 
         return materials;
     }
-
-    private readonly record struct PoolLayout(
-        int PosOffset, int NumPos,
-        int ColOffset, int NumCol,
-        int TexOffset, int NumTex,
-        int NrmOffset, int NumNrm);
-
-    private readonly record struct SkinVertex(
-        Vector3 Position,
-        Vector3 Normal,
-        int Bone0,
-        int Bone1,
-        float Weight0,
-        float Weight1,
-        int Bone2,
-        float Weight2);
 
     private static int ReadObject(
         ReadOnlySpan<byte> span,
@@ -353,37 +333,6 @@ public static class NgcSceneFile
             BinaryPrimitives.ReadInt16BigEndian(span[(offset + 8)..]) / 16384f,
             BinaryPrimitives.ReadInt16BigEndian(span[(offset + 10)..]) / 16384f);
         return (pos, nrm);
-    }
-
-    private enum AttrMode
-    {
-        None,
-        Index8,
-        Index16
-    }
-
-    private readonly record struct VertexDescriptor(
-        int MatrixIndexBytes,
-        AttrMode Position,
-        AttrMode Normal,
-        AttrMode Color0,
-        AttrMode Color1,
-        AttrMode Tex0,
-        int ExtraTexBytes)
-    {
-        public int Stride => MatrixIndexBytes
-                             + Size(Position) + Size(Normal) + Size(Color0) + Size(Color1)
-                             + Size(Tex0) + ExtraTexBytes;
-
-        private static int Size(AttrMode mode)
-        {
-            return mode switch
-            {
-                AttrMode.Index8 => 1,
-                AttrMode.Index16 => 2,
-                _ => 0
-            };
-        }
     }
 
     private static VertexDescriptor DecodeVcd(uint vcdLo, uint vcdHi, int dlOffset)
@@ -696,5 +645,56 @@ public static class NgcSceneFile
             BinaryPrimitives.ReadSingleBigEndian(span[(offset + 4)..]),
             BinaryPrimitives.ReadSingleBigEndian(span[(offset + 8)..]),
             BinaryPrimitives.ReadSingleBigEndian(span[(offset + 12)..]));
+    }
+
+    private readonly record struct PoolLayout(
+        int PosOffset,
+        int NumPos,
+        int ColOffset,
+        int NumCol,
+        int TexOffset,
+        int NumTex,
+        int NrmOffset,
+        int NumNrm);
+
+    private readonly record struct SkinVertex(
+        Vector3 Position,
+        Vector3 Normal,
+        int Bone0,
+        int Bone1,
+        float Weight0,
+        float Weight1,
+        int Bone2,
+        float Weight2);
+
+    private enum AttrMode
+    {
+        None,
+        Index8,
+        Index16
+    }
+
+    private readonly record struct VertexDescriptor(
+        int MatrixIndexBytes,
+        AttrMode Position,
+        AttrMode Normal,
+        AttrMode Color0,
+        AttrMode Color1,
+        AttrMode Tex0,
+        int ExtraTexBytes)
+    {
+        public int Stride => MatrixIndexBytes
+                             + Size(Position) + Size(Normal) + Size(Color0) + Size(Color1)
+                             + Size(Tex0) + ExtraTexBytes;
+
+        private static int Size(AttrMode mode)
+        {
+            return mode switch
+            {
+                AttrMode.Index8 => 1,
+                AttrMode.Index16 => 2,
+                _ => 0
+            };
+        }
     }
 }

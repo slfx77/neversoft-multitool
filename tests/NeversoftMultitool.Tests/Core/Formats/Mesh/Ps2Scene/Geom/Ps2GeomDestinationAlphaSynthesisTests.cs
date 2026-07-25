@@ -15,9 +15,9 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
         const uint layerChecksum = 0x33334444;
         const uint newerMaskChecksum = 0x55556666;
 
-        var oldMaskLeaf = MakeTexturedLeaf(oldMaskChecksum, alpha1: 0x44);
-        var layerLeaf = MakeTexturedLeaf(layerChecksum, alpha1: 0x54);
-        var newerMaskLeaf = MakeTexturedLeaf(newerMaskChecksum, alpha1: 0x44);
+        var oldMaskLeaf = MakeTexturedLeaf(oldMaskChecksum, 0x44);
+        var layerLeaf = MakeTexturedLeaf(layerChecksum, 0x54);
+        var newerMaskLeaf = MakeTexturedLeaf(newerMaskChecksum, 0x44);
         var orderedLeaves = Ps2GeomRenderSemantics.OrderWorldzoneLeavesForDraw(
             [oldMaskLeaf, layerLeaf, newerMaskLeaf]);
         var textures = new Dictionary<uint, byte[]>
@@ -29,9 +29,9 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
         var candidates = Ps2GeomDestinationAlphaSynthesis.BuildMaskCandidates(
             orderedLeaves,
             (checksum, _) => textures.GetValueOrDefault(checksum),
-            tex0Resolver: null,
-            leafFilter: null,
-            skipLeaf: null);
+            null,
+            null,
+            null);
         var syntheticTextures = new Dictionary<uint, byte[]>();
 
         using var _ = WithDestinationAlphaStrategy("synthesize");
@@ -40,7 +40,7 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
             layerChecksum,
             Ps2GeomRenderSemantics.GetWorldzoneRenderOrderKey(layerLeaf),
             candidates,
-            recentExactMasks: new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>(),
+            new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>(),
             (checksum, _) => textures.GetValueOrDefault(checksum) ?? syntheticTextures.GetValueOrDefault(checksum),
             syntheticTextures,
             out var syntheticChecksum);
@@ -56,14 +56,14 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
     {
         const uint maskChecksum = 0x11112222;
         const uint layerChecksum = 0x33334444;
-        var layerLeaf = MakeTexturedQuadLeaf(layerChecksum, alpha1: 0x54,
+        var layerLeaf = MakeTexturedQuadLeaf(layerChecksum, 0x54,
         [
             (0f, 0f),
             (1f, 0f),
             (0f, 1f),
             (1f, 1f)
         ]);
-        var maskLeaf = MakeTexturedQuadLeaf(maskChecksum, alpha1: 0x44,
+        var maskLeaf = MakeTexturedQuadLeaf(maskChecksum, 0x44,
         [
             (1f, 0f),
             (0f, 0f),
@@ -74,14 +74,14 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
         var textures = new Dictionary<uint, byte[]>
         {
             [maskChecksum] = MakeHorizontalAlphaMaskPng(),
-            [layerChecksum] = MakeSolidPng(new Rgba32(0, 64, 255, 255), width: 2, height: 2)
+            [layerChecksum] = MakeSolidPng(new Rgba32(0, 64, 255, 255), 2, 2)
         };
         var candidates = Ps2GeomDestinationAlphaSynthesis.BuildMaskCandidates(
             orderedLeaves,
             (checksum, _) => textures.GetValueOrDefault(checksum),
-            tex0Resolver: null,
-            leafFilter: null,
-            skipLeaf: null);
+            null,
+            null,
+            null);
         var syntheticTextures = new Dictionary<uint, byte[]>();
 
         using var _ = WithDestinationAlphaStrategy("synthesize");
@@ -90,7 +90,7 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
             layerChecksum,
             Ps2GeomRenderSemantics.GetWorldzoneRenderOrderKey(layerLeaf),
             candidates,
-            recentExactMasks: new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>(),
+            new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>(),
             (checksum, _) => textures.GetValueOrDefault(checksum) ?? syntheticTextures.GetValueOrDefault(checksum),
             syntheticTextures,
             out var syntheticChecksum);
@@ -105,8 +105,8 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
     {
         const uint maskChecksum = 0x11112222;
         const uint layerChecksum = 0x33334444;
-        var maskLeaf = MakeTexturedLeaf(maskChecksum, alpha1: 0x44);
-        var layerLeaf = MakeTexturedLeaf(layerChecksum, alpha1: 0x11);
+        var maskLeaf = MakeTexturedLeaf(maskChecksum, 0x44);
+        var layerLeaf = MakeTexturedLeaf(layerChecksum, 0x11);
         var orderedLeaves = Ps2GeomRenderSemantics.OrderWorldzoneLeavesForDraw([maskLeaf, layerLeaf]);
         var textures = new Dictionary<uint, byte[]>
         {
@@ -116,9 +116,9 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
         var candidates = Ps2GeomDestinationAlphaSynthesis.BuildMaskCandidates(
             orderedLeaves,
             (checksum, _) => textures.GetValueOrDefault(checksum),
-            tex0Resolver: null,
-            leafFilter: null,
-            skipLeaf: null);
+            null,
+            null,
+            null);
         var syntheticTextures = new Dictionary<uint, byte[]>();
 
         using var _ = WithDestinationAlphaStrategy("synthesize");
@@ -127,7 +127,7 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
             layerChecksum,
             Ps2GeomRenderSemantics.GetWorldzoneRenderOrderKey(layerLeaf),
             candidates,
-            recentExactMasks: new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>(),
+            new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>(),
             (checksum, _) => textures.GetValueOrDefault(checksum) ?? syntheticTextures.GetValueOrDefault(checksum),
             syntheticTextures,
             out var syntheticChecksum);
@@ -142,8 +142,8 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
     {
         const uint maskChecksum = 0x11112222;
         const uint layerChecksum = 0x33334444;
-        var maskLeaf = MakeTexturedLeaf(maskChecksum, alpha1: 0x44);
-        var layerLeaf = MakeTexturedLeaf(layerChecksum, alpha1: 0x54, test1: MakeTest(atst: 5, aref: 0));
+        var maskLeaf = MakeTexturedLeaf(maskChecksum, 0x44);
+        var layerLeaf = MakeTexturedLeaf(layerChecksum, 0x54, test1: MakeTest(5, 0));
         var orderedLeaves = Ps2GeomRenderSemantics.OrderWorldzoneLeavesForDraw([maskLeaf, layerLeaf]);
         var textures = new Dictionary<uint, byte[]>
         {
@@ -153,9 +153,9 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
         var candidates = Ps2GeomDestinationAlphaSynthesis.BuildMaskCandidates(
             orderedLeaves,
             (checksum, _) => textures.GetValueOrDefault(checksum),
-            tex0Resolver: null,
-            leafFilter: null,
-            skipLeaf: null);
+            null,
+            null,
+            null);
         var syntheticTextures = new Dictionary<uint, byte[]>();
 
         using var _ = WithDestinationAlphaStrategy("synthesize");
@@ -164,7 +164,7 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
             layerChecksum,
             Ps2GeomRenderSemantics.GetWorldzoneRenderOrderKey(layerLeaf),
             candidates,
-            recentExactMasks: new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>(),
+            new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>(),
             (checksum, _) => textures.GetValueOrDefault(checksum) ?? syntheticTextures.GetValueOrDefault(checksum),
             syntheticTextures,
             out var syntheticChecksum);
@@ -179,8 +179,8 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
     {
         const uint maskChecksum = 0x11112222;
         const uint layerChecksum = 0x33334444;
-        var maskLeaf = MakeTexturedLeaf(maskChecksum, alpha1: 0x44);
-        var layerLeaf = MakeTexturedLeaf(layerChecksum, alpha1: 0x54, test1: MakeTest(atst: 5, aref: 1));
+        var maskLeaf = MakeTexturedLeaf(maskChecksum, 0x44);
+        var layerLeaf = MakeTexturedLeaf(layerChecksum, 0x54, test1: MakeTest(5, 1));
         var orderedLeaves = Ps2GeomRenderSemantics.OrderWorldzoneLeavesForDraw([maskLeaf, layerLeaf]);
         var textures = new Dictionary<uint, byte[]>
         {
@@ -190,9 +190,9 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
         var candidates = Ps2GeomDestinationAlphaSynthesis.BuildMaskCandidates(
             orderedLeaves,
             (checksum, _) => textures.GetValueOrDefault(checksum),
-            tex0Resolver: null,
-            leafFilter: null,
-            skipLeaf: null);
+            null,
+            null,
+            null);
         var syntheticTextures = new Dictionary<uint, byte[]>();
 
         using var _ = WithDestinationAlphaStrategy("synthesize");
@@ -201,7 +201,7 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
             layerChecksum,
             Ps2GeomRenderSemantics.GetWorldzoneRenderOrderKey(layerLeaf),
             candidates,
-            recentExactMasks: new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>(),
+            new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>(),
             (checksum, _) => textures.GetValueOrDefault(checksum) ?? syntheticTextures.GetValueOrDefault(checksum),
             syntheticTextures,
             out var syntheticChecksum);
@@ -217,8 +217,8 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
     {
         const uint maskChecksum = 0x11112222;
         const uint layerChecksum = 0x33334444;
-        var maskLeaf = MakeTexturedLeaf(maskChecksum, alpha1: 0x44, frame1: MakeFrame(fbmsk: 0xFF000000));
-        var layerLeaf = MakeTexturedLeaf(layerChecksum, alpha1: 0x54);
+        var maskLeaf = MakeTexturedLeaf(maskChecksum, 0x44, MakeFrame(0xFF000000));
+        var layerLeaf = MakeTexturedLeaf(layerChecksum, 0x54);
         var orderedLeaves = Ps2GeomRenderSemantics.OrderWorldzoneLeavesForDraw([maskLeaf, layerLeaf]);
         var textures = new Dictionary<uint, byte[]>
         {
@@ -228,9 +228,9 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
         var candidates = Ps2GeomDestinationAlphaSynthesis.BuildMaskCandidates(
             orderedLeaves,
             (checksum, _) => textures.GetValueOrDefault(checksum),
-            tex0Resolver: null,
-            leafFilter: null,
-            skipLeaf: null);
+            null,
+            null,
+            null);
         var syntheticTextures = new Dictionary<uint, byte[]>();
 
         using var _ = WithDestinationAlphaStrategy("synthesize");
@@ -239,7 +239,7 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
             layerChecksum,
             Ps2GeomRenderSemantics.GetWorldzoneRenderOrderKey(layerLeaf),
             candidates,
-            recentExactMasks: new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>(),
+            new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>(),
             (checksum, _) => textures.GetValueOrDefault(checksum) ?? syntheticTextures.GetValueOrDefault(checksum),
             syntheticTextures,
             out var ignoredSyntheticChecksum);
@@ -263,8 +263,8 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
     [Fact]
     public void ShouldFallbackToSourceAlphaBlend_OnlyForBlendStrategyDestinationAlpha()
     {
-        var destAlphaLeaf = MakeTexturedLeaf(0x33334444, alpha1: 0x54);
-        var sourceAlphaLeaf = MakeTexturedLeaf(0x33334444, alpha1: 0x44);
+        var destAlphaLeaf = MakeTexturedLeaf(0x33334444, 0x54);
+        var sourceAlphaLeaf = MakeTexturedLeaf(0x33334444, 0x44);
 
         using (WithDestinationAlphaStrategy("synthesize"))
         {
@@ -325,13 +325,18 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
         };
     }
 
-    private static ulong MakeFrame(uint fbmsk) => (ulong)fbmsk << 32;
+    private static ulong MakeFrame(uint fbmsk)
+    {
+        return (ulong)fbmsk << 32;
+    }
 
-    private static ulong MakeTest(int atst, int aref, int afail = 0) =>
-        0x1UL |
-        ((ulong)(atst & 0x7) << 1) |
-        ((ulong)(aref & 0xFF) << 4) |
-        ((ulong)(afail & 0x3) << 12);
+    private static ulong MakeTest(int atst, int aref, int afail = 0)
+    {
+        return 0x1UL |
+               ((ulong)(atst & 0x7) << 1) |
+               ((ulong)(aref & 0xFF) << 4) |
+               ((ulong)(afail & 0x3) << 12);
+    }
 
     private static Ps2Vertex MakeUvVertex(float x, float y, float u, float v)
     {
@@ -356,7 +361,7 @@ public sealed class Ps2GeomDestinationAlphaSynthesisTests
 
     private static byte[] MakeUniformAlphaPng(byte alpha)
     {
-        return MakeSolidPng(new Rgba32(255, 255, 255, alpha), width: 2, height: 2);
+        return MakeSolidPng(new Rgba32(255, 255, 255, alpha), 2, 2);
     }
 
     private static byte[] MakeHorizontalAlphaMaskPng()

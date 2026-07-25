@@ -3,7 +3,6 @@ using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Animation;
 
@@ -17,7 +16,7 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
             " \t",
             2.0f,
             15,
-            MatchesSkeleton: true);
+            true);
 
         // AnimationListEntry delegates these two UI-facing values directly to
         // the probe, so a nameless parsed clip still produces a visible row.
@@ -40,8 +39,8 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
             "anim_0",
             durationSec,
             15,
-            MatchesSkeleton: true,
-            FrameCount: frameCount);
+            true,
+            frameCount);
 
         Assert.Equal(expected, probe.IsSinglePose);
     }

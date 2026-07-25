@@ -10,6 +10,7 @@ public static class Ps1TextureDecoder
     ///     texture extraction does not emit these markers.
     /// </summary>
     internal const byte RuntimeOpaqueAlpha = 253;
+
     internal const byte RuntimeSemiTransparencyAlpha = 254;
 
     /// <summary>
@@ -46,7 +47,7 @@ public static class Ps1TextureDecoder
                     ColorHelpers.Ps1To32Bpp(
                         color,
                         rgba,
-                        treatMagentaAsTransparent: runtimeAlpha == null);
+                        runtimeAlpha == null);
                     if (runtimeAlpha != null)
                         ApplyRuntimePaletteAlpha(rgba, runtimeAlpha[colorIndex]);
 
@@ -100,7 +101,7 @@ public static class Ps1TextureDecoder
                     ColorHelpers.Ps1To32Bpp(
                         color,
                         rgba,
-                        treatMagentaAsTransparent: runtimeAlpha == null);
+                        runtimeAlpha == null);
                     if (runtimeAlpha != null)
                         ApplyRuntimePaletteAlpha(rgba, runtimeAlpha[colorIndex]);
 

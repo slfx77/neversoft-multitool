@@ -1,25 +1,15 @@
-using NeversoftMultitool.Core.BinaryIO;
-using NeversoftMultitool.Core.Formats.Archives;
+using System.Diagnostics;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Collision;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
-using NeversoftMultitool.Core.Formats.Mesh.Lit;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
-using NeversoftMultitool.Core.Formats.Texture;
-using NeversoftMultitool.Core.Formats.Texture.Ngc;
-using NeversoftMultitool.Core.Formats.Texture.Ps2;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.SceneTex;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
-using NeversoftMultitool.Core.Formats.Texture.Psx;
-using NeversoftMultitool.Core.Formats.Texture.RenderWare;
-using NeversoftMultitool.Core.Formats.Texture.XbxScene;
+using NeversoftMultitool.Core.Formats.Trg;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -107,7 +97,8 @@ public sealed class MeshModelParser : IModelParser
 
         var objectsDdm = request.Source.TryResolveCompanionPath(request.OutputStem + "_o.ddm");
         var objectsPsx = objectsDdm != null
-            ? MeshCompanionResolver.ResolveCompanionPath(request.Source, request.OutputStem + "_o", ".psx", request.PsxPath)
+            ? MeshCompanionResolver.ResolveCompanionPath(request.Source, request.OutputStem + "_o", ".psx",
+                request.PsxPath)
             : null;
 
         var source = new DdmPlacedLevelNativeSource(
@@ -140,7 +131,7 @@ public sealed class MeshModelParser : IModelParser
         var psxData = request.Source.ReadBytes();
         var psxFile = PsxMeshFile.Parse(
                           psxData,
-                          bakeColourPulses: !PsxMeshSemantics.IsLevelObjectBankName(request.FileName))
+                          !PsxMeshSemantics.IsLevelObjectBankName(request.FileName))
                       ?? throw new InvalidOperationException("No mesh data");
 
         var textureProvider = MeshCompanionResolver.BuildPsxTextureProvider(request.Source, request.FileName, psxData);
@@ -175,8 +166,8 @@ public sealed class MeshModelParser : IModelParser
             request.VisibilityOverrides);
         document.VisibilityGroups.AddRange(visibility.Groups);
         var reconstructSplineAppendages = request.PsxAnimationOptions != null
-            && (request.PsxAnimationClips is { Count: > 0 }
-                || request.PsxDecodedAnimations is { Count: > 0 });
+                                          && (request.PsxAnimationClips is { Count: > 0 }
+                                              || request.PsxDecodedAnimations is { Count: > 0 });
         PsxMeshFile? splineClawFile = null;
         MeshChecksumTextureResolver? splineClawTextureProvider = null;
         if (reconstructSplineAppendages
@@ -198,7 +189,7 @@ public sealed class MeshModelParser : IModelParser
             {
                 // The controller tubes remain useful when an archive lacks or
                 // truncates the optional runtime claw model.
-                System.Diagnostics.Debug.WriteLine(
+                Debug.WriteLine(
                     $"Unable to resolve optional PSX spline claw companion: {ex.Message}");
             }
         }
@@ -222,11 +213,11 @@ public sealed class MeshModelParser : IModelParser
             if (clips is { Count: > 0 })
             {
                 PsxAnimationChannelWriter.PopulatePsxAnimationClips(
-                    document, psxFile, skeletonIndex: 0, clips, animationOptions);
+                    document, psxFile, 0, clips, animationOptions);
                 if (reconstructSplineAppendages)
                 {
                     PsxSplineAppendageGeometry.ApplyGeneratedFrameRotations(
-                        document, skeletonIndex: 0,
+                        document, 0,
                         PsxSplineAppendageGeometry.FindControllerChains(psxFile),
                         clips);
                 }
@@ -234,14 +225,14 @@ public sealed class MeshModelParser : IModelParser
             else if (request.PsxDecodedAnimations is { Count: > 0 } animations)
             {
                 PsxAnimationChannelWriter.PopulatePsxAnimations(
-                    document, psxFile, skeletonIndex: 0, animations, animationOptions);
+                    document, psxFile, 0, animations, animationOptions);
                 if (reconstructSplineAppendages)
                 {
                     var clipsForFrames = animations
                         .Select(static entry => new PsxAnimationClip(entry.Name, entry.Animation))
                         .ToArray();
                     PsxSplineAppendageGeometry.ApplyGeneratedFrameRotations(
-                        document, skeletonIndex: 0,
+                        document, 0,
                         PsxSplineAppendageGeometry.FindControllerChains(psxFile),
                         clipsForFrames);
                 }
@@ -256,13 +247,17 @@ public sealed class MeshModelParser : IModelParser
     ///     add two placement layers, both drawn from the sibling
     ///     <c>items.psx</c>/<c>*_o.psx</c> banks:
     ///     <list type="bullet">
-    ///       <item>the <c>*_o.psx</c> model bank, whose object table is itself a
-    ///       placed layer (stored positions are authored world instances — the
-    ///       DDM layout convention), with sibling TRG PLATFORM/MANIPOB nodes
-    ///       overlaying scripted re-instances; bank meshes shared with
-    ///       items.psx render from the items copy;</item>
-    ///       <item>TRG POWERUP nodes, rendered as items.psx pickups keyed by
-    ///       <c>pickupType</c> (<see cref="PsxPowerupPlacementResolver" />).</item>
+    ///         <item>
+    ///             the <c>*_o.psx</c> model bank, whose object table is itself a
+    ///             placed layer (stored positions are authored world instances — the
+    ///             DDM layout convention), with sibling TRG PLATFORM/MANIPOB nodes
+    ///             overlaying scripted re-instances; bank meshes shared with
+    ///             items.psx render from the items copy;
+    ///         </item>
+    ///         <item>
+    ///             TRG POWERUP nodes, rendered as items.psx pickups keyed by
+    ///             <c>pickupType</c> (<see cref="PsxPowerupPlacementResolver" />).
+    ///         </item>
     ///     </list>
     ///     Both merge into ONE items geometry pass. The POWERUP layer works even
     ///     when no <c>*_o.psx</c> companion exists.
@@ -321,7 +316,7 @@ public sealed class MeshModelParser : IModelParser
         {
             // Both layers are optional. A malformed or unrelated sibling must
             // not prevent the selected geometry layer from opening.
-            System.Diagnostics.Debug.WriteLine(
+            Debug.WriteLine(
                 $"Unable to parse optional PSX level-object companion: {ex.Message}");
         }
     }
@@ -337,7 +332,7 @@ public sealed class MeshModelParser : IModelParser
         MeshImportRequest request,
         PsxGeometryWriter.PsxGeometryWriterContext geometryContext,
         MeshCompanionResolver.PsxLevelCompanions companions,
-        Trg.TrgFile? trg,
+        TrgFile? trg,
         PsxItemsBankSubstitution.LoadedItems? items,
         Dictionary<int, List<PsxLevelObjectPlacement>> itemsPlacements,
         IReadOnlySet<uint> suppressHashes)
@@ -352,7 +347,7 @@ public sealed class MeshModelParser : IModelParser
             if (request.Source.TryReadCompanion(companionName) is not { } companionBytes)
                 return;
 
-            var bank = PsxMeshFile.Parse(companionBytes, bakeColourPulses: false);
+            var bank = PsxMeshFile.Parse(companionBytes, false);
             if (bank == null || PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(bank))
                 return;
 
@@ -384,7 +379,7 @@ public sealed class MeshModelParser : IModelParser
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine(
+            Debug.WriteLine(
                 $"Unable to place optional PSX level-object bank: {ex.Message}");
         }
     }
@@ -430,7 +425,7 @@ public sealed class MeshModelParser : IModelParser
             Ps2TexExtensions,
             Ps2TexSubdirs,
             request.TexturePath,
-            searchBuildTree: true);
+            true);
         var textureProvider = MeshCompanionResolver.BuildPs2TextureProvider(companionTexData);
         var tex0Resolver = BuildPs2GeomTex0Resolver(companionTexData);
 
@@ -494,7 +489,7 @@ public sealed class MeshModelParser : IModelParser
         if (request.SkaAnimations is { Count: > 0 } ps2Animations && document.Skeletons.Count > 0)
         {
             SkaAnimationWriter.PopulateSkaAnimations(
-                document, skeletonIndex: 0, ps2Animations);
+                document, 0, ps2Animations);
         }
 
         return document;
@@ -509,7 +504,7 @@ public sealed class MeshModelParser : IModelParser
             Ps2TexExtensions,
             Ps2TexSubdirs,
             request.TexturePath,
-            searchBuildTree: true);
+            true);
         var textureProvider = MeshCompanionResolver.BuildPs2TextureProvider(companionTexData);
         var tex0Resolver = BuildPs2GeomTex0Resolver(companionTexData);
         return BuildPs2GeomDocument(request.OutputStem, scene, textureProvider, tex0Resolver);
@@ -531,7 +526,7 @@ public sealed class MeshModelParser : IModelParser
         if (vramMap.Count == 0)
         {
             var source = new ZoneTextureCatalog.ZoneTexSource(
-                "archive_companion.stex", companionTexData, IsMain: true);
+                "archive_companion.stex", companionTexData, true);
             return ZoneTextureCatalog.TryBuild([source], out var catalog) && catalog != null
                 ? catalog.CreateTex0ChecksumResolver(source.Label)
                 : null;
@@ -670,8 +665,10 @@ public sealed class MeshModelParser : IModelParser
             _ => XbxSceneFile.Parse(data)
         };
         var textureProvider = isNgc
-            ? MeshCompanionResolver.BuildNgcSceneTextureProvider(request.Source, request.OutputStem, request.TexturePath)
-            : MeshCompanionResolver.BuildXbxSceneTextureProvider(request.Source, request.OutputStem, request.TexturePath);
+            ? MeshCompanionResolver.BuildNgcSceneTextureProvider(request.Source, request.OutputStem,
+                request.TexturePath)
+            : MeshCompanionResolver.BuildXbxSceneTextureProvider(request.Source, request.OutputStem,
+                request.TexturePath);
         var document = ModelDocument.CreateNative(
             request.OutputStem,
             ModelSourceKind.XbxScene,
@@ -719,7 +716,7 @@ public sealed class MeshModelParser : IModelParser
                 .FirstOrDefault(static s => s != null);
             var boneMap = SkaAnimationWriter.BuildRwDffBoneIndexMap(skin);
             SkaAnimationWriter.PopulateSkaAnimations(
-                document, skeletonIndex: 0, rwAnimations, SkaCompositionMode.BindComposed, boneMap);
+                document, 0, rwAnimations, SkaCompositionMode.BindComposed, boneMap);
         }
 
         return document;
@@ -733,7 +730,8 @@ public sealed class MeshModelParser : IModelParser
             ModelSourceKind.RenderWareBsp,
             new RenderWareBspNativeSource(
                 world,
-                MeshCompanionResolver.BuildRwTxdTextureProvider(request.Source, request.FileName, request.TexturePath)));
+                MeshCompanionResolver.BuildRwTxdTextureProvider(request.Source, request.FileName,
+                    request.TexturePath)));
 
         foreach (var material in world.Materials)
         {

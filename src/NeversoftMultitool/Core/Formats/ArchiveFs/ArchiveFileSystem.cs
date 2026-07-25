@@ -60,8 +60,8 @@ public static class ArchiveFileSystem
     /// </summary>
     public static IArchiveFileSystem? TryOpen(byte[] data, string entryName, string displayPath)
     {
-        return TryOpenNested(data, entryName, displayPath, displayPath, nestingDepth: 0, parent: null,
-            () => data, companionData: null, reloadCompanion: null);
+        return TryOpenNested(data, entryName, displayPath, displayPath, 0, null,
+            () => data, null, null);
     }
 
     /// <summary>
@@ -83,7 +83,7 @@ public static class ArchiveFileSystem
                 ArchiveAssetType.Pre => PreArchive.GetFileList(data),
                 ArchiveAssetType.CompressedPre => CompressedPreArchive.GetFileList(data),
                 ArchiveAssetType.Pkr => PkrArchive.GetFileList(data),
-                ArchiveAssetType.Pak => PakArchive.GetFileList(data, hasPab: companionData != null),
+                ArchiveAssetType.Pak => PakArchive.GetFileList(data, companionData != null),
                 _ => throw new InvalidOperationException()
             };
         }

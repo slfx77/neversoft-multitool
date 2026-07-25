@@ -3,16 +3,6 @@ using System.Text;
 
 namespace NeversoftMultitool.Core.Formats.DiscImage;
 
-public sealed record DiscFileEntry(
-    string Directory,
-    string Name,
-    long ExtentLba,
-    long Size,
-    bool IsDirectory)
-{
-    public string FullPath => Directory.Length == 0 ? Name : $"{Directory}/{Name}";
-}
-
 /// <summary>
 ///     ISO9660 reader (PS1/PS2/Dreamcast/PC discs). Prefers the Joliet
 ///     supplementary descriptor when present (PC discs with long names);
@@ -61,7 +51,6 @@ public static class Iso9660FileSystem
                 case 2 when IsJoliet(sector):
                     jolietRoot ??= sector.AsSpan(156, 34).ToArray();
                     break;
-
             }
 
             if (sector[0] == 255)

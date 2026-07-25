@@ -60,7 +60,7 @@ public static class CompressedPreArchive
 
     private static List<ArchiveEntry> GetFileList(Stream stream)
     {
-        using var reader = new BinaryReader(stream, Encoding.ASCII, leaveOpen: true);
+        using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         _ = reader.ReadInt32(); // totalFileSize (not needed for parsing)
         var version = reader.ReadUInt32();

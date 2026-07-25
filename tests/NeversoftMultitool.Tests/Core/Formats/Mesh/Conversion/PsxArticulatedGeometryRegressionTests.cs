@@ -3,9 +3,8 @@ using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Core.Rendering;
 using NeversoftMultitool.Core.QbKey;
-using NeversoftMultitool.Tests.Helpers;
+using NeversoftMultitool.Core.Rendering;
 using SharpGLTF.Schema2;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -107,10 +106,10 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
         // The ordinary and axe hands are stitched to the same two wrist
         // joints, but intentionally have different silhouettes/topology.
         // They are pose alternatives, not four simultaneous hands.
-        AssertMeshTopology(file!, 13, expectedVertices: 20, expectedFaces: 25);
-        AssertMeshTopology(file, 14, expectedVertices: 27, expectedFaces: 40);
-        AssertMeshTopology(file, 17, expectedVertices: 20, expectedFaces: 25);
-        AssertMeshTopology(file, 18, expectedVertices: 27, expectedFaces: 40);
+        AssertMeshTopology(file!, 13, 20, 25);
+        AssertMeshTopology(file, 14, 27, 40);
+        AssertMeshTopology(file, 17, 20, 25);
+        AssertMeshTopology(file, 18, 27, 40);
         Assert.All(CarnageHandObjects, objectIndex =>
         {
             var meshIndex = PsxMeshSemantics.GetCharacterMeshIndex(file, objectIndex);
@@ -276,15 +275,15 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
             // and every emitted vertex must retain a real authored UV rather
             // than the former all-zero placeholder coordinates.
             var clawTextureIndex = Assert.Single(
-                document.Textures.Select((texture, index) => (Texture: texture, Index: index)),
-                static item => item.Texture.NativeChecksum == 0x00000002u
-                               && item.Texture.PngBytes is { } bytes
-                               && ModelDocumentGeometryAdapter.TryExtractPngDimensions(bytes)
+                    document.Textures.Select((texture, index) => (Texture: texture, Index: index)),
+                    static item => item.Texture.NativeChecksum == 0x00000002u
+                                   && item.Texture.PngBytes is { } bytes
+                                   && ModelDocumentGeometryAdapter.TryExtractPngDimensions(bytes)
                                    == (Width: 32, Height: 32))
                 .Index;
             var clawMaterialIndex = Assert.Single(
-                document.Materials.Select((material, index) => (Material: material, Index: index)),
-                item => item.Material.TextureIndex == clawTextureIndex)
+                    document.Materials.Select((material, index) => (Material: material, Index: index)),
+                    item => item.Material.TextureIndex == clawTextureIndex)
                 .Index;
             var clawPrimitive = Assert.Single(
                 document.Meshes.SelectMany(static mesh => mesh.Primitives),
@@ -307,15 +306,15 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
                     claw, clawTextureProvider));
 
             var tubeTextureIndex = Assert.Single(
-                document.Textures.Select((texture, index) => (Texture: texture, Index: index)),
-                static item => item.Texture.NativeChecksum == expectedTubeTextureHash
-                               && item.Texture.PngBytes is { } bytes
-                               && ModelDocumentGeometryAdapter.TryExtractPngDimensions(bytes)
+                    document.Textures.Select((texture, index) => (Texture: texture, Index: index)),
+                    static item => item.Texture.NativeChecksum == expectedTubeTextureHash
+                                   && item.Texture.PngBytes is { } bytes
+                                   && ModelDocumentGeometryAdapter.TryExtractPngDimensions(bytes)
                                    == (Width: 64, Height: 64))
                 .Index;
             var tubeMaterialIndex = Assert.Single(
-                document.Materials.Select((material, index) => (Material: material, Index: index)),
-                item => item.Material.TextureIndex == tubeTextureIndex)
+                    document.Materials.Select((material, index) => (Material: material, Index: index)),
+                    item => item.Material.TextureIndex == tubeTextureIndex)
                 .Index;
             var tubePrimitive = Assert.Single(
                 document.Meshes.SelectMany(static mesh => mesh.Primitives),
@@ -352,15 +351,15 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
                     file, tipPlacements, textureProvider));
 
             var tailTextureIndex = Assert.Single(
-                document.Textures.Select((texture, index) => (Texture: texture, Index: index)),
-                static item => item.Texture.NativeChecksum == expectedTailTextureHash
-                               && item.Texture.PngBytes is { } bytes
-                               && ModelDocumentGeometryAdapter.TryExtractPngDimensions(bytes)
+                    document.Textures.Select((texture, index) => (Texture: texture, Index: index)),
+                    static item => item.Texture.NativeChecksum == expectedTailTextureHash
+                                   && item.Texture.PngBytes is { } bytes
+                                   && ModelDocumentGeometryAdapter.TryExtractPngDimensions(bytes)
                                    == (Width: 64, Height: 64))
                 .Index;
             var tailMaterialIndex = Assert.Single(
-                document.Materials.Select((material, index) => (Material: material, Index: index)),
-                item => item.Material.TextureIndex == tailTextureIndex)
+                    document.Materials.Select((material, index) => (Material: material, Index: index)),
+                    item => item.Material.TextureIndex == tailTextureIndex)
                 .Index;
             var tailPrimitive = Assert.Single(
                 document.Meshes.SelectMany(static mesh => mesh.Primitives),
@@ -375,11 +374,11 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
 
             var (glbBytes, _) = new GltfModelExporter().BuildGlbBytes(document);
             Assert.NotNull(glbBytes);
-            using var stream = new MemoryStream(glbBytes!, writable: false);
+            using var stream = new MemoryStream(glbBytes!, false);
             var model = ModelRoot.ReadGLB(stream);
             var gltfAnimation = Assert.Single(model.LogicalAnimations);
             var matchingAnimatedNormals = new List<int>();
-            var bindScene = GlbModelLoader.Load(model, animation: null, time: 0f);
+            var bindScene = GlbModelLoader.Load(model, null, 0f);
             var bindTail = Assert.Single(
                 bindScene.Submeshes,
                 static submesh => submesh.TriangleCount == 236
@@ -397,6 +396,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
                                       && submesh.TextureHeight == 64);
                 matchingAnimatedNormals.Add(CountTrianglesWithMatchingNormals(animatedTail));
             }
+
             Assert.Equal(Enumerable.Repeat(236, 6), matchingAnimatedNormals);
         }
     }
@@ -438,25 +438,25 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
         PsxSkinnedGeometryWriter.PopulatePsxSkinned(
             document,
             file,
-            pshFile: null,
+            null,
             textureProvider,
-            flatSkeleton: false,
-            flatBoneIndices: null,
+            false,
+            null,
             claw,
             clawTextureProvider,
-            hiddenObjectIndices: null,
-            reconstructSplineAppendages: true);
+            null,
+            true);
 
         var clawTextureIndex = Assert.Single(
-            document.Textures.Select((texture, index) => (Texture: texture, Index: index)),
-            static item => item.Texture.NativeChecksum == 0x00000002u
-                           && item.Texture.PngBytes is { } bytes
-                           && ModelDocumentGeometryAdapter.TryExtractPngDimensions(bytes)
+                document.Textures.Select((texture, index) => (Texture: texture, Index: index)),
+                static item => item.Texture.NativeChecksum == 0x00000002u
+                               && item.Texture.PngBytes is { } bytes
+                               && ModelDocumentGeometryAdapter.TryExtractPngDimensions(bytes)
                                == (Width: 32, Height: 32))
             .Index;
         var clawMaterialIndex = Assert.Single(
-            document.Materials.Select((material, index) => (Material: material, Index: index)),
-            item => item.Material.TextureIndex == clawTextureIndex)
+                document.Materials.Select((material, index) => (Material: material, Index: index)),
+                item => item.Material.TextureIndex == clawTextureIndex)
             .Index;
         var clawPrimitive = Assert.Single(
             document.Meshes.SelectMany(static mesh => mesh.Primitives),
@@ -565,8 +565,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
 
         var authoredTriangleCount = file.Objects
             .Where(obj => obj.MeshIndex < file.Meshes.Count)
-            .Sum(obj => file.Meshes[obj.MeshIndex].Faces.Sum(
-                static face => face.IsQuad ? 2 : 1));
+            .Sum(obj => file.Meshes[obj.MeshIndex].Faces.Sum(static face => face.IsQuad ? 2 : 1));
         Assert.Equal(836, authoredTriangleCount);
 
         var initiallyHidden = PsxTriggerVisibilityResolver.FindInitiallyHiddenMeshes(
@@ -575,8 +574,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
             meshIndex => Assert.Contains(meshIndex, initiallyHidden));
         var initiallyHiddenTriangles = file.Objects
             .Where(obj => initiallyHidden.Contains(obj.MeshIndex))
-            .Sum(obj => file.Meshes[obj.MeshIndex].Faces.Sum(
-                static face => face.IsQuad ? 2 : 1));
+            .Sum(obj => file.Meshes[obj.MeshIndex].Faces.Sum(static face => face.IsQuad ? 2 : 1));
         Assert.Equal(384, initiallyHiddenTriangles);
 
         var objectEntry = fixture.Source.Backend.FindEntry("l8a4_o.psx");
@@ -624,8 +622,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
         Assert.True(selectedKevinGroup.IsEnabled);
         var kevinTriangles = file.Objects
             .Where(static obj => obj.MeshIndex is >= 46 and <= 51)
-            .Sum(obj => file.Meshes[obj.MeshIndex].Faces.Sum(
-                static face => face.IsQuad ? 2 : 1));
+            .Sum(obj => file.Meshes[obj.MeshIndex].Faces.Sum(static face => face.IsQuad ? 2 : 1));
         Assert.Equal(52, kevinTriangles);
         Assert.Equal(document.TriangleCount + kevinTriangles, whatIfDocument.TriangleCount);
         Assert.Contains(whatIfDocument.Textures,

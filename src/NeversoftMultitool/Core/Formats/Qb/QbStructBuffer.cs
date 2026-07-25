@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace NeversoftMultitool.Core.Formats.Qb;
 
 /// <summary>
@@ -8,11 +10,11 @@ namespace NeversoftMultitool.Core.Formats.Qb;
 ///     Small integers/zero floats are width-compressed via dedicated symbol types.
 ///     Arrays are <c>elemType(u8) + count(u16)</c> + packed elements.
 ///     <para>
-///     THUG2's cutscene "cifstruct" payloads (ext key 0x508AE2F2 = QbKey("cifstruct"))
-///     ship in this format. The name-compression path (type-byte bits 7/6 index the
-///     <c>WriteToBuffer_CompressionLookupTable_8/16</c> script arrays) is only taken by
-///     in-game senders — the PC build tools write full names (<c>__PLAT_WN32__</c>
-///     branch), and no corpus payload uses it — so it is rejected explicitly.
+///         THUG2's cutscene "cifstruct" payloads (ext key 0x508AE2F2 = QbKey("cifstruct"))
+///         ship in this format. The name-compression path (type-byte bits 7/6 index the
+///         <c>WriteToBuffer_CompressionLookupTable_8/16</c> script arrays) is only taken by
+///         in-game senders — the PC build tools write full names (<c>__PLAT_WN32__</c>
+///         branch), and no corpus payload uses it — so it is rejected explicitly.
 ///     </para>
 /// </summary>
 public static class QbStructBuffer
@@ -35,28 +37,6 @@ public static class QbStructBuffer
     private const byte TypeZeroInteger = 18;
     private const byte TypeZeroFloat = 19;
     private const byte MaskNameLookup = 0x80 | 0x40; // 8-/16-bit compression-table names
-
-    /// <summary>One named component of a serialized struct.</summary>
-    public sealed class Component
-    {
-        public uint NameChecksum { get; init; }
-
-        /// <summary>
-        ///     int / float / string / float[2] (pair) / float[3] (vector) /
-        ///     uint (name checksum) / List&lt;Component&gt; (structure) / Array.
-        /// </summary>
-        public object? Value { get; init; }
-
-        /// <summary>True when the value is a NAME (QbKey checksum) reference.</summary>
-        public bool IsNameValue { get; init; }
-    }
-
-    /// <summary>A serialized CArray: homogeneous elements of one symbol type.</summary>
-    public sealed class Array
-    {
-        public byte ElementType { get; init; }
-        public List<object?> Elements { get; init; } = [];
-    }
 
     /// <summary>
     ///     Parses a complete serialized struct; throws <see cref="InvalidDataException" />
@@ -227,8 +207,30 @@ public static class QbStructBuffer
         var end = data[pos..].IndexOf((byte)0);
         if (end < 0)
             throw new InvalidDataException($"unterminated string at 0x{pos:X}");
-        var value = System.Text.Encoding.Latin1.GetString(data.Slice(pos, end));
+        var value = Encoding.Latin1.GetString(data.Slice(pos, end));
         pos += end + 1;
         return value;
+    }
+
+    /// <summary>One named component of a serialized struct.</summary>
+    public sealed class Component
+    {
+        public uint NameChecksum { get; init; }
+
+        /// <summary>
+        ///     int / float / string / float[2] (pair) / float[3] (vector) /
+        ///     uint (name checksum) / List&lt;Component&gt; (structure) / Array.
+        /// </summary>
+        public object? Value { get; init; }
+
+        /// <summary>True when the value is a NAME (QbKey checksum) reference.</summary>
+        public bool IsNameValue { get; init; }
+    }
+
+    /// <summary>A serialized CArray: homogeneous elements of one symbol type.</summary>
+    public sealed class Array
+    {
+        public byte ElementType { get; init; }
+        public List<object?> Elements { get; init; } = [];
     }
 }

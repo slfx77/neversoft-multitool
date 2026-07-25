@@ -43,6 +43,7 @@ internal static class SkaThawParser
     //         own timestamp bits are unused (sign stays in the header).
     // T keys are THUG-classic on all variants (global T table, /32 scale).
     private const uint FlagThawHiResTimestamps = 1u << 8;
+
     private const uint FlagThawCompactKeys = 1u << 15;
     // bit 16 = scalar-table byte-width components (always set in-corpus; the
     // decoders infer per-component width from the header, so it isn't gated on)
@@ -124,7 +125,8 @@ internal static class SkaThawParser
         for (var bone = 0; bone < numBones; bone++)
         {
             var rotKeys = DecodeThawQKeys(data, ref qOff, qOff + qSizes[bone], compact, hiResTs, compressTable);
-            var transKeys = SkaCompressedKeyDecoders.DecodeCompressedTKeys(data, ref tOff, tOff + tSizes[bone], compressTable);
+            var transKeys =
+                SkaCompressedKeyDecoders.DecodeCompressedTKeys(data, ref tOff, tOff + tSizes[bone], compressTable);
             tracks[bone] = new SkaBoneTrack
             {
                 BoneIndex = bone,
@@ -242,7 +244,7 @@ internal static class SkaThawParser
         short value;
         if (narrow)
         {
-            value = table?.Q48[data[off]].Scalar ?? (short)0;
+            value = table?.Q48[data[off]].Scalar ?? 0;
             off += 1;
         }
         else if (compact)

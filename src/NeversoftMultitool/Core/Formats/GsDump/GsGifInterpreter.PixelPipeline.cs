@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
 
 namespace NeversoftMultitool.Core.Formats.GsDump;

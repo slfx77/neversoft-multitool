@@ -30,13 +30,8 @@ internal static class ThpgPositionUnwrapper
     /// <summary>Q4.12 wrap period in world units (65536 / 4096).</summary>
     private const float BandSize = 16f;
 
-    /// <summary>
-    ///     Per-section bounding box parsed from the 80-byte gap-chunk records between the
-    ///     entry table and the VIF stream. Each record carries the section's VIF data
-    ///     offset (+0x14), bbox half-extents (+0x28) and bbox centre (+0x38) — the
-    ///     absolute anchors the Q4.12 encoding relies on.
-    /// </summary>
-    internal readonly record struct SectionBounds(int VifOffset, Vector3 Center, Vector3 HalfExtent);
+    private const int GridCellSize = 4;
+    private const float ProximityCap = 12f;
 
     /// <summary>
     ///     Parses the per-section bbox records from the gap region. Returns an empty list
@@ -337,9 +332,6 @@ internal static class ThpgPositionUnwrapper
                 verts[i] = WithPosition(verts[i], unwrapped[meshStart[m] + i]);
         }
     }
-
-    private const int GridCellSize = 4;
-    private const float ProximityCap = 12f;
 
     /// <summary>
     ///     Chooses the whole-component 16-unit shift. Per axis, candidates are the
@@ -693,16 +685,24 @@ internal static class ThpgPositionUnwrapper
     }
 
     /// <summary>
+    ///     Per-section bounding box parsed from the 80-byte gap-chunk records between the
+    ///     entry table and the VIF stream. Each record carries the section's VIF data
+    ///     offset (+0x14), bbox half-extents (+0x28) and bbox centre (+0x38) — the
+    ///     absolute anchors the Q4.12 encoding relies on.
+    /// </summary>
+    internal readonly record struct SectionBounds(int VifOffset, Vector3 Center, Vector3 HalfExtent);
+
+    /// <summary>
     ///     Union-find tracking each node's integer band offset relative to its root
     ///     (a "potential difference" union-find): Band(node) − Band(root) per axis.
     /// </summary>
     private sealed class BandUnionFind(int count)
     {
-        private readonly int[] _parent = CreateIdentity(count);
-        private readonly byte[] _rank = new byte[count];
         private readonly int[] _dx = new int[count];
         private readonly int[] _dy = new int[count];
         private readonly int[] _dz = new int[count];
+        private readonly int[] _parent = CreateIdentity(count);
+        private readonly byte[] _rank = new byte[count];
 
         public int Find(int x)
         {

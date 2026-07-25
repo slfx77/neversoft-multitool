@@ -71,7 +71,7 @@ public sealed class ZoneTextureProviderBuilderTests
     [Fact]
     public void ResolveTex0_WhenSameAddressAppearsInMultipleSourcesPrefersCurrentSource()
     {
-        var tex0 = MakeTex0(tbp: 0x100, cbp: 0x200);
+        var tex0 = MakeTex0(0x100, cbp: 0x200);
         var catalog = ZoneTextureCatalog.CreateForTests("z_bh.pak.ps2",
         [
             ("z_bh.pak.ps2", MakeEntry(0x11111111, tex0), MakeTexture(0x11111111)),
@@ -88,12 +88,12 @@ public sealed class ZoneTextureProviderBuilderTests
     [Fact]
     public void ResolveTex0_WhenCrossSourceTbpCbpIsAmbiguousReturnsUnresolved()
     {
-        var first = MakeTex0(tbp: 0x100, tbw: 4, cbp: 0x200, csa: 1);
-        var second = MakeTex0(tbp: 0x100, tbw: 4, cbp: 0x200, csa: 2);
-        var request = MakeTex0(tbp: 0x100, tbw: 5, cbp: 0x200, csa: 3);
+        var first = MakeTex0(0x100, 4, cbp: 0x200, csa: 1);
+        var second = MakeTex0(0x100, 4, cbp: 0x200, csa: 2);
+        var request = MakeTex0(0x100, 5, cbp: 0x200, csa: 3);
         var catalog = ZoneTextureCatalog.CreateForTests("z_bh.pak.ps2",
         [
-            ("z_bh.pak.ps2", MakeEntry(0x33333333, MakeTex0(tbp: 0x999, cbp: 0x888)), MakeTexture(0x33333333)),
+            ("z_bh.pak.ps2", MakeEntry(0x33333333, MakeTex0(0x999, cbp: 0x888)), MakeTexture(0x33333333)),
             ("z_bh_net.pak.ps2", MakeEntry(0x11111111, first), MakeTexture(0x11111111)),
             ("z_bh_accessoryshop_data.pak.ps2", MakeEntry(0x22222222, second), MakeTexture(0x22222222))
         ]);
@@ -107,14 +107,14 @@ public sealed class ZoneTextureProviderBuilderTests
     [Fact]
     public void ResolveTex0_WhenSameSourceExactIsAmbiguousUsesMaterialGroupIndex()
     {
-        var tex0 = MakeTex0(tbp: 0x222, cbp: 0x333);
+        var tex0 = MakeTex0(0x222, cbp: 0x333);
         var catalog = ZoneTextureCatalog.CreateForTests("z_bh.pak.ps2",
         [
-            ("z_bh.pak.ps2", MakeEntry(0x11111111, tex0, groupChecksum: 0xAAAA0001), MakeTexture(0x11111111), 9u),
-            ("z_bh.pak.ps2", MakeEntry(0x22222222, tex0, groupChecksum: 0xBBBB0002), MakeTexture(0x22222222), 11u)
+            ("z_bh.pak.ps2", MakeEntry(0x11111111, tex0, 0xAAAA0001), MakeTexture(0x11111111), 9u),
+            ("z_bh.pak.ps2", MakeEntry(0x22222222, tex0, 0xBBBB0002), MakeTexture(0x22222222), 11u)
         ]);
 
-        var resolution = catalog.ResolveTex0(tex0, "z_bh.pak.ps2", groupChecksum: 9);
+        var resolution = catalog.ResolveTex0(tex0, "z_bh.pak.ps2", 9);
 
         Assert.Equal(0x11111111u, resolution.Checksum);
         Assert.Equal("same_source_material_group_exact", resolution.ResolveMode);
@@ -123,14 +123,14 @@ public sealed class ZoneTextureProviderBuilderTests
     [Fact]
     public void ResolveTex0_WhenSameSourceExactIsAmbiguousUsesTextureGroupChecksum()
     {
-        var tex0 = MakeTex0(tbp: 0x224, cbp: 0x335);
+        var tex0 = MakeTex0(0x224, cbp: 0x335);
         var catalog = ZoneTextureCatalog.CreateForTests("z_bh.pak.ps2",
         [
-            ("z_bh.pak.ps2", MakeEntry(0x33333333, tex0, groupChecksum: 0xCAFE0001), MakeTexture(0x33333333)),
-            ("z_bh.pak.ps2", MakeEntry(0x44444444, tex0, groupChecksum: 0xCAFE0002), MakeTexture(0x44444444))
+            ("z_bh.pak.ps2", MakeEntry(0x33333333, tex0, 0xCAFE0001), MakeTexture(0x33333333)),
+            ("z_bh.pak.ps2", MakeEntry(0x44444444, tex0, 0xCAFE0002), MakeTexture(0x44444444))
         ]);
 
-        var resolution = catalog.ResolveTex0(tex0, "z_bh.pak.ps2", groupChecksum: 0xCAFE0002);
+        var resolution = catalog.ResolveTex0(tex0, "z_bh.pak.ps2", 0xCAFE0002);
 
         Assert.Equal(0x44444444u, resolution.Checksum);
         Assert.Equal("same_source_group_exact", resolution.ResolveMode);
@@ -139,7 +139,7 @@ public sealed class ZoneTextureProviderBuilderTests
     [Fact]
     public void ResolveTex0_WhenSameSourceExactIsAmbiguousUsesEntryHint()
     {
-        var tex0 = MakeTex0(tbp: 0x226, cbp: 0x337);
+        var tex0 = MakeTex0(0x226, cbp: 0x337);
         var catalog = ZoneTextureCatalog.CreateForTests("z_bh.pak.ps2",
         [
             ("z_bh.pak.ps2", "z_bh.pak.ps2::000022F0", MakeEntry(0x55555555, tex0), MakeTexture(0x55555555)),
@@ -167,26 +167,30 @@ public sealed class ZoneTextureProviderBuilderTests
         uint csa = 1,
         uint cld = 0)
     {
-        return ((ulong)tbp & 0x3FFFUL)
-               | (((ulong)tbw & 0x3FUL) << 14)
-               | (((ulong)psm & 0x3FUL) << 20)
-               | (((ulong)tw & 0xFUL) << 26)
-               | (((ulong)th & 0xFUL) << 30)
-               | (((ulong)tcc & 0x1UL) << 34)
-               | (((ulong)tfx & 0x3UL) << 35)
-               | (((ulong)cbp & 0x3FFFUL) << 37)
-               | (((ulong)cpsm & 0xFUL) << 51)
-               | (((ulong)csm & 0x1UL) << 55)
-               | (((ulong)csa & 0x1FUL) << 56)
-               | (((ulong)cld & 0x7UL) << 61);
+        return (tbp & 0x3FFFUL)
+               | ((tbw & 0x3FUL) << 14)
+               | ((psm & 0x3FUL) << 20)
+               | ((tw & 0xFUL) << 26)
+               | ((th & 0xFUL) << 30)
+               | ((tcc & 0x1UL) << 34)
+               | ((tfx & 0x3UL) << 35)
+               | ((cbp & 0x3FFFUL) << 37)
+               | ((cpsm & 0xFUL) << 51)
+               | ((csm & 0x1UL) << 55)
+               | ((csa & 0x1FUL) << 56)
+               | ((cld & 0x7UL) << 61);
     }
 
     private static ThawZoneTexFile.ZoneTexHeaderEntry MakeEntry(
         uint checksum,
         ulong tex0,
-        uint groupChecksum = 0) =>
-        new(checksum, tex0, 0, 0, 0, 0, GroupChecksum: groupChecksum);
+        uint groupChecksum = 0)
+    {
+        return new ThawZoneTexFile.ZoneTexHeaderEntry(checksum, tex0, 0, 0, 0, 0, GroupChecksum: groupChecksum);
+    }
 
-    private static Ps2Texture MakeTexture(uint checksum) =>
-        new(checksum, 1, 1, 0, 0, [255, 255, 255, 255]);
+    private static Ps2Texture MakeTexture(uint checksum)
+    {
+        return new Ps2Texture(checksum, 1, 1, 0, 0, [255, 255, 255, 255]);
+    }
 }

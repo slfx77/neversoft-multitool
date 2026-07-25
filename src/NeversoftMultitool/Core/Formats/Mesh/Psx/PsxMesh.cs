@@ -32,7 +32,7 @@ public sealed class PsxMesh
             var rawFaceCount = FaceReadInfos.Count > 0
                 ? FaceReadInfos.Count
                 : Faces.Count;
-            return Normals.Count >= (long)VertexCount + rawFaceCount;
+            return Normals.Count >= VertexCount + rawFaceCount;
         }
     }
 

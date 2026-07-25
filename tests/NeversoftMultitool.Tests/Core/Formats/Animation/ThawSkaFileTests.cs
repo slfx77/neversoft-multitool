@@ -1,6 +1,5 @@
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Animation;
 
@@ -109,7 +108,7 @@ public class ThawSkaFileTests(TestPaths paths)
                  {
                      (ThawPs2Build, "*.ska", 6000),
                      (ThawGcBuild, "*.ska.ngc", 7000),
-                     (ThawPcBuild, "*.ska", 6000),
+                     (ThawPcBuild, "*.ska", 6000)
                  })
         {
             var buildDir = Path.Combine(paths.SampleBuildsDir!, build);

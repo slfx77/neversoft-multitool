@@ -260,7 +260,3 @@ internal static class PsxSurfaceAnimationReader
         return objectIndex < objectCount ? objectIndex : -1;
     }
 }
-
-internal sealed record PsxSurfaceAnimationResult(
-    Vector4[]? Palette,
-    IReadOnlyList<PsxColourPulse> ColourPulses);

@@ -1,19 +1,5 @@
-using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh.Ddm;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
-using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene.Ps2Scene;
-using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
-using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -29,7 +15,8 @@ internal static class RwBspGeometryWriter
         MeshNamedTextureResolver? textureProvider)
     {
         for (var i = 0; i < world.Materials.Length && i < document.Materials.Count; i++)
-            RwGeometryWriter.ApplyRwMaterial(document, document.Materials[i], world.Materials[i], textureProvider, true);
+            RwGeometryWriter.ApplyRwMaterial(document, document.Materials[i], world.Materials[i], textureProvider,
+                true);
 
         var mesh = new ModelMesh { Name = "level" };
         foreach (var group in world.Sections

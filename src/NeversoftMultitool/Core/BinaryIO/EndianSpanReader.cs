@@ -15,23 +15,38 @@ internal readonly ref struct EndianSpanReader(ReadOnlySpan<byte> data, bool bigE
     public bool BigEndian { get; } = bigEndian;
     public int Length => _data.Length;
 
-    public ushort U16(int pos) => BigEndian
-        ? BinaryPrimitives.ReadUInt16BigEndian(_data[pos..])
-        : BinaryPrimitives.ReadUInt16LittleEndian(_data[pos..]);
+    public ushort U16(int pos)
+    {
+        return BigEndian
+            ? BinaryPrimitives.ReadUInt16BigEndian(_data[pos..])
+            : BinaryPrimitives.ReadUInt16LittleEndian(_data[pos..]);
+    }
 
-    public short S16(int pos) => BigEndian
-        ? BinaryPrimitives.ReadInt16BigEndian(_data[pos..])
-        : BinaryPrimitives.ReadInt16LittleEndian(_data[pos..]);
+    public short S16(int pos)
+    {
+        return BigEndian
+            ? BinaryPrimitives.ReadInt16BigEndian(_data[pos..])
+            : BinaryPrimitives.ReadInt16LittleEndian(_data[pos..]);
+    }
 
-    public uint U32(int pos) => BigEndian
-        ? BinaryPrimitives.ReadUInt32BigEndian(_data[pos..])
-        : BinaryPrimitives.ReadUInt32LittleEndian(_data[pos..]);
+    public uint U32(int pos)
+    {
+        return BigEndian
+            ? BinaryPrimitives.ReadUInt32BigEndian(_data[pos..])
+            : BinaryPrimitives.ReadUInt32LittleEndian(_data[pos..]);
+    }
 
-    public int I32(int pos) => BigEndian
-        ? BinaryPrimitives.ReadInt32BigEndian(_data[pos..])
-        : BinaryPrimitives.ReadInt32LittleEndian(_data[pos..]);
+    public int I32(int pos)
+    {
+        return BigEndian
+            ? BinaryPrimitives.ReadInt32BigEndian(_data[pos..])
+            : BinaryPrimitives.ReadInt32LittleEndian(_data[pos..]);
+    }
 
-    public float F32(int pos) => BigEndian
-        ? BinaryPrimitives.ReadSingleBigEndian(_data[pos..])
-        : BinaryPrimitives.ReadSingleLittleEndian(_data[pos..]);
+    public float F32(int pos)
+    {
+        return BigEndian
+            ? BinaryPrimitives.ReadSingleBigEndian(_data[pos..])
+            : BinaryPrimitives.ReadSingleLittleEndian(_data[pos..]);
+    }
 }

@@ -12,9 +12,3 @@ public sealed class PsxColourPulse
     public required byte InitialTimeAccumulator { get; init; }
     public required PsxColourPulseKey[] Keys { get; init; }
 }
-
-public readonly record struct PsxColourPulseKey(
-    byte R,
-    byte G,
-    byte B,
-    byte Interval);

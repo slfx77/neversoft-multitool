@@ -1,19 +1,6 @@
-using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh.Ddm;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
-using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene.Ps2Scene;
-using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
-using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh.Ddm;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -72,7 +59,8 @@ internal static class DdmGeometryWriter
                         ModelDocumentGeometryAdapter.AddTriangle(vertices, indices, vb, va, vc);
                 }
 
-                ModelDocumentGeometryAdapter.AddPrimitive(mesh, $"split_{splitIndex:D3}", materialIndex, vertices, indices);
+                ModelDocumentGeometryAdapter.AddPrimitive(mesh, $"split_{splitIndex:D3}", materialIndex, vertices,
+                    indices);
             }
 
             ModelDocumentGeometryAdapter.AddMeshNode(document, obj.Name, mesh);
@@ -98,6 +86,7 @@ internal static class DdmGeometryWriter
 
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
     }
+
     private static void ApplyDdmMaterial(
         ModelDocument document,
         RenderMaterial renderMaterial,
@@ -120,7 +109,8 @@ internal static class DdmGeometryWriter
                 var pngBytes = isAdditive
                     ? MeshTextureHelper.ConvertLuminanceToAlpha(loaded.Value.Bytes)
                     : loaded.Value.Bytes;
-                renderMaterial.TextureIndex ??= ModelDocumentGeometryAdapter.AddTexture(document, material.TextureName, pngBytes);
+                renderMaterial.TextureIndex ??=
+                    ModelDocumentGeometryAdapter.AddTexture(document, material.TextureName, pngBytes);
                 if (isAdditive || loaded.Value.HasAlpha)
                     renderMaterial.AlphaMode = ModelAlphaMode.Blend;
                 else if (material.BlendMode == 2)
@@ -135,6 +125,7 @@ internal static class DdmGeometryWriter
         else if (material.BlendMode == 2)
             renderMaterial.AlphaMode = ModelAlphaMode.Mask;
     }
+
     private static void PopulateDdmWithLayout(
         ModelDocument document,
         DdmFile ddm,

@@ -17,9 +17,6 @@ public static class UserSettings
     private static readonly object Sync = new();
     private static string _subKeyPath = DefaultSubKeyPath;
 
-    /// <summary>Raised after any setting is written (on the writing thread).</summary>
-    public static event Action? Changed;
-
     /// <summary>Where the settings live, for user-facing messages.</summary>
     public static string StorageDescription => $@"HKEY_CURRENT_USER\{_subKeyPath}";
 
@@ -46,7 +43,7 @@ public static class UserSettings
             {
                 using var key = Registry.CurrentUser.CreateSubKey(_subKeyPath);
                 if (string.IsNullOrWhiteSpace(value))
-                    key.DeleteValue(BlenderPathValueName, throwOnMissingValue: false);
+                    key.DeleteValue(BlenderPathValueName, false);
                 else
                     key.SetValue(BlenderPathValueName, value.Trim());
             }
@@ -54,6 +51,9 @@ public static class UserSettings
             Changed?.Invoke();
         }
     }
+
+    /// <summary>Raised after any setting is written (on the writing thread).</summary>
+    public static event Action? Changed;
 
     /// <summary>Test hook: redirect to a scratch subkey (null restores the default).</summary>
     internal static void OverrideSubKeyForTesting(string? subKeyPath)

@@ -209,7 +209,7 @@ internal static class PsxMeshSemantics
                         psxFile,
                         retainedObjectIndex,
                         objectIndex,
-                        allowTwoLeafFallback: leaves.Count == 2), -1);
+                        leaves.Count == 2), -1);
                 if (defaultObjectIndex >= 0)
                 {
                     groups.Add(CreateAlternateLeafGroup(
@@ -257,7 +257,7 @@ internal static class PsxMeshSemantics
             // overlap still protects coincident pivots whose geometry extends
             // in genuinely different directions.
             return HaveWorldBoundsOverlap(
-                psxFile, firstObjectIndex, candidateObjectIndex, minimumOverlap: 0.5f);
+                psxFile, firstObjectIndex, candidateObjectIndex, 0.5f);
         }
 
         if (allowTwoLeafFallback && !firstIsStitched && !candidateIsStitched)
@@ -276,14 +276,14 @@ internal static class PsxMeshSemantics
                        psxFile,
                        firstObjectIndex,
                        candidateObjectIndex,
-                       minimumOverlap: 0.75f);
+                       0.75f);
         }
 
         if (!isMixedPair)
             return false;
 
         return HaveSimilarTopologyAndOverlap(
-            psxFile, firstObjectIndex, candidateObjectIndex, minimumOverlap: 0.5f);
+            psxFile, firstObjectIndex, candidateObjectIndex, 0.5f);
     }
 
     private static bool HasTexturedFaces(PsxMeshFile psxFile, int objectIndex)
@@ -291,8 +291,7 @@ internal static class PsxMeshSemantics
         var meshIndex = GetCharacterMeshIndex(psxFile, objectIndex);
         return meshIndex >= 0
                && meshIndex < psxFile.Meshes.Count
-               && psxFile.Meshes[meshIndex].Faces.Any(
-                   static face => face.IsTextured && face.TextureHash != 0);
+               && psxFile.Meshes[meshIndex].Faces.Any(static face => face.IsTextured && face.TextureHash != 0);
     }
 
     private static bool IsTightlyOverlappingUnstitchedFourLeafGroup(
@@ -324,7 +323,7 @@ internal static class PsxMeshSemantics
 
         return leaves.Skip(1).All(candidateObjectIndex =>
             HaveSimilarTopologyAndOverlap(
-                psxFile, leaves[0], candidateObjectIndex, minimumOverlap: 0.95f));
+                psxFile, leaves[0], candidateObjectIndex, 0.95f));
     }
 
     private static bool HasStitchedReference(PsxMeshFile psxFile, int objectIndex)
@@ -349,7 +348,7 @@ internal static class PsxMeshSemantics
         var firstMeshIndex = GetCharacterMeshIndex(psxFile, firstObjectIndex);
         var candidateMeshIndex = GetCharacterMeshIndex(psxFile, candidateObjectIndex);
         if (firstMeshIndex < 0 || firstMeshIndex >= psxFile.Meshes.Count
-            || candidateMeshIndex < 0 || candidateMeshIndex >= psxFile.Meshes.Count)
+                               || candidateMeshIndex < 0 || candidateMeshIndex >= psxFile.Meshes.Count)
         {
             return false;
         }
@@ -376,9 +375,9 @@ internal static class PsxMeshSemantics
         var firstMeshIndex = GetCharacterMeshIndex(psxFile, firstObjectIndex);
         var candidateMeshIndex = GetCharacterMeshIndex(psxFile, candidateObjectIndex);
         if (firstMeshIndex < 0 || firstMeshIndex >= psxFile.Meshes.Count
-            || candidateMeshIndex < 0 || candidateMeshIndex >= psxFile.Meshes.Count
-            || !TryGetWorldBounds(psxFile, firstMeshIndex, out var firstBounds)
-            || !TryGetWorldBounds(psxFile, candidateMeshIndex, out var candidateBounds))
+                               || candidateMeshIndex < 0 || candidateMeshIndex >= psxFile.Meshes.Count
+                               || !TryGetWorldBounds(psxFile, firstMeshIndex, out var firstBounds)
+                               || !TryGetWorldBounds(psxFile, candidateMeshIndex, out var candidateBounds))
         {
             return false;
         }
@@ -443,8 +442,3 @@ internal static class PsxMeshSemantics
 
     private readonly record struct PsxBounds(Vector3 Min, Vector3 Max);
 }
-
-internal readonly record struct PsxAlternateLeafGroup(
-    int DefaultObjectIndex,
-    int AlternateObjectIndex,
-    int ParentObjectIndex);

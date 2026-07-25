@@ -232,5 +232,4 @@ public sealed class PsxAnimation
             : rawAngle;
         return raw * (2f * MathF.PI / units);
     }
-
 }

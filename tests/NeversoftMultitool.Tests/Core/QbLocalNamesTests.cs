@@ -13,7 +13,7 @@ public class QbLocalNamesTests
     [InlineData("_360VarialHeelFlipLien_Idle", 0xB84B144Eu)]
     public void TryResolve_InlineChecksumNames_ResolveGlobally(string name, uint checksum)
     {
-        Assert.Equal(checksum, QbKey.HashLower(name));  // proven-by-rehash (ship bar)
+        Assert.Equal(checksum, QbKey.HashLower(name)); // proven-by-rehash (ship bar)
         Assert.Equal(name, QbKey.TryResolve(checksum)); // now resolves through the global dictionary
     }
 }

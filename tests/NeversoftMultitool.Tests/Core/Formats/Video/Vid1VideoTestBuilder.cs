@@ -32,7 +32,7 @@ internal static class Vid1VideoTestBuilder
             {
                 new Vid1SyntheticVideoFrameSpec(
                     0x2107,
-                    PreambleClass: 0,
+                    0,
                     Quantizer: 7,
                     CurrentFrameStateWord: 0x11223344,
                     HasSpecialCallerGate: true,
@@ -97,7 +97,7 @@ internal static class Vid1VideoTestBuilder
         // all live INSIDE the outerFlag1 (hasOptionalHeader) block. The
         // synthetic builder always emits outerFlag1=true so these fields are
         // present; a separate 1-bit param_1[0] flag sits outside.
-        writer.WriteFlag(true);  // hasOptionalHeader / outerFlag1
+        writer.WriteFlag(true); // hasOptionalHeader / outerFlag1
         writer.WriteFlag(false); // spriteConfigPresent / innerFlag1
         writer.WriteFlag(frame.UsesCustomQuantMatrices);
 

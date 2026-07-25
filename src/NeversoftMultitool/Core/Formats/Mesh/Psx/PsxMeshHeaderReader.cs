@@ -96,9 +96,11 @@ internal static class PsxMeshHeaderReader
     ///     transform, so supers store vertices ×16 (divisor 36 = 2.25×16).
     ///     One runtime-specific carve-out remains:
     ///     <list type="bullet">
-    ///         <item>Apocalypse (1998) v3 models use raw vertex coordinates
-    ///         (no /16). Detected by probing the first mesh's header — its v3
-    ///         lacks the LOD field after the bbox.</item>
+    ///         <item>
+    ///             Apocalypse (1998) v3 models use raw vertex coordinates
+    ///             (no /16). Detected by probing the first mesh's header — its v3
+    ///             lacks the LOD field after the bbox.
+    ///         </item>
     ///     </list>
     /// </summary>
     private static (bool IsApocalypse, bool IsSuperModel, float ScaleDivisor) ClassifyModelScale(
@@ -109,7 +111,7 @@ internal static class PsxMeshHeaderReader
         float baseScale)
     {
         var isApocalypse = version == 0x03 && meshTopPointers.Length > 0
-                           && !MajorityProbeV3HasLod(reader, meshTopPointers);
+                                           && !MajorityProbeV3HasLod(reader, meshTopPointers);
         var isSuperModel = hasAnimChunk;
         var scaleDivisor = isSuperModel && !isApocalypse ? baseScale * 16f : baseScale;
         return (isApocalypse, isSuperModel, scaleDivisor);

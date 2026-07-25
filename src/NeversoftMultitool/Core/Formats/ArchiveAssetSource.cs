@@ -62,7 +62,7 @@ public sealed class ArchiveAssetSource : AssetSource
 
     private ArchiveEntry? FindCompanionEntry(string nameWithExtension)
     {
-        IReadOnlyList<ArchiveEntry> candidates = Backend.FindAllByName(nameWithExtension);
+        var candidates = Backend.FindAllByName(nameWithExtension);
         if (candidates.Count == 0)
         {
             // Plaintext HED/WAD entries historically retain their full relative

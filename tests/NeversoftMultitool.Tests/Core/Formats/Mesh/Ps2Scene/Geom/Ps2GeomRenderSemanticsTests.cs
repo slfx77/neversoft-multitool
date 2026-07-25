@@ -9,9 +9,9 @@ public sealed class Ps2GeomRenderSemanticsTests
     [Fact]
     public void OrderWorldzoneLeavesForDraw_UsesRenderGroupThenOriginalLeafIndex()
     {
-        var overlay = MakeLeaf(groupChecksum: 12, alpha: 0x44);
-        var wear = MakeLeaf(groupChecksum: 6, alpha: 0x44);
-        var baseLayer = MakeLeaf(groupChecksum: 5, alpha: 0x0A);
+        var overlay = MakeLeaf(12, 0x44);
+        var wear = MakeLeaf(6, 0x44);
+        var baseLayer = MakeLeaf(5, 0x0A);
 
         var ordered = Ps2GeomRenderSemantics.OrderWorldzoneLeavesForDraw([overlay, wear, baseLayer]);
 
@@ -48,8 +48,8 @@ public sealed class Ps2GeomRenderSemanticsTests
     [Fact]
     public void ClassifyWorldzoneAlphaMode_DoesNotMaskFramebufferOnlyAlphaTestFailure()
     {
-        var framebufferOnlyFailure = MakeLeaf(alpha: 0x0A, test: MakeTest(atst: 6, aref: 32, afail: 1));
-        var keepFailure = MakeLeaf(alpha: 0x0A, test: MakeTest(atst: 6, aref: 32, afail: 0));
+        var framebufferOnlyFailure = MakeLeaf(alpha: 0x0A, test: MakeTest(6, 32, 1));
+        var keepFailure = MakeLeaf(alpha: 0x0A, test: MakeTest(6, 32, 0));
 
         Assert.Equal("OPAQUE", Ps2GeomRenderSemantics.ClassifyWorldzoneAlphaMode(framebufferOnlyFailure));
         Assert.Equal("MASK", Ps2GeomRenderSemantics.ClassifyWorldzoneAlphaMode(keepFailure));
@@ -60,8 +60,8 @@ public sealed class Ps2GeomRenderSemanticsTests
     {
         // Cutoffs live in the exported-PNG alpha domain (GS alpha ×255/128),
         // so AREF scales by /128, not /255 (two-domain rule).
-        Assert.Equal(32 / 128f, Ps2GeomRenderSemantics.ComputeAlphaMaskCutoff(MakeTest(atst: 5, aref: 32)));
-        Assert.Equal(33 / 128f, Ps2GeomRenderSemantics.ComputeAlphaMaskCutoff(MakeTest(atst: 6, aref: 32)));
+        Assert.Equal(32 / 128f, Ps2GeomRenderSemantics.ComputeAlphaMaskCutoff(MakeTest(5, 32)));
+        Assert.Equal(33 / 128f, Ps2GeomRenderSemantics.ComputeAlphaMaskCutoff(MakeTest(6, 32)));
     }
 
     [Fact]
@@ -90,8 +90,8 @@ public sealed class Ps2GeomRenderSemanticsTests
     public void WritesFramebufferAlpha_DetectsFrameAlphaWriteMask()
     {
         Assert.True(Ps2GeomRenderSemantics.WritesFramebufferAlpha(MakeLeaf(frame: 0)));
-        Assert.True(Ps2GeomRenderSemantics.WritesFramebufferAlpha(MakeLeaf(frame: MakeFrame(fbmsk: 0x00FFFFFF))));
-        Assert.False(Ps2GeomRenderSemantics.WritesFramebufferAlpha(MakeLeaf(frame: MakeFrame(fbmsk: 0xFF000000))));
+        Assert.True(Ps2GeomRenderSemantics.WritesFramebufferAlpha(MakeLeaf(frame: MakeFrame(0x00FFFFFF))));
+        Assert.False(Ps2GeomRenderSemantics.WritesFramebufferAlpha(MakeLeaf(frame: MakeFrame(0xFF000000))));
     }
 
     private static Ps2GeomLeaf MakeLeaf(
@@ -120,11 +120,16 @@ public sealed class Ps2GeomRenderSemanticsTests
         };
     }
 
-    private static ulong MakeFrame(uint fbmsk) => (ulong)fbmsk << 32;
+    private static ulong MakeFrame(uint fbmsk)
+    {
+        return (ulong)fbmsk << 32;
+    }
 
-    private static ulong MakeTest(int atst, int aref, int afail = 0) =>
-        0x1UL |
-        ((ulong)(atst & 0x7) << 1) |
-        ((ulong)(aref & 0xFF) << 4) |
-        ((ulong)(afail & 0x3) << 12);
+    private static ulong MakeTest(int atst, int aref, int afail = 0)
+    {
+        return 0x1UL |
+               ((ulong)(atst & 0x7) << 1) |
+               ((ulong)(aref & 0xFF) << 4) |
+               ((ulong)(afail & 0x3) << 12);
+    }
 }

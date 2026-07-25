@@ -1,19 +1,8 @@
-using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh.Ddm;
+using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene.Ps2Scene;
-using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
-using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
-using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -74,7 +63,8 @@ internal static class Ps2SceneGeometryWriter
                 if (!materialMap.TryGetValue(nativeMesh.MaterialChecksum, out var materialIndex))
                     materialIndex = ModelDocumentGeometryAdapter.AddMaterial(document, new RenderMaterial
                     {
-                        Name = ModelDocumentGeometryAdapter.ResolveQbName(nativeMesh.MaterialChecksum, $"mat_{nativeMesh.MaterialChecksum:X8}")
+                        Name = ModelDocumentGeometryAdapter.ResolveQbName(nativeMesh.MaterialChecksum,
+                            $"mat_{nativeMesh.MaterialChecksum:X8}")
                     });
 
                 if (!dedupByMaterial.TryGetValue(nativeMesh.MaterialChecksum, out var dedup))
@@ -123,8 +113,10 @@ internal static class Ps2SceneGeometryWriter
 
             var materialIndex = leafIndex < document.Materials.Count
                 ? leafIndex
-                : ModelDocumentGeometryAdapter.AddMaterial(document, new RenderMaterial { Name = $"leaf_{leafIndex:D5}" });
-            Ps2MaterialWriter.ApplyPs2GeomMaterial(document, document.Materials[materialIndex], leaf, textureProvider, tex0Resolver);
+                : ModelDocumentGeometryAdapter.AddMaterial(document,
+                    new RenderMaterial { Name = $"leaf_{leafIndex:D5}" });
+            Ps2MaterialWriter.ApplyPs2GeomMaterial(document, document.Materials[materialIndex], leaf, textureProvider,
+                tex0Resolver);
 
             var mesh = new ModelMesh { Name = $"leaf_{leafIndex:D5}" };
             var alphaMode = Ps2GeomRenderSemantics.ClassifyWorldzoneAlphaMode(leaf);
@@ -275,6 +267,7 @@ internal static class Ps2SceneGeometryWriter
             vertex.BoneIndex0, vertex.BoneIndex1, vertex.BoneIndex2, 0,
             vertex.BoneWeight0, vertex.BoneWeight1, vertex.BoneWeight2, 0f);
     }
+
     internal static ModelSkeleton BuildPs2Skeleton(Ps2Skeleton skeleton)
     {
         // PS2 .ske bones store local rotation+translation in glTF-friendly coordinates
@@ -335,7 +328,8 @@ internal static class Ps2SceneGeometryWriter
             ? ModelDocumentGeometryAdapter.NormalizeOrDefault(vertex.Normal)
             : fallbackNormal ?? Vector3.UnitY;
 
-        if (!bakeVertexColorsToWhite && ModelDocumentGeometryAdapter.ActivePs2WorldzoneLighting is { } lighting && hasUsableNormal)
+        if (!bakeVertexColorsToWhite && ModelDocumentGeometryAdapter.ActivePs2WorldzoneLighting is { } lighting &&
+            hasUsableNormal)
         {
             var diffuse = MathF.Max(0f, Vector3.Dot(normal, lighting.SunDirection));
             var rf = lighting.Ambient.X + diffuse * lighting.SunColor.X;

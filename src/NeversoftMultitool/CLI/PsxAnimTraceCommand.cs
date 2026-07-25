@@ -205,7 +205,7 @@ public static class PsxAnimTraceCommand
             : PsxAnimationBoneMap.TryCreate(
                 bankSource, inputSource, targetBoneCount, out remapDiagnostic);
         var selected = PsxAnimationBank.ResolveSelections(
-            bank.AnimFile, animIndex, animName: null, namePrefix: null);
+            bank.AnimFile, animIndex, null, null);
         if (selected.Count == 0)
         {
             AnsiConsole.MarkupLine(
@@ -283,7 +283,7 @@ public static class PsxAnimTraceCommand
 
         var bindWorld = MaterialiseBindWorldTranslations(skeleton, gltfParentIndices, boneCount);
         var engineLocalRotations = MaterialiseEngineLocalRotations(
-            animation, boneCount, frameCount: animation.FrameCount, compose, rotScale);
+            animation, boneCount, animation.FrameCount, compose, rotScale);
         var engineWorldRaw = MaterialiseEngineWorldTranslations(
             animation, engineParentIndices, boneCount, animation.FrameCount, engineLocalRotations);
         var directWorld = MaterialiseExporterDirectWorldTranslations(
@@ -399,7 +399,8 @@ public static class PsxAnimTraceCommand
             var engineActive = EngineTarget(engineWorldRaw, bone, frame, exporterDivisor);
             var engineBase = EngineTarget(engineWorldRaw, bone, frame, baseTranslationDivisor);
             var rawLocal = animation.GetBoneTranslation(bone, frame);
-            var label = $"{bone}:{skeleton.Bones[bone].Name}\ngltf={gltfParentIndices[bone]} engine={engineParentIndices[bone]}";
+            var label =
+                $"{bone}:{skeleton.Bones[bone].Name}\ngltf={gltfParentIndices[bone]} engine={engineParentIndices[bone]}";
             var row = new List<string>
             {
                 Markup.Escape(label),
@@ -740,7 +741,7 @@ public static class PsxAnimTraceCommand
 
             var origin = EngineTarget(engineWorldRaw, part, targetFrame, exporterDivisor);
             return TransformRenderPartVertex(
-                sample, engineLocalRotations[part, targetFrame], origin, divideLocalBy16: false);
+                sample, engineLocalRotations[part, targetFrame], origin, false);
         });
         var animOrderBounds = AccumulateRenderPartBounds(samples, partCount, sample =>
         {
@@ -753,7 +754,7 @@ public static class PsxAnimTraceCommand
             var origin = EngineTarget(
                 sourceEngineWorldRaw, sourceSlot, sourceFrame, exporterDivisor);
             return TransformRenderPartVertex(
-                sample, sourceEngineLocalRotations[sourceSlot, sourceFrame], origin, divideLocalBy16: false);
+                sample, sourceEngineLocalRotations[sourceSlot, sourceFrame], origin, false);
         });
         var animOrderSuperBounds = AccumulateRenderPartBounds(samples, partCount, sample =>
         {
@@ -766,7 +767,7 @@ public static class PsxAnimTraceCommand
             var origin = EngineTarget(
                 sourceEngineWorldRaw, sourceSlot, sourceFrame, exporterDivisor);
             return TransformRenderPartVertex(
-                sample, sourceEngineLocalRotations[sourceSlot, sourceFrame], origin, divideLocalBy16: true);
+                sample, sourceEngineLocalRotations[sourceSlot, sourceFrame], origin, true);
         });
 
         var selected = new HashSet<int>(bones);
@@ -1405,7 +1406,7 @@ public static class PsxAnimTraceCommand
         if (IsSameAsset(bankSource, inputSource))
         {
             return new RenderAnimOrder(
-                targetToSource, sourcePsh, targetPsh, Diagnostic: null);
+                targetToSource, sourcePsh, targetPsh, null);
         }
 
         if (remap == null)
@@ -1550,6 +1551,45 @@ public static class PsxAnimTraceCommand
         return parent >= 0 && parent < boneCount && parent != bone;
     }
 
+    private static string FormatBounds(BoundsAccumulator bounds)
+    {
+        if (bounds.Count == 0)
+            return "[grey]-[/]";
+
+        return $"c {FormatVector(bounds.Center)}\ne {FormatVector(bounds.Extents)}";
+    }
+
+    private static string FormatBoundsDelta(BoundsAccumulator a, BoundsAccumulator b)
+    {
+        if (a.Count == 0 || b.Count == 0)
+            return "[grey]-[/]";
+
+        return $"c {FormatDelta(a.Center - b.Center)}\ne {FormatDelta(a.Extents - b.Extents)}";
+    }
+
+    private static string FormatVector(Vector3 value)
+    {
+        return $"{Format(value.X)}, {Format(value.Y)}, {Format(value.Z)}";
+    }
+
+    private static string FormatDelta(Vector3 value)
+    {
+        var max = Math.Max(Math.Abs(value.X), Math.Max(Math.Abs(value.Y), Math.Abs(value.Z)));
+        string color;
+        if (max < 0.01f)
+            color = "green";
+        else if (max < 0.25f)
+            color = "yellow";
+        else
+            color = "red";
+        return $"[{color}]{Markup.Escape(FormatVector(value))}[/]";
+    }
+
+    private static string Format(float value)
+    {
+        return value.ToString("0.###", CultureInfo.InvariantCulture);
+    }
+
     private readonly record struct PsxBindVertexSample(int BoneIndex, Vector3 Position);
 
     private readonly record struct PsxRenderPartVertexSample(
@@ -1607,44 +1647,5 @@ public static class PsxAnimTraceCommand
 
             Count++;
         }
-    }
-
-    private static string FormatBounds(BoundsAccumulator bounds)
-    {
-        if (bounds.Count == 0)
-            return "[grey]-[/]";
-
-        return $"c {FormatVector(bounds.Center)}\ne {FormatVector(bounds.Extents)}";
-    }
-
-    private static string FormatBoundsDelta(BoundsAccumulator a, BoundsAccumulator b)
-    {
-        if (a.Count == 0 || b.Count == 0)
-            return "[grey]-[/]";
-
-        return $"c {FormatDelta(a.Center - b.Center)}\ne {FormatDelta(a.Extents - b.Extents)}";
-    }
-
-    private static string FormatVector(Vector3 value)
-    {
-        return $"{Format(value.X)}, {Format(value.Y)}, {Format(value.Z)}";
-    }
-
-    private static string FormatDelta(Vector3 value)
-    {
-        var max = Math.Max(Math.Abs(value.X), Math.Max(Math.Abs(value.Y), Math.Abs(value.Z)));
-        string color;
-        if (max < 0.01f)
-            color = "green";
-        else if (max < 0.25f)
-            color = "yellow";
-        else
-            color = "red";
-        return $"[{color}]{Markup.Escape(FormatVector(value))}[/]";
-    }
-
-    private static string Format(float value)
-    {
-        return value.ToString("0.###", CultureInfo.InvariantCulture);
     }
 }

@@ -11,14 +11,14 @@ namespace NeversoftMultitool.Core.Formats.ArchiveFs;
 /// </summary>
 public sealed class FileArchiveFileSystem : ArchiveFileSystemBase
 {
-    private readonly SafeFileHandle _handle;
-    private readonly long _length;
     private readonly SafeFileHandle? _companionHandle;
     private readonly long _companionLength;
+    private readonly SafeFileHandle _handle;
+    private readonly long _length;
 
     internal FileArchiveFileSystem(
         string path, ArchiveAssetType type, IReadOnlyList<ArchiveEntry> entries, string? companionPath)
-        : base(Path.GetFileName(path), path, type, nestingDepth: 0, entries, parent: null)
+        : base(Path.GetFileName(path), path, type, 0, entries, null)
     {
         _handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.RandomAccess);
         _length = RandomAccess.GetLength(_handle);

@@ -2,7 +2,6 @@ using System.Text;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.ArchiveFs;
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.ArchiveFs;
 
@@ -261,7 +260,10 @@ public class ArchiveFileSystemTests(TestPaths paths)
     {
         public int DisposeCalls { get; private set; }
 
-        public override byte[] ReadEntry(ArchiveEntry entry) => [];
+        public override byte[] ReadEntry(ArchiveEntry entry)
+        {
+            return [];
+        }
 
         protected override void Dispose(bool disposing)
         {

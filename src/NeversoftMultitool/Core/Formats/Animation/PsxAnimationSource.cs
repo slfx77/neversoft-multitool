@@ -8,8 +8,6 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 /// </summary>
 internal sealed class PsxAnimationSource : AssetSource
 {
-    private readonly string _displayName;
-
     public PsxAnimationSource(
         AssetSource bankSource,
         int animIndex,
@@ -23,7 +21,7 @@ internal sealed class PsxAnimationSource : AssetSource
         FrameCount = frameCount;
         TargetBoneCount = targetBoneCount;
         BoneRemap = boneRemap;
-        _displayName = displayName ?? $"{Path.GetFileName(bankSource.EntryName)}::anim_{animIndex}";
+        DisplayName = displayName ?? $"{Path.GetFileName(bankSource.EntryName)}::anim_{animIndex}";
     }
 
     public AssetSource BankSource { get; }
@@ -36,7 +34,8 @@ internal sealed class PsxAnimationSource : AssetSource
 
     public PsxAnimationBoneRemap? BoneRemap { get; }
 
-    public override string DisplayName => _displayName;
+    public override string DisplayName { get; }
+
     public override string EntryName => $"anim_{AnimIndex}";
 
     public override string? FileSystemPath => BankSource.FileSystemPath;

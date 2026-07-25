@@ -1,6 +1,6 @@
+using System.Text;
 using System.Text.Json;
 using NeversoftMultitool.Core.Formats.Trg;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Trg;
 
@@ -45,7 +45,7 @@ public class TrgFileTests(TestPaths paths)
         // link COUNT produced million-unit garbage coordinates.
         var linkedPowerups = trg.Nodes
             .Where(node => node.TypeId == TrgNodeMetadata.TypePowerup
-                && node.Links is { Count: > 0 } && node.Position != null)
+                           && node.Links is { Count: > 0 } && node.Position != null)
             .ToList();
         Assert.NotEmpty(linkedPowerups);
         foreach (var node in linkedPowerups)
@@ -108,13 +108,14 @@ public class TrgFileTests(TestPaths paths)
     public void Parse_RejectsNodeCountLargerThanRemainingOffsetTable()
     {
         using var stream = new MemoryStream();
-        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
         {
             writer.Write(0x4752545Fu);
             writer.Write((ushort)2);
             writer.Write((ushort)1);
             writer.Write(1_000_000u);
         }
+
         stream.Position = 0;
         using var reader = new BinaryReader(stream);
 
@@ -127,7 +128,7 @@ public class TrgFileTests(TestPaths paths)
     public void Parse_RejectsDecreasingNodeOffsets()
     {
         using var stream = new MemoryStream();
-        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
         {
             writer.Write(0x4752545Fu);
             writer.Write((ushort)2);
@@ -137,6 +138,7 @@ public class TrgFileTests(TestPaths paths)
             writer.Write(20u);
             writer.Write(new byte[12]);
         }
+
         stream.Position = 0;
         using var reader = new BinaryReader(stream);
 
@@ -149,7 +151,7 @@ public class TrgFileTests(TestPaths paths)
     public void Parse_AllowsAdjacentNodeIdsToAliasTheSamePayload()
     {
         using var stream = new MemoryStream();
-        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
         {
             writer.Write(0x4752545Fu);
             writer.Write((ushort)2);
@@ -159,6 +161,7 @@ public class TrgFileTests(TestPaths paths)
             writer.Write(20u);
             writer.Write((ushort)255); // shared TERMINATOR payload
         }
+
         stream.Position = 0;
         using var reader = new BinaryReader(stream);
 
@@ -175,7 +178,7 @@ public class TrgFileTests(TestPaths paths)
         int priority)
     {
         using var stream = new MemoryStream();
-        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
         {
             writer.Write(0x4752545Fu);
             writer.Write((ushort)2);
@@ -226,7 +229,7 @@ public class TrgFileTests(TestPaths paths)
             0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
             0xFF, 0xFF
         ];
-        using var stream = new MemoryStream(bytes, writable: false);
+        using var stream = new MemoryStream(bytes, false);
         using var reader = new BinaryReader(stream);
 
         var command = Assert.Single(TrgCommandList.ParseCommandList(reader, bytes.Length));
@@ -240,7 +243,7 @@ public class TrgFileTests(TestPaths paths)
     public void ParseScript_SpatialIfConsumesBothSignedOperands()
     {
         using var stream = new MemoryStream();
-        using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
         {
             writer.Write((ushort)0x4118);
             writer.Write((short)-321);

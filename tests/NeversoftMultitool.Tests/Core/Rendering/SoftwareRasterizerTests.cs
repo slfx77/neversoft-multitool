@@ -13,7 +13,7 @@ public sealed class SoftwareRasterizerTests
         var depth = new[] { float.NegativeInfinity };
         var modulation = PsxGeometryHelpers.DisplayRgbToLinear(
             new Vector4(144f / 128f, 144f / 128f, 144f / 128f, 1f),
-            isPs1TexturedModulation: true);
+            true);
         var triangle = new RenderTriangle
         {
             Sx0 = 0f,

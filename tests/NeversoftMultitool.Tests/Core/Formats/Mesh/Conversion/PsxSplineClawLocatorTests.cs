@@ -1,6 +1,5 @@
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 

@@ -1,7 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
 using NeversoftMultitool.Core.Formats.DiscImage;
-using Xunit;
 
 namespace NeversoftMultitool.Tests.Core.Formats.DiscImage;
 
@@ -107,7 +106,7 @@ public sealed class DiscImageTests : IDisposable
     public void RawBinCue_ExtractsMode2Form1Data()
     {
         var binPath = Path.Combine(_tempDir, "game.bin");
-        File.WriteAllBytes(binPath, WrapAsRawMode2(BuildIso9660Sectors(), form2Sectors: []));
+        File.WriteAllBytes(binPath, WrapAsRawMode2(BuildIso9660Sectors(), []));
 
         var cuePath = Path.Combine(_tempDir, "game.cue");
         File.WriteAllLines(cuePath,
@@ -136,7 +135,7 @@ public sealed class DiscImageTests : IDisposable
         // emit the whole file as 2336-byte sector units (subheader + payload)
         // so STR/XA consumers keep their interleaved audio sectors.
         var binPath = Path.Combine(_tempDir, "xa.bin");
-        File.WriteAllBytes(binPath, WrapAsRawMode2(BuildIso9660Sectors(), form2Sectors: [22]));
+        File.WriteAllBytes(binPath, WrapAsRawMode2(BuildIso9660Sectors(), [22]));
 
         var cuePath = Path.Combine(_tempDir, "xa.cue");
         File.WriteAllLines(cuePath,
@@ -176,7 +175,7 @@ public sealed class DiscImageTests : IDisposable
         pvd[0] = 1;
         "CD001"u8.CopyTo(pvd[1..]);
         pvd[6] = 1;
-        WriteDirRecord(pvd[156..], 20, 2048, isDirectory: true, "\0");
+        WriteDirRecord(pvd[156..], 20, 2048, true, "\0");
 
         // Terminator
         var term = image.AsSpan(17 * 2048);
@@ -185,16 +184,16 @@ public sealed class DiscImageTests : IDisposable
 
         // Root directory
         var root = image.AsSpan(20 * 2048);
-        var offset = WriteDirRecord(root, 20, 2048, isDirectory: true, "\0");
-        offset += WriteDirRecord(root[offset..], 20, 2048, isDirectory: true, "");
-        offset += WriteDirRecord(root[offset..], 21, 2048, isDirectory: true, "DATA");
-        WriteDirRecord(root[offset..], 22, 13, isDirectory: false, "HELLO.TXT;1");
+        var offset = WriteDirRecord(root, 20, 2048, true, "\0");
+        offset += WriteDirRecord(root[offset..], 20, 2048, true, "");
+        offset += WriteDirRecord(root[offset..], 21, 2048, true, "DATA");
+        WriteDirRecord(root[offset..], 22, 13, false, "HELLO.TXT;1");
 
         // DATA directory
         var dataDir = image.AsSpan(21 * 2048);
-        offset = WriteDirRecord(dataDir, 21, 2048, isDirectory: true, "\0");
-        offset += WriteDirRecord(dataDir[offset..], 20, 2048, isDirectory: true, "");
-        WriteDirRecord(dataDir[offset..], 23, 5, isDirectory: false, "NESTED.BIN;1");
+        offset = WriteDirRecord(dataDir, 21, 2048, true, "\0");
+        offset += WriteDirRecord(dataDir[offset..], 20, 2048, true, "");
+        WriteDirRecord(dataDir[offset..], 23, 5, false, "NESTED.BIN;1");
 
         // File payloads
         "Hello, disc!\n"u8.CopyTo(image.AsSpan(22 * 2048));

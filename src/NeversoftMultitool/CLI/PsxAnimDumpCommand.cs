@@ -157,7 +157,8 @@ public static class PsxAnimDumpCommand
         {
             AnsiConsole.MarkupLine(
                 $"\n[bold underline]Layer 4[/] [grey]— decompress animation {animIndex} (all bones)[/]");
-            PsxAnimDumpDecoder.DumpAnimationSlot(data, hierResult, animIndex, boneIndex, meshFile.Objects.Count, verbose);
+            PsxAnimDumpDecoder.DumpAnimationSlot(data, hierResult, animIndex, boneIndex, meshFile.Objects.Count,
+                verbose);
         }
         else
         {
@@ -177,5 +178,4 @@ public static class PsxAnimDumpCommand
             Path.GetFileNameWithoutExtension(psxPath) + ".psh");
         return File.Exists(stem) ? PshFile.Parse(stem) : null;
     }
-
 }

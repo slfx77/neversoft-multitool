@@ -74,6 +74,7 @@ public static class Ps2GeomFile
 
         return Ps2ObjectMdlParser.ParseObjectMdl(data, preamble, bones, vifStart, diagnosticsName, rejectionLogger);
     }
+
     internal static Ps2GeomLeaf MakeLeafFromMdlMesh(
         IReadOnlyList<Ps2Vertex> vertices,
         Ps2GeomGsContext gsCtx,

@@ -223,7 +223,7 @@ public sealed class FormatProbeTextureTests
     [Fact]
     public void ProbeTexture_NgcTexUnsupportedFormat_Unsupported()
     {
-        var tempFile = FormatProbeTestHelper.CreateTempFile(".tex.ngc", NgcTexTestBuilder.CreateDictionary(formatA: 0, formatB: 0));
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".tex.ngc", NgcTexTestBuilder.CreateDictionary(0, 0));
         try
         {
             var result = FormatProbe.ProbeTexture(tempFile);

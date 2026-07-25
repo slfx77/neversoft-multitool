@@ -37,7 +37,10 @@ internal struct HighPrecisionVertexColor1Texture1 :
     public readonly int MaxTextCoords => 1;
 
     readonly IEnumerable<KeyValuePair<string, AttributeFormat>>
-        IVertexReflection.GetEncodingAttributes() => EncodingAttributes;
+        IVertexReflection.GetEncodingAttributes()
+    {
+        return EncodingAttributes;
+    }
 
     public readonly Vector4 GetColor(int index)
     {
@@ -89,12 +92,12 @@ internal struct HighPrecisionVertexColor1Texture1 :
         return Color.Equals(other.Color) && TexCoord.Equals(other.TexCoord);
     }
 
-    public override readonly bool Equals(object? obj)
+    public readonly override bool Equals(object? obj)
     {
         return obj is HighPrecisionVertexColor1Texture1 other && Equals(other);
     }
 
-    public override readonly int GetHashCode()
+    public readonly override int GetHashCode()
     {
         return HashCode.Combine(Color, TexCoord);
     }

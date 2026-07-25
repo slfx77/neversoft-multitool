@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Replay;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 
@@ -22,12 +21,6 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 /// </summary>
 public static class ThawPs2SkinFile
 {
-    private readonly record struct PakSkinMaterialKey(
-        ulong Tex0,
-        uint TextureChecksum,
-        ulong RegAlpha,
-        byte AlphaRef);
-
     public static bool IsThawPs2Skin(byte[] data, long fileSize = 0)
     {
         if (data.Length < 32) return false;
@@ -448,4 +441,10 @@ public static class ThawPs2SkinFile
             HasVertexColors = vertexColorMask != 0
         };
     }
+
+    private readonly record struct PakSkinMaterialKey(
+        ulong Tex0,
+        uint TextureChecksum,
+        ulong RegAlpha,
+        byte AlphaRef);
 }

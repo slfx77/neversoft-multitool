@@ -1,6 +1,5 @@
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.SceneTex;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Texture.Ps2Scene.SceneTex;
 

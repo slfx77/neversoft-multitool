@@ -1,13 +1,10 @@
 using System.Globalization;
-using System.Text;
 using System.Text.Json;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 
 namespace NeversoftMultitool.Core.Formats.GsDump;
 
@@ -192,7 +189,8 @@ internal static class GsDumpAuditRunner
                             var fileName =
                                 $"{textureDumpIndex++:D4}_tex0-{dumpTexture.Audit.Tex0[2..]}_texa-{dumpTexture.Audit.Texa[2..]}_psm-{dumpTexture.Audit.Psm:X2}_{dumpTexture.Audit.Width}x{dumpTexture.Audit.Height}_at-{dumpTexture.Audit.RegionX}-{dumpTexture.Audit.RegionY}_{MakeSafeFileSuffix(dumpTexture.Audit.Source)}_{dumpTexture.Audit.ContentHash:X8}.png";
                             var path = Path.Combine(textureDumpDirectory, fileName);
-                            GsDumpAuditResolvers.SaveRgba(path, dumpTexture.Rgba, dumpTexture.Audit.Width, dumpTexture.Audit.Height);
+                            GsDumpAuditResolvers.SaveRgba(path, dumpTexture.Rgba, dumpTexture.Audit.Width,
+                                dumpTexture.Audit.Height);
                             return Path.GetFullPath(path);
                         }
                 });
@@ -230,7 +228,8 @@ internal static class GsDumpAuditRunner
             reference.Width == dimensions.Width &&
             reference.Height == dimensions.Height)
         {
-            var referenceBounds = GsDumpAuditPixelDiff.BuildPixelBounds(reference.Pixels, reference.Width, reference.Height);
+            var referenceBounds =
+                GsDumpAuditPixelDiff.BuildPixelBounds(reference.Pixels, reference.Width, reference.Height);
             if (GsDumpAuditResolvers.TryFitToReferencePresentation(
                     renderPixels,
                     dimensions.Width,
@@ -256,7 +255,8 @@ internal static class GsDumpAuditRunner
                     "reference_nonblack_bounds_fit";
                 interpretation.Render.PresentationSourceBounds = rawRenderBounds;
                 interpretation.Render.PresentationReferenceBounds = referenceBounds;
-                GsDumpAuditResolvers.AddCount(interpretation.Render.Approximations, "presentation_fit_from_reference_bounds");
+                GsDumpAuditResolvers.AddCount(interpretation.Render.Approximations,
+                    "presentation_fit_from_reference_bounds");
             }
         }
 
@@ -280,9 +280,11 @@ internal static class GsDumpAuditRunner
         if (!options.JsonOnly)
         {
             if (embeddedScreenshotPath != null)
-                GsDumpAuditResolvers.SaveRgba(embeddedScreenshotPath, GsDumpAuditResolvers.ConvertEmbeddedScreenshotToRgba(dump), dump.ScreenshotWidth,
+                GsDumpAuditResolvers.SaveRgba(embeddedScreenshotPath,
+                    GsDumpAuditResolvers.ConvertEmbeddedScreenshotToRgba(dump), dump.ScreenshotWidth,
                     dump.ScreenshotHeight);
-            GsDumpAuditResolvers.SaveRgba(rawDirectRenderPath, interpretation.DirectPixels, dimensions.Width, dimensions.Height);
+            GsDumpAuditResolvers.SaveRgba(rawDirectRenderPath, interpretation.DirectPixels, dimensions.Width,
+                dimensions.Height);
             GsDumpAuditResolvers.SaveRgba(rawRenderPath, interpretation.Pixels, dimensions.Width, dimensions.Height);
             GsDumpAuditResolvers.SaveRgba(directRenderPath, directPixels, dimensions.Width, dimensions.Height);
             GsDumpAuditResolvers.SaveRgba(renderPath, renderPixels, dimensions.Width, dimensions.Height);

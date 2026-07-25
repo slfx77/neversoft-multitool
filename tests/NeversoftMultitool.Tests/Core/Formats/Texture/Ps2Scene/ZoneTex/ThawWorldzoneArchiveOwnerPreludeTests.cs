@@ -3,7 +3,6 @@ using NeversoftMultitool.Core.Formats.ArchiveFs;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Texture.Ps2Scene.ZoneTex;
 
@@ -97,7 +96,7 @@ public sealed class ThawWorldzoneArchiveOwnerPreludeTests(TestPaths paths)
         }
 
         Assert.True(ZoneTextureCatalog.TryBuild(
-            [new ZoneTextureCatalog.ZoneTexSource(PakPath, pakBytes, IsMain: true)],
+            [new ZoneTextureCatalog.ZoneTexSource(PakPath, pakBytes, true)],
             out var catalog));
         Assert.NotNull(catalog);
 

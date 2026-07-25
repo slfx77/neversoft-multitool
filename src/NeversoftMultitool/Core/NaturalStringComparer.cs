@@ -7,11 +7,11 @@ namespace NeversoftMultitool.Core;
 /// </summary>
 internal sealed class NaturalStringComparer : IComparer<string?>
 {
-    public static NaturalStringComparer OrdinalIgnoreCase { get; } = new();
-
     private NaturalStringComparer()
     {
     }
+
+    public static NaturalStringComparer OrdinalIgnoreCase { get; } = new();
 
     public int Compare(string? left, string? right)
     {

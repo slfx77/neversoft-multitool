@@ -18,15 +18,15 @@ public sealed partial class ModelViewerControl : UserControl
     private const string GlyphPause = "\uE769";
 
     private string _controlMode = "fly";
-    private string _lightingMode = "day";
     private double _duration;
-    private bool _isPlaying;
     private Task? _initializationTask;
-    private TaskCompletionSource<bool>? _pageReady;
+    private bool _isPlaying;
+    private string _lightingMode = "day";
     private long _loadGeneration;
-    private bool _webMessageHooked;
+    private TaskCompletionSource<bool>? _pageReady;
     private DateTime _suppressTimeUntil = DateTime.MinValue;
     private bool _updatingSlider;
+    private bool _webMessageHooked;
     private bool _webViewInitialized;
 
     public ModelViewerControl()
@@ -249,8 +249,10 @@ public sealed partial class ModelViewerControl : UserControl
         await SetControlModeAsync(mode);
     }
 
-    /// <summary>Radio-group the three mode toggles and gate the projection combo
-    /// (fly/walk are perspective-only; the combo applies to orbit).</summary>
+    /// <summary>
+    ///     Radio-group the three mode toggles and gate the projection combo
+    ///     (fly/walk are perspective-only; the combo applies to orbit).
+    /// </summary>
     private void UpdateModeUi(string mode)
     {
         _controlMode = mode;

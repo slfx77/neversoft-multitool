@@ -1,8 +1,8 @@
 using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core.Formats.Audio;
-using Spectre.Console;
 using NeversoftMultitool.Core.Formats.Vid1;
+using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
 

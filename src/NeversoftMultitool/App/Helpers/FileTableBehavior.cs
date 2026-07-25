@@ -89,18 +89,18 @@ public sealed class FileTableBehavior : DependencyObject
         private const double SplitterWidth = 8;
         private const double CellFitPadding = 8;
         private const double SortGlyphAllowance = 18;
+        private readonly List<(ColumnDefinition Column, long Token)> _columnCallbacks = [];
+        private readonly List<HeaderRegistration> _headers = [];
 
         private readonly Grid _host;
         private readonly List<GridSplitter> _splitters = [];
-        private readonly List<HeaderRegistration> _headers = [];
-        private readonly List<(ColumnDefinition Column, long Token)> _columnCallbacks = [];
-        private Grid? _header;
-        private ListView? _listView;
-        private IList? _sourceItems;
-        private SortedObservableView? _sortedView;
-        private string? _sortProperty;
         private bool _ascending = true;
         private bool _enabled;
+        private Grid? _header;
+        private ListView? _listView;
+        private SortedObservableView? _sortedView;
+        private string? _sortProperty;
+        private IList? _sourceItems;
         private bool _started;
         private bool _syncQueued;
 
@@ -133,6 +133,7 @@ public sealed class FileTableBehavior : DependencyObject
                     _header.Children.Remove(splitter);
                 }
             }
+
             _splitters.Clear();
 
             if (_sortedView != null)
@@ -286,8 +287,9 @@ public sealed class FileTableBehavior : DependencyObject
                 .FirstOrDefault(index => index != columnIndex &&
                                          _header.ColumnDefinitions[index].Width.IsStar, -1);
             if (fluidIndex < 0)
-                fluidIndex = columnIndex == _header.ColumnDefinitions.Count - 1 ? 0 :
-                    _header.ColumnDefinitions.Count - 1;
+                fluidIndex = columnIndex == _header.ColumnDefinitions.Count - 1
+                    ? 0
+                    : _header.ColumnDefinitions.Count - 1;
 
             var fluidColumn = _header.ColumnDefinitions[fluidIndex];
             var availableWidth = column.ActualWidth +
@@ -485,6 +487,7 @@ public sealed class FileTableBehavior : DependencyObject
             }
             else
                 _sortedView.SetSort(property, ascending);
+
             if (selectedItem != null && _sortedView.Contains(selectedItem))
                 _listView.SelectedItem = selectedItem;
 
@@ -517,7 +520,8 @@ public sealed class FileTableBehavior : DependencyObject
                 : GetCellValue(row, e.GetPosition(row));
             if (string.IsNullOrEmpty(value)) return;
 
-            var anchor = (FrameworkElement?)row ?? FindAncestor(source, element => element is FrameworkElement) as FrameworkElement;
+            var anchor = (FrameworkElement?)row ??
+                         FindAncestor(source, element => element is FrameworkElement) as FrameworkElement;
             if (anchor == null) return;
 
             var copyItem = new MenuFlyoutItem { Text = "Copy" };
@@ -551,12 +555,12 @@ public sealed class FileTableBehavior : DependencyObject
             }
 
             foreach (var cell in row.Children.Where(child =>
-            {
-                if (child is not FrameworkElement element) return false;
-                var first = Grid.GetColumn(element);
-                var last = first + Math.Max(1, Grid.GetColumnSpan(element)) - 1;
-                return columnIndex >= first && columnIndex <= last;
-            }))
+                     {
+                         if (child is not FrameworkElement element) return false;
+                         var first = Grid.GetColumn(element);
+                         var last = first + Math.Max(1, Grid.GetColumnSpan(element)) - 1;
+                         return columnIndex >= first && columnIndex <= last;
+                     }))
             {
                 var value = GetDisplayedString(cell);
                 if (!string.IsNullOrEmpty(value)) return value;
@@ -618,7 +622,8 @@ public sealed class FileTableBehavior : DependencyObject
         private static object? GetPropertyValue(object? item, string path)
         {
             var value = item;
-            foreach (var segment in path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            foreach (var segment in path.Split('.',
+                         StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 if (value == null) return null;
                 var property = value.GetType().GetProperty(
@@ -680,13 +685,15 @@ public sealed class FileTableBehavior : DependencyObject
         {
             private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcher;
             private readonly Func<object?> _getSelectedItem;
-            private readonly IList _source;
+
             private readonly HashSet<INotifyPropertyChanged> _observedItems =
                 new(ReferenceEqualityComparer.Instance);
-            private List<object?> _items = [];
-            private string _property = "";
+
+            private readonly IList _source;
             private bool _ascending = true;
             private bool _disposed;
+            private List<object?> _items = [];
+            private string _property = "";
             private bool _rebuildQueued;
 
             public SortedObservableView(
@@ -702,8 +709,6 @@ public sealed class FileTableBehavior : DependencyObject
                 Rebuild(raiseChanged: false, preserveByMoves: false);
             }
 
-            public event NotifyCollectionChangedEventHandler? CollectionChanged;
-
             public int Count => _items.Count;
             public bool IsReadOnly => true;
             public bool IsFixedSize => true;
@@ -715,6 +720,8 @@ public sealed class FileTableBehavior : DependencyObject
                 get => _items[index];
                 set => throw new NotSupportedException();
             }
+
+            public event NotifyCollectionChangedEventHandler? CollectionChanged;
 
             public void SetSort(string property, bool ascending, bool raiseChanged = true)
             {

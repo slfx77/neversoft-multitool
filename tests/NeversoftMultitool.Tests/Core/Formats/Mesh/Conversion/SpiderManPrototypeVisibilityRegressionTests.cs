@@ -1,12 +1,17 @@
 using NeversoftMultitool.Core.Formats;
-using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 
 public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
 {
+    public enum ObjectCompanionBehavior
+    {
+        Missing,
+        Malformed,
+        ReadFailure
+    }
+
     private const string BuildName = "Spider-Man (2000-2-18, PSX - Prototype)";
     private const string GeometryEntryName = "l1a2_g.psx";
     private const string ObjectEntryName = "l1a2_o.psx";
@@ -27,8 +32,8 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
         // items.psx as 7 items_* nodes.
         Assert.Equal(5_432, combined.TriangleCount);
         Assert.Equal(74, combined.Nodes.Count);
-        Assert.Equal(14, combined.Nodes.Count(
-            static node => node.Name.StartsWith("objects_", StringComparison.Ordinal)));
+        Assert.Equal(14,
+            combined.Nodes.Count(static node => node.Name.StartsWith("objects_", StringComparison.Ordinal)));
         // Bank objects without any TRG platform reference (the majority case
         // corpus-wide) place at their stored bank positions.
         Assert.Contains(combined.Nodes, static node => node.Name == "objects_001");
@@ -56,8 +61,7 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
         Assert.Equal(2_844.444f, upperBankPiece.Transform.Translation.Y, 3);
         Assert.Equal(-711.111f, upperBankPiece.Transform.Translation.Z, 3);
         Assert.All(
-            combined.Nodes.Where(
-                static node => node.Name.StartsWith("objects_", StringComparison.Ordinal)),
+            combined.Nodes.Where(static node => node.Name.StartsWith("objects_", StringComparison.Ordinal)),
             node =>
             {
                 Assert.NotNull(node.MeshIndex);
@@ -85,7 +89,7 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
         var document = ParseDocument(
             fixture.Value.GeometrySource,
             GeometryEntryName,
-            includeLevelObjects: false);
+            false);
 
         Assert.Equal(3_549, document.TriangleCount);
         Assert.Equal(53, document.Nodes.Count);
@@ -220,12 +224,5 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
                 _ => throw new ArgumentOutOfRangeException(nameof(behavior))
             };
         }
-    }
-
-    public enum ObjectCompanionBehavior
-    {
-        Missing,
-        Malformed,
-        ReadFailure
     }
 }

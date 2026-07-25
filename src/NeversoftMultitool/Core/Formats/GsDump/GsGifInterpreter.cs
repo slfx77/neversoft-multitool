@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 
 namespace NeversoftMultitool.Core.Formats.GsDump;
 
@@ -107,19 +106,21 @@ internal sealed partial class GsGifInterpreter
     private readonly GsGifInterpretOptions options;
     private readonly byte[] pixels;
     private readonly GsRenderAudit renderAudit = new();
+    private readonly GsRenderTargetCache renderTargetCache = new();
     private readonly GsState state = new();
     private readonly Dictionary<ulong, long> tex0Writes = [];
     private readonly Dictionary<GsTextureCacheKey, GsTexture?> textureCache = [];
     private readonly Ps2GsVram vram = new();
-    private readonly GsRenderTargetCache renderTargetCache = new();
+
     private readonly Dictionary<ulong, long> xyzByTex0 = [];
-    private GsImageTransfer? activeImageTransfer;
-    private int currentVsync;
-    private byte[]? directPixels;
+
     // Tracks the prior (Fbp << 32) | (Fbw << 16) | Psm captured by MaybeSaveDrawRt when
     // options.SaveRtOnStateTransition is set. ulong.MaxValue is a sentinel "no prior key"
     // so the first qualifying draw always emits an RT.
     private ulong _lastSaveRtTransitionKey = ulong.MaxValue;
+    private GsImageTransfer? activeImageTransfer;
+    private int currentVsync;
+    private byte[]? directPixels;
 
     private GsGifInterpreter(GsGifInterpretOptions options)
     {
@@ -312,6 +313,7 @@ internal sealed partial class GsGifInterpreter
                 NoteApproximation($"dump_vram_region_unsupported_psm_0x{psm:X2}");
                 continue;
             }
+
             options.DumpVramRegionSink(tbp, fbw, psm, w, h, rgba);
         }
     }

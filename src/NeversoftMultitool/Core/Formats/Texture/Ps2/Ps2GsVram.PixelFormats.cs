@@ -27,7 +27,9 @@ internal sealed partial class Ps2GsVram
     }
 
     private static int GetWordAddressPSMZ32(uint dbp, uint dbw, int x, int y)
-        => GetWordAddressPSMCT32(dbp, dbw, x, y) ^ PsmZWordXor;
+    {
+        return GetWordAddressPSMCT32(dbp, dbw, x, y) ^ PsmZWordXor;
+    }
 
     // ---- PSMCT16 addressing ----
 

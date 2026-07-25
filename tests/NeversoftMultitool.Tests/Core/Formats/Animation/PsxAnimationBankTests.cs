@@ -1,8 +1,8 @@
 using System.Buffers.Binary;
+using System.Text;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Animation;
 
@@ -17,9 +17,9 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
 
         var selected = PsxAnimationBank.ResolveSelections(
             bank.AnimFile,
-            animIndex: -1,
-            animName: null,
-            namePrefix: "sk2anim");
+            -1,
+            null,
+            "sk2anim");
 
         var selection = Assert.Single(selected);
         Assert.Equal(0, selection.Index);
@@ -33,9 +33,9 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
 
         var selected = PsxAnimationBank.ResolveSelections(
             bank.AnimFile,
-            animIndex: 0,
-            animName: "idle",
-            namePrefix: null);
+            0,
+            "idle",
+            null);
 
         var selection = Assert.Single(selected);
         Assert.Equal(0, selection.Index);
@@ -46,7 +46,7 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
     public void PsxAnimationSource_DecodesFromGenericAssetSource()
     {
         var source = new InMemoryAssetSource("memory_bank.psx", BuildMinimalDirectMatrixPsx());
-        var probes = PsxAnimationBank.CreateProbes(source, targetBoneCount: 1);
+        var probes = PsxAnimationBank.CreateProbes(source, 1);
         var probe = Assert.Single(probes);
         var psxSource = Assert.IsType<PsxAnimationSource>(probe.Source);
 
@@ -62,16 +62,16 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
     public void Decode_BoneCountMismatch_ReturnsDiagnosticWithoutDecoding()
     {
         var source = new InMemoryAssetSource("memory_bank.psx", BuildMinimalDirectMatrixPsx());
-        var bank = PsxAnimationBank.TryProbe(source, targetBoneCount: 2);
+        var bank = PsxAnimationBank.TryProbe(source, 2);
         Assert.NotNull(bank);
         Assert.False(bank.MatchesTargetBoneCount);
 
         var selected = PsxAnimationBank.ResolveSelections(
             bank.AnimFile,
-            animIndex: -1,
-            animName: null,
-            namePrefix: null);
-        var result = PsxAnimationBank.Decode(bank, targetBoneCount: 2, selected);
+            -1,
+            null,
+            null);
+        var result = PsxAnimationBank.Decode(bank, 2, selected);
 
         Assert.Empty(result.Animations);
         var diagnostic = Assert.Single(result.Diagnostics);
@@ -100,7 +100,7 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
                     ("TARGETPART_DST_RIGHT_THIGH", 1, "Scene Root"))
             });
 
-        var remap = PsxAnimationBoneMap.TryCreate(source, target, boneCount: 2, out var diagnostic);
+        var remap = PsxAnimationBoneMap.TryCreate(source, target, 2, out var diagnostic);
 
         Assert.Null(diagnostic);
         Assert.NotNull(remap);
@@ -116,7 +116,7 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
             Channels = channels
         };
 
-        var reordered = PsxAnimationBoneMap.Remap(animation, remap, targetBoneCount: 2);
+        var reordered = PsxAnimationBoneMap.Remap(animation, remap, 2);
 
         Assert.Equal(200, reordered.Channels[0, 0, 0]);
         Assert.Equal(100, reordered.Channels[1, 0, 0]);
@@ -144,7 +144,7 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
                     ("SOURCEPART_BANK_RIGHT_HAND", 1, "Scene Root"))
             });
 
-        var remap = PsxAnimationBoneMap.TryCreate(source, target, boneCount: 2, out var diagnostic);
+        var remap = PsxAnimationBoneMap.TryCreate(source, target, 2, out var diagnostic);
 
         Assert.Null(diagnostic);
         Assert.NotNull(remap);
@@ -158,7 +158,7 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
         Assert.SkipWhen(path == null, "sk2anim.psx not found in sample builds");
 
         var source = new FileSystemAssetSource(path!);
-        var bank = PsxAnimationBank.TryProbe(source, targetBoneCount: 19);
+        var bank = PsxAnimationBank.TryProbe(source, 19);
 
         Assert.NotNull(bank);
         Assert.Equal(PsxAnimLayoutVariant.Monolithic, bank.AnimFile.Layout);
@@ -182,7 +182,7 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
         var remap = PsxAnimationBoneMap.TryCreate(
             new FileSystemAssetSource(sk2AnimPath!),
             new FileSystemAssetSource(mullenPath!),
-            boneCount: 19,
+            19,
             out var diagnostic);
 
         Assert.Null(diagnostic);
@@ -242,7 +242,7 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
         Assert.SkipWhen(path == null, "sk2def.psx not found in sample builds");
 
         var source = new FileSystemAssetSource(path!);
-        var probes = PsxAnimationBank.CreateProbes(source, targetBoneCount: 19);
+        var probes = PsxAnimationBank.CreateProbes(source, 19);
 
         var probe = Assert.Single(probes);
         Assert.Equal(93, probe.BoneCount);
@@ -252,7 +252,7 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
     private static PsxAnimationBankInfo ParseSyntheticBank()
     {
         var source = new InMemoryAssetSource("memory_bank.psx", BuildMinimalDirectMatrixPsx());
-        var bank = PsxAnimationBank.TryProbe(source, targetBoneCount: 1);
+        var bank = PsxAnimationBank.TryProbe(source, 1);
         Assert.NotNull(bank);
         return bank;
     }
@@ -295,7 +295,7 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
             lines.Add($"//   parent: {parent}");
         }
 
-        return System.Text.Encoding.ASCII.GetBytes(string.Join(Environment.NewLine, lines));
+        return Encoding.ASCII.GetBytes(string.Join(Environment.NewLine, lines));
     }
 
     private sealed class InMemoryAssetSource(

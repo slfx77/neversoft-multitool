@@ -1,4 +1,3 @@
-using NeversoftMultitool.Core.Formats.Video;
 using NeversoftMultitool.Core.Formats.Vid1;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Video;
@@ -10,7 +9,7 @@ public class Vid1ControlPrefixTests
     {
         // First bit = 1 → special stage, macroblock_type = 0x10 (callerCr4=0)
         var reader = new Vid1BitReader([0b10000000, 0, 0, 0]);
-        var probe = Vid1ControlPrefix.Probe99A38(reader, reader, currentQuantizer: 5, callerCr4: 0, gmcEnabled: false);
+        var probe = Vid1ControlPrefix.Probe99A38(reader, reader, 5, 0, false);
 
         Assert.Equal(Vid1ControlStage.Special, probe.Stage);
         Assert.Equal(0x10, probe.MacroblockType);
@@ -22,7 +21,7 @@ public class Vid1ControlPrefixTests
     public void Probe99A38_GateBitSet_Cr4_Returns0x11()
     {
         var reader = new Vid1BitReader([0b10000000, 0, 0, 0]);
-        var probe = Vid1ControlPrefix.Probe99A38(reader, reader, currentQuantizer: 5, callerCr4: 1, gmcEnabled: false);
+        var probe = Vid1ControlPrefix.Probe99A38(reader, reader, 5, 1, false);
         Assert.Equal(Vid1ControlStage.SpriteWarp, probe.Stage);
         Assert.Equal(0x11, probe.MacroblockType);
     }
@@ -31,7 +30,7 @@ public class Vid1ControlPrefixTests
     public void Probe99A38_GateBitSet_ConsumesOneBit()
     {
         var reader = new Vid1BitReader([0b10000000, 0, 0, 0]);
-        Vid1ControlPrefix.Probe99A38(reader, reader, 5, 0, gmcEnabled: false);
+        Vid1ControlPrefix.Probe99A38(reader, reader, 5, 0, false);
         Assert.Equal(1, reader.BitPosition);
     }
 
@@ -39,7 +38,7 @@ public class Vid1ControlPrefixTests
     public void Probe99A38_GateSet_DoesNotModifyQuantizer()
     {
         var reader = new Vid1BitReader([0b10000000, 0, 0, 0]);
-        var probe = Vid1ControlPrefix.Probe99A38(reader, reader, currentQuantizer: 17, callerCr4: 0, gmcEnabled: false);
+        var probe = Vid1ControlPrefix.Probe99A38(reader, reader, 17, 0, false);
         Assert.Equal(17, probe.Quantizer);
     }
 
@@ -47,7 +46,7 @@ public class Vid1ControlPrefixTests
     public void Probe99A38_GateSet_NoVlcFieldsSet()
     {
         var reader = new Vid1BitReader([0b10000000, 0, 0, 0]);
-        var probe = Vid1ControlPrefix.Probe99A38(reader, reader, 5, 0, gmcEnabled: false);
+        var probe = Vid1ControlPrefix.Probe99A38(reader, reader, 5, 0, false);
         Assert.Equal(-1, probe.RawCode);
         Assert.Equal(-1, probe.Selector);
         Assert.Equal(-1, probe.QdeltaIndex);

@@ -1,5 +1,4 @@
 using System.Numerics;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using SharpGLTF.Geometry;
 using SharpGLTF.Geometry.VertexTypes;

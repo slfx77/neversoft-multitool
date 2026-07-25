@@ -263,16 +263,9 @@ internal sealed class GsRenderTargetCache
     private sealed class RenderTargetSurface
     {
         private const int RowChunkHeight = 32;
-
-        public uint Fbp { get; }
-        public uint Fbw { get; }
-        public uint Psm { get; }
-        public int Width { get; }
-        public byte[] Rgba { get; private set; }
-        public int MaxYWritten { get; private set; } = -1;
+        private int _allocatedHeight;
 
         private bool[] _written;
-        private int _allocatedHeight;
 
         public RenderTargetSurface(uint fbp, uint fbw, uint psm)
         {
@@ -284,6 +277,13 @@ internal sealed class GsRenderTargetCache
             Rgba = new byte[Width * _allocatedHeight * 4];
             _written = new bool[Width * _allocatedHeight];
         }
+
+        public uint Fbp { get; }
+        public uint Fbw { get; }
+        public uint Psm { get; }
+        public int Width { get; }
+        public byte[] Rgba { get; private set; }
+        public int MaxYWritten { get; private set; } = -1;
 
         public void Write(int x, int y, byte r, byte g, byte b, byte a)
         {
@@ -325,7 +325,7 @@ internal sealed class GsRenderTargetCache
 
         private void Grow(int requiredHeight)
         {
-            var newHeight = ((requiredHeight + RowChunkHeight - 1) / RowChunkHeight) * RowChunkHeight;
+            var newHeight = (requiredHeight + RowChunkHeight - 1) / RowChunkHeight * RowChunkHeight;
             var newRgba = new byte[Width * newHeight * 4];
             var newWritten = new bool[Width * newHeight];
             Array.Copy(Rgba, newRgba, Rgba.Length);

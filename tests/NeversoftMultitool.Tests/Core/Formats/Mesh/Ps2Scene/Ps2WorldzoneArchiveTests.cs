@@ -2,7 +2,6 @@ using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene;
 
@@ -18,10 +17,12 @@ public sealed class Ps2WorldzoneArchiveTests(TestPaths paths)
     // Properties evaluate eagerly when referenced (even inside Assert.SkipWhen(!File.Exists(...))),
     // so guard SampleBuildsDir to avoid Path.Combine throwing on CI when sample data is absent.
     private string WadPath =>
-        paths.SampleBuildsDir is null ? string.Empty : Path.Combine(
-            paths.SampleBuildsDir,
-            ThawPs2Build,
-            "DATAP.WAD");
+        paths.SampleBuildsDir is null
+            ? string.Empty
+            : Path.Combine(
+                paths.SampleBuildsDir,
+                ThawPs2Build,
+                "DATAP.WAD");
 
     [Fact]
     public void WadNestedWorldzonePak_IsDetectedAndConvertsWithTextures()

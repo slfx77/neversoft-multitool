@@ -66,7 +66,8 @@ internal static class SfxAliasResolver
 
         var best = ordered[0];
         var secondBestScore = ordered.Count > 1 ? ordered[1].Score : int.MaxValue;
-        if (best.Score > SfxExtractor.AliasScoreThreshold || secondBestScore - best.Score < SfxExtractor.AliasMarginThreshold)
+        if (best.Score > SfxExtractor.AliasScoreThreshold ||
+            secondBestScore - best.Score < SfxExtractor.AliasMarginThreshold)
         {
             error = "Companion KAT/VAB soundbank not found and no high-confidence sibling SFX alias was found";
             return false;

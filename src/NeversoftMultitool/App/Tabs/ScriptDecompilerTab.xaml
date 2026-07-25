@@ -258,116 +258,116 @@
         VerticalAlignment="Stretch"
         Style="{StaticResource CardBorderStyle}">
         <Grid>
-        <TextBlock
-          x:Name="DetailPlaceholderText"
-          Text="Click on an entry to preview."
-          HorizontalAlignment="Center"
-          VerticalAlignment="Center"
-          TextWrapping="Wrap"
-          TextAlignment="Center"
-          Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <StackPanel Spacing="8" Margin="4">
+          <TextBlock
+            x:Name="DetailPlaceholderText"
+            Text="Click on an entry to preview."
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            TextWrapping="Wrap"
+            TextAlignment="Center"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="8" Margin="4">
 
-            <!-- Header: type badge + index -->
-            <Grid>
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-              </Grid.ColumnDefinitions>
-              <Border x:Name="DetailTypeBadge"
-                      Background="{ThemeResource AccentFillColorDefaultBrush}"
-                      CornerRadius="4" Padding="8,2"
-                      Visibility="Collapsed">
-                <TextBlock x:Name="DetailTypeText" FontWeight="SemiBold"
-                           FontSize="12"
-                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
-              </Border>
-              <TextBlock x:Name="DetailIndexText" Grid.Column="1"
-                         VerticalAlignment="Center" Margin="8,0,0,0"
-                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                         FontSize="12" />
-            </Grid>
-
-            <!-- Separator -->
-            <Border Height="1"
-                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-
-            <!-- Properties section (TRG) -->
-            <StackPanel x:Name="PropertiesSection" Spacing="4">
-              <TextBlock Text="Properties" FontWeight="SemiBold" FontSize="12" />
-              <Grid x:Name="PropertiesGrid" RowSpacing="4" ColumnSpacing="8" />
-            </StackPanel>
-
-            <!-- Position section (TRG) -->
-            <StackPanel x:Name="PositionSection" Spacing="4"
+              <!-- Header: type badge + index -->
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border x:Name="DetailTypeBadge"
+                        Background="{ThemeResource AccentFillColorDefaultBrush}"
+                        CornerRadius="4" Padding="8,2"
                         Visibility="Collapsed">
-              <TextBlock Text="Position" FontWeight="SemiBold" FontSize="12" />
-              <TextBlock x:Name="DetailPositionText" FontSize="12"
-                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
+                  <TextBlock x:Name="DetailTypeText" FontWeight="SemiBold"
+                             FontSize="12"
+                             Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                </Border>
+                <TextBlock x:Name="DetailIndexText" Grid.Column="1"
+                           VerticalAlignment="Center" Margin="8,0,0,0"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           FontSize="12" />
+              </Grid>
 
-            <!-- Angles section (TRG) -->
-            <StackPanel x:Name="AnglesSection" Spacing="4"
-                        Visibility="Collapsed">
-              <TextBlock Text="Angles" FontWeight="SemiBold" FontSize="12" />
-              <TextBlock x:Name="DetailAnglesText" FontSize="12"
-                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
+              <!-- Separator -->
+              <Border Height="1"
+                      Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-            <!-- Links section (TRG) -->
-            <StackPanel x:Name="LinksSection" Spacing="4"
-                        Visibility="Collapsed">
-              <TextBlock Text="Links" FontWeight="SemiBold" FontSize="12" />
-              <TextBlock x:Name="DetailLinksText" FontSize="12"
-                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                         TextWrapping="Wrap" />
-            </StackPanel>
+              <!-- Properties section (TRG) -->
+              <StackPanel x:Name="PropertiesSection" Spacing="4">
+                <TextBlock Text="Properties" FontWeight="SemiBold" FontSize="12" />
+                <Grid x:Name="PropertiesGrid" RowSpacing="4" ColumnSpacing="8" />
+              </StackPanel>
 
-            <!-- Commands section (TRG) -->
-            <StackPanel x:Name="CommandsSection" Spacing="4"
-                        Visibility="Collapsed">
-              <TextBlock x:Name="CommandsHeaderText" FontWeight="SemiBold"
-                         FontSize="12" />
-              <ItemsRepeater x:Name="CommandsRepeater">
-                <ItemsRepeater.ItemTemplate>
-                </ItemsRepeater.ItemTemplate>
-              </ItemsRepeater>
-            </StackPanel>
+              <!-- Position section (TRG) -->
+              <StackPanel x:Name="PositionSection" Spacing="4"
+                          Visibility="Collapsed">
+                <TextBlock Text="Position" FontWeight="SemiBold" FontSize="12" />
+                <TextBlock x:Name="DetailPositionText" FontSize="12"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              </StackPanel>
 
-            <!-- Script section (TRG) -->
-            <StackPanel x:Name="ScriptSection" Spacing="4"
-                        Visibility="Collapsed">
-              <TextBlock x:Name="ScriptHeaderText" FontWeight="SemiBold"
-                         FontSize="12" />
-              <ItemsRepeater x:Name="ScriptRepeater">
-                <ItemsRepeater.ItemTemplate>
-                </ItemsRepeater.ItemTemplate>
-              </ItemsRepeater>
-            </StackPanel>
+              <!-- Angles section (TRG) -->
+              <StackPanel x:Name="AnglesSection" Spacing="4"
+                          Visibility="Collapsed">
+                <TextBlock Text="Angles" FontWeight="SemiBold" FontSize="12" />
+                <TextBlock x:Name="DetailAnglesText" FontSize="12"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              </StackPanel>
 
-            <!-- Raw hex section (TRG) -->
-            <StackPanel x:Name="RawHexSection" Spacing="4"
-                        Visibility="Collapsed">
-              <TextBlock Text="Raw Hex" FontWeight="SemiBold" FontSize="12" />
-              <TextBlock x:Name="DetailRawHexText" FontSize="11"
-                         FontFamily="Consolas"
-                         Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                         TextWrapping="Wrap" IsTextSelectionEnabled="True" />
-            </StackPanel>
+              <!-- Links section (TRG) -->
+              <StackPanel x:Name="LinksSection" Spacing="4"
+                          Visibility="Collapsed">
+                <TextBlock Text="Links" FontWeight="SemiBold" FontSize="12" />
+                <TextBlock x:Name="DetailLinksText" FontSize="12"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+              </StackPanel>
 
-            <!-- Source section (QB decompiled output) -->
-            <StackPanel x:Name="SourceSection" Spacing="4"
-                        Visibility="Collapsed">
-              <TextBlock x:Name="SourceHeaderText" FontWeight="SemiBold"
-                         FontSize="12" />
-              <TextBlock x:Name="DetailSourceText" FontSize="11"
-                         FontFamily="Consolas"
-                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                         TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+              <!-- Commands section (TRG) -->
+              <StackPanel x:Name="CommandsSection" Spacing="4"
+                          Visibility="Collapsed">
+                <TextBlock x:Name="CommandsHeaderText" FontWeight="SemiBold"
+                           FontSize="12" />
+                <ItemsRepeater x:Name="CommandsRepeater">
+                  <ItemsRepeater.ItemTemplate>
+                  </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+              </StackPanel>
+
+              <!-- Script section (TRG) -->
+              <StackPanel x:Name="ScriptSection" Spacing="4"
+                          Visibility="Collapsed">
+                <TextBlock x:Name="ScriptHeaderText" FontWeight="SemiBold"
+                           FontSize="12" />
+                <ItemsRepeater x:Name="ScriptRepeater">
+                  <ItemsRepeater.ItemTemplate>
+                  </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+              </StackPanel>
+
+              <!-- Raw hex section (TRG) -->
+              <StackPanel x:Name="RawHexSection" Spacing="4"
+                          Visibility="Collapsed">
+                <TextBlock Text="Raw Hex" FontWeight="SemiBold" FontSize="12" />
+                <TextBlock x:Name="DetailRawHexText" FontSize="11"
+                           FontFamily="Consolas"
+                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                           TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+              </StackPanel>
+
+              <!-- Source section (QB decompiled output) -->
+              <StackPanel x:Name="SourceSection" Spacing="4"
+                          Visibility="Collapsed">
+                <TextBlock x:Name="SourceHeaderText" FontWeight="SemiBold"
+                           FontSize="12" />
+                <TextBlock x:Name="DetailSourceText" FontSize="11"
+                           FontFamily="Consolas"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+              </StackPanel>
             </StackPanel>
-          </StackPanel>
-        </ScrollViewer>
+          </ScrollViewer>
         </Grid>
       </Border>
     </Grid>

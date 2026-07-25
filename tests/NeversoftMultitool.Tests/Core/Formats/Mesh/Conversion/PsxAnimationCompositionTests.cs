@@ -27,12 +27,12 @@ public sealed class PsxAnimationCompositionTests
         // through the parent chain must compose back to identity (in glTF coords).
         var animation = BuildAnimation(
             (bone: 0, channelIndex: 1, s16Value: AngleToS16Units(MathF.PI / 2f)), // Ry=90° on root
-            (bone: 1, channelIndex: 0, s16Value: AngleToS16Units(MathF.PI / 4f))  // Rx=45° on mid
+            (bone: 1, channelIndex: 0, s16Value: AngleToS16Units(MathF.PI / 4f)) // Rx=45° on mid
         );
 
         var document = CreateThreeBoneDocument();
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            document, BuildPsxFile(), skeletonIndex: 0,
+            document, BuildPsxFile(), 0,
             [("walk", animation)],
             new PsxAnimationOptions());
 
@@ -56,7 +56,7 @@ public sealed class PsxAnimationCompositionTests
 
         var document = CreateThreeBoneDocument();
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            document, BuildPsxFile(), skeletonIndex: 0,
+            document, BuildPsxFile(), 0,
             [("walk", animation)],
             new PsxAnimationOptions());
 
@@ -85,7 +85,7 @@ public sealed class PsxAnimationCompositionTests
         var document = CreateThreeBoneDocument();
 
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            document, BuildPsxFile(), skeletonIndex: 0,
+            document, BuildPsxFile(), 0,
             [("rest", animation)],
             new PsxAnimationOptions());
 
@@ -104,9 +104,9 @@ public sealed class PsxAnimationCompositionTests
         var document = CreateThreeBoneDocument();
 
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            document, BuildPsxFile(), skeletonIndex: 0,
+            document, BuildPsxFile(), 0,
             [("with_trans", animation)],
-            new PsxAnimationOptions(SkipRotation: true, SkipTranslation: false));
+            new PsxAnimationOptions(true, false));
 
         Assert.Empty(document.Animations);
     }
@@ -118,18 +118,18 @@ public sealed class PsxAnimationCompositionTests
         // while limb translations are noise for the current export path. The
         // diagnostic filter lets visual checks isolate that case.
         var animation = BuildAnimation(
-            frameCount: 2,
+            2,
             (bone: 0, channelIndex: 3, frame: 1, s16Value: 10),
             (bone: 1, channelIndex: 3, frame: 1, s16Value: 20),
             (bone: 2, channelIndex: 3, frame: 1, s16Value: 30));
         var document = CreateThreeBoneDocument();
 
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            document, BuildPsxFile(), skeletonIndex: 0,
+            document, BuildPsxFile(), 0,
             [("board_only", animation)],
             new PsxAnimationOptions(
-                SkipRotation: true,
-                SkipTranslation: false,
+                true,
+                false,
                 TranslationBoneFilter: new HashSet<int> { 1 }));
 
         var channel = Assert.Single(document.Animations[0].Channels);
@@ -145,16 +145,16 @@ public sealed class PsxAnimationCompositionTests
         // SMatrix.t raw. The default export therefore emits ABSOLUTE values
         // at the vertex ScaleDivisor — no bind anchoring, no extra /16.
         var animation = BuildAnimation(
-            frameCount: 2,
+            2,
             (bone: 1, channelIndex: 3, frame: 0, s16Value: 100),
             (bone: 1, channelIndex: 3, frame: 1, s16Value: 820));
         var document = CreateTranslatedThreeBoneDocument();
 
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            document, BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f),
-            skeletonIndex: 0,
+            document, BuildPsxFile(36f, 2.25f),
+            0,
             [("with_trans", animation)],
-            new PsxAnimationOptions(SkipRotation: true, SkipTranslation: false));
+            new PsxAnimationOptions(true, false));
 
         var channel = Assert.Single(
             document.Animations[0].Channels,
@@ -171,18 +171,18 @@ public sealed class PsxAnimationCompositionTests
         // reproduces the pre-contract export (bind + frame-0-anchored delta at
         // ScaleDivisor x16 = 576). Kept so older exports can be compared.
         var animation = BuildAnimation(
-            frameCount: 2,
+            2,
             (bone: 1, channelIndex: 3, frame: 0, s16Value: 100),
             (bone: 1, channelIndex: 3, frame: 1, s16Value: 820));
         var document = CreateTranslatedThreeBoneDocument();
 
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            document, BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f),
-            skeletonIndex: 0,
+            document, BuildPsxFile(36f, 2.25f),
+            0,
             [("with_trans", animation)],
             new PsxAnimationOptions(
-                SkipRotation: true,
-                SkipTranslation: false,
+                true,
+                false,
                 TranslationDivisorScale: 16f,
                 AbsoluteTranslation: false));
 
@@ -201,15 +201,15 @@ public sealed class PsxAnimationCompositionTests
         // the emitted channel must replace the bone's bind translation
         // (3,4,5) with the decoded value.
         var animation = BuildAnimation(
-            frameCount: 1,
+            1,
             (bone: 1, channelIndex: 3, frame: 0, s16Value: 72));
         var document = CreateTranslatedThreeBoneDocument();
 
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            document, BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f),
-            skeletonIndex: 0,
+            document, BuildPsxFile(36f, 2.25f),
+            0,
             [("absolute_trans", animation)],
-            new PsxAnimationOptions(SkipRotation: true, SkipTranslation: false));
+            new PsxAnimationOptions(true, false));
 
         var channel = Assert.Single(
             document.Animations[0].Channels,
@@ -229,21 +229,21 @@ public sealed class PsxAnimationCompositionTests
         // default local path, because glTF's own parent chaining performs the
         // identical composition once locals are the absolute anim values.
         var animation = BuildAnimation(
-            frameCount: 2,
+            2,
             (bone: 0, channelIndex: 2, frame: 1, s16Value: AngleToS16Units(MathF.PI / 2f)),
             (bone: 1, channelIndex: 3, frame: 0, s16Value: 108),
             (bone: 1, channelIndex: 3, frame: 1, s16Value: 108));
-        var psxFile = BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f, withHierarchy: true);
+        var psxFile = BuildPsxFile(36f, 2.25f, true);
 
         var localDocument = CreateTranslatedThreeBoneDocument();
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            localDocument, psxFile, skeletonIndex: 0,
+            localDocument, psxFile, 0,
             [("local", animation)],
             new PsxAnimationOptions(SkipTranslation: false));
 
         var worldDocument = CreateTranslatedThreeBoneDocument();
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            worldDocument, psxFile, skeletonIndex: 0,
+            worldDocument, psxFile, 0,
             [("engine_world", animation)],
             new PsxAnimationOptions(
                 SkipTranslation: false,
@@ -282,15 +282,15 @@ public sealed class PsxAnimationCompositionTests
         // applies the parent rotation at compose time, exactly like the
         // engine's (parent.rot x anim_t) >> 12 + parent.t).
         var animation = BuildAnimation(
-            frameCount: 2,
+            2,
             (bone: 0, channelIndex: 2, frame: 1, s16Value: AngleToS16Units(MathF.PI / 2f)),
             (bone: 1, channelIndex: 3, frame: 0, s16Value: 72),
             (bone: 1, channelIndex: 3, frame: 1, s16Value: 72));
         var document = CreateTranslatedThreeBoneDocument();
 
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            document, BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f, withHierarchy: true),
-            skeletonIndex: 0,
+            document, BuildPsxFile(36f, 2.25f, true),
+            0,
             [("local_trans", animation)],
             new PsxAnimationOptions(SkipTranslation: false));
 
@@ -312,7 +312,7 @@ public sealed class PsxAnimationCompositionTests
         // local path would chain the character's parents onto values the
         // engine never chained.
         var animation = BuildAnimation(
-            frameCount: 2,
+            2,
             (bone: 0, channelIndex: 2, frame: 1, s16Value: AngleToS16Units(MathF.PI / 2f)),
             (bone: 1, channelIndex: 3, frame: 0, s16Value: 72),
             (bone: 1, channelIndex: 3, frame: 1, s16Value: 72));
@@ -320,9 +320,9 @@ public sealed class PsxAnimationCompositionTests
 
         PsxAnimationChannelWriter.PopulatePsxAnimationClips(
             document,
-            BuildPsxFile(scaleDivisor: 36f, translationDivisor: 2.25f, withHierarchy: true),
-            skeletonIndex: 0,
-            [new PsxAnimationClip("bank_clip", animation, TranslationParentIndices: [-1, -1, -1])],
+            BuildPsxFile(36f, 2.25f, true),
+            0,
+            [new PsxAnimationClip("bank_clip", animation, [-1, -1, -1])],
             new PsxAnimationOptions(SkipTranslation: false));
 
         var midTranslation = Assert.Single(
@@ -374,9 +374,9 @@ public sealed class PsxAnimationCompositionTests
         document.Skeletons.Add(skeleton);
 
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            document, psxFile, skeletonIndex: 0,
+            document, psxFile, 0,
             [("flat", animation)],
-            new PsxAnimationOptions(SkipRotation: true, SkipTranslation: false));
+            new PsxAnimationOptions(true, false));
 
         var slot1 = Assert.Single(
             document.Animations[0].Channels,
@@ -401,7 +401,7 @@ public sealed class PsxAnimationCompositionTests
 
         var document = CreateThreeBoneDocument();
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            document, BuildPsxFile(), skeletonIndex: 0,
+            document, BuildPsxFile(), 0,
             [("walk", animation)],
             new PsxAnimationOptions(LegacyRotationChain: true));
 
@@ -426,7 +426,7 @@ public sealed class PsxAnimationCompositionTests
 
         var document = CreateThreeBoneDocument();
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            document, BuildPsxFile(), skeletonIndex: 0,
+            document, BuildPsxFile(), 0,
             [("walk", animation)],
             new PsxAnimationOptions());
 
@@ -453,7 +453,7 @@ public sealed class PsxAnimationCompositionTests
 
         var document = CreateForwardParentDocument();
         PsxAnimationChannelWriter.PopulatePsxAnimations(
-            document, BuildPsxFile(), skeletonIndex: 0,
+            document, BuildPsxFile(), 0,
             [("idle", animation)],
             new PsxAnimationOptions());
 
@@ -641,5 +641,4 @@ public sealed class PsxAnimationCompositionTests
         var dw = a.W - b.W;
         return MathF.Sqrt(dx * dx + dy * dy + dz * dz + dw * dw);
     }
-
 }

@@ -2,7 +2,6 @@ using System.IO.Compression;
 using System.Text;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Archives;
 
@@ -14,7 +13,8 @@ public class QZipArchiveTests(TestPaths paths)
     [Fact]
     public void GetFileList_SyntheticZip_WalksStoredAndDeflateEntries()
     {
-        var tempZip = Path.Combine(Path.GetTempPath(), "NsMultitool_Test_" + Guid.NewGuid().ToString("N")[..8] + ".zip");
+        var tempZip = Path.Combine(Path.GetTempPath(),
+            "NsMultitool_Test_" + Guid.NewGuid().ToString("N")[..8] + ".zip");
         var storedContent = Encoding.ASCII.GetBytes("stored entry payload");
         var deflateContent = Encoding.ASCII.GetBytes(new string('a', 4096)); // compressible
         try
@@ -65,13 +65,16 @@ public class QZipArchiveTests(TestPaths paths)
     [Fact]
     public void IsZip_NonZipFile_ReturnsFalse()
     {
-        var tempFile = Path.Combine(Path.GetTempPath(), "NsMultitool_Test_" + Guid.NewGuid().ToString("N")[..8] + ".zip");
+        var tempFile = Path.Combine(Path.GetTempPath(),
+            "NsMultitool_Test_" + Guid.NewGuid().ToString("N")[..8] + ".zip");
         try
         {
-            File.WriteAllBytes(tempFile, [0x12, 0x34, 0x56, 0x78, 0x00, 0x00, 0x00, 0x00,
+            File.WriteAllBytes(tempFile, [
+                0x12, 0x34, 0x56, 0x78, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+            ]);
             Assert.False(QZipArchive.IsZip(tempFile));
         }
         finally

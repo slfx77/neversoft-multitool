@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.BinaryIO;
 
 namespace NeversoftMultitool.Core.Formats.Animation;
 
@@ -29,6 +30,7 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 internal static class SkaFile
 {
     internal const uint FlagPlatform = 1u << 28;
+
     // bit 26 = compressed-time keys (the decoders infer per-key timing from the
     // header/flag byte, so it isn't gated on); bit 25 = pre-rotated root
     // (neither is consumed by this parser)
@@ -64,7 +66,7 @@ internal static class SkaFile
 
         if (SkaThawParser.IsThawSka(data, out var thawBigEndian))
         {
-            var thawReader = new BinaryIO.EndianSpanReader(data, thawBigEndian);
+            var thawReader = new EndianSpanReader(data, thawBigEndian);
             return new SkaProbeResult(thawReader.F32(8), data[0x0D]);
         }
 

@@ -1,19 +1,6 @@
-using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh.Ddm;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
-using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene.Ps2Scene;
-using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
-using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
+using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -23,6 +10,13 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 /// </summary>
 internal static class RwGeometryWriter
 {
+    // Row-vector convention: vertex' = vertex * R rotates Z-up RW data to Y-up glTF.
+    private static readonly Matrix4x4 RwDffZupToYupRotation = new(
+        1, 0, 0, 0,
+        0, 0, -1, 0,
+        0, 1, 0, 0,
+        0, 0, 0, 1);
+
     public static void PopulateRwDff(
         ModelDocument document,
         RwDffClump clump,
@@ -75,7 +69,8 @@ internal static class RwGeometryWriter
                         MakeRwVertex(geometry, tri.V2));
                 }
 
-                ModelDocumentGeometryAdapter.AddPrimitive(mesh, $"mat_{group.Key:D3}", materialIndex, vertices, indices);
+                ModelDocumentGeometryAdapter.AddPrimitive(mesh, $"mat_{group.Key:D3}", materialIndex, vertices,
+                    indices);
             }
 
             var transform = atomic.FrameIndex >= 0 && atomic.FrameIndex < frameWorld.Length
@@ -177,7 +172,8 @@ internal static class RwGeometryWriter
                     textureAlphaMode = Ps2GeomDestinationAlphaSynthesis.ClassifyTextureAlphaMode(pngBytes);
                 }
 
-                renderMaterial.TextureIndex ??= ModelDocumentGeometryAdapter.AddTexture(document, material.TextureName, pngBytes);
+                renderMaterial.TextureIndex ??=
+                    ModelDocumentGeometryAdapter.AddTexture(document, material.TextureName, pngBytes);
             }
         }
 
@@ -188,12 +184,6 @@ internal static class RwGeometryWriter
         else if (textureAlphaMode == "BLEND")
             renderMaterial.AlphaMode = ModelAlphaMode.Blend;
     }
-    // Row-vector convention: vertex' = vertex * R rotates Z-up RW data to Y-up glTF.
-    private static readonly Matrix4x4 RwDffZupToYupRotation = new(
-        1, 0, 0, 0,
-        0, 0, -1, 0,
-        0, 1, 0, 0,
-        0, 0, 0, 1);
 
     private static void PopulateRwDffSkinned(
         ModelDocument document,

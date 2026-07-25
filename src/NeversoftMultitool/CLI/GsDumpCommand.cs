@@ -1,4 +1,5 @@
 ﻿using System.CommandLine;
+using System.Globalization;
 using NeversoftMultitool.Core.Formats.GsDump;
 using Spectre.Console;
 
@@ -410,6 +411,7 @@ public static class GsDumpCommand
                     $"[red]Error:[/] --dump-vram-region spec '{Markup.Escape(spec)}' must be TBP:FBW:PSM:W:H");
                 continue;
             }
+
             if (!TryParseUInt(parts[0], out var tbp) || !TryParseUInt(parts[1], out var fbw) ||
                 !TryParseUInt(parts[2], out var psm) || !int.TryParse(parts[3], out var w) ||
                 !int.TryParse(parts[4], out var h))
@@ -418,16 +420,18 @@ public static class GsDumpCommand
                     $"[red]Error:[/] --dump-vram-region spec '{Markup.Escape(spec)}' has invalid numeric fields");
                 continue;
             }
+
             list.Add((tbp, fbw, psm, w, h));
         }
+
         return list.Count == 0 ? null : list;
     }
 
     private static bool TryParseUInt(string s, out uint value)
     {
         if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            return uint.TryParse(s.AsSpan(2), System.Globalization.NumberStyles.HexNumber,
-                System.Globalization.CultureInfo.InvariantCulture, out value);
+            return uint.TryParse(s.AsSpan(2), NumberStyles.HexNumber,
+                CultureInfo.InvariantCulture, out value);
         return uint.TryParse(s, out value);
     }
 }

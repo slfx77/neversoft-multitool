@@ -104,6 +104,7 @@ public static class PsxTextureProviderFactory
                     hash,
                     preserveRuntimeSemiTransparency: true);
             }
+
             if (result == null) return null;
             var (rgba, w, h) = result.Value;
             return ImageWriter.WritePngToMemory(w, h, rgba);

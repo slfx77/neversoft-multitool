@@ -185,11 +185,15 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
   items.psx → one hash-keyed table serves both; `SelectTable` picks it by the 'S' letter 0x311D55D4.
   PLATFORM overlay verified coincident (THPS1 24/30, THPS2 12/17 refs at δ≈0, div 2.25). 6-12 proto
   added to Sample/Builds (9-mesh items = final table). See memory `psx_crossgame_level_objects.md`.
-- **Apocalypse follow-up (deferred):** Apocalypse gets the coordinate-verified bank layer only. Its
-  `0x212F` refs sit on dynamic BADDY spawns that don't coincide with the static bank (1/125), and no
-  Apocalypse pickup table is RE'd (no decomp for the 1998 engine — would need PSX.EXE ctor RE via
-  Ghidra/signature). Overlay + POWERUP gated off (`PsxLevelCompanions.ApplyTriggerOverlay=false`) until
-  the coordinate model + a pickup table are validated.
+- **Apocalypse SHIPPED 2026-07-24** (full parity): the pickup table was reverse-engineered from
+  `apocalypse_final.exe` (SLUS_003.73, no SYM) by **signature-matching against the THPS2 decomp** —
+  located the "items" string + the items.psx hash-load cluster (`tools/diagnostics/psx_hash_load_scan.py`
+  @0x8001fec0), read the `CPowerUp` ctor jump table @0x800A11EC (keyed by mType-1), and cross-checked
+  against the TRG POWERUP census (types 4/5/6/10/14/15/16 = 176/281 nodes; 14/15/16 are three spin
+  variants of the shared grey-gear 0x7E74F3D4; 17=plus_one region, non-items). TRG pickupType == mType,
+  no per-type scale, node scale div 2.25 verified in-bounds. POWERUP + PLATFORM overlay both enabled
+  (`ApplyTriggerOverlay=true`); the overlay's Apocalypse refs are mostly authored BADDY/PLATFORM spawn
+  re-instances (worth a visual eyeball, one-line revert via the flag if too busy).
 
 ### 🔶 PSX level-object animation export (skeletal path)
 - Source: decomp contract `thps2-psx-proto docs/level_object_anim_binding.md` (2026-07-09; RunAnim/CycleAnim/CalculateAnimOrder PERFECT).

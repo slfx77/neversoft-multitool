@@ -82,26 +82,32 @@ public sealed class Vid1StartupPolicyTests
                 startHandledBefore));
     }
 
-    private static Vid1SeekAnchor CreateAnchor(int nextEmissionOrdinal) => new()
+    private static Vid1SeekAnchor CreateAnchor(int nextEmissionOrdinal)
     {
-        DecodeIndex = nextEmissionOrdinal,
-        EmittedInitialReference = true,
-        HeldReferenceFrameIndex = -1,
-        NextEmissionOrdinal = nextEmissionOrdinal,
-        State = CreateEmptySnapshot()
-    };
+        return new Vid1SeekAnchor
+        {
+            DecodeIndex = nextEmissionOrdinal,
+            EmittedInitialReference = true,
+            HeldReferenceFrameIndex = -1,
+            NextEmissionOrdinal = nextEmissionOrdinal,
+            State = CreateEmptySnapshot()
+        };
+    }
 
-    private static Vid1ReferenceSnapshot CreateEmptySnapshot() => new()
+    private static Vid1ReferenceSnapshot CreateEmptySnapshot()
     {
-        ReferenceY = [],
-        ReferenceCb = [],
-        ReferenceCr = [],
-        PreviousReferenceY = [],
-        PreviousReferenceCb = [],
-        PreviousReferenceCr = [],
-        ReferenceMbState = [],
-        PreviousReferenceMbState = [],
-        ReferenceStateWord = 0,
-        PreviousReferenceStateWord = 0
-    };
+        return new Vid1ReferenceSnapshot
+        {
+            ReferenceY = [],
+            ReferenceCb = [],
+            ReferenceCr = [],
+            PreviousReferenceY = [],
+            PreviousReferenceCb = [],
+            PreviousReferenceCr = [],
+            ReferenceMbState = [],
+            PreviousReferenceMbState = [],
+            ReferenceStateWord = 0,
+            PreviousReferenceStateWord = 0
+        };
+    }
 }

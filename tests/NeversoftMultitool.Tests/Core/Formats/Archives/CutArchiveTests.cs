@@ -1,5 +1,5 @@
+using System.Globalization;
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Archives;
 
@@ -237,7 +237,7 @@ public class CutArchiveTests(TestPaths paths)
                 {
                     // Hex-extension fallback marks an unmapped section key
                     var ext = Path.GetExtension(entry.Name.Replace(".ps2", "").Replace(".xbx", ""));
-                    if (ext.Length == 9 && uint.TryParse(ext[1..], System.Globalization.NumberStyles.HexNumber,
+                    if (ext.Length == 9 && uint.TryParse(ext[1..], NumberStyles.HexNumber,
                             null, out var key))
                         unknownKeys.Add(key);
                 }

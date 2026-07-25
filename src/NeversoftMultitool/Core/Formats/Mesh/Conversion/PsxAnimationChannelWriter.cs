@@ -12,7 +12,6 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 /// </summary>
 internal static class PsxAnimationChannelWriter
 {
-
     /// <summary>
     ///     Adds one <see cref="ModelAnimation" /> to <paramref name="document" />
     ///     per <c>(name, animation)</c> entry.
@@ -80,6 +79,7 @@ internal static class PsxAnimationChannelWriter
         {
             translationDivisor *= options.TranslationDivisorScale;
         }
+
         var fps = options.Fps <= 0f ? PsxAnimationBank.DefaultPreviewFps : options.Fps;
 
         // FLAT supers (no HIER chunk — Apocalypse/THPS1-proto era) are a
@@ -153,22 +153,6 @@ internal static class PsxAnimationChannelWriter
                 document.Animations.Add(modelAnim);
         }
     }
-
-    /// <summary>
-    ///     Bundles the inputs shared across rotation-channel construction so the
-    ///     individual builder helpers stay well under the codebase's per-method
-    ///     parameter ceiling.
-    /// </summary>
-    internal readonly record struct PsxRotationChannelContext(
-        int SkeletonIndex,
-        PsxAnimation Animation,
-        int[] ParentIndices,
-        int BoneCount,
-        int FrameCount,
-        float Fps,
-        PsxRotationCompose Compose,
-        bool Legacy,
-        float RotationScale);
 
     /// <summary>
     ///     Returns a bone-indexed mask of which bones need a rotation channel.
@@ -342,7 +326,7 @@ internal static class PsxAnimationChannelWriter
             if (frame > 0)
             {
                 var dot = gltfRot.X * previous.X + gltfRot.Y * previous.Y
-                          + gltfRot.Z * previous.Z + gltfRot.W * previous.W;
+                                                 + gltfRot.Z * previous.Z + gltfRot.W * previous.W;
                 if (dot < 0f)
                     gltfRot = new Quaternion(-gltfRot.X, -gltfRot.Y, -gltfRot.Z, -gltfRot.W);
             }
@@ -452,4 +436,20 @@ internal static class PsxAnimationChannelWriter
     {
         return parent >= 0 && parent < boneCount && parent != bone;
     }
+
+    /// <summary>
+    ///     Bundles the inputs shared across rotation-channel construction so the
+    ///     individual builder helpers stay well under the codebase's per-method
+    ///     parameter ceiling.
+    /// </summary>
+    internal readonly record struct PsxRotationChannelContext(
+        int SkeletonIndex,
+        PsxAnimation Animation,
+        int[] ParentIndices,
+        int BoneCount,
+        int FrameCount,
+        float Fps,
+        PsxRotationCompose Compose,
+        bool Legacy,
+        float RotationScale);
 }

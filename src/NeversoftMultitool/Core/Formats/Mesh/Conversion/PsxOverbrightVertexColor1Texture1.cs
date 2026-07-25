@@ -50,7 +50,10 @@ internal struct PsxOverbrightVertexColor1Texture1 :
     public readonly IEnumerable<string> CustomAttributes => CustomAttributeNames;
 
     readonly IEnumerable<KeyValuePair<string, AttributeFormat>>
-        IVertexReflection.GetEncodingAttributes() => EncodingAttributes;
+        IVertexReflection.GetEncodingAttributes()
+    {
+        return EncodingAttributes;
+    }
 
     public readonly Vector4 GetColor(int index)
     {
@@ -153,12 +156,12 @@ internal struct PsxOverbrightVertexColor1Texture1 :
                && TexCoord.Equals(other.TexCoord);
     }
 
-    public override readonly bool Equals(object? obj)
+    public readonly override bool Equals(object? obj)
     {
         return obj is PsxOverbrightVertexColor1Texture1 other && Equals(other);
     }
 
-    public override readonly int GetHashCode()
+    public readonly override int GetHashCode()
     {
         return HashCode.Combine(PortableColor, PsxColor, PsxFlags, TexCoord);
     }

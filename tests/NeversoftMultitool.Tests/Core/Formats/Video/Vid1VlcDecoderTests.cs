@@ -1,11 +1,13 @@
-using NeversoftMultitool.Core.Formats.Video;
 using NeversoftMultitool.Core.Formats.Vid1;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Video;
 
 public class Vid1VlcDecoderTests
 {
-    private static Vid1BitReader MakeReader(params byte[] data) => new(data);
+    private static Vid1BitReader MakeReader(params byte[] data)
+    {
+        return new Vid1BitReader(data);
+    }
 
     [Theory]
     [InlineData(false)]

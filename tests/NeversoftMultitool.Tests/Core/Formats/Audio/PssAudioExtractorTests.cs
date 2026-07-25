@@ -1,25 +1,25 @@
 using System.Buffers.Binary;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Audio;
-using NeversoftMultitool.Tests.Core;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Audio;
 
 public sealed class PssAudioExtractorTests(TestPaths paths)
 {
     private string RepresentativeSampleFile =>
-        paths.SampleBuildsDir is null ? string.Empty : Path.Combine(
-            paths.SampleBuildsDir,
-            "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)",
-            "MOVIES",
-            "ATVI.PSS");
+        paths.SampleBuildsDir is null
+            ? string.Empty
+            : Path.Combine(
+                paths.SampleBuildsDir,
+                "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)",
+                "MOVIES",
+                "ATVI.PSS");
 
     [Fact]
     public void ConvertToWav_SyntheticPss_WritesExpectedStereoWave()
     {
         var samples = new short[] { 1000, -1000, 2000, -2000, 3000, -3000, 4000, -4000 };
-        var pssBytes = PssTestBuilder.CreatePssWithAdsPcm(samples, sampleRate: 48000, channels: 2, interleave: 4);
+        var pssBytes = PssTestBuilder.CreatePssWithAdsPcm(samples, 48000, 2, 4);
         var pssPath = FormatProbeTestHelper.CreateTempFile(".pss", pssBytes);
         var outputDir = FormatProbeTestHelper.CreateTempDirectory("pss_extract");
 
@@ -45,7 +45,7 @@ public sealed class PssAudioExtractorTests(TestPaths paths)
         finally
         {
             File.Delete(pssPath);
-            Directory.Delete(outputDir, recursive: true);
+            Directory.Delete(outputDir, true);
         }
     }
 
@@ -129,13 +129,13 @@ internal static class PssTestBuilder
         {
             for (var channel = 0; channel < channels; channel++)
             {
-                var blockBase = ((frame * channels) + channel) * interleave;
+                var blockBase = (frame * channels + channel) * interleave;
                 for (var sampleOffset = 0; sampleOffset < samplesPerBlock; sampleOffset++)
                 {
-                    var sourceIndex = (frame * samplesPerBlock * channels) + (sampleOffset * channels) + channel;
+                    var sourceIndex = frame * samplesPerBlock * channels + sampleOffset * channels + channel;
                     var value = sourceIndex < samples.Length ? samples[sourceIndex] : (short)0;
                     BinaryPrimitives.WriteInt16LittleEndian(
-                        body.AsSpan(blockBase + (sampleOffset * sizeof(short)), sizeof(short)),
+                        body.AsSpan(blockBase + sampleOffset * sizeof(short), sizeof(short)),
                         value);
                 }
             }

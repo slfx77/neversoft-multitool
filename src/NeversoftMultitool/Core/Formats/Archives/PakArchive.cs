@@ -11,14 +11,12 @@ namespace NeversoftMultitool.Core.Formats.Archives;
 ///     A single .pak file may contain multiple concatenated sub-PAKs, each with its own entry table.
 ///     File types identified by QbKey hash of extension (e.g. QbKey(".ska") = 0x745DCD45).
 ///     Reference: Nanook/Queen-Bee PakHeaderItem.cs + PakEditor.cs (GitHub).
-///
 ///     Entry data offsets are RELATIVE TO THE ENTRY'S OWN HEADER POSITION, not absolute
 ///     (Queen-Bee: HeaderStart + FileOffset). When the resolved position exceeds the .pak
 ///     file size, the data lives in the companion .pab file at (resolved − pak length).
 ///     Verified 2026-07-09 with payload signature checks: THAW PS2 12,120 and THAW PC
 ///     12,756 hits — zero mismatches under this rule, versus wholesale failures when
 ///     offsets are read as absolute (e.g. qb.pak.ps2: 266/266 relative vs 2/266 absolute).
-///
 ///     THAW GameCube ships the same format big-endian as .apk.ngc / .pak.ngc (detected by
 ///     sentinel byte order). GC entries use flag 0x80000000 to mark data resident in the
 ///     archive itself (header-relative offsets like LE); entries WITHOUT it live in the
@@ -260,7 +258,7 @@ public static class PakArchive
         var offset = ReadU32(data, current + 0x04, bigEndian);
         var length = ReadU32(data, current + 0x08, bigEndian);
         var inCompanion = IsCompanionResident(flags, bigEndian);
-        var resolved = inCompanion ? offset : current + (long)offset;
+        var resolved = inCompanion ? offset : current + offset;
         if (length == 0 || (!inCompanion && resolved <= sentinelPos))
             return null;
 
@@ -488,7 +486,7 @@ public static class PakArchive
             var hasFilename = HasEmbeddedFilename(flags);
             var entrySize = hasFilename ? FullEntrySize : CompactEntrySize;
             var inCompanion = IsCompanionResident(flags, bigEndian);
-            var resolved = inCompanion ? offset : current + (long)offset;
+            var resolved = inCompanion ? offset : current + offset;
             if (length == 0 || (!inCompanion && resolved <= sentinelPos))
                 break;
 
@@ -536,7 +534,7 @@ public static class PakArchive
         // the following table region (data always follows the sentinel). GC
         // companion-resident entries store raw .mpk.ngc positions (0 is valid).
         if (!IsCompanionResident(ReadU32(data, pos + 0x1C, bigEndian), bigEndian) &&
-            pos + (long)offset <= nextPos)
+            pos + offset <= nextPos)
             return false;
 
         if (hasFilename && !LooksLikeFilename(data, pos + CompactEntrySize))

@@ -1,4 +1,3 @@
-using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Animation;
@@ -317,26 +316,3 @@ internal static class PsxAnimationBank
             : 0;
     }
 }
-
-internal sealed record PsxAnimationBankInfo(
-    AssetSource Source,
-    PsxAnimFile AnimFile,
-    int BoneCount,
-    bool MatchesTargetBoneCount);
-
-internal readonly record struct PsxAnimationBankSelection(int Index, string Name);
-
-internal sealed record PsxAnimationDecodeDiagnostic(
-    int Index,
-    string Name,
-    int FrameCount,
-    int? BytesConsumed,
-    string? Error)
-{
-    public bool Succeeded => Error == null;
-}
-
-internal sealed record PsxAnimationBankDecodeResult(
-    PsxAnimationBankInfo Bank,
-    IReadOnlyList<(string Name, PsxAnimation Animation)> Animations,
-    IReadOnlyList<PsxAnimationDecodeDiagnostic> Diagnostics);

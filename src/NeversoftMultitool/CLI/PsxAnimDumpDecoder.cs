@@ -10,7 +10,6 @@ namespace NeversoftMultitool.CLI;
 /// </summary>
 internal static class PsxAnimDumpDecoder
 {
-
     internal static int DumpRankedBoneMotion(
         PsxAnimFile? animFile,
         int boneCount,

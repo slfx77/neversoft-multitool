@@ -1,12 +1,11 @@
+using System.Numerics;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
 using NeversoftMultitool.Core.Formats.Trg;
-using NeversoftMultitool.Tests.Helpers;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
-using System.Numerics;
 using GltfModelRoot = SharpGLTF.Schema2.ModelRoot;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
@@ -110,12 +109,13 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
             // authored 5,036-triangle level and every companion texture.
             var trgBytes = source.TryReadCompanion("l1a3_t.trg");
             Assert.NotNull(trgBytes);
-            using (var stream = new MemoryStream(trgBytes!, writable: false))
+            using (var stream = new MemoryStream(trgBytes!, false))
             using (var reader = new BinaryReader(stream))
             {
                 var trg = TrgFile.Parse(reader, "l1a3_t.trg");
                 Assert.True(trg.Nodes.Count(static node => node.Type == "RESTART") > 1);
             }
+
             Assert.NotEmpty(initialDocument.VisibilityGroups);
             Assert.Contains(initialDocument.VisibilityGroups,
                 static group => !group.DefaultEnabled);
@@ -257,7 +257,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
             pair => pair.NameHash == billboardTextureHash).Header;
         Assert.Equal((uint)16, header.PalSize);
 
-        using (var stream = new MemoryStream(libraryBytes!, writable: false))
+        using (var stream = new MemoryStream(libraryBytes!, false))
         using (var reader = new BinaryReader(stream))
         {
             reader.ReadBytes(4); // PSX magic, already validated by enumeration
@@ -308,7 +308,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
 
         var trgBytes = source.TryReadCompanion("l1a4_t.trg");
         Assert.NotNull(trgBytes);
-        using (var stream = new MemoryStream(trgBytes!, writable: false))
+        using (var stream = new MemoryStream(trgBytes!, false))
         using (var reader = new BinaryReader(stream))
         {
             var trg = TrgFile.Parse(reader, "l1a4_t.trg");
@@ -317,8 +317,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
 
         var authoredTriangleCount = file!.Objects
             .Where(obj => obj.MeshIndex < file.Meshes.Count)
-            .Sum(obj => file.Meshes[obj.MeshIndex].Faces.Sum(
-                static face => face.IsQuad ? 2 : 1));
+            .Sum(obj => file.Meshes[obj.MeshIndex].Faces.Sum(static face => face.IsQuad ? 2 : 1));
         Assert.Equal(3859, authoredTriangleCount);
 
         var document = ParseDocument(source, entry.Name);
@@ -414,7 +413,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
 
         var (glbBytes, _) = new GltfModelExporter().BuildGlbBytes(document);
         Assert.NotNull(glbBytes);
-        using var glbStream = new MemoryStream(glbBytes, writable: false);
+        using var glbStream = new MemoryStream(glbBytes, false);
         var glb = GltfModelRoot.ReadGLB(glbStream);
         Assert.Contains(
             glb.LogicalMeshes.SelectMany(static mesh => mesh.Primitives),
@@ -474,7 +473,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
                         (pulseIndices.Contains(face.R) ||
                          pulseIndices.Contains(face.G) ||
                          pulseIndices.Contains(face.B) ||
-                         face.IsQuad && pulseIndices.Contains(face.Mode)));
+                         (face.IsQuad && pulseIndices.Contains(face.Mode))));
             Assert.All(file.ColourPulses, item =>
             {
                 var color = file.GouraudPalette[item.ColourIndex];
@@ -554,7 +553,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         var expectedLinearQuestionColor =
             PsxGeometryHelpers.DisplayRgbToLinear(
                 nativeQuestionColor,
-                isPs1TexturedModulation: true);
+                true);
         var document = ParseDocument(source, entry.Name);
         AssertDocumentContainsColor(document, expectedLinearQuestionColor);
     }
@@ -684,7 +683,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
 
             var texturedLinear = PsxGeometryHelpers.DisplayRgbToLinear(
                 FaceColor(texturedBoundaryColors, texturedSlot),
-                isPs1TexturedModulation: true);
+                true);
             var untexturedLinear = PsxGeometryHelpers.DisplayRgbToLinear(
                 FaceColor(untexturedBoundaryColors, untexturedSlot));
             var modulatedEdge = texturedLinear * decodedNeutralLinear;
@@ -695,6 +694,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
                                        texturedLinear.Y > 1f ||
                                        texturedLinear.Z > 1f;
         }
+
         Assert.True(foundExtendedMultiplier);
 
         var document = ParseDocument(source, entry.Name);
@@ -1098,7 +1098,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         });
 
         var document = new ModelDocument { Name = "l2a1_g" };
-        PsxGeometryWriter.PopulatePsx(document, file, textureProvider: null);
+        PsxGeometryWriter.PopulatePsx(document, file, null);
         var antennaNode = Assert.Single(document.Nodes,
             static node => node.Name == "object_196");
         Assert.NotNull(antennaNode.MeshIndex);
@@ -1135,8 +1135,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
                 node.Name.StartsWith("objects_", StringComparison.Ordinal))
             .Select(node => (
                 node.Name,
-                document.Meshes[node.MeshIndex!.Value].Primitives.Sum(
-                    static primitive => primitive.TriangleCount)))
+                document.Meshes[node.MeshIndex!.Value].Primitives.Sum(static primitive => primitive.TriangleCount)))
             .OrderBy(static item => item.Name, StringComparer.Ordinal)
             .ToArray();
     }

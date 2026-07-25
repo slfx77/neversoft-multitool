@@ -1,5 +1,3 @@
-using NeversoftMultitool.Core.Formats.Video;
-using NeversoftMultitool.Tests.Helpers;
 using NeversoftMultitool.Core.Formats.Vid1;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Video;
@@ -11,7 +9,7 @@ public class Vid1NativeConvertSmokeTest(TestPaths paths)
         if (!paths.HasSampleBuilds) return null;
         var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
             .FirstOrDefault(d => Path.GetFileName(d).Contains("American Wasteland", StringComparison.OrdinalIgnoreCase)
-                              && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
+                                 && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
         if (buildDir == null) return null;
 
         var candidate = Path.Combine(buildDir, "movies", "vid", "intro.vid");
@@ -28,7 +26,7 @@ public class Vid1NativeConvertSmokeTest(TestPaths paths)
         var outputDir = Path.Combine(
             Path.GetDirectoryName(typeof(Vid1NativeConvertSmokeTest).Assembly.Location)!,
             "Vid1NativeSmoke");
-        if (Directory.Exists(outputDir)) Directory.Delete(outputDir, recursive: true);
+        if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
         Directory.CreateDirectory(outputDir);
 
         var result = Vid1VideoConverter.ConvertToMp4(input, outputDir);

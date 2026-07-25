@@ -1,6 +1,4 @@
 using System.Buffers.Binary;
-using System.Numerics;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 
@@ -10,7 +8,6 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 /// </summary>
 internal static class Ps2LevelMdlParser
 {
-
     /// <summary>
     ///     Level-MDL identification: no bones, thousands of preamble records. Object MDLs have
     ///     ~5-15 records; level MDLs have thousands (5,649 for z_bh's 003B1940.mdl).

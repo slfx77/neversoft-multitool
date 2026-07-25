@@ -1,8 +1,6 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using Xunit;
-using Xunit.v3;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Animation;
 
@@ -99,8 +97,12 @@ public class Thps3SkaBindPoseAlignmentTests
     }
 
     private static string FormatVec(Vector3 v)
-        => $"({v.X:+0.00;-0.00}, {v.Y:+0.00;-0.00}, {v.Z:+0.00;-0.00})";
+    {
+        return $"({v.X:+0.00;-0.00}, {v.Y:+0.00;-0.00}, {v.Z:+0.00;-0.00})";
+    }
 
     private static string FormatQuat(Quaternion q)
-        => $"({q.X:+0.000;-0.000},{q.Y:+0.000;-0.000},{q.Z:+0.000;-0.000},{q.W:+0.000;-0.000})";
+    {
+        return $"({q.X:+0.000;-0.000},{q.Y:+0.000;-0.000},{q.Z:+0.000;-0.000},{q.W:+0.000;-0.000})";
+    }
 }

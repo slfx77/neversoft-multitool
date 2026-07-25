@@ -14,10 +14,10 @@ internal static class PsxVisibilityResolver
         PsxMeshFile file,
         IReadOnlyDictionary<string, bool>? overrides)
     {
-        IReadOnlyList<PsxVisibilityGroupDefinition> definitions =
+        var definitions =
             PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(file)
-            ? BuildAlternateGeometryGroups(file, fileName)
-            : PsxTriggerVisibilityResolver.FindVisibilityGroups(source, fileName, file);
+                ? BuildAlternateGeometryGroups(file, fileName)
+                : PsxTriggerVisibilityResolver.FindVisibilityGroups(source, fileName, file);
 
         if (definitions.Count == 0)
             return PsxVisibilitySelection.Empty;
@@ -71,7 +71,7 @@ internal static class PsxVisibilityResolver
             return [];
 
         var definitions = new List<PsxVisibilityGroupDefinition>(alternateLeaves.Count);
-        var assetHash = NeversoftMultitool.Core.QbKey.QbKey.Hash(
+        var assetHash = QbKey.QbKey.Hash(
             Path.GetFileNameWithoutExtension(fileName).ToUpperInvariant());
         var alternateSetSizes = alternateLeaves
             .GroupBy(static group => (
@@ -89,8 +89,8 @@ internal static class PsxVisibilityResolver
             var id = $"psx.alt.{assetHash:X8}.{group.ParentObjectIndex:D3}." +
                      $"{group.DefaultObjectIndex:D3}.{group.AlternateObjectIndex:D3}";
             var exclusiveSetId = alternateSetSizes[(
-                    group.ParentObjectIndex,
-                    group.DefaultObjectIndex)] > 1
+                group.ParentObjectIndex,
+                group.DefaultObjectIndex)] > 1
                 ? $"psx.altset.{assetHash:X8}.{group.ParentObjectIndex:D3}." +
                   $"{group.DefaultObjectIndex:D3}"
                 : null;
@@ -98,32 +98,15 @@ internal static class PsxVisibilityResolver
             definitions.Add(new PsxVisibilityGroupDefinition(
                 id,
                 $"{alternateName} instead of {defaultName}",
-                DefaultEnabled: false,
+                false,
                 ModelVisibilityGroupSource.AlternateGeometry,
                 $"PSX objects {group.DefaultObjectIndex} / {group.AlternateObjectIndex}, " +
                 $"parent {group.ParentObjectIndex}",
                 exclusiveSetId,
-                VisibleWhenEnabledObjectIndices: new HashSet<int> { group.AlternateObjectIndex },
-                VisibleWhenDisabledObjectIndices: new HashSet<int> { group.DefaultObjectIndex }));
+                new HashSet<int> { group.AlternateObjectIndex },
+                new HashSet<int> { group.DefaultObjectIndex }));
         }
 
         return definitions;
     }
-}
-
-internal sealed record PsxVisibilityGroupDefinition(
-    string Id,
-    string Label,
-    bool DefaultEnabled,
-    ModelVisibilityGroupSource Source,
-    string SourceReference,
-    string? ExclusiveSetId,
-    IReadOnlySet<int> VisibleWhenEnabledObjectIndices,
-    IReadOnlySet<int> VisibleWhenDisabledObjectIndices);
-
-internal sealed record PsxVisibilitySelection(
-    IReadOnlyList<ModelVisibilityGroup> Groups,
-    IReadOnlySet<int> HiddenObjectIndices)
-{
-    internal static PsxVisibilitySelection Empty { get; } = new([], new HashSet<int>());
 }

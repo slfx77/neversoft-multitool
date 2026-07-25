@@ -1,4 +1,3 @@
-using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.ArchiveFs;
 using NeversoftMultitool.Core.Formats.Archives;
 
@@ -109,7 +108,7 @@ internal static class BuildTreeCompanionLocator
                 return TryRead(fs, preferred);
         }
 
-        for (IArchiveFileSystem? level = fs; level != null; level = level.Parent)
+        for (var level = fs; level != null; level = level.Parent)
         {
             var sceneArchive = FindSceneArchiveEntry(level, stem);
             if (sceneArchive == null)

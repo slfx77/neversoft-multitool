@@ -10,6 +10,7 @@ internal static class TrgNodeMetadata
     ///     plants, papers). The node payload embeds the model checksums.
     /// </summary>
     internal const int BaddyTypeManipOb = 401;
+
     internal const int TypePoint = 3;
     internal const int TypeAutoexec = 4;
     internal const int TypePowerup = 5;

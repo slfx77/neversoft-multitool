@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Audio;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Audio;
 
@@ -18,7 +17,7 @@ public sealed class SpuStereoMusicStreamTests
     [Fact]
     public void IsStereoMusic_ChunkInterleavedStereo_Detected()
     {
-        Assert.True(SpuStereoMusicStream.IsStereoMusic(BuildStereoFixture(pairs: 2)));
+        Assert.True(SpuStereoMusicStream.IsStereoMusic(BuildStereoFixture(2)));
     }
 
     [Fact]
@@ -26,7 +25,7 @@ public sealed class SpuStereoMusicStreamTests
     {
         // Three chunks < the 2-pair minimum — voice-stream sized files never
         // reach the content check.
-        var fixture = BuildStereoFixture(pairs: 2).AsSpan(0, ChunkSize * 3).ToArray();
+        var fixture = BuildStereoFixture(2).AsSpan(0, ChunkSize * 3).ToArray();
         Assert.False(SpuStereoMusicStream.IsStereoMusic(fixture));
     }
 
@@ -49,7 +48,7 @@ public sealed class SpuStereoMusicStreamTests
     [Fact]
     public void ConvertToWav_StereoMusicStream_Writes48kStereoWav()
     {
-        var fixture = BuildStereoFixture(pairs: 2);
+        var fixture = BuildStereoFixture(2);
         var outputDir = FormatProbeTestHelper.CreateTempDirectory("vag_stereo");
 
         try
@@ -70,14 +69,14 @@ public sealed class SpuStereoMusicStreamTests
         }
         finally
         {
-            Directory.Delete(outputDir, recursive: true);
+            Directory.Delete(outputDir, true);
         }
     }
 
     [Fact]
     public void Probe_StereoMusicStream_Reports48kStereo()
     {
-        var probe = VagDecoder.Probe(BuildStereoFixture(pairs: 2));
+        var probe = VagDecoder.Probe(BuildStereoFixture(2));
 
         Assert.NotNull(probe);
         Assert.Equal(48000, probe!.SampleRate);
@@ -107,7 +106,7 @@ public sealed class SpuStereoMusicStreamTests
         }
         finally
         {
-            Directory.Delete(outputDir, recursive: true);
+            Directory.Delete(outputDir, true);
         }
     }
 

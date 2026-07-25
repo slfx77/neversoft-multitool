@@ -1,8 +1,5 @@
 namespace NeversoftMultitool.Core.Rendering;
 
-/// <summary>A named camera angle for still renders.</summary>
-public readonly record struct RenderView(string Name, float Azimuth, float Elevation);
-
 /// <summary>
 ///     Shared camera presets for <see cref="GlbRenderer" /> — the single source
 ///     of truth for the CLI (`glb-render --preset object-review`) and the Mesh

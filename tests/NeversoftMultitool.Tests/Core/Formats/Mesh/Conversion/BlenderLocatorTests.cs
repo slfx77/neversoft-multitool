@@ -1,3 +1,4 @@
+using Microsoft.Win32;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Settings;
 
@@ -70,7 +71,7 @@ public sealed class BlenderLocatorTests
         {
             UserSettings.OverrideSubKeyForTesting(null);
             if (OperatingSystem.IsWindows())
-                Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(subKey, throwOnMissingSubKey: false);
+                Registry.CurrentUser.DeleteSubKeyTree(subKey, false);
         }
     }
 
@@ -101,7 +102,7 @@ public sealed class BlenderLocatorTests
             UserSettings.Changed -= onChanged;
             UserSettings.OverrideSubKeyForTesting(null);
             if (OperatingSystem.IsWindows())
-                Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(subKey, throwOnMissingSubKey: false);
+                Registry.CurrentUser.DeleteSubKeyTree(subKey, false);
         }
     }
 

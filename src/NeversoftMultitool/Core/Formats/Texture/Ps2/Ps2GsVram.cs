@@ -1,5 +1,3 @@
-using static NeversoftMultitool.Core.Formats.Texture.Ps2.Ps2GsVramTables;
-
 namespace NeversoftMultitool.Core.Formats.Texture.Ps2;
 
 /// <summary>
@@ -279,7 +277,9 @@ internal sealed partial class Ps2GsVram
     ///     Read a PSMCT32 region from VRAM (used for CLUT data).
     /// </summary>
     public byte[] ReadRectPSMCT32(uint cbp, uint cbw, int width, int height)
-        => ReadRectPSMCT32Core(cbp, cbw, width, height, false);
+    {
+        return ReadRectPSMCT32Core(cbp, cbw, width, height, false);
+    }
 
     /// <summary>
     ///     Read a PSMZ32 region from VRAM. Same byte layout as PSMCT32 once read; the
@@ -287,7 +287,9 @@ internal sealed partial class Ps2GsVram
     ///     keeps Z bytes from colliding with PSMCT32 bytes at the same TBP/(x,y).
     /// </summary>
     public byte[] ReadRectPSMZ32(uint cbp, uint cbw, int width, int height)
-        => ReadRectPSMCT32Core(cbp, cbw, width, height, true);
+    {
+        return ReadRectPSMCT32Core(cbp, cbw, width, height, true);
+    }
 
     /// <summary>
     ///     Read a PSMZ24 region from VRAM. Like PSMZ32 but with the alpha byte zeroed
@@ -351,10 +353,14 @@ internal sealed partial class Ps2GsVram
     ///     Read a PSMCT16 region from VRAM (used for 16-bit CLUT data).
     /// </summary>
     public byte[] ReadRectPSMCT16(uint cbp, uint cbw, int width, int height)
-        => ReadRectPSMCT16Core(cbp, cbw, width, height, false, false);
+    {
+        return ReadRectPSMCT16Core(cbp, cbw, width, height, false, false);
+    }
 
     public byte[] ReadRectPSMCT16S(uint cbp, uint cbw, int width, int height)
-        => ReadRectPSMCT16Core(cbp, cbw, width, height, true, false);
+    {
+        return ReadRectPSMCT16Core(cbp, cbw, width, height, true, false);
+    }
 
     /// <summary>
     ///     Read a PSMZ16 / PSMZ16S region from VRAM. Same halfword layout as the
@@ -362,10 +368,14 @@ internal sealed partial class Ps2GsVram
     ///     colliding with PSMCT16 bytes at the same TBP/(x,y).
     /// </summary>
     public byte[] ReadRectPSMZ16(uint cbp, uint cbw, int width, int height)
-        => ReadRectPSMCT16Core(cbp, cbw, width, height, false, true);
+    {
+        return ReadRectPSMCT16Core(cbp, cbw, width, height, false, true);
+    }
 
     public byte[] ReadRectPSMZ16S(uint cbp, uint cbw, int width, int height)
-        => ReadRectPSMCT16Core(cbp, cbw, width, height, true, true);
+    {
+        return ReadRectPSMCT16Core(cbp, cbw, width, height, true, true);
+    }
 
     private byte[] ReadRectPSMCT16Core(uint cbp, uint cbw, int width, int height, bool signedMode, bool zSwizzle)
     {
@@ -440,5 +450,4 @@ internal sealed partial class Ps2GsVram
     }
 
     // ---- PSMCT32 addressing ----
-
 }

@@ -2,7 +2,6 @@ using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
@@ -10,7 +9,6 @@ using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
-
 using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene.Ps2Scene;
 using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
 
@@ -48,7 +46,7 @@ public sealed class LegacyGltfParityTests
             path => GltfWriter.WriteDdm(ddm, path));
         var document = new ModelDocument { Name = "ddm", SourceKind = ModelSourceKind.Ddm };
         SeedDdmMaterials(document, ddm);
-        DdmGeometryWriter.PopulateDdm(document, ddm, ddxTextures: null);
+        DdmGeometryWriter.PopulateDdm(document, ddm, null);
         var genericStats = ExportGeneric("ddm", temp, document);
 
         AssertStructuralParity("ddm", oldStats, genericStats);
@@ -216,15 +214,15 @@ public sealed class LegacyGltfParityTests
         var root = gltf.RootElement;
 
         return new GlbStats(
-            Triangles: CountTriangles(root),
-            Meshes: ReadArrayLength(root, "meshes"),
-            Materials: ReadArrayLength(root, "materials"),
-            Textures: ReadArrayLength(root, "textures"),
-            Images: ReadArrayLength(root, "images"),
-            Nodes: ReadArrayLength(root, "nodes"),
-            HasBounds: TryReadPositionBounds(root, out var min, out var max),
-            MinBounds: min,
-            MaxBounds: max);
+            CountTriangles(root),
+            ReadArrayLength(root, "meshes"),
+            ReadArrayLength(root, "materials"),
+            ReadArrayLength(root, "textures"),
+            ReadArrayLength(root, "images"),
+            ReadArrayLength(root, "nodes"),
+            TryReadPositionBounds(root, out var min, out var max),
+            min,
+            max);
     }
 
     private static int CountTriangles(JsonElement root)
@@ -328,16 +326,20 @@ public sealed class LegacyGltfParityTests
         return found;
     }
 
-    private static Vector3 ReadVector3(JsonElement value) =>
-        new(
+    private static Vector3 ReadVector3(JsonElement value)
+    {
+        return new Vector3(
             (float)value[0].GetDouble(),
             (float)value[1].GetDouble(),
             (float)value[2].GetDouble());
+    }
 
-    private static int ReadArrayLength(JsonElement root, string propertyName) =>
-        root.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.Array
+    private static int ReadArrayLength(JsonElement root, string propertyName)
+    {
+        return root.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.Array
             ? property.GetArrayLength()
             : 0;
+    }
 
     private static (byte[] Json, byte[] Bin) ReadGlbChunks(string glbPath)
     {
@@ -600,8 +602,10 @@ public sealed class LegacyGltfParityTests
         ];
     }
 
-    private static Ps2Vertex MakePs2Vertex(Vector3 position, Vector2 uv) =>
-        new(position, Vector3.UnitZ, 128, 128, 128, 128, uv.X, uv.Y, true, true, true, false);
+    private static Ps2Vertex MakePs2Vertex(Vector3 position, Vector2 uv)
+    {
+        return new Ps2Vertex(position, Vector3.UnitZ, 128, 128, 128, 128, uv.X, uv.Y, true, true, true, false);
+    }
 
     private static XbxVertex[] QuadXbxVertices()
     {
@@ -616,8 +620,9 @@ public sealed class LegacyGltfParityTests
         ];
     }
 
-    private static XbxVertex MakeXbxVertex(Vector3 position, Vector2 uv) =>
-        new()
+    private static XbxVertex MakeXbxVertex(Vector3 position, Vector2 uv)
+    {
+        return new XbxVertex
         {
             Position = position,
             Normal = Vector3.UnitZ,
@@ -626,44 +631,60 @@ public sealed class LegacyGltfParityTests
             HasNormal = true,
             HasColor = true
         };
+    }
 
-    private static Vector3[] QuadPositions() =>
-    [
-        new Vector3(0f, 0f, 0f),
-        new Vector3(1f, 0f, 0f),
-        new Vector3(0f, 1f, 0f),
-        new Vector3(1f, 1f, 0f)
-    ];
+    private static Vector3[] QuadPositions()
+    {
+        return
+        [
+            new Vector3(0f, 0f, 0f),
+            new Vector3(1f, 0f, 0f),
+            new Vector3(0f, 1f, 0f),
+            new Vector3(1f, 1f, 0f)
+        ];
+    }
 
-    private static Vector3[] QuadNormals() =>
-    [
-        Vector3.UnitZ,
-        Vector3.UnitZ,
-        Vector3.UnitZ,
-        Vector3.UnitZ
-    ];
+    private static Vector3[] QuadNormals()
+    {
+        return
+        [
+            Vector3.UnitZ,
+            Vector3.UnitZ,
+            Vector3.UnitZ,
+            Vector3.UnitZ
+        ];
+    }
 
-    private static Vector2[] QuadUvs() =>
-    [
-        new Vector2(0f, 0f),
-        new Vector2(1f, 0f),
-        new Vector2(0f, 1f),
-        new Vector2(1f, 1f)
-    ];
+    private static Vector2[] QuadUvs()
+    {
+        return
+        [
+            new Vector2(0f, 0f),
+            new Vector2(1f, 0f),
+            new Vector2(0f, 1f),
+            new Vector2(1f, 1f)
+        ];
+    }
 
-    private static RwVertexColor[] QuadRwColors() =>
-    [
-        new RwVertexColor(255, 255, 255, 255),
-        new RwVertexColor(255, 255, 255, 255),
-        new RwVertexColor(255, 255, 255, 255),
-        new RwVertexColor(255, 255, 255, 255)
-    ];
+    private static RwVertexColor[] QuadRwColors()
+    {
+        return
+        [
+            new RwVertexColor(255, 255, 255, 255),
+            new RwVertexColor(255, 255, 255, 255),
+            new RwVertexColor(255, 255, 255, 255),
+            new RwVertexColor(255, 255, 255, 255)
+        ];
+    }
 
-    private static RwTriangle[] QuadRwTriangles() =>
-    [
-        new RwTriangle(0, 1, 2, 0),
-        new RwTriangle(1, 3, 2, 0)
-    ];
+    private static RwTriangle[] QuadRwTriangles()
+    {
+        return
+        [
+            new RwTriangle(0, 1, 2, 0),
+            new RwTriangle(1, 3, 2, 0)
+        ];
+    }
 
     private static List<DdmVertex> QuadDdmVertices()
     {
@@ -678,16 +699,22 @@ public sealed class LegacyGltfParityTests
         ];
     }
 
-    private static DdmVertex MakeDdmVertex(Vector3 position, Vector2 uv) =>
-        new(position.X, position.Y, position.Z, 0f, 0f, 1f, 255, 255, 255, 255, uv.X, uv.Y);
+    private static DdmVertex MakeDdmVertex(Vector3 position, Vector2 uv)
+    {
+        return new DdmVertex(position.X, position.Y, position.Z, 0f, 0f, 1f, 255, 255, 255, 255, uv.X, uv.Y);
+    }
 
-    private static byte[]? ResolveTextureByChecksum(uint checksum) =>
-        checksum == TextureChecksum ? CreateTexturePngBytes() : null;
+    private static byte[]? ResolveTextureByChecksum(uint checksum)
+    {
+        return checksum == TextureChecksum ? CreateTexturePngBytes() : null;
+    }
 
-    private static byte[]? ResolveTextureByName(string name) =>
-        string.Equals(Path.GetFileNameWithoutExtension(name), TextureName, StringComparison.OrdinalIgnoreCase)
+    private static byte[]? ResolveTextureByName(string name)
+    {
+        return string.Equals(Path.GetFileNameWithoutExtension(name), TextureName, StringComparison.OrdinalIgnoreCase)
             ? CreateTexturePngBytes()
             : null;
+    }
 
     private static byte[] CreateTexturePngBytes()
     {
@@ -727,7 +754,7 @@ public sealed class LegacyGltfParityTests
             try
             {
                 if (Directory.Exists(Path))
-                    Directory.Delete(Path, recursive: true);
+                    Directory.Delete(Path, true);
             }
             catch
             {

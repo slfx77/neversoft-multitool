@@ -1,4 +1,3 @@
-using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Trg;
 
@@ -13,31 +12,44 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     the node's pickupType straight into the ctor, so TRG pickupType == mType.
 ///     Two <c>pickupType → hash</c> table families are reverse-engineered:
 ///     <list type="bullet">
-///       <item>Spider-Man (<c>switch(mType-8)</c>, per-build tables from
-///       <c>tools/diagnostics/spiderman_pickup_table_probe.py</c>);</item>
-///       <item>THPS1/THPS2 (<c>switch(mType)</c>, SKATE letters + bonus/money,
-///       taken verbatim from the matched THPS2 decomp
-///       <c>CPowerUp::CPowerUp</c> — the letter/bonus hashes are byte-identical
-///       to THPS1's items.psx, so the one table serves both, hash-keyed).</item>
+///         <item>
+///             Spider-Man (<c>switch(mType-8)</c>, per-build tables from
+///             <c>tools/diagnostics/spiderman_pickup_table_probe.py</c>);
+///         </item>
+///         <item>
+///             THPS1/THPS2 (<c>switch(mType)</c>, SKATE letters + bonus/money,
+///             taken verbatim from the matched THPS2 decomp
+///             <c>CPowerUp::CPowerUp</c> — the letter/bonus hashes are byte-identical
+///             to THPS1's items.psx, so the one table serves both, hash-keyed);
+///         </item>
+///         <item>
+///             Apocalypse (a jump table keyed by mType-1, read from the matched
+///             apocalypse_final.exe ctor by locating the "items" string and the
+///             items.psx hash-load cluster - signature-matched, no SYM).
+///         </item>
 ///     </list>
 ///     The right table is chosen at runtime from the sibling items.psx's mesh set
-///     (see <see cref="SelectTable" />); Apocalypse and unknown items resolve to
-///     no table. POWERUP nodes carry no rotation, so placements are
-///     translation-only.
+///     (see <see cref="SelectTable" />); unknown items resolve to no table. POWERUP
+///     nodes carry no rotation, so placements are translation-only.
 /// </summary>
 internal static class PsxPowerupPlacementResolver
 {
     // Spider-Man items.psx model identities (mesh-name hashes, stable across builds).
     private const uint WebCartridge = 0x17646B0D; // model 1 (blue gear)
-    private const uint YellowGear = 0xC6739C3B;   // model 2
-    private const uint GreyGear = 0x7E74F3D4;     // model 3
+    private const uint YellowGear = 0xC6739C3B; // model 2
+    private const uint GreyGear = 0x7E74F3D4; // model 3
     private const uint QuestionMark = 0x7F648179; // model 5
-    private const uint PanelModel6 = 0x12820A41;  // model 6 (April-29 + final)
-    private const uint PanelModel7 = 0xA092D785;  // model 7 (final only)
+    private const uint PanelModel6 = 0x12820A41; // model 6 (April-29 + final)
+    private const uint PanelModel7 = 0xA092D785; // model 7 (final only)
 
     // THPS items.psx signature: the 'S' SKATE-letter model, present in both
     // THPS1 and THPS2 items.psx (distinguishes THPS from Spider-Man/Apocalypse).
     private const uint ThpsLetterS = 0x311D55D4;
+
+    // Apocalypse items.psx signature: the pickupType-4 model, unique to
+    // Apocalypse (its grey-gear model 0x7E74F3D4 is shared with the other games,
+    // so it can't serve as the discriminator).
+    private const uint ApocalypseItemsMarker = 0x350E968C;
 
     // pickupType -> items mesh-name hash, per build. Each entry is provenanced
     // by its ctor jump table (see spiderman_pickup_table_probe.py). No
@@ -84,6 +96,20 @@ internal static class PsxPowerupPlacementResolver
         [27] = 0x483701E6, [28] = 0x608E06C7, [29] = 0x10122D2A,
         [30] = 0xC12ED64B, [31] = 0x22908B06, [32] = 0x56891A69
     };
+
+    // Apocalypse pickupType -> items.psx mesh-name hash, read from the matched
+    // CPowerUp ctor jump table (apocalypse_final.exe @0x800A11EC, a 20-entry table
+    // keyed by mType-1) cross-checked against the TRG POWERUP census (types 4/5/6/10/14/15/16
+    // account for 176 of 281 nodes; 14/15/16 are three spin variants of one
+    // grey-gear model). pickupType 17 spools the "plus_one" region (not items),
+    // and 1/2/3/7/19/20 render no model — all omitted. No per-type scale.
+    private static readonly Dictionary<int, uint> ApocalypseTable = new()
+    {
+        [4] = ApocalypseItemsMarker, [5] = 0xD40B155E, [6] = 0x51E46AAF,
+        [10] = 0x4D2C5D7C, [14] = 0x7E74F3D4, [15] = 0x7E74F3D4, [16] = 0x7E74F3D4
+    };
+
+    internal static readonly IReadOnlySet<uint> EmptyHashSet = new HashSet<uint>();
 
     /// <summary>
     ///     Resolves POWERUP placements keyed by items.psx object index (the same
@@ -161,8 +187,6 @@ internal static class PsxPowerupPlacementResolver
         return hashes;
     }
 
-    internal static readonly IReadOnlySet<uint> EmptyHashSet = new HashSet<uint>();
-
     /// <summary>
     ///     Picks the pickup table matching the sibling items.psx by its mesh set,
     ///     or null when none applies (Apocalypse / unknown). Spider-Man's final
@@ -170,8 +194,10 @@ internal static class PsxPowerupPlacementResolver
     ///     April-29 adds model 6 (<see cref="PanelModel6" />) over the Feb proto's
     ///     six meshes; the Feb proto is recognized by its "?" marker or web
     ///     cartridge. THPS items.psx is recognized by the 'S' SKATE-letter model
-    ///     (<see cref="ThpsLetterS" />). The signatures are mutually exclusive
-    ///     across games, so order only matters within the Spider-Man family.
+    ///     (<see cref="ThpsLetterS" />) and Apocalypse by its pickupType-4 model
+    ///     (<see cref="ApocalypseItemsMarker" />). The signatures are mutually
+    ///     exclusive across games, so order only matters within the Spider-Man
+    ///     family. Unknown items resolve to no table.
     /// </summary>
     private static Dictionary<int, uint>? SelectTable(Dictionary<uint, int> objectByHash)
     {
@@ -183,6 +209,8 @@ internal static class PsxPowerupPlacementResolver
             return FebProtoTable;
         if (objectByHash.ContainsKey(ThpsLetterS))
             return ThpsTable;
+        if (objectByHash.ContainsKey(ApocalypseItemsMarker))
+            return ApocalypseTable;
         return null;
     }
 

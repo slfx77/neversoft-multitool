@@ -1,5 +1,4 @@
 using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Collision;
 

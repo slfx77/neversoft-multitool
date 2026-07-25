@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
@@ -33,6 +34,10 @@ internal static class PsxLevelObjectPlacementResolver
     ///     (observed deltas ≥ ~400 units).
     /// </summary>
     private const float CoincidenceToleranceWorldUnits = 16f;
+
+    private static IReadOnlyDictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>
+        EmptyPlacements { get; } =
+        new Dictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>();
 
     internal static IReadOnlyDictionary<int, IReadOnlyList<PsxLevelObjectPlacement>> Resolve(
         AssetSource source,
@@ -73,14 +78,16 @@ internal static class PsxLevelObjectPlacementResolver
             ];
         }
 
-        // Both TRG generations overlay their PLATFORM/MANIPOB model references
-        // on the bank layer identically: Spider-Man (v2.1) and THPS1/THPS2 (v2.0)
-        // share the node record shape (subtype 0x192, opcode 0x212F, position at
-        // the bank's div 2.25) and the same coincidence semantics — a node at a
-        // bank instance's position replaces it, an off-bank node adds a
-        // re-instance. Verified against the bank objects (THPS1 24/30, THPS2
-        // 12/17 references coincident at δ≈0). The caller disables it for
-        // Apocalypse, whose references sit on unverified dynamic spawns.
+        // All TRG generations overlay their PLATFORM/MANIPOB model references on
+        // the bank layer identically: Spider-Man (v2.1), THPS1/THPS2 and
+        // Apocalypse (v2.0) share the node record shape (subtype 0x192, opcode
+        // 0x212F, position at the bank's div 2.25) and the same coincidence
+        // semantics — a node at a bank instance's position replaces it, an
+        // off-bank node adds a re-instance. Coincidence verified for Spider-Man
+        // and THPS (THPS1 24/30, THPS2 12/17 at δ≈0); Apocalypse references are
+        // mostly re-instances (authored BADDY/PLATFORM spawns) that stay in the
+        // level bounds at the same node scale. The applyTriggerOverlay flag is the
+        // per-caller knob (see MeshCompanionResolver.PsxLevelCompanions).
         if (trg != null && applyTriggerOverlay)
             OverlayTriggerInstances(trg, objectBank, placements, bankWorldPositions);
 
@@ -111,7 +118,7 @@ internal static class PsxLevelObjectPlacementResolver
             if (triggerBytes == null)
                 return null;
 
-            using var stream = new MemoryStream(triggerBytes, writable: false);
+            using var stream = new MemoryStream(triggerBytes, false);
             using var reader = new BinaryReader(stream);
             return TrgFile.Parse(reader, levelStem + "_t.trg");
         }
@@ -119,7 +126,7 @@ internal static class PsxLevelObjectPlacementResolver
         {
             // Trigger data only enriches the level. A bad TRG must not remove
             // the geometry or the bank's own objects.
-            System.Diagnostics.Debug.WriteLine(
+            Debug.WriteLine(
                 $"Unable to resolve optional PSX trigger placements: {ex.Message}");
             return null;
         }
@@ -206,14 +213,14 @@ internal static class PsxLevelObjectPlacementResolver
                 .Where(objectIndex =>
                     bankWorldPositions.TryGetValue(objectIndex, out var bankPosition)
                     && Vector3.Distance(bankPosition, nodeWorldPosition)
-                        <= CoincidenceToleranceWorldUnits)
+                    <= CoincidenceToleranceWorldUnits)
                 .Cast<int?>()
                 .FirstOrDefault();
             if (coincidentObjectIndex is { } coincident)
             {
                 var objectPlacements = placements[coincident];
-                var bankSlot = objectPlacements.FindIndex(
-                    static placement => placement.TriggerNodeIndex == BankInstanceNodeIndex);
+                var bankSlot = objectPlacements.FindIndex(static placement =>
+                    placement.TriggerNodeIndex == BankInstanceNodeIndex);
                 if (bankSlot >= 0)
                     objectPlacements[bankSlot] = nodePlacement;
                 else
@@ -256,8 +263,7 @@ internal static class PsxLevelObjectPlacementResolver
                 if (!placements.TryGetValue(objectIndex, out var objectPlacements))
                     continue;
 
-                objectPlacements.RemoveAll(
-                    static placement => placement.TriggerNodeIndex == BankInstanceNodeIndex);
+                objectPlacements.RemoveAll(static placement => placement.TriggerNodeIndex == BankInstanceNodeIndex);
                 if (objectPlacements.Count == 0)
                     placements.Remove(objectIndex);
             }
@@ -419,12 +425,4 @@ internal static class PsxLevelObjectPlacementResolver
         yield return levelStem.ToLowerInvariant() + "_t.trg";
         yield return levelStem.ToUpperInvariant() + "_T.TRG";
     }
-
-    private static IReadOnlyDictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>
-        EmptyPlacements { get; } =
-            new Dictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>();
 }
-
-internal readonly record struct PsxLevelObjectPlacement(
-    int TriggerNodeIndex,
-    Matrix4x4 Transform);

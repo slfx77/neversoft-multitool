@@ -2,7 +2,6 @@ using System.Numerics;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 
@@ -90,7 +89,7 @@ public sealed class PsxItemsBankSubstitutionTests(TestPaths paths)
         Assert.NotNull(items);
         var bankBytes = source.TryReadCompanion("l1a1_o.psx");
         Assert.NotNull(bankBytes);
-        var bank = PsxMeshFile.Parse(bankBytes!, bakeColourPulses: false);
+        var bank = PsxMeshFile.Parse(bankBytes!, false);
         Assert.NotNull(bank);
 
         var placements = PsxLevelObjectPlacementResolver.Resolve(source, "l1a1_g.psx", bank!);
@@ -116,12 +115,15 @@ public sealed class PsxItemsBankSubstitutionTests(TestPaths paths)
         {
             Version = 0x04,
             Objects = [.. meshHashes.Select((_, i) => new PsxMeshObject { MeshIndex = (ushort)i })],
-            Meshes = [.. meshHashes.Select(_ => new PsxMesh
-            {
-                Vertices = [],
-                Normals = [],
-                Faces = []
-            })],
+            Meshes =
+            [
+                .. meshHashes.Select(_ => new PsxMesh
+                {
+                    Vertices = [],
+                    Normals = [],
+                    Faces = []
+                })
+            ],
             MeshNameHashes = meshHashes,
             TextureHashes = []
         };

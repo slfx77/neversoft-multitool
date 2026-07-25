@@ -1,10 +1,12 @@
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Archives;
 
 public class CompressedPreArchiveTests(TestPaths paths)
 {
+    private const string Thug2XboxBuild = "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)";
+    private const string Thug2WindowsBuild = "Tony Hawks Underground 2 (2004-10-4, Windows - Final)";
+
     [Fact]
     public void IsCompressedPre_WithPs1PreFile_ReturnsFalse()
     {
@@ -195,9 +197,6 @@ public class CompressedPreArchiveTests(TestPaths paths)
         Assert.Equal(316, files.Count);
         Assert.True(totalEntries > 0);
     }
-
-    private const string Thug2XboxBuild = "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)";
-    private const string Thug2WindowsBuild = "Tony Hawks Underground 2 (2004-10-4, Windows - Final)";
 
     // -------------------------------------------------------------------
     // Helpers

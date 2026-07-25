@@ -19,11 +19,11 @@ public sealed class Ps2WorldzoneBillboardManifestTests
         // Ps2GeomVifVertexDecoderTests; the end-to-end flow is validated by
         // running the converter against z_sm.pak.ps2 in the wider audit suite.
         var meta = new Ps2WorldzoneBillboardMetadata(
-            BillboardKind: "LongAxis",
-            AnchorX: 100f, AnchorY: 50f, AnchorZ: 200f,
-            Width: 4f, Height: 12f,
-            PivotX: 0f, PivotY: 0f, PivotZ: 5f,
-            AxisX: 0f, AxisY: 1f, AxisZ: 0f);
+            "LongAxis",
+            100f, 50f, 200f,
+            4f, 12f,
+            0f, 0f, 5f,
+            0f, 1f, 0f);
 
         var dict = BlendPackageManifest.ToDictionary(meta);
 

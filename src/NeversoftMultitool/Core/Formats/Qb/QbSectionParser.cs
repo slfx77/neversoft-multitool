@@ -10,15 +10,12 @@ namespace NeversoftMultitool.Core.Formats.Qb;
 ///     then a sequence of typed sections holding a value tree. Scripts are stored as
 ///     LZSS-compressed blobs of the classic THPS3-THUG2 token stream, extended with
 ///     token 0x4A (inline serialized struct with relative pointers).
-///
 ///     Two "info" value encodings exist for the same layouts: the old set (THAW PS2,
 ///     THAW PC .wpc, THUG2 .xbx era) and the new set (THAW GC .ngc, GH Wii/PC/360).
 ///     GC files are big-endian throughout.
-///
 ///     The parser synthesizes the equivalent raw token stream (globals become
 ///     NAME = value lines, scripts become script/endscript blocks) so the existing
 ///     <see cref="QbFile" /> indexing and <see cref="QbDecompiler" /> apply unchanged.
-///
 ///     Reference: Nanook/Queen-Bee QueenBeeParser (PakFormat.cs type tables,
 ///     QbItemBase.cs section/item layouts, Lzss.cs), cloned at Sample/queen-bee.
 ///     Validated against THAW Rosetta files (bh_11_cam_pak_info.qb on PS2/PC/GC).
@@ -30,49 +27,6 @@ public static class QbSectionParser
         0x1C, 0x08, 0x02, 0x04, 0x10, 0x04, 0x08, 0x0C, 0x0C, 0x08,
         0x02, 0x04, 0x14, 0x02, 0x04, 0x0C, 0x10, 0x10, 0x0C, 0x00
     ];
-
-    private enum ItemKind
-    {
-        SectionInteger,
-        SectionFloat,
-        SectionString,
-        SectionStringW,
-        SectionFloatsX2,
-        SectionFloatsX3,
-        SectionScript,
-        SectionStruct,
-        SectionArray,
-        SectionQbKey,
-        SectionQbKeyString,
-        SectionStringPointer,
-        SectionQbKeyStringQs,
-        ArrayInteger,
-        ArrayFloat,
-        ArrayString,
-        ArrayStringW,
-        ArrayFloatsX2,
-        ArrayFloatsX3,
-        ArrayStruct,
-        ArrayArray,
-        ArrayQbKey,
-        ArrayQbKeyString,
-        ArrayStringPointer,
-        ArrayQbKeyStringQs,
-        StructItemInteger,
-        StructItemFloat,
-        StructItemString,
-        StructItemStringW,
-        StructItemFloatsX2,
-        StructItemFloatsX3,
-        StructItemStruct,
-        StructItemArray,
-        StructItemQbKey,
-        StructItemQbKeyString,
-        StructItemStringPointer,
-        StructItemQbKeyStringQs,
-        Floats,
-        StructHeader
-    }
 
     /// <summary>(kind, new-encoding value, old-encoding value) — Queen-Bee PakFormat.cs.</summary>
     private static readonly (ItemKind Kind, uint NewValue, uint OldValue)[] TypeTable =
@@ -126,40 +80,6 @@ public static class QbSectionParser
         foreach (var (kind, newValue, oldValue) in TypeTable)
             map.TryAdd(newEncoding ? newValue : oldValue, kind);
         return map;
-    }
-
-    /// <summary>A section/item value tree reader bound to one buffer + encoding.</summary>
-    private readonly struct Context(byte[] data, bool bigEndian, bool newEncoding, long pointerBase)
-    {
-        public byte[] Data { get; } = data;
-        public bool BigEndian { get; } = bigEndian;
-        public bool NewEncoding { get; } = newEncoding;
-
-        /// <summary>Added to stored pointers (inline script structs use relative pointers).</summary>
-        public long PointerBase { get; } = pointerBase;
-
-        public uint U32(long pos)
-        {
-            return BigEndian
-                ? BinaryPrimitives.ReadUInt32BigEndian(Data.AsSpan((int)pos))
-                : BinaryPrimitives.ReadUInt32LittleEndian(Data.AsSpan((int)pos));
-        }
-
-        public float F32(long pos)
-        {
-            return BitConverter.Int32BitsToSingle((int)U32(pos));
-        }
-
-        public ItemKind? KindAt(long pos)
-        {
-            var map = NewEncoding ? NewValues : OldValues;
-            return map.TryGetValue(U32(pos), out var kind) ? kind : null;
-        }
-
-        public long Pointer(long pos)
-        {
-            return PointerBase + U32(pos);
-        }
     }
 
     /// <summary>
@@ -661,5 +581,82 @@ public static class QbSectionParser
     private static long Align4(long value)
     {
         return (value + 3) & ~3L;
+    }
+
+    private enum ItemKind
+    {
+        SectionInteger,
+        SectionFloat,
+        SectionString,
+        SectionStringW,
+        SectionFloatsX2,
+        SectionFloatsX3,
+        SectionScript,
+        SectionStruct,
+        SectionArray,
+        SectionQbKey,
+        SectionQbKeyString,
+        SectionStringPointer,
+        SectionQbKeyStringQs,
+        ArrayInteger,
+        ArrayFloat,
+        ArrayString,
+        ArrayStringW,
+        ArrayFloatsX2,
+        ArrayFloatsX3,
+        ArrayStruct,
+        ArrayArray,
+        ArrayQbKey,
+        ArrayQbKeyString,
+        ArrayStringPointer,
+        ArrayQbKeyStringQs,
+        StructItemInteger,
+        StructItemFloat,
+        StructItemString,
+        StructItemStringW,
+        StructItemFloatsX2,
+        StructItemFloatsX3,
+        StructItemStruct,
+        StructItemArray,
+        StructItemQbKey,
+        StructItemQbKeyString,
+        StructItemStringPointer,
+        StructItemQbKeyStringQs,
+        Floats,
+        StructHeader
+    }
+
+    /// <summary>A section/item value tree reader bound to one buffer + encoding.</summary>
+    private readonly struct Context(byte[] data, bool bigEndian, bool newEncoding, long pointerBase)
+    {
+        public byte[] Data { get; } = data;
+        public bool BigEndian { get; } = bigEndian;
+        public bool NewEncoding { get; } = newEncoding;
+
+        /// <summary>Added to stored pointers (inline script structs use relative pointers).</summary>
+        public long PointerBase { get; } = pointerBase;
+
+        public uint U32(long pos)
+        {
+            return BigEndian
+                ? BinaryPrimitives.ReadUInt32BigEndian(Data.AsSpan((int)pos))
+                : BinaryPrimitives.ReadUInt32LittleEndian(Data.AsSpan((int)pos));
+        }
+
+        public float F32(long pos)
+        {
+            return BitConverter.Int32BitsToSingle((int)U32(pos));
+        }
+
+        public ItemKind? KindAt(long pos)
+        {
+            var map = NewEncoding ? NewValues : OldValues;
+            return map.TryGetValue(U32(pos), out var kind) ? kind : null;
+        }
+
+        public long Pointer(long pos)
+        {
+            return PointerBase + U32(pos);
+        }
     }
 }

@@ -39,6 +39,11 @@ internal sealed class MeshConverterTabAnimationPanel(
     public AnimationListEntry? FirstMatch =>
         Animations.FirstOrDefault(a => a.MatchesSkeleton);
 
+    public AnimationListEntry? ActiveEntry => Animations.FirstOrDefault(a => a.IsActive);
+
+    /// <summary>Filter combo index 1 = hide single-frame pose slots.</summary>
+    private bool HideSinglePoses => filterCombo.SelectedIndex == 1;
+
     public void Dispose()
     {
         _loadCts?.Dispose();
@@ -191,8 +196,6 @@ internal sealed class MeshConverterTabAnimationPanel(
             .ToList();
     }
 
-    public AnimationListEntry? ActiveEntry => Animations.FirstOrDefault(a => a.IsActive);
-
     private void MergeAnimationProbes(IEnumerable<AnimationProbe> probes)
     {
         // Accumulate against everything seen (not just the visible rows) so
@@ -208,9 +211,6 @@ internal sealed class MeshConverterTabAnimationPanel(
 
         RebuildList();
     }
-
-    /// <summary>Filter combo index 1 = hide single-frame pose slots.</summary>
-    private bool HideSinglePoses => filterCombo.SelectedIndex == 1;
 
     private void RebuildList()
     {

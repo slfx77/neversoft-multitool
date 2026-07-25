@@ -1,4 +1,3 @@
-using NeversoftMultitool.Core.Formats.Video;
 using NeversoftMultitool.Core.Formats.Vid1;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Video;
@@ -8,7 +7,8 @@ public sealed class Vid1VideoRebuilderTests
     [Fact]
     public void GetDeterministicFramePlan_LongFormSpecial4014_ReturnsExpectedPlan()
     {
-        var frame = new Vid1VideoFrame(0, 0x4014, 0, false, false, [0x80, 0x01], [], 0, 7, null, null, 0x11223344, null, true, null, null);
+        var frame = new Vid1VideoFrame(0, 0x4014, 0, false, false, [0x80, 0x01], [], 0, 7, null, null, 0x11223344, null,
+            true, null, null);
 
         var plan = Vid1VideoRebuilder.GetDeterministicFramePlan(Vid1VideoVariant.ThawLongForm, frame);
 
@@ -22,7 +22,8 @@ public sealed class Vid1VideoRebuilderTests
     [InlineData(0x5044)]
     public void GetDeterministicFramePlan_LongFormSpecial5014Family_ReturnsExpectedPlan(ushort tag16)
     {
-        var frame = new Vid1VideoFrame(0, tag16, 1, false, false, [0x80, 0x01], [], 0, 8, 3, null, 0x11223344, null, true, null, null);
+        var frame = new Vid1VideoFrame(0, tag16, 1, false, false, [0x80, 0x01], [], 0, 8, 3, null, 0x11223344, null,
+            true, null, null);
 
         var plan = Vid1VideoRebuilder.GetDeterministicFramePlan(Vid1VideoVariant.ThawLongForm, frame);
 
@@ -34,7 +35,8 @@ public sealed class Vid1VideoRebuilderTests
     [Fact]
     public void GetDeterministicFramePlan_AtviSpecial_ReturnsExpectedPlan()
     {
-        var frame = new Vid1VideoFrame(0, 0x8046, 0, false, false, [0x80, 0x01], [], 0, 9, null, null, 0x55667788, null, true, null, null);
+        var frame = new Vid1VideoFrame(0, 0x8046, 0, false, false, [0x80, 0x01], [], 0, 9, null, null, 0x55667788, null,
+            true, null, null);
 
         var plan = Vid1VideoRebuilder.GetDeterministicFramePlan(Vid1VideoVariant.ThawAtvi, frame);
 
@@ -50,7 +52,8 @@ public sealed class Vid1VideoRebuilderTests
     [InlineData(3, 3)]
     public void GetDeterministicFramePlan_FallbackUsesPreambleClassMapping(int preambleClass, int expectedVopType)
     {
-        var frame = new Vid1VideoFrame(0, 0x2002, preambleClass, false, false, [0x01, 0x02], [], 0, 6, 2, 1, 0x11223344, null, false, null, null);
+        var frame = new Vid1VideoFrame(0, 0x2002, preambleClass, false, false, [0x01, 0x02], [], 0, 6, 2, 1, 0x11223344,
+            null, false, null, null);
 
         var plan = Vid1VideoRebuilder.GetDeterministicFramePlan(Vid1VideoVariant.Unknown, frame);
 
@@ -69,21 +72,21 @@ public sealed class Vid1VideoRebuilderTests
             [
                 new Vid1SyntheticVideoFrameSpec(
                     0x2107,
-                    PreambleClass: 0,
+                    0,
                     Quantizer: 7,
                     CurrentFrameStateWord: 0x11223344,
                     HasSpecialCallerGate: true,
                     CodedPayload: payload),
                 new Vid1SyntheticVideoFrameSpec(
                     0x2107,
-                    PreambleClass: 0,
+                    0,
                     Quantizer: 7,
                     CurrentFrameStateWord: 0x11223344,
                     HasSpecialCallerGate: true,
                     CodedPayload: Enumerable.Repeat((byte)0xEE, 24).ToArray()),
                 new Vid1SyntheticVideoFrameSpec(
                     0x6009,
-                    PreambleClass: 1,
+                    1,
                     Quantizer: 9,
                     ForwardCode: 3,
                     CurrentFrameStateWord: 0x55667788,

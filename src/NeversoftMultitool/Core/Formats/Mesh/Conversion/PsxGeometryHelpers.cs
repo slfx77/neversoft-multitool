@@ -356,6 +356,7 @@ internal static class PsxGeometryHelpers
                         // blending, so keep the portable alpha approximation.
                         name += "__conditional";
                     }
+
                     hasAlpha = true;
                 }
                 else

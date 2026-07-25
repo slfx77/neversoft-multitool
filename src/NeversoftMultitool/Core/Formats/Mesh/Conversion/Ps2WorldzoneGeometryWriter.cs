@@ -1,19 +1,9 @@
+using System.Numerics;
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh.Ddm;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
-using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene.Ps2Scene;
-using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
-using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
-using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -142,6 +132,7 @@ internal static class Ps2WorldzoneGeometryWriter
 
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
     }
+
     private static void PopulatePs2WorldzoneLeaves(
         ModelDocument document,
         Ps2GeomScene scene,
@@ -159,7 +150,8 @@ internal static class Ps2WorldzoneGeometryWriter
             ? placements
             : [(Vector3.Zero, Quaternion.Identity)];
         var orderedLeaves = Ps2GeomRenderSemantics.OrderWorldzoneLeavesForDraw(scene.Leaves);
-        var sourceTextureProvider = Ps2WorldzoneMaterialWriter.ResolvePs2TexaAwareProvider(textureProvider, texaTextureProvider);
+        var sourceTextureProvider =
+            Ps2WorldzoneMaterialWriter.ResolvePs2TexaAwareProvider(textureProvider, texaTextureProvider);
         var syntheticTextures = new Dictionary<uint, byte[]>();
         Ps2TexaTextureResolver? effectiveTexaTextureProvider = sourceTextureProvider == null
             ? null
@@ -187,7 +179,8 @@ internal static class Ps2WorldzoneGeometryWriter
 
             var textureChecksum = Ps2WorldzoneMaterialWriter.ResolvePs2GeomTextureChecksum(leaf, tex0Resolver);
             var geometryKey = Ps2GeomDestinationAlphaSynthesis.CreateLeafGeometryKey(leaf);
-            if (Ps2WorldzoneMaterialWriter.ShouldSkipRedundantWorldzoneBlendLayer(leaf, textureChecksum, geometryKey, recentAlphaMasks))
+            if (Ps2WorldzoneMaterialWriter.ShouldSkipRedundantWorldzoneBlendLayer(leaf, textureChecksum, geometryKey,
+                    recentAlphaMasks))
                 continue;
 
             var usesSynthesizedDestinationAlpha = false;
@@ -209,7 +202,9 @@ internal static class Ps2WorldzoneGeometryWriter
             var alphaModePng = textureChecksum != 0
                 ? effectiveTexaTextureProvider?.Invoke(textureChecksum, leaf.DmaTexa)
                 : null;
-            var alphaMode = Ps2MaterialWriter.ClassifyPs2GeomEffectiveAlphaMode(leaf, alphaModePng, usesSynthesizedDestinationAlpha);
+            var alphaMode =
+                Ps2MaterialWriter.ClassifyPs2GeomEffectiveAlphaMode(leaf, alphaModePng,
+                    usesSynthesizedDestinationAlpha);
             var depthBias = Ps2GeomRenderSemantics.ComputeWorldzoneMaterialDepthBias(leaf, alphaMode);
             // Preserve the shared PS2 group/mode bias formula, then add only a
             // tiny draw-order stagger for coplanar same-group passes that the PS2
@@ -259,7 +254,8 @@ internal static class Ps2WorldzoneGeometryWriter
                     continue;
 
                 emittedLeaf = true;
-                primitive.NativeMetadata.Add(Ps2WorldzoneMaterialWriter.MakePs2GsMetadata(leaf, tex0Resolver, "ps2_worldzone_leaf"));
+                primitive.NativeMetadata.Add(
+                    Ps2WorldzoneMaterialWriter.MakePs2GsMetadata(leaf, tex0Resolver, "ps2_worldzone_leaf"));
                 primitive.NativeMetadata.Add(new Ps2WorldzoneLeafRenderMetadata(
                     mdlName,
                     leafIndex,
@@ -285,7 +281,8 @@ internal static class Ps2WorldzoneGeometryWriter
                 var nodeName = instances.Count == 1
                     ? mesh.Name
                     : $"{mesh.Name}_p{placementIndex:D4}";
-                ModelDocumentGeometryAdapter.AddMeshNode(document, nodeName, mesh, CreateTransform(rotation, nodePosition));
+                ModelDocumentGeometryAdapter.AddMeshNode(document, nodeName, mesh,
+                    CreateTransform(rotation, nodePosition));
             }
 
             if (emittedLeaf &&

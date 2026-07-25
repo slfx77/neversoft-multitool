@@ -116,7 +116,7 @@ public static class VagDecoder
                     SpuStereoMusicStream.EstimateDuration(data.Length),
                     false,
                     null,
-                    Channels: 2);
+                    2);
             }
 
             var blocks = data.Length / SpuAdpcm.BlockSize;
@@ -172,7 +172,7 @@ public static class VagDecoder
                         SpuStereoMusicStream.EstimateDuration(stream.Length),
                         false,
                         null,
-                        Channels: 2);
+                        2);
                 }
             }
 

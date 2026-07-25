@@ -82,6 +82,7 @@ public sealed class TrgFile
                 throw new InvalidDataException(
                     $"TRG node {i} offset 0x{offset:X8} is outside the node-data range");
             }
+
             if (i > 0 && offset < offsets[i - 1])
             {
                 throw new InvalidDataException(
@@ -113,6 +114,7 @@ public sealed class TrgFile
                 throw new InvalidDataException(
                     $"TRG node {runStart} has invalid size {nodeSizeValue}");
             }
+
             var nodeSize = (int)nodeSizeValue;
 
             for (var nodeIndex = runStart; nodeIndex < runEnd; nodeIndex++)

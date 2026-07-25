@@ -12,7 +12,10 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 /// </summary>
 public static class BlenderLocator
 {
-    public static string? Resolve(string? explicitPath) => Resolve(explicitPath, out _);
+    public static string? Resolve(string? explicitPath)
+    {
+        return Resolve(explicitPath, out _);
+    }
 
     public static string? Resolve(string? explicitPath, out string failureReason)
     {

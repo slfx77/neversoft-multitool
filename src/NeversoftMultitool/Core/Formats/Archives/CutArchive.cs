@@ -62,7 +62,7 @@ public static partial class CutArchive
         [ExtWgt] = "wgt",
         [ExtSke] = "ske",
         [ExtCif2] = "cif2",
-        [ExtText] = "q",
+        [ExtText] = "q"
     };
 
     // Payloads in the platform's compiled scene formats get the container's platform
@@ -77,7 +77,7 @@ public static partial class CutArchive
         [ExtCam] = "camera",
         [ExtOba] = "object",
         [ExtQb] = "cutscene",
-        [ExtText] = "placement",
+        [ExtText] = "placement"
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -88,7 +88,14 @@ public static partial class CutArchive
         TypeInfoResolver = new DefaultJsonTypeInfoResolver()
     };
 
-    private readonly record struct TocEntry(uint Offset, int Size, uint NameKey, uint ExtKey);
+    // QbKeys of the cifstruct component names (all field checksums hash lowercased).
+    private static readonly uint FieldCamAnimDuration = QbKey.QbKey.HashLower("camanimduration");
+    private static readonly uint FieldObjects = QbKey.QbKey.HashLower("Objects");
+    private static readonly uint FieldObjectName = QbKey.QbKey.HashLower("ObjectName");
+    private static readonly uint FieldType = QbKey.QbKey.HashLower("Type");
+    private static readonly uint FieldSkeletonName = QbKey.QbKey.HashLower("SkeletonName");
+    private static readonly uint FieldExternalModelFile = QbKey.QbKey.HashLower("ExternalModelFile");
+    private static readonly uint FieldRefObjectName = QbKey.QbKey.HashLower("RefObjectName");
 
     /// <summary>
     ///     Structural probe: version 1, sane file count, TOC starts the data region and
@@ -173,7 +180,7 @@ public static partial class CutArchive
         }
 
         stream.Position = 0;
-        using var reader = new BinaryReader(stream, Encoding.ASCII, leaveOpen: true);
+        using var reader = new BinaryReader(stream, Encoding.ASCII, true);
         var version = reader.ReadUInt32();
         var numFiles = reader.ReadInt32();
         if (version != 1)
@@ -463,15 +470,6 @@ public static partial class CutArchive
         return objects;
     }
 
-    // QbKeys of the cifstruct component names (all field checksums hash lowercased).
-    private static readonly uint FieldCamAnimDuration = QbKey.QbKey.HashLower("camanimduration");
-    private static readonly uint FieldObjects = QbKey.QbKey.HashLower("Objects");
-    private static readonly uint FieldObjectName = QbKey.QbKey.HashLower("ObjectName");
-    private static readonly uint FieldType = QbKey.QbKey.HashLower("Type");
-    private static readonly uint FieldSkeletonName = QbKey.QbKey.HashLower("SkeletonName");
-    private static readonly uint FieldExternalModelFile = QbKey.QbKey.HashLower("ExternalModelFile");
-    private static readonly uint FieldRefObjectName = QbKey.QbKey.HashLower("RefObjectName");
-
     private static CutManifestObject ParseCifStructObject(List<QbStructBuffer.Component> fields,
         Dictionary<uint, string> animFileByKey, Dictionary<uint, string> modelFileByKey)
     {
@@ -498,8 +496,12 @@ public static partial class CutArchive
         };
     }
 
-    private static string? DescribeKey(uint key) =>
-        key == 0 ? null : QbKey.QbKey.TryResolve(key) ?? $"0x{key:X8}";
+    private static string? DescribeKey(uint key)
+    {
+        return key == 0 ? null : QbKey.QbKey.TryResolve(key) ?? $"0x{key:X8}";
+    }
+
+    private readonly record struct TocEntry(uint Offset, int Size, uint NameKey, uint ExtKey);
 
     private sealed class CutManifest
     {

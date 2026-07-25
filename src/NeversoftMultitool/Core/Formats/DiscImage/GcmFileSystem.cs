@@ -59,7 +59,7 @@ public static class GcmFileSystem
 
             var entry = fst.AsSpan(checked((int)(i * 12)), 12);
             var flagsAndName = BinaryPrimitives.ReadUInt32BigEndian(entry);
-            var isDirectory = (flagsAndName >> 24) != 0;
+            var isDirectory = flagsAndName >> 24 != 0;
             var nameOffset = (int)(flagsAndName & 0xFFFFFF);
             var offset = BinaryPrimitives.ReadUInt32BigEndian(entry[4..]);
             var length = BinaryPrimitives.ReadUInt32BigEndian(entry[8..]);

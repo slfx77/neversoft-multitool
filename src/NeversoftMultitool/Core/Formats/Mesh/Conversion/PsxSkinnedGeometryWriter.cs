@@ -1,6 +1,5 @@
-using NeversoftMultitool.Core.Formats.Animation;
-using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -65,7 +64,7 @@ internal static class PsxSkinnedGeometryWriter
         {
             if (hiddenObjectIndices?.Contains(objectIndex) == true
                 || splineControllerObjects.Contains(objectIndex)
-                || !reconstructSplineAppendages && embeddedTipPlacements.ContainsKey(objectIndex))
+                || (!reconstructSplineAppendages && embeddedTipPlacements.ContainsKey(objectIndex)))
                 continue;
 
             var meshIndex = PsxMeshSemantics.GetCharacterMeshIndex(psxFile, objectIndex);
@@ -116,9 +115,9 @@ internal static class PsxSkinnedGeometryWriter
                 ? PsxGeometryHelpers.GetOrCreatePsxMaterial(
                     document,
                     hash,
-                    semiTransparent: false,
-                    doubleSided: false,
-                    blendRate: 0,
+                    false,
+                    false,
+                    0,
                     tubeTextureProvider,
                     tubeTextureDims,
                     tubeMaterialCache)
@@ -135,7 +134,7 @@ internal static class PsxSkinnedGeometryWriter
                 bucket.Vertices,
                 bucket.Indices,
                 bucket.Influences,
-                hasAuthoredTexture: tubeTextureHash.HasValue);
+                tubeTextureHash.HasValue);
         }
 
         if (reconstructSplineAppendages
@@ -291,9 +290,12 @@ internal static class PsxSkinnedGeometryWriter
         c1 = PsxGeometryHelpers.DisplayRgbToLinear(c1, isPs1TexturedModulation);
         c2 = PsxGeometryHelpers.DisplayRgbToLinear(c2, isPs1TexturedModulation);
         c3 = PsxGeometryHelpers.DisplayRgbToLinear(c3, isPs1TexturedModulation);
-        var v0 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 0, c0, p0, texDims, tipPlacement, out var i0);
-        var v1 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 1, c1, p1, texDims, tipPlacement, out var i1);
-        var v2 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 2, c2, p2, texDims, tipPlacement, out var i2);
+        var v0 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 0, c0, p0, texDims, tipPlacement,
+            out var i0);
+        var v1 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 1, c1, p1, texDims, tipPlacement,
+            out var i1);
+        var v2 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 2, c2, p2, texDims, tipPlacement,
+            out var i2);
         // glTF front faces are CCW; PSX slot order is CW under the (X,-Y,-Z)
         // handedness map, so emit reversed to make winding agree with the
         // stored (outward) normals. Probe: psx_lod_part_probe.py --normals.
@@ -301,7 +303,8 @@ internal static class PsxSkinnedGeometryWriter
 
         if (face.IsQuad)
         {
-            var v3 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 3, c3, p3, texDims, tipPlacement, out var i3);
+            var v3 = MakePsxSkinnedVertex(psxFile, objectIndex, meshIndex, mesh, face, 3, c3, p3, texDims, tipPlacement,
+                out var i3);
             ModelDocumentGeometryAdapter.AddSkinnedTriangle(vertices, indices, influences, v1, i1, v2, i2, v3, i3);
         }
     }
@@ -324,7 +327,10 @@ internal static class PsxSkinnedGeometryWriter
 
         var normalMesh = mesh;
         var normalVertexIndex = vertexIndex;
-        if (resolved is { UsedAttachment: true, AttachmentResolved: true, SourceMeshIndex: >= 0, SourceVertexIndex: >= 0 }
+        if (resolved is
+            {
+                UsedAttachment: true, AttachmentResolved: true, SourceMeshIndex: >= 0, SourceVertexIndex: >= 0
+            }
             && resolved.SourceMeshIndex < psxFile.Meshes.Count)
         {
             var candidate = psxFile.Meshes[resolved.SourceMeshIndex];
@@ -359,11 +365,13 @@ internal static class PsxSkinnedGeometryWriter
             var gouraudFlag = face.IsGouraud ? 1f : 0f;
             psxPrimitiveFlags = new Vector3(texturedFlag, gouraudFlag, 1f);
         }
+
         var vertex = new ModelVertex(
             PsxMeshSemantics.ToGltfPosition(worldPosition),
             normal,
             color,
-            PsxGeometryHelpers.ComputePsxTextureUv(psxFile.Version, face, texCoord.U, texCoord.V, texDims.Width, texDims.Height))
+            PsxGeometryHelpers.ComputePsxTextureUv(psxFile.Version, face, texCoord.U, texCoord.V, texDims.Width,
+                texDims.Height))
         {
             PsxPacketColor = psxPacketColor,
             PsxPrimitiveFlags = psxPrimitiveFlags,

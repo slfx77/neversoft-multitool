@@ -1,5 +1,3 @@
-using NeversoftMultitool.Core.Formats.Video;
-using NeversoftMultitool.Tests.Helpers;
 using NeversoftMultitool.Core.Formats.Vid1;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Video;
@@ -9,11 +7,13 @@ public sealed class Vid1VideoFileTests(TestPaths paths)
     // Properties evaluate eagerly when referenced (even inside Assert.SkipWhen(!File.Exists(...))),
     // so guard SampleBuildsDir to avoid Path.Combine throwing on CI when sample data is absent.
     private string ThawGcVidDir =>
-        paths.SampleBuildsDir is null ? string.Empty : Path.Combine(
-            paths.SampleBuildsDir,
-            "Tony Hawk's American Wasteland (2005-8-22, GC - Final)",
-            "movies",
-            "vid");
+        paths.SampleBuildsDir is null
+            ? string.Empty
+            : Path.Combine(
+                paths.SampleBuildsDir,
+                "Tony Hawk's American Wasteland (2005-8-22, GC - Final)",
+                "movies",
+                "vid");
 
     private string LongFormSample => Path.Combine(ThawGcVidDir, "intro.vid");
     private string AtviSample => Path.Combine(ThawGcVidDir, "atvi.vid");
@@ -26,20 +26,20 @@ public sealed class Vid1VideoFileTests(TestPaths paths)
             [
                 new Vid1SyntheticVideoFrameSpec(
                     0x61AB,
-                    PreambleClass: 1,
-                    IntraDcThresholdIndex: 5,
-                    Quantizer: 11,
-                    ForwardCode: 4,
+                    1,
+                    5,
+                    11,
+                    4,
                     CurrentFrameStateWord: 0xAABBCCDD,
                     HasSpecialCallerGate: true,
                     CodedPayload: [0x01, 0x02, 0x03, 0x04]),
                 new Vid1SyntheticVideoFrameSpec(
                     0xA0CD,
-                    PreambleClass: 2,
-                    IntraDcThresholdIndex: 6,
-                    Quantizer: 13,
-                    ForwardCode: 3,
-                    BackwardCode: 2,
+                    2,
+                    6,
+                    13,
+                    3,
+                    2,
                     AlternateFrameStateWord: 0x10203040,
                     CodedPayload: [0x11, 0x22, 0x33, 0x44, 0x55])
             ]);
@@ -93,7 +93,7 @@ public sealed class Vid1VideoFileTests(TestPaths paths)
         var frameChunk = Vid1VideoTestBuilder.CreateFrameChunk(
             new Vid1SyntheticVideoFrameSpec(
                 0x2107,
-                PreambleClass: 0,
+                0,
                 Quantizer: 7,
                 CurrentFrameStateWord: 0x11223344,
                 HasSpecialCallerGate: true));

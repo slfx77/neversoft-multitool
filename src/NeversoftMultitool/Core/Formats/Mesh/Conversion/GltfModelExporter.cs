@@ -12,9 +12,11 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using GltfVertex = VertexBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexEmpty>;
 using GltfSkinnedVertex = VertexBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexJoints4>;
 using PsxOverbrightGltfVertex = VertexBuilder<VertexPositionNormal, PsxOverbrightVertexColor1Texture1, VertexEmpty>;
-using PsxOverbrightGltfSkinnedVertex = VertexBuilder<VertexPositionNormal, PsxOverbrightVertexColor1Texture1, VertexJoints4>;
+using PsxOverbrightGltfSkinnedVertex =
+    VertexBuilder<VertexPositionNormal, PsxOverbrightVertexColor1Texture1, VertexJoints4>;
 using PsxAnimatedGltfVertex = VertexBuilder<VertexPositionNormal, PsxAnimatedVertexColor1Texture1, VertexEmpty>;
-using PsxAnimatedGltfSkinnedVertex = VertexBuilder<VertexPositionNormal, PsxAnimatedVertexColor1Texture1, VertexJoints4>;
+using PsxAnimatedGltfSkinnedVertex =
+    VertexBuilder<VertexPositionNormal, PsxAnimatedVertexColor1Texture1, VertexJoints4>;
 
 public sealed class GltfModelExporter : IModelExporter
 {
@@ -75,12 +77,14 @@ public sealed class GltfModelExporter : IModelExporter
             : Enumerable.Range(0, document.Nodes.Count).ToArray();
         var visited = new HashSet<int>();
         foreach (var rootIndex in roots)
-            totalTriangles += AddNodeRecursive(scene, document, materials, skeletonJoints, rootIndex, Matrix4x4.Identity, visited);
+            totalTriangles += AddNodeRecursive(scene, document, materials, skeletonJoints, rootIndex,
+                Matrix4x4.Identity, visited);
 
         if (roots.Length == 0)
         {
             for (var i = 0; i < document.Nodes.Count; i++)
-                totalTriangles += AddNodeRecursive(scene, document, materials, skeletonJoints, i, Matrix4x4.Identity, visited);
+                totalTriangles += AddNodeRecursive(scene, document, materials, skeletonJoints, i, Matrix4x4.Identity,
+                    visited);
         }
 
         // Skeleton-only documents (no meshes) need explicit attachment of the joint
@@ -142,6 +146,7 @@ public sealed class GltfModelExporter : IModelExporter
                             channel.Values[offset + 3]),
                         isLinear);
                 }
+
                 break;
             }
             case ModelAnimationProperty.Translation:
@@ -157,6 +162,7 @@ public sealed class GltfModelExporter : IModelExporter
                             channel.Values[offset + 2]),
                         isLinear);
                 }
+
                 break;
             }
             case ModelAnimationProperty.Scale:
@@ -172,6 +178,7 @@ public sealed class GltfModelExporter : IModelExporter
                             channel.Values[offset + 2]),
                         isLinear);
                 }
+
                 break;
             }
         }
@@ -303,7 +310,8 @@ public sealed class GltfModelExporter : IModelExporter
         }
 
         foreach (var childIndex in node.ChildNodeIndices)
-            totalTriangles += AddNodeRecursive(scene, document, materials, skeletonJoints, childIndex, worldTransform, visited);
+            totalTriangles += AddNodeRecursive(scene, document, materials, skeletonJoints, childIndex, worldTransform,
+                visited);
 
         return totalTriangles;
     }
@@ -325,7 +333,8 @@ public sealed class GltfModelExporter : IModelExporter
         if (HasPsxPacketColor(modelMesh) || HasOutOfRangeVertexColor(modelMesh))
             return AddPsxOverbrightRigidMesh(scene, modelMesh, materials, worldTransform);
 
-        var mesh = new MeshBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexEmpty>(modelMesh.Name);
+        var mesh =
+            new MeshBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexEmpty>(modelMesh.Name);
         var totalTriangles = 0;
         foreach (var primitive in modelMesh.Primitives)
         {
@@ -350,7 +359,8 @@ public sealed class GltfModelExporter : IModelExporter
         if (HasPsxPacketColor(modelMesh) || HasOutOfRangeVertexColor(modelMesh))
             return AddPsxOverbrightSkinnedMesh(scene, modelMesh, materials, skeletonJoints);
 
-        var mesh = new MeshBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexJoints4>(modelMesh.Name);
+        var mesh =
+            new MeshBuilder<VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexJoints4>(modelMesh.Name);
         var totalTriangles = 0;
         var skeletonIndex = -1;
         foreach (var primitive in modelMesh.Primitives)

@@ -39,9 +39,3 @@ public sealed record ModelVisibilityGroup
     /// </summary>
     public string? ExclusiveSetId { get; init; }
 }
-
-public enum ModelVisibilityGroupSource
-{
-    TriggerRange,
-    AlternateGeometry
-}

@@ -1,7 +1,6 @@
 using System.Text.Json;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Archives;
 

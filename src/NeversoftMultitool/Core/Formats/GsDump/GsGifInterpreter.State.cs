@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using NeversoftMultitool.Core.Formats.Texture.Ps2;
+using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 
 namespace NeversoftMultitool.Core.Formats.GsDump;
 
@@ -111,7 +113,7 @@ internal sealed partial class GsGifInterpreter
     private void LoadClutForTex0(ulong tex0)
     {
         var psm = (uint)((tex0 >> 20) & 0x3F);
-        var indexed = psm is Texture.Ps2.Ps2TexPixelDecoder.PSMT8 or Texture.Ps2.Ps2TexPixelDecoder.PSMT4
+        var indexed = psm is Ps2TexPixelDecoder.PSMT8 or Ps2TexPixelDecoder.PSMT4
             or 0x1B or 0x24 or 0x2C; // T8H, T4HL, T4HH
         if (!indexed)
             return;
@@ -135,13 +137,13 @@ internal sealed partial class GsGifInterpreter
         // v1: snapshot 256-entry (PSMT8-family) palettes only. PSMT4 loads occupy 16-entry
         // CSA slots of the shared buffer; modeling the slot accumulation is deferred and
         // PSMT4 reads keep the live-VRAM path.
-        if (psm is not (Texture.Ps2.Ps2TexPixelDecoder.PSMT8 or 0x1B))
+        if (psm is not (Ps2TexPixelDecoder.PSMT8 or 0x1B))
             return;
 
         var cpsm = (uint)((tex0 >> 51) & 0xF);
         var csm = (uint)((tex0 >> 55) & 0x1);
-        var cooked = Texture.Ps2Scene.ZoneTex.ThawZoneTexVramSupport.FetchClut(
-            vram, Texture.Ps2.Ps2TexPixelDecoder.PSMT8, cbp, cpsm, csm);
+        var cooked = ThawZoneTexVramSupport.FetchClut(
+            vram, Ps2TexPixelDecoder.PSMT8, cbp, cpsm, csm);
         if (cooked == null)
             return;
 

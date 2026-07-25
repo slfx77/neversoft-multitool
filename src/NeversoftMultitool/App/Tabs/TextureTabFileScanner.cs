@@ -17,10 +17,6 @@ internal static class TextureTabFileScanner
     private static readonly string[] NestedArchiveSuffixes =
         [".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".pak", ".apk"];
 
-    public sealed record ScanResult(
-        List<PsxFileEntry> Supported,
-        List<ScanSummaryDialog.UnsupportedFile> Unsupported);
-
     public static ScanResult ScanDirectory(string inputDir, IProgress<int>? progress, CancellationToken ct)
     {
         var candidates = Directory.EnumerateFiles(inputDir, "*", SearchOption.AllDirectories)
@@ -135,4 +131,8 @@ internal static class TextureTabFileScanner
             return Path.GetFileName(file);
         }
     }
+
+    public sealed record ScanResult(
+        List<PsxFileEntry> Supported,
+        List<ScanSummaryDialog.UnsupportedFile> Unsupported);
 }

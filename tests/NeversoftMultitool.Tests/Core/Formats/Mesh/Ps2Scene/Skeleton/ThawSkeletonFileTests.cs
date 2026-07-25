@@ -1,7 +1,6 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Skeleton;
 
@@ -92,7 +91,7 @@ public class ThawSkeletonFileTests(TestPaths paths)
                  {
                      (ThawPs2Build, "*.ske", 300),
                      (ThawGcBuild, "*.ske.ngc", 300),
-                     (ThawPcBuild, "*.ske", 250),
+                     (ThawPcBuild, "*.ske", 250)
                  })
         {
             var buildDir = Path.Combine(paths.SampleBuildsDir!, build);
@@ -115,7 +114,8 @@ public class ThawSkeletonFileTests(TestPaths paths)
                     // which also rules out cycles.
                     for (var b = 0; b < skeleton.Bones.Length; b++)
                         if (skeleton.Bones[b].ParentIndex >= b)
-                            throw new InvalidDataException($"bone {b} parented forward to {skeleton.Bones[b].ParentIndex}");
+                            throw new InvalidDataException(
+                                $"bone {b} parented forward to {skeleton.Bones[b].ParentIndex}");
                 }
                 catch (Exception ex)
                 {

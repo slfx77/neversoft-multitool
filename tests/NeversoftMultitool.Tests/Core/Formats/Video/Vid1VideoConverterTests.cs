@@ -1,6 +1,5 @@
-using NeversoftMultitool.Core.Formats.Video;
-using NeversoftMultitool.Tests.Helpers;
 using NeversoftMultitool.Core.Formats.Vid1;
+using NeversoftMultitool.Core.Formats.Video;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Video;
 
@@ -9,11 +8,13 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
     // Properties evaluate eagerly when referenced (even inside Assert.SkipWhen(!File.Exists(...))),
     // so guard SampleBuildsDir to avoid Path.Combine throwing on CI when sample data is absent.
     private string ThawGcVidDir =>
-        paths.SampleBuildsDir is null ? string.Empty : Path.Combine(
-            paths.SampleBuildsDir,
-            "Tony Hawk's American Wasteland (2005-8-22, GC - Final)",
-            "movies",
-            "vid");
+        paths.SampleBuildsDir is null
+            ? string.Empty
+            : Path.Combine(
+                paths.SampleBuildsDir,
+                "Tony Hawk's American Wasteland (2005-8-22, GC - Final)",
+                "movies",
+                "vid");
 
     private string LongFormSample => Path.Combine(ThawGcVidDir, "intro.vid");
     private string AtviSample => Path.Combine(ThawGcVidDir, "atvi.vid");
@@ -24,15 +25,14 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
         var tempFile = FormatProbeTestHelper.CreateTempFile(
             ".vid",
             Vid1VideoTestBuilder.CreateVideoVid1(
-                width: 320,
-                height: 240,
-                frameRateNumerator: 30,
-                frameRateDenominator: 1,
-                frames:
+                320,
+                240,
+                30,
+                1,
                 [
                     new Vid1SyntheticVideoFrameSpec(
                         0x2107,
-                        PreambleClass: 0,
+                        0,
                         Quantizer: 7,
                         CurrentFrameStateWord: 0x11223344,
                         HasSpecialCallerGate: true)
@@ -109,12 +109,13 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
 
                 Assert.True(success, $"{Path.GetFileName(file)}: {error}");
                 Assert.True(File.Exists(outputPath), $"{Path.GetFileName(file)} did not write an output file");
-                Assert.True(new FileInfo(outputPath).Length > 0, $"{Path.GetFileName(file)} wrote an empty output file");
+                Assert.True(new FileInfo(outputPath).Length > 0,
+                    $"{Path.GetFileName(file)} wrote an empty output file");
             }
         }
         finally
         {
-            Directory.Delete(outputDir, recursive: true);
+            Directory.Delete(outputDir, true);
         }
     }
 
@@ -131,7 +132,8 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
         {
             foreach (var file in new[] { LongFormSample, AtviSample })
             {
-                var result = Vid1VideoConverter.ConvertToMp4(file, outputDir, cancellationToken: TestContext.Current.CancellationToken);
+                var result = Vid1VideoConverter.ConvertToMp4(file, outputDir,
+                    cancellationToken: TestContext.Current.CancellationToken);
                 var outputPath = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(file) + ".mp4");
 
                 Assert.True(result.Success, $"{Path.GetFileName(file)}: {result.ErrorMessage}");
@@ -141,7 +143,7 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
         }
         finally
         {
-            Directory.Delete(outputDir, recursive: true);
+            Directory.Delete(outputDir, true);
         }
     }
 
@@ -155,14 +157,15 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
 
         try
         {
-            var result = Vid1VideoConverter.DecodeFrames(LongFormSample, outputDir, TestContext.Current.CancellationToken);
+            var result =
+                Vid1VideoConverter.DecodeFrames(LongFormSample, outputDir, TestContext.Current.CancellationToken);
 
             Assert.True(result.Success, result.ErrorMessage);
             Assert.NotEmpty(Directory.GetFiles(outputDir, "*.png", SearchOption.TopDirectoryOnly));
         }
         finally
         {
-            Directory.Delete(outputDir, recursive: true);
+            Directory.Delete(outputDir, true);
         }
     }
 }

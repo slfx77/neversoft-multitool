@@ -21,9 +21,8 @@ internal static class PsxItemsBankSubstitution
 {
     private const string ItemsFileName = "items.psx";
 
-    internal sealed record LoadedItems(
-        PsxMeshFile File,
-        MeshChecksumTextureResolver? TextureProvider);
+    private static readonly IReadOnlyDictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>
+        EmptyItems = new Dictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>();
 
     /// <summary>
     ///     Loads the sibling <c>items.psx</c> (the spooled "items" region shared
@@ -115,9 +114,6 @@ internal static class PsxItemsBankSubstitution
         return items == null && !suppressedAny ? null : (items ?? EmptyItems, remaining);
     }
 
-    private static readonly IReadOnlyDictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>
-        EmptyItems = new Dictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>();
-
     private static uint GetBankMeshHash(PsxMeshFile objectBank, int objectIndex)
     {
         if (objectIndex >= objectBank.Objects.Count)
@@ -127,4 +123,8 @@ internal static class PsxItemsBankSubstitution
             ? objectBank.MeshNameHashes[meshIndex]
             : 0;
     }
+
+    internal sealed record LoadedItems(
+        PsxMeshFile File,
+        MeshChecksumTextureResolver? TextureProvider);
 }

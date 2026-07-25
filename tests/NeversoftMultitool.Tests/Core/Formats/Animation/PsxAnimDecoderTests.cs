@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Animation;
 
@@ -21,7 +20,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         byte[] stream = [0x10, 0x00, 0x00, 0x05, 0x00];
         Span<short> output = stackalloc short[3];
 
-        var consumed = PsxAnimDecompressor.Decompress(stream, output, step: 1, streamLength: 3);
+        var consumed = PsxAnimDecompressor.Decompress(stream, output, 1, 3);
 
         Assert.Equal(5, consumed);
         Assert.Equal(new short[] { 0, 2, 5 }, output.ToArray());
@@ -35,7 +34,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         byte[] stream = [0x11, 0x00, 0x00, 0x40, 0x00, 0x00];
         Span<short> output = stackalloc short[3];
 
-        var consumed = PsxAnimDecompressor.Decompress(stream, output, step: 1, streamLength: 3);
+        var consumed = PsxAnimDecompressor.Decompress(stream, output, 1, 3);
 
         Assert.Equal(4, consumed);
         Assert.Equal(new short[] { 0, 0, 1 }, output.ToArray());
@@ -54,7 +53,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         byte[] stream = [0xAB, 0xC1, 0xFF, 0x93, 0x5F, 0x89, 0x00, 0x00];
         Span<short> output = stackalloc short[13];
 
-        var consumed = PsxAnimDecompressor.Decompress(stream, output, step: 1, streamLength: 13);
+        var consumed = PsxAnimDecompressor.Decompress(stream, output, 1, 13);
 
         Assert.Equal(6, consumed);
         Assert.Equal(
@@ -77,7 +76,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         byte[] stream = [0x32, 0x00, 0x00, 0x0C, 0x00, 0x00];
         Span<short> output = stackalloc short[7];
 
-        var consumed = PsxAnimDecompressor.Decompress(stream, output, step: 1, streamLength: 7);
+        var consumed = PsxAnimDecompressor.Decompress(stream, output, 1, 7);
 
         Assert.Equal(4, consumed);
         Assert.Equal(new short[] { 0, 0, 0, 0, 0, 1, 3 }, output.ToArray());
@@ -89,7 +88,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         byte[] stream = [0x0E, 0x34, 0x12];
         Span<short> output = stackalloc short[3];
 
-        var consumed = PsxAnimDecompressor.Decompress(stream, output, step: 1, streamLength: 3);
+        var consumed = PsxAnimDecompressor.Decompress(stream, output, 1, 3);
 
         Assert.Equal(3, consumed);
         Assert.Equal(new short[] { 0x1234, 0x1234, 0x1234 }, output.ToArray());
@@ -101,7 +100,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         byte[] stream = [0x0F];
         Span<short> output = stackalloc short[3];
 
-        var consumed = PsxAnimDecompressor.Decompress(stream, output, step: 1, streamLength: 3);
+        var consumed = PsxAnimDecompressor.Decompress(stream, output, 1, 3);
 
         Assert.Equal(1, consumed);
         Assert.Equal(new short[] { 0, 0, 0 }, output.ToArray());
@@ -227,7 +226,8 @@ public class PsxAnimDecoderTests(TestPaths paths)
         // returning all-zero rotation samples would indicate a parsing fault.
         var rotated = 0;
         for (var b = 0; b < animation.BoneCount; b++)
-            if (animation.IsRotationAnimated(b)) rotated++;
+            if (animation.IsRotationAnimated(b))
+                rotated++;
         Assert.True(rotated >= animation.BoneCount / 2,
             $"expected at least half the bones to carry rotation samples; got {rotated}/{animation.BoneCount}");
     }
@@ -265,7 +265,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         }
 
         var animation = PsxAnimDecoder.DecodeDirectMatrix(
-            stream, boneCount: 1, frameCount: 5, tweenFlag: 1);
+            stream, 1, 5, 1);
 
         Assert.Equal(5, animation.FrameCount);
         Assert.Equal(0, animation.Channels[0, 3, 0]); // keyframe 0 copied
@@ -296,7 +296,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
 
         var decoded = Matrix4x4.CreateFromQuaternion(
             Quaternion.Normalize(
-                PsxAnimDecoder.DecodeDirectMatrix(stream, boneCount: 1, frameCount: 1)
+                PsxAnimDecoder.DecodeDirectMatrix(stream, 1, 1)
                     .DirectRotations![0, 0]));
 
         // Raw layout as written (row-major) and its transpose.
@@ -305,14 +305,14 @@ public class PsxAnimDecoderTests(TestPaths paths)
             0, 1, 0, 0,
             1, 0, 0, 0,
             0, 0, 0, 1);
-        AssertMatrixClose(Matrix4x4.Transpose(rawRowMajor), decoded, precision: 3);
+        AssertMatrixClose(Matrix4x4.Transpose(rawRowMajor), decoded, 3);
         Assert.False(MatricesClose(rawRowMajor, decoded), "decoded must not equal the raw row-major layout");
     }
 
     private static bool MatricesClose(Matrix4x4 a, Matrix4x4 b)
     {
         return Math.Abs(a.M11 - b.M11) < 1e-3 && Math.Abs(a.M13 - b.M13) < 1e-3
-            && Math.Abs(a.M31 - b.M31) < 1e-3 && Math.Abs(a.M33 - b.M33) < 1e-3;
+                                              && Math.Abs(a.M31 - b.M31) < 1e-3 && Math.Abs(a.M33 - b.M33) < 1e-3;
     }
 
     [Fact]
@@ -335,7 +335,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         }
 
         var animation = PsxAnimDecoder.DecodeDirectMatrix(
-            stream, boneCount: 1, frameCount: 4, tweenFlag: 1);
+            stream, 1, 4, 1);
 
         Assert.Equal(0, animation.Channels[0, 3, 0]);
         Assert.Equal(50, animation.Channels[0, 3, 1]);
@@ -362,7 +362,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         }
 
         var animation = PsxAnimDecoder.DecodeDirectMatrix(
-            stream, boneCount: 1, frameCount: 4, tweenFlag: 1, oneShot: true);
+            stream, 1, 4, 1, true);
 
         Assert.Equal(0, animation.Channels[0, 3, 0]);
         Assert.Equal(50, animation.Channels[0, 3, 1]);
@@ -390,7 +390,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         }
 
         var animation = PsxAnimDecoder.DecodeDirectMatrix(
-            stream, boneCount: 1, frameCount: 5, tweenFlag: 2);
+            stream, 1, 5, 2);
 
         Assert.Equal(0, animation.Channels[0, 3, 0]);
         Assert.Equal(29, animation.Channels[0, 3, 1]); // (90×1365)>>12, truncated
@@ -428,7 +428,8 @@ public class PsxAnimDecoderTests(TestPaths paths)
         Assert.Equal(40, animation.FrameCount);
         var rotated = 0;
         for (var b = 0; b < animation.BoneCount; b++)
-            if (animation.IsRotationAnimated(b)) rotated++;
+            if (animation.IsRotationAnimated(b))
+                rotated++;
         Assert.True(rotated >= animation.BoneCount / 2,
             $"expected at least half the bones to carry rotation samples; got {rotated}/{animation.BoneCount}");
     }
@@ -445,7 +446,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         var expected = CreateExpectedRotMatrixYxz(ToPsyqRadians(0), ToPsyqRadians(1024), ToPsyqRadians(0));
         WriteSMatrix(stream, expected);
 
-        var animation = PsxAnimDecoder.DecodeDirectMatrix(stream, boneCount: 1, frameCount: 1);
+        var animation = PsxAnimDecoder.DecodeDirectMatrix(stream, 1, 1);
         var actual = Matrix4x4.CreateFromQuaternion(
             Quaternion.Normalize(animation.GetBoneRotation(0, 0)));
 
@@ -462,7 +463,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
             ToPsyqRadians(512));
         WriteSMatrix(stream, expected);
 
-        var animation = PsxAnimDecoder.DecodeDirectMatrix(stream, boneCount: 1, frameCount: 1);
+        var animation = PsxAnimDecoder.DecodeDirectMatrix(stream, 1, 1);
 
         Assert.NotNull(animation.DirectRotations);
         var direct = Matrix4x4.CreateFromQuaternion(
@@ -470,16 +471,15 @@ public class PsxAnimDecoderTests(TestPaths paths)
         var throughAccessor = Matrix4x4.CreateFromQuaternion(
             Quaternion.Normalize(animation.GetBoneRotation(0, 0)));
 
-        AssertMatrixClose(expected, direct, precision: 4);
-        AssertMatrixClose(expected, throughAccessor, precision: 4);
+        AssertMatrixClose(expected, direct, 4);
+        AssertMatrixClose(expected, throughAccessor, 4);
     }
 
     [Fact]
     public void Decode_RejectsExhaustedStream()
     {
         // Empty stream: should throw because we can't even read the first header byte.
-        Assert.Throws<InvalidDataException>(
-            () => PsxAnimDecoder.Decode([], boneCount: 1, frameCount: 1));
+        Assert.Throws<InvalidDataException>(() => PsxAnimDecoder.Decode([], 1, 1));
     }
 
     [Fact]

@@ -15,12 +15,12 @@ public sealed partial class TextureTab : UserControl, IDisposable
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<PsxFileEntry> _parentFiles = [];
     private CancellationTokenSource? _cts;
+    private bool _disposed;
     private string _inputDir = "";
     private string _outputDir = "";
     private bool _outputManuallySet;
     private CancellationTokenSource? _previewCts;
     private CancellationTokenSource? _scanCts;
-    private bool _disposed;
 
     public TextureTab()
     {

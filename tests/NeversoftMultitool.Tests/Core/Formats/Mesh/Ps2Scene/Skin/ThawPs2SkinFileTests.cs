@@ -2,7 +2,6 @@ using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
-using NeversoftMultitool.Tests.Helpers;
 using static NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Skin.ThawPs2SkinFileTestHelper;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Skin;
@@ -376,5 +375,4 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         Assert.All(materials,
             static material => Assert.Equal(0xDEADBEEFu, material.TextureChecksum));
     }
-
 }

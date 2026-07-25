@@ -1,3 +1,4 @@
+using SharpGLTF.Schema2;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -47,7 +48,7 @@ public static class GlbRenderer
         if (!animationIndex.HasValue && !animationTime.HasValue)
             return RenderScene(GlbModelLoader.Load(glbPath), longEdge, azimuthDeg, elevationDeg);
 
-        var model = SharpGLTF.Schema2.ModelRoot.Load(glbPath);
+        var model = ModelRoot.Load(glbPath);
         if (model.LogicalAnimations.Count == 0)
             throw new InvalidOperationException("GLB contains no animations.");
 

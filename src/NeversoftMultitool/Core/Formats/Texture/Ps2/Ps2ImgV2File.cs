@@ -62,7 +62,7 @@ internal static class Ps2ImgV2File
 
         ReadOnlySpan<byte> texData;
         if (availableBytes == vramBytes && vramBytes != origBytes
-            && width <= vramWidth && height <= vramHeight)
+                                        && width <= vramWidth && height <= vramHeight)
         {
             // Full VRAM upload buffer: rows padded to the POT stride. De-stride to orig size.
             texData = DestridePixels(data.AsSpan(offset, vramBytes), vramWidth, vramHeight, width, height, bpp);

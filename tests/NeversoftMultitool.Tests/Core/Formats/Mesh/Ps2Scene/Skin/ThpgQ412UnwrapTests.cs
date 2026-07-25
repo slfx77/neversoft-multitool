@@ -1,6 +1,6 @@
 using System.Globalization;
+using System.Text;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Skin;
 
@@ -33,7 +33,7 @@ public sealed class ThpgQ412UnwrapTests(TestPaths paths)
         var total = 0;
         var mismatched = 0;
         var bandErrors = new Dictionary<(int X, int Y, int Z), int>();
-        var report = new System.Text.StringBuilder();
+        var report = new StringBuilder();
         for (var m = 0; m < p8Meshes.Count; m++)
         {
             var a = p8Meshes[m].Vertices;

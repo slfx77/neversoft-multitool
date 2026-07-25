@@ -1,12 +1,11 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
-using NeversoftMultitool.Core.Formats.Audio;
 using NeversoftMultitool.Core.Formats.Video;
 
 namespace NeversoftMultitool.Core.Formats.Vid1;
 
-public static partial class Vid1VideoConverter
+public static class Vid1VideoConverter
 {
     public static Vid1VideoProbeResult? Probe(string inputPath)
     {
@@ -295,7 +294,8 @@ public static partial class Vid1VideoConverter
         }
         else
         {
-            args = $"{videoInput} -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -movflags +faststart -an \"{outputPath}\"";
+            args =
+                $"{videoInput} -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -movflags +faststart -an \"{outputPath}\"";
         }
 
         using var process = new Process();

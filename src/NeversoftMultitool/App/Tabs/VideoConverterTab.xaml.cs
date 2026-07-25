@@ -55,6 +55,10 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
         CheckFfmpeg();
     }
 
+    // ─── Zoom (fit / 100%) ────────────────────────────────────────────────
+
+    private bool IsVideoActualSize => VideoZoomCombo.SelectedIndex == 1;
+
     public void Dispose()
     {
         Unloaded -= VideoConverterTab_Unloaded;
@@ -255,10 +259,6 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
     {
         _previewController.Seek(e.NewValue);
     }
-
-    // ─── Zoom (fit / 100%) ────────────────────────────────────────────────
-
-    private bool IsVideoActualSize => VideoZoomCombo.SelectedIndex == 1;
 
     private void VideoZoomCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {

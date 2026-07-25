@@ -8,26 +8,30 @@ namespace NeversoftMultitool.Tests.Helpers;
 ///     default run; opt in with '--explicit on' (everything) or '--explicit only'
 ///     (sweeps alone). Single-fixture tests that read one sample file stay [Fact].
 /// </summary>
-[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+[AttributeUsage(AttributeTargets.Method)]
 public sealed class CorpusFactAttribute : FactAttribute
 {
     public CorpusFactAttribute(
         [CallerFilePath] string? sourceFilePath = null,
         [CallerLineNumber] int sourceLineNumber = -1)
         : base(sourceFilePath, sourceLineNumber)
-        => Explicit = true;
+    {
+        Explicit = true;
+    }
 }
 
 /// <summary>
-///     Theory variant of <see cref="CorpusFactAttribute"/> for corpus sweeps that
+///     Theory variant of <see cref="CorpusFactAttribute" /> for corpus sweeps that
 ///     enumerate per-build test cases.
 /// </summary>
-[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+[AttributeUsage(AttributeTargets.Method)]
 public sealed class CorpusTheoryAttribute : TheoryAttribute
 {
     public CorpusTheoryAttribute(
         [CallerFilePath] string? sourceFilePath = null,
         [CallerLineNumber] int sourceLineNumber = -1)
         : base(sourceFilePath, sourceLineNumber)
-        => Explicit = true;
+    {
+        Explicit = true;
+    }
 }

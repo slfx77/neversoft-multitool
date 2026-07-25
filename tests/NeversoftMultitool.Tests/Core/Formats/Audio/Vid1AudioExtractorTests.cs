@@ -1,30 +1,32 @@
 using System.Buffers.Binary;
+using System.Text;
 using NeversoftMultitool.Core;
-using NeversoftMultitool.Core.Formats.Audio;
-using NeversoftMultitool.Core.Formats.Video;
-using NeversoftMultitool.Tests.Core;
-using NeversoftMultitool.Tests.Helpers;
 using NeversoftMultitool.Core.Formats.Vid1;
+using NeversoftMultitool.Core.Formats.Video;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Audio;
 
 public sealed class Vid1AudioExtractorTests(TestPaths paths)
 {
     private string RepresentativeSampleFile =>
-        paths.SampleBuildsDir is null ? string.Empty : Path.Combine(
-            paths.SampleBuildsDir,
-            "Tony Hawk's American Wasteland (2005-8-22, GC - Final)",
-            "movies",
-            "vid",
-            "atvi.vid");
+        paths.SampleBuildsDir is null
+            ? string.Empty
+            : Path.Combine(
+                paths.SampleBuildsDir,
+                "Tony Hawk's American Wasteland (2005-8-22, GC - Final)",
+                "movies",
+                "vid",
+                "atvi.vid");
 
     private string RepresentativeMultiTrackSampleFile =>
-        paths.SampleBuildsDir is null ? string.Empty : Path.Combine(
-            paths.SampleBuildsDir,
-            "Tony Hawk's Downhill Jam (2006, Wii - Final)",
-            "movies",
-            "vid",
-            "JX_Interview01.vid");
+        paths.SampleBuildsDir is null
+            ? string.Empty
+            : Path.Combine(
+                paths.SampleBuildsDir,
+                "Tony Hawk's Downhill Jam (2006, Wii - Final)",
+                "movies",
+                "vid",
+                "JX_Interview01.vid");
 
     private static string? FindRepoAtviVid()
     {
@@ -62,7 +64,8 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
         var packet = new byte[] { 0xAA, 0xBB, 0xCC, 0xDD, 0xEE };
         var data = Vid1TestBuilder.EncodeVid1Packet(packet);
 
-        var success = Vid1AudioExtractor.TryReadPacketHeader(data, 0, data.Length, out var packetOffset, out var packetSize);
+        var success =
+            Vid1AudioExtractor.TryReadPacketHeader(data, 0, data.Length, out var packetOffset, out var packetSize);
 
         Assert.True(success);
         Assert.Equal(packet.Length, packetSize);
@@ -91,7 +94,7 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
     [Fact]
     public void Probe_SyntheticVid1_ReturnsExpectedMetadata()
     {
-        var vidPath = FormatProbeTestHelper.CreateTempFile(".vid", Vid1TestBuilder.CreateVid1(sampleRate: 32000, channels: 1, totalSamples: 2048));
+        var vidPath = FormatProbeTestHelper.CreateTempFile(".vid", Vid1TestBuilder.CreateVid1(32000, 1, 2048));
 
         try
         {
@@ -114,9 +117,9 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
     {
         var data = Vid1TestBuilder.CreateMultiTrackVid1(
             5,
-            sampleRateForTrack: i => 44100 + i * 1000,
-            channelsForTrack: static _ => 2,
-            totalSamplesForTrack: static _ => 4096);
+            i => 44100 + i * 1000,
+            static _ => 2,
+            static _ => 4096);
         var vidPath = FormatProbeTestHelper.CreateTempFile(".vid", data);
 
         try
@@ -140,12 +143,12 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
     [Fact]
     public void Probe_SyntheticMultiTrackVid1_TrackIndexSelectsCorrectTrack()
     {
-        var data = Vid1TestBuilder.CreateMultiTrackVid1(3, sampleRateForTrack: i => 44100 + i * 1000);
+        var data = Vid1TestBuilder.CreateMultiTrackVid1(3, i => 44100 + i * 1000);
         var vidPath = FormatProbeTestHelper.CreateTempFile(".vid", data);
 
         try
         {
-            var track2 = Vid1AudioExtractor.Probe(vidPath, trackIndex: 2);
+            var track2 = Vid1AudioExtractor.Probe(vidPath, 2);
 
             Assert.NotNull(track2);
             Assert.Equal(2, track2!.TrackIndex);
@@ -215,7 +218,8 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
         Assert.SkipWhen(!File.Exists(RepresentativeMultiTrackSampleFile),
             "Representative multi-track THAW GameCube VID sample not found");
 
-        var success = Vid1AudioExtractor.TryReadTracks(RepresentativeMultiTrackSampleFile, out var tracks, out var error);
+        var success =
+            Vid1AudioExtractor.TryReadTracks(RepresentativeMultiTrackSampleFile, out var tracks, out var error);
 
         Assert.True(success, error);
         Assert.True(tracks.Count > 1, $"Expected multiple audio tracks, found {tracks.Count}");
@@ -265,7 +269,7 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
         }
         finally
         {
-            Directory.Delete(outputDir, recursive: true);
+            Directory.Delete(outputDir, true);
         }
     }
 
@@ -308,7 +312,7 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
         }
         finally
         {
-            Directory.Delete(outputDir, recursive: true);
+            Directory.Delete(outputDir, true);
         }
     }
 
@@ -437,7 +441,7 @@ internal static class Vid1TestBuilder
     private static byte[] EncodePacketHeader(int packetSize)
     {
         var sizeBits = 0;
-        while ((1 << (sizeBits + 1)) <= packetSize && sizeBits < 15)
+        while (1 << (sizeBits + 1) <= packetSize && sizeBits < 15)
             sizeBits++;
 
         var bits = new List<int>(4 + sizeBits + 1);
@@ -487,7 +491,7 @@ internal static class Vid1TestBuilder
     private static byte[] BuildChunk(string tag, byte[] payload)
     {
         var chunk = new byte[8 + payload.Length];
-        System.Text.Encoding.ASCII.GetBytes(tag).CopyTo(chunk, 0);
+        Encoding.ASCII.GetBytes(tag).CopyTo(chunk, 0);
         BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(4, 4), checked((uint)chunk.Length));
         payload.CopyTo(chunk.AsSpan(8));
         return chunk;

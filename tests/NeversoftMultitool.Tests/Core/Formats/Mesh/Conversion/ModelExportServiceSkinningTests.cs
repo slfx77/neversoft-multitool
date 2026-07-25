@@ -80,7 +80,7 @@ public sealed class ModelExportServiceSkinningTests
     {
         using var temp = new TempDirectory();
         var document = CreateTwoBoneSkinnedDocument();
-        AddSyntheticRotationAnimation(document, "spin", skeletonIndex: 0, boneIndex: 1);
+        AddSyntheticRotationAnimation(document, "spin", 0, 1);
 
         var result = ModelExportService.Export(
             document,
@@ -111,7 +111,7 @@ public sealed class ModelExportServiceSkinningTests
     public void BlendManifest_EmitsAnimationChannelsAndBuffers()
     {
         var document = CreateTwoBoneSkinnedDocument();
-        AddSyntheticRotationAnimation(document, "spin", skeletonIndex: 0, boneIndex: 1);
+        AddSyntheticRotationAnimation(document, "spin", 0, 1);
 
         using var ms = new MemoryStream();
         BlendPackageWriter.Write(document, ms, "synthetic.blend");
@@ -374,14 +374,14 @@ public sealed class ModelExportServiceSkinningTests
     {
         using var stream = File.OpenRead(path);
         using var reader = new BinaryReader(stream);
-        reader.ReadUInt32();           // magic
-        reader.ReadUInt32();           // version
-        reader.ReadUInt32();           // length
+        reader.ReadUInt32(); // magic
+        reader.ReadUInt32(); // version
+        reader.ReadUInt32(); // length
         var jsonLen = reader.ReadUInt32();
-        reader.ReadUInt32();           // chunk type (JSON)
+        reader.ReadUInt32(); // chunk type (JSON)
         var jsonBytes = reader.ReadBytes((int)jsonLen);
         var binLen = reader.ReadUInt32();
-        reader.ReadUInt32();           // chunk type (BIN)
+        reader.ReadUInt32(); // chunk type (BIN)
         var binBytes = reader.ReadBytes((int)binLen);
         return (jsonBytes, binBytes);
     }
@@ -403,7 +403,7 @@ public sealed class ModelExportServiceSkinningTests
             try
             {
                 if (Directory.Exists(Path))
-                    Directory.Delete(Path, recursive: true);
+                    Directory.Delete(Path, true);
             }
             catch
             {

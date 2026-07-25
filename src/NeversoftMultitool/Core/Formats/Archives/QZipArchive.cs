@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text;
 
 namespace NeversoftMultitool.Core.Formats.Archives;
 
@@ -66,7 +67,7 @@ public static class QZipArchive
                 throw new InvalidDataException($"Unsupported zip compression method {method} (only STORE/DEFLATE)");
 
             var nameBytes = reader.ReadBytes(nameLength);
-            var name = System.Text.Encoding.UTF8.GetString(nameBytes).Replace('\\', '/').TrimStart('/');
+            var name = Encoding.UTF8.GetString(nameBytes).Replace('\\', '/').TrimStart('/');
             stream.Position += extraLength;
 
             var dataOffset = stream.Position;

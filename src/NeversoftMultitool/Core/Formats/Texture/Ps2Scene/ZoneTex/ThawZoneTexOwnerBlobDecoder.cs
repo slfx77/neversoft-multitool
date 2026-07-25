@@ -97,7 +97,7 @@ internal static class ThawZoneTexOwnerBlobDecoder
             var sec = BitConverter.ToInt32(data[(off + 4)..]);
             if (prim is < 0 or > 200) continue;
             if (sec is < 1 or > 5000) continue;
-            var expectedEndLong = (long)off + 0x10L + prim * 0x50L + sec * 0x40L;
+            var expectedEndLong = off + 0x10L + prim * 0x50L + sec * 0x40L;
             if (expectedEndLong > int.MaxValue) continue;
             var expectedEnd = (int)expectedEndLong;
             var ba = BitConverter.ToInt32(data[(off + 8)..]);
@@ -140,7 +140,7 @@ internal static class ThawZoneTexOwnerBlobDecoder
         if (qwc <= 0 || tagId != 6) // RET
             return false;
 
-        return (long)tableEnd + 0x10L + qwc * 0x10L == firstCntStart;
+        return tableEnd + 0x10L + qwc * 0x10L == firstCntStart;
     }
 
     /// <summary>

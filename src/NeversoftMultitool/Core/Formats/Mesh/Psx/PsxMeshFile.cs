@@ -9,6 +9,20 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 /// </summary>
 public sealed class PsxMeshFile
 {
+    /// <summary>
+    ///     Chunk tag <c>0x2A</c> — v1 hier/anim. Engine reads
+    ///     <c>numBones × 24</c> bytes per bone per frame directly as an
+    ///     <c>SMatrix</c> (3×3 s16 rotation + 3-vector s16 translation).
+    /// </summary>
+    public const uint HierChunkV1Tag = 0x2A;
+
+    /// <summary>
+    ///     Chunk tag <c>0x2C</c> — v2 hier/anim. Engine decompresses 6 per-bone
+    ///     streams (Rx, Ry, Rz, Tx, Ty, Tz) via <c>DecompressStream</c> into
+    ///     interleaved per-frame Euler+translation buffers.
+    /// </summary>
+    public const uint HierChunkV2Tag = 0x2C;
+
     public required ushort Version { get; init; }
     public PsxMeshFormatRevision FormatRevision { get; init; } = PsxMeshFormatRevision.Unknown;
     public required List<PsxMeshObject> Objects { get; init; }
@@ -206,7 +220,7 @@ public sealed class PsxMeshFile
             if (tag == 0xFFFFFFFFu) break;
             var size = BitConverter.ToUInt32(data, cursor + 4);
             var dataOffset = cursor + 8;
-            if (size > (uint)data.Length || dataOffset + (long)size > data.Length)
+            if (size > (uint)data.Length || dataOffset + size > data.Length)
                 return found;
 
             if (tag is HierChunkV1Tag or HierChunkV2Tag)
@@ -218,22 +232,9 @@ public sealed class PsxMeshFile
 
             cursor = dataOffset + (int)size;
         }
+
         return found;
     }
-
-    /// <summary>
-    ///     Chunk tag <c>0x2A</c> — v1 hier/anim. Engine reads
-    ///     <c>numBones × 24</c> bytes per bone per frame directly as an
-    ///     <c>SMatrix</c> (3×3 s16 rotation + 3-vector s16 translation).
-    /// </summary>
-    public const uint HierChunkV1Tag = 0x2A;
-
-    /// <summary>
-    ///     Chunk tag <c>0x2C</c> — v2 hier/anim. Engine decompresses 6 per-bone
-    ///     streams (Rx, Ry, Rz, Tx, Ty, Tz) via <c>DecompressStream</c> into
-    ///     interleaved per-frame Euler+translation buffers.
-    /// </summary>
-    public const uint HierChunkV2Tag = 0x2C;
 
     /// <summary>
     ///     Returns the byte offset immediately past the last mesh block in
@@ -307,7 +308,7 @@ public sealed class PsxMeshFile
                 PsxMeshSemantics.IsExactStitchedReference(vertex.Type)));
 
         if (header.HasHierarchy || !hasStitchedReferences
-            || header.Objects.Count != meshes.Count)
+                                || header.Objects.Count != meshes.Count)
         {
             return hasStitchedReferences;
         }
@@ -320,9 +321,9 @@ public sealed class PsxMeshFile
             if (attachment.MeshIndex >= header.Objects.Count) continue;
             attachment.ObjectIndex = attachment.MeshIndex;
             attachment.WorldPosition = attachment.LocalPosition +
-                PsxMeshSemantics.GetObjectOffset(
-                    header.Objects[attachment.MeshIndex],
-                    header.TranslationDivisor);
+                                       PsxMeshSemantics.GetObjectOffset(
+                                           header.Objects[attachment.MeshIndex],
+                                           header.TranslationDivisor);
         }
 
         return true;

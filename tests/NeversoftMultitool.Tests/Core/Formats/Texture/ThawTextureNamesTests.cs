@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.Formats.Texture;
+using NeversoftMultitool.Core.QbKey;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Texture;
 
@@ -26,7 +27,7 @@ public class ThawTextureNamesTests
     {
         // The texture side map is deliberately distinct from the QbKey dictionaries:
         // the checksum is not the hash of the resolved name in either CRC variant.
-        Assert.NotEqual(0x5A11D8F1u, NeversoftMultitool.Core.QbKey.QbKey.Hash("cat_bg_new"));
-        Assert.NotEqual(0x5A11D8F1u, NeversoftMultitool.Core.QbKey.QbKey.HashLower("cat_bg_new"));
+        Assert.NotEqual(0x5A11D8F1u, QbKey.Hash("cat_bg_new"));
+        Assert.NotEqual(0x5A11D8F1u, QbKey.HashLower("cat_bg_new"));
     }
 }

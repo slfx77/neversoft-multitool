@@ -1,4 +1,3 @@
-using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -151,7 +150,8 @@ internal static class GsDumpAuditResolvers
         if (!ZoneTextureCatalog.TryBuild(texturePath, out var catalog) || catalog == null)
             return null;
 
-        return new GsDumpAuditRunner.GsTextureContext(catalog.CreateTextureResolver(), catalog.CreateDebugTex0Resolver(texturePath));
+        return new GsDumpAuditRunner.GsTextureContext(catalog.CreateTextureResolver(),
+            catalog.CreateDebugTex0Resolver(texturePath));
     }
 
     internal static Dictionary<string, long> BuildPacketTypeCounts(GsDumpFile dump)

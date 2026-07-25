@@ -16,12 +16,21 @@ namespace NeversoftMultitool;
 /// </summary>
 public sealed partial class MeshConverterTab : UserControl, IDisposable
 {
+    // ─── Blender availability (drives the Blend export controls) ─────────
+
+    private const string BlenderMissingTooltip =
+        "Blender installation not found. Please install Blender 3.2+ to enable " +
+        "Blender exporting. If Blender is installed, please indicate the install " +
+        "location in the Settings pane.";
+
     private readonly MeshConverterTabAnimationExporter _animExporter;
     private readonly MeshConverterTabAnimationPanel _animPanel;
     private readonly MeshConverterTabBatchRunner _batchRunner;
     private readonly ObservableCollection<MeshFileEntry> _items = [];
+
     private readonly Dictionary<string, bool> _visibilityOverrides =
         new(StringComparer.Ordinal);
+
     private bool _blendExportAvailable = true;
     private MeshConverterTabPreview? _preview;
     private CancellationTokenSource? _scanCts;
@@ -781,13 +790,6 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         _animExporter.Cancel();
         MainWindow.Instance?.SetStatus("Operation cancelled");
     }
-
-    // ─── Blender availability (drives the Blend export controls) ─────────
-
-    private const string BlenderMissingTooltip =
-        "Blender installation not found. Please install Blender 3.2+ to enable " +
-        "Blender exporting. If Blender is installed, please indicate the install " +
-        "location in the Settings pane.";
 
     /// <summary>
     ///     Enables/disables both Blend export controls based on whether

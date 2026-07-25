@@ -124,7 +124,8 @@ internal static class MeshConverterTabFileScanner
 
         Parallel.ForEach(buckets.PakSceneFiles, parallelOptions, file =>
         {
-            AddIfNotNull(results, ScanPs2SceneFile(new FileSystemAssetSource(file), file, inputDir, buckets.IskinStems));
+            AddIfNotNull(results,
+                ScanPs2SceneFile(new FileSystemAssetSource(file), file, inputDir, buckets.IskinStems));
             Report();
         });
 
@@ -323,9 +324,6 @@ internal static class MeshConverterTabFileScanner
 
         return (workItems, iskinStems);
     }
-
-    private sealed record ArchiveScanItem(
-        ArchiveAssetBackend Backend, ArchiveEntry Entry, bool IsWorldzoneProbe);
 
     /// <summary>
     ///     True when the entry name matches any suffix <see cref="TryScanEntry" />
@@ -865,6 +863,11 @@ internal static class MeshConverterTabFileScanner
             return null;
         }
     }
+
+    private sealed record ArchiveScanItem(
+        ArchiveAssetBackend Backend,
+        ArchiveEntry Entry,
+        bool IsWorldzoneProbe);
 
     private sealed class MeshScanFileBuckets
     {

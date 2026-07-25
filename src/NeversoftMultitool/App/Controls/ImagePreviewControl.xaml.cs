@@ -30,8 +30,8 @@ public sealed partial class ImagePreviewControl : UserControl
     private double _dragStartV;
     private bool _rescalePending;
     private WriteableBitmap? _scaledBitmap;
-    private WriteableBitmap? _scaledSourceOf;
     private int _scaledScale;
+    private WriteableBitmap? _scaledSourceOf;
 
     public ImagePreviewControl()
     {

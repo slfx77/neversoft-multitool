@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using NeversoftMultitool.Core.Formats.Vid1;
-using NeversoftMultitool.Tests.Helpers;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Vid1;
 
@@ -22,7 +21,7 @@ public sealed class Vid1SeekTests(TestPaths paths)
 
         Assert.True(Vid1VideoFile.TryParse(vidPath!, out var file, out var error), error);
 
-        var provider = new Vid1BgraPresentationFrameProvider(file!, enableSeekAnchors: true);
+        var provider = new Vid1BgraPresentationFrameProvider(file!, true);
         var frameBytes = file!.Width * file.Height * 4;
         var buffer = new byte[frameBytes];
 
@@ -63,7 +62,7 @@ public sealed class Vid1SeekTests(TestPaths paths)
         const int linearFrames = Vid1SeekAnchorIndex.FirstCaptureEmissionOrdinal + 50;
         Assert.SkipWhen(file!.FrameCount <= linearFrames, "atvi.vid shorter than expected");
 
-        var provider = new Vid1BgraPresentationFrameProvider(file, enableSeekAnchors: true);
+        var provider = new Vid1BgraPresentationFrameProvider(file, true);
         var buffer = new byte[file.Width * file.Height * 4];
 
         var linearHashes = new List<byte[]>(linearFrames);
@@ -96,7 +95,7 @@ public sealed class Vid1SeekTests(TestPaths paths)
 
         Assert.True(Vid1VideoFile.TryParse(vidPath!, out var file, out _));
 
-        var provider = new Vid1BgraPresentationFrameProvider(file!, enableSeekAnchors: true);
+        var provider = new Vid1BgraPresentationFrameProvider(file!, true);
         Assert.Equal(-1, provider.SeekToEmissionOrdinal(int.MaxValue));
     }
 }

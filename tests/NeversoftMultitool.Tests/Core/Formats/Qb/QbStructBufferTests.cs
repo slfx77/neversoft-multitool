@@ -1,3 +1,4 @@
+using System.Text;
 using NeversoftMultitool.Core.Formats.Qb;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Qb;
@@ -22,7 +23,7 @@ public class QbStructBufferTests
                 case ushort s: w.Write(s); break;
                 case float f: w.Write(f); break;
                 case string str:
-                    w.Write(System.Text.Encoding.Latin1.GetBytes(str));
+                    w.Write(Encoding.Latin1.GetBytes(str));
                     w.Write((byte)0);
                     break;
                 default: throw new InvalidOperationException();

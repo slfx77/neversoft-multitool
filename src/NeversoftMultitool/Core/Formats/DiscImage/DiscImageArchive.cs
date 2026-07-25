@@ -17,6 +17,7 @@ public static class DiscImageArchive
     private const int SectorSize = 2048;
     private const int XaSectorSize = 2336;
     private const int RawSectorSize = 2352;
+
     private static readonly byte[] SyncPattern =
         [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00];
 
@@ -159,23 +160,67 @@ public static class DiscImageArchive
         return head.SequenceEqual(SyncPattern);
     }
 
+    /// <summary>CD-DA: raw 2352-byte sectors are 44.1 kHz 16-bit LE stereo PCM.</summary>
+    private static void ExtractAudioTrack(
+        DiscTrackRegion region,
+        string outputPath,
+        CancellationToken cancellationToken)
+    {
+        using var input = new FileStream(region.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        input.Position = region.FileByteOffset;
+
+        var dataBytes = region.SectorCountValue * region.PhysicalSectorSize;
+        using var output = File.Create(outputPath);
+        WriteWavHeader(output, dataBytes);
+
+        var buffer = new byte[64 * 1024];
+        var remaining = dataBytes;
+        while (remaining > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var chunk = (int)Math.Min(buffer.Length, remaining);
+            input.ReadExactly(buffer.AsSpan(0, chunk));
+            output.Write(buffer, 0, chunk);
+            remaining -= chunk;
+        }
+    }
+
+    private static void WriteWavHeader(Stream output, long dataBytes)
+    {
+        Span<byte> header = stackalloc byte[44];
+        "RIFF"u8.CopyTo(header);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[4..], (uint)(36 + dataBytes));
+        "WAVE"u8.CopyTo(header[8..]);
+        "fmt "u8.CopyTo(header[12..]);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[16..], 16);
+        BinaryPrimitives.WriteUInt16LittleEndian(header[20..], 1); // PCM
+        BinaryPrimitives.WriteUInt16LittleEndian(header[22..], 2); // stereo
+        BinaryPrimitives.WriteUInt32LittleEndian(header[24..], 44100);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[28..], 44100 * 4);
+        BinaryPrimitives.WriteUInt16LittleEndian(header[32..], 4);
+        BinaryPrimitives.WriteUInt16LittleEndian(header[34..], 16);
+        "data"u8.CopyTo(header[36..]);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[40..], (uint)dataBytes);
+        output.Write(header);
+    }
+
     // ─── Opened-disc state ────────────────────────────────────────────────
 
     private sealed class OpenedDisc : IDisposable
     {
-        private enum DiscKind
-        {
-            Iso9660,
-            Xdvdfs,
-            Gcm
-        }
+        private Stream? _gcmStream;
 
         private DiscKind _kind;
-        private Stream? _gcmStream;
         private IDiscSectorSource? _source;
 
         public List<DiscFileEntry> Files { get; private set; } = [];
         public List<(int Number, DiscTrackRegion Region)> AudioTracks { get; } = [];
+
+        public void Dispose()
+        {
+            _source?.Dispose();
+            _gcmStream?.Dispose();
+        }
 
         public static OpenedDisc Open(string path)
         {
@@ -351,54 +396,11 @@ public static class DiscImageArchive
             }
         }
 
-        public void Dispose()
+        private enum DiscKind
         {
-            _source?.Dispose();
-            _gcmStream?.Dispose();
+            Iso9660,
+            Xdvdfs,
+            Gcm
         }
-    }
-
-    /// <summary>CD-DA: raw 2352-byte sectors are 44.1 kHz 16-bit LE stereo PCM.</summary>
-    private static void ExtractAudioTrack(
-        DiscTrackRegion region,
-        string outputPath,
-        CancellationToken cancellationToken)
-    {
-        using var input = new FileStream(region.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        input.Position = region.FileByteOffset;
-
-        var dataBytes = region.SectorCountValue * region.PhysicalSectorSize;
-        using var output = File.Create(outputPath);
-        WriteWavHeader(output, dataBytes);
-
-        var buffer = new byte[64 * 1024];
-        var remaining = dataBytes;
-        while (remaining > 0)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var chunk = (int)Math.Min(buffer.Length, remaining);
-            input.ReadExactly(buffer.AsSpan(0, chunk));
-            output.Write(buffer, 0, chunk);
-            remaining -= chunk;
-        }
-    }
-
-    private static void WriteWavHeader(Stream output, long dataBytes)
-    {
-        Span<byte> header = stackalloc byte[44];
-        "RIFF"u8.CopyTo(header);
-        BinaryPrimitives.WriteUInt32LittleEndian(header[4..], (uint)(36 + dataBytes));
-        "WAVE"u8.CopyTo(header[8..]);
-        "fmt "u8.CopyTo(header[12..]);
-        BinaryPrimitives.WriteUInt32LittleEndian(header[16..], 16);
-        BinaryPrimitives.WriteUInt16LittleEndian(header[20..], 1);       // PCM
-        BinaryPrimitives.WriteUInt16LittleEndian(header[22..], 2);       // stereo
-        BinaryPrimitives.WriteUInt32LittleEndian(header[24..], 44100);
-        BinaryPrimitives.WriteUInt32LittleEndian(header[28..], 44100 * 4);
-        BinaryPrimitives.WriteUInt16LittleEndian(header[32..], 4);
-        BinaryPrimitives.WriteUInt16LittleEndian(header[34..], 16);
-        "data"u8.CopyTo(header[36..]);
-        BinaryPrimitives.WriteUInt32LittleEndian(header[40..], (uint)dataBytes);
-        output.Write(header);
     }
 }

@@ -4,7 +4,6 @@ using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
-
 using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene.Ps2Scene;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
@@ -26,13 +25,13 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
                 new Ps2GeomLeaf
                 {
                     Checksum = 0x01020304,
-                    Vertices = TriangleStrip(alpha: 64),
+                    Vertices = TriangleStrip(64),
                     DmaAlpha1 = FixedSourceAlpha77
                 }
             ]
         };
 
-        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, textureProvider: null, tex0Resolver: null);
+        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, null, null);
 
         var material = Assert.Single(document.Materials);
         Assert.Equal(ModelAlphaMode.Blend, material.AlphaMode);
@@ -53,13 +52,13 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
                 new Ps2GeomLeaf
                 {
                     Checksum = 0x01020304,
-                    Vertices = TriangleStrip(alpha: 64),
+                    Vertices = TriangleStrip(64),
                     DmaAlpha1 = 0x44
                 }
             ]
         };
 
-        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, textureProvider: null, tex0Resolver: null);
+        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, null, null);
 
         var material = Assert.Single(document.Materials);
         Assert.Equal(ModelAlphaMode.Blend, material.AlphaMode);
@@ -80,13 +79,13 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
                 {
                     Checksum = 0x01020304,
                     TextureChecksum = MaterialChecksum,
-                    Vertices = TriangleStrip(alpha: 128),
+                    Vertices = TriangleStrip(128),
                     DmaAlpha1 = 0x44
                 }
             ]
         };
 
-        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, OpaqueTextureProvider, tex0Resolver: null);
+        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, OpaqueTextureProvider, null);
 
         var material = Assert.Single(document.Materials);
         Assert.Equal(ModelAlphaMode.Opaque, material.AlphaMode);
@@ -104,14 +103,14 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
                 {
                     Checksum = 0x01020304,
                     TextureChecksum = MaterialChecksum,
-                    Vertices = TriangleStrip(alpha: 128),
+                    Vertices = TriangleStrip(128),
                     DmaAlpha1 = 0x44,
                     DmaTest1 = AlphaTestGequalOne
                 }
             ]
         };
 
-        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, OpaqueTextureProvider, tex0Resolver: null);
+        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, OpaqueTextureProvider, null);
 
         var material = Assert.Single(document.Materials);
         Assert.Equal(ModelAlphaMode.Mask, material.AlphaMode);
@@ -122,7 +121,8 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
     [Fact]
     public void PopulatePs2Geom_SourceAlphaBlendWithTranslucentVertexAlpha_StaysBlend()
     {
-        var document = new ModelDocument { Name = "translucent_source_alpha_geom", SourceKind = ModelSourceKind.Ps2Geom };
+        var document = new ModelDocument
+            { Name = "translucent_source_alpha_geom", SourceKind = ModelSourceKind.Ps2Geom };
         var scene = new Ps2GeomScene
         {
             Leaves =
@@ -131,13 +131,13 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
                 {
                     Checksum = 0x01020304,
                     TextureChecksum = MaterialChecksum,
-                    Vertices = TriangleStrip(alpha: 64),
+                    Vertices = TriangleStrip(64),
                     DmaAlpha1 = 0x44
                 }
             ]
         };
 
-        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, OpaqueTextureProvider, tex0Resolver: null);
+        Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, OpaqueTextureProvider, null);
 
         var material = Assert.Single(document.Materials);
         Assert.Equal(ModelAlphaMode.Blend, material.AlphaMode);
@@ -173,14 +173,14 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
                         {
                             Checksum = 0x22222222,
                             MaterialChecksum = MaterialChecksum,
-                            Vertices = TriangleStrip(alpha: 64)
+                            Vertices = TriangleStrip(64)
                         }
                     ]
                 }
             ]
         };
 
-        Ps2SceneGeometryWriter.PopulatePs2Scene(document, scene, textureProvider: null);
+        Ps2SceneGeometryWriter.PopulatePs2Scene(document, scene, null);
 
         var material = Assert.Single(document.Materials);
         Assert.Equal(ModelAlphaMode.Blend, material.AlphaMode);
@@ -190,16 +190,20 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
         Assert.All(primitive.Vertices, vertex => Assert.Equal(1f, vertex.Color.W));
     }
 
-    private static Ps2Vertex[] TriangleStrip(byte alpha) =>
-    [
-        MakeVertex(0f, 0f, alpha),
-        MakeVertex(1f, 0f, alpha),
-        MakeVertex(0f, 1f, alpha),
-        MakeVertex(1f, 1f, alpha)
-    ];
+    private static Ps2Vertex[] TriangleStrip(byte alpha)
+    {
+        return
+        [
+            MakeVertex(0f, 0f, alpha),
+            MakeVertex(1f, 0f, alpha),
+            MakeVertex(0f, 1f, alpha),
+            MakeVertex(1f, 1f, alpha)
+        ];
+    }
 
-    private static Ps2Vertex MakeVertex(float x, float y, byte alpha) =>
-        new(
+    private static Ps2Vertex MakeVertex(float x, float y, byte alpha)
+    {
+        return new Ps2Vertex(
             new Vector3(x, y, 0f),
             Vector3.UnitZ,
             128,
@@ -212,9 +216,12 @@ public sealed class ModelDocumentGeometryAdapterPs2AlphaTests
             true,
             true,
             false);
+    }
 
-    private static byte[]? OpaqueTextureProvider(uint checksum) =>
-        checksum == MaterialChecksum ? CreatePngBytes(new Rgba32(64, 96, 128, 255)) : null;
+    private static byte[]? OpaqueTextureProvider(uint checksum)
+    {
+        return checksum == MaterialChecksum ? CreatePngBytes(new Rgba32(64, 96, 128, 255)) : null;
+    }
 
     private static byte[] CreatePngBytes(Rgba32 color)
     {

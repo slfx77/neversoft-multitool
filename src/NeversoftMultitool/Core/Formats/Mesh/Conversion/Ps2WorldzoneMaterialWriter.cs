@@ -1,19 +1,4 @@
-using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
-using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene.Ps2Scene;
-using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
-using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
-using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -23,16 +8,6 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 /// </summary>
 internal static class Ps2WorldzoneMaterialWriter
 {
-    internal readonly record struct Ps2WorldzoneMaterialKey(
-        uint TextureChecksum,
-        ulong Clamp,
-        ulong Alpha,
-        ulong Test,
-        ulong Texa,
-        uint GroupChecksum,
-        bool IsBillboard,
-        string AlphaMode);
-
     internal static bool ShouldSkipRedundantWorldzoneBlendLayer(
         Ps2GeomLeaf leaf,
         uint textureChecksum,
@@ -154,4 +129,14 @@ internal static class Ps2WorldzoneMaterialWriter
             return null;
         return (checksum, _) => textureProvider(checksum);
     }
+
+    internal readonly record struct Ps2WorldzoneMaterialKey(
+        uint TextureChecksum,
+        ulong Clamp,
+        ulong Alpha,
+        ulong Test,
+        ulong Texa,
+        uint GroupChecksum,
+        bool IsBillboard,
+        string AlphaMode);
 }

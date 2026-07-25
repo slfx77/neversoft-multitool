@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Globalization;
 using NeversoftMultitool.Core.Formats.GsDump;
+using NeversoftMultitool.Core.Formats.Texture.Ps2;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -68,12 +69,12 @@ public sealed class GsDumpAuditTests
     [Fact]
     public void GifInterpreter_DecodesPackedReglistImageAndAdWrites()
     {
-        var tex0 = MakeTex0(widthPow: 1, heightPow: 1);
+        var tex0 = MakeTex0(1, 1);
         var gif = Concat(
             AdTag(
                 (0x06, tex0),
                 (0x45, 1),
-                (0x50, MakeBitbltbuf(dbp: 0, dbw: 1, dpsm: 0)),
+                (0x50, MakeBitbltbuf(0, 1, 0)),
                 (0x52, MakeTrxreg(2, 2)),
                 (0x53, 0)),
             ImageTag(Fill(16, 0x7F)),
@@ -85,10 +86,10 @@ public sealed class GsDumpAuditTests
                 Xyz(1, 1),
                 Xyz(2, 2)),
             PackedTag(
-                nloop: 3,
-                nreg: 2,
-                regs: MakeRegs(0x01, 0x04),
-                prim: PrimTriangle,
+                3,
+                2,
+                MakeRegs(0x01, 0x04),
+                PrimTriangle,
                 Rgbaq(128, 0, 0, 128),
                 PackedXyz(2, 2),
                 Rgbaq(0, 128, 0, 128),
@@ -120,7 +121,7 @@ public sealed class GsDumpAuditTests
     {
         var gif = Concat(
             AdTag(
-                (0x50, MakeBitbltbuf(dbp: 0, dbw: 1, dpsm: 0)),
+                (0x50, MakeBitbltbuf(0, 1, 0)),
                 (0x52, MakeTrxreg(4, 4)),
                 (0x53, 0)),
             ImageTag(Fill(16, 0x11)),
@@ -140,15 +141,15 @@ public sealed class GsDumpAuditTests
     [Fact]
     public void GifInterpreter_UsesTex0FromSelectedContext()
     {
-        var tex0Context2 = MakeTex0(widthPow: 1, heightPow: 1, psm: 0x0A, tbp: 12);
+        var tex0Context2 = MakeTex0(1, 1, 0x0A, 12);
         var primSpriteContext2 = PrimSpriteTextureFst | (1UL << 9);
         var gif = Concat(
             AdTag((0x07, tex0Context2)),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x03, 0x04),
-                prim: primSpriteContext2,
+                2,
+                2,
+                MakeRegs(0x03, 0x04),
+                primSpriteContext2,
                 PackedUv(0, 0),
                 PackedXyz(0, 0),
                 PackedUv(32, 32),
@@ -202,10 +203,10 @@ public sealed class GsDumpAuditTests
         var gif = Concat(
             AdTag((0x4C, MakeFrame(fbw: 1, psm: 0))),
             PackedTag(
-                nloop: 1,
-                nreg: 2,
-                regs: MakeRegs(0x01, 0x04),
-                prim: 0,
+                1,
+                2,
+                MakeRegs(0x01, 0x04),
+                0,
                 Rgbaq(128, 0, 0, 128),
                 PackedXyz(4, 4)));
         var dump = GsDumpFile.Parse(BuildRawDump(new TransferPacket(3, gif)));
@@ -226,8 +227,8 @@ public sealed class GsDumpAuditTests
     {
         var gif = Concat(
             AdTag((0x4C, MakeFrame(fbw: 1, psm: 0))),
-            TriangleAtZ(128, 0, 0, z: 10),
-            TriangleAtZ(0, 0, 128, z: 1));
+            TriangleAtZ(128, 0, 0, 10),
+            TriangleAtZ(0, 0, 128, 1));
         var dump = GsDumpFile.Parse(BuildRawDump(new TransferPacket(3, gif)));
 
         var result = GsGifInterpreter.Interpret(dump, new GsGifInterpretOptions { Width = 16, Height = 16 });
@@ -244,7 +245,7 @@ public sealed class GsDumpAuditTests
         var gif = Concat(
             AdTag(
                 (0x4C, MakeFrame(fbw: 1, psm: 0)),
-                (0x40, MakeScissor(x0: 0, x1: 3, y0: 0, y1: 3))),
+                (0x40, MakeScissor(0, 3, 0, 3))),
             SimpleTriangle(128, 128, 128));
         var dump = GsDumpFile.Parse(BuildRawDump(new TransferPacket(3, gif)));
 
@@ -257,17 +258,17 @@ public sealed class GsDumpAuditTests
     [Fact]
     public void Renderer_AppliesAlphaTestForTexturedSprite()
     {
-        var tex0 = MakeTex0(widthPow: 1, heightPow: 1, psm: 0x0A, tcc: 1);
+        var tex0 = MakeTex0(1, 1, 0x0A, tcc: 1);
         var gif = Concat(
             AdTag(
                 (0x4C, MakeFrame(fbw: 1, psm: 0)),
                 (0x06, tex0),
                 (0x47, MakeAlphaTestGreaterOrEqual(1))),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x03, 0x04),
-                prim: PrimSpriteTextureFst,
+                2,
+                2,
+                MakeRegs(0x03, 0x04),
+                PrimSpriteTextureFst,
                 PackedUv(0, 0),
                 PackedXyz(0, 0),
                 PackedUv(32, 32),
@@ -301,18 +302,18 @@ public sealed class GsDumpAuditTests
     {
         // DECAL (TFX=1) outputs the texel directly; vertex color must not modulate it.
         // Use a distinctly non-128 vertex color so a stale MODULATE path would visibly skew RGB.
-        var tex0 = MakeTex0(widthPow: 1, heightPow: 1, psm: 0x0A, tcc: 1, tfx: 1);
+        var tex0 = MakeTex0(1, 1, 0x0A, tcc: 1, tfx: 1);
         var gif = Concat(
             // FRAME at FBP=1 (block 32) keeps the render target clear of TEX0.TBP=0 —
             // aliasing them turns the draw into framebuffer feedback sampling its own output.
             AdTag(
-                (0x4C, MakeFrame(fbp: 1, fbw: 1, psm: 0)),
+                (0x4C, MakeFrame(1, 1, 0)),
                 (0x06, tex0)),
             PackedTag(
-                nloop: 2,
-                nreg: 3,
-                regs: MakeRegs(0x01, 0x03, 0x04),
-                prim: PrimSpriteTextureFst,
+                2,
+                3,
+                MakeRegs(0x01, 0x03, 0x04),
+                PrimSpriteTextureFst,
                 Rgbaq(255, 0, 0, 255),
                 PackedUv(0, 0),
                 PackedXyz(0, 0),
@@ -350,18 +351,18 @@ public sealed class GsDumpAuditTests
     {
         // HIGHLIGHT (TFX=2): Cout = Tc*Cv/128 + Av. With Tc=64 and Cv=128 the modulate term is 64,
         // and Av=64 makes the expected output 128 per channel.
-        var tex0 = MakeTex0(widthPow: 1, heightPow: 1, psm: 0x0A, tcc: 0, tfx: 2);
+        var tex0 = MakeTex0(1, 1, 0x0A, tcc: 0, tfx: 2);
         var gif = Concat(
             // FRAME at FBP=1 (block 32) keeps the render target clear of TEX0.TBP=0 —
             // aliasing them turns the draw into framebuffer feedback sampling its own output.
             AdTag(
-                (0x4C, MakeFrame(fbp: 1, fbw: 1, psm: 0)),
+                (0x4C, MakeFrame(1, 1, 0)),
                 (0x06, tex0)),
             PackedTag(
-                nloop: 2,
-                nreg: 3,
-                regs: MakeRegs(0x01, 0x03, 0x04),
-                prim: PrimSpriteTextureFst,
+                2,
+                3,
+                MakeRegs(0x01, 0x03, 0x04),
+                PrimSpriteTextureFst,
                 Rgbaq(128, 128, 128, 64),
                 PackedUv(0, 0),
                 PackedXyz(0, 0),
@@ -401,24 +402,24 @@ public sealed class GsDumpAuditTests
         // With MMOD=0 and ALP=128 the constant blend factor is ~0.502, so the
         // final pixel should be roughly 128 * 0.502 == 64 in the red channel.
         var gif = Concat(
-            AdTag((0x4C, MakeFrame(fbp: 0, fbw: 1, psm: 0))),
+            AdTag((0x4C, MakeFrame(0, 1, 0))),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x01, 0x04),
-                prim: PrimSprite,
+                2,
+                2,
+                MakeRegs(0x01, 0x04),
+                PrimSprite,
                 Rgbaq(128, 0, 0, 128),
                 PackedXyz(0, 0),
                 Rgbaq(128, 0, 0, 128),
                 PackedXyz(10, 10)));
 
         var registers = BuildRegistersPacket(
-            pmode: MakePmode(en1: true, en2: true, mmod: false, slbg: false, alp: 128),
-            dispfb1: MakeDispfb(fbpField: 0, fbw: 1, psm: 0),
-            display1: MakeDisplay(10, 10),
-            dispfb2: MakeDispfb(fbpField: 11392 >> 5, fbw: 1, psm: 0x0A),
-            display2: MakeDisplay(10, 10),
-            bgcolor: 0x00FF0000UL);
+            MakePmode(true, true, false, false, 128),
+            MakeDispfb(0, 1, 0),
+            MakeDisplay(10, 10),
+            MakeDispfb(11392 >> 5, 1, 0x0A),
+            MakeDisplay(10, 10),
+            0x00FF0000UL);
 
         var dump = GsDumpFile.Parse(BuildRawDumpWithRegisters(registers, new TransferPacket(3, gif)));
         var result = GsGifInterpreter.Interpret(dump, new GsGifInterpretOptions { Width = 10, Height = 10 });
@@ -443,21 +444,21 @@ public sealed class GsDumpAuditTests
         // 50% (ALP=128). Output should be ~half-red + ~half-blue, regardless of
         // what circuit 2 holds.
         var gif = Concat(
-            AdTag((0x4C, MakeFrame(fbp: 0, fbw: 1, psm: 0))),
+            AdTag((0x4C, MakeFrame(0, 1, 0))),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x01, 0x04),
-                prim: PrimSprite,
+                2,
+                2,
+                MakeRegs(0x01, 0x04),
+                PrimSprite,
                 Rgbaq(128, 0, 0, 128),
                 PackedXyz(0, 0),
                 Rgbaq(128, 0, 0, 128),
                 PackedXyz(10, 10)));
 
         var registers = BuildRegistersPacket(
-            pmode: MakePmode(en1: true, en2: false, mmod: false, slbg: true, alp: 128),
-            dispfb1: MakeDispfb(fbpField: 0, fbw: 1, psm: 0),
-            display1: MakeDisplay(10, 10),
+            MakePmode(true, false, false, true, 128),
+            MakeDispfb(0, 1, 0),
+            MakeDisplay(10, 10),
             bgcolor: 0x00FF0000UL);
 
         var dump = GsDumpFile.Parse(BuildRawDumpWithRegisters(registers, new TransferPacket(3, gif)));
@@ -477,21 +478,21 @@ public sealed class GsDumpAuditTests
         // pass should copy circuit 1 directly without any alpha blending so
         // bright HUD/text isn't dimmed by a stray constant ALP.
         var gif = Concat(
-            AdTag((0x4C, MakeFrame(fbp: 0, fbw: 1, psm: 0))),
+            AdTag((0x4C, MakeFrame(0, 1, 0))),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x01, 0x04),
-                prim: PrimSprite,
+                2,
+                2,
+                MakeRegs(0x01, 0x04),
+                PrimSprite,
                 Rgbaq(128, 0, 0, 128),
                 PackedXyz(0, 0),
                 Rgbaq(128, 0, 0, 128),
                 PackedXyz(10, 10)));
 
         var registers = BuildRegistersPacket(
-            pmode: MakePmode(en1: true, en2: false, mmod: false, slbg: false, alp: 128),
-            dispfb1: MakeDispfb(fbpField: 0, fbw: 1, psm: 0),
-            display1: MakeDisplay(10, 10));
+            MakePmode(true, false, false, false, 128),
+            MakeDispfb(0, 1, 0),
+            MakeDisplay(10, 10));
 
         var dump = GsDumpFile.Parse(BuildRawDumpWithRegisters(registers, new TransferPacket(3, gif)));
         var result = GsGifInterpreter.Interpret(dump, new GsGifInterpretOptions { Width = 10, Height = 10 });
@@ -505,14 +506,14 @@ public sealed class GsDumpAuditTests
     [Fact]
     public void Renderer_CountsPerspectiveStqTexturePixels()
     {
-        var tex0 = MakeTex0(widthPow: 1, heightPow: 1, psm: 0x0A);
+        var tex0 = MakeTex0(1, 1, 0x0A);
         var gif = Concat(
             AdTag((0x06, tex0)),
             PackedTag(
-                nloop: 3,
-                nreg: 2,
-                regs: MakeRegs(0x02, 0x04),
-                prim: PrimTriangleTextureStq,
+                3,
+                2,
+                MakeRegs(0x02, 0x04),
+                PrimTriangleTextureStq,
                 PackedSt(0.0f, 0.0f, 1.0f),
                 PackedXyz(2, 2),
                 PackedSt(2.0f, 0.0f, 2.0f),
@@ -566,28 +567,28 @@ public sealed class GsDumpAuditTests
         const uint zbpPage = 4;
         const uint tbpBlock = zbpPage * 32;
         // Wire format: only the low nibble of PSM at bits 24..27. 0x1 means PSMZ24.
-        var zbufWireFormat = (ulong)zbpPage | (0x1UL << 24);
-        var tex0PsmZ24 = MakeTex0(widthPow: 2, heightPow: 2, psm: 0x31, tbp: tbpBlock, tcc: 0, tfx: 1);
+        var zbufWireFormat = zbpPage | (0x1UL << 24);
+        var tex0PsmZ24 = MakeTex0(2, 2, 0x31, tbpBlock, tcc: 0, tfx: 1);
 
         var gif = Concat(
             AdTag(
                 (0x4C, MakeFrame(fbw: 1, psm: 0)),
                 (0x4E, zbufWireFormat)),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x01, 0x04),
-                prim: PrimSprite,
+                2,
+                2,
+                MakeRegs(0x01, 0x04),
+                PrimSprite,
                 Rgbaq(128, 128, 128, 128),
                 PackedXyz(0, 0, 0x123456),
                 Rgbaq(128, 128, 128, 128),
                 PackedXyz(4, 4, 0x123456)),
             AdTag((0x06, tex0PsmZ24)),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x03, 0x04),
-                prim: PrimSpriteTextureFst,
+                2,
+                2,
+                MakeRegs(0x03, 0x04),
+                PrimSpriteTextureFst,
                 PackedUv(0, 0),
                 PackedXyz(8, 0),
                 PackedUv(64, 64),
@@ -619,8 +620,8 @@ public sealed class GsDumpAuditTests
         // ZBP is in 32-block PAGE units; TBP0 is in BLOCK units. ZBP=4 → BLOCK address 128.
         const uint zbpPage = 4;
         const uint tbpBlock = zbpPage * 32;
-        var zbufPsmz24NoMask = (ulong)zbpPage | (0x31UL << 24);
-        var tex0PsmZ24 = MakeTex0(widthPow: 2, heightPow: 2, psm: 0x31, tbp: tbpBlock, tcc: 0, tfx: 1);
+        var zbufPsmz24NoMask = zbpPage | (0x31UL << 24);
+        var tex0PsmZ24 = MakeTex0(2, 2, 0x31, tbpBlock, tcc: 0, tfx: 1);
 
         var gif = Concat(
             AdTag(
@@ -629,10 +630,10 @@ public sealed class GsDumpAuditTests
             // Draw 1: untextured sprite at (0,0)-(4,4) with Z=0x123456. Writes that Z to
             // VRAM at ZBP=128 in PSMZ24 (R=0x56, G=0x34, B=0x12, A masked).
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x01, 0x04),
-                prim: PrimSprite,
+                2,
+                2,
+                MakeRegs(0x01, 0x04),
+                PrimSprite,
                 Rgbaq(128, 128, 128, 128),
                 PackedXyz(0, 0, 0x123456),
                 Rgbaq(128, 128, 128, 128),
@@ -642,10 +643,10 @@ public sealed class GsDumpAuditTests
             // pixel must read back (0x56, 0x34, 0x12).
             AdTag((0x06, tex0PsmZ24)),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x03, 0x04),
-                prim: PrimSpriteTextureFst,
+                2,
+                2,
+                MakeRegs(0x03, 0x04),
+                PrimSpriteTextureFst,
                 PackedUv(0, 0),
                 PackedXyz(8, 0),
                 PackedUv(64, 64),
@@ -668,16 +669,16 @@ public sealed class GsDumpAuditTests
         // ~71k/frame on THAW dump 20260507234126). After the Z-buffer correctness sweep
         // adds PSMZ16/16S addressing they must persist to VRAM like PSMZ32/24.
         const uint zbpPage = 4;
-        var zbufWireFormat = (ulong)zbpPage | (0xAUL << 24); // 0xA = PSMZ16S low nibble.
+        var zbufWireFormat = zbpPage | (0xAUL << 24); // 0xA = PSMZ16S low nibble.
         var gif = Concat(
             AdTag(
                 (0x4C, MakeFrame(fbw: 1, psm: 0)),
                 (0x4E, zbufWireFormat)),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x01, 0x04),
-                prim: PrimSprite,
+                2,
+                2,
+                MakeRegs(0x01, 0x04),
+                PrimSprite,
                 Rgbaq(128, 128, 128, 128),
                 PackedXyz(0, 0, 0x123456),
                 Rgbaq(128, 128, 128, 128),
@@ -703,8 +704,8 @@ public sealed class GsDumpAuditTests
         // verifies the high-bit quantisation reproduces the encoded value.
         const uint zbpPage = 4;
         const uint tbpBlock = zbpPage * 32;
-        var zbufPsmz16SNoMask = (ulong)zbpPage | (0xAUL << 24);
-        var tex0PsmZ16S = MakeTex0(widthPow: 2, heightPow: 2, psm: 0x3A, tbp: tbpBlock, tcc: 0, tfx: 1);
+        var zbufPsmz16SNoMask = zbpPage | (0xAUL << 24);
+        var tex0PsmZ16S = MakeTex0(2, 2, 0x3A, tbpBlock, tcc: 0, tfx: 1);
 
         // Z value with interesting top 16 bits (0x789A → unpacks to non-zero 5-5-5-1
         // channels). PackedXyz takes int so we stay within the positive range.
@@ -714,20 +715,20 @@ public sealed class GsDumpAuditTests
                 (0x4C, MakeFrame(fbw: 1, psm: 0)),
                 (0x4E, zbufPsmz16SNoMask)),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x01, 0x04),
-                prim: PrimSprite,
+                2,
+                2,
+                MakeRegs(0x01, 0x04),
+                PrimSprite,
                 Rgbaq(128, 128, 128, 128),
                 PackedXyz(0, 0, zValue),
                 Rgbaq(128, 128, 128, 128),
                 PackedXyz(4, 4, zValue)),
             AdTag((0x06, tex0PsmZ16S)),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x03, 0x04),
-                prim: PrimSpriteTextureFst,
+                2,
+                2,
+                MakeRegs(0x03, 0x04),
+                PrimSpriteTextureFst,
                 PackedUv(0, 0),
                 PackedXyz(8, 0),
                 PackedUv(64, 64),
@@ -750,13 +751,13 @@ public sealed class GsDumpAuditTests
     [Fact]
     public void Renderer_TreatsPsmz32AsThirtyTwoBitTextureForAudit()
     {
-        var tex0 = MakeTex0(widthPow: 1, heightPow: 1, psm: 0x30);
+        var tex0 = MakeTex0(1, 1, 0x30);
         var gif = Concat(
             // FRAME at FBP=1 (block 32) keeps the render target clear of the texture
             // uploaded at DBP=0 — aliasing them turns the draw into framebuffer feedback.
             AdTag(
-                (0x4C, MakeFrame(fbp: 1, fbw: 1, psm: 0)),
-                (0x50, MakeBitbltbuf(dbp: 0, dbw: 1, dpsm: 0x30)),
+                (0x4C, MakeFrame(1, 1)),
+                (0x50, MakeBitbltbuf(0, 1, 0x30)),
                 (0x52, MakeTrxreg(2, 2)),
                 (0x53, 0),
                 (0x06, tex0)),
@@ -767,10 +768,10 @@ public sealed class GsDumpAuditTests
                 255, 0, 0, 128
             ]),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x03, 0x04),
-                prim: PrimSpriteTextureFst,
+                2,
+                2,
+                MakeRegs(0x03, 0x04),
+                PrimSpriteTextureFst,
                 PackedUv(0, 0),
                 PackedXyz(0, 0),
                 PackedUv(32, 32),
@@ -789,16 +790,16 @@ public sealed class GsDumpAuditTests
     [Fact]
     public void Renderer_ReportsBlendAndRegionClampCoverage()
     {
-        var tex0 = MakeTex0(widthPow: 1, heightPow: 1, psm: 0x0A);
+        var tex0 = MakeTex0(1, 1, 0x0A);
         var gif = Concat(
             AdTag(
                 (0x06, tex0),
-                (0x08, MakeClamp(wms: 2, wmt: 0))),
+                (0x08, MakeClamp(2, 0))),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x03, 0x04),
-                prim: PrimSpriteTextureFst | (1UL << 6),
+                2,
+                2,
+                MakeRegs(0x03, 0x04),
+                PrimSpriteTextureFst | (1UL << 6),
                 PackedUv(0, 0),
                 PackedXyz(0, 0),
                 PackedUv(64, 32),
@@ -812,7 +813,7 @@ public sealed class GsDumpAuditTests
                 Width = 10,
                 Height = 10,
                 TextureResolver = _ => new GsResolvedTexture(2, 2, Fill(16, 255))
-        });
+            });
 
         Assert.True(result.Render.Approximations["gs_alpha_blend_approximated"] > 0);
         Assert.False(result.Render.UnsupportedStates.ContainsKey("region_clamp_or_region_repeat"));
@@ -821,17 +822,17 @@ public sealed class GsDumpAuditTests
     [Fact]
     public void TextureDump_CropsToRegionClamp()
     {
-        var tex0 = MakeTex0(widthPow: 2, heightPow: 2);
+        var tex0 = MakeTex0(2, 2);
         var textureDumps = new List<GsRuntimeTextureDump>();
         var gif = Concat(
             AdTag(
                 (0x06, tex0),
-                (0x08, MakeClamp(wms: 2, wmt: 2, minU: 1, maxU: 2, minV: 1, maxV: 3))),
+                (0x08, MakeClamp(2, 2, 1, 2, 1, 3))),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x03, 0x04),
-                prim: PrimSpriteTextureFst,
+                2,
+                2,
+                MakeRegs(0x03, 0x04),
+                PrimSpriteTextureFst,
                 PackedUv(0, 0),
                 PackedXyz(0, 0),
                 PackedUv(64, 64),
@@ -865,7 +866,7 @@ public sealed class GsDumpAuditTests
     [Fact]
     public void TextureRgbMode_IgnoresTextureAlphaForRenderAndDumpPreview()
     {
-        var tex0 = MakeTex0(widthPow: 1, heightPow: 1, tcc: 0);
+        var tex0 = MakeTex0(1, 1, tcc: 0);
         var textureDumps = new List<GsRuntimeTextureDump>();
         var transparentRed = new byte[]
         {
@@ -878,13 +879,13 @@ public sealed class GsDumpAuditTests
             // FRAME at FBP=1 (block 32) keeps the render target clear of TEX0.TBP=0 —
             // aliasing them turns the draw into framebuffer feedback sampling its own output.
             AdTag(
-                (0x4C, MakeFrame(fbp: 1, fbw: 1, psm: 0)),
+                (0x4C, MakeFrame(1, 1)),
                 (0x06, tex0)),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x03, 0x04),
-                prim: PrimSpriteTextureFst,
+                2,
+                2,
+                MakeRegs(0x03, 0x04),
+                PrimSpriteTextureFst,
                 PackedUv(0, 0),
                 PackedXyz(0, 0),
                 PackedUv(32, 32),
@@ -914,15 +915,15 @@ public sealed class GsDumpAuditTests
     [Fact]
     public void TextureDump_LabelsFramebufferFeedbackSource()
     {
-        var tex0 = MakeTex0(widthPow: 1, heightPow: 1, tbp: 0, tbw: 1, psm: 0);
+        var tex0 = MakeTex0(1, 1, tbp: 0, tbw: 1, psm: 0);
         var textureDumps = new List<GsRuntimeTextureDump>();
         var gif = Concat(
-            AdTag((0x4C, MakeFrame(fbp: 0, fbw: 1, psm: 0))),
+            AdTag((0x4C, MakeFrame(0, 1))),
             PackedTag(
-                nloop: 3,
-                nreg: 2,
-                regs: MakeRegs(0x01, 0x04),
-                prim: PrimTriangle,
+                3,
+                2,
+                MakeRegs(0x01, 0x04),
+                PrimTriangle,
                 Rgbaq(255, 0, 0, 128),
                 PackedXyz(0, 0),
                 Rgbaq(255, 0, 0, 128),
@@ -931,10 +932,10 @@ public sealed class GsDumpAuditTests
                 PackedXyz(0, 8)),
             AdTag((0x06, tex0)),
             PackedTag(
-                nloop: 2,
-                nreg: 2,
-                regs: MakeRegs(0x03, 0x04),
-                prim: PrimSpriteTextureFst,
+                2,
+                2,
+                MakeRegs(0x03, 0x04),
+                PrimSpriteTextureFst,
                 PackedUv(0, 0),
                 PackedXyz(0, 0),
                 PackedUv(32, 32),
@@ -970,10 +971,10 @@ public sealed class GsDumpAuditTests
             var gsPath = Path.Combine(tempDir, "synthetic.gs");
             var pngPath = Path.Combine(tempDir, "synthetic.png");
             var outDir = Path.Combine(tempDir, "out");
-            var tex0 = MakeTex0(widthPow: 1, heightPow: 1);
+            var tex0 = MakeTex0(1, 1);
             var gif = Concat(
                 AdTag(
-                    (0x50, MakeBitbltbuf(dbp: 0, dbw: 1, dpsm: 0)),
+                    (0x50, MakeBitbltbuf(0, 1, 0)),
                     (0x52, MakeTrxreg(2, 2)),
                     (0x53, 0),
                     (0x06, tex0)),
@@ -984,10 +985,10 @@ public sealed class GsDumpAuditTests
                     255, 255, 0, 128
                 ]),
                 PackedTag(
-                    nloop: 2,
-                    nreg: 2,
-                    regs: MakeRegs(0x03, 0x04),
-                    prim: PrimSpriteTextureFst,
+                    2,
+                    2,
+                    MakeRegs(0x03, 0x04),
+                    PrimSpriteTextureFst,
                     PackedUv(0, 0),
                     PackedXyz(0, 0),
                     PackedUv(32, 32),
@@ -1032,8 +1033,8 @@ public sealed class GsDumpAuditTests
         Assert.True(dump.TryGetInitialGsMemory(out var memory),
             $"State version {dump.StateVersion} did not expose initial GS memory.");
 
-        var vram = new NeversoftMultitool.Core.Formats.Texture.Ps2.Ps2GsVram(
-            NeversoftMultitool.Core.Formats.Texture.Ps2.Ps2GifQwordWordOrder.Identity);
+        var vram = new Ps2GsVram(
+            Ps2GifQwordWordOrder.Identity);
         vram.WriteRawBytes(0, memory);
 
         // The seed audit (tools/diagnostics/gsdump_seed_audit.ps1) shows the file bytes at
@@ -1043,7 +1044,8 @@ public sealed class GsDumpAuditTests
         Assert.Equal(16 * 4 * 2, rgba.Length);
         var nonZeroBytes = 0;
         for (var i = 0; i < rgba.Length; i++)
-            if (rgba[i] != 0) nonZeroBytes++;
+            if (rgba[i] != 0)
+                nonZeroBytes++;
         var pixelsHex = string.Join(
             " ",
             rgba.Take(64).Select(b => b.ToString("X2", CultureInfo.InvariantCulture)));
@@ -1078,23 +1080,30 @@ public sealed class GsDumpAuditTests
         Assert.Equal(254, result.Gif.UniqueTex0Count);
     }
 
-    private static byte[] SimpleTriangle(byte r, byte g, byte b) => TriangleAtZ(r, g, b, z: 10);
+    private static byte[] SimpleTriangle(byte r, byte g, byte b)
+    {
+        return TriangleAtZ(r, g, b, 10);
+    }
 
-    private static byte[] TriangleAtZ(byte r, byte g, byte b, int z) =>
-        PackedTag(
-            nloop: 3,
-            nreg: 2,
-            regs: MakeRegs(0x01, 0x04),
-            prim: PrimTriangle,
+    private static byte[] TriangleAtZ(byte r, byte g, byte b, int z)
+    {
+        return PackedTag(
+            3,
+            2,
+            MakeRegs(0x01, 0x04),
+            PrimTriangle,
             Rgbaq(r, g, b, 128),
             PackedXyz(2, 2, z),
             Rgbaq(r, g, b, 128),
             PackedXyz(12, 2, z),
             Rgbaq(r, g, b, 128),
             PackedXyz(2, 12, z));
+    }
 
-    private static byte[] BuildRawDump(params IGsPacket[] packets) =>
-        BuildRawDump(packets, screenshotPixels: null, registers: null);
+    private static byte[] BuildRawDump(params IGsPacket[] packets)
+    {
+        return BuildRawDump(packets, null);
+    }
 
     private static byte[] BuildRawDump(IGsPacket[] packets, byte[]? screenshotPixels, byte[]? registers = null)
     {
@@ -1131,15 +1140,20 @@ public sealed class GsDumpAuditTests
         return stream.ToArray();
     }
 
-    private static byte[] BuildRawDumpWithRegisters(byte[] registers, params IGsPacket[] packets) =>
-        BuildRawDump(packets, screenshotPixels: null, registers: registers);
+    private static byte[] BuildRawDumpWithRegisters(byte[] registers, params IGsPacket[] packets)
+    {
+        return BuildRawDump(packets, null, registers);
+    }
 
-    private static byte[] DisabledGif() => GifTag(nloop: 0, flg: 3, nreg: 1, regs: 0);
+    private static byte[] DisabledGif()
+    {
+        return GifTag(0, 3, 1, 0);
+    }
 
     private static byte[] PackedTag(int nloop, int nreg, ulong regs, ulong prim, params byte[][] qwords)
     {
         using var stream = new MemoryStream();
-        stream.Write(GifTag(nloop, flg: 0, nreg, regs, prim, pre: true));
+        stream.Write(GifTag(nloop, 0, nreg, regs, prim, true));
         foreach (var qword in qwords)
             stream.Write(qword);
         return stream.ToArray();
@@ -1148,7 +1162,7 @@ public sealed class GsDumpAuditTests
     private static byte[] RegListTag(ulong regs, params ulong[] values)
     {
         using var stream = new MemoryStream();
-        stream.Write(GifTag(nloop: 1, flg: 1, nreg: values.Length, regs));
+        stream.Write(GifTag(1, 1, values.Length, regs));
         foreach (var value in values)
             WriteU64(stream, value);
         if ((values.Length & 1) != 0)
@@ -1167,7 +1181,7 @@ public sealed class GsDumpAuditTests
     private static byte[] ImageTag(byte[] data)
     {
         using var stream = new MemoryStream();
-        stream.Write(GifTag(data.Length / 16, flg: 2, nreg: 1, regs: 0));
+        stream.Write(GifTag(data.Length / 16, 2, 1, 0));
         stream.Write(data);
         return stream.ToArray();
     }
@@ -1226,14 +1240,20 @@ public sealed class GsDumpAuditTests
         return qword;
     }
 
-    private static ulong Rgbaq64(byte r, byte g, byte b, byte a) =>
-        r | ((ulong)g << 8) | ((ulong)b << 16) | ((ulong)a << 24);
+    private static ulong Rgbaq64(byte r, byte g, byte b, byte a)
+    {
+        return r | ((ulong)g << 8) | ((ulong)b << 16) | ((ulong)a << 24);
+    }
 
-    private static ulong St64(float s, float t) =>
-        BitConverter.SingleToUInt32Bits(s) | ((ulong)BitConverter.SingleToUInt32Bits(t) << 32);
+    private static ulong St64(float s, float t)
+    {
+        return BitConverter.SingleToUInt32Bits(s) | ((ulong)BitConverter.SingleToUInt32Bits(t) << 32);
+    }
 
-    private static ulong Xyz(int x, int y, int z = 10) =>
-        (uint)(x * 16) | ((ulong)(uint)(y * 16) << 16) | ((ulong)(uint)z << 32);
+    private static ulong Xyz(int x, int y, int z = 10)
+    {
+        return (uint)(x * 16) | ((ulong)(uint)(y * 16) << 16) | ((ulong)(uint)z << 32);
+    }
 
     private static ulong MakeTex0(
         int widthPow,
@@ -1242,47 +1262,63 @@ public sealed class GsDumpAuditTests
         uint tbp = 0,
         uint tbw = 1,
         uint tcc = 0,
-        uint tfx = 0) =>
-        tbp |
-        ((ulong)tbw << 14) |
-        ((ulong)psm << 20) |
-        ((ulong)widthPow << 26) |
-        ((ulong)heightPow << 30) |
-        ((ulong)tcc << 34) |
-        ((ulong)tfx << 35);
+        uint tfx = 0)
+    {
+        return tbp |
+               ((ulong)tbw << 14) |
+               ((ulong)psm << 20) |
+               ((ulong)widthPow << 26) |
+               ((ulong)heightPow << 30) |
+               ((ulong)tcc << 34) |
+               ((ulong)tfx << 35);
+    }
 
-    private static ulong MakeBitbltbuf(uint dbp, uint dbw, uint dpsm) =>
-        ((ulong)dbp << 32) | ((ulong)dbw << 48) | ((ulong)dpsm << 56);
+    private static ulong MakeBitbltbuf(uint dbp, uint dbw, uint dpsm)
+    {
+        return ((ulong)dbp << 32) | ((ulong)dbw << 48) | ((ulong)dpsm << 56);
+    }
 
-    private static ulong MakeTrxreg(int width, int height) =>
-        (uint)width | ((ulong)(uint)height << 32);
+    private static ulong MakeTrxreg(int width, int height)
+    {
+        return (uint)width | ((ulong)(uint)height << 32);
+    }
 
-    private static ulong MakeScissor(int x0, int x1, int y0, int y1) =>
-        (uint)x0 | ((ulong)(uint)x1 << 16) | ((ulong)(uint)y0 << 32) | ((ulong)(uint)y1 << 48);
+    private static ulong MakeScissor(int x0, int x1, int y0, int y1)
+    {
+        return (uint)x0 | ((ulong)(uint)x1 << 16) | ((ulong)(uint)y0 << 32) | ((ulong)(uint)y1 << 48);
+    }
 
-    private static ulong MakeFrame(uint fbp = 0, uint fbw = 10, uint psm = 0, uint fbmsk = 0) =>
-        fbp | ((ulong)fbw << 16) | ((ulong)psm << 24) | ((ulong)fbmsk << 32);
+    private static ulong MakeFrame(uint fbp = 0, uint fbw = 10, uint psm = 0, uint fbmsk = 0)
+    {
+        return fbp | ((ulong)fbw << 16) | ((ulong)psm << 24) | ((ulong)fbmsk << 32);
+    }
 
-    private static ulong MakePmode(bool en1, bool en2, bool mmod = false, bool slbg = false, byte alp = 0xFF) =>
-        (en1 ? 0x1UL : 0) |
-        (en2 ? 0x2UL : 0) |
-        (mmod ? 0x20UL : 0) |
-        (slbg ? 0x80UL : 0) |
-        ((ulong)alp << 8);
+    private static ulong MakePmode(bool en1, bool en2, bool mmod = false, bool slbg = false, byte alp = 0xFF)
+    {
+        return (en1 ? 0x1UL : 0) |
+               (en2 ? 0x2UL : 0) |
+               (mmod ? 0x20UL : 0) |
+               (slbg ? 0x80UL : 0) |
+               ((ulong)alp << 8);
+    }
 
     // FBP is stored as a 9-bit field in DISPFB bits 0..8, interpreted in units of 32 blocks.
     // FBW is in bits 9..14, PSM in bits 15..19. Display width/height live in DISPLAY (separate).
-    private static ulong MakeDispfb(uint fbpField, uint fbw, uint psm) =>
-        ((ulong)fbpField & 0x1FF) |
-        (((ulong)fbw & 0x3F) << 9) |
-        (((ulong)psm & 0x1F) << 15);
+    private static ulong MakeDispfb(uint fbpField, uint fbw, uint psm)
+    {
+        return ((ulong)fbpField & 0x1FF) |
+               (((ulong)fbw & 0x3F) << 9) |
+               (((ulong)psm & 0x1F) << 15);
+    }
 
     // Encodes the visible display size with magnification 1x. MAGH and MAGV fields are
     // stored as (mag-1) so 0 means 1x; the parser does +1 on read. DW/DH are similar
     // (stored as size-1), placed at bits 32..43 and 44..54 respectively.
-    private static ulong MakeDisplay(int width, int height) =>
-        ((ulong)(uint)(width - 1) << 32) |
-        ((ulong)(uint)(height - 1) << 44);
+    private static ulong MakeDisplay(int width, int height)
+    {
+        return ((ulong)(uint)(width - 1) << 32) |
+               ((ulong)(uint)(height - 1) << 44);
+    }
 
     private static byte[] BuildRegistersPacket(
         ulong pmode = 0,
@@ -1302,8 +1338,10 @@ public sealed class GsDumpAuditTests
         return regs;
     }
 
-    private static ulong MakeAlphaTestGreaterOrEqual(int aref) =>
-        1UL | (5UL << 1) | ((ulong)(uint)aref << 4);
+    private static ulong MakeAlphaTestGreaterOrEqual(int aref)
+    {
+        return 1UL | (5UL << 1) | ((ulong)(uint)aref << 4);
+    }
 
     private static ulong MakeClamp(
         int wms,
@@ -1311,13 +1349,15 @@ public sealed class GsDumpAuditTests
         int minU = 0,
         int maxU = 0,
         int minV = 0,
-        int maxV = 0) =>
-        (uint)wms |
-        ((ulong)(uint)wmt << 2) |
-        ((ulong)(uint)minU << 4) |
-        ((ulong)(uint)maxU << 14) |
-        ((ulong)(uint)minV << 24) |
-        ((ulong)(uint)maxV << 34);
+        int maxV = 0)
+    {
+        return (uint)wms |
+               ((ulong)(uint)wmt << 2) |
+               ((ulong)(uint)minU << 4) |
+               ((ulong)(uint)maxU << 14) |
+               ((ulong)(uint)minV << 24) |
+               ((ulong)(uint)maxV << 34);
+    }
 
     private static byte[] Qword(ulong lo, ulong hi = 0)
     {
@@ -1355,8 +1395,10 @@ public sealed class GsDumpAuditTests
         stream.Write(bytes);
     }
 
-    private static void WriteU32(byte[] bytes, int offset, uint value) =>
+    private static void WriteU32(byte[] bytes, int offset, uint value)
+    {
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(offset, 4), value);
+    }
 
     private static void WriteU64(MemoryStream stream, ulong value)
     {
@@ -1365,8 +1407,10 @@ public sealed class GsDumpAuditTests
         stream.Write(bytes);
     }
 
-    private static void WriteU64(byte[] bytes, int offset, ulong value) =>
+    private static void WriteU64(byte[] bytes, int offset, ulong value)
+    {
         BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(offset, 8), value);
+    }
 
     private readonly record struct Pixel(byte R, byte G, byte B, byte A);
 

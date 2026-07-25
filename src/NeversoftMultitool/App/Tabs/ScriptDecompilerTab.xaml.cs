@@ -23,18 +23,6 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
         ".sqb", ".sqb.ps2", ".sqb.wpc", ".sqb.ngc", ".sqb.xbx"
     ];
 
-    private static bool IsQbPath(string path)
-    {
-        var name = Path.GetFileName(path);
-        return QbFileSuffixes.Any(s => name.EndsWith(s, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool IsScriptPath(string path)
-    {
-        return IsQbPath(path) ||
-               TrgExtensions.Contains(Path.GetExtension(path).ToLowerInvariant());
-    }
-
     private readonly ScriptDecompilerDetailPresenter _detailPresenter;
     private readonly ScriptDecompilerTabExporter _exporter = new();
     private readonly ObservableCollection<IListEntry> _items = [];
@@ -74,6 +62,18 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
             SourceSection,
             SourceHeaderText,
             DetailSourceText));
+    }
+
+    private static bool IsQbPath(string path)
+    {
+        var name = Path.GetFileName(path);
+        return QbFileSuffixes.Any(s => name.EndsWith(s, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsScriptPath(string path)
+    {
+        return IsQbPath(path) ||
+               TrgExtensions.Contains(Path.GetExtension(path).ToLowerInvariant());
     }
 
     public void Dispose()

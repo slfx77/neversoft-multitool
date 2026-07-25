@@ -10,9 +10,9 @@ namespace NeversoftMultitool.Core.Formats.ArchiveFs;
 #pragma warning disable S3881 // Dispose stays virtual to preserve the public 1.x subclassing contract.
 public abstract class ArchiveFileSystemBase : IArchiveFileSystem
 {
+    private readonly Lazy<Dictionary<string, List<ArchiveEntry>>> _allByName;
     private readonly Lazy<Dictionary<string, ArchiveEntry>> _byName;
     private readonly Lazy<Dictionary<string, ArchiveEntry>> _byPath;
-    private readonly Lazy<Dictionary<string, List<ArchiveEntry>>> _allByName;
     private int _disposeState;
 
     protected ArchiveFileSystemBase(

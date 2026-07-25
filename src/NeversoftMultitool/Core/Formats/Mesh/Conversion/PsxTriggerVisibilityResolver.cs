@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Trg;
@@ -37,7 +38,7 @@ internal static class PsxTriggerVisibilityResolver
 
         try
         {
-            using var stream = new MemoryStream(trgBytes, writable: false);
+            using var stream = new MemoryStream(trgBytes, false);
             using var reader = new BinaryReader(stream);
             var trg = TrgFile.Parse(reader, levelStem + "_t.trg");
             return FindVisibilityGroups(trg, file);
@@ -46,7 +47,7 @@ internal static class PsxTriggerVisibilityResolver
         {
             // A malformed or unrelated companion must never prevent the mesh
             // itself from opening; fall back to displaying authored geometry.
-            System.Diagnostics.Debug.WriteLine(
+            Debug.WriteLine(
                 $"Unable to parse optional PSX trigger companion: {ex.Message}");
             return [];
         }
@@ -134,7 +135,7 @@ internal static class PsxTriggerVisibilityResolver
                     segmentStart,
                     segmentEnd,
                     assetHash,
-                    split: segmentStart != 0 || segmentEnd != matchedSuffixes.Count);
+                    segmentStart != 0 || segmentEnd != matchedSuffixes.Count);
                 segmentStart = segmentEnd;
             }
         }
@@ -384,7 +385,7 @@ internal static class PsxTriggerVisibilityResolver
             ModelVisibilityGroupSource.TriggerRange,
             $"SetVisibilityByName(\"{range.Prefix}\", " +
             $"{firstSuffix}, {lastSuffix})",
-            ExclusiveSetId: null,
+            null,
             targetObjects,
             new HashSet<int>()));
     }

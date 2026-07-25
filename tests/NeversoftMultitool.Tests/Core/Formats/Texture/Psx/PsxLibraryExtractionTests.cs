@@ -1,6 +1,5 @@
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
-using NeversoftMultitool.Tests.Helpers;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 

@@ -1,19 +1,7 @@
-using NeversoftMultitool.Core.Formats.Archives;
-using NeversoftMultitool.Core.Formats.Collision;
-using NeversoftMultitool.Core.Formats.Mesh.Ddm;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Psx;
-using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
-using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
-using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
-using ParsedPs2Scene = NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene.Ps2Scene;
-using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
-using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
+using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -50,7 +38,8 @@ internal static class XbxGeometryWriter
                 if (!materialMap.TryGetValue(xbxMesh.MaterialChecksum, out var materialIndex))
                     materialIndex = ModelDocumentGeometryAdapter.AddMaterial(document, new RenderMaterial
                     {
-                        Name = ModelDocumentGeometryAdapter.ResolveQbName(xbxMesh.MaterialChecksum, $"mat_{xbxMesh.MaterialChecksum:X8}")
+                        Name = ModelDocumentGeometryAdapter.ResolveQbName(xbxMesh.MaterialChecksum,
+                            $"mat_{xbxMesh.MaterialChecksum:X8}")
                     });
 
                 var mesh = new ModelMesh { Name = $"sector_{sector.Checksum:X8}" };
@@ -87,7 +76,8 @@ internal static class XbxGeometryWriter
                     textureAlphaMode = Ps2GeomDestinationAlphaSynthesis.ClassifyTextureAlphaMode(pngBytes);
                     renderMaterial.TextureIndex ??= ModelDocumentGeometryAdapter.AddTexture(
                         document,
-                        ModelDocumentGeometryAdapter.ResolveQbName(pass.TextureChecksum, $"tex_{pass.TextureChecksum:X8}"),
+                        ModelDocumentGeometryAdapter.ResolveQbName(pass.TextureChecksum,
+                            $"tex_{pass.TextureChecksum:X8}"),
                         pngBytes,
                         pass.TextureChecksum,
                         pass.UAddressing == 3 ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat,
