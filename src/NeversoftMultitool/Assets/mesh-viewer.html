@@ -344,7 +344,7 @@
       if (!(mode === 'orbit' || mode === 'fly' || mode === 'walk')) return;
       if (mode === controlMode) return;
       controlMode = mode;
-      if (mode === 'orbit') enterOrbit('ahead');
+      if (mode === 'orbit') enterOrbit();
       else enterFlyWalk(mode);
       post({ type: 'controlMode', mode: mode });
     }
@@ -361,22 +361,16 @@
       setControlMode(controlMode === 'orbit' ? 'fly' : 'orbit');
     }
 
-    function enterOrbit(retarget) {
+    function enterOrbit() {
       camera = perspCamera;
       controls.object = perspCamera;
       perspCamera.near = framingRadius / 100;
       perspCamera.updateProjectionMatrix();
-      if (retarget === 'ahead' && projectionMode === 'perspective') {
-        // Keep the camera pose and aim the orbit pivot at a point ahead of it
-        // so handing control back to OrbitControls doesn't jump the view.
-        perspCamera.getWorldDirection(tmpForward);
-        controls.target.copy(perspCamera.position)
-          .addScaledVector(tmpForward, framingRadius * 0.75);
-      } else {
-        // Ortho/iso/trimetric vantages are center-locked, so a pending
-        // non-perspective projection re-applies around the model center.
-        controls.target.copy(framingCenter);
-      }
+      // Orbit always pivots the model centroid: entering orbit from fly/walk (or
+      // a preset) recentres the view on the mesh — the camera keeps its position
+      // but reorients to look at the centre — so orbit is useful as a camera type.
+      // (Ortho/iso/trimetric vantages are center-locked for the same reason.)
+      controls.target.copy(framingCenter);
       controls.enabled = true;
       controls.update();
       if (projectionMode !== 'perspective') applyProjection(projectionMode);
@@ -408,7 +402,7 @@
     function exitToOrbitForPreset() {
       if (controlMode === 'orbit') return;
       controlMode = 'orbit';
-      enterOrbit('center');
+      enterOrbit();
       post({ type: 'controlMode', mode: 'orbit' });
     }
 
@@ -423,7 +417,7 @@
         return;
       }
       controlMode = mode;
-      if (mode === 'orbit') enterOrbit('center');
+      if (mode === 'orbit') enterOrbit();
       else enterFlyWalk(mode);
       post({ type: 'controlMode', mode: mode });
     }

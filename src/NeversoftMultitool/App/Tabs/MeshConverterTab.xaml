@@ -434,7 +434,7 @@
                              FontWeight="SemiBold" />
                   <CheckBox
                     x:Name="DisplayIncludeLevelObjectsCheckbox"
-                    Content="Include level object"
+                    Content="Include level objects"
                     MinWidth="0"
                     IsChecked="True"
                     Visibility="Collapsed"
@@ -488,7 +488,7 @@
                              FontWeight="SemiBold" />
                   <CheckBox
                     x:Name="ExportIncludeLevelObjectsCheckbox"
-                    Content="Include level object"
+                    Content="Include level objects"
                     MinWidth="0"
                     IsChecked="True"
                     Visibility="Collapsed"
