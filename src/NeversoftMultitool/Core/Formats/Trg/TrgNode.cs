@@ -44,6 +44,13 @@ public sealed class TrgNode
     public string? CameraModeName { get; set; }
     public int? PickupType { get; set; }
     public string? PickupTypeName { get; set; }
+
+    /// <summary>
+    ///     POWERUP grounded check (0 = grounded → the engine snaps the pickup to
+    ///     the terrain via <c>Utils_GetGroundHeight</c>; see <c>CPowerUp</c> ctor
+    ///     flag bit 2). Null for non-POWERUP nodes.
+    /// </summary>
+    public ushort? GroundedCheck { get; set; }
     public int? TerrainType { get; set; }
     public string? TerrainTypeName { get; set; }
     public TrgLightParams? LightParams { get; set; }
@@ -400,7 +407,7 @@ public sealed class TrgNode
         // parsed its links as the position and produced garbage world coords.
         node.Links = ReadLinks(reader);
         node.Position = ReadPosition(reader);
-        reader.ReadUInt16(); // grounded check: 0 = grounded (snap to terrain)
+        node.GroundedCheck = reader.ReadUInt16(); // 0 = grounded (snap to terrain)
         reader.ReadUInt16(); // respawn flag: 0 = one-time, 1 = respawning
         reader.ReadUInt16(); // 0xFFFF terminator
 

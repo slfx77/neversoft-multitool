@@ -135,13 +135,24 @@ internal static class PsxLevelObjectPlacementResolver
     /// <summary>
     ///     Builds the glTF transform for a translation-only TRG node instance
     ///     (POWERUP pickups carry no rotation). Same world-space convention as
-    ///     the platform overlay's <see cref="CreateGltfTransform" />.
+    ///     the platform overlay's <see cref="CreateGltfTransform" />. When a
+    ///     <paramref name="terrain" /> and a <paramref name="pickupHoverWorldUnits" />
+    ///     are supplied (a grounded POWERUP), the native origin is snapped to
+    ///     <c>groundY - hover</c> before the glTF basis flip — the engine's exact
+    ///     runtime ground-snap (<c>CPowerUp</c> → <c>Utils_GetGroundHeight</c>).
     /// </summary>
-    internal static Matrix4x4 CreateNodeTranslation(TrgPosition position, float translationDivisor)
+    internal static Matrix4x4 CreateNodeTranslation(
+        TrgPosition position,
+        float translationDivisor,
+        PsxTerrainHeightField? terrain = null,
+        float? pickupHoverWorldUnits = null)
     {
-        return Matrix4x4.CreateTranslation(
-            PsxMeshSemantics.ToGltfPosition(
-                GetNodeWorldPosition(position, translationDivisor)));
+        var nativePosition = GetNodeWorldPosition(position, translationDivisor);
+        if (terrain != null && pickupHoverWorldUnits is { } hover)
+            nativePosition = PsxGroundSnap.SnapPickupToGround(
+                terrain, nativePosition, translationDivisor, hover);
+
+        return Matrix4x4.CreateTranslation(PsxMeshSemantics.ToGltfPosition(nativePosition));
     }
 
     /// <summary>

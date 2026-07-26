@@ -121,7 +121,8 @@ internal static class PsxPowerupPlacementResolver
     internal static Dictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>? Resolve(
         TrgFile? trg,
         PsxMeshFile itemsFile,
-        float translationDivisor)
+        float translationDivisor,
+        PsxTerrainHeightField? terrain = null)
     {
         if (trg == null || itemsFile.Objects.Count == 0)
             return null;
@@ -131,6 +132,7 @@ internal static class PsxPowerupPlacementResolver
             return null;
         if (SelectTable(objectByHash) is not { } table)
             return null;
+        var hoverWorldUnits = HoverWorldUnitsForTable(table);
 
         Dictionary<int, List<PsxLevelObjectPlacement>>? placements = null;
         foreach (var node in trg.Nodes)
@@ -151,9 +153,16 @@ internal static class PsxPowerupPlacementResolver
                 placements[objectIndex] = list;
             }
 
+            // A grounded POWERUP (GroundedCheck 0, or absent) reseats to
+            // groundY - hover, matching the engine's CPowerUp ground-snap; an
+            // explicitly non-grounded pickup keeps its authored spawn height.
+            float? hover = terrain != null && node.GroundedCheck is null or 0
+                ? hoverWorldUnits
+                : null;
             list.Add(new PsxLevelObjectPlacement(
                 node.Index,
-                PsxLevelObjectPlacementResolver.CreateNodeTranslation(position, translationDivisor)));
+                PsxLevelObjectPlacementResolver.CreateNodeTranslation(
+                    position, translationDivisor, terrain, hover)));
         }
 
         return placements?.ToDictionary(
@@ -225,5 +234,24 @@ internal static class PsxPowerupPlacementResolver
         }
 
         return objectByHash;
+    }
+
+    /// <summary>
+    ///     The <c>CPowerUp::mHoverHeight</c> (world units) the origin rests above
+    ///     the floor, per game family, or <c>null</c> to leave the pickup at its
+    ///     authored Y (no snap). Spider-Man (all builds) = 128 (decompiled from
+    ///     the final ctor @0x8001DCC4); THPS = 0 (matched decomp). Apocalypse is a
+    ///     different (1998) engine whose pickup ground-snap/hover is NOT
+    ///     reverse-engineered, so its pickups are left where authored rather than
+    ///     snapped with a guessed value.
+    /// </summary>
+    private static float? HoverWorldUnitsForTable(Dictionary<int, uint> table)
+    {
+        if (ReferenceEquals(table, ApocalypseTable))
+            return null;
+        if (ReferenceEquals(table, ThpsTable))
+            return PsxGroundSnap.ThpsHoverWorldUnits;
+
+        return PsxGroundSnap.SpiderManHoverWorldUnits;
     }
 }

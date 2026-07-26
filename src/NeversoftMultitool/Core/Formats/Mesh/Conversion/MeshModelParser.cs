@@ -204,7 +204,7 @@ public sealed class MeshModelParser : IModelParser
         if (request.IncludeLevelObjects
             && !PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(psxFile))
             PopulatePsxLevelObjectCompanion(
-                document, request, geometryContext, psxFile.TranslationDivisor);
+                document, request, geometryContext, psxFile);
 
         if (request.PsxAnimationOptions is { } animationOptions
             && document.Skeletons.Count > 0)
@@ -266,8 +266,9 @@ public sealed class MeshModelParser : IModelParser
         ModelDocument document,
         MeshImportRequest request,
         PsxGeometryWriter.PsxGeometryWriterContext geometryContext,
-        float geometryTranslationDivisor)
+        PsxMeshFile levelMesh)
     {
+        var geometryTranslationDivisor = levelMesh.TranslationDivisor;
         if (!MeshCompanionResolver.TryResolvePsxLevelCompanions(
                 request.Source, request.FileName, out var companions))
             return;
@@ -279,6 +280,11 @@ public sealed class MeshModelParser : IModelParser
                 request.Source, companions.LevelStem);
             var items = PsxItemsBankSubstitution.TryLoadItems(request.Source);
 
+            // Terrain query over the level's own render geometry (the surface the
+            // engine ray-casts) so grounded POWERUP pickups reseat onto the floor.
+            var terrain = PsxTerrainHeightField.BuildFromLevel(levelMesh);
+            var pickupTerrain = terrain.IsEmpty ? null : terrain;
+
             // items-object placements accumulated from the POWERUP layer and the
             // bank substitution, emitted as a single items geometry pass.
             var itemsPlacements = new Dictionary<int, List<PsxLevelObjectPlacement>>();
@@ -287,7 +293,7 @@ public sealed class MeshModelParser : IModelParser
             // layer drops any bank object whose mesh a POWERUP node already places.
             var suppressHashes = PsxPowerupPlacementResolver.EmptyHashSet;
             if (items != null
-                && PsxPowerupPlacementResolver.Resolve(trg, items.File, geometryTranslationDivisor)
+                && PsxPowerupPlacementResolver.Resolve(trg, items.File, geometryTranslationDivisor, pickupTerrain)
                     is { } powerupPlacements)
             {
                 MergeItemsPlacements(itemsPlacements, powerupPlacements);
