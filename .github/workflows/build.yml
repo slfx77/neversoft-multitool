@@ -16,10 +16,10 @@ jobs:
     name: Windows GUI (x64)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           dotnet-quality: 'preview'
@@ -28,7 +28,7 @@ jobs:
         run: dotnet publish ${{ env.PROJECT_PATH }} -c Release -f net10.0-windows10.0.19041.0 -r win-x64 --self-contained -o publish/win-gui
 
       - name: Upload Windows GUI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: NeversoftMultitool-Windows-GUI-x64
           path: publish/win-gui/
@@ -38,10 +38,10 @@ jobs:
     name: Windows CLI (x64)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           dotnet-quality: 'preview'
@@ -50,7 +50,7 @@ jobs:
         run: dotnet publish ${{ env.PROJECT_PATH }} -c Release -f net10.0 -r win-x64 --self-contained -o publish/win-cli
 
       - name: Upload Windows CLI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: NeversoftMultitool-Windows-CLI-x64
           path: publish/win-cli/
@@ -60,10 +60,10 @@ jobs:
     name: Linux CLI (x64)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
           dotnet-quality: 'preview'
@@ -72,7 +72,7 @@ jobs:
         run: dotnet publish ${{ env.PROJECT_PATH }} -c Release -f net10.0 -r linux-x64 --self-contained -p:TargetFrameworks=net10.0 -o publish/linux-cli
 
       - name: Upload Linux CLI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: NeversoftMultitool-Linux-CLI-x64
           path: publish/linux-cli/
@@ -87,7 +87,7 @@ jobs:
       contents: write
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: artifacts
 
@@ -99,7 +99,7 @@ jobs:
           tar -czvf ../NeversoftMultitool-Linux-CLI-x64.tar.gz NeversoftMultitool-Linux-CLI-x64/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             NeversoftMultitool-Windows-GUI-x64.zip
