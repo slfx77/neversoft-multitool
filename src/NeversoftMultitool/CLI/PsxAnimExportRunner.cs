@@ -135,6 +135,12 @@ internal static class PsxAnimExportRunner
                 translationParents));
         }
 
+        // PSX slots are unnamed (anim_N); prefix them with the mesh stem so the
+        // exported clips read as docock_anim_N, matching the GUI export path
+        // (CharacterAnimationConverter.BuildPsx). Authored/--name'd and external
+        // bank-prefixed names are left untouched by ForMesh.
+        var meshStem = Path.GetFileNameWithoutExtension(input);
+        var usedAnimNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var decoded = new List<PsxAnimationClip>();
         foreach (var (kind, prefix, bank, remap, translationParents) in banks)
         {
@@ -151,7 +157,10 @@ internal static class PsxAnimExportRunner
             var decodeResult = PsxAnimationBank.Decode(
                 bank, targetBoneCount, selected, remap, opts.OneShot);
             decoded.AddRange(decodeResult.Animations.Select(entry =>
-                new PsxAnimationClip(entry.Name, entry.Animation, translationParents)));
+                new PsxAnimationClip(
+                    AnimationExportName.ForMesh(meshStem, entry.Name, usedAnimNames),
+                    entry.Animation,
+                    translationParents)));
             PrintDecodeDiagnostics(decodeResult.Diagnostics, verbose);
         }
 

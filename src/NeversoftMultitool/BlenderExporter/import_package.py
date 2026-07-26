@@ -38,6 +38,25 @@ Y_UP_TO_Z_UP = Matrix((
     (0.0, 0.0, 0.0, 1.0),
 ))
 
+# PSX geometry arrives in raw model units (the converter's /2.25 world space):
+# a human character spans ~90 units and a big super like Doc Ock ~470, so at
+# Blender's default 1 unit = 1 m they overflow the viewport and its 1000 m clip.
+# Bake ONE uniform downscale into the single root matrix that orients BOTH the
+# armature world and the mesh-node world, so mesh, bones, and pose-bone
+# translation channels all shrink together (a mathematically exact similarity —
+# proportions and animation are preserved). ~90 units -> ~1.8 m; ~470 -> ~9.4 m.
+_PSX_IMPORT_SCALE = 0.02
+
+
+def _root_matrix(manifest):
+    """The matrix that lifts a source rig from its Y-up space into Blender's
+    Z-up world. PSX sources additionally get the uniform metres-normalising
+    downscale baked in; every other source (THAW/PS2/Xbox/RW) keeps the bare
+    Y_UP_TO_Z_UP so its .blend output is byte-identical to before."""
+    if manifest.get("SourceKind", "") == "Psx":
+        return Matrix.Scale(_PSX_IMPORT_SCALE, 4) @ Y_UP_TO_Z_UP
+    return Y_UP_TO_Z_UP
+
 
 def _input_args():
     if "--" in sys.argv:
@@ -1362,14 +1381,15 @@ def _assign_colors(mesh, colors):
         pass
 
 
-def _matrix_from_manifest(values):
+def _matrix_from_manifest(values, root):
     values = list(values or [])
     if len(values) != 16:
-        return Y_UP_TO_Z_UP.copy()
+        return root.copy()
     # Manifest transforms come from System.Numerics.Matrix4x4. Transpose from
     # its row-vector layout so Blender receives translation in the final column,
-    # then pre-multiply by the Y-up -> Z-up axis swap so the worldzone stands
-    # upright in Blender's native Z-up viewport.
+    # then pre-multiply by the root matrix (Y-up -> Z-up axis swap, plus the PSX
+    # downscale) so the model stands upright and metres-sized in Blender's Z-up
+    # viewport.
     base = Matrix(
         (
             (values[0], values[4], values[8], values[12]),
@@ -1378,7 +1398,7 @@ def _matrix_from_manifest(values):
             (values[3], values[7], values[11], values[15]),
         )
     )
-    return Y_UP_TO_Z_UP @ base
+    return root @ base
 
 
 def _worldzone_leaf_metadata(primitive):
@@ -1504,7 +1524,7 @@ def _flat_matrix(values):
     ))
 
 
-def _make_armatures(manifest):
+def _make_armatures(manifest, root):
     """Create one Blender Armature object per ModelSkeleton in the manifest.
 
     Returns a list of (armature_obj, [bone_name, ...]) tuples indexed by
@@ -1563,7 +1583,7 @@ def _make_armatures(manifest):
         finally:
             bpy.ops.object.mode_set(mode='OBJECT')
 
-        armature_obj.matrix_world = Y_UP_TO_Z_UP
+        armature_obj.matrix_world = root
         armatures.append((armature_obj, bone_names))
 
     return armatures
@@ -1624,7 +1644,7 @@ def _apply_skin(obj, primitive, armatures, package, package_dir):
     mod.use_vertex_groups = True
 
 
-def _make_objects(manifest, package, package_dir, materials, armatures=None):
+def _make_objects(manifest, package, package_dir, materials, root, armatures=None):
     collection = bpy.context.collection
     created = []
 
@@ -1662,7 +1682,7 @@ def _make_objects(manifest, package, package_dir, materials, armatures=None):
         if len(mesh_entry.get("Primitives", [])) > 1:
             object_name = f"{object_name}_{prim_index:03d}"
         obj = bpy.data.objects.new(object_name, mesh)
-        obj.matrix_world = _matrix_from_manifest(node.get("Transform"))
+        obj.matrix_world = _matrix_from_manifest(node.get("Transform"), root)
         obj["neversoft_mesh_metadata"] = _json(mesh_entry.get("NativeMetadata", []))
         obj["neversoft_primitive_metadata"] = _json(primitive.get("NativeMetadata", []))
         obj["neversoft_node_metadata"] = _json(node.get("NativeMetadata", []))
@@ -1694,6 +1714,37 @@ def _read_float_buffer(package, package_dir, path, count):
     return [ANIM_FLOAT_STRUCT.unpack_from(data, i * ANIM_FLOAT_STRUCT.size)[0] for i in range(count)]
 
 
+def _bone_rest_local_translation(skeletons, skeleton_index, bone_index):
+    """The bone's rest parent-relative translation from its LocalTransform — the
+    same matrix _make_armatures uses to place the edit bone. Returns (x, y, z),
+    or zeros when out of range."""
+    if 0 <= skeleton_index < len(skeletons):
+        bones = skeletons[skeleton_index].get("Bones", [])
+        if 0 <= bone_index < len(bones):
+            t = _flat_matrix(bones[bone_index].get("LocalTransform")).translation
+            return (t.x, t.y, t.z)
+    return (0.0, 0.0, 0.0)
+
+
+def _bind_action_slot(animation_data, action):
+    """Blender 4.4+ needs the action's slot explicitly bound to the
+    animation_data or the assigned action plays nothing; older Blender has no
+    slots and this is a no-op."""
+    if hasattr(action, "slots") and len(action.slots) > 0:
+        try:
+            animation_data.action_slot = action.slots[0]
+        except (AttributeError, TypeError):
+            pass
+
+
+def _bind_strip_action_slot(strip, action):
+    if hasattr(strip, "action_slot") and hasattr(action, "slots") and len(action.slots) > 0:
+        try:
+            strip.action_slot = action.slots[0]
+        except (AttributeError, TypeError):
+            pass
+
+
 def _make_animations(manifest, armatures, package, package_dir):
     """Build a Blender Action per ModelAnimation, with FCurves per channel.
 
@@ -1704,14 +1755,27 @@ def _make_animations(manifest, armatures, package, package_dir):
 
     The IR stores rotation values as (X, Y, Z, W) per glTF spec; Blender's
     rotation_quaternion is indexed as (W, X, Y, Z) so the components are
-    remapped when emitting FCurves."""
+    remapped when emitting FCurves.
+
+    Translation channels need a rest-frame correction for PSX. A glTF/IR
+    Translation value is the bone's FULL parent-relative local translation and
+    REPLACES the node's rest translation (that is how the GLB path renders). But
+    a Blender pose_bone.location is a DELTA layered on top of the rest bone,
+    whose parent-relative matrix already carries that same bind translation — so
+    writing the raw value applies the offset TWICE and stretches every limb (~2x
+    at distal joints). Since PSX rest rotation is identity, the exact fix is a
+    per-component subtraction of the bone's rest local translation; the result
+    matches the GLB bit-for-bit. Gated on SourceKind == "Psx" so THAW/PS2/RW
+    exports (which have real bind rotations needing the general matrix_basis
+    form, and are out of scope here) stay byte-identical."""
     animations = manifest.get("Animations", [])
     if not animations:
         return
 
     scene_fps = bpy.context.scene.render.fps
-    last_action_per_armature = {}
-
+    skeletons = manifest.get("Skeletons", [])
+    is_psx = manifest.get("SourceKind", "") == "Psx"
+    actions_per_armature = {}
 
     for animation in animations:
         action_name = animation.get("Name") or "animation"
@@ -1745,12 +1809,18 @@ def _make_animations(manifest, armatures, package, package_dir):
             if data_path is None:
                 continue
 
+            # Cancel the double-applied bind translation for PSX (see docstring).
+            rest_offset = (0.0, 0.0, 0.0)
+            if is_psx and property_name == "Translation":
+                rest_offset = _bone_rest_local_translation(skeletons, skeleton_index, bone_index)
+
             for component_index, value_offset in component_indices:
                 fcurve = fcurve_target.fcurves.new(data_path=data_path, index=component_index)
                 fcurve.keyframe_points.add(count=key_count)
+                bias = rest_offset[component_index] if property_name == "Translation" else 0.0
                 for key_i in range(key_count):
                     frame = times[key_i] * scene_fps
-                    value = values[key_i * value_stride + value_offset]
+                    value = values[key_i * value_stride + value_offset] - bias
                     fcurve.keyframe_points[key_i].co = (frame, value)
                     fcurve.keyframe_points[key_i].interpolation = 'LINEAR'
                 fcurve.update()
@@ -1758,23 +1828,45 @@ def _make_animations(manifest, armatures, package, package_dir):
             action_used_by_armature.add(skeleton_index)
 
         for skeleton_index in action_used_by_armature:
-            last_action_per_armature[skeleton_index] = action
+            actions_per_armature.setdefault(skeleton_index, []).append(action)
 
-    for skeleton_index, action in last_action_per_armature.items():
+    for skeleton_index, actions in actions_per_armature.items():
         armature_obj, _ = armatures[skeleton_index]
-        if armature_obj is None:
+        if armature_obj is None or not actions:
             continue
+
+        # use_fake_user is the load-bearing persistence fix: bpy.data.actions.new
+        # yields 0-user datablocks, and wm.save_as_mainfile drops any that lack a
+        # (fake) user — which is why only the last-assigned action used to
+        # survive. Set it on EVERY action before anything can fail.
+        for action in actions:
+            action.use_fake_user = True
+
         animation_data = armature_obj.animation_data_create()
-        animation_data.action = action
-        # Blender 4.4+ requires the action's slot to be explicitly bound to the
-        # animation_data; otherwise the assigned action shows up but no FCurves
-        # play because no slot is active. On older Blender there are no slots
-        # and the action drives the data path directly.
-        if hasattr(action, "slots") and len(action.slots) > 0:
-            try:
-                animation_data.action_slot = action.slots[0]
-            except (AttributeError, TypeError):
-                pass
+        # Stash each clip on its OWN muted NLA track, exactly like Blender's own
+        # glTF importer: one track per animation, all muted so they read as
+        # separate parked clips (an unmuted stack would blend every clip at once
+        # and read as "everything grouped under the first one"). The user solos
+        # a track, or picks a clip from the Action dropdown, to play it. Best-
+        # effort only: the NLA + slotted-action API churned across Blender 4.4.x
+        # and the helper runs under --python-exit-code 1, so a version quirk must
+        # degrade to fake-user-only persistence, never abort the whole export.
+        try:
+            for action in actions:
+                track = animation_data.nla_tracks.new()
+                track.name = action.name
+                track.mute = True
+                strip = track.strips.new(action.name, 1, action)
+                _bind_strip_action_slot(strip, action)
+        except (RuntimeError, AttributeError, TypeError):
+            pass
+
+        # Make the first clip the active action so the dope sheet / timeline
+        # shows one animation by default; the rest are reachable via the NLA
+        # editor and the Action dropdown.
+        first = actions[0]
+        animation_data.action = first
+        _bind_action_slot(animation_data, first)
 
 
 def _get_action_fcurve_container(action):
@@ -1829,9 +1921,10 @@ def main():
 
     _clear_scene()
     _apply_scene_metadata(manifest)
+    root = _root_matrix(manifest)
     materials = _make_materials(manifest, package, package_dir)
-    armatures = _make_armatures(manifest)
-    _make_objects(manifest, package, package_dir, materials, armatures)
+    armatures = _make_armatures(manifest, root)
+    _make_objects(manifest, package, package_dir, materials, root, armatures)
     _make_animations(manifest, armatures, package, package_dir)
 
     output_dir = os.path.dirname(blend_path)
