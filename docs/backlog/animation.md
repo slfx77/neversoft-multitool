@@ -1,6 +1,8 @@
 # Backlog — Skeletal Animation
 
-Created 2026-07-03. Distilled from `memory/` + `CLAUDE.md` + `docs/thps3-ska-animation-correctness-handoff.md` — **not re-verified this session**. See `BACKLOG_SUMMARY.md`.
+Created 2026-07-03. Distilled from `memory/` + `CLAUDE.md` + `docs/thps3-ska-animation-correctness-handoff.md`. See `BACKLOG_SUMMARY.md`.
+
+**Re-verified 2026-07-26 vs HEAD (v1.3.4, 60d0b81) — full-domain audit.**
 
 **Status legend:** 🔴 Open · 🔶 Partial · 🟢 Verified this session · ✅ Done · ⚪ By design
 
@@ -8,20 +10,27 @@ Created 2026-07-03. Distilled from `memory/` + `CLAUDE.md` + `docs/thps3-ska-ani
 
 ## Remaining — needs work
 
-### 🔶 THPS3 SKA animation is visually wrong (spasms, not motion)
+### 🔶 THPS3 (RW DFF) SKA animation — COMPOSITION FIDELITY, not an unimplemented path
 - Source: `memory/thps3_ska_format_notes.md`, `memory/thps3_ska_animation_correctness_handoff.md`, `docs/thps3-ska-animation-correctness-handoff.md`.
-- Evidence: the SKA parser is done — the pipeline emits **646/648 validator-clean GLBs with textures** for THPS3 DFF-skinned models — but applied animation **spasms** rather than producing subtle idle/breathing motion. Root cause not yet isolated.
-- What's left: work the handoff doc's test matrix + bone-level diagnostics. The RW DFF applier (`SkaPoseEvaluator`) and pose composition are the suspect surfaces. Contrast against the working THPS4/THUG SKA path (below), which shares the evaluator.
+- Reframed 2026-07-26: this is **not** "bind-pose / T-pose only" and **not** a parser blocker. The THPS3 SKA parser is done (`SkaThps3Parser.cs` reproduces the runtime Q-track split), and the SKA overlay **is wired into the RenderWare DFF export path** (`Core/Formats/Mesh/Conversion/MeshModelParser.cs:718-726`). The pipeline emits **646/648 validator-clean GLBs with textures** for THPS3 DFF-skinned models. What remains is purely a **pose-composition fidelity bug**: applied animation **spasms** rather than producing subtle idle/breathing motion.
+- What's left: work the handoff doc's test matrix + bone-level diagnostics against `docs/thps3-ska-animation-correctness-handoff.md`. The RW DFF applier (`SkaPoseEvaluator`) and rotation/translation composition semantics are the suspect surfaces. Contrast against the working THPS4/THUG SKA path (below), which shares the evaluator.
 
-### 🔶 PSX (PS1) character animation — per-game partial correctness
-- Source: `memory/psx_anim_status.md`, MEMORY.md index (committed 3-way `ad7ac17` / `2d03896` / `11f63d5`).
-- Evidence: parsing/codec proven (798 files, 57 tests). **THPS2 / Apocalypse / Spider-Man render plausibly; THPS1-proto is garbled.** Open sub-items: translation channels, PrototypeSparse entries, tween-interval expansion.
-- What's left: the THPS1-proto garble + the three named decode gaps. Matching-decomp ground truth is on WSL (`\\wsl.localhost\Ubuntu\home\slfx77\thps2-psx-proto\`).
+### 🟢 PSX (PS1) character animation — SOLVED across the lineage (v1.3.x)
+- Source: `memory/psx_anim_status.md`, MEMORY.md index.
+- Evidence: PS1 character animation is now solved across the whole lineage (Apocalypse → THPS1 → THPS2 → Spider-Man → SM2EE). The old "THPS1-proto garbled / garbled character meshes" claim is **false at HEAD** (490 character-class files, 0 real failures). The v1.2.2 "THUG/COP/Spider-Man anims broken" release feedback was fixed by `e60d4aa` (rotation-matrix transpose + flat-skeleton for HIER+v1) + `c94e2c3` (v2-codec bit-packed segment-endpoint bug). Translation channels, tween-interval expansion, and CycleAnim wrap all shipped.
+- What's left (narrow, distinct gaps — not core character animation):
+  - **PSX pulsing-colour PLAYBACK** (S-M, user-facing): only the initial phase is exported; `pColourPulseData` should animate like the UV wibble path rather than baking one playhead.
+  - **PSX placed-object SKELETAL animation** (M-L, user-facing): scripted level objects (traffic cars, doors) export static.
+- Matching-decomp ground truth is on WSL (`\\wsl.localhost\Ubuntu\home\slfx77\thps2-psx-proto\`).
 
-### 🔴 RW DFF (THPS3) skinned models export in bind pose only
+### ~~🔴 RW DFF (THPS3) skinned models export in bind pose only~~ — CORRECTED 2026-07-26
 - Source: `CLAUDE.md` → *Not Yet Implemented* → "RW DFF / THPS3 animations".
-- Evidence: no animation support for the RenderWare path beyond the SKA overlay work above — skinned DFF models export in **bind pose (T-pose)**. THPS3 likely uses RenderWare animation chunks or a custom Neversoft format distinct from the THPS4+ SKA format.
-- What's left: identify the THPS3 animation container (RW HAnim/ANM chunks vs. a Neversoft custom format) and wire it into the DFF export path. Note this overlaps the "THPS3 SKA spasms" item — confirm whether THPS3 animations are SKA (Neversoft) or RenderWare-native before starting.
+- **Retracted**: THPS3 does **not** export bind-pose/T-pose-only. THPS3 animation is Neversoft SKA (not RenderWare-native chunks), the parser reproduces the runtime Q-track split (`SkaThps3Parser.cs`), and the overlay is wired into the RW DFF export path (`MeshModelParser.cs:718-726`). The only remaining work is pose-composition fidelity, already tracked by the "THPS3 (RW DFF) SKA animation — COMPOSITION FIDELITY" item above. This item is closed as a duplicate.
+
+### 🔶 `.blend` skinned-character limb-stretch (double-translation) — fixed for PSX, latent elsewhere
+- Source: 2026-07-26 audit; v1.3.4 `.blend` limb-stretch fix.
+- Evidence: the v1.3.4 `.blend` limb-stretch fix was gated `SourceKind == "Psx"`. THAW/PS2 and THPS3 skinned characters share the **same latent double-translation** stretch in `.blend` export — the PSX fix does not reach them because of that gate.
+- What's left: generalize the fix to the `matrix_basis` form for all skinned sources and validate against a real THAW/PS2 + THPS3 rig (the guard was PSX-only for want of a non-PSX test rig).
 
 ---
 

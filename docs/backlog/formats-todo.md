@@ -5,7 +5,11 @@ Created 2026-07-03. Distilled from `CLAUDE.md` (*Deferred Items* / *Not Yet Impl
 conversion sweeps — several entries here turned out stale (see *Done* below). NxTools (`Sample/nxtools`)
 was surveyed as a reference source: it covers THUG2/THAW scene+tex families across xbx/wpc/xen/ps3 and
 Downhill Jam (`thdj` = ngc/wii, later engine gen), plus a full PS1 `.psx` importer — but has NO coverage
-for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
+for `.stex` payloads or THAW GameCube.
+**Re-verified 2026-07-26 vs HEAD (v1.3.4, 60d0b81) — full-domain audit.** Two more entries shipped since
+07-07 (THAW `.tex.ps2` scene metadata, CIF2 `0x508AE2F2`) and moved to *Done*; the THPG/P8 `.col` entry
+was corrected (it is version 10 and parses — the real gap is bare-`.col`/`.skin` extension routing, not a
+new format). NxTools' P8/THPG `.col` "gap" was likewise struck: the format is already supported.
 
 **Status legend:** 🔴 Open · 🔶 Partial · 🟢 Verified this session · ✅ Done · ⚪ By design
 
@@ -95,11 +99,6 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
   for worldzone texturing; the `xbxtex` CLI `.stex` route covers only ABADD00D-headed Xbox/PC variants.
 - What's left: pair standalone PS2 `.stex` blobs with their metadata source (likely the same-checksum
   `.tex.ps2` scene metadata or zone blobs) before standalone conversion is possible. Research item.
-
-### 🔴 THAW `.tex.ps2` scene texture metadata (NOT the same as THUG TEX)
-- Source: `CLAUDE.md` → *Not Yet Implemented*.
-- Evidence: 328 files, each a companion to the same-named `.skin.ps2`. Header = model checksum + per-texture entries with GS register values (TEX0, MIPTBP), dimensions, and texture checksums. The PC equivalent (`.tex.wpc`) uses `0xABADD00D` magic with DXT-compressed pixel data. Internal texture checksums are **not** QbKey hashes.
-- What's left: parse the metadata (currently the worldzone/skin paths resolve textures by TBP/CBP or via the companion TEX pool rather than this per-model metadata file). Low urgency — textures already resolve for skins/worldzones through other paths; this would add explicit per-model texture binding.
 
 ### 🔶 STR (PS1 MDEC) video — VLC drift on longer streams
 - Source: `memory/str_mdec_decoder_status.md`.
@@ -200,8 +199,17 @@ for `.stex` payloads, P8/THPG `.col`, or THAW GameCube.
 - Binding chain is fully known: item→region by filename (`Spool_FindRegion`), stream selected by the item's own `mAnim` index into the region's `pAnimFile` table (stride 8, count-prefixed — NOT stream-i→item-i), per-bone positional with parent tree from `pHierarchy` (`mapTable[bone]=parent`), cross-model retarget by name via CalculateAnimOrder. `has pAnimFile ≡ IsSuper` — animated level objects (traffic cars etc.) are CSuper instances on the same skeletal path as characters.
 - What's left: teach the PSX level exporter to enumerate anim streams in hier-level files (skdown: 836 placed objects) and emit glTF animations per placed object. MEDIUM-confidence open question: whether placed level geometry also uses the name-keyed tag-0x45 packet path (all observed `Spool_FindAnim` callers are UI).
 
-### 🔴 THPG / Project 8 `.col` (newer collision version)
-- Cross-ref: `game-thpg-p8.md` (full evidence there). Newer `.col` container (`0x00FF00FF`-prefixed) not decoded. Listed here too because it's a format gap, not just a per-game gap.
+### 🔴 THPG / Project 8 `.col` + `.skin` — bare-extension ROUTING gap (S each)
+- Cross-ref: `game-thpg-p8.md`. **Corrected 2026-07-26:** there is NO "newer `0x00FF00FF` collision
+  version" — that header was GARBAGE from the pre-2026-07-10 absolute-offset PAK-extraction bug
+  (`memory/pak_header_relative_offsets.md`); the builds were re-extracted after the fix. At HEAD all
+  **85 THPG + 79 P8 `.col` start `0a 00 00 00` = version 10** and `Core/Formats/Collision/ColFile.cs`
+  (v9/10) parses them cleanly. The data is fully supported.
+- What's left (both S, user-facing, parser already handles the data):
+  - Bare `.col` (no platform suffix) is not dispatched to the collision parser — adding the extension
+    to mesh/collision discovery unblocks ALL THPG/P8 collision.
+  - Bare `.skin` (no platform suffix) is likewise not routed to the scene parser — unblocks THPG/P8
+    level/cutscene scene geometry.
 
 ---
 
@@ -236,11 +244,14 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
     routing through `CompressedPreArchive` + full-name extraction dirs. Sweep 316/316.
   - Name harvest: `QbKeyNames.CutScenes.txt` (2,032 proven cut names) + zip-vocabulary GC pak names
     (+159); corpus pak naming 57.2% → 57.5%.
-  - **Still open (not blockers):** `0x508AE2F2` CIF2 layout (THUG2 CIF replacement, dumped raw) —
-    identify via dictionary reverse-lookup → `tools/qbkey_pipeline` brute 6-9 char → GHIDRA string
-    scan → content probe for sibling TOC keys. Bare-`.cut` ver=3 INTERMEDIATE|UNCOMPRESSED master
-    anims (43 files, the richest uncompressed authoring keys) — extract raw now, parse in the
-    animation phase. WGT/CAS payload decoding beyond raw dump — no consumer yet.
+  - ✅ **`0x508AE2F2` CIF2 layout — SHIPPED** (`= QbKey("cifstruct")`, THUG2 CIF replacement). It is a
+    `CStruct WriteToBuffer` stream, decoded by `QbStructBuffer` (`Core/Formats/Qb/QbStructBuffer.cs`)
+    and integrated into `CutArchive`; **105/105 corpus payloads parse**, objects land in the
+    `{stem}.cif.json` manifest with file cross-links. (Was "dumped raw"; the dictionary reverse-lookup
+    plan is superseded.)
+  - **Still open (not blockers):** bare-`.cut` ver=3 INTERMEDIATE|UNCOMPRESSED master anims (43 files,
+    the richest uncompressed authoring keys) — extract raw now, parse in the animation phase. WGT/CAS
+    payload decoding beyond raw dump — no consumer yet.
   - **Deferred to Priority 3 (images):** the `debug.log` texture-checksum→source-name side map
     (2,005 platform-invariant pairs) for THAW texture export naming — belongs with texture work,
     NOT in `QbKeyNames*.txt` (those aren't CRC(name) pairs and would poison the harvest scripts).
@@ -269,6 +280,12 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
 
 - ✅ GS-alpha export scaling (128=opaque → PNG 255=opaque) — `memory/ps2_alpha_export_scale.md` (v1.2.1). `DecodePixels(rawGsAlpha)`: export scales ×255/128, GS replay keeps raw.
 - ✅ VID1 (THAW GameCube movie container) → MP4 — shipped (`vid` CLI command + Video Converter tab); the old `CLAUDE.md` "Deferred > VID" note predates it.
+- ✅ **THAW `.tex.ps2` scene texture metadata** — IMPLEMENTED (confirmed 2026-07-26; the old 🔴 "Not Yet
+  Implemented" note was stale). `Core/Formats/Texture/Ps2Scene/SceneTex/ThawSceneTexFile.cs` = version-6
+  TEX0-metadata scan + GIF A+D CLUT/pixel decode; **DMA-REF-verified 905/905 unique textures across
+  332/332 files**. Joined on entry-table `TextureChecksum` (1,325/1,329 materials direct; the 4 misses
+  are mat=0/tex=0 placeholders), with a TEX0 `(TBP,CBP)` fallback join for entries whose checksum is
+  absent from the companion (`ThawPs2SkinSetupMapping.AugmentTextureOverridesWithTex0Fallback`).
 - ✅ **THAW PC textures (`.tex.wpc` / `.img.wpc`, 0xABADD00D)** — already shipped as
   `ThawTexFile`/`ThawImgFile` (routed via `xbxtex`); the old "Not Yet Implemented" note was stale.
   Verified 2026-07-07: **723/723 tex.wpc + 2,480/2,480 img.wpc, 0 failures, 4,472 textures**.

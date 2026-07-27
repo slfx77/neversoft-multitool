@@ -2,6 +2,8 @@
 
 Created 2026-07-03; **re-investigated 2026-07-03** (render sweep, not just triangle counts). See `BACKLOG_SUMMARY.md`.
 
+> **Re-verified 2026-07-26 vs HEAD (v1.3.4, 60d0b81) — full-domain audit.** The `.col` "newer 0x00FF00FF version" item is retracted (it was PAK-extraction garbage from the pre-2026-07-10 absolute-offset bug — the real files are version 10 and parse via `ColFile.cs`; only extension **routing** is missing). `.mdl.ps2`/`.ska`/`.qb`/textures verified working. THPG whole-character skin reconstruction stands as best-effort for legacy content only — the game itself renders only the piece-local CAS/pro assets, which decode exactly.
+
 **Status legend:** 🔴 Open · 🔶 Partial · 🟢 Verified this session · ✅ Done · ⚪ By design
 
 **Games:** Tony Hawk's Project 8 (2006-9-21, PS2 — Final), Tony Hawk's Proving Ground (2007-9-3, PS2 — Final). Sample builds present under `Sample/Builds/`.
@@ -20,7 +22,8 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
 
 ## Remaining — needs work
 
-### 🔶 Proving Ground (THPG) character skins garble — VIF vertex re-encoding
+### ✅ Proving Ground (THPG) character skins — RESOLVED for shipped content (🔶 legacy recovery only)
+- **Status (2026-07-26 audit):** NOT a user-facing break. The game renders only piece-local CAS/pro assets, which are non-wrapping Q4.12 and decode **exactly** today. The old-scale whole-character exports (`gped_*`/`shaba_*`/peds) that garble at `/16` are legacy content the shipped engine never loads (proven by GS dumps + savestates, below); our heuristic reconstruction recovers them at 95.6% as best-effort — the ~4.4% residual has no in-game ground truth and is moot. The 🔶 below tracks only that legacy-recovery quality, not a shipped-asset defect.
 - Source: this session (2026-07-03).
 - **Controlled repro** (the key lever): `gped_bam.skin.ps2` ships in **both** games. Same header `(1,9,9)` = THAW pre-compiled skin (`numObjects=1, meshes=9, dataSize=0xE4C0`≈filesize), **same file size 58,576 B**, headers byte-identical except one bbox float at `0x1C`. But `cmp` shows **16,553 bytes differ**, all in the VIF payload from offset `0x291` onward. Result: **P8 `gped_bam` renders perfectly; THPG `gped_bam` renders scrambled blocks.** Same decoder, same header, different VIF payload → THPG changed the vertex/strip encoding.
 - More THPG evidence: `gped_anchorman_body` `(2,6,6)` → scrambled; `gped_bobburnquist` `(1,7,7)` → **head correct, body scrambled** (fails on higher-vertex meshes). Simple THPG meshes still work: `cas_acc_gloves01` renders clean gloves. So the break is in the character-body VIF batches, not the whole format.
@@ -170,16 +173,29 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
 - Reusable tools: `tools/diagnostics/thpg_vif_compare.py`, `thpg_vif_diff.py`, `thpg_band_analysis.py`
   (oracle band computation; proved bands spatially continuous and bone-slot-uncorrelated).
 
-### 🔴 Collision (`.col`) is a newer, unsupported version
-- Source: this session (2026-07-03).
-- Evidence: `col .../m_c1_demo.pak/6F980DC3.col` → *"0 supported, 1 unsupported — Unrecognized mesh format: .col"*. THPG `.col` begins `00 FF 00 FF 03 00 00 00` (a `0xFF00FF00` marker + a `3`), not the version `9`/`10` int32 the COL parser (`ColFile.cs`, `FormatProbeMesh.ProbeColFile`) expects. Project 8 `.col` also fails the 9/10 check.
-- What's left: decode the newer COL container. It is **not** the THUG/THUG2/THAW v9/v10 layout — reverse the `0x00FF00FF`-prefixed structure (probably a chunked/marker-delimited variant). Reference: `io_thps_scene` collision importers may cover THPG.
+### ⚪ RETRACTED (2026-07-26) — `.col` is NOT a newer unsupported version; it is version 10 and parses
+- Original claim (2026-07-03): THPG/P8 `.col` begins `00 FF 00 FF 03 00 00 00` (a `0xFF00FF00` marker), not the `9`/`10` int32 `ColFile.cs` expects, so a new container format needed RE.
+- **Retraction (2026-07-26 audit vs HEAD 60d0b81):** the `00 FF 00 FF` header was **PAK-extraction garbage** produced by the pre-2026-07-10 absolute-offset PAK bug (see `memory/pak_header_relative_offsets.md`); the builds were re-extracted after that fix. At HEAD **all 85 THPG + 79 P8 `.col` files start `0a 00 00 00` = version 10** and `ColFile.cs` (v9/10) parses them cleanly. There is no new format to reverse.
+
+### 🔴 Bare `.col` / `.skin` extension routing (S each) — user-facing
+- Source: 2026-07-26 audit.
+- The parsers already support the THPG/P8 data (`.col` v10 via `ColFile.cs`; scene skins via the THAW/PS2 scene path). The ONLY remaining gap is **dispatch**: a bare `.col` (no `.xbx`/`.wpc`/`.ps2` suffix) is not routed to the collision parser, and a bare `.skin` is not routed to the scene mesh parser, so these extract but don't convert.
+- What's left: add the bare-extension routing in the mesh/collision command + format-probe dispatch. Trivial (S) each — unblocks ALL THPG/P8 collision meshes and level/cutscene scene geometry that ship with bare extensions.
 
 ---
 
-## Not yet checked this session (unknowns — confirm before claiming support)
+## Family sweep (🟢 verified 2026-07-26 vs HEAD 60d0b81)
 
-Exercised so far: textures (both), character skins (both — P8 good, THPG garbled), `.col` (both unsupported). Status **unknown** for both games: `.mdl.ps2` object meshes, worldzone PAKs, `.ska` animations, `.pak` archive discovery, audio (`.vag`/streams), and `.bik` video (Bink — a distinct container, almost certainly unsupported). A session picking this up should sweep each family and record pass/fail rather than assuming parity — the P8-vs-THPG skin surprise shows same-family assumptions across these two games can be wrong.
+The 2026-07-26 audit swept the previously-unknown families for both games at HEAD:
+
+- 🟢 **Textures** (`.tex.ps2`/`.img.ps2`) — decode correctly (both games).
+- 🟢 **`.mdl.ps2` object meshes** — verified working.
+- 🟢 **`.ska` animations** — verified working (THAW-family `.ska`; parsed + baked).
+- 🟢 **`.qb` scripts** — verified working (THAW sectioned QB; name resolution 89–99%).
+- 🟢 **Character skins** — P8 renders correctly; THPG renders correctly for the piece-local CAS/pro assets the game actually loads (the legacy old-scale whole-character exports remain best-effort recovery only — see the reconstruction item above).
+- ⚪ **`.bik` video** (Bink) — proprietary RAD Game Tools codec; out of scope (see By design below).
+
+The only genuinely-open THPG/P8-specific gaps are the two bare-extension **routing** fixes above (`.col`/`.skin`). All parsers exist.
 
 ## By design / won't-fix (⚪)
 
