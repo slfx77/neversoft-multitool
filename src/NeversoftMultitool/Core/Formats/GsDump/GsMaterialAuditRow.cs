@@ -13,6 +13,15 @@ internal sealed class GsMaterialAuditRow
     public long Draws { get; init; }
     public long MissingTextureDraws { get; init; }
     public long PixelsWritten { get; init; }
+
+    /// <summary>
+    ///     Frame-global draw ordering: the 1-based sequence index of this state
+    ///     bucket's first and last rasterized draw (-1 when it never drew).
+    ///     Consumed by the oracle export for pass-order adjudication.
+    /// </summary>
+    public long FirstDrawIndex { get; init; } = -1;
+
+    public long LastDrawIndex { get; init; } = -1;
     public GsPixelBounds? Bounds { get; init; }
     public double MinR { get; init; }
     public double MaxR { get; init; }

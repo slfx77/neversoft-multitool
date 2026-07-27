@@ -96,6 +96,10 @@ tools/ghidra/thps3_ps2/*
 tools/diagnostics/*
 !tools/diagnostics/capture_request_phase2.md
 !tools/diagnostics/glb_material_diff_sweep.py
+!tools/diagnostics/native_baseline.json
+!tools/diagnostics/native_gate.py
+!tools/diagnostics/native_gate_selftest.py
+!tools/diagnostics/native_reference_sweep.py
 !tools/diagnostics/psx-anim-format.md
 !tools/diagnostics/psx_anim_tween_survey.py
 !tools/diagnostics/psx_func_signature_scan.py

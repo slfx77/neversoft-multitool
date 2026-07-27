@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using NeversoftMultitool.Core.Formats.GsDump.Oracle;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
@@ -22,6 +23,9 @@ internal static class GsDumpAuditRunner
         var dimensions = GsDumpAuditResolvers.ResolveRenderDimensions(dump, pngPath);
         var coordinateScale = GsDumpAuditResolvers.ResolveCoordinateScale(dump);
         var textureContext = GsDumpAuditResolvers.BuildTextureContext(options.TexturePath);
+        var oracleComparer = textureContext == null
+            ? null
+            : new GsTextureOracleComparer(textureContext.CatalogResolver, textureContext.ResolveChecksum);
         var stem = MakeOutputStem(gsPath);
         var textureDumpDirectory = Path.Combine(outputDirectory, stem + ".textures");
         var textureDumpIndex = 0;
@@ -181,10 +185,16 @@ internal static class GsDumpAuditRunner
                             GsDumpAuditResolvers.SaveRgba(path, rgba, w, h);
                         }
                         : null,
-                    TextureDumpSink = options.JsonOnly
+                    TextureDumpSink = options.JsonOnly && oracleComparer == null
                         ? null
                         : dumpTexture =>
                         {
+                            // The texoracle comparer consumes the in-memory
+                            // RGBA even when PNG dumping is disabled.
+                            oracleComparer?.Add(dumpTexture);
+                            if (options.JsonOnly)
+                                return null;
+
                             Directory.CreateDirectory(textureDumpDirectory);
                             var fileName =
                                 $"{textureDumpIndex++:D4}_tex0-{dumpTexture.Audit.Tex0[2..]}_texa-{dumpTexture.Audit.Texa[2..]}_psm-{dumpTexture.Audit.Psm:X2}_{dumpTexture.Audit.Width}x{dumpTexture.Audit.Height}_at-{dumpTexture.Audit.RegionX}-{dumpTexture.Audit.RegionY}_{MakeSafeFileSuffix(dumpTexture.Audit.Source)}_{dumpTexture.Audit.ContentHash:X8}.png";
@@ -195,7 +205,7 @@ internal static class GsDumpAuditRunner
                         }
                 });
             return FinishRun(interpretation, dump, gsPath, outputDirectory, options, dimensions, pngPath, stem,
-                textureContext, textureDumpDirectory);
+                textureContext, textureDumpDirectory, oracleComparer);
         }
         finally
         {
@@ -214,7 +224,8 @@ internal static class GsDumpAuditRunner
         string? pngPath,
         string stem,
         GsTextureContext? textureContext,
-        string textureDumpDirectory)
+        string textureDumpDirectory,
+        GsTextureOracleComparer? oracleComparer)
     {
         var directPixels = interpretation.DirectPixels;
         var renderPixels = interpretation.Pixels;
@@ -376,6 +387,28 @@ internal static class GsDumpAuditRunner
         File.WriteAllText(jsonPath, JsonSerializer.Serialize(
             report,
             GsDumpAuditJsonContext.Default.GsDumpAuditReport));
+
+        // Oracle artifacts (only meaningful with a zone-texture catalog): the
+        // per-checksum blend/draw-order facts and the zone-TEX decode ground
+        // truth the converter adjudication tests consume as goldens.
+        if (textureContext != null)
+        {
+            var oracle = GsOracleReportBuilder.Build(
+                stem, dump, interpretation.Render, textureContext.ResolveChecksum);
+            File.WriteAllText(
+                Path.Combine(outputDirectory, stem + ".gsoracle.json"),
+                JsonSerializer.Serialize(oracle, GsOracleJsonContext.Default.GsOracleReport));
+
+            if (oracleComparer != null)
+            {
+                var textureOracle = oracleComparer.BuildReport(stem);
+                File.WriteAllText(
+                    Path.Combine(outputDirectory, stem + ".texoracle.json"),
+                    JsonSerializer.Serialize(
+                        textureOracle, GsOracleJsonContext.Default.GsTextureOracleReport));
+            }
+        }
+
         return report;
     }
 
@@ -403,6 +436,15 @@ internal static class GsDumpAuditRunner
         Func<ulong, uint, Ps2GeomTextureResolution> tex0Resolver)
     {
         private readonly Dictionary<ulong, GsResolvedTexture?> cache = [];
+
+        /// <summary>The catalog's checksum→PNG resolver (texoracle comparisons).</summary>
+        public MeshChecksumTextureResolver CatalogResolver => textureResolver;
+
+        /// <summary>Runtime TEX0 → catalog checksum (0 = unresolved), for the oracle join.</summary>
+        public uint ResolveChecksum(ulong tex0)
+        {
+            return tex0Resolver(tex0, 0).Checksum;
+        }
 
         public GsResolvedTexture? ResolveTexture(ulong tex0)
         {

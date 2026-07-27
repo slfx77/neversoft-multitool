@@ -101,6 +101,13 @@ internal sealed partial class GsGifInterpreter
     private readonly HashSet<string> dumpedTextureKeys = [];
     private readonly GsGifAudit gifAudit = new();
     private readonly Dictionary<string, GsMaterialAccumulator> materialDraws = [];
+
+    /// <summary>
+    ///     Monotonic per-draw counter (increments once per rasterized
+    ///     primitive draw) giving material state buckets their frame-global
+    ///     First/LastDrawIndex ordering facts for the oracle export.
+    /// </summary>
+    private long drawSequence;
     private readonly Dictionary<string, MissingTextureDrawAccumulator> missingTextureDraws = [];
 
     private readonly GsGifInterpretOptions options;
@@ -833,6 +840,14 @@ internal sealed partial class GsGifInterpreter
             materialDraws[key] = row;
         }
 
+        // Frame-global draw ordering for the oracle: worldzone pass-order
+        // adjudication needs to know WHEN a state bucket drew, not just that
+        // it drew.
+        drawSequence++;
+        if (row.FirstDrawIndex < 0)
+            row.FirstDrawIndex = drawSequence;
+        row.LastDrawIndex = drawSequence;
+
         row.Draws++;
         if (missingTexture)
             row.MissingTextureDraws++;
@@ -1117,6 +1132,8 @@ internal sealed partial class GsGifInterpreter
         public long Draws { get; set; }
         public long MissingTextureDraws { get; set; }
         public long PixelsWritten { get; set; }
+        public long FirstDrawIndex { get; set; } = -1;
+        public long LastDrawIndex { get; set; } = -1;
         public GsPixelBounds? Bounds { get; set; }
 
         private bool HasVertices => vertexCount > 0;
@@ -1162,6 +1179,8 @@ internal sealed partial class GsGifInterpreter
                 Draws = Draws,
                 MissingTextureDraws = MissingTextureDraws,
                 PixelsWritten = PixelsWritten,
+                FirstDrawIndex = FirstDrawIndex,
+                LastDrawIndex = LastDrawIndex,
                 Bounds = Bounds,
                 MinR = HasVertices ? minR : 0,
                 MaxR = HasVertices ? maxR : 0,

@@ -1,0 +1,8 @@
+{
+  "status": "pending-capture",
+  "generated": "2026-07-27",
+  "note": "No local PCSX2 SW-native rt0 reference dumps exist (TestOutput/pcsx2_native_* was cleaned). The 17 .gs dumps + paired hi-res screenshots are still in C:/Users/mmc99/Documents/PCSX2/snaps. To seed this baseline: (1) capture SW-native frames: powershell tools/diagnostics/capture_all_native.ps1 -SkipTags @() -DurationSeconds 45; (2) produce our FBP0 renders per dump: dotnet src/NeversoftMultitool/bin/Debug/net10.0/NeversoftMultitool.dll gsdump <snaps>/<dump>.gs -o TestOutput/sweep_fbp --dump-fbp-buffers; (3) python tools/diagnostics/native_reference_sweep.py --anchor --json TestOutput/native_sweep.json; (4) python tools/diagnostics/native_gate.py --sweep TestOutput/native_sweep.json --update-baseline. Tooling verified end-to-end on synthetic data via tools/diagnostics/native_gate_selftest.py.",
+  "slopeBand": 0.03,
+  "maeTolerance": 0.5,
+  "captures": {}
+}
