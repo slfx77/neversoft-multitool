@@ -234,13 +234,16 @@ internal static class XbxGeometryWriter
 
     private static ModelVertex MakeXbxVertex(XbxVertex vertex, float coordinateScale)
     {
-        var color = vertex.HasColor
-            ? new Vector4(
-                Math.Min(vertex.Color.X, 1f),
-                Math.Min(vertex.Color.Y, 1f),
-                Math.Min(vertex.Color.Z, 1f),
-                Math.Min(vertex.Color.W, 1f))
-            : Vector4.One;
+        // Vertex colours are decoded at /128 (raw 128 = neutral 1.0, up to ~2.0
+        // overbright — the D3D MODULATE2X-family convention). Pass them through
+        // UNCLAMPED: clamping here crushed every overbright highlight and
+        // darkened THAW/THUG2 scenes wherever authored shading sat below 128.
+        // The glTF exporter's out-of-range gate routes such meshes to the
+        // overbright vertex layout (portable COLOR_0 clamped + raw values in
+        // the _PSX_COLOR_0 float attribute), and the .blend path preserves the
+        // floats in Blender's FLOAT_COLOR layer, so every consumer stays
+        // spec-valid while the true modulation survives.
+        var color = vertex.HasColor ? vertex.Color : Vector4.One;
 
         return new ModelVertex(
             vertex.Position * coordinateScale,
