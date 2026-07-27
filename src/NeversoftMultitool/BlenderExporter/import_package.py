@@ -246,8 +246,16 @@ def _metadata_blend_hint(metadata):
         elif kind == "xbx_material":
             # PC/Xbox sort and alpha-cutoff fields are not sufficient evidence
             # of transparency in THAW worldzones. ModelDocument has already
-            # combined texture alpha and pass blend state; trust AlphaMode.
-            pass
+            # combined texture alpha and pass blend state; trust AlphaMode —
+            # EXCEPT for a baked pass-0 ADD blend (bakedRecipe), which gets the
+            # emissive-additive shader: the baked texture carries its strength
+            # in alpha (the PSX ABR-conversion convention). A baked SUBTRACT
+            # deliberately stays on the plain alpha-blend recipe — the texture
+            # is already black-with-luminance-alpha, and alpha-blending it IS
+            # the darkening approximation (_build_subtractive_shader expects a
+            # raw texture and must not run on baked input).
+            if item.get("bakedRecipe") == "additive":
+                return "additive", alpha_ref
     return hint, alpha_ref
 
 
@@ -1083,6 +1091,13 @@ def _make_materials(manifest, package, package_dir):
         metadata = entry.get("NativeMetadata", [])
         hint, alpha_ref = _metadata_blend_hint(metadata)
         psx_additive = _is_psx_additive_material(material_name) if is_psx else False
+        # Xbox/PC/GC pass-0 ADD blends arrive with the additive strength BAKED
+        # into the texture alpha (XbxPassCompositor), the same convention as the
+        # PSX ABR conversion — the additive shader must trust texture alpha and
+        # apply no extra scaling.
+        xbx_baked_additive = any(
+            item.get("kind") == "xbx_material" and item.get("bakedRecipe") == "additive"
+            for item in metadata)
         if psx_additive:
             hint = "additive"
             alpha_ref = None
@@ -1133,8 +1148,8 @@ def _make_materials(manifest, package, package_dir):
             wrap_u=wrap_u,
             wrap_v=wrap_v,
             ps2_alpha_fields=ps2_alpha_fields,
-            additive_scale=1.0 if psx_additive else None,
-            additive_uses_texture_alpha=psx_additive,
+            additive_scale=1.0 if (psx_additive or xbx_baked_additive) else None,
+            additive_uses_texture_alpha=psx_additive or xbx_baked_additive,
             use_vertex_alpha=not is_xbx_scene,
         )
 

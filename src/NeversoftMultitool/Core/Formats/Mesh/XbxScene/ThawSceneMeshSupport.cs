@@ -26,17 +26,22 @@ internal static class ThawSceneMeshSupport
         var passFlags = ReadUInt32Array(r, ThawSceneFile.MaxPasses);
         var passChecksums = ReadUInt32Array(r, ThawSceneFile.MaxPasses);
         var passColors = new Vector3[ThawSceneFile.MaxPasses];
+        // The 4th colour component mirrors the engine's m_color[pass][3]
+        // (= fixed_alpha/128 in THUG material.cpp:671) — captured for the
+        // FixedAlpha investigation (XbxPass.ColorW, tools/XbxPassSurvey).
+        var passColorWs = new float[ThawSceneFile.MaxPasses];
         for (var i = 0; i < ThawSceneFile.MaxPasses; i++)
         {
             passColors[i] = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
-            r.ReadSingle();
+            passColorWs[i] = r.ReadSingle();
         }
 
         var passBlendModes = new uint[ThawSceneFile.MaxPasses];
+        var passBlendModeExtras = new short[ThawSceneFile.MaxPasses];
         for (var i = 0; i < ThawSceneFile.MaxPasses; i++)
         {
             passBlendModes[i] = r.ReadUInt16();
-            r.ReadInt16();
+            passBlendModeExtras[i] = r.ReadInt16();
         }
 
         var passAddressing = ReadUInt32Array(r, ThawSceneFile.MaxPasses);
@@ -62,8 +67,14 @@ internal static class ThawSceneMeshSupport
                 HasColor = true,
                 Color = passColors[p],
                 BlendMode = passBlendModes[p],
+                // ColorW IS the fix scalar (m_color[3] = fixed_alpha/128,
+                // material.cpp:671) — survey-confirmed: nonzero for every
+                // *_FIXED-mode pass in the THAW PC corpus, ~zero elsewhere.
+                FixedAlpha = (uint)Math.Clamp(MathF.Round(passColorWs[p] * 128f), 0f, 255f),
                 UAddressing = ConvertThawAddressMode(passAddressing[p] & 0xFFFF),
-                VAddressing = ConvertThawAddressMode((passAddressing[p] >> 16) & 0xFFFF)
+                VAddressing = ConvertThawAddressMode((passAddressing[p] >> 16) & 0xFFFF),
+                ColorW = passColorWs[p],
+                BlendModeExtra = passBlendModeExtras[p]
             };
         }
 

@@ -118,6 +118,11 @@ internal sealed class BlendPackageManifest
                 result["drawOrder"] = xbx.DrawOrder;
                 result["zBias"] = xbx.ZBias;
                 result["firstTextureChecksum"] = xbx.FirstTextureChecksum;
+                result["pass0BlendMode"] = xbx.Pass0BlendMode;
+                result["pass0FixedAlpha"] = xbx.Pass0FixedAlpha;
+                result["passCount"] = xbx.PassCount;
+                if (xbx.BakedRecipe != null)
+                    result["bakedRecipe"] = xbx.BakedRecipe;
                 break;
             case CollisionRenderMetadata collision:
                 result["objectCount"] = collision.ObjectCount;

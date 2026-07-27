@@ -694,7 +694,10 @@ public sealed class MeshModelParser : IModelParser
                 material.Sorted,
                 material.DrawOrder,
                 material.ZBias,
-                firstTexture));
+                firstTexture,
+                material.Passes.Length > 0 ? material.Passes[0].BlendMode : 0,
+                material.Passes.Length > 0 ? material.Passes[0].FixedAlpha : 0,
+                material.Passes.Length));
             document.Materials.Add(renderMaterial);
         }
 

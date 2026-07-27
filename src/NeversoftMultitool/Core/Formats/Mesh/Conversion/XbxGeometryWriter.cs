@@ -11,6 +11,8 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 /// </summary>
 internal static class XbxGeometryWriter
 {
+    private const string OpaqueAlphaMode = "OPAQUE";
+
     public static void PopulateXbxScene(
         ModelDocument document,
         ParsedXbxScene scene,
@@ -64,27 +66,8 @@ internal static class XbxGeometryWriter
         XbxMaterial material,
         MeshChecksumTextureResolver? textureProvider)
     {
-        var textureAlphaMode = "OPAQUE";
-        if (textureProvider != null && material.Passes.Length > 0)
-        {
-            var pass = material.Passes[0];
-            if (pass.TextureChecksum != 0)
-            {
-                var pngBytes = textureProvider(pass.TextureChecksum);
-                if (pngBytes != null)
-                {
-                    textureAlphaMode = Ps2GeomDestinationAlphaSynthesis.ClassifyTextureAlphaMode(pngBytes);
-                    renderMaterial.TextureIndex ??= ModelDocumentGeometryAdapter.AddTexture(
-                        document,
-                        ModelDocumentGeometryAdapter.ResolveQbName(pass.TextureChecksum,
-                            $"tex_{pass.TextureChecksum:X8}"),
-                        pngBytes,
-                        pass.TextureChecksum,
-                        pass.UAddressing == 3 ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat,
-                        pass.VAddressing == 3 ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat);
-                }
-            }
-        }
+        var (textureAlphaMode, bakeApplied) =
+            RegisterPass0Texture(document, renderMaterial, material, textureProvider);
 
         // Pass-0 blend mode — not the texture's alpha histogram — decides
         // framebuffer blending: the engine alpha-BLENDS hair/overlay cards
@@ -92,21 +75,98 @@ internal static class XbxGeometryWriter
         // AlphaCutoff usually 1 just to kill a==0 texels). Classifying those
         // bimodal textures as MASK@cutoff-1/255 rendered every fringe texel
         // fully opaque WITH depth-write → hair-card z-fighting (billyjoe,
-        // boone). Sorted alone never forces BLEND.
+        // boone). Sorted alone never forces BLEND. A baked ADD/SUBTRACT texture
+        // (modes 1-4) always framebuffer-blends, even when the SOURCE image was
+        // opaque — the bake moved the blend strength into its alpha channel.
         var firstBlendMode = material.Passes.Length > 0 ? material.Passes[0].BlendMode : 0;
         var framebufferBlends = firstBlendMode is >= 1 and <= 6;
-        if (framebufferBlends && textureAlphaMode != "OPAQUE")
+        if (framebufferBlends && (textureAlphaMode != OpaqueAlphaMode || bakeApplied))
         {
             renderMaterial.AlphaMode = ModelAlphaMode.Blend;
         }
         else if (textureAlphaMode == "MASK" ||
-                 (material.AlphaCutoff >= 1 && textureAlphaMode != "OPAQUE"))
+                 (material.AlphaCutoff >= 1 && textureAlphaMode != OpaqueAlphaMode))
         {
             // Opaque framebuffer write + D3D alpha test (ALPHAREF 0-255, GEQUAL).
             renderMaterial.AlphaMode = ModelAlphaMode.Mask;
             renderMaterial.AlphaCutoff = material.AlphaCutoff >= 1
                 ? material.AlphaCutoff / 255f
                 : 0.5f;
+        }
+    }
+
+    /// <summary>
+    ///     Resolves, bakes, and registers the material's document texture.
+    ///     Returns the RAW pass-0 image's alpha classification (so the caller's
+    ///     Blend/MASK decisions stay byte-identical to the pre-bake behaviour)
+    ///     and whether a pass-0 ADD/SUBTRACT framebuffer bake was applied.
+    /// </summary>
+    private static (string TextureAlphaMode, bool BakeApplied) RegisterPass0Texture(
+        ModelDocument document,
+        RenderMaterial renderMaterial,
+        XbxMaterial material,
+        MeshChecksumTextureResolver? textureProvider)
+    {
+        if (textureProvider == null || material.Passes.Length == 0)
+            return (OpaqueAlphaMode, false);
+
+        var pass = material.Passes[0];
+        if (pass.TextureChecksum == 0)
+            return (OpaqueAlphaMode, false);
+
+        var pngBytes = textureProvider(pass.TextureChecksum);
+        if (pngBytes == null)
+            return (OpaqueAlphaMode, false);
+
+        var textureAlphaMode = Ps2GeomDestinationAlphaSynthesis.ClassifyTextureAlphaMode(pngBytes);
+
+        // Bake what glTF cannot express: composite pass-k overlays (in-shader
+        // ADD/SUB/LERP layers — tattoos, detail maps) onto the pass-0 image,
+        // then convert a pass-0 ADD/SUBTRACT framebuffer blend into the
+        // portable alpha approximation.
+        var finalPng = pngBytes;
+        var composited = 0;
+        if (material.Passes.Length > 1)
+            (finalPng, composited) = XbxPassCompositor.CompositeOverlays(material, finalPng, textureProvider);
+
+        var bakeApplied = XbxPassCompositor.IsFramebufferBakeMode(pass.BlendMode);
+        if (bakeApplied)
+        {
+            finalPng = XbxPassCompositor.ApplyFramebufferBlendBake(finalPng, pass.BlendMode, pass.FixedAlpha);
+            MarkBakedRecipe(renderMaterial, pass.BlendMode is 1 or 2 ? "additive" : "subtractive");
+        }
+
+        // Baked variants register under a synthetic checksum + name suffix so a
+        // plain material sharing the same source texture keeps the pristine
+        // copy (the PSX per-ABR-rate precedent).
+        var checksum = composited > 0 || bakeApplied
+            ? XbxPassCompositor.CreateSyntheticTextureChecksum(material)
+            : pass.TextureChecksum;
+        var name = ModelDocumentGeometryAdapter.ResolveQbName(pass.TextureChecksum,
+                       $"tex_{pass.TextureChecksum:X8}") +
+                   XbxPassCompositor.TextureNameSuffix(pass.BlendMode, composited);
+        renderMaterial.TextureIndex ??= ModelDocumentGeometryAdapter.AddTexture(
+            document,
+            name,
+            finalPng,
+            checksum,
+            pass.UAddressing == 3 ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat,
+            pass.VAddressing == 3 ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat);
+
+        return (textureAlphaMode, bakeApplied);
+    }
+
+    /// <summary>
+    ///     Records the baked shader recipe on the material's
+    ///     <see cref="XbxMaterialRenderMetadata" /> so the Blender importer's
+    ///     xbx_material branch can pick the matching Eevee recipe.
+    /// </summary>
+    private static void MarkBakedRecipe(RenderMaterial renderMaterial, string recipe)
+    {
+        for (var i = 0; i < renderMaterial.NativeMetadata.Count; i++)
+        {
+            if (renderMaterial.NativeMetadata[i] is XbxMaterialRenderMetadata xbxMeta)
+                renderMaterial.NativeMetadata[i] = xbxMeta with { BakedRecipe = recipe };
         }
     }
 

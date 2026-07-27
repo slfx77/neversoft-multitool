@@ -4,9 +4,6 @@ namespace NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 internal static class XbxSceneMaterialReader
 {
-    private const uint MatflagUvWibble = 1 << 0;
-    private const uint MatflagVcWibble = 1 << 1;
-    private const uint MatflagPassTextureAnimates = 1 << 11;
 
     public static XbxMaterial ReadMaterial(BinaryReader r)
     {
@@ -74,10 +71,10 @@ internal static class XbxSceneMaterialReader
         var envmapTiling = new Vector2(r.ReadSingle(), r.ReadSingle());
         var filteringMode = r.ReadUInt32();
 
-        if ((flags & MatflagUvWibble) != 0)
+        if ((flags & XbxMaterialFlags.UvWibble) != 0)
             r.BaseStream.Position += 32;
 
-        if (passIndex == 0 && (flags & MatflagVcWibble) != 0)
+        if (passIndex == 0 && (flags & XbxMaterialFlags.VcWibble) != 0)
         {
             var numSeqs = r.ReadInt32();
             for (var seq = 0; seq < numSeqs; seq++)
@@ -88,7 +85,7 @@ internal static class XbxSceneMaterialReader
             }
         }
 
-        if ((flags & MatflagPassTextureAnimates) != 0)
+        if ((flags & XbxMaterialFlags.PassTextureAnimates) != 0)
         {
             var numKeyframes = r.ReadInt32();
             r.ReadInt32();
