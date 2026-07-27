@@ -1,8 +1,109 @@
 {
-  "status": "pending-capture",
+  "status": "active",
   "generated": "2026-07-27",
-  "note": "No local PCSX2 SW-native rt0 reference dumps exist (TestOutput/pcsx2_native_* was cleaned). The 17 .gs dumps + paired hi-res screenshots are still in C:/Users/mmc99/Documents/PCSX2/snaps. To seed this baseline: (1) capture SW-native frames: powershell tools/diagnostics/capture_all_native.ps1 -SkipTags @() -DurationSeconds 45; (2) produce our FBP0 renders per dump: dotnet src/NeversoftMultitool/bin/Debug/net10.0/NeversoftMultitool.dll gsdump <snaps>/<dump>.gs -o TestOutput/sweep_fbp --dump-fbp-buffers; (3) python tools/diagnostics/native_reference_sweep.py --anchor --json TestOutput/native_sweep.json; (4) python tools/diagnostics/native_gate.py --sweep TestOutput/native_sweep.json --update-baseline. Tooling verified end-to-end on synthetic data via tools/diagnostics/native_gate_selftest.py.",
+  "sourceSweep": "TestOutput/native_sweep.json",
+  "anchorMode": true,
   "slopeBand": 0.03,
   "maeTolerance": 0.5,
-  "captures": {}
+  "captures": {
+    "143551": {
+      "slope": 0.7358,
+      "intercept": 14.8,
+      "mae": 18.275,
+      "matchedFrame": "00494_f00001_rt0_00000_C_32.png",
+      "anchorConfidence": 0.8183
+    },
+    "192825": {
+      "slope": 0.708,
+      "intercept": 16.61,
+      "mae": 13.981,
+      "matchedFrame": "00537_f00001_rt0_00000_C_32.png",
+      "anchorConfidence": 0.8264
+    },
+    "201000": {
+      "slope": 0.7337,
+      "intercept": 14.58,
+      "mae": 11.777,
+      "matchedFrame": "00834_f00001_rt0_00000_C_32.png",
+      "anchorConfidence": 0.8412
+    },
+    "202641": {
+      "slope": 0.7465,
+      "intercept": 13.5,
+      "mae": 10.881,
+      "matchedFrame": "00833_f00001_rt0_00000_C_32.png",
+      "anchorConfidence": 0.953
+    },
+    "233708": {
+      "slope": 0.776,
+      "intercept": 10.45,
+      "mae": 9.311,
+      "matchedFrame": "00853_f00001_rt0_00000_C_32.png",
+      "anchorConfidence": 0.8631
+    },
+    "233719": {
+      "slope": 0.7703,
+      "intercept": 10.74,
+      "mae": 9.453,
+      "matchedFrame": "00809_f00001_rt0_00000_C_32.png",
+      "anchorConfidence": 0.8741
+    },
+    "233734": {
+      "slope": 0.7159,
+      "intercept": 13.59,
+      "mae": 12.496,
+      "matchedFrame": "00503_f00001_rt0_00000_C_32.png",
+      "anchorConfidence": 0.8643
+    },
+    "233835": {
+      "slope": 0.6864,
+      "intercept": 15.04,
+      "mae": 22.978,
+      "matchedFrame": "00457_f00001_rt0_00000_C_32.png",
+      "anchorConfidence": 0.8883
+    },
+    "233934": {
+      "slope": 0.8677,
+      "intercept": 5.18,
+      "mae": 6.306,
+      "matchedFrame": "00379_f00001_rt0_00000_C_32.png",
+      "anchorConfidence": 0.9029
+    },
+    "233949": {
+      "slope": 0.8366,
+      "intercept": 6.75,
+      "mae": 3.333,
+      "matchedFrame": "00215_f00001_rt0_00000_C_32.png",
+      "anchorConfidence": 0.9049
+    },
+    "234026": {
+      "slope": 0.8305,
+      "intercept": 5.34,
+      "mae": 4.422,
+      "matchedFrame": "00440_f00001_rt0_00000_C_32.png",
+      "anchorConfidence": 0.9434
+    },
+    "234126": {
+      "slope": 0.5424,
+      "intercept": 18.56,
+      "mae": 16.015,
+      "matchedFrame": "00332_f00001_rt0_00000_C_32.png",
+      "anchorConfidence": 0.8584
+    },
+    "234210": {
+      "slope": 0.7583,
+      "intercept": 8.88,
+      "mae": 8.252,
+      "matchedFrame": "00324_f00001_rt0_00000_C_32.png",
+      "anchorConfidence": 0.8682
+    }
+  },
+  "aggregate": {
+    "captures": 14,
+    "included": 13,
+    "outliers": 1,
+    "meanSlope": 0.7468,
+    "meanMae": 11.345,
+    "meanEmbSlope": null
+  }
 }
