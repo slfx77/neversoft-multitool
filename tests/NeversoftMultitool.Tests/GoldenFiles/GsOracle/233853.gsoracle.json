@@ -1,0 +1,2361 @@
+{
+  "Capture": "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260507233853",
+  "Serial": "SLUS-21295",
+  "Crc": 556240731,
+  "TotalDraws": 74615,
+  "Coverage": {
+    "TexturedStateBuckets": 346,
+    "ResolvedStateBuckets": 56,
+    "TexturedDraws": 69617,
+    "ResolvedDraws": 20367,
+    "ResolvedDrawFraction": 0.2925578522487324,
+    "UnresolvedTex0": [
+      {
+        "Tex0": "0x2016B385DD30ABE0",
+        "Draws": 3731,
+        "PixelsWritten": 3554
+      },
+      {
+        "Tex0": "0x2007EA059940B990",
+        "Draws": 2964,
+        "PixelsWritten": 4157
+      },
+      {
+        "Tex0": "0x2006B2E5DD40AC60",
+        "Draws": 2256,
+        "PixelsWritten": 158938
+      },
+      {
+        "Tex0": "0x00000002A8A29180",
+        "Draws": 2240,
+        "PixelsWritten": 1182720
+      },
+      {
+        "Tex0": "0x2006ADC5DD40B2E0",
+        "Draws": 1660,
+        "PixelsWritten": 66713
+      },
+      {
+        "Tex0": "0x2007ED45DD40B7E0",
+        "Draws": 1360,
+        "PixelsWritten": 59482
+      },
+      {
+        "Tex0": "0x200655C59940B2A6",
+        "Draws": 1336,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2006B225DD40ADC0",
+        "Draws": 1311,
+        "PixelsWritten": 8282
+      },
+      {
+        "Tex0": "0x2016B385D930AC00",
+        "Draws": 1104,
+        "PixelsWritten": 685
+      },
+      {
+        "Tex0": "0x2016B3655540AC10",
+        "Draws": 1088,
+        "PixelsWritten": 1781
+      },
+      {
+        "Tex0": "0x2007EF059940B6A0",
+        "Draws": 928,
+        "PixelsWritten": 240745
+      },
+      {
+        "Tex0": "0x2007EF859D40B610",
+        "Draws": 823,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2016B3C59930ABC0",
+        "Draws": 720,
+        "PixelsWritten": 7665
+      },
+      {
+        "Tex0": "0x2006B1459940AEB0",
+        "Draws": 656,
+        "PixelsWritten": 51638
+      },
+      {
+        "Tex0": "0x2007EB85DD40B9C0",
+        "Draws": 644,
+        "PixelsWritten": 73699
+      },
+      {
+        "Tex0": "0x2007EE05DD40B760",
+        "Draws": 608,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2016B3859930ABF0",
+        "Draws": 608,
+        "PixelsWritten": 6535
+      },
+      {
+        "Tex0": "0x2007EC854D40B800",
+        "Draws": 604,
+        "PixelsWritten": 47879
+      },
+      {
+        "Tex0": "0x2005B88621312CC4",
+        "Draws": 592,
+        "PixelsWritten": 354
+      },
+      {
+        "Tex0": "0x2007E7C59940BC20",
+        "Draws": 536,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2007E8459940BDB0",
+        "Draws": 532,
+        "PixelsWritten": 7125
+      },
+      {
+        "Tex0": "0x2006B2C55540AC80",
+        "Draws": 524,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x00000006A8117540",
+        "Draws": 512,
+        "PixelsWritten": 1048576
+      },
+      {
+        "Tex0": "0x2006B2E59940B0D0",
+        "Draws": 504,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2006B3259940AC80",
+        "Draws": 494,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2006B3A59D40AC10",
+        "Draws": 460,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2016AE855540B000",
+        "Draws": 420,
+        "PixelsWritten": 6338
+      },
+      {
+        "Tex0": "0x2016B345DD30ABE0",
+        "Draws": 392,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2006B0055D40B050",
+        "Draws": 376,
+        "PixelsWritten": 2011
+      },
+      {
+        "Tex0": "0x2007EAE59D40BBD0",
+        "Draws": 372,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2016B3A59940AC10",
+        "Draws": 357,
+        "PixelsWritten": 65
+      },
+      {
+        "Tex0": "0x2006B125DD40AEC0",
+        "Draws": 352,
+        "PixelsWritten": 4620
+      },
+      {
+        "Tex0": "0x2006B2E5DD40ACE0",
+        "Draws": 352,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2007EC255540B870",
+        "Draws": 352,
+        "PixelsWritten": 1996
+      },
+      {
+        "Tex0": "0x2007ECC51140B7D0",
+        "Draws": 352,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2017E9C55940BCA0",
+        "Draws": 349,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2007EEC59940B710",
+        "Draws": 344,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2007EEE59940B600",
+        "Draws": 344,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2006B3859D40AC20",
+        "Draws": 324,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x00000006A8028000",
+        "Draws": 320,
+        "PixelsWritten": 1433600
+      },
+      {
+        "Tex0": "0x0000000EA8A2B540",
+        "Draws": 320,
+        "PixelsWritten": 327680
+      },
+      {
+        "Tex0": "0x2017ED655540B960",
+        "Draws": 320,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2007E9A55540BA10",
+        "Draws": 306,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2007E9C55540B9E0",
+        "Draws": 306,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2007E7259D40BEF0",
+        "Draws": 296,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2006B3E55140ABC0",
+        "Draws": 280,
+        "PixelsWritten": 3
+      },
+      {
+        "Tex0": "0x2007EC055D40B890",
+        "Draws": 279,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2006B165DD40AE80",
+        "Draws": 272,
+        "PixelsWritten": 986
+      },
+      {
+        "Tex0": "0x2006AF459D40B150",
+        "Draws": 263,
+        "PixelsWritten": 1797
+      },
+      {
+        "Tex0": "0x00000006A8016C80",
+        "Draws": 256,
+        "PixelsWritten": 1146880
+      },
+      {
+        "Tex0": "0x2006AA455530B330",
+        "Draws": 256,
+        "PixelsWritten": 149
+      },
+      {
+        "Tex0": "0x2007EBE5DD40B8A0",
+        "Draws": 253,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2006AF259D40B160",
+        "Draws": 248,
+        "PixelsWritten": 14171
+      },
+      {
+        "Tex0": "0x2016B3E59D40ABC0",
+        "Draws": 247,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2007EB254D40BB60",
+        "Draws": 228,
+        "PixelsWritten": 13920
+      },
+      {
+        "Tex0": "0x2006B3859930ABC0",
+        "Draws": 224,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2007E7859940BBA0",
+        "Draws": 224,
+        "PixelsWritten": 7251
+      },
+      {
+        "Tex0": "0x2006B3259940ACF0",
+        "Draws": 212,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2006B185DD40AE60",
+        "Draws": 188,
+        "PixelsWritten": 774
+      },
+      {
+        "Tex0": "0x2006B1A59940AE40",
+        "Draws": 187,
+        "PixelsWritten": 3453
+      },
+      {
+        "Tex0": "0x2007EEE5DD40B6C0",
+        "Draws": 187,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2006B1C5DD40B240",
+        "Draws": 176,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2007E9C5DD40BBC0",
+        "Draws": 176,
+        "PixelsWritten": 182411
+      },
+      {
+        "Tex0": "0x2016B2E5D930AC60",
+        "Draws": 176,
+        "PixelsWritten": 6456
+      }
+    ]
+  },
+  "Textures": [
+    {
+      "Checksum": 41497066,
+      "Tex0Values": [
+        "0x2006B3459940AC20",
+        "0x2006B3459D40AC20",
+        "0x2016B3451140AC20",
+        "0x2016B3455530AC20"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 192,
+          "PixelsWritten": 1938,
+          "FirstDrawIndex": 704,
+          "LastDrawIndex": 56716
+        },
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 192,
+          "PixelsWritten": 155,
+          "FirstDrawIndex": 3198,
+          "LastDrawIndex": 59212
+        },
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 208,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 4144,
+          "LastDrawIndex": 60162
+        },
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 8,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 12187,
+          "LastDrawIndex": 68160
+        }
+      ],
+      "TotalDraws": 600,
+      "TotalPixelsWritten": 2093
+    },
+    {
+      "Checksum": 195489207,
+      "Tex0Values": [
+        "0x2006B3C59940ABF0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 50,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 4,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 10002,
+          "LastDrawIndex": 65958
+        }
+      ],
+      "TotalDraws": 4,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 196998505,
+      "Tex0Values": [
+        "0x2006B3C5DD40ABE0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": false,
+          "AlphaTestMethod": 0,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 151,
+          "PixelsWritten": 177968,
+          "FirstDrawIndex": 7887,
+          "LastDrawIndex": 64151
+        },
+        {
+          "Primitive": "TRIANGLE_FAN",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": false,
+          "AlphaTestMethod": 0,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 20,
+          "PixelsWritten": 4790,
+          "FirstDrawIndex": 8143,
+          "LastDrawIndex": 64108
+        }
+      ],
+      "TotalDraws": 171,
+      "TotalPixelsWritten": 182758
+    },
+    {
+      "Checksum": 292535233,
+      "Tex0Values": [
+        "0x2007E7659940BE80"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 4,
+          "PixelsWritten": 2141,
+          "FirstDrawIndex": 13175,
+          "LastDrawIndex": 69137
+        }
+      ],
+      "TotalDraws": 4,
+      "TotalPixelsWritten": 2141
+    },
+    {
+      "Checksum": 320939774,
+      "Tex0Values": [
+        "0x2006B3255540AC30"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 496,
+          "PixelsWritten": 631,
+          "FirstDrawIndex": 1915,
+          "LastDrawIndex": 58003
+        }
+      ],
+      "TotalDraws": 496,
+      "TotalPixelsWritten": 631
+    },
+    {
+      "Checksum": 373955431,
+      "Tex0Values": [
+        "0x2007ED259D30B760"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 40,
+          "PixelsWritten": 30075,
+          "FirstDrawIndex": 13434,
+          "LastDrawIndex": 69406
+        }
+      ],
+      "TotalDraws": 40,
+      "TotalPixelsWritten": 30075
+    },
+    {
+      "Checksum": 438368713,
+      "Tex0Values": [
+        "0x2006B1859940AE30"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 32,
+          "PixelsWritten": 2976,
+          "FirstDrawIndex": 12816,
+          "LastDrawIndex": 68791
+        }
+      ],
+      "TotalDraws": 32,
+      "TotalPixelsWritten": 2976
+    },
+    {
+      "Checksum": 486374724,
+      "Tex0Values": [
+        "0x2006B385DD30ABC0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 1016,
+          "PixelsWritten": 39691,
+          "FirstDrawIndex": 3890,
+          "LastDrawIndex": 60110
+        }
+      ],
+      "TotalDraws": 1016,
+      "TotalPixelsWritten": 39691
+    },
+    {
+      "Checksum": 498949142,
+      "Tex0Values": [
+        "0x2016B2859930ACF0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": false,
+          "AlphaTestMethod": 0,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 416,
+          "PixelsWritten": 790,
+          "FirstDrawIndex": 7897,
+          "LastDrawIndex": 63961
+        }
+      ],
+      "TotalDraws": 416,
+      "TotalPixelsWritten": 790
+    },
+    {
+      "Checksum": 642942274,
+      "Tex0Values": [
+        "0x2006B3E59D40ABC0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 45,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 1128,
+          "PixelsWritten": 8939,
+          "FirstDrawIndex": 17484,
+          "LastDrawIndex": 73759
+        },
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 50,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 64,
+          "PixelsWritten": 1038,
+          "FirstDrawIndex": 17746,
+          "LastDrawIndex": 73739
+        }
+      ],
+      "TotalDraws": 1192,
+      "TotalPixelsWritten": 9977
+    },
+    {
+      "Checksum": 709321748,
+      "Tex0Values": [
+        "0x2007E8259940BDC0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 8,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 13168,
+          "LastDrawIndex": 69131
+        }
+      ],
+      "TotalDraws": 8,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 773714568,
+      "Tex0Values": [
+        "0x2007EF059D40B6D0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 4,
+          "PixelsWritten": 2597,
+          "FirstDrawIndex": 13110,
+          "LastDrawIndex": 69072
+        }
+      ],
+      "TotalDraws": 4,
+      "TotalPixelsWritten": 2597
+    },
+    {
+      "Checksum": 813989208,
+      "Tex0Values": [
+        "0x2006B385DD40AC40"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 156,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 15017,
+          "LastDrawIndex": 71020
+        }
+      ],
+      "TotalDraws": 156,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 964960243,
+      "Tex0Values": [
+        "0x2006B3C59940AC00"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 223,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 15139,
+          "LastDrawIndex": 71159
+        }
+      ],
+      "TotalDraws": 223,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 1234877296,
+      "Tex0Values": [
+        "0x2006B3055540AC60"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 61,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 12189,
+          "LastDrawIndex": 68175
+        }
+      ],
+      "TotalDraws": 61,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 1307053479,
+      "Tex0Values": [
+        "0x2006B1055530AE40"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 30,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 52,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 15233,
+          "LastDrawIndex": 71345
+        }
+      ],
+      "TotalDraws": 52,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 1599448429,
+      "Tex0Values": [
+        "0x2016B3C55530ABC0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 1822,
+          "PixelsWritten": 1930,
+          "FirstDrawIndex": 4202,
+          "LastDrawIndex": 60623
+        }
+      ],
+      "TotalDraws": 1822,
+      "TotalPixelsWritten": 1930
+    },
+    {
+      "Checksum": 1623092136,
+      "Tex0Values": [
+        "0x2006ABA5D940B260"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": false,
+          "AlphaTestMethod": 0,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 32,
+          "PixelsWritten": 289,
+          "FirstDrawIndex": 10072,
+          "LastDrawIndex": 66056
+        }
+      ],
+      "TotalDraws": 32,
+      "TotalPixelsWritten": 289
+    },
+    {
+      "Checksum": 1755300664,
+      "Tex0Values": [
+        "0x2006B2459940AD30"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": false,
+          "AlphaTestMethod": 0,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 452,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 7696,
+          "LastDrawIndex": 64162
+        }
+      ],
+      "TotalDraws": 452,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 1805652980,
+      "Tex0Values": [
+        "0x2007EF251540B6A0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 88,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 12234,
+          "LastDrawIndex": 68435
+        }
+      ],
+      "TotalDraws": 88,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 1825170320,
+      "Tex0Values": [
+        "0x2006B385D930ABC0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_FAN",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": false,
+          "AlphaTestMethod": 0,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 24,
+          "PixelsWritten": 54859,
+          "FirstDrawIndex": 662,
+          "LastDrawIndex": 56632
+        },
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 144,
+          "PixelsWritten": 6883,
+          "FirstDrawIndex": 668,
+          "LastDrawIndex": 56668
+        }
+      ],
+      "TotalDraws": 168,
+      "TotalPixelsWritten": 61742
+    },
+    {
+      "Checksum": 1935299955,
+      "Tex0Values": [
+        "0x2016B3C59940ABF0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 2,
+          "AlphaD": 1,
+          "AlphaFix": 77,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 247,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 15706,
+          "LastDrawIndex": 71733
+        }
+      ],
+      "TotalDraws": 247,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 2008312964,
+      "Tex0Values": [
+        "0x2007EE859940B750",
+        "0x2017EE855140B750"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": false,
+          "AlphaTestMethod": 0,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 48,
+          "PixelsWritten": 4135,
+          "FirstDrawIndex": 10343,
+          "LastDrawIndex": 66329
+        },
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 144,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 11098,
+          "LastDrawIndex": 67107
+        }
+      ],
+      "TotalDraws": 192,
+      "TotalPixelsWritten": 4135
+    },
+    {
+      "Checksum": 2496593764,
+      "Tex0Values": [
+        "0x2006B365D930ABE0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 12,
+          "PixelsWritten": 362841,
+          "FirstDrawIndex": 12225,
+          "LastDrawIndex": 68198
+        }
+      ],
+      "TotalDraws": 12,
+      "TotalPixelsWritten": 362841
+    },
+    {
+      "Checksum": 2590342176,
+      "Tex0Values": [
+        "0x2007E8C5DD40BCE0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 75,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 340,
+          "PixelsWritten": 2978,
+          "FirstDrawIndex": 8443,
+          "LastDrawIndex": 64488
+        },
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 50,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 75,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 32,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 9259,
+          "LastDrawIndex": 65219
+        }
+      ],
+      "TotalDraws": 372,
+      "TotalPixelsWritten": 2978
+    },
+    {
+      "Checksum": 2735386342,
+      "Tex0Values": [
+        "0x2007EB859930B8B0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": true,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 1584,
+          "PixelsWritten": 108363,
+          "FirstDrawIndex": 13563,
+          "LastDrawIndex": 70779
+        }
+      ],
+      "TotalDraws": 1584,
+      "TotalPixelsWritten": 108363
+    },
+    {
+      "Checksum": 2759904908,
+      "Tex0Values": [
+        "0x2006AB45DD40B460"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 8,
+          "PixelsWritten": 17822,
+          "FirstDrawIndex": 12886,
+          "LastDrawIndex": 68853
+        }
+      ],
+      "TotalDraws": 8,
+      "TotalPixelsWritten": 17822
+    },
+    {
+      "Checksum": 2776314354,
+      "Tex0Values": [
+        "0x2007EF859930B5A0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 32,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 12165,
+          "LastDrawIndex": 68144
+        }
+      ],
+      "TotalDraws": 32,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 2907459236,
+      "Tex0Values": [
+        "0x2006B2E55540AC70"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 524,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 2039,
+          "LastDrawIndex": 58134
+        }
+      ],
+      "TotalDraws": 524,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 2924910628,
+      "Tex0Values": [
+        "0x2006AEA55530B0B0",
+        "0x2007EA45DD40BB40"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": false,
+          "AlphaTestMethod": 0,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 32,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 9386,
+          "LastDrawIndex": 65345
+        },
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 8,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 12811,
+          "LastDrawIndex": 68780
+        }
+      ],
+      "TotalDraws": 40,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 2926095124,
+      "Tex0Values": [
+        "0x2006ABC55540B3C0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_FAN",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 36,
+          "PixelsWritten": 434,
+          "FirstDrawIndex": 12834,
+          "LastDrawIndex": 68810
+        }
+      ],
+      "TotalDraws": 36,
+      "TotalPixelsWritten": 434
+    },
+    {
+      "Checksum": 2940393100,
+      "Tex0Values": [
+        "0x2007EDE55D30B740"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 56,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 12410,
+          "LastDrawIndex": 68390
+        }
+      ],
+      "TotalDraws": 56,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 3176840695,
+      "Tex0Values": [
+        "0x2006AE455540B100"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 28,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 12800,
+          "LastDrawIndex": 68774
+        }
+      ],
+      "TotalDraws": 28,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 3247440124,
+      "Tex0Values": [
+        "0x2006B3055540AC40"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 496,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 1660,
+          "LastDrawIndex": 57748
+        }
+      ],
+      "TotalDraws": 496,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 3322512494,
+      "Tex0Values": [
+        "0x2007EEE59940B6D0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": false,
+          "AlphaTestMethod": 0,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 262,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 10264,
+          "LastDrawIndex": 66305
+        }
+      ],
+      "TotalDraws": 262,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 3471348257,
+      "Tex0Values": [
+        "0x2016B3C5DD30ABC0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 1791,
+          "PixelsWritten": 57240,
+          "FirstDrawIndex": 3246,
+          "LastDrawIndex": 59660
+        },
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 4290,
+          "PixelsWritten": 1236,
+          "FirstDrawIndex": 4756,
+          "LastDrawIndex": 61910
+        }
+      ],
+      "TotalDraws": 6081,
+      "TotalPixelsWritten": 58476
+    },
+    {
+      "Checksum": 3485453012,
+      "Tex0Values": [
+        "0x2006B1A5D930ADE0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 90,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 428,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 15195,
+          "LastDrawIndex": 71335
+        }
+      ],
+      "TotalDraws": 428,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 3640440279,
+      "Tex0Values": [
+        "0x2007EEA59940B720"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 1076,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 10622,
+          "LastDrawIndex": 67030
+        }
+      ],
+      "TotalDraws": 1076,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 3773104813,
+      "Tex0Values": [
+        "0x2007EF64CD40B650"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": false,
+          "AlphaTestMethod": 0,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 152,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 10235,
+          "LastDrawIndex": 66355
+        }
+      ],
+      "TotalDraws": 152,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 3806022434,
+      "Tex0Values": [
+        "0x2006AF659D40B030"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_FAN",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 12,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 12813,
+          "LastDrawIndex": 68783
+        }
+      ],
+      "TotalDraws": 12,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 3870023405,
+      "Tex0Values": [
+        "0x2007EFA5DD40B5E0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 0,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 83,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 11521,
+          "LastDrawIndex": 67514
+        }
+      ],
+      "TotalDraws": 83,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 3873024305,
+      "Tex0Values": [
+        "0x2007ECC5DD40B7C0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 4,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 13349,
+          "LastDrawIndex": 69313
+        }
+      ],
+      "TotalDraws": 4,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 3956865693,
+      "Tex0Values": [
+        "0x2006B3259940AC50",
+        "0x2016B3255940AC50"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 608,
+          "PixelsWritten": 2526,
+          "FirstDrawIndex": 752,
+          "LastDrawIndex": 56868
+        },
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 384,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 3102,
+          "LastDrawIndex": 59164
+        }
+      ],
+      "TotalDraws": 992,
+      "TotalPixelsWritten": 2526
+    },
+    {
+      "Checksum": 3983899005,
+      "Tex0Values": [
+        "0x2016B3459D30AC00"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 544,
+          "PixelsWritten": 5585,
+          "FirstDrawIndex": 1220,
+          "LastDrawIndex": 57320
+        }
+      ],
+      "TotalDraws": 544,
+      "TotalPixelsWritten": 5585
+    },
+    {
+      "Checksum": 4153205320,
+      "Tex0Values": [
+        "0x2007ED25DD40B880"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 1,
+          "AlphaC": 1,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 69,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 11887,
+          "LastDrawIndex": 68054
+        }
+      ],
+      "TotalDraws": 69,
+      "TotalPixelsWritten": 0
+    }
+  ]
+}

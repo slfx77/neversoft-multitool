@@ -1,0 +1,520 @@
+{
+  "Capture": "Tony Hawk\u0027s Proving Ground_SLUS-21616_20260706221909",
+  "Serial": "SLUS-21616",
+  "Crc": 958034737,
+  "TotalDraws": 16620,
+  "Coverage": {
+    "TexturedStateBuckets": 85,
+    "ResolvedStateBuckets": 6,
+    "TexturedDraws": 16388,
+    "ResolvedDraws": 574,
+    "ResolvedDrawFraction": 0.03502562850866488,
+    "UnresolvedTex0": [
+      {
+        "Tex0": "0x2006B3859930ABC0",
+        "Draws": 2950,
+        "PixelsWritten": 21995
+      },
+      {
+        "Tex0": "0x2007EE059930B610",
+        "Draws": 1919,
+        "PixelsWritten": 19029
+      },
+      {
+        "Tex0": "0x2007EF059930B5D0",
+        "Draws": 1394,
+        "PixelsWritten": 19533
+      },
+      {
+        "Tex0": "0x2007EE855530B5E0",
+        "Draws": 1364,
+        "PixelsWritten": 1925
+      },
+      {
+        "Tex0": "0x00000002A8A29180",
+        "Draws": 1120,
+        "PixelsWritten": 295680
+      },
+      {
+        "Tex0": "0x2017EF659940B750",
+        "Draws": 660,
+        "PixelsWritten": 24932
+      },
+      {
+        "Tex0": "0x2016B3E59940ABC0",
+        "Draws": 544,
+        "PixelsWritten": 320
+      },
+      {
+        "Tex0": "0x2007EF855530B5A0",
+        "Draws": 519,
+        "PixelsWritten": 3339
+      },
+      {
+        "Tex0": "0x00000006A8117540",
+        "Draws": 464,
+        "PixelsWritten": 868352
+      },
+      {
+        "Tex0": "0x2005B88621312CC4",
+        "Draws": 408,
+        "PixelsWritten": 35212
+      },
+      {
+        "Tex0": "0x2017EE85DD40BC40",
+        "Draws": 376,
+        "PixelsWritten": 29710
+      },
+      {
+        "Tex0": "0x2006B3059940AF00",
+        "Draws": 302,
+        "PixelsWritten": 100372
+      },
+      {
+        "Tex0": "0x2007EE45DD40BD40",
+        "Draws": 302,
+        "PixelsWritten": 134826
+      },
+      {
+        "Tex0": "0x2006B3459940AE30",
+        "Draws": 294,
+        "PixelsWritten": 40208
+      },
+      {
+        "Tex0": "0x2016B1C59940B4B0",
+        "Draws": 260,
+        "PixelsWritten": 66586
+      },
+      {
+        "Tex0": "0x2016B2A5DD40B160",
+        "Draws": 260,
+        "PixelsWritten": 66586
+      },
+      {
+        "Tex0": "0x2006B2C59D40AF80",
+        "Draws": 216,
+        "PixelsWritten": 126
+      },
+      {
+        "Tex0": "0x2016B2459D40B340",
+        "Draws": 198,
+        "PixelsWritten": 8907
+      },
+      {
+        "Tex0": "0x2006B2E59D40AF00",
+        "Draws": 172,
+        "PixelsWritten": 16316
+      },
+      {
+        "Tex0": "0x00000006A8028000",
+        "Draws": 160,
+        "PixelsWritten": 716800
+      },
+      {
+        "Tex0": "0x0000000EA8A2B540",
+        "Draws": 160,
+        "PixelsWritten": 163840
+      },
+      {
+        "Tex0": "0x2006B265DD40B180",
+        "Draws": 140,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x00000006A8016C80",
+        "Draws": 128,
+        "PixelsWritten": 573440
+      },
+      {
+        "Tex0": "0x00000006A8116C80",
+        "Draws": 112,
+        "PixelsWritten": 204800
+      },
+      {
+        "Tex0": "0x2006B3A59540AC80",
+        "Draws": 112,
+        "PixelsWritten": 1202
+      },
+      {
+        "Tex0": "0x2016B2A51140AC80",
+        "Draws": 96,
+        "PixelsWritten": 264
+      },
+      {
+        "Tex0": "0x2016B365DD40AE00",
+        "Draws": 96,
+        "PixelsWritten": 5010
+      },
+      {
+        "Tex0": "0x2006B145DD40B200",
+        "Draws": 92,
+        "PixelsWritten": 27977
+      },
+      {
+        "Tex0": "0x2006B385DD40AD60",
+        "Draws": 90,
+        "PixelsWritten": 311732
+      },
+      {
+        "Tex0": "0x0000000AA8028000",
+        "Draws": 80,
+        "PixelsWritten": 573440
+      },
+      {
+        "Tex0": "0x0000000EA812ABC0",
+        "Draws": 80,
+        "PixelsWritten": 573440
+      },
+      {
+        "Tex0": "0x0000000EAB129A40",
+        "Draws": 80,
+        "PixelsWritten": 143360
+      },
+      {
+        "Tex0": "0x2006B3659940AD70",
+        "Draws": 70,
+        "PixelsWritten": 304112
+      },
+      {
+        "Tex0": "0x0000000EA8A16C80",
+        "Draws": 64,
+        "PixelsWritten": 131072
+      },
+      {
+        "Tex0": "0x2006B2659D40AF20",
+        "Draws": 62,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2006B1E59D40B340",
+        "Draws": 48,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x00000002A8012DC0",
+        "Draws": 40,
+        "PixelsWritten": 71680
+      },
+      {
+        "Tex0": "0x00000006A80233C0",
+        "Draws": 40,
+        "PixelsWritten": 35900
+      },
+      {
+        "Tex0": "0x00000006A8112DC0",
+        "Draws": 40,
+        "PixelsWritten": 286720
+      },
+      {
+        "Tex0": "0x00000006A81233C0",
+        "Draws": 40,
+        "PixelsWritten": 573660
+      },
+      {
+        "Tex0": "0x0000001EA8A16C80",
+        "Draws": 40,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2006B2259940B240",
+        "Draws": 32,
+        "PixelsWritten": 462
+      },
+      {
+        "Tex0": "0x00000006A8012DC0",
+        "Draws": 20,
+        "PixelsWritten": 8960
+      },
+      {
+        "Tex0": "0x2007EE45DD40BB80",
+        "Draws": 20,
+        "PixelsWritten": 1088
+      },
+      {
+        "Tex0": "0x2016B3E51140ABC0",
+        "Draws": 20,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2017EEA5DD40B8E0",
+        "Draws": 18,
+        "PixelsWritten": 12151
+      },
+      {
+        "Tex0": "0x00000002A800B040",
+        "Draws": 16,
+        "PixelsWritten": 4480
+      },
+      {
+        "Tex0": "0x2006B345DD40AE60",
+        "Draws": 16,
+        "PixelsWritten": 1702
+      },
+      {
+        "Tex0": "0x2006B385DD40AD40",
+        "Draws": 16,
+        "PixelsWritten": 14864
+      },
+      {
+        "Tex0": "0x00000006A8012BC0",
+        "Draws": 12,
+        "PixelsWritten": 2240
+      },
+      {
+        "Tex0": "0x00000006A8112BC0",
+        "Draws": 12,
+        "PixelsWritten": 35840
+      },
+      {
+        "Tex0": "0x00000006A810B040",
+        "Draws": 8,
+        "PixelsWritten": 8960
+      },
+      {
+        "Tex0": "0x2006B1C5DD40B3C0",
+        "Draws": 8,
+        "PixelsWritten": 5834
+      },
+      {
+        "Tex0": "0x2006B2C5DD40B060",
+        "Draws": 8,
+        "PixelsWritten": 3210
+      },
+      {
+        "Tex0": "0x2007EFA5DD40B6C0",
+        "Draws": 8,
+        "PixelsWritten": 2570
+      },
+      {
+        "Tex0": "0x2006B365DD40AD20",
+        "Draws": 4,
+        "PixelsWritten": 0
+      },
+      {
+        "Tex0": "0x2017EE45DD40BC60",
+        "Draws": 4,
+        "PixelsWritten": 0
+      }
+    ]
+  },
+  "Textures": [
+    {
+      "Checksum": 41497066,
+      "Tex0Values": [
+        "0x2016B3455940AC20"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 304,
+          "PixelsWritten": 38,
+          "FirstDrawIndex": 3929,
+          "LastDrawIndex": 12388
+        }
+      ],
+      "TotalDraws": 304,
+      "TotalPixelsWritten": 38
+    },
+    {
+      "Checksum": 768131265,
+      "Tex0Values": [
+        "0x2017EFC59D30B5A0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 0,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 1,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 40,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 4495,
+          "LastDrawIndex": 12822
+        }
+      ],
+      "TotalDraws": 40,
+      "TotalPixelsWritten": 0
+    },
+    {
+      "Checksum": 2496593764,
+      "Tex0Values": [
+        "0x2006B365D930ABE0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 72,
+          "PixelsWritten": 249,
+          "FirstDrawIndex": 3845,
+          "LastDrawIndex": 12188
+        }
+      ],
+      "TotalDraws": 72,
+      "TotalPixelsWritten": 249
+    },
+    {
+      "Checksum": 3307501500,
+      "Tex0Values": [
+        "0x2006B2C5D930AC40"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": true,
+          "AlphaTestMethod": 5,
+          "AlphaRef": 1,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 84,
+          "PixelsWritten": 4364,
+          "FirstDrawIndex": 3802,
+          "LastDrawIndex": 12152
+        }
+      ],
+      "TotalDraws": 84,
+      "TotalPixelsWritten": 4364
+    },
+    {
+      "Checksum": 3471348257,
+      "Tex0Values": [
+        "0x2016B3C5DD30ABC0"
+      ],
+      "StateBuckets": [
+        {
+          "Primitive": "TRIANGLE_STRIP",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": false,
+          "AlphaTestMethod": 0,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 62,
+          "PixelsWritten": 72,
+          "FirstDrawIndex": 2441,
+          "LastDrawIndex": 10789
+        },
+        {
+          "Primitive": "TRIANGLE_FAN",
+          "AlphaBlendEnabled": true,
+          "AlphaA": 2,
+          "AlphaB": 2,
+          "AlphaC": 0,
+          "AlphaD": 0,
+          "AlphaFix": 0,
+          "AlphaTestEnabled": false,
+          "AlphaTestMethod": 0,
+          "AlphaRef": 0,
+          "AlphaFailMode": 0,
+          "TexaTa0": 0,
+          "TexaAem": false,
+          "TexaTa1": 128,
+          "TextureTfx": 0,
+          "TextureTcc": 1,
+          "FramebufferMask": 0,
+          "FramebufferPsm": 0,
+          "DepthTestEnabled": true,
+          "DepthTestMethod": 2,
+          "ZMask": false,
+          "FramebufferAlphaWriteEnabled": false,
+          "Draws": 12,
+          "PixelsWritten": 0,
+          "FirstDrawIndex": 2461,
+          "LastDrawIndex": 10778
+        }
+      ],
+      "TotalDraws": 74,
+      "TotalPixelsWritten": 72
+    }
+  ]
+}

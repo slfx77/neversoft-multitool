@@ -94,6 +94,7 @@ tools/ghidra/*
 tools/ghidra/thps3_ps2/*
 !tools/ghidra/thps3_ps2/DumpSkaCallGraph.java
 tools/diagnostics/*
+!tools/diagnostics/build_gsoracle.ps1
 !tools/diagnostics/capture_request_phase2.md
 !tools/diagnostics/glb_material_diff_sweep.py
 !tools/diagnostics/native_baseline.json
