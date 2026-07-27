@@ -5,10 +5,18 @@ internal static class XbxSkinVertexCodec
     public static void ReadSkinningData(BinaryReader r, ref XbxVertex vertex)
     {
         var packedWeights = r.ReadUInt32();
-        var boneIndex0 = r.ReadByte();
-        var boneIndex1 = r.ReadByte();
-        var boneIndex2 = r.ReadByte();
-        var boneIndex3 = r.ReadByte();
+        // Bone indices are 4×u16, stored pre-multiplied by 3 (the engine's
+        // matrix-row stride; nxtools fmt_thscene_import.py divides by 3). The
+        // old 4×u8 read under-consumed the record by 4 bytes and shifted every
+        // later field: the packed normal was read from bone indices 2/3
+        // (cardinal-axis garbage), the vertex colour from the packed-normal
+        // bits (per-vertex rainbow noise), and UV0.u from the colour dword —
+        // confirmed against ped_boone_full.skin.wpc, whose sMesh stride (48)
+        // only fits the u16 layout.
+        var boneIndex0 = ReadBoneIndex(r);
+        var boneIndex1 = ReadBoneIndex(r);
+        var boneIndex2 = ReadBoneIndex(r);
+        var boneIndex3 = ReadBoneIndex(r);
 
         var weight0 = (packedWeights & 0x7FF) / 2047f;
         var weight1 = ((packedWeights >> 11) & 0x7FF) / 2047f;
@@ -35,5 +43,10 @@ internal static class XbxSkinVertexCodec
         vertex.BoneWeight3 = weight3;
         vertex.HasSkinData = packedWeights != 0 || boneIndex0 != 0 || boneIndex1 != 0 || boneIndex2 != 0 ||
                              boneIndex3 != 0;
+    }
+
+    private static byte ReadBoneIndex(BinaryReader r)
+    {
+        return (byte)Math.Min(byte.MaxValue, r.ReadUInt16() / 3);
     }
 }

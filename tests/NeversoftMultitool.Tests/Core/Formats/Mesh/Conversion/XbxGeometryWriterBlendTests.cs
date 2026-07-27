@@ -22,6 +22,39 @@ public sealed class XbxGeometryWriterBlendTests
     private const uint OverlayTextureChecksum = 0x66778899;
 
     [Fact]
+    public void SkinVertexCodec_ReadsU16BoneIndicesTimesThree()
+    {
+        // The skinned vertex record stores bone indices as 4×u16 pre-multiplied
+        // by 3 (nxtools fmt_thscene_import.py; ped_boone_full's sMesh stride 48
+        // only fits this layout). The codec must consume exactly 12 bytes so the
+        // packed normal / colour / UV fields that follow stay aligned — the old
+        // 4×u8 read shifted them all by 4 (rainbow vertex colours, cardinal
+        // normals, smeared UVs on every weight-flagged THUG2/THAW PC skin).
+        using var ms = new MemoryStream();
+        using (var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            w.Write(0x7FFu);            // packed weights: weight0 = 1.0
+            w.Write((ushort)(5 * 3));   // bone 5
+            w.Write((ushort)(9 * 3));   // bone 9
+            w.Write((ushort)(12 * 3));  // bone 12
+            w.Write((ushort)(40 * 3));  // bone 40
+        }
+
+        ms.Position = 0;
+        using var r = new BinaryReader(ms);
+        var vertex = new XbxVertex();
+        XbxSkinVertexCodec.ReadSkinningData(r, ref vertex);
+
+        Assert.Equal(12, ms.Position);
+        Assert.Equal(5, vertex.BoneIndex0);
+        Assert.Equal(9, vertex.BoneIndex1);
+        Assert.Equal(12, vertex.BoneIndex2);
+        Assert.Equal(40, vertex.BoneIndex3);
+        Assert.True(vertex.HasSkinData);
+        Assert.Equal(1f, vertex.BoneWeight0, 2);
+    }
+
+    [Fact]
     public void Mode1_AdditiveBake()
     {
         var raw = CreatePngBytes(new Rgba32(64, 32, 16, 255));
