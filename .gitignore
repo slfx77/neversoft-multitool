@@ -87,6 +87,7 @@ tools/*
 !tools/PsxAnalyzer/
 !tools/BlendModeDiag/
 !tools/XbxPassSurvey/
+!tools/WorldzoneOracleCensus/
 !tools/diagnostics/
 !tools/ghidra/
 tools/ghidra/*
