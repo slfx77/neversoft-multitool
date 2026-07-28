@@ -48,7 +48,7 @@ internal static class PsxGeometryWriter
         context ??= new PsxGeometryWriterContext();
         var textureDims = context.TextureDimensions;
         var materialCache = context.Materials;
-        var coplanarOverlays = PsxCoplanarOverlayDetector.Find(psxFile);
+        var coplanarOverlays = PsxCoplanarOverlayDetector.FindGroups(psxFile);
         var untexturedMaterial = context.UntexturedMaterialIndex ??=
             ModelDocumentGeometryAdapter.AddMaterial(document, new RenderMaterial
             {
@@ -131,15 +131,67 @@ internal static class PsxGeometryWriter
         Dictionary<uint, (int Width, int Height)> textureDims,
         int untexturedMaterial,
         MeshChecksumTextureResolver? textureProvider,
-        IReadOnlySet<PsxFaceInstanceKey> coplanarOverlays)
+        IReadOnlyDictionary<PsxFaceInstanceKey, int> coplanarOverlays)
     {
         var psxMesh = psxFile.Meshes[meshIndex];
         if (psxMesh.Faces.Count == 0)
             return;
 
-        var mesh = new ModelMesh { Name = PsxGeometryHelpers.ResolvePsxMeshName(psxFile, meshIndex) };
-        var indexedFaces = psxMesh.Faces.Select((face, faceIndex) => (Face: face, FaceIndex: faceIndex));
-        foreach (var group in indexedFaces.GroupBy(item =>
+        // Detected opaque coplanar overlays (decals authored directly on a
+        // larger face) split into their own per-plane-group mesh: the PS1 wins
+        // these by ordering-table draw order, so the overlay mesh carries
+        // draw-order metadata (viewer renderOrder + Blender object offset)
+        // while every vertex stays at its AUTHORED position. The pre-split
+        // writer instead lifted overlay faces 0.25 units along their normal
+        // inside the shared mesh, corrupting the geometry.
+        var meshName = PsxGeometryHelpers.ResolvePsxMeshName(psxFile, meshIndex);
+        var indexedFaces = psxMesh.Faces
+            .Select((face, faceIndex) => (Face: face, FaceIndex: faceIndex))
+            .ToLookup(item =>
+                coplanarOverlays.TryGetValue(new PsxFaceInstanceKey(objectIndex, item.FaceIndex), out var groupId)
+                    ? groupId
+                    : -1);
+
+        var mesh = BuildPsxFaceMesh(
+            document, psxFile, psxMesh, meshName,
+            indexedFaces[-1], materialCache, textureDims, untexturedMaterial, textureProvider);
+        if (mesh != null)
+            ModelDocumentGeometryAdapter.AddMeshNode(document, nodeName, mesh, transform);
+
+        foreach (var overlayGroup in indexedFaces.Where(static group => group.Key >= 0)
+                     .OrderBy(static group => group.Key))
+        {
+            var overlayMesh = BuildPsxFaceMesh(
+                document, psxFile, psxMesh, $"{meshName}__overlay{overlayGroup.Key:D2}",
+                overlayGroup, materialCache, textureDims, untexturedMaterial, textureProvider);
+            if (overlayMesh == null)
+                continue;
+
+            var offset = ComputePsxOverlayLiftVector(psxFile.Version, psxMesh, overlayGroup);
+            foreach (var primitive in overlayMesh.Primitives)
+            {
+                primitive.NativeMetadata.Add(new MeshDrawOrderMetadata(
+                    1, 1, overlayGroup.Key, offset.X, offset.Y, offset.Z));
+            }
+
+            ModelDocumentGeometryAdapter.AddMeshNode(
+                document, $"{nodeName}__overlay{overlayGroup.Key:D2}", overlayMesh, transform);
+        }
+    }
+
+    private static ModelMesh? BuildPsxFaceMesh(
+        ModelDocument document,
+        PsxMeshFile psxFile,
+        PsxMesh psxMesh,
+        string meshName,
+        IEnumerable<(PsxFace Face, int FaceIndex)> faces,
+        Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int> materialCache,
+        Dictionary<uint, (int Width, int Height)> textureDims,
+        int untexturedMaterial,
+        MeshChecksumTextureResolver? textureProvider)
+    {
+        var mesh = new ModelMesh { Name = meshName };
+        foreach (var group in faces.GroupBy(static item =>
                      PsxGeometryHelpers.GetPsxMaterialKey(item.Face)))
         {
             var materialIndex = group.Key.Hash == 0 &&
@@ -169,14 +221,41 @@ internal static class PsxGeometryWriter
                     psxMesh,
                     item.Face,
                     psxFile.GouraudPalette,
-                    texDims,
-                    coplanarOverlays.Contains(new PsxFaceInstanceKey(objectIndex, item.FaceIndex)));
+                    texDims);
 
             ModelDocumentGeometryAdapter.AddPrimitive(mesh, $"mat_{materialIndex:D3}", materialIndex, vertices,
                 indices);
         }
 
-        ModelDocumentGeometryAdapter.AddMeshNode(document, nodeName, mesh, transform);
+        return mesh.Primitives.Count > 0 ? mesh : null;
+    }
+
+    /// <summary>
+    ///     The separation vector the Blender importer applies at object level to
+    ///     an overlay group — the old baked lift's direction (outward geometric
+    ///     normal of the first emitted face; the group is coplanar by
+    ///     construction) times the old lift magnitude.
+    /// </summary>
+    private static Vector3 ComputePsxOverlayLiftVector(
+        ushort version,
+        PsxMesh psxMesh,
+        IEnumerable<(PsxFace Face, int FaceIndex)> faces)
+    {
+        foreach (var (face, _) in faces)
+        {
+            var v0 = MakePsxVertex(version, psxMesh, face, 0, Vector4.One, null, (256, 256));
+            var v1 = MakePsxVertex(version, psxMesh, face, 1, Vector4.One, null, (256, 256));
+            var v2 = MakePsxVertex(version, psxMesh, face, 2, Vector4.One, null, (256, 256));
+            var geometricNormal = Vector3.Cross(
+                v2.Position - v0.Position, v1.Position - v0.Position);
+            var lengthSquared = geometricNormal.LengthSquared();
+            if (lengthSquared <= 1e-12f)
+                continue;
+
+            return geometricNormal / MathF.Sqrt(lengthSquared) * PsxOverlayFaceLift;
+        }
+
+        return Vector3.Zero;
     }
 
     private static void AddPsxFace(
@@ -186,8 +265,7 @@ internal static class PsxGeometryWriter
         PsxMesh mesh,
         PsxFace face,
         Vector4[]? gouraudPalette,
-        (int Width, int Height) texDims,
-        bool isCoplanarOverlay)
+        (int Width, int Height) texDims)
     {
         var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(
             version, mesh, face, gouraudPalette);
@@ -225,11 +303,16 @@ internal static class PsxGeometryWriter
             ? MakePsxVertex(version, mesh, face, 3, c3, p3, texDims)
             : default;
 
-        if (face.IsSemiTransparent || isCoplanarOverlay)
+        if (face.IsSemiTransparent)
         {
             // Geometric normal of the emitted CCW triangle (v0, v2, v1) —
-            // outward per the winding convention below — so shadows/decals
-            // lift away from the surface they overlay.
+            // outward per the winding convention below — so semi-transparent
+            // shadows/glass lift away from the surface they overlay. Detected
+            // OPAQUE coplanar overlays no longer lift: they split into their
+            // own draw-order-metadata mesh (see PopulatePsxMeshNode). The ST
+            // lift stays because it is per-face-normal (non-rigid) and ST-on-ST
+            // stack order needs the OT tie-break direction pinned against the
+            // decomp before it can become metadata.
             var geometricNormal = Vector3.Cross(
                 v2.Position - v0.Position, v1.Position - v0.Position);
             var lengthSquared = geometricNormal.LengthSquared();

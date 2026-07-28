@@ -139,8 +139,11 @@ internal static class DdmGeometryWriter
             for (var objectIndex = 0; objectIndex < ddm.Objects.Count; objectIndex++)
             {
                 var obj = ddm.Objects[objectIndex];
-                var mesh = BuildDdmObjectMesh(document, obj, ddxTextures, textureDirs);
-                ModelDocumentGeometryAdapter.AddMeshNode(document, $"{nodePrefix}_{obj.Name}", mesh);
+                AddDdmObjectMeshNodes(
+                    document,
+                    BuildDdmObjectMeshes(document, obj, objectIndex, ddxTextures, textureDirs),
+                    $"{nodePrefix}_{obj.Name}",
+                    Matrix4x4.Identity);
             }
 
             return;
@@ -149,7 +152,7 @@ internal static class DdmGeometryWriter
         var ddmByHash = DdmHashLookup.Build(ddm);
         var meshSlotToDdm = DdmHashLookup.ResolveMeshIndices(psx, ddmByHash);
         var placedIndices = new HashSet<int>();
-        var meshCache = new Dictionary<int, int>();
+        var meshCache = new Dictionary<int, List<int>>();
 
         foreach (var psxObj in psx.Objects)
         {
@@ -160,22 +163,30 @@ internal static class DdmGeometryWriter
             }
 
             placedIndices.Add(ddmIndex);
-            if (!meshCache.TryGetValue(ddmIndex, out var meshIndex))
+            if (!meshCache.TryGetValue(ddmIndex, out var meshIndices))
             {
-                var mesh = BuildDdmObjectMesh(document, ddm.Objects[ddmIndex], ddxTextures, textureDirs);
-                var addedIndex = ModelDocumentGeometryAdapter.AddMesh(document, mesh);
-                if (!addedIndex.HasValue)
-                    continue;
+                meshIndices = [];
+                foreach (var mesh in BuildDdmObjectMeshes(
+                             document, ddm.Objects[ddmIndex], ddmIndex, ddxTextures, textureDirs))
+                {
+                    var addedIndex = ModelDocumentGeometryAdapter.AddMesh(document, mesh);
+                    if (addedIndex.HasValue)
+                        meshIndices.Add(addedIndex.Value);
+                }
 
-                meshIndex = addedIndex.Value;
-                meshCache[ddmIndex] = meshIndex;
+                meshCache[ddmIndex] = meshIndices;
             }
 
-            ModelDocumentGeometryAdapter.AddMeshNode(
-                document,
-                $"{nodePrefix}_{ddm.Objects[ddmIndex].Name}_{psxObj.MeshIndex:D4}",
-                meshIndex,
-                Matrix4x4.CreateTranslation(new Vector3(-psxObj.X, -psxObj.Y, psxObj.Z)));
+            var transform = Matrix4x4.CreateTranslation(new Vector3(-psxObj.X, -psxObj.Y, psxObj.Z));
+            foreach (var meshIndex in meshIndices)
+            {
+                var meshName = document.Meshes[meshIndex].Name;
+                ModelDocumentGeometryAdapter.AddMeshNode(
+                    document,
+                    $"{nodePrefix}_{meshName}_{psxObj.MeshIndex:D4}",
+                    meshIndex,
+                    transform);
+            }
         }
 
         for (var objectIndex = 0; objectIndex < ddm.Objects.Count; objectIndex++)
@@ -184,25 +195,55 @@ internal static class DdmGeometryWriter
                 continue;
 
             var obj = ddm.Objects[objectIndex];
-            var mesh = BuildDdmObjectMesh(document, obj, ddxTextures, textureDirs);
-            ModelDocumentGeometryAdapter.AddMeshNode(document, $"{nodePrefix}_{obj.Name}", mesh);
+            AddDdmObjectMeshNodes(
+                document,
+                BuildDdmObjectMeshes(document, obj, objectIndex, ddxTextures, textureDirs),
+                $"{nodePrefix}_{obj.Name}",
+                Matrix4x4.Identity);
         }
     }
 
-    private static ModelMesh BuildDdmObjectMesh(
+    private static void AddDdmObjectMeshNodes(
+        ModelDocument document,
+        List<ModelMesh> meshes,
+        string baseNodeName,
+        Matrix4x4 transform)
+    {
+        foreach (var mesh in meshes)
+        {
+            var passIndex = mesh.Name.IndexOf("__pass", StringComparison.Ordinal);
+            var nodeName = passIndex >= 0 ? baseNodeName + mesh.Name[passIndex..] : baseNodeName;
+            ModelDocumentGeometryAdapter.AddMeshNode(document, nodeName, mesh, transform);
+        }
+    }
+
+    /// <summary>
+    ///     Build the object's meshes grouped by decal draw rank. The engine draws
+    ///     splits in DdmMaterial.DrawOrder rank order (coplanar decal layers over
+    ///     their base surface); vertices export at their AUTHORED positions — the
+    ///     pre-conversion writer baked rank*0.1 (or a flat/blended 0.1) along the
+    ///     vertex normals instead, corrupting every placed level's decal geometry.
+    ///     Each rank &gt; 0 group becomes its own mesh carrying draw-order
+    ///     metadata: glTF viewers order it via mesh extras / renderOrder, the
+    ///     Blender importer separates it with a removable object-level offset
+    ///     equal to the old bake.
+    /// </summary>
+    private static List<ModelMesh> BuildDdmObjectMeshes(
         ModelDocument document,
         DdmObject obj,
+        int objectIndex,
         Dictionary<string, byte[]>? ddxTextures,
         List<string> textureDirs)
     {
-        var mesh = new ModelMesh { Name = obj.Name };
+        var baseMesh = new ModelMesh { Name = obj.Name };
         if (obj.Vertices.Count == 0 || obj.Indices.Length == 0)
-            return mesh;
+            return [baseMesh];
 
         var materialIndices = AddDdmObjectMaterials(document, obj, ddxTextures, textureDirs);
         var minExtent = Math.Min(obj.BBoxExtentX, Math.Min(obj.BBoxExtentY, obj.BBoxExtentZ));
         var isFlat = minExtent < 1.5f;
         var drawOrderRanks = BuildDdmDrawOrderRanks(obj);
+        var meshesByRank = new SortedDictionary<int, ModelMesh> { [0] = baseMesh };
 
         for (var splitIndex = 0; splitIndex < obj.Splits.Count; splitIndex++)
         {
@@ -212,20 +253,56 @@ internal static class DdmGeometryWriter
 
             var mat = obj.Materials[split.MaterialIndex];
             var rank = drawOrderRanks.GetValueOrDefault(mat.DrawOrder);
-            var drawOrderOffset = rank * DdmDecalNormalOffset;
-            var materialOffset = isFlat || mat.BlendMode != 0 ? DdmDecalNormalOffset : 0f;
-            var normalOffset = Math.Max(drawOrderOffset, materialOffset);
+            // The old bake was max(rank*0.1, flat-or-blended 0.1) — i.e. an
+            // effective rank of max(rank, 1) for flat/blended splits with no
+            // authored draw order (cross-object decal-on-wall coplanarity).
+            var effectiveRank = Math.Max(rank, isFlat || mat.BlendMode != 0 ? 1 : 0);
 
-            AddDdmStripPrimitive(
+            if (!meshesByRank.TryGetValue(effectiveRank, out var mesh))
+            {
+                mesh = new ModelMesh { Name = $"{obj.Name}__pass{effectiveRank}" };
+                meshesByRank[effectiveRank] = mesh;
+            }
+
+            var primitive = AddDdmStripPrimitive(
                 mesh,
                 $"split_{splitIndex:D3}",
                 materialIndices[split.MaterialIndex],
                 obj,
-                split,
-                normalOffset);
+                split);
+            if (primitive != null && effectiveRank > 0)
+            {
+                var offset = ComputeDdmSplitAverageNormal(obj, split) *
+                             (effectiveRank * DdmDecalNormalOffset);
+                primitive.NativeMetadata.Add(new MeshDrawOrderMetadata(
+                    effectiveRank,
+                    effectiveRank,
+                    objectIndex,
+                    offset.X,
+                    offset.Y,
+                    offset.Z));
+            }
         }
 
-        return mesh;
+        return [.. meshesByRank.Values];
+    }
+
+    private static Vector3 ComputeDdmSplitAverageNormal(DdmObject obj, DdmSplit split)
+    {
+        var sum = Vector3.Zero;
+        var end = Math.Min(obj.Indices.Length, split.IndexOffset + split.IndexCount);
+        for (var i = split.IndexOffset; i < end; i++)
+        {
+            var vertexIndex = obj.Indices[i];
+            if (vertexIndex >= obj.Vertices.Count)
+                continue;
+
+            var vertex = obj.Vertices[vertexIndex];
+            sum += ModelDocumentGeometryAdapter.NormalizeOrDefault(
+                new Vector3(-vertex.NX, -vertex.NY, vertex.NZ));
+        }
+
+        return ModelDocumentGeometryAdapter.NormalizeOrDefault(sum);
     }
 
     private static int[] AddDdmObjectMaterials(
@@ -254,13 +331,12 @@ internal static class DdmGeometryWriter
         return materialIndices;
     }
 
-    private static void AddDdmStripPrimitive(
+    private static ModelPrimitive? AddDdmStripPrimitive(
         ModelMesh mesh,
         string name,
         int materialIndex,
         DdmObject obj,
-        DdmSplit split,
-        float normalOffset)
+        DdmSplit split)
     {
         var vertices = new List<ModelVertex>();
         var indices = new List<int>();
@@ -279,16 +355,16 @@ internal static class DdmGeometryWriter
                 continue;
             }
 
-            var va = MakeDdmVertex(obj.Vertices[ai], normalOffset);
-            var vb = MakeDdmVertex(obj.Vertices[bi], normalOffset);
-            var vc = MakeDdmVertex(obj.Vertices[ci], normalOffset);
+            var va = MakeDdmVertex(obj.Vertices[ai]);
+            var vb = MakeDdmVertex(obj.Vertices[bi]);
+            var vc = MakeDdmVertex(obj.Vertices[ci]);
             if ((i - split.IndexOffset) % 2 == 0)
                 ModelDocumentGeometryAdapter.AddTriangle(vertices, indices, va, vb, vc);
             else
                 ModelDocumentGeometryAdapter.AddTriangle(vertices, indices, vb, va, vc);
         }
 
-        ModelDocumentGeometryAdapter.AddPrimitive(mesh, name, materialIndex, vertices, indices);
+        return ModelDocumentGeometryAdapter.AddPrimitive(mesh, name, materialIndex, vertices, indices);
     }
 
     private static Dictionary<uint, int> BuildDdmDrawOrderRanks(DdmObject obj)
@@ -307,12 +383,10 @@ internal static class DdmGeometryWriter
         return ranks;
     }
 
-    private static ModelVertex MakeDdmVertex(DdmVertex vertex, float normalOffset = 0f)
+    private static ModelVertex MakeDdmVertex(DdmVertex vertex)
     {
         var normal = ModelDocumentGeometryAdapter.NormalizeOrDefault(new Vector3(-vertex.NX, -vertex.NY, vertex.NZ));
         var position = new Vector3(-vertex.X, -vertex.Y, vertex.Z);
-        if (normalOffset > 0f)
-            position += normal * normalOffset;
 
         return new ModelVertex(
             position,

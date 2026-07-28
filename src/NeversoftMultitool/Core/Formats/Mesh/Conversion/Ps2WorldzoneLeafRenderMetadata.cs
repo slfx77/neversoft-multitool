@@ -26,4 +26,4 @@ public sealed record Ps2WorldzoneLeafRenderMetadata(
     float BlendOffsetX = 0f,
     float BlendOffsetY = 0f,
     float BlendOffsetZ = 0f)
-    : NativeRenderMetadata("ps2_worldzone_leaf");
+    : NativeRenderMetadata("ps2_worldzone_leaf"), IMeshDrawOrderExtras;

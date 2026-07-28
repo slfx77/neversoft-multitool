@@ -151,6 +151,15 @@ internal sealed class BlendPackageManifest
                     worldzoneLeaf.BlendOffsetX, worldzoneLeaf.BlendOffsetY, worldzoneLeaf.BlendOffsetZ
                 };
                 break;
+            case MeshDrawOrderMetadata drawOrder:
+                result["drawIndex"] = drawOrder.DrawIndex;
+                result["passIndex"] = drawOrder.PassIndex;
+                result["overlapGroup"] = drawOrder.OverlapGroup;
+                result["blendOffset"] = new[]
+                {
+                    drawOrder.BlendOffsetX, drawOrder.BlendOffsetY, drawOrder.BlendOffsetZ
+                };
+                break;
             case Ps2WorldzoneBillboardMetadata billboard:
                 result["billboardKind"] = billboard.BillboardKind;
                 result["anchor"] = new[] { billboard.AnchorX, billboard.AnchorY, billboard.AnchorZ };

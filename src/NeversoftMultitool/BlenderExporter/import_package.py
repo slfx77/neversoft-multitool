@@ -1417,8 +1417,11 @@ def _matrix_from_manifest(values, root):
 
 
 def _worldzone_leaf_metadata(primitive):
+    """Draw-order metadata: the worldzone leaf record or the generic
+    draw_order kind (DDM decal ranks, PSX coplanar overlays) — both carry the
+    same camelCase drawIndex/passIndex/overlapGroup/blendOffset keys."""
     for item in primitive.get("NativeMetadata", []):
-        if item.get("kind") == "ps2_worldzone_leaf":
+        if item.get("kind") in ("ps2_worldzone_leaf", "draw_order"):
             return item
     return None
 
@@ -1428,6 +1431,26 @@ def _worldzone_billboard_metadata(primitive):
         if item.get("kind") == "ps2_worldzone_billboard":
             return item
     return None
+
+
+def _has_draw_order(leaf_meta):
+    if leaf_meta is None:
+        return False
+    return (leaf_meta.get("renderOrder") is not None
+            or int(leaf_meta.get("drawIndex", -1)) >= 0)
+
+
+def _draw_order_sort_key(item):
+    """(drawIndex-if-present, legacy renderOrder, leafIndex, node, prim)."""
+    leaf_meta = item[5] or {}
+    draw_index = int(leaf_meta.get("drawIndex", -1))
+    return (
+        draw_index if draw_index >= 0 else 0x7FFFFFFF,
+        int(leaf_meta.get("renderOrder", 0x7FFFFFFF)),
+        int(leaf_meta.get("leafIndex", item[0])),
+        item[0],
+        item[3],
+    )
 
 
 def _apply_worldzone_blend_offset(obj, leaf_meta):
@@ -1531,23 +1554,15 @@ def _object_build_items(manifest):
         mesh_entry = meshes[mesh_index]
         for prim_index, primitive in enumerate(mesh_entry.get("Primitives", [])):
             leaf_meta = _worldzone_leaf_metadata(primitive)
-            if leaf_meta is not None and leaf_meta.get("renderOrder") is not None:
+            if _has_draw_order(leaf_meta):
                 has_worldzone_order = True
             items.append((node_index, node, mesh_entry, prim_index, primitive, leaf_meta))
 
     if has_worldzone_order:
-        # drawIndex is the converter's exact global draw rank (added in B1);
+        # drawIndex is the converter's exact draw rank (added in B1);
         # (renderOrder, leafIndex) is the equivalent legacy composite for
         # packages exported before it existed.
-        items.sort(
-            key=lambda item: (
-                int(item[5].get("drawIndex", 0x7FFFFFFF)) if item[5] and int(item[5].get("drawIndex", -1)) >= 0 else 0x7FFFFFFF,
-                int(item[5].get("renderOrder", 0x7FFFFFFF)) if item[5] else 0x7FFFFFFF,
-                int(item[5].get("leafIndex", item[0])) if item[5] else item[0],
-                item[0],
-                item[3],
-            )
-        )
+        items.sort(key=_draw_order_sort_key)
     return items
 
 

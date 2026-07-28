@@ -12,6 +12,18 @@ internal static class PsxCoplanarOverlayDetector
 {
     internal static IReadOnlySet<PsxFaceInstanceKey> Find(PsxMeshFile file)
     {
+        return FindGroups(file).Keys.ToHashSet();
+    }
+
+    /// <summary>
+    ///     Like <see cref="Find" /> but grouped: every detected overlay face maps
+    ///     to a deterministic per-plane group id, so the writer can emit each
+    ///     coplanar overlay group as its own mesh with one rigid draw-order /
+    ///     separation-vector metadata record (group ids are ordered by the
+    ///     group's first face key).
+    /// </summary>
+    internal static IReadOnlyDictionary<PsxFaceInstanceKey, int> FindGroups(PsxMeshFile file)
+    {
         var planes = new Dictionary<PlaneKey, List<Candidate>>();
         for (var objectIndex = 0; objectIndex < file.Objects.Count; objectIndex++)
         {
@@ -44,17 +56,31 @@ internal static class PsxCoplanarOverlayDetector
             }
         }
 
-        var overlays = new HashSet<PsxFaceInstanceKey>();
+        var planeGroups = new List<HashSet<PsxFaceInstanceKey>>();
         foreach (var candidates in planes.Values)
         {
+            var overlays = new HashSet<PsxFaceInstanceKey>();
             for (var i = 0; i < candidates.Count; i++)
             {
                 for (var j = i + 1; j < candidates.Count; j++)
                     ClassifyPair(candidates[i], candidates[j], overlays);
             }
+
+            if (overlays.Count > 0)
+                planeGroups.Add(overlays);
         }
 
-        return overlays;
+        var groups = new Dictionary<PsxFaceInstanceKey, int>();
+        var groupId = 0;
+        foreach (var planeGroup in planeGroups
+                     .OrderBy(static group => group.Min(static key => (key.ObjectIndex, key.FaceIndex))))
+        {
+            foreach (var key in planeGroup)
+                groups[key] = groupId;
+            groupId++;
+        }
+
+        return groups;
     }
 
     private static bool TryCreateCandidate(
