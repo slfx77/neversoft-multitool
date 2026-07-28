@@ -1430,6 +1430,27 @@ def _worldzone_billboard_metadata(primitive):
     return None
 
 
+def _apply_worldzone_blend_offset(obj, leaf_meta):
+    """Separate coplanar multi-pass worldzone layers at OBJECT level.
+
+    The converter exports vertices at their authored positions (it no longer
+    bakes a depth-bias offset into the mesh) and instead ships the separation
+    vector in the leaf metadata, in mesh-local export units. EEVEE has no
+    draw-order control for blended surfaces, so without a tiny offset the
+    stacked terrain passes z-fight. Applying it to obj.location keeps the mesh
+    data pristine — clear the offset (or re-zero obj.location) to recover the
+    exact authored geometry."""
+    offset = leaf_meta.get("blendOffset")
+    if not offset or len(offset) != 3:
+        return
+    local = Vector((float(offset[0]), float(offset[1]), float(offset[2])))
+    if local.length == 0.0:
+        return
+    world = obj.matrix_world.to_3x3() @ local
+    obj.location = obj.location + world
+    obj["neversoft_blend_offset"] = [world.x, world.y, world.z]
+
+
 def _get_or_create_billboard_target():
     """Return the scene's active camera, creating a placeholder Empty if none
     exists. Cached on the scene so subsequent billboards reuse the same target."""
@@ -1515,8 +1536,12 @@ def _object_build_items(manifest):
             items.append((node_index, node, mesh_entry, prim_index, primitive, leaf_meta))
 
     if has_worldzone_order:
+        # drawIndex is the converter's exact global draw rank (added in B1);
+        # (renderOrder, leafIndex) is the equivalent legacy composite for
+        # packages exported before it existed.
         items.sort(
             key=lambda item: (
+                int(item[5].get("drawIndex", 0x7FFFFFFF)) if item[5] and int(item[5].get("drawIndex", -1)) >= 0 else 0x7FFFFFFF,
                 int(item[5].get("renderOrder", 0x7FFFFFFF)) if item[5] else 0x7FFFFFFF,
                 int(item[5].get("leafIndex", item[0])) if item[5] else item[0],
                 item[0],
@@ -1706,6 +1731,11 @@ def _make_objects(manifest, package, package_dir, materials, root, armatures=Non
                 obj["neversoft_render_order"] = int(leaf_meta["renderOrder"])
             if leaf_meta.get("leafIndex") is not None:
                 obj["neversoft_leaf_index"] = int(leaf_meta["leafIndex"])
+            if int(leaf_meta.get("drawIndex", -1)) >= 0:
+                obj["neversoft_draw_index"] = int(leaf_meta["drawIndex"])
+                obj["neversoft_pass_index"] = int(leaf_meta.get("passIndex", 0))
+                obj["neversoft_overlap_group"] = int(leaf_meta.get("overlapGroup", -1))
+            _apply_worldzone_blend_offset(obj, leaf_meta)
 
         billboard_meta = _worldzone_billboard_metadata(primitive)
         if billboard_meta is not None:

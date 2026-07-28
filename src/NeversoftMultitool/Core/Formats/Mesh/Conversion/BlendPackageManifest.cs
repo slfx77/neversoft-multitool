@@ -143,6 +143,13 @@ internal sealed class BlendPackageManifest
                 result["isLocalSpace"] = worldzoneLeaf.IsLocalSpace;
                 result["nodeColour"] = worldzoneLeaf.NodeColour;
                 result["nodeFlags"] = worldzoneLeaf.NodeFlags;
+                result["drawIndex"] = worldzoneLeaf.DrawIndex;
+                result["passIndex"] = worldzoneLeaf.PassIndex;
+                result["overlapGroup"] = worldzoneLeaf.OverlapGroup;
+                result["blendOffset"] = new[]
+                {
+                    worldzoneLeaf.BlendOffsetX, worldzoneLeaf.BlendOffsetY, worldzoneLeaf.BlendOffsetZ
+                };
                 break;
             case Ps2WorldzoneBillboardMetadata billboard:
                 result["billboardKind"] = billboard.BillboardKind;

@@ -133,7 +133,7 @@ internal static class Ps2WorldzoneGeometryWriter
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
     }
 
-    private static void PopulatePs2WorldzoneLeaves(
+    internal static void PopulatePs2WorldzoneLeaves(
         ModelDocument document,
         Ps2GeomScene scene,
         string mdlName,
@@ -165,6 +165,8 @@ internal static class Ps2WorldzoneGeometryWriter
             leafFilter,
             ShouldSkipWorldzoneLeaf);
         var recentAlphaMasks = new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>();
+        var overlapGroupIds = new Dictionary<Ps2DestinationAlphaLeafGeometryKey, int>();
+        var overlapPassCounters = new Dictionary<Ps2DestinationAlphaLeafGeometryKey, int>();
 
         foreach (var drawItem in orderedLeaves)
         {
@@ -205,17 +207,33 @@ internal static class Ps2WorldzoneGeometryWriter
             var alphaMode =
                 Ps2MaterialWriter.ClassifyPs2GeomEffectiveAlphaMode(leaf, alphaModePng,
                     usesSynthesizedDestinationAlpha);
+            // Vertices are exported at their AUTHORED positions. The PS2 resolves
+            // coplanar multi-pass stacks by submission order, so instead of baking
+            // a depth-bias offset into the mesh (the pre-B1 approach — it corrupted
+            // every blend/mask leaf's geometry and its sub-millimetre magnitude was
+            // below depth-buffer precision at distance anyway), draw order ships as
+            // metadata: DrawIndex/PassIndex reach GLB extras (the three.js viewer
+            // enforces submission order via renderOrder + LEQUAL, exactly like the
+            // GS) and the .blend importer applies the separation vector below at
+            // OBJECT level, where EEVEE needs it and users can remove it.
             var depthBias = Ps2GeomRenderSemantics.ComputeWorldzoneMaterialDepthBias(leaf, alphaMode);
-            // Preserve the shared PS2 group/mode bias formula, then add only a
-            // tiny draw-order stagger for coplanar same-group passes that the PS2
-            // resolves by submission order.
-            const float DrawOrderStaggerBlenderUnits = 0.00000025f;
-            var effectiveBias = depthBias > 0f && coordinateScale > 0f
-                ? depthBias + drawItem.DrawIndex * DrawOrderStaggerBlenderUnits / coordinateScale
-                : depthBias;
-            var sourceVertices = effectiveBias > 0f
-                ? OffsetPs2Vertices(leaf.Vertices, ComputeOverlayOffsetDirection(leaf.Vertices), effectiveBias)
-                : leaf.Vertices;
+            var blendOffset = Vector3.Zero;
+            if (depthBias > 0f && coordinateScale > 0f)
+            {
+                var offsetDirection = ComputeOverlayOffsetDirection(leaf.Vertices);
+                blendOffset = offsetDirection * (depthBias * coordinateScale);
+            }
+
+            if (!overlapGroupIds.TryGetValue(geometryKey, out var overlapGroup))
+            {
+                overlapGroup = overlapGroupIds.Count;
+                overlapGroupIds[geometryKey] = overlapGroup;
+            }
+
+            overlapPassCounters.TryGetValue(geometryKey, out var passIndex);
+            overlapPassCounters[geometryKey] = passIndex + 1;
+
+            var sourceVertices = leaf.Vertices;
             var (min, max) = ComputeBbox(sourceVertices);
             var localOrigin = (min + max) * 0.5f;
             var localizedVertices = LocalizePs2Vertices(sourceVertices, localOrigin, coordinateScale);
@@ -265,7 +283,13 @@ internal static class Ps2WorldzoneGeometryWriter
                     leaf.IsBillboard,
                     leaf.IsLocalSpace,
                     leaf.Colour,
-                    leaf.Flags));
+                    leaf.Flags,
+                    drawItem.DrawIndex,
+                    passIndex,
+                    overlapGroup,
+                    blendOffset.X,
+                    blendOffset.Y,
+                    blendOffset.Z));
                 if (leaf.BillboardDescriptor is { } billboard)
                 {
                     primitive.NativeMetadata.Add(new Ps2WorldzoneBillboardMetadata(
@@ -345,22 +369,6 @@ internal static class Ps2WorldzoneGeometryWriter
         {
             var vertex = vertices[i];
             result[i] = CopyPs2Vertex(vertex, (vertex.Position - origin) * scale);
-        }
-
-        return result;
-    }
-
-    private static Ps2Vertex[] OffsetPs2Vertices(Ps2Vertex[] vertices, Vector3 direction, float distance)
-    {
-        if (vertices.Length == 0 || MathF.Abs(distance) <= 1e-8f || direction.LengthSquared() <= 1e-8f)
-            return vertices;
-
-        var offset = direction * distance;
-        var result = new Ps2Vertex[vertices.Length];
-        for (var i = 0; i < vertices.Length; i++)
-        {
-            var vertex = vertices[i];
-            result[i] = CopyPs2Vertex(vertex, vertex.Position + offset);
         }
 
         return result;

@@ -966,6 +966,23 @@ if (psxFlags.z < 0.5) {
       });
     }
 
+    function applyNeversoftRenderOrder(root) {
+      // THAW PS2 worldzone leaves carry their engine submission rank in mesh
+      // extras (GLTFLoader copies mesh extras onto Mesh.userData). The GS
+      // resolves coplanar multi-pass terrain by submission order with a
+      // LEQUAL depth test; three.js materials default to LessEqualDepth, so
+      // renderOrder alone reproduces that exactly — later passes win on equal
+      // depth and blended layers composite in engine order. Gated on the
+      // extra so character/model viewers keep three.js's own depth sorting.
+      root.traverse(obj => {
+        if (!obj.isMesh) return;
+        const drawIndex = obj.userData && obj.userData.neversoftDrawIndex;
+        if (typeof drawIndex === 'number' && Number.isFinite(drawIndex)) {
+          obj.renderOrder = drawIndex;
+        }
+      });
+    }
+
     function cancelModelLoad() {
       modelLoadGeneration++;
     }
@@ -1102,6 +1119,7 @@ if (psxFlags.z < 0.5) {
           configurePsxGpuVertexColors(modelRoot);
           configurePsxTextureWibbles(modelRoot);
           applyNativeMaterialBlending(modelRoot);
+          applyNeversoftRenderOrder(modelRoot);
           scene.add(modelRoot);
           frameModel(modelRoot);
           if (!restoreCameraState(cameraState)) applyDefaultControlMode();

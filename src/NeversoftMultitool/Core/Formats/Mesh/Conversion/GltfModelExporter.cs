@@ -343,8 +343,34 @@ public sealed class GltfModelExporter : IModelExporter
             totalTriangles += AddTriangles(prim, primitive);
         }
 
+        ApplyWorldzoneDrawOrderExtras(mesh, modelMesh);
         scene.AddRigidMesh(mesh, worldTransform);
         return totalTriangles;
+    }
+
+    /// <summary>
+    ///     Publish the worldzone leaf's draw order into glTF mesh extras. The PS2
+    ///     resolves coplanar multi-pass stacks by submission order; vertices export
+    ///     at authored positions, so viewers need this to composite passes in
+    ///     engine order (the in-app three.js viewer maps neversoftDrawIndex to
+    ///     Object3D.renderOrder, which with LEQUAL depth testing reproduces GS
+    ///     submission-order semantics exactly).
+    /// </summary>
+    private static void ApplyWorldzoneDrawOrderExtras(SharpGLTF.BaseBuilder mesh, ModelMesh modelMesh)
+    {
+        var leafMetadata = modelMesh.Primitives
+            .SelectMany(static primitive => primitive.NativeMetadata)
+            .OfType<Ps2WorldzoneLeafRenderMetadata>()
+            .FirstOrDefault(static metadata => metadata.DrawIndex >= 0);
+        if (leafMetadata == null)
+            return;
+
+        mesh.Extras = new System.Text.Json.Nodes.JsonObject
+        {
+            ["neversoftDrawIndex"] = leafMetadata.DrawIndex,
+            ["neversoftPassIndex"] = leafMetadata.PassIndex,
+            ["neversoftOverlapGroup"] = leafMetadata.OverlapGroup
+        };
     }
 
     private static int AddSkinnedMesh(
@@ -446,6 +472,7 @@ public sealed class GltfModelExporter : IModelExporter
             totalTriangles += AddPsxOverbrightTriangles(prim, primitive);
         }
 
+        ApplyWorldzoneDrawOrderExtras(mesh, modelMesh);
         scene.AddRigidMesh(mesh, worldTransform);
         return totalTriangles;
     }
