@@ -19,6 +19,15 @@ internal sealed class GsTextureOracleRow
     public required string Classification { get; init; }
     public double RgbMae { get; init; }
     public double AlphaMae { get; init; }
+
+    /// <summary>
+    ///     Best same-size catalog content match found for a Divergent dump
+    ///     (null when no sweep ran). When it differs from Checksum, the slot
+    ///     held a different asset than the TBP attribution assumed.
+    /// </summary>
+    public uint? BestMatchChecksum { get; init; }
+
+    public double BestMatchRgbMae { get; init; } = -1;
     public int Width { get; init; }
     public int Height { get; init; }
     public int RegionX { get; init; }

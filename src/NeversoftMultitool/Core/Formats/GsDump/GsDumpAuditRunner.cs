@@ -4,6 +4,7 @@ using NeversoftMultitool.Core.Formats.GsDump.Oracle;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
+using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -25,7 +26,8 @@ internal static class GsDumpAuditRunner
         var textureContext = GsDumpAuditResolvers.BuildTextureContext(options.TexturePath);
         var oracleComparer = textureContext == null
             ? null
-            : new GsTextureOracleComparer(textureContext.CatalogResolver, textureContext.ResolveChecksum);
+            : new GsTextureOracleComparer(
+                textureContext.CatalogResolver, textureContext.ResolveChecksum, textureContext.Entries);
         var stem = MakeOutputStem(gsPath);
         var textureDumpDirectory = Path.Combine(outputDirectory, stem + ".textures");
         var textureDumpIndex = 0;
@@ -433,12 +435,16 @@ internal static class GsDumpAuditRunner
 
     internal sealed class GsTextureContext(
         MeshChecksumTextureResolver textureResolver,
-        Func<ulong, uint, Ps2GeomTextureResolution> tex0Resolver)
+        Func<ulong, uint, Ps2GeomTextureResolution> tex0Resolver,
+        IReadOnlyList<ZoneTextureCatalogEntry> entries)
     {
         private readonly Dictionary<ulong, GsResolvedTexture?> cache = [];
 
         /// <summary>The catalog's checksum→PNG resolver (texoracle comparisons).</summary>
         public MeshChecksumTextureResolver CatalogResolver => textureResolver;
+
+        /// <summary>Every catalog entry, for content-based attribution sweeps.</summary>
+        public IReadOnlyList<ZoneTextureCatalogEntry> Entries => entries;
 
         /// <summary>Runtime TEX0 → catalog checksum (0 = unresolved), for the oracle join.</summary>
         public uint ResolveChecksum(ulong tex0)

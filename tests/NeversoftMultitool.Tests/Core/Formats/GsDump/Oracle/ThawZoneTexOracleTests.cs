@@ -15,24 +15,19 @@ namespace NeversoftMultitool.Tests.Core.Formats.GsDump.Oracle;
 public sealed class ThawZoneTexOracleTests
 {
     /// <summary>
-    ///     Checksums with Divergent rows in the seeded goldens (2026-07-27,
-    ///     z_bh catalog over all 17 captures). Confirmed by pair-PNG triage to
-    ///     be dominated by dynamic-slot attribution (a car atlas attributed
-    ///     where jeans were uploaded, at the shadow-saga slot) — the Phase-3
-    ///     content-based attribution census works this list down; every entry
+    ///     The TRUE zone-TEX decode leads (2026-07-27): after content-based
+    ///     attribution, only these two checksums diverge from the replay's
+    ///     runtime ground truth with THEMSELVES as their own best content
+    ///     match — i.e. the same asset decoded differently, not a slot-reuse
+    ///     attribution artifact. (The original 43-entry list collapsed: 311
+    ///     rows were streamed out-of-catalog content, 7 were same-zone slot
+    ///     swaps.) These two are the Phase-3 A1 decode worklist; every entry
     ///     removed is progress, every NEW divergence fails this ratchet.
     /// </summary>
     private static readonly HashSet<uint> DivergenceAllowlist =
     [
-        0x027931EA, 0x0935DD38, 0x0BA6EDB7, 0x0BBDF569, 0x0D3F5B6B,
-        0x132126FE, 0x15766597, 0x1CFD7D44, 0x1DBD5C16, 0x26528542,
-        0x2DC8C0C1, 0x331B1ADF, 0x3FCFA802, 0x3FD61FB0, 0x4A1F8294,
-        0x5F55A56D, 0x60C5FF70, 0x674E6595, 0x689FC338, 0x6CC9E390,
-        0x735A5573, 0x73896568, 0x77B46C84, 0x82B70E98, 0x8C1466EA,
-        0x94CEFF64, 0x9B8B3FB4, 0xA57B31F2, 0xA99B9EBA, 0xAD458276,
-        0xAE68AB14, 0xBE23EFD8, 0xC1BC1EE8, 0xC406D7C1, 0xCEE89221,
-        0xD0605E66, 0xD87BF374, 0xE6ABDEED, 0xEEDE3797, 0xF510CFDC,
-        0xF6952B0D, 0xFCF04806, 0xFE57D049
+        0x0935DD38, // rgbMae ~19.9, 3 captures — palette tint or slot-bias suspect
+        0xE6ABDEED // rgbMae ~11.8, 1 capture
     ];
 
     [Fact]

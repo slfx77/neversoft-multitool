@@ -1,70 +1,70 @@
-{
-  "143551": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260502143551.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "192825": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260502192825.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "201000": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260504201000.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "233708": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260507233708.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "233719": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260507233719.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "233734": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260507233734.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "233835": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260507233835.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "233853": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260507233853.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "233934": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260507233934.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "233949": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260507233949.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "234026": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260507234026.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "234126": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260507234126.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "234210": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260507234210.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "202641": {
-    "dump": "Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260511202641.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "183623": {
-    "dump": "Tony Hawk's Proving Ground_SLUS-21616_20260706183623.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "212232": {
-    "dump": "Tony Hawk's Proving Ground_SLUS-21616_20260706212232.gs",
-    "texSource": "z_bh.pak.ps2"
-  },
-  "221909": {
-    "dump": "Tony Hawk's Proving Ground_SLUS-21616_20260706221909.gs",
-    "texSource": "z_bh.pak.ps2"
-  }
+﻿{
+    "143551":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260502143551.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "192825":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260502192825.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "201000":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260504201000.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "233708":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260507233708.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "233719":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260507233719.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "233734":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260507233734.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "233835":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260507233835.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "233853":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260507233853.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "233934":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260507233934.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "233949":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260507233949.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "234026":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260507234026.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "234126":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260507234126.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "234210":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260507234210.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "202641":  {
+                   "dump":  "Tony Hawk\u0027s American Wasteland [Collector\u0027s Edition]_SLUS-21295_20260511202641.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "183623":  {
+                   "dump":  "Tony Hawk\u0027s Proving Ground_SLUS-21616_20260706183623.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "212232":  {
+                   "dump":  "Tony Hawk\u0027s Proving Ground_SLUS-21616_20260706212232.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               },
+    "221909":  {
+                   "dump":  "Tony Hawk\u0027s Proving Ground_SLUS-21616_20260706221909.gs",
+                   "texSource":  "z_bh.pak.ps2"
+               }
 }

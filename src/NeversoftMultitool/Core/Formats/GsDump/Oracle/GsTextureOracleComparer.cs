@@ -1,5 +1,6 @@
 using System.Globalization;
 using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -17,7 +18,8 @@ namespace NeversoftMultitool.Core.Formats.GsDump.Oracle;
 /// </summary>
 internal sealed class GsTextureOracleComparer(
     MeshChecksumTextureResolver catalogResolver,
-    Func<ulong, uint> resolveChecksum)
+    Func<ulong, uint> resolveChecksum,
+    IReadOnlyList<ZoneTextureCatalogEntry> catalogEntries)
 {
     internal const string ClassificationMatch = "Match";
     internal const string ClassificationQuantizationOnly = "QuantizationOnly";
@@ -25,6 +27,16 @@ internal sealed class GsTextureOracleComparer(
     internal const string ClassificationDivergent = "Divergent";
     internal const string ClassificationNotComparable = "NotComparable";
     internal const string ClassificationSlotReuseSuspect = "SlotReuseSuspect";
+
+    /// <summary>Content matches a DIFFERENT catalog asset: the VRAM slot held
+    ///     another zone texture than the TBP-attributed one — an attribution
+    ///     error, not a decode defect.</summary>
+    internal const string ClassificationAttributionMismatch = "AttributionMismatch";
+
+    /// <summary>Content matches nothing in the zone catalog: a streamed
+    ///     character/HUD/other-source asset passing through the slot — outside
+    ///     the zone-TEX decode question entirely.</summary>
+    internal const string ClassificationForeignContent = "ForeignContent";
 
     private const double MatchMae = 2.0;
 
@@ -88,6 +100,8 @@ internal sealed class GsTextureOracleComparer(
                             Classification = ClassificationSlotReuseSuspect,
                             RgbMae = row.RgbMae,
                             AlphaMae = row.AlphaMae,
+                            BestMatchChecksum = row.BestMatchChecksum,
+                            BestMatchRgbMae = row.BestMatchRgbMae,
                             Width = row.Width,
                             Height = row.Height,
                             RegionX = row.RegionX,
@@ -115,6 +129,8 @@ internal sealed class GsTextureOracleComparer(
             AlphaProtocolDiffs = ordered.Count(static row => row.Classification == ClassificationAlphaProtocolDiff),
             Divergent = ordered.Count(static row => row.Classification == ClassificationDivergent),
             SlotReuseSuspects = ordered.Count(static row => row.Classification == ClassificationSlotReuseSuspect),
+            AttributionMismatches = ordered.Count(static row => row.Classification == ClassificationAttributionMismatch),
+            ForeignContent = ordered.Count(static row => row.Classification == ClassificationForeignContent),
             NotComparable = ordered.Count(static row => row.Classification == ClassificationNotComparable),
             Rows = ordered
         };
@@ -126,6 +142,8 @@ internal sealed class GsTextureOracleComparer(
         string classification;
         double rgbMae = -1;
         double alphaMae = -1;
+        uint? bestMatchChecksum = null;
+        double bestMatchRgbMae = -1;
         string? notes = null;
 
         if (catalog == null)
@@ -158,6 +176,24 @@ internal sealed class GsTextureOracleComparer(
             var normalized = ScaleAlphaToPngDomain(dumpRgba);
             (rgbMae, alphaMae) = ComputeMae(expected, normalized);
             classification = Classify(rgbMae, alphaMae);
+
+            // A Divergent verdict against the TBP-attributed asset is only a
+            // decode lead if the content isn't simply a DIFFERENT asset parked
+            // in the slot. Content-sweep every same-size catalog texture: a
+            // clean hit elsewhere reclassifies as attribution error; no hit at
+            // all means the slot held out-of-catalog (streamed) content.
+            if (classification == ClassificationDivergent)
+            {
+                (bestMatchChecksum, bestMatchRgbMae) =
+                    FindBestContentMatch(audit, normalized, checksum, rgbMae);
+                if (bestMatchChecksum != checksum)
+                {
+                    classification = bestMatchChecksum != null && bestMatchRgbMae <= QuantizationMae
+                        ? ClassificationAttributionMismatch
+                        : ClassificationForeignContent;
+                }
+            }
+
             WriteDebugPair(checksum, audit, classification, expected, normalized);
         }
 
@@ -170,6 +206,8 @@ internal sealed class GsTextureOracleComparer(
             Classification = classification,
             RgbMae = Math.Round(rgbMae, 3),
             AlphaMae = Math.Round(alphaMae, 3),
+            BestMatchChecksum = bestMatchChecksum,
+            BestMatchRgbMae = Math.Round(bestMatchRgbMae, 3),
             Width = audit.Width,
             Height = audit.Height,
             RegionX = audit.RegionX,
@@ -179,6 +217,53 @@ internal sealed class GsTextureOracleComparer(
             Csa = audit.Csa,
             Notes = notes
         };
+    }
+
+    /// <summary>
+    ///     RGB-content-matches the dump against every same-dimension catalog
+    ///     texture (decodes cached). Returns the best (checksum, rgbMae) — the
+    ///     attributed checksum wins ties so a genuine decode lead is never
+    ///     reclassified away by an equally-bad alternative.
+    /// </summary>
+    private (uint? Checksum, double RgbMae) FindBestContentMatch(
+        GsTextureDumpAuditRow audit,
+        byte[] normalizedDump,
+        uint attributedChecksum,
+        double attributedRgbMae)
+    {
+        uint? best = attributedChecksum;
+        var bestMae = attributedRgbMae;
+        var seen = new HashSet<uint> { attributedChecksum };
+        foreach (var entry in catalogEntries)
+        {
+            if (!seen.Add(entry.Checksum))
+                continue;
+
+            var width = 1 << (int)((entry.Tex0 >> 26) & 0xF);
+            var height = 1 << (int)((entry.Tex0 >> 30) & 0xF);
+            if (width != audit.TextureWidth || height != audit.TextureHeight)
+                continue;
+
+            var candidate = ResolveCatalogPixels(entry.Checksum);
+            if (candidate == null ||
+                candidate.Value.Width != audit.TextureWidth ||
+                candidate.Value.Height != audit.TextureHeight)
+            {
+                continue;
+            }
+
+            if (!TryExtractRegion(candidate.Value, audit, out var candidateRegion))
+                continue;
+
+            var (rgb, _) = ComputeMae(candidateRegion, normalizedDump);
+            if (rgb < bestMae)
+            {
+                bestMae = rgb;
+                best = entry.Checksum;
+            }
+        }
+
+        return (best, bestMae);
     }
 
     private static string Classify(double rgbMae, double alphaMae)

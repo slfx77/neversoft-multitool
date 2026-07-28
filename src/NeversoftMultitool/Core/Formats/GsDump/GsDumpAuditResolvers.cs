@@ -151,7 +151,8 @@ internal static class GsDumpAuditResolvers
             return null;
 
         return new GsDumpAuditRunner.GsTextureContext(catalog.CreateTextureResolver(),
-            catalog.CreateDebugTex0Resolver(texturePath));
+            catalog.CreateDebugTex0Resolver(texturePath),
+            catalog.Entries);
     }
 
     internal static Dictionary<string, long> BuildPacketTypeCounts(GsDumpFile dump)

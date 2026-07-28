@@ -16,6 +16,8 @@ internal sealed class GsTextureOracleReport
     public int AlphaProtocolDiffs { get; init; }
     public int Divergent { get; init; }
     public int SlotReuseSuspects { get; init; }
+    public int AttributionMismatches { get; init; }
+    public int ForeignContent { get; init; }
     public int NotComparable { get; init; }
     public required List<GsTextureOracleRow> Rows { get; init; }
 }
