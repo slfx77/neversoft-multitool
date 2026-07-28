@@ -15,19 +15,39 @@ namespace NeversoftMultitool.Tests.Core.Formats.GsDump.Oracle;
 public sealed class ThawZoneTexOracleTests
 {
     /// <summary>
-    ///     The TRUE zone-TEX decode leads (2026-07-27): after content-based
-    ///     attribution, only these two checksums diverge from the replay's
-    ///     runtime ground truth with THEMSELVES as their own best content
-    ///     match — i.e. the same asset decoded differently, not a slot-reuse
-    ///     attribution artifact. (The original 43-entry list collapsed: 311
-    ///     rows were streamed out-of-catalog content, 7 were same-zone slot
-    ///     swaps.) These two are the Phase-3 A1 decode worklist; every entry
-    ///     removed is progress, every NEW divergence fails this ratchet.
+    ///     Adjudicated divergences (2026-07-27, Phase-3 A1): after content-based
+    ///     attribution collapsed the original 43-entry worklist (311 streamed
+    ///     out-of-catalog rows, 7 same-zone slot swaps), these two survived as
+    ///     "self is best content match" Divergents — and BOTH were then proven
+    ///     to be attribution artifacts, NOT decode bugs:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             0x0935DD38 — the pak ships a flat khaki placeholder (decode
+    ///             verified faithful: pixel/CLUT relocations land exactly where
+    ///             an exhaustive in-file offset+CLUT sweep says the best data
+    ///             is; a palette-free structural sweep over the ENTIRE pak maxes
+    ///             out at R2=0.03 vs the runtime grass, and a disc-wide scan
+    ///             finds the checksum only in z_bh/z_bh_net). The runtime grass
+    ///             is streamed foreign content occupying a colliding TEX0
+    ///             identity. Triage playbook: ThawZoneTexAnalyzer
+    ///             decode-provenance + content-search commands.
+    ///         </item>
+    ///         <item>
+    ///             0xE6ABDEED — a THPG (SLUS-21616) capture correlated through
+    ///             the THAW z_bh TBP map; the truss content in the dump is
+    ///             THPG's own asset at a coincidental TBP. Cross-game rows
+    ///             carry no decode evidence.
+    ///         </item>
+    ///     </list>
+    ///     The zone-TEX decoder therefore has ZERO proven decode divergences
+    ///     across all 17 committed captures. Every NEW divergence fails this
+    ///     ratchet and gets the same structural-sweep triage before being
+    ///     called a decode bug.
     /// </summary>
     private static readonly HashSet<uint> DivergenceAllowlist =
     [
-        0x0935DD38, // rgbMae ~19.9, 3 captures — palette tint or slot-bias suspect
-        0xE6ABDEED // rgbMae ~11.8, 1 capture
+        0x0935DD38, // streamed-content TEX0 collision (not a decode bug)
+        0xE6ABDEED // cross-game THPG attribution ghost (not a decode bug)
     ];
 
     [Fact]
