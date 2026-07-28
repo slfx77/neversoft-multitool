@@ -164,6 +164,7 @@ tools/diagnostics/*
 !tools/diagnostics/rwdff_lod_uv_probe.py
 !tools/diagnostics/thaw_ps2_texture_regression_check.py
 !tools/diagnostics/zone_tex_checksum_scan.py
+!tools/diagnostics/worldzone_order_evidence.py
 
 # Build/runtime noise inside curated tools/
 tools/**/bin/
