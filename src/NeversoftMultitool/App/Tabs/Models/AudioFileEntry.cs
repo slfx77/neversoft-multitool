@@ -16,9 +16,24 @@ public class AudioFileEntry : BaseFileEntry, IListEntry
     protected override string ProcessingVerb => "Converting...";
 
     /// <summary>
-    ///     Whether this format supports expand/collapse (VAB, KAT, SFX have multiple samples).
+    ///     Whether this format supports expand/collapse (VAB, KAT, SFX have
+    ///     multiple samples). XA files are only expandable once a background
+    ///     probe has found more than one interleaved channel — single-channel
+    ///     XA stays a flat, directly-previewable row.
     /// </summary>
-    public bool IsExpandable => AudioFormat is "VAB" or "KAT" or "SFX";
+    public bool IsExpandable =>
+        AudioFormat is "VAB" or "KAT" or "SFX"
+        || (AudioFormat == "XA" && CachedChildren is { Count: > 0 });
+
+    /// <summary>
+    ///     Re-evaluates the expander UI after <see cref="CachedChildren" /> is
+    ///     populated off-thread (the XA channel probe). UI thread only.
+    /// </summary>
+    internal void NotifyExpandabilityChanged()
+    {
+        OnPropertyChanged(nameof(ExpanderVisibility));
+        OnPropertyChanged(nameof(ChevronGlyph));
+    }
 
     public bool IsExpanded
     {

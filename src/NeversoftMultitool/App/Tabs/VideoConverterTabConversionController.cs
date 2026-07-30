@@ -52,6 +52,8 @@ internal sealed class VideoConverterTabConversionController : IDisposable
         conversionProgress.Visibility = Visibility.Visible;
         conversionProgress.Value = 0;
 
+        using var scope = GlobalProgress.Begin("Converting videos");
+
         var stopwatch = Stopwatch.StartNew();
         var filesProcessed = 0;
         var totalConverted = 0;
@@ -62,6 +64,7 @@ internal sealed class VideoConverterTabConversionController : IDisposable
         {
             await Task.Run(() =>
             {
+                var index = 0;
                 foreach (var entry in items)
                 {
                     if (token.IsCancellationRequested)
@@ -69,22 +72,31 @@ internal sealed class VideoConverterTabConversionController : IDisposable
 
                     dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
 
+                    // Per-file ffmpeg progress folds into the batch fraction so
+                    // long single-file conversions still move the global bar.
+                    var fileIndex = index;
                     var result = VideoConverterTabOperations.ConvertFromSource(
                         entry,
                         outputDir,
                         new Progress<double>(progress =>
-                            dispatcher.TryEnqueue(() => entry.ConvertProgress = progress * 100)),
+                        {
+                            scope.Report((fileIndex + progress) / totalFiles);
+                            dispatcher.TryEnqueue(() => entry.ConvertProgress = progress * 100);
+                        }),
                         token);
 
                     var processed = Interlocked.Increment(ref filesProcessed);
                     if (result.Success)
                         Interlocked.Increment(ref totalConverted);
+                    scope.Report(processed, totalFiles);
 
                     dispatcher.TryEnqueue(() =>
                     {
                         entry.Status = result.Success ? ExtractionStatus.Done : ExtractionStatus.Error;
                         conversionProgress.Value = (double)processed / totalFiles * 100;
                     });
+
+                    index++;
                 }
             }, token);
 

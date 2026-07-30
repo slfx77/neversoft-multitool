@@ -28,33 +28,55 @@ public static class XaDecoder
     /// </summary>
     public static (short[] Samples, int SampleRate, int Channels)? DecodeToSamples(byte[] sectoredData)
     {
+        return DecodeToSamples(sectoredData, null);
+    }
+
+    /// <summary>
+    ///     Channel-filtered variant: decodes only the sectors whose sub-header
+    ///     channel byte matches <paramref name="channelFilter" /> (null = all
+    ///     sectors, matching the unfiltered overload). Format comes from the
+    ///     first matching sector's coding byte. Returns null if the data is not
+    ///     sectored XA or no sector matches.
+    /// </summary>
+    public static (short[] Samples, int SampleRate, int Channels)? DecodeToSamples(
+        byte[] sectoredData, int? channelFilter)
+    {
         if (!IsSectored(sectoredData))
             return null;
 
         var sectorCount = sectoredData.Length / SectorSize;
-
-        // Use the first sector's coding byte to determine format
-        var coding = sectoredData[3];
-        var isStereo = (coding & 0x01) != 0;
-        var sampleRate = (coding & 0x04) != 0 ? 18900 : 37800;
-
+        byte? coding = null;
+        var isStereo = false;
+        double[,]? hist = null;
         var pcmSamples = new List<short>();
-        var hist = new double[isStereo ? 2 : 1, 2];
 
         for (var s = 0; s < sectorCount; s++)
         {
             var sectorOffset = s * SectorSize;
-            var audioStart = sectorOffset + SubheaderSize;
+            if (channelFilter.HasValue && sectoredData[sectorOffset + 1] != channelFilter.Value)
+                continue;
 
+            if (coding == null)
+            {
+                coding = sectoredData[sectorOffset + 3];
+                isStereo = (coding.Value & 0x01) != 0;
+                hist = new double[isStereo ? 2 : 1, 2];
+            }
+
+            var audioStart = sectorOffset + SubheaderSize;
             for (var g = 0; g < SoundGroupsPerSector; g++)
             {
                 var groupOffset = audioStart + g * SoundGroupSize;
                 if (groupOffset + SoundGroupSize > sectoredData.Length) break;
 
-                DecodeSoundGroup(sectoredData, groupOffset, hist, isStereo, pcmSamples);
+                DecodeSoundGroup(sectoredData, groupOffset, hist!, isStereo, pcmSamples);
             }
         }
 
+        if (coding == null)
+            return null;
+
+        var sampleRate = (coding.Value & 0x04) != 0 ? 18900 : 37800;
         return (pcmSamples.ToArray(), sampleRate, isStereo ? 2 : 1);
     }
 
@@ -89,7 +111,7 @@ public static class XaDecoder
         }
     }
 
-    private static bool IsSectored(byte[] data)
+    internal static bool IsSectored(byte[] data)
     {
         if (data.Length < SubheaderSize || data.Length % SectorSize != 0)
             return false;

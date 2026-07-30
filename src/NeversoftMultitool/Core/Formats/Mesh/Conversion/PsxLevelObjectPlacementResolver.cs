@@ -23,6 +23,11 @@ internal static class PsxLevelObjectPlacementResolver
 {
     private const int PlatformSubType = 0x192;
     private const string ModelChecksumOpcode = "0x212F";
+    private const string WhatIfConditionalOpcode = "0x4117";
+    private const string ElseConditionalOpcode = "0x4122";
+    private const string EndIfOpcode = "0x4120";
+    private const string DisplayOnOpcode = "0x4203";
+    private const string DisplayOffOpcode = "0x4204";
     private const float PsxAngleUnitsPerRevolution = 4096f;
 
     /// <summary>Placeholder trigger index for the bank's own instances.</summary>
@@ -38,6 +43,8 @@ internal static class PsxLevelObjectPlacementResolver
     private static IReadOnlyDictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>
         EmptyPlacements { get; } =
         new Dictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>();
+
+    private static IReadOnlySet<int> EmptyNodeIndices { get; } = new HashSet<int>();
 
     internal static IReadOnlyDictionary<int, IReadOnlyList<PsxLevelObjectPlacement>> Resolve(
         AssetSource source,
@@ -96,6 +103,63 @@ internal static class PsxLevelObjectPlacementResolver
             static pair => (IReadOnlyList<PsxLevelObjectPlacement>)pair.Value
                 .OrderBy(static placement => placement.TriggerNodeIndex)
                 .ToArray());
+    }
+
+    /// <summary>
+    ///     <see cref="Resolve(TrgFile?, PsxMeshFile, bool)" /> plus the set of
+    ///     "What If?"-gated node indices, so callers can gate those placements
+    ///     behind an opt-in visibility group. Resolution itself is unchanged:
+    ///     the authored overview keeps every scripted instance.
+    /// </summary>
+    internal static PsxLevelObjectPlacementSet ResolveDetailed(
+        TrgFile? trg,
+        PsxMeshFile objectBank,
+        bool applyTriggerOverlay = true)
+    {
+        var placements = Resolve(trg, objectBank, applyTriggerOverlay);
+        var whatIfNodeIndices = trg != null && applyTriggerOverlay && placements.Count > 0
+            ? FindWhatIfGatedNodeIndices(trg)
+            : EmptyNodeIndices;
+        return new PsxLevelObjectPlacementSet(placements, whatIfNodeIndices);
+    }
+
+    /// <summary>
+    ///     PLATFORM-overlay nodes whose prop only exists (or only displays)
+    ///     when the "What If?" easter-egg mode is active. Bare co-occurrence
+    ///     of <c>C_IF_WHAT_IF</c> (0x4117) and <c>V_MODEL_CHECKSUM</c> gated
+    ///     81 corpus nodes whose PLACED model is unconditional (final l6a2's
+    ///     scale-animated props set their model at depth 0 and only OVERRIDE
+    ///     it inside the What If block; SM2EE's if/else grammar places the
+    ///     ELSE-branch model) — fixed 2026-07-29 with an opener-tracked
+    ///     conditional stack. A node is What If content iff EITHER the
+    ///     checksum <see cref="FindAuthoredDefaultChecksum" /> selects for
+    ///     placement is read while a 0x4117 block is open (l2a1's motorcycle
+    ///     nodes: model exists only inside the block), OR the script is
+    ///     display-off by default — an unconditional <c>C_DISPLAY_OFF</c>
+    ///     with every <c>C_DISPLAY_ON</c> inside a 0x4117 block (final l1a3
+    ///     node 322, l5a3 192/196/198, l8a5 29/50). Placements from these
+    ///     nodes — including a coincidence-replaced bank instance, which
+    ///     carries the node's index — are What If content.
+    /// </summary>
+    internal static IReadOnlySet<int> FindWhatIfGatedNodeIndices(TrgFile trg)
+    {
+        HashSet<int>? gated = null;
+        foreach (var node in trg.Nodes)
+        {
+            if (node is not { SubType: PlatformSubType, Script: not null })
+                continue;
+
+            var facts = AnalyzePlatformScript(node.Script);
+            if (!facts.HasWhatIfConditional || facts.SelectedChecksum == 0)
+                continue;
+
+            var displayOffByDefault = facts.HasUnconditionalDisplayOff
+                                      && !facts.HasDisplayOnOutsideWhatIf;
+            if (facts.SelectedUnderWhatIf || displayOffByDefault)
+                (gated ??= []).Add(node.Index);
+        }
+
+        return gated ?? EmptyNodeIndices;
     }
 
     /// <summary>
@@ -370,20 +434,63 @@ internal static class PsxLevelObjectPlacementResolver
 
     private static uint FindAuthoredDefaultChecksum(IReadOnlyList<TrgScriptOp> script)
     {
-        uint firstConditionalChecksum = 0;
-        var conditionalDepth = 0;
+        return AnalyzePlatformScript(script).SelectedChecksum;
+    }
+
+    /// <summary>
+    ///     One pass over a PLATFORM script with an opener-tracked conditional
+    ///     stack (each open block remembers its opening opcode; 0x4120
+    ///     C_ENDIF pops, underflow-guarded). Placement selection, in order:
+    ///     first depth-0 checksum (the authored default), else the first
+    ///     checksum read with NO 0x4117 open (SM2EE's if/else grammar
+    ///     "0x4117 A 0x4120 0x4122 B 0x4120" places the else-branch B — the
+    ///     model shown outside What If mode), else the first What If-gated
+    ///     checksum (branch-only nodes like l2a1's motorcycle keep their
+    ///     model rather than dropping authored geometry from this static
+    ///     overview). Display facts feed the What If gate's
+    ///     display-off-by-default rule.
+    /// </summary>
+    private static PlatformScriptFacts AnalyzePlatformScript(IReadOnlyList<TrgScriptOp> script)
+    {
+        uint unconditionalChecksum = 0;
+        uint defaultConditionalChecksum = 0;
+        uint whatIfChecksum = 0;
+        var openers = new List<string>();
+        var whatIfOpenCount = 0;
+        var hasWhatIfConditional = false;
+        var hasUnconditionalDisplayOff = false;
+        var hasDisplayOnOutsideWhatIf = false;
         foreach (var op in script)
         {
             if (IsConditionalStart(op.Opcode))
             {
-                conditionalDepth++;
+                openers.Add(op.Opcode);
+                if (op.Opcode == WhatIfConditionalOpcode)
+                {
+                    whatIfOpenCount++;
+                    hasWhatIfConditional = true;
+                }
+
                 continue;
             }
 
-            if (op.Opcode == "0x4120")
+            switch (op.Opcode)
             {
-                conditionalDepth = Math.Max(0, conditionalDepth - 1);
-                continue;
+                case EndIfOpcode:
+                    if (openers.Count > 0)
+                    {
+                        if (openers[^1] == WhatIfConditionalOpcode)
+                            whatIfOpenCount--;
+                        openers.RemoveAt(openers.Count - 1);
+                    }
+
+                    continue;
+                case DisplayOffOpcode:
+                    hasUnconditionalDisplayOff |= openers.Count == 0;
+                    continue;
+                case DisplayOnOpcode:
+                    hasDisplayOnOutsideWhatIf |= whatIfOpenCount == 0;
+                    continue;
             }
 
             if (op.Opcode != ModelChecksumOpcode
@@ -393,25 +500,64 @@ internal static class PsxLevelObjectPlacementResolver
                 continue;
             }
 
-            if (conditionalDepth == 0)
-                return checksum;
-            if (firstConditionalChecksum == 0)
-                firstConditionalChecksum = checksum;
+            if (openers.Count == 0)
+            {
+                if (unconditionalChecksum == 0)
+                    unconditionalChecksum = checksum;
+            }
+            else if (whatIfOpenCount == 0)
+            {
+                if (defaultConditionalChecksum == 0)
+                    defaultConditionalChecksum = checksum;
+            }
+            else if (whatIfChecksum == 0)
+            {
+                whatIfChecksum = checksum;
+            }
         }
 
-        // A branch-only assignment has no normal/default model, but dropping
-        // it would make authored/event geometry unavailable in this static
-        // overview. Keep its first model until conditional object variants can
-        // be represented as dedicated visibility groups.
-        return firstConditionalChecksum;
+        var selected = whatIfChecksum;
+        var selectedUnderWhatIf = whatIfChecksum != 0;
+        if (unconditionalChecksum != 0)
+        {
+            selected = unconditionalChecksum;
+            selectedUnderWhatIf = false;
+        }
+        else if (defaultConditionalChecksum != 0)
+        {
+            selected = defaultConditionalChecksum;
+            selectedUnderWhatIf = false;
+        }
+
+        return new PlatformScriptFacts(
+            selected,
+            selectedUnderWhatIf,
+            hasWhatIfConditional,
+            hasUnconditionalDisplayOff,
+            hasDisplayOnOutsideWhatIf);
     }
 
     private static bool IsConditionalStart(string opcode)
     {
+        // 0x4122 opens the else block of the preceding C_IF_* (its body runs
+        // only when the if condition failed) and closes with its own C_ENDIF.
         return opcode is "0x4112" or "0x4113" or "0x4114" or
             "0x4115" or "0x4116" or "0x4117" or "0x4118" or
-            "0x4119";
+            "0x4119" or ElseConditionalOpcode;
     }
+
+    /// <summary>
+    ///     Everything <see cref="AnalyzePlatformScript" /> learns in one walk:
+    ///     the checksum placement uses, whether it was read inside an open
+    ///     <c>C_IF_WHAT_IF</c> block, and the display-default facts the What
+    ///     If gate needs.
+    /// </summary>
+    private readonly record struct PlatformScriptFacts(
+        uint SelectedChecksum,
+        bool SelectedUnderWhatIf,
+        bool HasWhatIfConditional,
+        bool HasUnconditionalDisplayOff,
+        bool HasDisplayOnOutsideWhatIf);
 
     internal static bool TryGetLevelStem(string fileName, out string levelStem)
     {

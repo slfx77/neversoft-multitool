@@ -367,6 +367,8 @@ public sealed partial class TextureTab : UserControl, IDisposable
         ExtractionProgress.Visibility = Visibility.Visible;
         ExtractionProgress.Value = 0;
 
+        using var scope = GlobalProgress.Begin("Extracting textures");
+
         var stopwatch = Stopwatch.StartNew();
         var filesProcessed = 0;
         var totalFiles = _parentFiles.Count;
@@ -409,6 +411,7 @@ public sealed partial class TextureTab : UserControl, IDisposable
                         };
 
                         filesProcessed++;
+                        scope.Report(filesProcessed, totalFiles);
                         ExtractionProgress.Value = (double)filesProcessed / totalFiles * 100;
                     });
                 }

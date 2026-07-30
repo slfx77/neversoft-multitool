@@ -23,11 +23,14 @@ internal sealed class MeshConverterTabBatchRunner(
     DispatcherQueue dispatcher) : IDisposable
 {
     private CancellationTokenSource? _cts;
+    private IGlobalProgressScope? _progressScope;
 
     public void Dispose()
     {
         _cts?.Dispose();
         _cts = null;
+        _progressScope?.Dispose();
+        _progressScope = null;
     }
 
     public async Task CancelAsync()
@@ -50,7 +53,8 @@ internal sealed class MeshConverterTabBatchRunner(
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         bool includeLevelObjects = true)
     {
-        var cts = await BeginOperationAsync();
+        var cts = await BeginOperationAsync("Converting meshes");
+        var scope = _progressScope;
 
         foreach (var file in entries)
         {
@@ -93,6 +97,7 @@ internal sealed class MeshConverterTabBatchRunner(
                     Interlocked.Increment(ref totalConverted);
 
                     var processed = Interlocked.Increment(ref filesProcessed);
+                    scope?.Report(processed, totalFiles);
                     dispatcher.TryEnqueue(() =>
                     {
                         entry.TriangleCount = result.Triangles;
@@ -104,6 +109,7 @@ internal sealed class MeshConverterTabBatchRunner(
                 {
                     firstError ??= ex.Message;
                     var processed = Interlocked.Increment(ref filesProcessed);
+                    scope?.Report(processed, totalFiles);
                     dispatcher.TryEnqueue(() =>
                     {
                         entry.Status = ExtractionStatus.Error;
@@ -141,7 +147,8 @@ internal sealed class MeshConverterTabBatchRunner(
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         bool includeLevelObjects = true)
     {
-        var cts = await BeginOperationAsync();
+        var cts = await BeginOperationAsync("Rendering PNGs");
+        var scope = _progressScope;
         var token = cts.Token;
         var rendered = 0;
         var skipped = 0;
@@ -180,6 +187,7 @@ internal sealed class MeshConverterTabBatchRunner(
                 }
 
                 processed++;
+                scope?.Report(processed, entries.Count);
                 var progress = (double)processed / entries.Count * 100;
                 dispatcher.TryEnqueue(() => progressBar.Value = progress);
             }
@@ -202,7 +210,7 @@ internal sealed class MeshConverterTabBatchRunner(
         float elevation,
         bool objectReview)
     {
-        var cts = await BeginOperationAsync();
+        var cts = await BeginOperationAsync("Rendering PNG", indeterminate: true);
         try
         {
             var outputs = await Task.Run(
@@ -245,7 +253,7 @@ internal sealed class MeshConverterTabBatchRunner(
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         bool includeLevelObjects = true)
     {
-        var cts = await BeginOperationAsync();
+        var cts = await BeginOperationAsync("Rendering PNG", indeterminate: true);
         try
         {
             var outputs = await Task.Run(() =>
@@ -298,7 +306,8 @@ internal sealed class MeshConverterTabBatchRunner(
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         bool includeLevelObjects = true)
     {
-        var cts = await BeginOperationAsync();
+        var cts = await BeginOperationAsync("Rendering GIFs");
+        var scope = _progressScope;
         var token = cts.Token;
         var rendered = 0;
         var skipped = 0;
@@ -338,6 +347,7 @@ internal sealed class MeshConverterTabBatchRunner(
                 }
 
                 processed++;
+                scope?.Report(processed, entries.Count);
                 var progress = (double)processed / entries.Count * 100;
                 dispatcher.TryEnqueue(() => progressBar.Value = progress);
             }
@@ -359,7 +369,7 @@ internal sealed class MeshConverterTabBatchRunner(
         float azimuth,
         float elevation)
     {
-        var cts = await BeginOperationAsync();
+        var cts = await BeginOperationAsync("Rendering GIF", indeterminate: true);
         try
         {
             var (frames, duration) = await Task.Run(
@@ -453,7 +463,7 @@ internal sealed class MeshConverterTabBatchRunner(
         }
     }
 
-    private async Task<CancellationTokenSource> BeginOperationAsync()
+    private async Task<CancellationTokenSource> BeginOperationAsync(string label, bool indeterminate = false)
     {
         var previousCts = _cts;
         if (previousCts != null)
@@ -462,6 +472,9 @@ internal sealed class MeshConverterTabBatchRunner(
             await previousCts.CancelAsync();
             previousCts.Dispose();
         }
+
+        _progressScope?.Dispose();
+        _progressScope = GlobalProgress.Begin(label, indeterminate);
 
         var cts = new CancellationTokenSource();
         _cts = cts;
@@ -479,6 +492,16 @@ internal sealed class MeshConverterTabBatchRunner(
         cancelButton.Visibility = Visibility.Collapsed;
         convertButton.Visibility = Visibility.Visible;
         progressBar.Visibility = Visibility.Collapsed;
+
+        // A superseding BeginOperationAsync installs a new CTS before the old
+        // operation's finally runs — its scope must survive this EndOperation.
+        // (_cts == null means this op was cancelled: still ours to close.)
+        if (_cts == null || ReferenceEquals(_cts, cts))
+        {
+            _progressScope?.Dispose();
+            _progressScope = null;
+        }
+
         if (ReferenceEquals(_cts, cts)) _cts = null;
         cts.Dispose();
     }

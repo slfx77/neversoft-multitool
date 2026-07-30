@@ -167,6 +167,18 @@ internal sealed class BlendPackageManifest
                 result["pivot"] = new[] { billboard.PivotX, billboard.PivotY, billboard.PivotZ };
                 result["axis"] = new[] { billboard.AxisX, billboard.AxisY, billboard.AxisZ };
                 break;
+            case PsxAxialBillboardMetadata axialBillboard:
+                // PSX sprite-vertex quad: mesh-local glTF units; the importer
+                // attaches a Locked Track constraint about the axis.
+                result["anchor"] = new[]
+                {
+                    axialBillboard.AnchorX, axialBillboard.AnchorY, axialBillboard.AnchorZ
+                };
+                result["axis"] = new[]
+                {
+                    axialBillboard.AxisX, axialBillboard.AxisY, axialBillboard.AxisZ
+                };
+                break;
         }
 
         return result;

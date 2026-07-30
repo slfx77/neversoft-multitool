@@ -15,7 +15,9 @@ internal static class PsxGeometryWriter
     ///     opaque decals alike can sit exactly coplanar with their base face and
     ///     win by draw order — but depth-tested glTF viewers z-fight. 0.25 is
     ///     below the minimum level-geometry grid step (1 raw unit / 2.25 ≈
-    ///     0.44), so the lift is invisible while clearing depth precision.
+    ///     0.44), so the lift is invisible while clearing depth precision. A
+    ///     stacked semi-transparent layer (SKB2's animated waves over its
+    ///     static water) lifts a second step (0.5) — still under the grid step.
     /// </summary>
     private const float PsxOverlayFaceLift = 0.25f;
 
@@ -32,7 +34,10 @@ internal static class PsxGeometryWriter
         bool reconstructSplineAppendages = false,
         string nodeNamePrefix = "object",
         PsxGeometryWriterContext? context = null,
-        IReadOnlyDictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>? objectPlacements = null)
+        IReadOnlyDictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>? objectPlacements = null,
+        IReadOnlySet<int>? skyObjectIndices = null,
+        uint? skyColor = null,
+        PsxGhostEmissionOptions? ghostOptions = null)
     {
         if (PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(psxFile))
         {
@@ -49,6 +54,8 @@ internal static class PsxGeometryWriter
         var textureDims = context.TextureDimensions;
         var materialCache = context.Materials;
         var coplanarOverlays = PsxCoplanarOverlayDetector.FindGroups(psxFile);
+        var semiTransparentLiftSteps = PsxCoplanarOverlayDetector.FindSemiTransparentLayerSteps(psxFile);
+        var semiTransparentLiftDirections = BuildSemiTransparentLiftDirections(psxFile);
         var untexturedMaterial = context.UntexturedMaterialIndex ??=
             ModelDocumentGeometryAdapter.AddMaterial(document, new RenderMaterial
             {
@@ -68,14 +75,47 @@ internal static class PsxGeometryWriter
             if (hiddenObjectIndices?.Contains(objectIndex) == true)
                 continue;
 
+            var isSky = skyObjectIndices?.Contains(objectIndex) == true;
             if (objectPlacements != null)
             {
                 if (!objectPlacements.TryGetValue(objectIndex, out var placements))
                     continue;
 
+                // An object whose mesh has ONLY loader-invisible faces normally
+                // contributes nothing — but when a TRG entity node places it,
+                // the engine's item-flag force draws it as a semi-transparent
+                // apparition. Emit those faces as a ghost at the entity
+                // placements, behind a default-enabled per-object group.
+                IReadOnlyList<PsxFace>? ghostFaces = null;
+                var psxMesh = psxFile.Meshes[obj.MeshIndex];
+                if (ghostOptions != null
+                    && psxMesh.Faces.Count == 0
+                    && psxMesh.InvisibleFaces.Count > 0
+                    && placements.Any(static placement =>
+                        placement.TriggerNodeIndex !=
+                        PsxLevelObjectPlacementResolver.BankInstanceNodeIndex))
+                {
+                    if (!RegisterGhostVisibilityGroup(
+                            document, ghostOptions, psxFile, objectIndex,
+                            obj.MeshIndex, nodeNamePrefix))
+                        continue;
+
+                    ghostFaces = PsxGhostFaces.CreateForcedBlendFaces(psxMesh);
+                }
+
                 for (var placementIndex = 0; placementIndex < placements.Count; placementIndex++)
                 {
                     var placement = placements[placementIndex];
+                    // The engine only draws the forced-blend apparition at its
+                    // entity (TRG node) placements; the bank's own env copy
+                    // stays invisible.
+                    if (ghostFaces != null
+                        && placement.TriggerNodeIndex ==
+                        PsxLevelObjectPlacementResolver.BankInstanceNodeIndex)
+                    {
+                        continue;
+                    }
+
                     // The bank's own instance (and a sole placement of any kind)
                     // keeps the plain object name; trigger re-instances carry
                     // their node index so repeats stay distinguishable.
@@ -95,7 +135,12 @@ internal static class PsxGeometryWriter
                         textureDims,
                         untexturedMaterial,
                         textureProvider,
-                        coplanarOverlays);
+                        coplanarOverlays,
+                        semiTransparentLiftSteps,
+                        semiTransparentLiftDirections,
+                        isSky,
+                        skyColor,
+                        ghostFaces);
                 }
             }
             else
@@ -113,7 +158,11 @@ internal static class PsxGeometryWriter
                     textureDims,
                     untexturedMaterial,
                     textureProvider,
-                    coplanarOverlays);
+                    coplanarOverlays,
+                    semiTransparentLiftSteps,
+                    semiTransparentLiftDirections,
+                    isSky,
+                    skyColor);
             }
         }
 
@@ -131,10 +180,16 @@ internal static class PsxGeometryWriter
         Dictionary<uint, (int Width, int Height)> textureDims,
         int untexturedMaterial,
         MeshChecksumTextureResolver? textureProvider,
-        IReadOnlyDictionary<PsxFaceInstanceKey, int> coplanarOverlays)
+        IReadOnlyDictionary<PsxFaceInstanceKey, int> coplanarOverlays,
+        IReadOnlyDictionary<PsxFaceInstanceKey, int> semiTransparentLiftSteps,
+        IReadOnlyDictionary<(int X, int Y, int Z), Vector3>? semiTransparentLiftDirections,
+        bool isSky = false,
+        uint? skyColor = null,
+        IReadOnlyList<PsxFace>? ghostFaces = null)
     {
         var psxMesh = psxFile.Meshes[meshIndex];
-        if (psxMesh.Faces.Count == 0)
+        var emittedFaces = ghostFaces ?? (IReadOnlyList<PsxFace>)psxMesh.Faces;
+        if (emittedFaces.Count == 0)
             return;
 
         // Detected opaque coplanar overlays (decals authored directly on a
@@ -144,39 +199,125 @@ internal static class PsxGeometryWriter
         // while every vertex stays at its AUTHORED position. The pre-split
         // writer instead lifted overlay faces 0.25 units along their normal
         // inside the shared mesh, corrupting the geometry.
+        // Sky domes carry a dual tag: a "sky__" prefix on the mesh AND node
+        // name (the mesh name is what survives into the GLB / three.js object
+        // names) plus PsxSkyRenderMetadata for the extras channel.
         var meshName = PsxGeometryHelpers.ResolvePsxMeshName(psxFile, meshIndex);
-        var indexedFaces = psxMesh.Faces
+        if (isSky)
+        {
+            meshName = $"sky__{meshName}";
+            nodeName = $"sky__{nodeName}";
+        }
+
+        if (ghostFaces != null)
+            meshName = $"{meshName}__ghost";
+
+        var indexedFaces = emittedFaces
             .Select((face, faceIndex) => (Face: face, FaceIndex: faceIndex))
             .ToLookup(item =>
                 coplanarOverlays.TryGetValue(new PsxFaceInstanceKey(objectIndex, item.FaceIndex), out var groupId)
                     ? groupId
                     : -1);
 
+        var liftContext = new PsxMeshEmissionContext(
+            objectIndex,
+            semiTransparentLiftSteps,
+            semiTransparentLiftDirections,
+            PsxMeshSemantics.ToGltfPosition(
+                PsxMeshSemantics.GetObjectOffset(psxFile, psxFile.Objects[objectIndex])),
+            PsxNormalWelder.Build(psxMesh),
+            PsxSpriteVertexResolver.TryCreate(psxMesh));
         var mesh = BuildPsxFaceMesh(
             document, psxFile, psxMesh, meshName,
-            indexedFaces[-1], materialCache, textureDims, untexturedMaterial, textureProvider);
+            indexedFaces[-1], materialCache, textureDims, untexturedMaterial, textureProvider,
+            liftContext);
         if (mesh != null)
+        {
+            if (isSky)
+            {
+                foreach (var primitive in mesh.Primitives)
+                    primitive.NativeMetadata.Add(new PsxSkyRenderMetadata(skyColor));
+            }
+
+            ApplyAxialBillboardMetadata(mesh, liftContext.SpriteResolver);
             ModelDocumentGeometryAdapter.AddMeshNode(document, nodeName, mesh, transform);
+        }
 
         foreach (var overlayGroup in indexedFaces.Where(static group => group.Key >= 0)
                      .OrderBy(static group => group.Key))
         {
             var overlayMesh = BuildPsxFaceMesh(
                 document, psxFile, psxMesh, $"{meshName}__overlay{overlayGroup.Key:D2}",
-                overlayGroup, materialCache, textureDims, untexturedMaterial, textureProvider);
+                overlayGroup, materialCache, textureDims, untexturedMaterial, textureProvider,
+                liftContext);
             if (overlayMesh == null)
                 continue;
 
-            var offset = ComputePsxOverlayLiftVector(psxFile.Version, psxMesh, overlayGroup);
+            var offset = ComputePsxOverlayLiftVector(
+                psxFile.Version, psxMesh, overlayGroup, liftContext.SpriteResolver);
             foreach (var primitive in overlayMesh.Primitives)
             {
                 primitive.NativeMetadata.Add(new MeshDrawOrderMetadata(
                     1, 1, overlayGroup.Key, offset.X, offset.Y, offset.Z));
             }
 
+            ApplyAxialBillboardMetadata(overlayMesh, liftContext.SpriteResolver);
             ModelDocumentGeometryAdapter.AddMeshNode(
                 document, $"{nodeName}__overlay{overlayGroup.Key:D2}", overlayMesh, transform);
         }
+    }
+
+    /// <summary>
+    ///     Tags every primitive of a sprite mesh with its rotation-axis
+    ///     descriptor so live consumers (viewer, Blender) can re-face the baked
+    ///     quad per frame. No-op for normal meshes and for the (corpus-absent)
+    ///     case of sprite quads without one shared axis line.
+    /// </summary>
+    private static void ApplyAxialBillboardMetadata(
+        ModelMesh mesh, PsxSpriteVertexResolver? spriteResolver)
+    {
+        if (spriteResolver?.BillboardMetadata is not { } billboard)
+            return;
+
+        foreach (var primitive in mesh.Primitives)
+            primitive.NativeMetadata.Add(billboard);
+    }
+
+    /// <summary>
+    ///     Appends the per-object visibility group for a ghost-emitted object
+    ///     (default-enabled: the engine shows the apparition whenever its
+    ///     entity is active) and returns the selected state. Labelled with the
+    ///     resolved mesh name when the hash resolves, otherwise the object's
+    ///     node name tagged as a hidden apparition.
+    /// </summary>
+    private static bool RegisterGhostVisibilityGroup(
+        ModelDocument document,
+        PsxGhostEmissionOptions options,
+        PsxMeshFile psxFile,
+        int objectIndex,
+        int meshIndex,
+        string nodeNamePrefix)
+    {
+        var id = $"psx.ghost.{options.AssetHash:X8}.{objectIndex:D3}";
+        var enabled = options.VisibilityOverrides == null
+                      || !options.VisibilityOverrides.TryGetValue(id, out var selected)
+                      || selected;
+        var nameHash = meshIndex < psxFile.MeshNameHashes.Length
+            ? psxFile.MeshNameHashes[meshIndex]
+            : 0u;
+        document.VisibilityGroups.Add(new ModelVisibilityGroup
+        {
+            Id = id,
+            Label = QbKey.QbKey.TryResolve(nameHash)
+                    ?? $"{nodeNamePrefix}_{objectIndex:D3} (hidden apparition)",
+            DefaultEnabled = true,
+            IsEnabled = enabled,
+            Source = ModelVisibilityGroupSource.HiddenApparition,
+            SourceReference =
+                $"invisible-class mesh {meshIndex} (hash 0x{nameHash:X8}) " +
+                "forced blended at its TRG entity placement"
+        });
+        return enabled;
     }
 
     private static ModelMesh? BuildPsxFaceMesh(
@@ -188,7 +329,8 @@ internal static class PsxGeometryWriter
         Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int> materialCache,
         Dictionary<uint, (int Width, int Height)> textureDims,
         int untexturedMaterial,
-        MeshChecksumTextureResolver? textureProvider)
+        MeshChecksumTextureResolver? textureProvider,
+        PsxMeshEmissionContext liftContext)
     {
         var mesh = new ModelMesh { Name = meshName };
         foreach (var group in faces.GroupBy(static item =>
@@ -221,7 +363,11 @@ internal static class PsxGeometryWriter
                     psxMesh,
                     item.Face,
                     psxFile.GouraudPalette,
-                    texDims);
+                    texDims,
+                    liftContext.LiftPlanFor(item.FaceIndex),
+                    liftContext.NormalWelder,
+                    psxFile.IsFullyEngineLit,
+                    liftContext.SpriteResolver);
 
             ModelDocumentGeometryAdapter.AddPrimitive(mesh, $"mat_{materialIndex:D3}", materialIndex, vertices,
                 indices);
@@ -239,13 +385,17 @@ internal static class PsxGeometryWriter
     private static Vector3 ComputePsxOverlayLiftVector(
         ushort version,
         PsxMesh psxMesh,
-        IEnumerable<(PsxFace Face, int FaceIndex)> faces)
+        IEnumerable<(PsxFace Face, int FaceIndex)> faces,
+        PsxSpriteVertexResolver? spriteResolver = null)
     {
         foreach (var (face, _) in faces)
         {
-            var v0 = MakePsxVertex(version, psxMesh, face, 0, Vector4.One, null, (256, 256));
-            var v1 = MakePsxVertex(version, psxMesh, face, 1, Vector4.One, null, (256, 256));
-            var v2 = MakePsxVertex(version, psxMesh, face, 2, Vector4.One, null, (256, 256));
+            var v0 = MakePsxVertex(version, psxMesh, face, 0, Vector4.One, null, (256, 256),
+                spriteResolver: spriteResolver);
+            var v1 = MakePsxVertex(version, psxMesh, face, 1, Vector4.One, null, (256, 256),
+                spriteResolver: spriteResolver);
+            var v2 = MakePsxVertex(version, psxMesh, face, 2, Vector4.One, null, (256, 256),
+                spriteResolver: spriteResolver);
             var geometricNormal = Vector3.Cross(
                 v2.Position - v0.Position, v1.Position - v0.Position);
             var lengthSquared = geometricNormal.LengthSquared();
@@ -265,42 +415,70 @@ internal static class PsxGeometryWriter
         PsxMesh mesh,
         PsxFace face,
         Vector4[]? gouraudPalette,
-        (int Width, int Height) texDims)
+        (int Width, int Height) texDims,
+        PsxFaceLiftPlan liftPlan,
+        PsxNormalWelder? normalWelder,
+        bool fileIsFullyEngineLit,
+        PsxSpriteVertexResolver? spriteResolver = null)
     {
+        var isPs1 = version != 0x06;
+        // PS1 lit faces on the NON-character path bake the engine light:
+        // authored albedo × FE light per corner normal (the engine's exact
+        // DPCL multiply — control.psx's dark thumbstick albedo top-lit grey).
+        // The packet colours carry the baked result so the PS1-fidelity path
+        // draws it verbatim. v6 keeps the neutral rule (the PC renderer's
+        // dynamic path is approximated by viewer lighting there).
+        var bakeEngineLight = isPs1 && fileIsFullyEngineLit
+                              && PsxGeometryHelpers.IsEngineLitFace(version, mesh, face);
         var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(
-            version, mesh, face, gouraudPalette);
+            version, mesh, face, gouraudPalette, neutralizeLitFaces: !bakeEngineLight);
         c0 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c0);
         c1 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c1);
         c2 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c2);
         c3 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c3);
-        var isPs1 = version != 0x06;
+        if (bakeEngineLight)
+        {
+            c0 = PsxGeometryHelpers.BakeFeLight(mesh, face, 0, c0);
+            c1 = PsxGeometryHelpers.BakeFeLight(mesh, face, 1, c1);
+            c2 = PsxGeometryHelpers.BakeFeLight(mesh, face, 2, c2);
+            if (face.IsQuad)
+                c3 = PsxGeometryHelpers.BakeFeLight(mesh, face, 3, c3);
+        }
+
         var isPs1TexturedModulation = isPs1 && face.IsTextured;
+        // Engine-lit faces of MIXED-lit files skip the packet colour so the
+        // viewer's standard lit path shades them from normals; baked FE-prop
+        // faces carry their baked colours in the packets (mirrors
+        // PsxSkinnedGeometryWriter and the IsEngineLitFace contract — emitting
+        // neutralized packets drew lit faces flat in PS1-fidelity mode).
+        var emitPacket = isPs1 && (bakeEngineLight
+                                   || !PsxGeometryHelpers.IsEngineLitFace(version, mesh, face));
         // A semi-transparent zero-hash primitive has just been converted into
         // an untextured display proxy. Every other textured PS1 colour is still
         // in the native 128-neutral modulation domain at this point.
         var packetUsesTexturedScale = face.IsTextured &&
                                       (face.TextureHash != 0 || !face.IsSemiTransparent);
-        Vector4? p0 = isPs1
+        Vector4? p0 = emitPacket
             ? PsxGeometryHelpers.ToPsxPacketColor(c0, packetUsesTexturedScale)
             : null;
-        Vector4? p1 = isPs1
+        Vector4? p1 = emitPacket
             ? PsxGeometryHelpers.ToPsxPacketColor(c1, packetUsesTexturedScale)
             : null;
-        Vector4? p2 = isPs1
+        Vector4? p2 = emitPacket
             ? PsxGeometryHelpers.ToPsxPacketColor(c2, packetUsesTexturedScale)
             : null;
-        Vector4? p3 = isPs1
+        Vector4? p3 = emitPacket
             ? PsxGeometryHelpers.ToPsxPacketColor(c3, packetUsesTexturedScale)
             : null;
         c0 = PsxGeometryHelpers.DisplayRgbToLinear(c0, isPs1TexturedModulation);
         c1 = PsxGeometryHelpers.DisplayRgbToLinear(c1, isPs1TexturedModulation);
         c2 = PsxGeometryHelpers.DisplayRgbToLinear(c2, isPs1TexturedModulation);
         c3 = PsxGeometryHelpers.DisplayRgbToLinear(c3, isPs1TexturedModulation);
-        var v0 = MakePsxVertex(version, mesh, face, 0, c0, p0, texDims);
-        var v1 = MakePsxVertex(version, mesh, face, 1, c1, p1, texDims);
-        var v2 = MakePsxVertex(version, mesh, face, 2, c2, p2, texDims);
+        var v0 = MakePsxVertex(version, mesh, face, 0, c0, p0, texDims, normalWelder, spriteResolver);
+        var v1 = MakePsxVertex(version, mesh, face, 1, c1, p1, texDims, normalWelder, spriteResolver);
+        var v2 = MakePsxVertex(version, mesh, face, 2, c2, p2, texDims, normalWelder, spriteResolver);
         var v3 = face.IsQuad
-            ? MakePsxVertex(version, mesh, face, 3, c3, p3, texDims)
+            ? MakePsxVertex(version, mesh, face, 3, c3, p3, texDims, normalWelder, spriteResolver)
             : default;
 
         if (face.IsSemiTransparent)
@@ -309,21 +487,28 @@ internal static class PsxGeometryWriter
             // outward per the winding convention below — so semi-transparent
             // shadows/glass lift away from the surface they overlay. Detected
             // OPAQUE coplanar overlays no longer lift: they split into their
-            // own draw-order-metadata mesh (see PopulatePsxMeshNode). The ST
-            // lift stays because it is per-face-normal (non-rigid) and ST-on-ST
-            // stack order needs the OT tie-break direction pinned against the
-            // decomp before it can become metadata.
+            // own draw-order-metadata mesh (see PopulatePsxMeshNode). Each
+            // corner lifts along the POSITION-AVERAGED normal of the mesh's
+            // semi-transparent faces, not this face's own normal: a per-face
+            // direction tears curved connected surfaces apart at shared edges
+            // (Spider-Man's all-semi-transparent webdome cracked open at every
+            // seam), while averaged directions move shared positions together
+            // and reduce to the face normal on flat decals. A stacked animated
+            // layer over a static one lifts extra steps (FindSemiTransparentLayerSteps).
             var geometricNormal = Vector3.Cross(
                 v2.Position - v0.Position, v1.Position - v0.Position);
             var lengthSquared = geometricNormal.LengthSquared();
             if (lengthSquared > 1e-12f)
             {
-                var lift = geometricNormal / MathF.Sqrt(lengthSquared) * PsxOverlayFaceLift;
-                v0 = v0 with { Position = v0.Position + lift };
-                v1 = v1 with { Position = v1.Position + lift };
-                v2 = v2 with { Position = v2.Position + lift };
+                var direction = geometricNormal / MathF.Sqrt(lengthSquared);
+                var magnitude = PsxOverlayFaceLift * Math.Max(liftPlan.Steps, 1);
+                var directions = liftPlan.Directions;
+                var offset = liftPlan.AuthoredOffset;
+                v0 = LiftVertex(v0, direction, magnitude, directions, offset);
+                v1 = LiftVertex(v1, direction, magnitude, directions, offset);
+                v2 = LiftVertex(v2, direction, magnitude, directions, offset);
                 if (face.IsQuad)
-                    v3 = v3 with { Position = v3.Position + lift };
+                    v3 = LiftVertex(v3, direction, magnitude, directions, offset);
             }
         }
 
@@ -336,6 +521,154 @@ internal static class PsxGeometryWriter
             ModelDocumentGeometryAdapter.AddTriangle(vertices, indices, v1, v2, v3);
     }
 
+    /// <summary>
+    ///     Per-face inputs for the semi-transparent lift: how many steps this
+    ///     face rises, the file's position-averaged directions, and the object
+    ///     offset that keys into them.
+    /// </summary>
+    private readonly record struct PsxFaceLiftPlan(
+        int Steps,
+        IReadOnlyDictionary<(int X, int Y, int Z), Vector3>? Directions,
+        Vector3 AuthoredOffset);
+
+    private static ModelVertex LiftVertex(
+        ModelVertex vertex,
+        Vector3 faceDirection,
+        float magnitude,
+        IReadOnlyDictionary<(int X, int Y, int Z), Vector3>? liftDirections,
+        Vector3 authoredOffset)
+    {
+        var direction = liftDirections != null &&
+                        liftDirections.TryGetValue(
+                            QuantizeLiftPosition(vertex.Position + authoredOffset), out var averaged)
+            ? averaged
+            : faceDirection;
+        return vertex with { Position = vertex.Position + direction * magnitude };
+    }
+
+    /// <summary>
+    ///     Position-keyed average of the outward geometric normals of the
+    ///     FILE's semi-transparent faces, in authored-world space, so
+    ///     coincident corners of adjacent lifted faces translate together
+    ///     instead of tearing along shared edges — including corners shared
+    ///     BETWEEN objects (webdome3/firedome build their domes from one ring
+    ///     object per band; a per-mesh map left a horizontal crack at every
+    ///     band boundary). Positions quantize to 1/64 unit — far below the
+    ///     ~0.44 authoring grid step, so only truly coincident corners merge.
+    ///     An average that cancels to zero (opposing sheets sharing an edge)
+    ///     falls back to the per-face direction at lift time.
+    /// </summary>
+    private static Dictionary<(int X, int Y, int Z), Vector3>? BuildSemiTransparentLiftDirections(
+        PsxMeshFile psxFile)
+    {
+        Dictionary<(int X, int Y, int Z), Vector3>? sums = null;
+        for (var objectIndex = 0; objectIndex < psxFile.Objects.Count; objectIndex++)
+        {
+            var obj = psxFile.Objects[objectIndex];
+            if (obj.MeshIndex >= psxFile.Meshes.Count)
+                continue;
+
+            var mesh = psxFile.Meshes[obj.MeshIndex];
+            var offset = PsxMeshSemantics.ToGltfPosition(
+                PsxMeshSemantics.GetObjectOffset(psxFile, obj));
+            for (var faceIndex = 0; faceIndex < mesh.Faces.Count; faceIndex++)
+            {
+                var face = mesh.Faces[faceIndex];
+                if (!face.IsSemiTransparent)
+                    continue;
+
+                var count = face.IsQuad ? 4 : 3;
+                var points = new Vector3[count];
+                var valid = true;
+                for (var slot = 0; slot < count; slot++)
+                {
+                    var vertexIndex = PsxGeometryHelpers.GetPsxFaceVertexIndex(face, slot);
+                    if (vertexIndex >= mesh.Vertices.Count)
+                    {
+                        valid = false;
+                        break;
+                    }
+
+                    var vertex = mesh.Vertices[(int)vertexIndex];
+                    points[slot] = new Vector3(vertex.X, -vertex.Y, -vertex.Z) + offset;
+                }
+
+                if (!valid)
+                    continue;
+
+                // Same winding as the emitted (v0, v2, v1) triangle in AddPsxFace.
+                var normal = Vector3.Cross(points[2] - points[0], points[1] - points[0]);
+                var lengthSquared = normal.LengthSquared();
+                if (lengthSquared <= 1e-12f)
+                    continue;
+
+                normal /= MathF.Sqrt(lengthSquared);
+                sums ??= [];
+                for (var slot = 0; slot < count; slot++)
+                {
+                    var key = QuantizeLiftPosition(points[slot]);
+                    sums[key] = sums.TryGetValue(key, out var sum) ? sum + normal : normal;
+                }
+            }
+        }
+
+        if (sums == null)
+            return null;
+
+        Dictionary<(int X, int Y, int Z), Vector3>? directions = null;
+        foreach (var (key, sum) in sums)
+        {
+            var lengthSquared = sum.LengthSquared();
+            if (lengthSquared <= 1e-12f)
+                continue;
+
+            directions ??= [];
+            directions[key] = sum / MathF.Sqrt(lengthSquared);
+        }
+
+        return directions;
+    }
+
+    private static (int X, int Y, int Z) QuantizeLiftPosition(Vector3 position)
+    {
+        return ((int)MathF.Round(position.X * 64f),
+            (int)MathF.Round(position.Y * 64f),
+            (int)MathF.Round(position.Z * 64f));
+    }
+
+    /// <summary>
+    ///     Per-node bundle of face-emission inputs: which semi-transparent
+    ///     faces get extra stacked-layer lift steps (keyed by this node's
+    ///     object index), the file's authored-world-space position-averaged
+    ///     lift directions plus this object's authored offset to key into
+    ///     them, and the normal welder for meshes without per-vertex normals.
+    /// </summary>
+    private sealed class PsxMeshEmissionContext(
+        int objectIndex,
+        IReadOnlyDictionary<PsxFaceInstanceKey, int> stepsByFace,
+        IReadOnlyDictionary<(int X, int Y, int Z), Vector3>? directions,
+        Vector3 authoredOffset,
+        PsxNormalWelder? normalWelder,
+        PsxSpriteVertexResolver? spriteResolver)
+    {
+        /// <summary>Everything the lift needs for one face.</summary>
+        internal PsxFaceLiftPlan LiftPlanFor(int faceIndex)
+        {
+            return new PsxFaceLiftPlan(LiftStepsFor(faceIndex), directions, authoredOffset);
+        }
+
+        internal PsxNormalWelder? NormalWelder => normalWelder;
+
+        internal PsxSpriteVertexResolver? SpriteResolver => spriteResolver;
+
+        internal int LiftStepsFor(int faceIndex)
+        {
+            return stepsByFace.TryGetValue(new PsxFaceInstanceKey(objectIndex, faceIndex), out var steps)
+                ? steps
+                : 1;
+        }
+    }
+
     private static ModelVertex MakePsxVertex(
         ushort version,
         PsxMesh mesh,
@@ -343,7 +676,9 @@ internal static class PsxGeometryWriter
         int slot,
         Vector4 color,
         Vector4? psxPacketColor,
-        (int Width, int Height) texDims)
+        (int Width, int Height) texDims,
+        PsxNormalWelder? normalWelder = null,
+        PsxSpriteVertexResolver? spriteResolver = null)
     {
         var vertexIndex = PsxGeometryHelpers.GetPsxFaceVertexIndex(face, slot);
         var psxPrimitiveFlags = Vector3.Zero;
@@ -368,9 +703,19 @@ internal static class PsxGeometryWriter
 
         var nativeVertex = mesh.Vertices[(int)vertexIndex];
         var texCoord = face.GetTextureCoordinate(slot);
+        // Sprite vertices (type bit4) store anchor/mate byte offsets, not a
+        // position — resolve the billboard corner instead of emitting the raw
+        // fields as coordinates (the "thin sliver" leaves/antennas bug).
+        var position = spriteResolver != null
+                       && spriteResolver.TryResolvePosition(vertexIndex, out var spriteCorner)
+            ? spriteCorner
+            : new Vector3(nativeVertex.X, -nativeVertex.Y, -nativeVertex.Z);
+        var normal = PsxGeometryHelpers.ComputePsxVertexNormal(mesh, face, vertexIndex);
+        if (normalWelder != null)
+            normal = normalWelder.Resolve(position, normal);
         return new ModelVertex(
-            new Vector3(nativeVertex.X, -nativeVertex.Y, -nativeVertex.Z),
-            PsxGeometryHelpers.ComputePsxVertexNormal(mesh, face, vertexIndex),
+            position,
+            normal,
             color,
             PsxGeometryHelpers.ComputePsxTextureUv(version, face, texCoord.U, texCoord.V, texDims.Width,
                 texDims.Height))

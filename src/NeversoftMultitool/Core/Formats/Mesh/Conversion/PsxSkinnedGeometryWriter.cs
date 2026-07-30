@@ -264,26 +264,50 @@ internal static class PsxSkinnedGeometryWriter
         (int Width, int Height) texDims,
         PsxSplineTipPlacement? tipPlacement)
     {
+        var isPs1 = psxFile.Version != 0x06;
+        // MIXED-lit FILES (animated characters: venom 394/414, docock
+        // 371/539) keep the neutral rule — per-level light rigs vary and the
+        // viewer's own lighting approximates them well (the verified
+        // venom/spidey look). FULLY-lit files are FE props (control.psx's
+        // pad, 892/892): the engine draws those with the FE preview light
+        // MULTIPLIED into the authored albedo, so bake exactly that and carry
+        // it in the packet colours.
+        var bakeEngineLight = isPs1 && psxFile.IsFullyEngineLit
+                              && PsxGeometryHelpers.IsEngineLitFace(psxFile.Version, mesh, face);
         var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(
-            psxFile.Version, mesh, face, psxFile.GouraudPalette);
+            psxFile.Version, mesh, face, psxFile.GouraudPalette,
+            neutralizeLitFaces: !bakeEngineLight);
         c0 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c0);
         c1 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c1);
         c2 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c2);
         c3 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c3);
-        var isPs1 = psxFile.Version != 0x06;
+        if (bakeEngineLight)
+        {
+            c0 = PsxGeometryHelpers.BakeFeLight(mesh, face, 0, c0);
+            c1 = PsxGeometryHelpers.BakeFeLight(mesh, face, 1, c1);
+            c2 = PsxGeometryHelpers.BakeFeLight(mesh, face, 2, c2);
+            if (face.IsQuad)
+                c3 = PsxGeometryHelpers.BakeFeLight(mesh, face, 3, c3);
+        }
+
         var isPs1TexturedModulation = isPs1 && face.IsTextured;
+        // Engine-lit SUPER faces skip the packet colour so the viewer's
+        // standard lit path shades them from normals; baked FE-prop faces
+        // carry their baked colours in the packets.
+        var emitPacket = isPs1 && (bakeEngineLight
+                                   || !PsxGeometryHelpers.IsEngineLitFace(psxFile.Version, mesh, face));
         var packetUsesTexturedScale = face.IsTextured &&
                                       (face.TextureHash != 0 || !face.IsSemiTransparent);
-        Vector4? p0 = isPs1
+        Vector4? p0 = emitPacket
             ? PsxGeometryHelpers.ToPsxPacketColor(c0, packetUsesTexturedScale)
             : null;
-        Vector4? p1 = isPs1
+        Vector4? p1 = emitPacket
             ? PsxGeometryHelpers.ToPsxPacketColor(c1, packetUsesTexturedScale)
             : null;
-        Vector4? p2 = isPs1
+        Vector4? p2 = emitPacket
             ? PsxGeometryHelpers.ToPsxPacketColor(c2, packetUsesTexturedScale)
             : null;
-        Vector4? p3 = isPs1
+        Vector4? p3 = emitPacket
             ? PsxGeometryHelpers.ToPsxPacketColor(c3, packetUsesTexturedScale)
             : null;
         c0 = PsxGeometryHelpers.DisplayRgbToLinear(c0, isPs1TexturedModulation);

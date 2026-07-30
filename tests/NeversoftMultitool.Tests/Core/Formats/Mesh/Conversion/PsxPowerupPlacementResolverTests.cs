@@ -86,6 +86,48 @@ public sealed class PsxPowerupPlacementResolverTests(TestPaths paths)
     }
 
     [Fact]
+    public void Resolve_ThpsPickupsKeepAuthoredHeightEvenWithTerrain()
+    {
+        // The matched THPS2 decomp's CPowerUp::DoPhysics writes
+        // mOrgPos.vy = mGroundY - hover only on the mDropping path — placed
+        // pickups render at their authored TRG Y. THPS items models are
+        // origin-CENTERED, so the old origin-on-floor snap half-buried every
+        // SKATE letter (THPS2-DC user report, fixed 2026-07-28).
+        var terrain = PsxTerrainHeightField.Build([Floor(500f)]);
+        var items = BuildItems([ThpsLetterS, ThpsLetterK]);
+        var trg = BuildTrg(false, Powerup(1, 5, 900, 0, 0));
+
+        var placements = PsxPowerupPlacementResolver.Resolve(trg, items, Divisor, terrain);
+
+        Assert.NotNull(placements);
+        var placement = Assert.Single(Assert.Single(placements!).Value);
+        Assert.Equal(0f, placement.Transform.Translation.Y, 3); // authored Y, no snap
+    }
+
+    [Fact]
+    public void Resolve_SpiderManPickupsStillSnapToHoverAboveTerrain()
+    {
+        // Spider-Man's CPowerUp rests the origin mHoverHeight (128 world
+        // units) above the resting floor — engine-exact, unchanged by the
+        // THPS no-snap fix.
+        var terrain = PsxTerrainHeightField.Build([Floor(500f)]);
+        var items = BuildItems([0xB08EC1FB, QuestionMark]);
+        var trg = BuildTrg(true, Powerup(1, 11, 900, 0, 0));
+
+        var placements = PsxPowerupPlacementResolver.Resolve(trg, items, Divisor, terrain);
+
+        Assert.NotNull(placements);
+        var placement = Assert.Single(Assert.Single(placements!).Value);
+        // Native (+Y down): origin snaps to groundY − 128/divisor; glTF flips Y.
+        Assert.Equal(-(500f - 128f / Divisor), placement.Transform.Translation.Y, 2);
+    }
+
+    // Native +Y = DOWN; this winding yields a floor-facing (ny < 0) triangle
+    // large enough to sit under the test pickups' XZ footprints.
+    private static (Vector3, Vector3, Vector3) Floor(float y) =>
+        (new Vector3(0, y, 0), new Vector3(1000, y, 0), new Vector3(0, y, 1000));
+
+    [Fact]
     public void Resolve_PlacesApocalypsePickupsAndSkipsPlusOneRegion()
     {
         // Apocalypse items.psx (marked by its pickupType-4 model) → Apocalypse

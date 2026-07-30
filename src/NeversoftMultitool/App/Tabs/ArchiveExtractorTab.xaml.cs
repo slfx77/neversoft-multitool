@@ -226,12 +226,15 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
         var dispatcher = DispatcherQueue;
         var fileEntries = _files;
 
+        var scope = GlobalProgress.Begin($"Extracting {archiveType} archive");
+
         try
         {
             await Task.Run(() =>
             {
                 Action<int, int> onProgress = (current, total) =>
                 {
+                    scope.Report(current, total);
                     dispatcher.TryEnqueue(() =>
                     {
                         if (current - 1 < fileEntries.Count)
@@ -300,6 +303,7 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
         }
         finally
         {
+            scope.Dispose();
             DisposeCancellationTokenSource();
             CancelButton.Visibility = Visibility.Collapsed;
             ExtractButton.Visibility = Visibility.Visible;

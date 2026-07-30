@@ -18,4 +18,20 @@ public sealed class PsxVertex
     internal uint? AttachmentTargetIndex => PsxMeshSemantics.IsExactStitchedReference(Type)
         ? (ushort)RawY
         : null;
+
+    /// <summary>
+    ///     Type bit4: a screen-expanded sprite corner whose stored fields are
+    ///     NOT a position — see <see cref="PsxMeshSemantics.SpriteVertexTypeBit" />.
+    ///     For such a vertex <see cref="X" />/<see cref="Y" /> hold the raw
+    ///     byte offsets divided by the scale divisor (garbage as coordinates);
+    ///     only <see cref="Z" /> is meaningful (the signed perpendicular
+    ///     half-width, already in model units).
+    /// </summary>
+    public bool IsSpriteVertex => PsxMeshSemantics.IsSpriteVertex(Type);
+
+    /// <summary>Anchor vertex index (raw X is a byte offset, index × 8).</summary>
+    internal int SpriteAnchorVertexIndex => (ushort)RawX / 8;
+
+    /// <summary>Axis-mate vertex index (raw Y is a byte offset, index × 8).</summary>
+    internal int SpriteAxisMateVertexIndex => (ushort)RawY / 8;
 }

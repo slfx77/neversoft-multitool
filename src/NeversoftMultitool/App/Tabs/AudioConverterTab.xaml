@@ -34,7 +34,7 @@
               HorizontalAlignment="Left"
               Click="ExpandCollapse_Click"
               Tag="{x:Bind}"
-              Visibility="{x:Bind ExpanderVisibility}"
+              Visibility="{x:Bind ExpanderVisibility, Mode=OneWay}"
               VerticalAlignment="Center">
               <FontIcon
                 FontSize="10"
@@ -108,6 +108,8 @@
       </local:ExpandableListTemplateSelector.ChildTemplate>
 
     </local:ExpandableListTemplateSelector>
+
+    <local:TimeSliderValueConverter x:Key="PlaybackTooltipConverter" />
   </UserControl.Resources>
 
   <Grid Padding="16"
@@ -326,17 +328,18 @@
                   Value="0"
                   HorizontalAlignment="Stretch"
                   Margin="0,4,0,0"
+                  ThumbToolTipValueConverter="{StaticResource PlaybackTooltipConverter}"
                   ValueChanged="PlaybackSlider_ValueChanged" />
 
           <!-- Time display -->
           <Grid Margin="0,-8,0,0">
             <TextBlock x:Name="CurrentTimeText"
-                       Text="0:00"
+                       Text="00:00"
                        FontSize="11"
                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                        HorizontalAlignment="Left" />
             <TextBlock x:Name="TotalTimeText"
-                       Text="0:00"
+                       Text="00:00"
                        FontSize="11"
                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                        HorizontalAlignment="Right" />
@@ -363,6 +366,21 @@
                     ToolTipService.ToolTip="Play">
               <FontIcon x:Name="PlayPauseIcon" FontSize="16" Glyph="&#xE768;" />
             </Button>
+            <FontIcon FontSize="14"
+                      Glyph="&#xE767;"
+                      Margin="8,0,0,0"
+                      VerticalAlignment="Center"
+                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <!--  No initial Value: it is applied from UserSettings in the
+                  constructor, and a XAML Value would fire ValueChanged during
+                  InitializeComponent before that.  -->
+            <Slider x:Name="VolumeSlider"
+                    Width="100"
+                    Minimum="0"
+                    Maximum="100"
+                    VerticalAlignment="Center"
+                    ToolTipService.ToolTip="Volume"
+                    ValueChanged="VolumeSlider_ValueChanged" />
           </StackPanel>
 
           <!-- Error display -->

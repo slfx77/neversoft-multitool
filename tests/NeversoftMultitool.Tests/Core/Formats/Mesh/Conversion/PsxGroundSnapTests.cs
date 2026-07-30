@@ -24,11 +24,11 @@ public sealed class PsxGroundSnapTests
     }
 
     [Fact]
-    public void ThpsHoverRestsTheOriginOnTheFloor()
+    public void ZeroHoverRestsTheOriginOnTheFloor()
     {
         var terrain = PsxTerrainHeightField.Build([Floor(100f)]);
         var snapped = PsxGroundSnap.SnapPickupToGround(
-            terrain, new Vector3(10, 50, 10), translationDivisor: 1f, PsxGroundSnap.ThpsHoverWorldUnits);
+            terrain, new Vector3(10, 50, 10), translationDivisor: 1f, hoverWorldUnits: 0f);
 
         Assert.Equal(100f, snapped.Y, 3); // hover 0 => origin on the floor
     }

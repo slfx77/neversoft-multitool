@@ -75,8 +75,31 @@ internal static class AudioConverterTabOperations
                 })
                 .ToList(),
             "SFX" => EnumerateSfxSamples(source, data, parentFileName),
+            "XA" => EnumerateXaChannels(data, parentFileName),
             _ => []
         };
+    }
+
+    /// <summary>
+    ///     One child row per interleaved XA channel. Single-channel (and raw,
+    ///     non-sectored) XA yields no children so the file stays a flat row.
+    /// </summary>
+    private static List<AudioSampleEntry> EnumerateXaChannels(byte[] data, string parentFileName)
+    {
+        var channels = XaExtractor.EnumerateChannels(data);
+        if (channels.Count <= 1)
+            return [];
+
+        return channels.Select(channel => new AudioSampleEntry
+        {
+            ParentFileName = parentFileName,
+            SampleIndex = channel.ChannelNumber,
+            Encoding = $"Channel {channel.ChannelNumber:D2} — " +
+                       TimeDisplay.Format(TimeSpan.FromSeconds(channel.DurationSeconds)),
+            SampleRate = channel.SampleRate,
+            Channels = channel.IsStereo ? 2 : 1,
+            DataSize = channel.DataSize
+        }).ToList();
     }
 
     private static List<AudioSampleEntry> EnumerateSfxSamples(AssetSource source, byte[] data, string parentFileName)
@@ -181,9 +204,7 @@ internal static class AudioConverterTabOperations
 
     public static string FormatTime(TimeSpan ts)
     {
-        return ts.TotalMinutes >= 60
-            ? $"{(int)ts.TotalHours}:{ts.Minutes:D2}:{ts.Seconds:D2}"
-            : $"{(int)ts.TotalMinutes}:{ts.Seconds:D2}";
+        return TimeDisplay.Format(ts);
     }
 
     private static string? ConvertFilePreview(AudioFileEntry parent, string tempDir)
@@ -231,6 +252,7 @@ internal static class AudioConverterTabOperations
             "VAB" => VabExtractor.ExtractSingleToWav(data, stem, sample.SampleIndex, tempDir, vabSampleRate),
             "KAT" => KatExtractor.ExtractSingleToWav(data, stem, sample.SampleIndex, tempDir),
             "SFX" => ConvertSfxSamplePreview(parentEntry.Source, data, stem, sample.SampleIndex, tempDir),
+            "XA" => XaExtractor.ExtractChannelToWav(data, stem, sample.SampleIndex, tempDir),
             _ => null
         };
     }

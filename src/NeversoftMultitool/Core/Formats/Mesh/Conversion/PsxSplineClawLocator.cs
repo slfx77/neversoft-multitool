@@ -49,9 +49,10 @@ internal static class PsxSplineClawLocator
             if (header == null || !header.MeshNameHashes.Contains(ClawMeshHash))
                 continue;
 
-            // Bank semantics: keep the raw serialized palette (see
-            // PsxSurfaceAnimationReader — pulses don't bake for _o banks).
-            var bank = TryParse(bankBytes, false);
+            // Banks pulse-tick like every region (M3d_RenderSetup calls the
+            // pulse preprocessor for the obj region each frame), so bake here
+            // too — the claw shares the standard bank treatment.
+            var bank = TryParse(bankBytes, true);
             if (bank == null)
                 continue;
 

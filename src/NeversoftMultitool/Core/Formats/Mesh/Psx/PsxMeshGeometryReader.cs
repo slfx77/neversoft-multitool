@@ -153,16 +153,21 @@ internal static class PsxMeshGeometryReader
         }
 
         var faces = new List<PsxFace>((int)faceCount);
+        var invisibleFaces = new List<PsxFace>();
         var faceReadInfos = new List<PsxFaceReadInfo>((int)faceCount);
         for (uint faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
-            var (face, faceReadInfo) =
+            var (face, invisibleFace, faceReadInfo) =
                 ReadFace(reader, version, vertexCount, normalCount, textureHashes, (int)faceIndex);
             if (face != null)
             {
                 faceReadInfo.IsAccepted = true;
                 faceReadInfo.AcceptedFaceIndex = faces.Count;
                 faces.Add(face);
+            }
+            else if (invisibleFace != null)
+            {
+                invisibleFaces.Add(invisibleFace);
             }
 
             faceReadInfos.Add(faceReadInfo);
@@ -174,6 +179,7 @@ internal static class PsxMeshGeometryReader
             Vertices = vertices,
             Normals = normals,
             Faces = faces,
+            InvisibleFaces = invisibleFaces,
             LodDepth = lodDepth,
             LodNextMeshIndex = lodNextMeshIndex,
             HasPerVertexNormals = normalCount == vertexCount + faceCount,
@@ -211,7 +217,8 @@ internal static class PsxMeshGeometryReader
         return peekValue == 0x7FFF;
     }
 
-    private static (PsxFace? Face, PsxFaceReadInfo Info) ReadFace(BinaryReader reader, ushort version,
+    private static (PsxFace? Face, PsxFace? InvisibleFace, PsxFaceReadInfo Info) ReadFace(
+        BinaryReader reader, ushort version,
         uint vertexCount, uint normalCount, uint[] textureHashes, int rawFaceIndex)
     {
         var facePosition = reader.BaseStream.Position;
@@ -335,59 +342,71 @@ internal static class PsxMeshGeometryReader
 
         if (invisible)
         {
+            // The historical rejection is preserved verbatim (accepted counts,
+            // dump snapshots, and every regression fixture stay untouched), but
+            // a structurally valid face is still constructed so the entity
+            // forced-blend path can render it (PsxMesh.InvisibleFaces).
             faceReadInfo.RejectionReason = "invisible (M3dInit STP toggle)";
-            return (null, faceReadInfo);
+            var isRetainable = i0 < vertexCount && i1 < vertexCount && i2 < vertexCount
+                               && (!quad || i3 < vertexCount)
+                               && normalIndex < normalCount;
+            return (null, isRetainable ? CreateFace() : null, faceReadInfo);
         }
 
         if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
         {
             faceReadInfo.RejectionReason = "vertex index out of range";
-            return (null, faceReadInfo);
+            return (null, null, faceReadInfo);
         }
 
         if (quad && i3 >= vertexCount)
         {
             faceReadInfo.RejectionReason = "quad vertex index out of range";
-            return (null, faceReadInfo);
+            return (null, null, faceReadInfo);
         }
 
         if (normalIndex >= normalCount)
         {
             faceReadInfo.RejectionReason = "normal index out of range";
-            return (null, faceReadInfo);
+            return (null, null, faceReadInfo);
         }
 
-        uint textureHash = 0;
-        if (hasTexturePayload && textureIndex < (uint)textureHashes.Length)
-            textureHash = textureHashes[textureIndex];
+        return (CreateFace(), null, faceReadInfo);
 
-        return (new PsxFace
+        PsxFace CreateFace()
         {
-            Flags = faceFlags,
-            IsQuad = quad,
-            IsTextured = isTextured,
-            IsGouraud = gouraud,
-            IsSemiTransparent = semiTrans,
-            Index0 = i0,
-            Index1 = i1,
-            Index2 = i2,
-            Index3 = i3,
-            NormalIndex = normalIndex,
-            R = r,
-            G = g,
-            B = b,
-            Mode = mode,
-            TextureHash = textureHash,
-            U0 = ToLegacyByte(textureCoordinates[0].U),
-            V0 = ToLegacyByte(textureCoordinates[0].V),
-            U1 = ToLegacyByte(textureCoordinates[1].U),
-            V1 = ToLegacyByte(textureCoordinates[1].V),
-            U2 = ToLegacyByte(textureCoordinates[2].U),
-            V2 = ToLegacyByte(textureCoordinates[2].V),
-            U3 = ToLegacyByte(textureCoordinates[3].U),
-            V3 = ToLegacyByte(textureCoordinates[3].V),
-            TextureCoordinates = textureCoordinates
-        }, faceReadInfo);
+            uint textureHash = 0;
+            if (hasTexturePayload && textureIndex < (uint)textureHashes.Length)
+                textureHash = textureHashes[textureIndex];
+
+            return new PsxFace
+            {
+                Flags = faceFlags,
+                IsQuad = quad,
+                IsTextured = isTextured,
+                IsGouraud = gouraud,
+                IsSemiTransparent = semiTrans,
+                Index0 = i0,
+                Index1 = i1,
+                Index2 = i2,
+                Index3 = i3,
+                NormalIndex = normalIndex,
+                R = r,
+                G = g,
+                B = b,
+                Mode = mode,
+                TextureHash = textureHash,
+                U0 = ToLegacyByte(textureCoordinates[0].U),
+                V0 = ToLegacyByte(textureCoordinates[0].V),
+                U1 = ToLegacyByte(textureCoordinates[1].U),
+                V1 = ToLegacyByte(textureCoordinates[1].V),
+                U2 = ToLegacyByte(textureCoordinates[2].U),
+                V2 = ToLegacyByte(textureCoordinates[2].V),
+                U3 = ToLegacyByte(textureCoordinates[3].U),
+                V3 = ToLegacyByte(textureCoordinates[3].V),
+                TextureCoordinates = textureCoordinates
+            };
+        }
     }
 
     private static byte ToLegacyByte(int value)

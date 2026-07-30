@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Numerics;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Collision;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
@@ -129,9 +130,9 @@ public sealed class MeshModelParser : IModelParser
     private static ModelDocument ParsePsx(MeshImportRequest request)
     {
         var psxData = request.Source.ReadBytes();
-        var psxFile = PsxMeshFile.Parse(
-                          psxData,
-                          !PsxMeshSemantics.IsLevelObjectBankName(request.FileName))
+        // Banks bake pulses like every region (the engine ticks the obj
+        // region every frame — see PsxSurfaceAnimationReader).
+        var psxFile = PsxMeshFile.Parse(psxData)
                       ?? throw new InvalidOperationException("No mesh data");
 
         var textureProvider = MeshCompanionResolver.BuildPsxTextureProvider(request.Source, request.FileName, psxData);
@@ -303,7 +304,7 @@ public sealed class MeshModelParser : IModelParser
 
             PopulatePsxBankLayer(
                 document, request, geometryContext, companions,
-                trg, items, itemsPlacements, suppressHashes);
+                trg, items, itemsPlacements, suppressHashes, levelMesh);
 
             if (items != null && itemsPlacements.Count > 0)
             {
@@ -341,7 +342,8 @@ public sealed class MeshModelParser : IModelParser
         TrgFile? trg,
         PsxItemsBankSubstitution.LoadedItems? items,
         Dictionary<int, List<PsxLevelObjectPlacement>> itemsPlacements,
-        IReadOnlySet<uint> suppressHashes)
+        IReadOnlySet<uint> suppressHashes,
+        PsxMeshFile levelMesh)
     {
         // The *_o.psx bank is optional and independent of the POWERUP layer: a
         // missing, malformed, or unreadable bank must not prevent the items
@@ -353,12 +355,34 @@ public sealed class MeshModelParser : IModelParser
             if (request.Source.TryReadCompanion(companionName) is not { } companionBytes)
                 return;
 
-            var bank = PsxMeshFile.Parse(companionBytes, false);
+            // Banks bake colour pulses like every other region: the engine's
+            // M3d_RenderSetup ticks M3d_PreprocessPulsingColours for the obj
+            // and items regions every frame with NO per-model gate — THPS2
+            // proto jals at 0x80095740..70 and Spider-Man final at
+            // 0x80076228..58 cover env, obj, and items regions alike. The
+            // earlier raw-palette rule mis-attributed the l1a1 "?"'s in-game
+            // dark blue to the bank copy — that colour is the ITEMS-region
+            // copy's own staggered-blue pulse, and the bank duplicate never
+            // reaches output (POWERUP suppression + items substitution).
+            // Fire/star art serializes BLACK with the pulse as its only colour
+            // source, so the raw palette rendered them black (user report).
+            var bank = PsxMeshFile.Parse(companionBytes);
             if (bank == null || PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(bank))
                 return;
 
-            var bankPlacements = PsxLevelObjectPlacementResolver.Resolve(
+            var resolved = PsxLevelObjectPlacementResolver.ResolveDetailed(
                 trg, bank, companions.ApplyTriggerOverlay);
+            if (resolved.Placements.Count == 0)
+                return;
+
+            // "What If?" easter-egg spawns (C_IF_WHAT_IF-guarded PLATFORM
+            // nodes, e.g. l2a1's rooftop motorcycle) exist in-game only when
+            // the mode is active — gate them behind an opt-in visibility
+            // group. Everything the gate removes never reaches the items
+            // substitution or the sky classifier.
+            var assetHash = QbKey.QbKey.Hash(companions.LevelStem.ToUpperInvariant());
+            var bankPlacements = PsxWhatIfContentGate.Apply(
+                document, request.VisibilityOverrides, assetHash, resolved);
             if (bankPlacements.Count == 0)
                 return;
 
@@ -373,6 +397,35 @@ public sealed class MeshModelParser : IModelParser
 
             if (remainingBank.Count > 0)
             {
+                // The engine renders backgrounds CAMERA-LOCKED (TRG 0xAB
+                // BackgroundCreate; M3d_RenderBackground applies rotation only
+                // with translation zeroed) — the sky's bank position is dead
+                // data (sksf parks its dome 6,350 units below the level).
+                // Anchor the static bake at the registering node (the camera's
+                // start) or the level centroid; the in-app viewer re-locks it
+                // to the camera per frame.
+                var sky = PsxSkyDomeClassifier.Classify(levelMesh, bank, trg);
+                if (sky != null)
+                {
+                    var anchor = sky.AnchorNodePosition != null
+                        ? PsxLevelObjectPlacementResolver.CreateNodeTranslation(
+                            sky.AnchorNodePosition, levelMesh.TranslationDivisor)
+                        : Matrix4x4.CreateTranslation(
+                            PsxSkyDomeClassifier.LevelCentroidGltf(levelMesh));
+                    var withSkyAnchors =
+                        new Dictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>(remainingBank);
+                    foreach (var skyIndex in sky.ObjectIndices)
+                    {
+                        withSkyAnchors[skyIndex] =
+                        [
+                            new PsxLevelObjectPlacement(
+                                PsxLevelObjectPlacementResolver.BankInstanceNodeIndex, anchor)
+                        ];
+                    }
+
+                    remainingBank = withSkyAnchors;
+                }
+
                 PsxGeometryWriter.PopulatePsx(
                     document,
                     bank,
@@ -380,7 +433,14 @@ public sealed class MeshModelParser : IModelParser
                         request.Source, companionName, companionBytes),
                     nodeNamePrefix: "objects",
                     context: geometryContext,
-                    objectPlacements: remainingBank);
+                    objectPlacements: remainingBank,
+                    skyObjectIndices: sky?.ObjectIndices,
+                    skyColor: sky?.SkyColor,
+                    ghostOptions: new PsxGhostEmissionOptions
+                    {
+                        AssetHash = assetHash,
+                        VisibilityOverrides = request.VisibilityOverrides
+                    });
             }
         }
         catch (Exception ex)

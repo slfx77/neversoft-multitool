@@ -48,6 +48,8 @@ internal sealed class AudioConverterTabConversionController : IDisposable
         conversionProgress.Visibility = Visibility.Visible;
         conversionProgress.Value = 0;
 
+        using var scope = GlobalProgress.Begin("Converting audio files");
+
         var stopwatch = Stopwatch.StartNew();
         var filesProcessed = 0;
         var totalFiles = parentFiles.Count;
@@ -73,6 +75,7 @@ internal sealed class AudioConverterTabConversionController : IDisposable
                             vabSampleRate);
 
                         var processed = Interlocked.Increment(ref filesProcessed);
+                        scope.Report(processed, totalFiles);
                         dispatcher.TryEnqueue(() =>
                         {
                             entry.SampleCount = result.SamplesWritten;
@@ -83,6 +86,7 @@ internal sealed class AudioConverterTabConversionController : IDisposable
                     catch
                     {
                         var processed = Interlocked.Increment(ref filesProcessed);
+                        scope.Report(processed, totalFiles);
                         dispatcher.TryEnqueue(() =>
                         {
                             entry.Status = ExtractionStatus.Error;

@@ -11,6 +11,7 @@ public sealed partial class UnpackTab : UserControl, IDisposable
     private readonly ObservableCollection<UnpackArchiveEntry> _archives = [];
     private CancellationTokenSource? _cts;
     private string _rootDir = "";
+    private IGlobalProgressScope? _unpackScope;
 
     public UnpackTab()
     {
@@ -22,6 +23,8 @@ public sealed partial class UnpackTab : UserControl, IDisposable
     public void Dispose()
     {
         Unloaded -= UnpackTab_Unloaded;
+        _unpackScope?.Dispose();
+        _unpackScope = null;
         DisposeCancellationTokenSource();
     }
 
@@ -96,6 +99,9 @@ public sealed partial class UnpackTab : UserControl, IDisposable
         CancelButton.Visibility = Visibility.Visible;
         UnpackProgress.Visibility = Visibility.Visible;
         UnpackProgress.Value = 0;
+
+        _unpackScope?.Dispose();
+        _unpackScope = GlobalProgress.Begin("Unpacking archives");
 
         var rootDir = _rootDir;
         var token = cts.Token;
@@ -177,6 +183,8 @@ public sealed partial class UnpackTab : UserControl, IDisposable
         }
         finally
         {
+            _unpackScope?.Dispose();
+            _unpackScope = null;
             DisposeCancellationTokenSource();
             CancelButton.Visibility = Visibility.Collapsed;
             UnpackButton.Visibility = Visibility.Visible;
@@ -211,6 +219,7 @@ public sealed partial class UnpackTab : UserControl, IDisposable
         var total = _archives.Count(a => a.Status != ExtractionStatus.Skipped);
         var done = _archives.Count(a =>
             a.Status is ExtractionStatus.Done or ExtractionStatus.Error);
+        _unpackScope?.Report(done, total);
         UnpackProgress.Value = total > 0 ? (double)done / total * 100 : 0;
     }
 

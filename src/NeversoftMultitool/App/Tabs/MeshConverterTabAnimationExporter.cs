@@ -16,11 +16,14 @@ internal sealed class MeshConverterTabAnimationExporter(
     Button cancelButton) : IDisposable
 {
     private CancellationTokenSource? _cts;
+    private IGlobalProgressScope? _progressScope;
 
     public void Dispose()
     {
         _cts?.Dispose();
         _cts = null;
+        _progressScope?.Dispose();
+        _progressScope = null;
     }
 
     public void Cancel()
@@ -49,7 +52,7 @@ internal sealed class MeshConverterTabAnimationExporter(
             ("glTF model", [".glb"]));
         if (outputPath == null) return;
 
-        var cts = BeginOperation();
+        var cts = BeginOperation("Exporting animated GLB");
         try
         {
             var result = await Task.Run(
@@ -102,7 +105,7 @@ internal sealed class MeshConverterTabAnimationExporter(
         if (string.IsNullOrEmpty(outputDir)) return;
         var outputStem = Path.GetFileNameWithoutExtension(outputPath);
 
-        var cts = BeginOperation();
+        var cts = BeginOperation("Exporting .blend");
         try
         {
             var result = await Task.Run(() =>
@@ -139,13 +142,16 @@ internal sealed class MeshConverterTabAnimationExporter(
         }
     }
 
-    private CancellationTokenSource BeginOperation()
+    private CancellationTokenSource BeginOperation(string label)
     {
         var previousCts = _cts;
         var cts = new CancellationTokenSource();
         _cts = cts;
         previousCts?.Cancel();
         previousCts?.Dispose();
+
+        _progressScope?.Dispose();
+        _progressScope = GlobalProgress.Begin(label, indeterminate: true);
 
         progressBar.Value = 0;
         progressBar.IsIndeterminate = true;
@@ -159,6 +165,16 @@ internal sealed class MeshConverterTabAnimationExporter(
         progressBar.IsIndeterminate = false;
         progressBar.Visibility = Visibility.Collapsed;
         cancelButton.Visibility = Visibility.Collapsed;
+
+        // A superseding BeginOperation installs a new CTS before the old
+        // operation's finally runs — its scope must survive this EndOperation.
+        // (_cts == null means this op was cancelled: still ours to close.)
+        if (_cts == null || ReferenceEquals(_cts, cts))
+        {
+            _progressScope?.Dispose();
+            _progressScope = null;
+        }
+
         if (ReferenceEquals(_cts, cts)) _cts = null;
         cts.Dispose();
     }

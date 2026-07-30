@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Audio;
+using NeversoftMultitool.Core.Settings;
 
 namespace NeversoftMultitool;
 
@@ -24,18 +25,38 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
     private string _inputDir = "";
 
     // Playback
+    private readonly TimeSliderValueConverter _sliderTooltipConverter;
     private MediaPlayer? _mediaPlayer;
     private string _outputDir = "";
     private bool _outputManuallySet;
     private DispatcherTimer? _positionTimer;
     private CancellationTokenSource? _previewCts;
+    private bool _suppressVolumeEvents;
     private bool _updatingSlider;
+    private DebouncedAction? _persistVolume;
+    private CancellationTokenSource? _xaProbeCts;
 
     public AudioConverterTab()
     {
         InitializeComponent();
         FilesListView.ItemsSource = _items;
         Unloaded += AudioConverterTab_Unloaded;
+
+        _sliderTooltipConverter = (TimeSliderValueConverter)Resources["PlaybackTooltipConverter"];
+
+        // Applying the persisted volume fires ValueChanged; it must not write
+        // the same value straight back (Changed listeners re-probe Blender).
+        _suppressVolumeEvents = true;
+        VolumeSlider.Value = UserSettings.PlayerVolume * 100;
+        _suppressVolumeEvents = false;
+
+        // One settings write per gesture: every UserSettings write fires the
+        // global Changed event, whose listeners re-probe Blender and rebuild
+        // the Meshes tab's animation list — per-tick writes stutter the drag.
+        _persistVolume = new DebouncedAction(
+            DispatcherQueue,
+            TimeSpan.FromMilliseconds(400),
+            () => UserSettings.PlayerVolume = VolumeSlider.Value / 100.0);
 
         // Reclaim preview WAVs left behind if a previous session crashed
         // before Dispose could clean the temp root.
@@ -53,6 +74,9 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
     public void Dispose()
     {
         Unloaded -= AudioConverterTab_Unloaded;
+        _xaProbeCts?.Cancel();
+        _xaProbeCts?.Dispose();
+        _xaProbeCts = null;
         ClearPreview();
         _conversionController.Dispose();
 
@@ -121,6 +145,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         }
 
         UpdateUiState();
+        StartXaChannelProbe();
     }
 
     private async void SelectArchive_Click(object sender, RoutedEventArgs e)
@@ -179,8 +204,45 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
                     : $"Found {entries.Count} audio entrie(s) in {archiveName}.");
 
                 UpdateUiState();
+                StartXaChannelProbe();
             });
         });
+    }
+
+    /// <summary>
+    ///     XA expandability requires walking every sector of the file, so
+    ///     channel counts resolve off-thread after a scan: multi-channel files
+    ///     then grow their expander chevron, single-channel XA stays flat.
+    /// </summary>
+    private void StartXaChannelProbe()
+    {
+        // A rescan replaces the entry list wholesale, so the previous probe
+        // would keep reading the stale files to completion (and probes would
+        // stack per rescan) — supersede it like the preview/conversion jobs.
+        _xaProbeCts?.Cancel();
+        _xaProbeCts?.Dispose();
+        _xaProbeCts = null;
+
+        var xaEntries = _parentFiles
+            .Where(parent => parent.AudioFormat == "XA" && parent.CachedChildren == null)
+            .ToList();
+        if (xaEntries.Count == 0) return;
+
+        var cts = new CancellationTokenSource();
+        _xaProbeCts = cts;
+        var token = cts.Token;
+        var dispatcher = DispatcherQueue;
+        _ = Task.Run(() =>
+        {
+            foreach (var entry in xaEntries)
+            {
+                if (token.IsCancellationRequested)
+                    return;
+                EnsureChildren(entry);
+                if (!token.IsCancellationRequested && entry.CachedChildren is { Count: > 0 })
+                    dispatcher.TryEnqueue(entry.NotifyExpandabilityChanged);
+            }
+        }, token);
     }
 
     private static string MakeRelativePath(string file, string rootDir)
@@ -391,14 +453,16 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         StopPlayback();
         PreviewPlaceholderText.Visibility = Visibility.Collapsed;
         PreviewFileNameText.Text = parent.FileName;
-        PreviewInfoText.Text = $"{parent.AudioFormat} soundbank\nSelect a sample to preview";
+        PreviewInfoText.Text = parent.AudioFormat == "XA"
+            ? "Multi-channel XA stream\nSelect a channel to preview"
+            : $"{parent.AudioFormat} soundbank\nSelect a sample to preview";
         PreviewLoading.IsActive = false;
         AudioIcon.Visibility = Visibility.Visible;
         PlayPauseButton.IsEnabled = false;
         StopButton.IsEnabled = false;
         PlaybackSlider.Value = 0;
-        CurrentTimeText.Text = "0:00";
-        TotalTimeText.Text = "0:00";
+        CurrentTimeText.Text = "00:00";
+        TotalTimeText.Text = "00:00";
         PreviewErrorText.Visibility = Visibility.Collapsed;
     }
 
@@ -429,8 +493,8 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         PlayPauseButton.IsEnabled = false;
         StopButton.IsEnabled = false;
         PlaybackSlider.Value = 0;
-        CurrentTimeText.Text = "0:00";
-        TotalTimeText.Text = "0:00";
+        CurrentTimeText.Text = "00:00";
+        TotalTimeText.Text = "00:00";
 
         // The selected VAB rate is part of the cache identity — without it,
         // changing the rate would replay a stale WAV converted at the old one.
@@ -520,7 +584,8 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
 
         _mediaPlayer = new MediaPlayer
         {
-            Source = MediaSource.CreateFromUri(new Uri(wavPath))
+            Source = MediaSource.CreateFromUri(new Uri(wavPath)),
+            Volume = VolumeSlider.Value / 100.0
         };
         _mediaPlayer.MediaEnded += MediaPlayer_MediaEnded;
         _mediaPlayer.MediaFailed += MediaPlayer_MediaFailed;
@@ -559,7 +624,8 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         _updatingSlider = true;
         PlaybackSlider.Value = 0;
         _updatingSlider = false;
-        CurrentTimeText.Text = "0:00";
+        _sliderTooltipConverter.DurationSeconds = 0;
+        CurrentTimeText.Text = "00:00";
     }
 
     private void PlayPauseButton_Click(object sender, RoutedEventArgs e)
@@ -591,7 +657,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         _updatingSlider = true;
         PlaybackSlider.Value = 0;
         _updatingSlider = false;
-        CurrentTimeText.Text = "0:00";
+        CurrentTimeText.Text = "00:00";
     }
 
     private void MediaPlayer_MediaEnded(MediaPlayer sender, object args)
@@ -628,6 +694,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
             _updatingSlider = true;
             PlaybackSlider.Value = session.Position.TotalSeconds / duration.TotalSeconds * 100;
             _updatingSlider = false;
+            _sliderTooltipConverter.DurationSeconds = duration.TotalSeconds;
             CurrentTimeText.Text = FormatTime(session.Position);
             TotalTimeText.Text = FormatTime(duration);
         }
@@ -650,6 +717,16 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         PlayPauseIcon.Glyph = isPlaying ? "\uE769" : "\uE768";
     }
 
+    private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_mediaPlayer != null)
+            _mediaPlayer.Volume = e.NewValue / 100.0;
+
+        // Applying the persisted value at startup must not write it back.
+        if (!_suppressVolumeEvents)
+            _persistVolume?.Invoke();
+    }
+
     private void ClearPreview()
     {
         StopPlayback();
@@ -661,8 +738,8 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         PreviewFileNameText.Text = "";
         PreviewInfoText.Text = "";
         PreviewErrorText.Visibility = Visibility.Collapsed;
-        CurrentTimeText.Text = "0:00";
-        TotalTimeText.Text = "0:00";
+        CurrentTimeText.Text = "00:00";
+        TotalTimeText.Text = "00:00";
         PlaybackSlider.Value = 0;
     }
 

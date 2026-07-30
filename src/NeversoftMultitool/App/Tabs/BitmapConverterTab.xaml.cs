@@ -208,6 +208,8 @@ public sealed partial class BitmapConverterTab : UserControl, IDisposable
         ConversionProgress.Visibility = Visibility.Visible;
         ConversionProgress.Value = 0;
 
+        using var scope = GlobalProgress.Begin("Converting bitmaps");
+
         var stopwatch = Stopwatch.StartNew();
         var filesProcessed = 0;
         var totalFiles = _files.Count;
@@ -232,6 +234,7 @@ public sealed partial class BitmapConverterTab : UserControl, IDisposable
 
                 var status = result.Success ? ExtractionStatus.Done : ExtractionStatus.Error;
                 var processed = Interlocked.Increment(ref filesProcessed);
+                scope.Report(processed, totalFiles);
 
                 dispatcher.TryEnqueue(() =>
                 {

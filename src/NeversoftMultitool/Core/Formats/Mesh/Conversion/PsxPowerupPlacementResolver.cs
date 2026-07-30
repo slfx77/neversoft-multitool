@@ -240,17 +240,20 @@ internal static class PsxPowerupPlacementResolver
     ///     The <c>CPowerUp::mHoverHeight</c> (world units) the origin rests above
     ///     the floor, per game family, or <c>null</c> to leave the pickup at its
     ///     authored Y (no snap). Spider-Man (all builds) = 128 (decompiled from
-    ///     the final ctor @0x8001DCC4); THPS = 0 (matched decomp). Apocalypse is a
+    ///     the final ctor @0x8001DCC4). THPS does NOT snap: the matched THPS2
+    ///     decomp's <c>CPowerUp::DoPhysics</c> only writes
+    ///     <c>mOrgPos.vy = mGroundY - hover</c> on the <c>mDropping</c> path
+    ///     (ctor <c>Flags &amp; 4</c>); placed pickups render at authored Y plus a
+    ///     wobble centered on it (and its items models are origin-CENTERED, so an
+    ///     origin-on-floor snap half-buried every SKATE letter). Apocalypse is a
     ///     different (1998) engine whose pickup ground-snap/hover is NOT
     ///     reverse-engineered, so its pickups are left where authored rather than
     ///     snapped with a guessed value.
     /// </summary>
     private static float? HoverWorldUnitsForTable(Dictionary<int, uint> table)
     {
-        if (ReferenceEquals(table, ApocalypseTable))
+        if (ReferenceEquals(table, ApocalypseTable) || ReferenceEquals(table, ThpsTable))
             return null;
-        if (ReferenceEquals(table, ThpsTable))
-            return PsxGroundSnap.ThpsHoverWorldUnits;
 
         return PsxGroundSnap.SpiderManHoverWorldUnits;
     }

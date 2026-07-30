@@ -37,7 +37,12 @@
     const host = document.getElementById('canvas-host');
 
     // ─── Renderer / scene ────────────────────────────────────────────────
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    // Log depth: level-scale scenes (DC levels span ~15k units) put coplanar
+    // decal lifts (0.25 units) far below standard z-buffer resolution at
+    // distance, so decals shimmered from across a level. The PS1-GPU
+    // onBeforeCompile patch only replaces color_*/project_vertex chunks, which
+    // are disjoint from three's logdepthbuf_* chunks, so both compose.
+    const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
     host.appendChild(renderer.domElement);
@@ -48,6 +53,13 @@
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x202020);
+    // Camera-locked PSX sky layers render in their own scene FIRST, then the
+    // depth buffer is cleared before the level renders — the engine forces
+    // background polys to the far ordering-table bucket, so the level always
+    // overdraws the sky even when a (semi-transparent) dome sits closer to
+    // the camera than the level walls (l8a2's translucent dome drew OVER the
+    // level under single-scene renderOrder ordering).
+    const skySceneRoot = new THREE.Scene();
     const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x445566, 2.4);
     scene.add(hemisphereLight);
     const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
@@ -55,11 +67,29 @@
     scene.add(keyLight);
     let lightingMode = 'day';
 
+    function refreshBackground() {
+      // The TRG SetSkyColor backdrop (the flat colour the engine draws behind
+      // the sky model) wins over the viewer's default. With sky layers, the
+      // colour must clear in the SKY pass — a main-scene background would
+      // paint over the already-rendered dome.
+      const base = lightingMode === 'night' ? 0x101622 : 0x202020;
+      const color = skyBackdropColor !== null ? skyBackdropColor : base;
+      if (skyLockObjects.length > 0) {
+        skySceneRoot.background = skySceneRoot.background || new THREE.Color();
+        skySceneRoot.background.setHex(color);
+        scene.background = null;
+      } else {
+        skySceneRoot.background = null;
+        scene.background = scene.background || new THREE.Color();
+        scene.background.setHex(color);
+      }
+    }
+
     function setLightingMode(mode) {
       if (!(mode === 'all' || mode === 'day' || mode === 'night')) return;
       lightingMode = mode;
       const night = mode === 'night';
-      scene.background.setHex(night ? 0x101622 : 0x202020);
+      refreshBackground();
       hemisphereLight.color.setHex(night ? 0x9bbcff : 0xffffff);
       hemisphereLight.groundColor.setHex(night ? 0x172033 : 0x445566);
       hemisphereLight.intensity = night ? 0.85 : 2.4;
@@ -141,6 +171,9 @@
     let textureWibbleMeshes = [];
     let textureWibbleFrame = 0;
     let psxGpuMaterials = [];
+    let skyLockObjects = [];
+    let skyBackdropColor = null;
+    let axialBillboards = [];
     const psxDrawingBufferSize = new THREE.Vector2();
     const clock = new THREE.Clock();
 
@@ -187,6 +220,7 @@
     }
 
     // ─── Render loop ──────────────────────────────────────────────────────
+    renderer.autoClear = false;
     renderer.setAnimationLoop(() => {
       const dt = clock.getDelta();
       if (mixer && playing) mixer.update(dt);
@@ -194,6 +228,13 @@
       updatePsxGpuShaderUniforms();
       if (controlMode === 'orbit') updateOrbit(Math.min(dt, 0.1));
       else updateFlyWalk(Math.min(dt, 0.1)); // clamp tab-stall dt spikes
+      if (axialBillboards.length > 0) updateAxialBillboards();
+      renderer.clear(true, true, true);
+      if (skyLockObjects.length > 0) {
+        updatePsxSkyLock();
+        renderer.render(skySceneRoot, camera);
+        renderer.clearDepth();
+      }
       renderer.render(scene, camera);
     });
 
@@ -217,7 +258,20 @@
     }
 
     function frameModel(root) {
-      const box = new THREE.Box3().setFromObject(root);
+      // Sky domes span ~3x the playable level; including them would inflate
+      // the framing radius (and with it fly/walk speeds and the near plane).
+      // Box3.setFromObject ignores `visible`, so union the non-sky meshes
+      // manually and fall back to the full object when nothing else exists.
+      const box = new THREE.Box3();
+      const meshBox = new THREE.Box3();
+      root.updateWorldMatrix(true, true);
+      root.traverse(obj => {
+        if (!obj.isMesh || obj.userData.neversoftSkyMesh) return;
+        if (!obj.geometry.boundingBox) obj.geometry.computeBoundingBox();
+        meshBox.copy(obj.geometry.boundingBox).applyMatrix4(obj.matrixWorld);
+        box.union(meshBox);
+      });
+      if (box.isEmpty()) box.setFromObject(root);
       if (box.isEmpty()) {
         framingRadius = 1;
         framingCenter.set(0, 0, 0);
@@ -409,7 +463,10 @@
     // Fly is the predictable default for every mesh. Orbit and Walk remain
     // one-key alternatives, independent of whether the mesh is level-sized.
     function applyDefaultControlMode() {
-      const mode = 'fly';
+      // Levels are explored first-person; everything else (characters, props,
+      // vehicles) inspects best as an orbit around the model. This used to
+      // hardcode 'fly', which put every character viewer session in fly mode.
+      const mode = isLevelModel ? 'fly' : 'orbit';
       if (mode === controlMode) {
         // Same mode as the previous model — still re-seed fly state (and the
         // walk ground snap) from the freshly framed camera.
@@ -492,7 +549,9 @@
       raycaster.set(tmpRayOrigin, WORLD_DOWN);
       raycaster.far = framingRadius * 4;
       const hits = raycaster.intersectObject(modelRoot, true);
-      if (hits.length > 0) lastGroundY = hits[0].point.y;
+      // Walking must never stand on the sky dome shell.
+      const hit = hits.find(h => !h.object.userData.neversoftSkyMesh);
+      if (hit) lastGroundY = hit.point.y;
       if (lastGroundY === null) return; // never saw ground — keep the current height
       const targetY = lastGroundY + eyeHeight;
       if (!walkYSettled) {
@@ -665,7 +724,10 @@
     }
 
     function configurePsxGpuVertexColors(root) {
-      psxGpuMaterials = [];
+      // APPENDS to psxGpuMaterials: loadModel calls this once for modelRoot
+      // and once for skySceneRoot, so resetting here would wipe the main
+      // scene's entries (frozen resize uniforms). unloadCurrent owns the reset
+      // and always runs before the first call of a load.
       const materialStates = new Map();
       root.traverse(obj => {
         if (!obj.isMesh || !obj.geometry) return;
@@ -853,8 +915,9 @@ if (psxFlags.z < 0.5) {
     }
 
     function configurePsxTextureWibbles(root) {
-      textureWibbleMeshes = [];
-      textureWibbleFrame = 0;
+      // APPENDS to textureWibbleMeshes: called once for modelRoot and once
+      // for skySceneRoot per load — resetting here froze every main-scene UV
+      // wibble. unloadCurrent owns the reset of the list and the frame clock.
       root.traverse(obj => {
         if (!obj.isMesh || !obj.geometry) return;
         const geometry = obj.geometry;
@@ -966,6 +1029,139 @@ if (psxFlags.z < 0.5) {
       });
     }
 
+    function applyPsxSkyDomes(root) {
+      // PSX levels register the sky via TRG BackgroundCreate; the engine's
+      // M3d_RenderBackground draws it CAMERA-LOCKED (rotation only, GTE
+      // translation zeroed) with SZ forced to the far ordering-table bucket,
+      // unlit and fog-free. Reproduce that: render sky first with no depth
+      // writes, swap to unlit materials (authored vertex colours only), track
+      // the sky nodes so the render loop can re-center them on the camera,
+      // and adopt the TRG SetSkyColor backdrop as the clear colour. Runs
+      // BEFORE configurePsxGpuVertexColors — clones made after the PS1-GPU
+      // patch would lose onBeforeCompile and drop out of its uniform updates.
+      const skyBySource = new Map();
+      root.traverse(obj => {
+        if (!obj.isMesh) return;
+        const sky = (obj.userData && obj.userData.neversoftSky === true)
+          || /^sky__/.test(obj.name || '')
+          || (obj.parent && /^sky__/.test(obj.parent.name || ''));
+        if (!sky) return;
+        obj.userData.neversoftSkyMesh = true;
+        const skyColor = obj.userData && obj.userData.neversoftSkyColor;
+        if (Number.isFinite(skyColor) && skyBackdropColor === null)
+          skyBackdropColor = skyColor >>> 0;
+        const lockTarget = obj.parent && /^sky__/.test(obj.parent.name || '')
+          ? obj.parent
+          : obj;
+        if (!skyLockObjects.includes(lockTarget)) skyLockObjects.push(lockTarget);
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        const replaced = mats.map(m => {
+          let clone = skyBySource.get(m);
+          if (!clone) {
+            clone = new THREE.MeshBasicMaterial();
+            clone.copy(m);
+            clone.depthWrite = false;
+            skyBySource.set(m, clone);
+          }
+          return clone;
+        });
+        obj.material = Array.isArray(obj.material) ? replaced : replaced[0];
+      });
+
+      // Reparent sky nodes into the dedicated sky scene (drawn first, depth
+      // cleared afterwards). Done after the traverse — reparenting during it
+      // would skip children.
+      for (const obj of skyLockObjects)
+        skySceneRoot.add(obj);
+    }
+
+    function updatePsxSkyLock() {
+      // The engine zeroes the background's translation every frame — the sky
+      // rides the camera on ALL axes (the horizon never sinks as you climb).
+      // In orbit mode the camera sits OUTSIDE the level, which would drag the
+      // sky away from the model; lock to the orbit target (the level) there —
+      // that is where the in-game camera effectively lives.
+      if (skyLockObjects.length === 0) return;
+      const anchor = controlMode === 'orbit' ? controls.target : camera.position;
+      for (const obj of skyLockObjects)
+        obj.position.copy(anchor);
+    }
+
+    function collectAxialBillboards(root) {
+      // PSX sprite-vertex quads (axial billboards): the converter bakes a
+      // head-on facing (quad normal = mesh-local +Z projected perpendicular
+      // to the authored axis) and publishes the rotation axis + anchor in
+      // mesh extras. Collect them so the render loop can spin each quad about
+      // its LOCAL axis toward the camera — the engine re-derives the corner
+      // perpendicular from the projected axis every frame. Billboard nodes
+      // ship identity rotations (only a translation), so the captured base
+      // position plus a per-frame axis-angle quaternion reproduces the
+      // engine's behavior. Multi-primitive sprite meshes load as a Group
+      // carrying the extras; rotating the group rotates all quads about the
+      // shared axis line (corpus-verified: every sprite anchor sits on the
+      // mesh-local Y axis, psx_sprite_vertex_census.py).
+      root.traverse(obj => {
+        if (!obj.userData || obj.userData.neversoftAxialBillboard !== true) return;
+        const axisArr = obj.userData.neversoftBillboardAxis;
+        const anchorArr = obj.userData.neversoftBillboardAnchor;
+        if (!Array.isArray(axisArr) || axisArr.length !== 3 || !axisArr.every(Number.isFinite)) return;
+        if (!Array.isArray(anchorArr) || anchorArr.length !== 3 || !anchorArr.every(Number.isFinite)) return;
+        const axis = new THREE.Vector3().fromArray(axisArr);
+        if (axis.lengthSq() < 1e-8) return;
+        axis.normalize();
+        // Baked facing: +Z projected perpendicular to the axis (degenerate
+        // when the axis is view-parallel — never in the corpus, all axes are
+        // model-Y-vertical).
+        const baseNormal = new THREE.Vector3(0, 0, 1).addScaledVector(axis, -axis.z);
+        if (baseNormal.lengthSq() < 1e-6) return;
+        baseNormal.normalize();
+        axialBillboards.push({
+          node: obj,
+          axis,
+          anchor: new THREE.Vector3().fromArray(anchorArr),
+          basePosition: obj.position.clone(),
+          baseNormal
+        });
+      });
+    }
+
+    const axialBillboardCam = new THREE.Vector3();
+    const axialBillboardWork = new THREE.Vector3();
+    const axialBillboardParentInverse = new THREE.Matrix4();
+    function updateAxialBillboards() {
+      for (const billboard of axialBillboards) {
+        const node = billboard.node;
+        if (!node.parent) continue;
+        // Camera position into the node's UNROTATED local frame: through the
+        // parent's world matrix (previous frame's — parents are static), then
+        // minus the node's base translation. Scales are identity on these
+        // nodes.
+        axialBillboardParentInverse.copy(node.parent.matrixWorld).invert();
+        axialBillboardCam.copy(camera.position)
+          .applyMatrix4(axialBillboardParentInverse)
+          .sub(billboard.basePosition)
+          .sub(billboard.anchor);
+        // Project perpendicular to the axis and face the quad toward it.
+        axialBillboardCam.addScaledVector(
+          billboard.axis, -axialBillboardCam.dot(billboard.axis));
+        const lenSq = axialBillboardCam.lengthSq();
+        if (lenSq < 1e-8) continue;
+        axialBillboardCam.multiplyScalar(1 / Math.sqrt(lenSq));
+        axialBillboardWork.crossVectors(billboard.baseNormal, axialBillboardCam);
+        const angle = Math.atan2(
+          axialBillboardWork.dot(billboard.axis),
+          billboard.baseNormal.dot(axialBillboardCam));
+        node.quaternion.setFromAxisAngle(billboard.axis, angle);
+        // Rotate about the anchor LINE, not the node origin. Corpus anchors
+        // sit on the local Y axis (the rotation axis through the origin), so
+        // the correction is normally zero — kept exact for arbitrary data.
+        axialBillboardWork.copy(billboard.anchor).applyQuaternion(node.quaternion);
+        node.position.copy(billboard.basePosition)
+          .add(billboard.anchor)
+          .sub(axialBillboardWork);
+      }
+    }
+
     function applyNeversoftRenderOrder(root) {
       // THAW PS2 worldzone leaves carry their engine submission rank in mesh
       // extras (GLTFLoader copies mesh extras onto Mesh.userData). The GS
@@ -1000,11 +1196,24 @@ if (psxFlags.z < 0.5) {
       textureWibbleMeshes = [];
       psxGpuMaterials = [];
       textureWibbleFrame = 0;
+      skyLockObjects = [];
+      skyBackdropColor = null;
+      axialBillboards = [];
+      // Sky nodes were reparented out of modelRoot into the sky scene.
+      while (skySceneRoot.children.length > 0) {
+        const child = skySceneRoot.children[0];
+        skySceneRoot.remove(child);
+        disposeModel(child);
+      }
       if (modelRoot) {
         scene.remove(modelRoot);
         disposeModel(modelRoot);
         modelRoot = null;
       }
+      // A sky level leaves scene.background null (the sky pass owned the
+      // clear colour). Restore the standard backdrop now that the sky state
+      // is cleared, so a following parse error / empty state is not black.
+      refreshBackground();
     }
 
     function captureCameraState() {
@@ -1116,10 +1325,19 @@ if (psxFlags.z < 0.5) {
           }
           modelRoot = gltf.scene;
           applyPsxSemiTransparentUnlit(modelRoot);
+          applyPsxSkyDomes(modelRoot);
+          // After the sky reparent — billboards stay in modelRoot.
+          collectAxialBillboards(modelRoot);
           configurePsxGpuVertexColors(modelRoot);
           configurePsxTextureWibbles(modelRoot);
           applyNativeMaterialBlending(modelRoot);
           applyNeversoftRenderOrder(modelRoot);
+          // Sky nodes moved to the sky scene — give them the same PS1
+          // colour/wibble/blend treatments there.
+          configurePsxGpuVertexColors(skySceneRoot);
+          configurePsxTextureWibbles(skySceneRoot);
+          applyNativeMaterialBlending(skySceneRoot);
+          refreshBackground();
           scene.add(modelRoot);
           frameModel(modelRoot);
           if (!restoreCameraState(cameraState)) applyDefaultControlMode();

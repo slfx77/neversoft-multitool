@@ -67,9 +67,88 @@ Conversion + `glb-render` inspection, current HEAD (post-v1.2.1 alpha fix `884d0
 - Current state: THAW/PS2 **and** THPS3 skinned characters share the SAME latent double-translation `.blend` stretch that the PSX fix addressed — they just aren't covered by the PSX-gated path.
 - What's left: rework the fix into the general `matrix_basis` form (not PSX-gated) and validate against a real THAW/PS2 or THPS3 rig before shipping.
 
+### 🔴 Blender 4.4/5.x glTF importer randomly rejects our PSX GLBs (upstream bug, S)
+- Source: 2026-07-27 user-report investigation (Venom/Symbiote). `io_scene_gltf2` `mesh.py do_primitives`
+  builds the custom-attribute name list as a Python **set** but appends the per-attribute data arrays in
+  first-seen order, then zips them with `enumerate(set)`. With our TWO custom attributes
+  (`_PSX_COLOR_0` VEC4 + `_PSX_FLAGS_0` VEC3) the set's hash-randomized iteration order mismatches the
+  append order in ~half of Blender processes → `ValueError: … size 4 and … size 3` and the import aborts.
+  Same GLB imports fine on the next attempt (per-process hash seed).
+- What's left: report upstream to Blender; consider an exporter-side dodge (a single custom attribute —
+  e.g. flags packed into a fourth component pair — would make `enumerate` order trivially correct). The
+  `.blend` export path is unaffected and remains the sanctioned Blender route.
+
+### ✅ PS1 lit-flagged faces now export neutral modulation (2026-07-27)
+- Source: decomp reading (`thps2-psx-proto/src/M3D.cpp` ~line 1041): when `pModel->Flags & 4` (or item
+  flag `0x80`) the PS1 engine loads the owner light + colour matrices and calls
+  `M3dAsm_GetDynamicLighting(normals, numNormals)` — per-vertex colours are computed from normals and
+  ProcessPolys draws face-flag-bit-2 faces from that table, bypassing their serialized colours. Same
+  semantic as the v6 PC rule, but the PS1 engine applies it PER FACE (characters are mixed: venom
+  394/414 lit, docock 371/539, torch 323/596 — the unlit remainder keeps authored colours).
+- Shipped: `ComputePsxFaceColors` neutralizes `mesh.UsesDynamicLighting && (face.Flags & 0x0004)` faces
+  for every version (the v6 per-mesh loader-derived bypass is unchanged above it). Corpus census via the
+  new `tools/PsxAnalyzer lit-census`: lit faces are characters/FE props ONLY — every `_g`/bare-stem
+  level, `_o` bank (except l8a5_o's 23 faces), and items.psx/pickup file has ZERO lit faces, so baked
+  level lighting and the user-validated pulse pickups are untouched (byte-identical GLBs verified for
+  l1a1_g/items/symbiote; venom 469 verts 0.83→0.95 neutral with 44 authored kept; spidey's authored
+  255-flat — previously CLAMPED to 1.0 in GLB and exported as 1.99 raw overbright into .blend — now
+  neutral 0.95 in both).
+
+### 🔶 `.blend` vs GLB first-frame channel anchoring residual (S)
+- Source: 2026-07-27 verification sweep. After the out-of-order-skeleton fix, spidey `anim_20`/`anim_30`
+  still differ from the GLB by 6.7–9.5% in posed extent at frame 0 ONLY (mid-frames exact to 4 decimals;
+  venom/docock/symbiote exact everywhere). Frame ranges are identical in both files, so this is a
+  first-key anchoring difference between the C# GLB channel writer and the .blend package writer, not an
+  importer bug.
+- What's left: diff `PsxAnimationChannelWriter` vs `BlendPackageWriter` first-key emission for clips whose
+  streams start after t=0.
+
 ---
 
 ## Done (for reference) ✅
+
+- ✅ **THPS2-DC feedback batch (2026-07-28)** — seven PSX rendering reports resolved in one pass:
+  - **THPS pickups half-buried** — `CPowerUp::DoPhysics` snaps only on the `mDropping` path (matched decomp);
+    THPS/Apocalypse pickups now render at authored TRG Y (SKPH: 19/19 mapped POWERUP nodes at dY=0.00).
+  - **Sky domes z-clipping into levels (SKMAR/SKBUL/Skate Heaven)** — `PsxSkyDomeClassifier` geometric
+    tagging (≥0.7× level footprint both axes + centroid + dome height) → `sky__` prefix + `neversoftSky`
+    extras; viewer draws sky first with depthWrite off, excludes it from framing/walk-ground; Blender
+    NeversoftSky collection. Resolved names confirm precision: `sky01`, `bul_sky`, `bak_sphr01`; zero
+    false positives across 8 DC levels + Spider-Man.
+  - **SKB2 water z-fight** — both scrolling sheets share one plane; deterministic layer lift steps
+    (sole-animated on top, else PS1 OT insertion order).
+  - **Webdome physical cracks** — the per-face semi-trans lift tore curved connected surfaces; lifts now
+    move along position-averaged directions (0 torn pairs post-fix, exact corner coincidence restored).
+  - **SKBUL sky-dome shading bands** — 32 texture-band primitives each shaded as a facet island
+    (exporter smoother is per-primitive); `PsxNormalWelder` welds 60°-thresholded normals across
+    positions for meshes without per-vertex normals.
+  - **DC chain-link fences too transparent** — markerless 16-bit binary-cutout textures keep authored
+    alpha instead of the uniform ABR-0 50% wash.
+  - **control.psx stick colors** — all 892 faces are lit-flagged; the PS1 loader ORs face bit2 into
+    SModel.Flags (decomp §5.3), so the lit-face neutral rule (2026-07-27, uncommitted) is the fix;
+    verified 2126/2126 vertex colors at exact neutral.
+  - **"Missing" leaves/antennas/rail posts — RETRACTED as a converter bug**: 10/10 PS1 binaries carry the
+    identical unconditional bit7 loader XOR + 0xC0 renderer skip (byte-level scan,
+    `tools/diagnostics/psx_bit7_loader_scan.py`); TRG cross-ref proves the dropped whole meshes are
+    COMMANDPOINT trigger volumes / GapPolyHit detectors / camera zones (skph 155/162 COMMANDPOINTs bind
+    dropped meshes; l2a1 37/47; the verified-hidden THPS1 skdown control shows the same 130/132 pattern).
+    The visible trees/towers are separate meshes the converter already renders. Remaining follow-ups below.
+
+- ✅ **`.blend` out-of-order PSX skeletons mis-rooted (Venom stretched face/arm/tongue)** — 2026-07-27.
+  `import_package.py _make_armatures` chained world binds in one array-ordered pass (`parent_index < i`);
+  PSX HIER skeletons store children before parents (venom: 9/21 forward refs), so those bones' rest heads
+  landed at their bare local offset (tongue/jaw/forearm up to 0.45× model extent off) and every rotating
+  pose pivoted about the wrong head. Fixed with memoized recursive resolution (cycle-guarded). Venom:
+  17/21 mismatched heads → 0; posed/bind extents now match the GLB to 4 decimals on every sampled clip;
+  spidey (also silently affected) 14/16 samples exact. Regression test hardened to a forward-ParentIndex
+  skeleton + rotating clip (fails pre-fix at 2.2× bind size, passes post-fix).
+- ✅ **`.blend` "vertex colors too dark" (Symbiote)** — 2026-07-27. NOT a data bug: .blend loop colours
+  byte-match the GLB COLOR_0 at all 1,002 loops, and the unlit-emission node math reproduces the PS1
+  display-domain modulation. Two real contributors fixed/explained: (1) exported scenes now save with the
+  **Standard** view transform — factory AgX is a scene-referred photographic tonemap that crushed the dark
+  authored gouraud bake by a measured 2.3× mid-tone luminance; (2) the symbiote's darkness is authored
+  (0/229 lit faces → the engine draws its serialized RGBs verbatim; no colour pulses) — the app viewer
+  merely brightens it with its lit hemisphere rig.
 
 - ✅ THAW worldzone level-MDL leaf format (phase 420) — `memory/thaw_worldzone_phase420_solved.md`; K-offset derivation + per-leaf VIF slicing + per-batch GS context + billboards.
 - ✅ THAW worldzone discovery inside DATAP.WAD — `memory/thaw_worldzone_archive_discovery.md` (v1.2.1).

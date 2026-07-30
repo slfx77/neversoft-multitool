@@ -343,35 +343,67 @@ public sealed class GltfModelExporter : IModelExporter
             totalTriangles += AddTriangles(prim, primitive);
         }
 
-        ApplyDrawOrderExtras(mesh, modelMesh);
+        ApplyMeshExtras(mesh, modelMesh);
         scene.AddRigidMesh(mesh, worldTransform);
         return totalTriangles;
     }
 
     /// <summary>
-    ///     Publish the mesh's draw order into glTF mesh extras. The source
-    ///     hardware (PS1 ordering table, PS2 GS, DDM decal ranks) resolves
-    ///     coplanar layer stacks by submission order; vertices export at
-    ///     authored positions, so viewers need this to composite passes in
+    ///     Publish the mesh's render facts into glTF mesh extras. Draw order:
+    ///     the source hardware (PS1 ordering table, PS2 GS, DDM decal ranks)
+    ///     resolves coplanar layer stacks by submission order; vertices export
+    ///     at authored positions, so viewers need this to composite passes in
     ///     engine order (the in-app three.js viewer maps neversoftDrawIndex to
     ///     Object3D.renderOrder, which with LEQUAL depth testing reproduces
-    ///     submission-order semantics exactly).
+    ///     submission-order semantics exactly). Sky: PSX sky domes tag
+    ///     <c>neversoftSky</c> so the viewer draws them first with no depth
+    ///     writes and keeps them out of framing/ground queries. Billboards:
+    ///     PSX sprite-vertex quads tag <c>neversoftAxialBillboard</c> (+ axis
+    ///     and anchor, mesh-local glTF units) so the viewer can spin the baked
+    ///     quad about its authored axis toward the camera each frame.
     /// </summary>
-    private static void ApplyDrawOrderExtras(SharpGLTF.BaseBuilder mesh, ModelMesh modelMesh)
+    private static void ApplyMeshExtras(SharpGLTF.BaseBuilder mesh, ModelMesh modelMesh)
     {
         var drawOrder = modelMesh.Primitives
             .SelectMany(static primitive => primitive.NativeMetadata)
             .OfType<IMeshDrawOrderExtras>()
             .FirstOrDefault(static metadata => metadata.DrawIndex >= 0);
-        if (drawOrder == null)
+        var sky = modelMesh.Primitives
+            .SelectMany(static primitive => primitive.NativeMetadata)
+            .OfType<PsxSkyRenderMetadata>()
+            .FirstOrDefault();
+        var billboard = modelMesh.Primitives
+            .SelectMany(static primitive => primitive.NativeMetadata)
+            .OfType<PsxAxialBillboardMetadata>()
+            .FirstOrDefault();
+        if (drawOrder == null && sky == null && billboard == null)
             return;
 
-        mesh.Extras = new System.Text.Json.Nodes.JsonObject
+        var extras = new System.Text.Json.Nodes.JsonObject();
+        if (drawOrder != null)
         {
-            ["neversoftDrawIndex"] = drawOrder.DrawIndex,
-            ["neversoftPassIndex"] = drawOrder.PassIndex,
-            ["neversoftOverlapGroup"] = drawOrder.OverlapGroup
-        };
+            extras["neversoftDrawIndex"] = drawOrder.DrawIndex;
+            extras["neversoftPassIndex"] = drawOrder.PassIndex;
+            extras["neversoftOverlapGroup"] = drawOrder.OverlapGroup;
+        }
+
+        if (sky != null)
+        {
+            extras["neversoftSky"] = true;
+            if (sky.SkyColor is { } skyColor)
+                extras["neversoftSkyColor"] = skyColor;
+        }
+
+        if (billboard != null)
+        {
+            extras["neversoftAxialBillboard"] = true;
+            extras["neversoftBillboardAxis"] = new System.Text.Json.Nodes.JsonArray(
+                billboard.AxisX, billboard.AxisY, billboard.AxisZ);
+            extras["neversoftBillboardAnchor"] = new System.Text.Json.Nodes.JsonArray(
+                billboard.AnchorX, billboard.AnchorY, billboard.AnchorZ);
+        }
+
+        mesh.Extras = extras;
     }
 
     private static int AddSkinnedMesh(
@@ -423,6 +455,9 @@ public sealed class GltfModelExporter : IModelExporter
             totalTriangles += AddPsxAnimatedTriangles(prim, primitive);
         }
 
+        // Wibbled sprite/overlay meshes still carry billboard/draw-order
+        // metadata (THPS2 skny's sprite trees animate their bark texture).
+        ApplyMeshExtras(mesh, modelMesh);
         scene.AddRigidMesh(mesh, worldTransform);
         return totalTriangles;
     }
@@ -473,7 +508,7 @@ public sealed class GltfModelExporter : IModelExporter
             totalTriangles += AddPsxOverbrightTriangles(prim, primitive);
         }
 
-        ApplyDrawOrderExtras(mesh, modelMesh);
+        ApplyMeshExtras(mesh, modelMesh);
         scene.AddRigidMesh(mesh, worldTransform);
         return totalTriangles;
     }

@@ -14,8 +14,11 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///       <item>DoPhysics @0x8001EB20: <c>mOrgPos.vy = mGroundY - (mHoverHeight &lt;&lt; 12)</c>.</item>
 ///     </list>
 ///     So the pickup's ORIGIN rests <c>hover</c> world units above the floor found
-///     by searching <c>[origin-512, origin+8000]</c>. THPS2's <c>mHoverHeight</c> is
-///     0 (origin on the floor). Props (<c>CManipOb</c>) do NOT snap — never here.
+///     by searching <c>[origin-512, origin+8000]</c>. THPS pickups do NOT snap at
+///     all: the matched THPS2 decomp's <c>CPowerUp::DoPhysics</c> touches
+///     <c>mGroundY</c> only on the <c>mDropping</c> path (ctor <c>Flags &amp; 4</c>)
+///     — a placed pickup renders at its authored <c>mOrgPos</c> plus a wobble
+///     centered on it. Props (<c>CManipOb</c>) do NOT snap — never here.
 ///
 ///     All math is NATIVE engine space (+Y = down), before
 ///     <c>PsxMeshSemantics.ToGltfPosition</c>. World units are converted to
@@ -26,9 +29,6 @@ internal static class PsxGroundSnap
 {
     /// <summary>Spider-Man <c>CPowerUp::mHoverHeight</c> (world units), all builds.</summary>
     internal const float SpiderManHoverWorldUnits = 128f;
-
-    /// <summary>THPS <c>CPowerUp::mHoverHeight</c> = 0 (origin rests on the floor).</summary>
-    internal const float ThpsHoverWorldUnits = 0f;
 
     // GetGroundHeight(&mOrgPos, above=512, below=8000): the search window, in world
     // units, around the pickup's origin.

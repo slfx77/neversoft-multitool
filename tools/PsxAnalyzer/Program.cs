@@ -12,6 +12,8 @@ internal class Program
         rootCommand.Subcommands.Add(DumpCommand.Create());
         rootCommand.Subcommands.Add(CompareCommand.Create());
         rootCommand.Subcommands.Add(HexCommand.Create());
+        rootCommand.Subcommands.Add(LitCensusCommand.Create());
+        rootCommand.Subcommands.Add(OverlayCensusCommand.Create());
 
         return rootCommand.Parse(args).Invoke();
     }

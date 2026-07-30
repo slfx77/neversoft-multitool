@@ -59,12 +59,30 @@ public sealed class PsxMeshFile
 
     internal IReadOnlyList<int> MeshToObjectIndex { get; init; } = [];
 
+    private bool? _fullyEngineLit;
+
+    /// <summary>
+    ///     True when EVERY visible-face-bearing mesh in the file is fully
+    ///     engine-lit — the FE-prop signature (control.psx 892/892 lit faces).
+    ///     Mixed files (characters: venom 394/414) stay false even though
+    ///     individual member meshes can be fully lit, so the FE-light bake
+    ///     never splits one character into baked and neutral parts.
+    ///     Invisible-only meshes (trigger volumes, collision proxies — SM2EE
+    ///     hamhead ships 3 alongside its 289/289-lit head) carry no drawable
+    ///     faces and must not veto the file-level bake (fixed 2026-07-29).
+    /// </summary>
+    public bool IsFullyEngineLit =>
+        _fullyEngineLit ??= Meshes.Any(static mesh => mesh.Faces.Count > 0)
+                            && Meshes.Where(static mesh => mesh.Faces.Count > 0)
+                                .All(static mesh => mesh.IsFullyEngineLit);
+
     /// <summary>
     ///     Parses a PSX file for mesh geometry.
     ///     Returns null if the file has no mesh data (texture-only library).
-    ///     <paramref name="bakeColourPulses" /> should be false for level-object
-    ///     banks (<c>*_o.psx</c>), whose palettes stay raw on static export —
-    ///     see <see cref="PsxSurfaceAnimationReader" />.
+    ///     <paramref name="bakeColourPulses" /> stays true for every file
+    ///     class — the engine ticks pulses for env, bank, and items regions
+    ///     alike (see <see cref="PsxSurfaceAnimationReader" />); the flag
+    ///     exists for diagnostics that need the raw serialized palette.
     /// </summary>
     public static PsxMeshFile? Parse(string filePath, bool bakeColourPulses = true)
     {

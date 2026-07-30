@@ -1433,6 +1433,13 @@ def _worldzone_billboard_metadata(primitive):
     return None
 
 
+def _psx_axial_billboard_metadata(primitive):
+    for item in primitive.get("NativeMetadata", []):
+        if item.get("kind") == "psx_axial_billboard":
+            return item
+    return None
+
+
 def _has_draw_order(leaf_meta):
     if leaf_meta is None:
         return False
@@ -1505,6 +1512,29 @@ def _get_or_create_billboard_collection():
     return coll
 
 
+def _get_or_create_sky_collection():
+    """Return (and lazily create) a "NeversoftSky" collection so users can
+    hide the level's sky dome (a giant placed shell around the level) in one
+    click."""
+    scene = bpy.context.scene
+    coll = bpy.data.collections.get("NeversoftSky")
+    if coll is None:
+        coll = bpy.data.collections.new("NeversoftSky")
+        scene.collection.children.link(coll)
+    return coll
+
+
+def _is_sky_primitive(primitive, node, mesh_entry):
+    """True when the converter tagged this geometry as a PSX sky dome — via
+    primitive metadata kind "psx_sky" or the exporter's sky__ name prefix."""
+    for meta in primitive.get("NativeMetadata") or []:
+        if isinstance(meta, dict) and meta.get("kind") == "psx_sky":
+            return True
+    node_name = node.get("Name") or ""
+    mesh_name = mesh_entry.get("Name") or ""
+    return node_name.startswith("sky__") or mesh_name.startswith("sky__")
+
+
 def _apply_billboard_constraint(obj, mesh, billboard_meta):
     """Attach a Track-To constraint so the quad faces the active camera while
     staying upright. The mesh comes in already centered on the pivot AND
@@ -1541,6 +1571,46 @@ def _apply_billboard_constraint(obj, mesh, billboard_meta):
     obj["neversoft_billboard_size"] = list(billboard_meta.get("size", [0.0, 0.0]))
     obj["neversoft_billboard_pivot"] = list(billboard_meta.get("pivot", [0.0, 0.0, 0.0]))
     obj["neversoft_billboard_axis"] = list(billboard_meta.get("axis", [0.0, 0.0, 0.0]))
+
+
+def _apply_axial_billboard_constraint(obj, mesh, billboard_meta):
+    """PSX sprite-vertex quad (kind "psx_axial_billboard"): a billboard that
+    rotates about ONE authored axis to face the camera (the engine re-derives
+    the quad's perpendicular from the projected axis every frame). The
+    converter bakes a head-on facing (quad normal = mesh-local glTF +Z
+    projected perpendicular to the axis), so a Locked Track constraint with
+    the axis locked reproduces the runtime behavior while the axis-locked
+    rotation keeps the quad anchored on its trunk/mast.
+
+    Constraints replace the rotation part of obj.matrix_world, so bake the
+    node's world rotation (the Y_UP_TO_Z_UP swap from the manifest root; the
+    sprite nodes themselves ship identity rotations) into the mesh vertices
+    and keep just translation+scale on the object. Post-bake, the corpus'
+    universally model-Y-vertical axis is object-local Z and the quad's face
+    normal is -Y, so lock_axis='LOCK_Z' + track_axis='TRACK_NEGATIVE_Y'.
+    Corpus-wide every sprite anchor sits on the mesh-local Y axis
+    (psx_sprite_vertex_census.py), so the rotation pivot (the object origin)
+    is always on the anchor line."""
+    axis = billboard_meta.get("axis") or [0.0, 1.0, 0.0]
+    loc, rot, scale = obj.matrix_world.decompose()
+    baked_axis = rot @ Vector((float(axis[0]), float(axis[1]), float(axis[2])))
+    if not (abs(baked_axis.z) >= abs(baked_axis.x)
+            and abs(baked_axis.z) >= abs(baked_axis.y)):
+        # Non-vertical axis (absent from the corpus): keep the static bake.
+        return
+
+    mesh.transform(rot.to_matrix().to_4x4())
+    obj.matrix_world = Matrix.LocRotScale(loc, None, scale)
+
+    target = _get_or_create_billboard_target()
+    constraint = obj.constraints.new(type='LOCKED_TRACK')
+    constraint.target = target
+    constraint.track_axis = 'TRACK_NEGATIVE_Y'
+    constraint.lock_axis = 'LOCK_Z'
+
+    obj["neversoft_billboard_kind"] = "PsxAxial"
+    obj["neversoft_billboard_anchor"] = list(billboard_meta.get("anchor", [0.0, 0.0, 0.0]))
+    obj["neversoft_billboard_axis"] = list(axis)
 
 
 def _object_build_items(manifest):
@@ -1606,14 +1676,28 @@ def _make_armatures(manifest, root):
         bpy.context.collection.objects.link(armature_obj)
 
         # Chain local transforms up the parent to get world bind matrices.
+        # PSX HIER skeletons may store a child BEFORE its parent (Venom's
+        # tongue/jaw/forearm chains, e.g. bone 1 parented to bone 2), so a
+        # single ordered pass would mis-root those bones: their rest heads
+        # land at the bare local offset and every pose stretches the limb
+        # (the v1.3.4-era "stretched face/arm/tongue" report). Resolve
+        # memoized-recursively instead; a parent cycle falls back to root.
         world_binds = [None] * len(bones)
-        for i, bone in enumerate(bones):
-            local = _flat_matrix(bone.get("LocalTransform"))
-            parent_index = bone.get("ParentIndex", -1)
-            if 0 <= parent_index < i and world_binds[parent_index] is not None:
-                world_binds[i] = world_binds[parent_index] @ local
+
+        def _world_bind(index, visiting):
+            if world_binds[index] is not None:
+                return world_binds[index]
+            local = _flat_matrix(bones[index].get("LocalTransform"))
+            parent_index = bones[index].get("ParentIndex", -1)
+            if (0 <= parent_index < len(bones) and parent_index != index
+                    and parent_index not in visiting):
+                world_binds[index] = _world_bind(parent_index, visiting | {index}) @ local
             else:
-                world_binds[i] = local
+                world_binds[index] = local
+            return world_binds[index]
+
+        for i in range(len(bones)):
+            _world_bind(i, {i})
 
         bpy.context.view_layer.objects.active = armature_obj
         bpy.ops.object.mode_set(mode='EDIT')
@@ -1753,9 +1837,15 @@ def _make_objects(manifest, package, package_dir, materials, root, armatures=Non
             _apply_worldzone_blend_offset(obj, leaf_meta)
 
         billboard_meta = _worldzone_billboard_metadata(primitive)
+        axial_billboard_meta = _psx_axial_billboard_metadata(primitive)
         if billboard_meta is not None:
             _apply_billboard_constraint(obj, mesh, billboard_meta)
             _get_or_create_billboard_collection().objects.link(obj)
+        elif axial_billboard_meta is not None:
+            _apply_axial_billboard_constraint(obj, mesh, axial_billboard_meta)
+            _get_or_create_billboard_collection().objects.link(obj)
+        elif _is_sky_primitive(primitive, node, mesh_entry):
+            _get_or_create_sky_collection().objects.link(obj)
         else:
             collection.objects.link(obj)
         if armatures:
@@ -1973,6 +2063,19 @@ def _apply_scene_metadata(manifest):
     scene["neversoft_exporter"] = "NeversoftMultitool"
     scene["neversoft_source_kind"] = manifest.get("SourceKind", "")
     scene["neversoft_native_metadata"] = _json(manifest.get("NativeMetadata", []))
+
+    # Game colours are display-referred: the unlit emission materials carry the
+    # exact colour the console put on screen. Blender's default AgX view
+    # transform is a photographic tonemap for scene-referred light — it crushes
+    # dark saturated art (a measured 2.3x mid-tone luminance drop on Spider-Man's
+    # symbiote gouraud bake, reported as "vertex colors way too dark"). Save the
+    # scene with the Standard transform so opening the .blend shows the same
+    # colours as the GLB path and the in-app viewer.
+    try:
+        scene.view_settings.view_transform = "Standard"
+        scene.view_settings.look = "None"
+    except Exception:
+        pass  # older/renamed OCIO configs keep their default transform
 
 
 def main():

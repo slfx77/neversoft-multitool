@@ -24,6 +24,103 @@ internal static class PsxCoplanarOverlayDetector
     /// </summary>
     internal static IReadOnlyDictionary<PsxFaceInstanceKey, int> FindGroups(PsxMeshFile file)
     {
+        var planes = CollectPlanes(file);
+
+        var planeGroups = new List<HashSet<PsxFaceInstanceKey>>();
+        foreach (var candidates in planes.Values)
+        {
+            var overlays = new HashSet<PsxFaceInstanceKey>();
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                for (var j = i + 1; j < candidates.Count; j++)
+                    ClassifyPair(candidates[i], candidates[j], overlays);
+            }
+
+            if (overlays.Count > 0)
+                planeGroups.Add(overlays);
+        }
+
+        var groups = new Dictionary<PsxFaceInstanceKey, int>();
+        var groupId = 0;
+        foreach (var planeGroup in planeGroups
+                     .OrderBy(static group => group.Min(static key => (key.ObjectIndex, key.FaceIndex))))
+        {
+            foreach (var key in planeGroup)
+                groups[key] = groupId;
+            groupId++;
+        }
+
+        return groups;
+    }
+
+    /// <summary>
+    ///     Finds semi-transparent faces that need ONE extra lift step because
+    ///     another semi-transparent layer of a different texture occupies the
+    ///     same spot on the same plane (SKB2's animated wave sheet over its
+    ///     static water sheet). Both layers get the standard one-step lift in
+    ///     the writer, so without a tie-break they stay coplanar and z-fight.
+    ///     Overlap is decided PER FACE PAIR (in-plane AABB intersection), never
+    ///     from group union bounds — union bounds chain side-by-side sign
+    ///     panels and scattered decals into deep stacks (retail lda1_g's wall
+    ///     of 9 alternating panels floated 2+ units under the union model).
+    ///     Only the actually-overlapping faces of the TOP layer lift, and the
+    ///     extra lift is capped at one step. The top layer of a pair is the
+    ///     sole texture-wibble-bound one when exactly one animates (a
+    ///     scrolling overlay is authored to sit on its base); otherwise the
+    ///     group with the lowest (object, face) key wins — the PS1 ordering
+    ///     table PREPENDS primitives into a bucket and draws the bucket
+    ///     head-first, so the first-inserted face paints LAST at equal depth,
+    ///     i.e. on top.
+    /// </summary>
+    internal static IReadOnlyDictionary<PsxFaceInstanceKey, int> FindSemiTransparentLayerSteps(
+        PsxMeshFile file)
+    {
+        Dictionary<PsxFaceInstanceKey, int>? steps = null;
+        foreach (var candidates in CollectPlanes(file).Values)
+        {
+            var layerGroups = candidates
+                .Where(static candidate => candidate.Face.IsSemiTransparent)
+                .GroupBy(static candidate => (candidate.Face.TextureHash, candidate.Face.IsTextured))
+                .Select(static group => group.ToList())
+                .ToList();
+            if (layerGroups.Count < 2)
+                continue;
+
+            for (var i = 0; i < layerGroups.Count; i++)
+            {
+                for (var j = i + 1; j < layerGroups.Count; j++)
+                {
+                    var top = SelectTopLayer(layerGroups[i], layerGroups[j]);
+                    var bottom = ReferenceEquals(top, layerGroups[i]) ? layerGroups[j] : layerGroups[i];
+                    foreach (var candidate in top.Where(candidate => bottom.Any(other =>
+                                 BoundsOverlap((candidate.Min, candidate.Max), (other.Min, other.Max)))))
+                    {
+                        steps ??= [];
+                        steps[candidate.Key] = 2;
+                    }
+                }
+            }
+        }
+
+        return steps ?? (IReadOnlyDictionary<PsxFaceInstanceKey, int>)EmptySteps;
+    }
+
+    private static List<Candidate> SelectTopLayer(List<Candidate> first, List<Candidate> second)
+    {
+        var firstAnimated = first.Any(static candidate => candidate.Face.TextureWibble != null);
+        var secondAnimated = second.Any(static candidate => candidate.Face.TextureWibble != null);
+        if (firstAnimated != secondAnimated)
+            return firstAnimated ? first : second;
+
+        var firstKey = first.Min(static candidate => (candidate.Key.ObjectIndex, candidate.Key.FaceIndex));
+        var secondKey = second.Min(static candidate => (candidate.Key.ObjectIndex, candidate.Key.FaceIndex));
+        return firstKey.CompareTo(secondKey) <= 0 ? first : second;
+    }
+
+    private static readonly Dictionary<PsxFaceInstanceKey, int> EmptySteps = [];
+
+    private static Dictionary<PlaneKey, List<Candidate>> CollectPlanes(PsxMeshFile file)
+    {
         var planes = new Dictionary<PlaneKey, List<Candidate>>();
         for (var objectIndex = 0; objectIndex < file.Objects.Count; objectIndex++)
         {
@@ -56,31 +153,42 @@ internal static class PsxCoplanarOverlayDetector
             }
         }
 
-        var planeGroups = new List<HashSet<PsxFaceInstanceKey>>();
-        foreach (var candidates in planes.Values)
-        {
-            var overlays = new HashSet<PsxFaceInstanceKey>();
-            for (var i = 0; i < candidates.Count; i++)
-            {
-                for (var j = i + 1; j < candidates.Count; j++)
-                    ClassifyPair(candidates[i], candidates[j], overlays);
-            }
+        return planes;
+    }
 
-            if (overlays.Count > 0)
-                planeGroups.Add(overlays);
+    private static bool IsExactTwin(Candidate first, Candidate second)
+    {
+        const float epsilon = 0.01f;
+        return Vector3.Distance(first.Min, second.Min) < epsilon
+               && Vector3.Distance(first.Max, second.Max) < epsilon
+               && MathF.Abs(first.Area - second.Area) < first.Area * 0.001f + epsilon;
+    }
+
+    private static bool BoundsOverlap(
+        (Vector3 Min, Vector3 Max) first,
+        (Vector3 Min, Vector3 Max) second)
+    {
+        // Per-axis penetration. A coplanar pair has ~zero depth along the
+        // plane normal, so demand REAL overlap on at least two axes (the
+        // in-plane ones) and non-separation on the third. Edge-adjacent
+        // panels touch with ~zero in-plane penetration and stay independent
+        // (retail levels tile walls with alternating sign panels — lifting
+        // those produced visible floating panels), while offset tile grids
+        // (SKB2's two water sheets) genuinely interpenetrate.
+        const float touchTolerance = 0.1f;
+        const float realOverlap = 0.25f;
+        var overlapAxes = 0;
+        for (var axis = 0; axis < 3; axis++)
+        {
+            var penetration = MathF.Min(first.Max[axis], second.Max[axis])
+                              - MathF.Max(first.Min[axis], second.Min[axis]);
+            if (penetration < -touchTolerance)
+                return false;
+            if (penetration > realOverlap)
+                overlapAxes++;
         }
 
-        var groups = new Dictionary<PsxFaceInstanceKey, int>();
-        var groupId = 0;
-        foreach (var planeGroup in planeGroups
-                     .OrderBy(static group => group.Min(static key => (key.ObjectIndex, key.FaceIndex))))
-        {
-            foreach (var key in planeGroup)
-                groups[key] = groupId;
-            groupId++;
-        }
-
-        return groups;
+        return overlapAxes >= 2;
     }
 
     private static bool TryCreateCandidate(
@@ -123,7 +231,15 @@ internal static class PsxCoplanarOverlayDetector
             (int)MathF.Round(normal.Z * 1000f),
             (int)MathF.Round(distance * 100f));
         var centroid = points.Aggregate(Vector3.Zero, static (sum, point) => sum + point) / points.Length;
-        candidate = new Candidate(key, face, points, area, centroid);
+        var min = points[0];
+        var max = points[0];
+        for (var i = 1; i < points.Length; i++)
+        {
+            min = Vector3.Min(min, points[i]);
+            max = Vector3.Max(max, points[i]);
+        }
+
+        candidate = new Candidate(key, face, points, area, centroid, min, max);
         return true;
     }
 
@@ -133,17 +249,72 @@ internal static class PsxCoplanarOverlayDetector
         HashSet<PsxFaceInstanceKey> overlays)
     {
         if (first.Face.TextureHash == second.Face.TextureHash
-            && first.Face.IsTextured == second.Face.IsTextured)
+            && first.Face.IsTextured == second.Face.IsTextured
+            && (IsExactTwin(first, second) || !BoundsOverlap((first.Min, first.Max), (second.Min, second.Max))))
+        {
+            // Same texture: exact whole-face twins (duplicated objects draw
+            // the identical fragments — stable, no shimmer) and edge-adjacent
+            // tiling stay untouched. Same-texture DIFFERENT-shape overlaps
+            // (l2a1's start rooftop patches its gravel with offset quads of
+            // the same texture) z-fight like any other pair and fall through.
             return;
+        }
 
         var smaller = first.Area <= second.Area ? first : second;
         var larger = ReferenceEquals(smaller, first) ? second : first;
-        if (smaller.Area >= larger.Area * 0.95f
-            || smaller.Face.IsSemiTransparent
-            || !PointInsideFace(smaller.Centroid, larger.Points))
+
+        // EITHER member being semi-transparent ends the pair here: every
+        // semi-transparent face lifts along its position-averaged normal in
+        // PsxGeometryWriter.AddPsxFace (see the lift block there), so the pair
+        // is already separated GEOMETRICALLY and a draw-order flag on top would
+        // double-resolve it. This deliberately diverges from the pre-2026-07-29
+        // rule, which tested only the SMALLER member and therefore flagged the
+        // opaque partner of a semi-transparent overlay: SKB2.PSX 23 -> 1 flags,
+        // skware 34 -> 31, skmar/skmar_2/SKMAR -9 each, lda1_g -2 (several at
+        // ~1.0 shared-area ratio). The counts are pinned per file by
+        // PsxCoplanarOverlayCensusTests so the change cannot be silent again.
+        // NOT yet established: that the lift always carries the semi-transparent
+        // face to the FRONT of what it covers rather than into it (see the OPEN
+        // note in CLAUDE.md).
+        if (smaller.Face.IsSemiTransparent || larger.Face.IsSemiTransparent)
             return;
 
-        overlays.Add(smaller.Key);
+        if (smaller.Area < larger.Area * 0.95f)
+        {
+            // The classic decal: a clearly smaller face authored on a base.
+            if (PointInsideFace(smaller.Centroid, larger.Points))
+                overlays.Add(smaller.Key);
+            return;
+        }
+
+        // Near-equal footprints: baked light/shadow duplicates — retail skmar
+        // ships floor sections twice, day texture + shadowed texture on the
+        // identical plane (4 such pairs per build), which z-fight as stripes.
+        // No size cue exists, so use the PS1 ordering-table rule: the bucket
+        // PREPENDS primitives and draws head-first, so the earliest-inserted
+        // face paints LAST at equal depth, i.e. on top — that face becomes the
+        // overlay.
+        //
+        // Real INTERIOR overlap is required, measured EXACTLY (2026-07-30).
+        // AABB penetration alone passes for diagonal faces that merely share an
+        // edge: on l2a1_g 296 same-texture pairs reach this branch and 266 of
+        // them have zero polygon intersection, which is how the AABB-only rule
+        // flagged 319 faces there (294-312 of them false). A centroid-inside
+        // test removes those but silently drops PARTIAL overlaps where neither
+        // centroid lands inside its partner — THPS2 DC SKPH.PSX loses 5 real
+        // pairs (up to 0.32 of the smaller face, 5,653 units^2) and THPS1
+        // skmall.psx 2 more (0.23, 22,595 units^2), regions that then z-fight.
+        // So clip the two coplanar polygons against each other and require a
+        // meaningful shared area instead: exact for both failure classes.
+        if (!BoundsOverlap((first.Min, first.Max), (second.Min, second.Max))
+            || !HasInteriorOverlap(first, second))
+        {
+            return;
+        }
+
+        var firstKey = (first.Key.ObjectIndex, first.Key.FaceIndex);
+        var secondKey = (second.Key.ObjectIndex, second.Key.FaceIndex);
+        overlays.Add(firstKey.CompareTo(secondKey) <= 0 ? first.Key : second.Key);
     }
 
     private static bool PointInsideFace(Vector3 point, Vector3[] face)
@@ -173,6 +344,180 @@ internal static class PsxCoplanarOverlayDetector
         return u >= -tolerance && v >= -tolerance && u + v <= 1f + tolerance;
     }
 
+    /// <summary>
+    ///     Smallest shared area that counts as a real overlap rather than an
+    ///     edge-adjacency artifact, as a fraction of the smaller face. Edge- and
+    ///     corner-adjacent faces clip to zero area, or to a float-noise sliver
+    ///     — hence a floor rather than <c>&gt; 0</c>; the genuine partial
+    ///     overlaps this must catch start at 19% of the smaller face (THPS1
+    ///     skmall 0.23, THPS2 DC SKPH 0.32).
+    /// </summary>
+    internal const float MinimumSharedAreaFraction = 0.01f;
+
+    /// <summary>
+    ///     Exact shared area of two COPLANAR convex faces, as a fraction of the
+    ///     smaller one (0 when they only touch along an edge or a corner). Both
+    ///     project onto the plane's dominant axis pair and clip against each
+    ///     other (Sutherland-Hodgman — valid because PSX faces are convex tris
+    ///     and quads). Shared by the near-equal overlay branch, the
+    ///     <c>PsxAnalyzer st-lift-audit</c> diagnostic, and the unit tests, so
+    ///     there is one implementation of the geometry rather than three.
+    /// </summary>
+    internal static float CoplanarSharedAreaFraction(Vector3[] first, Vector3[] second)
+    {
+        var droppedAxis = DominantPlaneAxis(first);
+        Span<Vector2> firstPolygon = stackalloc Vector2[4];
+        Span<Vector2> secondPolygon = stackalloc Vector2[4];
+        var firstCount = ProjectPerimeter(first, droppedAxis, firstPolygon);
+        var secondCount = ProjectPerimeter(second, droppedAxis, secondPolygon);
+        firstPolygon = firstPolygon[..firstCount];
+        secondPolygon = secondPolygon[..secondCount];
+        EnsureCounterClockwise(firstPolygon);
+        EnsureCounterClockwise(secondPolygon);
+
+        var smallerArea = MathF.Min(PolygonArea(firstPolygon), PolygonArea(secondPolygon));
+        if (smallerArea <= 1e-4f)
+            return 0f;
+
+        return ConvexIntersectionArea(firstPolygon, secondPolygon) / smallerArea;
+    }
+
+    private static bool HasInteriorOverlap(Candidate first, Candidate second)
+    {
+        return CoplanarSharedAreaFraction(first.Points, second.Points)
+               >= MinimumSharedAreaFraction;
+    }
+
+    private static float ConvexIntersectionArea(
+        ReadOnlySpan<Vector2> subject,
+        ReadOnlySpan<Vector2> clip)
+    {
+        Span<Vector2> current = stackalloc Vector2[16];
+        Span<Vector2> next = stackalloc Vector2[16];
+        subject.CopyTo(current);
+        var count = subject.Length;
+
+        for (var edge = 0; edge < clip.Length && count >= 3; edge++)
+        {
+            var start = clip[edge];
+            var end = clip[(edge + 1) % clip.Length];
+            count = ClipAgainstEdge(current[..count], start, end, next);
+            next[..count].CopyTo(current);
+        }
+
+        return count < 3 ? 0f : PolygonArea(current[..count]);
+    }
+
+    private static int ClipAgainstEdge(
+        ReadOnlySpan<Vector2> input,
+        Vector2 edgeStart,
+        Vector2 edgeEnd,
+        Span<Vector2> output)
+    {
+        var count = 0;
+        for (var i = 0; i < input.Length; i++)
+        {
+            var currentPoint = input[i];
+            var nextPoint = input[(i + 1) % input.Length];
+            var currentSide = SideOfEdge(edgeStart, edgeEnd, currentPoint);
+            var nextSide = SideOfEdge(edgeStart, edgeEnd, nextPoint);
+
+            if (currentSide >= 0f && count < output.Length)
+                output[count++] = currentPoint;
+
+            if (currentSide >= 0f == nextSide >= 0f)
+                continue;
+
+            var span = currentSide - nextSide;
+            if (MathF.Abs(span) < 1e-12f || count >= output.Length)
+                continue;
+
+            output[count++] = Vector2.Lerp(currentPoint, nextPoint, currentSide / span);
+        }
+
+        return count;
+    }
+
+    private static float SideOfEdge(Vector2 edgeStart, Vector2 edgeEnd, Vector2 point)
+    {
+        var edge = edgeEnd - edgeStart;
+        var offset = point - edgeStart;
+        return edge.X * offset.Y - edge.Y * offset.X;
+    }
+
+    private static float PolygonArea(ReadOnlySpan<Vector2> polygon)
+    {
+        var doubled = 0f;
+        for (var i = 0; i < polygon.Length; i++)
+        {
+            var current = polygon[i];
+            var next = polygon[(i + 1) % polygon.Length];
+            doubled += current.X * next.Y - next.X * current.Y;
+        }
+
+        return MathF.Abs(doubled) * 0.5f;
+    }
+
+    private static void EnsureCounterClockwise(Span<Vector2> polygon)
+    {
+        var doubled = 0f;
+        for (var i = 0; i < polygon.Length; i++)
+        {
+            var current = polygon[i];
+            var next = polygon[(i + 1) % polygon.Length];
+            doubled += current.X * next.Y - next.X * current.Y;
+        }
+
+        if (doubled >= 0f)
+            return;
+
+        for (int head = 0, tail = polygon.Length - 1; head < tail; head++, tail--)
+            (polygon[head], polygon[tail]) = (polygon[tail], polygon[head]);
+    }
+
+    /// <summary>
+    ///     Projects a face's stored points into the plane's 2D basis in PERIMETER
+    ///     order. PSX quads are stored in strip order (0,1,2,3), so the boundary
+    ///     walk is 0,1,3,2 — feeding the raw order to a polygon clipper yields a
+    ///     self-intersecting bowtie whose area is meaningless.
+    /// </summary>
+    private static int ProjectPerimeter(Vector3[] points, int droppedAxis, Span<Vector2> destination)
+    {
+        if (points.Length >= 4)
+        {
+            destination[0] = ProjectPoint(points[0], droppedAxis);
+            destination[1] = ProjectPoint(points[1], droppedAxis);
+            destination[2] = ProjectPoint(points[3], droppedAxis);
+            destination[3] = ProjectPoint(points[2], droppedAxis);
+            return 4;
+        }
+
+        for (var i = 0; i < 3; i++)
+            destination[i] = ProjectPoint(points[i], droppedAxis);
+
+        return 3;
+    }
+
+    private static Vector2 ProjectPoint(Vector3 point, int droppedAxis)
+    {
+        return droppedAxis switch
+        {
+            0 => new Vector2(point.Y, point.Z),
+            1 => new Vector2(point.X, point.Z),
+            _ => new Vector2(point.X, point.Y),
+        };
+    }
+
+    private static int DominantPlaneAxis(Vector3[] points)
+    {
+        var normal = Vector3.Cross(points[1] - points[0], points[2] - points[0]);
+        var x = MathF.Abs(normal.X);
+        var y = MathF.Abs(normal.Y);
+        var z = MathF.Abs(normal.Z);
+        if (x >= y && x >= z) return 0;
+        return y >= z ? 1 : 2;
+    }
+
     private static float FirstSignificantComponent(Vector3 value)
     {
         if (MathF.Abs(value.X) > 1e-6f) return value.X;
@@ -187,5 +532,7 @@ internal static class PsxCoplanarOverlayDetector
         PsxFace Face,
         Vector3[] Points,
         float Area,
-        Vector3 Centroid);
+        Vector3 Centroid,
+        Vector3 Min,
+        Vector3 Max);
 }

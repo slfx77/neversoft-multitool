@@ -7,6 +7,17 @@ internal static class PsxMeshSemantics
     internal const ushort StitchSourceType = 0x0001;
     internal const ushort StitchedReferenceType = 0x0002;
 
+    /// <summary>
+    ///     Vertex type bit4: a screen-expanded "sprite" corner. The stored
+    ///     fields are NOT a position — X/Y are byte offsets (index × 8) of the
+    ///     anchor and axis-mate vertices in the same mesh's vertex array, and Z
+    ///     is the signed perpendicular half-width (decomp-verified 2026-07-29,
+    ///     M3dAsm_TransformAndOutcodeBlockVertices @0x80099728, handler
+    ///     0x8009950C — byte-identical in all nine PS1-era exes). See
+    ///     <see cref="Conversion.PsxSpriteVertexResolver" /> for the expansion.
+    /// </summary>
+    internal const ushort SpriteVertexTypeBit = 0x0010;
+
     internal static bool IsExactStitchSource(ushort type)
     {
         return type == StitchSourceType;
@@ -15,6 +26,11 @@ internal static class PsxMeshSemantics
     internal static bool IsExactStitchedReference(ushort type)
     {
         return type == StitchedReferenceType;
+    }
+
+    internal static bool IsSpriteVertex(ushort type)
+    {
+        return (type & SpriteVertexTypeBit) != 0;
     }
 
     /// <summary>

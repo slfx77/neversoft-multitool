@@ -251,6 +251,13 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
         ResetPlaybackPosition();
     }
 
+    /// <summary>Applies a 0..1 volume to the active player (if any).</summary>
+    public void SetVolume(double volume)
+    {
+        if (_mediaPlayer != null)
+            _mediaPlayer.Volume = volume;
+    }
+
     public void Seek(double sliderValue)
     {
         if (_updatingSlider || _mediaPlayer == null)
@@ -410,7 +417,8 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
 
         _mediaPlayer = new MediaPlayer
         {
-            Source = source
+            Source = source,
+            Volume = _view.VolumeSlider.Value / 100.0
         };
         _mediaPlayer.MediaEnded += MediaPlayer_MediaEnded;
         _mediaPlayer.MediaFailed += MediaPlayer_MediaFailed;
@@ -505,6 +513,7 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
         _updatingSlider = true;
         _view.PlaybackSlider.Value = session.Position.TotalSeconds / duration.TotalSeconds * 100;
         _updatingSlider = false;
+        _view.PlaybackTooltipConverter.DurationSeconds = duration.TotalSeconds;
         _view.CurrentTimeText.Text = VideoConverterTabOperations.FormatTime(session.Position);
         _view.TotalTimeText.Text = VideoConverterTabOperations.FormatTime(duration);
     }
@@ -522,8 +531,9 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
         _updatingSlider = true;
         _view.PlaybackSlider.Value = 0;
         _updatingSlider = false;
-        _view.CurrentTimeText.Text = "0:00";
-        _view.TotalTimeText.Text = "0:00";
+        _view.PlaybackTooltipConverter.DurationSeconds = 0;
+        _view.CurrentTimeText.Text = "00:00";
+        _view.TotalTimeText.Text = "00:00";
     }
 
     private void UpdatePlayPauseIcon(bool isPlaying)

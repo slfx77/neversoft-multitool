@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Settings;
@@ -69,6 +71,18 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         // Selected here rather than in XAML so SelectionChanged can't fire
         // mid-InitializeComponent against not-yet-created elements.
         PanelSelector.SelectedItem = ExportPanelItem;
+
+        // Kept alive by their Click subscriptions on the panel buttons.
+        _ = new PanelCollapseController(
+            FileListColumn, LeftSplitter, LeftPanelContent, LeftCollapsedStrip,
+            CollapseLeftPanelButton, ExpandLeftPanelButton);
+        _ = new PanelCollapseController(
+            SidePanelColumn, RightSplitter, RightPanelContent, RightCollapsedStrip,
+            CollapseRightPanelButton, ExpandRightPanelButton);
+
+        // Kept alive by its SizeChanged/width-callback subscriptions.
+        _ = new PanelWidthClamp(
+            ContentColumnsGrid, FileListColumn, ViewerColumn, SidePanelColumn);
     }
 
     public void Dispose()
@@ -238,12 +252,18 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     private void UpdateUiState()
     {
         var hasFiles = _items.Count > 0;
-        var hasChecked = _items.Any(i => i.IsChecked);
+        var checkedCount = _items.Count(i => i.IsChecked);
         var hasFormat = ExportGlbCheckbox.IsChecked == true || ExportBlendCheckbox.IsChecked == true;
 
         EmptyStatePanel.Visibility = hasFiles ? Visibility.Collapsed : Visibility.Visible;
         FileListCard.Visibility = hasFiles ? Visibility.Visible : Visibility.Collapsed;
-        ConvertButton.IsEnabled = hasChecked && hasFormat;
+        ConvertButton.Content = checkedCount switch
+        {
+            0 => "Convert files",
+            1 => "Convert 1 file",
+            _ => $"Convert {checkedCount} files"
+        };
+        ConvertButton.IsEnabled = checkedCount > 0 && hasFormat;
         UpdateWorldzoneExportSettingsVisibility();
         UpdateLevelObjectExportSettingsVisibility();
         UpdateRenderButtons();
@@ -357,19 +377,35 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         VisibilityGroupsList.Children.Clear();
 
         foreach (var group in groups)
-        {
             _visibilityOverrides[group.Id] = group.IsEnabled;
-            var toggle = new CheckBox
+
+        foreach (var (header, sectionGroups) in
+                 MeshConverterTabVisibilitySections.Build(groups))
+        {
+            VisibilityGroupsList.Children.Add(new TextBlock
             {
-                Content = group.Label,
-                IsChecked = group.IsEnabled,
-                MinWidth = 0,
-                Tag = group
-            };
-            if (!string.IsNullOrWhiteSpace(group.SourceReference))
-                ToolTipService.SetToolTip(toggle, group.SourceReference);
-            toggle.Click += VisibilityGroupToggle_Click;
-            VisibilityGroupsList.Children.Add(toggle);
+                Text = header,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground =
+                    (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                Margin = new Thickness(0, 6, 0, 0)
+            });
+
+            foreach (var group in sectionGroups)
+            {
+                var toggle = new CheckBox
+                {
+                    Content = group.Label,
+                    IsChecked = group.IsEnabled,
+                    MinWidth = 0,
+                    Tag = group
+                };
+                if (!string.IsNullOrWhiteSpace(group.SourceReference))
+                    ToolTipService.SetToolTip(toggle, group.SourceReference);
+                toggle.Click += VisibilityGroupToggle_Click;
+                VisibilityGroupsList.Children.Add(toggle);
+            }
         }
 
         VisibilityGroupsStatusText.Text = groups.Count == 0

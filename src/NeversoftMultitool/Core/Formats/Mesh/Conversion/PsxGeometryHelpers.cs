@@ -17,19 +17,24 @@ internal static class PsxGeometryHelpers
         ushort version,
         PsxMesh mesh,
         PsxFace face,
-        Vector4[]? gouraudPalette)
+        Vector4[]? gouraudPalette,
+        bool neutralizeLitFaces = true)
     {
-        // Spider-Man PC derives a runtime-lighting bit by aggregating native
-        // face flags (loader 0x0045377A-0x004537F2), then tests that bit in the
-        // model renderer at 0x00473FDF-0x00473FE9. The dynamically lit path
-        // bypasses flat face RGB and RGBs palette indices. Neutral vertex
-        // modulation lets glTF lighting shade the supplied normals. Exporting
-        // the bypassed values creates rainbow bands on models such as Jameson.
-        if (version == 0x06 && mesh.UsesDynamicLighting)
+        // Engine-lit faces: the PS1 lit path MULTIPLIES the authored colours
+        // by the normal-derived light (GTE DPCL, ProcessPolys helpers
+        // 0x8009A6D4/0x8009A6FC — authored vertex colour × lit(N)). The
+        // character path still neutralizes (per-level light rigs vary and the
+        // viewer's own lighting approximates them well — the venom/spidey
+        // verified look); the non-character prop path passes false and bakes
+        // the FE light against the authored albedo instead (control.psx's
+        // darker thumbsticks/bumpers are dark albedo × top-lit grey).
+        if (IsEngineLitFace(version, mesh, face) && neutralizeLitFaces)
             return (Vector4.One, Vector4.One, Vector4.One, Vector4.One);
 
         return ComputePsxFaceColors(version, face, gouraudPalette);
     }
+
+
 
     internal static (Vector4 C0, Vector4 C1, Vector4 C2, Vector4 C3) ComputePsxFaceColors(
         ushort version,
@@ -72,6 +77,73 @@ internal static class PsxGeometryHelpers
             ? Vector4.One
             : ToFlatColor(version, face);
         return (flat, flat, flat, flat);
+    }
+
+    /// <summary>
+    ///     True when the ENGINE computes this face's colours at runtime from
+    ///     its normals instead of drawing the serialized RGBs. Spider-Man PC
+    ///     (v6) derives a whole-mesh lighting bit by aggregating native face
+    ///     flags (loader 0x0045377A-0x004537F2) and tests it in the model
+    ///     renderer at 0x00473FDF-0x00473FE9. The PS1 engine lights the same
+    ///     way but PER FACE: the loader ORs face word0 into SModel.Flags
+    ///     (psx_model_load_format.md §5.3), M3d_Render loads the light/colour
+    ///     matrices when model bit 2 (or item flag 0x80) is set, and
+    ///     ProcessPolys draws faces whose flag bit 2 selects the lit primitive
+    ///     variant via M3dAsm_GetDynamicLighting (thps2-psx-proto M3D.cpp
+    ///     ~1041). Characters are typically mixed (venom 394/414 lit, docock
+    ///     371/539), so the unlit remainder keeps its authored colours —
+    ///     census: tools/PsxAnalyzer lit-census (levels/pickups carry ZERO lit
+    ///     faces). Lit faces also export WITHOUT the PS1 packet colour so the
+    ///     viewer's PS1-fidelity path falls back to normals-lit shading — the
+    ///     in-game pad's darker thumbsticks/bumpers are runtime lighting, and
+    ///     the unlit-packet path rendered them uniformly flat.
+    /// </summary>
+    internal static bool IsEngineLitFace(ushort version, PsxMesh mesh, PsxFace face)
+    {
+        if (version == 0x06)
+            return mesh.UsesDynamicLighting;
+
+        return mesh.UsesDynamicLighting && (face.Flags & 0x0004) != 0;
+    }
+
+    /// <summary>
+    ///     The FE preview light (THPS2 final table entry @0x800B97BC = proto
+    ///     Skater_CreateLight 0x800C4DA0) applied by the engine's lit path to
+    ///     FE props: monochrome ambient 2176/4096 plus a light illuminating
+    ///     up-facing normals at 2944/4096 and down-facing at 640/4096
+    ///     (glancing/back contribution 320/4096 omitted — backface-culled).
+    ///     Input is the emitted glTF-space normal (+Y up).
+    /// </summary>
+    internal static float ComputeFeLightIntensity(Vector3 gltfNormal)
+    {
+        const float ambient = 2176f / 4096f;
+        const float fromAbove = 2944f / 4096f;
+        const float fromBelow = 640f / 4096f;
+        return ambient
+               + fromAbove * MathF.Max(0f, gltfNormal.Y)
+               + fromBelow * MathF.Max(0f, -gltfNormal.Y);
+    }
+
+    /// <summary>
+    ///     authored albedo × FE light for a lit face corner — the engine's
+    ///     DPCL multiply with the FE preview light values. Textured faces sit
+    ///     in the 128-neutral modulation domain and clamp at the overbright
+    ///     packet ceiling (2.0); untextured faces are display-domain 0..1
+    ///     (ToFlatColor /255) and clamp at 1.0 — the console saturates their
+    ///     per-vertex result at 255 (fixed 2026-07-29: the uniform 2.0 clamp
+    ///     shipped >1.0 flat colours that rendered brighter than hardware).
+    /// </summary>
+    internal static Vector4 BakeFeLight(PsxMesh mesh, PsxFace face, int slot, Vector4 color)
+    {
+        var vertexIndex = GetPsxFaceVertexIndex(face, slot);
+        var normal = ComputePsxVertexNormal(mesh, face, vertexIndex);
+        var intensity = ComputeFeLightIntensity(normal);
+        var ceiling = face.IsTextured ? 2f : 1f;
+        return new Vector4(
+            MathF.Min(color.X * intensity, ceiling),
+            MathF.Min(color.Y * intensity, ceiling),
+            MathF.Min(color.Z * intensity, ceiling),
+            color.W);
     }
 
     private static Vector4 ResolvePaletteColor(
@@ -258,7 +330,7 @@ internal static class PsxGeometryHelpers
 
     /// <summary>
     ///     Recovers the raw PS1 packet bytes from the native-domain colour
-    ///     returned by <see cref="ComputePsxFaceColors(ushort, PsxMesh, PsxFace, Vector4[])" />.
+    ///     returned by <see cref="ComputePsxFaceColors(ushort, PsxFace, Vector4[])" />.
     ///     Textured primitives use 128 as the neutral multiplier, whereas
     ///     untextured primitives already use ordinary 0..255 display RGB.
     /// </summary>
@@ -465,6 +537,18 @@ internal static class PsxGeometryHelpers
             return (stream.ToArray(), markers.HasOpaque);
         }
 
+        // No runtime CLUT markers = a 16-bit (DC/PC v6 PowerVR) texture whose
+        // alpha is authored per-texel. CUTOUT art — anything with genuinely
+        // transparent holes, whether hard 1555 (alpha 0/255) or antialiased
+        // 4444 wire edges (alpha 0 + graduated) — keeps its authored alpha on
+        // an ABR-0 face: DC hardware source-alpha-blends the authored values,
+        // so the PS1-style uniform 50% wash rendered chain-link fences far
+        // too transparent (user report, THPS2 DC; SKPH's fences are 4444 with
+        // graduated wire edges). Full-coverage art (glass sheets, no holes)
+        // keeps the 50% average bake.
+        if (blendRate == 0 && HasAuthoredCutoutAlpha(image))
+            return (pngBytes, false);
+
         var converted = blendRate switch
         {
             1 => MeshTextureHelper.ConvertLuminanceToAlpha(pngBytes),
@@ -474,6 +558,27 @@ internal static class PsxGeometryHelpers
             _ => MeshTextureHelper.ScaleTextureAlpha(pngBytes, 0.5f)
         };
         return (converted, false);
+    }
+
+    private static bool HasAuthoredCutoutAlpha(Image<Rgba32> image)
+    {
+        var hasHole = false;
+        var hasVisible = false;
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height && !(hasHole && hasVisible); y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    if (row[x].A == 0)
+                        hasHole = true;
+                    else
+                        hasVisible = true;
+                }
+            }
+        });
+        return hasHole && hasVisible;
     }
 
     private static (bool HasOpaque, bool HasStp) FindRuntimePaletteMarkers(Image<Rgba32> image)

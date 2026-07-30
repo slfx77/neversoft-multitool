@@ -24,6 +24,9 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
     // current parser before re-locking.
     // Hashes re-locked 2026-07-20: the snapshot gained a per-mesh NameHash
     // field (level-object placement diagnostics); all counts unchanged.
+    // Hashes re-locked 2026-07-28: the snapshot gained a per-face
+    // HasTextureWibble field (SKB2 coplanar water-layer diagnostics); all
+    // counts unchanged.
     public static TheoryData<string, ushort, bool, int, int, int, int, int, int, int, string>
         LockedCharacterFixtures =>
         new()
@@ -31,22 +34,22 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
             {
                 @"Apocalypse (1998-11-17, PSX - Final)\CD\bruce.psx",
                 0x0003, false, 15, 15, 329, 278, 74, 76, 474,
-                "308a92946e12d977e55708c1eb251d1b369edcdde844cc54327e5d957a029c79"
+                "8ad98c736b64e3bb8bc887ad07b8c334020dd641e00b8b527f82e7a3dc4c09dc"
             },
             {
                 @"Spider-Man (2000-9-1, PSX - Final)\CD\blackcat.psx",
                 0x0004, true, 18, 18, 298, 338, 74, 79, 434,
-                "34573c654323826caf061b4576a5edeacb414ab87fcc02686c64a7b72dd89a6a"
+                "83e69c7184c26ad7837da6b74bb47339edaf10e05e2aabbe6d81edd201240516"
             },
             {
                 @"Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)\HAWK2.PSX",
                 0x0004, true, 19, 19, 402, 376, 79, 85, 573,
-                "bce8a07dd7a43b4bbb03ba3be28fbf030b566bdcbfc35280f91a64eaa99a97b2"
+                "1c2156df7c54f8d72b3f0e48bfd9f697d0235a9f0daad1e50b841f4dc15af238"
             },
             {
                 @"Spider-Man (2001-2-14, DC - Prototype)\BLACKCAT.PSX",
                 0x0006, true, 18, 18, 762, 1151, 96, 103, 1303,
-                "d80bcbf663c190758af184d2f9fa08d13059a13aa904e1bcd4fc0bb17459cd31"
+                "f1cd1d144faf455b6ed73c04752c691d4afef9aa39896e6b8742539eb5561745"
             }
         };
 

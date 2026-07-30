@@ -592,8 +592,12 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
         // openable above as a set of model definitions.
         // Re-pinned 2026-07-23: +316 from the POWERUP layer's items.psx pickups
         // (folded into the placed-object total below).
-        Assert.Equal(2_495, document.TriangleCount);
-        const int placedObjectTriangleCount = 2_043;
+        // Re-pinned 2026-07-29: +40 from ghost emission — bank mesh 17 (hash
+        // 0x59D3C70F, all faces loader-invisible) is placed by PLATFORM node
+        // 107 and now renders as the engine's forced-blend apparition (folded
+        // into the placed-object total below).
+        Assert.Equal(2_535, document.TriangleCount);
+        const int placedObjectTriangleCount = 2_083;
         Assert.Equal(
             placedObjectTriangleCount,
             document.TriangleCount - (authoredTriangleCount - initiallyHiddenTriangles));

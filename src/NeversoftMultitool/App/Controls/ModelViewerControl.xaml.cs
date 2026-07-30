@@ -109,8 +109,9 @@ public sealed partial class ModelViewerControl : UserControl
 
     /// <summary>
     ///     Load a GLB into the viewer. Animated models start playing.
-    ///     All meshes default to first-person Fly mode. <paramref name="isLevel" />
-    ///     remains available to page-side level behavior such as walk tuning.
+    ///     <paramref name="isLevel" /> selects the default camera mode (levels
+    ///     start in first-person Fly, characters/props in Orbit) and drives
+    ///     page-side level behavior such as walk tuning.
     ///     <paramref name="preserveCamera" /> keeps the current page-side pose
     ///     when rebuilding the same mesh with different visibility settings.
     /// </summary>

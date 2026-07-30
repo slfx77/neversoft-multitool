@@ -194,9 +194,7 @@ internal static class VideoConverterTabOperations
 
     public static string FormatTime(TimeSpan ts)
     {
-        return ts.TotalMinutes >= 60
-            ? $"{(int)ts.TotalHours}:{ts.Minutes:D2}:{ts.Seconds:D2}"
-            : $"{(int)ts.TotalMinutes}:{ts.Seconds:D2}";
+        return TimeDisplay.Format(ts);
     }
 
     public static string FormatFileSize(long bytes)

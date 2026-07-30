@@ -30,16 +30,38 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
         // Re-pinned 2026-07-23: the POWERUP placement layer adds l1a2's 7
         // pickups (5 web cartridges + 2 grey gears, 72 tris each = +504) from
         // items.psx as 7 items_* nodes.
+        // Re-pinned 2026-07-28: near-equal coplanar baked light/shadow pairs
+        // now split into draw-order overlay nodes (triangles unchanged).
         Assert.Equal(5_432, combined.TriangleCount);
-        Assert.Equal(74, combined.Nodes.Count);
-        Assert.Equal(14,
-            combined.Nodes.Count(static node => node.Name.StartsWith("objects_", StringComparison.Ordinal)));
+        // Re-pinned 2026-07-30: the near-equal overlay branch now requires real
+        // shared area (exact coplanar polygon clip), dropping the edge-adjacent
+        // false flags that had inflated the split count (271 → 77). l1a2's 5
+        // surviving overlay faces all come from the SMALL-DECAL branch — the
+        // near-equal branch fires zero times on this file (915 near-equal pairs
+        // reach it and none has genuine shared area; its 62 same-texture exact
+        // twins are skipped by design), so this pin does not constrain that
+        // branch. Verified by an exact-intersection census of the file.
+        Assert.Equal(77, combined.Nodes.Count);
+        // Re-pinned 2026-07-28: the TRG BackgroundCreate join reclassifies
+        // l1a2's three background layers as camera-locked sky nodes
+        // (sky__objects_*), leaving 11 ordinary bank objects (draw-order
+        // overlay splits carry an __overlay suffix and are counted apart).
+        Assert.Equal(11,
+            combined.Nodes.Count(static node =>
+                node.Name.StartsWith("objects_", StringComparison.Ordinal)
+                && !node.Name.Contains("__overlay", StringComparison.Ordinal)));
+        Assert.Equal(3,
+            combined.Nodes.Count(static node =>
+                node.Name.StartsWith("sky__objects_", StringComparison.Ordinal)
+                && !node.Name.Contains("__overlay", StringComparison.Ordinal)));
         // Bank objects without any TRG platform reference (the majority case
-        // corpus-wide) place at their stored bank positions.
+        // corpus-wide) place at their stored bank positions. Objects 2/10/11
+        // are the level's TRG-registered background layers — camera-locked
+        // sky nodes anchored at the registering node, not bank placements.
         Assert.Contains(combined.Nodes, static node => node.Name == "objects_001");
-        Assert.Contains(combined.Nodes, static node => node.Name == "objects_002");
-        Assert.Contains(combined.Nodes, static node => node.Name == "objects_010");
-        Assert.Contains(combined.Nodes, static node => node.Name == "objects_011");
+        Assert.Contains(combined.Nodes, static node => node.Name == "sky__objects_002");
+        Assert.Contains(combined.Nodes, static node => node.Name == "sky__objects_010");
+        Assert.Contains(combined.Nodes, static node => node.Name == "sky__objects_011");
 
         // Object 3's PLATFORM node re-instances the model away from its bank
         // home, so the rotated copy carries the trigger-node suffix while the
@@ -92,7 +114,9 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
             false);
 
         Assert.Equal(3_549, document.TriangleCount);
-        Assert.Equal(53, document.Nodes.Count);
+        // Re-pinned 2026-07-29: near-equal overlays require interior overlap
+        // (225 → 55, edge-adjacent split nodes dropped; triangles unchanged).
+        Assert.Equal(55, document.Nodes.Count);
         Assert.DoesNotContain(document.Nodes,
             static node => node.Name.StartsWith("objects_", StringComparison.Ordinal));
     }
@@ -118,7 +142,9 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
         // items.psx (+504 tris, +7 items_* nodes). Only the bank's own
         // "objects_" nodes are absent.
         Assert.Equal(4_053, document.TriangleCount);
-        Assert.Equal(60, document.Nodes.Count);
+        // Re-pinned 2026-07-29: near-equal overlays require interior overlap
+        // (232 → 62, edge-adjacent split nodes dropped; triangles unchanged).
+        Assert.Equal(62, document.Nodes.Count);
         Assert.DoesNotContain(document.Nodes,
             static node => node.Name.StartsWith("objects_", StringComparison.Ordinal));
     }

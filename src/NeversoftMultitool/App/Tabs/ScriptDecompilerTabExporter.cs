@@ -49,6 +49,8 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
         exportProgress.Visibility = Visibility.Visible;
         exportProgress.Value = 0;
 
+        using var scope = GlobalProgress.Begin("Exporting scripts");
+
         var stopwatch = Stopwatch.StartNew();
         var filesProcessed = 0;
         var totalFiles = parentFiles.Count;
@@ -69,10 +71,14 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
                     switch (entry)
                     {
                         case TrgFileEntry trg:
-                            ExportTrgFile(trg, outputDir, dispatcher, exportProgress, ref filesProcessed, totalFiles);
+                            ExportTrgFile(
+                                trg, outputDir, dispatcher, exportProgress, scope,
+                                ref filesProcessed, totalFiles);
                             break;
                         case QbFileEntry qb:
-                            ExportQbFile(qb, outputDir, dispatcher, exportProgress, ref filesProcessed, totalFiles);
+                            ExportQbFile(
+                                qb, outputDir, dispatcher, exportProgress, scope,
+                                ref filesProcessed, totalFiles);
                             break;
                     }
                 }
@@ -121,6 +127,7 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
         string outputDir,
         DispatcherQueue dispatcher,
         ProgressBar exportProgress,
+        IGlobalProgressScope scope,
         ref int filesProcessed,
         int totalFiles)
     {
@@ -135,6 +142,7 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
             trg.WriteJson(outputPath);
 
             var processed = Interlocked.Increment(ref filesProcessed);
+            scope.Report(processed, totalFiles);
             dispatcher.TryEnqueue(() =>
             {
                 entry.Status = ExtractionStatus.Done;
@@ -144,6 +152,7 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
         catch
         {
             var processed = Interlocked.Increment(ref filesProcessed);
+            scope.Report(processed, totalFiles);
             dispatcher.TryEnqueue(() =>
             {
                 entry.Status = ExtractionStatus.Error;
@@ -157,6 +166,7 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
         string outputDir,
         DispatcherQueue dispatcher,
         ProgressBar exportProgress,
+        IGlobalProgressScope scope,
         ref int filesProcessed,
         int totalFiles)
     {
@@ -172,6 +182,7 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
             File.WriteAllText(outputPath, source);
 
             var processed = Interlocked.Increment(ref filesProcessed);
+            scope.Report(processed, totalFiles);
             dispatcher.TryEnqueue(() =>
             {
                 entry.Status = ExtractionStatus.Done;
@@ -181,6 +192,7 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
         catch
         {
             var processed = Interlocked.Increment(ref filesProcessed);
+            scope.Report(processed, totalFiles);
             dispatcher.TryEnqueue(() =>
             {
                 entry.Status = ExtractionStatus.Error;

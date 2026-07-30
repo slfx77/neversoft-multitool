@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Video;
+using NeversoftMultitool.Core.Settings;
 
 namespace NeversoftMultitool;
 
@@ -22,6 +23,8 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
     private string _outputDir = string.Empty;
     private bool _outputManuallySet;
     private CancellationTokenSource? _probeCts;
+    private bool _suppressVolumeEvents;
+    private readonly DebouncedAction? _persistVolume;
     private bool _videoDragging;
     private Point _videoDragStart;
     private double _videoDragStartH;
@@ -32,6 +35,21 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
         InitializeComponent();
         FilesListView.ItemsSource = _items;
         Unloaded += VideoConverterTab_Unloaded;
+
+        // Applying the persisted volume fires ValueChanged; it must not write
+        // the same value straight back (Changed listeners re-probe Blender).
+        _suppressVolumeEvents = true;
+        VolumeSlider.Value = UserSettings.PlayerVolume * 100;
+        _suppressVolumeEvents = false;
+
+        // One settings write per gesture: every UserSettings write fires the
+        // global Changed event, whose listeners re-probe Blender and rebuild
+        // the Meshes tab's animation list — per-tick writes stutter the drag.
+        _persistVolume = new DebouncedAction(
+            DispatcherQueue,
+            TimeSpan.FromMilliseconds(400),
+            () => UserSettings.PlayerVolume = VolumeSlider.Value / 100.0);
+
         _previewController = new VideoConverterTabPreviewController(new VideoPreviewView
         {
             PreviewLoading = PreviewLoading,
@@ -42,10 +60,12 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
             PlayPauseButton = PlayPauseButton,
             StopButton = StopButton,
             PlaybackSlider = PlaybackSlider,
+            VolumeSlider = VolumeSlider,
             CurrentTimeText = CurrentTimeText,
             TotalTimeText = TotalTimeText,
             VideoPlayer = VideoPlayer,
             PlayPauseIcon = PlayPauseIcon,
+            PlaybackTooltipConverter = (TimeSliderValueConverter)Resources["PlaybackTooltipConverter"],
             TempDir = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "VideoPreview")
         });
         // 100% zoom needs the opened stream's natural size, so re-apply
@@ -258,6 +278,16 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
     private void PlaybackSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
         _previewController.Seek(e.NewValue);
+    }
+
+    private void VolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        // Fires during InitializeComponent, before the controller exists.
+        _previewController?.SetVolume(e.NewValue / 100.0);
+
+        // Applying the persisted value at startup must not write it back.
+        if (!_suppressVolumeEvents)
+            _persistVolume?.Invoke();
     }
 
     private void VideoZoomCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)

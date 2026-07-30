@@ -39,13 +39,17 @@
             Value="4" />
   </Style>
 
-  <!-- Sortable column header button style -->
+  <!-- Sortable column header button style. The transparent template root keeps
+       the whole column width clickable while the hover/pressed highlight is
+       drawn by the presenter, which hugs the label text. The presenter's
+       negative margin cancels its own padding so the label stays aligned with
+       the cell text below it. -->
   <Style x:Key="SortableColumnHeaderButtonStyle"
          TargetType="Button">
     <Setter Property="Padding"
             Value="0" />
     <Setter Property="HorizontalAlignment"
-            Value="{Binding HorizontalContentAlignment, RelativeSource={RelativeSource Self}}" />
+            Value="Stretch" />
     <Setter Property="HorizontalContentAlignment"
             Value="Left" />
     <Setter Property="VerticalContentAlignment"
@@ -60,6 +64,53 @@
             Value="Transparent" />
     <Setter Property="BorderThickness"
             Value="0" />
+    <Setter Property="UseSystemFocusVisuals"
+            Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid Background="{TemplateBinding Background}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <VisualState.Setters>
+                    <Setter Target="HighlightPresenter.Background"
+                            Value="{ThemeResource ButtonBackgroundPointerOver}" />
+                    <Setter Target="HighlightPresenter.Foreground"
+                            Value="{ThemeResource ButtonForegroundPointerOver}" />
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <VisualState.Setters>
+                    <Setter Target="HighlightPresenter.Background"
+                            Value="{ThemeResource ButtonBackgroundPressed}" />
+                    <Setter Target="HighlightPresenter.Foreground"
+                            Value="{ThemeResource ButtonForegroundPressed}" />
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <VisualState.Setters>
+                    <Setter Target="HighlightPresenter.Foreground"
+                            Value="{ThemeResource ButtonForegroundDisabled}" />
+                  </VisualState.Setters>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="HighlightPresenter"
+                              Control.IsTemplateFocusTarget="True"
+                              Background="Transparent"
+                              Padding="6,1"
+                              Margin="-6,0"
+                              CornerRadius="{ThemeResource ControlCornerRadius}"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                              Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
   </Style>
 
   <!-- Standard progress bar style (collapsed by default) -->

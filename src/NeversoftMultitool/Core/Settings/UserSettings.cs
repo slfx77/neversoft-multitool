@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Win32;
 
 namespace NeversoftMultitool.Core.Settings;
@@ -13,6 +14,7 @@ public static class UserSettings
 {
     private const string DefaultSubKeyPath = @"Software\NeversoftMultitool";
     private const string BlenderPathValueName = "BlenderPath";
+    private const string PlayerVolumeValueName = "PlayerVolume";
 
     private static readonly object Sync = new();
     private static string _subKeyPath = DefaultSubKeyPath;
@@ -46,6 +48,44 @@ public static class UserSettings
                     key.DeleteValue(BlenderPathValueName, false);
                 else
                     key.SetValue(BlenderPathValueName, value.Trim());
+            }
+
+            Changed?.Invoke();
+        }
+    }
+
+    /// <summary>
+    ///     Shared preview-player volume for the audio and video tabs, 0..1
+    ///     (default 1.0). Stored as an invariant-culture string.
+    /// </summary>
+    public static double PlayerVolume
+    {
+        get
+        {
+            if (!OperatingSystem.IsWindows()) return 1.0;
+            lock (Sync)
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(_subKeyPath);
+                var raw = key?.GetValue(PlayerVolumeValueName) as string;
+                return raw != null
+                       && double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                    ? Math.Clamp(value, 0.0, 1.0)
+                    : 1.0;
+            }
+        }
+        set
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            var clamped = Math.Clamp(value, 0.0, 1.0);
+            lock (Sync)
+            {
+                // Skip no-op writes: Changed listeners re-probe Blender and
+                // rebuild UI state, so a same-value write is never free.
+                if (Math.Abs(PlayerVolume - clamped) < 0.0005) return;
+                using var key = Registry.CurrentUser.CreateSubKey(_subKeyPath);
+                key.SetValue(
+                    PlayerVolumeValueName,
+                    clamped.ToString("R", CultureInfo.InvariantCulture));
             }
 
             Changed?.Invoke();

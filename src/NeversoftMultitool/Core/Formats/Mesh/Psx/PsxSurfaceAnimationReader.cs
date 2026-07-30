@@ -11,16 +11,17 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 ///     authored pre-tick state — some assets deliberately start partway
 ///     through a key interval (fire that would be black at key zero).
 ///     Whether that state is BAKED into the palette depends on the file class:
-///     level <c>_g</c> env regions tick every frame
-///     (M3d_PreprocessPulsingColours is called unconditionally in the THPS2
-///     proto) and standalone prop/item files (items.psx, fire.psx) serialize
-///     BLACK for pulsed entries — the pulse is their only colour source — so
-///     both bake. Level-object banks (<c>*_o.psx</c>) instead render at their
-///     raw serialized palette in-game: the l1a1 "?" bonus marker is dark blue
-///     on console while its pulse keys cycle pure R→G→B with staggered
-///     phases, and retail ships the identical data — so bank parses pass
-///     <c>bakeColourPulses: false</c> and keep the authored resting colours
-///     (baking painted the "?" rainbow). Pulse metadata is parsed either way.
+///     EVERY loaded region ticks its pulses every frame — M3d_RenderSetup
+///     calls M3d_PreprocessPulsingColours for both env regions, the
+///     <c>_o.psx</c> object-bank region, AND the items region (THPS2 proto
+///     0x80095740-70; Spider-Man final 0x80076228-58; the only gates are
+///     "region loaded" and "has pulse data") — so ALL parses bake. The
+///     2026-07-22 raw-palette rule for banks mis-attributed the l1a1 "?"'s
+///     in-game dark blue to the bank copy; that colour is the ITEMS-region
+///     copy's own staggered-blue pulse, and the bank duplicate never reaches
+///     output (POWERUP suppression + items substitution). Fire/star bank art
+///     serializes BLACK with the pulse as its only colour source (corrected
+///     2026-07-29). Pulse metadata is parsed either way.
 /// </summary>
 internal static class PsxSurfaceAnimationReader
 {

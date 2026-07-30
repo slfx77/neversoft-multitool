@@ -18,20 +18,32 @@ public sealed partial class MainWindow : Window
         Instance = this;
         InitializeComponent();
 
-        // Set window size and constraints
+        // Set window size and constraints. AppWindow.Resize takes PHYSICAL
+        // pixels, so scale the logical default by the monitor DPI (otherwise
+        // a 150% display gets a 967-logical-px window) and keep it inside
+        // the display's work area.
         var appWindow = AppWindow;
-        appWindow.Resize(new SizeInt32(1450, 900));
+        var displayArea = DisplayArea.GetFromWindowId(
+            appWindow.Id, DisplayAreaFallback.Nearest);
+        var scale = GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96.0;
+        var width = (int)(1450 * scale);
+        var height = (int)(900 * scale);
+        if (displayArea != null)
+        {
+            width = Math.Min(width, displayArea.WorkArea.Width);
+            height = Math.Min(height, displayArea.WorkArea.Height);
+        }
+
+        appWindow.Resize(new SizeInt32(width, height));
 
         var presenter = appWindow.Presenter as OverlappedPresenter;
         if (presenter != null)
         {
-            presenter.PreferredMinimumWidth = 700;
-            presenter.PreferredMinimumHeight = 450;
+            presenter.PreferredMinimumWidth = (int)(700 * scale);
+            presenter.PreferredMinimumHeight = (int)(450 * scale);
         }
 
         // Center the window
-        var displayArea = DisplayArea.GetFromWindowId(
-            appWindow.Id, DisplayAreaFallback.Nearest);
         if (displayArea != null)
         {
             var centeredPosition = new PointInt32(
@@ -186,6 +198,28 @@ public sealed partial class MainWindow : Window
         GlobalStatusTextBlock.Text = message;
     }
 
+    /// <summary>
+    ///     Reflects the displayed <see cref="GlobalProgress" /> operation in the
+    ///     status bar; null hides the progress panel (no active operation).
+    /// </summary>
+    internal void ApplyGlobalProgress(GlobalProgressSnapshot? snapshot)
+    {
+        if (snapshot == null)
+        {
+            GlobalProgressPanel.Visibility = Visibility.Collapsed;
+            GlobalProgressBar.IsIndeterminate = false;
+            return;
+        }
+
+        GlobalProgressPanel.Visibility = Visibility.Visible;
+        GlobalProgressBar.IsIndeterminate = snapshot.Indeterminate;
+        if (!snapshot.Indeterminate)
+            GlobalProgressBar.Value = snapshot.Fraction * 100;
+        GlobalProgressLabel.Text = snapshot.Indeterminate
+            ? snapshot.Label
+            : $"{snapshot.Label} — {(int)(snapshot.Fraction * 100)}%";
+    }
+
     // ─── Settings drawer ──────────────────────────────────────────────────
 
     private async void LocateBlender_Click(object sender, RoutedEventArgs e)
@@ -238,4 +272,7 @@ public sealed partial class MainWindow : Window
             ? $"Auto-detected: {detected}"
             : "Blender not found — install Blender 3.2+ or click Locate Blender.";
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
 }

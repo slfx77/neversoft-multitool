@@ -30,21 +30,27 @@
     </Grid>
 
     <!-- Main content: file list | 3D viewer | tabbed panel -->
-    <Grid Grid.Row="1">
+    <Grid x:Name="ContentColumnsGrid"
+          Grid.Row="1">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="1.2*" MinWidth="360" />
+        <!--  Fixed side panels; every extra pixel goes to the 3D preview.
+              PanelWidthClamp shrinks them (file list first) when the window
+              is too narrow to fit everything, so nothing clips offscreen.  -->
+        <ColumnDefinition x:Name="FileListColumn" Width="728" MinWidth="360" />
         <ColumnDefinition Width="8" />
-        <ColumnDefinition Width="*" MinWidth="300" />
+        <ColumnDefinition x:Name="ViewerColumn" Width="*" MinWidth="300" />
         <ColumnDefinition Width="8" />
-        <ColumnDefinition Width="320" MinWidth="280" />
+        <ColumnDefinition x:Name="SidePanelColumn" Width="400" MinWidth="280" />
       </Grid.ColumnDefinitions>
 
       <controls:GridSplitter
+        x:Name="LeftSplitter"
         Grid.Column="1"
         Width="8"
         ResizeBehavior="PreviousAndNext"
         ResizeDirection="Columns" />
       <controls:GridSplitter
+        x:Name="RightSplitter"
         Grid.Column="3"
         Width="8"
         ResizeBehavior="PreviousAndNext"
@@ -52,177 +58,218 @@
 
       <!-- Left: file list -->
       <Grid Grid.Column="0">
+        <Grid x:Name="LeftPanelContent">
 
-        <!-- File list card -->
-        <Border
-          x:Name="FileListCard"
-          VerticalAlignment="Stretch"
-          Style="{StaticResource CardBorderStyle}"
-          Visibility="Collapsed">
-          <Grid VerticalAlignment="Stretch"
-                local:FileTableBehavior.IsEnabled="True">
-            <Grid.RowDefinitions>
-              <RowDefinition Height="Auto" />
-              <RowDefinition Height="Auto" />
-              <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
+          <!-- File list card -->
+          <Border
+            x:Name="FileListCard"
+            VerticalAlignment="Stretch"
+            Style="{StaticResource CardBorderStyle}"
+            Visibility="Collapsed">
+            <Grid VerticalAlignment="Stretch"
+                  local:FileTableBehavior.IsEnabled="True">
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+              </Grid.RowDefinitions>
 
-            <!-- Batch-selection toolbar -->
-            <StackPanel Grid.Row="0"
-                        Orientation="Horizontal"
-                        Padding="0,0,8,4"
-                        Spacing="8">
-              <Button Content="Select all"
-                      Click="FilesSelectAll_Click" />
-              <Button Content="Select none"
-                      Click="FilesSelectNone_Click" />
-            </StackPanel>
+              <!-- Batch-selection toolbar -->
+              <StackPanel Grid.Row="0"
+                          Orientation="Horizontal"
+                          Padding="0,0,8,4"
+                          Spacing="8">
+                <Button Content="Select all"
+                        Click="FilesSelectAll_Click" />
+                <Button Content="Select none"
+                        Click="FilesSelectNone_Click" />
+              </StackPanel>
 
-            <!-- Column headers -->
-            <Grid Grid.Row="1"
-                  Style="{StaticResource ColumnHeaderGridStyle}">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="32" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="70" />
-                <ColumnDefinition Width="70" />
-                <ColumnDefinition Width="70" />
-                <ColumnDefinition Width="80" />
-                <ColumnDefinition Width="100" />
-              </Grid.ColumnDefinitions>
-              <TextBlock Grid.Column="0" Text="" />
-              <Button Grid.Column="1"
-                      Content="File Name"
-                      Margin="8,0,0,0"
-                      Style="{StaticResource SortableColumnHeaderButtonStyle}"
-                      local:FileTableBehavior.SortProperty="RelativePath" />
-              <Button Grid.Column="2"
-                      Content="Format"
-                      HorizontalContentAlignment="Center"
-                      Style="{StaticResource SortableColumnHeaderButtonStyle}"
-                      local:FileTableBehavior.SortProperty="Format" />
-              <Button Grid.Column="3"
-                      Content="Objects"
-                      HorizontalContentAlignment="Center"
-                      Style="{StaticResource SortableColumnHeaderButtonStyle}"
-                      local:FileTableBehavior.SortProperty="ObjectCount" />
-              <Button Grid.Column="4"
-                      Content="Meshes"
-                      HorizontalContentAlignment="Center"
-                      Style="{StaticResource SortableColumnHeaderButtonStyle}"
-                      local:FileTableBehavior.SortProperty="MeshCount" />
-              <Button Grid.Column="5"
-                      Content="Triangles"
-                      HorizontalContentAlignment="Center"
-                      Style="{StaticResource SortableColumnHeaderButtonStyle}"
-                      local:FileTableBehavior.SortProperty="TriangleCount" />
-              <Button Grid.Column="6"
-                      Content="Status"
-                      Style="{StaticResource SortableColumnHeaderButtonStyle}"
-                      local:FileTableBehavior.SortProperty="Status" />
-            </Grid>
+              <!-- Column headers -->
+              <Grid Grid.Row="1"
+                    Style="{StaticResource ColumnHeaderGridStyle}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="32" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="70" />
+                  <ColumnDefinition Width="70" />
+                  <ColumnDefinition Width="70" />
+                  <ColumnDefinition Width="80" />
+                  <ColumnDefinition Width="100" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="" />
+                <Button Grid.Column="1"
+                        Content="File Name"
+                        Margin="8,0,0,0"
+                        Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                        local:FileTableBehavior.SortProperty="RelativePath" />
+                <Button Grid.Column="2"
+                        Content="Format"
+                        HorizontalContentAlignment="Center"
+                        Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                        local:FileTableBehavior.SortProperty="Format" />
+                <Button Grid.Column="3"
+                        Content="Objects"
+                        HorizontalContentAlignment="Center"
+                        Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                        local:FileTableBehavior.SortProperty="ObjectCount" />
+                <Button Grid.Column="4"
+                        Content="Meshes"
+                        HorizontalContentAlignment="Center"
+                        Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                        local:FileTableBehavior.SortProperty="MeshCount" />
+                <Button Grid.Column="5"
+                        Content="Triangles"
+                        HorizontalContentAlignment="Center"
+                        Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                        local:FileTableBehavior.SortProperty="TriangleCount" />
+                <Button Grid.Column="6"
+                        Content="Status"
+                        Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                        local:FileTableBehavior.SortProperty="Status" />
+              </Grid>
 
-            <!-- Files ListView -->
-            <ListView
-              x:Name="FilesListView"
-              Grid.Row="2"
-              SelectionMode="Single"
-              SelectionChanged="FilesListView_SelectionChanged"
-              Style="{StaticResource FileListViewStyle}">
-              <ListView.ItemTemplate>
-                <DataTemplate x:DataType="local:MeshFileEntry">
-                  <Grid Style="{StaticResource ListItemRowGridStyle}"
-                        local:FileTableBehavior.IsRow="True">
-                    <Grid.ColumnDefinitions>
-                      <ColumnDefinition Width="32" />
-                      <ColumnDefinition Width="*" />
-                      <ColumnDefinition Width="70" />
-                      <ColumnDefinition Width="70" />
-                      <ColumnDefinition Width="70" />
-                      <ColumnDefinition Width="80" />
-                      <ColumnDefinition Width="100" />
-                    </Grid.ColumnDefinitions>
-                    <CheckBox
-                      Grid.Column="0"
-                      VerticalAlignment="Center"
-                      Margin="6,0,0,0"
-                      MinWidth="24"
-                      IsChecked="{x:Bind IsChecked, Mode=TwoWay}"
-                      Click="FileCheckbox_Click" />
-                    <TextBlock
-                      Grid.Column="1"
-                      VerticalAlignment="Center"
-                      Margin="8,0,0,0"
-                      Text="{x:Bind RelativePath}"
-                      TextTrimming="CharacterEllipsis"
-                      ToolTipService.ToolTip="{x:Bind FilePath}" />
-                    <TextBlock
-                      Grid.Column="2"
-                      VerticalAlignment="Center"
-                      HorizontalAlignment="Center"
-                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                      Text="{x:Bind FormatDisplay}" />
-                    <TextBlock
-                      Grid.Column="3"
-                      VerticalAlignment="Center"
-                      HorizontalAlignment="Center"
-                      Text="{x:Bind ObjectsDisplay}" />
-                    <TextBlock
-                      Grid.Column="4"
-                      VerticalAlignment="Center"
-                      HorizontalAlignment="Center"
-                      Text="{x:Bind MeshesDisplay}" />
-                    <TextBlock
-                      Grid.Column="5"
-                      VerticalAlignment="Center"
-                      HorizontalAlignment="Center"
-                      Text="{x:Bind TrianglesDisplay, Mode=OneWay}" />
-                    <TextBlock
-                      Grid.Column="6"
-                      VerticalAlignment="Center"
-                      Foreground="{x:Bind StatusColor, Mode=OneWay}"
-                      Text="{x:Bind StatusDisplay, Mode=OneWay}" />
-                  </Grid>
-                </DataTemplate>
-              </ListView.ItemTemplate>
-            </ListView>
-          </Grid>
-        </Border>
-
-        <!-- Empty state when no directory selected -->
-        <Border
-          x:Name="EmptyStatePanel"
-          VerticalAlignment="Stretch"
-          Style="{StaticResource CardBorderStyle}">
-          <StackPanel HorizontalAlignment="Center"
-                      VerticalAlignment="Center"
-                      Spacing="16">
-            <FontIcon FontSize="64"
-                      Glyph="&#xF158;"
-                      Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            <TextBlock
-              Text="No directory selected"
-              FontSize="18"
-              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-              TextAlignment="Center" />
-            <TextBlock
-              Text="Select a folder (scanned recursively) or a game archive. Companion files (DDX, PSX, TEX, SKE) are resolved automatically; skinned characters get an Animations panel."
-              Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-              TextAlignment="Center"
-              TextWrapping="Wrap"
-              MaxWidth="480" />
-            <StackPanel Orientation="Horizontal"
+              <!-- Files ListView -->
+              <ListView
+                x:Name="FilesListView"
+                Grid.Row="2"
+                SelectionMode="Single"
+                SelectionChanged="FilesListView_SelectionChanged"
+                Style="{StaticResource FileListViewStyle}">
+                <ListView.ItemTemplate>
+                  <DataTemplate x:DataType="local:MeshFileEntry">
+                    <Grid Style="{StaticResource ListItemRowGridStyle}"
+                          local:FileTableBehavior.IsRow="True">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="32" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="70" />
+                        <ColumnDefinition Width="70" />
+                        <ColumnDefinition Width="70" />
+                        <ColumnDefinition Width="80" />
+                        <ColumnDefinition Width="100" />
+                      </Grid.ColumnDefinitions>
+                      <CheckBox
+                        Grid.Column="0"
+                        VerticalAlignment="Center"
+                        Margin="6,0,0,0"
+                        MinWidth="24"
+                        IsChecked="{x:Bind IsChecked, Mode=TwoWay}"
+                        Click="FileCheckbox_Click" />
+                      <TextBlock
+                        Grid.Column="1"
+                        VerticalAlignment="Center"
+                        Margin="8,0,0,0"
+                        Text="{x:Bind RelativePath}"
+                        TextTrimming="CharacterEllipsis"
+                        ToolTipService.ToolTip="{x:Bind FilePath}" />
+                      <TextBlock
+                        Grid.Column="2"
+                        VerticalAlignment="Center"
                         HorizontalAlignment="Center"
-                        Spacing="8">
-              <Button
-                Content="Browse folder..."
-                Click="InputBrowse_Click"
-                Style="{StaticResource AccentButtonStyle}" />
-              <Button
-                Content="Select archive..."
-                Click="SelectArchive_Click" />
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="{x:Bind FormatDisplay}" />
+                      <TextBlock
+                        Grid.Column="3"
+                        VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Text="{x:Bind ObjectsDisplay}" />
+                      <TextBlock
+                        Grid.Column="4"
+                        VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Text="{x:Bind MeshesDisplay}" />
+                      <TextBlock
+                        Grid.Column="5"
+                        VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Text="{x:Bind TrianglesDisplay, Mode=OneWay}" />
+                      <TextBlock
+                        Grid.Column="6"
+                        VerticalAlignment="Center"
+                        Foreground="{x:Bind StatusColor, Mode=OneWay}"
+                        Text="{x:Bind StatusDisplay, Mode=OneWay}" />
+                    </Grid>
+                  </DataTemplate>
+                </ListView.ItemTemplate>
+              </ListView>
+            </Grid>
+          </Border>
+
+          <!-- Empty state when no directory selected -->
+          <Border
+            x:Name="EmptyStatePanel"
+            VerticalAlignment="Stretch"
+            Style="{StaticResource CardBorderStyle}">
+            <StackPanel HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="16">
+              <FontIcon FontSize="64"
+                        Glyph="&#xF158;"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+              <TextBlock
+                Text="No directory selected"
+                FontSize="18"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                TextAlignment="Center" />
+              <TextBlock
+                Text="Select a folder (scanned recursively) or a game archive. Companion files (DDX, PSX, TEX, SKE) are resolved automatically; skinned characters get an Animations panel."
+                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                TextAlignment="Center"
+                TextWrapping="Wrap"
+                MaxWidth="480" />
+              <StackPanel Orientation="Horizontal"
+                          HorizontalAlignment="Center"
+                          Spacing="8">
+                <Button
+                  Content="Browse folder..."
+                  Click="InputBrowse_Click"
+                  Style="{StaticResource AccentButtonStyle}" />
+                <Button
+                  Content="Select archive..."
+                  Click="SelectArchive_Click" />
+              </StackPanel>
             </StackPanel>
-          </StackPanel>
+          </Border>
+
+          <!-- Collapse chevron (overlays the card's top-right corner) -->
+          <Button
+            x:Name="CollapseLeftPanelButton"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Top"
+            Margin="0,10,10,0"
+            Padding="5"
+            MinWidth="0"
+            MinHeight="0"
+            Background="Transparent"
+            BorderThickness="0"
+            Canvas.ZIndex="10"
+            ToolTipService.ToolTip="Collapse the file list panel"
+            AutomationProperties.Name="Collapse file list panel">
+            <FontIcon Glyph="&#xE76B;" FontSize="12" />
+          </Button>
+        </Grid>
+
+        <!-- Collapsed strip: slim card with an expand chevron -->
+        <Border
+          x:Name="LeftCollapsedStrip"
+          Style="{StaticResource CardBorderStyle}"
+          Padding="2"
+          Visibility="Collapsed">
+          <Button
+            x:Name="ExpandLeftPanelButton"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch"
+            VerticalContentAlignment="Top"
+            Padding="4,10"
+            MinWidth="0"
+            MinHeight="0"
+            Background="Transparent"
+            BorderThickness="0"
+            ToolTipService.ToolTip="Expand the file list panel"
+            AutomationProperties.Name="Expand file list panel">
+            <FontIcon Glyph="&#xE76C;" FontSize="12" />
+          </Button>
         </Border>
       </Grid>
 
@@ -237,21 +284,45 @@
            The SelectorBar's initial selection is set in the constructor —
            a XAML default would fire SelectionChanged mid-InitializeComponent. -->
       <Grid Grid.Column="4">
-        <Border Style="{StaticResource CardBorderStyle}">
+        <Border x:Name="RightPanelContent"
+                Style="{StaticResource CardBorderStyle}">
           <Grid>
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
               <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <SelectorBar x:Name="PanelSelector"
-                         Grid.Row="0"
-                         Margin="4,0,4,4"
-                         SelectionChanged="PanelSelector_SelectionChanged">
-              <SelectorBarItem x:Name="AnimationsPanelItem" Text="Animations" />
-              <SelectorBarItem x:Name="SettingsPanelItem" Text="Display Settings" />
-              <SelectorBarItem x:Name="ExportPanelItem" Text="Export" />
-            </SelectorBar>
+            <Grid Grid.Row="0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+
+              <SelectorBar x:Name="PanelSelector"
+                           Grid.Column="0"
+                           Margin="4,0,4,4"
+                           SelectionChanged="PanelSelector_SelectionChanged">
+                <SelectorBarItem x:Name="AnimationsPanelItem" Text="Animations" />
+                <SelectorBarItem x:Name="SettingsPanelItem" Text="Display Settings" />
+                <SelectorBarItem x:Name="ExportPanelItem" Text="Batch Export" />
+              </SelectorBar>
+
+              <!-- Collapse chevron -->
+              <Button
+                x:Name="CollapseRightPanelButton"
+                Grid.Column="1"
+                VerticalAlignment="Top"
+                Margin="4,2,2,0"
+                Padding="5"
+                MinWidth="0"
+                MinHeight="0"
+                Background="Transparent"
+                BorderThickness="0"
+                ToolTipService.ToolTip="Collapse the side panel"
+                AutomationProperties.Name="Collapse side panel">
+                <FontIcon Glyph="&#xE76C;" FontSize="12" />
+              </Button>
+            </Grid>
 
             <Grid Grid.Row="1">
 
@@ -547,7 +618,7 @@
                   </Grid>
                   <Button
                     x:Name="ConvertButton"
-                    Content="Convert checked files"
+                    Content="Convert files"
                     HorizontalAlignment="Stretch"
                     Click="ConvertButton_Click"
                     IsEnabled="False"
@@ -644,6 +715,28 @@
               </ScrollViewer>
             </Grid>
           </Grid>
+        </Border>
+
+        <!-- Collapsed strip: slim card with an expand chevron -->
+        <Border
+          x:Name="RightCollapsedStrip"
+          Style="{StaticResource CardBorderStyle}"
+          Padding="2"
+          Visibility="Collapsed">
+          <Button
+            x:Name="ExpandRightPanelButton"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch"
+            VerticalContentAlignment="Top"
+            Padding="4,10"
+            MinWidth="0"
+            MinHeight="0"
+            Background="Transparent"
+            BorderThickness="0"
+            ToolTipService.ToolTip="Expand the side panel"
+            AutomationProperties.Name="Expand side panel">
+            <FontIcon Glyph="&#xE76B;" FontSize="12" />
+          </Button>
         </Border>
       </Grid>
     </Grid>

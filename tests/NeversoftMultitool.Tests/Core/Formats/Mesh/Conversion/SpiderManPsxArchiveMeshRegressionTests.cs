@@ -212,8 +212,12 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
 
         var document = ParseDocument(source, entry.Name);
         // Re-pinned 2026-07-23: +128 from the POWERUP layer's items.psx pickups.
-        Assert.Equal(7_723, document.TriangleCount);
-        Assert.Equal(14, document.VisibilityGroups.Count);
+        // Re-pinned 2026-07-29: +117 from ghost emission — bank mesh 5 (hash
+        // 0xD7833D12, the Watcher model, all faces loader-invisible) is placed
+        // by PLATFORM node 272 and now renders as the engine's forced-blend
+        // apparition; +1 visibility group (its default-enabled ghost toggle).
+        Assert.Equal(7_840, document.TriangleCount);
+        Assert.Equal(15, document.VisibilityGroups.Count);
         var billboard = Assert.Single(document.VisibilityGroups,
             static group => group.Label.Equals("billboard_01", StringComparison.OrdinalIgnoreCase));
         Assert.False(billboard.IsEnabled);
@@ -234,6 +238,104 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         Assert.True(Assert.Single(shown.VisibilityGroups,
             group => group.Id == billboard.Id).IsEnabled);
         Assert.Equal(PlacedObjectTriangles(document), PlacedObjectTriangles(shown));
+    }
+
+    [Fact]
+    public void L2A1_FromCdWad_GatesWhatIfEasterEggPropsBehindDisabledGroup()
+    {
+        var wadPath = paths.FindSampleFile(BuildName, "CD.WAD");
+        Assert.SkipWhen(wadPath == null, "Spider-Man PSX CD.WAD sample not available");
+
+        var backend = ArchiveAssetBackend.TryOpen(wadPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend!.FileSystem;
+        var entry = backend.FindEntry("l2a1_g.psx");
+        Assert.NotNull(entry);
+        var source = new ArchiveAssetSource(backend, entry!);
+
+        // Ten PLATFORM nodes (160-172) run C_IF_WHAT_IF before their
+        // V_MODEL_CHECKSUM: their easter-egg props (the motorcycle on the
+        // start rooftop et al.) spawn only in "What If?" mode, so the default
+        // assembly gates them off (was 9,722 when they were re-instanced
+        // unconditionally).
+        var document = ParseDocument(source, entry.Name);
+        Assert.Equal(9_574, document.TriangleCount);
+        var whatIf = Assert.Single(document.VisibilityGroups,
+            static group => group.Source == ModelVisibilityGroupSource.TriggerCondition);
+        Assert.False(whatIf.DefaultEnabled);
+        Assert.False(whatIf.IsEnabled);
+        Assert.StartsWith("psx.whatif.", whatIf.Id, StringComparison.Ordinal);
+        Assert.Equal("\"What If?\" content", whatIf.Label);
+        Assert.Contains("C_IF_WHAT_IF", whatIf.SourceReference, StringComparison.Ordinal);
+
+        var withProps = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = source,
+            FileName = entry.Name,
+            OutputStem = "l2a1_g",
+            SourceKind = ModelSourceKind.Psx,
+            VisibilityOverrides = new Dictionary<string, bool>(StringComparer.Ordinal)
+            {
+                [whatIf.Id] = true
+            }
+        });
+        Assert.Equal(9_722, withProps.TriangleCount);
+        Assert.True(withProps.Nodes.Count > document.Nodes.Count);
+        Assert.True(Assert.Single(withProps.VisibilityGroups,
+            group => group.Id == whatIf.Id).IsEnabled);
+    }
+
+    [Fact]
+    public void L1A2_FromCdWad_RendersTheWatcherApparitionAsGhostGeometry()
+    {
+        var wadPath = paths.FindSampleFile(BuildName, "CD.WAD");
+        Assert.SkipWhen(wadPath == null, "Spider-Man PSX CD.WAD sample not available");
+
+        var backend = ArchiveAssetBackend.TryOpen(wadPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend!.FileSystem;
+        var entry = backend.FindEntry("l1a2_g.psx");
+        Assert.NotNull(entry);
+        var source = new ArchiveAssetSource(backend, entry!);
+
+        // The Watcher's giant head (bank mesh 7, hash 0xD7833D12) ships with
+        // every face loader-invisible; PLATFORM node 100 places it and the
+        // engine's item-flag force draws it as a semi-transparent apparition,
+        // so the assembly emits its ghost at the node placement behind a
+        // default-enabled per-object group.
+        var document = ParseDocument(source, entry.Name);
+        var ghost = Assert.Single(document.VisibilityGroups,
+            static group => group.Source == ModelVisibilityGroupSource.HiddenApparition);
+        Assert.True(ghost.DefaultEnabled);
+        Assert.True(ghost.IsEnabled);
+        Assert.StartsWith("psx.ghost.", ghost.Id, StringComparison.Ordinal);
+
+        var ghostMesh = Assert.Single(document.Meshes,
+            static mesh => mesh.Name.EndsWith("__ghost", StringComparison.Ordinal));
+        Assert.All(
+            ghostMesh.Primitives,
+            primitive => Assert.EndsWith("__st1",
+                document.Materials[primitive.MaterialIndex].Name, StringComparison.Ordinal));
+        var ghostNode = Assert.Single(document.Nodes,
+            node => node.MeshIndex == document.Meshes.IndexOf(ghostMesh));
+        Assert.Equal(-7_111.111f, ghostNode.Transform.Translation.X, 3);
+        Assert.Equal(2_844.444f, ghostNode.Transform.Translation.Y, 3);
+        Assert.Equal(-711.111f, ghostNode.Transform.Translation.Z, 3);
+
+        var hidden = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = source,
+            FileName = entry.Name,
+            OutputStem = "l1a2_g",
+            SourceKind = ModelSourceKind.Psx,
+            VisibilityOverrides = new Dictionary<string, bool>(StringComparer.Ordinal)
+            {
+                [ghost.Id] = false
+            }
+        });
+        Assert.DoesNotContain(hidden.Meshes,
+            static mesh => mesh.Name.EndsWith("__ghost", StringComparison.Ordinal));
+        Assert.Equal(document.TriangleCount - 196, hidden.TriangleCount);
     }
 
     [Fact]
@@ -574,7 +676,11 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         Assert.NotNull(file);
         var overlays = PsxCoplanarOverlayDetector.Find(file!);
 
-        Assert.Equal(75, overlays.Count);
+        // Re-pinned 2026-07-29: near-equal flags now demand interior
+        // (centroid-inside) overlap — edge-adjacent diagonal pairs no longer
+        // count. 75 small-decal + 7 genuine stacks (was 394 with 312
+        // edge-adjacent false positives; PsxAnalyzer overlay-census 82/82).
+        Assert.Equal(82, overlays.Count);
         Assert.Contains(new PsxFaceInstanceKey(47, 0), overlays);
     }
 

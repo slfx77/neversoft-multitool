@@ -9,9 +9,13 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 ///     End-to-end guard for the v1.3.4 PSX Blender-export fixes in
 ///     <c>BlenderExporter/import_package.py</c>: grounded-animation persistence
 ///     (all clips survive), metres-normalising import scale, and the
-///     limb-stretch (double-translation) correction. Runs Blender headlessly on
-///     a synthetic PSX skinned+animated document and re-opens the saved .blend
-///     to measure the results.
+///     limb-stretch (double-translation) correction. The synthetic skeleton
+///     stores the child bone BEFORE its parent (a forward ParentIndex, the
+///     layout of Venom's tongue/jaw/forearm chains) so the world-bind chain
+///     must resolve out-of-order parents — the v1.3.4-era one-pass chain
+///     mis-rooted such bones and stretched every pose. Runs Blender headlessly
+///     on a synthetic PSX skinned+animated document and re-opens the saved
+///     .blend to measure the results.
 ///
 ///     Gated on <c>NEVERSOFT_BLENDER_HELPER</c> (path to blender.exe) so it
 ///     self-skips in CI and default local runs; set it to exercise the fixes.
@@ -24,6 +28,13 @@ public sealed class PsxBlendExportRegressionTests
     // enough that (a) the import downscale is measurable and (b) the
     // double-translation bug would offset the mesh by more than its own size.
     private static readonly Vector3 ChildLocalBind = new(0f, 100f, 0f);
+
+    // The root's own local offset. Non-identity so that mis-rooting a bone
+    // whose parent is stored AFTER it (Venom's tongue/jaw/forearm layout)
+    // visibly displaces the mesh: the one-pass world-bind chain drops this
+    // offset from the child's rest head and the bind-reproducing clip shifts
+    // the mesh by -RootLocalBind (the "stretched face/arm/tongue" report).
+    private static readonly Vector3 RootLocalBind = new(120f, 0f, 0f);
 
     [Fact]
     public void Export_Blend_Psx_PersistsAllAnimations_Scales_AndUnstretchesLimbs()
@@ -69,6 +80,15 @@ public sealed class PsxBlendExportRegressionTests
         Assert.True(offset < 0.2 * report.BindMax,
             $"Limb stretch: a bind-reproducing clip moved the mesh {offset:F3} " +
             $"(bind size {report.BindMax:F3}); expected ~0.");
+
+        // Out-of-order parents — a rotating clip pivots the mesh about the
+        // child's rest head. The forward-ParentIndex skeleton mis-roots that
+        // head under the one-pass world-bind chain, throwing the rotated mesh
+        // ~1.6x the bind size away; the correct pivot keeps it within ~0.5x.
+        var rotatedOffset = Distance(report.RotatedCenter, report.BindCenter);
+        Assert.True(rotatedOffset < 1.0 * report.BindMax,
+            $"Mis-rooted bone: a rotating clip moved the mesh {rotatedOffset:F3} " +
+            $"(bind size {report.BindMax:F3}); expected rotation about the joint (~0.5x).");
     }
 
     private static ModelDocument CreatePsxSkinnedAnimatedDocument()
@@ -80,23 +100,25 @@ public sealed class PsxBlendExportRegressionTests
         };
         document.Materials.Add(new RenderMaterial { Name = "mat", BaseColor = Vector4.One });
 
-        // Root at origin; child offset by ChildLocalBind. InverseBindMatrix is
-        // the inverse of the accumulated world bind (translation-only, as PSX
-        // BuildPsxSkeleton emits).
+        // The child is stored BEFORE its parent (ParentIndex pointing forward),
+        // matching real PSX HIER skeletons like Venom's tongue/jaw chains.
+        // InverseBindMatrix is the inverse of the accumulated world bind
+        // (translation-only, as PSX BuildPsxSkeleton emits).
+        var childWorldBind = RootLocalBind + ChildLocalBind;
         var skeleton = new ModelSkeleton { Name = "skeleton" };
+        skeleton.Bones.Add(new ModelBone
+        {
+            Name = "child",
+            ParentIndex = 1,
+            LocalTransform = Matrix4x4.CreateTranslation(ChildLocalBind),
+            InverseBindMatrix = Matrix4x4.CreateTranslation(-childWorldBind)
+        });
         skeleton.Bones.Add(new ModelBone
         {
             Name = "root",
             ParentIndex = -1,
-            LocalTransform = Matrix4x4.Identity,
-            InverseBindMatrix = Matrix4x4.Identity
-        });
-        skeleton.Bones.Add(new ModelBone
-        {
-            Name = "child",
-            ParentIndex = 0,
-            LocalTransform = Matrix4x4.CreateTranslation(ChildLocalBind),
-            InverseBindMatrix = Matrix4x4.CreateTranslation(-ChildLocalBind)
+            LocalTransform = Matrix4x4.CreateTranslation(RootLocalBind),
+            InverseBindMatrix = Matrix4x4.CreateTranslation(-RootLocalBind)
         });
         document.Skeletons.Add(skeleton);
 
@@ -104,12 +126,12 @@ public sealed class PsxBlendExportRegressionTests
         // to the child so it tracks the child bone exactly.
         var verts = new[]
         {
-            new ModelVertex(new Vector3(0f, 100f, 0f), Vector3.UnitZ, Vector4.One, Vector2.Zero),
-            new ModelVertex(new Vector3(80f, 100f, 0f), Vector3.UnitZ, Vector4.One, Vector2.UnitX),
-            new ModelVertex(new Vector3(80f, 180f, 0f), Vector3.UnitZ, Vector4.One, Vector2.One),
-            new ModelVertex(new Vector3(0f, 180f, 0f), Vector3.UnitZ, Vector4.One, Vector2.UnitY)
+            new ModelVertex(childWorldBind + new Vector3(-40f, 0f, 0f), Vector3.UnitZ, Vector4.One, Vector2.Zero),
+            new ModelVertex(childWorldBind + new Vector3(40f, 0f, 0f), Vector3.UnitZ, Vector4.One, Vector2.UnitX),
+            new ModelVertex(childWorldBind + new Vector3(40f, 80f, 0f), Vector3.UnitZ, Vector4.One, Vector2.One),
+            new ModelVertex(childWorldBind + new Vector3(-40f, 80f, 0f), Vector3.UnitZ, Vector4.One, Vector2.UnitY)
         };
-        var childInfluence = new ModelBoneInfluences(1, 0, 0, 0, 1f, 0f, 0f, 0f);
+        var childInfluence = new ModelBoneInfluences(0, 0, 0, 0, 1f, 0f, 0f, 0f);
         var influences = new[] { childInfluence, childInfluence, childInfluence, childInfluence };
 
         var mesh = new ModelMesh { Name = "mesh" };
@@ -134,7 +156,7 @@ public sealed class PsxBlendExportRegressionTests
             anim.Channels.Add(new ModelAnimationChannel
             {
                 SkeletonIndex = 0,
-                BoneIndex = 1,
+                BoneIndex = 0,
                 Property = ModelAnimationProperty.Translation,
                 Times = [0f, 1f],
                 Values =
@@ -143,13 +165,28 @@ public sealed class PsxBlendExportRegressionTests
                     ChildLocalBind.X, ChildLocalBind.Y, ChildLocalBind.Z
                 ]
             });
+            // clip_0 keeps identity rotation (the pure double-translation
+            // guard). Later clips rotate the child 90° about Z: the quad then
+            // pivots about the child's rest head, so a mis-rooted head (the
+            // out-of-order-parent bug) throws the mesh ~1.6x its own size away
+            // while the correct pivot keeps it beside the joint. A pure
+            // translation clip cannot see that bug — Blender deforms against
+            // its own rest matrices and the head error cancels at identity.
+            var halfSqrt2 = MathF.Sqrt(2f) / 2f;
+            var rotation = a == 0
+                ? new[] { 0f, 0f, 0f, 1f }
+                : new[] { 0f, 0f, halfSqrt2, halfSqrt2 };
             anim.Channels.Add(new ModelAnimationChannel
             {
                 SkeletonIndex = 0,
-                BoneIndex = 1,
+                BoneIndex = 0,
                 Property = ModelAnimationProperty.Rotation,
                 Times = [0f, 1f],
-                Values = [0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f] // identity quaternion (X,Y,Z,W)
+                Values =
+                [
+                    rotation[0], rotation[1], rotation[2], rotation[3],
+                    rotation[0], rotation[1], rotation[2], rotation[3]
+                ] // quaternion (X,Y,Z,W)
             });
             document.Animations.Add(anim);
         }
@@ -186,7 +223,8 @@ public sealed class PsxBlendExportRegressionTests
             root.GetProperty("actions").GetInt32(),
             root.GetProperty("bindMax").GetSingle(),
             ReadVector(root.GetProperty("bindCenter")),
-            ReadVector(root.GetProperty("posedCenter")));
+            ReadVector(root.GetProperty("posedCenter")),
+            ReadVector(root.GetProperty("rotatedCenter")));
     }
 
     private static Vector3 ReadVector(JsonElement array) =>
@@ -194,7 +232,8 @@ public sealed class PsxBlendExportRegressionTests
 
     private static float Distance(Vector3 a, Vector3 b) => (a - b).Length();
 
-    private readonly record struct BlendReport(int Actions, float BindMax, Vector3 BindCenter, Vector3 PosedCenter);
+    private readonly record struct BlendReport(
+        int Actions, float BindMax, Vector3 BindCenter, Vector3 PosedCenter, Vector3 RotatedCenter);
 
     // Opens the saved .blend and reports: action count, the raw (bind) mesh
     // bounds, and the depsgraph-evaluated (posed) mesh centre for clip_0 — all
@@ -231,18 +270,25 @@ bind_center = [(blo[i] + bhi[i]) / 2.0 for i in range(3)]
 bind_max = max(bhi[i] - blo[i] for i in range(3))
 
 arm = next((o for o in scene.objects if o.type == "ARMATURE"), None)
-act = next((a for a in bpy.data.actions if "clip_0" in a.name), None)
-if arm and act:
-    ad = arm.animation_data or arm.animation_data_create()
-    ad.action = act
-    try:
-        if hasattr(act, "slots") and len(act.slots):
-            ad.action_slot = act.slots[0]
-    except Exception:
-        pass
-scene.frame_set(12)
-plo, phi = bounds(True)
-posed_center = [(plo[i] + phi[i]) / 2.0 for i in range(3)]
+
+
+def posed_center_for(clip_substr):
+    act = next((a for a in bpy.data.actions if clip_substr in a.name), None)
+    if arm and act:
+        ad = arm.animation_data or arm.animation_data_create()
+        ad.action = act
+        try:
+            if hasattr(act, "slots") and len(act.slots):
+                ad.action_slot = act.slots[0]
+        except Exception:
+            pass
+    scene.frame_set(12)
+    plo, phi = bounds(True)
+    return [(plo[i] + phi[i]) / 2.0 for i in range(3)]
+
+
+posed_center = posed_center_for("clip_0")
+rotated_center = posed_center_for("clip_1")
 
 with open(out_path, "w") as f:
     json.dump({
@@ -250,6 +296,7 @@ with open(out_path, "w") as f:
         "bindMax": bind_max,
         "bindCenter": bind_center,
         "posedCenter": posed_center,
+        "rotatedCenter": rotated_center,
     }, f)
 """;
 
