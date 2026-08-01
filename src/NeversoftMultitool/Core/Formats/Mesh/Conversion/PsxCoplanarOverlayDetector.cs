@@ -270,7 +270,7 @@ internal static class PsxCoplanarOverlayDetector
         // double-resolve it. This deliberately diverges from the pre-2026-07-29
         // rule, which tested only the SMALLER member and therefore flagged the
         // opaque partner of a semi-transparent overlay: SKB2.PSX 23 -> 1 flags,
-        // skware 34 -> 31, skmar/skmar_2/SKMAR -9 each, lda1_g -2 (several at
+        // skware 34 -> 37, skmar/skmar_2/SKMAR -9 each, lda1_g -2 (several at
         // ~1.0 shared-area ratio). The counts are pinned per file by
         // PsxCoplanarOverlayCensusTests so the change cannot be silent again.
         // NOT yet established: that the lift always carries the semi-transparent
@@ -355,31 +355,86 @@ internal static class PsxCoplanarOverlayDetector
     internal const float MinimumSharedAreaFraction = 0.01f;
 
     /// <summary>
-    ///     Exact shared area of two COPLANAR convex faces, as a fraction of the
-    ///     smaller one (0 when they only touch along an edge or a corner). Both
-    ///     project onto the plane's dominant axis pair and clip against each
-    ///     other (Sutherland-Hodgman — valid because PSX faces are convex tris
-    ///     and quads). Shared by the near-equal overlay branch, the
-    ///     <c>PsxAnalyzer st-lift-audit</c> diagnostic, and the unit tests, so
-    ///     there is one implementation of the geometry rather than three.
+    ///     Exact shared area of two coplanar faces, as a fraction of the smaller
+    ///     one (0 when they only touch along an edge or a corner).
+    ///
+    ///     Both faces decompose into the SAME two triangles the renderer draws
+    ///     — (0,2,1) and (1,2,3) in PSX strip order — and the shared area is the
+    ///     sum over triangle pairs. Clipping the quad as one polygon is invalid:
+    ///     Sutherland-Hodgman requires a CONVEX clip polygon, and a strip-order
+    ///     quad that is concave or non-planar walks a self-intersecting
+    ///     perimeter, which silently returns ~0 for pairs that in fact overlap
+    ///     almost completely (found 2026-07-31 — the earlier single-polygon
+    ///     implementation asserted convexity without establishing it).
+    ///     Triangles are convex and planar by construction, so the precondition
+    ///     now holds for every face the format can express.
+    ///
+    ///     Shared by the near-equal overlay branch and the unit tests, so there
+    ///     is one implementation of the geometry rather than two.
     /// </summary>
     internal static float CoplanarSharedAreaFraction(Vector3[] first, Vector3[] second)
     {
         var droppedAxis = DominantPlaneAxis(first);
-        Span<Vector2> firstPolygon = stackalloc Vector2[4];
-        Span<Vector2> secondPolygon = stackalloc Vector2[4];
-        var firstCount = ProjectPerimeter(first, droppedAxis, firstPolygon);
-        var secondCount = ProjectPerimeter(second, droppedAxis, secondPolygon);
-        firstPolygon = firstPolygon[..firstCount];
-        secondPolygon = secondPolygon[..secondCount];
-        EnsureCounterClockwise(firstPolygon);
-        EnsureCounterClockwise(secondPolygon);
+        Span<Vector2> firstTriangles = stackalloc Vector2[6];
+        Span<Vector2> secondTriangles = stackalloc Vector2[6];
+        var firstCount = ProjectRenderedTriangles(first, droppedAxis, firstTriangles);
+        var secondCount = ProjectRenderedTriangles(second, droppedAxis, secondTriangles);
 
-        var smallerArea = MathF.Min(PolygonArea(firstPolygon), PolygonArea(secondPolygon));
+        var firstArea = TriangleSetArea(firstTriangles, firstCount);
+        var secondArea = TriangleSetArea(secondTriangles, secondCount);
+        var smallerArea = MathF.Min(firstArea, secondArea);
         if (smallerArea <= 1e-4f)
             return 0f;
 
-        return ConvexIntersectionArea(firstPolygon, secondPolygon) / smallerArea;
+        var shared = 0f;
+        for (var i = 0; i < firstCount; i += 3)
+        {
+            for (var j = 0; j < secondCount; j += 3)
+            {
+                var a = firstTriangles.Slice(i, 3);
+                var b = secondTriangles.Slice(j, 3);
+                EnsureCounterClockwise(a);
+                EnsureCounterClockwise(b);
+                shared += ConvexIntersectionArea(a, b);
+            }
+        }
+
+        // Clamp to a valid proportion. A face whose own two rendered triangles
+        // OVERLAP each other (a self-overlapping slot order) contributes its
+        // shared region through more than one triangle pair, which would
+        // otherwise report more than 100% of the smaller face — a fraction the
+        // quantity is not defined to produce, and one that flowed into the
+        // >= threshold comparison and the diagnostics as if it were meaningful.
+        return MathF.Min(shared / smallerArea, 1f);
+    }
+
+    /// <summary>
+    ///     Projects a face into the plane's 2D basis as the renderer's triangles:
+    ///     (0,2,1) plus (1,2,3) for a quad, (0,2,1) for a triangle — the same
+    ///     decomposition <see cref="PointInsideFace" /> uses and the same winding
+    ///     <c>PsxGeometryWriter.AddPsxFace</c> emits. Returns the vertex count
+    ///     written (3 or 6).
+    /// </summary>
+    private static int ProjectRenderedTriangles(Vector3[] points, int droppedAxis, Span<Vector2> destination)
+    {
+        destination[0] = ProjectPoint(points[0], droppedAxis);
+        destination[1] = ProjectPoint(points[2], droppedAxis);
+        destination[2] = ProjectPoint(points[1], droppedAxis);
+        if (points.Length < 4)
+            return 3;
+
+        destination[3] = ProjectPoint(points[1], droppedAxis);
+        destination[4] = ProjectPoint(points[2], droppedAxis);
+        destination[5] = ProjectPoint(points[3], droppedAxis);
+        return 6;
+    }
+
+    private static float TriangleSetArea(ReadOnlySpan<Vector2> triangles, int count)
+    {
+        var total = 0f;
+        for (var i = 0; i < count; i += 3)
+            total += PolygonArea(triangles.Slice(i, 3));
+        return total;
     }
 
     private static bool HasInteriorOverlap(Candidate first, Candidate second)
@@ -473,29 +528,6 @@ internal static class PsxCoplanarOverlayDetector
 
         for (int head = 0, tail = polygon.Length - 1; head < tail; head++, tail--)
             (polygon[head], polygon[tail]) = (polygon[tail], polygon[head]);
-    }
-
-    /// <summary>
-    ///     Projects a face's stored points into the plane's 2D basis in PERIMETER
-    ///     order. PSX quads are stored in strip order (0,1,2,3), so the boundary
-    ///     walk is 0,1,3,2 — feeding the raw order to a polygon clipper yields a
-    ///     self-intersecting bowtie whose area is meaningless.
-    /// </summary>
-    private static int ProjectPerimeter(Vector3[] points, int droppedAxis, Span<Vector2> destination)
-    {
-        if (points.Length >= 4)
-        {
-            destination[0] = ProjectPoint(points[0], droppedAxis);
-            destination[1] = ProjectPoint(points[1], droppedAxis);
-            destination[2] = ProjectPoint(points[3], droppedAxis);
-            destination[3] = ProjectPoint(points[2], droppedAxis);
-            return 4;
-        }
-
-        for (var i = 0; i < 3; i++)
-            destination[i] = ProjectPoint(points[i], droppedAxis);
-
-        return 3;
     }
 
     private static Vector2 ProjectPoint(Vector3 point, int droppedAxis)

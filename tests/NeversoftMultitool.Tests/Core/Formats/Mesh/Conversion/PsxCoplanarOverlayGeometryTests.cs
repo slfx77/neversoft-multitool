@@ -90,17 +90,69 @@ public sealed class PsxCoplanarOverlayGeometryTests
     }
 
     [Fact]
-    public void ReversedWinding_GivesTheSameFraction()
+    public void MirroredGeometry_GivesTheSameFraction()
     {
-        var quad = StripQuad(0f, 0f);
-        var reversed = new[] { quad[3], quad[2], quad[1], quad[0] };
+        // A genuine orientation flip. Reversing the SLOT order does not produce
+        // one — the strip remap turns a slot reversal into a cyclic rotation of
+        // the same loop — so mirror the coordinates instead, which really does
+        // invert the winding and exercises the clipper's orientation handling.
+        static Vector3[] Mirror(Vector3[] face)
+        {
+            var mirrored = new Vector3[face.Length];
+            for (var i = 0; i < face.Length; i++)
+                mirrored[i] = face[i] with { X = -face[i].X };
+            return mirrored;
+        }
 
         var forward = PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
-            quad, StripQuad(0.5f, 0.5f));
-        var backward = PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
-            reversed, StripQuad(0.5f, 0.5f));
+            StripQuad(0f, 0f), StripQuad(0.5f, 0.5f));
+        var mirrored = PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
+            Mirror(StripQuad(0f, 0f)), Mirror(StripQuad(0.5f, 0.5f)));
 
-        Assert.Equal(forward, backward, 4);
+        Assert.Equal(0.25f, forward, 3);
+        Assert.Equal(forward, mirrored, 4);
+    }
+
+    [Fact]
+    public void TwistedStripQuad_MeasuresTheRenderedTrianglesNotAPerimeterWalk()
+    {
+        // Slot order whose strip PERIMETER walk (0,1,3,2) is a self-intersecting
+        // bowtie enclosing ZERO area — clipping the quad as a single polygon
+        // reported such a face as sharing nothing with itself. Its two rendered
+        // triangles additionally overlap each other, so the pairwise sum
+        // double-counts and must clamp: the result has to stay a valid
+        // proportion of the smaller face rather than exceeding 1.
+        Vector3[] twisted =
+        [
+            new Vector3(0f, 0f, 0f),
+            new Vector3(1f, 0f, 0f),
+            new Vector3(1f, 1f, 0f),
+            new Vector3(0f, 1f, 0f)
+        ];
+
+        var fraction = PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(twisted, twisted);
+
+        Assert.Equal(1f, fraction, 3);
+        Assert.InRange(fraction, PsxCoplanarOverlayDetector.MinimumSharedAreaFraction, 1f);
+    }
+
+    [Fact]
+    public void ConcaveStripQuad_UsesItsTriangleAreaAsTheDenominator()
+    {
+        // Dart-shaped face: rendered triangles total 3.0, while its perimeter
+        // walk encloses only 1.0. Fully covered by a large square, so the
+        // fraction of the SMALLER face is 1.0 — a perimeter-area denominator
+        // would mis-scale it.
+        Vector3[] dart =
+        [
+            new Vector3(0f, 0f, 0f),
+            new Vector3(2f, 0f, 0f),
+            new Vector3(0f, 2f, 0f),
+            new Vector3(0.5f, 0.5f, 0f)
+        ];
+
+        Assert.Equal(1f, PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
+            StripQuad(-1f, -1f, 4f), dart), 3);
     }
 
     [Fact]
