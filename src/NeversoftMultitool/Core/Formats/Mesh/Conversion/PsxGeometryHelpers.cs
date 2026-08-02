@@ -29,10 +29,12 @@ internal static class PsxGeometryHelpers
         // regression against the previously verified look on every PS1 file
         // whose faces carry the lit bit, characters included.
         //
-        // The PS1 lit path MULTIPLIES authored colour by the normal-derived
-        // light (GTE DPCL). Reproducing that needs to know which light rig
-        // applies, which the file does not say — so PS1 keeps its authored
-        // colours here and the optional front-end bake handles the FE case.
+        // On PS1 the lit path does not multiply the authored colour either --
+        // GetDynamicLighting pins the GTE RGB register to WHITE, so the shaded
+        // result is the light alone (see PsxEngineLight). Those faces are
+        // therefore shaded by BakeEngineLight when the caller opts in; the
+        // authored colour returned here is the honest fallback for viewers that
+        // do their own lighting.
         var neutralize = neutralizeLitFaces
                          && version == 0x06
                          && mesh.UsesDynamicLighting;
@@ -115,43 +117,49 @@ internal static class PsxGeometryHelpers
     }
 
     /// <summary>
-    ///     The FE preview light (THPS2 final table entry @0x800B97BC = proto
-    ///     Skater_CreateLight 0x800C4DA0) applied by the engine's lit path to
-    ///     FE props: monochrome ambient 2176/4096 plus a light illuminating
-    ///     up-facing normals at 2944/4096 and down-facing at 640/4096
-    ///     (glancing/back contribution 320/4096 omitted — backface-culled).
-    ///     Input is the emitted glTF-space normal (+Y up).
+    ///     Colour of one corner of an engine-lit face, exactly as the console
+    ///     computes it: <c>M3dAsm_GetDynamicLighting</c> runs a GTE NCCS per
+    ///     NORMAL with the RGB register pinned to white, so the result is the
+    ///     light alone and the authored colour is not an input at all (see
+    ///     <see cref="PsxEngineLight" /> for the disassembly this rests on).
+    ///
+    ///     The engine shades per NORMAL, not per vertex; a face's corner normal
+    ///     is resolved the same way the exporter resolves the exported NORMAL,
+    ///     so the baked colour and the shipped geometry agree.
     /// </summary>
-    internal static float ComputeFeLightIntensity(Vector3 gltfNormal)
-    {
-        const float ambient = 2176f / 4096f;
-        const float fromAbove = 2944f / 4096f;
-        const float fromBelow = 640f / 4096f;
-        return ambient
-               + fromAbove * MathF.Max(0f, gltfNormal.Y)
-               + fromBelow * MathF.Max(0f, -gltfNormal.Y);
-    }
-
-    /// <summary>
-    ///     authored albedo × FE light for a lit face corner — the engine's
-    ///     DPCL multiply with the FE preview light values. Textured faces sit
-    ///     in the 128-neutral modulation domain and clamp at the overbright
-    ///     packet ceiling (2.0); untextured faces are display-domain 0..1
-    ///     (ToFlatColor /255) and clamp at 1.0 — the console saturates their
-    ///     per-vertex result at 255 (fixed 2026-07-29: the uniform 2.0 clamp
-    ///     shipped >1.0 flat colours that rendered brighter than hardware).
-    /// </summary>
-    internal static Vector4 BakeFeLight(PsxMesh mesh, PsxFace face, int slot, Vector4 color)
+    internal static Vector4 BakeEngineLight(
+        PsxMesh mesh,
+        PsxFace face,
+        int slot,
+        PsxEngineLight light)
     {
         var vertexIndex = GetPsxFaceVertexIndex(face, slot);
         var normal = ComputePsxVertexNormal(mesh, face, vertexIndex);
-        var intensity = ComputeFeLightIntensity(normal);
-        var ceiling = face.IsTextured ? 2f : 1f;
-        return new Vector4(
-            MathF.Min(color.X * intensity, ceiling),
-            MathF.Min(color.Y * intensity, ceiling),
-            MathF.Min(color.Z * intensity, ceiling),
-            color.W);
+        var lit = light.Evaluate(ToPsxLightSpaceNormal(normal));
+
+        // NCCS clamps its output at byte 255, and the GPU modulates texels with
+        // 128 as neutral — so a fully lit textured surface is DOUBLE the texel,
+        // not neutral. Map 1.0 onto byte 255 in the 128-neutral domain the rest
+        // of the textured path uses. Untextured faces carry display RGB, where
+        // 1.0 already means 255.
+        const float fullyLitModulation = 255f / 128f;
+        return face.IsTextured
+            ? new Vector4(
+                lit.X * fullyLitModulation,
+                lit.Y * fullyLitModulation,
+                lit.Z * fullyLitModulation,
+                1f)
+            : lit;
+    }
+
+    /// <summary>
+    ///     The exporter's normals are already mapped into glTF space
+    ///     ((x, -y, -z) relative to the authored PS1 vector). The light
+    ///     directions are authored in PS1 space, so map back before dotting.
+    /// </summary>
+    private static Vector3 ToPsxLightSpaceNormal(Vector3 gltfNormal)
+    {
+        return new Vector3(gltfNormal.X, -gltfNormal.Y, -gltfNormal.Z);
     }
 
     private static Vector4 ResolvePaletteColor(
