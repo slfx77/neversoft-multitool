@@ -20,15 +20,23 @@ internal static class PsxGeometryHelpers
         Vector4[]? gouraudPalette,
         bool neutralizeLitFaces = true)
     {
-        // Engine-lit faces: the PS1 lit path MULTIPLIES the authored colours
-        // by the normal-derived light (GTE DPCL, ProcessPolys helpers
-        // 0x8009A6D4/0x8009A6FC — authored vertex colour × lit(N)). The
-        // character path still neutralizes (per-level light rigs vary and the
-        // viewer's own lighting approximates them well — the venom/spidey
-        // verified look); the non-character prop path passes false and bakes
-        // the FE light against the authored albedo instead (control.psx's
-        // darker thumbsticks/bumpers are dark albedo × top-lit grey).
-        if (IsEngineLitFace(version, mesh, face) && neutralizeLitFaces)
+        // Neutralizing an engine-lit face DISCARDS its authored colour, so it
+        // only applies where the renderer genuinely ignores that colour: the
+        // PC/DC v6 dynamic-lighting path (mesh.UsesDynamicLighting), which is
+        // the long-standing rule. Extending it to PS1 lit faces (2026-07-29)
+        // flattened control.psx from 11 distinct authored packet colours to a
+        // single neutral 0.502 — the reported "shading is wrong", and a
+        // regression against the previously verified look on every PS1 file
+        // whose faces carry the lit bit, characters included.
+        //
+        // The PS1 lit path MULTIPLIES authored colour by the normal-derived
+        // light (GTE DPCL). Reproducing that needs to know which light rig
+        // applies, which the file does not say — so PS1 keeps its authored
+        // colours here and the optional front-end bake handles the FE case.
+        var neutralize = neutralizeLitFaces
+                         && version == 0x06
+                         && mesh.UsesDynamicLighting;
+        if (neutralize && IsEngineLitFace(version, mesh, face))
             return (Vector4.One, Vector4.One, Vector4.One, Vector4.One);
 
         return ComputePsxFaceColors(version, face, gouraudPalette);

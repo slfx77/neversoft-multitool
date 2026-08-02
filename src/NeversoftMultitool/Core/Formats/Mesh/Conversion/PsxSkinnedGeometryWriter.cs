@@ -31,7 +31,8 @@ internal static class PsxSkinnedGeometryWriter
         PsxMeshFile? splineClawFile,
         MeshChecksumTextureResolver? splineClawTextureProvider,
         IReadOnlySet<int>? hiddenObjectIndices,
-        bool reconstructSplineAppendages)
+        bool reconstructSplineAppendages,
+        bool bakeFrontEndLight = false)
     {
         var skeletonIndex = document.Skeletons.Count;
         document.Skeletons.Add(BuildPsxSkeleton(
@@ -87,6 +88,7 @@ internal static class PsxSkinnedGeometryWriter
                 }
 
                 AddPsxSkinnedFace(
+                    bakeFrontEndLight,
                     bucket.Vertices, bucket.Indices, bucket.Influences,
                     psxFile, objectIndex, meshIndex, psxMesh, face, texDims,
                     embeddedTipPlacements.TryGetValue(objectIndex, out var tipPlacement)
@@ -162,6 +164,7 @@ internal static class PsxSkinnedGeometryWriter
                     }
 
                     AddPsxSkinnedFace(
+                        bakeFrontEndLight,
                         bucket.Vertices, bucket.Indices, bucket.Influences,
                         splineClawFile, clawObjectIndex, clawMeshIndex,
                         clawMesh, face, texDims, placement);
@@ -253,6 +256,7 @@ internal static class PsxSkinnedGeometryWriter
     }
 
     private static void AddPsxSkinnedFace(
+        bool bakeFrontEndLight,
         List<ModelVertex> vertices,
         List<int> indices,
         List<ModelBoneInfluences> influences,
@@ -272,7 +276,7 @@ internal static class PsxSkinnedGeometryWriter
         // pad, 892/892): the engine draws those with the FE preview light
         // MULTIPLIED into the authored albedo, so bake exactly that and carry
         // it in the packet colours.
-        var bakeEngineLight = isPs1 && psxFile.IsFullyEngineLit
+        var bakeEngineLight = isPs1 && bakeFrontEndLight && psxFile.IsFullyEngineLit
                               && PsxGeometryHelpers.IsEngineLitFace(psxFile.Version, mesh, face);
         var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(
             psxFile.Version, mesh, face, psxFile.GouraudPalette,
@@ -294,8 +298,12 @@ internal static class PsxSkinnedGeometryWriter
         // Engine-lit SUPER faces skip the packet colour so the viewer's
         // standard lit path shades them from normals; baked FE-prop faces
         // carry their baked colours in the packets.
-        var emitPacket = isPs1 && (bakeEngineLight
-                                   || !PsxGeometryHelpers.IsEngineLitFace(psxFile.Version, mesh, face));
+        // Always emit the PS1 packet. Gating it on the lit state (added
+        // 2026-07-29) made an all-lit file emit NO packet at all, which
+        // downgrades the vertex type and strips both _PSX_COLOR_0 and
+        // _PSX_FLAGS_0 from the GLB — silently switching off the viewer's
+        // PS1-fidelity path for exactly the files it matters most on.
+        var emitPacket = isPs1;
         var packetUsesTexturedScale = face.IsTextured &&
                                       (face.TextureHash != 0 || !face.IsSemiTransparent);
         Vector4? p0 = emitPacket

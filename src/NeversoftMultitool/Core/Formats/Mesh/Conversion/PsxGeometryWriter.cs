@@ -45,7 +45,7 @@ internal static class PsxGeometryWriter
                 document, psxFile, pshFile, textureProvider,
                 flatSkeleton, flatBoneIndices, splineClawFile,
                 splineClawTextureProvider, hiddenObjectIndices,
-                reconstructSplineAppendages);
+                reconstructSplineAppendages, context?.BakeFrontEndLight ?? false);
             ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
             return;
         }
@@ -138,6 +138,7 @@ internal static class PsxGeometryWriter
                         coplanarOverlays,
                         semiTransparentLiftSteps,
                         semiTransparentLiftDirections,
+                        context.BakeFrontEndLight,
                         isSky,
                         skyColor,
                         ghostFaces);
@@ -161,6 +162,7 @@ internal static class PsxGeometryWriter
                     coplanarOverlays,
                     semiTransparentLiftSteps,
                     semiTransparentLiftDirections,
+                    context.BakeFrontEndLight,
                     isSky,
                     skyColor);
             }
@@ -183,6 +185,7 @@ internal static class PsxGeometryWriter
         IReadOnlyDictionary<PsxFaceInstanceKey, int> coplanarOverlays,
         IReadOnlyDictionary<PsxFaceInstanceKey, int> semiTransparentLiftSteps,
         IReadOnlyDictionary<(int X, int Y, int Z), Vector3>? semiTransparentLiftDirections,
+        bool bakeFrontEndLight = false,
         bool isSky = false,
         uint? skyColor = null,
         IReadOnlyList<PsxFace>? ghostFaces = null)
@@ -226,7 +229,8 @@ internal static class PsxGeometryWriter
             PsxMeshSemantics.ToGltfPosition(
                 PsxMeshSemantics.GetObjectOffset(psxFile, psxFile.Objects[objectIndex])),
             PsxNormalWelder.Build(psxMesh),
-            PsxSpriteVertexResolver.TryCreate(psxMesh));
+            PsxSpriteVertexResolver.TryCreate(psxMesh),
+            bakeFrontEndLight);
         var mesh = BuildPsxFaceMesh(
             document, psxFile, psxMesh, meshName,
             indexedFaces[-1], materialCache, textureDims, untexturedMaterial, textureProvider,
@@ -366,7 +370,7 @@ internal static class PsxGeometryWriter
                     texDims,
                     liftContext.LiftPlanFor(item.FaceIndex),
                     liftContext.NormalWelder,
-                    psxFile.IsFullyEngineLit,
+                    liftContext.BakeFrontEndLight && psxFile.IsFullyEngineLit,
                     liftContext.SpriteResolver);
 
             ModelDocumentGeometryAdapter.AddPrimitive(mesh, $"mat_{materialIndex:D3}", materialIndex, vertices,
@@ -451,8 +455,12 @@ internal static class PsxGeometryWriter
         // faces carry their baked colours in the packets (mirrors
         // PsxSkinnedGeometryWriter and the IsEngineLitFace contract — emitting
         // neutralized packets drew lit faces flat in PS1-fidelity mode).
-        var emitPacket = isPs1 && (bakeEngineLight
-                                   || !PsxGeometryHelpers.IsEngineLitFace(version, mesh, face));
+        // Always emit the PS1 packet. Gating it on the lit state (added
+        // 2026-07-29) made an all-lit file emit NO packet at all, which
+        // downgrades the vertex type and strips both _PSX_COLOR_0 and
+        // _PSX_FLAGS_0 from the GLB — silently switching off the viewer's
+        // PS1-fidelity path for exactly the files it matters most on.
+        var emitPacket = isPs1;
         // A semi-transparent zero-hash primitive has just been converted into
         // an untextured display proxy. Every other textured PS1 colour is still
         // in the native 128-neutral modulation domain at this point.
@@ -649,8 +657,11 @@ internal static class PsxGeometryWriter
         IReadOnlyDictionary<(int X, int Y, int Z), Vector3>? directions,
         Vector3 authoredOffset,
         PsxNormalWelder? normalWelder,
-        PsxSpriteVertexResolver? spriteResolver)
+        PsxSpriteVertexResolver? spriteResolver,
+        bool bakeFrontEndLight = false)
     {
+        internal bool BakeFrontEndLight => bakeFrontEndLight;
+
         /// <summary>Everything the lift needs for one face.</summary>
         internal PsxFaceLiftPlan LiftPlanFor(int faceIndex)
         {
@@ -738,5 +749,19 @@ internal static class PsxGeometryWriter
             Materials { get; } = [];
 
         internal int? UntexturedMaterialIndex { get; set; }
+
+        /// <summary>
+        ///     Bake the front-end preview light into fully engine-lit files.
+        ///     OFF by default: the converter cannot tell an FE prop from an
+        ///     in-level character. The engine's own gate is a MODEL flag, but
+        ///     disc headers ship 0x8 across lit characters and FE props alike
+        ///     (decomp-verified, see PsxMesh.UsesDynamicLighting), and the
+        ///     fallback signal "every face is lit" misclassifies the main
+        ///     characters — spidey 372/372 and blackcat 338/338 are fully lit,
+        ///     so they took the prop branch and shipped with a front-end light
+        ///     baked into their in-level vertex colours. Until a signal exists
+        ///     that actually separates the two, this stays caller-controlled.
+        /// </summary>
+        internal bool BakeFrontEndLight { get; init; }
     }
 }
