@@ -32,7 +32,7 @@ internal static class PsxSkinnedGeometryWriter
         MeshChecksumTextureResolver? splineClawTextureProvider,
         IReadOnlySet<int>? hiddenObjectIndices,
         bool reconstructSplineAppendages,
-        bool bakeEngineLighting = true)
+        bool bakeEngineLighting = false)
     {
         var skeletonIndex = document.Skeletons.Count;
         document.Skeletons.Add(BuildPsxSkeleton(

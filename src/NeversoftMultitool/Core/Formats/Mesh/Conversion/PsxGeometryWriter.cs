@@ -45,7 +45,7 @@ internal static class PsxGeometryWriter
                 document, psxFile, pshFile, textureProvider,
                 flatSkeleton, flatBoneIndices, splineClawFile,
                 splineClawTextureProvider, hiddenObjectIndices,
-                reconstructSplineAppendages, context?.BakeEngineLighting ?? true);
+                reconstructSplineAppendages, context?.BakeEngineLighting ?? false);
             ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
             return;
         }
@@ -765,6 +765,6 @@ internal static class PsxGeometryWriter
         ///     baked into their in-level vertex colours. Until a signal exists
         ///     that actually separates the two, this stays caller-controlled.
         /// </summary>
-        internal bool BakeEngineLighting { get; init; } = true;
+        internal bool BakeEngineLighting { get; init; }
     }
 }
