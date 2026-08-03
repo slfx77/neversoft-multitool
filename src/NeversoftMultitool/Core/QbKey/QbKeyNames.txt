@@ -654,6 +654,7 @@ board=0xA7A9D4B8
 board_shadow01=0x83D515E5
 board_shadow02=0x1ADC445F
 bodyline=0xE21A1F44
+Boombox=0x6D63A734
 boombox=0xA2DE9EA8
 bottom part=0x596793F2
 bottom part-top=0x58F17D8E
