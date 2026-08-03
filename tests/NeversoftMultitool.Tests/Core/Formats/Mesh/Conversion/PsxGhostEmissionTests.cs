@@ -8,9 +8,11 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 ///     Pins ghost emission: an object whose mesh has ONLY loader-invisible
 ///     faces (the disc bit7-set opaque class) renders as the engine's
 ///     forced-blend apparition when a TRG entity node places it (l1a2's
-///     Watcher head), behind a default-enabled per-object visibility group —
-///     while non-placed invisible meshes (level collision blockers, trigger
-///     volumes) keep rendering nothing.
+///     Watcher head), behind a per-object visibility group that is DEFAULT-OFF
+///     — the apparition is a transient runtime state (that node waits for a
+///     collision and then dies quietly), so showing it by default misrepresents
+///     the level. Non-placed invisible meshes (collision blockers, trigger
+///     volumes) keep rendering nothing either way.
 /// </summary>
 public sealed class PsxGhostEmissionTests
 {
@@ -41,7 +43,7 @@ public sealed class PsxGhostEmissionTests
     }
 
     [Fact]
-    public void PlacedInvisibleMesh_RendersGhostFacesBehindDefaultEnabledGroup()
+    public void PlacedInvisibleMesh_RendersGhostFacesWhenTheGroupIsEnabled()
     {
         var document = new ModelDocument { Name = "test" };
 
@@ -51,7 +53,7 @@ public sealed class PsxGhostEmissionTests
             null,
             nodeNamePrefix: "objects",
             objectPlacements: NodePlacements(5),
-            ghostOptions: BuildOptions());
+            ghostOptions: BuildOptions(new Dictionary<string, bool> { [GroupId] = true }));
 
         var node = Assert.Single(document.Nodes);
         Assert.Equal("objects_000", node.Name);
@@ -65,13 +67,13 @@ public sealed class PsxGhostEmissionTests
         var group = Assert.Single(document.VisibilityGroups);
         Assert.Equal(GroupId, group.Id);
         Assert.Equal("objects_000 (hidden apparition)", group.Label);
-        Assert.True(group.DefaultEnabled);
+        Assert.False(group.DefaultEnabled);
         Assert.True(group.IsEnabled);
         Assert.Equal(ModelVisibilityGroupSource.HiddenApparition, group.Source);
     }
 
     [Fact]
-    public void PlacedInvisibleMesh_DisabledOverrideSuppressesTheGhost()
+    public void PlacedInvisibleMesh_EmitsNothingByDefault()
     {
         var document = new ModelDocument { Name = "test" };
 
@@ -81,12 +83,14 @@ public sealed class PsxGhostEmissionTests
             null,
             nodeNamePrefix: "objects",
             objectPlacements: NodePlacements(5),
-            ghostOptions: BuildOptions(new Dictionary<string, bool> { [GroupId] = false }));
+            ghostOptions: BuildOptions());
 
+        // The group is still advertised so the apparition can be switched on;
+        // it just contributes no geometry until it is.
         Assert.Empty(document.Nodes);
         var group = Assert.Single(document.VisibilityGroups);
         Assert.False(group.IsEnabled);
-        Assert.True(group.DefaultEnabled);
+        Assert.False(group.DefaultEnabled);
     }
 
     [Fact]

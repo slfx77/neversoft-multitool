@@ -592,12 +592,12 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
         // openable above as a set of model definitions.
         // Re-pinned 2026-07-23: +316 from the POWERUP layer's items.psx pickups
         // (folded into the placed-object total below).
-        // Re-pinned 2026-07-29: +40 from ghost emission — bank mesh 17 (hash
-        // 0x59D3C70F, all faces loader-invisible) is placed by PLATFORM node
-        // 107 and now renders as the engine's forced-blend apparition (folded
-        // into the placed-object total below).
-        Assert.Equal(2_535, document.TriangleCount);
-        const int placedObjectTriangleCount = 2_083;
+        // Re-pinned 2026-08-02: the ghost group is DEFAULT-OFF, so bank mesh 17
+        // (hash 0x59D3C70F, all faces loader-invisible, placed by PLATFORM node
+        // 107) keeps its 40 apparition triangles out of the default total until
+        // the toggle is switched on.
+        Assert.Equal(2_495, document.TriangleCount);
+        const int placedObjectTriangleCount = 2_043;
         Assert.Equal(
             placedObjectTriangleCount,
             document.TriangleCount - (authoredTriangleCount - initiallyHiddenTriangles));
@@ -639,8 +639,11 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
                 static group => group.Id,
                 static _ => true,
                 StringComparer.Ordinal));
+        // Enabling EVERY group also switches on the hidden apparition, which is
+        // deliberately excluded from the placed-object subtotal above.
+        const int apparitionTriangleCount = 40;
         Assert.Equal(
-            authoredTriangleCount + placedObjectTriangleCount,
+            authoredTriangleCount + placedObjectTriangleCount + apparitionTriangleCount,
             allAuthoredGeometry.TriangleCount);
     }
 

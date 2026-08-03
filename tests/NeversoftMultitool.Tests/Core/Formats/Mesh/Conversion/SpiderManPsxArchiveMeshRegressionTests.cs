@@ -212,11 +212,12 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
 
         var document = ParseDocument(source, entry.Name);
         // Re-pinned 2026-07-23: +128 from the POWERUP layer's items.psx pickups.
-        // Re-pinned 2026-07-29: +117 from ghost emission — bank mesh 5 (hash
-        // 0xD7833D12, the Watcher model, all faces loader-invisible) is placed
-        // by PLATFORM node 272 and now renders as the engine's forced-blend
-        // apparition; +1 visibility group (its default-enabled ghost toggle).
-        Assert.Equal(7_840, document.TriangleCount);
+        // Re-pinned 2026-08-02: the ghost group is DEFAULT-OFF, so bank mesh 5
+        // (hash 0xD7833D12, the Watcher model, all faces loader-invisible,
+        // placed by PLATFORM node 272) contributes nothing until its toggle is
+        // switched on — its 117 triangles leave the default total while the
+        // group itself is still advertised.
+        Assert.Equal(7_723, document.TriangleCount);
         Assert.Equal(15, document.VisibilityGroups.Count);
         var billboard = Assert.Single(document.VisibilityGroups,
             static group => group.Label.Equals("billboard_01", StringComparison.OrdinalIgnoreCase));
@@ -300,42 +301,43 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
 
         // The Watcher's giant head (bank mesh 7, hash 0xD7833D12) ships with
         // every face loader-invisible; PLATFORM node 100 places it and the
-        // engine's item-flag force draws it as a semi-transparent apparition,
-        // so the assembly emits its ghost at the node placement behind a
-        // default-enabled per-object group.
+        // engine's item-flag force draws it as a semi-transparent apparition.
+        // The group is DEFAULT-OFF (2026-08-02): that node's entire script is
+        // V_MODEL_CHECKSUM / C_WAIT_FOR_COLLISION / C_SEND_PULSE_TO_LINKS_B /
+        // C_DIE_QUIETLY — a proximity trigger that removes itself on contact —
+        // so the apparition is a transient runtime state, not level scenery
+        // (user-verified: l1a2 reads correctly with it off, wrong with it on).
+        // The geometry must still be recoverable by enabling the group.
         var document = ParseDocument(source, entry.Name);
-        var ghost = Assert.Single(document.VisibilityGroups,
+        var hidden = Assert.Single(document.VisibilityGroups,
             static group => group.Source == ModelVisibilityGroupSource.HiddenApparition);
-        Assert.True(ghost.DefaultEnabled);
-        Assert.True(ghost.IsEnabled);
-        Assert.StartsWith("psx.ghost.", ghost.Id, StringComparison.Ordinal);
+        Assert.False(hidden.DefaultEnabled);
+        Assert.False(hidden.IsEnabled);
+        Assert.StartsWith("psx.ghost.", hidden.Id, StringComparison.Ordinal);
+        Assert.DoesNotContain(document.Meshes,
+            static mesh => mesh.Name.EndsWith("__ghost", StringComparison.Ordinal));
 
-        var ghostMesh = Assert.Single(document.Meshes,
+        var shown = ParseDocument(source, entry.Name,
+            new Dictionary<string, bool>(StringComparer.Ordinal) { [hidden.Id] = true });
+        var ghost = Assert.Single(shown.VisibilityGroups,
+            static group => group.Source == ModelVisibilityGroupSource.HiddenApparition);
+        Assert.True(ghost.IsEnabled);
+
+        var ghostMesh = Assert.Single(shown.Meshes,
             static mesh => mesh.Name.EndsWith("__ghost", StringComparison.Ordinal));
         Assert.All(
             ghostMesh.Primitives,
             primitive => Assert.EndsWith("__st1",
-                document.Materials[primitive.MaterialIndex].Name, StringComparison.Ordinal));
-        var ghostNode = Assert.Single(document.Nodes,
-            node => node.MeshIndex == document.Meshes.IndexOf(ghostMesh));
+                shown.Materials[primitive.MaterialIndex].Name, StringComparison.Ordinal));
+
+        var ghostNode = Assert.Single(shown.Nodes,
+            node => node.MeshIndex == shown.Meshes.IndexOf(ghostMesh));
         Assert.Equal(-7_111.111f, ghostNode.Transform.Translation.X, 3);
         Assert.Equal(2_844.444f, ghostNode.Transform.Translation.Y, 3);
         Assert.Equal(-711.111f, ghostNode.Transform.Translation.Z, 3);
 
-        var hidden = new MeshModelParser().Parse(new MeshImportRequest
-        {
-            Source = source,
-            FileName = entry.Name,
-            OutputStem = "l1a2_g",
-            SourceKind = ModelSourceKind.Psx,
-            VisibilityOverrides = new Dictionary<string, bool>(StringComparer.Ordinal)
-            {
-                [ghost.Id] = false
-            }
-        });
-        Assert.DoesNotContain(hidden.Meshes,
-            static mesh => mesh.Name.EndsWith("__ghost", StringComparison.Ordinal));
-        Assert.Equal(document.TriangleCount - 196, hidden.TriangleCount);
+        // The apparition is 196 triangles of otherwise-absent geometry.
+        Assert.Equal(document.TriangleCount + 196, shown.TriangleCount);
     }
 
     [Fact]
@@ -1246,14 +1248,18 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
             .ToArray();
     }
 
-    private static ModelDocument ParseDocument(AssetSource source, string fileName)
+    private static ModelDocument ParseDocument(
+        AssetSource source,
+        string fileName,
+        IReadOnlyDictionary<string, bool>? visibilitySelections = null)
     {
         return new MeshModelParser().Parse(new MeshImportRequest
         {
             Source = source,
             FileName = fileName,
             OutputStem = Path.GetFileNameWithoutExtension(fileName),
-            SourceKind = ModelSourceKind.Psx
+            SourceKind = ModelSourceKind.Psx,
+            VisibilityOverrides = visibilitySelections
         });
     }
 

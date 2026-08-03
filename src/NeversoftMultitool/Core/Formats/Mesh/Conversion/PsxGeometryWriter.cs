@@ -289,10 +289,20 @@ internal static class PsxGeometryWriter
 
     /// <summary>
     ///     Appends the per-object visibility group for a ghost-emitted object
-    ///     (default-enabled: the engine shows the apparition whenever its
-    ///     entity is active) and returns the selected state. Labelled with the
-    ///     resolved mesh name when the hash resolves, otherwise the object's
-    ///     node name tagged as a hidden apparition.
+    ///     and returns the selected state. Labelled with the resolved mesh name
+    ///     when the hash resolves, otherwise the object's node name tagged as a
+    ///     hidden apparition.
+    ///
+    ///     DEFAULT-OFF (2026-08-02). The apparition is a transient runtime state,
+    ///     not how the level looks: these meshes are the invisible (bit7) class,
+    ///     and the entities placing them are triggers. l1a2's Watcher head
+    ///     (0xD7833D12) is placed by BADDY/PLATFORM node 100 whose entire script
+    ///     is V_MODEL_CHECKSUM, C_WAIT_FOR_COLLISION, C_SEND_PULSE_TO_LINKS_B,
+    ///     C_DIE_QUIETLY — it waits to be touched and then removes itself. The
+    ///     forced-blend apparition is real (item flag 0x800), so the geometry is
+    ///     still exported and one checkbox restores it, but showing it by default
+    ///     misrepresents the level (user-verified: l1a2 reads correctly with the
+    ///     group off and wrong with it on).
     /// </summary>
     private static bool RegisterGhostVisibilityGroup(
         ModelDocument document,
@@ -303,9 +313,9 @@ internal static class PsxGeometryWriter
         string nodeNamePrefix)
     {
         var id = $"psx.ghost.{options.AssetHash:X8}.{objectIndex:D3}";
-        var enabled = options.VisibilityOverrides == null
-                      || !options.VisibilityOverrides.TryGetValue(id, out var selected)
-                      || selected;
+        var enabled = options.VisibilityOverrides != null
+                      && options.VisibilityOverrides.TryGetValue(id, out var selected)
+                      && selected;
         var nameHash = meshIndex < psxFile.MeshNameHashes.Length
             ? psxFile.MeshNameHashes[meshIndex]
             : 0u;
@@ -314,7 +324,7 @@ internal static class PsxGeometryWriter
             Id = id,
             Label = QbKey.QbKey.TryResolve(nameHash)
                     ?? $"{nodeNamePrefix}_{objectIndex:D3} (hidden apparition)",
-            DefaultEnabled = true,
+            DefaultEnabled = false,
             IsEnabled = enabled,
             Source = ModelVisibilityGroupSource.HiddenApparition,
             SourceReference =
