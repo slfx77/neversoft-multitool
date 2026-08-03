@@ -18,6 +18,16 @@ public sealed class MeshImportRequest
     public string? PsxPath { get; init; }
     public string? DdmTexturePath { get; init; }
     public bool PsxFlatSkeleton { get; init; }
+
+    /// <summary>
+    ///     Optional PS1 light-rig preset name (see <c>PsxEngineLight.Presets</c>).
+    ///     When set, engine-lit faces are shaded with that rig exactly as the
+    ///     console would; when null they keep their authored colours for the
+    ///     viewer to light. The file says WHICH faces the engine lights but never
+    ///     WHICH light — that is runtime context — so this is always the caller's
+    ///     choice and never inferred.
+    /// </summary>
+    public string? PsxLightPreset { get; init; }
     public IReadOnlySet<int>? PsxFlatBoneIndices { get; init; }
 
     /// <summary>

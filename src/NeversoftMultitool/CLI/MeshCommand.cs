@@ -62,6 +62,14 @@ public static class MeshCommand
             Description = "For THAW PS2 worldzones, choose which time-of-day layers to export: all, day, or night.",
             DefaultValueFactory = _ => "all"
         };
+        var psxLightOption = new Option<string?>("--psx-light")
+        {
+            Description =
+                "Shade PS1 engine-lit faces with a named light rig extracted from the game "
+                + "binaries (item-default, skater, skater-mars). Omitted, those faces keep their "
+                + "authored colours for the viewer to light — the file records WHICH faces the "
+                + "engine lights but never WHICH light, so the rig cannot be inferred."
+        };
         var verboseOption = new Option<bool>("-v", "--verbose")
         {
             Description = "Enable verbose output"
@@ -80,6 +88,7 @@ public static class MeshCommand
         command.Options.Add(ddmTexturesOption);
         command.Options.Add(scaleOption);
         command.Options.Add(worldzoneTimeOfDayOption);
+        command.Options.Add(psxLightOption);
         command.Options.Add(verboseOption);
         command.Options.Add(formatOption);
         command.Options.Add(blenderHelperOption);
@@ -114,6 +123,16 @@ public static class MeshCommand
                 return Task.FromResult(1);
             }
 
+            var psxLight = parseResult.GetValue(psxLightOption);
+            if (!string.IsNullOrWhiteSpace(psxLight)
+                && PsxEngineLight.FromName(psxLight) == null)
+            {
+                AnsiConsole.MarkupLine(
+                    "[red]Error:[/] --psx-light must be one of: "
+                    + string.Join(", ", PsxEngineLight.Presets.Keys));
+                return Task.FromResult(1);
+            }
+
             return Task.FromResult(Execute(
                 input,
                 output,
@@ -124,6 +143,7 @@ public static class MeshCommand
                 ddmTexturePath,
                 scale,
                 worldzoneTimeOfDay,
+                psxLight,
                 verbose,
                 format,
                 blenderHelperPath,
@@ -143,6 +163,7 @@ public static class MeshCommand
         string? ddmTexturePath,
         float coordinateScale,
         WorldzoneTimeOfDay worldzoneTimeOfDay,
+        string? psxLightPreset,
         bool verbose,
         MeshOutputFormat format,
         string? blenderHelperPath,
@@ -211,7 +232,8 @@ public static class MeshCommand
                     psxPath,
                     ddmTexturePath,
                     worldzoneTimeOfDay,
-                    coordinateScale);
+                    coordinateScale,
+                    psxLightPreset);
 
                 converted++;
                 totalTriangles += result.Triangles;

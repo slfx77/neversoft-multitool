@@ -142,7 +142,8 @@ internal static class MeshExportCliOptions
         string? psxPath = null,
         string? ddmTexturePath = null,
         WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
-        float worldzoneScale = 1f)
+        float worldzoneScale = 1f,
+        string? psxLightPreset = null)
     {
         var stem = outputStem ?? Path.GetFileNameWithoutExtension(file);
         var document = Parser.Parse(new MeshImportRequest
@@ -159,7 +160,8 @@ internal static class MeshExportCliOptions
             PsxPath = psxPath,
             DdmTexturePath = ddmTexturePath,
             WorldzoneTimeOfDay = worldzoneTimeOfDay,
-            WorldzoneScale = worldzoneScale
+            WorldzoneScale = worldzoneScale,
+            PsxLightPreset = psxLightPreset
         });
 
         return ModelExportService.Export(

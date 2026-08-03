@@ -45,7 +45,7 @@ internal static class PsxGeometryWriter
                 document, psxFile, pshFile, textureProvider,
                 flatSkeleton, flatBoneIndices, splineClawFile,
                 splineClawTextureProvider, hiddenObjectIndices,
-                reconstructSplineAppendages, context?.BakeEngineLighting ?? false);
+                reconstructSplineAppendages, context?.EngineLight);
             ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
             return;
         }
@@ -138,7 +138,7 @@ internal static class PsxGeometryWriter
                         coplanarOverlays,
                         semiTransparentLiftSteps,
                         semiTransparentLiftDirections,
-                        context.BakeEngineLighting,
+                        context.EngineLight,
                         isSky,
                         skyColor,
                         ghostFaces);
@@ -162,7 +162,7 @@ internal static class PsxGeometryWriter
                     coplanarOverlays,
                     semiTransparentLiftSteps,
                     semiTransparentLiftDirections,
-                    context.BakeEngineLighting,
+                    context.EngineLight,
                     isSky,
                     skyColor);
             }
@@ -185,7 +185,7 @@ internal static class PsxGeometryWriter
         IReadOnlyDictionary<PsxFaceInstanceKey, int> coplanarOverlays,
         IReadOnlyDictionary<PsxFaceInstanceKey, int> semiTransparentLiftSteps,
         IReadOnlyDictionary<(int X, int Y, int Z), Vector3>? semiTransparentLiftDirections,
-        bool bakeFrontEndLight = false,
+        PsxEngineLight? engineLight = null,
         bool isSky = false,
         uint? skyColor = null,
         IReadOnlyList<PsxFace>? ghostFaces = null)
@@ -230,7 +230,7 @@ internal static class PsxGeometryWriter
                 PsxMeshSemantics.GetObjectOffset(psxFile, psxFile.Objects[objectIndex])),
             PsxNormalWelder.Build(psxMesh),
             PsxSpriteVertexResolver.TryCreate(psxMesh),
-            bakeFrontEndLight);
+            engineLight);
         var mesh = BuildPsxFaceMesh(
             document, psxFile, psxMesh, meshName,
             indexedFaces[-1], materialCache, textureDims, untexturedMaterial, textureProvider,
@@ -380,7 +380,7 @@ internal static class PsxGeometryWriter
                     texDims,
                     liftContext.LiftPlanFor(item.FaceIndex),
                     liftContext.NormalWelder,
-                    liftContext.BakeEngineLighting,
+                    liftContext.EngineLight,
                     liftContext.SpriteResolver);
 
             ModelDocumentGeometryAdapter.AddPrimitive(mesh, $"mat_{materialIndex:D3}", materialIndex, vertices,
@@ -432,7 +432,7 @@ internal static class PsxGeometryWriter
         (int Width, int Height) texDims,
         PsxFaceLiftPlan liftPlan,
         PsxNormalWelder? normalWelder,
-        bool bakeEngineLighting,
+        PsxEngineLight? engineLight,
         PsxSpriteVertexResolver? spriteResolver = null)
     {
         var isPs1 = version != 0x06;
@@ -445,7 +445,7 @@ internal static class PsxGeometryWriter
         // Per FACE, matching the engine: the PS1 loader ORs each face's word0
         // into SModel.Flags so the model-level bit is just "any face is lit",
         // and ProcessPolys then selects the lit primitive variant per face.
-        var bakeEngineLight = isPs1 && bakeEngineLighting
+        var bakeEngineLight = isPs1 && engineLight != null
                               && PsxGeometryHelpers.IsEngineLitFace(version, mesh, face);
         var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(
             version, mesh, face, gouraudPalette, neutralizeLitFaces: !bakeEngineLight);
@@ -455,11 +455,11 @@ internal static class PsxGeometryWriter
         c3 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c3);
         if (bakeEngineLight)
         {
-            c0 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 0, PsxEngineLight.Default);
-            c1 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 1, PsxEngineLight.Default);
-            c2 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 2, PsxEngineLight.Default);
+            c0 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 0, engineLight!);
+            c1 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 1, engineLight!);
+            c2 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 2, engineLight!);
             if (face.IsQuad)
-                c3 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 3, PsxEngineLight.Default);
+                c3 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 3, engineLight!);
         }
 
         var isPs1TexturedModulation = isPs1 && face.IsTextured;
@@ -671,9 +671,9 @@ internal static class PsxGeometryWriter
         Vector3 authoredOffset,
         PsxNormalWelder? normalWelder,
         PsxSpriteVertexResolver? spriteResolver,
-        bool bakeFrontEndLight = false)
+        PsxEngineLight? engineLight = null)
     {
-        internal bool BakeEngineLighting => bakeFrontEndLight;
+        internal PsxEngineLight? EngineLight => engineLight;
 
         /// <summary>Everything the lift needs for one face.</summary>
         internal PsxFaceLiftPlan LiftPlanFor(int faceIndex)
@@ -764,7 +764,8 @@ internal static class PsxGeometryWriter
         internal int? UntexturedMaterialIndex { get; set; }
 
         /// <summary>
-        ///     Bake the front-end preview light into fully engine-lit files.
+        ///     Which engine light rig to bake into engine-lit faces, or null to
+        ///     leave them to the viewer's own lighting (the default).
         ///     OFF by default: the converter cannot tell an FE prop from an
         ///     in-level character. The engine's own gate is a MODEL flag, but
         ///     disc headers ship 0x8 across lit characters and FE props alike
@@ -775,6 +776,6 @@ internal static class PsxGeometryWriter
         ///     baked into their in-level vertex colours. Until a signal exists
         ///     that actually separates the two, this stays caller-controlled.
         /// </summary>
-        internal bool BakeEngineLighting { get; init; }
+        internal PsxEngineLight? EngineLight { get; init; }
     }
 }

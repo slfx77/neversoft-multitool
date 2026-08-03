@@ -32,7 +32,7 @@ internal static class PsxSkinnedGeometryWriter
         MeshChecksumTextureResolver? splineClawTextureProvider,
         IReadOnlySet<int>? hiddenObjectIndices,
         bool reconstructSplineAppendages,
-        bool bakeEngineLighting = false)
+        PsxEngineLight? engineLight = null)
     {
         var skeletonIndex = document.Skeletons.Count;
         document.Skeletons.Add(BuildPsxSkeleton(
@@ -88,7 +88,7 @@ internal static class PsxSkinnedGeometryWriter
                 }
 
                 AddPsxSkinnedFace(
-                    bakeEngineLighting,
+                    engineLight,
                     bucket.Vertices, bucket.Indices, bucket.Influences,
                     psxFile, objectIndex, meshIndex, psxMesh, face, texDims,
                     embeddedTipPlacements.TryGetValue(objectIndex, out var tipPlacement)
@@ -164,7 +164,7 @@ internal static class PsxSkinnedGeometryWriter
                     }
 
                     AddPsxSkinnedFace(
-                        bakeEngineLighting,
+                        engineLight,
                         bucket.Vertices, bucket.Indices, bucket.Influences,
                         splineClawFile, clawObjectIndex, clawMeshIndex,
                         clawMesh, face, texDims, placement);
@@ -256,7 +256,7 @@ internal static class PsxSkinnedGeometryWriter
     }
 
     private static void AddPsxSkinnedFace(
-        bool bakeEngineLighting,
+        PsxEngineLight? engineLight,
         List<ModelVertex> vertices,
         List<int> indices,
         List<ModelBoneInfluences> influences,
@@ -276,7 +276,7 @@ internal static class PsxSkinnedGeometryWriter
         // pad, 892/892): the engine draws those with the FE preview light
         // MULTIPLIED into the authored albedo, so bake exactly that and carry
         // it in the packet colours.
-        var bakeEngineLight = isPs1 && bakeEngineLighting
+        var bakeEngineLight = isPs1 && engineLight != null
                               && PsxGeometryHelpers.IsEngineLitFace(psxFile.Version, mesh, face);
         var (c0, c1, c2, c3) = PsxGeometryHelpers.ComputePsxFaceColors(
             psxFile.Version, mesh, face, psxFile.GouraudPalette,
@@ -287,11 +287,11 @@ internal static class PsxSkinnedGeometryWriter
         c3 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c3);
         if (bakeEngineLight)
         {
-            c0 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 0, PsxEngineLight.Default);
-            c1 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 1, PsxEngineLight.Default);
-            c2 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 2, PsxEngineLight.Default);
+            c0 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 0, engineLight!);
+            c1 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 1, engineLight!);
+            c2 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 2, engineLight!);
             if (face.IsQuad)
-                c3 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 3, PsxEngineLight.Default);
+                c3 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 3, engineLight!);
         }
 
         var isPs1TexturedModulation = isPs1 && face.IsTextured;

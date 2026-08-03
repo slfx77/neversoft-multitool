@@ -81,6 +81,55 @@ internal sealed record PsxEngineLight(
         Fixed(2176, 2176, 2176));
 
     /// <summary>
+    ///     <c>Skater_MarsLight</c> (THPS2 <c>MECH.cpp:189</c>) — the warmer rig
+    ///     the generated Mars level swaps in for the skater.
+    /// </summary>
+    internal static readonly PsxEngineLight SkaterMars = new(
+        [
+            Fixed(0, 0x1000, 0),
+            Fixed(0, -0x1000, 0),
+            Fixed(-3857, 0, 1380)
+        ],
+        [
+            Fixed(192, 786, 3072),
+            Fixed(192, 705, 2628),
+            Fixed(192, 1088, 1992)
+        ],
+        Fixed(1664, 1664, 1664));
+
+    /// <summary>
+    ///     The rigs this tool can name with provenance, keyed by CLI/UI name.
+    ///
+    ///     Deliberately only the tables the decomp NAMES. The binaries hold more
+    ///     (Spider-Man carries three further rigs at 0x80098E00/E40/F1C sharing
+    ///     one direction set), but nothing identifies which entity or screen
+    ///     selects them, and a preset whose meaning is unknown is not worth
+    ///     more than the viewer's own light. They can be added the moment
+    ///     something names them.
+    ///
+    ///     Nothing here is applied automatically: the file records WHICH faces
+    ///     the engine lights, never WHICH light, so choosing a rig is the
+    ///     caller's decision (see <see cref="Evaluate" /> for why the authored
+    ///     colour cannot stand in for it).
+    /// </summary>
+    internal static IReadOnlyDictionary<string, PsxEngineLight> Presets { get; } =
+        new Dictionary<string, PsxEngineLight>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["item-default"] = Default,
+            ["skater"] = Skater,
+            ["skater-mars"] = SkaterMars
+        };
+
+    /// <summary>Resolves a preset name; null (and any unknown name) means "no bake".</summary>
+    internal static PsxEngineLight? FromName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        return Presets.TryGetValue(name.Trim(), out var light) ? light : null;
+    }
+
+    /// <summary>
     ///     Reproduces one GTE <c>NCCS</c> with the RGB register at white:
     ///     intensities from the three light directions (negatives clamped, the
     ///     GTE lm=1 behaviour), then ambient plus the colour matrix applied to

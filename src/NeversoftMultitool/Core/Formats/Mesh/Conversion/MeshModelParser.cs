@@ -195,7 +195,10 @@ public sealed class MeshModelParser : IModelParser
             }
         }
 
-        var geometryContext = new PsxGeometryWriter.PsxGeometryWriterContext();
+        var geometryContext = new PsxGeometryWriter.PsxGeometryWriterContext
+        {
+            EngineLight = PsxEngineLight.FromName(request.PsxLightPreset)
+        };
         PsxGeometryWriter.PopulatePsx(
             document, psxFile, textureProvider, pshFile,
             forceFlatSkeleton, request.PsxFlatBoneIndices, splineClawFile,
