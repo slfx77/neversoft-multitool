@@ -177,12 +177,10 @@ public sealed class PsxCoplanarOverlayDetectorTests(TestPaths paths)
         // ST tile sets never interpenetrate, so the layer detector must NOT
         // invent a stack for them (union-bounds grouping used to lift one
         // whole set 0.5 spuriously).
-        foreach (var key in steps.Keys)
-        {
-            var face = file!.Meshes[file.Objects[key.ObjectIndex].MeshIndex].Faces[key.FaceIndex];
-            Assert.False(face.TextureHash is 0x36D4916F or 0x629763D7,
-                $"patchwork water tile 0x{face.TextureHash:X8} must not receive a stacked lift");
-        }
+        // Assert the OUTCOME, not a loop over it: the detector finds no stack
+        // anywhere in this file, so iterating its (empty) results asserted
+        // nothing at all and passed no matter what the detector did.
+        Assert.Empty(steps);
     }
 
     private static PsxMeshFile CreateFile(params PsxMesh[] meshes)
