@@ -64,12 +64,20 @@ Re-open with an independent oracle.
   shared-area semantics, but `l7a2_g = 538` is decided by float32 rounding of the plane key and
   flips to 531 in double precision.
 
-### 6. Spider-Man's three unidentified light rigs
+### 6. Spider-Man's light rigs — CLOSED 2026-08-03
 
-`0x80098E00 / 0x80098E40 / 0x80098F1C` share one direction set with differing colour and ambient.
-They are deliberately NOT exposed as presets because nothing identifies which entity or screen
-selects them. Tracing that (start from `PLAYERSELECT.cpp` / `CREATE.cpp` equivalents in the
-Spider-Man binary) would also answer which rig the controller-config screen uses.
+Traced with `tools/diagnostics/psx_xref_scan.py`. The binary makes exactly two
+`mpLight` (offset 0x38) assignments: the item constructor at 0x80058D90 using
+`M3d_DefaultLight` (0x800A6214), and 0x80048214 using **0x80098F1C**, whose
+constructor (0x80047DF8) is called from two sites that each allocate a
+0x1020-byte object — the game's largest entity, the structural analogue of
+THPS2's CBruce. Shipped as the `spiderman-player` preset.
+
+0x80098E00 and 0x80098E40 are referenced by nothing at all and are NOT exposed.
+
+Still open from this thread: which rig the controller-config screen uses. It is
+not one of the two above, so it is set somewhere the scan did not reach (a
+front-end path assigning through a different offset or a copied struct).
 
 ## Needs the user, not code
 

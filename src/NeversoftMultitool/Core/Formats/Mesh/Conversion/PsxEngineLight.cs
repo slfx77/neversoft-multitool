@@ -98,14 +98,43 @@ internal sealed record PsxEngineLight(
         Fixed(1664, 1664, 1664));
 
     /// <summary>
+    ///     Spider-Man's player rig (final SLUS_008.75 @0x80098F1C). RE'd
+    ///     2026-08-03 with no symbols: the binary contains exactly TWO stores of
+    ///     a light table into an item's <c>mpLight</c> (offset 0x38) — the item
+    ///     constructor at 0x80058D90 assigning <c>M3d_DefaultLight</c>
+    ///     (0x800A6214, the same table THPS2 names), and 0x80048214 assigning
+    ///     this one. That second constructor (entry 0x80047DF8) is called from
+    ///     two sites, each allocating a 0x1020-byte object — by far the largest
+    ///     entity in the game — and applies level-specific tweaks off a global
+    ///     compared against level ids 6/9/10. That is the structural analogue of
+    ///     THPS2's CBruce taking <see cref="Skater" />, so this is the player's
+    ///     rig; the entity identification is by analogy, the ADDRESS and the
+    ///     assignment are measured.
+    ///
+    ///     A three-point setup, unlike the hemisphere default.
+    /// </summary>
+    internal static readonly PsxEngineLight SpiderManPlayer = new(
+        [
+            Fixed(-2430, -2228, -2430),
+            Fixed(2509, -2896, 1447),
+            Fixed(-648, -3711, -1607)
+        ],
+        [
+            Fixed(3200, 1040, 2048),
+            Fixed(2720, 1600, 1920),
+            Fixed(2400, 2560, 2048)
+        ],
+        Fixed(1800, 1800, 1440));
+
+    /// <summary>
     ///     The rigs this tool can name with provenance, keyed by CLI/UI name.
     ///
-    ///     Deliberately only the tables the decomp NAMES. The binaries hold more
-    ///     (Spider-Man carries three further rigs at 0x80098E00/E40/F1C sharing
-    ///     one direction set), but nothing identifies which entity or screen
-    ///     selects them, and a preset whose meaning is unknown is not worth
-    ///     more than the viewer's own light. They can be added the moment
-    ///     something names them.
+    ///     Only rigs whose SELECTOR is known. Two further Spider-Man candidates
+    ///     (0x80098E00 and 0x80098E40) share this rig's direction set and look
+    ///     like brightness variants, but a cross-reference scan finds them
+    ///     referenced by nothing at all — no lui/lo pair, no pointer word — so
+    ///     they are dead data or artefacts of the structural scan, and exposing
+    ///     them would be inventing a choice the engine never makes.
     ///
     ///     Nothing here is applied automatically: the file records WHICH faces
     ///     the engine lights, never WHICH light, so choosing a rig is the
@@ -117,7 +146,8 @@ internal sealed record PsxEngineLight(
         {
             ["item-default"] = Default,
             ["skater"] = Skater,
-            ["skater-mars"] = SkaterMars
+            ["skater-mars"] = SkaterMars,
+            ["spiderman-player"] = SpiderManPlayer
         };
 
     /// <summary>Resolves a preset name; null (and any unknown name) means "no bake".</summary>

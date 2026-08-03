@@ -24,7 +24,7 @@ public sealed class PsxEngineLightTests
     private static readonly Vector3 FacingForward = new(0f, 0f, 1f);
 
     private static readonly string[] ExpectedPresetNames =
-        ["item-default", "skater", "skater-mars"];
+        ["item-default", "skater", "skater-mars", "spiderman-player"];
 
     private static readonly Vector3[] SampleNormals =
     [
@@ -132,8 +132,10 @@ public sealed class PsxEngineLightTests
     [Fact]
     public void PresetsOnlyContainRigsTheDecompNames()
     {
-        // Guard against someone adding an address-only rig: every preset here
-        // must be one the THPS2 decomp gives a name and a purpose.
+        // Guard against someone adding an address-only rig: every preset must
+        // have a known SELECTOR — named by the decomp, or traced to the code
+        // that assigns it. Spider-Man's 0x80098E00/E40 are deliberately absent:
+        // nothing in the binary references them.
         Assert.Equal(
             ExpectedPresetNames,
             PsxEngineLight.Presets.Keys.OrderBy(static key => key, StringComparer.Ordinal));
