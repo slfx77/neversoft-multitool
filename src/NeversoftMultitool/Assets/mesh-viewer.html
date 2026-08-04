@@ -1047,6 +1047,15 @@ if (psxFlags.z < 0.5) {
           || (obj.parent && /^sky__/.test(obj.parent.name || ''));
         if (!sky) return;
         obj.userData.neversoftSkyMesh = true;
+        // Paint order within the sky pass. Nothing here writes depth, so the
+        // layers resolve purely by renderOrder — without it three.js falls back
+        // to object id, i.e. bank object order, which is the REVERSE of TRG
+        // registration order in every level sampled and drew l2a1's dome over
+        // its skyline (the buildings' bottoms poking out below the dome skirt).
+        // Rank 0 is furthest back; see PsxSkyDomeClassifier.Result for why
+        // registration order IS the engine's paint order.
+        const skyLayer = obj.userData && obj.userData.neversoftSkyLayer;
+        obj.renderOrder = Number.isFinite(skyLayer) ? skyLayer : 0;
         const skyColor = obj.userData && obj.userData.neversoftSkyColor;
         if (Number.isFinite(skyColor) && skyBackdropColor === null)
           skyBackdropColor = skyColor >>> 0;

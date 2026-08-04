@@ -36,6 +36,7 @@ internal static class PsxGeometryWriter
         PsxGeometryWriterContext? context = null,
         IReadOnlyDictionary<int, IReadOnlyList<PsxLevelObjectPlacement>>? objectPlacements = null,
         IReadOnlySet<int>? skyObjectIndices = null,
+        IReadOnlyDictionary<int, int>? skyLayerOrder = null,
         uint? skyColor = null,
         PsxGhostEmissionOptions? ghostOptions = null)
     {
@@ -76,6 +77,9 @@ internal static class PsxGeometryWriter
                 continue;
 
             var isSky = skyObjectIndices?.Contains(objectIndex) == true;
+            var skyLayerIndex = isSky && skyLayerOrder?.TryGetValue(objectIndex, out var rank) == true
+                ? rank
+                : 0;
             if (objectPlacements != null)
             {
                 if (!objectPlacements.TryGetValue(objectIndex, out var placements))
@@ -141,7 +145,8 @@ internal static class PsxGeometryWriter
                         context.EngineLight,
                         isSky,
                         skyColor,
-                        ghostFaces);
+                        ghostFaces,
+                        skyLayerIndex);
                 }
             }
             else
@@ -164,7 +169,8 @@ internal static class PsxGeometryWriter
                     semiTransparentLiftDirections,
                     context.EngineLight,
                     isSky,
-                    skyColor);
+                    skyColor,
+                    skyLayerIndex: skyLayerIndex);
             }
         }
 
@@ -188,7 +194,8 @@ internal static class PsxGeometryWriter
         PsxEngineLight? engineLight = null,
         bool isSky = false,
         uint? skyColor = null,
-        IReadOnlyList<PsxFace>? ghostFaces = null)
+        IReadOnlyList<PsxFace>? ghostFaces = null,
+        int skyLayerIndex = 0)
     {
         var psxMesh = psxFile.Meshes[meshIndex];
         var emittedFaces = ghostFaces ?? (IReadOnlyList<PsxFace>)psxMesh.Faces;
@@ -263,7 +270,7 @@ internal static class PsxGeometryWriter
             if (isSky)
             {
                 foreach (var primitive in mesh.Primitives)
-                    primitive.NativeMetadata.Add(new PsxSkyRenderMetadata(skyColor));
+                    primitive.NativeMetadata.Add(new PsxSkyRenderMetadata(skyColor, skyLayerIndex));
             }
 
             ApplyAxialBillboardMetadata(mesh, liftContext.SpriteResolver);

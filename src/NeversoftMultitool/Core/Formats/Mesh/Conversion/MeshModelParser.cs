@@ -438,6 +438,7 @@ public sealed class MeshModelParser : IModelParser
                     context: geometryContext,
                     objectPlacements: remainingBank,
                     skyObjectIndices: sky?.ObjectIndices,
+                    skyLayerOrder: sky?.LayerOrder,
                     skyColor: sky?.SkyColor,
                     ghostOptions: new PsxGhostEmissionOptions
                     {

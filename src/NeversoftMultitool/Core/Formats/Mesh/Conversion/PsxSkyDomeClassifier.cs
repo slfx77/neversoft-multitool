@@ -47,10 +47,28 @@ internal static class PsxSkyDomeClassifier
     /// </summary>
     private const float SkyParkingClusterRadius = 1_500f;
 
+    /// <summary>
+    ///     <paramref name="LayerOrder" /> maps each sky object index to its paint
+    ///     rank: 0 is drawn FIRST (furthest back), higher ranks paint over it.
+    ///
+    ///     The rank is the position of the object's <c>0xAB BackgroundCreate</c>
+    ///     within the registering node's command list, because the engine's two
+    ///     reversals cancel exactly (RE 2026-08-04): <c>CBackground</c>'s ctor
+    ///     head-inserts onto <c>BackgroundList</c> (<c>CBody::AttachTo</c>,
+    ///     OB.cpp:435) so the list runs last-registered-first;
+    ///     <c>M3d_RenderBackground</c> walks it head to tail, so submission is
+    ///     reverse registration order; every background vertex gets SZ 0x7FFF and
+    ///     the OT index clamps to the last bucket, so ALL layers share one
+    ///     bucket; and insertion into a bucket is itself a prepend into a
+    ///     reversed table drawn from the top, so the earliest-submitted paints
+    ///     last. Net effect: <b>layers paint in TRG registration order</b> — the
+    ///     first 0xAB is furthest back, the last is in front.
+    /// </summary>
     internal sealed record Result(
         IReadOnlySet<int> ObjectIndices,
         TrgPosition? AnchorNodePosition,
-        uint? SkyColor);
+        uint? SkyColor,
+        IReadOnlyDictionary<int, int> LayerOrder);
 
     /// <summary>
     ///     Classifies the bank's sky objects, preferring the exact TRG
@@ -67,57 +85,57 @@ internal static class PsxSkyDomeClassifier
             return fromTrg with { SkyColor = skyColor };
 
         var geometric = FindSkyObjectIndicesGeometric(levelMesh, bank);
-        return geometric == null ? null : new Result(geometric, null, skyColor);
+        // The geometric fallback has no registration record, so it can assert no
+        // order: every layer gets rank 0 rather than an invented one.
+        return geometric == null
+            ? null
+            : new Result(geometric, null, skyColor, EmptyLayerOrder);
     }
+
+    private static readonly Dictionary<int, int> EmptyLayerOrder = [];
 
     private static Result? ClassifyFromTrg(PsxMeshFile bank, TrgFile? trg)
     {
         if (trg == null)
             return null;
 
-        var checksums = new HashSet<uint>();
-        TrgPosition? anchor = null;
-        foreach (var node in trg.Nodes)
-        {
-            if (node.Commands == null)
-                continue;
-
-            var registersBackground = false;
-            foreach (var command in node.Commands)
-            {
-                if (command.Opcode != BackgroundCreateOpcode)
-                    continue;
-                if (TryParseChecksumArg(command, out var checksum))
-                {
-                    checksums.Add(checksum);
-                    registersBackground = true;
-                }
-            }
-
-            if (registersBackground)
-                anchor ??= node.Position;
-        }
-
-        if (checksums.Count == 0)
+        var checksumRanks = CollectBackgroundRegistrations(trg, out var anchor);
+        if (checksumRanks.Count == 0)
             return null;
 
         HashSet<int>? indices = null;
+        var layerOrder = new Dictionary<int, int>();
         for (var objectIndex = 0; objectIndex < bank.Objects.Count; objectIndex++)
         {
             var meshIndex = bank.Objects[objectIndex].MeshIndex;
             if (meshIndex < bank.MeshNameHashes.Length
-                && checksums.Contains(bank.MeshNameHashes[meshIndex]))
+                && checksumRanks.TryGetValue(bank.MeshNameHashes[meshIndex], out var rank))
             {
                 indices ??= [];
                 indices.Add(objectIndex);
+                layerOrder[objectIndex] = rank;
             }
         }
 
         if (indices == null)
             return null;
 
-        ClaimColocatedDistantBackdrops(bank, indices);
-        return new Result(indices, anchor, null);
+        var claimed = ClaimColocatedDistantBackdrops(bank, indices);
+
+        // A claimed backdrop has no 0xAB record, so its rank is not measured. It
+        // paints IN FRONT of every registered layer: the engine draws it as
+        // ordinary world geometry (far-clip disabled), and the background pass
+        // runs before the world pass, so it is necessarily nearer than the
+        // registered background. l1a1's claimed object is its skyline, which is
+        // exactly what should sit in front of the dome.
+        if (claimed.Count > 0)
+        {
+            var front = layerOrder.Count == 0 ? 0 : layerOrder.Values.Max() + 1;
+            foreach (var objectIndex in claimed)
+                layerOrder[objectIndex] = front;
+        }
+
+        return new Result(indices, anchor, null, layerOrder);
     }
 
     /// <summary>
@@ -139,13 +157,14 @@ internal static class PsxSkyDomeClassifier
     ///     Sep-1 final and the Apr-29 proto. The other 13 flag-0x2000 objects
     ///     corpus-wide are already claimed by their own TRG join.
     /// </summary>
-    private static void ClaimColocatedDistantBackdrops(PsxMeshFile bank, HashSet<int> indices)
+    private static List<int> ClaimColocatedDistantBackdrops(PsxMeshFile bank, HashSet<int> indices)
     {
         var centroid = Vector3.Zero;
         foreach (var index in indices)
             centroid += PsxMeshSemantics.GetObjectOffset(bank, bank.Objects[index]);
         centroid /= indices.Count;
 
+        var claimed = new List<int>();
         for (var objectIndex = 0; objectIndex < bank.Objects.Count; objectIndex++)
         {
             var obj = bank.Objects[objectIndex];
@@ -157,9 +176,56 @@ internal static class PsxSkyDomeClassifier
             }
 
             var position = PsxMeshSemantics.GetObjectOffset(bank, obj);
-            if (Vector3.Distance(position, centroid) <= SkyParkingClusterRadius)
-                indices.Add(objectIndex);
+            if (Vector3.Distance(position, centroid) > SkyParkingClusterRadius)
+                continue;
+
+            indices.Add(objectIndex);
+            claimed.Add(objectIndex);
         }
+
+        return claimed;
+    }
+
+    /// <summary>
+    ///     Every <c>0xAB BackgroundCreate</c> in the file, mapped to its paint
+    ///     rank, plus the position of the first node that registers one (the
+    ///     camera's start, used as the static sky anchor).
+    ///
+    ///     A level repeats the same registration sequence in each of its RESTART
+    ///     nodes — l2a1 has three — so the rank is the command's position WITHIN
+    ///     its own node and the lowest wins. A counter running across nodes would
+    ///     give the second node's copies ranks 2 and 3 and invent an order.
+    /// </summary>
+    private static Dictionary<uint, int> CollectBackgroundRegistrations(
+        TrgFile trg,
+        out TrgPosition? anchor)
+    {
+        var checksumRanks = new Dictionary<uint, int>();
+        anchor = null;
+        foreach (var node in trg.Nodes)
+        {
+            if (node.Commands == null)
+                continue;
+
+            var rank = 0;
+            foreach (var command in node.Commands)
+            {
+                if (command.Opcode != BackgroundCreateOpcode
+                    || !TryParseChecksumArg(command, out var checksum))
+                {
+                    continue;
+                }
+
+                if (!checksumRanks.TryGetValue(checksum, out var existing) || rank < existing)
+                    checksumRanks[checksum] = rank;
+                rank++;
+            }
+
+            if (rank > 0)
+                anchor ??= node.Position;
+        }
+
+        return checksumRanks;
     }
 
     private static bool TryParseChecksumArg(TrgCommand command, out uint checksum)

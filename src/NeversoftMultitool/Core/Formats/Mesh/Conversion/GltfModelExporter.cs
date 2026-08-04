@@ -426,6 +426,7 @@ public sealed class GltfModelExporter : IModelExporter
         if (sky != null)
         {
             extras["neversoftSky"] = true;
+            extras["neversoftSkyLayer"] = sky.LayerIndex;
             if (sky.SkyColor is { } skyColor)
                 extras["neversoftSkyColor"] = skyColor;
         }

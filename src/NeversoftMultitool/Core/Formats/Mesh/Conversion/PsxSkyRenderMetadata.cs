@@ -10,5 +10,13 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     draws them unlit, and excludes them from framing and the walk-mode
 ///     ground raycast; the Blender importer files tagged objects into a
 ///     hideable NeversoftSky collection.
+///
+///     <paramref name="LayerIndex" /> is the layer's paint rank within the sky
+///     pass: 0 draws first (furthest back), higher ranks paint over it. It comes
+///     from the TRG BackgroundCreate registration order — see
+///     <see cref="PsxSkyDomeClassifier.Result" /> for why that order is the
+///     engine's paint order. Without it a multi-layer sky is ordered by
+///     three.js object id, which put l2a1's dome over its skyline.
 /// </summary>
-public sealed record PsxSkyRenderMetadata(uint? SkyColor = null) : NativeRenderMetadata("psx_sky");
+public sealed record PsxSkyRenderMetadata(uint? SkyColor = null, int LayerIndex = 0)
+    : NativeRenderMetadata("psx_sky");
