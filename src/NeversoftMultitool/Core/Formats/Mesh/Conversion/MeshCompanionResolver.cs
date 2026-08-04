@@ -21,6 +21,9 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 /// </summary>
 internal static class MeshCompanionResolver
 {
+    private const string PsxBankSuffix = "_o.psx";
+    private const string PsxTriggerSuffix = "_t.trg";
+
     private static readonly string[] XbxTexExtensions = [".tex.xbx", ".tex.wpc"];
     private static readonly string[] NgcTexExtensions = [".tex.ngc"];
     private static readonly string[] XbxTexSubdirs = ["TEX", "Textures"];
@@ -41,9 +44,22 @@ internal static class MeshCompanionResolver
     ///             THPS1/THPS2 <c>*.psx</c> level geometry carries no marker
     ///             suffix, so it qualifies only when both a sibling <c>*_o.psx</c> bank
     ///             AND a <c>*_t.trg</c> trigger file exist. That sibling requirement
-    ///             self-excludes the <c>_o</c>/<c>_l</c>/<c>_2</c> companions (they have
+    ///             self-excludes the <c>_o</c>/<c>_l</c> companions (they have
     ///             no <c>_o</c> of their own) and standalone character models (which
     ///             have neither companion), so no suffix blocklist is needed.
+    ///         </item>
+    ///         <item>
+    ///             THPS1/THPS2 mode-variant regions <c>&lt;base&gt;_2</c> (two
+    ///             player) and <c>&lt;base&gt;_h</c> (H-O-R-S-E) ship NO companions
+    ///             under their own stem — the SHARED <c>&lt;base&gt;_t.trg</c>
+    ///             spools them by name (RESTART <c>SpoolEnv</c>), and the bank is
+    ///             the reduced two-player <c>&lt;base&gt;_o2.psx</c> or its
+    ///             8.3-squeezed spelling <c>&lt;base&gt;o2.psx</c> (THPS1 final
+    ///             ships skjamo2/skmallo2/skroso2 but sksf_o2; THPS2 always keeps
+    ///             the underscore), falling back to the one-player
+    ///             <c>&lt;base&gt;_o.psx</c> (skburn_t's AUTOEXEC2 sets SkBurn_O;
+    ///             skschl/skvans/skware ship no AUTOEXEC2 at all). HORSE restarts
+    ///             run the one-player AUTOEXEC bank.
     ///         </item>
     ///     </list>
     ///     The bank object table is the same placed-layer convention in both
@@ -65,18 +81,71 @@ internal static class MeshCompanionResolver
         if (stem.Length > 2 && stem.EndsWith("_g", StringComparison.OrdinalIgnoreCase))
         {
             var levelStem = stem[..^2];
-            companions = new PsxLevelCompanions(levelStem, levelStem + "_o.psx", true);
+            companions = new PsxLevelCompanions(levelStem, levelStem + PsxBankSuffix, true);
             return true;
         }
 
-        if (source.CompanionExists(stem + "_o.psx")
-            && source.CompanionExists(stem + "_t.trg"))
+        if (source.CompanionExists(stem + PsxBankSuffix)
+            && source.CompanionExists(stem + PsxTriggerSuffix))
         {
-            companions = new PsxLevelCompanions(stem, stem + "_o.psx", true);
+            companions = new PsxLevelCompanions(stem, stem + PsxBankSuffix, true);
             return true;
         }
+
+        if (TryResolveThpsVariantLevel(source, stem, out companions))
+            return true;
 
         return TryResolveApocalypseLevel(source, stem, out companions);
+    }
+
+    /// <summary>
+    ///     THPS1/THPS2 mode variants — <c>&lt;base&gt;_2</c> (two player) and
+    ///     <c>&lt;base&gt;_h</c> (H-O-R-S-E) — are alternate geometry regions of
+    ///     <c>&lt;base&gt;</c>, spooled by the SHARED <c>&lt;base&gt;_t.trg</c>.
+    ///     The bank candidates are derived from what actually ships (THPS1 proto +
+    ///     final, THPS2 final + DC corpus): two-player banks are
+    ///     <c>&lt;base&gt;_o2.psx</c> (all THPS2, THPS1 sksf) or the squeezed
+    ///     <c>&lt;base&gt;o2.psx</c> (THPS1 skjam/skmall/skros), then the
+    ///     one-player <c>&lt;base&gt;_o.psx</c> for levels without a reduced bank
+    ///     (skburn/skschl/skvans/skware, every THPS1-proto variant, skb1). HORSE
+    ///     regions always run the one-player AUTOEXEC bank (skros_t sets SkRos_O).
+    ///     The Apocalypse chunk files (<c>city_2.psx</c> etc.) fall through
+    ///     unchanged: no THPS-style <c>*_o.psx</c>/<c>*o2.psx</c> exists there.
+    ///     Known fidelity caveat (accepted): the filename rule attaches a bank to
+    ///     the four variants whose AUTOEXEC2 deliberately loads none (THPS1/THPS2
+    ///     skdown_2, THPS2 skbul_2/skmar_2/skven_2 with unreferenced on-disc o2
+    ///     banks); a TRG <c>SetObjFile</c>-driven resolver would fix those.
+    /// </summary>
+    private static bool TryResolveThpsVariantLevel(
+        AssetSource source,
+        string stem,
+        out PsxLevelCompanions companions)
+    {
+        companions = default;
+        if (stem.Length <= 2)
+            return false;
+
+        var isTwoPlayer = stem.EndsWith("_2", StringComparison.OrdinalIgnoreCase);
+        var isHorse = stem.EndsWith("_h", StringComparison.OrdinalIgnoreCase);
+        if (!isTwoPlayer && !isHorse)
+            return false;
+
+        var baseStem = stem[..^2];
+        if (!source.CompanionExists(baseStem + PsxTriggerSuffix))
+            return false;
+
+        string[] bankCandidates = isTwoPlayer
+            ? [baseStem + "_o2.psx", baseStem + "o2.psx", baseStem + PsxBankSuffix]
+            : [baseStem + PsxBankSuffix];
+        foreach (var bank in bankCandidates)
+        {
+            if (!source.CompanionExists(bank))
+                continue;
+            companions = new PsxLevelCompanions(baseStem, bank, true);
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -102,7 +171,7 @@ internal static class MeshCompanionResolver
 
         // Bare primary: the file's own stem carries the bank + trigger.
         if (TryGetApocalypseBankName(source, stem, out var bareBank)
-            && source.CompanionExists(stem + "_t.trg"))
+            && source.CompanionExists(stem + PsxTriggerSuffix))
         {
             companions = new PsxLevelCompanions(stem, bareBank, true);
             return true;
@@ -124,7 +193,7 @@ internal static class MeshCompanionResolver
         var baseStem = stem[..separator];
         if (source.CompanionExists(baseStem + ".psx")
             || !TryGetApocalypseBankName(source, baseStem, out var bank)
-            || !source.CompanionExists(baseStem + "_t.trg"))
+            || !source.CompanionExists(baseStem + PsxTriggerSuffix))
         {
             return false;
         }

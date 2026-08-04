@@ -24,24 +24,7 @@ public static class PsxTextureProviderFactory
     public static IReadOnlyList<string> GetCompanionLibraryStems(string stem)
     {
         var candidates = new List<string>();
-        if (stem.EndsWith("_g", StringComparison.OrdinalIgnoreCase))
-        {
-            candidates.Add(stem[..^2] + "_l");
-        }
-        else if (!stem.EndsWith("_l", StringComparison.OrdinalIgnoreCase))
-        {
-            candidates.Add(stem + "_l");
-            var cut = stem.LastIndexOf('_');
-            if (cut > 0)
-            {
-                // Two-player variants first try their own reduced library
-                // (THPS1 final: skschl_2.psx -> skschll2.psx), then the full
-                // base library.
-                if (stem.EndsWith("_2", StringComparison.OrdinalIgnoreCase))
-                    candidates.Add(stem[..cut] + "l2");
-                candidates.Add(stem[..cut] + "_l");
-            }
-        }
+        AddNativePairCandidates(candidates, stem);
 
         // Apocalypse level regions use family libraries rather than the later
         // *_g / *_l convention. Most are a single shared file (city_1.psx,
@@ -76,6 +59,39 @@ public static class PsxTextureProviderFactory
         candidates.Add("skatelib");
         candidates.Add("sub_lib");
         return candidates;
+    }
+
+    /// <summary>
+    ///     Native <c>*_g</c>/<c>*_l</c> pair candidates plus the THPS variant
+    ///     spellings for suffixless stems.
+    /// </summary>
+    private static void AddNativePairCandidates(List<string> candidates, string stem)
+    {
+        if (stem.EndsWith("_g", StringComparison.OrdinalIgnoreCase))
+        {
+            candidates.Add(stem[..^2] + "_l");
+            return;
+        }
+
+        if (stem.EndsWith("_l", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        candidates.Add(stem + "_l");
+        var cut = stem.LastIndexOf('_');
+        if (cut <= 0)
+            return;
+
+        // Two-player variants first try their own reduced library — both
+        // shipped spellings: <base>_l2 (all THPS2, THPS1 sksf_l2) and the
+        // squeezed <base>l2 (THPS1 final: skschl_2.psx -> skschll2.psx) —
+        // then the full base library.
+        if (stem.EndsWith("_2", StringComparison.OrdinalIgnoreCase))
+        {
+            candidates.Add(stem[..cut] + "_l2");
+            candidates.Add(stem[..cut] + "l2");
+        }
+
+        candidates.Add(stem[..cut] + "_l");
     }
 
     public static MeshChecksumTextureResolver FromFile(string psxPath)

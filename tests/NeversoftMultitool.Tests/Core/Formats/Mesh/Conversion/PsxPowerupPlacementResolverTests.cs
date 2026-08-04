@@ -257,6 +257,20 @@ public sealed class PsxPowerupPlacementResolverTests(TestPaths paths)
     }
 
     [Fact]
+    public void Resolve_Thps1ProtoTape_FallsThroughToGreyGearPlaceholder()
+    {
+        // The 1999-4-9 proto's items.psx has neither tape mesh — its ctor jump
+        // table maps type 16 onto the grey-gear placeholder, the last candidate.
+        var items = BuildItems([ThpsLetterS, ProtoPlaceholder]);
+        var trg = BuildTrg(false, Powerup(5, 16, 0, 0, 0));
+
+        var placements = PsxPowerupPlacementResolver.Resolve(trg, items, Divisor);
+
+        Assert.NotNull(placements);
+        Assert.Equal(1, Assert.Single(placements!).Key); // placeholder's index
+    }
+
+    [Fact]
     public void Resolve_Thps1ProtoBonus_CollapsesOntoThePlaceholderMesh()
     {
         // The 1999-4-9 proto maps bonus types 21/22/23 onto one mesh
