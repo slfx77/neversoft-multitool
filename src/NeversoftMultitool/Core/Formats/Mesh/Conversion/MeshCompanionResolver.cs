@@ -102,19 +102,27 @@ internal static class MeshCompanionResolver
     ///     THPS1/THPS2 mode variants — <c>&lt;base&gt;_2</c> (two player) and
     ///     <c>&lt;base&gt;_h</c> (H-O-R-S-E) — are alternate geometry regions of
     ///     <c>&lt;base&gt;</c>, spooled by the SHARED <c>&lt;base&gt;_t.trg</c>.
-    ///     The bank candidates are derived from what actually ships (THPS1 proto +
-    ///     final, THPS2 final + DC corpus): two-player banks are
-    ///     <c>&lt;base&gt;_o2.psx</c> (all THPS2, THPS1 sksf) or the squeezed
-    ///     <c>&lt;base&gt;o2.psx</c> (THPS1 skjam/skmall/skros), then the
-    ///     one-player <c>&lt;base&gt;_o.psx</c> for levels without a reduced bank
-    ///     (skburn/skschl/skvans/skware, every THPS1-proto variant, skb1). HORSE
-    ///     regions always run the one-player AUTOEXEC bank (skros_t sets SkRos_O).
-    ///     The Apocalypse chunk files (<c>city_2.psx</c> etc.) fall through
-    ///     unchanged: no THPS-style <c>*_o.psx</c>/<c>*o2.psx</c> exists there.
-    ///     Known fidelity caveat (accepted): the filename rule attaches a bank to
-    ///     the four variants whose AUTOEXEC2 deliberately loads none (THPS1/THPS2
-    ///     skdown_2, THPS2 skbul_2/skmar_2/skven_2 with unreferenced on-disc o2
-    ///     banks); a TRG <c>SetObjFile</c>-driven resolver would fix those.
+    ///     The bank comes from that TRG's BOOT script, exactly as the engine
+    ///     picks it (see <see cref="PsxTrgBootScript" />): both variants run as
+    ///     two-player, so an AUTOEXEC2 node REPLACES the one-player AUTOEXEC, and
+    ///     a boot script naming no <c>SetObjFile</c> means the region genuinely
+    ///     has NO bank. That is the faithful result for THPS1/THPS2
+    ///     <c>skdown_2</c>/<c>skdown_h</c> and THPS2
+    ///     <c>skbul_2</c>/<c>skmar_2</c>/<c>skven_2</c>, whose on-disc <c>o2</c>
+    ///     banks are never referenced — the reported over-placement.
+    ///
+    ///     Reading the TRG also spells the bank exactly (<c>skjamo2</c>,
+    ///     <c>SkMallo2</c>, <c>SkRosO2</c>, <c>SkSF_O2</c>, …), retiring the
+    ///     <c>_o2</c>-vs-<c>o2</c> spelling table, and it corrects this comment's
+    ///     previous claim that HORSE runs the one-player bank: HORSE is
+    ///     <c>GGame == 7</c>, which <c>LaunchTheDamnGame</c> launches with
+    ///     <c>GNumberOfPlayers == 2</c>, so <c>skros_h</c> takes <c>SkRosO2</c>
+    ///     and <c>skdown_h</c> takes none.
+    ///
+    ///     The filename candidates remain ONLY as a fallback for a variant whose
+    ///     TRG will not parse or carries no boot script at all. The Apocalypse
+    ///     chunk files (<c>city_2.psx</c> etc.) fall through unchanged: no
+    ///     THPS-style <c>*_o.psx</c>/<c>*o2.psx</c> exists there.
     /// </summary>
     private static bool TryResolveThpsVariantLevel(
         AssetSource source,
@@ -134,6 +142,41 @@ internal static class MeshCompanionResolver
         if (!source.CompanionExists(baseStem + PsxTriggerSuffix))
             return false;
 
+        // Apocalypse GEOMETRY CHUNKS (city_2, grav_2, roof_2 …) are spelled like
+        // two-player variants and share a <base>_t.trg whose boot script does
+        // name a bank — so the TRG path below would happily attach that shared
+        // bank to every chunk of the level, the exact per-chunk duplication
+        // TryResolveApocalypseLevel exists to prevent by attaching it to ONE
+        // primary. The bank naming tells the families apart: Apocalypse uses
+        // <base>_obj.psx, THPS uses <base>_o.psx / o2. Previously the filename
+        // rule excluded these implicitly, by finding no THPS-style bank.
+        if (TryGetApocalypseBankName(source, baseStem, out _))
+            return false;
+
+        // Authoritative: what the engine's own boot script names. Both _2 and _h
+        // run with GNumberOfPlayers == 2.
+        var trg = PsxLevelObjectPlacementResolver.TryLoadTriggerCompanion(source, baseStem);
+        if (PsxTrgBootScript.TryResolveBank(trg, twoPlayer: true, out var selection))
+        {
+            if (!selection.NamesBank)
+            {
+                // No bank, faithfully. The level still resolves so its TRG
+                // layers (sky backgrounds, POWERUP pickups) still run — only
+                // the bank objects are absent, which is what ships.
+                companions = new PsxLevelCompanions(baseStem, "", true);
+                return true;
+            }
+
+            var namedBank = selection.BankName + ".psx";
+            if (source.CompanionExists(namedBank))
+            {
+                companions = new PsxLevelCompanions(baseStem, namedBank, true);
+                return true;
+            }
+        }
+
+        // Fallback only: no parsable TRG / no boot script, or it named a bank
+        // this build does not ship.
         string[] bankCandidates = isTwoPlayer
             ? [baseStem + "_o2.psx", baseStem + "o2.psx", baseStem + PsxBankSuffix]
             : [baseStem + PsxBankSuffix];
@@ -234,12 +277,21 @@ internal static class MeshCompanionResolver
         return rest == 0 || (rest == 1 && char.IsAsciiLetter(chunk[digits]));
     }
 
+    /// <summary>
+    ///     Whether this PSX file is a level whose companions resolve. Callers use
+    ///     it both to offer level-object inclusion AND as the "this is a THPS
+    ///     bare-stem level" signal that picks fly mode and the walk eye height,
+    ///     so a two-player region whose boot script names NO bank still answers
+    ///     true: it is every bit as much a level, and it still gets its TRG sky
+    ///     and pickup layers (see <see cref="PsxTrgBootScript" />).
+    /// </summary>
     internal static bool HasSupportedLevelObjectCompanion(
         AssetSource source,
         string fileName)
     {
         return TryResolvePsxLevelCompanions(source, fileName, out var companions)
-               && source.CompanionExists(companions.BankCompanionName);
+               && (companions.BankCompanionName.Length == 0
+                   || source.CompanionExists(companions.BankCompanionName));
     }
 
     internal static Dictionary<string, byte[]>? LoadDdxCompanion(
