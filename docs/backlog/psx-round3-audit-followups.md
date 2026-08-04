@@ -54,6 +54,37 @@ lifting behind or along the wall, but those pairs could not be reproduced throug
 plane bucketing, and the speculative orientation fix was reverted rather than shipped unverified.
 Re-open with an independent oracle.
 
+### 4b. Coincident-geometry residue — measured 2026-08-04, cause not yet isolated
+
+`tools/diagnostics/glb_coincident_census.py` is the independent oracle items 4 and 5 asked for. It
+reads EXPORTED GLB world-space geometry and never calls the detector, so it cannot agree with it by
+construction. Building it corrected four flaws that had inflated every earlier count:
+
+| correction | effect |
+| --- | --- |
+| centroid proximity → exact clipped shared area | adjacent triangles of one surface were counted as overlapping (l2a1 3555 → 135 pairs) |
+| classify appearance before alpha mode | MASK pairs painting identical pixels ranked as actionable |
+| credit `neversoftDrawIndex` | overlays ship as draw-order metadata, NOT a lift, so a resolved pair legitimately has gap 0.0 |
+| credit backface culling | back-to-back single-sided walls cannot fight: 69/104 skschl, 111/135 l2a1 |
+
+Residue after those corrections: **skschl 11 actionable pairs, l2a1 4** — not the 80 previously
+reported. Every one lands in the SAME detector plane bucket, so bucketing is NOT the cause and all
+were compared and declined by rule.
+
+Ruled out by measurement, so nobody re-tests them: semi-transparency (no residue face has flag
+0x40), the appearance twin rule (their colours differ), bounds overlap (penetration is hundreds of
+units on two axes), and interior overlap (shared area 0.13–1.00 of the smaller face).
+
+Confirmed for exactly ONE pair — `school_outerwall05` vs `obj_gym_door`: the detector runs on a
+single `PsxMeshFile`, so a bank object PLACED into a level is never compared against level
+geometry. That is a structural scope gap, not a rule gap.
+
+The other 14 are level-vs-level and cannot be attributed from outside the detector. The next step is
+to make the decline reason observable from the shipped code (an out-parameter on `ClassifyPair`,
+not a parallel reimplementation in a diagnostic — that discrepancy invalidated an earlier
+investigation). Deliberately NOT fixed speculatively at the end of round 5: the round-3 rule was
+"do not ship a behaviour change that cannot be demonstrated firing on the case that motivated it".
+
 ### 5. Remaining coverage gaps
 
 - Nothing pins the viewer's collection-reset location; `node --check` passes with the bug restored.
