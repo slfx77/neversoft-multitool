@@ -231,9 +231,32 @@ internal static class PsxGeometryWriter
             PsxNormalWelder.Build(psxMesh),
             PsxSpriteVertexResolver.TryCreate(psxMesh),
             engineLight);
+
+        // Semi-transparent faces split out of the shared mesh into per-face
+        // nodes re-based on their own centroid (see EmitSemiTransparentFaceNodes)
+        // — EXCEPT sky layers (drawn in the dedicated depth-cleared sky scene,
+        // which has its own compositing), ghost apparitions, and sprite
+        // billboard meshes (the viewer rotates the NODE about a shared anchor
+        // axis; per-face nodes would scatter the quads).
+        var splitSemiTransparent = !isSky
+                                   && ghostFaces == null
+                                   && liftContext.SpriteResolver?.BillboardMetadata == null;
+        IEnumerable<(PsxFace Face, int FaceIndex)> baseFaces = indexedFaces[(-1, 0)];
+        List<(PsxFace Face, int FaceIndex)>? semiTransparentFaces = null;
+        if (splitSemiTransparent)
+        {
+            semiTransparentFaces = baseFaces
+                .Where(static item => item.Face.IsSemiTransparent)
+                .ToList();
+            if (semiTransparentFaces.Count == 0)
+                semiTransparentFaces = null;
+            else
+                baseFaces = baseFaces.Where(static item => !item.Face.IsSemiTransparent);
+        }
+
         var mesh = BuildPsxFaceMesh(
             document, psxFile, psxMesh, meshName,
-            indexedFaces[(-1, 0)], materialCache, textureDims, untexturedMaterial, textureProvider,
+            baseFaces, materialCache, textureDims, untexturedMaterial, textureProvider,
             liftContext);
         if (mesh != null)
         {
@@ -278,6 +301,96 @@ internal static class PsxGeometryWriter
             ModelDocumentGeometryAdapter.AddMeshNode(
                 document, nodeName + suffix, overlayMesh, transform);
         }
+
+        if (semiTransparentFaces != null)
+        {
+            EmitSemiTransparentFaceNodes(
+                document, psxFile, psxMesh, meshName, nodeName, transform,
+                semiTransparentFaces, materialCache, textureDims,
+                untexturedMaterial, textureProvider, liftContext);
+        }
+    }
+
+    /// <summary>
+    ///     Semi-transparent faces export at PRIMITIVE granularity — the PS1's
+    ///     ordering-table unit (gte_avsz4 per poly → addPrim) — one mesh/node
+    ///     per face, with the node translated to the face centroid and the
+    ///     vertices re-based by its negative. three.js sorts transparent
+    ///     objects by ONE projected depth per OBJECT taken from the node
+    ///     ORIGIN; the old shared-mesh export left 51/70 of skmall's BLEND
+    ///     primitives with an origin outside their own AABB, so the atrium
+    ///     glass rail drew both in front of AND behind the fountain sheets in
+    ///     a single frame (measured 21% of visible transparent pairs
+    ///     mis-ordered; per-face origins 0-2.3%). Re-basing happens strictly
+    ///     AFTER BuildPsxFaceMesh applies the semi-transparent lift, whose
+    ///     direction map keys on quantised authored-world positions.
+    ///     Faces emit in REVERSE authored order: at equal depth three.js
+    ///     breaks ties by ascending object id (first-created draws first)
+    ///     while the PS1 bucket PREPENDS (first-inserted paints LAST), so the
+    ///     earliest authored face must be the last-created node. No static
+    ///     draw-order metadata is attached — a fixed rank cannot reproduce a
+    ///     view-dependent sort.
+    /// </summary>
+    private static void EmitSemiTransparentFaceNodes(
+        ModelDocument document,
+        PsxMeshFile psxFile,
+        PsxMesh psxMesh,
+        string meshName,
+        string nodeName,
+        Matrix4x4 transform,
+        List<(PsxFace Face, int FaceIndex)> semiTransparentFaces,
+        Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int> materialCache,
+        Dictionary<uint, (int Width, int Height)> textureDims,
+        int untexturedMaterial,
+        MeshChecksumTextureResolver? textureProvider,
+        PsxMeshEmissionContext liftContext)
+    {
+        for (var i = semiTransparentFaces.Count - 1; i >= 0; i--)
+        {
+            var item = semiTransparentFaces[i];
+            var faceMesh = BuildPsxFaceMesh(
+                document, psxFile, psxMesh, $"{meshName}__blend{item.FaceIndex:D3}",
+                [item], materialCache, textureDims, untexturedMaterial, textureProvider,
+                liftContext);
+            if (faceMesh == null)
+                continue;
+
+            var centroid = RebaseMeshToCentroid(faceMesh);
+            ModelDocumentGeometryAdapter.AddMeshNode(
+                document,
+                $"{nodeName}__blend{item.FaceIndex:D3}",
+                faceMesh,
+                Matrix4x4.CreateTranslation(centroid) * transform);
+        }
+    }
+
+    /// <summary>
+    ///     Moves a mesh's vertex-position average into the node by re-basing
+    ///     every vertex on it; returns the centroid (mesh-local, post-lift).
+    ///     World geometry is unchanged — only the node origin (three.js's
+    ///     transparent sort key) moves onto the geometry.
+    /// </summary>
+    private static Vector3 RebaseMeshToCentroid(ModelMesh mesh)
+    {
+        var sum = Vector3.Zero;
+        var count = 0;
+        foreach (var vertex in mesh.Primitives.SelectMany(static primitive => primitive.Vertices))
+        {
+            sum += vertex.Position;
+            count++;
+        }
+
+        if (count == 0)
+            return Vector3.Zero;
+
+        var centroid = sum / count;
+        foreach (var vertices in mesh.Primitives.Select(static primitive => primitive.Vertices))
+        {
+            for (var i = 0; i < vertices.Length; i++)
+                vertices[i] = vertices[i] with { Position = vertices[i].Position - centroid };
+        }
+
+        return centroid;
     }
 
     /// <summary>

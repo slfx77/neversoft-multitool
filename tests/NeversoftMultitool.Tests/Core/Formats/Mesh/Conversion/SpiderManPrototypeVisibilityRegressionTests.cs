@@ -41,15 +41,26 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
         // reach it and none has genuine shared area; its 62 same-texture exact
         // twins are skipped by design), so this pin does not constrain that
         // branch. Verified by an exact-intersection census of the file.
-        Assert.Equal(77, combined.Nodes.Count);
+        // Re-pinned 2026-08-04 (77 → 128): semi-transparent faces now export
+        // as per-face __blend nodes re-based on their centroids (three.js
+        // sorts transparent objects by node origin; triangles unchanged).
+        Assert.Equal(128, combined.Nodes.Count);
         // Re-pinned 2026-07-28: the TRG BackgroundCreate join reclassifies
         // l1a2's three background layers as camera-locked sky nodes
         // (sky__objects_*), leaving 11 ordinary bank objects (draw-order
-        // overlay splits carry an __overlay suffix and are counted apart).
-        Assert.Equal(11,
+        // overlay splits carry an __overlay suffix, per-face semi-transparent
+        // splits a __blend suffix — both counted apart).
+        // Re-pinned 2026-08-04 (11 → 10): one bank object is ENTIRELY
+        // semi-transparent, so its plain node dissolved into __blend
+        // per-face nodes (asserted below); the other ten are unchanged.
+        Assert.Equal(10,
             combined.Nodes.Count(static node =>
                 node.Name.StartsWith("objects_", StringComparison.Ordinal)
-                && !node.Name.Contains("__overlay", StringComparison.Ordinal)));
+                && !node.Name.Contains("__overlay", StringComparison.Ordinal)
+                && !node.Name.Contains("__blend", StringComparison.Ordinal)));
+        Assert.Contains(combined.Nodes, static node =>
+            node.Name.StartsWith("objects_", StringComparison.Ordinal)
+            && node.Name.Contains("__blend", StringComparison.Ordinal));
         Assert.Equal(3,
             combined.Nodes.Count(static node =>
                 node.Name.StartsWith("sky__objects_", StringComparison.Ordinal)
@@ -116,7 +127,8 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
         Assert.Equal(3_549, document.TriangleCount);
         // Re-pinned 2026-07-29: near-equal overlays require interior overlap
         // (225 → 55, edge-adjacent split nodes dropped; triangles unchanged).
-        Assert.Equal(55, document.Nodes.Count);
+        // Re-pinned 2026-08-04 (55 → 87): per-face __blend ST split.
+        Assert.Equal(87, document.Nodes.Count);
         Assert.DoesNotContain(document.Nodes,
             static node => node.Name.StartsWith("objects_", StringComparison.Ordinal));
     }
@@ -144,7 +156,8 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
         Assert.Equal(4_053, document.TriangleCount);
         // Re-pinned 2026-07-29: near-equal overlays require interior overlap
         // (232 → 62, edge-adjacent split nodes dropped; triangles unchanged).
-        Assert.Equal(62, document.Nodes.Count);
+        // Re-pinned 2026-08-04 (62 → 108): per-face __blend ST split.
+        Assert.Equal(108, document.Nodes.Count);
         Assert.DoesNotContain(document.Nodes,
             static node => node.Name.StartsWith("objects_", StringComparison.Ordinal));
     }

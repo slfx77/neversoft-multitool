@@ -93,18 +93,30 @@ public sealed class MeshDrawOrderConversionTests
     }
 
     [Fact]
-    public void Psx_SemiTransparentFacesKeepTheirLift()
+    public void Psx_SemiTransparentFacesKeepTheirLift_AsPerFaceCentroidNodes()
     {
         var file = CreatePsxFile(CreateQuad(4f, 0f, 3, semiTransparent: true));
         var document = new ModelDocument { Name = "psx_st", SourceKind = ModelSourceKind.Psx };
         PsxGeometryWriter.PopulatePsx(document, file, null);
 
-        // The ST lift is deliberately unchanged: every vertex sits 0.25 glTF
-        // units off the authored y = 0 plane along the face normal.
-        var mesh = document.Meshes.Single();
+        // Re-pinned 2026-08-04: ST faces now export at PRIMITIVE granularity
+        // (the PS1 ordering-table unit) as per-face __blend nodes whose origin
+        // is the face centroid — three.js sorts transparent objects by the
+        // node origin's projected depth, and the shared-mesh export left that
+        // origin outside the geometry. The lift itself is unchanged: WORLD
+        // position (node translation + re-based vertex) still sits 0.25 glTF
+        // units off the authored y = 0 plane along the face normal, and the
+        // node origin now sits exactly on the lifted plane.
+        var node = Assert.Single(document.Nodes);
+        Assert.Contains("__blend", node.Name);
         Assert.DoesNotContain(document.Nodes, static n => n.Name.Contains("__overlay"));
+        Assert.Equal(0.25f, MathF.Abs(node.Transform.Translation.Y), 5);
+        var mesh = document.Meshes.Single();
         foreach (var vertex in mesh.Primitives.Single().Vertices)
-            Assert.Equal(0.25f, MathF.Abs(vertex.Position.Y), 5);
+        {
+            var world = vertex.Position + node.Transform.Translation;
+            Assert.Equal(0.25f, MathF.Abs(world.Y), 5);
+        }
     }
 
     [Fact]
