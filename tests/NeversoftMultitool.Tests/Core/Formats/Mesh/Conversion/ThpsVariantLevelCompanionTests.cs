@@ -95,8 +95,17 @@ public sealed class ThpsVariantLevelCompanionTests(TestPaths paths)
 
     [CorpusTheory]
     // Every *_2.psx / *_h.psx region in the four THPS PSX/DC builds resolves
-    // its shared trigger + bank (counts measured 2026-08-03; the enumeration
-    // matches the diagnosis' 47-file blast radius).
+    // its shared trigger, and its bank is whatever the TRG boot script names
+    // (counts measured 2026-08-03; the enumeration matches the diagnosis'
+    // 47-file blast radius).
+    //
+    // Re-scoped 2026-08-04: this used to assert that EVERY variant resolves an
+    // existing bank, which pinned the filename guess it was written against.
+    // Nine of these regions ship an AUTOEXEC2 that deliberately names no bank
+    // (skdown_2/_h, skbul_2, skmar_2, skven_2 across the builds), so "no bank"
+    // is now a correct outcome and the assertion is that a NAMED bank exists —
+    // a bank we invent for a region that never loads one is the defect this
+    // sweep should catch.
     [InlineData("Tony Hawk's Pro Skater (1999-4-9, PSX - Prototype)", 4)]
     [InlineData(Thps1Final, 11)]
     [InlineData("Tony Hawk's Pro Skater 2 (2000-3-29, PSX - Prototype)", 1)]
@@ -122,10 +131,45 @@ public sealed class ThpsVariantLevelCompanionTests(TestPaths paths)
                 MeshCompanionResolver.TryResolvePsxLevelCompanions(
                     source, Path.GetFileName(file), out var companions),
                 $"{Path.GetFileName(file)} did not resolve");
+            if (companions.BankCompanionName.Length == 0)
+                return;
+
             Assert.True(
                 source.CompanionExists(companions.BankCompanionName),
                 $"{Path.GetFileName(file)} resolved missing bank {companions.BankCompanionName}");
         });
+
+        // The bankless regions are named, not merely tolerated: a build that
+        // silently stopped resolving banks everywhere would otherwise pass.
+        var bankless = variants
+            .Where(file => MeshCompanionResolver.TryResolvePsxLevelCompanions(
+                       new FileSystemAssetSource(file), Path.GetFileName(file), out var companions)
+                   && companions.BankCompanionName.Length == 0)
+            .Select(static file => Path.GetFileNameWithoutExtension(file).ToLowerInvariant())
+            .OrderBy(static name => name, StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(ExpectedBanklessVariants(buildName), bankless);
+    }
+
+    /// <summary>
+    ///     The regions whose boot script names no object bank, per build —
+    ///     transcribed from the shipped TRGs, not from this tool's output
+    ///     (<c>tools/diagnostics/psx_variant_bank_report.py</c> lists them).
+    /// </summary>
+    private static string[] ExpectedBanklessVariants(string buildName)
+    {
+        return buildName switch
+        {
+            Thps1Final => ["skdown_2", "skdown_h"],
+            "Tony Hawk's Pro Skater 2 (2000-3-29, PSX - Prototype)" => ["skmar_2"],
+            "Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)" =>
+                ["skbul_2", "skdown_2", "skdown_h", "skmar_2", "skven_2"],
+            "Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)" =>
+                ["skbul_2", "skmar_2", "skven_2"],
+            // The 1999-4-9 prototype predates the reduced two-player banks: all
+            // four of its variants run the one-player AUTOEXEC bank.
+            _ => []
+        };
     }
 
     private static ModelDocument ParseDocument(string path)
