@@ -29,6 +29,24 @@ internal static class PsxSkyDomeClassifier
     private const float SkyXzExtentFactor = 0.7f;
     private const float SkyMinHeightToXzRatio = 0.15f;
 
+    /// <summary>
+    ///     Item flag 0x2000 = "distant backdrop": M3d_Render forces the far
+    ///     plane to 0x7FFF and disables the depth cue while the item draws
+    ///     (THPS2 June-2000 proto matching decomp, M3D.cpp ~L1153/L1232) —
+    ///     never far-clipped, no fog.
+    /// </summary>
+    private const uint DistantBackdropItemFlag = 0x2000;
+
+    /// <summary>
+    ///     Fixed co-location radius (model units) around the joined sky
+    ///     objects' centroid for the flag-0x2000 second pass. A fixed radius,
+    ///     NOT a multiple of the joined objects' spread: l1a1's joined pair
+    ///     spans only 135 units while the unregistered skyline sits 640 from
+    ///     their centroid (and ≥5,550 from every other bank object), so a
+    ///     spread-relative guard would claim nothing.
+    /// </summary>
+    private const float SkyParkingClusterRadius = 1_500f;
+
     internal sealed record Result(
         IReadOnlySet<int> ObjectIndices,
         TrgPosition? AnchorNodePosition,
@@ -95,7 +113,53 @@ internal static class PsxSkyDomeClassifier
             }
         }
 
-        return indices == null ? null : new Result(indices, anchor, null);
+        if (indices == null)
+            return null;
+
+        ClaimColocatedDistantBackdrops(bank, indices);
+        return new Result(indices, anchor, null);
+    }
+
+    /// <summary>
+    ///     Second pass, run ONLY after a successful TRG join: additionally claim
+    ///     bank objects carrying the <see cref="DistantBackdropItemFlag" /> whose
+    ///     authored position is parked inside the joined sky objects' cluster
+    ///     (within <see cref="SkyParkingClusterRadius" /> of their centroid).
+    ///     This DELIBERATELY diverges from the shipped TRG: l1a1_t.trg registers
+    ///     only two of the daytime-NY three-layer sky set in every build
+    ///     (Feb-18/Apr-29/Jun-12/Sep-1 PSX, DC proto, PC final — the 0xAB record
+    ///     for skyline 0x62D17F19 is simply absent from the command stream), so
+    ///     the shipped engine renders that layer WORLD-PLACED at its parked
+    ///     position with far-clip disabled. The registration is a shipped
+    ///     authoring omission, not intent: l1a1_o.psx is byte-identical to
+    ///     lda1_o.psx, whose TRG registers all three layers, and the parked
+    ///     position sits outside the level's playable footprint (dead data by
+    ///     the background convention). Corpus effect (6 PS1-era builds, 2,129
+    ///     bank objects surveyed): exactly 2 objects change — l1a1 obj3 in the
+    ///     Sep-1 final and the Apr-29 proto. The other 13 flag-0x2000 objects
+    ///     corpus-wide are already claimed by their own TRG join.
+    /// </summary>
+    private static void ClaimColocatedDistantBackdrops(PsxMeshFile bank, HashSet<int> indices)
+    {
+        var centroid = Vector3.Zero;
+        foreach (var index in indices)
+            centroid += PsxMeshSemantics.GetObjectOffset(bank, bank.Objects[index]);
+        centroid /= indices.Count;
+
+        for (var objectIndex = 0; objectIndex < bank.Objects.Count; objectIndex++)
+        {
+            var obj = bank.Objects[objectIndex];
+            if ((obj.Flags & DistantBackdropItemFlag) == 0
+                || obj.MeshIndex >= bank.Meshes.Count
+                || indices.Contains(objectIndex))
+            {
+                continue;
+            }
+
+            var position = PsxMeshSemantics.GetObjectOffset(bank, obj);
+            if (Vector3.Distance(position, centroid) <= SkyParkingClusterRadius)
+                indices.Add(objectIndex);
+        }
     }
 
     private static bool TryParseChecksumArg(TrgCommand command, out uint checksum)
