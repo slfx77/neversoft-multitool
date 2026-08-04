@@ -218,6 +218,62 @@ public sealed class PsxPowerupPlacementResolverTests(TestPaths paths)
         };
     }
 
+    // Secret-tape candidates: THPS2 Videotape_01, THPS1-final Itm_Tape01,
+    // THPS1-proto grey-gear placeholder (thps1_final.exe @0x8001FC68,
+    // thps1_proto.exe jump table case 16 @0x8001733C).
+    private const uint Thps2Tape = 0x7C1B2C4A;
+    private const uint Thps1Tape = 0xD5108E8C;
+    private const uint ProtoPlaceholder = 0x7E74F3D4;
+
+    [Fact]
+    public void Resolve_Thps1FinalTape_FallsThroughToItmTape01()
+    {
+        // THPS1 final's items.psx has NO Videotape_01 — its tape is Itm_Tape01.
+        // The single-hash table silently skipped every type-16 node (the
+        // reported missing skmall secret tape); candidates scan in order.
+        var items = BuildItems([ThpsLetterS, Thps1Tape]);
+        var trg = BuildTrg(false, Powerup(3, 16, 450, 225, -900));
+
+        var placements = PsxPowerupPlacementResolver.Resolve(trg, items, Divisor);
+
+        Assert.NotNull(placements);
+        var entry = Assert.Single(placements!);
+        Assert.Equal(1, entry.Key); // Itm_Tape01's items object index
+        Assert.Equal(3, Assert.Single(entry.Value).TriggerNodeIndex);
+    }
+
+    [Fact]
+    public void Resolve_Thps2Tape_StillPrefersVideotape01()
+    {
+        // First-present ordering must keep THPS2 byte-identical: when both
+        // names exist, Videotape_01 wins.
+        var items = BuildItems([ThpsLetterS, Thps1Tape, Thps2Tape]);
+        var trg = BuildTrg(false, Powerup(4, 16, 0, 0, 0));
+
+        var placements = PsxPowerupPlacementResolver.Resolve(trg, items, Divisor);
+
+        Assert.NotNull(placements);
+        Assert.Equal(2, Assert.Single(placements!).Key); // Videotape_01's index
+    }
+
+    [Fact]
+    public void Resolve_Thps1ProtoBonus_CollapsesOntoThePlaceholderMesh()
+    {
+        // The 1999-4-9 proto maps bonus types 21/22/23 onto one mesh
+        // (0x91EEBD52); the distinct final models are absent from its items.
+        var items = BuildItems([ThpsLetterS, 0x91EEBD52]);
+        var trg = BuildTrg(false,
+            Powerup(5, 21, 0, 0, 0),
+            Powerup(6, 22, 90, 0, 0));
+
+        var placements = PsxPowerupPlacementResolver.Resolve(trg, items, Divisor);
+
+        Assert.NotNull(placements);
+        var entry = Assert.Single(placements!);
+        Assert.Equal(1, entry.Key);
+        Assert.Equal(2, entry.Value.Count); // both types collapse onto it
+    }
+
     private static TrgFile BuildTrg(bool spiderMan, params TrgNode[] nodes)
     {
         return new TrgFile

@@ -57,27 +57,27 @@ internal static class PsxPowerupPlacementResolver
     // and the census subset {8,11,14,15,16} is identical everywhere — the drift
     // is only in which extra types resolve, which the items.psx signature
     // (below) captures.
-    private static readonly Dictionary<int, uint> FebProtoTable = new()
+    private static readonly Dictionary<int, uint[]> FebProtoTable = new()
     {
         // ctor @0x800349CC, jumptable @0x800B03A4 (2000-2-18, 6-mesh items.psx)
-        [8] = WebCartridge, [9] = YellowGear, [11] = QuestionMark,
-        [14] = GreyGear, [15] = GreyGear, [16] = GreyGear
+        [8] = [WebCartridge], [9] = [YellowGear], [11] = [QuestionMark],
+        [14] = [GreyGear], [15] = [GreyGear], [16] = [GreyGear]
     };
 
-    private static readonly Dictionary<int, uint> AprProtoTable = new()
+    private static readonly Dictionary<int, uint[]> AprProtoTable = new()
     {
         // ctor @0x8001EA70, jumptable @0x80091570 (2000-4-29, 7-mesh items.psx)
-        [8] = WebCartridge, [9] = YellowGear, [11] = QuestionMark,
-        [12] = PanelModel6, [13] = YellowGear,
-        [14] = GreyGear, [15] = GreyGear, [16] = GreyGear
+        [8] = [WebCartridge], [9] = [YellowGear], [11] = [QuestionMark],
+        [12] = [PanelModel6], [13] = [YellowGear],
+        [14] = [GreyGear], [15] = [GreyGear], [16] = [GreyGear]
     };
 
-    private static readonly Dictionary<int, uint> FinalTable = new()
+    private static readonly Dictionary<int, uint[]> FinalTable = new()
     {
         // ctor @0x8001DE00-region, jumptable @0x80093674 (2000-9-1, 9-mesh items.psx)
-        [8] = WebCartridge, [10] = PanelModel7, [11] = QuestionMark,
-        [12] = PanelModel6, [13] = YellowGear,
-        [14] = GreyGear, [15] = GreyGear, [16] = GreyGear, [18] = PanelModel7
+        [8] = [WebCartridge], [10] = [PanelModel7], [11] = [QuestionMark],
+        [12] = [PanelModel6], [13] = [YellowGear],
+        [14] = [GreyGear], [15] = [GreyGear], [16] = [GreyGear], [18] = [PanelModel7]
     };
 
     // THPS1/THPS2 pickupType -> items.psx mesh-name hash, transcribed verbatim
@@ -87,14 +87,25 @@ internal static class PsxPowerupPlacementResolver
     // skmedals, not items. Hash-keyed placement (Resolve) emits only the entries
     // whose hash is actually in the level's items.psx, so THPS1 (letters + 21-23
     // only) and THPS2 (full set) each place their own subset.
-    private static readonly Dictionary<int, uint> ThpsTable = new()
+    private static readonly Dictionary<int, uint[]> ThpsTable = new()
     {
-        [4] = 0x2328A71C, [5] = ThpsLetterS, [6] = 0x2EBF22CA, [10] = 0x29B68A16,
-        [15] = 0x34524351, [16] = 0x7C1B2C4A, [18] = 0x7C1B2C4A,
-        [21] = 0x6F0F6B9F, [22] = 0xF6063A25, [23] = 0x81010AB3,
-        [24] = 0x694ED947, [25] = 0x260F4F80, [26] = 0xCC4E141F,
-        [27] = 0x483701E6, [28] = 0x608E06C7, [29] = 0x10122D2A,
-        [30] = 0xC12ED64B, [31] = 0x22908B06, [32] = 0x56891A69
+        [4] = [0x2328A71C], [5] = [ThpsLetterS], [6] = [0x2EBF22CA], [10] = [0x29B68A16],
+        [15] = [0x34524351], // Secret tape: THPS2 names it Videotape_01 (0x7C1B2C4A); THPS1 final
+        // ships Itm_Tape01 (0xD5108E8C — thps1_final.exe CPowerUp ctor
+        // if-chain @0x8001FAF4, case-16 body @0x8001FC68); the 1999-4-9
+        // proto reuses the grey-gear placeholder (thps1_proto.exe jump
+        // table @0x8006AF50, case 16 @0x8001733C). Candidates are scanned
+        // first-present-in-items.psx, so one table serves all builds — the
+        // single-hash table silently skipped every THPS1 tape node.
+        [16] = [0x7C1B2C4A, 0xD5108E8C, 0x7E74F3D4],
+        [18] = [0x7C1B2C4A],
+        // Bonus/money: the THPS1 proto collapses all three types onto one
+        // mesh (0x91EEBD52, proto jump table cases 21/22/23 @0x80017360).
+        [21] = [0x6F0F6B9F, 0x91EEBD52], [22] = [0xF6063A25, 0x91EEBD52],
+        [23] = [0x81010AB3, 0x91EEBD52],
+        [24] = [0x694ED947], [25] = [0x260F4F80], [26] = [0xCC4E141F],
+        [27] = [0x483701E6], [28] = [0x608E06C7], [29] = [0x10122D2A],
+        [30] = [0xC12ED64B], [31] = [0x22908B06], [32] = [0x56891A69]
     };
 
     // Apocalypse pickupType -> items.psx mesh-name hash, read from the matched
@@ -103,10 +114,10 @@ internal static class PsxPowerupPlacementResolver
     // account for 176 of 281 nodes; 14/15/16 are three spin variants of one
     // grey-gear model). pickupType 17 spools the "plus_one" region (not items),
     // and 1/2/3/7/19/20 render no model — all omitted. No per-type scale.
-    private static readonly Dictionary<int, uint> ApocalypseTable = new()
+    private static readonly Dictionary<int, uint[]> ApocalypseTable = new()
     {
-        [4] = ApocalypseItemsMarker, [5] = 0xD40B155E, [6] = 0x51E46AAF,
-        [10] = 0x4D2C5D7C, [14] = 0x7E74F3D4, [15] = 0x7E74F3D4, [16] = 0x7E74F3D4
+        [4] = [ApocalypseItemsMarker], [5] = [0xD40B155E], [6] = [0x51E46AAF],
+        [10] = [0x4D2C5D7C], [14] = [0x7E74F3D4], [15] = [0x7E74F3D4], [16] = [0x7E74F3D4]
     };
 
     internal static readonly IReadOnlySet<uint> EmptyHashSet = new HashSet<uint>();
@@ -140,8 +151,8 @@ internal static class PsxPowerupPlacementResolver
             if (node.TypeId != TrgNodeMetadata.TypePowerup
                 || node.PickupType is not { } pickupType
                 || node.Position is not { } position
-                || !table.TryGetValue(pickupType, out var hash)
-                || !objectByHash.TryGetValue(hash, out var objectIndex))
+                || !table.TryGetValue(pickupType, out var candidates)
+                || !TryResolveFirstPresent(candidates, objectByHash, out var objectIndex))
             {
                 continue;
             }
@@ -208,7 +219,29 @@ internal static class PsxPowerupPlacementResolver
     ///     exclusive across games, so order only matters within the Spider-Man
     ///     family. Unknown items resolve to no table.
     /// </summary>
-    private static Dictionary<int, uint>? SelectTable(Dictionary<uint, int> objectByHash)
+    /// <summary>
+    ///     Each pickupType maps to CANDIDATE mesh hashes in priority order; the
+    ///     first one present in the level's items.psx wins. The engines name the
+    ///     same pickup differently per build (THPS2 Videotape_01 vs THPS1
+    ///     Itm_Tape01), and the THPS1 proto collapses several types onto one
+    ///     placeholder — a single-hash table cannot express either.
+    /// </summary>
+    private static bool TryResolveFirstPresent(
+        uint[] candidates,
+        Dictionary<uint, int> objectByHash,
+        out int objectIndex)
+    {
+        foreach (var hash in candidates)
+        {
+            if (objectByHash.TryGetValue(hash, out objectIndex))
+                return true;
+        }
+
+        objectIndex = -1;
+        return false;
+    }
+
+    private static Dictionary<int, uint[]>? SelectTable(Dictionary<uint, int> objectByHash)
     {
         if (objectByHash.ContainsKey(PanelModel7))
             return FinalTable;
@@ -250,7 +283,7 @@ internal static class PsxPowerupPlacementResolver
     ///     reverse-engineered, so its pickups are left where authored rather than
     ///     snapped with a guessed value.
     /// </summary>
-    private static float? HoverWorldUnitsForTable(Dictionary<int, uint> table)
+    private static float? HoverWorldUnitsForTable(Dictionary<int, uint[]> table)
     {
         if (ReferenceEquals(table, ApocalypseTable) || ReferenceEquals(table, ThpsTable))
             return null;
