@@ -681,8 +681,10 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         // Re-pinned 2026-07-29: near-equal flags now demand interior
         // (centroid-inside) overlap — edge-adjacent diagonal pairs no longer
         // count. 75 small-decal + 7 genuine stacks (was 394 with 312
-        // edge-adjacent false positives; PsxAnalyzer overlay-census 82/82).
-        Assert.Equal(82, overlays.Count);
+        // edge-adjacent false positives). Re-pinned 2026-08-03 (82 to 77):
+        // back-to-back single-sided pairs no longer flag — backface culling
+        // already separates them (PsxAnalyzer overlay-census 77).
+        Assert.Equal(77, overlays.Count);
         Assert.Contains(new PsxFaceInstanceKey(47, 0), overlays);
     }
 

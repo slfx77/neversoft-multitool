@@ -100,6 +100,49 @@ public sealed class GltfModelExporterTests
                      normalized.GetBoolean());
     }
 
+    [Fact]
+    public void BuildGlbBytes_ComposesDrawOrderSeparation_ButBlendManifestStaysUntouched()
+    {
+        // The GLB is the one output whose consumers get NO object-level
+        // BlendOffset application, and renderOrder alone cannot resolve
+        // DIFFERENT polygons sharing a plane — so the exporter composes the
+        // separation into the node transform (2026-08-03). The .blend package
+        // must NOT change: it serializes the raw ModelDocument transform and
+        // import_package.py adds blendOffset itself at object level —
+        // composing upstream would double-apply and break the importer's
+        // re-zero-to-authored contract.
+        var document = CreateTriangleDocument();
+        document.Meshes[0].Primitives[0].NativeMetadata.Add(
+            new MeshDrawOrderMetadata(1, 1, 0, 0f, 0.25f, 0f));
+
+        var (glbBytes, _) = new GltfModelExporter().BuildGlbBytes(document);
+        Assert.NotNull(glbBytes);
+        using var stream = new MemoryStream(glbBytes, false);
+        var model = ModelRoot.ReadGLB(stream);
+        var meshNode = Assert.Single(
+            model.LogicalNodes.Where(static node => node.Mesh != null));
+        Assert.Equal(0.25f, meshNode.LocalMatrix.Translation.Y, 5);
+
+        using var payload = new MemoryStream();
+        BlendPackageWriter.Write(document, payload, "triangle.blend");
+        payload.Position = 0;
+        using var archive = new System.IO.Compression.ZipArchive(
+            payload, System.IO.Compression.ZipArchiveMode.Read);
+        using var manifestStream = archive.GetEntry("manifest.json")!.Open();
+        using var manifest = JsonDocument.Parse(manifestStream);
+        var node = Assert.Single(manifest.RootElement.GetProperty("Nodes").EnumerateArray());
+        var transform = node.GetProperty("Transform").EnumerateArray()
+            .Select(static value => value.GetSingle()).ToArray();
+        // Row-major identity: the raw ModelDocument transform, offset-free.
+        Assert.Equal(1f, transform[0], 6);
+        Assert.Equal(0f, transform[13], 6); // translation Y
+        var primitiveMetadata = manifest.RootElement.GetProperty("Meshes")[0]
+            .GetProperty("Primitives")[0].GetProperty("NativeMetadata")[0];
+        var blendOffset = primitiveMetadata.GetProperty("blendOffset").EnumerateArray()
+            .Select(static value => value.GetSingle()).ToArray();
+        Assert.Equal([0f, 0.25f, 0f], blendOffset);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

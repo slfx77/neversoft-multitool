@@ -305,7 +305,8 @@ public sealed class GltfModelExporter : IModelExporter
                 var modelMesh = document.Meshes[meshIndex];
                 totalTriangles += IsSkinnedMesh(modelMesh)
                     ? AddSkinnedMesh(scene, modelMesh, materials, skeletonJoints)
-                    : AddRigidMesh(scene, modelMesh, materials, worldTransform);
+                    : AddRigidMesh(scene, modelMesh, materials,
+                        ComposeDrawOrderSeparation(modelMesh, worldTransform));
             }
         }
 
@@ -319,6 +320,41 @@ public sealed class GltfModelExporter : IModelExporter
     private static bool IsSkinnedMesh(ModelMesh mesh)
     {
         return mesh.Primitives.Any(static primitive => primitive.Skin is not null);
+    }
+
+    /// <summary>
+    ///     Composes the draw-order separation vector (BlendOffset) into the
+    ///     transform the GLB consumes, for meshes publishing
+    ///     <see cref="IMeshDrawOrderExtras" /> with a non-zero offset. The
+    ///     offset is mesh-local and applied BEFORE the node transform —
+    ///     exactly Blender's object-level application
+    ///     (import_package.py <c>_apply_worldzone_blend_offset</c>:
+    ///     <c>matrix_world.to_3x3() @ local</c>). renderOrder metadata alone
+    ///     only resolves the SAME polygon re-submitted; 84.5% of PSX overlay
+    ///     pairs are DIFFERENT polygons on a shared plane whose interpolated
+    ///     depths dither under LEQUAL, so the GLB needs the rigid separation
+    ///     too (2026-08-03). Deliberately composed HERE and not into
+    ///     <c>ModelNode.Transform</c>: the .blend manifest serializes the node
+    ///     transform and the importer adds BlendOffset again — composing
+    ///     upstream would double-apply it and break the importer's documented
+    ///     re-zero-to-authored contract. Mesh vertex data stays authored in
+    ///     both outputs.
+    /// </summary>
+    private static Matrix4x4 ComposeDrawOrderSeparation(ModelMesh modelMesh, Matrix4x4 worldTransform)
+    {
+        var drawOrder = modelMesh.Primitives
+            .SelectMany(static primitive => primitive.NativeMetadata)
+            .OfType<IMeshDrawOrderExtras>()
+            .FirstOrDefault(static metadata =>
+                metadata.DrawIndex >= 0 && SeparationOf(metadata).LengthSquared() > 1e-12f);
+        return drawOrder == null
+            ? worldTransform
+            : Matrix4x4.CreateTranslation(SeparationOf(drawOrder)) * worldTransform;
+    }
+
+    private static Vector3 SeparationOf(IMeshDrawOrderExtras metadata)
+    {
+        return new Vector3(metadata.BlendOffsetX, metadata.BlendOffsetY, metadata.BlendOffsetZ);
     }
 
     private static int AddRigidMesh(

@@ -16,17 +16,24 @@ internal static class PsxCoplanarOverlayDetector
     }
 
     /// <summary>
-    ///     Like <see cref="Find" /> but grouped: every detected overlay face maps
-    ///     to a deterministic per-plane group id, so the writer can emit each
-    ///     coplanar overlay group as its own mesh with one rigid draw-order /
-    ///     separation-vector metadata record (group ids are ordered by the
-    ///     group's first face key).
+    ///     Like <see cref="Find" /> but grouped and ranked: every detected
+    ///     overlay face maps to a deterministic per-plane group id plus its draw
+    ///     rank WITHIN the group, so the writer can emit each (group, rank) as
+    ///     its own mesh with one rigid draw-order / separation-vector metadata
+    ///     record (group ids are ordered by the group's first face key). Ranks
+    ///     exist because two flagged faces can overlap EACH OTHER (l8a4's
+    ///     stacked baked-shadow sections): one flat rank per plane left both at
+    ///     DrawIndex 1 with the same offset, still fighting (86 corpus pairs,
+    ///     measured 2026-08-03). Rank follows the PS1 ordering-table paint
+    ///     order — the bucket PREPENDS, so the earliest-inserted face paints
+    ///     LAST (topmost) and gets the highest rank.
     /// </summary>
-    internal static IReadOnlyDictionary<PsxFaceInstanceKey, int> FindGroups(PsxMeshFile file)
+    internal static IReadOnlyDictionary<PsxFaceInstanceKey, PsxCoplanarOverlayAssignment> FindGroups(
+        PsxMeshFile file)
     {
         var planes = CollectPlanes(file);
 
-        var planeGroups = new List<HashSet<PsxFaceInstanceKey>>();
+        var planeGroups = new List<Dictionary<PsxFaceInstanceKey, int>>();
         foreach (var candidates in planes.Values)
         {
             var overlays = new HashSet<PsxFaceInstanceKey>();
@@ -37,20 +44,56 @@ internal static class PsxCoplanarOverlayDetector
             }
 
             if (overlays.Count > 0)
-                planeGroups.Add(overlays);
+                planeGroups.Add(RankOverlays(candidates, overlays));
         }
 
-        var groups = new Dictionary<PsxFaceInstanceKey, int>();
+        var groups = new Dictionary<PsxFaceInstanceKey, PsxCoplanarOverlayAssignment>();
         var groupId = 0;
         foreach (var planeGroup in planeGroups
-                     .OrderBy(static group => group.Min(static key => (key.ObjectIndex, key.FaceIndex))))
+                     .OrderBy(static group => group.Keys.Min(static key => (key.ObjectIndex, key.FaceIndex))))
         {
-            foreach (var key in planeGroup)
-                groups[key] = groupId;
+            foreach (var (key, rank) in planeGroup)
+                groups[key] = new PsxCoplanarOverlayAssignment(groupId, rank);
             groupId++;
         }
 
         return groups;
+    }
+
+    /// <summary>
+    ///     Assigns draw ranks to a plane's flagged faces: iterate in PS1 paint
+    ///     order (descending insertion key — the ordering table prepends, so the
+    ///     last-inserted face paints first) and stack each face one rank above
+    ///     the highest-ranked already-painted face it actually overlaps (exact
+    ///     clipped shared area, same rule as the flag itself). Faces that
+    ///     overlap no other flagged face keep rank 1 — the pre-rank behaviour.
+    /// </summary>
+    private static Dictionary<PsxFaceInstanceKey, int> RankOverlays(
+        List<Candidate> candidates,
+        HashSet<PsxFaceInstanceKey> overlays)
+    {
+        var flagged = candidates
+            .Where(candidate => overlays.Contains(candidate.Key))
+            .OrderByDescending(static candidate => (candidate.Key.ObjectIndex, candidate.Key.FaceIndex))
+            .ToList();
+
+        var ranks = new Dictionary<PsxFaceInstanceKey, int>(flagged.Count);
+        for (var i = 0; i < flagged.Count; i++)
+        {
+            var rank = 1;
+            for (var j = 0; j < i; j++)
+            {
+                if (ranks[flagged[j].Key] >= rank
+                    && HasInteriorOverlap(flagged[i], flagged[j]))
+                {
+                    rank = ranks[flagged[j].Key] + 1;
+                }
+            }
+
+            ranks[flagged[i].Key] = rank;
+        }
+
+        return ranks;
     }
 
     /// <summary>
@@ -156,12 +199,39 @@ internal static class PsxCoplanarOverlayDetector
         return planes;
     }
 
+    /// <summary>
+    ///     An exact twin draws the IDENTICAL fragments, so the pair is stable
+    ///     without separation. That requires identical geometry AND identical
+    ///     appearance — face colour, mode, and shading kind, plus the UVs.
+    ///     Bounds/area equality alone skipped the corpus' single biggest
+    ///     unseparated class (872 pairs, 2026-08-03): baked light/shadow
+    ///     duplicates and tinted window/wall variants are exactly-coincident
+    ///     same-texture faces whose COLOURS differ (skware o117f9/o151f9:
+    ///     (108,189,156) day vs (34,73,52) shadowed, frac=1.00), which dither
+    ///     as densely as any decal. Raw <c>Flags</c> is deliberately NOT
+    ///     compared — bits that never change the drawn fragment (e.g. 0x4000)
+    ///     differ on harmless true twins.
+    /// </summary>
     private static bool IsExactTwin(Candidate first, Candidate second)
     {
         const float epsilon = 0.01f;
-        return Vector3.Distance(first.Min, second.Min) < epsilon
+        return HasIdenticalAppearance(first.Face, second.Face)
+               && Vector3.Distance(first.Min, second.Min) < epsilon
                && Vector3.Distance(first.Max, second.Max) < epsilon
                && MathF.Abs(first.Area - second.Area) < first.Area * 0.001f + epsilon;
+    }
+
+    private static bool HasIdenticalAppearance(PsxFace first, PsxFace second)
+    {
+        return first.R == second.R
+               && first.G == second.G
+               && first.B == second.B
+               && first.Mode == second.Mode
+               && first.IsGouraud == second.IsGouraud
+               && first.U0 == second.U0 && first.V0 == second.V0
+               && first.U1 == second.U1 && first.V1 == second.V1
+               && first.U2 == second.U2 && first.V2 == second.V2
+               && first.U3 == second.U3 && first.V3 == second.V3;
     }
 
     private static bool BoundsOverlap(
@@ -222,7 +292,8 @@ internal static class PsxCoplanarOverlayDetector
             area += Vector3.Cross(points[2] - points[1], points[3] - points[1]).Length() * 0.5f;
 
         var normal = cross / twiceFirstArea;
-        if (FirstSignificantComponent(normal) < 0f)
+        var normalFlipped = FirstSignificantComponent(normal) < 0f;
+        if (normalFlipped)
             normal = -normal;
         var distance = Vector3.Dot(normal, points[0]);
         plane = new PlaneKey(
@@ -239,7 +310,7 @@ internal static class PsxCoplanarOverlayDetector
             max = Vector3.Max(max, points[i]);
         }
 
-        candidate = new Candidate(key, face, points, area, centroid, min, max);
+        candidate = new Candidate(key, face, points, area, centroid, min, max, normalFlipped);
         return true;
     }
 
@@ -248,6 +319,20 @@ internal static class PsxCoplanarOverlayDetector
         Candidate second,
         HashSet<PsxFaceInstanceKey> overlays)
     {
+        // Back-to-back single-sided faces (a wall authored once per side) land
+        // in one bucket because the plane key canonicalizes the normal sign,
+        // but they never rasterize together — backface culling shows at most
+        // one per viewpoint — so they cannot fight and must not be flagged.
+        // Verifier-measured 2026-08-03: without this the appearance-narrowed
+        // twin rule below roughly doubled the corpus flags (+5.3k) on pairs
+        // culling already separates. Double-sided faces stay in: both render.
+        if (first.NormalFlipped != second.NormalFlipped
+            && !first.Face.IsDoubleSided
+            && !second.Face.IsDoubleSided)
+        {
+            return;
+        }
+
         if (first.Face.TextureHash == second.Face.TextureHash
             && first.Face.IsTextured == second.Face.IsTextured
             && (IsExactTwin(first, second) || !BoundsOverlap((first.Min, first.Max), (second.Min, second.Max))))
@@ -282,7 +367,13 @@ internal static class PsxCoplanarOverlayDetector
         if (smaller.Area < larger.Area * 0.95f)
         {
             // The classic decal: a clearly smaller face authored on a base.
-            if (PointInsideFace(smaller.Centroid, larger.Points))
+            // Overlap is the same EXACT clipped-shared-area rule the
+            // near-equal branch uses (one semantic in both branches). The
+            // former centroid-inside gate silently dropped every partial
+            // overlap where neither centroid lands inside its partner — 335
+            // corpus pairs (2026-08-03), 100% of SKB1/SKB2's unseparated
+            // class, with real misses up to 0.44 of the smaller face.
+            if (HasInteriorOverlap(smaller, larger))
                 overlays.Add(smaller.Key);
             return;
         }
@@ -315,33 +406,6 @@ internal static class PsxCoplanarOverlayDetector
         var firstKey = (first.Key.ObjectIndex, first.Key.FaceIndex);
         var secondKey = (second.Key.ObjectIndex, second.Key.FaceIndex);
         overlays.Add(firstKey.CompareTo(secondKey) <= 0 ? first.Key : second.Key);
-    }
-
-    private static bool PointInsideFace(Vector3 point, Vector3[] face)
-    {
-        return PointInsideTriangle(point, face[0], face[2], face[1])
-               || (face.Length == 4 && PointInsideTriangle(point, face[1], face[2], face[3]));
-    }
-
-    private static bool PointInsideTriangle(Vector3 point, Vector3 a, Vector3 b, Vector3 c)
-    {
-        var v0 = c - a;
-        var v1 = b - a;
-        var v2 = point - a;
-        var dot00 = Vector3.Dot(v0, v0);
-        var dot01 = Vector3.Dot(v0, v1);
-        var dot02 = Vector3.Dot(v0, v2);
-        var dot11 = Vector3.Dot(v1, v1);
-        var dot12 = Vector3.Dot(v1, v2);
-        var denominator = dot00 * dot11 - dot01 * dot01;
-        if (MathF.Abs(denominator) < 1e-8f)
-            return false;
-
-        var inverse = 1f / denominator;
-        var u = (dot11 * dot02 - dot01 * dot12) * inverse;
-        var v = (dot00 * dot12 - dot01 * dot02) * inverse;
-        const float tolerance = 1e-4f;
-        return u >= -tolerance && v >= -tolerance && u + v <= 1f + tolerance;
     }
 
     /// <summary>
@@ -411,9 +475,8 @@ internal static class PsxCoplanarOverlayDetector
     /// <summary>
     ///     Projects a face into the plane's 2D basis as the renderer's triangles:
     ///     (0,2,1) plus (1,2,3) for a quad, (0,2,1) for a triangle — the same
-    ///     decomposition <see cref="PointInsideFace" /> uses and the same winding
-    ///     <c>PsxGeometryWriter.AddPsxFace</c> emits. Returns the vertex count
-    ///     written (3 or 6).
+    ///     winding <c>PsxGeometryWriter.AddPsxFace</c> emits. Returns the vertex
+    ///     count written (3 or 6).
     /// </summary>
     private static int ProjectRenderedTriangles(Vector3[] points, int droppedAxis, Span<Vector2> destination)
     {
@@ -559,6 +622,12 @@ internal static class PsxCoplanarOverlayDetector
 
     private readonly record struct PlaneKey(int X, int Y, int Z, int Distance);
 
+    /// <summary>
+    ///     <paramref name="NormalFlipped" /> records whether the face's raw
+    ///     winding normal was negated to reach the canonical plane key — two
+    ///     candidates in one bucket face OPPOSITE directions iff their flags
+    ///     differ (the back-to-back wall case).
+    /// </summary>
     private sealed record Candidate(
         PsxFaceInstanceKey Key,
         PsxFace Face,
@@ -566,5 +635,15 @@ internal static class PsxCoplanarOverlayDetector
         float Area,
         Vector3 Centroid,
         Vector3 Min,
-        Vector3 Max);
+        Vector3 Max,
+        bool NormalFlipped);
 }
+
+/// <summary>
+///     A detected overlay face's per-plane group id plus its draw rank within
+///     the group (1 = the first-painted overlay layer; a face stacks one rank
+///     above the highest-ranked flagged face it overlaps). The writer emits one
+///     mesh per (group, rank) so mutually overlapping overlays get distinct
+///     DrawIndex values and stacked separation offsets.
+/// </summary>
+internal readonly record struct PsxCoplanarOverlayAssignment(int GroupId, int DrawRank);

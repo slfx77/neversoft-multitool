@@ -65,10 +65,12 @@ public sealed class PsxCoplanarOverlayDetectorTests(TestPaths paths)
         // the axis test: of the 296 same-texture pairs reaching the branch on
         // this file, 266 have zero polygon intersection, which is how the
         // AABB-only rule flagged 319 faces here (294-312 of them false).
-        // 75 small-decal overlays + 7 genuine near-equal/same-texture stacks
-        // remain; PsxAnalyzer overlay-census reports 82 with same-plane
-        // interior-overlapping partners.
-        Assert.Equal(82, overlays.Count);
+        // Re-pinned 2026-08-03 (82 to 77): back-to-back single-sided pairs no
+        // longer flag anywhere — backface culling already separates them — and
+        // that removes five of this file's flags; the appearance-twin and
+        // exact-area-decal additions do not fire here. PsxAnalyzer
+        // overlay-census reports 77.
+        Assert.Equal(77, overlays.Count);
         Assert.Contains(new PsxFaceInstanceKey(47, 0), overlays);
         Assert.Contains(new PsxFaceInstanceKey(47, 5), overlays);
         Assert.All(

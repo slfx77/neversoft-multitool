@@ -5,15 +5,22 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     (coplanar decals, multi-pass terrain). Consumed by the glTF exporter
 ///     (mesh extras neversoftDrawIndex/PassIndex/OverlapGroup — the in-app
 ///     viewer maps DrawIndex onto three.js renderOrder, which with the default
-///     LEQUAL depth test reproduces submission-order semantics) and by the
-///     Blender importer (object-level BlendOffset separation, since EEVEE has
-///     no draw-order control for blended surfaces).
+///     LEQUAL depth test reproduces submission-order semantics — plus the
+///     BlendOffset composed into the GLB node transform, because renderOrder
+///     alone only resolves the SAME polygon re-submitted: 84.5% of PSX
+///     overlay pairs are DIFFERENT polygons sharing a plane, whose
+///     interpolated depths disagree at ULP scale and dither under LEQUAL) and
+///     by the Blender importer (object-level BlendOffset separation, since
+///     EEVEE has no draw-order control for blended surfaces).
 /// </summary>
 public interface IMeshDrawOrderExtras
 {
     int DrawIndex { get; }
     int PassIndex { get; }
     int OverlapGroup { get; }
+    float BlendOffsetX { get; }
+    float BlendOffsetY { get; }
+    float BlendOffsetZ { get; }
 }
 
 /// <summary>

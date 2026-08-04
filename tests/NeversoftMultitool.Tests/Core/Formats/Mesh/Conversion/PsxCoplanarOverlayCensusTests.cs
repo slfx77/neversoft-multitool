@@ -21,21 +21,34 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 public sealed class PsxCoplanarOverlayCensusTests(TestPaths paths)
 {
     [CorpusTheory]
+    // Re-pinned 2026-08-03 for the three-part detection change, measured with
+    // `PsxAnalyzer overlay-census`. Per-file delta is the sum of three moves.
+    // ADDS from IsExactTwin now also requiring identical APPEARANCE, because
+    // coincident same-texture twins whose colours or UVs differ — the baked
+    // light-and-shadow duplicates, the corpus' biggest unseparated class —
+    // now flag. ADDS from the small-decal branch using the exact
+    // clipped-shared-area rule instead of centroid-inside, catching partial
+    // overlaps where neither centroid lands inside its partner. REMOVALS of
+    // back-to-back SINGLE-SIDED pairs — opposing raw normals in one
+    // canonical-plane bucket — excluded everywhere because backface culling
+    // already separates them, making their old flags needless splits.
+    //
     // Spider-Man: the decal-heavy start rooftop, the demo level's sign panels,
     // and l7a2_g whose glass sheets drove the lift-orientation fix.
-    [InlineData("Spider-Man (2000-9-1, PSX - Final)", "l2a1_g.psx", 82)]
-    [InlineData("Spider-Man (2000-9-1, PSX - Final)", "lda1_g.psx", 18)]
-    [InlineData("Spider-Man (2000-9-1, PSX - Final)", "l7a2_g.psx", 538)]
+    [InlineData("Spider-Man (2000-9-1, PSX - Final)", "l2a1_g.psx", 77)] // 82: −5 back-to-back
+    [InlineData("Spider-Man (2000-9-1, PSX - Final)", "lda1_g.psx", 5)] // 18: −13 back-to-back
+    [InlineData("Spider-Man (2000-9-1, PSX - Final)", "l7a2_g.psx", 593)] // 538: +55 appearance twins
     // THPS2 Dreamcast: the reported water (SKB2), the baked light/shadow floor
     // duplicates (SKMAR), and the fence/sprite level (SKPH).
-    [InlineData("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", "SKB2.PSX", 1)]
-    [InlineData("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", "SKMAR.PSX", 102)]
-    [InlineData("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", "SKPH.PSX", 29)]
-    // THPS2 PS1 + THPS1: skware's double-sided walls and the partial overlaps the
-    // centroid-inside rule used to drop (skmall).
-    [InlineData("Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)", "skware.psx", 37)]
-    [InlineData("Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)", "skmar.psx", 39)]
-    [InlineData("Tony Hawk's Pro Skater (1999-9-29, PSX - Final)", "skmall.psx", 47)]
+    [InlineData("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", "SKB2.PSX", 24)] // 1: +23 exact-area decals (its whole unseparated class)
+    [InlineData("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", "SKMAR.PSX", 101)] // 102: −1 back-to-back
+    [InlineData("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", "SKPH.PSX", 27)] // 29: −2 back-to-back
+    // THPS2 PS1 + THPS1: skware's baked bright/shadow wall duplicates (the
+    // o117f9/o151f9 exemplar) and skmall's storefronts, which are mostly
+    // back-to-back single-sided walls the old rule flagged needlessly.
+    [InlineData("Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)", "skware.psx", 106)] // 37: +69 appearance twins
+    [InlineData("Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)", "skmar.psx", 37)] // 39: −2 back-to-back
+    [InlineData("Tony Hawk's Pro Skater (1999-9-29, PSX - Final)", "skmall.psx", 7)] // 47: −40 back-to-back
     public void Find_FlagsThePinnedOverlayCount(string buildName, string fileName, int expected)
     {
         var path = paths.FindSampleFile(buildName, fileName);

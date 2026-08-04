@@ -182,7 +182,7 @@ internal static class PsxGeometryWriter
         Dictionary<uint, (int Width, int Height)> textureDims,
         int untexturedMaterial,
         MeshChecksumTextureResolver? textureProvider,
-        IReadOnlyDictionary<PsxFaceInstanceKey, int> coplanarOverlays,
+        IReadOnlyDictionary<PsxFaceInstanceKey, PsxCoplanarOverlayAssignment> coplanarOverlays,
         IReadOnlyDictionary<PsxFaceInstanceKey, int> semiTransparentLiftSteps,
         IReadOnlyDictionary<(int X, int Y, int Z), Vector3>? semiTransparentLiftDirections,
         PsxEngineLight? engineLight = null,
@@ -218,9 +218,9 @@ internal static class PsxGeometryWriter
         var indexedFaces = emittedFaces
             .Select((face, faceIndex) => (Face: face, FaceIndex: faceIndex))
             .ToLookup(item =>
-                coplanarOverlays.TryGetValue(new PsxFaceInstanceKey(objectIndex, item.FaceIndex), out var groupId)
-                    ? groupId
-                    : -1);
+                coplanarOverlays.TryGetValue(new PsxFaceInstanceKey(objectIndex, item.FaceIndex), out var assignment)
+                    ? (assignment.GroupId, assignment.DrawRank)
+                    : (GroupId: -1, DrawRank: 0));
 
         var liftContext = new PsxMeshEmissionContext(
             objectIndex,
@@ -233,7 +233,7 @@ internal static class PsxGeometryWriter
             engineLight);
         var mesh = BuildPsxFaceMesh(
             document, psxFile, psxMesh, meshName,
-            indexedFaces[-1], materialCache, textureDims, untexturedMaterial, textureProvider,
+            indexedFaces[(-1, 0)], materialCache, textureDims, untexturedMaterial, textureProvider,
             liftContext);
         if (mesh != null)
         {
@@ -247,27 +247,36 @@ internal static class PsxGeometryWriter
             ModelDocumentGeometryAdapter.AddMeshNode(document, nodeName, mesh, transform);
         }
 
-        foreach (var overlayGroup in indexedFaces.Where(static group => group.Key >= 0)
+        // One mesh per (group, rank): mutually overlapping flagged faces carry
+        // distinct ranks, so each rank needs its own DrawIndex and a stacked
+        // separation offset (rank x one lift step). Rank 1 keeps the plain
+        // __overlayNN name the viewer/Blender already know; deeper ranks add
+        // an _rN suffix.
+        foreach (var overlayGroup in indexedFaces.Where(static group => group.Key.GroupId >= 0)
                      .OrderBy(static group => group.Key))
         {
+            var (groupId, drawRank) = overlayGroup.Key;
+            var suffix = drawRank <= 1
+                ? $"__overlay{groupId:D2}"
+                : $"__overlay{groupId:D2}_r{drawRank}";
             var overlayMesh = BuildPsxFaceMesh(
-                document, psxFile, psxMesh, $"{meshName}__overlay{overlayGroup.Key:D2}",
+                document, psxFile, psxMesh, meshName + suffix,
                 overlayGroup, materialCache, textureDims, untexturedMaterial, textureProvider,
                 liftContext);
             if (overlayMesh == null)
                 continue;
 
             var offset = ComputePsxOverlayLiftVector(
-                psxFile.Version, psxMesh, overlayGroup, liftContext.SpriteResolver);
+                psxFile.Version, psxMesh, overlayGroup, liftContext.SpriteResolver) * drawRank;
             foreach (var primitive in overlayMesh.Primitives)
             {
                 primitive.NativeMetadata.Add(new MeshDrawOrderMetadata(
-                    1, 1, overlayGroup.Key, offset.X, offset.Y, offset.Z));
+                    drawRank, drawRank, groupId, offset.X, offset.Y, offset.Z));
             }
 
             ApplyAxialBillboardMetadata(overlayMesh, liftContext.SpriteResolver);
             ModelDocumentGeometryAdapter.AddMeshNode(
-                document, $"{nodeName}__overlay{overlayGroup.Key:D2}", overlayMesh, transform);
+                document, nodeName + suffix, overlayMesh, transform);
         }
     }
 
