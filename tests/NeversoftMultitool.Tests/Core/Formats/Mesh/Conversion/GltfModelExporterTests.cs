@@ -120,7 +120,7 @@ public sealed class GltfModelExporterTests
         using var stream = new MemoryStream(glbBytes, false);
         var model = ModelRoot.ReadGLB(stream);
         var meshNode = Assert.Single(
-            model.LogicalNodes.Where(static node => node.Mesh != null));
+            model.LogicalNodes, static node => node.Mesh != null);
         Assert.Equal(0.25f, meshNode.LocalMatrix.Translation.Y, 5);
 
         using var payload = new MemoryStream();
