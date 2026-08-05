@@ -321,9 +321,17 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
   LZ bitstream from +12 (literals visible: "sk2de…"). THPS1 ships ERZ v1; THPS2/THPS3/Spider-Man
   ERZ v2. Census: thps1 1,124 / thps2 1,158 / thps3 1,121 / spidey 1,584 blocks — the ENTIRE
   asset corpus is ERZ-wrapped.
-- Next step: disassemble the boot-segment decompressor (MIPS BE, entry 0x80000400 per header;
-  existing Ghidra pipeline handles it) to derive the v1/v2 bitstream, then: `ErzDecoder` +
-  `.z64` routing through `unpack` (gate `.n64`/`.v64` byte orders out with a clear message),
-  then textures (N64 TMEM formats; but if payloads are BE PSX files, the PSX texture path may
-  cover them directly — check first).
+- **ERZ v2 DECODES (2026-08-05)**: `tools/diagnostics/erz_emu_decode.py` runs the ROM's own
+  boot-segment decompressor (located via its `lui 0x4552` magic-check signature; THPS2 core at
+  RAM 0x80000CF8) in a minimal MIPS-BE interpreter — bit-exact by construction. Header confirmed
+  from the code: `+4 u32 BE decompressedSize` (0x10000 blocks), `+8 u32 BE compressedSize`,
+  bitstream from +18. THPS2 entry 0 → 64 KB of skater-definition data ("sk2def", bone names,
+  gear/BMP names); entries 1-2 → MIPS code overlays. The early sub-file table is the CODE
+  package; asset tables (BE PSX payloads) sit later in ROM.
+- Next: C# `ErzDecoder` port using emulator outputs as golden fixtures (the disassembly shows a
+  bit-flagged LZ with an MSB-first sentinel bit buffer and 0x10000-byte blocks); ERZ v1 core
+  (THPS1) wiring in the emulator; walk ALL sub-file tables per ROM and classify payloads; then
+  `.z64` routing through `unpack` (gate `.n64`/`.v64` byte orders out with a clear message) and
+  textures — if payloads are BE-mirrored PSX files, the endian-parameterized reader pattern (GC
+  precedent) may cover them with no new texture code.
 - Inventory tool: `tools/diagnostics/n64_rom_inventory.py` (header/entropy/signature/table scan).
