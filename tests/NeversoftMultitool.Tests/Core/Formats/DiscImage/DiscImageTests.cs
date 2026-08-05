@@ -128,6 +128,70 @@ public sealed class DiscImageTests : IDisposable
         Assert.Equal([1, 2, 3, 4, 5], File.ReadAllBytes(Path.Combine(outDir, "DATA", "NESTED.BIN")));
     }
 
+    /// <summary>
+    ///     Single-file cue with CD-DA: each audio track's extent must end where
+    ///     the NEXT track in the same image begins. The pre-2026-08-04 code ran
+    ///     every audio track to end-of-image, so track02.wav contained tracks
+    ///     2..N, track03.wav 3..N, and so on. Multi-file Redump layouts (one
+    ///     file per track) were always correct and are covered by
+    ///     <see cref="CueSheet_ParsesMultiFileTracksWithTypesAndIndexes" />.
+    /// </summary>
+    [Fact]
+    public void SingleFileCue_AudioTracksExtractTheirOwnRangeOnly()
+    {
+        var dataSectors = WrapAsRawMode2(BuildIso9660Sectors(), []);
+        var dataSectorCount = dataSectors.Length / 2352;
+
+        // Two audio tracks with distinct fill bytes, appended to the data track
+        // in ONE shared .bin.
+        const int track2Sectors = 5;
+        const int track3Sectors = 3;
+        var track2 = new byte[track2Sectors * 2352];
+        Array.Fill(track2, (byte)0xA2);
+        var track3 = new byte[track3Sectors * 2352];
+        Array.Fill(track3, (byte)0xA3);
+
+        var binPath = Path.Combine(_tempDir, "cdda.bin");
+        using (var bin = File.Create(binPath))
+        {
+            bin.Write(dataSectors);
+            bin.Write(track2);
+            bin.Write(track3);
+        }
+
+        static string Msf(int frames)
+        {
+            return $"{frames / (60 * 75):D2}:{frames / 75 % 60:D2}:{frames % 75:D2}";
+        }
+
+        var cuePath = Path.Combine(_tempDir, "cdda.cue");
+        File.WriteAllLines(cuePath,
+        [
+            "FILE \"cdda.bin\" BINARY",
+            "  TRACK 01 MODE2/2352",
+            "    INDEX 01 00:00:00",
+            "  TRACK 02 AUDIO",
+            $"    INDEX 01 {Msf(dataSectorCount)}",
+            "  TRACK 03 AUDIO",
+            $"    INDEX 01 {Msf(dataSectorCount + track2Sectors)}"
+        ]);
+
+        var outDir = Path.Combine(_tempDir, "out_cdda");
+        DiscImageArchive.ExtractFiles(
+            cuePath,
+            outDir,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var wav2 = File.ReadAllBytes(Path.Combine(outDir, "cdda", "track02.wav"));
+        var wav3 = File.ReadAllBytes(Path.Combine(outDir, "cdda", "track03.wav"));
+
+        // 44-byte WAV header + exactly this track's sectors, no bleed-through.
+        Assert.Equal(44 + track2Sectors * 2352, wav2.Length);
+        Assert.Equal(44 + track3Sectors * 2352, wav3.Length);
+        Assert.All(wav2.Skip(44), static value => Assert.Equal(0xA2, value));
+        Assert.All(wav3.Skip(44), static value => Assert.Equal(0xA3, value));
+    }
+
     [Fact]
     public void RawBinCue_Form2FileExtractsAsXaSectorStream()
     {

@@ -301,11 +301,36 @@ public static class DiscImageArchive
 
         private void CollectAudioTracksFromCue(CueSheet cue)
         {
-            foreach (var track in cue.Tracks.Where(t => t.IsAudio && t.FileLength > 0))
+            for (var index = 0; index < cue.Tracks.Count; index++)
             {
+                var track = cue.Tracks[index];
+                if (!track.IsAudio || track.FileLength <= 0)
+                    continue;
+
                 // Skip the in-file pregap; INDEX 01 marks where audio begins.
                 var startByte = track.Index01Frames * track.SectorSize;
-                var sectors = (track.FileLength - startByte) / track.SectorSize;
+
+                // A track's extent ends where the NEXT track in the SAME image
+                // file begins, not at end-of-image. Single-file cues (one .bin
+                // shared by every track) previously ran every audio track to
+                // EOF, so track02.wav contained tracks 2..N, track03.wav 3..N,
+                // and so on (fixed 2026-08-04). Multi-file Redump layouts have
+                // one file per track, where "next track in the same file" never
+                // exists and end-of-file remains correct.
+                var endByte = track.FileLength;
+                for (var next = index + 1; next < cue.Tracks.Count; next++)
+                {
+                    if (!string.Equals(cue.Tracks[next].FilePath, track.FilePath,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    endByte = cue.Tracks[next].Index01Frames * cue.Tracks[next].SectorSize;
+                    break;
+                }
+
+                var sectors = (endByte - startByte) / track.SectorSize;
                 if (sectors <= 0)
                     continue;
 

@@ -90,14 +90,21 @@ public sealed class CueSheet
     /// <summary>
     ///     Track regions for the sector source. Files stack sequentially in
     ///     LBA space (Redump layout); the first data track starts at LBA 0.
+    ///     A single-file cue (one .bin shared by every track) contributes ONE
+    ///     region spanning the file — per-track regions each spanned the whole
+    ///     file (<see cref="CueTrack.SectorCount" /> is file-length-based), so
+    ///     every track after the first was a phantom copy of the image stacked
+    ///     into LBA space (fixed 2026-08-04; harmless for track-1 ISO9660
+    ///     reads, wrong for any absolute LBA past it).
     /// </summary>
     public List<DiscTrackRegion> BuildRegions()
     {
         var regions = new List<DiscTrackRegion>();
+        var emittedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         long lba = 0;
         foreach (var track in Tracks)
         {
-            if (track.FileLength <= 0)
+            if (track.FileLength <= 0 || !emittedFiles.Add(track.FilePath))
                 continue;
 
             regions.Add(new DiscTrackRegion(

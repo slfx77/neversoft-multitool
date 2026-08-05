@@ -6,7 +6,7 @@ namespace NeversoftMultitool.Core.Formats.Archives;
 ///     (EXE string harvest + format-string and companion-suffix expansion, all
 ///     proven by re-hash against the shipped HED). The two late PS1 ports hash
 ///     their WAD entry names where THPS1/THPS2 shipped plaintext HEDs. THPS3
-///     names its levels aa<stem> (aajap/aario/...); THPS4 uses Spider-Man's
+///     names its levels aa&lt;stem&gt; (aajap/aario/...); THPS4 uses Spider-Man's
 ///     _g.psx geometry convention (a1col_g ... a9xxx_g).
 /// </summary>
 internal static class HedDictionaryPart5
