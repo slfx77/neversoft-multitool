@@ -14,15 +14,22 @@ namespace NeversoftMultitool.Core.Formats.N64;
 ///     concatenate into one logical file (the boot loop writes block N at
 ///     <c>dst + N*0x10000</c>).
 ///
-///     Only the BOOT package uses that table shape. The asset corpus is
-///     STANDALONE ERZ blocks packed back-to-back (one block = one asset, every
-///     asset-region block decodes to &lt; 64 KB; measured across all four ROMs
-///     2026-08-05), enumerated here by aligned magic scan outside the table
-///     spans. Nothing carries names, so entries are offset-named
-///     (<c>0x0013B74.bin</c>) — the same convention as unresolved hashed-HED
-///     entries. Extraction decodes every ERZ block (both the v2 boot scheme
-///     and the Deflate-like v1 scheme used by the THPS1/2/3 asset corpora);
-///     stored table blocks are copied verbatim.
+///     The authoritative enumeration is the ROM's own MASTER DIRECTORY
+///     (RE'd 2026-08-05, verified on all four ROMs): the BE u32 immediately
+///     BEFORE the boot table is a KSEG1 cart pointer (<c>0xB0......</c>);
+///     masked with <c>0x0FFFFFFF</c> it addresses a root table of stream-group
+///     directories (THPS1 7, THPS2/THPS3 9, Spider-Man 8; root offs[0] may
+///     carry a few pad bytes). Each group directory uses the standard table
+///     shape with NON-DECREASING offsets — equal neighbours are authored
+///     empty slots. A compressed group is ONE logical stream cut into 16 KB
+///     ERZ decompression units for random access (block index =
+///     decompressedOffset &gt;&gt; 14; final block short); uncompressed groups
+///     (audio wavetables/banks) store one payload per leaf. The tree covers
+///     every ERZ block in the ROM plus the raw audio the magic scan missed,
+///     including blocks at odd offsets the aligned scan skipped (Spider-Man
+///     ships 4). Extraction carves the reassembled streams into typed assets
+///     via <see cref="N64AssetCarver" />; the flat magic scan remains as the
+///     fallback for ROMs without the directory.
 ///
 ///     Byte order gate: <c>.z64</c> big-endian (magic <c>80 37 12 40</c>) only.
 ///     Byte-swapped <c>.v64</c> and little-endian <c>.n64</c> dumps are
@@ -154,27 +161,140 @@ public static class N64RomArchive
 
         covered.Sort();
         var blocks = new List<(int, int)>();
-        for (var position = 0x1000; position + ErzDecoder.HeaderSize <= rom.Length; position += 2)
+        var position = 0x1000;
+        while (position + ErzDecoder.HeaderSize <= rom.Length)
         {
-            if (!ErzDecoder.IsErz(rom.AsSpan(position, ErzDecoder.HeaderSize)))
+            if (!ErzDecoder.IsErz(rom.AsSpan(position, ErzDecoder.HeaderSize))
+                || covered.Any(range => position >= range.Start && position < range.End))
+            {
+                position += 2;
                 continue;
-            if (covered.Any(range => position >= range.Start && position < range.End))
-                continue;
+            }
 
             var compressed = ErzDecoder.GetCompressedSize(rom.AsSpan(position));
             var length = ErzDecoder.HeaderSize + compressed;
-            if (compressed <= 0 || position + length > rom.Length)
-                continue;
             var decompressed = ErzDecoder.GetDecompressedSize(rom.AsSpan(position));
-            if (decompressed is <= 0 or > (1 << 24))
+            if (compressed <= 0 || position + length > rom.Length || decompressed is <= 0 or > (1 << 24))
+            {
+                position += 2;
                 continue;
+            }
 
             blocks.Add((position, length));
-            position += length - 2;
-            position &= ~1;
+            position = (position + length) & ~1;
         }
 
         return blocks;
+    }
+
+    public readonly record struct StreamGroup(
+        int Index,
+        int DirectoryOffset,
+        IReadOnlyList<(int Offset, int Length)> Leaves,
+        bool IsCompressed);
+
+    /// <summary>
+    ///     Walks the master asset directory: boot table located by scan, the
+    ///     u32 before it is the KSEG1 pointer to the root, root children are
+    ///     the per-stream block directories. False when any link fails — the
+    ///     caller falls back to the flat scan.
+    /// </summary>
+    public static bool TryReadMasterDirectory(
+        byte[] rom,
+        out int rootOffset,
+        out List<StreamGroup> groups,
+        out SubFileTable bootTable)
+    {
+        rootOffset = 0;
+        groups = [];
+        bootTable = default;
+
+        if (FindBootTable(rom) is not { } boot || boot.Offset < 4)
+            return false;
+
+        var pointer = BinaryPrimitives.ReadUInt32BigEndian(rom.AsSpan(boot.Offset - 4));
+        if (pointer >> 28 != 0xB)
+            return false;
+
+        var root = (int)(pointer & 0x0FFFFFFF);
+        // Root tolerates pad bytes between the offset array and the first
+        // child (THPS2 ships 4); children are strict.
+        var rootOffsets = TryReadDirectory(rom, root, slack: 16);
+        if (rootOffsets == null || rootOffsets.Length - 1 > 64)
+            return false;
+
+        var result = new List<StreamGroup>();
+        for (var g = 0; g < rootOffsets.Length - 1; g++)
+        {
+            var directory = root + rootOffsets[g];
+            var offsets = TryReadDirectory(rom, directory, slack: 0);
+            if (offsets == null)
+                return false;
+
+            var leaves = new List<(int Offset, int Length)>(offsets.Length - 1);
+            var compressed = false;
+            for (var k = 0; k < offsets.Length - 1; k++)
+            {
+                var offset = directory + offsets[k];
+                var length = offsets[k + 1] - offsets[k];
+                leaves.Add((offset, length));
+                if (!compressed
+                    && length >= ErzDecoder.HeaderSize
+                    && ErzDecoder.IsErz(rom.AsSpan(offset, ErzDecoder.HeaderSize)))
+                {
+                    compressed = true;
+                }
+            }
+
+            result.Add(new StreamGroup(g, directory, leaves, compressed));
+        }
+
+        rootOffset = root;
+        groups = result;
+        bootTable = boot;
+        return true;
+    }
+
+    /// <summary>First strict sub-file table in the ROM = the boot package.</summary>
+    private static SubFileTable? FindBootTable(byte[] rom)
+    {
+        for (var position = 0x1000; position + 12 <= rom.Length; position += 4)
+        {
+            if (TryReadTable(rom, position) is { } table)
+                return table;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Directory-table read: BE count + count+1 NON-DECREASING offsets
+    ///     (equal neighbours = authored empty slots, e.g. THPS3's audio group
+    ///     leads with 8). offs[0] must land within <c>slack</c> bytes of the
+    ///     strict header size.
+    /// </summary>
+    private static int[]? TryReadDirectory(byte[] rom, int position, int slack)
+    {
+        if (position < 0 || position + 8 > rom.Length)
+            return null;
+        var count = BinaryPrimitives.ReadInt32BigEndian(rom.AsSpan(position));
+        if (count is < 0 or > MaxTableEntries)
+            return null;
+        var headerSize = 4 + 4 * (count + 1);
+        if (position + headerSize > rom.Length)
+            return null;
+
+        var offsets = new int[count + 1];
+        for (var k = 0; k <= count; k++)
+        {
+            offsets[k] = BinaryPrimitives.ReadInt32BigEndian(rom.AsSpan(position + 4 + 4 * k));
+            if ((k > 0 && offsets[k] < offsets[k - 1]) || position + offsets[k] > rom.Length)
+                return null;
+        }
+
+        if (offsets[0] < headerSize || offsets[0] > headerSize + slack)
+            return null;
+        return offsets;
     }
 
     /// <summary>Decodes one table's blocks into the logical file they form.</summary>
@@ -193,6 +313,47 @@ public static class N64RomArchive
     public static List<ArchiveEntry> GetFileList(string romPath)
     {
         var rom = File.ReadAllBytes(romPath);
+        if (N64AssetCarver.TryCarve(rom, out var assets))
+        {
+            return assets.Select(static asset => new ArchiveEntry
+            {
+                Name = asset.Path,
+                Size = asset.Data.Length
+            }).ToList();
+        }
+
+        return LegacyFileList(rom);
+    }
+
+    public static void ExtractFiles(
+        string romPath,
+        string outputDir,
+        Action<int, int>? onFileExtracted = null,
+        CancellationToken token = default)
+    {
+        var rom = File.ReadAllBytes(romPath);
+        Directory.CreateDirectory(outputDir);
+        if (N64AssetCarver.TryCarve(rom, out var assets))
+        {
+            var done = 0;
+            foreach (var asset in assets)
+            {
+                token.ThrowIfCancellationRequested();
+                var target = Path.Combine(outputDir, asset.Path.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.WriteAllBytes(target, asset.Data);
+                onFileExtracted?.Invoke(++done, assets.Count);
+            }
+
+            return;
+        }
+
+        LegacyExtract(rom, outputDir, onFileExtracted, token);
+    }
+
+    /// <summary>Flat scan listing for ROMs without a master directory.</summary>
+    private static List<ArchiveEntry> LegacyFileList(byte[] rom)
+    {
         var entries = new List<ArchiveEntry>();
         var tables = FindTables(rom);
         foreach (var (offset, _) in FindStandaloneBlocks(rom, tables))
@@ -227,16 +388,14 @@ public static class N64RomArchive
         return entries;
     }
 
-    public static void ExtractFiles(
-        string romPath,
+    private static void LegacyExtract(
+        byte[] rom,
         string outputDir,
-        Action<int, int>? onFileExtracted = null,
-        CancellationToken token = default)
+        Action<int, int>? onFileExtracted,
+        CancellationToken token)
     {
-        var rom = File.ReadAllBytes(romPath);
         var tables = FindTables(rom);
         var standalone = FindStandaloneBlocks(rom, tables);
-        Directory.CreateDirectory(outputDir);
         var total = tables.Count + standalone.Count;
         var done = 0;
         foreach (var table in tables)
