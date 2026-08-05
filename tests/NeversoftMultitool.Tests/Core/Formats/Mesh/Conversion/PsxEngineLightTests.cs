@@ -18,6 +18,66 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 /// </summary>
 public sealed class PsxEngineLightTests
 {
+    /// <summary>
+    ///     Round-3 audit item 1 (fixed 2026-08-05): the skinned writer exports
+    ///     the ATTACHMENT-RESOLVED normal, but <c>BakeEngineLight</c> lit the
+    ///     raw mesh's vertex — so a stitched corner's baked colour disagreed
+    ///     with its shipped NORMAL (~24% of vertices, 20–35% off; hamhead mean
+    ///     33.6%). Since the lit colour is a pure function of the normal (and
+    ///     the material's textured/untextured domain), agreement means every
+    ///     vertex sharing a primitive and a normal must share ONE colour.
+    ///     Pre-fix, stitched corners violated this; post-fix, zero conflicts.
+    ///     hamhead is fully lit (289/289), so no authored-colour faces can
+    ///     produce false conflicts.
+    /// </summary>
+    [Fact]
+    public void BakedLight_IsAFunctionOfTheExportedNormal_OnAStitchedCharacter()
+    {
+        var paths = new NeversoftMultitool.Tests.Helpers.TestPaths();
+        var path = paths.FindSampleFile(
+            "Spider-Man 2 - Enter Electro (2001-8-15, PSX - Final)", "hamhead.psx");
+        Assert.SkipWhen(path == null, "SM2EE hamhead.psx sample not available");
+
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = new NeversoftMultitool.Core.Formats.FileSystemAssetSource(path!),
+            FileName = "hamhead.psx",
+            OutputStem = "hamhead",
+            SourceKind = NeversoftMultitool.Core.Formats.Mesh.Conversion.ModelSourceKind.Psx,
+            PsxLightPreset = "item-default"
+        });
+
+        var conflicts = 0;
+        var groups = 0;
+        foreach (var mesh in document.Meshes)
+        {
+            foreach (var primitive in mesh.Primitives)
+            {
+                var byNormal = new Dictionary<(int, int, int), Vector4>();
+                foreach (var vertex in primitive.Vertices)
+                {
+                    var key = (
+                        (int)MathF.Round(vertex.Normal.X * 1000f),
+                        (int)MathF.Round(vertex.Normal.Y * 1000f),
+                        (int)MathF.Round(vertex.Normal.Z * 1000f));
+                    if (byNormal.TryGetValue(key, out var seen))
+                    {
+                        if (Vector4.Distance(seen, vertex.Color) > 1f / 255f)
+                            conflicts++;
+                    }
+                    else
+                    {
+                        byNormal[key] = vertex.Color;
+                        groups++;
+                    }
+                }
+            }
+        }
+
+        Assert.True(groups > 100, $"expected a real vertex population, saw {groups} groups");
+        Assert.Equal(0, conflicts);
+    }
+
     // PS1 space is Y-DOWN: -Y faces up on screen, +Y faces down.
     private static readonly Vector3 FacingUp = new(0f, -1f, 0f);
     private static readonly Vector3 FacingDown = new(0f, 1f, 0f);

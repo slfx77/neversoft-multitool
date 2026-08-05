@@ -127,13 +127,59 @@ internal static class PsxGeometryHelpers
     ///     is resolved the same way the exporter resolves the exported NORMAL,
     ///     so the baked colour and the shipped geometry agree.
     /// </summary>
+    /// <summary>
+    ///     Engine-light bake for SKINNED faces: lights the attachment-resolved
+    ///     normal — the SAME normal the skinned writer exports — so a stitched
+    ///     vertex's baked colour agrees with its shipped NORMAL. The raw-mesh
+    ///     overload lit the reference vertex's own placeholder normal for those
+    ///     corners, which the round-3 audit measured at ~24% of vertices being
+    ///     20–35% off in the affected files (hamhead mean 33.6%); fixed
+    ///     2026-08-05 (audit item 1).
+    /// </summary>
     internal static Vector4 BakeEngineLight(
+        PsxMeshFile psxFile,
+        int meshIndex,
         PsxMesh mesh,
         PsxFace face,
         int slot,
         PsxEngineLight light)
     {
         var vertexIndex = GetPsxFaceVertexIndex(face, slot);
+        var normalMesh = mesh;
+        var normalVertexIndex = vertexIndex;
+        var resolved = PsxCharacterMeshResolver.ResolveVertex(psxFile, meshIndex, vertexIndex);
+        if (resolved is
+            {
+                UsedAttachment: true, AttachmentResolved: true, SourceMeshIndex: >= 0, SourceVertexIndex: >= 0
+            }
+            && resolved.SourceMeshIndex < psxFile.Meshes.Count)
+        {
+            var candidate = psxFile.Meshes[resolved.SourceMeshIndex];
+            if (candidate.HasPerVertexNormals && resolved.SourceVertexIndex < candidate.VertexCount)
+            {
+                normalMesh = candidate;
+                normalVertexIndex = (uint)resolved.SourceVertexIndex;
+            }
+        }
+
+        return BakeEngineLightForNormal(normalMesh, face, normalVertexIndex, light);
+    }
+
+    internal static Vector4 BakeEngineLight(
+        PsxMesh mesh,
+        PsxFace face,
+        int slot,
+        PsxEngineLight light)
+    {
+        return BakeEngineLightForNormal(mesh, face, GetPsxFaceVertexIndex(face, slot), light);
+    }
+
+    private static Vector4 BakeEngineLightForNormal(
+        PsxMesh mesh,
+        PsxFace face,
+        uint vertexIndex,
+        PsxEngineLight light)
+    {
         var normal = ComputePsxVertexNormal(mesh, face, vertexIndex);
         var lit = light.Evaluate(ToPsxLightSpaceNormal(normal));
 

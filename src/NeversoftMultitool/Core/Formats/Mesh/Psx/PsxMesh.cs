@@ -24,18 +24,6 @@ public sealed class PsxMesh
     public IReadOnlyList<PsxFace> InvisibleFaces { get; init; } = [];
 
     /// <summary>
-    ///     True when every visible face carries the lit-primitive flag and the
-    ///     normals gate holds — the whole mesh is engine-lit. FE props
-    ///     (control.psx: 892/892 lit) are fully lit; characters are mixed
-    ///     (venom 394/414, docock 371/539), which is the discriminator the
-    ///     writers use to bake the FE light only for props.
-    /// </summary>
-    public bool IsFullyEngineLit =>
-        Faces.Count > 0
-        && UsesDynamicLighting
-        && Faces.TrueForAll(static face => (face.Flags & 0x0004) != 0);
-
-    /// <summary>
     ///     The PC/DC v6 loader retains native header bit 2 and also derives it
     ///     when any declared native face carries flag 0x0004 — and the PS1
     ///     loader does the SAME: M3dInit_ParsePSX ORs every face word0 into

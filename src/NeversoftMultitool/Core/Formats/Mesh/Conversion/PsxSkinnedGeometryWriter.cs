@@ -287,11 +287,13 @@ internal static class PsxSkinnedGeometryWriter
         c3 = PsxGeometryHelpers.ApplyPsxUntexturedBlend(face, c3);
         if (bakeEngineLight)
         {
-            c0 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 0, engineLight!);
-            c1 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 1, engineLight!);
-            c2 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 2, engineLight!);
+            // The attachment-resolving overload: a stitched corner's baked
+            // light must come from the SAME normal the writer exports below.
+            c0 = PsxGeometryHelpers.BakeEngineLight(psxFile, meshIndex, mesh, face, 0, engineLight!);
+            c1 = PsxGeometryHelpers.BakeEngineLight(psxFile, meshIndex, mesh, face, 1, engineLight!);
+            c2 = PsxGeometryHelpers.BakeEngineLight(psxFile, meshIndex, mesh, face, 2, engineLight!);
             if (face.IsQuad)
-                c3 = PsxGeometryHelpers.BakeEngineLight(mesh, face, 3, engineLight!);
+                c3 = PsxGeometryHelpers.BakeEngineLight(psxFile, meshIndex, mesh, face, 3, engineLight!);
         }
 
         var isPs1TexturedModulation = isPs1 && face.IsTextured;

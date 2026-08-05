@@ -22,7 +22,14 @@ nobody re-opens them from a stale doc.
 
 ## Open
 
-### 1. `BakeEngineLight` uses a different normal than the writer exports
+### 1. `BakeEngineLight` uses a different normal than the writer exports — CLOSED 2026-08-05
+
+Fixed: a skinned overload of `BakeEngineLight` performs the same attachment resolution as the
+writer's normal export, so a stitched corner's baked light agrees with its shipped NORMAL. Pinned
+by `PsxEngineLightTests.BakedLight_IsAFunctionOfTheExportedNormal_OnAStitchedCharacter` (hamhead:
+zero same-normal colour conflicts; the raw-mesh overload fails it). Original finding below.
+
+#### (original) `BakeEngineLight` uses a different normal than the writer exports
 
 `PsxGeometryHelpers.BakeEngineLight` computes intensity from
 `ComputePsxVertexNormal(mesh, face, vertexIndex)`, while `PsxSkinnedGeometryWriter.cs:377` exports
@@ -31,11 +38,10 @@ stitched vertex the baked light and the shipped NORMAL therefore disagree. Repor
 vertices in the affected files, 20–35% off (hamhead mean 33.6%). Now only reachable when a
 `--psx-light` preset is selected, so it is no longer a default-path defect, but it is still wrong.
 
-### 2. `IsFullyEngineLit` is dead code
+### 2. `IsFullyEngineLit` is dead code — CLOSED 2026-08-05
 
-Defined on both `PsxMesh` and `PsxMeshFile`, referenced by nothing since the lit gate became
-per-face. It is the discredited "whole file is lit" signal; delete it rather than leave a loaded
-gun, or document what it is still for.
+Deleted from both `PsxMesh` and `PsxMeshFile` (the discredited "whole file is lit" signal;
+nothing referenced it since the lit gate became per-face). Build + full suite green.
 
 ### 3. Layer-step tearing (disputed)
 
