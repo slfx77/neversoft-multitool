@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.Formats.DiscImage;
+using N64 = NeversoftMultitool.Core.Formats.N64;
 
 namespace NeversoftMultitool.Core.Formats.Archives;
 
@@ -16,7 +17,7 @@ public static class ArchiveTypeDetector
     public static readonly string[] ArchiveExtensions =
     [
         ".wad", ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".ddx", ".bon", ".pak", ".apk", ".zip", ".cut",
-        ".iso", ".cue", ".gdi", ".img"
+        ".iso", ".cue", ".gdi", ".img", ".z64"
     ];
 
     /// <summary>
@@ -80,6 +81,7 @@ public static class ArchiveTypeDetector
             ".cut" => CutArchive.IsCut(filePath) ? "CUT" : "CUT (raw)",
             ".iso" or ".cue" or ".gdi" or ".img" =>
                 DiscImageArchive.IsDiscImage(filePath) ? "DISC" : "DISC (raw)",
+            ".z64" => N64.N64RomArchive.ClassifyRom(filePath) ?? "N64 ROM (raw)",
             _ => "?"
         };
     }

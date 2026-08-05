@@ -3,6 +3,7 @@ using System.Diagnostics;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.DiscImage;
+using NeversoftMultitool.Core.Formats.N64;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -214,6 +215,23 @@ public static class ArchiveCommand
                     case ".iso" or ".cue" or ".gdi" or ".img" or ".bin":
                         AnsiConsole.MarkupLine(
                             "[red]Not a recognized disc image[/] (no ISO9660/XDVDFS/GCM filesystem found)");
+                        return Task.FromResult(1);
+
+                    case ".z64" when N64RomArchive.IsN64Rom(input):
+                        AnsiConsole.MarkupLine("[blue]N64 ROM[/] detected (ERZ sub-file packing)");
+                        var romEntries = N64RomArchive.GetFileList(input);
+                        AnsiConsole.MarkupLine($"Found [green]{romEntries.Count}[/] entries");
+                        N64RomArchive.ExtractFiles(input, output, (current, total) =>
+                        {
+                            filesExtracted = current;
+                            if (verbose)
+                                AnsiConsole.MarkupLine($"  [[{current}/{total}]]");
+                        }, cancellationToken);
+                        break;
+
+                    case ".z64":
+                        AnsiConsole.MarkupLine(
+                            $"[red]{N64RomArchive.ClassifyRom(input) ?? "Not an N64 ROM"}[/]");
                         return Task.FromResult(1);
 
                     default:
