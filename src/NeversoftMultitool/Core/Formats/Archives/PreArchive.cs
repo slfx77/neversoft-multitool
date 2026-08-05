@@ -29,6 +29,25 @@ public static class PreArchive
         using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         var entryCount = reader.ReadUInt32();
+
+        // The plain-v1 layout has NO magic, so it is the fall-through for
+        // anything IsCompressedPre declines. A compressed PRE whose version
+        // dword is 0xABCD-shaped but UNKNOWN (a future 0xABCD0004) would land
+        // here and garbage-parse: its first dword is totalFileSize, not an
+        // entry count. Refuse it explicitly instead (guard added 2026-08-04
+        // while bringing up the THPS3/THPS4 PS1 corpus).
+        if (stream.Length >= 8)
+        {
+            var maybeVersion = reader.ReadUInt32();
+            stream.Position -= 4;
+            if ((maybeVersion & 0xFFFF0000u) == 0xABCD0000u)
+            {
+                throw new InvalidDataException(
+                    $"Unsupported compressed-PRE version 0x{maybeVersion:X8} " +
+                    "(expected 0xABCD0002 or 0xABCD0003); refusing the plain-PRE fallback.");
+            }
+        }
+
         var entries = new List<ArchiveEntry>((int)entryCount);
 
         for (var i = 0; i < entryCount; i++)

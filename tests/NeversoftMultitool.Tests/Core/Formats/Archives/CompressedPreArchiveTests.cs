@@ -22,6 +22,26 @@ public class CompressedPreArchiveTests(TestPaths paths)
         Assert.False(CompressedPreArchive.IsCompressedPre(preFile!));
     }
 
+    /// <summary>
+    ///     The plain-v1 PRE parser has no magic and is the fall-through for
+    ///     anything IsCompressedPre declines, so an UNKNOWN compressed version
+    ///     (a future 0xABCD0004) used to garbage-parse there - its first dword
+    ///     is totalFileSize, not an entry count. It must refuse instead.
+    ///     Guard added 2026-08-04 (THPS3/THPS4 PS1 corpus bring-up).
+    /// </summary>
+    [Fact]
+    public void PlainPreParser_RefusesUnknownCompressedPreVersions()
+    {
+        var bytes = new byte[32];
+        BitConverter.GetBytes(32).CopyTo(bytes, 0);            // totalFileSize
+        BitConverter.GetBytes(0xABCD0004u).CopyTo(bytes, 4);   // unknown version
+        BitConverter.GetBytes(1).CopyTo(bytes, 8);             // "numEntries"
+
+        Assert.False(CompressedPreArchive.IsCompressedPre(bytes));
+        var exception = Assert.Throws<InvalidDataException>(() => PreArchive.GetFileList(bytes));
+        Assert.Contains("0xABCD0004", exception.Message);
+    }
+
     [Fact]
     public void IsCompressedPre_WithV3PreFile_ReturnsTrue()
     {

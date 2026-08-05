@@ -83,6 +83,10 @@ TARGET_EXES = {
     "sm2ee_proto": "Spider-Man 2 - Enter Electro (2001-8-14, PSX - Prototype)/SLUS_013.78",
     "sm2ee_final_pal": "Spider-Man 2 - Enter Electro (2001-8-15, PSX - Final)/SLES_036.23",
     "sm2ee_rev1": "Spider-Man 2 - Enter Electro (2001-9-28, PSX - Rev1)/SLUS_013.78",
+    # Late PS1 ports by other studios (added 2026-08-04): how much of the
+    # Neversoft engine survived Shaba's THPS3 and Vicarious Visions' THPS4.
+    "thps3_ps1_final": "Tony Hawk's Pro Skater 3 (2001-10-3, PSX - Final)/SLUS_014.19",
+    "thps4_ps1_final": "Tony Hawk's Pro Skater 4 (2002-9-28, PSX - Final)/SLUS_014.85",
 }
 
 GP = 28  # $gp
