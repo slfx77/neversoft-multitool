@@ -111,6 +111,12 @@ class Cpu:
                 v = r[rt]
                 v = v - (1 << 32) if v & 0x80000000 else v
                 w(rd, v >> sh)
+            elif fn == 0x04: w(rd, r[rt] << (r[rs] & 31))          # sllv
+            elif fn == 0x06: w(rd, (r[rt] & 0xFFFFFFFF) >> (r[rs] & 31))  # srlv
+            elif fn == 0x07:                                       # srav
+                v = r[rt]
+                v = v - (1 << 32) if v & 0x80000000 else v
+                w(rd, v >> (r[rs] & 31))
             elif fn == 0x08: branch_to = r[rs]                     # jr
             elif fn == 0x09:                                       # jalr
                 w(rd or 31, pc + 8)
@@ -200,6 +206,39 @@ class Cpu:
         self.step()
 
 
+def find_cores(ram: bytearray, cpu: Cpu) -> tuple[int, int]:
+    """Both decompressor entries from the dispatch signature.
+
+    The magic-check dispatch (lui 0x4552 / ori 0x5A00) branches on the
+    version byte and jal's the v1 routine first, the v2 thunk second. The v1
+    target is a self-contained function; the v2 thunk register-saves then
+    jalr's the raw core named by a lui/addiu $t4 pair.
+    """
+    for addr in range(BOOT_RAM, BOOT_RAM + 0x2000, 4):
+        if cpu.lw(addr) == 0x3C024552 and cpu.lw(addr + 4) == 0x34425A00:
+            targets = []
+            for scan in range(addr, addr + 0x100, 4):
+                word = cpu.lw(scan)
+                if word >> 26 == 3:  # jal
+                    targets.append((addr & 0xF0000000) | ((word & 0x3FFFFFF) << 2))
+                    if len(targets) == 2:
+                        break
+            if len(targets) != 2:
+                continue
+            v1 = targets[0]
+            thunk = targets[1]
+            v2 = thunk
+            for scan3 in range(thunk, thunk + 0x80, 4):
+                w3 = cpu.lw(scan3)
+                if w3 >> 16 == 0x3C0C:  # lui $t4
+                    hi = (w3 & 0xFFFF) << 16
+                    lo = cpu.lw(scan3 + 4) & 0xFFFF
+                    v2 = hi + (lo - 65536 if lo >= 32768 else lo)
+                    break
+            return v1, v2
+    raise RuntimeError('dispatch signature not found')
+
+
 def find_v2_core(ram: bytearray, cpu: Cpu) -> int:
     """The v2 core entry: the thunk saves regs then jalr's a lui/addiu target.
 
@@ -238,6 +277,8 @@ def decode_block(rom: bytes, offset: int) -> bytes:
     version = rom[offset + 3]
     decomp_size = struct.unpack_from('>I', rom, offset + 4)[0]
     comp_size = struct.unpack_from('>I', rom, offset + 8)[0]
+    if decomp_size <= 0 or decomp_size > 1 << 24:
+        raise ValueError(f'implausible decompressed size 0x{decomp_size:X}')
 
     ram = bytearray(RAM_SIZE)
     boot_len = min(len(rom) - BOOT_ROM, 1 << 20)
@@ -249,13 +290,13 @@ def decode_block(rom: bytes, offset: int) -> bytes:
     block = rom[offset:offset + 12 + comp_size + 64]
     ram[src - RAM_BASE:src - RAM_BASE + len(block)] = block
 
-    if version == 2:
-        core = find_v2_core(ram, cpu)
-    else:
-        raise NotImplementedError(f'ERZ v{version} (v1 core not wired yet)')
+    v1_core, v2_core = find_cores(ram, cpu)
+    core = v2_core if version == 2 else v1_core
 
     cpu.r[4] = src            # a0 = block
     cpu.r[5] = dst            # a1 = output
+    cpu.r[6] = comp_size      # a2 (the dispatch passes both sizes)
+    cpu.r[7] = decomp_size    # a3
     cpu.r[29] = 0x807F0000    # sp
     cpu.run(core)
 

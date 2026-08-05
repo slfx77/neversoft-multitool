@@ -42,16 +42,37 @@ public sealed class ErzDecoderTests(TestPaths paths)
         Assert.Equal(expectedSha256, Convert.ToHexStringLower(SHA256.HashData(decoded)));
     }
 
-    [Fact]
-    public void Decode_RejectsV1UntilItsCoreIsTranscribed()
+    /// <summary>
+    ///     v1 goldens (2026-08-05): the THPS2 asset-directory block and THPS1's
+    ///     first boot block, both emulator-decoded. v1 is the Deflate-like
+    ///     canonical-code scheme used by the THPS1/2/3 asset corpora.
+    /// </summary>
+    [Theory]
+    [InlineData(Thps2N64Build, RomName, 0x79AAA, 16_384,
+        "bb3c5d8a6509aeaabe64eeb0c9c9e815c5374c505321ac51acff32dc7a94095f")]
+    [InlineData("Tony Hawk's Pro Skater (2000-2-29, N64 - Final)",
+        "Tony Hawk's Pro Skater (USA).z64", 0x13A24, 65_536,
+        "8ad3bff88e7be31a2c059aea0a478b86984dc932b41563a411fe5b8792e41e98")]
+    public void DecodeV1_MatchesTheEmulatedRomDecompressor(
+        string buildName,
+        string romName,
+        int romOffset,
+        int expectedLength,
+        string expectedSha256)
     {
-        var block = new byte[32];
-        block[0] = (byte)'E';
-        block[1] = (byte)'R';
-        block[2] = (byte)'Z';
-        block[3] = 1;
+        var romPath = paths.FindSampleFile(buildName, romName);
+        Assert.SkipWhen(romPath == null, $"{buildName} ROM sample not available");
+
+        var rom = File.ReadAllBytes(romPath!);
+        var compressedSize = ErzDecoder.GetCompressedSize(rom.AsSpan(romOffset));
+        var block = rom[romOffset..(romOffset + ErzDecoder.HeaderSize + compressedSize)];
 
         Assert.True(ErzDecoder.IsErz(block));
-        Assert.Throws<NotSupportedException>(() => ErzDecoder.Decode(block));
+        Assert.Equal(1, ErzDecoder.GetVersion(block));
+
+        var decoded = ErzDecoder.Decode(block);
+
+        Assert.Equal(expectedLength, decoded.Length);
+        Assert.Equal(expectedSha256, Convert.ToHexStringLower(SHA256.HashData(decoded)));
     }
 }

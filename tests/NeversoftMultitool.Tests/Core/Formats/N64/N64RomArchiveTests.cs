@@ -58,34 +58,52 @@ public sealed class N64RomArchiveTests(TestPaths paths)
     }
 
     /// <summary>
-    ///     Spider-Man's entire corpus is ERZ v2, so every asset decodes with
-    ///     the transcribed core TODAY. This sweeps all of them — any stream the
-    ///     transcription mishandles throws and fails the test.
+    ///     Full-corpus decode sweeps: every standalone asset block in every ROM
+    ///     must decode with the transcribed cores (Spider-Man is all-v2; the
+    ///     three THPS ROMs are v1 asset corpora). Any stream either core
+    ///     mishandles throws and fails the sweep.
     /// </summary>
-    [Fact]
-    public void SpiderManRom_EveryAssetBlockDecodes()
+    [Theory]
+    // Per-ROM packing varies: Spider-Man/THPS2/THPS3 keep their asset corpora
+    // as standalone back-to-back blocks; THPS1 packages EVERYTHING into
+    // multi-block tables (7 asset packages + boot). The sweep decodes every
+    // ERZ block from BOTH sources.
+    [InlineData("Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64", 1_500, 20_000_000)]
+    [InlineData(Thps2N64Build, RomName, 1_100, 15_000_000)]
+    [InlineData("Tony Hawk's Pro Skater (2000-2-29, N64 - Final)",
+        "Tony Hawk's Pro Skater (USA).z64", 1_000, 10_000_000)]
+    [InlineData("Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)",
+        "Tony Hawk's Pro Skater 3 (USA).z64", 1_000, 15_000_000)]
+    public void EveryAssetBlockDecodes(
+        string buildName,
+        string romName,
+        int minBlocks,
+        long minDecodedBytes)
     {
-        var romPath = paths.FindSampleFile(
-            "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64");
-        Assert.SkipWhen(romPath == null, "Spider-Man N64 ROM sample not available");
+        var romPath = paths.FindSampleFile(buildName, romName);
+        Assert.SkipWhen(romPath == null, $"{buildName} ROM sample not available");
 
         var rom = File.ReadAllBytes(romPath!);
         var tables = N64RomArchive.FindTables(rom);
         var standalone = N64RomArchive.FindStandaloneBlocks(rom, tables);
-        Assert.True(standalone.Count > 1_500,
-            $"standalone scan surfaced only {standalone.Count} of ~1,568 asset blocks");
+        var blocks = tables.SelectMany(static table => table.Blocks)
+            .Concat(standalone)
+            .Where(block => block.Length >= ErzDecoder.HeaderSize
+                            && ErzDecoder.IsErz(rom.AsSpan(block.Offset, ErzDecoder.HeaderSize)))
+            .ToList();
+        Assert.True(blocks.Count > minBlocks,
+            $"only {blocks.Count} ERZ blocks surfaced across tables + standalone");
 
         long decodedBytes = 0;
-        foreach (var (offset, length) in standalone)
+        foreach (var (offset, length) in blocks)
         {
             var block = rom[offset..(offset + length)];
-            Assert.Equal(2, ErzDecoder.GetVersion(block));
             var data = ErzDecoder.Decode(block);
             Assert.Equal(ErzDecoder.GetDecompressedSize(block), data.Length);
             decodedBytes += data.Length;
         }
 
-        Assert.True(decodedBytes > 20_000_000,
+        Assert.True(decodedBytes > minDecodedBytes,
             $"decoded only {decodedBytes} bytes across the corpus");
     }
 }

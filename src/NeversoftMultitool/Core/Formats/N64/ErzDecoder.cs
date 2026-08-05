@@ -21,8 +21,13 @@ namespace NeversoftMultitool.Core.Formats.N64;
 ///     Labels in the body are the ROM addresses of the corresponding basic
 ///     blocks so the transcription can be re-checked against the disassembly.
 ///
-///     ERZ v1 (THPS1's ROM) uses a separate core (RAM 0x80001340) and is not
-///     transcribed yet; <see cref="Decode" /> rejects it explicitly.
+///     ERZ v1 (the THPS1/2/3 asset corpora) is a different scheme: a
+///     Deflate-like coder with per-block canonical code tables (three tables
+///     of up to 16 codes, built from 5-bit count + 4-bit lengths), an
+///     LSB-first 16-bit little-endian bit window, byte-aligned literal runs
+///     copied straight from the stream, and a 16-bit match-count prefix per
+///     block. Transcribed from the core at RAM 0x80001408 and validated the
+///     same way as v2.
 /// </summary>
 public static class ErzDecoder
 {
@@ -54,13 +59,238 @@ public static class ErzDecoder
     {
         if (!IsErz(block))
             throw new InvalidDataException("Not an ERZ block");
-        if (block[3] != 2)
+        return block[3] == 2 ? DecodeV2(block) : DecodeV1(block);
+    }
+
+
+    /// <summary>
+    ///     The v1 core (RAM 0x80001408). Mechanical transcription; registers
+    ///     keep their MIPS names, comments carry the block addresses.
+    /// </summary>
+    private static byte[] DecodeV1(byte[] block)
+    {
+        var decompressedSize = GetDecompressedSize(block);
+        if (decompressedSize < 0 || decompressedSize > 1 << 24)
+            throw new InvalidDataException($"Implausible ERZ output size {decompressedSize}");
+
+        var output = new byte[decompressedSize];
+        var s3 = HeaderSize;     // stream pointer (16-bit LE window chunks + literals)
+        var s4 = 0;              // dst
+        var s5 = decompressedSize;
+
+        // Three code tables on the "stack": 0x40 bytes of (mask,code) BE16
+        // pairs + 0x40 bytes of per-entry metadata each.
+        var tables = new byte[3][];
+        for (var t = 0; t < 3; t++)
+            tables[t] = new byte[0x80];
+
+        byte SrcByte(int index)
         {
-            throw new NotSupportedException(
-                $"ERZ v{block[3]} is not implemented (only the v2 core is transcribed)");
+            // The v1 window READS AHEAD of the consumed position (the refill
+            // fetches two bytes past the current chunk, the literal re-sync
+            // peeks the next chunk), so the last few reads of a block land
+            // beyond compressedSize. On console those bytes are whatever
+            // follows in ROM and their bits are never consumed into output;
+            // zero-fill is equally never-consumed and keeps exact slices safe.
+            // The golden-hash tests prove no padded byte reaches the output.
+            return index >= block.Length ? (byte)0 : block[index];
         }
 
-        return DecodeV2(block);
+        // Bit window state (0x1444..0x145C): t6 = LE16 at s3, t7 = bits
+        // remaining in the current chunk (starts 0 so the first read refills).
+        var t6 = (uint)((SrcByte(s3 + 1) << 8) | SrcByte(s3));
+        var t7 = 0;
+
+        // REFILL (0x16C8), parameterized on the pending consume count.
+        int Refill(int t1)
+        {
+            t7 += t1;
+            t6 >>= t7;
+            s3 += 4;
+            t6 |= (uint)(SrcByte(s3 - 2) << 16) | (uint)(SrcByte(s3 - 1) << 24);
+            s3 -= 2;
+            t1 -= t7;
+            t7 = 16 - t1;
+            return t1;
+        }
+
+        // READBITS (0x1694): value = window & mask BEFORE the shift; then
+        // consume count bits (refilling mid-consume when the chunk runs dry).
+        uint ReadBits(uint mask, int count)
+        {
+            var value = t6 & mask;
+            t7 -= count;
+            if (t7 < 0)
+                count = Refill(count);
+            t6 >>= count;
+            return value;
+        }
+
+        // BUILD_TABLE (0x1728 + the canonical builder at 0x17B0).
+        void BuildTable(byte[] table)
+        {
+            var count = (int)ReadBits(0x1F, 5) - 1;                            // 0x1728
+            if (count < 0)
+                return;
+
+            var lengths = new byte[16];                                       // 0x175C
+            for (var index = 0; index <= count; index++)
+                lengths[index] = (byte)ReadBits(0xF, 4);
+
+            var t0 = 0x80000000u;                                             // 0x1794
+            var t2 = 0u;
+            var p = 0;                                                        // running s0
+            for (var t1 = 1; t1 != 0x11; t1++)                                // 0x17B0
+            {
+                for (var t4 = count; t4 >= 0; t4--)                           // 0x17B8
+                {
+                    var symbolLength = lengths[count - t4];
+                    if (symbolLength != t1)                                   // 0x17C0
+                        continue;
+
+                    var maskValue = (1 << t1) - 1;                            // 0x17C8
+                    table[p + 1] = (byte)maskValue;
+                    table[p] = (byte)(maskValue >> 8);
+                    p += 2;
+
+                    // Bit-reverse the canonical code accumulator (0x17E4).
+                    var t5 = (t2 << 16) | (t2 >> 16);
+                    var reversed = 0u;
+                    for (var bit = t1 - 1; ; bit--)                           // 0x17FC
+                    {
+                        reversed &= 0xFFFF;
+                        var top = t5 & 0x8000;
+                        t5 <<= 1;
+                        reversed >>= 1;
+                        if (top != 0)
+                            reversed |= 0x8000;
+                        if (bit == 0)
+                            break;
+                    }
+
+                    reversed >>= 16 - t1;                                     // 0x1828
+                    table[p + 1] = (byte)reversed;
+                    table[p] = (byte)(reversed >> 8);
+                    p += 2;
+
+                    table[p + 0x3C] = (byte)t1;                               // 0x1844 length
+                    var symbol = count - t4;
+                    table[p + 0x3D] = (byte)symbol;                           // 0x1850 symbol
+                    var extra = (1 << (symbol - 1)) - 1;                      // 0x1854
+                    table[p + 0x3F] = (byte)extra;
+                    table[p + 0x3E] = (byte)(extra >> 8);
+
+                    t2 += t0;                                                 // 0x1870
+                }
+
+                t0 >>= 1;                                                     // 0x187C
+            }
+        }
+
+        // DECODE_SYM (0x15BC): canonical lookup + gamma-style value read.
+        int DecodeSymbol(byte[] table)
+        {
+            var p = 0;
+            while (true)                                                      // 0x15BC
+            {
+                if (p + 4 > 0x40)
+                    throw new InvalidDataException("ERZ v1 code lookup ran off its table");
+                var mask = (table[p] << 8) | table[p + 1];
+                var code = (table[p + 2] << 8) | table[p + 3];
+                p += 4;
+                if ((int)(t6 & (uint)mask) - code == 0)
+                    break;
+            }
+
+            var lengthBits = table[p + 0x3C];                                 // 0x15F4
+            t7 -= lengthBits;
+            int consume = lengthBits;
+            if (t7 < 0)
+                consume = Refill(consume);                                    // 0x1610
+            t6 >>= consume;                                                   // 0x1620
+
+            int symbol = table[p + 0x3D];                                     // 0x1624
+            if (symbol - 2 < 0)                                               // 0x162C
+                return symbol;
+
+            var extraBits = symbol - 1;                                       // 0x1638
+            var extraMask = (table[p + 0x3E] << 8) | table[p + 0x3F];         // 0x1644
+            var value = (int)(t6 & (uint)extraMask);                          // 0x1654
+            t7 -= extraBits;                                                  // 0x1658
+            consume = extraBits;
+            if (t7 < 0)
+                consume = Refill(consume);                                    // 0x1664
+            t6 >>= consume;                                                   // 0x167C
+            return (1 << extraBits) | value;                                  // 0x1680
+        }
+
+        ReadBits(2, 2);                                                       // 0x145C header bits
+
+        while (true)
+        {
+            // 0x1474: per-block table set + 16-bit match count.
+            BuildTable(tables[0]);
+            BuildTable(tables[1]);
+            BuildTable(tables[2]);
+            var t4 = ((int)ReadBits(0xFFFFFFFF, 16) - 1) & 0xFFFF;            // 0x14A0
+
+            while (true)
+            {
+                // 0x1534: literal run.
+                var t0 = DecodeSymbol(tables[0]) - 1;                         // 0x1550
+                if (t0 >= 0)
+                {
+                    // 0x18A8: literals are byte-aligned in the stream.
+                    while (true)
+                    {
+                        if (s4 >= output.Length)
+                            throw new InvalidDataException("ERZ v1 output overrun");
+                        output[s4++] = SrcByte(s3);
+                        s3 += 1;
+                        if (t0 == 0)
+                            break;
+                        t0 -= 1;
+                    }
+
+                    // 0x1574: re-sync the window over the new stream position,
+                    // keeping the t7 not-yet-consumed low bits.
+                    var fresh = (uint)((SrcByte(s3 + 1) << 8) | SrcByte(s3)) << t7;
+                    var keep = (uint)((1 << t7) - 1);
+                    t6 = (t6 & keep) | fresh;
+                }
+
+                if (t4 != 0)                                                  // 0x159C
+                {
+                    t4 -= 1;
+                    // 0x14D4: match - distance then length, then a pairwise copy.
+                    var distance = DecodeSymbol(tables[1]);
+                    var s1 = s4 - distance - 1;                               // 0x14EC
+                    if (s1 < 0)
+                        throw new InvalidDataException("ERZ v1 match before start of output");
+                    var length = DecodeSymbol(tables[2]);                     // 0x14F8
+
+                    if (s4 >= output.Length)
+                        throw new InvalidDataException("ERZ v1 output overrun");
+                    output[s4++] = output[s1++];                              // 0x150C
+                    while (true)                                              // 0x151C
+                    {
+                        if (s4 >= output.Length)
+                            throw new InvalidDataException("ERZ v1 output overrun");
+                        output[s4++] = output[s1++];
+                        if (length == 0)
+                            break;
+                        length -= 1;
+                    }
+
+                    continue;
+                }
+
+                break;                                                        // 0x15A4
+            }
+
+            if (s4 >= s5)
+                return output;
+        }
     }
 
     /// <summary>
