@@ -23,6 +23,7 @@ internal static class HedDictionary
         HedDictionaryPart2.AddEntries(names);
         HedDictionaryPart3.AddEntries(names);
         HedDictionaryPart4.AddEntries(names);
+        HedDictionaryPart5.AddEntries(names);
         return names.ToFrozenDictionary();
     }
 }
