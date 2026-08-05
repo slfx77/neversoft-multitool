@@ -305,3 +305,25 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
 - ⚪ **VID (THAW GameCube movie) full decode via external APIs** — the container is documented; frame decode historically depended on external decoder APIs. VID1 now ships (see Done); no further deferral needed.
 - ⚪ **`.bik` (Bink Video)** in THPG/P8 — proprietary RAD codec, out of scope.
 - ⚪ **BIN / SCC / PRK** — MIPS code overlays, VSS version files, park saves. Not game asset data (`CLAUDE.md` → *Not Game Formats*).
+
+### 🔶 N64 ROMs (THPS1/2/3 + Spider-Man, Edge of Reality) — container mapped, ERZ compression unRE'd (2026-08-05)
+
+- Corpus: 4 .z64 big-endian ROMs in `Sample/Builds` (`* (…, N64 - Final)`), mirrored verbatim.
+- **The Neversoft data lineage survived**: ROMs carry `_t.trg`/`_le.psx`/`cretex.bin` string
+  fragments (LZ literals), big-endian `PSX-mesh v3/v4` headers, byte-swapped `_TRG` containers,
+  and `edgeofreality.com`. Expectation: decompressed payloads are BE-mirrored PSX/TRG data → the
+  endian-parameterized reader pattern (GC precedent) applies once extraction works.
+- **Container**: sub-file tables of `u32 BE count` + `count+1` ascending u32 offsets (relative to
+  table start; first offset == table size). THPS2 table example at ROM 0x13B74: count 15,
+  entries 0x44..0x65C52.
+- **Compression = "ERZ"**, Edge of Reality's own, NO public RE exists (searched n64decompress,
+  en64 wiki, EmuTalk). Header: `"ERZ" u8 version | u16 0x0001 | u16 0 | u32 BE decompressedSize`,
+  LZ bitstream from +12 (literals visible: "sk2de…"). THPS1 ships ERZ v1; THPS2/THPS3/Spider-Man
+  ERZ v2. Census: thps1 1,124 / thps2 1,158 / thps3 1,121 / spidey 1,584 blocks — the ENTIRE
+  asset corpus is ERZ-wrapped.
+- Next step: disassemble the boot-segment decompressor (MIPS BE, entry 0x80000400 per header;
+  existing Ghidra pipeline handles it) to derive the v1/v2 bitstream, then: `ErzDecoder` +
+  `.z64` routing through `unpack` (gate `.n64`/`.v64` byte orders out with a clear message),
+  then textures (N64 TMEM formats; but if payloads are BE PSX files, the PSX texture path may
+  cover them directly — check first).
+- Inventory tool: `tools/diagnostics/n64_rom_inventory.py` (header/entropy/signature/table scan).
