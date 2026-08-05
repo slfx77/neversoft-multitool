@@ -20,9 +20,9 @@ namespace NeversoftMultitool.Core.Formats.N64;
 ///     2026-08-05), enumerated here by aligned magic scan outside the table
 ///     spans. Nothing carries names, so entries are offset-named
 ///     (<c>0x0013B74.bin</c>) — the same convention as unresolved hashed-HED
-///     entries. Extraction decodes ERZ v2 blocks; v1 blocks (the THPS1/2/3
-///     asset regions) and stored blocks are copied raw until the v1 core is
-///     transcribed — Spider-Man's corpus is all-v2 and decodes completely.
+///     entries. Extraction decodes every ERZ block (both the v2 boot scheme
+///     and the Deflate-like v1 scheme used by the THPS1/2/3 asset corpora);
+///     stored table blocks are copied verbatim.
 ///
 ///     Byte order gate: <c>.z64</c> big-endian (magic <c>80 37 12 40</c>) only.
 ///     Byte-swapped <c>.v64</c> and little-endian <c>.n64</c> dumps are
@@ -184,21 +184,7 @@ public static class N64RomArchive
         foreach (var (offset, length) in table.Blocks)
         {
             var block = rom[offset..(offset + length)];
-            if (ErzDecoder.IsErz(block))
-            {
-                try
-                {
-                    output.Write(ErzDecoder.Decode(block));
-                    continue;
-                }
-                catch (NotSupportedException)
-                {
-                    // ERZ v1 — not transcribed yet; keep the raw block so the
-                    // extraction is at least complete and re-runnable later.
-                }
-            }
-
-            output.Write(block);
+            output.Write(ErzDecoder.IsErz(block) ? ErzDecoder.Decode(block) : block);
         }
 
         return output.ToArray();
@@ -209,15 +195,13 @@ public static class N64RomArchive
         var rom = File.ReadAllBytes(romPath);
         var entries = new List<ArchiveEntry>();
         var tables = FindTables(rom);
-        foreach (var (offset, length) in FindStandaloneBlocks(rom, tables))
+        foreach (var (offset, _) in FindStandaloneBlocks(rom, tables))
         {
             entries.Add(new ArchiveEntry
             {
                 Name = $"0x{offset:X7}.bin",
                 Offset = offset,
-                Size = ErzDecoder.GetVersion(rom.AsSpan(offset)) == 2
-                    ? ErzDecoder.GetDecompressedSize(rom.AsSpan(offset))
-                    : length
+                Size = ErzDecoder.GetDecompressedSize(rom.AsSpan(offset))
             });
         }
 
@@ -268,19 +252,7 @@ public static class N64RomArchive
         {
             token.ThrowIfCancellationRequested();
             var block = rom[offset..(offset + length)];
-            byte[] data;
-            if (ErzDecoder.GetVersion(block) == 2)
-            {
-                data = ErzDecoder.Decode(block);
-            }
-            else
-            {
-                // ERZ v1 — core not transcribed yet; keep the raw block so
-                // extraction is complete and re-runnable once it is.
-                data = block;
-            }
-
-            File.WriteAllBytes(Path.Combine(outputDir, $"0x{offset:X7}.bin"), data);
+            File.WriteAllBytes(Path.Combine(outputDir, $"0x{offset:X7}.bin"), ErzDecoder.Decode(block));
             onFileExtracted?.Invoke(++done, total);
         }
     }

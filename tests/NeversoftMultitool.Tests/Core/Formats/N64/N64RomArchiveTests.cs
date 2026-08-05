@@ -58,6 +58,53 @@ public sealed class N64RomArchiveTests(TestPaths paths)
     }
 
     /// <summary>
+    ///     Regression pin (user-reported 2026-08-05): before the v1 core landed,
+    ///     <see cref="N64RomArchive.ExtractFiles" /> kept a "copy v1 blocks raw"
+    ///     fallback — and it survived the v1 commit, so extraction shipped
+    ///     still-compressed files (0x00A7D62.bin opened with an ERZ header).
+    ///     Extraction output must never carry the ERZ magic, and on-disk sizes
+    ///     must match the listing's decompressed sizes.
+    /// </summary>
+    [Fact]
+    public void ExtractFiles_WritesFullyDecodedOutput()
+    {
+        var romPath = paths.FindSampleFile(Thps2N64Build, RomName);
+        Assert.SkipWhen(romPath == null, "THPS2 N64 ROM sample not available");
+
+        var outputDir = Directory.CreateTempSubdirectory("n64-extract-test").FullName;
+        try
+        {
+            N64RomArchive.ExtractFiles(romPath!, outputDir, token: TestContext.Current.CancellationToken);
+
+            var listing = N64RomArchive.GetFileList(romPath!)
+                .ToDictionary(static entry => entry.Name, static entry => entry.Size);
+            var files = Directory.GetFiles(outputDir);
+            Assert.Equal(listing.Count, files.Length);
+
+            foreach (var file in files)
+            {
+                var head = new byte[ErzDecoder.HeaderSize];
+                using (var stream = File.OpenRead(file))
+                {
+                    stream.ReadExactly(head.AsSpan(0, (int)Math.Min(head.Length, stream.Length)));
+                }
+
+                Assert.False(ErzDecoder.IsErz(head),
+                    $"{Path.GetFileName(file)} still starts with an ERZ header");
+                Assert.Equal(listing[Path.GetFileName(file)], new FileInfo(file).Length);
+            }
+
+            // The reported file specifically: THPS2's v1 asset at ROM 0xA7D62.
+            var reported = Path.Combine(outputDir, "0x00A7D62.bin");
+            Assert.True(File.Exists(reported));
+        }
+        finally
+        {
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    /// <summary>
     ///     Full-corpus decode sweeps: every standalone asset block in every ROM
     ///     must decode with the transcribed cores (Spider-Man is all-v2; the
     ///     three THPS ROMs are v1 asset corpora). Any stream either core
