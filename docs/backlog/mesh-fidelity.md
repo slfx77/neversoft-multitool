@@ -158,3 +158,24 @@ Conversion + `glb-render` inspection, current HEAD (post-v1.2.1 alpha fix `884d0
 
 - ⚪ Worldzone triangle-efficiency cap (ADC degenerate suppression) — we render exactly what the engine rasterizes.
 - ⚪ Camera-facing billboards in **glTF** — no static-glTF way to do view-facing quads; the `.blend` export handles it via Track-To constraints.
+
+### 🔶 THPS3/THPS4 PS1 visual pass findings (2026-08-05, user report — not yet investigated)
+
+First human eyes on the newly-enabled late PS1 ports (`62b3113`/`56686aa`). Four reports, parked
+while N64 ERZ v1 work proceeds:
+
+- **lasek2 stretched chin** (THPS3 PS1 character) — likely the stitched-vertex/attachment class;
+  compare against the THPS2 lasek decode and check the v4 attachment table.
+- **2-player levels render ALL bank items, not just the skybox** — the same defect class round-5
+  fixed for THPS1/2 via `PsxTrgBootScript` (AUTOEXEC2 replaces AUTOEXEC; no SetObjFile = no bank).
+  THPS3 PS1's `aa<stem>_2` variants resolve through that path, so either its AUTOEXEC2 genuinely
+  names the full bank (faithful, then the report is about fidelity of the mode split) or the
+  boot-script read fails silently for these TRGs. Check `psx_variant_bank_report.py` over the
+  THPS3/4 PS1 builds first — it already prints exactly this decision.
+- **skny: wrong texture wins on coplanar storefront layers** (screenshot: Pinky's Loans pawnbroker
+  sign truncated) — not z-fighting, a stable-but-wrong paint order. skny is reused THPS2 NY; check
+  whether the coplanar overlay detector flags the pair and ranks it backwards vs the PS1 OT rule,
+  or declines it (feeds audit item 4b's residue attribution).
+- **THPS4 PS1 skybox gradient possibly reversed** — or authored to blend into fog we deliberately
+  do not render (user explicitly does NOT want fog). Verify the sky layer's authored vertex colours
+  against the raw file before touching anything: if the gradient is authored, document and close.
