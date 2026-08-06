@@ -42,7 +42,18 @@ public static class N64RenderBankFile
     public readonly record struct N64Vertex(
         short X, short Y, short Z, short S, short T, byte R, byte G, byte B, byte A);
 
-    public readonly record struct N64Triangle(int V0, int V1, int V2, uint Flags, int MatrixIndex);
+    /// <summary>
+    ///     One decoded triangle. <paramref name="Flags" /> is blob B's word,
+    ///     whose low half is the PS1 DISC face flag word (see
+    ///     <see cref="Psx.PsxFaceFlags" />); <paramref name="TextureId" /> is
+    ///     the owning group's descriptor id.
+    /// </summary>
+    public readonly record struct N64Triangle(
+        int V0, int V1, int V2, uint Flags, int MatrixIndex, uint TextureId)
+    {
+        /// <summary>The PS1 face flag word carried in the low half of blob B's entry.</summary>
+        public ushort FaceFlags => (ushort)Flags;
+    }
 
     public sealed record N64RenderMesh(
         IReadOnlyList<N64Vertex> Vertices,
@@ -195,11 +206,13 @@ public static class N64RenderBankFile
             if ((kind & KindNonDisplayList) != 0)
                 continue;
 
+            // Descriptor word 0 selects the group's texture (see the class doc).
+            var textureId = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(group[0].Start));
             var blobB = group[2];
             var flags = ReadFaceFlags(data, blobB.Start, blobB.End);
             ExpandDisplayList(
                 data.AsSpan(group[1].Start, group[1].End - group[1].Start),
-                cache, ref cursor, vertexCount, flags, triangles);
+                cache, ref cursor, vertexCount, flags, textureId, triangles);
         }
 
         return triangles;
@@ -211,6 +224,7 @@ public static class N64RenderBankFile
         ref int cursor,
         int vertexCount,
         List<uint> faceFlags,
+        uint textureId,
         List<N64Triangle> triangles)
     {
         var matrixIndex = 0;
@@ -235,7 +249,7 @@ public static class N64RenderBankFile
                 if (v0 >= 0 && v1 >= 0 && v2 >= 0 && v0 < vertexCount && v1 < vertexCount && v2 < vertexCount)
                 {
                     var flags = faceIndex < faceFlags.Count ? faceFlags[faceIndex] : 0u;
-                    triangles.Add(new N64Triangle(v0, v1, v2, flags, matrixIndex));
+                    triangles.Add(new N64Triangle(v0, v1, v2, flags, matrixIndex, textureId));
                 }
 
                 faceIndex++;

@@ -104,6 +104,13 @@ public static class N64ModelWriter
             var indices = new List<int>();
             foreach (var triangle in part)
             {
+                // The bank ships the PS1's undrawn faces — collision blockers,
+                // trigger volumes, camera zones — as ordinary geometry. Blob B
+                // carries the same DISC flag word the PS1 file does, so the
+                // identical rule drops them (measured: 8.8% of THPS2 faces).
+                if (PsxFaceFlags.IsInvisible(triangle.FaceFlags))
+                    continue;
+
                 ModelDocumentGeometryAdapter.AddTriangle(
                     vertices, indices,
                     ToVertex(mesh.Vertices[triangle.V0], scale),

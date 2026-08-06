@@ -247,8 +247,7 @@ internal static class PsxMeshGeometryReader
         // (user-verified in-viewer, 2026-07-08 — briefly un-dropped, they
         // occluded Downtown's rooftops). The "missing ground" that prompted
         // that experiment was the per-mesh LOD-probe misparse, not this drop.
-        var effectiveFlags = !semiTrans ? (ushort)(faceFlags ^ 0x0080) : faceFlags;
-        var invisible = (effectiveFlags & 0x00C0) == 0;
+        var invisible = PsxFaceFlags.IsInvisible(faceFlags);
 
         uint i0;
         uint i1;
