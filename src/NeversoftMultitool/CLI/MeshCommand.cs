@@ -21,6 +21,13 @@ public static class MeshCommand
     private static readonly string[] CollisionSuffixes = [".col.xbx", ".col.wpc", ".col.ps2", ".col.psp"];
     private static readonly string[] AmbiguousSceneSuffixes = [".skin", ".mdl"];
 
+    /// <summary>
+    ///     Carved N64 model bundles. Every bundle's file is named
+    ///     "geometry.psx.n64", so the output stem comes from the parent
+    ///     directory (models/NNN) instead of the file name.
+    /// </summary>
+    private const string N64ModelSuffix = ".psx.n64";
+
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
@@ -291,6 +298,7 @@ public static class MeshCommand
                || OrdinalFileName.HasSuffix(name, ".pak.ps2")
                || OrdinalFileName.HasSuffix(name, ".ddm")
                || OrdinalFileName.HasSuffix(name, ".psx")
+               || OrdinalFileName.HasSuffix(name, N64ModelSuffix)
                || OrdinalFileName.HasSuffix(name, ".skn")
                || OrdinalFileName.HasSuffix(name, ".bsp");
     }
@@ -379,6 +387,17 @@ public static class MeshCommand
                 stem,
                 "DDM Mesh",
                 HasPlacedPsxCompanion: psxPath != null || HasSibling(file, stem, ".psx"));
+            return true;
+        }
+
+        if (OrdinalFileName.HasSuffix(name, N64ModelSuffix))
+        {
+            var bundleDir = Path.GetFileName(Path.GetDirectoryName(file));
+            candidate = new MeshCandidate(
+                file,
+                ModelSourceKind.N64Model,
+                string.IsNullOrEmpty(bundleDir) ? "n64_model" : $"n64_{bundleDir}",
+                "N64 Model");
             return true;
         }
 

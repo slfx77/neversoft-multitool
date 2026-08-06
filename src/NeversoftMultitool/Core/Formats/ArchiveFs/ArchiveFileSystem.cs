@@ -111,7 +111,7 @@ public static class ArchiveFileSystem
     ///     directory (nothing in the corpus) return null; the extraction
     ///     paths keep their flat-scan fallback.
     /// </summary>
-    private static IArchiveFileSystem? TryOpenN64Rom(string path)
+    private static CarvedArchiveFileSystem? TryOpenN64Rom(string path)
     {
         byte[] rom;
         try

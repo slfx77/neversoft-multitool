@@ -51,22 +51,25 @@ public sealed class N64ModelParseTests(TestPaths paths)
         Assert.Equal(22u, metadata.RenderBankId);
         Assert.Equal(19, metadata.ObjectCount);
         Assert.True(metadata.RenderBankBytes > 0, "the render bank record should have loaded");
-        Assert.False(metadata.GeometryDecoded);
+        Assert.True(metadata.GeometryDecoded);
 
-        // No geometry yet — and the document must say zero rather than
-        // reporting triangles it does not have.
-        Assert.Equal(0, document.TriangleCount);
-        Assert.Empty(document.Meshes);
+        // Geometry from group2/022.bin: 570 triangles, split into one node per
+        // G_MTX index so the character's parts stay separable.
+        Assert.Equal(570, document.TriangleCount);
+        Assert.NotEmpty(document.Meshes);
+        var indices = document.Meshes
+            .SelectMany(static m => m.Primitives)
+            .Sum(static p => p.Indices.Length);
+        Assert.Equal(570 * 3, indices);
+        Assert.Equal(document.Meshes.Count, document.Nodes.Count(static n => n.MeshIndex.HasValue));
     }
 
     /// <summary>
-    ///     The rig-only document must survive the shared exporter: a
-    ///     zero-triangle document with a skeleton produces a real GLB (joint
-    ///     nodes only). This is the seam the geometry decoder will drop into,
-    ///     so a break here would surface as "no output" later.
+    ///     End-to-end: a bundle read from the ROM exports a real GLB carrying
+    ///     the decoded render-bank geometry.
     /// </summary>
     [Fact]
-    public void RigOnlyDocument_ExportsAValidGlb()
+    public void Document_ExportsAValidGlbWithGeometry()
     {
         var document = ParseBundle("models/000/geometry.psx.n64", out var fs);
         using var _ = fs;
@@ -74,7 +77,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
         var (glb, triangles) = ModelExportService.BuildGlbBytes(document);
 
         Assert.NotNull(glb);
-        Assert.Equal(0, triangles);
+        Assert.Equal(570, triangles);
         // glTF binary container magic.
         Assert.Equal((byte)'g', glb![0]);
         Assert.Equal((byte)'l', glb[1]);
