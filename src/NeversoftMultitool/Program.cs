@@ -39,6 +39,7 @@ public static class Program
         rootCommand.Subcommands.Add(ArchiveCommand.Create());
         rootCommand.Subcommands.Add(PvrCommand.Create());
         rootCommand.Subcommands.Add(NgcTexCommand.Create());
+        rootCommand.Subcommands.Add(N64TexCommand.Create());
         rootCommand.Subcommands.Add(DdmCommand.Create());
         rootCommand.Subcommands.Add(AudioCommand.Create());
         rootCommand.Subcommands.Add(QbKeyCommand.Create());
