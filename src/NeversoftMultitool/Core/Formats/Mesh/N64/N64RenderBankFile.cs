@@ -45,7 +45,7 @@ public static class N64RenderBankFile
     public readonly record struct N64Vertex(
         short X, short Y, short Z, short S, short T, byte R, byte G, byte B, byte A);
 
-    public readonly record struct N64Corner(int Vertex, short S, short T);
+    public readonly record struct N64Corner(int Vertex, short S, short T, int MatrixIndex);
 
     /// <summary>
     ///     One decoded triangle. <c>Flags</c> is blob B's word, whose low half
@@ -253,6 +253,7 @@ public static class N64RenderBankFile
         // mis-maps roughly half the corpus.
         var cacheS = new short[VertexCacheSize];
         var cacheT = new short[VertexCacheSize];
+        var cacheMatrix = new int[VertexCacheSize];
         var cursor = 0;
 
         foreach (var (groupStart, groupEnd) in groups)
@@ -280,7 +281,7 @@ public static class N64RenderBankFile
             var flags = ReadFaceFlags(data, blobB.Start, blobB.End);
             ExpandDisplayList(
                 data.AsSpan(group[1].Start, group[1].End - group[1].Start),
-                cache, cacheS, cacheT, ref cursor, vertices, flags, textureSlot, triangles);
+                cache, cacheS, cacheT, cacheMatrix, ref cursor, vertices, flags, textureSlot, triangles);
         }
 
         return triangles;
@@ -291,6 +292,7 @@ public static class N64RenderBankFile
         int[] cache,
         short[] cacheS,
         short[] cacheT,
+        int[] cacheMatrix,
         ref int cursor,
         IReadOnlyList<N64Vertex> vertices,
         List<uint> faceFlags,
@@ -328,10 +330,10 @@ public static class N64RenderBankFile
                 {
                     var flags = faceIndex < faceFlags.Count ? faceFlags[faceIndex] : 0u;
                     triangles.Add(new N64Triangle(
-                        new N64Corner(v0, cacheS[s0], cacheT[s0]),
-                        new N64Corner(v1, cacheS[s1], cacheT[s1]),
-                        new N64Corner(v2, cacheS[s2], cacheT[s2]),
-                        flags, matrixIndex, textureSlot));
+                        new N64Corner(v0, cacheS[s0], cacheT[s0], cacheMatrix[s0]),
+                        new N64Corner(v1, cacheS[s1], cacheT[s1], cacheMatrix[s1]),
+                        new N64Corner(v2, cacheS[s2], cacheT[s2], cacheMatrix[s2]),
+                        flags, cacheMatrix[s0], textureSlot));
                 }
 
                 faceIndex++;
@@ -351,6 +353,9 @@ public static class N64RenderBankFile
                     if (v0 + k < VertexCacheSize)
                     {
                         cache[v0 + k] = cursor;
+                        // The matrix in force at LOAD time is the one the RSP
+                        // applies to this vertex.
+                        cacheMatrix[v0 + k] = matrixIndex;
                         // A freshly loaded slot starts at the pool's own ST.
                         if (cursor < vertices.Count)
                         {

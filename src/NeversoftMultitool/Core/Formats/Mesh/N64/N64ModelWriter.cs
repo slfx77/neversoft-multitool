@@ -61,11 +61,8 @@ public static class N64ModelWriter
             if (!byNode.TryGetValue(obj.MeshIndex, out var mesh))
                 continue;
 
-            if (EmitMesh(document, mesh, materials, scale, objectIndex,
-                    PsxMeshSemantics.GetObjectOffset(shell, obj)))
-            {
+            if (EmitMesh(document, mesh, materials, scale, objectIndex, shell))
                 emitted++;
-            }
         }
 
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
@@ -92,13 +89,35 @@ public static class N64ModelWriter
     ///         the offset is applied.
     ///     </para>
     /// </summary>
+    /// <summary>
+    ///     World offset for one corner. G_MTX selects a matrix RELATIVE to the
+    ///     placing object: a level node draws with matrix 0 and takes its
+    ///     placer's offset, while a character is ONE node whose matrices walk
+    ///     the object table from the placer. Applied PER CORNER because the RSP
+    ///     transforms a vertex when it is loaded, so a triangle bridging two
+    ///     rigid parts carries two matrices.
+    /// </summary>
+    private static Vector3 CornerOffset(
+        PsxMeshFile shell, int objectIndex, N64RenderBankFile.N64Corner corner)
+    {
+        return ObjectOffset(shell, objectIndex + corner.MatrixIndex);
+    }
+
+    /// <summary>Offset of an object, or the origin when the index is outside the table.</summary>
+    private static Vector3 ObjectOffset(PsxMeshFile shell, int index)
+    {
+        return (uint)index < (uint)shell.Objects.Count
+            ? PsxMeshSemantics.GetObjectOffset(shell, shell.Objects[index])
+            : Vector3.Zero;
+    }
+
     private static bool EmitMesh(
         ModelDocument document,
         N64RenderBankFile.N64RenderMesh mesh,
         N64MaterialCache materials,
         float scale,
-        int index,
-        Vector3 offset)
+        int objectIndex,
+        PsxMeshFile shell)
     {
         if (mesh.Triangles.Count == 0)
             return false;
@@ -108,7 +127,13 @@ public static class N64ModelWriter
         var emitted = false;
         foreach (var part in mesh.Triangles.GroupBy(static t => t.MatrixIndex).OrderBy(static g => g.Key))
         {
-            var modelMesh = new ModelMesh { Name = $"n64_{index:D4}_part{part.Key:D3}" };
+            // G_MTX selects a matrix RELATIVE to the placing object: a level
+            // node draws with matrix 0 and takes its placer's offset, while a
+            // character is ONE node whose matrices 0..N-1 walk the object table
+            // from the placer. object[placer + matrix] satisfies both - it
+            // reproduces the PS1 skater's height (93.3 vs 93.8) where using no
+            // offset gives 40.9.
+            var modelMesh = new ModelMesh { Name = $"n64_{objectIndex:D4}_part{part.Key:D3}" };
             var batches = new Dictionary<int, (List<ModelVertex> Vertices, List<int> Indices)>();
 
             foreach (var triangle in part)
@@ -120,7 +145,14 @@ public static class N64ModelWriter
                 if (PsxFaceFlags.IsInvisible(triangle.FaceFlags))
                     continue;
 
-                var (materialIndex, size) = materials.Resolve(triangle, mesh.HasNormals);
+                                // Vertex alpha is a real translucency source: light shafts and
+                // glows are untextured, vertex-coloured and fade via alpha, and
+                // 11% of THPS1 vertices are non-opaque.
+                var translucent = !mesh.HasNormals && (
+                    mesh.Vertices[triangle.V0].A < 255 ||
+                    mesh.Vertices[triangle.V1].A < 255 ||
+                    mesh.Vertices[triangle.V2].A < 255);
+                var (materialIndex, size) = materials.Resolve(triangle, mesh.HasNormals, translucent);
                 if (!batches.TryGetValue(materialIndex, out var batch))
                 {
                     batch = ([], []);
@@ -129,9 +161,9 @@ public static class N64ModelWriter
 
                 ModelDocumentGeometryAdapter.AddTriangle(
                     batch.Vertices, batch.Indices,
-                    ToVertex(mesh, triangle.C0, scale, size, offset),
-                    ToVertex(mesh, triangle.C1, scale, size, offset),
-                    ToVertex(mesh, triangle.C2, scale, size, offset));
+                    ToVertex(mesh, triangle.C0, scale, size, CornerOffset(shell, objectIndex, triangle.C0)),
+                    ToVertex(mesh, triangle.C1, scale, size, CornerOffset(shell, objectIndex, triangle.C1)),
+                    ToVertex(mesh, triangle.C2, scale, size, CornerOffset(shell, objectIndex, triangle.C2)));
             }
 
             foreach (var (materialIndex, batch) in batches.OrderBy(static b => b.Key))
@@ -213,7 +245,8 @@ internal sealed class N64MaterialCache(
     ModelDocument document,
     Func<int, N64ModelCompanions.N64ResolvedTexture?> textureProvider)
 {
-    private readonly Dictionary<(int Slot, bool Semi, bool DoubleSided, int Rate, bool Lit), int> _materials = [];
+    private readonly Dictionary<(int Slot, bool Semi, bool DoubleSided, int Rate, bool Lit, bool VertexAlpha), int>
+        _materials = [];
     private readonly Dictionary<int, (int Width, int Height)> _sizes = [];
 
     public int TexturedFaces { get; private set; }
@@ -221,13 +254,14 @@ internal sealed class N64MaterialCache(
 
     public (int MaterialIndex, (int Width, int Height) Size) Resolve(
         N64RenderBankFile.N64Triangle triangle,
-        bool lit)
+        bool lit,
+        bool translucentVertices)
     {
         var flags = triangle.FaceFlags;
         var semi = (flags & PsxFaceFlags.SemiTransparent) != 0;
         var doubleSided = (flags & PsxFaceFlags.DoubleSided) != 0;
         var rate = semi ? (flags & PsxFaceFlags.BlendRateMask) >> 7 : 0;
-        var key = (triangle.TextureSlot, semi, doubleSided, rate, lit);
+        var key = (triangle.TextureSlot, semi, doubleSided, rate, lit, translucentVertices);
 
         if (_materials.TryGetValue(key, out var existing))
         {
@@ -247,11 +281,13 @@ internal sealed class N64MaterialCache(
             Name = baseName + blendSuffix + sideSuffix,
             BaseColor = Vector4.One,
             DoubleSided = doubleSided,
-            // A pool carrying vertex COLOURS is pre-shaded, so it exports unlit
-            // like the PS1 path. A pool carrying NORMALS is lit by the engine,
-            // so leave it shadable and let the viewer light the normals.
-            Unlit = !lit,
-            AlphaMode = ResolveAlphaMode(semi, texture),
+            // Always unlit, like the PS1 path. The console shades these
+            // surfaces diffusely with no specular term at all, whereas glTF's
+            // metallic-roughness model always adds a dielectric highlight -
+            // which reads as glossiness the game never had. Normals are still
+            // exported for consumers that want them.
+            Unlit = true,
+            AlphaMode = ResolveAlphaMode(semi || translucentVertices, texture),
             // 1-bit art: keep any texel the console would have drawn.
             AlphaCutoff = 0.5f
         };
@@ -270,8 +306,8 @@ internal sealed class N64MaterialCache(
     }
 
     /// <summary>
-    ///     A face flagged semi-transparent blends. Otherwise the TEXTURE
-    ///     decides: N64 art cuts wheels, steering wheels and foliage out of
+    ///     A face flagged semi-transparent - or one whose vertices carry
+    ///     alpha - blends. Otherwise the TEXTURE decides: N64 art cuts wheels, steering wheels and foliage out of
     ///     their quads with fully transparent texels (1-bit RGBA5551 alpha or
     ///     A=0 palette entries), which is alpha TESTING, not blending. Only
     ///     genuinely partial alpha needs a blend.
