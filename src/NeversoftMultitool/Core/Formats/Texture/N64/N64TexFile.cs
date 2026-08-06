@@ -15,27 +15,38 @@ namespace NeversoftMultitool.Core.Formats.Texture.N64;
 ///     NUL-padded name + BE u16 width/height at +0x20 + BE u16 format word at
 ///     +0x26 — high byte = G_IM_FMT (0 RGBA, 2 CI, 3 IA, 4 I), low byte =
 ///     bits per texel (0x04/0x08/0x10, with 0x14 also meaning 16) — + BE u16
-///     dataSize at +0x2A + pixel data at +0x40. Rows are padded to whole
-///     32-bit words (the source of the corpus's "odd" bytes-per-pixel
-///     ratios); dataSize beyond stride*height is the mip chain (the top
-///     level is exported). ODD ROWS store the two 32-bit halves of each
-///     64-bit TMEM word SWAPPED (texel x ^= 32/bpp) — the RDP interleave
-///     baked into storage. 16-bit texels and CI4 palette entries are
-///     LITTLE-endian u16 RGBA5551 (R bits 15-11, A bit 0): PS1-era tooling
-///     wrote LE fields into an otherwise BE container, the same per-field
-///     pattern as the ports' TRG and SFX banks. The CI4 palette (16 entries,
-///     32 bytes) sits directly after dataSize; IA8 = I4+A4 nibbles;
-///     IA4 = I3+A1; I4/I8 export as opaque grayscale.
+///     dataSize at +0x2A + PIXEL DATA AT +0x3F: the header is 63 bytes, and
+///     the whole record is BIG-endian (native N64) with no per-field
+///     endianness exceptions. That one-byte start was pinned 2026-08-05 from
+///     a user striping report (biglight): decoding from +0x40 shifts every
+///     row a byte late, which is invisible on even rows (the image just
+///     shifts) but misphases the odd-row half-swap grid, exchanging 2-texel
+///     slivers at every 32-bit group seam — and the SAME off-by-one had
+///     already surfaced twice wearing other masks ("little-endian" 16-bit
+///     texels = BE read a byte late borrowing the neighbour's high byte, and
+///     the "one byte early" palette = the correctly-aligned palette at
+///     0x3F+dataSize). The skater-photo speckle previously attributed to
+///     authored dither was this bug too — one defect, four symptoms. Rows
+///     pad to whole 64-bit TMEM words (the source of the corpus's "odd"
+///     bytes-per-pixel ratios); dataSize beyond stride*height is the mip
+///     chain (the top level is exported). ODD ROWS store the two 32-bit
+///     halves of each 64-bit TMEM word SWAPPED (texel x ^= 32/bpp) — the RDP
+///     interleave baked into storage, on the 0x3F-based byte grid. Texels
+///     and CI4 palette entries are BE u16 RGBA5551 (R bits 15-11, A bit 0);
+///     the palette (16 entries, 32 bytes) sits at 0x3F+dataSize; IA8 = I4+A4
+///     nibbles; IA4 = I3+A1; I4/I8 export as opaque grayscale.
 ///
 ///     IMAGE RECORD (.img.n64, fullscreen CI8 banks): a 3-slot sub-file
-///     table {28-byte header (BE magic 0x00080410, LE constant 3, BE
-///     width/height/paletteColors/stride/0), palette of BIG-endian u16
-///     RGBA5551, linear top-down CI8 pixels}. A different writer from the
-///     dictionary: BE palette, no row swizzle.
+///     table {28-byte header (BE magic 0x00080410, BE constant 3, BE
+///     width/height/paletteColors/stride/0), palette of BE u16 RGBA5551,
+///     linear top-down CI8 pixels}. A different writer from the dictionary:
+///     table-addressed, no row swizzle, no off-by-one.
 /// </summary>
 public static class N64TexFile
 {
-    private const int DictHeaderSize = 0x40;
+    // 63-byte dictionary header: pixel data starts one byte before the
+    // "round" 0x40 (see the class comment for the off-by-one saga).
+    private const int DictPayloadOffset = 0x3F;
     private const uint ImageMagic = 0x00080410;
 
     public sealed record N64Texture(string? Name, int Width, int Height, string Format, byte[] Rgba);
@@ -74,7 +85,7 @@ public static class N64TexFile
 
     public static bool IsDictionaryRecord(ReadOnlySpan<byte> data)
     {
-        if (data.Length < DictHeaderSize)
+        if (data.Length < DictPayloadOffset + 1)
             return false;
         var nul = data[..32].IndexOf((byte)0);
         if (nul < 2)
@@ -92,7 +103,7 @@ public static class N64TexFile
 
         var dataSize = BinaryPrimitives.ReadUInt16BigEndian(data[0x2A..]);
         return TryGetPixelLayout(data, width, height, out _, out _)
-               && DictHeaderSize + dataSize <= data.Length;
+               && DictPayloadOffset + dataSize <= data.Length;
     }
 
     public static N64Texture DecodeDictionaryRecord(byte[] data)
@@ -115,16 +126,16 @@ public static class N64TexFile
         // is the mip chain.
         var texelsPerWord = 32 / bitsPerTexel;
         var strideBytes = ((width * bitsPerTexel + 7) / 8 + 7) & ~7;
-        if (DictHeaderSize + strideBytes * height > data.Length
+        if (DictPayloadOffset + strideBytes * height > data.Length
             || strideBytes * height > dataSize)
         {
             throw new InvalidDataException(
                 $"N64 texture {name}: {width}x{height}@{bitsPerTexel}bpp exceeds dataSize {dataSize}");
         }
 
-        var pixels = span.Slice(DictHeaderSize, strideBytes * height);
+        var pixels = span.Slice(DictPayloadOffset, strideBytes * height);
         var palette = format == 2
-            ? ReadPalette(span, DictHeaderSize + dataSize, littleEndian: true)
+            ? ReadPalette(span, DictPayloadOffset + dataSize)
             : null;
 
         var rgba = new byte[width * height * 4];
@@ -168,15 +179,15 @@ public static class N64TexFile
     {
         switch (format, bitsPerTexel)
         {
-            case (0, 16): // RGBA16, LE u16 5551
+            case (0, 16): // RGBA16, BE u16 5551
             {
-                var v = (ushort)(row[x * 2] | (row[x * 2 + 1] << 8));
+                var v = (ushort)((row[x * 2] << 8) | row[x * 2 + 1]);
                 return Rgba5551(v);
             }
-            case (2, 4): // CI4 against the 16-entry palette
+            case (2, 4): // CI4 against the 16-entry palette (BE pairs)
             {
                 var index = Nibble(row, x);
-                var v = (ushort)(palette![index * 2] | (palette[index * 2 + 1] << 8));
+                var v = (ushort)((palette![index * 2] << 8) | palette[index * 2 + 1]);
                 return Rgba5551(v);
             }
             case (3, 4): // IA4 = I3 + A1
@@ -222,32 +233,20 @@ public static class N64TexFile
     }
 
     /// <summary>
-    ///     CI4 palette: 16 BIG-endian RGBA5551 words starting ONE BYTE BEFORE
-    ///     the nominal pixel-data end — entry e = (data[palOff-1+2e] &lt;&lt; 8)
-    ///     | data[palOff+2e], so entry 0's high byte overlaps the last pixel
-    ///     byte and the region's final byte is pad. Solved 2026-08-05 against
-    ///     PS1 CLUT ground truth (user-reported "solid white decodes solid
-    ///     blue"): reading aligned LE words instead shifts every entry's high
-    ///     byte to its neighbour — mid-palette entries land one brightness
-    ///     step off (the "shifted palette" symptom) and the top entry's white
-    ///     collapses to a blue (low byte 0xFF alone). With the odd alignment
-    ///     the skven porta-potty palette reproduces its PS1 CLUT color-for-
-    ///     color (brightness re-sorted) and the l1a1 scoring digits become an
-    ///     exact gray ramp. Returned normalized to LE pairs for DecodeTexel.
+    ///     CI4 palette: 16 aligned BE RGBA5551 words at payload+dataSize.
+    ///     Solved 2026-08-05 against PS1 CLUT ground truth (user-reported
+    ///     "solid white decodes solid blue", then the striping report that
+    ///     exposed the real cause): with the payload's true 0x3F start these
+    ///     are plain aligned words — the interim "one byte early" read was
+    ///     the same bytes framed off the wrong base. The skven porta-potty
+    ///     palette reproduces its PS1 CLUT color-for-color (brightness
+    ///     re-sorted) and the l1a1 scoring digits are an exact gray ramp.
     /// </summary>
-    private static byte[] ReadPalette(ReadOnlySpan<byte> data, int offset, bool littleEndian)
+    private static byte[] ReadPalette(ReadOnlySpan<byte> data, int offset)
     {
-        if (offset + 32 > data.Length || offset < 1)
+        if (offset + 32 > data.Length)
             throw new InvalidDataException("N64 CI4 record is missing its palette");
-        _ = littleEndian;
-        var palette = new byte[32];
-        for (var e = 0; e < 16; e++)
-        {
-            palette[2 * e] = data[offset + 2 * e];         // low byte (aligned)
-            palette[2 * e + 1] = data[offset - 1 + 2 * e]; // high byte (one byte early)
-        }
-
-        return palette;
+        return data.Slice(offset, 32).ToArray();
     }
 
     private static string FormatName(int format, int bitsPerTexel)

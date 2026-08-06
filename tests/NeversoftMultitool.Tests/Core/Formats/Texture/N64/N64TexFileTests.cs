@@ -9,9 +9,13 @@ namespace NeversoftMultitool.Tests.Core.Formats.Texture.N64;
 ///     appearance was verified externally: 'abutton' renders the N64
 ///     controller's blue A button (RGBA16 + one mip), 's2ddi02t' reproduces
 ///     the THPS2 SWEET HEART deck art layout (CI4, authored recolor variant
-///     of the PS1 original), and 'psxtxt_bfd7c623' matches the PS1
-///     skven_l.psx porta-potty prop via the texture-id join — the fixture
-///     that established 64-bit row padding (32-bit padding scrambles it).
+///     of the PS1 original), 'psxtxt_bfd7c623' matches the PS1 skven_l.psx
+///     porta-potty prop via the texture-id join — the fixture that
+///     established 64-bit row padding (32-bit padding scrambles it) — and
+///     'biglight' (I4 score digit) is the user-reported striping exemplar
+///     that pinned the 0x3F payload start: decoding from 0x40 misphases the
+///     odd-row half-swap grid into 2-texel sliver swaps at every 32-bit
+///     seam.
 /// </summary>
 public sealed class N64TexFileTests(TestPaths paths)
 {
@@ -28,11 +32,13 @@ public sealed class N64TexFileTests(TestPaths paths)
 
     [Theory]
     [InlineData("textures/abutton.tex.n64", "abutton", 16, 16, "RGBA16",
-        "aa475cbc0a9bd397da92b4c38627c112a2c8bac94e9abb201c5881f12778d93d")]
+        "fc2deb993434f46f273e63aad83ee6e8ec01fb3510fb5f884adc2bbe8f143e1a")]
     [InlineData("textures/s2ddi02t.tex.n64", "s2ddi02t", 32, 128, "CI4",
-        "62f410a0059c4be01a544bd772dca18d7d669bcdbab884f05df7f1882c8a5cc4")]
+        "4d9c153e0754b3a4a49c5617163a5f8269e78c6aa296f3371a54be7bbffc814b")]
     [InlineData("textures/psxtxt_bfd7c623.tex.n64", "psxtxt_bfd7c623", 24, 48, "CI4",
-        "95a0e896c5fb5c944bcd0c2d899514868ee1ec226e547a442865eda0396773b6")]
+        "8b0928b223dcede20ce74c2715b0d9a502fe617f57d838223f646851dd945d29")]
+    [InlineData("textures/biglight.tex.n64", "biglight", 64, 64, "I4",
+        "c3f8528fc716e6b71d099549127f697de285462a4bc92182a1eb0d252dfa8b95")]
     public void DictionaryRecords_DecodeTheVerifiedFixtures(
         string assetPath,
         string expectedName,
