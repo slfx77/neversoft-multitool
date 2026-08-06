@@ -18,5 +18,5 @@ public sealed record N64ModelNativeSource(
     PsxMeshFile Shell,
     byte[]? RenderBank,
     uint? RenderBankId,
-    MeshChecksumTextureResolver TextureProvider)
+    Func<int, N64ModelCompanions.N64ResolvedTexture?> TextureProvider)
     : ModelNativeSource(ModelSourceKind.N64Model);

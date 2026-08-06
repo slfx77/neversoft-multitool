@@ -31,13 +31,13 @@ public sealed class N64TexFileTests(TestPaths paths)
     }
 
     [Theory]
-    [InlineData("textures/abutton.tex.n64", "abutton", 16, 16, "RGBA16",
+    [InlineData("textures/0000_abutton.tex.n64", "abutton", 16, 16, "RGBA16",
         "fc2deb993434f46f273e63aad83ee6e8ec01fb3510fb5f884adc2bbe8f143e1a")]
-    [InlineData("textures/s2ddi02t.tex.n64", "s2ddi02t", 32, 128, "CI4",
+    [InlineData("textures/0100_s2ddi02t.tex.n64", "s2ddi02t", 32, 128, "CI4",
         "4d9c153e0754b3a4a49c5617163a5f8269e78c6aa296f3371a54be7bbffc814b")]
-    [InlineData("textures/psxtxt_bfd7c623.tex.n64", "psxtxt_bfd7c623", 24, 48, "CI4",
+    [InlineData("textures/2816_psxtxt_bfd7c623.tex.n64", "psxtxt_bfd7c623", 24, 48, "CI4",
         "8b0928b223dcede20ce74c2715b0d9a502fe617f57d838223f646851dd945d29")]
-    [InlineData("textures/biglight.tex.n64", "biglight", 64, 64, "I4",
+    [InlineData("textures/0438_biglight.tex.n64", "biglight", 64, 64, "I4",
         "c3f8528fc716e6b71d099549127f697de285462a4bc92182a1eb0d252dfa8b95")]
     public void DictionaryRecords_DecodeTheVerifiedFixtures(
         string assetPath,

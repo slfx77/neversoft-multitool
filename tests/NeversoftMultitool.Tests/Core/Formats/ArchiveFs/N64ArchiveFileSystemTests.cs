@@ -31,10 +31,10 @@ public sealed class N64ArchiveFileSystemTests(TestPaths paths)
         Assert.Equal(N64RomArchive.GetFileList(romPath!).Count, fs.Entries.Count);
 
         // Full-path lookup with Directory/Name split entries.
-        var abutton = fs.FindByPath("textures/abutton.tex.n64");
+        var abutton = fs.FindByPath("textures/0000_abutton.tex.n64");
         Assert.NotNull(abutton);
         Assert.Equal("textures", abutton!.Directory);
-        Assert.Equal("abutton.tex.n64", abutton.Name);
+        Assert.Equal("0000_abutton.tex.n64", abutton.Name);
 
         // Entry bytes are the carved asset verbatim and decode in place.
         var texture = N64TexFile.Decode(fs.ReadEntry(abutton));

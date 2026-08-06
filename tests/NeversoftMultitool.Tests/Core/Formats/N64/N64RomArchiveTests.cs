@@ -118,7 +118,7 @@ public sealed class N64RomArchiveTests(TestPaths paths)
         Assert.Contains(entries, static entry => entry.Name == "boot.bin");
         Assert.Contains(entries, static entry =>
             entry.Name == "models/045/geometry.psx.n64" && entry.Size == 587_000);
-        Assert.Contains(entries, static entry => entry.Name == "textures/abutton.tex.n64");
+        Assert.Contains(entries, static entry => entry.Name == "textures/0000_abutton.tex.n64");
         Assert.Contains(entries, static entry => entry.Name == "misc/anims_fe.psh");
     }
 

@@ -104,6 +104,9 @@ public static class N64AssetCarver
         return output.ToArray();
     }
 
+    /// <summary>Role name of the texture-dictionary stream; its files are slot-prefixed.</summary>
+    private const string TextureRole = "textures";
+
     private static void CarveStream(byte[] stream, int groupIndex, List<CarvedAsset> assets, HashSet<string> usedDirs)
     {
         var offsets = TryReadPayloadTable(stream, 0, stream.Length);
@@ -134,7 +137,7 @@ public static class N64AssetCarver
             var effective = cls.Kind == Kind.Rec && role != "misc"
                 ? new Classification(Kind.Unknown, ".bin", null, null)
                 : cls;
-            EmitEntry(dir, slot, width, data, effective, assets, usedNames);
+            EmitEntry(dir, slot, width, data, effective, assets, usedNames, role);
         }
     }
 
@@ -145,7 +148,8 @@ public static class N64AssetCarver
         byte[] data,
         Classification cls,
         List<CarvedAsset> assets,
-        HashSet<string> usedNames)
+        HashSet<string> usedNames,
+        string? role)
     {
         var slotName = slot.ToString($"D{width}");
         if (cls.Kind == Kind.Bundle)
@@ -163,6 +167,15 @@ public static class N64AssetCarver
         var baseName = cls.Name is { Length: > 0 } named ? Sanitize(named) : slotName;
         if (baseName.Length == 0)
             baseName = slotName;
+
+        // Texture records are addressed BY SLOT: a render-bank group names its
+        // texture as a u16 index into this dictionary, and empty slots mean the
+        // ordinal of a carved file is NOT its slot (THPS3 skips 1,961 holes).
+        // Prefixing keeps the index recoverable while preserving the embedded
+        // name — including the psxtxt_<id> cross-platform join key.
+        if (role == TextureRole && cls.Kind == Kind.Texture)
+            baseName = $"{slotName}_{baseName}";
+
         if (!usedNames.Add(baseName + cls.Extension))
         {
             baseName = $"{baseName}~{slotName}";
@@ -299,7 +312,7 @@ public static class N64AssetCarver
         if (CountOf(Kind.Trg) > 0)
             return "triggers";
         if (CountOf(Kind.Texture) >= Math.Max(1, entries.Count / 2))
-            return "textures";
+            return TextureRole;
         if (CountOf(Kind.Image) > 0)
             return "images";
         if (CountOf(Kind.Sfx) > 0)

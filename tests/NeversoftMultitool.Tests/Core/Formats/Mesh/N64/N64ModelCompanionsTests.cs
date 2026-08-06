@@ -47,25 +47,29 @@ public sealed class N64ModelCompanionsTests(TestPaths paths)
     }
 
     [Fact]
-    public void TextureProvider_DecodesByPs1TextureId()
+    public void TextureProvider_DecodesByDictionarySlot()
     {
         var (fs, source) = OpenBundle("models/000/geometry.psx.n64");
         using var _ = fs;
 
         var provider = N64ModelCompanions.BuildTextureProvider(source);
 
-        // psxtxt_bfd7c623 is the skven porta-potty record verified against the
-        // PS1 CLUT; the id in the name IS the PS1 texture id.
-        var png = provider(0xBFD7C623);
-        Assert.NotNull(png);
-        Assert.Equal(0x89, png![0]);
-        Assert.Equal((byte)'P', png[1]);
+        // Slot 2816 is psxtxt_bfd7c623, the skven porta-potty record verified
+        // against the PS1 CLUT. Render-bank groups address textures BY SLOT.
+        var texture = provider(2816);
+        Assert.NotNull(texture);
+        Assert.Equal("psxtxt_bfd7c623", texture!.Name);
+        Assert.Equal(24, texture.Width);
+        Assert.Equal(48, texture.Height);
+        Assert.Equal(0x89, texture.Png[0]);
+        Assert.Equal((byte)'P', texture.Png[1]);
 
         // Repeat lookups are cached and must stay identical.
-        Assert.Same(png, provider(0xBFD7C623));
+        Assert.Same(texture, provider(2816));
 
-        // An id with no record resolves to null rather than throwing.
-        Assert.Null(provider(0xDEADBEEF));
+        // Slot 0 is the untextured sentinel; an absent slot resolves to null.
+        Assert.Null(provider(0));
+        Assert.Null(provider(65000));
     }
 
     [Fact]

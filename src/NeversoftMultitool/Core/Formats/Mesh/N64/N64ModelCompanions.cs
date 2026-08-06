@@ -48,38 +48,68 @@ public static class N64ModelCompanions
     }
 
     /// <summary>
-    ///     Texture provider keyed by PS1 texture id — the carved records are
-    ///     named <c>psxtxt_&lt;8 hex&gt;</c> where the hex IS that id, so the
-    ///     same <see cref="MeshChecksumTextureResolver" /> contract the PSX
-    ///     material cache already speaks works unchanged. Decoded PNGs are
-    ///     cached because the material cache asks once per material key.
+    ///     One texture resolved out of the ROM's dictionary by SLOT — the
+    ///     addressing a render-bank group actually uses.
     /// </summary>
-    public static MeshChecksumTextureResolver BuildTextureProvider(AssetSource source)
+    public sealed record N64ResolvedTexture(string Name, int Width, int Height, byte[] Png);
+
+    /// <summary>
+    ///     Resolves textures by dictionary slot, caching decoded PNGs (the
+    ///     material cache asks once per material, but many groups share a
+    ///     texture). Slot addressing is required rather than the
+    ///     <c>psxtxt_&lt;id&gt;</c> checksum: hundreds of records per ROM are
+    ///     art-named and carry no checksum at all, so a checksum key can never
+    ///     cover the dictionary. The carver slot-prefixes texture file names,
+    ///     which is what makes the lookup possible — the ordinal of a file is
+    ///     NOT its slot when the dictionary has holes.
+    /// </summary>
+    public static Func<int, N64ResolvedTexture?> BuildTextureProvider(AssetSource source)
     {
-        var cache = new Dictionary<uint, byte[]?>();
-        return checksum =>
+        var cache = new Dictionary<int, N64ResolvedTexture?>();
+        return slot =>
         {
-            if (cache.TryGetValue(checksum, out var cached))
+            if (cache.TryGetValue(slot, out var cached))
                 return cached;
 
-            byte[]? png = null;
-            var record = TryReadSibling(source, "textures", [$"psxtxt_{checksum:x8}.tex.n64"]);
+            N64ResolvedTexture? resolved = null;
+            var record = TryReadTextureSlot(source, slot);
             if (record != null && N64TexFile.IsN64Texture(record))
             {
                 try
                 {
                     var texture = N64TexFile.Decode(record);
-                    png = ImageWriter.WritePngToMemory(texture.Width, texture.Height, texture.Rgba);
+                    resolved = new N64ResolvedTexture(
+                        texture.Name ?? $"tex_{slot:D4}",
+                        texture.Width,
+                        texture.Height,
+                        ImageWriter.WritePngToMemory(texture.Width, texture.Height, texture.Rgba));
                 }
                 catch (InvalidDataException)
                 {
-                    png = null;
+                    resolved = null;
                 }
             }
 
-            cache[checksum] = png;
-            return png;
+            cache[slot] = resolved;
+            return resolved;
         };
+    }
+
+    /// <summary>
+    ///     Reads the texture record at a dictionary slot. Files are named
+    ///     <c>&lt;slot&gt;_&lt;embedded name&gt;.tex.n64</c>, so the slot is a
+    ///     zero-padded prefix; widths vary per ROM, hence the candidate set.
+    /// </summary>
+    public static byte[]? TryReadTextureSlot(AssetSource source, int slot)
+    {
+        if (slot <= 0)
+            return null;
+
+        string[] prefixes =
+        [
+            $"{slot:D4}_", $"{slot:D3}_", $"{slot:D5}_", $"{slot:D2}_", $"{slot}_"
+        ];
+        return TryReadSiblingByPrefix(source, "textures", prefixes);
     }
 
     /// <summary>
@@ -89,6 +119,46 @@ public static class N64ModelCompanions
     private static string[] CandidateSlotNames(uint id)
     {
         return [$"{id:D3}.bin", $"{id:D4}.bin", $"{id:D2}.bin", $"{id}.bin"];
+    }
+
+    /// <summary>
+    ///     Sibling-directory lookup by file-name PREFIX, for slot-addressed
+    ///     records whose full name also carries the embedded art name.
+    /// </summary>
+    private static byte[]? TryReadSiblingByPrefix(
+        AssetSource source,
+        string directory,
+        IReadOnlyList<string> prefixes)
+    {
+        if (source is ArchiveAssetSource archive)
+        {
+            foreach (var entry in archive.Backend.Entries)
+            {
+                if (!entry.Directory.Equals(directory, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (prefixes.Any(p => entry.Name.StartsWith(p, StringComparison.Ordinal)))
+                    return archive.Backend.ReadEntryBytes(entry);
+            }
+
+            return null;
+        }
+
+        var root = TryFindCarveRoot(source);
+        if (root == null)
+            return null;
+
+        var dir = Path.Combine(root, directory);
+        if (!Directory.Exists(dir))
+            return null;
+
+        foreach (var prefix in prefixes)
+        {
+            var match = Directory.EnumerateFiles(dir, prefix + "*").FirstOrDefault();
+            if (match != null)
+                return File.ReadAllBytes(match);
+        }
+
+        return null;
     }
 
     /// <summary>

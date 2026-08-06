@@ -39,26 +39,37 @@ public static class N64RenderBankFile
     /// <summary>Marks a group whose blob A is not a packed display list (2.5% of the corpus).</summary>
     private const int KindNonDisplayList = 0x8000;
 
+    /// <summary>kind bit 0: the group's triangles are textured (slot at +0x02).</summary>
+    private const int TexturedBit = 0x0001;
+
     public readonly record struct N64Vertex(
         short X, short Y, short Z, short S, short T, byte R, byte G, byte B, byte A);
 
     /// <summary>
     ///     One decoded triangle. <paramref name="Flags" /> is blob B's word,
     ///     whose low half is the PS1 DISC face flag word (see
-    ///     <see cref="Psx.PsxFaceFlags" />); <paramref name="TextureId" /> is
-    ///     the owning group's descriptor id.
+    ///     <see cref="Psx.PsxFaceFlags" />); <paramref name="TextureSlot" /> is
+    ///     the owning group's texture-dictionary slot (0 = untextured).
     /// </summary>
     public readonly record struct N64Triangle(
-        int V0, int V1, int V2, uint Flags, int MatrixIndex, uint TextureId)
+        int V0, int V1, int V2, uint Flags, int MatrixIndex, int TextureSlot)
     {
         /// <summary>The PS1 face flag word carried in the low half of blob B's entry.</summary>
         public ushort FaceFlags => (ushort)Flags;
     }
 
+    /// <summary>
+    ///     One mesh node. <paramref name="HasNormals" /> reports whether the
+    ///     pool's last four bytes hold a lit surface normal rather than an
+    ///     authored vertex colour — F3DEX2 reuses the field for both and the
+    ///     engine picks per model via G_LIGHTING, so it is decided from the
+    ///     data (see <see cref="LooksLikeNormals" />).
+    /// </summary>
     public sealed record N64RenderMesh(
         IReadOnlyList<N64Vertex> Vertices,
         IReadOnlyList<N64Triangle> Triangles,
-        float[] Bounds);
+        float[] Bounds,
+        bool HasNormals);
 
     /// <summary>
     ///     Parses every mesh node in a record. Returns an empty list when the
@@ -93,7 +104,7 @@ public static class N64RenderBankFile
             return null;
 
         var triangles = ReadGeometry(data, node[1].Start, node[1].End, vertices.Count);
-        return new N64RenderMesh(vertices, triangles, bounds);
+        return new N64RenderMesh(vertices, triangles, bounds, LooksLikeNormals(vertices));
     }
 
     /// <summary>
@@ -148,6 +159,32 @@ public static class N64RenderBankFile
                + Sq(maxX - bounds[3]) + Sq(maxY - bounds[4]) + Sq(maxZ - bounds[5]);
 
         static double Sq(double v) => v * v;
+    }
+
+    /// <summary>
+    ///     Decides whether a pool's trailing four bytes are a lit NORMAL
+    ///     (signed xyz + alpha) or an authored RGBA colour. F3DEX2 stores both
+    ///     in the same field and the engine chooses with G_LIGHTING, which the
+    ///     packed display list never encodes — so this measures the data: a
+    ///     normal set is unit length in signed-byte space (|xyz| ~ 127).
+    ///     Reading normals as colours produces the rainbow gradients that gave
+    ///     the defect away; measured 12-38% of pools per ROM are lit.
+    /// </summary>
+    private static bool LooksLikeNormals(List<N64Vertex> vertices)
+    {
+        if (vertices.Count == 0)
+            return false;
+
+        var unit = 0;
+        foreach (var v in vertices)
+        {
+            double x = (sbyte)v.R, y = (sbyte)v.G, z = (sbyte)v.B;
+            var magnitude = Math.Sqrt(x * x + y * y + z * z);
+            if (magnitude is >= 100 and <= 150)
+                unit++;
+        }
+
+        return unit * 5 >= vertices.Count * 3;
     }
 
     private static List<N64Vertex> DecodeVertices(ReadOnlySpan<byte> body, int count, bool transposed)
@@ -206,13 +243,22 @@ public static class N64RenderBankFile
             if ((kind & KindNonDisplayList) != 0)
                 continue;
 
-            // Descriptor word 0 selects the group's texture (see the class doc).
-            var textureId = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(group[0].Start));
+            // Descriptor word 0 is a GLOBAL texture-dictionary slot index and
+            // kind bit 0 is its enable flag. Both are decomp-verified:
+            // ResolveGroupTextures loads word 0, passes it to TexMgr_Acquire
+            // and overwrites the field in place with the resolved slot
+            // pointer (THPS2 @0x800C7EF0). kind bit 0 <=> slot != 0 is an
+            // exact biconditional over all 82,604 corpus descriptors, and a
+            // PS1 cross-check found zero contradictions across 607 textures
+            // shared between models - the index is model-independent.
+            var textureSlot = (kind & TexturedBit) != 0
+                ? (int)BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(group[0].Start))
+                : 0;
             var blobB = group[2];
             var flags = ReadFaceFlags(data, blobB.Start, blobB.End);
             ExpandDisplayList(
                 data.AsSpan(group[1].Start, group[1].End - group[1].Start),
-                cache, ref cursor, vertexCount, flags, textureId, triangles);
+                cache, ref cursor, vertexCount, flags, textureSlot, triangles);
         }
 
         return triangles;
@@ -224,7 +270,7 @@ public static class N64RenderBankFile
         ref int cursor,
         int vertexCount,
         List<uint> faceFlags,
-        uint textureId,
+        int textureSlot,
         List<N64Triangle> triangles)
     {
         var matrixIndex = 0;
@@ -241,15 +287,19 @@ public static class N64RenderBankFile
                 if (p + 1 >= tokens.Length)
                     break;
                 var word = (op << 8) | tokens[p + 1];
-                // Corner order matching the PS1 sibling exactly (703/703 in the
-                // cross-check); the GBI word the engine emits is its reverse.
-                var v0 = cache[word & 31];
+                // Corner slots are packed low-to-high, but the resulting
+                // triangle faces AWAY from the PS1 sibling's: pairing every
+                // c_kart triangle by centroid against the PS1 export gives 175
+                // reversed and 0 matching. Emitting (c2, c1, c0) restores the
+                // engine's facing - without it, single-sided materials cull the
+                // front and the model reads as hollow with inverted lighting.
+                var v0 = cache[(word >> 10) & 31];
                 var v1 = cache[(word >> 5) & 31];
-                var v2 = cache[(word >> 10) & 31];
+                var v2 = cache[word & 31];
                 if (v0 >= 0 && v1 >= 0 && v2 >= 0 && v0 < vertexCount && v1 < vertexCount && v2 < vertexCount)
                 {
                     var flags = faceIndex < faceFlags.Count ? faceFlags[faceIndex] : 0u;
-                    triangles.Add(new N64Triangle(v0, v1, v2, flags, matrixIndex, textureId));
+                    triangles.Add(new N64Triangle(v0, v1, v2, flags, matrixIndex, textureSlot));
                 }
 
                 faceIndex++;
