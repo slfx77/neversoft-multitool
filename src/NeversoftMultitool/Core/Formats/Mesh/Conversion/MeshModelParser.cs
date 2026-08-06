@@ -36,6 +36,7 @@ public sealed class MeshModelParser : IModelParser
             ModelSourceKind.XbxScene => ParseXbxScene(request),
             ModelSourceKind.RenderWareDff => ParseRwDff(request),
             ModelSourceKind.RenderWareBsp => ParseRwBsp(request),
+            ModelSourceKind.N64Model => ParseN64Model(request),
             _ => throw new NotSupportedException($"Unsupported mesh source kind: {request.SourceKind}")
         };
     }
@@ -124,6 +125,29 @@ public sealed class MeshModelParser : IModelParser
             objectPsx,
             ddxTextures,
             textureDirs);
+        return document;
+    }
+
+    /// <summary>
+    ///     A model bundle carved from an N64 ROM. The shell supplies the
+    ///     skeleton and naming; its render bank is loaded but not yet decoded
+    ///     (the group2 vertex codec is the one open N64 format), so the
+    ///     document carries a rig without geometry.
+    /// </summary>
+    private static ModelDocument ParseN64Model(MeshImportRequest request)
+    {
+        var shell = PsxN64ShellFile.Parse(request.Source.ReadBytes())
+                    ?? throw new InvalidOperationException(
+                        "Not a readable N64 model shell (empty bundle slot or unrecognised container)");
+
+        var native = new N64.N64ModelNativeSource(
+            shell,
+            N64.N64ModelCompanions.TryReadRenderBank(request.Source),
+            N64.N64ModelCompanions.TryReadRenderBankId(request.Source),
+            N64.N64ModelCompanions.BuildTextureProvider(request.Source));
+
+        var document = ModelDocument.CreateNative(request.OutputStem, ModelSourceKind.N64Model, native);
+        N64.N64ModelWriter.Populate(document, native);
         return document;
     }
 
