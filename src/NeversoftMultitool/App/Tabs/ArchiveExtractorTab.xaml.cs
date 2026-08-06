@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.DiscImage;
+using NeversoftMultitool.Core.Formats.N64;
 using WinRT.Interop;
 
 namespace NeversoftMultitool;
@@ -55,6 +56,7 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
         picker.FileTypeFilter.Add(".gdi");
         picker.FileTypeFilter.Add(".img");
         picker.FileTypeFilter.Add(".bin");
+        picker.FileTypeFilter.Add(".z64");
         var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
         InitializeWithWindow.Initialize(picker, hwnd);
 
@@ -121,6 +123,16 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                     _archiveType = "DISC";
                     entries = DiscImageArchive.GetFileList(_archivePath);
                     break;
+                case ".z64" when N64RomArchive.IsN64Rom(_archivePath):
+                    _archiveType = "N64";
+                    entries = N64RomArchive.GetFileList(_archivePath);
+                    break;
+                case ".z64":
+                    // .v64/.n64 byte orders and non-ROM files get the precise
+                    // re-dump message instead of a generic failure.
+                    MainWindow.Instance?.SetStatus(
+                        N64RomArchive.ClassifyRom(_archivePath) ?? "Not an N64 ROM");
+                    return;
                 default:
                     var probe = FormatProbe.ProbeArchive(_archivePath);
                     var reason = probe.UnsupportedReason ?? $"Unsupported archive format: {ext}";
@@ -277,6 +289,9 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                         break;
                     case "DISC":
                         DiscImageArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
+                        break;
+                    case "N64":
+                        N64RomArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
                         break;
                 }
             }, token);
