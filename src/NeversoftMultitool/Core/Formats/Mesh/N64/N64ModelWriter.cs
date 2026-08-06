@@ -259,7 +259,9 @@ internal sealed class N64MaterialCache(
             // like the PS1 path. A pool carrying NORMALS is lit by the engine,
             // so leave it shadable and let the viewer light the normals.
             Unlit = !lit,
-            AlphaMode = semi ? ModelAlphaMode.Blend : ModelAlphaMode.Opaque
+            AlphaMode = ResolveAlphaMode(semi, texture),
+            // 1-bit art: keep any texel the console would have drawn.
+            AlphaCutoff = 0.5f
         };
 
         var index = ModelDocumentGeometryAdapter.AddMaterial(document, material);
@@ -273,6 +275,20 @@ internal sealed class N64MaterialCache(
         _materials[key] = index;
         Count(triangle.TextureSlot);
         return (index, size);
+    }
+
+    /// <summary>
+    ///     A face flagged semi-transparent blends. Otherwise the TEXTURE
+    ///     decides: N64 art cuts wheels, steering wheels and foliage out of
+    ///     their quads with fully transparent texels (1-bit RGBA5551 alpha or
+    ///     A=0 palette entries), which is alpha TESTING, not blending. Only
+    ///     genuinely partial alpha needs a blend.
+    /// </summary>
+    private static ModelAlphaMode ResolveAlphaMode(bool semi, N64ModelCompanions.N64ResolvedTexture? texture)
+    {
+        if (semi || texture is { HasGraduatedAlpha: true })
+            return ModelAlphaMode.Blend;
+        return texture is { HasCutout: true } ? ModelAlphaMode.Mask : ModelAlphaMode.Opaque;
     }
 
     private void Count(int slot)

@@ -616,7 +616,16 @@ public sealed class GltfModelExporter : IModelExporter
             .WithDoubleSide(material.DoubleSided);
 
         if (material.Unlit)
+        {
             builder.WithUnlitShader();
+        }
+        else
+        {
+            // glTF defaults metallicFactor to 1.0, which renders these
+            // fixed-function game surfaces as rough metal — glossy in ways the
+            // console never was. Lit materials are plain diffuse.
+            builder.WithMetallicRoughness(0f, 1f);
+        }
 
         if (material.TextureIndex is { } textureIndex &&
             (uint)textureIndex < (uint)textures.Count &&

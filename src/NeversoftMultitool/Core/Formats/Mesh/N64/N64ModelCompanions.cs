@@ -48,10 +48,13 @@ public static class N64ModelCompanions
     }
 
     /// <summary>
-    ///     One texture resolved out of the ROM's dictionary by SLOT — the
-    ///     addressing a render-bank group actually uses.
+    ///     A resolved texture plus its alpha profile. N64 art carries real
+    ///     transparency — RGBA5551 has a 1-bit alpha and CI palettes mark
+    ///     transparent entries with A=0 — which is how wheels, steering wheels
+    ///     and foliage are cut out of their quads.
     /// </summary>
-    public sealed record N64ResolvedTexture(string Name, int Width, int Height, byte[] Png);
+    public sealed record N64ResolvedTexture(
+        string Name, int Width, int Height, byte[] Png, bool HasCutout, bool HasGraduatedAlpha);
 
     /// <summary>
     ///     Resolves textures by dictionary slot, caching decoded PNGs (the
@@ -78,11 +81,14 @@ public static class N64ModelCompanions
                 try
                 {
                     var texture = N64TexFile.Decode(record);
+                    var (cutout, graduated) = ClassifyAlpha(texture.Rgba);
                     resolved = new N64ResolvedTexture(
                         texture.Name ?? $"tex_{slot:D4}",
                         texture.Width,
                         texture.Height,
-                        ImageWriter.WritePngToMemory(texture.Width, texture.Height, texture.Rgba));
+                        ImageWriter.WritePngToMemory(texture.Width, texture.Height, texture.Rgba),
+                        cutout,
+                        graduated);
                 }
                 catch (InvalidDataException)
                 {
@@ -93,6 +99,28 @@ public static class N64ModelCompanions
             cache[slot] = resolved;
             return resolved;
         };
+    }
+
+    /// <summary>
+    ///     Splits a decoded image into "has fully transparent texels" (a
+    ///     cutout, which wants alpha testing) and "has partial alpha" (which
+    ///     wants blending). The N64's 1-bit RGBA5551 and A=0 palette entries
+    ///     produce the former; IA formats can produce the latter.
+    /// </summary>
+    private static (bool Cutout, bool Graduated) ClassifyAlpha(byte[] rgba)
+    {
+        var cutout = false;
+        var graduated = false;
+        for (var i = 3; i < rgba.Length; i += 4)
+        {
+            var a = rgba[i];
+            if (a == 0)
+                cutout = true;
+            else if (a < 255)
+                graduated = true;
+        }
+
+        return (cutout, graduated);
     }
 
     /// <summary>
