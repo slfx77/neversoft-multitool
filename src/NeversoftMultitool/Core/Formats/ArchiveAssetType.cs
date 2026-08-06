@@ -15,5 +15,12 @@ public enum ArchiveAssetType
     Ddx,
     Bon,
     Zip,
-    Cut
+    Cut,
+
+    /// <summary>
+    ///     N64 .z64 ROM opened as its carved asset tree. Entries are
+    ///     decompress+reassemble+carve products (not byte ranges of the ROM),
+    ///     so the backend materializes them at open.
+    /// </summary>
+    N64
 }

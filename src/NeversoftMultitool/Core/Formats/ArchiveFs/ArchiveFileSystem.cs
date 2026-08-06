@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.Formats.Archives;
+using NeversoftMultitool.Core.Formats.N64;
 
 namespace NeversoftMultitool.Core.Formats.ArchiveFs;
 
@@ -28,6 +29,9 @@ public static class ArchiveFileSystem
         if (type == null)
             return null;
 
+        if (type == ArchiveAssetType.N64)
+            return TryOpenN64Rom(path);
+
         List<ArchiveEntry> entries;
         try
         {
@@ -52,6 +56,47 @@ public static class ArchiveFileSystem
 
         var companionPath = type == ArchiveAssetType.Pak ? PakArchive.GetPabPath(path) : null;
         return new FileArchiveFileSystem(path, type.Value, entries, companionPath);
+    }
+
+    /// <summary>
+    ///     .z64 open: carve the ROM's asset tree in memory (entries are
+    ///     decompress+reassemble+carve products, not byte ranges — see
+    ///     <see cref="CarvedArchiveFileSystem" />). ROMs without a master
+    ///     directory (nothing in the corpus) return null; the extraction
+    ///     paths keep their flat-scan fallback.
+    /// </summary>
+    private static IArchiveFileSystem? TryOpenN64Rom(string path)
+    {
+        byte[] rom;
+        try
+        {
+            rom = File.ReadAllBytes(path);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+
+        if (!N64AssetCarver.TryCarve(rom, out var assets))
+            return null;
+
+        var entries = new List<ArchiveEntry>(assets.Count);
+        var data = new List<byte[]>(assets.Count);
+        foreach (var asset in assets)
+        {
+            var slash = asset.Path.LastIndexOf('/');
+            entries.Add(new ArchiveEntry
+            {
+                Directory = slash > 0 ? asset.Path[..slash] : "",
+                Name = slash > 0 ? asset.Path[(slash + 1)..] : asset.Path,
+                Size = asset.Data.Length,
+                Offset = data.Count
+            });
+            data.Add(asset.Data);
+        }
+
+        return new CarvedArchiveFileSystem(
+            Path.GetFileName(path), path, ArchiveAssetType.N64, entries, data);
     }
 
     /// <summary>

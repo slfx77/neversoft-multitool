@@ -9,6 +9,7 @@ internal static class FormatProbeTexture
     private static readonly string[] XboxTexSuffixes = [".tex.xbx", ".tex.wpc", ".stex"];
     private static readonly string[] XboxImgSuffixes = [".img.xbx", ".img.wpc"];
     private static readonly string[] NgcTexSuffixes = [".tex.ngc", ".img.ngc"];
+    private static readonly string[] N64TexSuffixes = [".tex.n64", ".img.n64"];
     private static readonly string[] CrossPlatformTexSuffixes = [".tex.xen", ".tex.ps3", ".tex.dat"];
     private static readonly string[] CrossPlatformImgSuffixes = [".img.xen", ".img.ps3"];
     private static readonly string[] Ps2TextureSuffixes = [".tex.ps2", ".img.ps2"];
@@ -25,6 +26,9 @@ internal static class FormatProbeTexture
 
         if (OrdinalFileName.HasAnySuffix(name, NgcTexSuffixes))
             return ProbeNgcTexFile(filePath);
+
+        if (OrdinalFileName.HasAnySuffix(name, N64TexSuffixes))
+            return ProbeN64TexFile(filePath);
 
         if (OrdinalFileName.HasAnySuffix(name, CrossPlatformTexSuffixes))
         {
@@ -61,6 +65,19 @@ internal static class FormatProbeTexture
                 "Unknown",
                 $"Unrecognized texture format: {ext}")
         };
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeN64TexFile(string filePath)
+    {
+        if (!BinaryProbeReader.TryReadAllBytes(filePath, out var data))
+            return HeaderReadFailure();
+
+        return Formats.Texture.N64.N64TexFile.IsN64Texture(data)
+            ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "N64 Texture")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "N64 Texture",
+                "Unrecognized N64 texture record");
     }
 
     private static FormatProbe.FormatProbeResult ProbePs2TexFile(string filePath)

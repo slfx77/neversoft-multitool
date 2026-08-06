@@ -1,5 +1,6 @@
 ﻿using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats;
+using NeversoftMultitool.Core.Formats.Texture.N64;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
@@ -16,10 +17,12 @@ internal static class TextureTabTextureOperations
     private static readonly string[] CompoundTextureExtensions =
     [
         ".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc",
-        ".tex.ps2", ".img.ps2", ".tex.ngc", ".img.ngc", ".stex"
+        ".tex.ps2", ".img.ps2", ".tex.ngc", ".img.ngc", ".stex",
+        ".tex.n64", ".img.n64"
     ];
 
     private static readonly string[] NgcTexExtensions = [".tex.ngc", ".img.ngc"];
+    private static readonly string[] N64TexExtensions = [".tex.n64", ".img.n64"];
 
     // .stex = THAW level/zone textures: DXT containers on PC, zone TEX on PS2 —
     // ParseXbxTextures dispatches by content, mirroring the CLI xbxtex/ps2tex routing.
@@ -42,6 +45,8 @@ internal static class TextureTabTextureOperations
 
     public static TextureFileFormat ClassifyFormat(string fileName)
     {
+        if (OrdinalFileName.HasAnySuffix(fileName, N64TexExtensions))
+            return TextureFileFormat.N64Tex;
         if (OrdinalFileName.HasAnySuffix(fileName, NgcTexExtensions))
             return TextureFileFormat.NgcTex;
         if (OrdinalFileName.HasAnySuffix(fileName, XboxTexExtensions))
@@ -67,6 +72,7 @@ internal static class TextureTabTextureOperations
             TextureFileFormat.XbxTex => CountParsedTextures(ParseXbxTextures(data, format)),
             TextureFileFormat.XbxImg => CountParsedTextures(ParseXbxTextures(data, format)),
             TextureFileFormat.Pvr => PvrFileDecoder.DecodeToRgba(data) != null ? 1 : 0,
+            TextureFileFormat.N64Tex => N64TexFile.IsN64Texture(data) ? 1 : 0,
             _ => PsxLibrary.EnumerateTextures(data).Count
         };
     }
@@ -84,6 +90,7 @@ internal static class TextureTabTextureOperations
             TextureFileFormat.XbxTex => BuildXboxEntries(ParseXbxTextures(data, format), parentFileName, format),
             TextureFileFormat.XbxImg => BuildXboxEntries(ParseXbxTextures(data, format), parentFileName, format),
             TextureFileFormat.Pvr => BuildPvrEntries(data, parentFileName),
+            TextureFileFormat.N64Tex => BuildN64Entries(data, parentFileName),
             _ => BuildPsxEntries(data, parentFileName)
         };
     }
@@ -105,6 +112,7 @@ internal static class TextureTabTextureOperations
             TextureFileFormat.XbxTex => ExtractXbxTextures(data, outputDir, stem, entry.Format),
             TextureFileFormat.XbxImg => ExtractXbxImage(data, outputDir, stem, createSubDirs),
             TextureFileFormat.Pvr => ExtractPvr(data, outputDir, stem, createSubDirs),
+            TextureFileFormat.N64Tex => ExtractN64Texture(data, outputDir, stem, createSubDirs),
             _ => ExtractPsxTextures(data, entry.FileName, outputDir, createSubDirs, writeDds, writeMipAtlas)
         };
     }
@@ -134,6 +142,11 @@ internal static class TextureTabTextureOperations
             }
             case TextureFileFormat.Pvr:
                 return PvrFileDecoder.DecodeToRgba(data);
+            case TextureFileFormat.N64Tex:
+            {
+                var texture = TryDecodeN64(data);
+                return texture != null ? (texture.Rgba, texture.Width, texture.Height) : null;
+            }
             default:
                 return PsxLibrary.ExtractTextureByHash(data, nameHash, source.EntryName);
         }
@@ -221,6 +234,43 @@ internal static class TextureTabTextureOperations
             : [];
     }
 
+    /// <summary>
+    ///     N64 records hold exactly one texture; the embedded name (dictionary
+    ///     records) beats the file stem, and psxtxt_&lt;id&gt; names carry the PS1
+    ///     cross-platform texture id.
+    /// </summary>
+    private static List<PsxTextureEntry> BuildN64Entries(byte[] data, string parentFileName)
+    {
+        var texture = TryDecodeN64(data);
+        return texture != null
+            ?
+            [
+                new PsxTextureEntry
+                {
+                    ParentFileName = parentFileName,
+                    NameHash = 0,
+                    Width = texture.Width,
+                    Height = texture.Height,
+                    PaletteType = $"N64 {texture.Format}",
+                    Index = 0,
+                    ResolvedName = texture.Name ?? StripCompoundExtension(parentFileName)
+                }
+            ]
+            : [];
+    }
+
+    private static N64TexFile.N64Texture? TryDecodeN64(byte[] data)
+    {
+        try
+        {
+            return N64TexFile.IsN64Texture(data) ? N64TexFile.Decode(data) : null;
+        }
+        catch (InvalidDataException)
+        {
+            return null;
+        }
+    }
+
     private static List<PsxTextureEntry> BuildPsxEntries(byte[] data, string parentFileName)
     {
         return PsxLibrary.EnumerateTextures(data)
@@ -301,6 +351,21 @@ internal static class TextureTabTextureOperations
         var outPath = BuildSingleTextureOutputPath(outputDir, stem, createSubDirs);
         var ok = PvrFileDecoder.DecodeToPng(data, outPath);
         return (1, ok ? 1 : 0, false, ok);
+    }
+
+    private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractN64Texture(
+        byte[] data,
+        string outputDir,
+        string stem,
+        bool createSubDirs)
+    {
+        var texture = TryDecodeN64(data);
+        if (texture == null)
+            return (0, 0, false, false);
+
+        var outPath = BuildSingleTextureOutputPath(outputDir, stem, createSubDirs);
+        Core.BinaryIO.ImageWriter.WritePng(outPath, texture.Width, texture.Height, texture.Rgba);
+        return (1, 1, false, true);
     }
 
     private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractPsxTextures(

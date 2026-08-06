@@ -107,6 +107,7 @@ public static class ArchiveTypeDetector
             ".bon" => ArchiveAssetType.Bon,
             ".zip" => QZipArchive.IsZip(path) ? ArchiveAssetType.Zip : null,
             ".cut" => CutArchive.IsCut(path) ? ArchiveAssetType.Cut : null,
+            ".z64" => N64.N64RomArchive.IsN64Rom(path) ? ArchiveAssetType.N64 : null,
             _ => null
         };
     }

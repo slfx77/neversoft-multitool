@@ -7,5 +7,8 @@ internal enum TextureFileFormat
     NgcTex,
     Pvr,
     XbxTex,
-    XbxImg
+    XbxImg,
+
+    /// <summary>Carved N64 .tex.n64 dictionary / .img.n64 image records (one texture per file).</summary>
+    N64Tex
 }

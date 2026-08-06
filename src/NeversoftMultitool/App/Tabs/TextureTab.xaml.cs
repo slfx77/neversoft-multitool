@@ -10,7 +10,7 @@ namespace NeversoftMultitool;
 
 public sealed partial class TextureTab : UserControl, IDisposable
 {
-    private static readonly string[] ArchiveExtensions = [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr"];
+    private static readonly string[] ArchiveExtensions = [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr", ".z64"];
 
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<PsxFileEntry> _parentFiles = [];
