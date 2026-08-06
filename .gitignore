@@ -105,6 +105,7 @@ tools/diagnostics/*
 !tools/diagnostics/psx-anim-format.md
 !tools/diagnostics/psx_anim_tween_survey.py
 !tools/diagnostics/psx_func_signature_scan.py
+!tools/diagnostics/n64_boot_map.py
 !tools/diagnostics/psx_lod_part_probe.py
 !tools/diagnostics/psx_level_survey.py
 !tools/diagnostics/cross_game_anim_functions.md
