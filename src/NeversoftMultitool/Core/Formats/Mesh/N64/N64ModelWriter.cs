@@ -50,11 +50,11 @@ public static class N64ModelWriter
         var materials = new N64MaterialCache(document, source.TextureProvider);
         var scale = WorldScale(shell);
         var emitted = 0;
-        for (var i = 0; i < meshes.Count; i++)
-        {
-            if (EmitMesh(document, meshes[i], materials, scale, i, NodeOffset(shell, i)))
-                emitted++;
-        }
+        // Placement pairs shell objects to render-bank nodes POSITIONALLY, so
+        // it must use each node's index in the record - not its index in this
+        // list, which omits skipped nodes.
+        emitted += meshes.Count(mesh => EmitMesh(
+            document, mesh, materials, scale, mesh.NodeIndex, NodeOffset(shell, mesh.NodeIndex)));
 
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
         document.NativeMetadata.Add(new N64ModelRenderMetadata(

@@ -64,12 +64,21 @@ public static class N64RenderBankFile
     ///     authored vertex colour — F3DEX2 reuses the field for both and the
     ///     engine picks per model via G_LIGHTING, so it is decided from the
     ///     data (see <see cref="LooksLikeNormals" />).
+    ///     <para>
+    ///         <paramref name="NodeIndex" /> is the mesh's position in the
+    ///         record's root table, NOT its position in the returned list.
+    ///         Nodes whose pool is empty or malformed are skipped, so the two
+    ///         diverge (a THPS1 level drops 98 of 987) — and the shell pairs
+    ///         placements to nodes POSITIONALLY, so using the list index
+    ///         scatters every chunk after the first gap.
+    ///     </para>
     /// </summary>
     public sealed record N64RenderMesh(
         IReadOnlyList<N64Vertex> Vertices,
         IReadOnlyList<N64Triangle> Triangles,
         float[] Bounds,
-        bool HasNormals);
+        bool HasNormals,
+        int NodeIndex);
 
     /// <summary>
     ///     Parses every mesh node in a record. Returns an empty list when the
@@ -82,9 +91,10 @@ public static class N64RenderBankFile
         if (root == null)
             return meshes;
 
-        foreach (var (start, end) in root)
+        for (var nodeIndex = 0; nodeIndex < root.Count; nodeIndex++)
         {
-            var mesh = TryParseNode(data, start, end);
+            var (start, end) = root[nodeIndex];
+            var mesh = TryParseNode(data, start, end, nodeIndex);
             if (mesh != null)
                 meshes.Add(mesh);
         }
@@ -92,7 +102,7 @@ public static class N64RenderBankFile
         return meshes;
     }
 
-    private static N64RenderMesh? TryParseNode(byte[] data, int start, int end)
+    private static N64RenderMesh? TryParseNode(byte[] data, int start, int end, int nodeIndex)
     {
         var node = ReadTable(data, start, end);
         if (node is not { Count: 3 })
@@ -104,7 +114,7 @@ public static class N64RenderBankFile
             return null;
 
         var triangles = ReadGeometry(data, node[1].Start, node[1].End, vertices.Count);
-        return new N64RenderMesh(vertices, triangles, bounds, LooksLikeNormals(vertices));
+        return new N64RenderMesh(vertices, triangles, bounds, LooksLikeNormals(vertices), nodeIndex);
     }
 
     /// <summary>
