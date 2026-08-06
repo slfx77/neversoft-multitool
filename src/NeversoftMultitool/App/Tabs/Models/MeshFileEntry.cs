@@ -50,6 +50,7 @@ public class MeshFileEntry : BaseFileEntry
     internal bool IsPlacedLevel => HasPlacedPsxCompanion;
 
     internal bool IsPsx => Format == "PSX";
+    internal bool IsN64Model => Format == "N64";
     internal bool IsRwDff => Format == "RW DFF";
     internal bool IsRwBsp => Format == "RW BSP";
     internal bool IsCol => Format == "COL";

@@ -6,6 +6,7 @@ using NeversoftMultitool.Core.Formats.Collision;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
+using NeversoftMultitool.Core.Formats.Mesh.N64;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
@@ -84,6 +85,12 @@ internal static class MeshConverterTabFileScanner
                 AddIfNotNull(results, ScanPsxFile(new FileSystemAssetSource(file), file, inputDir));
                 Report();
             });
+
+        Parallel.ForEach(buckets.N64ModelFiles, parallelOptions, file =>
+        {
+            AddIfNotNull(results, ScanN64ModelFile(new FileSystemAssetSource(file), file, inputDir));
+            Report();
+        });
 
         Parallel.ForEach(buckets.RwDffFiles, parallelOptions, file =>
         {
@@ -329,6 +336,9 @@ internal static class MeshConverterTabFileScanner
     ///     True when the entry name matches any suffix <see cref="TryScanEntry" />
     ///     can route. Mirrors TryScanEntry's gates exactly.
     /// </summary>
+    /// <summary>Carved N64 model bundles (models/NNN/geometry.psx.n64).</summary>
+    private const string N64ModelSuffix = ".psx.n64";
+
     private static bool IsScanCandidate(string name)
     {
         if (EndsWith(name, ".iskin.ps2") || EndsWith(name, ".skin.ps2") || EndsWith(name, ".mdl.ps2") ||
@@ -357,6 +367,9 @@ internal static class MeshConverterTabFileScanner
         {
             return true;
         }
+
+        if (EndsWith(name, N64ModelSuffix))
+            return true;
 
         return OrdinalFileName.HasExtension(name, ".psx") ||
                OrdinalFileName.HasExtension(name, ".skin") ||
@@ -433,6 +446,9 @@ internal static class MeshConverterTabFileScanner
             return ScanDdmFile(source, displayPath, rootDir);
         }
 
+        if (EndsWith(name, N64ModelSuffix))
+            return ScanN64ModelFile(source, displayPath, rootDir);
+
         if (OrdinalFileName.HasExtension(name, ".psx"))
             return ScanPsxFile(source, displayPath, rootDir);
 
@@ -458,6 +474,9 @@ internal static class MeshConverterTabFileScanner
             {
                 buckets.DdmFiles.Add(file);
             }
+
+            if (EndsWith(fileName, N64ModelSuffix))
+                buckets.N64ModelFiles.Add(file);
 
             if (OrdinalFileName.HasExtension(fileName, ".psx"))
                 buckets.PsxFiles.Add(file);
@@ -561,6 +580,49 @@ internal static class MeshConverterTabFileScanner
         {
             return null;
         }
+    }
+
+    /// <summary>
+    ///     A carved N64 model bundle. Every bundle file is named
+    ///     "geometry.psx.n64", so the row is labelled by its parent directory
+    ///     (models/NNN) and the geometry count comes from the linked render
+    ///     bank rather than the shell, which holds no mesh chunks.
+    /// </summary>
+    private static MeshFileEntry? ScanN64ModelFile(AssetSource source, string displayPath, string rootDir)
+    {
+        try
+        {
+            var shell = PsxN64ShellFile.Parse(source.ReadBytes());
+            if (shell == null)
+                return null;
+
+            var bank = N64ModelCompanions.TryReadRenderBank(source);
+            var meshes = bank != null ? N64RenderBankFile.Parse(bank) : [];
+
+            return new MeshFileEntry
+            {
+                FileName = BundleLabel(displayPath),
+                FilePath = displayPath,
+                RelativePath = MakeRelativePath(displayPath, rootDir),
+                Format = "N64",
+                ObjectCount = shell.Objects.Count,
+                MeshCount = meshes.Count,
+                PsxIsSuperModel = shell.IsSuperModel,
+                PsxFormatRevision = shell.FormatRevision,
+                Source = source
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>models/042/geometry.psx.n64 -&gt; "042 (N64 model)".</summary>
+    private static string BundleLabel(string displayPath)
+    {
+        var dir = Path.GetFileName(Path.GetDirectoryName(displayPath.Replace('\\', '/')) ?? "");
+        return string.IsNullOrEmpty(dir) ? "geometry.psx.n64" : $"{dir} (N64 model)";
     }
 
     private static MeshFileEntry? ScanPsxFile(AssetSource source, string displayPath, string rootDir)
@@ -878,6 +940,7 @@ internal static class MeshConverterTabFileScanner
         public List<string> PakWorldzoneFiles { get; } = [];
         public List<string> Ps2GeomFiles { get; } = [];
         public List<string> Ps2SceneFiles { get; } = [];
+        public List<string> N64ModelFiles { get; } = [];
         public List<string> PsxFiles { get; } = [];
         public List<string> RwBspFiles { get; } = [];
         public List<string> RwDffFiles { get; } = [];

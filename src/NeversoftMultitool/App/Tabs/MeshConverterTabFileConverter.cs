@@ -133,6 +133,7 @@ internal static class MeshConverterTabFileConverter
         if (entry.IsXbxScene) return ModelSourceKind.XbxScene;
         if (entry.IsRwBsp) return ModelSourceKind.RenderWareBsp;
         if (entry.IsRwDff) return ModelSourceKind.RenderWareDff;
+        if (entry.IsN64Model) return ModelSourceKind.N64Model;
         if (entry.IsPsx) return ModelSourceKind.Psx;
         return ModelSourceKind.Ddm;
     }
@@ -141,6 +142,11 @@ internal static class MeshConverterTabFileConverter
     {
         if (entry.IsPs2Scene || entry.IsPs2Geom || entry.IsXbxScene || entry.IsPakWorldzone)
             return MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
+
+        // Every bundle file is named "geometry.psx.n64"; the row label already
+        // carries the bundle directory, so reuse it rather than colliding.
+        if (entry.IsN64Model)
+            return "n64_" + Path.GetFileName(Path.GetDirectoryName(entry.FilePath.Replace('\\', '/')) ?? "model");
 
         var stem = Path.GetFileNameWithoutExtension(entry.FileName);
         if (entry.IsCol && stem.EndsWith(".col", StringComparison.OrdinalIgnoreCase))

@@ -113,7 +113,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     private async void SelectArchive_Click(object sender, RoutedEventArgs e)
     {
         var path = await FilePickerHelper.PickFileAsync(
-            [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr"]);
+            [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr", ".z64"]);
         if (path == null) return;
 
         InputPathText.Text = path;
