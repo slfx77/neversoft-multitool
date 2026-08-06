@@ -79,13 +79,40 @@ public static class PsxN64ShellFile
             swapped = padded;
         }
 
+        PsxMeshFile? shell;
         try
         {
-            return PsxMeshFile.ParseHeaderOnly(swapped);
+            shell = PsxMeshFile.ParseHeaderOnly(swapped);
         }
         catch (Exception ex) when (ex is EndOfStreamException or IOException)
         {
             return null;
+        }
+
+        if (shell != null)
+            PatchMeshIndices(shell, swapped);
+        return shell;
+    }
+
+    /// <summary>
+    ///     Restores each object's mesh index. A PS1 object keeps it in the HIGH
+    ///     half of the word at +0x14, but a carved shell keeps it in the LOW
+    ///     half, so the shared reader always sees zero — which silently turned
+    ///     every model into "object i places mesh i". That is right for about
+    ///     two thirds of the corpus and wrong for the rest: characters permute
+    ///     their parts (hawk: 0,1,3,2,4,6,5...), and levels can carry more
+    ///     meshes than objects (a THPS1 Downhill Jam shell has 642 objects for
+    ///     883 meshes, so 241 are simply never placed).
+    /// </summary>
+    private static void PatchMeshIndices(PsxMeshFile shell, byte[] swapped)
+    {
+        const int meshIndexOffset = 0x14;
+        for (var i = 0; i < shell.Objects.Count; i++)
+        {
+            var position = HeaderFixedSize + i * ObjectRecordSize + meshIndexOffset;
+            if (position + 2 > swapped.Length)
+                return;
+            shell.Objects[i].MeshIndex = BinaryPrimitives.ReadUInt16LittleEndian(swapped.AsSpan(position));
         }
     }
 

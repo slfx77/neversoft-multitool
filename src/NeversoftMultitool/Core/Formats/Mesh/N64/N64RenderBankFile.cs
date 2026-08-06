@@ -45,17 +45,23 @@ public static class N64RenderBankFile
     public readonly record struct N64Vertex(
         short X, short Y, short Z, short S, short T, byte R, byte G, byte B, byte A);
 
+    public readonly record struct N64Corner(int Vertex, short S, short T);
+
     /// <summary>
-    ///     One decoded triangle. <paramref name="Flags" /> is blob B's word,
-    ///     whose low half is the PS1 DISC face flag word (see
-    ///     <see cref="Psx.PsxFaceFlags" />); <paramref name="TextureSlot" /> is
-    ///     the owning group's texture-dictionary slot (0 = untextured).
+    ///     One decoded triangle. <c>Flags</c> is blob B's word, whose low half
+    ///     is the PS1 DISC face flag word (see <see cref="Psx.PsxFaceFlags" />);
+    ///     <c>TextureSlot</c> is the owning group's texture-dictionary slot
+    ///     (0 = untextured).
     /// </summary>
     public readonly record struct N64Triangle(
-        int V0, int V1, int V2, uint Flags, int MatrixIndex, int TextureSlot)
+        N64Corner C0, N64Corner C1, N64Corner C2, uint Flags, int MatrixIndex, int TextureSlot)
     {
         /// <summary>The PS1 face flag word carried in the low half of blob B's entry.</summary>
         public ushort FaceFlags => (ushort)Flags;
+
+        public int V0 => C0.Vertex;
+        public int V1 => C1.Vertex;
+        public int V2 => C2.Vertex;
     }
 
     /// <summary>
@@ -113,7 +119,7 @@ public static class N64RenderBankFile
         if (vertices == null)
             return null;
 
-        var triangles = ReadGeometry(data, node[1].Start, node[1].End, vertices.Count);
+        var triangles = ReadGeometry(data, node[1].Start, node[1].End, vertices);
         return new N64RenderMesh(vertices, triangles, bounds, LooksLikeNormals(vertices), nodeIndex);
     }
 
@@ -232,7 +238,8 @@ public static class N64RenderBankFile
     ///     pool cursor advances across every group in the node: a G_VTX token
     ///     takes the next n pool entries into cache slots [v0, v0+n).
     /// </summary>
-    private static List<N64Triangle> ReadGeometry(byte[] data, int start, int end, int vertexCount)
+    private static List<N64Triangle> ReadGeometry(
+        byte[] data, int start, int end, IReadOnlyList<N64Vertex> vertices)
     {
         var triangles = new List<N64Triangle>();
         var groups = ReadTable(data, start, end);
@@ -241,6 +248,11 @@ public static class N64RenderBankFile
 
         var cache = new int[VertexCacheSize];
         Array.Fill(cache, -1);
+        // Live ST per cache slot: seeded from the pool on G_VTX, rewritten by
+        // G_MODIFYVTX. 41-57% of groups issue overrides, so ignoring them
+        // mis-maps roughly half the corpus.
+        var cacheS = new short[VertexCacheSize];
+        var cacheT = new short[VertexCacheSize];
         var cursor = 0;
 
         foreach (var (groupStart, groupEnd) in groups)
@@ -268,7 +280,7 @@ public static class N64RenderBankFile
             var flags = ReadFaceFlags(data, blobB.Start, blobB.End);
             ExpandDisplayList(
                 data.AsSpan(group[1].Start, group[1].End - group[1].Start),
-                cache, ref cursor, vertexCount, flags, textureSlot, triangles);
+                cache, cacheS, cacheT, ref cursor, vertices, flags, textureSlot, triangles);
         }
 
         return triangles;
@@ -277,8 +289,10 @@ public static class N64RenderBankFile
     private static void ExpandDisplayList(
         ReadOnlySpan<byte> tokens,
         int[] cache,
+        short[] cacheS,
+        short[] cacheT,
         ref int cursor,
-        int vertexCount,
+        IReadOnlyList<N64Vertex> vertices,
         List<uint> faceFlags,
         int textureSlot,
         List<N64Triangle> triangles)
@@ -303,13 +317,21 @@ public static class N64RenderBankFile
                 // reversed and 0 matching. Emitting (c2, c1, c0) restores the
                 // engine's facing - without it, single-sided materials cull the
                 // front and the model reads as hollow with inverted lighting.
-                var v0 = cache[(word >> 10) & 31];
-                var v1 = cache[(word >> 5) & 31];
-                var v2 = cache[word & 31];
-                if (v0 >= 0 && v1 >= 0 && v2 >= 0 && v0 < vertexCount && v1 < vertexCount && v2 < vertexCount)
+                var s0 = (word >> 10) & 31;
+                var s1 = (word >> 5) & 31;
+                var s2 = word & 31;
+                var v0 = cache[s0];
+                var v1 = cache[s1];
+                var v2 = cache[s2];
+                var count = vertices.Count;
+                if (v0 >= 0 && v1 >= 0 && v2 >= 0 && v0 < count && v1 < count && v2 < count)
                 {
                     var flags = faceIndex < faceFlags.Count ? faceFlags[faceIndex] : 0u;
-                    triangles.Add(new N64Triangle(v0, v1, v2, flags, matrixIndex, textureSlot));
+                    triangles.Add(new N64Triangle(
+                        new N64Corner(v0, cacheS[s0], cacheT[s0]),
+                        new N64Corner(v1, cacheS[s1], cacheT[s1]),
+                        new N64Corner(v2, cacheS[s2], cacheT[s2]),
+                        flags, matrixIndex, textureSlot));
                 }
 
                 faceIndex++;
@@ -327,7 +349,16 @@ public static class N64RenderBankFile
                 for (var k = 0; k < n; k++)
                 {
                     if (v0 + k < VertexCacheSize)
+                    {
                         cache[v0 + k] = cursor;
+                        // A freshly loaded slot starts at the pool's own ST.
+                        if (cursor < vertices.Count)
+                        {
+                            cacheS[v0 + k] = vertices[cursor].S;
+                            cacheT[v0 + k] = vertices[cursor].T;
+                        }
+                    }
+
                     cursor++;
                 }
 
@@ -340,8 +371,13 @@ public static class N64RenderBankFile
                 matrixIndex = tokens[p + 1];
                 p += 2;
             }
-            else if ((op & 0xE0) == 0x60) // G_MODIFYVTX(ST) — per-slot UV override
+            else if ((op & 0xE0) == 0x60) // G_MODIFYVTX(ST): rewrite a slot's UV
             {
+                if (p + 4 >= tokens.Length)
+                    break;
+                var slot = op & 31;
+                cacheS[slot] = BinaryPrimitives.ReadInt16BigEndian(tokens[(p + 1)..]);
+                cacheT[slot] = BinaryPrimitives.ReadInt16BigEndian(tokens[(p + 3)..]);
                 p += 5;
             }
             else

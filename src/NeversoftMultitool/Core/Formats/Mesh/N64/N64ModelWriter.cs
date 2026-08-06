@@ -50,11 +50,23 @@ public static class N64ModelWriter
         var materials = new N64MaterialCache(document, source.TextureProvider);
         var scale = WorldScale(shell);
         var emitted = 0;
-        // Placement pairs shell objects to render-bank nodes POSITIONALLY, so
-        // it must use each node's index in the record - not its index in this
-        // list, which omits skipped nodes.
-        emitted += meshes.Count(mesh => EmitMesh(
-            document, mesh, materials, scale, mesh.NodeIndex, NodeOffset(shell, mesh.NodeIndex)));
+        // Placement is OBJECT-driven, exactly as the PS1 writer does it: each
+        // object places the mesh its MeshIndex names, at its own offset. A mesh
+        // no object references is never drawn (a Downhill Jam shell carries 883
+        // meshes for 642 objects), and one mesh may be placed more than once.
+        var byNode = meshes.ToDictionary(static m => m.NodeIndex);
+        for (var objectIndex = 0; objectIndex < shell.Objects.Count; objectIndex++)
+        {
+            var obj = shell.Objects[objectIndex];
+            if (!byNode.TryGetValue(obj.MeshIndex, out var mesh))
+                continue;
+
+            if (EmitMesh(document, mesh, materials, scale, objectIndex,
+                    PsxMeshSemantics.GetObjectOffset(shell, obj)))
+            {
+                emitted++;
+            }
+        }
 
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
         document.NativeMetadata.Add(new N64ModelRenderMetadata(
@@ -67,41 +79,17 @@ public static class N64ModelWriter
     }
 
     /// <summary>
-    ///     Authored world offset for a mesh node. The bank stores each node's
-    ///     vertices in MESH-LOCAL space exactly as a PS1 file does, so the
-    ///     object-table translation must be applied. Verified on c_kart: before
-    ///     the offset its bounding box was the right SIZE but displaced by
-    ///     precisely that object's (-10, 9, -92)/2.25; after it, N64
-    ///     X[-36.7,28.0] Y[-52.7,30.7] Z[-12.0,93.8] against PS1
-    ///     X[-36.9,28.0] Y[-52.9,30.8] Z[-12.2,94.0] — the ~0.2 residual is the
-    ///     port's own trunc(PS1raw / 8) quantisation.
-    ///     <para>
-    ///         Keyed by MESH NODE, not by the display list's G_MTX index. An
-    ///         earlier attempt keyed on the matrix index and scattered a
-    ///         skater's limbs; per node the offset is a uniform translation of
-    ///         a whole mesh, which is what the PS1 writer also applies.
-    ///     </para>
-    /// </summary>
-    private static Vector3 NodeOffset(PsxMeshFile shell, int nodeIndex)
-    {
-        if (shell.Objects.Count == 0)
-            return Vector3.Zero;
-
-        // Prefer the object that names this mesh; fall back to positional
-        // pairing, which is how a single-mesh prop is laid out.
-        var match = shell.Objects.FirstOrDefault(o => o.MeshIndex == nodeIndex)
-                    ?? (nodeIndex < shell.Objects.Count ? shell.Objects[nodeIndex] : null);
-        return match != null ? PsxMeshSemantics.GetObjectOffset(shell, match) : Vector3.Zero;
-    }
-
-    /// <summary>
     ///     Emits one render-bank mesh node, split into a node per
     ///     <c>G_MTX</c> index so the parts stay separable in the exported
     ///     scene.
     ///     <para>
     ///         The G_MTX index selects the runtime animation matrix, so it
-    ///         separates parts but carries no placement of its own — the node's
-    ///         authored offset (see <see cref="NodeOffset" />) does that.
+    ///         separates parts but carries no placement of its own — the
+    ///         placing object's authored offset does that. Node vertices are
+    ///         MESH-LOCAL: verified on c_kart, whose box was the right size but
+    ///         displaced by exactly its object's (-10, 9, -92)/2.25, and which
+    ///         matches PS1 to ~0.2 (the port's trunc(raw/8) quantisation) once
+    ///         the offset is applied.
     ///     </para>
     /// </summary>
     private static bool EmitMesh(
@@ -141,9 +129,9 @@ public static class N64ModelWriter
 
                 ModelDocumentGeometryAdapter.AddTriangle(
                     batch.Vertices, batch.Indices,
-                    ToVertex(mesh.Vertices[triangle.V0], scale, size, offset, mesh.HasNormals),
-                    ToVertex(mesh.Vertices[triangle.V1], scale, size, offset, mesh.HasNormals),
-                    ToVertex(mesh.Vertices[triangle.V2], scale, size, offset, mesh.HasNormals));
+                    ToVertex(mesh, triangle.C0, scale, size, offset),
+                    ToVertex(mesh, triangle.C1, scale, size, offset),
+                    ToVertex(mesh, triangle.C2, scale, size, offset));
             }
 
             foreach (var (materialIndex, batch) in batches.OrderBy(static b => b.Key))
@@ -172,14 +160,17 @@ public static class N64ModelWriter
     ///     normalised by the BOUND texture's real dimensions — corpus UV spans
     ///     cluster at 63/127/255, i.e. texel coordinates running 0..N−1 over
     ///     64/128/256-wide sheets, so a fixed divisor is wrong for most faces.
+    ///     UVs come from the CORNER, which carries any G_MODIFYVTX override.
     /// </summary>
     private static ModelVertex ToVertex(
-        N64RenderBankFile.N64Vertex vertex,
+        N64RenderBankFile.N64RenderMesh mesh,
+        N64RenderBankFile.N64Corner corner,
         float scale,
         (int Width, int Height) size,
-        Vector3 offset,
-        bool hasNormals)
+        Vector3 offset)
     {
+        var vertex = mesh.Vertices[corner.Vertex];
+        var hasNormals = mesh.HasNormals;
         var uScale = 32f * Math.Max(1, size.Width);
         var vScale = 32f * Math.Max(1, size.Height);
 
@@ -205,7 +196,8 @@ public static class N64ModelWriter
                 new Vector3(vertex.X * scale, vertex.Y * scale, vertex.Z * scale) + offset),
             Normal = normal,
             Color = colour,
-            TexCoord = new Vector2(vertex.S / uScale, vertex.T / vScale)
+            // Corner ST, not the pool vertex's: G_MODIFYVTX can rewrite it.
+            TexCoord = new Vector2(corner.S / uScale, corner.T / vScale)
         };
     }
 }
