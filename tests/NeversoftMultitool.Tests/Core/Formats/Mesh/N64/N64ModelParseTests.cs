@@ -59,6 +59,30 @@ public sealed class N64ModelParseTests(TestPaths paths)
         Assert.Empty(document.Meshes);
     }
 
+    /// <summary>
+    ///     The rig-only document must survive the shared exporter: a
+    ///     zero-triangle document with a skeleton produces a real GLB (joint
+    ///     nodes only). This is the seam the geometry decoder will drop into,
+    ///     so a break here would surface as "no output" later.
+    /// </summary>
+    [Fact]
+    public void RigOnlyDocument_ExportsAValidGlb()
+    {
+        var document = ParseBundle("models/000/geometry.psx.n64", out var fs);
+        using var _ = fs;
+
+        var (glb, triangles) = ModelExportService.BuildGlbBytes(document);
+
+        Assert.NotNull(glb);
+        Assert.Equal(0, triangles);
+        // glTF binary container magic.
+        Assert.Equal((byte)'g', glb![0]);
+        Assert.Equal((byte)'l', glb[1]);
+        Assert.Equal((byte)'T', glb[2]);
+        Assert.Equal((byte)'F', glb[3]);
+        Assert.True(glb.Length > 512, $"expected a populated GLB, got {glb.Length} bytes");
+    }
+
     [Fact]
     public void Parse_RejectsAnEmptyBundleSlotWithAClearMessage()
     {
