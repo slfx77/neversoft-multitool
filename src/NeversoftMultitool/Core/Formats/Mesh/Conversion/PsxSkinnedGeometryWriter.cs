@@ -187,7 +187,13 @@ internal static class PsxSkinnedGeometryWriter
         ModelDocumentGeometryAdapter.AddMeshNode(document, "combined_mesh", combinedMesh);
     }
 
-    private static ModelSkeleton BuildPsxSkeleton(
+    /// <summary>
+    ///     Builds the joint tree from the object table + HIER parents alone —
+    ///     no mesh data involved, which is why the carved N64 model path can
+    ///     reuse it against a shell whose geometry lives in a separate render
+    ///     bank.
+    /// </summary>
+    internal static ModelSkeleton BuildPsxSkeleton(
         PsxMeshFile psxFile,
         PshFile? pshFile,
         bool flatSkeleton,
