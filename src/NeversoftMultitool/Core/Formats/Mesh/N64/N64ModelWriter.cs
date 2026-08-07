@@ -23,6 +23,18 @@ namespace NeversoftMultitool.Core.Formats.Mesh.N64;
 public static class N64ModelWriter
 {
     /// <summary>
+    ///     Everything one conversion needs that does not vary per triangle:
+    ///     the shell it is placed against, the material cache, the raw-unit
+    ///     scale, the ROM's light rig, and the coplanar-overlay assignments.
+    /// </summary>
+    private readonly record struct EmitContext(
+        PsxMeshFile Shell,
+        N64MaterialCache Materials,
+        float Scale,
+        N64LightRig? Rig,
+        IReadOnlyDictionary<N64TriangleInstanceKey, N64CoplanarOverlayAssignment> Overlays);
+
+    /// <summary>
     ///     The N64 build stores vertices as <c>trunc(PS1raw / k)</c>, k = 8 for
     ///     the animated (super) models the PS1 stores ×16 and k = 1 elsewhere,
     ///     so world units are <c>raw × k / shellScaleDivisor</c>. k is inferred
@@ -67,9 +79,10 @@ public static class N64ModelWriter
         var overlays = N64CoplanarOverlayDetector.FindGroups(
             BuildOverlayCandidates(placements, shell, scale), scale);
 
+        var context = new EmitContext(shell, materials, scale, source.LightRig, overlays);
         foreach (var (objectIndex, mesh) in placements)
         {
-            if (EmitMesh(document, mesh, materials, scale, objectIndex, shell, overlays))
+            if (EmitMesh(document, mesh, objectIndex, context))
                 emitted++;
         }
 
@@ -172,11 +185,8 @@ public static class N64ModelWriter
     private static bool EmitMesh(
         ModelDocument document,
         N64RenderBankFile.N64RenderMesh mesh,
-        N64MaterialCache materials,
-        float scale,
         int objectIndex,
-        PsxMeshFile shell,
-        IReadOnlyDictionary<N64TriangleInstanceKey, N64CoplanarOverlayAssignment> overlays)
+        EmitContext context)
     {
         if (mesh.Triangles.Count == 0)
             return false;
@@ -199,7 +209,7 @@ public static class N64ModelWriter
             // offset gives 40.9.
             var baseName = $"n64_{objectIndex:D4}_part{part.Key:D3}";
             var layers = part.ToLookup(item =>
-                overlays.TryGetValue(new N64TriangleInstanceKey(objectIndex, item.Index), out var assignment)
+                context.Overlays.TryGetValue(new N64TriangleInstanceKey(objectIndex, item.Index), out var assignment)
                     ? (assignment.GroupId, assignment.DrawRank)
                     : (GroupId: -1, DrawRank: 0));
 
@@ -211,12 +221,11 @@ public static class N64ModelWriter
                 if (groupId >= 0)
                 {
                     name += rank <= 1 ? $"__overlay{groupId:D2}" : $"__overlay{groupId:D2}_r{rank}";
-                    var offset = OverlayLiftVector(layer, mesh, scale, objectIndex, shell) * rank;
+                    var offset = OverlayLiftVector(layer, mesh, objectIndex, context) * rank;
                     drawOrder = new MeshDrawOrderMetadata(rank, rank, groupId, offset.X, offset.Y, offset.Z);
                 }
 
-                emitted |= EmitLayer(
-                    document, mesh, materials, scale, objectIndex, shell, layer, name, drawOrder);
+                emitted |= EmitLayer(document, mesh, objectIndex, context, layer, name, drawOrder);
             }
         }
 
@@ -230,10 +239,8 @@ public static class N64ModelWriter
     private static bool EmitLayer(
         ModelDocument document,
         N64RenderBankFile.N64RenderMesh mesh,
-        N64MaterialCache materials,
-        float scale,
         int objectIndex,
-        PsxMeshFile shell,
+        EmitContext context,
         IEnumerable<(N64RenderBankFile.N64Triangle Triangle, int Index)> layer,
         string name,
         MeshDrawOrderMetadata? drawOrder)
@@ -257,7 +264,7 @@ public static class N64ModelWriter
                 mesh.Vertices[triangle.V0].A < 255 ||
                 mesh.Vertices[triangle.V1].A < 255 ||
                 mesh.Vertices[triangle.V2].A < 255);
-            var (materialIndex, size) = materials.Resolve(triangle, translucent);
+            var (materialIndex, size) = context.Materials.Resolve(triangle, translucent);
             if (!batches.TryGetValue(materialIndex, out var batch))
             {
                 batch = ([], []);
@@ -266,9 +273,9 @@ public static class N64ModelWriter
 
             ModelDocumentGeometryAdapter.AddTriangle(
                 batch.Vertices, batch.Indices,
-                ToVertex(mesh, triangle.C0, scale, size, CornerOffset(shell, objectIndex, triangle.C0)),
-                ToVertex(mesh, triangle.C1, scale, size, CornerOffset(shell, objectIndex, triangle.C1)),
-                ToVertex(mesh, triangle.C2, scale, size, CornerOffset(shell, objectIndex, triangle.C2)));
+                ToVertex(mesh, triangle.C0, size, objectIndex, context),
+                ToVertex(mesh, triangle.C1, size, objectIndex, context),
+                ToVertex(mesh, triangle.C2, size, objectIndex, context));
         }
 
         foreach (var (materialIndex, batch) in batches.OrderBy(static b => b.Key))
@@ -308,10 +315,10 @@ public static class N64ModelWriter
     private static Vector3 OverlayLiftVector(
         IEnumerable<(N64RenderBankFile.N64Triangle Triangle, int Index)> layer,
         N64RenderBankFile.N64RenderMesh mesh,
-        float scale,
         int objectIndex,
-        PsxMeshFile shell)
+        EmitContext context)
     {
+        var (shell, _, scale, _, _) = context;
         foreach (var (triangle, _) in layer)
         {
             var p0 = CornerPosition(mesh, triangle.C0, scale, CornerOffset(shell, objectIndex, triangle.C0));
@@ -338,25 +345,42 @@ public static class N64ModelWriter
     private static ModelVertex ToVertex(
         N64RenderBankFile.N64RenderMesh mesh,
         N64RenderBankFile.N64Corner corner,
-        float scale,
         (int Width, int Height) size,
-        Vector3 offset)
+        int objectIndex,
+        EmitContext context)
     {
+        var (shell, _, scale, rig, _) = context;
+        var offset = CornerOffset(shell, objectIndex, corner);
         var vertex = mesh.Vertices[corner.Vertex];
         var hasNormals = mesh.HasNormals;
         var uScale = 32f * Math.Max(1, size.Width);
         var vScale = 32f * Math.Max(1, size.Height);
 
         // F3DEX2 reuses the trailing four bytes for either a lit normal or an
-        // authored colour. A lit pool has no colour to export (the shade comes
-        // from the light), so it gets white and a real normal.
+        // authored colour, chosen by the group descriptor's G_LIGHTING bit.
         var normal = Vector3.UnitY;
         var colour = Vector4.One;
         if (hasNormals)
         {
-            var n = new Vector3((sbyte)vertex.R, (sbyte)vertex.G, (sbyte)vertex.B) / 127f;
-            if (n.LengthSquared() > 1e-6f)
-                normal = Vector3.Normalize(PsxMeshSemantics.ToGltfPosition(n));
+            var raw = new Vector3((sbyte)vertex.R, (sbyte)vertex.G, (sbyte)vertex.B) / 127f;
+            if (raw.LengthSquared() > 1e-6f)
+                normal = Vector3.Normalize(PsxMeshSemantics.ToGltfPosition(raw));
+
+            // Bake the ROM's own rig. Each port uploads exactly ONE Lights1 —
+            // a monochrome grey directional plus grey ambient — at startup and
+            // never rewrites it, so the shade is ambient + colour*max(0, N.L)
+            // and spans grey [70,175] on THPS2/3/SM or [95,215] on THPS1. A lit
+            // vertex therefore can never be coloured and can never reach 255,
+            // which is why exporting these as pure WHITE was wrong in kind.
+            // A degenerate all-zero normal (112 groups corpus-wide, among them
+            // THPS1's taxi body and wheels) lands on pure ambient here, which
+            // is what the hardware produces for it rather than a chosen
+            // fallback. Without a rig we cannot shade, so white stands.
+            if (rig != null)
+            {
+                var shade = rig.Shade(raw);
+                colour = new Vector4(shade.X, shade.Y, shade.Z, 1f);
+            }
         }
         else
         {

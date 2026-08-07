@@ -109,8 +109,13 @@ def census(paths):
 
             # ABR rates 1-3 (additive / subtractive / quarter-additive)
             # composite by EQUATION, so they blend whatever their alpha holds.
+            # An ABR-0 glass material blends through baseColorFactor alpha
+            # instead (the art carries no alpha at all - that is what makes it
+            # glass), so it must count as a reason too, or every window in the
+            # corpus reads as an unjustified BLEND.
             name = material.get("name", "")
-            equation = any(f"__st{rate}" in name for rate in (1, 2, 3))
+            base_alpha = material.get("pbrMetallicRoughness", {}).get("baseColorFactor", [1, 1, 1, 1])[3]
+            equation = any(f"__st{rate}" in name for rate in (1, 2, 3)) or base_alpha < 0.999
             bucket = (mode, klass, "vtx-alpha" if vmin < 0.999 else "vtx-opaque", equation)
             counts[bucket] += 1
             tri_counts[bucket] += tris

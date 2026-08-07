@@ -42,6 +42,43 @@ public static class N64RenderBankFile
     /// <summary>kind bit 0: the group's triangles are textured (slot at +0x02).</summary>
     private const int TexturedBit = 0x0001;
 
+    /// <summary>
+    ///     kind bit 10: the RSP geometry-mode <c>G_LIGHTING</c> carrier, ACTIVE
+    ///     LOW — clear means lighting ON, so the pool's trailing bytes are a lit
+    ///     NORMAL; set means lighting OFF and they are an RGBA colour.
+    ///     <para>
+    ///         Disassembled 2026-08-07 in all four ROMs. The display-list
+    ///         emitter reduces it to a per-draw-entry boolean —
+    ///         <c>lightingFlag = ((descriptor[+4] >> 10) &amp; 1) ^ 1</c> (THPS2
+    ///         @0x800C5F28, THPS3 @0x800CA768, Spider-Man @0x800CFC18) — and the
+    ///         consumer emits <c>G_GEOMETRYMODE</c> (0xD9) with set-mask
+    ///         0x00020000 when it is true and the clear-mask word otherwise.
+    ///         THPS1's older emitter tests the raw descriptor word in place
+    ///         (@0x800AA2F4) with the same polarity. The polarity was read from
+    ///         the EMIT, not assumed: the mask built via
+    ///         <c>nor</c>/<c>and 0x00FFFFFF</c>/<c>or 0xD9000000</c> and written
+    ///         with word1 = 0 is the CLEAR word. The embedded ucode string
+    ///         "RSP Gfx ucode F3DEX.NoN fifo 2.08 ... 1999 Nintendo" fixes the
+    ///         GBI as F3DEX2, so 0xD9 carries clear/set masks.
+    ///     </para>
+    ///     <para>
+    ///         Independently refereed against the PS1 siblings, which share no
+    ///         machinery with the N64 decode: of 718,411 triangles in bit-SET
+    ///         groups, ZERO carry the PS1 engine-lit face flag 0x0004, while
+    ///         55.7-90.3% of bit-CLEAR triangles do. A geometry-free byte-shape
+    ///         oracle scores precision 100% / recall 96.3% over the 10,710 pools
+    ///         where it is meaningful.
+    ///     </para>
+    ///     <para>
+    ///         This REPLACES a byte-magnitude heuristic that admitted mid-grey
+    ///         (69,69,69) and light-grey (177,177,177) alike, and so exported
+    ///         5,522 nodes of authored colour as pure white — the reported
+    ///         "geometry too bright". The true lit share is 1.7-7.6% of groups,
+    ///         not the 12-38% of pools that heuristic claimed.
+    ///     </para>
+    /// </summary>
+    private const int LightingDisabledBit = 0x0400;
+
     public readonly record struct N64Vertex(
         short X, short Y, short Z, short S, short T, byte R, byte G, byte B, byte A);
 
@@ -68,8 +105,8 @@ public static class N64RenderBankFile
     ///     One mesh node. <paramref name="HasNormals" /> reports whether the
     ///     pool's last four bytes hold a lit surface normal rather than an
     ///     authored vertex colour — F3DEX2 reuses the field for both and the
-    ///     engine picks per model via G_LIGHTING, so it is decided from the
-    ///     data (see <see cref="LooksLikeNormals" />).
+    ///     engine picks with G_LIGHTING, which the group descriptor carries
+    ///     (see <see cref="LightingDisabledBit" />).
     ///     <para>
     ///         <paramref name="NodeIndex" /> is the mesh's position in the
     ///         record's root table, NOT its position in the returned list.
@@ -119,8 +156,8 @@ public static class N64RenderBankFile
         if (vertices == null)
             return null;
 
-        var triangles = ReadGeometry(data, node[1].Start, node[1].End, vertices);
-        return new N64RenderMesh(vertices, triangles, bounds, LooksLikeNormals(vertices), nodeIndex);
+        var triangles = ReadGeometry(data, node[1].Start, node[1].End, vertices, out var lit);
+        return new N64RenderMesh(vertices, triangles, bounds, lit, nodeIndex);
     }
 
     /// <summary>
@@ -177,32 +214,6 @@ public static class N64RenderBankFile
         static double Sq(double v) => v * v;
     }
 
-    /// <summary>
-    ///     Decides whether a pool's trailing four bytes are a lit NORMAL
-    ///     (signed xyz + alpha) or an authored RGBA colour. F3DEX2 stores both
-    ///     in the same field and the engine chooses with G_LIGHTING, which the
-    ///     packed display list never encodes — so this measures the data: a
-    ///     normal set is unit length in signed-byte space (|xyz| ~ 127).
-    ///     Reading normals as colours produces the rainbow gradients that gave
-    ///     the defect away; measured 12-38% of pools per ROM are lit.
-    /// </summary>
-    private static bool LooksLikeNormals(List<N64Vertex> vertices)
-    {
-        if (vertices.Count == 0)
-            return false;
-
-        var unit = 0;
-        foreach (var v in vertices)
-        {
-            double x = (sbyte)v.R, y = (sbyte)v.G, z = (sbyte)v.B;
-            var magnitude = Math.Sqrt(x * x + y * y + z * z);
-            if (magnitude is >= 100 and <= 150)
-                unit++;
-        }
-
-        return unit * 5 >= vertices.Count * 3;
-    }
-
     private static List<N64Vertex> DecodeVertices(ReadOnlySpan<byte> body, int count, bool transposed)
     {
         var vertices = new List<N64Vertex>(count);
@@ -239,8 +250,9 @@ public static class N64RenderBankFile
     ///     takes the next n pool entries into cache slots [v0, v0+n).
     /// </summary>
     private static List<N64Triangle> ReadGeometry(
-        byte[] data, int start, int end, IReadOnlyList<N64Vertex> vertices)
+        byte[] data, int start, int end, IReadOnlyList<N64Vertex> vertices, out bool lit)
     {
+        lit = false;
         var triangles = new List<N64Triangle>();
         var groups = ReadTable(data, start, end);
         if (groups == null)
@@ -265,6 +277,13 @@ public static class N64RenderBankFile
             var kind = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(group[0].Start + 6));
             if ((kind & KindNonDisplayList) != 0)
                 continue;
+
+            // The lighting bit is per GROUP, but no node in the corpus mixes it
+            // (0 of 41,905 across the four ROMs, including 7,000+ nodes with
+            // more than one group), so one verdict per node is faithful and
+            // keeps the pool decode - which is per node - coherent.
+            if ((kind & LightingDisabledBit) == 0)
+                lit = true;
 
             // Descriptor word 0 is a GLOBAL texture-dictionary slot index and
             // kind bit 0 is its enable flag. Both are decomp-verified:

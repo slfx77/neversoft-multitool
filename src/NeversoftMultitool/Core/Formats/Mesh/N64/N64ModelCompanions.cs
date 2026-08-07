@@ -38,6 +38,17 @@ public static class N64ModelCompanions
     }
 
     /// <summary>
+    ///     Reads the ROM's single light rig out of the carved <c>boot.bin</c>,
+    ///     or null when the boot image is absent. Every bundle in one ROM shares
+    ///     it — the rig is uploaded once at startup and never rewritten.
+    /// </summary>
+    public static N64LightRig? TryReadLightRig(AssetSource source)
+    {
+        var boot = TryReadSibling(source, string.Empty, ["boot.bin"]);
+        return boot == null ? null : N64LightRig.TryParse(boot);
+    }
+
+    /// <summary>
     ///     Reads the render-bank record this bundle points at, or null when
     ///     either the id or the record is missing.
     /// </summary>

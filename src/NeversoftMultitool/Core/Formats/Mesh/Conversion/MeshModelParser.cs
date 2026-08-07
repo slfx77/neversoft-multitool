@@ -130,9 +130,9 @@ public sealed class MeshModelParser : IModelParser
 
     /// <summary>
     ///     A model bundle carved from an N64 ROM. The shell supplies the
-    ///     skeleton and naming; its render bank is loaded but not yet decoded
-    ///     (the group2 vertex codec is the one open N64 format), so the
-    ///     document carries a rig without geometry.
+    ///     skeleton and naming, the render bank supplies the geometry, and the
+    ///     ROM's shared light rig is read from boot.bin so lit surfaces can be
+    ///     shaded the way the console shades them.
     /// </summary>
     private static ModelDocument ParseN64Model(MeshImportRequest request)
     {
@@ -144,7 +144,8 @@ public sealed class MeshModelParser : IModelParser
             shell,
             N64.N64ModelCompanions.TryReadRenderBank(request.Source),
             N64.N64ModelCompanions.TryReadRenderBankId(request.Source),
-            N64.N64ModelCompanions.BuildTextureProvider(request.Source));
+            N64.N64ModelCompanions.BuildTextureProvider(request.Source),
+            N64.N64ModelCompanions.TryReadLightRig(request.Source));
 
         var document = ModelDocument.CreateNative(request.OutputStem, ModelSourceKind.N64Model, native);
         N64.N64ModelWriter.Populate(document, native);
