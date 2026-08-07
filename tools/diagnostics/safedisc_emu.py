@@ -81,10 +81,31 @@ What the harness established about the loader, all observed rather than assumed:
      image base (0x00400000) and a jump-record pointer, then calls back into the
      DLL. So the decryption target is the main image, as expected.
 
-CURRENT BLOCKER: the loader reaches a decision point and calls ExitProcess(1) --
-a deliberate refusal, not a crash. It has by then installed four jump thunks and
-read PfdRun.pfd back. What it is unhappy about is not yet identified; the next
-step is `--break` on the caller of ExitProcess to see which check failed.
+CURRENT BLOCKER: the loader tears itself down. ExitProcess(1) is called from the
+EXE's own stub, not the DLL -- `call [0x7e2029]` at 0x007E210D -- and the path
+there is worth reading carefully because it is NOT the obvious failure branch:
+
+    0x7E20E5  call 0x7e2160        ; the DLL-driven work
+    0x7E20EE  cmp  eax, 0
+    0x7E20F1  je   0x7e210f        ; failure branch -- NOT taken
+    0x7E20F3  mov  byte [ebx], 0xC2 ; patch `ret 0xC` over its own entry point
+    0x7E20FA  test ecx, ecx        ; flag byte loaded from 0x7E203D
+    0x7E20FC  je   0x7e2107
+    0x7E2107  push eax
+    0x7E2108  mov  eax, [0x7e2029]
+    0x7E210D  call eax             ; -> ExitProcess(1)
+
+Just before that it spawns a child:
+    CreateProcessA(app='C:\WINDOWS\Temp\~e5.0001',
+                   cmd='"..." 1 "C:\WINDOWS\Temp\" "~e5.0001.dir.0000"')
+`~e5.0001` is NOT the game and NOT an error dialog: its string table contains
+exactly one entry, "CleanUp Application", and it is a small USER32 GUI program
+whose arguments are a mode, the temp path and the directory to remove. So the
+parent is DELETING ITS TEMP TREE AND LEAVING -- a teardown, not a hand-off to a
+child that would carry on the unpacking. Something upstream declined, and the
+identity of that check is the open question. (A first reading of the
+CreateProcessA call as "the real game runs in a child process" was wrong; the
+string table settled it.)
 
 PROGRESSION, so the next session can tell movement from noise. Each number is a
 distinct defect fixed, and every one was a harness bug rather than a protection
@@ -491,6 +512,8 @@ class SafeDiscEmulator:
         self.section_written: dict[int, int] = {}
         self.executed_sections: set[int] = set()
         self.oep_rejects: Counter = Counter()
+        self.current_return = 0
+        self.child_processes: list[tuple[str, str, int]] = []
         self.watch_hi = 0
         self.process_writes: list[tuple[int, int]] = []
         self.trail: deque[int] | None = None
@@ -1263,6 +1286,21 @@ class SafeDiscEmulator:
                 self.uc.mem_write(args[0] + 4, struct.pack("<IIII", 5, 1, 2600, 2))
             return 1
 
+        if name in ("CreateProcessA", "CreateProcessW"):
+            # (lpApplicationName, lpCommandLine, .., bInheritHandles, dwCreationFlags,
+            #  lpEnvironment, lpCurrentDirectory, lpStartupInfo, lpProcessInformation)
+            wide = name.endswith("W")
+            application = self.read_cstr(args[0], wide=wide) if args[0] else ""
+            command = self.read_cstr(args[1], wide=wide) if args[1] else ""
+            flags = args[5] if len(args) > 5 else 0
+            self.child_processes.append((application, command, flags))
+            log(f"    {name}(app='{application}', cmd='{command}', flags=0x{flags:X})"
+                f"  <-- SPAWNS A CHILD PROCESS", always=True)
+            if len(args) > 9 and args[9]:
+                # PROCESS_INFORMATION {hProcess, hThread, dwProcessId, dwThreadId}
+                self.uc.mem_write(args[9], struct.pack("<IIII", 0x300, 0x304, 0x2000, 0x2004))
+            return 1
+
         if name in ("HeapCreate", "GetProcessHeap"):
             return HEAP_BASE
 
@@ -1284,10 +1322,15 @@ class SafeDiscEmulator:
             return 0b0000_0000_0000_0000_0000_0000_0001_1100  # C:, D:, E:
 
         if name in ("ExitProcess", "TerminateProcess"):
+            # Record WHO called it. Without the call site this is just "it gave
+            # up"; with it, the failing check is one disassembly away.
             self.stop_reason = (
-                f"loader called {name}({args[0] if args else '?'}) - it decided to give up. "
-                "Look at the API calls just before this."
+                f"loader called {name}({args[0] if args else '?'}) from "
+                f"0x{self.current_return:08X}{self.describe_address(self.current_return)} "
+                "- it decided to give up; disassemble backwards from there to find "
+                "the check that failed"
             )
+            self.stop_locked = True
             self.uc.emu_stop()
             return 0
 
@@ -1658,6 +1701,7 @@ class SafeDiscEmulator:
             esp = uc.reg_read(UC_X86_REG_ESP)
             ret = struct.unpack("<I", uc.mem_read(esp, 4))[0]
             args = [struct.unpack("<I", uc.mem_read(esp + 4 + 4 * i, 4))[0] for i in range(argc)]
+            self.current_return = ret
             result = self.handle_api(name, args)
             resume_esp = esp + 4 + 4 * argc  # stdcall cleanup
 
@@ -2538,6 +2582,7 @@ ARG_COUNTS: dict[str, int] = {
     "DSOUND.DLL#11": 3,  # DirectSoundCreate8(pcGuidDevice, ppDS8, pUnkOuter)
     "UnmapViewOfFile": 1, "CreateFileMappingW": 6, "GetNativeSystemInfo": 1,
     "IsProcessorFeaturePresent": 1, "GetNativeSystemInfo": 1, "HeapSetInformation": 4,
+    "CreateProcessW": 10, "RemoveDirectoryW": 1,
     # Every remaining import of the extracted SafeDisc DLL, enumerated from its
     # own import table rather than discovered one crash at a time.
     "WriteProcessMemory": 5, "ReadProcessMemory": 5, "GetHandleInformation": 2,
