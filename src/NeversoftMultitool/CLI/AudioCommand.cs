@@ -9,13 +9,13 @@ namespace NeversoftMultitool.CLI;
 public static class AudioCommand
 {
     private static readonly string[] SupportedExtensions =
-        [".adx", ".xa", ".vab", ".kat", ".sfx", ".vag", ".pss", ".vid"];
+        [".adx", ".xa", ".vab", ".kat", ".sfx", ".vag", ".pcm", ".pss", ".vid"];
 
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to directory containing audio files (.adx, .xa, .vab, .vag, .kat, .sfx, .pss, .vid)"
+            Description = "Path to directory containing audio files (.adx, .xa, .vab, .vag, .kat, .sfx, .pcm, .pss, .vid)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -32,7 +32,7 @@ public static class AudioCommand
             DefaultValueFactory = _ => 0
         };
 
-        var command = new Command("audio", "Convert ADX/XA/VAB/VAG/KAT/SFX/PSS/VID audio files to WAV");
+        var command = new Command("audio", "Convert ADX/XA/VAB/VAG/KAT/SFX/PCM/PSS/VID audio files to WAV");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -94,6 +94,7 @@ public static class AudioCommand
                     ".vab" => VabExtractor.ExtractToWav(file, output,
                         sampleRate > 0 ? sampleRate : VabExtractor.DefaultSampleRate),
                     ".vag" => VagDecoder.ConvertToWav(file, output, sampleRate),
+                    ".pcm" => XboxPcmDecoder.ConvertToWav(file, output),
                     ".pss" => PssAudioExtractor.ConvertToWav(file, output),
                     ".vid" => Vid1AudioExtractor.ConvertToWav(file, output),
                     ".kat" => KatExtractor.ExtractToWav(file, output),

@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Audio;
 using NeversoftMultitool.Core.Formats.Vid1;
 
@@ -7,10 +8,12 @@ internal static class FormatProbeAudio
 {
     public static FormatProbe.FormatProbeResult Probe(string filePath)
     {
-        var ext = Path.GetExtension(filePath);
+        var ext = Path.GetExtension(filePath).ToLowerInvariant();
         return ext switch
         {
             ".adx" => ProbeAdxFile(filePath),
+            ".pcm" => ProbePcmFile(filePath),
+            ".snd" => ProbeSndFile(),
             ".xa" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "XA Audio"),
             ".vab" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "VAB Sound Bank"),
             ".vag" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "VAG Audio"),
@@ -47,6 +50,32 @@ internal static class FormatProbeAudio
             "Not a valid ADX file (missing 0x8000 magic)");
     }
 
+    private static FormatProbe.FormatProbeResult ProbePcmFile(string filePath)
+    {
+        return XboxPcmDecoder.Probe(filePath) != null
+            ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Xbox ADPCM")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "Xbox ADPCM",
+                "Not a RIFF/WAVE container holding Xbox ADPCM (wFormatTag 0x0069)");
+    }
+
+    /// <summary>
+    ///     THUG2 PC <c>.snd</c>. The fmt chunk claims 16-bit mono PCM and is lying:
+    ///     the payload is a 4-bit compressed stream, and nAvgBytesPerSec carries the
+    ///     DECODED byte count instead of a byte rate (avg == 4 x dataSize, or that
+    ///     minus 2 for an odd sample count, in all 788 corpus files). Read as PCM it
+    ///     is white noise. Reported as unsupported on purpose — emitting a .wav from
+    ///     it would hand the user 788 files of loud static.
+    /// </summary>
+    private static FormatProbe.FormatProbeResult ProbeSndFile()
+    {
+        return new FormatProbe.FormatProbeResult(
+            FormatProbe.FormatSupport.Unsupported,
+            "THUG2 PC Sound",
+            "4-bit compressed audio behind a PCM fmt header; the codec is not yet decoded");
+    }
+
     private static FormatProbe.FormatProbeResult ProbeSfxFile(string filePath)
     {
         return SfxExtractor.CanExtract(filePath, out var error)
@@ -71,17 +100,44 @@ internal static class FormatProbeAudio
             : new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Unsupported, "VID1 Audio", error);
     }
 
+    /// <summary>
+    ///     The fallback for files with no recognized audio extension. Both real
+    ///     callers only ever feed it EXTENSIONLESS voice/music streams, so a
+    ///     size-only rule used to hand back "Supported / Headerless SPU-ADPCM" for
+    ///     anything whose length happened to be a multiple of 16 — including 516
+    ///     .pcm and 56 .snd files, which are RIFF containers and not SPU-ADPCM at
+    ///     all. Now a container or a named extension is rejected outright, and the
+    ///     size rule must additionally survive the real VAG probe.
+    /// </summary>
     private static FormatProbe.FormatProbeResult ProbeHeaderlessAudio(string filePath)
     {
         try
         {
+            var extension = Path.GetExtension(filePath);
+
+            if (RiffWaveReader.TryReadHeader(filePath, out _))
+            {
+                return new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    "Unknown",
+                    "RIFF/WAVE container with an unrecognized extension");
+            }
+
+            if (!string.IsNullOrEmpty(extension))
+            {
+                return new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    "Unknown",
+                    $"Unrecognized audio format: {extension}");
+            }
+
             var info = new FileInfo(filePath);
-            return info.Length > 0 && info.Length % 16 == 0
+            return info.Length > 0 && info.Length % 16 == 0 && VagDecoder.Probe(filePath) != null
                 ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Headerless SPU-ADPCM")
                 : new FormatProbe.FormatProbeResult(
                     FormatProbe.FormatSupport.Unsupported,
                     "Unknown",
-                    $"Unrecognized audio format: {Path.GetExtension(filePath)}");
+                    $"Unrecognized audio format: {extension}");
         }
         catch
         {

@@ -7,7 +7,7 @@ namespace NeversoftMultitool;
 internal static class AudioConverterTabOperations
 {
     private static readonly string[] SupportedExtensions =
-        [".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".pss", ".vid"];
+        [".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".pcm", ".pss", ".vid"];
 
     public static bool IsAudioFile(string path)
     {
@@ -37,6 +37,7 @@ internal static class AudioConverterTabOperations
             ".xa" => "XA",
             ".vab" => "VAB",
             ".vag" => "VAG",
+            ".pcm" => "PCM",
             ".pss" => "PSS",
             ".vid" => "VID",
             ".kat" => "KAT",
@@ -159,6 +160,7 @@ internal static class AudioConverterTabOperations
             "XA" => XaDecoder.ConvertToWav(data, stem, outputDir),
             "VAB" => VabExtractor.ExtractToWav(data, stem, outputDir, vabSampleRate),
             "VAG" => VagDecoder.ConvertToWav(data, stem, outputDir),
+            "PCM" => XboxPcmDecoder.ConvertToWav(data, stem, outputDir),
             "PSS" => PssAudioExtractor.ConvertToWav(data, stem, outputDir),
             "VID" => Vid1AudioExtractor.ConvertToWav(data, stem, outputDir),
             "KAT" => KatExtractor.ExtractToWav(data, stem, outputDir),
@@ -217,6 +219,7 @@ internal static class AudioConverterTabOperations
             "ADX" => AdxDecoder.ConvertToWav(data, stem, tempDir),
             "XA" => XaDecoder.ConvertToWav(data, stem, tempDir),
             "VAG" => VagDecoder.ConvertToWav(data, stem, tempDir),
+            "PCM" => XboxPcmDecoder.ConvertToWav(data, stem, tempDir),
             "PSS" => PssAudioExtractor.ConvertToWav(data, stem, tempDir),
             "VID" => Vid1AudioExtractor.ConvertToWav(data, stem, tempDir),
             _ => null
