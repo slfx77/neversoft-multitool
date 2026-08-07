@@ -55,13 +55,21 @@ public static class N64ModelWriter
         // no object references is never drawn (a Downhill Jam shell carries 883
         // meshes for 642 objects), and one mesh may be placed more than once.
         var byNode = meshes.ToDictionary(static m => m.NodeIndex);
+        var placements = new List<(int ObjectIndex, N64RenderBankFile.N64RenderMesh Mesh)>();
         for (var objectIndex = 0; objectIndex < shell.Objects.Count; objectIndex++)
         {
-            var obj = shell.Objects[objectIndex];
-            if (!byNode.TryGetValue(obj.MeshIndex, out var mesh))
-                continue;
+            if (byNode.TryGetValue(shell.Objects[objectIndex].MeshIndex, out var mesh))
+                placements.Add((objectIndex, mesh));
+        }
 
-            if (EmitMesh(document, mesh, materials, scale, objectIndex, shell))
+        // Built from the same placement list the emit loop walks, so detector
+        // and writer provably see the identical triangle set.
+        var overlays = N64CoplanarOverlayDetector.FindGroups(
+            BuildOverlayCandidates(placements, shell, scale), scale);
+
+        foreach (var (objectIndex, mesh) in placements)
+        {
+            if (EmitMesh(document, mesh, materials, scale, objectIndex, shell, overlays))
                 emitted++;
         }
 
@@ -111,21 +119,77 @@ public static class N64ModelWriter
             : Vector3.Zero;
     }
 
+    /// <summary>
+    ///     Export-space position of one corner, exactly as <see cref="ToVertex" />
+    ///     computes it. The overlay detector must measure the geometry the
+    ///     writer actually emits, so both go through this.
+    /// </summary>
+    private static Vector3 CornerPosition(
+        N64RenderBankFile.N64RenderMesh mesh,
+        N64RenderBankFile.N64Corner corner,
+        float scale,
+        Vector3 offset)
+    {
+        var vertex = mesh.Vertices[corner.Vertex];
+        return PsxMeshSemantics.ToGltfPosition(
+            new Vector3(vertex.X * scale, vertex.Y * scale, vertex.Z * scale) + offset);
+    }
+
+    /// <summary>
+    ///     Flattens the placements into detector candidates, applying the same
+    ///     invisible-face gate the emit loop uses — flagging a face that never
+    ///     ships would split a mesh around geometry nobody sees.
+    /// </summary>
+    private static List<N64OverlayCandidateSource> BuildOverlayCandidates(
+        List<(int ObjectIndex, N64RenderBankFile.N64RenderMesh Mesh)> placements,
+        PsxMeshFile shell,
+        float scale)
+    {
+        var sources = new List<N64OverlayCandidateSource>();
+        foreach (var (objectIndex, mesh) in placements)
+        {
+            for (var i = 0; i < mesh.Triangles.Count; i++)
+            {
+                var triangle = mesh.Triangles[i];
+                if (PsxFaceFlags.IsInvisible(triangle.FaceFlags))
+                    continue;
+
+                sources.Add(new N64OverlayCandidateSource(
+                    new N64TriangleInstanceKey(objectIndex, i),
+                    [
+                        CornerPosition(mesh, triangle.C0, scale, CornerOffset(shell, objectIndex, triangle.C0)),
+                        CornerPosition(mesh, triangle.C1, scale, CornerOffset(shell, objectIndex, triangle.C1)),
+                        CornerPosition(mesh, triangle.C2, scale, CornerOffset(shell, objectIndex, triangle.C2)),
+                    ],
+                    triangle.TextureSlot,
+                    triangle.FaceFlags));
+            }
+        }
+
+        return sources;
+    }
+
     private static bool EmitMesh(
         ModelDocument document,
         N64RenderBankFile.N64RenderMesh mesh,
         N64MaterialCache materials,
         float scale,
         int objectIndex,
-        PsxMeshFile shell)
+        PsxMeshFile shell,
+        IReadOnlyDictionary<N64TriangleInstanceKey, N64CoplanarOverlayAssignment> overlays)
     {
         if (mesh.Triangles.Count == 0)
             return false;
 
-        // Split by part (G_MTX) and then by material, so each primitive binds
-        // exactly one texture with one blend state.
+        // Split by part (G_MTX), then by coplanar-overlay layer, then by
+        // material, so each primitive binds one texture with one blend state
+        // and each decal layer can carry its own draw order.
         var emitted = false;
-        foreach (var part in mesh.Triangles.GroupBy(static t => t.MatrixIndex).OrderBy(static g => g.Key))
+        var indexed = mesh.Triangles
+            .Select(static (triangle, index) => (Triangle: triangle, Index: index))
+            .ToList();
+
+        foreach (var part in indexed.GroupBy(static t => t.Triangle.MatrixIndex).OrderBy(static g => g.Key))
         {
             // G_MTX selects a matrix RELATIVE to the placing object: a level
             // node draws with matrix 0 and takes its placer's offset, while a
@@ -133,56 +197,133 @@ public static class N64ModelWriter
             // from the placer. object[placer + matrix] satisfies both - it
             // reproduces the PS1 skater's height (93.3 vs 93.8) where using no
             // offset gives 40.9.
-            var modelMesh = new ModelMesh { Name = $"n64_{objectIndex:D4}_part{part.Key:D3}" };
-            var batches = new Dictionary<int, (List<ModelVertex> Vertices, List<int> Indices)>();
+            var baseName = $"n64_{objectIndex:D4}_part{part.Key:D3}";
+            var layers = part.ToLookup(item =>
+                overlays.TryGetValue(new N64TriangleInstanceKey(objectIndex, item.Index), out var assignment)
+                    ? (assignment.GroupId, assignment.DrawRank)
+                    : (GroupId: -1, DrawRank: 0));
 
-            foreach (var triangle in part)
+            foreach (var layer in layers.OrderBy(static l => l.Key))
             {
-                // The bank ships the PS1's undrawn faces — collision blockers,
-                // trigger volumes, camera zones — as ordinary geometry. Blob B
-                // carries the same DISC flag word the PS1 file does, so the
-                // identical rule drops them (measured: 8.8% of THPS2 faces).
-                if (PsxFaceFlags.IsInvisible(triangle.FaceFlags))
-                    continue;
-
-                                // Vertex alpha is a real translucency source: light shafts and
-                // glows are untextured, vertex-coloured and fade via alpha, and
-                // 11% of THPS1 vertices are non-opaque.
-                var translucent = !mesh.HasNormals && (
-                    mesh.Vertices[triangle.V0].A < 255 ||
-                    mesh.Vertices[triangle.V1].A < 255 ||
-                    mesh.Vertices[triangle.V2].A < 255);
-                var (materialIndex, size) = materials.Resolve(triangle, translucent);
-                if (!batches.TryGetValue(materialIndex, out var batch))
+                var (groupId, rank) = layer.Key;
+                MeshDrawOrderMetadata? drawOrder = null;
+                var name = baseName;
+                if (groupId >= 0)
                 {
-                    batch = ([], []);
-                    batches[materialIndex] = batch;
+                    name += rank <= 1 ? $"__overlay{groupId:D2}" : $"__overlay{groupId:D2}_r{rank}";
+                    var offset = OverlayLiftVector(layer, mesh, scale, objectIndex, shell) * rank;
+                    drawOrder = new MeshDrawOrderMetadata(rank, rank, groupId, offset.X, offset.Y, offset.Z);
                 }
 
-                ModelDocumentGeometryAdapter.AddTriangle(
-                    batch.Vertices, batch.Indices,
-                    ToVertex(mesh, triangle.C0, scale, size, CornerOffset(shell, objectIndex, triangle.C0)),
-                    ToVertex(mesh, triangle.C1, scale, size, CornerOffset(shell, objectIndex, triangle.C1)),
-                    ToVertex(mesh, triangle.C2, scale, size, CornerOffset(shell, objectIndex, triangle.C2)));
+                emitted |= EmitLayer(
+                    document, mesh, materials, scale, objectIndex, shell, layer, name, drawOrder);
             }
-
-            foreach (var (materialIndex, batch) in batches.OrderBy(static b => b.Key))
-            {
-                if (batch.Indices.Count == 0)
-                    continue;
-                ModelDocumentGeometryAdapter.AddPrimitive(
-                    modelMesh, $"{modelMesh.Name}_m{materialIndex:D3}",
-                    materialIndex, batch.Vertices, batch.Indices);
-            }
-
-            if (modelMesh.Primitives.Count == 0)
-                continue;
-
-            ModelDocumentGeometryAdapter.AddMeshNode(document, modelMesh.Name, modelMesh);
-            emitted = true;
         }
 
         return emitted;
+    }
+
+    /// <summary>
+    ///     Emits one layer of a part: the shared batching path, unchanged, plus
+    ///     the draw-order record when the layer is a decal.
+    /// </summary>
+    private static bool EmitLayer(
+        ModelDocument document,
+        N64RenderBankFile.N64RenderMesh mesh,
+        N64MaterialCache materials,
+        float scale,
+        int objectIndex,
+        PsxMeshFile shell,
+        IEnumerable<(N64RenderBankFile.N64Triangle Triangle, int Index)> layer,
+        string name,
+        MeshDrawOrderMetadata? drawOrder)
+    {
+        var modelMesh = new ModelMesh { Name = name };
+        var batches = new Dictionary<int, (List<ModelVertex> Vertices, List<int> Indices)>();
+
+        foreach (var (triangle, _) in layer)
+        {
+            // The bank ships the PS1's undrawn faces — collision blockers,
+            // trigger volumes, camera zones — as ordinary geometry. Blob B
+            // carries the same DISC flag word the PS1 file does, so the
+            // identical rule drops them (measured: 8.8% of THPS2 faces).
+            if (PsxFaceFlags.IsInvisible(triangle.FaceFlags))
+                continue;
+
+            // Vertex alpha is a real translucency source: light shafts and
+            // glows are untextured, vertex-coloured and fade via alpha, and
+            // 11% of THPS1 vertices are non-opaque.
+            var translucent = !mesh.HasNormals && (
+                mesh.Vertices[triangle.V0].A < 255 ||
+                mesh.Vertices[triangle.V1].A < 255 ||
+                mesh.Vertices[triangle.V2].A < 255);
+            var (materialIndex, size) = materials.Resolve(triangle, translucent);
+            if (!batches.TryGetValue(materialIndex, out var batch))
+            {
+                batch = ([], []);
+                batches[materialIndex] = batch;
+            }
+
+            ModelDocumentGeometryAdapter.AddTriangle(
+                batch.Vertices, batch.Indices,
+                ToVertex(mesh, triangle.C0, scale, size, CornerOffset(shell, objectIndex, triangle.C0)),
+                ToVertex(mesh, triangle.C1, scale, size, CornerOffset(shell, objectIndex, triangle.C1)),
+                ToVertex(mesh, triangle.C2, scale, size, CornerOffset(shell, objectIndex, triangle.C2)));
+        }
+
+        foreach (var (materialIndex, batch) in batches.OrderBy(static b => b.Key))
+        {
+            if (batch.Indices.Count == 0)
+                continue;
+            var primitive = ModelDocumentGeometryAdapter.AddPrimitive(
+                modelMesh, $"{modelMesh.Name}_m{materialIndex:D3}",
+                materialIndex, batch.Vertices, batch.Indices);
+            if (primitive != null && drawOrder != null)
+                primitive.NativeMetadata.Add(drawOrder);
+        }
+
+        if (modelMesh.Primitives.Count == 0)
+            return false;
+
+        ModelDocumentGeometryAdapter.AddMeshNode(document, modelMesh.Name, modelMesh);
+        return true;
+    }
+
+    /// <summary>
+    ///     Which way, and how far, a decal layer separates from the surface it
+    ///     covers. Direction is the layer's own outward normal — and it must be
+    ///     <c>cross(p1-p0, p2-p0)</c>, because the N64 writer emits corners
+    ///     unmodified (the reversal already happened in the display-list
+    ///     expander), unlike the PS1 writer whose <c>AddPsxFace</c> emits
+    ///     (v0, v2, v1) and therefore needs the opposite cross product. Copying
+    ///     the PS1 expression here would push every decal INTO its surface.
+    ///     <para>
+    ///         Magnitude is half a raw N64 unit: authored coordinates are s16
+    ///         integers, so half a unit cannot cross another surface, and it
+    ///         stays proportionate on super models where the PS1's fixed 0.25
+    ///         would exceed a whole unit. The viewer's logarithmic depth buffer
+    ///         resolves it comfortably.
+    ///     </para>
+    /// </summary>
+    private static Vector3 OverlayLiftVector(
+        IEnumerable<(N64RenderBankFile.N64Triangle Triangle, int Index)> layer,
+        N64RenderBankFile.N64RenderMesh mesh,
+        float scale,
+        int objectIndex,
+        PsxMeshFile shell)
+    {
+        foreach (var (triangle, _) in layer)
+        {
+            var p0 = CornerPosition(mesh, triangle.C0, scale, CornerOffset(shell, objectIndex, triangle.C0));
+            var p1 = CornerPosition(mesh, triangle.C1, scale, CornerOffset(shell, objectIndex, triangle.C1));
+            var p2 = CornerPosition(mesh, triangle.C2, scale, CornerOffset(shell, objectIndex, triangle.C2));
+            var normal = Vector3.Cross(p1 - p0, p2 - p0);
+            var length = normal.Length();
+            if (length > 1e-5f)
+                return normal / length * (0.5f * scale);
+        }
+
+        return Vector3.Zero;
     }
 
     /// <summary>

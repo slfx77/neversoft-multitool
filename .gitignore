@@ -111,6 +111,7 @@ tools/diagnostics/*
 !tools/diagnostics/n64_pool_normal_probe.py
 !tools/diagnostics/n64_lit_flag_probe.py
 !tools/diagnostics/n64_coplanar_probe.py
+!tools/diagnostics/n64_ps1_overlay_rosetta.py
 !tools/diagnostics/n64_face_flag_probe.py
 !tools/diagnostics/glb_render_angles.py
 !tools/diagnostics/psx_lod_part_probe.py
