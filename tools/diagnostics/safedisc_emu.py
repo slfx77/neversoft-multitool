@@ -108,13 +108,36 @@ CreateProcessA call as "the real game runs in a child process" was wrong; the
 string table settled it.)
 
 PROGRESSION, so the next session can tell movement from noise. Each number is a
-distinct defect fixed, and every one was a harness bug rather than a protection
-defence:
+distinct defect fixed, and EVERY ONE was a harness fidelity bug -- an emulated
+Windows that was not faithful enough -- rather than a protection defence. That
+is the strongest evidence available that the approach works:
      155,910  session start
   18,866,801  GDT + SEH + file layer + PE loading of the extracted DLL
   19,911,363  FlushInstructionCache's missing ARG_COUNTS entry (see below)
   19,934,677  stub page filled with 0xC3 instead of zeros
   20,747,397  CreateFile can reopen a file the loader itself created
+  24,144,845  named shared sections are real (see below) -> DrvMgt.dll loads
+  48,758,772  KUSER_SHARED_DATA mapped at 0x7FFE0000
+  48,767,115  a real DLL export no longer degrades to a stub
+
+Three more worth calling out, all of the same family -- an API that reported
+success without doing the thing:
+
+  * OpenFileMappingA shared a branch with CreateFileMappingA, so it returned a
+    valid handle for a section NOBODY HAD CREATED. SafeDisc opens its shared
+    section first and creates it only if the open fails, so a phantom success
+    made it skip its own initialisation and then read a zeroed header. (The two
+    APIs also take lpName in different positions -- args[2] vs args[5] -- so the
+    shared branch was reading the access mask as a file handle.) With named
+    sections implemented, the loader creates exactly the three its own .data
+    descriptor table describes, at sizes 2,992 / 12,500 / 49,168.
+  * MapViewOfFile handed out a fresh zeroed block per call, so two views of one
+    section did not alias -- which defeats the entire purpose of a shared
+    section.
+  * KUSER_SHARED_DATA. Windows maps this page into EVERY process at a fixed
+    address, so code reads it without any API call or import to notice; its
+    absence looks like a wild pointer. It also carries KdDebuggerEnabled, a
+    standard anti-debug field.
 
 Two of those deserve calling out because both hid behind an unrelated symptom:
 
@@ -208,6 +231,9 @@ TEB_ADDR = 0x00320000
 PEB_ADDR = 0x00321000
 LDR_ADDR = 0x00322000           # PEB_LDR_DATA + the LDR_DATA_TABLE_ENTRY array
 GDT_ADDR = 0x00330000
+# Windows maps KUSER_SHARED_DATA read-only into every process at this FIXED
+# address. Nothing asks for it, so its absence looks like a wild pointer.
+KUSER_SHARED_DATA = 0x7FFE0000
 GDT_SIZE = 0x1000
 HEAP_BASE = 0x01000000
 HEAP_SIZE = 0x04000000
@@ -514,6 +540,11 @@ class SafeDiscEmulator:
         self.oep_rejects: Counter = Counter()
         self.current_return = 0
         self.child_processes: list[tuple[str, str, int]] = []
+        self.last_error = 0
+        # Named sections are CASE-SENSITIVE in Win32, so key them exactly.
+        self.named_sections: dict[str, dict] = {}
+        self.services: dict[str, dict] = {}
+        self.service_handles: dict[int, str] = {}
         self.watch_hi = 0
         self.process_writes: list[tuple[int, int]] = []
         self.trail: deque[int] | None = None
@@ -571,6 +602,7 @@ class SafeDiscEmulator:
         self.uc.reg_write(UC_X86_REG_EBP, esp)
 
         self.install_gdt()
+        self.build_kuser_shared_data()
         self.build_teb_peb(esp)
         self.build_loader_list()
         for base, name in (
@@ -618,6 +650,40 @@ class SafeDiscEmulator:
         self.uc.reg_write(UC_X86_REG_FS, SEL_TEB_R3)
         log(f"GDT at 0x{GDT_ADDR:08X}: CS=0x{SEL_CODE:02X} DS/ES/SS=0x{SEL_DATA:02X} "
             f"FS=0x{SEL_TEB_R3:02X} -> TEB 0x{TEB_ADDR:08X}")
+
+    def build_kuser_shared_data(self) -> None:
+        """Map KUSER_SHARED_DATA at its fixed address.
+
+        Windows maps this page read-only into EVERY process at 0x7FFE0000, so
+        code reads it without ever asking for it -- there is no API call to
+        intercept and no import to notice. That makes its absence look like a
+        wild pointer rather than a missing feature; DrvMgt.dll faulted here.
+
+        KdDebuggerEnabled matters: it is a standard kernel-debugger check, and a
+        nonzero value there reads as "a debugger is attached". Offsets are the
+        Windows XP (5.1) layout, matching PEB.OSMajorVersion/OSMinorVersion.
+        """
+        self.uc.mem_map(KUSER_SHARED_DATA, 0x1000, UC_PROT_ALL)
+        self.uc.mem_write(KUSER_SHARED_DATA, b"\x00" * 0x1000)
+
+        def poke(offset: int, value: int, size: int = 4) -> None:
+            fmt = {1: "<B", 2: "<H", 4: "<I", 8: "<Q"}[size]
+            self.uc.mem_write(KUSER_SHARED_DATA + offset, struct.pack(fmt, value))
+
+        poke(0x000, 0x00100000)            # TickCountLow
+        poke(0x004, 0x0FA00000)            # TickCountMultiplier
+        poke(0x008, 0x00100000)            # InterruptTime.LowPart
+        poke(0x014, 0x00100000)            # SystemTime.LowPart
+        self.uc.mem_write(KUSER_SHARED_DATA + 0x030,
+                          r"C:\WINDOWS".encode("utf-16-le") + b"\x00\x00")  # NtSystemRoot
+        poke(0x264, 1)                     # NtProductType = NtProductWinNt
+        poke(0x268, 1, 1)                  # ProductTypeIsValid
+        poke(0x26C, 5)                     # NtMajorVersion
+        poke(0x270, 1)                     # NtMinorVersion
+        poke(0x2D4, 0, 1)                  # KdDebuggerEnabled  <-- anti-debug
+        poke(0x2D8, 0, 1)                  # NXSupportPolicy
+        poke(0x300, 0x7C90EB8B)            # SystemCall (ntdll's sysenter thunk)
+        poke(0x320, 0x00100000)            # TickCount.LowPart
 
     def build_teb_peb(self, esp: int) -> None:
         """Populate the TEB and PEB fields a protected loader actually reads.
@@ -802,6 +868,17 @@ class SafeDiscEmulator:
                     return target
                 log(f"    GetProcAddress({module.name}, '{proc}') -> NOT EXPORTED", always=True)
                 return 0
+            # The handle is not one we mapped. Before inventing a stub, check
+            # whether any module we DID map exports this name -- a real export
+            # must resolve to real code, and turning one into a stub silently
+            # replaces the protection's own function with a no-op.
+            for candidate in self.loaded_modules.values():
+                target = candidate.exports.get(proc)
+                if target:
+                    log(f"    GetProcAddress(handle 0x{args[0]:X}, '{proc}') -> "
+                        f"{candidate.name} (matched by name, handle unrecognised)", always=True)
+                    self.resolved_exports[f"{candidate.name}!{proc}"] += 1
+                    return target
             asked_of = next((n for n, b in self.modules.items() if b == args[0]), None)
             return self.alloc_stub(proc, ARG_COUNTS.get(proc, 0), asked_of)
 
@@ -1171,23 +1248,64 @@ class SafeDiscEmulator:
                             260, wide)
             return self.temp_file_serial
 
-        if name in ("CreateFileMappingA", "CreateFileMappingW", "OpenFileMappingA"):
-            handle_file = self.files.get(args[0]) if args else None
+        # --- named shared sections ----------------------------------------
+        # SafeDisc keeps its per-process state in a pagefile-backed section
+        # named "<exe>.EXE<tag><pid>". It OPENS the section first and CREATES it
+        # if the open fails, so "does not exist yet" is a normal, expected state.
+        #
+        # Handling OpenFileMappingA in the same branch as CreateFileMappingA
+        # broke that badly: it returned a valid handle for a section nobody had
+        # created, so the loader skipped its own initialisation path and then
+        # read a zeroed header out of the phantom section. Note also that
+        # OpenFileMapping's lpName is args[2] while CreateFileMapping's is
+        # args[5] -- the shared branch was reading the ACCESS MASK as a handle.
+        if name in ("CreateFileMappingA", "CreateFileMappingW"):
+            backing = self.files.get(args[0]) if args[0] not in (0, 0xFFFFFFFF) else None
+            size = args[4] if len(args) > 4 else 0
+            section_name = self.read_cstr(args[5], wide=name.endswith("W")) if len(args) > 5 and args[5] else ""
+            if backing is not None and not size:
+                size = len(backing.data)
+            existing = self.named_sections.get(section_name) if section_name else None
+            if existing is not None:
+                self.last_error = 0xB7  # ERROR_ALREADY_EXISTS, which the loader tests for
+                record = existing
+            else:
+                record = {"size": max(size, 0x1000), "block": 0, "file": backing}
+                if section_name:
+                    self.named_sections[section_name] = record
+                self.last_error = 0
+                log(f"    CreateFileMapping('{section_name}', {size:,} bytes) [created]",
+                    always=True)
             self.next_handle += 4
-            self.mappings[self.next_handle] = handle_file
+            self.mappings[self.next_handle] = record
+            return self.next_handle
+
+        if name in ("OpenFileMappingA", "OpenFileMappingW"):
+            section_name = self.read_cstr(args[2], wide=name.endswith("W")) if len(args) > 2 and args[2] else ""
+            record = self.named_sections.get(section_name)
+            if record is None:
+                self.last_error = 2  # ERROR_FILE_NOT_FOUND - the honest answer
+                return 0
+            self.next_handle += 4
+            self.mappings[self.next_handle] = record
             return self.next_handle
 
         if name in ("MapViewOfFile", "MapViewOfFileEx"):
-            # Returning 1 makes the caller read from address 0x1. Back the view
-            # with a heap block populated from the file behind the handle.
-            handle_file = self.mappings.get(args[0])
-            payload = bytes(handle_file.data) if handle_file else b""
-            size = args[4] if len(args) > 4 and args[4] else max(len(payload), 0x1000)
-            block = self.alloc_heap(max(size, 0x1000), zero=True)
-            if block and payload:
-                offset = args[3] if len(args) > 3 else 0
-                self.uc.mem_write(block, payload[offset : offset + size])
-            return block
+            # Views of the SAME section must ALIAS. Handing out a fresh zeroed
+            # block per call means anything written through one view is invisible
+            # through another, which is the whole point of a shared section.
+            record = self.mappings.get(args[0])
+            if record is None:
+                self.last_error = 6  # ERROR_INVALID_HANDLE
+                return 0
+            if not record["block"]:
+                block = self.alloc_heap(max(record["size"], 0x1000), zero=True)
+                record["block"] = block
+                backing = record.get("file")
+                if block and backing is not None and backing.data:
+                    self.uc.mem_write(block, bytes(backing.data)[: record["size"]])
+            offset = args[3] if len(args) > 3 else 0
+            return record["block"] + offset if record["block"] else 0
 
         if name == "UnmapViewOfFile":
             return 1
@@ -1339,7 +1457,57 @@ class SafeDiscEmulator:
                       # loader reads as "another instance holds the mutex" and exits.
 
         if name == "GetLastError":
-            return 0  # ERROR_SUCCESS; a stale ERROR_ALREADY_EXISTS also aborts it.
+            # A real last-error value, not a constant zero: the loader tests for
+            # ERROR_ALREADY_EXISTS after CreateFileMapping to decide whether it
+            # created the section or merely opened an existing one.
+            return self.last_error
+
+        if name == "SetLastError":
+            self.last_error = args[0] if args else 0
+            return 0
+
+        # --- Service Control Manager --------------------------------------
+        # DrvMgt.dll installs and starts the SafeDisc driver through these.
+        # Reporting success keeps the loader moving; the driver itself is never
+        # emulated, and its DeviceIoControl is deliberately failed elsewhere.
+        if name == "OpenSCManagerA" or name == "OpenSCManagerW":
+            self.next_handle += 4
+            return self.next_handle
+
+        if name in ("OpenServiceA", "OpenServiceW"):
+            service = self.read_cstr(args[1], wide=name.endswith("W")) if len(args) > 1 else ""
+            self.services.setdefault(service.lower(), {"name": service})
+            self.next_handle += 4
+            self.service_handles[self.next_handle] = service.lower()
+            log(f"    OpenService('{service}')", always=True)
+            return self.next_handle
+
+        if name in ("CreateServiceA", "CreateServiceW"):
+            service = self.read_cstr(args[1], wide=name.endswith("W")) if len(args) > 1 else ""
+            binary = self.read_cstr(args[7], wide=name.endswith("W")) if len(args) > 7 and args[7] else ""
+            self.services[service.lower()] = {"name": service, "binary": binary}
+            self.next_handle += 4
+            self.service_handles[self.next_handle] = service.lower()
+            log(f"    CreateService('{service}', binary='{binary}')  <-- installing the "
+                f"SafeDisc driver", always=True)
+            return self.next_handle
+
+        if name == "QueryServiceStatus":
+            # SERVICE_STATUS: type, state, controlsAccepted, exitCode,
+            # specificExitCode, checkPoint, waitHint. State 4 == SERVICE_RUNNING.
+            if len(args) > 1 and args[1]:
+                self.uc.mem_write(args[1], struct.pack("<7I", 1, 4, 0, 0, 0, 0, 0))
+            return 1
+
+        if name in ("StartServiceA", "StartServiceW", "ControlService", "DeleteService",
+                    "CloseServiceHandle", "ChangeServiceConfigA", "LockServiceDatabase",
+                    "UnlockServiceDatabase", "QueryServiceObjectSecurity",
+                    "SetServiceObjectSecurity", "GetAce", "GetAclInformation",
+                    "GetSecurityDescriptorDacl", "QueryServiceConfigA"):
+            if name == "LockServiceDatabase":
+                self.next_handle += 4
+                return self.next_handle
+            return 1
 
         if name in ("GetTickCount", "timeGetTime"):
             return 0x00100000
@@ -2444,7 +2612,17 @@ STRING_ARG1 = {
 
 
 def log(message: str, always: bool = False) -> None:
-    print(f"[emu] {message}")
+    # Emulated memory yields arbitrary bytes, and a path read out of it is often
+    # not text at all. Printing that straight to a cp1252 Windows console raises
+    # UnicodeEncodeError and kills the run inside the hook -- so coerce to
+    # whatever the console can actually represent.
+    text = f"[emu] {message}"
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        text.encode(encoding)
+    except UnicodeEncodeError:
+        text = text.encode(encoding, "replace").decode(encoding, "replace")
+    print(text)
 
 
 # stdcall argument counts, so the stub can clean up the stack correctly. Only
@@ -2582,7 +2760,16 @@ ARG_COUNTS: dict[str, int] = {
     "DSOUND.DLL#11": 3,  # DirectSoundCreate8(pcGuidDevice, ppDS8, pUnkOuter)
     "UnmapViewOfFile": 1, "CreateFileMappingW": 6, "GetNativeSystemInfo": 1,
     "IsProcessorFeaturePresent": 1, "GetNativeSystemInfo": 1, "HeapSetInformation": 4,
-    "CreateProcessW": 10, "RemoveDirectoryW": 1,
+    "CreateProcessW": 10, "RemoveDirectoryW": 1, "OpenFileMappingW": 3,
+    # Service Control Manager, imported by DrvMgt.dll to install the SafeDisc
+    # driver. Counts are the documented Win32 signatures.
+    "OpenSCManagerA": 3, "OpenSCManagerW": 3, "OpenServiceA": 3, "OpenServiceW": 3,
+    "CreateServiceA": 13, "CreateServiceW": 13, "StartServiceA": 3, "StartServiceW": 3,
+    "ControlService": 3, "DeleteService": 1, "CloseServiceHandle": 1,
+    "QueryServiceStatus": 2, "QueryServiceConfigA": 4, "ChangeServiceConfigA": 11,
+    "LockServiceDatabase": 1, "UnlockServiceDatabase": 1,
+    "QueryServiceObjectSecurity": 5, "SetServiceObjectSecurity": 3,
+    "GetAce": 3, "GetAclInformation": 4, "GetSecurityDescriptorDacl": 4,
     # Every remaining import of the extracted SafeDisc DLL, enumerated from its
     # own import table rather than discovered one crash at a time.
     "WriteProcessMemory": 5, "ReadProcessMemory": 5, "GetHandleInformation": 2,
