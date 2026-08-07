@@ -265,7 +265,7 @@ internal sealed class N64MaterialCache(
         var size = texture != null ? (texture.Width, texture.Height) : (1, 1);
         _sizes[triangle.TextureSlot] = size;
 
-        var mode = ResolveAlphaMode(rate, translucentVertices, texture);
+        var (mode, alpha) = ResolveBlendState(rate, semi, translucentVertices, texture);
         var key = (triangle.TextureSlot, mode, doubleSided, rate);
         if (_materials.TryGetValue(key, out var existing))
         {
@@ -282,7 +282,7 @@ internal sealed class N64MaterialCache(
         var material = new RenderMaterial
         {
             Name = baseName + blendSuffix + sideSuffix,
-            BaseColor = Vector4.One,
+            BaseColor = new Vector4(1f, 1f, 1f, alpha),
             DoubleSided = doubleSided,
             // Always unlit, like the PS1 path. The console shades these
             // surfaces diffusely with no specular term at all, whereas glTF's
@@ -308,34 +308,64 @@ internal sealed class N64MaterialCache(
         return (index, size);
     }
 
+    /// <summary>PS1 ABR rate 0 is 0.5·background + 0.5·face.</summary>
+    private const float AverageBlendAlpha = 0.5f;
+
     /// <summary>
-    ///     Decides the alpha mode from the alpha that actually EXISTS, not from
-    ///     the PS1 semi-transparent bit alone.
-    ///     <para>
-    ///         ABR rate 0 (the 50/50 average) was a PER-TEXEL state on the PS1,
-    ///         armed only for texels whose CLUT entry carried the STP marker.
-    ///         The port's art conversion dropped that marker: texture 0x918E5BEF
-    ///         ships 3.1% partial-alpha texels after the PS1 bake and 0% on the
-    ///         N64, where RGBA5551's single alpha bit preserves only the
-    ///         transparency key. So an ABR-0 face carries nothing to blend
-    ///         unless its art or its vertices genuinely hold partial alpha - and
-    ///         forcing BLEND there costs the depth write for no change in
-    ///         colour, since blending against alpha 255 reproduces the source
-    ///         exactly. That lost depth write is what let the far inner sheet of
-    ///         a THPS1 medal paint over the near outer sheet.
-    ///     </para>
+    ///     Works out how a face composites. The PS1 semi-transparent bit alone
+    ///     does not decide it, and neither does the art alone.
     ///     <para>
     ///         Rates 1-3 (additive, subtractive, quarter-additive) composite
     ///         with the framebuffer by EQUATION rather than by texel alpha, so
-    ///         no alpha content can stand in for them and they stay blended.
+    ///         no alpha content can stand in for them and they always blend.
+    ///     </para>
+    ///     <para>
+    ///         Rate 0 (the 50/50 average) was a PER-TEXEL state on the PS1,
+    ///         armed only where the CLUT entry carried the STP marker — and the
+    ///         port dropped the marker, so the N64 file can only say "this face
+    ///         is an average blend". Which way to read that is settled by a
+    ///         Rosetta over every THPS1 level pair, joining on the texture ids
+    ///         the ports reuse verbatim
+    ///         (<c>tools/diagnostics/n64_ps1_alpha_rosetta.py</c>):
+    ///         <list type="bullet">
+    ///             <item>
+    ///                 Rate 0 over art with NO alpha channel at all — 2,028
+    ///                 triangles — is TRANSLUCENT in the PS1 bake for every
+    ///                 single one, none solid. The flag is the only surviving
+    ///                 signal that the surface is glass, so it blends at 50%.
+    ///                 Downtown's windows are 164 of those triangles: PS1
+    ///                 texture 0x015E00C1 bakes 3,249 partial-alpha texels while
+    ///                 its N64 copy is 4,096 opaque ones.
+    ///             </item>
+    ///             <item>
+    ///                 Rate 0 over art that DOES carry a transparency key keeps
+    ///                 alpha testing. Blanket-blending would make the THPS1
+    ///                 medals half-transparent and cost them the depth write
+    ///                 that stops their far sheet painting over the near one.
+    ///                 This is the rule's known lossy edge: 1,357 level
+    ///                 triangles in that cell are translucent on the PS1 side
+    ///                 and alpha-test here, keeping their holes and their depth.
+    ///             </item>
+    ///         </list>
+    ///         The control holds the reading up: 93,858 triangles with the bit
+    ///         CLEAR are opaque on both sides, against 12 that are not.
     ///     </para>
     /// </summary>
-    private static ModelAlphaMode ResolveAlphaMode(
-        int blendRate, bool translucentVertices, N64ModelCompanions.N64ResolvedTexture? texture)
+    private static (ModelAlphaMode Mode, float Alpha) ResolveBlendState(
+        int blendRate,
+        bool semi,
+        bool translucentVertices,
+        N64ModelCompanions.N64ResolvedTexture? texture)
     {
         if (blendRate != 0 || translucentVertices || texture is { HasGraduatedAlpha: true })
-            return ModelAlphaMode.Blend;
-        return texture is { HasCutout: true } ? ModelAlphaMode.Mask : ModelAlphaMode.Opaque;
+            return (ModelAlphaMode.Blend, 1f);
+
+        if (semi && texture is not { HasCutout: true })
+            return (ModelAlphaMode.Blend, AverageBlendAlpha);
+
+        return texture is { HasCutout: true }
+            ? (ModelAlphaMode.Mask, 1f)
+            : (ModelAlphaMode.Opaque, 1f);
     }
 
     private void Count(int slot)

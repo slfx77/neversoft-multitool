@@ -107,6 +107,9 @@ tools/diagnostics/*
 !tools/diagnostics/psx_func_signature_scan.py
 !tools/diagnostics/n64_boot_map.py
 !tools/diagnostics/n64_blend_mode_census.py
+!tools/diagnostics/n64_ps1_alpha_rosetta.py
+!tools/diagnostics/n64_pool_normal_probe.py
+!tools/diagnostics/n64_lit_flag_probe.py
 !tools/diagnostics/n64_coplanar_probe.py
 !tools/diagnostics/n64_face_flag_probe.py
 !tools/diagnostics/glb_render_angles.py

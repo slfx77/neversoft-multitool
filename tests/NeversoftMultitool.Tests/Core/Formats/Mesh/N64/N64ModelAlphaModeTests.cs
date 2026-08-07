@@ -55,6 +55,7 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
             document.Materials.Where(m => m.Name.StartsWith("psxtxt_d51a321b", StringComparison.Ordinal)));
 
         Assert.Equal(ModelAlphaMode.Mask, material.AlphaMode);
+        Assert.Equal(1f, material.BaseColor.W);
         // The ABR suffix advertises a blend equation the material no longer
         // performs, and the viewer keys behaviour off a terminal __stN.
         Assert.DoesNotContain("__st", material.Name, StringComparison.Ordinal);
@@ -73,6 +74,37 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
 
         Assert.Equal(ModelAlphaMode.Blend, material.AlphaMode);
         Assert.EndsWith("__st1", material.Name, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    ///     The other half of the rate-0 rule. Downtown's windows are rate-0
+    ///     faces whose N64 art holds no alpha at all — the PS1 build bakes
+    ///     texture 0x015E00C1 with 3,249 partial-alpha texels while the N64 copy
+    ///     is 4,096 opaque ones, because the port dropped the CLUT's STP
+    ///     markers. The ABR bit is then the ONLY surviving signal that the
+    ///     surface is glass, so it blends at 50%. A Rosetta over every THPS1
+    ///     level pair puts 2,028 triangles in this cell and finds the PS1 bake
+    ///     translucent for all of them, none solid.
+    /// </summary>
+    [Fact]
+    public void AverageBlendWithNoArtAlpha_BecomesFiftyPercentGlass()
+    {
+        var document = ParseBundle("models/004/geometry.psx.n64", out var fs);
+        using var _ = fs;
+
+        var material = Assert.Single(
+            document.Materials.Where(m => m.Name.StartsWith("psxtxt_015e00c1", StringComparison.Ordinal)));
+
+        Assert.Equal(ModelAlphaMode.Blend, material.AlphaMode);
+        Assert.Equal(0.5f, material.BaseColor.W);
+        Assert.EndsWith("__st0", material.Name, StringComparison.Ordinal);
+
+        // Solid geometry with the bit CLEAR must not pick up any of this: the
+        // Rosetta control is 93,858 triangles opaque on both sides.
+        Assert.Contains(document.Materials, m => m.AlphaMode == ModelAlphaMode.Opaque);
+        Assert.All(
+            document.Materials.Where(m => m.AlphaMode != ModelAlphaMode.Blend),
+            m => Assert.Equal(1f, m.BaseColor.W));
     }
 
     /// <summary>

@@ -7,9 +7,10 @@ real alpha modes (OPAQUE / MASK writes depth, BLEND does not), which a
 Workbench or wireframe pass does not.
 
 Run:
-    blender -b --factory-startup --python glb_render_angles.py -- <in.glb> <out.png> [size]
+    blender -b --factory-startup --python glb_render_angles.py -- <in.glb> <out.png> [size] [views]
 
 Renders front / three-quarter / side / top-three-quarter into a 2x2 grid.
+`views` overrides the angles as "az,el;az,el;..." (e.g. "0,89" for top-down).
 """
 
 import math
@@ -29,20 +30,22 @@ def load(path):
 
 
 def scene_bounds():
-    graph = bpy.context.evaluated_depsgraph_get()
+    """World bounds from each object's own bound_box.
+
+    Deliberately NOT via evaluated_get()/to_mesh(): in background mode the
+    depsgraph is not necessarily evaluated after an import, and a 555-object
+    level came back with no bounds at all, which framed the camera on a point
+    and rendered a blank background.
+    """
     lo, hi = Vector((1e30,) * 3), Vector((-1e30,) * 3)
     for obj in bpy.context.scene.objects:
         if obj.type != "MESH":
             continue
-        evaluated = obj.evaluated_get(graph)
-        mesh = evaluated.to_mesh()
-        matrix = evaluated.matrix_world
-        for vertex in mesh.vertices:
-            world = matrix @ vertex.co
+        for corner in obj.bound_box:
+            world = obj.matrix_world @ Vector(corner)
             for axis in range(3):
                 lo[axis] = min(lo[axis], world[axis])
                 hi[axis] = max(hi[axis], world[axis])
-        evaluated.to_mesh_clear()
     return lo, hi
 
 
@@ -79,10 +82,14 @@ def place_camera(scene, centre, extent, azimuth, elevation):
     camera_data = bpy.data.cameras.new("angle_cam")
     camera_data.type = "PERSP"
     camera_data.lens = 50.0
+    radius = extent * 2.4
+    # Game units, not metres: a level spans ~14,000, so Blender's default
+    # 0.1..100 clip range puts the whole scene behind the far plane and renders
+    # a blank background.
+    camera_data.clip_start = max(extent * 1e-4, 1e-3)
+    camera_data.clip_end = radius * 8.0
     camera = bpy.data.objects.new("angle_cam", camera_data)
     bpy.context.collection.objects.link(camera)
-
-    radius = extent * 2.4
     az, el = math.radians(azimuth), math.radians(elevation)
     offset = Vector((
         math.sin(az) * math.cos(el),
@@ -121,6 +128,9 @@ def main():
     glb_path = os.path.abspath(argv[0])
     out_png = os.path.abspath(argv[1])
     size = int(argv[2]) if len(argv) > 2 else 400
+    views = VIEWS
+    if len(argv) > 3:
+        views = [tuple(float(v) for v in spec.split(",")) for spec in argv[3].split(";")]
     os.makedirs(os.path.dirname(out_png), exist_ok=True)
 
     load(glb_path)
@@ -130,16 +140,19 @@ def main():
     extent = max(max(hi - lo), 1e-4)
 
     tiles = []
-    for index, (azimuth, elevation) in enumerate(VIEWS):
+    for index, (azimuth, elevation) in enumerate(views):
         place_camera(scene, centre, extent, azimuth, elevation)
         tile_path = f"{os.path.splitext(out_png)[0]}_view{index}.png"
         scene.render.filepath = tile_path
         bpy.ops.render.render(write_still=True)
         tiles.append(tile_path)
 
-    contact_sheet(tiles, out_png, size)
-    for tile_path in tiles:
-        os.remove(tile_path)
+    if len(tiles) == 1:
+        os.replace(tiles[0], out_png)
+    else:
+        contact_sheet(tiles, out_png, size)
+        for tile_path in tiles:
+            os.remove(tile_path)
     print("RENDER_DONE " + out_png)
 
 
