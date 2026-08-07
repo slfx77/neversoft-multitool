@@ -6,7 +6,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Psx;
 /// <summary>
 ///     Pins the carved N64 model shell reader (2026-08-06). The shells are
 ///     u32-byteswapped PS1 containers with the texture-hash tail stripped, so
-///     the stock <see cref="PsxMeshFile.Parse(byte[])" /> rejects them at the
+///     the stock <see cref="PsxMeshFile.Parse(byte[], bool)" /> rejects them at the
 ///     version gate — which is why the CLI reported "No mesh data" for every
 ///     shell and why that message said nothing about their contents. They do
 ///     carry object tables, hierarchy, mesh name hashes and an animation

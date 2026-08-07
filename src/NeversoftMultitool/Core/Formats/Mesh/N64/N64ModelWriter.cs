@@ -152,7 +152,7 @@ public static class N64ModelWriter
                     mesh.Vertices[triangle.V0].A < 255 ||
                     mesh.Vertices[triangle.V1].A < 255 ||
                     mesh.Vertices[triangle.V2].A < 255);
-                var (materialIndex, size) = materials.Resolve(triangle, mesh.HasNormals, translucent);
+                var (materialIndex, size) = materials.Resolve(triangle, translucent);
                 if (!batches.TryGetValue(materialIndex, out var batch))
                 {
                     batch = ([], []);
@@ -245,7 +245,7 @@ internal sealed class N64MaterialCache(
     ModelDocument document,
     Func<int, N64ModelCompanions.N64ResolvedTexture?> textureProvider)
 {
-    private readonly Dictionary<(int Slot, bool Semi, bool DoubleSided, int Rate, bool Lit, bool VertexAlpha), int>
+    private readonly Dictionary<(int Slot, ModelAlphaMode Mode, bool DoubleSided, int Rate), int>
         _materials = [];
     private readonly Dictionary<int, (int Width, int Height)> _sizes = [];
 
@@ -254,26 +254,29 @@ internal sealed class N64MaterialCache(
 
     public (int MaterialIndex, (int Width, int Height) Size) Resolve(
         N64RenderBankFile.N64Triangle triangle,
-        bool lit,
         bool translucentVertices)
     {
         var flags = triangle.FaceFlags;
         var semi = (flags & PsxFaceFlags.SemiTransparent) != 0;
         var doubleSided = (flags & PsxFaceFlags.DoubleSided) != 0;
         var rate = semi ? (flags & PsxFaceFlags.BlendRateMask) >> 7 : 0;
-        var key = (triangle.TextureSlot, semi, doubleSided, rate, lit, translucentVertices);
-
-        if (_materials.TryGetValue(key, out var existing))
-        {
-            Count(triangle.TextureSlot);
-            return (existing, _sizes.GetValueOrDefault(triangle.TextureSlot, (1, 1)));
-        }
 
         var texture = triangle.TextureSlot > 0 ? textureProvider(triangle.TextureSlot) : null;
         var size = texture != null ? (texture.Width, texture.Height) : (1, 1);
         _sizes[triangle.TextureSlot] = size;
 
-        var blendSuffix = semi ? $"__st{rate}" : string.Empty;
+        var mode = ResolveAlphaMode(rate, translucentVertices, texture);
+        var key = (triangle.TextureSlot, mode, doubleSided, rate);
+        if (_materials.TryGetValue(key, out var existing))
+        {
+            Count(triangle.TextureSlot);
+            return (existing, size);
+        }
+
+        // The ABR suffix advertises a blend equation, and the viewer keys its
+        // additive approximation off a terminal __st1/__st3, so only carry it
+        // when the material really does blend.
+        var blendSuffix = semi && mode == ModelAlphaMode.Blend ? $"__st{rate}" : string.Empty;
         var sideSuffix = doubleSided ? "__2sided" : string.Empty;
         var baseName = texture?.Name ?? "n64_untextured";
         var material = new RenderMaterial
@@ -287,7 +290,7 @@ internal sealed class N64MaterialCache(
             // which reads as glossiness the game never had. Normals are still
             // exported for consumers that want them.
             Unlit = true,
-            AlphaMode = ResolveAlphaMode(semi || translucentVertices, texture),
+            AlphaMode = mode,
             // 1-bit art: keep any texel the console would have drawn.
             AlphaCutoff = 0.5f
         };
@@ -306,15 +309,31 @@ internal sealed class N64MaterialCache(
     }
 
     /// <summary>
-    ///     A face flagged semi-transparent - or one whose vertices carry
-    ///     alpha - blends. Otherwise the TEXTURE decides: N64 art cuts wheels, steering wheels and foliage out of
-    ///     their quads with fully transparent texels (1-bit RGBA5551 alpha or
-    ///     A=0 palette entries), which is alpha TESTING, not blending. Only
-    ///     genuinely partial alpha needs a blend.
+    ///     Decides the alpha mode from the alpha that actually EXISTS, not from
+    ///     the PS1 semi-transparent bit alone.
+    ///     <para>
+    ///         ABR rate 0 (the 50/50 average) was a PER-TEXEL state on the PS1,
+    ///         armed only for texels whose CLUT entry carried the STP marker.
+    ///         The port's art conversion dropped that marker: texture 0x918E5BEF
+    ///         ships 3.1% partial-alpha texels after the PS1 bake and 0% on the
+    ///         N64, where RGBA5551's single alpha bit preserves only the
+    ///         transparency key. So an ABR-0 face carries nothing to blend
+    ///         unless its art or its vertices genuinely hold partial alpha - and
+    ///         forcing BLEND there costs the depth write for no change in
+    ///         colour, since blending against alpha 255 reproduces the source
+    ///         exactly. That lost depth write is what let the far inner sheet of
+    ///         a THPS1 medal paint over the near outer sheet.
+    ///     </para>
+    ///     <para>
+    ///         Rates 1-3 (additive, subtractive, quarter-additive) composite
+    ///         with the framebuffer by EQUATION rather than by texel alpha, so
+    ///         no alpha content can stand in for them and they stay blended.
+    ///     </para>
     /// </summary>
-    private static ModelAlphaMode ResolveAlphaMode(bool semi, N64ModelCompanions.N64ResolvedTexture? texture)
+    private static ModelAlphaMode ResolveAlphaMode(
+        int blendRate, bool translucentVertices, N64ModelCompanions.N64ResolvedTexture? texture)
     {
-        if (semi || texture is { HasGraduatedAlpha: true })
+        if (blendRate != 0 || translucentVertices || texture is { HasGraduatedAlpha: true })
             return ModelAlphaMode.Blend;
         return texture is { HasCutout: true } ? ModelAlphaMode.Mask : ModelAlphaMode.Opaque;
     }

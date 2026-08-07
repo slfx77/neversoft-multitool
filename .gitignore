@@ -106,6 +106,10 @@ tools/diagnostics/*
 !tools/diagnostics/psx_anim_tween_survey.py
 !tools/diagnostics/psx_func_signature_scan.py
 !tools/diagnostics/n64_boot_map.py
+!tools/diagnostics/n64_blend_mode_census.py
+!tools/diagnostics/n64_coplanar_probe.py
+!tools/diagnostics/n64_face_flag_probe.py
+!tools/diagnostics/glb_render_angles.py
 !tools/diagnostics/psx_lod_part_probe.py
 !tools/diagnostics/psx_level_survey.py
 !tools/diagnostics/cross_game_anim_functions.md
