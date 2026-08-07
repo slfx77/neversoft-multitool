@@ -234,31 +234,24 @@ internal static class PsxCoplanarOverlayDetector
                && first.U3 == second.U3 && first.V3 == second.V3;
     }
 
+    /// <summary>
+    ///     PS1 AABB-penetration tolerances, in world units. The authoring grid
+    ///     step is 1/2.25 ≈ 0.44, so a tenth of it is "touching" and a quarter of
+    ///     it is real interpenetration. They live here rather than in
+    ///     <see cref="CoplanarOverlayGeometry" /> because they are calibrated
+    ///     against THIS format's grid — an N64 build stores
+    ///     <c>trunc(PS1raw / k)</c> and needs its own.
+    /// </summary>
+    private const float PsxTouchTolerance = 0.1f;
+
+    private const float PsxRealOverlap = 0.25f;
+
     private static bool BoundsOverlap(
         (Vector3 Min, Vector3 Max) first,
         (Vector3 Min, Vector3 Max) second)
     {
-        // Per-axis penetration. A coplanar pair has ~zero depth along the
-        // plane normal, so demand REAL overlap on at least two axes (the
-        // in-plane ones) and non-separation on the third. Edge-adjacent
-        // panels touch with ~zero in-plane penetration and stay independent
-        // (retail levels tile walls with alternating sign panels — lifting
-        // those produced visible floating panels), while offset tile grids
-        // (SKB2's two water sheets) genuinely interpenetrate.
-        const float touchTolerance = 0.1f;
-        const float realOverlap = 0.25f;
-        var overlapAxes = 0;
-        for (var axis = 0; axis < 3; axis++)
-        {
-            var penetration = MathF.Min(first.Max[axis], second.Max[axis])
-                              - MathF.Max(first.Min[axis], second.Min[axis]);
-            if (penetration < -touchTolerance)
-                return false;
-            if (penetration > realOverlap)
-                overlapAxes++;
-        }
-
-        return overlapAxes >= 2;
+        return CoplanarOverlayGeometry.BoundsOverlap(
+            first, second, PsxTouchTolerance, PsxRealOverlap);
     }
 
     private static bool TryCreateCandidate(
@@ -292,7 +285,7 @@ internal static class PsxCoplanarOverlayDetector
             area += Vector3.Cross(points[2] - points[1], points[3] - points[1]).Length() * 0.5f;
 
         var normal = cross / twiceFirstArea;
-        var normalFlipped = FirstSignificantComponent(normal) < 0f;
+        var normalFlipped = CoplanarOverlayGeometry.FirstSignificantComponent(normal) < 0f;
         if (normalFlipped)
             normal = -normal;
         var distance = Vector3.Dot(normal, points[0]);
@@ -409,215 +402,13 @@ internal static class PsxCoplanarOverlayDetector
     }
 
     /// <summary>
-    ///     Smallest shared area that counts as a real overlap rather than an
-    ///     edge-adjacency artifact, as a fraction of the smaller face. Edge- and
-    ///     corner-adjacent faces clip to zero area, or to a float-noise sliver
-    ///     — hence a floor rather than <c>&gt; 0</c>; the genuine partial
-    ///     overlaps this must catch start at 19% of the smaller face (THPS1
-    ///     skmall 0.23, THPS2 DC SKPH 0.32).
+    ///     True when two coplanar faces share enough area to be a real overlay.
+    ///     The geometry lives in <see cref="CoplanarOverlayGeometry" /> so the
+    ///     N64 detector uses the identical rule and threshold.
     /// </summary>
-    internal const float MinimumSharedAreaFraction = 0.01f;
-
-    /// <summary>
-    ///     Exact shared area of two coplanar faces, as a fraction of the smaller
-    ///     one (0 when they only touch along an edge or a corner).
-    ///
-    ///     Both faces decompose into the SAME two triangles the renderer draws
-    ///     — (0,2,1) and (1,2,3) in PSX strip order — and the shared area is the
-    ///     sum over triangle pairs. Clipping the quad as one polygon is invalid:
-    ///     Sutherland-Hodgman requires a CONVEX clip polygon, and a strip-order
-    ///     quad that is concave or non-planar walks a self-intersecting
-    ///     perimeter, which silently returns ~0 for pairs that in fact overlap
-    ///     almost completely (found 2026-07-31 — the earlier single-polygon
-    ///     implementation asserted convexity without establishing it).
-    ///     Triangles are convex and planar by construction, so the precondition
-    ///     now holds for every face the format can express.
-    ///
-    ///     Shared by the near-equal overlay branch and the unit tests, so there
-    ///     is one implementation of the geometry rather than two.
-    /// </summary>
-    internal static float CoplanarSharedAreaFraction(Vector3[] first, Vector3[] second)
-    {
-        var droppedAxis = DominantPlaneAxis(first);
-        Span<Vector2> firstTriangles = stackalloc Vector2[6];
-        Span<Vector2> secondTriangles = stackalloc Vector2[6];
-        var firstCount = ProjectRenderedTriangles(first, droppedAxis, firstTriangles);
-        var secondCount = ProjectRenderedTriangles(second, droppedAxis, secondTriangles);
-
-        var firstArea = TriangleSetArea(firstTriangles, firstCount);
-        var secondArea = TriangleSetArea(secondTriangles, secondCount);
-        var smallerArea = MathF.Min(firstArea, secondArea);
-        if (smallerArea <= 1e-4f)
-            return 0f;
-
-        var shared = 0f;
-        for (var i = 0; i < firstCount; i += 3)
-        {
-            for (var j = 0; j < secondCount; j += 3)
-            {
-                var a = firstTriangles.Slice(i, 3);
-                var b = secondTriangles.Slice(j, 3);
-                EnsureCounterClockwise(a);
-                EnsureCounterClockwise(b);
-                shared += ConvexIntersectionArea(a, b);
-            }
-        }
-
-        // Clamp to a valid proportion. A face whose own two rendered triangles
-        // OVERLAP each other (a self-overlapping slot order) contributes its
-        // shared region through more than one triangle pair, which would
-        // otherwise report more than 100% of the smaller face — a fraction the
-        // quantity is not defined to produce, and one that flowed into the
-        // >= threshold comparison and the diagnostics as if it were meaningful.
-        return MathF.Min(shared / smallerArea, 1f);
-    }
-
-    /// <summary>
-    ///     Projects a face into the plane's 2D basis as the renderer's triangles:
-    ///     (0,2,1) plus (1,2,3) for a quad, (0,2,1) for a triangle — the same
-    ///     winding <c>PsxGeometryWriter.AddPsxFace</c> emits. Returns the vertex
-    ///     count written (3 or 6).
-    /// </summary>
-    private static int ProjectRenderedTriangles(Vector3[] points, int droppedAxis, Span<Vector2> destination)
-    {
-        destination[0] = ProjectPoint(points[0], droppedAxis);
-        destination[1] = ProjectPoint(points[2], droppedAxis);
-        destination[2] = ProjectPoint(points[1], droppedAxis);
-        if (points.Length < 4)
-            return 3;
-
-        destination[3] = ProjectPoint(points[1], droppedAxis);
-        destination[4] = ProjectPoint(points[2], droppedAxis);
-        destination[5] = ProjectPoint(points[3], droppedAxis);
-        return 6;
-    }
-
-    private static float TriangleSetArea(ReadOnlySpan<Vector2> triangles, int count)
-    {
-        var total = 0f;
-        for (var i = 0; i < count; i += 3)
-            total += PolygonArea(triangles.Slice(i, 3));
-        return total;
-    }
-
     private static bool HasInteriorOverlap(Candidate first, Candidate second)
     {
-        return CoplanarSharedAreaFraction(first.Points, second.Points)
-               >= MinimumSharedAreaFraction;
-    }
-
-    private static float ConvexIntersectionArea(
-        ReadOnlySpan<Vector2> subject,
-        ReadOnlySpan<Vector2> clip)
-    {
-        Span<Vector2> current = stackalloc Vector2[16];
-        Span<Vector2> next = stackalloc Vector2[16];
-        subject.CopyTo(current);
-        var count = subject.Length;
-
-        for (var edge = 0; edge < clip.Length && count >= 3; edge++)
-        {
-            var start = clip[edge];
-            var end = clip[(edge + 1) % clip.Length];
-            count = ClipAgainstEdge(current[..count], start, end, next);
-            next[..count].CopyTo(current);
-        }
-
-        return count < 3 ? 0f : PolygonArea(current[..count]);
-    }
-
-    private static int ClipAgainstEdge(
-        ReadOnlySpan<Vector2> input,
-        Vector2 edgeStart,
-        Vector2 edgeEnd,
-        Span<Vector2> output)
-    {
-        var count = 0;
-        for (var i = 0; i < input.Length; i++)
-        {
-            var currentPoint = input[i];
-            var nextPoint = input[(i + 1) % input.Length];
-            var currentSide = SideOfEdge(edgeStart, edgeEnd, currentPoint);
-            var nextSide = SideOfEdge(edgeStart, edgeEnd, nextPoint);
-
-            if (currentSide >= 0f && count < output.Length)
-                output[count++] = currentPoint;
-
-            if (currentSide >= 0f == nextSide >= 0f)
-                continue;
-
-            var span = currentSide - nextSide;
-            if (MathF.Abs(span) < 1e-12f || count >= output.Length)
-                continue;
-
-            output[count++] = Vector2.Lerp(currentPoint, nextPoint, currentSide / span);
-        }
-
-        return count;
-    }
-
-    private static float SideOfEdge(Vector2 edgeStart, Vector2 edgeEnd, Vector2 point)
-    {
-        var edge = edgeEnd - edgeStart;
-        var offset = point - edgeStart;
-        return edge.X * offset.Y - edge.Y * offset.X;
-    }
-
-    private static float PolygonArea(ReadOnlySpan<Vector2> polygon)
-    {
-        var doubled = 0f;
-        for (var i = 0; i < polygon.Length; i++)
-        {
-            var current = polygon[i];
-            var next = polygon[(i + 1) % polygon.Length];
-            doubled += current.X * next.Y - next.X * current.Y;
-        }
-
-        return MathF.Abs(doubled) * 0.5f;
-    }
-
-    private static void EnsureCounterClockwise(Span<Vector2> polygon)
-    {
-        var doubled = 0f;
-        for (var i = 0; i < polygon.Length; i++)
-        {
-            var current = polygon[i];
-            var next = polygon[(i + 1) % polygon.Length];
-            doubled += current.X * next.Y - next.X * current.Y;
-        }
-
-        if (doubled >= 0f)
-            return;
-
-        for (int head = 0, tail = polygon.Length - 1; head < tail; head++, tail--)
-            (polygon[head], polygon[tail]) = (polygon[tail], polygon[head]);
-    }
-
-    private static Vector2 ProjectPoint(Vector3 point, int droppedAxis)
-    {
-        return droppedAxis switch
-        {
-            0 => new Vector2(point.Y, point.Z),
-            1 => new Vector2(point.X, point.Z),
-            _ => new Vector2(point.X, point.Y),
-        };
-    }
-
-    private static int DominantPlaneAxis(Vector3[] points)
-    {
-        var normal = Vector3.Cross(points[1] - points[0], points[2] - points[0]);
-        var x = MathF.Abs(normal.X);
-        var y = MathF.Abs(normal.Y);
-        var z = MathF.Abs(normal.Z);
-        if (x >= y && x >= z) return 0;
-        return y >= z ? 1 : 2;
-    }
-
-    private static float FirstSignificantComponent(Vector3 value)
-    {
-        if (MathF.Abs(value.X) > 1e-6f) return value.X;
-        if (MathF.Abs(value.Y) > 1e-6f) return value.Y;
-        return value.Z;
+        return CoplanarOverlayGeometry.HasInteriorOverlap(first.Points, second.Points);
     }
 
     private readonly record struct PlaneKey(int X, int Y, int Z, int Distance);

@@ -19,7 +19,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 ///     to a polygon clipper produces a self-intersecting bowtie whose area is
 ///     zero. Several cases below would return 0 instead of 1 under that bug.
 /// </summary>
-public sealed class PsxCoplanarOverlayGeometryTests
+public sealed class CoplanarOverlayGeometryTests
 {
     /// <summary>Unit quad in PSX strip order (0,1,2,3 => perimeter 0,1,3,2).</summary>
     private static Vector3[] StripQuad(float x, float y, float size = 1f, float z = 0f)
@@ -37,7 +37,7 @@ public sealed class PsxCoplanarOverlayGeometryTests
     public void CoincidentQuads_ShareTheirWholeArea()
     {
         // Also the strip-order guard: a bowtie reading of these points has area 0.
-        var fraction = PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
+        var fraction = CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
             StripQuad(0f, 0f), StripQuad(0f, 0f));
 
         Assert.Equal(1f, fraction, 3);
@@ -48,17 +48,17 @@ public sealed class PsxCoplanarOverlayGeometryTests
     {
         // Tiling: touch along x = 1 with zero interior overlap. AABB penetration
         // alone accepts this pair, which is the false-positive class.
-        var fraction = PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
+        var fraction = CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
             StripQuad(0f, 0f), StripQuad(1f, 0f));
 
         Assert.Equal(0f, fraction, 4);
-        Assert.True(fraction < PsxCoplanarOverlayDetector.MinimumSharedAreaFraction);
+        Assert.True(fraction < CoplanarOverlayGeometry.MinimumSharedAreaFraction);
     }
 
     [Fact]
     public void CornerTouchingQuads_ShareNothing()
     {
-        var fraction = PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
+        var fraction = CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
             StripQuad(0f, 0f), StripQuad(1f, 1f));
 
         Assert.Equal(0f, fraction, 4);
@@ -71,11 +71,11 @@ public sealed class PsxCoplanarOverlayGeometryTests
         // and both faces have area 1. This is the partial-overlap class the
         // centroid-inside test silently dropped — neither centroid (0.5, 0.5) and
         // (1.0, 1.0) lies strictly inside the other face's interior region.
-        var fraction = PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
+        var fraction = CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
             StripQuad(0f, 0f), StripQuad(0.5f, 0.5f));
 
         Assert.Equal(0.25f, fraction, 3);
-        Assert.True(fraction >= PsxCoplanarOverlayDetector.MinimumSharedAreaFraction);
+        Assert.True(fraction >= CoplanarOverlayGeometry.MinimumSharedAreaFraction);
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public sealed class PsxCoplanarOverlayGeometryTests
     {
         // A 0.5-unit decal wholly inside a 2-unit base: the shared area is the
         // decal's own 0.25, so the fraction of the SMALLER face is 1.0.
-        var fraction = PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
+        var fraction = CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
             StripQuad(0f, 0f, 2f), StripQuad(0.5f, 0.5f, 0.5f));
 
         Assert.Equal(1f, fraction, 3);
@@ -104,9 +104,9 @@ public sealed class PsxCoplanarOverlayGeometryTests
             return mirrored;
         }
 
-        var forward = PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
+        var forward = CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
             StripQuad(0f, 0f), StripQuad(0.5f, 0.5f));
-        var mirrored = PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
+        var mirrored = CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
             Mirror(StripQuad(0f, 0f)), Mirror(StripQuad(0.5f, 0.5f)));
 
         Assert.Equal(0.25f, forward, 3);
@@ -130,10 +130,10 @@ public sealed class PsxCoplanarOverlayGeometryTests
             new Vector3(0f, 1f, 0f)
         ];
 
-        var fraction = PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(twisted, twisted);
+        var fraction = CoplanarOverlayGeometry.CoplanarSharedAreaFraction(twisted, twisted);
 
         Assert.Equal(1f, fraction, 3);
-        Assert.InRange(fraction, PsxCoplanarOverlayDetector.MinimumSharedAreaFraction, 1f);
+        Assert.InRange(fraction, CoplanarOverlayGeometry.MinimumSharedAreaFraction, 1f);
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public sealed class PsxCoplanarOverlayGeometryTests
             new Vector3(0.5f, 0.5f, 0f)
         ];
 
-        Assert.Equal(1f, PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
+        Assert.Equal(1f, CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
             StripQuad(-1f, -1f, 4f), dart), 3);
     }
 
@@ -162,8 +162,8 @@ public sealed class PsxCoplanarOverlayGeometryTests
         var small = StripQuad(0.5f, 0.5f, 0.5f);
 
         Assert.Equal(
-            PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(large, small),
-            PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(small, large),
+            CoplanarOverlayGeometry.CoplanarSharedAreaFraction(large, small),
+            CoplanarOverlayGeometry.CoplanarSharedAreaFraction(small, large),
             4);
     }
 
@@ -178,7 +178,7 @@ public sealed class PsxCoplanarOverlayGeometryTests
             Vector3.Zero
         ];
 
-        Assert.Equal(0f, PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
+        Assert.Equal(0f, CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
             StripQuad(0f, 0f), degenerate), 4);
     }
 
@@ -194,7 +194,7 @@ public sealed class PsxCoplanarOverlayGeometryTests
             new Vector3(0f, 1f, 0f)
         ];
 
-        Assert.Equal(1f, PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
+        Assert.Equal(1f, CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
             triangle, StripQuad(0f, 0f)), 3);
     }
 
@@ -218,7 +218,7 @@ public sealed class PsxCoplanarOverlayGeometryTests
             new Vector3(0f, 1.5f, 1.5f)
         ];
 
-        Assert.Equal(0.25f, PsxCoplanarOverlayDetector.CoplanarSharedAreaFraction(
+        Assert.Equal(0.25f, CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
             first, second), 3);
     }
 }
