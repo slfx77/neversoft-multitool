@@ -138,9 +138,11 @@ def probe(path, limit):
         if length < 1e-9:
             continue
         normal = normal / length
-        # Fold antiparallel normals together: a decal may face either way.
+        # Fold antiparallel normals into one bucket so a two-sided sheet lands
+        # together with its own back face; `facing` remembers which side.
+        facing = 1
         if normal[int(np.argmax(np.abs(normal)))] < 0:
-            normal = -normal
+            normal, facing = -normal, -1
         offset = float(np.dot(normal, corners[0]))
         key = (
             round(normal[0] / NORMAL_TOLERANCE),
@@ -148,7 +150,7 @@ def probe(path, limit):
             round(normal[2] / NORMAL_TOLERANCE),
             round(offset / PLANE_TOLERANCE),
         )
-        buckets[key].append((index, corners, normal, material, mesh_index))
+        buckets[key].append((index, corners, normal, facing, material, mesh_index))
 
     pairs = []
     for entries in buckets.values():
@@ -158,20 +160,26 @@ def probe(path, limit):
             continue  # a flat floor tessellated into hundreds of tris: skip, not a decal stack
         for i in range(len(entries)):
             for j in range(i + 1, len(entries)):
-                _, first, normal, mat_a, mesh_a = entries[i]
-                _, second, _, mat_b, mesh_b = entries[j]
+                _, first, normal, face_a, mat_a, mesh_a = entries[i]
+                _, second, _, face_b, mat_b, mesh_b = entries[j]
                 if mat_a == mat_b and mesh_a == mesh_b:
                     continue  # same surface, same material: ordinary tessellation
                 fraction = shared_fraction(first, second, dominant_axes(normal))
                 if fraction >= MIN_SHARED_FRACTION:
-                    pairs.append((fraction, mat_a, mat_b, mesh_a, mesh_b))
+                    pairs.append((fraction, mat_a, mat_b, face_a == face_b))
 
     name = lambda m: materials[m].get("name", "?") if 0 <= m < len(materials) else "-"  # noqa: E731
-    by_material = collections.Counter((name(p[1]), name(p[2])) for p in pairs)
-    print(f"{path.name}: {len(faces)} triangles, {len(pairs)} coplanar overlapping pairs")
+    # Only SAME-FACING coplanar pairs can z-fight. An opposite-facing pair is a
+    # two-sided sheet built from two single-sided quads (how the medals are
+    # made): backface culling shows exactly one of them, so it is not a defect.
+    fighting = [p for p in pairs if p[3]]
+    by_material = collections.Counter((name(p[1]), name(p[2])) for p in fighting)
+    print(f"{path.name}: {len(faces)} triangles, {len(pairs)} coplanar pairs "
+          f"({len(fighting)} same-facing = z-fighting risk, "
+          f"{len(pairs) - len(fighting)} back-to-back sheets)")
     for (a, b), count in by_material.most_common(10):
         print(f"    {count:>5}  {a}  <->  {b}")
-    return len(pairs)
+    return len(fighting)
 
 
 def main():
