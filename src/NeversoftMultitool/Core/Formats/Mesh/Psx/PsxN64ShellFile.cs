@@ -4,7 +4,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 /// <summary>
 ///     Reads the PSX "shell" carved out of an N64 ROM
-///     (<c>models/NNN/geometry.psx.n64</c>) — the Edge of Reality ports keep
+///     (<c>models/NNN/geometry_NNN.psx.n64</c>) — the Edge of Reality ports keep
 ///     Neversoft's PS1 model container for the object table, hierarchy, names
 ///     and animation, while the actual render geometry moves to the N64-native
 ///     render bank (<c>group2/</c>). Two deviations from a PS1 file, both

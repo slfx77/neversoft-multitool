@@ -12,9 +12,9 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Detection;
 public static class MeshTypeDetector
 {
     /// <summary>
-    ///     Carved N64 model bundles. Every bundle's file is named
-    ///     "geometry.psx.n64", so callers take the output stem from the parent
-    ///     directory (models/NNN) instead of the file name.
+    ///     Carved N64 model bundles (<c>models/NNN/geometry_NNN.psx.n64</c>).
+    ///     Callers take the output stem from the parent directory, which is the
+    ///     bundle slot, so the exported name is stable.
     /// </summary>
     public const string N64ModelSuffix = ".psx.n64";
 

@@ -33,7 +33,7 @@ public sealed class N64ModelCompanionsTests(TestPaths paths)
     [Fact]
     public void RenderBankId_ResolvesToItsGroup2Record()
     {
-        var (fs, source) = OpenBundle("models/000/geometry.psx.n64");
+        var (fs, source) = OpenBundle("models/000/geometry_000.psx.n64");
         using var _ = fs;
 
         // models/000 stores BE 0x00000016 = 22.
@@ -49,7 +49,7 @@ public sealed class N64ModelCompanionsTests(TestPaths paths)
     [Fact]
     public void TextureProvider_DecodesByDictionarySlot()
     {
-        var (fs, source) = OpenBundle("models/000/geometry.psx.n64");
+        var (fs, source) = OpenBundle("models/000/geometry_000.psx.n64");
         using var _ = fs;
 
         var provider = N64ModelCompanions.BuildTextureProvider(source);
@@ -75,7 +75,7 @@ public sealed class N64ModelCompanionsTests(TestPaths paths)
     [Fact]
     public void Shell_ParsesFromInsideTheRom()
     {
-        var (fs, source) = OpenBundle("models/045/geometry.psx.n64");
+        var (fs, source) = OpenBundle("models/045/geometry_045.psx.n64");
         using var _ = fs;
 
         var shell = PsxN64ShellFile.Parse(source.ReadBytes());

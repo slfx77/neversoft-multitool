@@ -319,8 +319,9 @@ public static class MeshCommand
     }
 
     /// <summary>
-    ///     Every carved N64 bundle is named "geometry.psx.n64", so its stem comes
-    ///     from the parent directory. Everything else uses the shared stem rule.
+    ///     A carved N64 bundle takes its stem from the parent directory, which
+    ///     is the bundle slot — a stable n64_NNN independent of how the file
+    ///     itself is spelled. Everything else uses the shared stem rule.
     /// </summary>
     private static string OutputStemFor(string file, in MeshFileRoute route)
     {

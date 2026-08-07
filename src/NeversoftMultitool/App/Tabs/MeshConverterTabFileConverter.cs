@@ -140,8 +140,9 @@ internal static class MeshConverterTabFileConverter
 
     private static string GetOutputStem(MeshFileEntry entry)
     {
-        // Every bundle file is named "geometry.psx.n64"; the row label already
-        // carries the bundle directory, so reuse it rather than colliding.
+        // A bundle's identity is its slot, which its directory carries and its
+        // file name repeats — take the directory so the output keeps the stable
+        // n64_NNN name regardless of how the file itself is spelled.
         if (entry.IsN64Model)
             return "n64_" + Path.GetFileName(Path.GetDirectoryName(entry.FilePath.Replace('\\', '/')) ?? "model");
 

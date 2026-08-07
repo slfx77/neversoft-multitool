@@ -156,8 +156,13 @@ public static class N64AssetCarver
         {
             // 4-slot model bundle; the slot layout is fixed (object table,
             // bounds, PSX container, render-bank link) across all four games.
+            // The geometry file carries the bundle slot in its NAME as well as
+            // its directory: it is the one asset opened standalone, and a tree
+            // (or a file list) full of identical "geometry.psx.n64" rows cannot
+            // be told apart. Its three companions are only ever resolved
+            // relative to it, so they keep their fixed names.
             var t = cls.TableOffsets!;
-            assets.Add(new CarvedAsset($"{dir}/{slotName}/geometry.psx.n64", data[t[2]..t[3]]));
+            assets.Add(new CarvedAsset($"{dir}/{slotName}/geometry_{slotName}.psx.n64", data[t[2]..t[3]]));
             assets.Add(new CarvedAsset($"{dir}/{slotName}/objects.bin", data[t[0]..t[1]]));
             assets.Add(new CarvedAsset($"{dir}/{slotName}/bounds.bin", data[t[1]..t[2]]));
             assets.Add(new CarvedAsset($"{dir}/{slotName}/renderbank-id.bin", data[t[3]..t[4]]));

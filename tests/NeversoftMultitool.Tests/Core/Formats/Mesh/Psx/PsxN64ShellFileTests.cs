@@ -23,7 +23,7 @@ public sealed class PsxN64ShellFileTests(TestPaths paths)
         Assert.SkipWhen(romPath == null, $"{build} ROM sample not available");
         Assert.True(N64AssetCarver.TryCarve(File.ReadAllBytes(romPath!), out var assets));
         return assets
-            .Where(static asset => asset.Path.EndsWith("/geometry.psx.n64", StringComparison.Ordinal))
+            .Where(static asset => asset.Path.EndsWith(".psx.n64", StringComparison.Ordinal))
             .ToDictionary(static asset => asset.Path, static asset => asset.Data);
     }
 
@@ -31,7 +31,7 @@ public sealed class PsxN64ShellFileTests(TestPaths paths)
     public void Parse_ReadsObjectsAndHierarchy_FromACarvedShell()
     {
         var shells = CarveShells(paths, Thps2N64Build, RomName);
-        var shell = PsxN64ShellFile.Parse(shells["models/000/geometry.psx.n64"]);
+        var shell = PsxN64ShellFile.Parse(shells["models/000/geometry_000.psx.n64"]);
 
         Assert.NotNull(shell);
         Assert.Equal(4, shell!.Version);
@@ -53,7 +53,7 @@ public sealed class PsxN64ShellFileTests(TestPaths paths)
     public void RawCarvedBytes_AreRejectedByThePs1Reader()
     {
         var shells = CarveShells(paths, Thps2N64Build, RomName);
-        var raw = shells["models/000/geometry.psx.n64"];
+        var raw = shells["models/000/geometry_000.psx.n64"];
 
         Assert.Null(PsxMeshFile.Parse(raw));
         Assert.Null(PsxMeshFile.ParseHeaderOnly(raw));

@@ -125,7 +125,7 @@ public sealed class N64LightingTests(TestPaths paths)
     [Fact]
     public void LitCharacter_IsShadedByTheRigAndNeverWhite()
     {
-        var document = ParseBundle("models/074/geometry.psx.n64", out var fs);
+        var document = ParseBundle("models/074/geometry_074.psx.n64", out var fs);
         using var _ = fs;
 
         var (min, max, chroma) = ColourStats(document);
@@ -142,7 +142,7 @@ public sealed class N64LightingTests(TestPaths paths)
     [Fact]
     public void LitModelWithZeroNormals_ShadesToFlatAmbient()
     {
-        var document = ParseBundle("models/045/geometry.psx.n64", out var fs);
+        var document = ParseBundle("models/045/geometry_045.psx.n64", out var fs);
         using var _ = fs;
 
         var (min, max, chroma) = ColourStats(document);
@@ -158,8 +158,8 @@ public sealed class N64LightingTests(TestPaths paths)
     ///     at roughly 0.3 mean.
     /// </summary>
     [Theory]
-    [InlineData("models/004/geometry.psx.n64")]   // Downtown, the user's report
-    [InlineData("models/008/geometry.psx.n64")]   // c_kart, which the geometric oracle mis-read as lit
+    [InlineData("models/004/geometry_004.psx.n64")]   // Downtown, the user's report
+    [InlineData("models/008/geometry_008.psx.n64")]   // c_kart, which the geometric oracle mis-read as lit
     public void UnlitBank_KeepsItsAuthoredColour(string bundle)
     {
         var document = ParseBundle(bundle, out var fs);

@@ -524,10 +524,10 @@ internal static class MeshConverterTabFileScanner
     }
 
     /// <summary>
-    ///     A carved N64 model bundle. Every bundle file is named
-    ///     "geometry.psx.n64", so the row is labelled by its parent directory
-    ///     (models/NNN) and the geometry count comes from the linked render
-    ///     bank rather than the shell, which holds no mesh chunks.
+    ///     A carved N64 model bundle. The carver puts the bundle slot in the
+    ///     file name (geometry_NNN.psx.n64), so the row identifies itself; the
+    ///     geometry count comes from the linked render bank rather than the
+    ///     shell, which holds no mesh chunks.
     /// </summary>
     private static MeshFileEntry? ScanN64ModelFile(AssetSource source, string displayPath, string rootDir)
     {
@@ -542,7 +542,7 @@ internal static class MeshConverterTabFileScanner
 
             return new MeshFileEntry
             {
-                FileName = BundleLabel(displayPath),
+                FileName = source.EntryName,
                 FilePath = displayPath,
                 RelativePath = MakeRelativePath(displayPath, rootDir),
                 Format = "N64",
@@ -557,13 +557,6 @@ internal static class MeshConverterTabFileScanner
         {
             return null;
         }
-    }
-
-    /// <summary>models/042/geometry.psx.n64 -&gt; "042 (N64 model)".</summary>
-    private static string BundleLabel(string displayPath)
-    {
-        var dir = Path.GetFileName(Path.GetDirectoryName(displayPath.Replace('\\', '/')) ?? "");
-        return string.IsNullOrEmpty(dir) ? "geometry.psx.n64" : $"{dir} (N64 model)";
     }
 
     private static MeshFileEntry? ScanPsxFile(AssetSource source, string displayPath, string rootDir)

@@ -46,13 +46,13 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
     [Fact]
     public void AverageBlendWithOneBitArt_BecomesAlphaTestSoItWritesDepth()
     {
-        var document = ParseBundle("models/030/geometry.psx.n64", out var fs);
+        var document = ParseBundle("models/030/geometry_030.psx.n64", out var fs);
         using var _ = fs;
 
         // Texture 0xD51A321B: 1,687 fully transparent texels, 2,409 fully
         // opaque, none partial. Its faces carry the ABR rate-0 semi bit.
         var material = Assert.Single(
-            document.Materials.Where(m => m.Name.StartsWith("psxtxt_d51a321b", StringComparison.Ordinal)));
+            document.Materials, m => m.Name.StartsWith("psxtxt_d51a321b", StringComparison.Ordinal));
 
         Assert.Equal(ModelAlphaMode.Mask, material.AlphaMode);
         Assert.Equal(1f, material.BaseColor.W);
@@ -64,13 +64,13 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
     [Fact]
     public void AdditiveBlend_KeepsBlendingEvenWithOneBitArt()
     {
-        var document = ParseBundle("models/030/geometry.psx.n64", out var fs);
+        var document = ParseBundle("models/030/geometry_030.psx.n64", out var fs);
         using var _ = fs;
 
         // Texture 0xDD1BBB66 is one-bit art too (764 transparent, 3,332
         // opaque), so only the ABR rate can separate it from the case above.
         var material = Assert.Single(
-            document.Materials.Where(m => m.Name.StartsWith("psxtxt_dd1bbb66", StringComparison.Ordinal)));
+            document.Materials, m => m.Name.StartsWith("psxtxt_dd1bbb66", StringComparison.Ordinal));
 
         Assert.Equal(ModelAlphaMode.Blend, material.AlphaMode);
         Assert.EndsWith("__st1", material.Name, StringComparison.Ordinal);
@@ -89,11 +89,11 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
     [Fact]
     public void AverageBlendWithNoArtAlpha_BecomesFiftyPercentGlass()
     {
-        var document = ParseBundle("models/004/geometry.psx.n64", out var fs);
+        var document = ParseBundle("models/004/geometry_004.psx.n64", out var fs);
         using var _ = fs;
 
         var material = Assert.Single(
-            document.Materials.Where(m => m.Name.StartsWith("psxtxt_015e00c1", StringComparison.Ordinal)));
+            document.Materials, m => m.Name.StartsWith("psxtxt_015e00c1", StringComparison.Ordinal));
 
         Assert.Equal(ModelAlphaMode.Blend, material.AlphaMode);
         Assert.Equal(0.5f, material.BaseColor.W);
@@ -116,7 +116,7 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
     [Fact]
     public void Medals_HaveNoBlendedMaterialsAtAll()
     {
-        var document = ParseBundle("models/061/geometry.psx.n64", out var fs);
+        var document = ParseBundle("models/061/geometry_061.psx.n64", out var fs);
         using var _ = fs;
 
         Assert.Equal(264, document.TriangleCount);
