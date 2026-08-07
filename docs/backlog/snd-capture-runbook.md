@@ -104,11 +104,24 @@ Unicorn Engine plus stubbed Windows APIs. Tractable, and it would also reveal
 whether the key is disc-derived — but it is a multi-day project against an
 actively anti-emulation loader.
 
-**Recommendation: don't.** There is exactly **one** SafeDisc binary in the whole
-corpus (THUG2.exe; every other PC title is SecuROM), so an unwrapper is a
-one-off rather than reusable infrastructure, and an XP VM — which reaches the
-same outcome in about an hour — already exists. Revisit only if the VM stays
-unavailable and the emulation harness is wanted for its own sake.
+**Recommendation: park it, but the reusability case is better than a corpus scan
+suggests.** Only one SafeDisc binary is present today (THUG2.exe; every other PC
+title in the corpus is SecuROM) — but **THUG1's PC port is also SafeDisc**, so a
+loader-emulation harness would serve at least two titles once that build is
+acquired, and plausibly more of the Neversoft PC lineup. The argument against is
+therefore cost and sequencing, not reusability: an XP VM reaches the same
+outcome in about an hour and unwraps *any* SafeDisc binary just as well.
+Revisit if the VM stays chronically inconvenient, or build the harness on its
+own merits as a capability rather than for `.snd` alone.
+
+**Worth checking the moment a THUG1 PC build lands**, before any of that: does
+it ship `.snd`, and are those files compressed or plain PCM? THUG1 is one engine
+generation earlier, and a ZenHAX thread notes its music containers already
+carried RIFF headers where THUG2's did not — so THUG1 PC may predate the
+compression. If its `.snd` are plain PCM of sounds THUG2 also ships, that is a
+**direct Rosetta for the codec** and would likely settle it with no VM, no
+capture and no emulator. The corpus already has THUG1 PS2 (2003-10-2) to
+cross-reference names against.
 
 **What is actually locked**, for weighing the cost: of 784 `.snd` sounds, 350
 (44.6%) also ship as decodable `.pcm`, and **434 (55.4%) exist only as `.snd`**.
