@@ -101,7 +101,64 @@ public sealed class GltfModelExporter : IModelExporter
             return (null, 0);
         }
 
-        return (scene.ToGltf2(), totalTriangles);
+        var model = scene.ToGltf2();
+        ApplyColourPulseTable(model, document);
+        return (model, totalTriangles);
+    }
+
+    /// <summary>
+    ///     Publishes the document's colour-pulse channel table as SCENE extras
+    ///     (<c>neversoftColourPulseChannels</c>). Scene scope rather than
+    ///     per-mesh: the table is shared by every pulsed mesh in the document,
+    ///     and replicating a 60-pulse table across hundreds of level meshes
+    ///     would add tens of megabytes of JSON.
+    /// </summary>
+    private static void ApplyColourPulseTable(SharpGLTF.Schema2.ModelRoot model, ModelDocument document)
+    {
+        var table = document.NativeMetadata.OfType<PsxColourPulseTableMetadata>().FirstOrDefault();
+        if (table == null || table.Channels.Count == 0 || model.DefaultScene == null)
+            return;
+
+        var channels = new System.Text.Json.Nodes.JsonArray();
+        foreach (var channel in table.Channels)
+        {
+            // Everything goes in as float. SharpGLTF serializes extras through a
+            // source-generated resolver that has no JsonTypeInfo for a boxed
+            // System.Int32, so JsonArray.Add(int) throws at write time — only the
+            // params-of-JsonNode constructor path is safe.
+            // Everything goes in as float. SharpGLTF serializes extras through a
+            // source-generated resolver that has no JsonTypeInfo for a boxed
+            // System.Int32, so JsonArray.Add(int) throws at write time.
+            var keys = new System.Text.Json.Nodes.JsonArray();
+            var portable = new System.Text.Json.Nodes.JsonArray();
+            var intervalNodes = new System.Text.Json.Nodes.JsonNode?[channel.Intervals.Count];
+            for (var i = 0; i < channel.PacketKeys.Count; i++)
+            {
+                var packetKey = channel.PacketKeys[i];
+                var portableKey = channel.PortableKeys[i];
+                keys.Add(new System.Text.Json.Nodes.JsonArray(
+                    packetKey.X, packetKey.Y, packetKey.Z, packetKey.W));
+                portable.Add(new System.Text.Json.Nodes.JsonArray(
+                    portableKey.X, portableKey.Y, portableKey.Z, portableKey.W));
+                intervalNodes[i] = System.Text.Json.Nodes.JsonValue.Create((float)channel.Intervals[i]);
+            }
+
+            var intervals = new System.Text.Json.Nodes.JsonArray(intervalNodes);
+
+            channels.Add(new System.Text.Json.Nodes.JsonObject
+            {
+                ["keys"] = keys,
+                ["portableKeys"] = portable,
+                ["intervals"] = intervals,
+                ["keyIndex"] = (float)channel.InitialKeyIndex,
+                ["accumulator"] = (float)channel.InitialAccumulator
+            });
+        }
+
+        model.DefaultScene.Extras = new System.Text.Json.Nodes.JsonObject
+        {
+            ["neversoftColourPulseChannels"] = channels
+        };
     }
 
     private static void ApplyAnimations(
@@ -366,7 +423,7 @@ public sealed class GltfModelExporter : IModelExporter
         if (HasTextureWibble(modelMesh))
             return AddPsxAnimatedRigidMesh(scene, modelMesh, materials, worldTransform);
 
-        if (HasPsxPacketColor(modelMesh) || HasOutOfRangeVertexColor(modelMesh))
+        if (HasPsxPacketColor(modelMesh) || HasOutOfRangeVertexColor(modelMesh) || HasColourPulse(modelMesh))
             return AddPsxOverbrightRigidMesh(scene, modelMesh, materials, worldTransform);
 
         var mesh =
@@ -412,7 +469,11 @@ public sealed class GltfModelExporter : IModelExporter
             .SelectMany(static primitive => primitive.NativeMetadata)
             .OfType<PsxAxialBillboardMetadata>()
             .FirstOrDefault();
-        if (drawOrder == null && sky == null && billboard == null)
+        var colourPulse = modelMesh.Primitives
+            .SelectMany(static primitive => primitive.NativeMetadata)
+            .OfType<PsxColourPulseMetadata>()
+            .FirstOrDefault();
+        if (drawOrder == null && sky == null && billboard == null && colourPulse == null)
             return;
 
         var extras = new System.Text.Json.Nodes.JsonObject();
@@ -440,6 +501,9 @@ public sealed class GltfModelExporter : IModelExporter
                 billboard.AnchorX, billboard.AnchorY, billboard.AnchorZ);
         }
 
+        if (colourPulse != null)
+            extras["neversoftColourPulse"] = true;
+
         mesh.Extras = extras;
     }
 
@@ -452,7 +516,7 @@ public sealed class GltfModelExporter : IModelExporter
         if (HasTextureWibble(modelMesh))
             return AddPsxAnimatedSkinnedMesh(scene, modelMesh, materials, skeletonJoints);
 
-        if (HasPsxPacketColor(modelMesh) || HasOutOfRangeVertexColor(modelMesh))
+        if (HasPsxPacketColor(modelMesh) || HasOutOfRangeVertexColor(modelMesh) || HasColourPulse(modelMesh))
             return AddPsxOverbrightSkinnedMesh(scene, modelMesh, materials, skeletonJoints);
 
         var mesh =
@@ -600,6 +664,18 @@ public sealed class GltfModelExporter : IModelExporter
     {
         return mesh.Primitives.Any(static primitive =>
             primitive.Vertices.Any(static vertex => vertex.TextureWibble.HasValue));
+    }
+
+    /// <summary>
+    ///     A pulsed mesh must reach a vertex struct that carries _PSX_FLAGS_0,
+    ///     because that is where the per-vertex channel index rides. v6 files
+    ///     emit no PS1 packet, so without this they would fall through to the
+    ///     plain struct and lose the lane entirely.
+    /// </summary>
+    private static bool HasColourPulse(ModelMesh mesh)
+    {
+        return mesh.Primitives.Any(static primitive =>
+            primitive.Vertices.Any(static vertex => vertex.ColourPulseChannel > 0));
     }
 
     private static MaterialBuilder ResolveMaterial(ModelPrimitive primitive, IReadOnlyList<MaterialBuilder> materials)

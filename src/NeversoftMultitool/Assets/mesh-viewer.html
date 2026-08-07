@@ -170,6 +170,10 @@
     let lastPostedTime = -1;
     let textureWibbleMeshes = [];
     let textureWibbleFrame = 0;
+    // PS1 colour pulses (tagged chunk 7). Shares the wibble's 60 Hz Xblank
+    // clock so both animations stay phase-locked.
+    let colourPulseMeshes = [];
+    let colourPulseChannels = [];
     let psxGpuMaterials = [];
     let skyLockObjects = [];
     let skyBackdropColor = null;
@@ -225,6 +229,7 @@
       const dt = clock.getDelta();
       if (mixer && playing) mixer.update(dt);
       updatePsxTextureWibbles(Math.min(dt, 0.1));
+      updatePsxColourPulses();
       updatePsxGpuShaderUniforms();
       if (controlMode === 'orbit') updateOrbit(Math.min(dt, 0.1));
       else updateFlyWalk(Math.min(dt, 0.1)); // clamp tab-stall dt spikes
@@ -939,6 +944,122 @@ if (psxFlags.z < 0.5) {
       });
     }
 
+    // Zero-based index into colourPulseChannels for a _psx_flags_0.Y value, or
+    // -1 when the corner is not pulsed. Y = 1 + oneBasedChannel, so the table
+    // index is Y - 2 — mirrors PsxColourPulseLane.DecodeIndex exactly. Using
+    // Y - 1 here binds every vertex to the wrong channel, which still animates
+    // and so looks plausible; the exporter test pins frame 0 against the baked
+    // colour precisely to catch that.
+    const PSX_PULSE_THRESHOLD = 1.5;
+
+    function psxColourPulseIndex(laneValue) {
+      return laneValue < PSX_PULSE_THRESHOLD ? -1 : Math.round(laneValue) - 2;
+    }
+
+    function configurePsxColourPulses(root, channels) {
+      // APPENDS, like configurePsxTextureWibbles: called for modelRoot and again
+      // for skySceneRoot. unloadCurrent owns the reset.
+      if (Array.isArray(channels) && channels.length > 0) colourPulseChannels = channels;
+      if (colourPulseChannels.length === 0) return;
+
+      root.traverse(obj => {
+        if (!obj.isMesh || !obj.geometry) return;
+        const geometry = obj.geometry;
+        const flags = geometry.getAttribute('_psx_flags_0');
+        if (!flags) return;
+
+        const psxColor = geometry.getAttribute('_psx_color_0');
+        const color = geometry.getAttribute('color');
+        if (!psxColor && !color) return;
+
+        const groups = new Map();
+        for (let i = 0; i < flags.count; i++) {
+          const index = psxColourPulseIndex(flags.getY(i));
+          if (index < 0 || index >= colourPulseChannels.length) continue;
+          let bucket = groups.get(index);
+          if (!bucket) { bucket = []; groups.set(index, bucket); }
+          bucket.push(i);
+        }
+
+        if (groups.size === 0) return;
+        colourPulseMeshes.push({
+          psxColor,
+          color,
+          groups: [...groups].map(([channel, indices]) => ({
+            channel,
+            indices: Uint32Array.from(indices)
+          }))
+        });
+      });
+    }
+
+    function psxColourPulseSample(channel, frame) {
+      const keys = channel.keys;
+      const intervals = channel.intervals;
+      if (!keys || keys.length === 0) return null;
+
+      let keyIndex = channel.keyIndex | 0;
+      if (keyIndex >= keys.length) keyIndex = 0;
+      let time = (channel.accumulator | 0) + frame;
+
+      for (let guard = 0; guard < 256; guard++) {
+        const interval = intervals[keyIndex] | 0;
+        if (interval === 0 || time < interval) break;
+        time -= interval;
+        keyIndex = (keyIndex + 1) % keys.length;
+      }
+
+      const interval = intervals[keyIndex] | 0;
+      const amount = interval === 0 ? 0 : Math.min(1, Math.max(0, time / interval));
+      return { keyIndex, next: (keyIndex + 1) % keys.length, amount };
+    }
+
+    function psxLerpKey(channel, table, sample, out) {
+      const a = table[sample.keyIndex];
+      const b = table[sample.next];
+      for (let c = 0; c < 4; c++) out[c] = a[c] + (b[c] - a[c]) * sample.amount;
+      return out;
+    }
+
+    function updatePsxColourPulses() {
+      if (colourPulseMeshes.length === 0 || colourPulseChannels.length === 0) return;
+
+      // Shares textureWibbleFrame so pulses and UV wibbles run on one clock.
+      const frame = Math.floor(textureWibbleFrame);
+      const packet = [0, 0, 0, 0];
+      const portable = [0, 0, 0, 0];
+
+      for (const entry of colourPulseMeshes) {
+        let touchedPsx = false;
+        let touchedColor = false;
+        for (const group of entry.groups) {
+          const channel = colourPulseChannels[group.channel];
+          if (!channel) continue;
+          const sample = psxColourPulseSample(channel, frame);
+          if (!sample) continue;
+
+          if (entry.psxColor && channel.keys) {
+            psxLerpKey(channel, channel.keys, sample, packet);
+            for (let k = 0; k < group.indices.length; k++) {
+              entry.psxColor.setXYZW(group.indices[k], packet[0], packet[1], packet[2], packet[3]);
+            }
+            touchedPsx = true;
+          }
+
+          if (entry.color && channel.portableKeys) {
+            psxLerpKey(channel, channel.portableKeys, sample, portable);
+            for (let k = 0; k < group.indices.length; k++) {
+              entry.color.setXYZW(group.indices[k], portable[0], portable[1], portable[2], portable[3]);
+            }
+            touchedColor = true;
+          }
+        }
+
+        if (touchedPsx) entry.psxColor.needsUpdate = true;
+        if (touchedColor) entry.color.needsUpdate = true;
+      }
+    }
+
     function psxWibbleSample(basePhase, phase, amplitude) {
       const sampleIndex = ((basePhase + phase * 4) % 64 + 64) % 64;
       // The native table stores (rcossin_tbl[sample] * amplitude) >> 4.
@@ -1205,6 +1326,8 @@ if (psxFlags.z < 0.5) {
       textureWibbleMeshes = [];
       psxGpuMaterials = [];
       textureWibbleFrame = 0;
+      colourPulseMeshes = [];
+      colourPulseChannels = [];
       skyLockObjects = [];
       skyBackdropColor = null;
       axialBillboards = [];
@@ -1333,18 +1456,24 @@ if (psxFlags.z < 0.5) {
             return;
           }
           modelRoot = gltf.scene;
+          // Read the scene-level pulse table BEFORE applyPsxSkyDomes reparents
+          // sky nodes out of this root.
+          const pulseChannels =
+            (gltf.scene.userData && gltf.scene.userData.neversoftColourPulseChannels) || [];
           applyPsxSemiTransparentUnlit(modelRoot);
           applyPsxSkyDomes(modelRoot);
           // After the sky reparent — billboards stay in modelRoot.
           collectAxialBillboards(modelRoot);
           configurePsxGpuVertexColors(modelRoot);
           configurePsxTextureWibbles(modelRoot);
+          configurePsxColourPulses(modelRoot, pulseChannels);
           applyNativeMaterialBlending(modelRoot);
           applyNeversoftRenderOrder(modelRoot);
           // Sky nodes moved to the sky scene — give them the same PS1
           // colour/wibble/blend treatments there.
           configurePsxGpuVertexColors(skySceneRoot);
           configurePsxTextureWibbles(skySceneRoot);
+          configurePsxColourPulses(skySceneRoot, pulseChannels);
           applyNativeMaterialBlending(skySceneRoot);
           refreshBackground();
           scene.add(modelRoot);

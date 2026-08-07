@@ -36,7 +36,19 @@ internal struct PsxOverbrightVertexColor1Texture1 :
     {
         PortableColor = Vector4.Clamp(vertex.Color, Vector4.Zero, Vector4.One);
         PsxColor = vertex.PsxPacketColor ?? vertex.Color;
-        PsxFlags = vertex.PsxPrimitiveFlags;
+        // The colour-pulse channel rides in the Gouraud lane (Y) rather than a
+        // new custom attribute: Blender's glTF importer mis-zips a
+        // hash-randomized set of custom-attribute names against append-ordered
+        // arrays, so each extra attribute makes that documented crash likelier.
+        // A pulsed corner is Gouraud by definition, so "y >= 0.5" stays true.
+        // CPU-side only - never read this lane in a shader (see
+        // ModelVertex.ColourPulseChannel).
+        PsxFlags = vertex.ColourPulseChannel > 0
+            ? new Vector3(
+                vertex.PsxPrimitiveFlags.X,
+                PsxColourPulseLane.Encode(vertex.ColourPulseChannel),
+                vertex.PsxPrimitiveFlags.Z)
+            : vertex.PsxPrimitiveFlags;
         TexCoord = vertex.TexCoord;
     }
 

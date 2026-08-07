@@ -146,7 +146,8 @@ internal static class PsxGeometryWriter
                         isSky,
                         skyColor,
                         ghostFaces,
-                        skyLayerIndex);
+                        skyLayerIndex,
+                        context.ColourPulses);
                 }
             }
             else
@@ -170,11 +171,27 @@ internal static class PsxGeometryWriter
                     context.EngineLight,
                     isSky,
                     skyColor,
-                    skyLayerIndex: skyLayerIndex);
+                    skyLayerIndex: skyLayerIndex,
+                    colourPulses: context.ColourPulses);
             }
         }
 
+        PublishColourPulseTable(document, context.ColourPulses);
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
+    }
+
+    /// <summary>
+    ///     Publishes the document's channel table once. PopulatePsx runs several
+    ///     times for a level (geometry, object bank, items), each adding to the
+    ///     same table, so replace any earlier entry rather than appending.
+    /// </summary>
+    private static void PublishColourPulseTable(ModelDocument document, PsxColourPulseChannels channels)
+    {
+        if (!channels.HasChannels)
+            return;
+
+        document.NativeMetadata.RemoveAll(static metadata => metadata is PsxColourPulseTableMetadata);
+        document.NativeMetadata.Add(new PsxColourPulseTableMetadata(channels.Channels));
     }
 
     private static void PopulatePsxMeshNode(
@@ -195,7 +212,8 @@ internal static class PsxGeometryWriter
         bool isSky = false,
         uint? skyColor = null,
         IReadOnlyList<PsxFace>? ghostFaces = null,
-        int skyLayerIndex = 0)
+        int skyLayerIndex = 0,
+        PsxColourPulseChannels? colourPulses = null)
     {
         var psxMesh = psxFile.Meshes[meshIndex];
         var emittedFaces = ghostFaces ?? (IReadOnlyList<PsxFace>)psxMesh.Faces;
@@ -237,7 +255,8 @@ internal static class PsxGeometryWriter
                 PsxMeshSemantics.GetObjectOffset(psxFile, psxFile.Objects[objectIndex])),
             PsxNormalWelder.Build(psxMesh),
             PsxSpriteVertexResolver.TryCreate(psxMesh),
-            engineLight);
+            engineLight,
+            colourPulses);
 
         // Semi-transparent faces split out of the shared mesh into per-face
         // nodes re-based on their own centroid (see EmitSemiTransparentFaceNodes)
@@ -510,10 +529,19 @@ internal static class PsxGeometryWriter
                     liftContext.LiftPlanFor(item.FaceIndex),
                     liftContext.NormalWelder,
                     liftContext.EngineLight,
-                    liftContext.SpriteResolver);
+                    liftContext.SpriteResolver,
+                    liftContext.ColourPulses,
+                    psxFile);
 
             ModelDocumentGeometryAdapter.AddPrimitive(mesh, $"mat_{materialIndex:D3}", materialIndex, vertices,
                 indices);
+
+            // Tagging here covers every caller at once — the base mesh, each
+            // coplanar overlay group and rank, the per-face semi-transparent
+            // nodes, and ghost apparitions all build through this method.
+            var pulsed = vertices.Count(static vertex => vertex.ColourPulseChannel > 0);
+            if (pulsed > 0)
+                mesh.Primitives[^1].NativeMetadata.Add(new PsxColourPulseMetadata(pulsed));
         }
 
         return mesh.Primitives.Count > 0 ? mesh : null;
@@ -562,7 +590,9 @@ internal static class PsxGeometryWriter
         PsxFaceLiftPlan liftPlan,
         PsxNormalWelder? normalWelder,
         PsxEngineLight? engineLight,
-        PsxSpriteVertexResolver? spriteResolver = null)
+        PsxSpriteVertexResolver? spriteResolver = null,
+        PsxColourPulseChannels? colourPulses = null,
+        PsxMeshFile? psxFile = null)
     {
         var isPs1 = version != 0x06;
         // PS1 lit faces on the NON-character path bake the engine light:
@@ -624,11 +654,25 @@ internal static class PsxGeometryWriter
         c1 = PsxGeometryHelpers.DisplayRgbToLinear(c1, isPs1TexturedModulation);
         c2 = PsxGeometryHelpers.DisplayRgbToLinear(c2, isPs1TexturedModulation);
         c3 = PsxGeometryHelpers.DisplayRgbToLinear(c3, isPs1TexturedModulation);
-        var v0 = MakePsxVertex(version, mesh, face, 0, c0, p0, texDims, normalWelder, spriteResolver);
-        var v1 = MakePsxVertex(version, mesh, face, 1, c1, p1, texDims, normalWelder, spriteResolver);
-        var v2 = MakePsxVertex(version, mesh, face, 2, c2, p2, texDims, normalWelder, spriteResolver);
+
+        // A pulsed corner animates a palette entry. Suppress it wherever the
+        // palette is not what the corner's colour came from: a baked engine
+        // light replaces the authored colour outright, and the v6 neutralize
+        // branch discards it.
+        // Pass the colour each corner will actually store so the builder can
+        // verify its own frame 0 against it and decline the channel otherwise.
+        var (k0, k1, k2, k3) = ResolveColourPulseChannels(
+            colourPulses, psxFile, mesh, face, version, engineLight,
+            usesDisplayRgb: version == 0x06 || !face.IsTextured,
+            emitPacket: emitPacket,
+            ps1TexturedModulation: isPs1TexturedModulation,
+            exported: (p0 ?? c0, p1 ?? c1, p2 ?? c2, p3 ?? c3));
+
+        var v0 = MakePsxVertex(version, mesh, face, 0, c0, p0, texDims, normalWelder, spriteResolver, k0);
+        var v1 = MakePsxVertex(version, mesh, face, 1, c1, p1, texDims, normalWelder, spriteResolver, k1);
+        var v2 = MakePsxVertex(version, mesh, face, 2, c2, p2, texDims, normalWelder, spriteResolver, k2);
         var v3 = face.IsQuad
-            ? MakePsxVertex(version, mesh, face, 3, c3, p3, texDims, normalWelder, spriteResolver)
+            ? MakePsxVertex(version, mesh, face, 3, c3, p3, texDims, normalWelder, spriteResolver, k3)
             : default;
 
         if (face.IsSemiTransparent)
@@ -800,9 +844,16 @@ internal static class PsxGeometryWriter
         Vector3 authoredOffset,
         PsxNormalWelder? normalWelder,
         PsxSpriteVertexResolver? spriteResolver,
-        PsxEngineLight? engineLight = null)
+        PsxEngineLight? engineLight = null,
+        PsxColourPulseChannels? colourPulses = null)
     {
         internal PsxEngineLight? EngineLight => engineLight;
+
+        /// <summary>
+        ///     Document-scoped colour-pulse channel table, or null when pulses
+        ///     are not being animated for this document.
+        /// </summary>
+        internal PsxColourPulseChannels? ColourPulses => colourPulses;
 
         /// <summary>Everything the lift needs for one face.</summary>
         internal PsxFaceLiftPlan LiftPlanFor(int faceIndex)
@@ -822,6 +873,51 @@ internal static class PsxGeometryWriter
         }
     }
 
+    /// <summary>
+    ///     The four per-corner pulse channels for a face, or all zero when this
+    ///     face's colour does not come from the animated palette.
+    /// </summary>
+    private static (int C0, int C1, int C2, int C3) ResolveColourPulseChannels(
+        PsxColourPulseChannels? colourPulses,
+        PsxMeshFile? psxFile,
+        PsxMesh mesh,
+        PsxFace face,
+        ushort version,
+        PsxEngineLight? engineLight,
+        bool usesDisplayRgb,
+        bool emitPacket,
+        bool ps1TexturedModulation,
+        (Vector4 C0, Vector4 C1, Vector4 C2, Vector4 C3) exported)
+    {
+        if (colourPulses == null || psxFile == null || !face.IsGouraud)
+            return (0, 0, 0, 0);
+
+        // An engine-lit face never takes its colour from the palette, in EITHER
+        // mode: with a rig the colour is the baked light, and without one
+        // ComputePsxFaceColors neutralizes it to white (neutralizeLitFaces is
+        // !bakeEngineLight, so the default no-rig path neutralizes whenever the
+        // mesh uses dynamic lighting). Animating the palette entry there would
+        // pulse a colour the exporter never wrote.
+        if (PsxGeometryHelpers.IsEngineLitFace(version, mesh, face)
+            && (engineLight != null || mesh.UsesDynamicLighting))
+        {
+            return (0, 0, 0, 0);
+        }
+
+        int Resolve(byte paletteIndex, Vector4 exportedColor)
+        {
+            return colourPulses.Resolve(
+                psxFile, face, paletteIndex, usesDisplayRgb, emitPacket, ps1TexturedModulation, exportedColor);
+        }
+
+        var c0 = Resolve(face.R, exported.C0);
+        return (
+            c0,
+            Resolve(face.G, exported.C1),
+            Resolve(face.B, exported.C2),
+            face.IsQuad ? Resolve(face.Mode, exported.C3) : c0);
+    }
+
     private static ModelVertex MakePsxVertex(
         ushort version,
         PsxMesh mesh,
@@ -831,7 +927,8 @@ internal static class PsxGeometryWriter
         Vector4? psxPacketColor,
         (int Width, int Height) texDims,
         PsxNormalWelder? normalWelder = null,
-        PsxSpriteVertexResolver? spriteResolver = null)
+        PsxSpriteVertexResolver? spriteResolver = null,
+        int colourPulseChannel = 0)
     {
         var vertexIndex = PsxGeometryHelpers.GetPsxFaceVertexIndex(face, slot);
         var psxPrimitiveFlags = Vector3.Zero;
@@ -844,13 +941,21 @@ internal static class PsxGeometryWriter
             var gouraudFlag = face.IsGouraud ? 1f : 0f;
             psxPrimitiveFlags = new Vector3(texturedFlag, gouraudFlag, 1f);
         }
+        else if (colourPulseChannel > 0)
+        {
+            // v6 emits no PS1 packet, so the flags vector would stay zero and
+            // the channel lane would never reach the GLB. Mark the packet
+            // invalid (Z = 0) but keep the Gouraud lane alive to carry it.
+            psxPrimitiveFlags = new Vector3(0f, 1f, 0f);
+        }
 
         if (vertexIndex >= mesh.Vertices.Count)
         {
             return new ModelVertex(Vector3.Zero, Vector3.UnitY, color, Vector2.Zero)
             {
                 PsxPacketColor = psxPacketColor,
-                PsxPrimitiveFlags = psxPrimitiveFlags
+                PsxPrimitiveFlags = psxPrimitiveFlags,
+                ColourPulseChannel = colourPulseChannel
             };
         }
 
@@ -875,7 +980,8 @@ internal static class PsxGeometryWriter
         {
             PsxPacketColor = psxPacketColor,
             PsxPrimitiveFlags = psxPrimitiveFlags,
-            TextureWibble = ModelTextureWibble.FromFace(version, face, slot, texDims)
+            TextureWibble = ModelTextureWibble.FromFace(version, face, slot, texDims),
+            ColourPulseChannel = colourPulseChannel
         };
     }
 
@@ -891,6 +997,14 @@ internal static class PsxGeometryWriter
             Materials { get; } = [];
 
         internal int? UntexturedMaterialIndex { get; set; }
+
+        /// <summary>
+        ///     Colour-pulse channels for the whole document. Document scope is
+        ///     required, not just cheaper: a level merges the _g geometry, the
+        ///     _o object bank and items.psx, each with its own palette, so
+        ///     channel indices have to be unique across all of them.
+        /// </summary>
+        internal PsxColourPulseChannels ColourPulses { get; } = new();
 
         /// <summary>
         ///     Which engine light rig to bake into engine-lit faces, or null to
