@@ -138,13 +138,34 @@ INDEPENDENTLY -- that constant is not taken on faith. `--fake-secdrv` implements
 the table (default OFF; see the flag's help for why, and for the differential
 seed test that validates any dump made with it on).
 
-CURRENT STATE: the ioctl is still not reached. DrvMgt gets as far as
-OpenService('SecDrv') -- five times, so a retry loop -- and gives up before
-opening the \\.\ device. The next step is to instrument DrvMgt's own service
-sequence (its Setup calls 0x1000101C, then 0x10001CE2 on failure, both of which
-must return 100) and find which SCM answer it disbelieves. Note the SCM stubs
-are optimistic: QueryServiceStatus always reports SERVICE_RUNNING, which may
-itself be what it disbelieves given the driver is not actually there.
+THE DRIVER HANDSHAKE NOW PASSES. What unblocked it was not the protection at
+all: DrvMgt builds its device name with `sprintf(buf, "\\\\.\\Global\\%s",
+"SecDrv")`, and the wsprintfA stub returned a length WITHOUT WRITING THE BUFFER,
+so CreateFile was handed uninitialised stack -- a path of literal garbage
+("LMNOPQRSTUVWXYZ[\]^_`ab..."). With a real formatter the device opens, and
+command 0x3E returns 0x5278D11B, which DrvMgt.Setup accepts.
+
+The secdrv wire protocol, read off DrvMgt.dll rather than assumed:
+    request   +0x00 major(3)  +0x04 minor(0x16)  +0x08 0
+              +0x0C COMMAND   +0x10 VerificationData[4]   +0x410 argument
+    response  validator 0x10001000: out[0] >= 3, and if == 3 then out[4] >= 0x16
+              freshness 0x10001203: GetTickCount - out[0xC] <= 400
+              payload   0x10001258: delivered from out + 0x410
+    ioctl code 0xEF002407, in 1300B / out 3096B, one allocation (out = in+0x514)
+
+CURRENT STATE: 33,616,568 instructions. The sequence is now
+0x3E (SetupVerification) -> 0x3C (GetDebugRegisterInfo) -> 0x3F x96, i.e. it is
+doing bulk work through the driver, then faults reading 0x05000084 from SecServ
+0x100115AD (RVA 0x115AD).
+
+THE OPEN RISK, stated plainly: 0x3F is answered with a CONSTANT ZERO, taken from
+SafeDiscShim. Ninety-six calls in a row is the shape of a data-transfer loop,
+not a yes/no check, so if 0x3F actually returns per-block material the faked
+answer is wrong and everything downstream of it is garbage. Establish what 0x3F
+should return before trusting any dump: the differential seed test
+(--secdrv-seed, run twice, diff .text) is necessary but NOT sufficient here,
+because a constant response is seed-independent by construction. The honest
+check is whether the decrypted .text disassembles.
 
 Ruled out as the cause, both fixed anyway because both were indefensible:
   * A constant GetTickCount. Any elapsed-time measurement computed zero. The
@@ -639,6 +660,7 @@ class SafeDiscEmulator:
         self.executed_sections: set[int] = set()
         self.oep_rejects: Counter = Counter()
         self.current_return = 0
+        self.current_esp = 0
         self.child_processes: list[tuple[str, str, int]] = []
         self.last_error = 0
         # Named sections are CASE-SENSITIVE in Win32, so key them exactly.
@@ -1235,6 +1257,17 @@ class SafeDiscEmulator:
         if name == "IsDBCSLeadByte":
             return 0
 
+        if name in ("wsprintfA", "wsprintfW", "sprintf", "_snprintf", "wvsprintfA"):
+            # MUST actually format. DrvMgt builds its device name with
+            # sprintf(buf, "\\\\.\\Global\\%s", name); a stub that returns a
+            # number without writing the buffer leaves stack garbage there, and
+            # the subsequent CreateFile opens a path of random bytes. That is
+            # why the driver was never found.
+            #
+            # These are CDECL and variadic, so the arguments are read straight
+            # off the caller's stack rather than from ARG_COUNTS.
+            return self.api_wsprintf(name.endswith("W"))
+
         # --- operations that MUST actually touch memory --------------------
         # These are memcpy/memset under Win32 names. Returning 1 leaves the
         # destination untouched, so whatever was supposed to be copied there
@@ -1422,6 +1455,23 @@ class SafeDiscEmulator:
 
         if name in ("NtSetInformationThread", "ZwSetInformationThread"):
             return 0
+
+        if name in ("NtQuerySystemInformation", "ZwQuerySystemInformation"):
+            # (SystemInformationClass, SystemInformation, Length, ReturnLength).
+            # Class 0x23 is SystemKernelDebuggerInformation:
+            #   { BOOLEAN KernelDebuggerEnabled; BOOLEAN KernelDebuggerNotPresent; }
+            # The clean answer is {0, 1} -- no debugger, and none present. A
+            # zeroed buffer would say "NOT present == 0", i.e. a debugger IS
+            # present, which is the detection.
+            info_class, buffer, length = args[0], args[1], args[2]
+            if buffer and length:
+                self.uc.mem_write(buffer, b"\x00" * min(length, 64))
+                if info_class == 0x23 and length >= 2:
+                    self.uc.mem_write(buffer, b"\x00\x01")
+            if len(args) > 3 and args[3]:
+                self.uc.mem_write(args[3], struct.pack("<I", min(length, 8)))
+            self.antidebug_probes.append(f"{name}(class 0x{info_class:X})")
+            return 0  # STATUS_SUCCESS
 
         if name == "CheckRemoteDebuggerPresent":
             if len(args) > 1 and args[1]:
@@ -1684,6 +1734,71 @@ class SafeDiscEmulator:
                 pass
         return addr
 
+    def api_wsprintf(self, wide: bool) -> int:
+        """A real printf for the emulated Win32 formatters.
+
+        Supports the conversions these loaders actually use: %s %c %d %i %u
+        %x %X %p %%, with the common width/zero-pad flags. Anything unrecognised
+        is emitted literally rather than silently dropped, so a missing
+        conversion shows up in the output instead of corrupting the result.
+        """
+        esp = self.current_esp
+        try:
+            buffer = struct.unpack("<I", self.uc.mem_read(esp + 4, 4))[0]
+            fmt_ptr = struct.unpack("<I", self.uc.mem_read(esp + 8, 4))[0]
+        except UcError:
+            return 0
+        fmt = self.read_cstr(fmt_ptr, wide=wide, limit=512)
+
+        out: list[str] = []
+        arg_offset = esp + 12
+        index = 0
+        while index < len(fmt):
+            char = fmt[index]
+            if char != "%":
+                out.append(char)
+                index += 1
+                continue
+            index += 1
+            spec = ""
+            while index < len(fmt) and fmt[index] in "-+ #0123456789.lh":
+                if fmt[index] not in "lh":     # length modifiers do not affect us
+                    spec += fmt[index]
+                index += 1
+            if index >= len(fmt):
+                break
+            conversion = fmt[index]
+            index += 1
+            if conversion == "%":
+                out.append("%")
+                continue
+            try:
+                value = struct.unpack("<I", self.uc.mem_read(arg_offset, 4))[0]
+            except UcError:
+                break
+            arg_offset += 4
+            if conversion == "s":
+                text = self.read_cstr(value, wide=wide, limit=512)
+            elif conversion == "c":
+                text = chr(value & 0xFF)
+            elif conversion in "di":
+                text = str(value - 0x100000000 if value & 0x80000000 else value)
+            elif conversion == "u":
+                text = str(value)
+            elif conversion in "xX":
+                text = format(value, conversion)
+            elif conversion == "p":
+                text = format(value, "08X")
+            else:
+                out.append("%" + spec + conversion)
+                arg_offset -= 4          # not a real conversion; give the arg back
+                continue
+            out.append(("%" + spec + "s") % text if spec else text)
+
+        result = "".join(out)
+        self.write_cstr(buffer, result, 512, wide)
+        return len(result)
+
     def api_device_io_control(self, args: list[int]) -> int:
         """Answer the SafeDisc driver.
 
@@ -1720,38 +1835,33 @@ class SafeDiscEmulator:
                 self.uc.mem_write(args[6], struct.pack("<I", 0))
             return 0
 
-        # The command is the first dword of the request in every layout observed.
-        command = struct.unpack_from("<I", payload)[0] if len(payload) >= 4 else 0
-        expected = SECDRV_RESPONSES.get(command & 0xFF)
-        response = bytearray(out_len if out_len else 32)
-        if expected is not None:
-            # Place it at the first two dword slots: the exact struct offset is
-            # not established, and both are consistent with what DrvMgt reads.
-            struct.pack_into("<I", response, 0, expected)
-            if len(response) >= 8:
-                struct.pack_into("<I", response, 4, expected)
-        # VerificationData, per the SafeDiscShim recurrence.
-        verification = [self.secdrv_seed, 0, 0, 0]
-        current = 0xF367AC7F
-        for index in (3, 2, 1):
-            current = (0x361962E9 - 0x0D5ACB1B * current) & 0xFFFFFFFF
-            verification[index] = current
-            verification[0] ^= current
-        if len(response) >= 32:
-            for index, value in enumerate(verification):
-                struct.pack_into("<I", response, 16 + 4 * index, value)
+        # Request layout, read off DrvMgt.dll rather than assumed:
+        #   +0x00 major (3)   +0x04 minor (0x16)   +0x08 zero
+        #   +0x0C COMMAND     +0x10 VerificationData[4]   +0x410 argument
+        command = struct.unpack_from("<I", payload, 0x0C)[0] if len(payload) >= 0x10 else 0
+        expected = SECDRV_RESPONSES.get(command)
 
-        if out_ptr and response:
+        # Response requirements, all from DrvMgt's own readers:
+        #   0x10001000  out[0] >= 3, and if == 3 then out[4] >= 0x16
+        #   0x10001203  GetTickCount - out[0xC] <= 400   (a freshness check)
+        #   0x10001258  the payload the caller receives is at out + 0x410
+        response = bytearray(max(out_len, 0x420))
+        struct.pack_into("<III", response, 0, 3, 0x16, 0)
+        struct.pack_into("<I", response, 0x0C, self.virtual_ms())
+        if len(payload) >= 0x20:
+            response[0x10:0x20] = payload[0x10:0x20]   # echo VerificationData
+        if expected is not None:
+            struct.pack_into("<I", response, 0x410, expected)
+
+        if out_ptr:
             try:
-                self.uc.mem_write(out_ptr, bytes(response))
+                self.uc.mem_write(out_ptr, bytes(response[:out_len] if out_len else response))
             except UcError:
                 pass
         if len(args) > 6 and args[6]:
-            self.uc.mem_write(args[6], struct.pack("<I", len(response)))
-        log(f"      FAKE secdrv: command 0x{command & 0xFF:02X} -> "
-            f"0x{expected:08X}" if expected is not None else
-            f"      FAKE secdrv: command 0x{command & 0xFF:02X} -> no known response",
-            always=True)
+            self.uc.mem_write(args[6], struct.pack("<I", out_len or len(response)))
+        detail = f"0x{expected:08X}" if expected is not None else "NO KNOWN RESPONSE"
+        log(f"      FAKE secdrv: command 0x{command:02X} -> {detail}", always=True)
         return 1
 
     def api_create_file(self, target: str, args: list[int]) -> int:
@@ -2076,6 +2186,7 @@ class SafeDiscEmulator:
             ret = struct.unpack("<I", uc.mem_read(esp, 4))[0]
             args = [struct.unpack("<I", uc.mem_read(esp + 4 + 4 * i, 4))[0] for i in range(argc)]
             self.current_return = ret
+            self.current_esp = esp
             result = self.handle_api(name, args)
             resume_esp = esp + 4 + 4 * argc  # stdcall cleanup
 
@@ -2944,6 +3055,7 @@ ARG_COUNTS: dict[str, int] = {
     "GetThreadContext": 2, "SetThreadContext": 2, "DebugBreak": 0,
     "NtQueryInformationProcess": 5, "NtSetInformationThread": 4,
     "ZwQueryInformationProcess": 5, "ZwSetInformationThread": 4,
+    "ZwQuerySystemInformation": 4, "NtQuerySystemInformation": 4,
     "CreateToolhelp32Snapshot": 2, "Process32First": 2, "Process32Next": 2,
     "OutputDebugStringW": 1,
     # Resources / version info, both of which this exe statically imports.
@@ -3000,7 +3112,7 @@ ARG_COUNTS: dict[str, int] = {
     "SetSecurityDescriptorDacl": 4,
     # wsprintfA is CDECL and variadic, so the CALLER cleans the stack: zero is
     # the correct stdcall-cleanup count here, not a missing entry.
-    "wsprintfA": 0, "wsprintfW": 0,
+    "wsprintfA": 0, "wsprintfW": 0, "wvsprintfA": 0, "sprintf": 0, "_snprintf": 0,
     "GetKeyboardType": 1, "DefWindowProcA": 4, "DestroyWindow": 1,
     "BeginPaint": 2, "EndPaint": 2, "PostQuitMessage": 1, "CreateWindowExA": 12,
     "ShowWindow": 2, "UpdateWindow": 1, "LoadIconA": 2, "LoadCursorA": 2,
