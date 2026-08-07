@@ -112,10 +112,39 @@ already passes:
     0x100033AA  cmp dword [ebp-0x2c], 0xFA   ; FAILS: measured 0x64 (100), wants 250
     0x100033B3  jne 0x1000360b      ; -> error return
 
-So the whole remaining problem is: why does 0x10003060 yield status 100 instead
-of 250? Disassembling it is the next step. The surrounding constants (0x32/50,
-0x64/100, 0x6E/110, 0xFA/250, 0x1F4/500) look like a status enumeration, so 100
-is likely a specific named failure rather than garbage.
+That status is now traced end to end, and it bottoms out in the DRIVER, not in
+anything we can stub away:
+
+    0x1000304C  mov [0x667adc74], ecx    ; the status global; measured 100, wants 250
+                                          ; ecx = 250 iff the classifier returns 0x10000
+    0x1000138D  classifier -> returns whatever 0x100010C7 gives (measured 0x8000)
+    0x100010C7  decrypts the string 'drvmgt.dll', builds a sibling path,
+                LoadLibrary's it, GetProcAddress, then:
+    0x100011E2  call [drvmgt export]      ; == DrvMgt.Setup(path, path)
+    0x100011EB  sub eax, 0x64             ; 100 -> 0x10000 (AUTHENTIC)
+                                          ; else -> 0x8000  (what we get)
+
+DrvMgt.dll exports only Setup / Remove / _DllMain@12, and Setup is tiny:
+
+    0x10001435  push 0x3E                        ; secdrv command 0x3E
+    0x10001437  call <ioctl wrapper 0x1000135D>
+    0x1000143F  cmp  eax, 0x64                   ; wrapper must return 100
+    0x10001444  cmp  dword [ebp+0xc], 0x5278D11B ; and yield exactly this
+    0x10001465  push 0x64                        ; -> 100 = AUTHENTIC
+
+0x5278D11B is exactly what SafeDiscShim documents for command 0x3E
+("SetupVerification"), so the response table and this binary agree
+INDEPENDENTLY -- that constant is not taken on faith. `--fake-secdrv` implements
+the table (default OFF; see the flag's help for why, and for the differential
+seed test that validates any dump made with it on).
+
+CURRENT STATE: the ioctl is still not reached. DrvMgt gets as far as
+OpenService('SecDrv') -- five times, so a retry loop -- and gives up before
+opening the \\.\ device. The next step is to instrument DrvMgt's own service
+sequence (its Setup calls 0x1000101C, then 0x10001CE2 on failure, both of which
+must return 100) and find which SCM answer it disbelieves. Note the SCM stubs
+are optimistic: QueryServiceStatus always reports SERVICE_RUNNING, which may
+itself be what it disbelieves given the driver is not actually there.
 
 Ruled out as the cause, both fixed anyway because both were indefensible:
   * A constant GetTickCount. Any elapsed-time measurement computed zero. The
@@ -326,6 +355,19 @@ SECDRV_HANDLE = 0x100
 # SecServ DLL's own string table (tools/diagnostics/safedisc_string_decrypt.py,
 # recurrence cipher, seed 0xC612DB4E for this build). Opening any of these
 # SUCCESSFULLY is the detection, so they must fail.
+# secdrv command -> the value the caller expects back. 0x3E is CONFIRMED by the
+# binary: DrvMgt.Setup does `cmp dword [ebp+0xc], 0x5278D11B` on the result.
+# The rest come from SafeDiscShim and are unverified here.
+SECDRV_RESPONSES = {
+    0x3C: 0x00000400,   # GetDebugRegisterInfo - DR7 clean
+    0x3D: 0x000002C8,   # GetIdtInfo - IDT limit
+    0x3E: 0x5278D11B,   # SetupVerification  <-- confirmed against DrvMgt.Setup
+    0x3F: 0x00000000,
+    0x40: 0x56791283,
+    0x41: 0x00000001,
+    0x43: 0x00000000,
+}
+
 ANTI_DEBUG_DEVICES = ("ntice", "sice", "siwvid", "regvxg", "filevxg", "regsys",
                       "trw", "syser")
 
@@ -605,6 +647,8 @@ class SafeDiscEmulator:
         self.service_handles: dict[int, str] = {}
         self.antidebug_probes: list[str] = []
         self.sleep_ms = 0
+        self.fake_secdrv = False
+        self.secdrv_seed = 0x00100000
         self.watch_hi = 0
         self.process_writes: list[tuple[int, int]] = []
         self.trail: deque[int] | None = None
@@ -1093,16 +1137,7 @@ class SafeDiscEmulator:
             return 1
 
         if name == "DeviceIoControl":
-            self.driver_calls.append((args[0], args[1]))
-            log(f"    DeviceIoControl(handle=0x{args[0]:X}, code=0x{args[1]:X}) "
-                f"<-- DRIVER CALL: this is where a disc-derived key would come from",
-                always=True)
-            # Report failure rather than fabricating a response: a made-up
-            # challenge answer would produce a WRONG key and a plausible-looking
-            # but garbage decrypt, which is far worse than a visible stop.
-            if len(args) > 6 and args[6]:
-                self.uc.mem_write(args[6], struct.pack("<I", 0))
-            return 0
+            return self.api_device_io_control(args)
 
         # --- APIs that must FILL AN OUTPUT BUFFER -------------------------
         # Returning only a length leaves the caller parsing stack garbage,
@@ -1649,6 +1684,76 @@ class SafeDiscEmulator:
                 pass
         return addr
 
+    def api_device_io_control(self, args: list[int]) -> int:
+        """Answer the SafeDisc driver.
+
+        DrvMgt.Setup issues command 0x3E and requires the driver to hand back
+        0x5278D11B; that constant is not taken on faith from the literature, it
+        is a literal `cmp dword [ebp+0xc], 0x5278D11B` inside DrvMgt.dll itself,
+        so the two agree independently.
+
+        This is OFF by default. Answering a challenge we cannot actually compute
+        risks a plausible-looking but WRONG decrypt, which is worse than a
+        visible stop -- so it must be an explicit choice, and any dump produced
+        with it on should be checked with the differential test (run twice with
+        different --secdrv-seed values; if .text is identical, no driver value
+        reached the key schedule).
+        """
+        handle, code = args[0], args[1]
+        in_ptr, in_len = (args[2], args[3]) if len(args) > 3 else (0, 0)
+        out_ptr, out_len = (args[4], args[5]) if len(args) > 5 else (0, 0)
+        self.driver_calls.append((handle, code))
+
+        payload = b""
+        if in_ptr and in_len:
+            try:
+                payload = bytes(self.uc.mem_read(in_ptr, min(in_len, 64)))
+            except UcError:
+                payload = b""
+        log(f"    DeviceIoControl(handle=0x{handle:X}, code=0x{code:08X}, "
+            f"in={in_len}B out={out_len}B)", always=True)
+        if payload:
+            log(f"      in: {payload[:32].hex(' ')}", always=True)
+
+        if not self.fake_secdrv or handle != SECDRV_HANDLE:
+            if len(args) > 6 and args[6]:
+                self.uc.mem_write(args[6], struct.pack("<I", 0))
+            return 0
+
+        # The command is the first dword of the request in every layout observed.
+        command = struct.unpack_from("<I", payload)[0] if len(payload) >= 4 else 0
+        expected = SECDRV_RESPONSES.get(command & 0xFF)
+        response = bytearray(out_len if out_len else 32)
+        if expected is not None:
+            # Place it at the first two dword slots: the exact struct offset is
+            # not established, and both are consistent with what DrvMgt reads.
+            struct.pack_into("<I", response, 0, expected)
+            if len(response) >= 8:
+                struct.pack_into("<I", response, 4, expected)
+        # VerificationData, per the SafeDiscShim recurrence.
+        verification = [self.secdrv_seed, 0, 0, 0]
+        current = 0xF367AC7F
+        for index in (3, 2, 1):
+            current = (0x361962E9 - 0x0D5ACB1B * current) & 0xFFFFFFFF
+            verification[index] = current
+            verification[0] ^= current
+        if len(response) >= 32:
+            for index, value in enumerate(verification):
+                struct.pack_into("<I", response, 16 + 4 * index, value)
+
+        if out_ptr and response:
+            try:
+                self.uc.mem_write(out_ptr, bytes(response))
+            except UcError:
+                pass
+        if len(args) > 6 and args[6]:
+            self.uc.mem_write(args[6], struct.pack("<I", len(response)))
+        log(f"      FAKE secdrv: command 0x{command & 0xFF:02X} -> "
+            f"0x{expected:08X}" if expected is not None else
+            f"      FAKE secdrv: command 0x{command & 0xFF:02X} -> no known response",
+            always=True)
+        return 1
+
     def api_create_file(self, target: str, args: list[int]) -> int:
         """Open a file the loader asks for, backed by the real build tree.
 
@@ -1673,9 +1778,13 @@ class SafeDiscEmulator:
             self.last_error = 2  # ERROR_FILE_NOT_FOUND
             return 0xFFFFFFFF
 
-        if "secdrv" in lowered or target.startswith("\\\\.\\"):
+        # Only a DEVICE path is the driver. `SECDRV.SYS` is an ordinary file that
+        # the installer copies into system32\drivers, and intercepting it as a
+        # device handle meant the copy read nothing -- so the service install
+        # failed and DrvMgt never got as far as issuing an ioctl.
+        if target.startswith("\\\\.\\"):
             self.driver_opens.append(target)
-            log(f"    CreateFile({target})  <-- SafeDisc DRIVER handle", always=True)
+            log(f"    CreateFile({target})  <-- SafeDisc DRIVER device", always=True)
             return SECDRV_HANDLE
 
         disposition = args[4] if len(args) > 4 else 3
@@ -2915,6 +3024,15 @@ def main() -> int:
     ap.add_argument("--no-stop-at-oep", action="store_true",
                     help="Keep running past the original entry point instead of stopping "
                          "there (useful to see what the unpacked program does next)")
+    ap.add_argument("--fake-secdrv", action="store_true",
+                    help="Answer the SafeDisc driver instead of failing it. OFF by "
+                         "default: a fabricated challenge answer risks a wrong key and "
+                         "a plausible-looking garbage decrypt. Command 0x3E's expected "
+                         "value is confirmed by DrvMgt.Setup's own compare")
+    ap.add_argument("--secdrv-seed", type=lambda v: int(v, 0), default=0x00100000,
+                    help="Seed for the faked driver VerificationData. Run twice with "
+                         "different seeds and diff the dumps: identical output proves "
+                         "no driver value reaches the key schedule")
     ap.add_argument("--allow-unknown-api", action="store_true",
                     help="Continue past an API with no known stdcall arg count "
                          "instead of stopping (the stack will drift)")
@@ -2947,6 +3065,8 @@ def main() -> int:
     emu.seh_limit = args.seh_limit
     emu.temp_dump_dir = args.dump_temp_files
     emu.stop_at_oep = not args.no_stop_at_oep
+    emu.fake_secdrv = args.fake_secdrv
+    emu.secdrv_seed = args.secdrv_seed
     if args.trail:
         emu.trail = deque(maxlen=args.trail)
     emu.breakpoints = {int(a, 16) for a in args.breakpoints}
