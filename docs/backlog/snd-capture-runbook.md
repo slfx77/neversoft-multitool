@@ -104,29 +104,30 @@ Unicorn Engine plus stubbed Windows APIs. Tractable, and it would also reveal
 whether the key is disc-derived — but it is a multi-day project against an
 actively anti-emulation loader.
 
-**Recommendation: park it, but the reusability case is better than a corpus scan
-suggests.** Only one SafeDisc binary is present today (THUG2.exe; every other PC
-title in the corpus is SecuROM) — but **THUG1's PC port is also SafeDisc**, so a
-loader-emulation harness would serve at least two titles once that build is
-acquired, and plausibly more of the Neversoft PC lineup. The argument against is
-therefore cost and sequencing, not reusability: an XP VM reaches the same
-outcome in about an hour and unwraps *any* SafeDisc binary just as well.
-Revisit if the VM stays chronically inconvenient, or build the harness on its
-own merits as a capability rather than for `.snd` alone.
+**Recommendation: park it.** THUG1's PC port is also SafeDisc, so a
+loader-emulation harness would in principle serve more than one title — but the
+user declined to acquire that build (2026-08-07), so in practice it remains a
+one-off for THUG2.exe. Combined with the multi-day cost against an
+anti-emulation loader, and an XP VM that reaches the same outcome in about an
+hour and unwraps any SafeDisc binary just as well, the emulator is only worth
+building as a deliberate capability — not for `.snd`.
 
-**Worth checking the moment a THUG1 PC build lands**, before any of that: does
-it ship `.snd`, and are those files compressed or plain PCM? THUG1 is one engine
-generation earlier, and a ZenHAX thread notes its music containers already
-carried RIFF headers where THUG2's did not — so THUG1 PC may predate the
-compression. If its `.snd` are plain PCM of sounds THUG2 also ships, that is a
-**direct Rosetta for the codec** and would likely settle it with no VM, no
-capture and no emulator. The corpus already has THUG1 PS2 (2003-10-2) to
-cross-reference names against.
+**CLOSED — the THUG1 PC Rosetta.** THUG1 is a generation earlier and may predate
+the compression (ZenHAX notes its music containers already carried RIFF headers
+where THUG2's did not), so plain-PCM `.snd` there would have settled the codec
+outright. The user does not want to acquire THUG1 PC, so this is not a lead.
+Do not re-propose it.
 
-**What is actually locked**, for weighing the cost: of 784 `.snd` sounds, 350
-(44.6%) also ship as decodable `.pcm`, and **434 (55.4%) exist only as `.snd`**.
-So the payoff is real, not redundant — but it is identical whichever route
-reaches it.
+**Remaining routes, in cost order:**
+
+1. **LegacyThps Discord** — cited as where the deep Neversoft format knowledge
+   lives, not web-searchable, needs no acquisition and no VM. Cheapest by far.
+2. **XP VM capture** — the toolchain in this runbook is built and self-tested;
+   the VM exists but is currently inconvenient. Note the XP caveat in Step 1:
+   modern Frida needs Win7+, so on XP the capture needs a `dsound.dll` proxy
+   instead (compile x86 on the host, drop the DLL beside `THUG2.exe`). Ask and
+   it gets written.
+3. **Unicorn loader-emulation harness** — last resort, multi-day, one-off.
 
 ## Step 1 — VM (only if step 0 fails)
 
