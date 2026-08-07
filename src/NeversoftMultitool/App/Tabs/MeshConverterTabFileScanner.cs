@@ -6,6 +6,7 @@ using NeversoftMultitool.Core.Formats.Collision;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
+using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats.Mesh.N64;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
@@ -22,17 +23,6 @@ internal static class MeshConverterTabFileScanner
     private static readonly IComparer<MeshFileEntry> RelativePathComparer =
         Comparer<MeshFileEntry>.Create(static (left, right) =>
             StringComparer.OrdinalIgnoreCase.Compare(left.RelativePath, right.RelativePath));
-
-    private static readonly string[] CompoundExtensions =
-    [
-        ".iskin.ps2", ".skin.ps2", ".mdl.ps2", ".geom.ps2",
-        ".skin.xbx", ".mdl.xbx", ".scn.xbx", ".skin.wpc", ".mdl.wpc", ".scn.wpc",
-        ".skin.ngc", ".mdl.ngc", ".scn.ngc",
-        ".col.xbx", ".col.wpc", ".col.ps2",
-        ".pak.ps2"
-    ];
-
-    private static readonly string[] ColSuffixes = [".col.xbx", ".col.wpc", ".col.ps2"];
 
     public static MeshScanSummary AnalyzeDirectory(string inputDir, CancellationToken ct = default)
     {
@@ -131,8 +121,7 @@ internal static class MeshConverterTabFileScanner
 
         Parallel.ForEach(buckets.PakSceneFiles, parallelOptions, file =>
         {
-            AddIfNotNull(results,
-                ScanPs2SceneFile(new FileSystemAssetSource(file), file, inputDir, buckets.IskinStems));
+            AddIfNotNull(results, ScanAmbiguousSceneFile(file, inputDir, buckets.IskinStems));
             Report();
         });
 
@@ -334,46 +323,13 @@ internal static class MeshConverterTabFileScanner
 
     /// <summary>
     ///     True when the entry name matches any suffix <see cref="TryScanEntry" />
-    ///     can route. Mirrors TryScanEntry's gates exactly.
+    ///     can route. Worldzone PAKs are deliberately excluded so archive
+    ///     enumeration keeps falling through to nested-archive opening; object
+    ///     DDMs are placement companions, not standalone meshes.
     /// </summary>
-    /// <summary>Carved N64 model bundles (models/NNN/geometry.psx.n64).</summary>
-    private const string N64ModelSuffix = ".psx.n64";
-
     private static bool IsScanCandidate(string name)
     {
-        if (EndsWith(name, ".iskin.ps2") || EndsWith(name, ".skin.ps2") || EndsWith(name, ".mdl.ps2") ||
-            EndsWith(name, ".geom.ps2"))
-        {
-            return true;
-        }
-
-        if (EndsWith(name, ".skin.xbx") || EndsWith(name, ".mdl.xbx") ||
-            EndsWith(name, ".scn.xbx") || EndsWith(name, ".scn.wpc") ||
-            EndsWith(name, ".skin.wpc") || EndsWith(name, ".mdl.wpc") ||
-            EndsWith(name, ".skin.ngc") || EndsWith(name, ".mdl.ngc") ||
-            EndsWith(name, ".scn.ngc"))
-        {
-            return true;
-        }
-
-        if (OrdinalFileName.HasAnySuffix(name, ColSuffixes) || EndsWith(name, ".col"))
-            return true;
-
-        if (EndsWith(name, ".skn") || EndsWith(name, ".bsp"))
-            return true;
-
-        if (OrdinalFileName.HasExtension(name, ".ddm") &&
-            !Path.GetFileNameWithoutExtension(name).EndsWith("_o", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (EndsWith(name, N64ModelSuffix))
-            return true;
-
-        return OrdinalFileName.HasExtension(name, ".psx") ||
-               OrdinalFileName.HasExtension(name, ".skin") ||
-               OrdinalFileName.HasExtension(name, ".mdl");
+        return MeshTypeDetector.IsMeshCandidate(name) && !MeshTypeDetector.IsObjectDdm(name);
     }
 
     /// <summary>
@@ -388,7 +344,7 @@ internal static class MeshConverterTabFileScanner
 
     internal static string StripCompoundExtension(string filename)
     {
-        return OrdinalFileName.StripCompoundSuffix(filename, CompoundExtensions);
+        return MeshTypeDetector.GetStem(filename);
     }
 
     private static List<string> EnumerateFiles(string inputDir, CancellationToken ct)
@@ -411,51 +367,29 @@ internal static class MeshConverterTabFileScanner
         AssetSource source, string displayPath, string rootDir, HashSet<string>? iskinStems)
     {
         var name = source.EntryName;
+        if (MeshTypeDetector.IsObjectDdm(name))
+            return null;
 
-        if (EndsWith(name, ".iskin.ps2") ||
-            EndsWith(name, ".skin.ps2") ||
-            EndsWith(name, ".mdl.ps2"))
+        var route = MeshTypeDetector.DetectByName(name);
+
+        // Bare .skin/.mdl carry no kind in their name — resolve from content so a
+        // THAW PC scene reaches the scene reader instead of the PS2 skin reader.
+        if (route.Kind == MeshFileKind.None && route.RequiresContentProbe)
+            route = MeshTypeDetector.DetectNested(name, source.ReadBytes());
+
+        return route.Kind switch
         {
-            return ScanPs2SceneFile(source, displayPath, rootDir, iskinStems);
-        }
-
-        if (EndsWith(name, ".geom.ps2"))
-            return ScanPs2GeomFile(source, displayPath, rootDir);
-
-        if (EndsWith(name, ".skin.xbx") || EndsWith(name, ".mdl.xbx") ||
-            EndsWith(name, ".scn.xbx") || EndsWith(name, ".scn.wpc") ||
-            EndsWith(name, ".skin.wpc") || EndsWith(name, ".mdl.wpc") ||
-            EndsWith(name, ".skin.ngc") || EndsWith(name, ".mdl.ngc") ||
-            EndsWith(name, ".scn.ngc"))
-        {
-            return ScanXbxSceneFile(source, displayPath, rootDir);
-        }
-
-        if (OrdinalFileName.HasAnySuffix(name, ColSuffixes) || EndsWith(name, ".col"))
-            return ScanColFile(source, displayPath, rootDir);
-
-        if (EndsWith(name, ".skn"))
-            return ScanRwDffFile(source, displayPath, rootDir);
-
-        if (EndsWith(name, ".bsp"))
-            return ScanRwBspFile(source, displayPath, rootDir);
-
-        if (OrdinalFileName.HasExtension(name, ".ddm") &&
-            !Path.GetFileNameWithoutExtension(name).EndsWith("_o", StringComparison.OrdinalIgnoreCase))
-        {
-            return ScanDdmFile(source, displayPath, rootDir);
-        }
-
-        if (EndsWith(name, N64ModelSuffix))
-            return ScanN64ModelFile(source, displayPath, rootDir);
-
-        if (OrdinalFileName.HasExtension(name, ".psx"))
-            return ScanPsxFile(source, displayPath, rootDir);
-
-        if (OrdinalFileName.HasExtension(name, ".skin") || OrdinalFileName.HasExtension(name, ".mdl"))
-            return ScanPs2SceneFile(source, displayPath, rootDir, iskinStems);
-
-        return null;
+            MeshFileKind.Ps2Scene => ScanPs2SceneFile(source, displayPath, rootDir, iskinStems),
+            MeshFileKind.Ps2Geom => ScanPs2GeomFile(source, displayPath, rootDir),
+            MeshFileKind.XbxScene => ScanXbxSceneFile(source, displayPath, rootDir),
+            MeshFileKind.Collision => ScanColFile(source, displayPath, rootDir),
+            MeshFileKind.RenderWareDff => ScanRwDffFile(source, displayPath, rootDir),
+            MeshFileKind.RenderWareBsp => ScanRwBspFile(source, displayPath, rootDir),
+            MeshFileKind.Ddm => ScanDdmFile(source, displayPath, rootDir),
+            MeshFileKind.N64Model => ScanN64ModelFile(source, displayPath, rootDir),
+            MeshFileKind.Psx => ScanPsxFile(source, displayPath, rootDir),
+            _ => null
+        };
     }
 
     private static bool EndsWith(string name, string suffix)
@@ -467,64 +401,53 @@ internal static class MeshConverterTabFileScanner
         foreach (var file in EnumerateFiles(inputDir, ct))
         {
             var fileName = Path.GetFileName(file);
-            var fileStem = Path.GetFileNameWithoutExtension(fileName);
-
-            if (OrdinalFileName.HasExtension(fileName, ".ddm") &&
-                !fileStem.EndsWith("_o", StringComparison.OrdinalIgnoreCase))
+            if (MeshTypeDetector.IsWorldzoneCandidate(fileName))
             {
-                buckets.DdmFiles.Add(file);
-            }
-
-            if (EndsWith(fileName, N64ModelSuffix))
-                buckets.N64ModelFiles.Add(file);
-
-            if (OrdinalFileName.HasExtension(fileName, ".psx"))
-                buckets.PsxFiles.Add(file);
-
-            if (OrdinalFileName.HasExtension(fileName, ".skn"))
-                buckets.RwDffFiles.Add(file);
-
-            if (OrdinalFileName.HasExtension(fileName, ".bsp"))
-                buckets.RwBspFiles.Add(file);
-
-            if (IsColFilePath(file))
-                buckets.ColFiles.Add(file);
-
-            if (fileName.EndsWith(".iskin.ps2", StringComparison.OrdinalIgnoreCase))
-            {
-                buckets.Ps2SceneFiles.Add(file);
-                buckets.IskinStems.Add(StripCompoundExtension(fileName));
-            }
-            else if (fileName.EndsWith(".skin.ps2", StringComparison.OrdinalIgnoreCase) ||
-                     fileName.EndsWith(".mdl.ps2", StringComparison.OrdinalIgnoreCase))
-            {
-                buckets.Ps2SceneFiles.Add(file);
-            }
-
-            if (fileName.EndsWith(".geom.ps2", StringComparison.OrdinalIgnoreCase))
-                buckets.Ps2GeomFiles.Add(file);
-
-            if (fileName.EndsWith(".skin.xbx", StringComparison.OrdinalIgnoreCase) ||
-                fileName.EndsWith(".mdl.xbx", StringComparison.OrdinalIgnoreCase) ||
-                fileName.EndsWith(".scn.xbx", StringComparison.OrdinalIgnoreCase) ||
-                fileName.EndsWith(".scn.wpc", StringComparison.OrdinalIgnoreCase) ||
-                fileName.EndsWith(".skin.wpc", StringComparison.OrdinalIgnoreCase) ||
-                fileName.EndsWith(".mdl.wpc", StringComparison.OrdinalIgnoreCase) ||
-                fileName.EndsWith(".skin.ngc", StringComparison.OrdinalIgnoreCase) ||
-                fileName.EndsWith(".mdl.ngc", StringComparison.OrdinalIgnoreCase) ||
-                fileName.EndsWith(".scn.ngc", StringComparison.OrdinalIgnoreCase))
-            {
-                buckets.XbxSceneFiles.Add(file);
-            }
-
-            if (OrdinalFileName.HasExtension(fileName, ".skin") ||
-                OrdinalFileName.HasExtension(fileName, ".mdl"))
-            {
-                buckets.PakSceneFiles.Add(file);
-            }
-
-            if (fileName.EndsWith(".pak.ps2", StringComparison.OrdinalIgnoreCase))
                 buckets.PakWorldzoneFiles.Add(file);
+                continue;
+            }
+
+            if (MeshTypeDetector.IsObjectDdm(fileName))
+                continue;
+
+            var route = MeshTypeDetector.DetectByName(fileName);
+            switch (route.Kind)
+            {
+                case MeshFileKind.Ddm:
+                    buckets.DdmFiles.Add(file);
+                    break;
+                case MeshFileKind.N64Model:
+                    buckets.N64ModelFiles.Add(file);
+                    break;
+                case MeshFileKind.Psx:
+                    buckets.PsxFiles.Add(file);
+                    break;
+                case MeshFileKind.RenderWareDff:
+                    buckets.RwDffFiles.Add(file);
+                    break;
+                case MeshFileKind.RenderWareBsp:
+                    buckets.RwBspFiles.Add(file);
+                    break;
+                case MeshFileKind.Collision:
+                    buckets.ColFiles.Add(file);
+                    break;
+                case MeshFileKind.Ps2Geom:
+                    buckets.Ps2GeomFiles.Add(file);
+                    break;
+                case MeshFileKind.XbxScene:
+                    buckets.XbxSceneFiles.Add(file);
+                    break;
+                case MeshFileKind.Ps2Scene:
+                    buckets.Ps2SceneFiles.Add(file);
+                    if (string.Equals(route.Suffix, ".iskin.ps2", StringComparison.Ordinal))
+                        buckets.IskinStems.Add(StripCompoundExtension(fileName));
+                    break;
+                default:
+                    // Bare .skin/.mdl — the platform is decided from content when scanned.
+                    if (route.RequiresContentProbe)
+                        buckets.PakSceneFiles.Add(file);
+                    break;
+            }
         }
 
         return buckets;
@@ -536,10 +459,28 @@ internal static class MeshConverterTabFileScanner
             bag.Add(entry);
     }
 
+    /// <summary>
+    ///     A bare .skin/.mdl carries no platform in its name. THAW shipped them on
+    ///     PC (scene format) and PS2 (skin/MDL format) alike, so the reader is
+    ///     chosen from content — the PC ones would otherwise be dropped by the PS2
+    ///     reader.
+    /// </summary>
+    private static MeshFileEntry? ScanAmbiguousSceneFile(
+        string file, string inputDir, HashSet<string>? iskinStems)
+    {
+        var source = new FileSystemAssetSource(file);
+        var route = MeshTypeDetector.Detect(file);
+        return route.Kind switch
+        {
+            MeshFileKind.XbxScene => ScanXbxSceneFile(source, file, inputDir),
+            MeshFileKind.Ps2Scene => ScanPs2SceneFile(source, file, inputDir, iskinStems),
+            _ => null
+        };
+    }
+
     private static bool IsColFilePath(string file)
     {
-        var fileName = Path.GetFileName(file);
-        return OrdinalFileName.HasAnySuffix(fileName, ColSuffixes) || OrdinalFileName.HasExtension(file, ".col");
+        return MeshTypeDetector.DetectByName(Path.GetFileName(file)).Kind == MeshFileKind.Collision;
     }
 
     private static string MakeRelativePath(string displayPath, string rootDir)

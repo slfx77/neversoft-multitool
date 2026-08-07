@@ -93,7 +93,7 @@ public static class Ps2GeomCommand
             blenderHelperPath,
             verbose,
             cancellationToken,
-            file => MeshExportCliOptions.StripKnownExtension(file, [Extension]),
+            file => MeshExportCliOptions.StripKnownExtension(file),
             _ => Ps2SceneSubFormat.Geom,
             texturePath: texPath);
     }

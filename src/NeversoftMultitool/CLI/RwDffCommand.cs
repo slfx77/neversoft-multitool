@@ -1,4 +1,5 @@
 using System.CommandLine;
+using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using Spectre.Console;
 
@@ -95,7 +96,6 @@ public static class RwDffCommand
 
     private static bool IsDffFile(string path)
     {
-        var name = Path.GetFileName(path);
-        return name.EndsWith(".SKN", StringComparison.OrdinalIgnoreCase);
+        return MeshTypeDetector.DetectByName(Path.GetFileName(path)).Kind == MeshFileKind.RenderWareDff;
     }
 }

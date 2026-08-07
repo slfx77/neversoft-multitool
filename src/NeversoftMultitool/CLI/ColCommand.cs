@@ -1,14 +1,13 @@
 using System.CommandLine;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
 
 public static class ColCommand
 {
-    private static readonly string[] ColSuffixes = [".col.xbx", ".col.wpc", ".col.ps2"];
-
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
@@ -67,11 +66,7 @@ public static class ColCommand
         {
             files = Directory.GetFiles(input, "*", SearchOption.AllDirectories)
                 .Where(static file =>
-                {
-                    var fileName = Path.GetFileName(file);
-                    return OrdinalFileName.HasAnySuffix(fileName, ColSuffixes)
-                           || OrdinalFileName.HasExtension(file, ".col");
-                })
+                    MeshTypeDetector.DetectByName(Path.GetFileName(file)).Kind == MeshFileKind.Collision)
                 .ToList();
         }
         else
@@ -113,6 +108,6 @@ public static class ColCommand
             blenderHelperPath,
             verbose,
             cancellationToken,
-            MeshExportCliOptions.StripColExtension);
+            MeshExportCliOptions.StripKnownExtension);
     }
 }

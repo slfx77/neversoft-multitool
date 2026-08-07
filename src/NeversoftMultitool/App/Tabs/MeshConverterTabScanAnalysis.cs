@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats.Mesh.Detection;
 
 namespace NeversoftMultitool;
 
@@ -11,27 +12,6 @@ internal static class MeshConverterTabScanAnalysis
     // scan still covers them.
     private const int MaxUnsupportedProbe = 200;
 
-    private static readonly string[] MeshFormatsWithPartialWarnings =
-    [
-        ".skin.xbx", ".mdl.xbx", ".scn.xbx",
-        ".skin.wpc", ".mdl.wpc", ".scn.wpc",
-        ".col.xbx", ".col.wpc", ".col.ps2", ".col.psp",
-        ".bsp"
-    ];
-
-    private static readonly string[] Ps2SceneSuffixes = [".skin.ps2", ".mdl.ps2", ".iskin.ps2"];
-
-    private static readonly string[] SupportedMeshSuffixes =
-    [
-        ".bsp",
-        ".col.xbx", ".col.wpc", ".col.ps2",
-        ".skin.ps2", ".mdl.ps2", ".iskin.ps2", ".geom.ps2",
-        ".skin.xbx", ".mdl.xbx",
-        ".skin.wpc", ".mdl.wpc"
-    ];
-
-    private static readonly string[] PlatformSuffixes = [".ps2", ".xbx", ".wpc"];
-
     public static List<ScanSummaryDialog.UnsupportedFile> FindUnsupportedFiles(IEnumerable<string> allFiles)
     {
         var unsupported = new List<ScanSummaryDialog.UnsupportedFile>();
@@ -42,18 +22,12 @@ internal static class MeshConverterTabScanAnalysis
                 break;
 
             var fileName = Path.GetFileName(file);
-            if (OrdinalFileName.HasAnySuffix(fileName, MeshFormatsWithPartialWarnings))
-            {
-                AddUnsupportedIfNeeded(unsupported, fileName, file, true);
-                probed++;
-            }
-            else if (OrdinalFileName.HasAnySuffix(fileName, Ps2SceneSuffixes)
-                     || OrdinalFileName.HasExtension(file, ".skin")
-                     || OrdinalFileName.HasExtension(file, ".mdl"))
-            {
-                AddUnsupportedIfNeeded(unsupported, fileName, file, false);
-                probed++;
-            }
+            if (!MeshTypeDetector.IsMeshCandidate(fileName))
+                continue;
+
+            var route = MeshTypeDetector.DetectByName(fileName);
+            AddUnsupportedIfNeeded(unsupported, fileName, file, MeshTypeDetector.ReportsPartialSupport(route));
+            probed++;
         }
 
         return unsupported;
@@ -61,18 +35,7 @@ internal static class MeshConverterTabScanAnalysis
 
     public static int CountPotentiallySupportedFiles(IEnumerable<string> allFiles)
     {
-        return allFiles.Count(static file =>
-        {
-            var fileName = Path.GetFileName(file);
-            return OrdinalFileName.HasExtension(file, ".ddm")
-                   || OrdinalFileName.HasExtension(file, ".psx")
-                   || OrdinalFileName.HasExtension(file, ".skn")
-                   || OrdinalFileName.HasExtension(file, ".col")
-                   || OrdinalFileName.HasAnySuffix(fileName, SupportedMeshSuffixes)
-                   || ((OrdinalFileName.HasExtension(file, ".skin")
-                        || OrdinalFileName.HasExtension(file, ".mdl"))
-                       && !OrdinalFileName.HasAnySuffix(fileName, PlatformSuffixes));
-        });
+        return allFiles.Count(static file => MeshTypeDetector.IsMeshCandidate(Path.GetFileName(file)));
     }
 
     private static void AddUnsupportedIfNeeded(

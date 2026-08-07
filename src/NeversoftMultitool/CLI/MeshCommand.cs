@@ -1,33 +1,15 @@
 ﻿using System.CommandLine;
 using System.Diagnostics;
-using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
-using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
-using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
 
 public static class MeshCommand
 {
-    private static readonly string[] XbxSceneSuffixes =
-        [".skin.xbx", ".mdl.xbx", ".scn.xbx", ".skin.wpc", ".mdl.wpc", ".scn.wpc", ".skin.ngc", ".mdl.ngc", ".scn.ngc"];
-
-    private static readonly string[] Ps2SceneSuffixes = [".skin.ps2", ".mdl.ps2", ".iskin.ps2"];
-    private static readonly string[] CollisionSuffixes = [".col.xbx", ".col.wpc", ".col.ps2", ".col.psp"];
-    private static readonly string[] AmbiguousSceneSuffixes = [".skin", ".mdl"];
-
-    /// <summary>
-    ///     Carved N64 model bundles. Every bundle's file is named
-    ///     "geometry.psx.n64", so the output stem comes from the parent
-    ///     directory (models/NNN) instead of the file name.
-    /// </summary>
-    private const string N64ModelSuffix = ".psx.n64";
-
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
@@ -290,17 +272,7 @@ public static class MeshCommand
     private static bool IsPotentialMeshFile(string path)
     {
         var name = Path.GetFileName(path);
-        return OrdinalFileName.HasAnySuffix(name, XbxSceneSuffixes)
-               || OrdinalFileName.HasAnySuffix(name, Ps2SceneSuffixes)
-               || OrdinalFileName.HasAnySuffix(name, CollisionSuffixes)
-               || OrdinalFileName.HasAnySuffix(name, AmbiguousSceneSuffixes)
-               || OrdinalFileName.HasSuffix(name, ".geom.ps2")
-               || OrdinalFileName.HasSuffix(name, ".pak.ps2")
-               || OrdinalFileName.HasSuffix(name, ".ddm")
-               || OrdinalFileName.HasSuffix(name, ".psx")
-               || OrdinalFileName.HasSuffix(name, N64ModelSuffix)
-               || OrdinalFileName.HasSuffix(name, ".skn")
-               || OrdinalFileName.HasSuffix(name, ".bsp");
+        return MeshTypeDetector.IsMeshCandidate(name) || MeshTypeDetector.IsWorldzoneCandidate(name);
     }
 
     private static bool TryDetect(
@@ -310,175 +282,41 @@ public static class MeshCommand
         out string? reason)
     {
         candidate = default;
+        var route = MeshTypeDetector.Detect(file);
+        if (!route.IsSupported)
+        {
+            reason = route.UnsupportedReason ?? "Unrecognized mesh extension";
+            return false;
+        }
+
         reason = null;
-        var name = Path.GetFileName(file);
-
-        if (OrdinalFileName.HasSuffix(name, ".pak.ps2"))
-        {
-            if (!Ps2WorldzoneDetection.IsWorldzonePak(file))
-            {
-                reason = "Not a recognized THAW PS2 worldzone PAK";
-                return false;
-            }
-
-            candidate = new MeshCandidate(
-                file,
-                ModelSourceKind.Ps2Worldzone,
-                MeshExportCliOptions.StripKnownExtension(file, [".pak.ps2"]),
-                "THAW PS2 Worldzone",
-                Ps2SceneSubFormat.PakWorldzone);
-            return true;
-        }
-
-        if (OrdinalFileName.HasAnySuffix(name, XbxSceneSuffixes))
-        {
-            var platformLabel = "Xbox Scene";
-            if (name.EndsWith(".wpc", StringComparison.OrdinalIgnoreCase))
-                platformLabel = "PC Scene";
-            else if (name.EndsWith(".ngc", StringComparison.OrdinalIgnoreCase))
-                platformLabel = "GameCube Scene";
-
-            candidate = new MeshCandidate(
-                file,
-                ModelSourceKind.XbxScene,
-                MeshExportCliOptions.StripKnownExtension(file, XbxSceneSuffixes),
-                platformLabel);
-            return true;
-        }
-
-        if (OrdinalFileName.HasAnySuffix(name, Ps2SceneSuffixes))
-        {
-            candidate = new MeshCandidate(
-                file,
-                ModelSourceKind.Ps2Scene,
-                MeshExportCliOptions.StripKnownExtension(file, Ps2SceneFile.SupportedExtensions),
-                "PS2 Scene",
-                MeshExportCliOptions.DetectPs2SceneSubFormat(file));
-            return true;
-        }
-
-        if (OrdinalFileName.HasSuffix(name, ".geom.ps2"))
-        {
-            candidate = new MeshCandidate(
-                file,
-                ModelSourceKind.Ps2Geom,
-                MeshExportCliOptions.StripKnownExtension(file, [".geom.ps2"]),
-                "PS2 GEOM",
-                Ps2SceneSubFormat.Geom);
-            return true;
-        }
-
-        if (OrdinalFileName.HasAnySuffix(name, CollisionSuffixes))
-        {
-            candidate = new MeshCandidate(
-                file,
-                ModelSourceKind.Collision,
-                MeshExportCliOptions.StripColExtension(file),
-                "Collision");
-            return true;
-        }
-
-        if (OrdinalFileName.HasSuffix(name, ".ddm"))
-        {
-            var stem = Path.GetFileNameWithoutExtension(file);
-            candidate = new MeshCandidate(
-                file,
-                ModelSourceKind.Ddm,
-                stem,
-                "DDM Mesh",
-                HasPlacedPsxCompanion: psxPath != null || HasSibling(file, stem, ".psx"));
-            return true;
-        }
-
-        if (OrdinalFileName.HasSuffix(name, N64ModelSuffix))
-        {
-            var bundleDir = Path.GetFileName(Path.GetDirectoryName(file));
-            candidate = new MeshCandidate(
-                file,
-                ModelSourceKind.N64Model,
-                string.IsNullOrEmpty(bundleDir) ? "n64_model" : $"n64_{bundleDir}",
-                "N64 Model");
-            return true;
-        }
-
-        if (OrdinalFileName.HasSuffix(name, ".psx"))
-        {
-            candidate = new MeshCandidate(
-                file,
-                ModelSourceKind.Psx,
-                Path.GetFileNameWithoutExtension(file),
-                "PSX Mesh");
-            return true;
-        }
-
-        if (OrdinalFileName.HasSuffix(name, ".skn"))
-        {
-            candidate = new MeshCandidate(
-                file,
-                ModelSourceKind.RenderWareDff,
-                Path.GetFileNameWithoutExtension(file),
-                "RenderWare DFF");
-            return true;
-        }
-
-        if (OrdinalFileName.HasSuffix(name, ".bsp"))
-        {
-            candidate = new MeshCandidate(
-                file,
-                ModelSourceKind.RenderWareBsp,
-                Path.GetFileNameWithoutExtension(file),
-                "RenderWare BSP");
-            return true;
-        }
-
-        if (OrdinalFileName.HasAnySuffix(name, AmbiguousSceneSuffixes))
-            return TryDetectAmbiguousScene(file, out candidate, out reason);
-
-        reason = "Unrecognized mesh extension";
-        return false;
+        candidate = new MeshCandidate(
+            file,
+            MeshTypeDetector.ToSourceKind(route.Kind),
+            OutputStemFor(file, route),
+            route.DisplayFormat ?? route.Kind.ToString(),
+            route.Ps2SubFormat,
+            route.Kind == MeshFileKind.Ddm && HasPlacedPsxCompanion(file, psxPath));
+        return true;
     }
 
-    private static bool TryDetectAmbiguousScene(
-        string file,
-        out MeshCandidate candidate,
-        out string? reason)
+    /// <summary>
+    ///     Every carved N64 bundle is named "geometry.psx.n64", so its stem comes
+    ///     from the parent directory. Everything else uses the shared stem rule.
+    /// </summary>
+    private static string OutputStemFor(string file, in MeshFileRoute route)
     {
-        candidate = default;
-        reason = null;
-        var data = File.ReadAllBytes(file);
-        var name = Path.GetFileName(file);
-        var stem = Path.GetFileNameWithoutExtension(file);
+        if (route.Kind != MeshFileKind.N64Model)
+            return MeshTypeDetector.GetStem(file);
 
-        if (ThawSceneFile.IsThawScene(data) || XbxSceneFile.IsXbxScene(data))
-        {
-            candidate = new MeshCandidate(file, ModelSourceKind.XbxScene, stem, "PC/Xbox Scene");
-            return true;
-        }
+        var bundleDir = Path.GetFileName(Path.GetDirectoryName(file));
+        return string.IsNullOrEmpty(bundleDir) ? "n64_model" : $"n64_{bundleDir}";
+    }
 
-        if (OrdinalFileName.HasSuffix(name, ".mdl") && Ps2GeomFile.IsPakMdl(data))
-        {
-            candidate = new MeshCandidate(
-                file,
-                ModelSourceKind.Ps2Scene,
-                stem,
-                "PAK MDL (THAW PS2)",
-                Ps2SceneSubFormat.PakMdl);
-            return true;
-        }
-
-        if (OrdinalFileName.HasSuffix(name, ".skin") && ThawPs2SkinFile.IsPakSkin(data))
-        {
-            candidate = new MeshCandidate(
-                file,
-                ModelSourceKind.Ps2Scene,
-                stem,
-                "PAK Skin (THAW PS2)",
-                Ps2SceneSubFormat.PakSkin);
-            return true;
-        }
-
-        reason = "Ambiguous .skin/.mdl file is not a recognized PC/Xbox scene or THAW PS2 PAK mesh";
-        return false;
+    private static bool HasPlacedPsxCompanion(string file, string? psxPath)
+    {
+        return psxPath != null
+               || HasSibling(file, Path.GetFileNameWithoutExtension(file), ".psx");
     }
 
     private static bool HasSibling(string file, string stem, string extension)

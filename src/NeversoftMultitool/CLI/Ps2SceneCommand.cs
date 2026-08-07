@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Diagnostics;
+using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
@@ -183,7 +184,7 @@ public static class Ps2SceneCommand
                 format,
                 blenderHelperPath,
                 cancellationToken,
-                MeshExportCliOptions.StripKnownExtension(input, [".pak.ps2"]),
+                MeshExportCliOptions.StripKnownExtension(input),
                 Ps2SceneSubFormat.PakWorldzone,
                 texturePath: texPath,
                 worldzoneTimeOfDay: timeOfDay,
@@ -288,7 +289,7 @@ public static class Ps2SceneCommand
             blenderHelperPath,
             verbose,
             cancellationToken,
-            file => MeshExportCliOptions.StripKnownExtension(file, Ps2SceneFile.SupportedExtensions),
+            file => MeshExportCliOptions.StripKnownExtension(file),
             MeshExportCliOptions.DetectPs2SceneSubFormat,
             texturePath: texPath,
             skeletonPath: skePath);
@@ -296,8 +297,8 @@ public static class Ps2SceneCommand
 
     private static bool IsPs2SceneFile(string path)
     {
-        var name = Path.GetFileName(path);
-        return Ps2SceneFile.SupportedExtensions
-            .Any(ext => name.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+        var route = MeshTypeDetector.DetectByName(Path.GetFileName(path));
+        return route.Kind == MeshFileKind.Ps2Scene
+               || (route.Kind == MeshFileKind.None && route.RequiresContentProbe);
     }
 }

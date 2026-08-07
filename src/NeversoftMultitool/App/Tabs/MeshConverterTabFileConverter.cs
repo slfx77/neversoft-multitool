@@ -140,18 +140,12 @@ internal static class MeshConverterTabFileConverter
 
     private static string GetOutputStem(MeshFileEntry entry)
     {
-        if (entry.IsPs2Scene || entry.IsPs2Geom || entry.IsXbxScene || entry.IsPakWorldzone)
-            return MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
-
         // Every bundle file is named "geometry.psx.n64"; the row label already
         // carries the bundle directory, so reuse it rather than colliding.
         if (entry.IsN64Model)
             return "n64_" + Path.GetFileName(Path.GetDirectoryName(entry.FilePath.Replace('\\', '/')) ?? "model");
 
-        var stem = Path.GetFileNameWithoutExtension(entry.FileName);
-        if (entry.IsCol && stem.EndsWith(".col", StringComparison.OrdinalIgnoreCase))
-            stem = stem[..^4];
-        return stem;
+        return MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
     }
 
     internal static Ps2Skeleton? TryLoadPs2Skeleton(MeshFileEntry entry, string stem)

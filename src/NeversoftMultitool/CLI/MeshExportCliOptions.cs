@@ -1,4 +1,5 @@
 using System.CommandLine;
+using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
@@ -180,30 +181,18 @@ internal static class MeshExportCliOptions
 
     public static Ps2SceneSubFormat DetectPs2SceneSubFormat(string file)
     {
-        var data = File.ReadAllBytes(file);
-        if (Ps2GeomFile.IsPakMdl(data))
-            return Ps2SceneSubFormat.PakMdl;
-        if (ThawPs2SkinFile.IsThawPs2Skin(data))
-            return Ps2SceneSubFormat.ThawSkin;
-        if (ThawPs2SkinFile.IsPakSkin(data))
-            return Ps2SceneSubFormat.PakSkin;
-        return Ps2SceneSubFormat.Standard;
+        var subFormat = MeshTypeDetector.Detect(file).Ps2SubFormat;
+        return subFormat == Ps2SceneSubFormat.None ? Ps2SceneSubFormat.Standard : subFormat;
     }
 
-    public static string StripKnownExtension(string file, IEnumerable<string> extensions)
+    /// <summary>
+    ///     The output stem for a mesh file: the name with its longest known mesh
+    ///     suffix removed. Superseded the three separate strip helpers that used
+    ///     to disagree on compound suffixes.
+    /// </summary>
+    public static string StripKnownExtension(string file)
     {
-        var fileName = Path.GetFileName(file);
-        var matchedExt = extensions.FirstOrDefault(ext =>
-            fileName.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
-        return matchedExt != null ? fileName[..^matchedExt.Length] : Path.GetFileNameWithoutExtension(fileName);
-    }
-
-    public static string StripColExtension(string file)
-    {
-        var stem = Path.GetFileNameWithoutExtension(file);
-        if (stem.EndsWith(".col", StringComparison.OrdinalIgnoreCase))
-            stem = stem[..^4];
-        return stem;
+        return MeshTypeDetector.GetStem(file);
     }
 
     public static bool ValidateFormat(string? value, out MeshOutputFormat format)

@@ -94,7 +94,7 @@ public static class XbxSceneCommand
             blenderHelperPath,
             verbose,
             cancellationToken,
-            file => MeshExportCliOptions.StripKnownExtension(file, allExts),
+            file => MeshExportCliOptions.StripKnownExtension(file),
             texturePath: texPath,
             worldzoneScale: coordinateScale);
     }
