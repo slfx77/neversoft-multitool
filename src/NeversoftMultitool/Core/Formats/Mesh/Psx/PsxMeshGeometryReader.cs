@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.BinaryIO;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 
@@ -194,7 +195,7 @@ internal static class PsxMeshGeometryReader
     ///     vertex data. THPS1 Proto (1999) v3 files have it (sentinel 0x7FFF/0xFFFF);
     ///     Apocalypse (1998) v3 files do not. Peeks ahead without advancing the stream.
     /// </summary>
-    internal static bool ProbeV3HasLod(BinaryReader reader)
+    internal static bool ProbeV3HasLod(EndianBinaryReader reader)
     {
         var savedPos = reader.BaseStream.Position;
         if (savedPos + 12 > reader.BaseStream.Length)

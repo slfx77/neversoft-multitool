@@ -9,13 +9,8 @@ public sealed class PsxMeshObject
     public int RawX { get; init; }
     public int RawY { get; init; }
     public int RawZ { get; init; }
-    /// <summary>
-    ///     Index of the mesh this object places. Settable because the carved
-    ///     N64 shells store it in the other half of its word (see
-    ///     <see cref="PsxN64ShellFile" />) and patch it after the shared
-    ///     header parse.
-    /// </summary>
-    public ushort MeshIndex { get; set; }
+    /// <summary>Index of the mesh this object places.</summary>
+    public ushort MeshIndex { get; init; }
     public int ParentIndex { get; set; } = -1;
 
     /// <summary>

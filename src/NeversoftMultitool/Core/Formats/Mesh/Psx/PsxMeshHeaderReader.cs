@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.BinaryIO;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 
@@ -8,13 +9,31 @@ internal static class PsxMeshHeaderReader
     ///     Reads the PSX file header: objects, mesh pointers, tagged chunks, name hashes,
     ///     and texture hashes. Does NOT read mesh geometry data.
     /// </summary>
-    internal static PsxMeshHeader? Parse(BinaryReader reader)
+    /// <summary>
+    ///     <paramref name="hasGeometry" /> declares whether the file still
+    ///     carries its mesh blocks. It is false for carved N64 shells, whose
+    ///     geometry chunks AND per-mesh pointer array are stripped: the
+    ///     Apocalypse-v3 test probes a real mesh header, so with no geometry to
+    ///     probe it would dereference whatever bytes follow (measured: pointer
+    ///     values 42, 300, 1) and return an arbitrary answer. Declaring it is
+    ///     the difference between "not applicable" and a coin flip.
+    /// </summary>
+    internal static PsxMeshHeader? Parse(EndianBinaryReader reader, bool hasGeometry = true)
     {
-        var version = reader.ReadUInt16();
+        // The leading field is ONE u32 carrying version in its low half and the
+        // 0x0002 marker in its high half — not two independent u16s. Reading it
+        // as a word is what makes the same code serve the big-endian N64 copy:
+        // a PS1 file stores 0x00020004 little-endian (04 00 02 00) and its N64
+        // counterpart stores that same value big-endian (00 02 00 04), so the
+        // u32 agrees while a pair of u16s would appear exchanged. Measured
+        // against hawk.psx and its N64 sibling; on the little-endian path this
+        // is bit-for-bit the previous two reads.
+        var header = reader.ReadUInt32();
+        var version = (ushort)(header & 0xFFFF);
         if (version is not (0x03 or 0x04 or 0x06))
             return null;
 
-        var magic = reader.ReadUInt16();
+        var magic = (ushort)(header >> 16);
         if (magic != 0x0002)
             return null;
 
@@ -55,7 +74,7 @@ internal static class PsxMeshHeaderReader
 
         const float baseScale = 2.25f;
         var (isApocalypse, isSuperModel, scaleDivisor) = ClassifyModelScale(
-            reader, version, meshTopPointers, hasAnimChunk, baseScale);
+            reader, version, hasGeometry ? meshTopPointers : [], hasAnimChunk, baseScale);
         var formatRevision = ClassifyFormatRevision(version, isApocalypse);
         var hasMeshLodField = version != 0x03 || !isApocalypse;
 
@@ -104,7 +123,7 @@ internal static class PsxMeshHeaderReader
     ///     </list>
     /// </summary>
     private static (bool IsApocalypse, bool IsSuperModel, float ScaleDivisor) ClassifyModelScale(
-        BinaryReader reader,
+        EndianBinaryReader reader,
         ushort version,
         uint[] meshTopPointers,
         bool hasAnimChunk,
@@ -124,7 +143,7 @@ internal static class PsxMeshHeaderReader
     ///     individual mesh (level meshes with unusual leading vertex types),
     ///     so a single-mesh decision is unreliable.
     /// </summary>
-    private static bool MajorityProbeV3HasLod(BinaryReader reader, uint[] meshTopPointers)
+    private static bool MajorityProbeV3HasLod(EndianBinaryReader reader, uint[] meshTopPointers)
     {
         const int sampleCount = 5;
         var votes = 0;
@@ -155,7 +174,7 @@ internal static class PsxMeshHeaderReader
     ///     between the bounding box and vertex data. Apocalypse (1998) v3 files lack this field.
     ///     Uses the same logic as PsxMeshGeometryReader.ProbeV3HasLod but seeks to the mesh first.
     /// </summary>
-    private static bool ProbeMeshHasLod(BinaryReader reader, uint meshOffset)
+    private static bool ProbeMeshHasLod(EndianBinaryReader reader, uint meshOffset)
     {
         var savedPos = reader.BaseStream.Position;
         // v3 mesh header: 4×u32(16) + u32 gunkl1(4) + 6×i16 bbox(12) = 32 bytes to the probe point
@@ -172,7 +191,7 @@ internal static class PsxMeshHeaderReader
         return result;
     }
 
-    private static PsxMeshObject ReadObject(BinaryReader reader)
+    private static PsxMeshObject ReadObject(EndianBinaryReader reader)
     {
         var flags = reader.ReadUInt32();
         var rawX = reader.ReadInt32();
@@ -196,7 +215,7 @@ internal static class PsxMeshHeaderReader
         };
     }
 
-    private static ushort[]? ReadTaggedChunks(BinaryReader reader, uint objectCount,
+    private static ushort[]? ReadTaggedChunks(EndianBinaryReader reader, uint objectCount,
         out bool hasHierarchy, out bool hasAnimChunk, out Vector4[]? gouraudPalette)
     {
         const uint TagStop = 0xFFFFFFFF;

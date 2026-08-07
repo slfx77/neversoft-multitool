@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.BinaryIO;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 
@@ -90,7 +91,11 @@ public sealed class PsxMeshFile
     /// </summary>
     public static PsxMeshFile? Parse(BinaryReader reader, bool bakeColourPulses = true)
     {
-        var header = PsxMeshHeaderReader.Parse(reader);
+        // The header grammar is endian-parameterized (the N64 ports re-encode
+        // it); every caller of this overload is a little-endian PS1-era file.
+        // The wrapper shares the reader, so the geometry pass below resumes at
+        // the position the header pass left.
+        var header = PsxMeshHeaderReader.Parse(new EndianBinaryReader(reader, bigEndian: false));
         if (header == null)
             return null;
 
@@ -250,7 +255,7 @@ public sealed class PsxMeshFile
     {
         using var stream = new MemoryStream(data, false);
         using var reader = new BinaryReader(stream);
-        var header = PsxMeshHeaderReader.Parse(reader);
+        var header = PsxMeshHeaderReader.Parse(new EndianBinaryReader(reader, bigEndian: false));
         if (header == null || header.MeshTopPointers.Length == 0) return -1;
 
         var attachmentVertices = PsxMeshGeometryReader.CollectAttachableVertices(
@@ -362,8 +367,7 @@ public sealed class PsxMeshFile
     public static PsxMeshFile? ParseHeaderOnly(string filePath)
     {
         using var stream = File.OpenRead(filePath);
-        using var reader = new BinaryReader(stream);
-        return ParseHeaderOnly(reader);
+        return ParseHeaderOnly(stream, bigEndian: false);
     }
 
     /// <summary>
@@ -374,13 +378,27 @@ public sealed class PsxMeshFile
     public static PsxMeshFile? ParseHeaderOnly(byte[] data)
     {
         using var stream = new MemoryStream(data, false);
-        using var reader = new BinaryReader(stream);
-        return ParseHeaderOnly(reader);
+        return ParseHeaderOnly(stream, bigEndian: false);
     }
 
-    private static PsxMeshFile? ParseHeaderOnly(BinaryReader reader)
+    /// <summary>
+    ///     Header-only parse in a declared byte order. The N64 ports keep this
+    ///     container field for field and re-encode it big-endian, so the same
+    ///     grammar serves both — see <see cref="PsxN64ShellFile" />. Only the
+    ///     HEADER is endian-parameterized; the geometry pass is PS1-only,
+    ///     because the ports replaced geometry outright rather than re-encoding
+    ///     it.
+    /// </summary>
+    internal static PsxMeshFile? ParseHeaderOnly(byte[] data, bool bigEndian, bool hasGeometry = true)
     {
-        var header = PsxMeshHeaderReader.Parse(reader);
+        using var stream = new MemoryStream(data, false);
+        return ParseHeaderOnly(stream, bigEndian, hasGeometry);
+    }
+
+    private static PsxMeshFile? ParseHeaderOnly(Stream stream, bool bigEndian, bool hasGeometry = true)
+    {
+        using var reader = new EndianBinaryReader(stream, bigEndian);
+        var header = PsxMeshHeaderReader.Parse(reader, hasGeometry);
         if (header == null)
             return null;
 

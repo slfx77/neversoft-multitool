@@ -11,10 +11,10 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 ///     established 2026-08-06 by measuring the carved corpus:
 ///     <list type="number">
 ///         <item>
-///             The whole file is <b>u32-byteswapped</b> (N64 is big-endian).
-///             Reversing each 4-byte word restores the PS1 byte layout exactly,
-///             because every field in the header region is a u32, a u16 pair,
-///             or 4 bytes — a per-word reverse is an involution over all three.
+///             The file is <b>big-endian</b> (N64), field for field. The PS1
+///             header grammar is otherwise unchanged, so it is read by the same
+///             reader with the byte order declared — see
+///             <see cref="PsxMeshFile.ParseHeaderOnly(byte[], bool)" />.
 ///         </item>
 ///         <item>
 ///             The trailing texture-hash array is <b>stripped</b>: the count
@@ -27,11 +27,19 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 ///             probing and geometry, neither of which applies here.
 ///         </item>
 ///     </list>
-///     Deliberately a thin adapter over <see cref="PsxMeshFile.ParseHeaderOnly(byte[])" />
-///     rather than a new parse path: the PS1 reader stays untouched (no N64
-///     special cases leaking into PS1 semantics), and the geometry reader is
-///     never entered, which matters because it would dereference the stripped
-///     pointer array.
+///     <para>
+///         This used to reverse every 4-byte word and hand the result to the
+///         little-endian reader. That restores u32 fields but EXCHANGES the two
+///         u16s packed inside a word, which is why it needed a correction
+///         re-reading each object's mesh index from +0x14 — the field really
+///         lives at +0x16, and the swap displaced it. Declaring the byte order
+///         removes both the swap and the correction;
+///         <c>PsxN64ShellEndianTests</c> pins that the two readings agree
+///         everywhere else, across all four ROMs.
+///     </para>
+///     Still deliberately a thin adapter rather than a new parse path: the
+///     geometry reader is never entered, which matters because it would
+///     dereference the stripped pointer array.
 /// </summary>
 public static class PsxN64ShellFile
 {
@@ -68,75 +76,28 @@ public static class PsxN64ShellFile
         if (!IsN64Shell(data))
             return null;
 
-        var swapped = SwapWords(data);
-        if (!TryMeasureTail(swapped, out var padding))
+        if (!TryMeasureTail(data, out var padding))
             return null;
 
+        var buffer = data;
         if (padding > 0)
         {
-            var padded = new byte[swapped.Length + padding];
-            swapped.CopyTo(padded, 0);
-            swapped = padded;
+            buffer = new byte[data.Length + padding];
+            data.CopyTo(buffer, 0);
         }
 
-        PsxMeshFile? shell;
         try
         {
-            shell = PsxMeshFile.ParseHeaderOnly(swapped);
+            // hasGeometry: false — the shell keeps no mesh blocks, so the
+            // Apocalypse-v3 probe has nothing real to read. Apocalypse never
+            // shipped on N64 either; the four carts are THPS1/2/3 and
+            // Spider-Man.
+            return PsxMeshFile.ParseHeaderOnly(buffer, bigEndian: true, hasGeometry: false);
         }
         catch (Exception ex) when (ex is EndOfStreamException or IOException)
         {
             return null;
         }
-
-        if (shell != null)
-            PatchMeshIndices(shell, swapped);
-        return shell;
-    }
-
-    /// <summary>
-    ///     Restores each object's mesh index. A PS1 object keeps it in the HIGH
-    ///     half of the word at +0x14, but a carved shell keeps it in the LOW
-    ///     half, so the shared reader always sees zero — which silently turned
-    ///     every model into "object i places mesh i". That is right for about
-    ///     two thirds of the corpus and wrong for the rest: characters permute
-    ///     their parts (hawk: 0,1,3,2,4,6,5...), and levels can carry more
-    ///     meshes than objects (a THPS1 Downhill Jam shell has 642 objects for
-    ///     883 meshes, so 241 are simply never placed).
-    /// </summary>
-    private static void PatchMeshIndices(PsxMeshFile shell, byte[] swapped)
-    {
-        const int meshIndexOffset = 0x14;
-        for (var i = 0; i < shell.Objects.Count; i++)
-        {
-            var position = HeaderFixedSize + i * ObjectRecordSize + meshIndexOffset;
-            if (position + 2 > swapped.Length)
-                return;
-            shell.Objects[i].MeshIndex = BinaryPrimitives.ReadUInt16LittleEndian(swapped.AsSpan(position));
-        }
-    }
-
-    /// <summary>
-    ///     Reverses each 4-byte word. Any trailing bytes that do not fill a
-    ///     word are copied through — carved slices are word-aligned, but a
-    ///     ragged tail must not throw.
-    /// </summary>
-    private static byte[] SwapWords(byte[] data)
-    {
-        var output = new byte[data.Length];
-        var wordBytes = data.Length & ~3;
-        for (var i = 0; i < wordBytes; i += 4)
-        {
-            output[i] = data[i + 3];
-            output[i + 1] = data[i + 2];
-            output[i + 2] = data[i + 1];
-            output[i + 3] = data[i];
-        }
-
-        for (var i = wordBytes; i < data.Length; i++)
-            output[i] = data[i];
-
-        return output;
     }
 
     /// <summary>
@@ -149,22 +110,22 @@ public static class PsxN64ShellFile
     ///     must physically fit, which is what separates a real 837-object model
     ///     from garbage.
     /// </summary>
-    private static bool TryMeasureTail(byte[] swapped, out int padding)
+    private static bool TryMeasureTail(byte[] data, out int padding)
     {
         padding = 0;
-        if (swapped.Length < HeaderFixedSize)
+        if (data.Length < HeaderFixedSize)
             return false;
 
-        var objectCount = BinaryPrimitives.ReadUInt32LittleEndian(swapped.AsSpan(8));
+        var objectCount = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(8));
         if (objectCount == 0)
             return false;
 
         // 36 bytes per object plus the mesh-count word must be present.
         var meshCountOffset = (long)HeaderFixedSize + (long)objectCount * ObjectRecordSize;
-        if (meshCountOffset + 4 > swapped.Length)
+        if (meshCountOffset + 4 > data.Length)
             return false;
 
-        var meshCount = BinaryPrimitives.ReadUInt32LittleEndian(swapped.AsSpan((int)meshCountOffset));
+        var meshCount = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan((int)meshCountOffset));
         if (meshCount is 0 or > MaxMeshCount)
             return false;
 
