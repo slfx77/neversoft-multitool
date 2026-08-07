@@ -63,6 +63,58 @@ If you get an unpacked exe, **stop and tell me** — I would then hunt the codec
 statically (the same signature approach that located the IMA tables in
 `THAW.exe`), which is far less work than a capture.
 
+## Step 0b — static decryption of THUG2.exe: measured and rejected
+
+Asked 2026-08-07 whether the SafeDisc encryption could be broken statically,
+avoiding the VM entirely. Measured rather than guessed, and the answer is no.
+
+**No exploitable cipher structure in `.text`:**
+
+| test | result |
+|---|---|
+| Index of coincidence, equal 2000-byte columns, periods 1-1024 | flat at 0.00391 (= random) for every small period; no keystream spike |
+| Per-100 KB region entropy / IoC | 7.997 / 0.00391 in all 8 regions — locally uniform everywhere |
+| Repeated 16-byte blocks | 651 of 148,479 (0.44%) |
+| Repeated 32-byte blocks | 10 of 74,239 (0.014%) |
+
+`.text` is full of `0xCC` inter-function padding in plaintext, so ECB mode or a
+repeating page key would collide heavily. It does not. (The earlier apparent
+rise in IoC with period was an artefact of columns spanning larger file regions
+as the stride grew; with equal column lengths it vanishes.)
+
+**And there is no readable decryptor to lift.** The hope was that the loader
+sections are plaintext — they are not obfuscated to the same degree as `.text`,
+but they are not readable code either:
+
+- `stxt774` (entropy 6.25): 43 extractable strings, **all garbage** — another
+  obfuscated stage, not code we can read.
+- `stxt371` (entropy 5.65): 124 strings, exactly one meaningful — `GetProcAddress`.
+- `Secdrv`, `DeviceIoControl`, `\.\`, `DrvMgt`, `00000001.TMP`: **absent from
+  the entire file.** Every API and the whole driver interaction is resolved
+  dynamically at runtime.
+
+So there is no algorithm sitting in the file to transcribe, and no way to even
+locate where the key comes from without executing the loader.
+
+**What "crack it without a VM" would actually mean:** emulating the loader
+until it decrypts itself, then dumping — the same trick this repo already used
+for the N64 ERZ codec, where `tools/diagnostics/erz_emu_decode.py` runs the
+ROM's own decompressor under a minimal MIPS interpreter. The x86 equivalent is
+Unicorn Engine plus stubbed Windows APIs. Tractable, and it would also reveal
+whether the key is disc-derived — but it is a multi-day project against an
+actively anti-emulation loader.
+
+**Recommendation: don't.** There is exactly **one** SafeDisc binary in the whole
+corpus (THUG2.exe; every other PC title is SecuROM), so an unwrapper is a
+one-off rather than reusable infrastructure, and an XP VM — which reaches the
+same outcome in about an hour — already exists. Revisit only if the VM stays
+unavailable and the emulation harness is wanted for its own sake.
+
+**What is actually locked**, for weighing the cost: of 784 `.snd` sounds, 350
+(44.6%) also ship as decodable `.pcm`, and **434 (55.4%) exist only as `.snd`**.
+So the payoff is real, not redundant — but it is identical whichever route
+reaches it.
+
 ## Step 1 — VM (only if step 0 fails)
 
 Windows 7 x86, because SafeDisc needs `secdrv.sys` and modern Frida needs
