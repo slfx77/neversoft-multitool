@@ -30,10 +30,10 @@ Sources: the **THPG/Project 8** stream is **verified this session** (conversions
 
 ## Highest-leverage / start-here
 
-**Tier 1 — small, user-facing, unblock whole families (start here):**
+**Tier 1 — DONE 2026-08-07.**
 
-1. **THPG/P8 bare `.col` + bare `.skin` extension routing** (`game-thpg-p8.md`, S each) — the parsers already support the data (`ColFile.cs` handles v9/10; all 85 THPG + 79 P8 `.col` start `0a 00 00 00` = version 10 and parse cleanly — the "00 FF 00 FF newer format" seen 2026-07-03 was GARBAGE from the pre-2026-07-10 absolute-offset PAK-extraction bug, since re-extracted). The only gap is that bare `.col`/`.skin` extensions aren't dispatched to the collision/scene parser. Fixing routing unblocks ALL THPG/P8 collision + level/cutscene scene geometry.
-2. **PC/Xbox THAW additive/subtractive approximation** (`formats-todo.md`/`gsreplay-fidelity.md`, S) — the PS2 path already luminance-approximates additive/subtractive; the Xbox/PC path renders them plain source-over (washed/dark). Reuse the existing PS2 approximation.
+1. ✅ **Bare `.col` + bare `.skin` + `.dff` extension routing** — shipped. The cause was five unsynchronized extension lists, now folded into `Core/Formats/Mesh/Detection/MeshTypeDetector` (mirroring `ArchiveTypeDetector`). 1,678 bare `.col`, 3,608 bare `.skin` and 477 `.dff` now reach their parsers. Bare `.skin` routes by content with `IsXbxScene` demoted to LAST — it is only a `(1,1,1)` triple, which ~32% of PS2-build files also satisfy. A companion commit added `MeshOutputPathPlanner`, because those files collide on output name (a THPG missions tree is 50 files all called `6F980DC3.col`, previously yielding one GLB, now 34).
+2. ✅ **PC/Xbox THAW additive/subtractive approximation** — RETRACTED as an open item: already shipped by `XbxPassCompositor` (`25d3283`), which composites pass k≥1 and bakes ADD/SUB. `CLAUDE.md`'s "Not Yet Implemented" entry naming `ped_boone_full`'s tattoo contradicted its own §31 and has been deleted.
 
 **Tier 2 — the THAW fidelity chain (M→L, user-facing):**
 
