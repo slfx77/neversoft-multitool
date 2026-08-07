@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using NeversoftMultitool.Core.BinaryIO;
 
 namespace NeversoftMultitool.Core.Formats.Audio;
 
@@ -29,6 +30,18 @@ internal static class SfxCueResolver
     /// </summary>
     internal static bool TryParseCues(byte[] data, out List<SfxCue> cues, out string error)
     {
+        return TryParseCues(data, SfxCueLayout.LittleEndian, out cues, out error);
+    }
+
+    /// <summary>
+    ///     Parses the cue table under a declared record layout. The N64 port
+    ///     re-encoded this grammar big-endian AND widened its alias field, so
+    ///     the layout is passed in rather than assumed —
+    ///     see <see cref="SfxCueLayout" />.
+    /// </summary>
+    internal static bool TryParseCues(
+        byte[] data, SfxCueLayout layout, out List<SfxCue> cues, out string error)
+    {
         cues = [];
 
         if (data.Length < SfxExtractor.EntrySize)
@@ -37,17 +50,20 @@ internal static class SfxCueResolver
             return false;
         }
 
+        var reader = new EndianSpanReader(data, layout.BigEndian);
         for (var offset = 0; offset + SfxExtractor.EntrySize <= data.Length; offset += SfxExtractor.EntrySize)
         {
+            // The terminator is 0xFFFFFFFF either way round, so it needs no
+            // byte order of its own.
             if (SfxAliasResolver.ReadUInt32LittleEndian(data, offset) == SfxExtractor.CueTerminator)
                 break;
 
             if (SfxAliasResolver.IsZeroedEntry(data, offset))
                 break;
 
-            // The 6 trailing bytes of every real cue record are zero pad; a nonzero
-            // pad byte means this is not a THPS2-era cue table.
-            for (var padIndex = 10; padIndex < SfxExtractor.EntrySize; padIndex++)
+            // Every real cue record ends in zero pad; a nonzero pad byte means
+            // this is not a cue table at all.
+            for (var padIndex = layout.PadOffset; padIndex < SfxExtractor.EntrySize; padIndex++)
             {
                 if (data[offset + padIndex] != 0)
                 {
@@ -57,15 +73,19 @@ internal static class SfxCueResolver
                 }
             }
 
+            var alias = layout.AliasWidth == 4
+                ? (int)reader.U32(offset + layout.AliasOffset)
+                : reader.U16(offset + layout.AliasOffset);
+
             cues.Add(new SfxCue(
                 cues.Count,
                 data[offset] == SfxExtractor.LoopMarker,
                 data[offset + 1],
                 data[offset + 2],
                 data[offset + 3],
-                BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset + 4, 2)),
-                BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset + 6, 2)),
-                BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset + 8, 2))));
+                reader.U16(offset + layout.PitchOffset),
+                reader.U16(offset + layout.VolumeOffset),
+                alias));
         }
 
         if (cues.Count == 0)
