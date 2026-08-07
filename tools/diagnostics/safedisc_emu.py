@@ -10,10 +10,26 @@ themselves obfuscated, and every API and driver call is resolved dynamically -
 so there is no algorithm in the file to transcribe. The only way to see the
 plaintext is to let the loader produce it.
 
-The key instrumentation is a WRITE WATCH over `.text`. Decryption is, by
-definition, the loader writing plaintext into that range; the watch reports
-exactly when, from where, and how much, and the image is dumped once coverage
-crosses a threshold.
+DESIGN: this is a GENERIC emulation-based unpacker that happens to be developed
+against SafeDisc, not a SafeDisc-specific tool. Nothing in the unpacking path
+knows what SafeDisc is. That is deliberate, and it is what makes the approach
+reusable: driving the binary's OWN loader works for any protection version,
+whereas transcribing one version's cipher only ever decrypts that version.
+
+Three protection-agnostic pieces do the work:
+
+  * A WRITE WATCH over the original image. Unpacking is, by definition, the
+    loader writing plaintext into it.
+  * OEP DETECTION by tail jump: execution entering a page of the ORIGINAL image
+    that has been written since load. That rule alone is far too weak -- a stub
+    self-patches constantly -- so it is qualified by three more conditions in
+    `consider_oep`, all of them packer-agnostic.
+  * IMPORT REBUILDING that is EXACT rather than heuristic. Every IAT slot in a
+    dump holds one of our own API stub addresses, and the emulator recorded the
+    name and DLL behind each one, so `write_unpacked_pe` looks the answer up.
+    Scylla/ImpREC have to resolve addresses back to exports and guess at
+    forwarders; this cannot be wrong by construction. It is the strongest single
+    argument for unpacking under emulation rather than under a debugger.
 
 This does not require the disc, the driver, or a VM. If the decryption key
 turns out to be derived from the SafeDisc driver's challenge/response, that
@@ -208,6 +224,11 @@ SEH_END_OF_CHAIN = 0xFFFFFFFF
 # obvious in the trace rather than blending in with file handles.
 SECDRV_HANDLE = 0x100
 
+# A tail jump lands in a section the unpacker REWROTE, so require real volume.
+# One page is enough to distinguish an unpack from a stub's self-patch, which is
+# typically a handful of bytes.
+OEP_MIN_SECTION_WRITE = 0x1000
+
 # Unicorn UC_MEM_* access constants. The obvious `access % 3` indexing is
 # WRONG -- READ_UNMAPPED is 19, and 19 % 3 == 1 prints "write" -- so every
 # fault message this harness produced before 2026-08-07 named the wrong type.
@@ -232,9 +253,12 @@ STATUS_ACCESS_VIOLATION = 0xC0000005
 STATUS_INTEGER_DIVIDE_BY_ZERO = 0xC0000094
 STATUS_ILLEGAL_INSTRUCTION = 0xC000001D
 
-# The loader looks for companion files (00000001.TMP) beside the exe, so give
-# it a realistic path rather than an empty buffer.
-EMULATED_EXE_PATH = r"C:\Games\THUG2\THUG2.exe"
+# The loader looks for companion files beside the exe, so it needs a realistic
+# path rather than an empty buffer. The DIRECTORY is fixed but the file name is
+# taken from whatever binary is being run -- a protected loader routinely
+# compares GetModuleFileName's basename against its own expectations, so
+# hardcoding one title's name would fail every other target.
+EMULATED_GAME_DIR = r"C:\Game"
 EMULATED_TEMP_PATH = r"C:\WINDOWS\Temp" + "\\"
 
 # x86 CONTEXT field offsets (32-bit). Only the integer/control block matters
@@ -394,6 +418,7 @@ class SafeDiscEmulator:
         self.uc = Uc(UC_ARCH_X86, UC_MODE_32)
         self.stubs: dict[int, tuple[str, int]] = {}   # address -> (name, argc)
         self.stub_by_name: dict[str, int] = {}
+        self.stub_dll: dict[str, str] = {}
         self.next_stub = STUB_BASE
         self.next_module = FAKE_MODULE_BASE
         self.modules: dict[str, int] = {}
@@ -415,6 +440,7 @@ class SafeDiscEmulator:
         self.trace_remaining = 0
         self.next_reg_key = 0x80000100
         self.stop_on_unknown_api = True
+        self.emulated_exe_path = EMULATED_GAME_DIR + "\\" + path.name
         self.host_files = HostFileMap(path)
         self.files: dict[int, EmulatedFile] = {}
         self.next_handle = 0x200
@@ -447,6 +473,24 @@ class SafeDiscEmulator:
         self.breakpoints: set[int] = set()
         self.breakpoint_hits: Counter = Counter()
         self.stop_locked = False
+        self.image_lo = self.image_base
+        self.image_hi = self.image_base + self.pe.OPTIONAL_HEADER.SizeOfImage
+        self.image_writes: dict[int, int] = {}
+        self.oep_found = 0
+        self.oep_instruction = 0
+        self.stop_at_oep = True
+        self.image_sections = [
+            (s.Name.rstrip(b'\x00').decode('latin1', 'replace'), s.VirtualAddress,
+             s.VirtualAddress + max(s.Misc_VirtualSize, s.SizeOfRawData))
+            for s in self.pe.sections
+        ]
+        entry_rva = self.pe.OPTIONAL_HEADER.AddressOfEntryPoint
+        self.entry_section = next(
+            (i for i, (_, a, b) in enumerate(self.image_sections) if a <= entry_rva < b),
+            None)
+        self.section_written: dict[int, int] = {}
+        self.executed_sections: set[int] = set()
+        self.oep_rejects: Counter = Counter()
         self.watch_hi = 0
         self.process_writes: list[tuple[int, int]] = []
         self.trail: deque[int] | None = None
@@ -609,7 +653,7 @@ class SafeDiscEmulator:
         entry_size = 0x48
         modules = [
             (self.image_base, self.pe.OPTIONAL_HEADER.SizeOfImage,
-             EMULATED_EXE_PATH, "THUG2.exe"),
+             self.emulated_exe_path, self.path.name),
             (NTDLL_BASE, SYSTEM_MODULE_SIZE, r"C:\WINDOWS\system32\ntdll.dll", "ntdll.dll"),
             (KERNEL32_BASE, SYSTEM_MODULE_SIZE, r"C:\WINDOWS\system32\kernel32.dll", "kernel32.dll"),
         ]
@@ -669,7 +713,9 @@ class SafeDiscEmulator:
         self.uc.mem_write(nt + 0x18 + 0x38, struct.pack("<I", SYSTEM_MODULE_SIZE))
         self.uc.mem_write(nt + 0x18 + 0x5C, struct.pack("<I", 16))         # NumberOfRvaAndSizes
 
-    def alloc_stub(self, name: str, argc: int = 0) -> int:
+    def alloc_stub(self, name: str, argc: int = 0, dll: str | None = None) -> int:
+        if dll:
+            self.stub_dll.setdefault(name, dll.lower())
         if name in self.stub_by_name:
             return self.stub_by_name[name]
         # Flag a missing argument count HERE, at resolution time, not at the end
@@ -697,7 +743,7 @@ class SafeDiscEmulator:
             dll = entry.dll.decode("latin1")
             for imp in entry.imports:
                 name = imp.name.decode("latin1") if imp.name else f"{dll}#{imp.ordinal}"
-                addr = self.alloc_stub(name, ARG_COUNTS.get(name, 0))
+                addr = self.alloc_stub(name, ARG_COUNTS.get(name, 0), dll)
                 if imp.address:
                     self.uc.mem_write(imp.address, struct.pack("<I", addr))
                 count += 1
@@ -733,7 +779,8 @@ class SafeDiscEmulator:
                     return target
                 log(f"    GetProcAddress({module.name}, '{proc}') -> NOT EXPORTED", always=True)
                 return 0
-            return self.alloc_stub(proc, ARG_COUNTS.get(proc, 0))
+            asked_of = next((n for n, b in self.modules.items() if b == args[0]), None)
+            return self.alloc_stub(proc, ARG_COUNTS.get(proc, 0), asked_of)
 
         if name in ("LoadLibraryA", "LoadLibraryW", "LoadLibraryExA", "LoadLibraryExW"):
             module = self.read_cstr(args[0], wide=name.endswith("W")) if args[0] else "self"
@@ -814,6 +861,7 @@ class SafeDiscEmulator:
             # This bypasses the instruction-level write hook entirely, so account
             # for it by hand -- otherwise a successful decrypt through this path
             # would still report ".text writes: 0".
+            self.note_image_write(dest, len(payload))
             self.note_text_write(dest, len(payload), via="WriteProcessMemory")
             self.process_writes.append((dest, len(payload)))
             log(f"    WriteProcessMemory(dest=0x{dest:08X}, src=0x{source:08X}, "
@@ -900,7 +948,7 @@ class SafeDiscEmulator:
         # Returning only a length leaves the caller parsing stack garbage,
         # which is how the loader ended up executing off the stack.
         if name in ("GetModuleFileNameA", "GetModuleFileNameW"):
-            return self.write_cstr(args[1], EMULATED_EXE_PATH, args[2], name.endswith("W"))
+            return self.write_cstr(args[1], self.emulated_exe_path, args[2], name.endswith("W"))
 
         if name in ("GetTempPathA", "GetTempPathW"):
             return self.write_cstr(args[1], EMULATED_TEMP_PATH, args[0], name.endswith("W"))
@@ -912,7 +960,7 @@ class SafeDiscEmulator:
             return self.write_cstr(args[0], r"C:\WINDOWS", args[1], name.endswith("W"))
 
         if name in ("GetCommandLineA", "GetCommandLineW"):
-            return self.static_string(f'"{EMULATED_EXE_PATH}"', name.endswith("W"))
+            return self.static_string(f'"{self.emulated_exe_path}"', name.endswith("W"))
 
         # --- MSVC CRT startup ---------------------------------------------
         # The extracted DLL is a normal MSVC binary, so its DllMain runs the CRT
@@ -1001,6 +1049,7 @@ class SafeDiscEmulator:
             dest, source, count = args[0], args[1], args[2]
             try:
                 self.uc.mem_write(dest, bytes(self.uc.mem_read(source, count)))
+                self.note_image_write(dest, count)
                 self.note_text_write(dest, count, via="RtlMoveMemory")
             except UcError:
                 pass
@@ -1458,7 +1507,7 @@ class SafeDiscEmulator:
             dll = entry.dll.decode("latin1")
             for imp in entry.imports:
                 name = imp.name.decode("latin1") if imp.name else f"{dll}#{imp.ordinal}"
-                stub = self.alloc_stub(name, ARG_COUNTS.get(name, 0))
+                stub = self.alloc_stub(name, ARG_COUNTS.get(name, 0), dll)
                 # imp.address is the absolute IAT slot at the PE's PREFERRED base,
                 # so rebase it onto where we actually mapped the image.
                 slot = base + (imp.address - pe.OPTIONAL_HEADER.ImageBase)
@@ -1574,6 +1623,18 @@ class SafeDiscEmulator:
         self.instructions += 1
         if self.trail is not None:
             self.trail.append(address)
+        # Generic OEP detection: execution entering a page of the ORIGINAL image
+        # that has been written since load. That is the "tail jump" every packer
+        # ends with, and it is protection-agnostic -- nothing here knows what
+        # SafeDisc is. Restricting it to the original image is what keeps the
+        # packer's own self-patched trampolines (which live in its extracted
+        # DLL's .data) from triggering it.
+        if self.image_lo <= address < self.image_hi and not self.oep_found:
+            if (address & ~0xFFF) in self.image_writes:
+                self.consider_oep(uc, address)
+            section = self.section_index_for(address)
+            if section is not None:
+                self.executed_sections.add(section)
         if address == MAGIC_SEH_RETURN:
             self.resume_from_seh(uc)
             return
@@ -1626,6 +1687,79 @@ class SafeDiscEmulator:
             self.trace_remaining -= 1
             self.disassemble_one(address, size)
 
+    def consider_oep(self, uc, address: int) -> None:
+        """Decide whether entering a written page is really the tail jump.
+
+        "Executing a page that was written" alone is far too weak. A packer stub
+        self-patches constantly: SafeDisc's very first act is
+        `mov byte ptr [ebx], 0xE9` over its OWN entry point, so the naive rule
+        fired 16 instructions in. Three additional conditions make it hold, and
+        all three are packer-agnostic:
+
+          1. The target is NOT in the section containing the PE entry point.
+             That section IS the packer stub, by definition -- UPX1, stxt371,
+             .securom, whatever it is called.
+          2. Its section has received a substantial amount of writing, not a
+             one-byte patch. Unpacking rewrites whole sections.
+          3. We have never executed in that section before. The tail jump is a
+             first arrival.
+        """
+        section = self.section_index_for(address)
+        if section is None or section == self.entry_section:
+            self.oep_rejects["packer stub section"] += 1
+            return
+        if self.section_written.get(section, 0) < OEP_MIN_SECTION_WRITE:
+            self.oep_rejects["too little written"] += 1
+            return
+        if section in self.executed_sections:
+            self.oep_rejects["already executing there"] += 1
+            return
+        self.on_oep_reached(uc, address)
+
+    def section_index_for(self, address: int) -> int | None:
+        rva = address - self.image_base
+        for index, (_, start, end) in enumerate(self.image_sections):
+            if start <= rva < end:
+                return index
+        return None
+
+    def on_oep_reached(self, uc, address: int) -> None:
+        """The unpacking is done: control has entered freshly-written original code."""
+        self.oep_found = address
+        self.oep_instruction = self.instructions
+        written = sum(self.image_writes.values())
+        log("", always=True)
+        log(f"*** ORIGINAL ENTRY POINT REACHED at 0x{address:08X} "
+            f"after {self.instructions:,} instructions", always=True)
+        log(f"    {written:,} bytes written across {len(self.image_writes)} pages "
+            f"of the original image; .text entropy now {self.text_entropy():.3f}", always=True)
+        if capstone is not None:
+            try:
+                md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+                code = bytes(uc.mem_read(address, 32))
+                for insn in list(md.disasm(code, address))[:6]:
+                    log(f"      {insn.mnemonic:<7} {insn.op_str}", always=True)
+            except (UcError, capstone.CsError):
+                pass
+        if self.stop_at_oep:
+            self.stop(uc, f"reached the original entry point at 0x{address:08X}")
+
+    def note_image_write(self, address: int, size: int) -> None:
+        """Track writes anywhere in the ORIGINAL image, not just its .text.
+
+        The .text counter answers "is it decrypting?"; this one answers "which
+        pages are now real code?", which is what OEP detection and the dump both
+        need, and it is packer-agnostic.
+        """
+        if not (self.image_lo <= address < self.image_hi) or size <= 0:
+            return
+        for offset in range(0, size, 0x1000):
+            page = (address + offset) & ~0xFFF
+            self.image_writes[page] = self.image_writes.get(page, 0) + min(0x1000, size - offset)
+        section = self.section_index_for(address)
+        if section is not None:
+            self.section_written[section] = self.section_written.get(section, 0) + size
+
     def note_text_write(self, address: int, size: int, via: str, eip: int | None = None) -> None:
         """Record a write into the encrypted .text range, whatever its channel.
 
@@ -1642,6 +1776,7 @@ class SafeDiscEmulator:
         self.write_channels[via] += size
 
     def hook_write(self, uc, _access, address, size, value, _user):
+        self.note_image_write(address, size)
         if self.text_start <= address < self.text_end:
             self.note_text_write(address, size, via="store", eip=uc.reg_read(UC_X86_REG_EIP))
         if self.watch_lo <= address < self.watch_hi:
@@ -1933,6 +2068,142 @@ class SafeDiscEmulator:
                 return f" {name}"
         return ""
 
+    def write_unpacked_pe(self, out_path: Path) -> dict:
+        """Dump the emulated image as a loadable PE with a REBUILT import table.
+
+        This is where emulation beats a conventional dumper. Scylla/ImpREC see an
+        IAT full of addresses and must guess which export each one was, resolving
+        back through module exports and often getting it wrong for forwarded or
+        redirected entries. Here every IAT slot holds one of OUR stub addresses,
+        and `self.stubs` already maps each to its exact name and DLL -- so the
+        rebuild is a lookup, not a heuristic.
+
+        The dump uses FileAlignment == SectionAlignment with PointerToRawData ==
+        VirtualAddress, i.e. the file IS the memory image. That is the standard
+        dump layout, and it is why a dumped binary is much larger than the packed
+        original.
+        """
+        base = self.image_base
+        size = self.pe.OPTIONAL_HEADER.SizeOfImage
+        image = bytearray(self.uc.mem_read(base, size))
+
+        slots = self.find_iat_slots(image, base)
+        runs = self.group_iat_runs(slots)
+        import_rva, import_blob = self.build_import_directory(image, runs, size)
+
+        section_align = self.pe.OPTIONAL_HEADER.SectionAlignment or 0x1000
+        total = ((import_rva + len(import_blob)) + section_align - 1) & ~(section_align - 1)
+        image.extend(b"\x00" * (total - len(image)))
+        image[import_rva : import_rva + len(import_blob)] = import_blob
+
+        self.patch_dump_headers(image, import_rva, len(import_blob), total)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(bytes(image))
+
+        return {
+            "path": out_path,
+            "bytes": len(image),
+            "iat_slots": len(slots),
+            "iat_runs": len(runs),
+            "dlls": sorted({dll for _, _, dll in slots}),
+            "entry": self.oep_found or self.entry,
+        }
+
+    def find_iat_slots(self, image: bytearray, base: int) -> list[tuple[int, str, str]]:
+        """Every dword in the image that is one of our API stub addresses."""
+        found: list[tuple[int, str, str]] = []
+        for offset in range(0, len(image) - 4, 4):
+            value = int.from_bytes(image[offset : offset + 4], "little")
+            if STUB_BASE <= value < STUB_BASE + STUB_SIZE and value in self.stubs:
+                name = self.stubs[value][0]
+                found.append((offset, name, self.stub_dll.get(name, "kernel32.dll")))
+        return found
+
+    def group_iat_runs(self, slots: list[tuple[int, str, str]]) -> list[tuple[str, int, list[str]]]:
+        """Contiguous same-DLL slot runs, which is what an import descriptor describes.
+
+        The slots must stay where they are: the unpacked code calls through their
+        absolute addresses, so a rebuilt table has to point FirstThunk at the
+        original run rather than relocating the IAT somewhere convenient.
+        """
+        runs: list[tuple[str, int, list[str]]] = []
+        for offset, name, dll in slots:
+            if runs:
+                dll_prev, start, names = runs[-1]
+                if dll_prev == dll and offset == start + 4 * len(names):
+                    names.append(name)
+                    continue
+            runs.append((dll, offset, [name]))
+        return runs
+
+    def build_import_directory(self, image: bytearray, runs, image_size: int) -> tuple[int, bytes]:
+        """Synthesize descriptors + INT + hint/name blobs, and repoint the slots."""
+        section_align = self.pe.OPTIONAL_HEADER.SectionAlignment or 0x1000
+        rva = (image_size + section_align - 1) & ~(section_align - 1)
+
+        descriptors = bytearray()
+        tail = bytearray()          # INT arrays, name blobs, DLL names
+        tail_base = rva + 20 * (len(runs) + 1)
+
+        def emit(payload: bytes) -> int:
+            at = tail_base + len(tail)
+            tail.extend(payload)
+            if len(tail) & 1:
+                tail.extend(b"\x00")
+            return at
+
+        for dll, start, names in runs:
+            name_rvas = [emit(struct.pack("<H", 0) + n.encode("latin1") + b"\x00") for n in names]
+            int_rva = tail_base + len(tail)
+            tail.extend(b"".join(struct.pack("<I", r) for r in name_rvas) + b"\x00\x00\x00\x00")
+            dll_rva = emit(dll.encode("latin1") + b"\x00")
+            descriptors.extend(struct.pack("<IIIII", int_rva, 0, 0, dll_rva, start))
+            # Pre-load each slot with its hint/name RVA, the way an on-disk PE
+            # does; the real loader overwrites these with resolved addresses.
+            for i, name_rva in enumerate(name_rvas):
+                image[start + 4 * i : start + 4 * i + 4] = struct.pack("<I", name_rva)
+
+        descriptors.extend(b"\x00" * 20)   # terminator
+        return rva, bytes(descriptors + tail)
+
+    def patch_dump_headers(self, image: bytearray, import_rva: int, import_size: int,
+                           total: int) -> None:
+        """Rewrite the headers so the dump is loadable: raw layout == virtual layout."""
+        nt = int.from_bytes(image[0x3C:0x40], "little")
+        opt = nt + 0x18
+        num_sections = int.from_bytes(image[nt + 6 : nt + 8], "little")
+        section_align = self.pe.OPTIONAL_HEADER.SectionAlignment or 0x1000
+
+        image[opt + 0x10 : opt + 0x14] = struct.pack(
+            "<I", (self.oep_found or self.entry) - self.image_base)   # AddressOfEntryPoint
+        image[opt + 0x38 : opt + 0x3C] = struct.pack("<I", total)     # SizeOfImage
+        image[opt + 0x24 : opt + 0x28] = struct.pack("<I", section_align)  # FileAlignment
+        image[opt + 0x68 : opt + 0x70] = struct.pack("<II", import_rva, import_size)
+        image[opt + 0xC0 : opt + 0xC8] = struct.pack("<II", 0, 0)     # kill the old IAT dir
+
+        table = opt + self.pe.FILE_HEADER.SizeOfOptionalHeader
+        for i in range(num_sections):
+            header = table + 40 * i
+            virtual_size = int.from_bytes(image[header + 8 : header + 12], "little")
+            virtual_addr = int.from_bytes(image[header + 12 : header + 16], "little")
+            raw = (virtual_size + section_align - 1) & ~(section_align - 1)
+            image[header + 16 : header + 24] = struct.pack("<II", raw, virtual_addr)
+            # Everything in a dump is initialised data that may be written.
+            flags = int.from_bytes(image[header + 36 : header + 40], "little")
+            image[header + 36 : header + 40] = struct.pack("<I", flags | 0x80000000)
+
+        # Append the import section header if there is room in the header block.
+        new_header = table + 40 * num_sections
+        if new_header + 40 <= self.pe.OPTIONAL_HEADER.SizeOfHeaders:
+            image[new_header : new_header + 40] = (
+                b".idata\x00\x00"
+                + struct.pack("<IIII", import_size, import_rva, (import_size + section_align - 1)
+                              & ~(section_align - 1), import_rva)
+                + b"\x00" * 12
+                + struct.pack("<I", 0xC0000040)
+            )
+            image[nt + 6 : nt + 8] = struct.pack("<H", num_sections + 1)
+
     def dump_emulated_files(self, directory: Path) -> list[tuple[str, int, str]]:
         """Write out every file the loader CREATED in emulated memory.
 
@@ -2078,6 +2349,33 @@ class SafeDiscEmulator:
                 print(f"wrote {len(written)} emulated file(s) to {self.temp_dump_dir}:")
                 for name, size, note in written:
                     print(f"    {size:10,} bytes  {name}{note}")
+
+        if self.oep_found:
+            print()
+            print(f"ORIGINAL ENTRY POINT: 0x{self.oep_found:08X} "
+                  f"(RVA 0x{self.oep_found - self.image_base:X}) at instruction "
+                  f"{self.oep_instruction:,}")
+        elif self.image_writes:
+            print()
+            print(f"no OEP yet, but {sum(self.image_writes.values()):,} bytes were written "
+                  f"across {len(self.image_writes)} pages of the original image")
+
+        if dump_path and (self.oep_found or self.image_writes):
+            try:
+                info = self.write_unpacked_pe(dump_path)
+            except (UcError, struct.error, ValueError) as exc:
+                print(f"\ndump failed: {exc}")
+            else:
+                print()
+                print(f"UNPACKED IMAGE -> {info['path']}  ({info['bytes']:,} bytes)")
+                print(f"  entry 0x{info['entry']:08X}, "
+                      f"{info['iat_slots']} IAT slots rebuilt in {info['iat_runs']} runs "
+                      f"across {len(info['dlls'])} DLLs")
+                if info["dlls"]:
+                    print(f"  {', '.join(info['dlls'][:10])}")
+                print("  imports are EXACT: every slot held a stub whose name and DLL "
+                      "the emulator recorded, so none had to be guessed")
+            return
 
         if dump_path and self.text_writes:
             size = self.pe.OPTIONAL_HEADER.SizeOfImage
@@ -2266,7 +2564,13 @@ def main() -> int:
     ap.add_argument("exe", type=Path)
     ap.add_argument("--max-instructions", type=int, default=20_000_000)
     ap.add_argument("--trace", type=int, default=0, help="Disassemble the first N instructions")
-    ap.add_argument("--dump", type=Path, help="Write the emulated image here if .text was written")
+    ap.add_argument("--dump", type=Path, metavar="OUT.exe",
+                    help="Write the unpacked image here, with a REBUILT import table. "
+                         "Emitted once the original entry point is reached (or on any "
+                         "image write, so a partial unpack is still inspectable)")
+    ap.add_argument("--no-stop-at-oep", action="store_true",
+                    help="Keep running past the original entry point instead of stopping "
+                         "there (useful to see what the unpacked program does next)")
     ap.add_argument("--allow-unknown-api", action="store_true",
                     help="Continue past an API with no known stdcall arg count "
                          "instead of stopping (the stack will drift)")
@@ -2298,6 +2602,7 @@ def main() -> int:
     emu.stop_on_unknown_api = not args.allow_unknown_api
     emu.seh_limit = args.seh_limit
     emu.temp_dump_dir = args.dump_temp_files
+    emu.stop_at_oep = not args.no_stop_at_oep
     if args.trail:
         emu.trail = deque(maxlen=args.trail)
     emu.breakpoints = {int(a, 16) for a in args.breakpoints}
