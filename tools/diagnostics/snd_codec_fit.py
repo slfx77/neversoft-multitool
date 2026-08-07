@@ -193,7 +193,17 @@ def _ima_leaky(payload: bytes, *, leak: float) -> list[int]:
     return out
 
 
+def _xbox_blocked(payload: bytes) -> list[int]:
+    """The community theory: '.snd is an Xbox ADPCM wav whose header is 4 bytes
+    shorter than the XB_ADPCM spec'. If the 4 bytes were only the fmt-chunk
+    extension (cbSize + wSamplesPerBlock), the PAYLOAD would still be 36-byte
+    blocked and this would decode. It does not: scores ~0.01, and .snd data
+    sizes are never a multiple of 36. Kept as a documented negative."""
+    return decode_xbox_pcm(payload)
+
+
 MODELS: dict[str, callable] = {
+    "xbox-blocked": _xbox_blocked,
     "ima": lambda p: _ima(p),
     "ima-high-first": lambda p: _ima(p, high_first=True),
     "ima-shift-form": lambda p: _ima(p, mul_form=False),

@@ -303,8 +303,29 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
     `.text` section** — dead linked-in library data, not a live decoder (THAW PC ships plain PCM
     `.wav`, 1,148/1,148). The Xbox XBE is plaintext but decodes ADPCM in hardware, so it holds no
     software codec either.
-  - **Next step needs the user**: a SafeDisc-unwrapped `THUG2.exe` dump (running the retail game
-    under a dumper, possibly needing the physical disc) is the remaining decisive artifact.
+  - **Public state of the art (searched 2026-08-07): nobody has solved this.** The THPS modding
+    community reached the same wall and no further — the thps-mods.com "THUG2 Sound format"
+    thread (site now dead; not in the Wayback proxy either) reports `.snd` as "basically Xbox
+    encoded wav files" that give **white noise** when played, notes the header is "4 bytes
+    shorter than the xb_adpcm spec with codec type 01", and states the xb_adpcm codec that works
+    on `.PCM` inside `.PRE` is **not** compatible with `.SND`. A ZenHAX thread on the THUG/THUG2
+    music WAD+DAT reports the same for the PC build ("sounds like garbage"). No decoder exists in
+    any public tool: not vgmstream, not aluigi's Xbox-ADPCM tools, and none of the THPS GitHub
+    repos (thps2-tools, NeverScript, THPS-Level-Editor, T2CMT, thug-pro-scripting). Our findings
+    above already go further than any published source.
+  - **Community theory TESTED AND REJECTED**: if those "4 bytes" were only the fmt-chunk
+    extension (cbSize + wSamplesPerBlock), the payload would still be 36-byte blocked and the
+    working Xbox ADPCM decoder would read it. It does not — raw NCC **0.006**, deriv **-0.005**,
+    and `.snd` data sizes are **never** a multiple of 36. Kept as the `xbox-blocked` model in the
+    harness so it is not re-proposed.
+  - **Two ways forward, both needing the user.** (a) The **LegacyThps Discord** is repeatedly
+    cited as where the deep format knowledge lives and is not web-searchable — cheapest ask.
+    (b) Far stronger than any static work: run the game in an XP/7 VM (the disc rip has
+    `SECDRV.SYS` + `DrvMgt.dll` + `00000001.TMP`, and it is **SafeDisc 3.20.22**) and capture the
+    DirectSound buffer for a known `.snd`. That yields EXACT input→output ground truth for the
+    same file, versus today's oracle of two different lossy encodes, and turns recovering the
+    predictor from a search into an algebra problem. Note `secdrv.sys` is CVE-2007-5587 and was
+    blocked by Microsoft in KB3086255 — VM only, never the host.
 - ⚪ Not formats / no action: `.dep` (build path lists), `.chk` (checksum text), `.anr` (text
   anchor scripts), `.rec` replays, `.seq` ("Sequencer File" text on the DC proto), standard
   `.gif/.ogg/.jpg`, installer debris. `.zoo`/`.bfx`/`.ppv` = Codemasters WTC (see PPV entry).
