@@ -1,6 +1,8 @@
+using System.Buffers.Binary;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using NeversoftMultitool.Core.BinaryIO;
 
 namespace NeversoftMultitool.Core.Formats.Trg;
 
@@ -40,15 +42,51 @@ public sealed class TrgFile
         return Parse(reader, Path.GetFileName(filePath));
     }
 
+    /// <summary>
+    ///     Parses a TRG in whichever byte order it is stored in. The N64 ports
+    ///     keep this grammar field for field and re-encode it big-endian, so the
+    ///     order is sniffed from the magic rather than from the file name: a PS1
+    ///     file spells it <c>_TRG</c> and its N64 counterpart <c>GRT_</c>, which
+    ///     is the same u32 read the other way round.
+    /// </summary>
     public static TrgFile Parse(BinaryReader reader, string fileName = "")
+    {
+        return Parse(new EndianBinaryReader(reader, DetectBigEndian(reader.BaseStream)), fileName);
+    }
+
+    /// <summary>
+    ///     Peeks the magic and reports whether the file is big-endian, leaving
+    ///     the stream where it found it. An unrecognisable magic reports
+    ///     little-endian so the parse below raises the normal error.
+    /// </summary>
+    private static bool DetectBigEndian(Stream stream)
+    {
+        if (!stream.CanSeek)
+            return false;
+
+        var origin = stream.Position;
+        Span<byte> head = stackalloc byte[4];
+        var read = stream.ReadAtLeast(head, 4, throwOnEndOfStream: false);
+        stream.Position = origin;
+        return read == 4 && BinaryPrimitives.ReadUInt32BigEndian(head) == Magic;
+    }
+
+    private static TrgFile Parse(EndianBinaryReader reader, string fileName)
     {
         var magic = reader.ReadUInt32();
         if (magic != Magic)
             throw new InvalidDataException(
                 $"Invalid TRG magic: 0x{magic:X8} (expected 0x{Magic:X8})");
 
-        var versionMajor = reader.ReadUInt16();
-        var versionMinor = reader.ReadUInt16();
+        // One u32 carrying major in its low half and minor in its high half,
+        // for the same reason the PSX header's version/magic word is: a PS1
+        // file stores 0x00000002 little-endian and its N64 counterpart stores
+        // that value big-endian, so the WORD agrees across both while a pair of
+        // u16s would appear exchanged. Bit-for-bit the previous two reads on the
+        // little-endian path.
+        var versionWord = reader.ReadUInt32();
+        var versionMajor = (ushort)(versionWord & 0xFFFF);
+        var versionMinor = (ushort)(versionWord >> 16);
 
         if (versionMajor != 2)
             throw new InvalidDataException(

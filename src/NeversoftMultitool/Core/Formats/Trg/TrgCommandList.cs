@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.BinaryIO;
 using System.Text;
 using static NeversoftMultitool.Core.Formats.Trg.TrgCommandMetadata;
 
@@ -13,7 +14,7 @@ public static class TrgCommandList
     ///     Parses a command list (used by AUTOEXEC, COMMANDPOINT, RESTART nodes).
     ///     Sequential uint16 opcodes with variable arguments, terminated by 0xFFFF.
     /// </summary>
-    public static List<TrgCommand> ParseCommandList(BinaryReader reader, int maxBytes)
+    internal static List<TrgCommand> ParseCommandList(EndianBinaryReader reader, int maxBytes)
     {
         var commands = new List<TrgCommand>();
         var endPos = reader.BaseStream.Position + maxBytes;
@@ -133,7 +134,7 @@ public static class TrgCommandList
     ///     Parses a bytecode script (used by BADDY and SCRIPTPOINT nodes).
     ///     Stack-based: 0x21xx = value ops, 0x42xx = command ops, values below 0x2000 are literals.
     /// </summary>
-    public static List<TrgScriptOp> ParseScript(BinaryReader reader, int maxBytes)
+    internal static List<TrgScriptOp> ParseScript(EndianBinaryReader reader, int maxBytes)
     {
         var ops = new List<TrgScriptOp>();
         var endPos = reader.BaseStream.Position + maxBytes;
@@ -371,7 +372,7 @@ public static class TrgCommandList
         return ops;
     }
 
-    private static string ReadString(BinaryReader reader)
+    private static string ReadString(EndianBinaryReader reader)
     {
         var sb = new StringBuilder();
         while (true)
@@ -391,7 +392,7 @@ public static class TrgCommandList
         return sb.ToString();
     }
 
-    private static void Align4(BinaryReader reader)
+    private static void Align4(EndianBinaryReader reader)
     {
         var pos = reader.BaseStream.Position;
         if (pos % 4 != 0)

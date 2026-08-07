@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.BinaryIO;
 using System.Text;
 using System.Text.Json;
 using NeversoftMultitool.Core.Formats.Trg;
@@ -230,7 +231,7 @@ public class TrgFileTests(TestPaths paths)
             0xFF, 0xFF
         ];
         using var stream = new MemoryStream(bytes, false);
-        using var reader = new BinaryReader(stream);
+        using var reader = new EndianBinaryReader(stream, bigEndian: false);
 
         var command = Assert.Single(TrgCommandList.ParseCommandList(reader, bytes.Length));
 
@@ -255,7 +256,7 @@ public class TrgFileTests(TestPaths paths)
         }
 
         stream.Position = 0;
-        using var reader = new BinaryReader(stream);
+        using var reader = new EndianBinaryReader(stream, bigEndian: false);
         var ops = TrgCommandList.ParseScript(reader, checked((int)stream.Length));
 
         Assert.Equal(["0x4118", "0x212F", "0x4120", "0x4100"],

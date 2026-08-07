@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.BinaryIO;
 using System.Text;
 using static NeversoftMultitool.Core.Formats.Trg.TrgNodeMetadata;
 
@@ -58,7 +59,7 @@ public sealed class TrgNode
     public List<TrgScriptOp>? Script { get; set; }
     public string? RawHex { get; set; }
 
-    public static TrgNode Parse(BinaryReader reader, int index, uint offset, int nodeSize, bool isSpiderMan)
+    internal static TrgNode Parse(EndianBinaryReader reader, int index, uint offset, int nodeSize, bool isSpiderMan)
     {
         var startPos = reader.BaseStream.Position;
         var typeId = reader.ReadUInt16();
@@ -156,7 +157,7 @@ public sealed class TrgNode
         return node;
     }
 
-    private static List<int> ReadLinks(BinaryReader reader, bool align = true)
+    private static List<int> ReadLinks(EndianBinaryReader reader, bool align = true)
     {
         var count = reader.ReadUInt16();
         var links = new List<int>(count);
@@ -168,14 +169,14 @@ public sealed class TrgNode
         return links;
     }
 
-    private static void AlignTo4(BinaryReader reader)
+    private static void AlignTo4(EndianBinaryReader reader)
     {
         var pos = reader.BaseStream.Position;
         if (pos % 4 != 0)
             reader.BaseStream.Position = pos + (4 - pos % 4);
     }
 
-    private static TrgPosition ReadPosition(BinaryReader reader)
+    private static TrgPosition ReadPosition(EndianBinaryReader reader)
     {
         // TRG positions are serialized as whole engine/model units. Runtime
         // SquirtPos/Trig_GetPosition shifts each component left by 12 when it
@@ -196,7 +197,7 @@ public sealed class TrgNode
         };
     }
 
-    private static TrgAngles ReadAngles(BinaryReader reader)
+    private static TrgAngles ReadAngles(EndianBinaryReader reader)
     {
         // Angles are 16-bit values where 4096 = full circle (360 degrees)
         var rawX = reader.ReadInt16();
@@ -213,7 +214,7 @@ public sealed class TrgNode
         };
     }
 
-    private static string ReadNullTerminatedString(BinaryReader reader)
+    private static string ReadNullTerminatedString(EndianBinaryReader reader)
     {
         var sb = new StringBuilder();
         while (true)
@@ -233,7 +234,7 @@ public sealed class TrgNode
 
     // --- Node type parsers ---
 
-    private static void ParseRestart(BinaryReader reader, TrgNode node, long startPos, int nodeSize)
+    private static void ParseRestart(EndianBinaryReader reader, TrgNode node, long startPos, int nodeSize)
     {
         node.Links = ReadLinks(reader);
         node.Position = ReadPosition(reader);
@@ -246,13 +247,13 @@ public sealed class TrgNode
             node.Commands = TrgCommandList.ParseCommandList(reader, remaining);
     }
 
-    private static void ParsePoint(BinaryReader reader, TrgNode node)
+    private static void ParsePoint(EndianBinaryReader reader, TrgNode node)
     {
         node.Links = ReadLinks(reader);
         node.Position = ReadPosition(reader);
     }
 
-    private static void ParseRailPoint(BinaryReader reader, TrgNode node, bool isSpiderMan)
+    private static void ParseRailPoint(EndianBinaryReader reader, TrgNode node, bool isSpiderMan)
     {
         node.Links = ReadLinks(reader);
         node.Position = ReadPosition(reader);
@@ -270,7 +271,7 @@ public sealed class TrgNode
         }
     }
 
-    private static void ParseCamPt(BinaryReader reader, TrgNode node)
+    private static void ParseCamPt(EndianBinaryReader reader, TrgNode node)
     {
         var camLink = reader.ReadUInt16();
         AlignTo4(reader);
@@ -282,7 +283,7 @@ public sealed class TrgNode
         node.Links = [camLink];
     }
 
-    private static void ParseBaddy(BinaryReader reader, TrgNode node, long startPos, int nodeSize)
+    private static void ParseBaddy(EndianBinaryReader reader, TrgNode node, long startPos, int nodeSize)
     {
         var baddyType = reader.ReadUInt16();
         node.SubType = baddyType;
@@ -331,7 +332,7 @@ public sealed class TrgNode
         }
     }
 
-    private static void ParseManipObRecord(BinaryReader reader, TrgNode node, long endPosition)
+    private static void ParseManipObRecord(EndianBinaryReader reader, TrgNode node, long endPosition)
     {
         AlignTo4(reader);
         if (reader.BaseStream.Position + 4 > endPosition)
@@ -359,7 +360,7 @@ public sealed class TrgNode
             node.AlternateModelChecksums = alternates;
     }
 
-    private static List<byte> ReadBaddyFlags(BinaryReader reader, long endPosition)
+    private static List<byte> ReadBaddyFlags(EndianBinaryReader reader, long endPosition)
     {
         var flags = new List<byte>();
         while (reader.BaseStream.Position < endPosition)
@@ -373,7 +374,7 @@ public sealed class TrgNode
         return flags;
     }
 
-    private static void ParseTrickOrGoalOb(BinaryReader reader, TrgNode node, bool isSpiderMan)
+    private static void ParseTrickOrGoalOb(EndianBinaryReader reader, TrgNode node, bool isSpiderMan)
     {
         node.Links = ReadLinks(reader);
         node.Checksum = reader.ReadUInt32();
@@ -387,13 +388,13 @@ public sealed class TrgNode
         }
     }
 
-    private static void ParseCrate(BinaryReader reader, TrgNode node)
+    private static void ParseCrate(EndianBinaryReader reader, TrgNode node)
     {
         node.Links = ReadLinks(reader);
         node.Checksum = reader.ReadUInt32();
     }
 
-    private static void ParsePowerup(BinaryReader reader, TrgNode node, bool isSpiderMan)
+    private static void ParsePowerup(EndianBinaryReader reader, TrgNode node, bool isSpiderMan)
     {
         // Ghidra: PowerUp_Create(pickupType, position, flags, respawnFlag, velocity)
         // flags bit 2 = grounded (if groundedCheck == 0, use Utils_GetGroundHeight)
@@ -418,7 +419,7 @@ public sealed class TrgNode
         }
     }
 
-    private static void ParseCommandPoint(BinaryReader reader, TrgNode node, long startPos, int nodeSize)
+    private static void ParseCommandPoint(EndianBinaryReader reader, TrgNode node, long startPos, int nodeSize)
     {
         node.Links = ReadLinks(reader);
         node.Checksum = reader.ReadUInt32();
@@ -428,14 +429,14 @@ public sealed class TrgNode
             node.Commands = TrgCommandList.ParseCommandList(reader, remaining);
     }
 
-    private static void ParseAutoexec(BinaryReader reader, TrgNode node, long startPos, int nodeSize)
+    private static void ParseAutoexec(EndianBinaryReader reader, TrgNode node, long startPos, int nodeSize)
     {
         var remaining = (int)(startPos + nodeSize - reader.BaseStream.Position);
         if (remaining > 2)
             node.Commands = TrgCommandList.ParseCommandList(reader, remaining);
     }
 
-    private static void ParseLight(BinaryReader reader, TrgNode node, long startPos, int nodeSize)
+    private static void ParseLight(EndianBinaryReader reader, TrgNode node, long startPos, int nodeSize)
     {
         // Ghidra decompilation of CLight constructor:
         //   CLight(CVector& pos, int nodeIndex, int range, int innerAngle, int outerAngle,
@@ -470,7 +471,7 @@ public sealed class TrgNode
         }
     }
 
-    private static void ParseScriptPoint(BinaryReader reader, TrgNode node, long startPos, int nodeSize)
+    private static void ParseScriptPoint(EndianBinaryReader reader, TrgNode node, long startPos, int nodeSize)
     {
         // Script points have links + position + angles before the bytecode
         node.Links = ReadLinks(reader);
@@ -484,7 +485,7 @@ public sealed class TrgNode
             node.Script = TrgCommandList.ParseScript(reader, remaining);
     }
 
-    private static void ParseEnhancedSpawn(BinaryReader reader, TrgNode node)
+    private static void ParseEnhancedSpawn(EndianBinaryReader reader, TrgNode node)
     {
         reader.ReadUInt16(); // flags
         node.Links = ReadLinks(reader);

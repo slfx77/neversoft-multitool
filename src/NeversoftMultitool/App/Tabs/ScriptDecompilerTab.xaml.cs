@@ -72,8 +72,19 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
 
     private static bool IsScriptPath(string path)
     {
-        return IsQbPath(path) ||
-               TrgExtensions.Contains(Path.GetExtension(path).ToLowerInvariant());
+        return IsQbPath(path) || IsTrgPath(path);
+    }
+
+    /// <summary>
+    ///     A TRG is either a bare <c>.trg</c> or a platform-suffixed one — the
+    ///     carved N64 triggers are <c>.trg.n64</c>. The reader takes the byte
+    ///     order from the file's own magic, so both route to the same parser.
+    /// </summary>
+    private static bool IsTrgPath(string path)
+    {
+        var name = Path.GetFileName(path);
+        return TrgExtensions.Contains(Path.GetExtension(path).ToLowerInvariant()) ||
+               name.Contains(".trg.", StringComparison.OrdinalIgnoreCase);
     }
 
     public void Dispose()
@@ -92,6 +103,8 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
         picker.FileTypeFilter.Add(".wpc");
         picker.FileTypeFilter.Add(".ngc");
         picker.FileTypeFilter.Add(".xbx");
+        // Carved N64 triggers and model bundles.
+        picker.FileTypeFilter.Add(".n64");
         var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
         InitializeWithWindow.Initialize(picker, hwnd);
 
