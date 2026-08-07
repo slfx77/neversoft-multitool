@@ -262,14 +262,49 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
   `.tim` (5 files) — standard PSX TIM headers, but they live in the multi-game demo-disc build
   (`Spider-Man (2000-2-4, PSX)`, not "Spider-Man PC" as the earlier census said) under third-party
   dirs (`DD/`, `WTC/` = TOCA) — out of scope as non-Neversoft content.
-- 🔴 **Priority 4/5 — mesh/anim formats**: `.dff` (477, THPS3) = standard RW clumps, our
-  `RwDffFile` already parses the format — **routing-only gap** (add `.dff` to rwdff/mesh
-  discovery). `.anim` (193, THPS2X, `Anm\0` magic) — Xbox-era animation format, unstudied.
-- 🔶 **Audio (investigated 2026-07-10, no priority set)**: `.snd` (739+, THUG2 Xbox/PC) and the
-  `0x52D95838` THAW entries = **plain PCM WAV** (rename/route only). `.pcm` (2,580+, THUG2) =
-  RIFF with **Xbox ADPCM codec 0x0069** (44.1k/22k/11k mono) — needs an IMA-ADPCM-variant
-  decoder or ffmpeg passthrough. 172 `.pcm` + 49 `.snd` have fmt chunks beyond the first 64
-  bytes (deeper parse needed, likely fine).
+- ✅ **`.dff` — DONE 2026-08-07.** Was a routing-only gap; `.dff` now resolves through
+  `MeshTypeDetector` alongside `.skn`. 477 files.
+- 🔴 **Priority 4/5 — mesh/anim formats**: `.anim` (193, THPS2X, `Anm\0` magic) — Xbox-era
+  animation format, unstudied.
+- ✅ **`.pcm` — DONE 2026-08-07.** 2,752 files (1,376 identical on the Xbox and Windows discs).
+  RIFF + Xbox ADPCM 0x0069, mono, nBlockAlign 36, wSamplesPerBlock 64, at 11025/22050/44100/48000.
+  A block emits the header predictor as sample 0 then **63** nibbles — the 64th is padding;
+  settled by diffing both readings against ffmpeg's `adpcm_ima_xbox` (bit-exact one way,
+  mismatched the other). `Core/Formats/Audio/XboxImaAdpcm.cs` + `XboxPcmDecoder.cs`, on a new
+  shared `Core/BinaryIO/RiffWaveReader.cs`.
+- 🔶 **`.snd` (788, THUG2 **PC only**) — codec NOT decoded. The old claim here, "plain PCM WAV
+  (rename/route only)", was FALSE on three counts** (corrected 2026-08-07): it is PC-only (0 on
+  Xbox), there are 788 not 739, and it is not PCM. The `fmt ` chunk claims 16-bit mono PCM and
+  lies — `nAvgBytesPerSec` carries the DECODED byte count (`4 x dataSize`, or that minus 2 for an
+  odd sample count, in **788/788** files), so the payload is 2 samples per byte. Read as int16 it
+  is white noise (mean|Δ|/RMS **1.105** vs 0.02–0.20 for real audio; nibble entropy 3.63).
+  Shipping it as `.wav` would emit 788 files of static, so it probes as Unsupported with that
+  reason and is pinned by `ThugPcSndSurveyTests`.
+  - **Oracle in hand**: 350 basenames ship as both `.snd` (PC) and `.pcm` (Xbox) — the same source
+    audio in two encodes — and the `.pcm` side now decodes bit-exactly. Harness:
+    `tools/diagnostics/snd_codec_fit.py` (median windowed NCC over pairs; acceptance ≥ 0.97 over
+    ≥ 100 pairs).
+  - **Best current finding**: correlating the **first differences** gives a uniform **0.84–0.87**
+    across every file, while the raw waveform ranges 0.26–0.99 purely by content (0.99 on
+    impulsive hits, 0.26 on quiet sustained sounds). So textbook IMA already recovers the per-sample
+    deltas — nibble order, step table and index table are all correct — and the divergence is the
+    accumulated **predictor**. What remains unknown is the state/prediction rule, not the tables.
+  - **Ruled out**: `.snd` is not the `.pcm` bitstream minus its 4-byte block headers (1–8% byte
+    agreement = chance; independent encodes); nibble order (high-first drops deriv to 0.41);
+    initial step index (no effect); shift-accumulate diff form; state resets at 16/32 bytes;
+    Yamaha AICA; OKI/Dialogic; MS-ADPCM. A leaky integrator confirms the drift diagnosis
+    directionally (raw 0.60 → 0.65) without closing the gap.
+  - **Binary leads exhausted at this level**: `THUG2.exe` is SafeDisc-2 wrapped (`.text`/`.data`
+    entropy ~8.0; `.rdata` is readable and contains **no** IMA / MS-ADPCM / AICA / OKI / SPU
+    table), and imports DSOUND but **not MSACM32**, so the decode is in-engine software rather
+    than an ACM codec. The THUG source drop has no Win32 sound backend at all (`Gel/SoundFX/`
+    ships only NGPS/Xbox/ngc). `THAW.exe` (available unpacked) does carry the IMA step+index
+    tables at file offset `0x2D8310` → VA `0x6D9310`, but they have **zero xrefs in either
+    `.text` section** — dead linked-in library data, not a live decoder (THAW PC ships plain PCM
+    `.wav`, 1,148/1,148). The Xbox XBE is plaintext but decodes ADPCM in hardware, so it holds no
+    software codec either.
+  - **Next step needs the user**: a SafeDisc-unwrapped `THUG2.exe` dump (running the retail game
+    under a dumper, possibly needing the physical disc) is the remaining decisive artifact.
 - ⚪ Not formats / no action: `.dep` (build path lists), `.chk` (checksum text), `.anr` (text
   anchor scripts), `.rec` replays, `.seq` ("Sequencer File" text on the DC proto), standard
   `.gif/.ogg/.jpg`, installer debris. `.zoo`/`.bfx`/`.ppv` = Codemasters WTC (see PPV entry).
