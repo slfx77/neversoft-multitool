@@ -7,7 +7,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.N64;
 /// <summary>
 ///     Populates a <see cref="ModelDocument" /> from a carved N64 model
 ///     bundle. The bundle splits the same way the Xbox DDM path does — a
-///     placement/skeleton container (<c>geometry.psx.n64</c>) plus a separate
+///     placement/skeleton container (<c>geometry_NNN.psx.n64</c>) plus a separate
 ///     geometry container (<c>group2/</c>) — so the skeleton, bone names and
 ///     hierarchy come from the shell exactly as they do for a PS1 character,
 ///     and the render geometry from the bank
@@ -25,14 +25,27 @@ public static class N64ModelWriter
     /// <summary>
     ///     Everything one conversion needs that does not vary per triangle:
     ///     the shell it is placed against, the material cache, the raw-unit
-    ///     scale, the ROM's light rig, and the coplanar-overlay assignments.
+    ///     scale, the ROM's light rig, the coplanar-overlay assignments, and
+    ///     the semi-transparent lift.
     /// </summary>
     private readonly record struct EmitContext(
         PsxMeshFile Shell,
         N64MaterialCache Materials,
         float Scale,
         N64LightRig? Rig,
-        IReadOnlyDictionary<N64TriangleInstanceKey, N64CoplanarOverlayAssignment> Overlays);
+        IReadOnlyDictionary<N64TriangleInstanceKey, N64CoplanarOverlayAssignment> Overlays,
+        N64SemiTransparentLift? Lift);
+
+    /// <summary>
+    ///     How far a decal separates from the surface it covers, in RAW N64
+    ///     units — half of one. Authored coordinates are s16 integers, so half a
+    ///     unit cannot reach another surface, and expressing it in raw units
+    ///     keeps it proportionate on super models, where the PS1 writer's fixed
+    ///     0.25 export units would exceed a whole authored step. Both
+    ///     separations use it: the draw-order offset opaque overlays carry, and
+    ///     the geometric lift semi-transparent faces take.
+    /// </summary>
+    private const float DecalLiftInRawUnits = 0.5f;
 
     /// <summary>
     ///     The N64 build stores vertices as <c>trunc(PS1raw / k)</c>, k = 8 for
@@ -74,12 +87,13 @@ public static class N64ModelWriter
                 placements.Add((objectIndex, mesh));
         }
 
-        // Built from the same placement list the emit loop walks, so detector
-        // and writer provably see the identical triangle set.
-        var overlays = N64CoplanarOverlayDetector.FindGroups(
-            BuildOverlayCandidates(placements, shell, scale), scale);
+        // Built from the same placement list the emit loop walks, so detector,
+        // lift and writer provably see the identical triangle set.
+        var candidates = BuildOverlayCandidates(placements, shell, scale);
+        var overlays = N64CoplanarOverlayDetector.FindGroups(candidates, scale);
+        var lift = N64SemiTransparentLift.Build(candidates, DecalLiftInRawUnits * scale);
 
-        var context = new EmitContext(shell, materials, scale, source.LightRig, overlays);
+        var context = new EmitContext(shell, materials, scale, source.LightRig, overlays, lift);
         foreach (var (objectIndex, mesh) in placements)
         {
             if (EmitMesh(document, mesh, objectIndex, context))
@@ -271,11 +285,12 @@ public static class N64ModelWriter
                 batches[materialIndex] = batch;
             }
 
+            var (l0, l1, l2) = SemiTransparentLift(mesh, triangle, objectIndex, context);
             ModelDocumentGeometryAdapter.AddTriangle(
                 batch.Vertices, batch.Indices,
-                ToVertex(mesh, triangle.C0, size, objectIndex, context),
-                ToVertex(mesh, triangle.C1, size, objectIndex, context),
-                ToVertex(mesh, triangle.C2, size, objectIndex, context));
+                ToVertex(mesh, triangle.C0, size, objectIndex, context, l0),
+                ToVertex(mesh, triangle.C1, size, objectIndex, context, l1),
+                ToVertex(mesh, triangle.C2, size, objectIndex, context, l2));
         }
 
         foreach (var (materialIndex, batch) in batches.OrderBy(static b => b.Key))
@@ -318,19 +333,65 @@ public static class N64ModelWriter
         int objectIndex,
         EmitContext context)
     {
-        var (shell, _, scale, _, _) = context;
         foreach (var (triangle, _) in layer)
         {
-            var p0 = CornerPosition(mesh, triangle.C0, scale, CornerOffset(shell, objectIndex, triangle.C0));
-            var p1 = CornerPosition(mesh, triangle.C1, scale, CornerOffset(shell, objectIndex, triangle.C1));
-            var p2 = CornerPosition(mesh, triangle.C2, scale, CornerOffset(shell, objectIndex, triangle.C2));
+            var (p0, p1, p2) = CornerPositions(mesh, triangle, objectIndex, context);
             var normal = Vector3.Cross(p1 - p0, p2 - p0);
             var length = normal.Length();
             if (length > 1e-5f)
-                return normal / length * (0.5f * scale);
+                return normal / length * (DecalLiftInRawUnits * context.Scale);
         }
 
         return Vector3.Zero;
+    }
+
+    /// <summary>
+    ///     Per-corner lift for a semi-transparent triangle, or zero when the
+    ///     face is opaque or the model has no semi-transparent geometry.
+    ///     <para>
+    ///         This is the PS1 writer's blanket lift, and it is what resolves
+    ///         the decals the coplanar detector deliberately leaves alone.
+    ///         Corners lift along the file's POSITION-AVERAGED semi-transparent
+    ///         normals rather than this face's own, so connected curved surfaces
+    ///         translate together instead of tearing at shared edges; the face
+    ///         normal is only the fallback. Opaque decals are NOT lifted — they
+    ///         separate through draw-order metadata, leaving their vertices at
+    ///         the authored positions.
+    ///     </para>
+    /// </summary>
+    private static (Vector3 C0, Vector3 C1, Vector3 C2) SemiTransparentLift(
+        N64RenderBankFile.N64RenderMesh mesh,
+        N64RenderBankFile.N64Triangle triangle,
+        int objectIndex,
+        EmitContext context)
+    {
+        if (context.Lift == null || (triangle.FaceFlags & PsxFaceFlags.SemiTransparent) == 0)
+            return default;
+
+        var (p0, p1, p2) = CornerPositions(mesh, triangle, objectIndex, context);
+        var normal = Vector3.Cross(p1 - p0, p2 - p0);
+        var length = normal.Length();
+        if (length <= 1e-5f)
+            return default;
+
+        var direction = normal / length;
+        return (context.Lift.OffsetFor(p0, direction),
+            context.Lift.OffsetFor(p1, direction),
+            context.Lift.OffsetFor(p2, direction));
+    }
+
+    /// <summary>The triangle's three export-space corner positions.</summary>
+    private static (Vector3 P0, Vector3 P1, Vector3 P2) CornerPositions(
+        N64RenderBankFile.N64RenderMesh mesh,
+        N64RenderBankFile.N64Triangle triangle,
+        int objectIndex,
+        EmitContext context)
+    {
+        var (shell, _, scale, _, _, _) = context;
+        return (
+            CornerPosition(mesh, triangle.C0, scale, CornerOffset(shell, objectIndex, triangle.C0)),
+            CornerPosition(mesh, triangle.C1, scale, CornerOffset(shell, objectIndex, triangle.C1)),
+            CornerPosition(mesh, triangle.C2, scale, CornerOffset(shell, objectIndex, triangle.C2)));
     }
 
     /// <summary>
@@ -341,15 +402,18 @@ public static class N64ModelWriter
     ///     cluster at 63/127/255, i.e. texel coordinates running 0..N−1 over
     ///     64/128/256-wide sheets, so a fixed divisor is wrong for most faces.
     ///     UVs come from the CORNER, which carries any G_MODIFYVTX override.
+    ///     <paramref name="lift" /> is the semi-transparent separation, zero for
+    ///     every opaque face.
     /// </summary>
     private static ModelVertex ToVertex(
         N64RenderBankFile.N64RenderMesh mesh,
         N64RenderBankFile.N64Corner corner,
         (int Width, int Height) size,
         int objectIndex,
-        EmitContext context)
+        EmitContext context,
+        Vector3 lift)
     {
-        var (shell, _, scale, rig, _) = context;
+        var (shell, _, scale, rig, _, _) = context;
         var offset = CornerOffset(shell, objectIndex, corner);
         var vertex = mesh.Vertices[corner.Vertex];
         var hasNormals = mesh.HasNormals;
@@ -390,7 +454,7 @@ public static class N64ModelWriter
         return new ModelVertex
         {
             Position = PsxMeshSemantics.ToGltfPosition(
-                new Vector3(vertex.X * scale, vertex.Y * scale, vertex.Z * scale) + offset),
+                new Vector3(vertex.X * scale, vertex.Y * scale, vertex.Z * scale) + offset) + lift,
             Normal = normal,
             Color = colour,
             // Corner ST, not the pool vertex's: G_MODIFYVTX can rewrite it.

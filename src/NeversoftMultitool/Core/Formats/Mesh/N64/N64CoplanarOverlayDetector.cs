@@ -244,7 +244,7 @@ internal static class N64CoplanarOverlayDetector
             {
                 if (Component(ordered[j].Min, axis) > reach)
                     break;
-                ClassifyPair(ordered[i], ordered[j], scale, overlays);
+                ClassifyPair(ordered[i], ordered[j], overlays);
             }
         }
     }
@@ -289,7 +289,7 @@ internal static class N64CoplanarOverlayDetector
     ///     </para>
     /// </summary>
     private static void ClassifyPair(
-        Candidate first, Candidate second, float scale, HashSet<N64TriangleInstanceKey> overlays)
+        Candidate first, Candidate second, HashSet<N64TriangleInstanceKey> overlays)
     {
         var doubleSided = ((first.FaceFlags | second.FaceFlags) & PsxFaceFlags.DoubleSided) != 0;
         if (first.NormalFlipped != second.NormalFlipped && !doubleSided)
@@ -299,10 +299,10 @@ internal static class N64CoplanarOverlayDetector
         // exactly as on the PS1. Measured 2026-08-07: including them made
         // Downtown flag 229 triangles where its PS1 sibling flags 25, and 199
         // of those 229 were semi-transparent — a 9x over-flag against the
-        // oracle. The PS1 resolves semi-transparent coplanarity with a blanket
-        // geometric lift in the writer instead, which the N64 writer does not
-        // yet have; that residue is real and is NOT patched over by
-        // mis-routing those faces through a decal rule built for opaque ones.
+        // oracle. Those faces are resolved by the writer's blanket geometric
+        // lift instead (N64SemiTransparentLift), the same division of labour
+        // the PS1 path uses; flagging them here as well would separate one face
+        // twice.
         if (((first.FaceFlags | second.FaceFlags) & PsxFaceFlags.SemiTransparent) != 0)
             return;
 
