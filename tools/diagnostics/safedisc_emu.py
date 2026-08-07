@@ -81,31 +81,77 @@ What the harness established about the loader, all observed rather than assumed:
      image base (0x00400000) and a jump-record pointer, then calls back into the
      DLL. So the decryption target is the main image, as expected.
 
-CURRENT BLOCKER: the loader tears itself down. ExitProcess(1) is called from the
-EXE's own stub, not the DLL -- `call [0x7e2029]` at 0x007E210D -- and the path
-there is worth reading carefully because it is NOT the obvious failure branch:
+THE TARGET IS KNOWN: the original entry point is 0x0062583D, reached by
+`jmp 0x62583d` at 0x007E2159. That address is inside the encrypted .text
+(0x00401000-0x00645000), so arriving there IS the unpack succeeding.
 
-    0x7E20E5  call 0x7e2160        ; the DLL-driven work
+CURRENT BLOCKER, located to a single comparison. The gate is one boolean: the
+dispatcher at 0x007E2160 must return ZERO.
+
+    0x7E20E5  call 0x7e2160
     0x7E20EE  cmp  eax, 0
-    0x7E20F1  je   0x7e210f        ; failure branch -- NOT taken
-    0x7E20F3  mov  byte [ebx], 0xC2 ; patch `ret 0xC` over its own entry point
-    0x7E20FA  test ecx, ecx        ; flag byte loaded from 0x7E203D
-    0x7E20FC  je   0x7e2107
-    0x7E2107  push eax
-    0x7E2108  mov  eax, [0x7e2029]
-    0x7E210D  call eax             ; -> ExitProcess(1)
+    0x7E20F1  je   0x7e210f        ; SUCCESS -> falls through to jmp 0x62583d
+    0x7E20F3  mov  byte [ebx], 0xC2 ; failure: patch `ret 0xC` over its own entry
+    0x7E210D  call [0x7e2029]      ; -> ExitProcess(1)
 
-Just before that it spawns a child:
-    CreateProcessA(app='C:\WINDOWS\Temp\~e5.0001',
-                   cmd='"..." 1 "C:\WINDOWS\Temp\" "~e5.0001.dir.0000"')
-`~e5.0001` is NOT the game and NOT an error dialog: its string table contains
-exactly one entry, "CleanUp Application", and it is a small USER32 GUI program
-whose arguments are a mode, the temp path and the directory to remove. So the
-parent is DELETING ITS TEMP TREE AND LEAVING -- a teardown, not a hand-off to a
-child that would carry on the unpacking. Something upstream declined, and the
-identity of that check is the open question. (A first reading of the
-CreateProcessA call as "the real game runs in a child process" was wrong; the
-string table settled it.)
+(Note the polarity: an earlier reading of 0x7E210F as the failure branch was
+backwards. It is the path to the OEP.)
+
+0x007E2160 returns 1 from any of ~14 early-outs. Thirteen now pass; the last one
+does not:
+
+    0x7E2433  call eax             ; eax = 0x1000322B = SecServ export Ox12121212
+    0x7E2438  test eax, eax        ; measured eax = 1, needs 0
+    0x7E243A  je   0x7e244c        ; -> xor eax,eax -> return 0 -> OEP
+
+Inside that export the failure is one comparison deep, and the FIRST gate there
+already passes:
+
+    0x10003337  cmp eax, 0x82       ; PASSES (measured eax = 0x82)
+    0x1000339A  call 0x10003060     ; (dllBase, 3, 0, &[ebp-0x28], &[ebp-0x2c])
+    0x100033AA  cmp dword [ebp-0x2c], 0xFA   ; FAILS: measured 0x64 (100), wants 250
+    0x100033B3  jne 0x1000360b      ; -> error return
+
+So the whole remaining problem is: why does 0x10003060 yield status 100 instead
+of 250? Disassembling it is the next step. The surrounding constants (0x32/50,
+0x64/100, 0x6E/110, 0xFA/250, 0x1F4/500) look like a status enumeration, so 100
+is likely a specific named failure rather than garbage.
+
+Ruled out as the cause, both fixed anyway because both were indefensible:
+  * A constant GetTickCount. Any elapsed-time measurement computed zero. The
+    clock is now monotonic (instructions + requested sleeps); the run is
+    bit-identical, so this gate is not a timing check.
+  * CreateFile returned a valid handle for ANY \\.\ path, including \\.\NTICE,
+    \\.\SICE and \\.\SIWVID -- i.e. it reported that SoftICE was installed.
+    Those probes are not reached on the current path, but a successful open
+    there is a debugger detection and would have fired later. The device list
+    comes from decrypting the DLL's own strings, not from guesswork.
+
+THE STATIC ROUTE IS CLOSED -- do not re-propose it. The four functions that
+would let us reimplement the decryption offline (both CTransformXor and
+CTransformRandomAccumulate PerformTransform overrides, CKeyBasic::GetKeyData,
+CKeyMngr::InputTransformAfterPfnActivation) are INDIVIDUALLY ENCRYPTED in the
+extracted DLL, even though ~84% of its .text is plaintext. Four independent
+measurements agree: garbage disassembly at each export RVA, a hole in the
+relocation table exactly spanning each body, page entropy 7.6-7.8 against 6.2-6.5
+for ordinary code, and a known-plaintext attack that recovers only ~7 bytes
+before the keystream diverges per function. (An earlier claim in this file that
+the DLL's plaintext .text made the transform statically readable was WRONG.)
+
+What the same analysis DID recover, and what it is good for:
+  * The SafeDisc string cipher, verified: plain[i] = cipher[i] XOR (key & 0xFF),
+    key = (0xA065432A - 0x22BC897F*key) mod 2^32, seed 0xC612DB4E for THIS build
+    (the published 0x522CFDD0 is absent). See safedisc_string_decrypt.py. It
+    yields the loader's anti-debug surface: \\.\NTICE, \\.\SICE, \\.\SIWVID,
+    IsDebuggerPresent, NtQueryInformationProcess, ZwQuerySystemInformation,
+    plus the ASPI/CD path (Wnaspi32.dll, GetASPI32SupportInfo, SendASPI32Command)
+    and the self-debugging set (DebugActiveProcess, WaitForDebugEvent,
+    SetThreadContext, ContinueDebugEvent).
+  * A byte-exact oracle for validating a future dump: SafeDisc leaves relocated
+    dwords in the clear, and 662 plaintext functions share the MSVC EH prologue
+    `B8 <ehhandler> E8 <__EH_prolog>`, which pins the first 10 bytes of four
+    encrypted bodies. Independently derived key bytes agree across all four
+    (key[0]=key[5]=0x9A, key[6]=0xA5), so the model is sound.
 
 PROGRESSION, so the next session can tell movement from noise. Each number is a
 distinct defect fixed, and EVERY ONE was a harness fidelity bug -- an emulated
@@ -234,6 +280,11 @@ GDT_ADDR = 0x00330000
 # Windows maps KUSER_SHARED_DATA read-only into every process at this FIXED
 # address. Nothing asks for it, so its absence looks like a wild pointer.
 KUSER_SHARED_DATA = 0x7FFE0000
+
+# Virtual clock. A constant tick count makes every elapsed-time check
+# compute zero, which protected code reads as being single-stepped.
+TICK_BASE = 0x00100000
+INSTRUCTIONS_PER_MS = 20_000
 GDT_SIZE = 0x1000
 HEAP_BASE = 0x01000000
 HEAP_SIZE = 0x04000000
@@ -270,6 +321,13 @@ SEH_END_OF_CHAIN = 0xFFFFFFFF
 # A distinguishable pseudo-handle so a DeviceIoControl on the SafeDisc driver is
 # obvious in the trace rather than blending in with file handles.
 SECDRV_HANDLE = 0x100
+
+# Kernel-debugger devices SafeDisc probes for. Recovered by decrypting the
+# SecServ DLL's own string table (tools/diagnostics/safedisc_string_decrypt.py,
+# recurrence cipher, seed 0xC612DB4E for this build). Opening any of these
+# SUCCESSFULLY is the detection, so they must fail.
+ANTI_DEBUG_DEVICES = ("ntice", "sice", "siwvid", "regvxg", "filevxg", "regsys",
+                      "trw", "syser")
 
 # A tail jump lands in a section the unpacker REWROTE, so require real volume.
 # One page is enough to distinguish an unpack from a stub's self-patch, which is
@@ -545,6 +603,8 @@ class SafeDiscEmulator:
         self.named_sections: dict[str, dict] = {}
         self.services: dict[str, dict] = {}
         self.service_handles: dict[int, str] = {}
+        self.antidebug_probes: list[str] = []
+        self.sleep_ms = 0
         self.watch_hi = 0
         self.process_writes: list[tuple[int, int]] = []
         self.trail: deque[int] | None = None
@@ -1509,11 +1569,23 @@ class SafeDiscEmulator:
                 return self.next_handle
             return 1
 
-        if name in ("GetTickCount", "timeGetTime"):
-            return 0x00100000
+        if name in ("GetTickCount", "GetTickCount64", "timeGetTime"):
+            # MUST advance. A constant makes every elapsed-time measurement
+            # compute zero, and protected code routinely sleeps and then checks
+            # that roughly the expected time passed -- a zero delta reads as
+            # "someone is single-stepping us" or simply fails a sanity check.
+            return self.virtual_ms()
+
+        if name == "Sleep" or name == "SleepEx":
+            # Nothing actually waits, but the clock must move by the requested
+            # amount or the sleep is invisible to the caller that timed it.
+            self.sleep_ms += args[0] if args else 0
+            return 0
 
         if name == "QueryPerformanceCounter":
-            self.uc.mem_write(args[0], struct.pack("<Q", 0x1000000))
+            # Same clock as GetTickCount so the two agree; a program that
+            # cross-checks them against each other must not see them diverge.
+            self.uc.mem_write(args[0], struct.pack("<Q", self.virtual_ms() * 3579))
             return 1
 
         if name == "IsDebuggerPresent":
@@ -1586,6 +1658,21 @@ class SafeDiscEmulator:
         the emulated path prefix is invented anyway.
         """
         lowered = target.lower()
+
+        # A device open that SUCCEEDS is a debugger detection. SafeDisc probes
+        # for SoftICE by opening \\.\NTICE, \\.\SICE and \\.\SIWVID; a valid
+        # handle means "a kernel debugger is installed" and it refuses to run.
+        # Returning a handle for every \\.\ path -- which this did -- therefore
+        # told the loader that SoftICE was present. The device list is not a
+        # guess: it comes from decrypting the DLL's own string table with the
+        # recovered SafeDisc string cipher (safedisc_string_decrypt.py).
+        if any(device in lowered for device in ANTI_DEBUG_DEVICES):
+            self.antidebug_probes.append(target)
+            log(f"    CreateFile({target}) -> NOT FOUND  <-- debugger probe, "
+                f"correctly denied", always=True)
+            self.last_error = 2  # ERROR_FILE_NOT_FOUND
+            return 0xFFFFFFFF
+
         if "secdrv" in lowered or target.startswith("\\\\.\\"):
             self.driver_opens.append(target)
             log(f"    CreateFile({target})  <-- SafeDisc DRIVER handle", always=True)
@@ -1747,6 +1834,16 @@ class SafeDiscEmulator:
         self.created_files.append(handle_file)
         self.emulated_by_name[handle_file.name.replace("/", "\\").rsplit("\\", 1)[-1].lower()] = handle_file
         return self.next_handle
+
+    def virtual_ms(self) -> int:
+        """A monotonic millisecond clock.
+
+        Advances with executed instructions plus whatever the program has asked
+        to sleep, so an elapsed-time measurement returns something plausible
+        instead of zero. INSTRUCTIONS_PER_MS is a rough stand-in for a period
+        CPU; only the fact that time MOVES matters, not the rate.
+        """
+        return TICK_BASE + self.sleep_ms + self.instructions // INSTRUCTIONS_PER_MS
 
     def alloc_registry_key(self) -> int:
         """A distinct pseudo-HKEY per open, so a close/reopen pattern behaves."""
@@ -2247,6 +2344,17 @@ class SafeDiscEmulator:
                 break
             tag = " <-- return address slot" if i == 0 else ""
             print(f"      [esp+{4*i:02X}] = 0x{value:08X}{self.describe_address(value)}{tag}")
+        # Locals live below EBP, and the value a gate tests is usually one of
+        # them -- reading registers alone leaves you guessing at what was
+        # compared.
+        ebp = uc.reg_read(UC_X86_REG_EBP)
+        for offset in range(-0x40, 0x04, 4):
+            try:
+                value = struct.unpack("<I", uc.mem_read(ebp + offset, 4))[0]
+            except UcError:
+                continue
+            sign = "-" if offset < 0 else "+"
+            print(f"      [ebp{sign}0x{abs(offset):02X}] = 0x{value:08X} ({value})")
 
     def describe_address(self, addr: int) -> str:
         """Name an address so a trail reads as a story rather than hex.
@@ -2516,6 +2624,10 @@ class SafeDiscEmulator:
             print("files the loader READ (this is where the encrypted payload comes from):")
             for fname, total in self.file_reads.most_common(10):
                 print(f"    {total:10,} bytes  {fname}")
+        if self.antidebug_probes:
+            print()
+            print(f"anti-debug probes denied ({len(self.antidebug_probes)}): "
+                  f"{', '.join(self.antidebug_probes[:6])}")
         if self.driver_opens or self.driver_calls:
             print()
             print("SafeDisc DRIVER interaction:")
