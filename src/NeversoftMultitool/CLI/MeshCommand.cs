@@ -198,16 +198,33 @@ public static class MeshCommand
         var failed = 0;
         var totalTriangles = 0;
 
-        foreach (var candidate in candidates)
+        // Game trees reuse asset names heavily, so a flat output would silently
+        // overwrite. Only colliding stems are relocated; everything else keeps
+        // the flat layout.
+        var byFile = candidates.ToDictionary(static c => c.File, StringComparer.OrdinalIgnoreCase);
+        var plan = MeshOutputPathPlanner.Plan(
+            [.. candidates.Select(static c => c.File)],
+            file => byFile[file].OutputStem,
+            Directory.Exists(input) ? input : null);
+        var relocated = plan.Count(static p => p.Subdirectory.Length > 0);
+        if (relocated > 0)
+        {
+            AnsiConsole.MarkupLine(
+                $"[yellow]{relocated}[/] file(s) share an output name; " +
+                "mirroring their source folders so none are overwritten.");
+        }
+
+        foreach (var (file, subdirectory, exportStem) in plan)
         {
             if (cancellationToken.IsCancellationRequested)
                 break;
 
+            var candidate = byFile[file];
             try
             {
                 var result = MeshExportCliOptions.ExportFile(
                     candidate.File,
-                    output,
+                    subdirectory.Length == 0 ? output : Path.Combine(output, subdirectory),
                     candidate.SourceKind,
                     format,
                     blenderHelperPath,
@@ -222,7 +239,8 @@ public static class MeshCommand
                     ddmTexturePath,
                     worldzoneTimeOfDay,
                     coordinateScale,
-                    psxLightPreset);
+                    psxLightPreset,
+                    exportStem);
 
                 converted++;
                 totalTriangles += result.Triangles;

@@ -292,7 +292,8 @@ public static class Ps2SceneCommand
             file => MeshExportCliOptions.StripKnownExtension(file),
             MeshExportCliOptions.DetectPs2SceneSubFormat,
             texturePath: texPath,
-            skeletonPath: skePath);
+            skeletonPath: skePath,
+            inputRoot: Directory.Exists(input) ? input : null);
     }
 
     private static bool IsPs2SceneFile(string path)

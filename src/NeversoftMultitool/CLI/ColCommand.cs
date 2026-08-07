@@ -108,6 +108,7 @@ public static class ColCommand
             blenderHelperPath,
             verbose,
             cancellationToken,
-            MeshExportCliOptions.StripKnownExtension);
+            MeshExportCliOptions.StripKnownExtension,
+            inputRoot: Directory.Exists(input) ? input : null);
     }
 }

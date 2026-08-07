@@ -95,6 +95,7 @@ public static class Ps2GeomCommand
             cancellationToken,
             file => MeshExportCliOptions.StripKnownExtension(file),
             _ => Ps2SceneSubFormat.Geom,
-            texturePath: texPath);
+            texturePath: texPath,
+            inputRoot: Directory.Exists(input) ? input : null);
     }
 }

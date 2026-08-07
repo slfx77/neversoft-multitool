@@ -96,7 +96,8 @@ public static class XbxSceneCommand
             cancellationToken,
             file => MeshExportCliOptions.StripKnownExtension(file),
             texturePath: texPath,
-            worldzoneScale: coordinateScale);
+            worldzoneScale: coordinateScale,
+            inputRoot: Directory.Exists(input) ? input : null);
     }
 
     private static List<string>? CollectFiles(string input)

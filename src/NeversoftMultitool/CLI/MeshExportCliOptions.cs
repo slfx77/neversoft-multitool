@@ -67,7 +67,8 @@ internal static class MeshExportCliOptions
         string? ddxPath = null,
         string? psxPath = null,
         string? ddmTexturePath = null,
-        float worldzoneScale = 1f)
+        float worldzoneScale = 1f,
+        string? inputRoot = null)
     {
         Directory.CreateDirectory(output);
 
@@ -75,17 +76,30 @@ internal static class MeshExportCliOptions
         var failed = 0;
         var totalTriangles = 0;
 
-        foreach (var file in files)
+        var plan = MeshOutputPathPlanner.Plan(
+            files,
+            file => outputStem?.Invoke(file) ?? Path.GetFileNameWithoutExtension(file),
+            inputRoot);
+        var relocated = plan.Count(static p => p.Subdirectory.Length > 0);
+        if (relocated > 0)
+        {
+            AnsiConsole.MarkupLine(
+                $"[yellow]{relocated}[/] file(s) share an output name; " +
+                "mirroring their source folders so none are overwritten.");
+        }
+
+        foreach (var (file, subdirectory, stem) in plan)
         {
             if (cancellationToken.IsCancellationRequested)
                 break;
 
             var fileName = Path.GetFileName(file);
+            var fileOutput = subdirectory.Length == 0 ? output : Path.Combine(output, subdirectory);
             try
             {
                 var result = ExportFile(
                     file,
-                    output,
+                    fileOutput,
                     sourceKind,
                     format,
                     blenderHelperPath,
@@ -98,7 +112,8 @@ internal static class MeshExportCliOptions
                     ddxPath,
                     psxPath,
                     ddmTexturePath,
-                    worldzoneScale: worldzoneScale);
+                    worldzoneScale: worldzoneScale,
+                    exportStem: stem);
 
                 totalTriangles += result.Triangles;
                 converted++;
@@ -144,7 +159,8 @@ internal static class MeshExportCliOptions
         string? ddmTexturePath = null,
         WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
         float worldzoneScale = 1f,
-        string? psxLightPreset = null)
+        string? psxLightPreset = null,
+        string? exportStem = null)
     {
         var stem = outputStem ?? Path.GetFileNameWithoutExtension(file);
         var document = Parser.Parse(new MeshImportRequest
@@ -170,7 +186,10 @@ internal static class MeshExportCliOptions
             new MeshExportRequest
             {
                 OutputDirectory = output,
-                OutputStem = document.Name,
+                // The import stem stays the ORIGINAL name because it is the
+                // companion-lookup key (stem + ".ddx"/".lit"/"_o.ddm"/".ske.ps2").
+                // Only the written file may be renamed to break a collision.
+                OutputStem = exportStem ?? document.Name,
                 Format = format,
                 BlenderHelperPath = blenderHelperPath,
                 WorldzoneTimeOfDay = worldzoneTimeOfDay,

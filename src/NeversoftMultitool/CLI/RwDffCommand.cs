@@ -91,7 +91,8 @@ public static class RwDffCommand
             blenderHelperPath,
             verbose,
             cancellationToken,
-            texturePath: texPath);
+            texturePath: texPath,
+            inputRoot: Directory.Exists(input) ? input : null);
     }
 
     private static bool IsDffFile(string path)

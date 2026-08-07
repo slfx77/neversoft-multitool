@@ -86,6 +86,7 @@ public static class PsxMeshCommand
             format,
             blenderHelperPath,
             verbose,
-            cancellationToken);
+            cancellationToken,
+            inputRoot: Directory.Exists(input) ? input : null);
     }
 }
