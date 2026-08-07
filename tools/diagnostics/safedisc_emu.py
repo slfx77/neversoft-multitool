@@ -65,13 +65,30 @@ What the harness established about the loader, all observed rather than assumed:
      image base (0x00400000) and a jump-record pointer, then calls back into the
      DLL. So the decryption target is the main image, as expected.
 
-CURRENT BLOCKER: after InstallJumpSystem's `ret 0xC`, execution resumes at
-0x100F2634, which is a zero-filled .data structure (the jump record the
-trampoline passes as an ARGUMENT), not code. Verified with `--watch`: the DLL
-itself explicitly zeroes that address from 0x10043D98, so the memory is correct
-and the RETURN ADDRESS is wrong -- some caller's stack is off. That is a
-harness-fidelity bug, not a protection defence. `--trail` plus `--watch` are the
-tools for it; both were added for exactly this.
+CURRENT BLOCKER: the loader reaches a decision point and calls ExitProcess(1) --
+a deliberate refusal, not a crash. It has by then installed four jump thunks and
+read PfdRun.pfd back. What it is unhappy about is not yet identified; the next
+step is `--break` on the caller of ExitProcess to see which check failed.
+
+PROGRESSION, so the next session can tell movement from noise. Each number is a
+distinct defect fixed, and every one was a harness bug rather than a protection
+defence:
+     155,910  session start
+  18,866,801  GDT + SEH + file layer + PE loading of the extracted DLL
+  19,911,363  FlushInstructionCache's missing ARG_COUNTS entry (see below)
+  19,934,677  stub page filled with 0xC3 instead of zeros
+  20,747,397  CreateFile can reopen a file the loader itself created
+
+Two of those deserve calling out because both hid behind an unrelated symptom:
+
+  * FlushInstructionCache is HANDLED explicitly but had no ARG_COUNTS entry, so
+    its 3 arguments were cleaned as 0 and the stack drifted 12 bytes --
+    InstallJumpSystem's `ret 0xC` then returned into a data structure 16 bytes
+    from where it should have gone. The unknown-API guard could not catch it
+    because a handled name returns early and never reaches that check; the guard
+    now runs in `alloc_stub`, at resolution time, which covers every API.
+  * The emulated filesystem was write-only. SafeDisc wrote PfdRun.pfd, reopened
+    it moments later, got "not found", and gave up.
 
 RESOLVED THIS PASS (do not re-investigate):
   * `UC_X86_REG_FS_BASE` is a NO-OP on x86-32 in Unicorn 2. Replaced with a real
@@ -88,14 +105,32 @@ RESOLVED THIS PASS (do not re-investigate):
   * The MSVC CRT startup surface must be real: the extracted DLL runs a full CRT
     init in its DllMain, which walks the environment block as a genuine string.
 
+IS THIS WINNABLE? The evidence says yes, and it is stronger than the published
+literature because this harness produced it: with NO disc, NO driver, and ZERO
+DeviceIoControl calls, the loader has already decrypted and written out its own
+staged payloads, loaded SecServ, run its CRT, and reached its code-injection
+stage. Every documented v3.20 step executed so far is file-local. `secdrv.sys`
+supplies no key material -- SafeDiscShim answers it with hardcoded constants,
+which only works if nothing downstream depends on their entropy.
+
+What remains genuinely open is AuthServ (the media-authentication stage);
+`~efe2.tmp` is created but never written in any run so far, and the public
+writeups trail off exactly at the hop from decrypted SecServ sections to the
+original .text. So do not treat "file-local" as proven for the FINAL hop. The
+cheap way to settle it is a differential taint test: add a --fake-secdrv
+responder, run twice with different seeds, and diff the resulting .text. Identical
+output proves no driver value reaches the key schedule.
+
 STILL MISSING, in rough order of likely need:
-  * whatever is corrupting the stack around InstallJumpSystem (the blocker)
-  * a synthetic export table for kernel32/ntdll, if the DLL ever resolves
-    imports by parsing them rather than through our GetProcAddress
-  * the eventual secdrv `DeviceIoControl`. The harness deliberately FAILS it
-    rather than fabricating a challenge response: a made-up answer would produce
-    a wrong key and a plausible-looking garbage decrypt, which is worse than a
-    visible stop. If the key proves disc-derived, this is where it shows up.
+  * why the loader calls ExitProcess(1) (the blocker)
+  * a real export directory in the synthetic kernel32/ntdll headers, for code
+    that parses exports itself instead of calling GetProcAddress
+  * the secdrv `DeviceIoControl`. The harness deliberately FAILS it rather than
+    fabricating a challenge response: a made-up answer would produce a wrong key
+    and a plausible-looking garbage decrypt, which is worse than a visible stop.
+    Any responder must be opt-in behind a flag for that reason.
+  * expect the dumped .text to still need import rebuilding even on success --
+    CJumpRun redirects cross-module calls through runtime thunks.
 """
 
 from __future__ import annotations
@@ -111,7 +146,7 @@ try:
     import pefile
     from unicorn import (
         UC_ARCH_X86, UC_HOOK_CODE, UC_HOOK_INTR, UC_HOOK_MEM_INVALID,
-        UC_HOOK_MEM_WRITE, UC_MODE_32, UC_PROT_ALL, Uc, UcError,
+        UC_HOOK_INSN_INVALID, UC_HOOK_MEM_WRITE, UC_MODE_32, UC_PROT_ALL, Uc, UcError,
     )
     from unicorn.x86_const import (
         UC_X86_REG_EAX, UC_X86_REG_EBP, UC_X86_REG_EBX, UC_X86_REG_ECX,
@@ -172,6 +207,15 @@ SEH_END_OF_CHAIN = 0xFFFFFFFF
 # A distinguishable pseudo-handle so a DeviceIoControl on the SafeDisc driver is
 # obvious in the trace rather than blending in with file handles.
 SECDRV_HANDLE = 0x100
+
+# Unicorn UC_MEM_* access constants. The obvious `access % 3` indexing is
+# WRONG -- READ_UNMAPPED is 19, and 19 % 3 == 1 prints "write" -- so every
+# fault message this harness produced before 2026-08-07 named the wrong type.
+ACCESS_NAMES = {
+    16: "read", 17: "write", 18: "fetch",
+    19: "read", 20: "write", 21: "fetch",
+    22: "read-prot", 23: "write-prot", 24: "fetch-prot",
+}
 
 # Returning to this address means the entry point returned; returning to the
 # other means an SEH handler returned and we must decide whether to resume.
@@ -395,6 +439,14 @@ class SafeDiscEmulator:
         self.fault_repeats: Counter = Counter()
         self.write_channels: Counter = Counter()
         self.watch_lo = 0
+        self.last_exception_record = 0
+        self.temp_file_serial = 0
+        self.mappings: dict[int, EmulatedFile | None] = {}
+        self.unhandled_filter = 0
+        self.invalid_insns: Counter = Counter()
+        self.breakpoints: set[int] = set()
+        self.breakpoint_hits: Counter = Counter()
+        self.stop_locked = False
         self.watch_hi = 0
         self.process_writes: list[tuple[int, int]] = []
         self.trail: deque[int] | None = None
@@ -437,6 +489,12 @@ class SafeDiscEmulator:
         self.uc.mem_map(GDT_ADDR, GDT_SIZE, UC_PROT_ALL)
         self.uc.mem_map(HEAP_BASE, HEAP_SIZE, UC_PROT_ALL)
         self.uc.mem_map(STUB_BASE, STUB_SIZE, UC_PROT_ALL)
+        # Fill the stub page with 0xC3 (ret) rather than leaving it zeroed.
+        # UC_HOOK_CODE fires per instruction, but QEMU translates a whole basic
+        # block first and a run of zero bytes never ends one -- so a landing in
+        # this page translated to the page boundary and faulted BEFORE any hook
+        # ran, hiding the real cause. One-byte blocks guarantee the hook fires.
+        self.uc.mem_write(STUB_BASE, b"\xC3" * STUB_SIZE)
         self.uc.mem_map(FAKE_MODULE_BASE, 0x01000000, UC_PROT_ALL)
         for base in (NTDLL_BASE, KERNEL32_BASE, USER32_BASE):
             self.uc.mem_map(base, SYSTEM_MODULE_SIZE, UC_PROT_ALL)
@@ -614,6 +672,14 @@ class SafeDiscEmulator:
     def alloc_stub(self, name: str, argc: int = 0) -> int:
         if name in self.stub_by_name:
             return self.stub_by_name[name]
+        # Flag a missing argument count HERE, at resolution time, not at the end
+        # of handle_api. Any API with an explicit branch returns early and never
+        # reaches that check, so a function that is handled but uncounted drifts
+        # the stack silently -- which is exactly what FlushInstructionCache did:
+        # 3 arguments cleaned as 0, and 12 bytes later InstallJumpSystem's
+        # `ret 0xC` returned into a data structure.
+        if name not in ARG_COUNTS:
+            self.unknown_apis.add(name)
         addr = self.next_stub
         self.next_stub += 1
         self.stubs[addr] = (name, argc)
@@ -926,6 +992,172 @@ class SafeDiscEmulator:
         if name == "IsDBCSLeadByte":
             return 0
 
+        # --- operations that MUST actually touch memory --------------------
+        # These are memcpy/memset under Win32 names. Returning 1 leaves the
+        # destination untouched, so whatever was supposed to be copied there
+        # stays zero and the failure appears much later as a jump into a blank
+        # region. Same class of defect as the WriteProcessMemory stub.
+        if name == "RtlMoveMemory":
+            dest, source, count = args[0], args[1], args[2]
+            try:
+                self.uc.mem_write(dest, bytes(self.uc.mem_read(source, count)))
+                self.note_text_write(dest, count, via="RtlMoveMemory")
+            except UcError:
+                pass
+            return 1
+
+        if name == "RtlZeroMemory":
+            try:
+                self.uc.mem_write(args[0], b"\x00" * args[1])
+            except UcError:
+                pass
+            return 1
+
+        if name == "RtlFillMemory":
+            try:
+                self.uc.mem_write(args[0], bytes([args[2] & 0xFF]) * args[1])
+            except UcError:
+                pass
+            return 1
+
+        # Interlocked* return the PREVIOUS (or new) value, not a status. The
+        # CRT's spin-locks and refcounts branch on it, and 100+ calls land here.
+        if name == "InterlockedExchange":
+            previous = self.read_u32(args[0]) or 0
+            self.uc.mem_write(args[0], struct.pack("<I", args[1] & 0xFFFFFFFF))
+            return previous
+
+        if name in ("InterlockedIncrement", "InterlockedDecrement"):
+            step = 1 if name.endswith("Increment") else -1
+            value = ((self.read_u32(args[0]) or 0) + step) & 0xFFFFFFFF
+            self.uc.mem_write(args[0], struct.pack("<I", value))
+            return value
+
+        if name == "InterlockedExchangeAdd":
+            previous = self.read_u32(args[0]) or 0
+            self.uc.mem_write(args[0], struct.pack("<I", (previous + args[1]) & 0xFFFFFFFF))
+            return previous
+
+        if name == "InterlockedCompareExchange":
+            previous = self.read_u32(args[0]) or 0
+            if previous == args[2]:
+                self.uc.mem_write(args[0], struct.pack("<I", args[1] & 0xFFFFFFFF))
+            return previous
+
+        # String helpers. lstrlenA returns a LENGTH and CharNextA a POINTER;
+        # returning 1 from either sends a string walk to address 0x1.
+        if name in ("lstrlenA", "lstrlenW"):
+            wide = name.endswith("W")
+            return len(self.read_cstr(args[0], wide=wide, limit=4096))
+
+        if name in ("lstrcpyA", "lstrcpynA", "lstrcatA"):
+            wide = False
+            text = self.read_cstr(args[1], wide=wide, limit=4096)
+            if name == "lstrcatA":
+                text = self.read_cstr(args[0], wide=wide, limit=4096) + text
+            if name == "lstrcpynA" and len(args) > 2:
+                text = text[: max(0, args[2] - 1)]
+            self.write_cstr(args[0], text, 4096, wide)
+            return args[0]
+
+        if name == "CharNextA":
+            return args[0] + 1 if args[0] else 0
+
+        if name == "CharPrevA":
+            return max(args[0], args[1] - 1) if len(args) > 1 else 0
+
+        if name == "GetSystemInfo" or name == "GetNativeSystemInfo":
+            # A zero dwPageSize/dwNumberOfProcessors is a divide-by-zero source.
+            if args and args[0]:
+                self.uc.mem_write(args[0], struct.pack(
+                    "<IIIIIIIHH",
+                    0,          # dwOemId / wProcessorArchitecture(0 = INTEL)
+                    0x1000,     # dwPageSize
+                    0x00010000, # lpMinimumApplicationAddress
+                    0x7FFEFFFF, # lpMaximumApplicationAddress
+                    1,          # dwActiveProcessorMask
+                    1,          # dwNumberOfProcessors
+                    586,        # dwProcessorType
+                    0x1000,     # dwAllocationGranularity (u16 pair below)
+                    0,
+                ))
+            return 1
+
+        if name == "QueryPerformanceFrequency":
+            self.uc.mem_write(args[0], struct.pack("<Q", 3_579_545))
+            return 1
+
+        if name in ("GetTempFileNameA", "GetTempFileNameW"):
+            # (lpPathName, lpPrefixString, uUnique, lpTempFileName)
+            wide = name.endswith("W")
+            folder = self.read_cstr(args[0], wide=wide) if args[0] else EMULATED_TEMP_PATH
+            prefix = self.read_cstr(args[1], wide=wide) if args[1] else "tmp"
+            self.temp_file_serial += 1
+            if not folder.endswith("\\"):
+                folder += "\\"
+            self.write_cstr(args[3], f"{folder}{prefix[:3]}{self.temp_file_serial:04x}.tmp",
+                            260, wide)
+            return self.temp_file_serial
+
+        if name in ("CreateFileMappingA", "CreateFileMappingW", "OpenFileMappingA"):
+            handle_file = self.files.get(args[0]) if args else None
+            self.next_handle += 4
+            self.mappings[self.next_handle] = handle_file
+            return self.next_handle
+
+        if name in ("MapViewOfFile", "MapViewOfFileEx"):
+            # Returning 1 makes the caller read from address 0x1. Back the view
+            # with a heap block populated from the file behind the handle.
+            handle_file = self.mappings.get(args[0])
+            payload = bytes(handle_file.data) if handle_file else b""
+            size = args[4] if len(args) > 4 and args[4] else max(len(payload), 0x1000)
+            block = self.alloc_heap(max(size, 0x1000), zero=True)
+            if block and payload:
+                offset = args[3] if len(args) > 3 else 0
+                self.uc.mem_write(block, payload[offset : offset + size])
+            return block
+
+        if name == "UnmapViewOfFile":
+            return 1
+
+        # Anti-debug queries. NTSTATUS success is ZERO, and an unfilled
+        # out-parameter reads as whatever was on the stack -- a nonzero there is
+        # exactly what these calls are looking for.
+        if name in ("NtQueryInformationProcess", "ZwQueryInformationProcess"):
+            info_class, buffer, length = args[1], args[2], args[3]
+            if buffer:
+                self.uc.mem_write(buffer, b"\x00" * min(length, 32))
+            if len(args) > 4 and args[4]:
+                self.uc.mem_write(args[4], struct.pack("<I", min(length, 4)))
+            if info_class == 0x1E:  # ProcessDebugObjectHandle
+                return 0xC0000353  # STATUS_PORT_NOT_SET
+            if info_class == 0x1F and buffer:  # ProcessDebugFlags: 1 == not debugged
+                self.uc.mem_write(buffer, struct.pack("<I", 1))
+            return 0  # STATUS_SUCCESS
+
+        if name in ("NtSetInformationThread", "ZwSetInformationThread"):
+            return 0
+
+        if name == "CheckRemoteDebuggerPresent":
+            if len(args) > 1 and args[1]:
+                self.uc.mem_write(args[1], struct.pack("<I", 0))
+            return 1
+
+        if name == "SetUnhandledExceptionFilter":
+            previous = self.unhandled_filter
+            self.unhandled_filter = args[0] if args else 0
+            return previous
+
+        if name in ("GetFileVersionInfoA", "GetFileVersionInfoW",
+                    "GetFileVersionInfoSizeA", "GetFileVersionInfoSizeW",
+                    "VerQueryValueA", "VerQueryValueW"):
+            # THUG2.exe's .rsrc holds only icons -- there is no VS_VERSION_INFO,
+            # so on real Windows these FAIL. Succeeding leaves lpData unfilled
+            # and VerQueryValue then hands back uninitialised memory.
+            if name.startswith("GetFileVersionInfoSize") and len(args) > 1 and args[1]:
+                self.uc.mem_write(args[1], struct.pack("<I", 0))
+            return 0
+
         # --- APIs whose SUCCESS value is not 1 ---------------------------
         # Registry functions return LSTATUS, where ERROR_SUCCESS is ZERO. The
         # generic "return 1" reported ERROR_INVALID_FUNCTION for every call and
@@ -1099,8 +1331,26 @@ class SafeDiscEmulator:
             log(f"    CreateFile({target})  <-- SafeDisc DRIVER handle", always=True)
             return SECDRV_HANDLE
 
-        host = self.host_files.resolve(target)
         disposition = args[4] if len(args) > 4 else 3
+
+        # Reopen a file the loader itself created earlier. Without this the
+        # emulated filesystem is write-only: SafeDisc writes PfdRun.pfd, reopens
+        # it a moment later, gets "not found", and calls ExitProcess(1).
+        # Basename-keyed, because the loader spells the same path two ways
+        # (C:\WINDOWS\Temp\... and C:\WINDOWS\Temp\\...).
+        existing = self.emulated_by_name.get(
+            target.replace("/", "\\").rsplit("\\", 1)[-1].lower())
+        if existing is not None:
+            if disposition in (2, 5):      # CREATE_ALWAYS / TRUNCATE_EXISTING
+                existing.data = bytearray()
+            existing.pos = 0
+            self.next_handle += 4
+            self.files[self.next_handle] = existing
+            log(f"    CreateFile({target}) -> reopened in-memory "
+                f"({len(existing.data):,} bytes), handle 0x{self.next_handle:X}", always=True)
+            return self.next_handle
+
+        host = self.host_files.resolve(target)
         if host is not None:
             try:
                 data = host.read_bytes()
@@ -1305,6 +1555,21 @@ class SafeDiscEmulator:
 
     # --- hooks ----------------------------------------------------------
 
+    def stop(self, uc, reason: str) -> None:
+        """Record the FIRST terminal reason and halt.
+
+        `emu_stop()` only takes effect at the end of the current translation
+        block, and a run of zero bytes is one very long block -- so a handler
+        that stops cleanly is followed by a fetch fault off the end of the page,
+        and the later handler's message replaces the real diagnosis. Locking the
+        reason keeps the first (true) explanation.
+        """
+        if not self.stop_locked:
+            self.stop_reason = reason
+            self.stop_locked = True
+        uc.reg_write(UC_X86_REG_EIP, MAGIC_RETURN)
+        uc.emu_stop()
+
     def hook_code(self, uc, address, size, _user):
         self.instructions += 1
         if self.trail is not None:
@@ -1313,6 +1578,15 @@ class SafeDiscEmulator:
             self.resume_from_seh(uc)
             return
         if address == MAGIC_CALL_RETURN:
+            if not self.pending_returns:
+                # An unmatched arrival means something returned into the
+                # harness's own trampoline slot. Raising here would be swallowed
+                # by Unicorn and execution would walk off the end of the stub
+                # page, reporting a fetch fault with no connection to the cause.
+                self.stop(uc, "returned to the harness trampoline with no pending "
+                              "call - a guest `ret` landed on MAGIC_CALL_RETURN, so a "
+                              "stack frame is unbalanced somewhere above it")
+                return
             resume_eip, resume_esp, resume_eax = self.pending_returns.pop()
             uc.reg_write(UC_X86_REG_EAX, resume_eax & 0xFFFFFFFF)
             uc.reg_write(UC_X86_REG_ESP, resume_esp)
@@ -1346,6 +1620,8 @@ class SafeDiscEmulator:
             uc.reg_write(UC_X86_REG_EIP, ret)
             return
 
+        if address in self.breakpoints:
+            self.dump_state(uc, address)
         if self.trace_remaining > 0:
             self.trace_remaining -= 1
             self.disassemble_one(address, size)
@@ -1390,10 +1666,30 @@ class SafeDiscEmulator:
             self.restart_pending = True
             uc.emu_stop()
             return False
-        self.stop_reason = (
-            f"unhandled access violation: {['read','write','fetch'][min(access % 3, 2)]} "
-            f"at 0x{address:08X} from EIP 0x{eip:08X}"
-        )
+        if not self.stop_locked:
+            self.stop_reason = (
+                f"unhandled access violation: {ACCESS_NAMES.get(access, f'access {access}')} "
+                f"at 0x{address:08X} from EIP 0x{eip:08X}"
+            )
+        return False
+
+    def hook_insn_invalid(self, uc, _user):
+        """Invalid instructions never reach UC_HOOK_INTR.
+
+        `icebp` (0xF1) is a favourite anti-debug instruction and surfaces only
+        here. Unlike a memory fault, redirecting in place DOES work for this
+        hook, so returning True after setting EIP is correct.
+        """
+        eip = uc.reg_read(UC_X86_REG_EIP)
+        try:
+            opcode = bytes(uc.mem_read(eip, 1))[0]
+        except UcError:
+            opcode = 0
+        self.invalid_insns[eip] += 1
+        code = STATUS_SINGLE_STEP if opcode == 0xF1 else STATUS_ILLEGAL_INSTRUCTION
+        if self.dispatch_exception(code, eip, 0):
+            return True
+        self.stop_reason = f"unhandled invalid instruction 0x{opcode:02X} at EIP 0x{eip:08X}"
         return False
 
     def hook_intr(self, uc, intno, _user):
@@ -1417,8 +1713,7 @@ class SafeDiscEmulator:
             self.restart_pending = True
             uc.emu_stop()
             return
-        self.stop_reason = f"unhandled interrupt 0x{intno:02X} at EIP 0x{eip:08X}"
-        uc.emu_stop()
+        self.stop(uc, f"unhandled interrupt 0x{intno:02X} at EIP 0x{eip:08X}")
 
     # --- SEH ------------------------------------------------------------
 
@@ -1428,7 +1723,8 @@ class SafeDiscEmulator:
         except UcError:
             return None
 
-    def dispatch_exception(self, code: int, address: int, fault_address: int) -> bool:
+    def dispatch_exception(self, code: int, address: int, fault_address: int,
+                           start_record: int | None = None) -> bool:
         """Deliver an exception to the first handler on the fs:[0] chain.
 
         Win32 SEH is a linked list of {Next, Handler} records rooted at
@@ -1444,7 +1740,7 @@ class SafeDiscEmulator:
         the register block back rather than restoring what we saved.
         """
         uc = self.uc
-        head = self.read_u32(TEB_ADDR + 0x00)
+        head = start_record if start_record is not None else self.read_u32(TEB_ADDR + 0x00)
         if head is None or head == SEH_END_OF_CHAIN or head == 0:
             return False
         handler = self.read_u32(head + 4)
@@ -1473,8 +1769,14 @@ class SafeDiscEmulator:
             uc.emu_stop()
             return False
 
-        record = self.alloc_heap(EXR_SIZE)
-        context = self.alloc_heap(CTX_SIZE)
+        # Carve the record and context out of the stack the way the kernel does,
+        # NOT out of the heap. alloc_heap is a page-rounding bump allocator that
+        # never frees, so at the default limit this leaked ~80 MB against a 64 MB
+        # heap, alloc_heap started returning 0, and the dispatcher wrote an
+        # EXCEPTION_RECORD to address 0.
+        stack_top = uc.reg_read(UC_X86_REG_ESP)
+        context = (stack_top - 0x20 - CTX_SIZE) & ~0xF
+        record = (context - EXR_SIZE) & ~0xF
         uc.mem_write(record, b"\x00" * EXR_SIZE)
         uc.mem_write(context, b"\x00" * CTX_SIZE)
 
@@ -1502,11 +1804,12 @@ class SafeDiscEmulator:
 
         # handler(record, establisher, context, dispatcher), cdecl-style push
         # order with our magic return underneath.
-        new_esp = (esp - 0x80) & ~0xF
+        new_esp = (record - 0x40) & ~0xF
         uc.mem_write(new_esp, struct.pack("<IIIII", MAGIC_SEH_RETURN, record, head, context, 0))
         uc.reg_write(UC_X86_REG_ESP, new_esp)
         uc.reg_write(UC_X86_REG_EIP, handler)
         self.seh_stack.append((head, context))
+        self.last_exception_record = record
         log(f"    SEH: dispatching 0x{code:08X} at 0x{address:08X} to handler 0x{handler:08X}",
             always=True)
         return True
@@ -1539,16 +1842,24 @@ class SafeDiscEmulator:
             return
 
         # ExceptionContinueSearch: try the next record on the chain.
+        #
+        # Walk to it EXPLICITLY rather than rewriting TEB.ExceptionList. An
+        # earlier version advanced fs:[0] as it searched, which permanently
+        # unlinked every handler it passed -- the thread's chain is the
+        # program's state, not the dispatcher's cursor.
         nxt = self.read_u32(head + 0) if head is not None else None
         if nxt in (None, 0, SEH_END_OF_CHAIN):
             self.stop_reason = "SEH chain exhausted - no handler took the exception"
             uc.emu_stop()
             return
-        uc.mem_write(TEB_ADDR + 0x00, struct.pack("<I", nxt))
         eip = self.read_u32(context + CTX_EIP) or 0
-        if not self.dispatch_exception(STATUS_ACCESS_VIOLATION, eip, 0):
-            self.stop_reason = "SEH chain exhausted while unwinding"
+        code = self.read_u32(self.last_exception_record + EXR_CODE) if self.last_exception_record else STATUS_ACCESS_VIOLATION
+        if self.dispatch_exception(code, eip, 0, start_record=nxt):
+            self.restart_pending = True
             uc.emu_stop()
+            return
+        self.stop_reason = "SEH chain exhausted while unwinding"
+        uc.emu_stop()
 
     def disassemble_one(self, address: int, size: int) -> None:
         if capstone is None:
@@ -1562,6 +1873,33 @@ class SafeDiscEmulator:
             pass
 
     # --- run ------------------------------------------------------------
+
+    def dump_state(self, uc, address: int) -> None:
+        """Registers plus the top of the stack at a breakpoint.
+
+        The decisive question at a `ret` is what the return-address slot holds
+        and who put it there; guessing at that from a disassembly listing is how
+        an afternoon disappears.
+        """
+        self.breakpoint_hits[address] += 1
+        if self.breakpoint_hits[address] > 4:
+            return
+        esp = uc.reg_read(UC_X86_REG_ESP)
+        print(f"[emu] BREAK 0x{address:08X}{self.describe_address(address)} "
+              f"(hit {self.breakpoint_hits[address]})")
+        registers = [
+            ("eax", UC_X86_REG_EAX), ("ebx", UC_X86_REG_EBX), ("ecx", UC_X86_REG_ECX),
+            ("edx", UC_X86_REG_EDX), ("esi", UC_X86_REG_ESI), ("edi", UC_X86_REG_EDI),
+            ("ebp", UC_X86_REG_EBP), ("esp", UC_X86_REG_ESP),
+        ]
+        print("      " + "  ".join(f"{n}=0x{uc.reg_read(r):08X}" for n, r in registers))
+        for i in range(8):
+            try:
+                value = struct.unpack("<I", uc.mem_read(esp + 4 * i, 4))[0]
+            except UcError:
+                break
+            tag = " <-- return address slot" if i == 0 else ""
+            print(f"      [esp+{4*i:02X}] = 0x{value:08X}{self.describe_address(value)}{tag}")
 
     def describe_address(self, addr: int) -> str:
         """Name an address so a trail reads as a story rather than hex.
@@ -1638,6 +1976,7 @@ class SafeDiscEmulator:
         self.uc.hook_add(UC_HOOK_MEM_WRITE, self.hook_write)
         self.uc.hook_add(UC_HOOK_MEM_INVALID, self.hook_invalid)
         self.uc.hook_add(UC_HOOK_INTR, self.hook_intr)
+        self.uc.hook_add(UC_HOOK_INSN_INVALID, self.hook_insn_invalid)
 
         log(f"starting at entry 0x{self.entry:08X}, budget {max_instructions:,} instructions")
 
@@ -1775,6 +2114,7 @@ ARG_COUNTS: dict[str, int] = {
     "VirtualAlloc": 4, "VirtualAllocEx": 5, "VirtualFree": 3, "VirtualProtect": 4,
     "VirtualProtectEx": 5, "VirtualQuery": 3,
     "HeapAlloc": 3, "HeapFree": 3, "HeapCreate": 3, "GetProcessHeap": 0,
+    "FlushInstructionCache": 3,
     "LocalAlloc": 2, "LocalFree": 1, "GlobalAlloc": 2, "GlobalFree": 1,
     "CreateFileA": 7, "CreateFileW": 7, "ReadFile": 5, "WriteFile": 5,
     "CloseHandle": 1, "SetFilePointer": 4, "GetFileSize": 2,
@@ -1895,6 +2235,10 @@ ARG_COUNTS: dict[str, int] = {
     "GetEnvironmentVariableW": 3, "GetModuleFileNameExA": 4,
     "GetProcessTimes": 5, "GetSystemTime": 1,
     "DecodePointer": 1, "EncodePointer": 1,
+    # Ordinal-only import: fill_imports keys these as "<DLL>#<ordinal>",
+    # so the literal string is what must be present.
+    "DSOUND.DLL#11": 3,  # DirectSoundCreate8(pcGuidDevice, ppDS8, pUnkOuter)
+    "UnmapViewOfFile": 1, "CreateFileMappingW": 6, "GetNativeSystemInfo": 1,
     "IsProcessorFeaturePresent": 1, "GetNativeSystemInfo": 1, "HeapSetInformation": 4,
     # Every remaining import of the extracted SafeDisc DLL, enumerated from its
     # own import table rather than discovered one crash at a time.
@@ -1930,6 +2274,10 @@ def main() -> int:
                     help="Write every file the loader created in emulated memory here. "
                          "SafeDisc extracts a helper DLL this way, and that DLL is the "
                          "code that actually decrypts .text")
+    ap.add_argument("--break", dest="breakpoints", action="append", default=[],
+                    metavar="ADDR",
+                    help="Dump registers and the top of the stack when EIP reaches this "
+                         "hex address (repeatable, first 4 hits)")
     ap.add_argument("--watch", metavar="LO-HI",
                     help="Log every write into this hex address range with the writing "
                          "EIP, e.g. --watch 100F2600-100F2700")
@@ -1952,6 +2300,7 @@ def main() -> int:
     emu.temp_dump_dir = args.dump_temp_files
     if args.trail:
         emu.trail = deque(maxlen=args.trail)
+    emu.breakpoints = {int(a, 16) for a in args.breakpoints}
     if args.watch:
         lo, _, hi = args.watch.partition("-")
         emu.watch_lo, emu.watch_hi = int(lo, 16), int(hi or lo, 16)

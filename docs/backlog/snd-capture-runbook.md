@@ -104,13 +104,37 @@ Unicorn Engine plus stubbed Windows APIs. Tractable, and it would also reveal
 whether the key is disc-derived — but it is a multi-day project against an
 actively anti-emulation loader.
 
-**Recommendation: park it.** THUG1's PC port is also SafeDisc, so a
-loader-emulation harness would in principle serve more than one title — but the
-user declined to acquire that build (2026-08-07), so in practice it remains a
-one-off for THUG2.exe. Combined with the multi-day cost against an
-anti-emulation loader, and an XP VM that reaches the same outcome in about an
-hour and unwraps any SafeDisc binary just as well, the emulator is only worth
-building as a deliberate capability — not for `.snd`.
+**UPDATE 2026-08-07 — the emulator was built, and it works.**
+`tools/diagnostics/safedisc_emu.py` runs the loader under Unicorn and has
+already gone far enough to change what we know. Read its module docstring for
+the current state; the headline results:
+
+- The loader **extracts an ~800 KB DLL to a temp file and LoadLibrary's it** —
+  *the decryption is not in THUG2.exe at all.* `--dump-temp-files` writes that
+  DLL out. Its `.text` entropy is 6.871, i.e. **plaintext code**, and its
+  mangled C++ exports name the whole design: `CTransformXor::PerformTransform`,
+  `CTransformRandomAccumulate::PerformTransform`, `CKeyBasic::GetKeyData`,
+  `CKeyMngr`, `CJumpRun::InstallJumpSystem`, `CModuleMonitor`, `CAltAsc`.
+- **This artifact alone may settle the codec question**, and it exists now, with
+  no VM, no disc and no driver. Statically reading `PerformTransform` +
+  `GetKeyData` is a bounded RE task against readable code, whereas everything in
+  Step 0b above was about *unreadable* code.
+- Depth so far: 155,910 → 20,747,397 instructions. The loader reads its own
+  exe, stages its payloads, loads SecServ, runs its CRT, and reaches the
+  code-injection stage — then calls `ExitProcess(1)`, a deliberate refusal
+  whose cause is not yet identified.
+
+**The key is very probably NOT disc-derived.** All of the above happened with
+**zero `DeviceIoControl` calls**. `secdrv.sys` supplies no key material —
+SafeDiscShim answers it with hardcoded constants, which is only possible if
+nothing downstream depends on their entropy. The disc is an authentication
+gate, not a key source. Still genuinely open: the final hop through AuthServ
+(`~efe2.tmp` is created but never written yet). Settle it with a differential
+taint test — add a `--fake-secdrv` responder, run twice with different seeds,
+diff the `.text`.
+
+So this route is no longer "last resort, multi-day, one-off". It is the active
+one, and it needs no acquisitions.
 
 **CLOSED — the THUG1 PC Rosetta.** THUG1 is a generation earlier and may predate
 the compression (ZenHAX notes its music containers already carried RIFF headers
@@ -127,7 +151,7 @@ Do not re-propose it.
    modern Frida needs Win7+, so on XP the capture needs a `dsound.dll` proxy
    instead (compile x86 on the host, drop the DLL beside `THUG2.exe`). Ask and
    it gets written.
-3. **Unicorn loader-emulation harness** — last resort, multi-day, one-off.
+3. **Unicorn loader-emulation harness** — BUILT and working; see the 2026-08-07 update above. No acquisitions needed.
 
 ## Step 1 — VM (only if step 0 fails)
 
