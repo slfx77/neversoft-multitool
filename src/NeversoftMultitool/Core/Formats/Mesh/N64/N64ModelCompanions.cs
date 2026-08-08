@@ -23,6 +23,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.N64;
 public static class N64ModelCompanions
 {
     private const string RenderBankIdName = "renderbank-id.bin";
+    private const string BoundsName = "bounds.bin";
     private static readonly string[] BundleAnchors = ["group2", "textures"];
 
     /// <summary>
@@ -35,6 +36,25 @@ public static class N64ModelCompanions
     {
         var data = source.TryReadCompanion(RenderBankIdName);
         return data is { Length: >= 4 } ? BinaryPrimitives.ReadUInt32BigEndian(data) : null;
+    }
+
+    /// <summary>
+    ///     Reads the bundle's <c>bounds.bin</c>, or null when it is absent.
+    /// </summary>
+    public static byte[]? TryReadBounds(AssetSource source)
+    {
+        return source.TryReadCompanion(BoundsName);
+    }
+
+    /// <summary>
+    ///     Largest bounding radius across the bundle's meshes — the world-scale
+    ///     feature <see cref="N64BundleClassifier" /> keys on. Null when the
+    ///     companion is absent; 0 for an authored-empty stub.
+    /// </summary>
+    public static float? TryReadMaxBoundsRadius(AssetSource source)
+    {
+        var data = TryReadBounds(source);
+        return data == null ? null : N64BoundsFile.MaxRadius(data);
     }
 
     /// <summary>

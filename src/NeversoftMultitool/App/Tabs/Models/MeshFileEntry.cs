@@ -42,6 +42,16 @@ public class MeshFileEntry : BaseFileEntry
     // used for format-scale viewer tuning (notably Apocalypse v3 levels).
     internal PsxMeshFormatRevision PsxFormatRevision { get; init; }
 
+    /// <summary>
+    ///     Largest bounding radius across a carved N64 bundle's meshes, from its
+    ///     <c>bounds.bin</c>; 0 when absent or the bundle is an authored-empty
+    ///     stub. The MEASUREMENT is stored rather than a verdict so
+    ///     <c>N64BundleClassifier</c> stays the single testable authority —
+    ///     App code is excluded from the cross-platform target and cannot be
+    ///     covered by tests.
+    /// </summary>
+    internal float N64MaxBoundsRadius { get; init; }
+
     // True only when the scanner found a companion that the current parser can
     // assemble with this mesh. Unsupported formats remain false even if they
     // happen to use a similarly named sibling file.

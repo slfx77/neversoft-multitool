@@ -1,6 +1,7 @@
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Formats.Mesh.N64;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
@@ -59,6 +60,13 @@ internal sealed class MeshConverterTabPreview : IDisposable
     /// </summary>
     internal static bool IsLevelModel(MeshFileEntry entry)
     {
+        // Carved N64 bundles: bounds.bin's largest per-mesh radius separates
+        // world content (level geometry AND level object banks, both authored in
+        // world space) from characters and props, with an empty band between the
+        // two classes. Precision 1.000 over 328 PS1-Rosetta-labelled bundles.
+        if (entry.IsN64Model)
+            return N64BundleClassifier.IsWorldScale(entry.N64MaxBoundsRadius);
+
         if (entry.Ps2SubFormat == Ps2SceneSubFormat.PakWorldzone)
             return true;
 
@@ -263,6 +271,22 @@ internal sealed class MeshConverterTabPreview : IDisposable
     {
         if (!isLevel) return null;
         if (entry.IsPakWorldzone) return ThawWorldzoneWalkEyeHeight;
+
+        // N64 bundles are emitted at k / ScaleDivisor with k = 1 for non-supers,
+        // which IS the PS1 translation divisor — the same level exports at the
+        // same world scale on both platforms, so the PS1 eye heights transfer
+        // unchanged. Only level GEOMETRY gets one: an object bank flies but has
+        // no floor to stand on. An unnamed bundle falls back to the THPS eye.
+        if (entry.IsN64Model)
+        {
+            if (!N64BundleClassifier.IsLevel(entry.N64MaxBoundsRadius, entry.ObjectCount))
+                return null;
+
+            return entry.FileName.EndsWith("_g.psx.n64", StringComparison.OrdinalIgnoreCase)
+                ? PsxLevelWalkEyeHeight
+                : ThpsLevelWalkEyeHeight;
+        }
+
         if (!entry.IsPsx) return null;
         if (entry.PsxFormatRevision == PsxMeshFormatRevision.ApocalypseV3)
             return ApocalypseLevelWalkEyeHeight;

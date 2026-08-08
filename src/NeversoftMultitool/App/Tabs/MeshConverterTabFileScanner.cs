@@ -551,6 +551,7 @@ internal static class MeshConverterTabFileScanner
                 MeshCount = meshes.Count,
                 PsxIsSuperModel = shell.IsSuperModel,
                 PsxFormatRevision = shell.FormatRevision,
+                N64MaxBoundsRadius = N64ModelCompanions.TryReadMaxBoundsRadius(source) ?? 0f,
                 Source = source
             };
         }
