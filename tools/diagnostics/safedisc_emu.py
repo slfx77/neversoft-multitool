@@ -1874,10 +1874,20 @@ class SafeDiscEmulator:
                 payload = bytes(self.uc.mem_read(in_ptr, min(in_len, 64)))
             except UcError:
                 payload = b""
+        # Read enough to see the ARGUMENT at +0x410, not just the header: whether
+        # it varies per call is what distinguishes a yes/no check from a
+        # block-by-block data transfer.
+        argument = b""
+        if in_ptr and in_len > 0x414:
+            try:
+                argument = bytes(self.uc.mem_read(in_ptr + 0x410, 16))
+            except UcError:
+                argument = b""
         log(f"    DeviceIoControl(handle=0x{handle:X}, code=0x{code:08X}, "
             f"in={in_len}B out={out_len}B)", always=True)
         if payload:
-            log(f"      in: {payload[:32].hex(' ')}", always=True)
+            log(f"      hdr: {payload[:16].hex(' ')}"
+                + (f"  arg@0x410: {argument.hex(' ')}" if argument else ""), always=True)
 
         if not self.fake_secdrv or handle != SECDRV_HANDLE:
             if len(args) > 6 and args[6]:
