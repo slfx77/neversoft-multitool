@@ -402,6 +402,9 @@ SEH_END_OF_CHAIN = 0xFFFFFFFF
 
 # A distinguishable pseudo-handle so a DeviceIoControl on the SafeDisc driver is
 # obvious in the trace rather than blending in with file handles.
+BACKSLASH = chr(92)
+NUL = chr(0)
+
 SECDRV_HANDLE = 0x100
 
 # Kernel-debugger devices SafeDisc probes for. Recovered by decrypting the
@@ -609,6 +612,7 @@ class LoadedModule:
 
     def __init__(self, name: str, base: int, size: int, exports: dict[str, int], entry: int):
         self.name = name
+        self.load_path: str | None = None
         self.base = base
         self.size = size
         self.exports = exports    # export name -> absolute address
@@ -718,6 +722,7 @@ class SafeDiscEmulator:
         self.services: dict[str, dict] = {}
         self.service_handles: dict[int, str] = {}
         self.antidebug_probes: list[str] = []
+        self.registry_probes: list[str] = []
         self.sleep_ms = 0
         self.fake_secdrv = False
         self.secdrv_seed = 0x00100000
@@ -1227,7 +1232,18 @@ class SafeDiscEmulator:
         # Returning only a length leaves the caller parsing stack garbage,
         # which is how the loader ended up executing off the stack.
         if name in ("GetModuleFileNameA", "GetModuleFileNameW"):
-            return self.write_cstr(args[1], self.emulated_exe_path, args[2], name.endswith("W"))
+            # MUST honour hModule. AuthServ asks for its OWN path and stricmp's
+            # the basename against "~de36b4.tmp"; returning the exe's path for a
+            # DLL handle is a failed self-check, and that is exactly the 0x44
+            # verdict that has been blocking the media stage
+            # (AuthServ 0x10316B8D -> stricmp at 0x10316C15 -> mov eax, 0x44).
+            handle = args[0] if args else 0
+            path = self.emulated_exe_path
+            if handle and handle != self.image_base:
+                module = self.modules_by_base.get(handle)
+                if module is not None:
+                    path = module.load_path or (EMULATED_GAME_DIR + "\\" + module.name)
+            return self.write_cstr(args[1], path, args[2], name.endswith("W"))
 
         if name in ("GetTempPathA", "GetTempPathW"):
             return self.write_cstr(args[1], EMULATED_TEMP_PATH, args[0], name.endswith("W"))
@@ -1280,6 +1296,30 @@ class SafeDiscEmulator:
                 self.uc.mem_write(args[0], b"\x00" * 0x44)
                 self.uc.mem_write(args[0], struct.pack("<I", 0x44))  # cb
             return 1
+
+        if name in ("GetProfileIntA", "GetProfileIntW",
+                    "GetPrivateProfileIntA", "GetPrivateProfileIntW"):
+            # Returns nDefault when the key is absent, and with no emulated
+            # win.ini every key is absent. The generic "return 1" said the value
+            # was 1, and AuthServ reads C-DILLA\TESTMESSAGES -- SafeDisc's own
+            # diagnostic switch -- rejecting with status 0x46 when it is set.
+            default_index = 2 if name.startswith("GetProfileInt") else 3
+            section = self.read_cstr(args[0], wide=name.endswith("W")) if args[0] else ""
+            key = self.read_cstr(args[1], wide=name.endswith("W")) if len(args) > 1 and args[1] else ""
+            self.registry_probes.append(f"{section}/{key}")
+            return args[default_index] if len(args) > default_index else 0
+
+        if name in ("GetProfileStringA", "GetProfileStringW",
+                    "GetPrivateProfileStringA", "GetPrivateProfileStringW"):
+            # Same rule: copy the supplied default into the output buffer.
+            default_index = 2 if name.startswith("GetProfileString") else 3
+            out_index, size_index = default_index + 1, default_index + 2
+            text = (self.read_cstr(args[default_index], wide=name.endswith("W"))
+                    if len(args) > default_index and args[default_index] else "")
+            if len(args) > out_index and args[out_index]:
+                limit = args[size_index] if len(args) > size_index else 260
+                return self.write_cstr(args[out_index], text, limit, name.endswith("W"))
+            return 0
 
         if name in ("GetACP", "GetOEMCP"):
             return 1252
@@ -1590,7 +1630,18 @@ class SafeDiscEmulator:
         # left the out-parameter handle uninitialised, which is what sent the
         # first version of this harness off to EIP 0x10.
         if name.startswith("Reg"):
-            if name in ("RegCreateKeyA", "RegCreateKeyW", "RegOpenKeyA", "RegOpenKeyW"):
+            # OPENING a key must FAIL: there is no emulated registry, so every
+            # key is absent, and reporting success says "this key exists".
+            # AuthServ probes C-DILLA\TESTMESSAGES -- SafeDisc's own diagnostic
+            # switch -- and treats a hit as test mode, refusing with status 0x46.
+            # Creating a key still succeeds; that is what CREATE means.
+            if name in ("RegOpenKeyA", "RegOpenKeyW", "RegOpenKeyExA", "RegOpenKeyExW"):
+                self.registry_probes.append(
+                    self.read_cstr(args[1], wide=name.endswith("W")) if len(args) > 1 and args[1] else "")
+                self.last_error = 2
+                return 2  # ERROR_FILE_NOT_FOUND
+
+            if name in ("RegCreateKeyA", "RegCreateKeyW"):
                 if len(args) > 2 and args[2]:
                     self.uc.mem_write(args[2], struct.pack("<I", self.alloc_registry_key()))
             elif name in ("RegCreateKeyExA", "RegCreateKeyExW"):
@@ -1598,9 +1649,6 @@ class SafeDiscEmulator:
                     self.uc.mem_write(args[7], struct.pack("<I", self.alloc_registry_key()))
                 if len(args) > 8 and args[8]:
                     self.uc.mem_write(args[8], struct.pack("<I", 1))  # REG_CREATED_NEW_KEY
-            elif name in ("RegOpenKeyExA", "RegOpenKeyExW"):
-                if len(args) > 4 and args[4]:
-                    self.uc.mem_write(args[4], struct.pack("<I", self.alloc_registry_key()))
             elif name in ("RegQueryValueExA", "RegQueryValueExW", "RegQueryValueA"):
                 return 2  # ERROR_FILE_NOT_FOUND - honest, and a normal path
             return 0  # ERROR_SUCCESS
@@ -1671,6 +1719,15 @@ class SafeDiscEmulator:
 
         if name in ("GetDriveTypeA", "GetDriveTypeW"):
             return 5  # DRIVE_CDROM - keeps a disc-presence scan moving
+
+        if name in ("GetLogicalDriveStringsA", "GetLogicalDriveStringsW"):
+            # Was falling through to a bare "return 1" with the buffer left
+            # untouched, so a drive enumeration parsed stack garbage.
+            drives = "C:" + BACKSLASH + NUL + "D:" + BACKSLASH + NUL + "E:" + BACKSLASH + NUL + NUL
+            if args[0] < len(drives):
+                return len(drives)          # required size, as documented
+            self.uc.mem_write(args[1], drives.encode("latin1"))
+            return len(drives) - 1          # excludes the terminating NUL
 
         if name == "GetLogicalDrives":
             return 0b0000_0000_0000_0000_0000_0000_0001_1100  # C:, D:, E:
@@ -2118,6 +2175,7 @@ class SafeDiscEmulator:
 
         entry = base + pe.OPTIONAL_HEADER.AddressOfEntryPoint if pe.OPTIONAL_HEADER.AddressOfEntryPoint else 0
         module = LoadedModule(key, base, size, exports, entry)
+        module.load_path = path
         self.module_sections[key] = [
             (s.Name.rstrip(b"\x00").decode("latin1", "replace"), s.VirtualAddress,
              s.VirtualAddress + max(s.Misc_VirtualSize, s.SizeOfRawData),
@@ -3301,7 +3359,9 @@ ARG_COUNTS: dict[str, int] = {
     "CreateHalftonePalette": 1, "CreatePalette": 1, "DeleteObject": 1,
     "EnumWindows": 2, "GetClientRect": 2, "GetDC": 1, "GetDIBColorTable": 4,
     "GetDesktopWindow": 0, "GetDeviceCaps": 2, "GetObjectA": 3,
-    "GetProfileIntA": 3, "GetProfileStringA": 5, "GetWindowThreadProcessId": 2,
+    "GetProfileIntA": 3, "GetProfileStringA": 5, "GetProfileIntW": 3,
+    "GetPrivateProfileIntA": 4, "GetPrivateProfileStringA": 6,
+    "GetProfileStringW": 5, "GetPrivateProfileIntW": 4, "GetWindowThreadProcessId": 2,
     "LoadImageA": 6, "PeekMessageA": 5, "RealizePalette": 1, "ReleaseDC": 2,
     "SelectObject": 2, "SelectPalette": 3, "SetForegroundWindow": 1,
     "StretchBlt": 11, "SystemParametersInfoA": 4, "CreateCompatibleBitmap": 3,
