@@ -91,7 +91,65 @@ public static class N64AssetCarver
             }
         }
 
+        NameBundles(assets);
         return true;
+    }
+
+    /// <summary>
+    ///     Renames model-bundle shells from bare slots to <c>{slot}_{name}</c>.
+    ///     <para>
+    ///         This is a POST-PASS rather than part of <see cref="EmitEntry" />
+    ///         because the primary name source is cross-cutting: a trigger names
+    ///         a whole level's files at once, and placing that set onto its slot
+    ///         run needs every bundle in hand. Per-entry naming could only ever
+    ///         reach the content fallback.
+    ///     </para>
+    /// </summary>
+    private static void NameBundles(List<CarvedAsset> assets)
+    {
+        var bundles = new List<N64BundleNameResolver.Bundle>();
+        var indices = new List<int>();
+        var triggers = new List<byte[]>();
+
+        for (var i = 0; i < assets.Count; i++)
+        {
+            var path = assets[i].Path;
+            if (path.StartsWith(TriggerRole + "/", StringComparison.Ordinal)
+                && path.EndsWith(TrgExtension, StringComparison.Ordinal))
+            {
+                triggers.Add(assets[i].Data);
+                continue;
+            }
+
+            if (!path.StartsWith(ModelRole + "/", StringComparison.Ordinal)
+                || !path.EndsWith(PsxExtension, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var slash = path.LastIndexOf('/');
+            var slot = path[(path.LastIndexOf('/', slash - 1) + 1)..slash];
+            bundles.Add(new N64BundleNameResolver.Bundle(slot, assets[i].Data));
+            indices.Add(i);
+        }
+
+        if (bundles.Count == 0)
+            return;
+
+        var names = N64BundleNameResolver.Resolve(bundles, triggers);
+        for (var b = 0; b < bundles.Count; b++)
+        {
+            if (!names.TryGetValue(bundles[b].Slot, out var name))
+                continue;
+
+            var index = indices[b];
+            var path = assets[index].Path;
+            var directory = path[..(path.LastIndexOf('/') + 1)];
+            assets[index] = assets[index] with
+            {
+                Path = $"{directory}{SlotPrefixed(bundles[b].Slot, SanitizeStem(name))}{PsxExtension}"
+            };
+        }
     }
 
     /// <summary>Concatenates a compressed group's decoded 16 KB blocks into its logical stream.</summary>
@@ -111,6 +169,14 @@ public static class N64AssetCarver
 
     /// <summary>Role name of the texture-dictionary stream; its files are slot-prefixed.</summary>
     private const string TextureRole = "textures";
+
+    /// <summary>Role names the bundle-naming post-pass addresses assets by.</summary>
+    private const string ModelRole = "models";
+
+    private const string TriggerRole = "triggers";
+
+    private const string PsxExtension = ".psx.n64";
+    private const string TrgExtension = ".trg.n64";
 
     private static void CarveStream(byte[] stream, int groupIndex, List<CarvedAsset> assets, HashSet<string> usedDirs)
     {
@@ -162,21 +228,17 @@ public static class N64AssetCarver
             // 4-slot model bundle; the slot layout is fixed (object table,
             // bounds, PSX container, render-bank link) across all four games.
             //
-            // The geometry file is named for the PS1 file it IS. The ports kept
-            // Neversoft's containers whole, so a bundle's mesh-name-hash set
-            // identifies its source file (N64BundleNames; 433/450 across the
-            // four carts). The slot stays as a prefix for the same reason
-            // textures keep theirs — it is the games' own asset-id space, an
-            // unresolved bundle still needs a name, and two bundles can hold
-            // genuinely identical content (skss_o / skss_o2). The three
-            // companions are only ever resolved relative to this file, so they
-            // keep their fixed names, and the DIRECTORY stays numeric because
-            // ArchiveAssetSource disambiguates ~141 identically-named
-            // companions by it.
+            // The geometry file is emitted with the bare slot; NameBundles
+            // renames it afterwards, once every bundle and every trigger is in
+            // hand. The slot stays as a prefix even when a name is found — it is
+            // the games' own asset-id space, an unnamed bundle still needs
+            // something, and two bundles can hold genuinely identical content
+            // (skss_o / skss_o2). The three companions are only ever resolved
+            // relative to this file so they keep their fixed names, and the
+            // DIRECTORY stays numeric because ArchiveAssetSource disambiguates
+            // ~141 identically-named companions by it.
             var t = cls.TableOffsets!;
-            var shell = data[t[2]..t[3]];
-            var bundleName = SlotPrefixed(slotName, SanitizeStem(N64BundleNames.TryResolveShell(shell)));
-            assets.Add(new CarvedAsset($"{dir}/{slotName}/{bundleName}.psx.n64", shell));
+            assets.Add(new CarvedAsset($"{dir}/{slotName}/{slotName}{PsxExtension}", data[t[2]..t[3]]));
             assets.Add(new CarvedAsset($"{dir}/{slotName}/objects.bin", data[t[0]..t[1]]));
             assets.Add(new CarvedAsset($"{dir}/{slotName}/bounds.bin", data[t[1]..t[2]]));
             assets.Add(new CarvedAsset($"{dir}/{slotName}/renderbank-id.bin", data[t[3]..t[4]]));
@@ -216,12 +278,12 @@ public static class N64AssetCarver
         if (data.Length >= 8)
         {
             if (StartsWithAscii(data, "GRT_"))
-                return new Classification(Kind.Trg, ".trg.n64", null, null);
+                return new Classification(Kind.Trg, TrgExtension, null, null);
 
             // u32-byteswapped PSX container: BE word 0x0002000v = LE u16
             // version v in {3,4,6} + u16 magic 0x0002.
             if (IsPsxHead(data, 0))
-                return new Classification(Kind.Psx, ".psx.n64", null, null);
+                return new Classification(Kind.Psx, PsxExtension, null, null);
         }
 
         if (StartsWithAscii(data, "#ifndef"))
@@ -326,9 +388,9 @@ public static class N64AssetCarver
         int CountOf(Kind kind) => entries.Count(entry => entry.Cls.Kind == kind);
 
         if (CountOf(Kind.Bundle) > 0)
-            return "models";
+            return ModelRole;
         if (CountOf(Kind.Trg) > 0)
-            return "triggers";
+            return TriggerRole;
         if (CountOf(Kind.Texture) >= Math.Max(1, entries.Count / 2))
             return TextureRole;
         if (CountOf(Kind.Image) > 0)
