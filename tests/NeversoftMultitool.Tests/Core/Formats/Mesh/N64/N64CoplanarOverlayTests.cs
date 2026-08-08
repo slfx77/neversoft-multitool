@@ -17,13 +17,13 @@ public sealed class N64CoplanarOverlayTests(TestPaths paths)
     private const string Thps1N64Build = "Tony Hawk's Pro Skater (2000-2-29, N64 - Final)";
     private const string RomName = "Tony Hawk's Pro Skater (USA).z64";
 
-    private ModelDocument ParseBundle(string bundlePath, out IArchiveFileSystem fs)
+    private ModelDocument ParseBundle(string slot, out IArchiveFileSystem fs)
     {
         var romPath = paths.FindSampleFile(Thps1N64Build, RomName);
         Assert.SkipWhen(romPath == null, "THPS1 N64 ROM sample not available");
         fs = ArchiveFileSystem.TryOpen(romPath!)!;
         var backend = ArchiveAssetBackend.TryOpen(romPath!)!;
-        var entry = backend.FindByPath(bundlePath)!;
+        var entry = N64Bundles.FindBundle(backend, slot);
         var source = new ArchiveAssetSource(backend, entry);
 
         return new MeshModelParser().Parse(new MeshImportRequest
@@ -72,7 +72,7 @@ public sealed class N64CoplanarOverlayTests(TestPaths paths)
     [Fact]
     public void Downtown_SplitsItsDecalsIntoDrawOrderedOverlayMeshes()
     {
-        var document = ParseBundle("models/004/geometry_004.psx.n64", out var fs);
+        var document = ParseBundle("004", out var fs);
         using var _ = fs;
 
         var overlays = Overlays(document).ToList();
@@ -91,7 +91,7 @@ public sealed class N64CoplanarOverlayTests(TestPaths paths)
     [Fact]
     public void OverlayLift_PointsOutOfTheSurface()
     {
-        var document = ParseBundle("models/004/geometry_004.psx.n64", out var fs);
+        var document = ParseBundle("004", out var fs);
         using var _ = fs;
 
         var overlays = Overlays(document).ToList();
@@ -113,9 +113,9 @@ public sealed class N64CoplanarOverlayTests(TestPaths paths)
     ///     measurement here is meaningless.
     /// </summary>
     [Theory]
-    [InlineData("models/004/geometry_004.psx.n64", 9875)]
-    [InlineData("models/014/geometry_014.psx.n64", 10781)]
-    [InlineData("models/061/geometry_061.psx.n64", 264)]
+    [InlineData("004", 9875)]
+    [InlineData("014", 10781)]
+    [InlineData("061", 264)]
     public void OverlaySplit_LeavesTriangleCountsUnchanged(string bundle, int expected)
     {
         var document = ParseBundle(bundle, out var fs);
@@ -133,7 +133,7 @@ public sealed class N64CoplanarOverlayTests(TestPaths paths)
     [Fact]
     public void Medals_HaveNoOverlaysBecauseTheirCoplanarPairsFaceOppositeWays()
     {
-        var document = ParseBundle("models/061/geometry_061.psx.n64", out var fs);
+        var document = ParseBundle("061", out var fs);
         using var _ = fs;
         Assert.Empty(Overlays(document));
         Assert.DoesNotContain(document.Meshes, m => m.Name.Contains("__overlay", StringComparison.Ordinal));

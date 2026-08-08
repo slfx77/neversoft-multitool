@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using NeversoftMultitool.Core.Formats.Mesh.N64;
 
 namespace NeversoftMultitool.Core.Formats.N64;
 
@@ -17,7 +18,11 @@ namespace NeversoftMultitool.Core.Formats.N64;
 ///     written with platform-suffixed extensions (<c>.psx.n64</c> etc., the
 ///     same convention as GameCube's <c>.img.ngc</c>). Slot indices are kept
 ///     in file names because they ARE the games' asset-id space (empty slots
-///     are authored placeholders, not decode losses).
+///     are authored placeholders, not decode losses). Model bundles and texture
+///     records additionally carry a recovered NAME after the slot where one can
+///     be established — for a bundle from its content
+///     (<see cref="Mesh.N64.N64BundleNames" />), for a texture from the record's
+///     own embedded string.
 ///
 ///     Stream roles observed (order varies per game; detection is
 ///     content-driven, not positional): model bank (4-slot bundles: PSX object
@@ -156,22 +161,30 @@ public static class N64AssetCarver
         {
             // 4-slot model bundle; the slot layout is fixed (object table,
             // bounds, PSX container, render-bank link) across all four games.
-            // The geometry file carries the bundle slot in its NAME as well as
-            // its directory: it is the one asset opened standalone, and a tree
-            // (or a file list) full of identical "geometry.psx.n64" rows cannot
-            // be told apart. Its three companions are only ever resolved
-            // relative to it, so they keep their fixed names.
+            //
+            // The geometry file is named for the PS1 file it IS. The ports kept
+            // Neversoft's containers whole, so a bundle's mesh-name-hash set
+            // identifies its source file (N64BundleNames; 433/450 across the
+            // four carts). The slot stays as a prefix for the same reason
+            // textures keep theirs — it is the games' own asset-id space, an
+            // unresolved bundle still needs a name, and two bundles can hold
+            // genuinely identical content (skss_o / skss_o2). The three
+            // companions are only ever resolved relative to this file, so they
+            // keep their fixed names, and the DIRECTORY stays numeric because
+            // ArchiveAssetSource disambiguates ~141 identically-named
+            // companions by it.
             var t = cls.TableOffsets!;
-            assets.Add(new CarvedAsset($"{dir}/{slotName}/geometry_{slotName}.psx.n64", data[t[2]..t[3]]));
+            var shell = data[t[2]..t[3]];
+            var bundleName = SlotPrefixed(slotName, SanitizeStem(N64BundleNames.TryResolveShell(shell)));
+            assets.Add(new CarvedAsset($"{dir}/{slotName}/{bundleName}.psx.n64", shell));
             assets.Add(new CarvedAsset($"{dir}/{slotName}/objects.bin", data[t[0]..t[1]]));
             assets.Add(new CarvedAsset($"{dir}/{slotName}/bounds.bin", data[t[1]..t[2]]));
             assets.Add(new CarvedAsset($"{dir}/{slotName}/renderbank-id.bin", data[t[3]..t[4]]));
             return;
         }
 
-        var baseName = cls.Name is { Length: > 0 } named ? Sanitize(named) : slotName;
-        if (baseName.Length == 0)
-            baseName = slotName;
+        var sanitized = cls.Name is { Length: > 0 } named ? Sanitize(named) : "";
+        var baseName = sanitized.Length > 0 ? sanitized : slotName;
 
         // Texture records are addressed BY SLOT: a render-bank group names its
         // texture as a u16 index into this dictionary, and empty slots mean the
@@ -179,7 +192,7 @@ public static class N64AssetCarver
         // Prefixing keeps the index recoverable while preserving the embedded
         // name — including the psxtxt_<id> cross-platform join key.
         if (role == TextureRole && cls.Kind == Kind.Texture)
-            baseName = $"{slotName}_{baseName}";
+            baseName = SlotPrefixed(slotName, sanitized);
 
         if (!usedNames.Add(baseName + cls.Extension))
         {
@@ -398,6 +411,35 @@ public static class N64AssetCarver
         foreach (var c in name)
             builder.Append(char.IsAsciiLetterOrDigit(c) || c is '_' or '-' or '.' ? c : '_');
         return builder.ToString().Trim('.');
+    }
+
+    /// <summary>
+    ///     <see cref="Sanitize" /> for a name that becomes a file STEM ahead of a
+    ///     compound extension. Dots are mapped out entirely rather than merely
+    ///     trimmed: <c>MeshTypeDetector</c> matches suffixes longest-first, so a
+    ///     stem containing a dot could otherwise manufacture a competing
+    ///     extension and route the asset to the wrong reader.
+    /// </summary>
+    private static string SanitizeStem(string? name)
+    {
+        if (name is not { Length: > 0 })
+            return "";
+
+        var builder = new StringBuilder(name.Length);
+        foreach (var c in name)
+            builder.Append(char.IsAsciiLetterOrDigit(c) || c is '_' or '-' ? c : '_');
+        return builder.ToString();
+    }
+
+    /// <summary>
+    ///     <c>{slot}_{name}</c>, or the bare slot when nothing named the asset.
+    ///     Slot-prefixing keeps the games' own asset-id space recoverable from a
+    ///     file name — a carved file's ordinal is NOT its slot once a dictionary
+    ///     has holes — while still letting a recovered name identify the row.
+    /// </summary>
+    private static string SlotPrefixed(string slotName, string name)
+    {
+        return name.Length > 0 ? $"{slotName}_{name}" : slotName;
     }
 
     private static string UniqueDir(HashSet<string> usedDirs, string role, int groupIndex)

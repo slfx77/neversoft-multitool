@@ -18,13 +18,13 @@ public sealed class N64ModelParseTests(TestPaths paths)
     private const string Thps2N64Build = "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)";
     private const string RomName = "Tony Hawk's Pro Skater 2 (USA).z64";
 
-    private ModelDocument ParseBundle(string bundlePath, out IArchiveFileSystem fs)
+    private ModelDocument ParseBundle(string slot, out IArchiveFileSystem fs)
     {
         var romPath = paths.FindSampleFile(Thps2N64Build, RomName);
         Assert.SkipWhen(romPath == null, "THPS2 N64 ROM sample not available");
         fs = ArchiveFileSystem.TryOpen(romPath!)!;
         var backend = ArchiveAssetBackend.TryOpen(romPath!)!;
-        var entry = backend.FindByPath(bundlePath)!;
+        var entry = N64Bundles.FindBundle(backend, slot);
         var source = new ArchiveAssetSource(backend, entry);
 
         return new MeshModelParser().Parse(new MeshImportRequest
@@ -39,7 +39,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
     [Fact]
     public void Parse_ProducesTheShellSkeletonAndRenderBankMetadata()
     {
-        var document = ParseBundle("models/000/geometry_000.psx.n64", out var fs);
+        var document = ParseBundle("000", out var fs);
         using var _ = fs;
 
         Assert.Equal(ModelSourceKind.N64Model, document.SourceKind);
@@ -71,7 +71,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
     [Fact]
     public void Document_ExportsAValidGlbWithGeometry()
     {
-        var document = ParseBundle("models/000/geometry_000.psx.n64", out var fs);
+        var document = ParseBundle("000", out var fs);
         using var _ = fs;
 
         var (glb, triangles) = ModelExportService.BuildGlbBytes(document);
@@ -92,7 +92,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
         // models/049 is a 24-byte authored-empty shell.
         var error = Assert.Throws<InvalidOperationException>(() =>
         {
-            var document = ParseBundle("models/049/geometry_049.psx.n64", out var fs);
+            var document = ParseBundle("049", out var fs);
             fs.Dispose();
             return document;
         });

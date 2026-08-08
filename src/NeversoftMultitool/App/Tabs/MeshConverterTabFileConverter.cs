@@ -5,6 +5,7 @@ using NeversoftMultitool.Core.Formats.Collision;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
+using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats.Mesh.Lit;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
@@ -140,11 +141,8 @@ internal static class MeshConverterTabFileConverter
 
     private static string GetOutputStem(MeshFileEntry entry)
     {
-        // A bundle's identity is its slot, which its directory carries and its
-        // file name repeats — take the directory so the output keeps the stable
-        // n64_NNN name regardless of how the file itself is spelled.
         if (entry.IsN64Model)
-            return "n64_" + Path.GetFileName(Path.GetDirectoryName(entry.FilePath.Replace('\\', '/')) ?? "model");
+            return MeshTypeDetector.GetN64BundleStem(entry.FileName);
 
         return MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
     }

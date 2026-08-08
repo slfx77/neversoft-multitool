@@ -319,17 +319,14 @@ public static class MeshCommand
     }
 
     /// <summary>
-    ///     A carved N64 bundle takes its stem from the parent directory, which
-    ///     is the bundle slot — a stable n64_NNN independent of how the file
-    ///     itself is spelled. Everything else uses the shared stem rule.
+    ///     A carved N64 bundle takes the shared N64 stem rule (slot plus the
+    ///     recovered PS1 name); everything else uses the plain stem rule.
     /// </summary>
     private static string OutputStemFor(string file, in MeshFileRoute route)
     {
-        if (route.Kind != MeshFileKind.N64Model)
-            return MeshTypeDetector.GetStem(file);
-
-        var bundleDir = Path.GetFileName(Path.GetDirectoryName(file));
-        return string.IsNullOrEmpty(bundleDir) ? "n64_model" : $"n64_{bundleDir}";
+        return route.Kind == MeshFileKind.N64Model
+            ? MeshTypeDetector.GetN64BundleStem(file)
+            : MeshTypeDetector.GetStem(file);
     }
 
     private static bool HasPlacedPsxCompanion(string file, string? psxPath)

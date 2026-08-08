@@ -116,8 +116,14 @@ public sealed class N64RomArchiveTests(TestPaths paths)
         Assert.Equal(163, CountUnder("group2")); // N64-native render bank, format still open
         Assert.Equal(8, CountUnder("audio"));    // raw wavetable + instrument banks
         Assert.Contains(entries, static entry => entry.Name == "boot.bin");
+        // Slot 045 is a shared-rig character: 433 of 450 bundles match a PS1
+        // file, but nine unrelated skaters share this content key, so it keeps
+        // the bare slot rather than claiming one of their names.
         Assert.Contains(entries, static entry =>
-            entry.Name == "models/045/geometry_045.psx.n64" && entry.Size == 587_000);
+            entry.Name == "models/045/045.psx.n64" && entry.Size == 587_000);
+        // ...and one bundle content DOES name, which is the whole point of
+        // N64BundleNames: the slot stays as a prefix, the name identifies it.
+        Assert.Contains(entries, static entry => entry.Name == "models/008/008_c_kart.psx.n64");
         Assert.Contains(entries, static entry => entry.Name == "textures/0000_abutton.tex.n64");
         Assert.Contains(entries, static entry => entry.Name == "misc/anims_fe.psh");
     }

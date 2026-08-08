@@ -25,13 +25,13 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
     private const string Thps1N64Build = "Tony Hawk's Pro Skater (2000-2-29, N64 - Final)";
     private const string RomName = "Tony Hawk's Pro Skater (USA).z64";
 
-    private ModelDocument ParseBundle(string bundlePath, out IArchiveFileSystem fs)
+    private ModelDocument ParseBundle(string slot, out IArchiveFileSystem fs)
     {
         var romPath = paths.FindSampleFile(Thps1N64Build, RomName);
         Assert.SkipWhen(romPath == null, "THPS1 N64 ROM sample not available");
         fs = ArchiveFileSystem.TryOpen(romPath!)!;
         var backend = ArchiveAssetBackend.TryOpen(romPath!)!;
-        var entry = backend.FindByPath(bundlePath)!;
+        var entry = N64Bundles.FindBundle(backend, slot);
         var source = new ArchiveAssetSource(backend, entry);
 
         return new MeshModelParser().Parse(new MeshImportRequest
@@ -46,7 +46,7 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
     [Fact]
     public void AverageBlendWithOneBitArt_BecomesAlphaTestSoItWritesDepth()
     {
-        var document = ParseBundle("models/030/geometry_030.psx.n64", out var fs);
+        var document = ParseBundle("030", out var fs);
         using var _ = fs;
 
         // Texture 0xD51A321B: 1,687 fully transparent texels, 2,409 fully
@@ -64,7 +64,7 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
     [Fact]
     public void AdditiveBlend_KeepsBlendingEvenWithOneBitArt()
     {
-        var document = ParseBundle("models/030/geometry_030.psx.n64", out var fs);
+        var document = ParseBundle("030", out var fs);
         using var _ = fs;
 
         // Texture 0xDD1BBB66 is one-bit art too (764 transparent, 3,332
@@ -89,7 +89,7 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
     [Fact]
     public void AverageBlendWithNoArtAlpha_BecomesFiftyPercentGlass()
     {
-        var document = ParseBundle("models/004/geometry_004.psx.n64", out var fs);
+        var document = ParseBundle("004", out var fs);
         using var _ = fs;
 
         var material = Assert.Single(
@@ -116,7 +116,7 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
     [Fact]
     public void Medals_HaveNoBlendedMaterialsAtAll()
     {
-        var document = ParseBundle("models/061/geometry_061.psx.n64", out var fs);
+        var document = ParseBundle("061", out var fs);
         using var _ = fs;
 
         Assert.Equal(264, document.TriangleCount);

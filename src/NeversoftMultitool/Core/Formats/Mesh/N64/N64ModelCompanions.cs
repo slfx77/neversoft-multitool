@@ -7,7 +7,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.N64;
 
 /// <summary>
 ///     Locates the companions of a carved N64 model bundle. A bundle is a
-///     directory <c>models/NNN/</c> holding <c>geometry_NNN.psx.n64</c> (the
+///     directory <c>models/NNN/</c> holding <c>NNN_&lt;name&gt;.psx.n64</c> (the
 ///     PSX shell), <c>objects.bin</c>, <c>bounds.bin</c> and
 ///     <c>renderbank-id.bin</c>; the geometry it refers to lives OUTSIDE that
 ///     directory, in <c>group2/&lt;id&gt;.bin</c>, and its art in

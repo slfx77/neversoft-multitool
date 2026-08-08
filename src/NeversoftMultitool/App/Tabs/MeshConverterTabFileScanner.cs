@@ -525,7 +525,8 @@ internal static class MeshConverterTabFileScanner
 
     /// <summary>
     ///     A carved N64 model bundle. The carver puts the bundle slot in the
-    ///     file name (geometry_NNN.psx.n64), so the row identifies itself; the
+    ///     file name, together with the PS1 name its content resolved to
+    ///     (NNN_<name>.psx.n64), so the row identifies itself; the
     ///     geometry count comes from the linked render bank rather than the
     ///     shell, which holds no mesh chunks.
     /// </summary>

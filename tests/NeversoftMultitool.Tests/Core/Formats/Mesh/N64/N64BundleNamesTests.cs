@@ -79,18 +79,55 @@ public sealed class N64BundleNamesTests(TestPaths paths)
     }
 
     /// <summary>
-    ///     Content identity is genuinely one-of-N in places: <c>skss_o</c> and
-    ///     <c>skss_o2</c> are the one- and two-player object banks and hold the
-    ///     same meshes. Both names are true of the content, so both are kept —
-    ///     <see cref="N64BundleNames.TryResolve" /> takes the first and the
-    ///     carver's slot prefix keeps the emitted path unique regardless.
+    ///     Content identity is genuinely one-of-N in places. Where the
+    ///     candidates share a stem that is ITSELF one of them, that stem is a
+    ///     name every candidate agrees on: <c>skss_o</c> and <c>skss_o2</c> are
+    ///     the one- and two-player object banks of the same level.
     /// </summary>
     [Fact]
-    public void ResolveAll_ExposesEveryCandidateForAnAmbiguousKey()
+    public void TryResolve_UsesASharedStemWhenEveryCandidateAgreesOnIt()
     {
-        var all = N64BundleNames.ResolveAll(0x001A135A20CCF311);
-        Assert.Equal(["skss_o", "skss_o2"], all);
+        Assert.Equal(["skss_o", "skss_o2"], N64BundleNames.ResolveAll(0x001A135A20CCF311));
         Assert.Equal("skss_o", N64BundleNames.TryResolve(0x001A135A20CCF311));
+
+        // glif | glif2 | glif2b | glif_fe — one skater's model set.
+        Assert.Equal("glif", N64BundleNames.TryResolve(0x545973AADD4D3E81));
+    }
+
+    /// <summary>
+    ///     The refusal that keeps names honest. Characters built on a shared rig
+    ///     are INDISTINGUISHABLE by content — every THPS2 skater carries the same
+    ///     19 part names and the same part positions — so one key covers nine
+    ///     unrelated files. Returning the first would name more bundles at the
+    ///     cost of asserting something false, so the bundle keeps its slot.
+    /// </summary>
+    [Fact]
+    public void TryResolve_RefusesToPickAmongUnrelatedCandidates()
+    {
+        var skaters = N64BundleNames.ResolveAll(0xFEA7ED5AFFEE27DF);
+        Assert.Contains("hawk", skaters);
+        Assert.Contains("secret1", skaters);
+        Assert.Null(N64BundleNames.TryResolve(0xFEA7ED5AFFEE27DF));
+
+        // l9a3_o | l9a4_o | lba3_o | lba4_o — four different levels' banks that
+        // happen to hold the same four meshes. "l" is not a name.
+        Assert.Null(N64BundleNames.TryResolve(0xF777611E317A2538));
+    }
+
+    /// <summary>
+    ///     A shared prefix must BE a candidate, never merely a prefix, or the
+    ///     rule would invent names nobody has — <c>c_bus</c> + <c>c_bull</c>
+    ///     would otherwise yield <c>c_bu</c>. 21 keys are in that shape.
+    /// </summary>
+    [Fact]
+    public void TryResolve_NeverInventsAPrefixThatIsNotItselfACandidate()
+    {
+        foreach (var key in new ulong[] { 0xFEA7ED5AFFEE27DF, 0xF777611E317A2538 })
+        {
+            var resolved = N64BundleNames.TryResolve(key);
+            if (resolved != null)
+                Assert.Contains(resolved, N64BundleNames.ResolveAll(key));
+        }
     }
 
     [Fact]
@@ -112,17 +149,19 @@ public sealed class N64BundleNamesTests(TestPaths paths)
     public static TheoryData<string, string, int, int> RomCoverage() => new()
     {
         // ROM build, file, minimum resolved, parsed shells.
-        // Measured 2026-08-07 by the harvest's own coverage report.
-        { "Tony Hawk's Pro Skater (2000-2-29, N64 - Final)", "Tony Hawk's Pro Skater (USA).z64", 65, 65 },
-        { "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)", "Tony Hawk's Pro Skater 2 (USA).z64", 108, 116 },
-        { "Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)", "Tony Hawk's Pro Skater 3 (USA).z64", 84, 87 },
-        { "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64", 176, 182 }
+        // Measured 2026-08-07. "Resolved" counts only names that are TRUE of the
+        // content — 433 of 450 bundles match some PS1 file, but 104 of those
+        // matches are shared-rig characters no content key can separate.
+        { "Tony Hawk's Pro Skater (2000-2-29, N64 - Final)", "Tony Hawk's Pro Skater (USA).z64", 59, 65 },
+        { "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)", "Tony Hawk's Pro Skater 2 (USA).z64", 78, 116 },
+        { "Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)", "Tony Hawk's Pro Skater 3 (USA).z64", 63, 87 },
+        { "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64", 129, 182 }
     };
 
     /// <summary>
     ///     Coverage against the real carts. These are floors, not equalities: a
     ///     better harvest should raise them, and only a regression can lower
-    ///     them. 433/450 overall (96.2%) when this was written.
+    ///     them. 329/450 overall when this was written.
     /// </summary>
     [CorpusTheory]
     [MemberData(nameof(RomCoverage))]

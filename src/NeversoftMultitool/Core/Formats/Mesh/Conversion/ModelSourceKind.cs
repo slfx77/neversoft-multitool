@@ -16,7 +16,7 @@ public enum ModelSourceKind
 
     /// <summary>
     ///     A model bundle carved from an N64 ROM: the PSX shell
-    ///     (<c>geometry_NNN.psx.n64</c>) plus its <c>group2/</c> render bank.
+    ///     (<c>models/NNN/NNN_&lt;name&gt;.psx.n64</c>) plus its <c>group2/</c> render bank.
     /// </summary>
     N64Model
 }

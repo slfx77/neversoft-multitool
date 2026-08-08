@@ -42,12 +42,12 @@ public sealed class N64LightingTests(TestPaths paths)
         return romPath!;
     }
 
-    private ModelDocument ParseBundle(string bundlePath, out IArchiveFileSystem fs)
+    private ModelDocument ParseBundle(string slot, out IArchiveFileSystem fs)
     {
         var romPath = RomPath();
         fs = ArchiveFileSystem.TryOpen(romPath)!;
         var backend = ArchiveAssetBackend.TryOpen(romPath)!;
-        var entry = backend.FindByPath(bundlePath)!;
+        var entry = N64Bundles.FindBundle(backend, slot);
         var source = new ArchiveAssetSource(backend, entry);
 
         return new MeshModelParser().Parse(new MeshImportRequest
@@ -125,7 +125,7 @@ public sealed class N64LightingTests(TestPaths paths)
     [Fact]
     public void LitCharacter_IsShadedByTheRigAndNeverWhite()
     {
-        var document = ParseBundle("models/074/geometry_074.psx.n64", out var fs);
+        var document = ParseBundle("074", out var fs);
         using var _ = fs;
 
         var (min, max, chroma) = ColourStats(document);
@@ -142,7 +142,7 @@ public sealed class N64LightingTests(TestPaths paths)
     [Fact]
     public void LitModelWithZeroNormals_ShadesToFlatAmbient()
     {
-        var document = ParseBundle("models/045/geometry_045.psx.n64", out var fs);
+        var document = ParseBundle("045", out var fs);
         using var _ = fs;
 
         var (min, max, chroma) = ColourStats(document);
@@ -158,8 +158,8 @@ public sealed class N64LightingTests(TestPaths paths)
     ///     at roughly 0.3 mean.
     /// </summary>
     [Theory]
-    [InlineData("models/004/geometry_004.psx.n64")]   // Downtown, the user's report
-    [InlineData("models/008/geometry_008.psx.n64")]   // c_kart, which the geometric oracle mis-read as lit
+    [InlineData("004")]   // Downtown, the user's report
+    [InlineData("008")]   // c_kart, which the geometric oracle mis-read as lit
     public void UnlitBank_KeepsItsAuthoredColour(string bundle)
     {
         var document = ParseBundle(bundle, out var fs);

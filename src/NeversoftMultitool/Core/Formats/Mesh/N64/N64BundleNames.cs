@@ -12,9 +12,11 @@ namespace NeversoftMultitool.Core.Formats.Mesh.N64;
 ///         containers big-endian and stripped their geometry chunks, but the
 ///         object table and the QbKey mesh-name hash array survive intact — the
 ///         <c>models/NNN</c> bundles ARE the PS1 files. Matching a bundle's
-///         mesh-name-hash SET against the PS1 corpus therefore names it:
-///         measured 2026-08-07 at 433/450 (96.2%) across the four ROMs —
-///         THPS1 65/65, THPS2 108/116, THPS3 84/87, Spider-Man 176/182.
+///         mesh-name-hash SET against the PS1 corpus therefore names it.
+///         Measured 2026-08-07: 433 of 450 bundles match SOME PS1 file, and
+///         329 resolve to a name that is true of the content rather than a
+///         pick among candidates — THPS1 59/65, THPS2 78/116, THPS3 63/87,
+///         Spider-Man 129/182. <see cref="TryResolve" /> explains the gap.
 ///     </para>
 ///     <para>
 ///         The PS1 corpus is NOT available at runtime, so identity is harvested
@@ -104,10 +106,55 @@ public static class N64BundleNames
         return digest;
     }
 
-    /// <summary>The first candidate name for a content key, or null.</summary>
+    /// <summary>
+    ///     The name for a content key, or null when content cannot name it.
+    ///     <para>
+    ///         A unique key returns its one candidate. An ambiguous key returns
+    ///         the candidates' common prefix ONLY when that prefix is itself one
+    ///         of them — <c>glif</c> for
+    ///         <c>glif|glif2|glif2b|glif_fe</c>, <c>skss_o</c> for
+    ///         <c>skss_o|skss_o2</c> — so the answer is a name every candidate
+    ///         agrees on rather than a pick among them.
+    ///     </para>
+    ///     <para>
+    ///         Otherwise it returns null and the bundle keeps its slot. That
+    ///         matters: content identity CANNOT separate characters built on a
+    ///         shared rig — every THPS2 skater has the same 19 part names AND
+    ///         the same part positions, so one key covers up to 10 unrelated
+    ///         files (<c>burnq2b|cab2b|hawk|hawk2|…</c>). Returning the first
+    ///         would name 433 of 450 bundles at the cost of 159 arbitrary
+    ///         picks; this rule names 329 and every one is true of the content.
+    ///         Requiring the prefix to BE a candidate also stops it inventing a
+    ///         name that is nobody's — <c>c_bus|c_bull</c> would otherwise yield
+    ///         <c>c_bu</c> (21 such keys).
+    ///     </para>
+    /// </summary>
     public static string? TryResolve(ulong key)
     {
-        return Names.TryGetValue(key, out var names) && names.Length > 0 ? names[0] : null;
+        if (!Names.TryGetValue(key, out var names) || names.Length == 0)
+            return null;
+        if (names.Length == 1)
+            return names[0];
+
+        var prefixLength = names[0].Length;
+        foreach (var name in names)
+        {
+            prefixLength = Math.Min(prefixLength, CommonPrefixLength(names[0], name));
+            if (prefixLength == 0)
+                return null;
+        }
+
+        var prefix = names[0][..prefixLength];
+        return Array.IndexOf(names, prefix) >= 0 ? prefix : null;
+    }
+
+    private static int CommonPrefixLength(string a, string b)
+    {
+        var limit = Math.Min(a.Length, b.Length);
+        var i = 0;
+        while (i < limit && a[i] == b[i])
+            i++;
+        return i;
     }
 
     /// <summary>

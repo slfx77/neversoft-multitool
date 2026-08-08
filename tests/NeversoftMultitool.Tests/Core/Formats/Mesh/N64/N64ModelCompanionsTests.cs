@@ -17,7 +17,7 @@ public sealed class N64ModelCompanionsTests(TestPaths paths)
     private const string Thps2N64Build = "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)";
     private const string RomName = "Tony Hawk's Pro Skater 2 (USA).z64";
 
-    private (IArchiveFileSystem Fs, ArchiveAssetSource Source) OpenBundle(string bundlePath)
+    private (IArchiveFileSystem Fs, ArchiveAssetSource Source) OpenBundle(string slot)
     {
         var romPath = paths.FindSampleFile(Thps2N64Build, RomName);
         Assert.SkipWhen(romPath == null, "THPS2 N64 ROM sample not available");
@@ -25,15 +25,13 @@ public sealed class N64ModelCompanionsTests(TestPaths paths)
         Assert.NotNull(fs);
         var backend = ArchiveAssetBackend.TryOpen(romPath!);
         Assert.NotNull(backend);
-        var entry = backend!.FindByPath(bundlePath);
-        Assert.NotNull(entry);
-        return (fs!, new ArchiveAssetSource(backend, entry!));
+        return (fs!, N64Bundles.OpenBundle(backend!, slot));
     }
 
     [Fact]
     public void RenderBankId_ResolvesToItsGroup2Record()
     {
-        var (fs, source) = OpenBundle("models/000/geometry_000.psx.n64");
+        var (fs, source) = OpenBundle("000");
         using var _ = fs;
 
         // models/000 stores BE 0x00000016 = 22.
@@ -49,7 +47,7 @@ public sealed class N64ModelCompanionsTests(TestPaths paths)
     [Fact]
     public void TextureProvider_DecodesByDictionarySlot()
     {
-        var (fs, source) = OpenBundle("models/000/geometry_000.psx.n64");
+        var (fs, source) = OpenBundle("000");
         using var _ = fs;
 
         var provider = N64ModelCompanions.BuildTextureProvider(source);
@@ -75,7 +73,7 @@ public sealed class N64ModelCompanionsTests(TestPaths paths)
     [Fact]
     public void Shell_ParsesFromInsideTheRom()
     {
-        var (fs, source) = OpenBundle("models/045/geometry_045.psx.n64");
+        var (fs, source) = OpenBundle("045");
         using var _ = fs;
 
         var shell = PsxN64ShellFile.Parse(source.ReadBytes());

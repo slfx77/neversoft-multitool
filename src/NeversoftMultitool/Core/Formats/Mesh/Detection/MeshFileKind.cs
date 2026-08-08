@@ -33,7 +33,7 @@ public enum MeshFileKind
     /// <summary>PS1-era PSX mesh.</summary>
     Psx,
 
-    /// <summary>Model bundle carved from an N64 ROM (<c>models/NNN/geometry_NNN.psx.n64</c>).</summary>
+    /// <summary>Model bundle carved from an N64 ROM (<c>models/NNN/NNN_&lt;name&gt;.psx.n64</c>).</summary>
     N64Model,
 
     /// <summary>RenderWare clump (<c>.skn</c>, <c>.dff</c>).</summary>

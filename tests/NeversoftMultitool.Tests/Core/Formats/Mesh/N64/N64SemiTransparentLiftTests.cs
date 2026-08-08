@@ -42,13 +42,13 @@ public sealed class N64SemiTransparentLiftTests(TestPaths paths)
     /// </summary>
     private const int MaximumBucketSize = 512;
 
-    private ModelDocument ParseBundle(string bundlePath, out IArchiveFileSystem fs)
+    private ModelDocument ParseBundle(string slot, out IArchiveFileSystem fs)
     {
         var romPath = paths.FindSampleFile(Thps1N64Build, RomName);
         Assert.SkipWhen(romPath == null, "THPS1 N64 ROM sample not available");
         fs = ArchiveFileSystem.TryOpen(romPath!)!;
         var backend = ArchiveAssetBackend.TryOpen(romPath!)!;
-        var entry = backend.FindByPath(bundlePath)!;
+        var entry = N64Bundles.FindBundle(backend, slot);
         var source = new ArchiveAssetSource(backend, entry);
 
         return new MeshModelParser().Parse(new MeshImportRequest
@@ -213,7 +213,7 @@ public sealed class N64SemiTransparentLiftTests(TestPaths paths)
     [Fact]
     public void Downtown_HasNoSemiTransparentFaceLeftFightingItsSurface()
     {
-        var document = ParseBundle("models/004/geometry_004.psx.n64", out var fs);
+        var document = ParseBundle("004", out var fs);
         using var _ = fs;
 
         var (total, semiTransparent) = CoplanarOverlaps(ExportedTriangles(document));

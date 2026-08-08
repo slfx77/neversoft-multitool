@@ -7,7 +7,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.N64;
 /// <summary>
 ///     Populates a <see cref="ModelDocument" /> from a carved N64 model
 ///     bundle. The bundle splits the same way the Xbox DDM path does — a
-///     placement/skeleton container (<c>geometry_NNN.psx.n64</c>) plus a separate
+///     placement/skeleton container (<c>NNN_&lt;name&gt;.psx.n64</c>) plus a separate
 ///     geometry container (<c>group2/</c>) — so the skeleton, bone names and
 ///     hierarchy come from the shell exactly as they do for a PS1 character,
 ///     and the render geometry from the bank

@@ -12,9 +12,9 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Detection;
 public static class MeshTypeDetector
 {
     /// <summary>
-    ///     Carved N64 model bundles (<c>models/NNN/geometry_NNN.psx.n64</c>).
-    ///     Callers take the output stem from the parent directory, which is the
-    ///     bundle slot, so the exported name is stable.
+    ///     Carved N64 model bundles (<c>models/NNN/NNN_&lt;name&gt;.psx.n64</c>).
+    ///     The file name carries the bundle slot and, where content identified
+    ///     it, the original PS1 file name — see <see cref="GetN64BundleStem" />.
     /// </summary>
     public const string N64ModelSuffix = ".psx.n64";
 
@@ -254,6 +254,26 @@ public static class MeshTypeDetector
         var name = Path.GetFileName(fileName);
         var suffix = MatchSuffix(name);
         return suffix == null ? Path.GetFileNameWithoutExtension(name) : name[..^suffix.Length];
+    }
+
+    /// <summary>
+    ///     Export stem for a carved N64 model bundle: <c>n64_007_c_kart</c>.
+    ///     <para>
+    ///         The carved file name already carries the bundle slot and, where
+    ///         content identified it, the source PS1 file name, so the stem comes
+    ///         from the FILE rather than the parent directory. A carve made
+    ///         before names were recovered spells it <c>geometry_007</c>; that
+    ///         prefix is stripped so such a tree still exports the stable
+    ///         <c>n64_007</c> it always did.
+    ///     </para>
+    /// </summary>
+    public static string GetN64BundleStem(string fileNameOrPath)
+    {
+        var stem = GetStem(fileNameOrPath);
+        if (stem.StartsWith("geometry_", StringComparison.OrdinalIgnoreCase))
+            stem = stem["geometry_".Length..];
+
+        return stem.Length == 0 ? "n64_model" : "n64_" + stem;
     }
 
     /// <summary>
