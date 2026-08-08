@@ -1921,6 +1921,14 @@ class SafeDiscEmulator:
             response[0x10:0x20] = payload[0x10:0x20]   # echo VerificationData
         if expected is not None:
             struct.pack_into("<I", response, 0x410, expected)
+        if command == 0x3F and self.secdrv_seed and len(payload) >= 0x418:
+            # 0x3F is an indexed 4-byte query (arg = {len:4, index:N}, N = 0..95).
+            # Make the answer depend on --secdrv-seed so two runs with different
+            # seeds can be diffed: if the run is bit-identical, the driver's data
+            # is not consumed and cannot be key material; if it diverges, it is.
+            index = struct.unpack_from("<I", payload, 0x414)[0]
+            struct.pack_into("<I", response, 0x410,
+                             (self.secdrv_seed * 0x9E3779B1 + index) & 0xFFFFFFFF)
 
         if out_ptr:
             try:
