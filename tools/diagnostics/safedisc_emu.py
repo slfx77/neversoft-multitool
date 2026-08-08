@@ -706,6 +706,7 @@ class SafeDiscEmulator:
         self.breakpoints: set[int] = set()
         self.breakpoint_hits: Counter = Counter()
         self.register_overrides: dict[int, dict[str, int]] = {}
+        self.stop_points: set[int] = set()
         self.override_hits: Counter = Counter()
         self.stop_locked = False
         self.image_lo = self.image_base
@@ -2618,6 +2619,10 @@ class SafeDiscEmulator:
             for reg_name, value in self.register_overrides[address].items():
                 uc.reg_write(REGISTER_IDS[reg_name], value & 0xFFFFFFFF)
             self.override_hits[address] += 1
+        if address in self.stop_points:
+            self.dump_state(uc, address)
+            self.stop(uc, f"reached --stop-at 0x{address:08X}")
+            return
         if address in self.breakpoints:
             self.dump_state(uc, address)
         if self.trace_remaining > 0:
@@ -3664,6 +3669,10 @@ def main() -> int:
                          "testing whether an obfuscated check is a GATE or a key "
                          "source -- if forcing it yields code that disassembles, it "
                          "was a gate; if it yields noise, it fed the key")
+    ap.add_argument("--stop-at", action="append", default=[], metavar="ADDR",
+                    help="Stop cleanly when EIP reaches this hex address, so --trail and "
+                         "--dump reflect THAT moment. The only way to inspect code that "
+                         "is generated at runtime and re-protected after each call")
     ap.add_argument("--watch", metavar="LO-HI",
                     help="Log every write into this hex address range with the writing "
                          "EIP, e.g. --watch 100F2600-100F2700")
@@ -3697,6 +3706,7 @@ def main() -> int:
     if args.trail:
         emu.trail = deque(maxlen=args.trail)
     emu.breakpoints = {int(a, 16) for a in args.breakpoints}
+    emu.stop_points = {int(a, 16) for a in args.stop_at}
     for spec in args.set_reg:
         where, _, assignment = spec.partition(":")
         reg, _, value = assignment.partition("=")
