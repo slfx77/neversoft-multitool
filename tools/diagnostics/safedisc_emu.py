@@ -736,6 +736,8 @@ class SafeDiscEmulator:
         self.volume_opens: list[str] = []
         self.storage_ioctls: Counter = Counter()
         self.scsi_commands: Counter = Counter()
+        self.sector_reads: Counter = Counter()
+        self.disc = None
         self.sleep_ms = 0
         self.fake_secdrv = False
         self.secdrv_seed = 0x00100000
@@ -2141,7 +2143,16 @@ class SafeDiscEmulator:
             data = bytes(8) + bytes(page)        # 8-byte mode parameter header
         elif opcode == 0x28:                     # READ(10)
             lba = struct.unpack_from(">I", cdb, 2)[0]
-            data = self.iso9660_sector(lba)
+            count = struct.unpack_from(">H", cdb, 7)[0] or 1
+            self.sector_reads[lba] += 1
+            if self.disc is not None:
+                # REAL sectors. Synthesising the Primary Volume Descriptor means
+                # guessing the volume label, size and timestamp, every one of
+                # which the check can compare; with the actual image those
+                # answers are simply true.
+                data = b"".join(self.disc.read_sector(lba + i) for i in range(count))
+            else:
+                data = self.iso9660_sector(lba)
         if not data:
             return False
 
@@ -3234,6 +3245,11 @@ class SafeDiscEmulator:
             print("REGISTER OVERRIDES APPLIED (results are conditional on these):")
             for addr, count in self.override_hits.items():
                 print(f"    0x{addr:08X} x{count}")
+        if self.sector_reads:
+            print()
+            print("disc sectors read by the media check:")
+            for lba, count in self.sector_reads.most_common(8):
+                print(f"    LBA {lba} x{count}")
         if self.storage_ioctls:
             print()
             print("raw storage IOCTLs on the disc volume (denied - we have the disc's")
@@ -3577,6 +3593,11 @@ def main() -> int:
                     metavar="ADDR",
                     help="Dump registers and the top of the stack when EIP reaches this "
                          "hex address (repeatable, first 4 hits)")
+    ap.add_argument("--disc", type=Path, metavar="IMAGE.bin",
+                    help="Raw MODE1/2352 CD image to serve to the media check's SCSI "
+                         "READ(10). Without it the ISO9660 volume descriptor is "
+                         "synthesised, which means GUESSING the volume label, size and "
+                         "timestamp -- all of which the check can compare")
     ap.add_argument("--set-reg", action="append", default=[], metavar="ADDR:REG=VAL",
                     help="At this hex address, force a register before the instruction "
                          "runs, e.g. --set-reg 10323C88:eax=0x01020050. Intended for "
@@ -3604,6 +3625,13 @@ def main() -> int:
     emu.seh_limit = args.seh_limit
     emu.temp_dump_dir = args.dump_temp_files
     emu.stop_at_oep = not args.no_stop_at_oep
+    if args.disc:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from iso9660_reader import DiscImage  # noqa: PLC0415
+        emu.disc = DiscImage(args.disc)
+        info = emu.disc.pvd()
+        log(f"disc: {args.disc.name}, {emu.disc.sectors:,} sectors, "
+            f"volume '{info['volume_id']}', created {info['created'][:14]}")
     emu.fake_secdrv = args.fake_secdrv
     emu.secdrv_seed = args.secdrv_seed
     if args.trail:
