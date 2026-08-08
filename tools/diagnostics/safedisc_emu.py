@@ -1023,6 +1023,16 @@ class SafeDiscEmulator:
             base = self.load_emulated_module(module)
             if base:
                 return base
+            # A PATH that does not exist must fail, the way the real loader does.
+            # Inventing a handle for anything asked of us meant SafeDisc believed
+            # it had loaded AuthServ (~deXXXXXX.tmp) when the file had never been
+            # created, and built its comms channel on a phantom module instead of
+            # taking its own clean "not present" branch.
+            looks_like_path = "\\" in module or "/" in module or module.lower().endswith(".tmp")
+            if looks_like_path and self.host_files.resolve(module) is None:
+                self.last_error = 126  # ERROR_MOD_NOT_FOUND
+                log(f"    LoadLibrary('{module}') -> NOT FOUND", always=True)
+                return 0
             key = module.lower()
             if key not in self.modules:
                 self.modules[key] = self.next_module
@@ -1163,7 +1173,9 @@ class SafeDiscEmulator:
             return len(handle_file.data)
 
         if name == "CloseHandle":
+            self.sync_mapped_views()
             self.files.pop(args[0], None)
+            self.mappings.pop(args[0], None)
             return 1
 
         if name == "DeviceIoControl":
@@ -1444,6 +1456,7 @@ class SafeDiscEmulator:
             return record["block"] + offset if record["block"] else 0
 
         if name == "UnmapViewOfFile":
+            self.sync_mapped_views()
             return 1
 
         # Anti-debug queries. NTSTATUS success is ZERO, and an unfilled
@@ -1972,12 +1985,42 @@ class SafeDiscEmulator:
         log(f"    CreateFile({target}) -> NOT FOUND", always=True)
         return 0xFFFFFFFF
 
+    def sync_mapped_views(self) -> None:
+        """Copy file-backed mapped views back into their files.
+
+        A view of a file mapping IS the file's storage on Windows -- writing
+        through the pointer updates the file. Here a view is a heap block, so
+        without this the write is invisible: SafeDisc extracts AuthServ
+        (~deXXXXXX.tmp, 277,419 bytes) by mapping the file and writing through
+        the view, never calling WriteFile, and the file stayed empty.
+        """
+        for record in self.named_sections.values():
+            self.sync_one_view(record)
+        for record in self.mappings.values():
+            if isinstance(record, dict):
+                self.sync_one_view(record)
+
+    def sync_one_view(self, record: dict) -> None:
+        backing = record.get("file")
+        block = record.get("block")
+        if backing is None or not block:
+            return
+        try:
+            data = bytes(self.uc.mem_read(block, record["size"]))
+        except UcError:
+            return
+        if len(backing.data) < len(data):
+            backing.data = bytearray(data)
+        else:
+            backing.data[: len(data)] = data
+
     def load_emulated_module(self, path: str) -> int:
         """Map an in-memory PE the loader just wrote, and return its base.
 
         Returns 0 if the path is not one of our emulated files or is not a PE,
         so the caller can fall back to a fake handle.
         """
+        self.sync_mapped_views()
         key = path.replace("/", "\\").rsplit("\\", 1)[-1].lower()
         handle_file = self.emulated_by_name.get(key)
         if handle_file is None:
@@ -2809,6 +2852,7 @@ class SafeDiscEmulator:
         LoadLibrary's it, so the extracted payload is the code that does the
         actual decryption -- readable statically, unlike anything in the exe.
         """
+        self.sync_mapped_views()
         directory.mkdir(parents=True, exist_ok=True)
         written: list[tuple[str, int, str]] = []
         seen: set[str] = set()
@@ -3183,6 +3227,16 @@ ARG_COUNTS: dict[str, int] = {
     "RegisterClassA": 1, "LoadStringA": 4, "LoadAcceleratorsA": 2,
     "GetMessageA": 4, "TranslateAcceleratorA": 3, "TranslateMessage": 1,
     "DispatchMessageA": 1, "PostMessageA": 4,
+    # AuthServ (~deXXXXXX.tmp) is the media-authentication stage and does real
+    # GDI work -- palettes, DIBs, StretchBlt. Documented Win32 signatures.
+    "CreateHalftonePalette": 1, "CreatePalette": 1, "DeleteObject": 1,
+    "EnumWindows": 2, "GetClientRect": 2, "GetDC": 1, "GetDIBColorTable": 4,
+    "GetDesktopWindow": 0, "GetDeviceCaps": 2, "GetObjectA": 3,
+    "GetProfileIntA": 3, "GetProfileStringA": 5, "GetWindowThreadProcessId": 2,
+    "LoadImageA": 6, "PeekMessageA": 5, "RealizePalette": 1, "ReleaseDC": 2,
+    "SelectObject": 2, "SelectPalette": 3, "SetForegroundWindow": 1,
+    "StretchBlt": 11, "SystemParametersInfoA": 4, "CreateCompatibleBitmap": 3,
+    "CreateDIBSection": 6, "BitBlt": 9, "InvalidateRect": 3, "GetSystemPaletteEntries": 4,
 }
 
 
