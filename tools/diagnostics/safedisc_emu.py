@@ -389,6 +389,14 @@ SECDRV_RESPONSES = {
     0x43: 0x00000000,
 }
 
+# Minimum buffer each SystemInformationClass needs, so a size probe can be
+# answered honestly. 0x0B is SystemModuleInformation: we report ZERO modules,
+# so 4 bytes (the NumberOfModules field) is genuinely all that is required.
+SYSTEM_INFO_SIZES = {
+    0x0B: 4,    # SystemModuleInformation  -> NumberOfModules == 0
+    0x23: 2,    # SystemKernelDebuggerInformation
+}
+
 ANTI_DEBUG_DEVICES = ("ntice", "sice", "siwvid", "regvxg", "filevxg", "regsys",
                       "trw", "syser")
 
@@ -1464,13 +1472,41 @@ class SafeDiscEmulator:
             # zeroed buffer would say "NOT present == 0", i.e. a debugger IS
             # present, which is the detection.
             info_class, buffer, length = args[0], args[1], args[2]
+
+            # Honour the SIZE-PROBE protocol. Callers first pass length 0 to
+            # learn how much to allocate; the correct answer is
+            # STATUS_INFO_LENGTH_MISMATCH plus the required size in
+            # ReturnLength. Returning STATUS_SUCCESS to a zero-length probe --
+            # which this did -- tells the caller its empty buffer was filled, so
+            # it then reads uninitialised memory as if it were real data. That
+            # is what produced a 52,556-entry module count and walked off the
+            # heap.
+            required = SYSTEM_INFO_SIZES.get(info_class, 8)
+            if length < required:
+                if len(args) > 3 and args[3]:
+                    self.uc.mem_write(args[3], struct.pack("<I", required))
+                log(f"    {name}(class=0x{info_class:X}, len={length}) -> "
+                    f"INFO_LENGTH_MISMATCH, needs {required}", always=True)
+                return 0xC0000004  # STATUS_INFO_LENGTH_MISMATCH
+
             if buffer and length:
-                self.uc.mem_write(buffer, b"\x00" * min(length, 64))
+                # Zero the WHOLE buffer, not a token 64 bytes. Class 0x0B is
+                # SystemModuleInformation: {ULONG NumberOfModules;
+                # RTL_PROCESS_MODULE_INFORMATION Modules[]} with a 0x11C-byte
+                # record. SecServ walks that array comparing each module's
+                # ImageBase/ImageSize, and a partially-zeroed buffer left a
+                # garbage count (0xCD4C entries x 0x11C = 9.4 MB) so the walk ran
+                # straight off the heap. Reporting ZERO modules is both honest --
+                # we are not emulating a kernel -- and what makes the loop exit
+                # cleanly via its own `cmp edx, 1 / jb` guard.
+                self.uc.mem_write(buffer, b"\x00" * min(length, 0x100000))
                 if info_class == 0x23 and length >= 2:
                     self.uc.mem_write(buffer, b"\x00\x01")
             if len(args) > 3 and args[3]:
                 self.uc.mem_write(args[3], struct.pack("<I", min(length, 8)))
             self.antidebug_probes.append(f"{name}(class 0x{info_class:X})")
+            log(f"    {name}(class=0x{info_class:X}, buf=0x{buffer:08X}, len={length})",
+                always=True)
             return 0  # STATUS_SUCCESS
 
         if name == "CheckRemoteDebuggerPresent":
@@ -2744,6 +2780,27 @@ class SafeDiscEmulator:
             )
             image[nt + 6 : nt + 8] = struct.pack("<H", num_sections + 1)
 
+    def dump_loaded_modules(self, directory: Path) -> list[tuple[str, int, float]]:
+        """Write each loaded module's CURRENT memory image.
+
+        SecServ decrypts its own function bodies at runtime, so the file on disk
+        and the image in memory are different programs. Static analysis of the
+        file reports both PerformTransform overrides and GetKeyData as encrypted;
+        those same addresses are plaintext here once the loader has run through
+        them. This is the only way to read them.
+        """
+        directory.mkdir(parents=True, exist_ok=True)
+        written: list[tuple[str, int, float]] = []
+        for module in self.loaded_modules.values():
+            try:
+                image = bytes(self.uc.mem_read(module.base, module.size))
+            except UcError:
+                continue
+            out = directory / f"{module.name}.runtime.bin"
+            out.write_bytes(image)
+            written.append((out.name, len(image), entropy(image[:0x40000])))
+        return written
+
     def dump_emulated_files(self, directory: Path) -> list[tuple[str, int, str]]:
         """Write out every file the loader CREATED in emulated memory.
 
@@ -2887,6 +2944,13 @@ class SafeDiscEmulator:
         print(f".text entropy now: {self.text_entropy():.3f} (encrypted ~7.999, real code ~6.3)")
 
         if self.temp_dump_dir is not None:
+            modules = self.dump_loaded_modules(self.temp_dump_dir)
+            if modules:
+                print()
+                print(f"runtime module images -> {self.temp_dump_dir} "
+                      f"(these are DECRYPTED; the on-disk files are not):")
+                for mname, msize, ment in modules:
+                    print(f"    {msize:10,} bytes  entropy {ment:.3f}  {mname}")
             written = self.dump_emulated_files(self.temp_dump_dir)
             if written:
                 print()
