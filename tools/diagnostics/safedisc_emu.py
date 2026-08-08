@@ -158,14 +158,46 @@ CURRENT STATE: 33,616,568 instructions. The sequence is now
 doing bulk work through the driver, then faults reading 0x05000084 from SecServ
 0x100115AD (RVA 0x115AD).
 
-THE OPEN RISK, stated plainly: 0x3F is answered with a CONSTANT ZERO, taken from
-SafeDiscShim. Ninety-six calls in a row is the shape of a data-transfer loop,
-not a yes/no check, so if 0x3F actually returns per-block material the faked
-answer is wrong and everything downstream of it is garbage. Establish what 0x3F
-should return before trusting any dump: the differential seed test
-(--secdrv-seed, run twice, diff .text) is necessary but NOT sufficient here,
-because a constant response is seed-independent by construction. The honest
-check is whether the decrypted .text disassembles.
+0x3F IS RESOLVED, and it is not key material. It is an indexed 4-byte query
+(argument = {len:4, index:N}, N = 0..95, so 384 bytes total), matching
+SafeDiscShim's "reject if in[0] > 0x60" rule. Made seed-dependent and diffed:
+seeds 0x11111111 and 0x77777777 both stop at exactly 56,629,645 instructions,
+BIT-IDENTICAL. Nothing on the reachable path consumes those bytes.
+
+THE REAL BLOCKER, and it is structural rather than another missing API:
+
+The media authentication lives in AuthServ, and its SUCCESS PATH HAS SIDE
+EFFECTS. It does not merely return a verdict:
+
+  * It POPULATES STATE that later stages read. --watch proves the object at
+    [0x100BFDB0], which the gate after the forced one requires, is NEVER
+    WRITTEN. So forcing a verdict just moves the failure: each success path
+    registers objects and fills tables that the next gate consumes.
+  * It FEEDS THE KEY. Scanning the decrypted SecServ image for calls to
+    CKeyMngr::Input (0x10036F2F) finds exactly two, and only one is the
+    file-local constant 0xABADDADA. The other, at 0x100038D0, sits in SecServ's
+    command dispatcher and takes its (object, length, data) arguments straight
+    from three 0x1001E3F4 channel reads -- i.e. AuthServ calls BACK into SecServ
+    to deliver key bytes.
+
+So --set-reg can advance the run (the gate at 0x10003665 passes once the verdict
+at 0x10323C88 is forced, reaching 0x10003670) but cannot produce a correct key.
+A forced pass would yield a plausible-looking garbage decrypt, which is exactly
+the outcome this harness is built to avoid.
+
+WHAT IS STILL UNRESOLVED, and it decides everything: whether the bytes AuthServ
+delivers originate from the DISC or from the FILES. Evidence both ways --
+AuthServ reads THUG2.exe itself (919,858 bytes) and the driver's own data
+demonstrably is not consumed, which points at file-derived; but the media check
+that gates the delivery is genuine.
+
+NEXT STEP, concrete: AuthServ's handler[0] at 0x10316AE0 is junk-jump obfuscated
+(complementary conditional pairs to one target, xchg/nop filler) and cannot be
+read linearly -- but the DECRYPTED image is now dumped, so it is analysable. The
+obfuscation is mechanical and a linearising pass over it would expose what the
+media check actually measures, and therefore whether it can be satisfied without
+a disc. That is the highest-value remaining work; gate-by-gate forcing is a dead
+end for the reason above.
 
 Ruled out as the cause, both fixed anyway because both were indefensible:
   * A constant GetTickCount. Any elapsed-time measurement computed zero. The
