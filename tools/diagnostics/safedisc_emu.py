@@ -392,6 +392,14 @@ SECDRV_RESPONSES = {
 # Minimum buffer each SystemInformationClass needs, so a size probe can be
 # answered honestly. 0x0B is SystemModuleInformation: we report ZERO modules,
 # so 4 bytes (the NumberOfModules field) is genuinely all that is required.
+# Registers addressable by --set-reg. The media check is obfuscated beyond
+# static reading, so forcing its verdict is the only way to TEST whether it is
+# a gate or a key source -- and the test is objective: does .text disassemble?
+REGISTER_IDS = {
+    'eax': UC_X86_REG_EAX, 'ebx': UC_X86_REG_EBX, 'ecx': UC_X86_REG_ECX,
+    'edx': UC_X86_REG_EDX, 'esi': UC_X86_REG_ESI, 'edi': UC_X86_REG_EDI,
+}
+
 SYSTEM_INFO_SIZES = {
     0x0B: 4,    # SystemModuleInformation  -> NumberOfModules == 0
     0x23: 2,    # SystemKernelDebuggerInformation
@@ -648,6 +656,8 @@ class SafeDiscEmulator:
         self.invalid_insns: Counter = Counter()
         self.breakpoints: set[int] = set()
         self.breakpoint_hits: Counter = Counter()
+        self.register_overrides: dict[int, dict[str, int]] = {}
+        self.override_hits: Counter = Counter()
         self.stop_locked = False
         self.image_lo = self.image_base
         self.image_hi = self.image_base + self.pe.OPTIONAL_HEADER.SizeOfImage
@@ -2299,6 +2309,10 @@ class SafeDiscEmulator:
             uc.reg_write(UC_X86_REG_EIP, ret)
             return
 
+        if address in self.register_overrides:
+            for reg_name, value in self.register_overrides[address].items():
+                uc.reg_write(REGISTER_IDS[reg_name], value & 0xFFFFFFFF)
+            self.override_hits[address] += 1
         if address in self.breakpoints:
             self.dump_state(uc, address)
         if self.trace_remaining > 0:
@@ -2955,6 +2969,11 @@ class SafeDiscEmulator:
             print("files the loader READ (this is where the encrypted payload comes from):")
             for fname, total in self.file_reads.most_common(10):
                 print(f"    {total:10,} bytes  {fname}")
+        if self.override_hits:
+            print()
+            print("REGISTER OVERRIDES APPLIED (results are conditional on these):")
+            for addr, count in self.override_hits.items():
+                print(f"    0x{addr:08X} x{count}")
         if self.antidebug_probes:
             print()
             print(f"anti-debug probes denied ({len(self.antidebug_probes)}): "
@@ -3284,6 +3303,12 @@ def main() -> int:
                     metavar="ADDR",
                     help="Dump registers and the top of the stack when EIP reaches this "
                          "hex address (repeatable, first 4 hits)")
+    ap.add_argument("--set-reg", action="append", default=[], metavar="ADDR:REG=VAL",
+                    help="At this hex address, force a register before the instruction "
+                         "runs, e.g. --set-reg 10323C88:eax=0x01020050. Intended for "
+                         "testing whether an obfuscated check is a GATE or a key "
+                         "source -- if forcing it yields code that disassembles, it "
+                         "was a gate; if it yields noise, it fed the key")
     ap.add_argument("--watch", metavar="LO-HI",
                     help="Log every write into this hex address range with the writing "
                          "EIP, e.g. --watch 100F2600-100F2700")
@@ -3310,6 +3335,10 @@ def main() -> int:
     if args.trail:
         emu.trail = deque(maxlen=args.trail)
     emu.breakpoints = {int(a, 16) for a in args.breakpoints}
+    for spec in args.set_reg:
+        where, _, assignment = spec.partition(":")
+        reg, _, value = assignment.partition("=")
+        emu.register_overrides.setdefault(int(where, 16), {})[reg.strip().lower()] = int(value, 0)
     if args.watch:
         lo, _, hi = args.watch.partition("-")
         emu.watch_lo, emu.watch_hi = int(lo, 16), int(hi or lo, 16)
