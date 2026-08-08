@@ -12,6 +12,49 @@ the codec.
 Everything about SafeDisc here is a means to that end. If a shorter route to the
 codec appears, take it.
 
+## 2026-08-08 continuation — newer than the status below
+
+The old "blocker" and "next step" sections below are superseded. Stateful range
+tracing is now implemented (`--trace-range`, `--trace-after`,
+`--trace-after-count`, `--trace-budget`). It proved that the stack code is only
+CJumpRun's save/restore trampoline; decrypted function bodies execute at their
+AuthServ addresses. The old claim that the decisive comparison itself executes
+on the stack was wrong.
+
+The first exact failure chain is now known:
+
+```
+0x10307ED3  call 0x10317970
+0x10317970  call 0x10304ED0
+0x10304FE2  mov ecx, [PVD + 0x9E]  ; root-directory extent
+0x103050A9  cmp eax, [ebp + 0x0C] ; 0x1B versus 0x51D92
+```
+
+The supplied `rld-thua.bin` is a rebuilt ISO layout: CD1 has 283,018 sectors and
+root extent 27, while AuthServ requires at least `0x51D92` (335,250). CD2 and
+CD3 are about 340,900 sectors, reinforcing that this is plausible original-disc
+geometry rather than a random predicate. File identity proved the release, not
+the mastering layout. `--disc-root-extent 0x51D92` now opt-in reconstructs only
+that ISO extent in memory and remaps a read of it to the image's real root; it
+does not alter the BIN or force a verdict.
+
+That reconstruction clears the first comparison but does **not** complete media
+authentication. AuthServ still returns status `0x48`, captured directly at
+SecServ `0x100018B0` (`[ebp-4] = 0x48`, expected `0x01020050`). It performs five
+disc attempts before the outer wrapper exits. The next task is to trace the
+other PVD routine whose CJumpRun wrapper is `0x103052E0 -> 0x010580D0`; the old
+`0x10304ED0` trigger is not executed on this reconstructed path.
+
+The secdrv responder is also corrected from guessed always-success constants to
+the public SafeDiscLoader2 4.3.86 contract and verification recurrence. This is
+semantically important: command `0x43` with `{0x98A64100, 7}` succeeds, while
+the deliberate `{0x98A64100, 0xF}` request must return FALSE. Always succeeding
+the latter enters SecServ's `ExitProcess(0xFEEDFACE)` scrub path. All 96 command
+`0x3F` queries now execute with the reference response (zero).
+
+Current honest state: **no decrypted executable**. `.text` writes remain zero
+and entropy is 7.998. The deepest faithful run reaches 120,508,132 instructions.
+
 ## What exists
 
 | File | What it is |

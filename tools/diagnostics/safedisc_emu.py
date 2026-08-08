@@ -424,16 +424,17 @@ ISO_VOLUME_SECTORS = 0x00050000
 # SecServ DLL's own string table (tools/diagnostics/safedisc_string_decrypt.py,
 # recurrence cipher, seed 0xC612DB4E for this build). Opening any of these
 # SUCCESSFULLY is the detection, so they must fail.
-# secdrv command -> the value the caller expects back. 0x3E is CONFIRMED by the
-# binary: DrvMgt.Setup does `cmp dword [ebp+0xc], 0x5278D11B` on the result.
-# The rest come from SafeDiscShim and are unverified here.
+# secdrv command -> the normal ExtraData[0] value. 0x3E is independently
+# confirmed by the binary: DrvMgt.Setup compares it with 0x5278D11B. The full
+# request validation and VerificationData algorithm below match SafeDiscLoader2's
+# open-source secdrv replacement; a command can still return FALSE.
 SECDRV_RESPONSES = {
     0x3C: 0x00000400,   # GetDebugRegisterInfo - DR7 clean
     0x3D: 0x000002C8,   # GetIdtInfo - IDT limit
     0x3E: 0x5278D11B,   # SetupVerification  <-- confirmed against DrvMgt.Setup
     0x3F: 0x00000000,
     0x40: 0x56791283,
-    0x41: 0x00000001,
+    0x41: 0x00000000,
     0x43: 0x00000000,
 }
 
@@ -707,6 +708,18 @@ class SafeDiscEmulator:
         self.breakpoint_hits: Counter = Counter()
         self.register_overrides: dict[int, dict[str, int]] = {}
         self.stop_points: set[int] = set()
+        self.trace_lo = 0
+        self.trace_hi = 0
+        self.trace_ranges: list[tuple[int, int]] = []
+        self.trace_budget = 0
+        self.trace_limit = 0
+        self.trace_emitted = 0
+        self.trace_after: int | None = None
+        self.trace_after_count = 1
+        self.trace_after_hits = 0
+        self.trace_after_hit = False
+        self.trace_active = False
+        self.trace_md = None
         self.override_hits: Counter = Counter()
         self.stop_locked = False
         self.image_lo = self.image_base
@@ -743,6 +756,8 @@ class SafeDiscEmulator:
         self.sector_reads: Counter = Counter()
         self.reported_ioctls: set[int] = set()
         self.disc = None
+        self.disc_root_extent_override: int | None = None
+        self.disc_original_root_extent: int | None = None
         self.sleep_ms = 0
         self.fake_secdrv = False
         self.secdrv_seed = 0x00100000
@@ -1982,12 +1997,10 @@ class SafeDiscEmulator:
         is a literal `cmp dword [ebp+0xc], 0x5278D11B` inside DrvMgt.dll itself,
         so the two agree independently.
 
-        This is OFF by default. Answering a challenge we cannot actually compute
-        risks a plausible-looking but WRONG decrypt, which is worse than a
-        visible stop -- so it must be an explicit choice, and any dump produced
-        with it on should be checked with the differential test (run twice with
-        different --secdrv-seed values; if .text is identical, no driver value
-        reached the key schedule).
+        This is OFF by default. The responder implements the public
+        SafeDiscLoader2 secdrv 4.3.86 contract, including request rejection and
+        verification-word generation; keeping it opt-in makes emulated-driver
+        runs explicit in the report and command line.
         """
         handle, code = args[0], args[1]
         in_ptr, in_len = (args[2], args[3]) if len(args) > 3 else (0, 0)
@@ -2090,31 +2103,56 @@ class SafeDiscEmulator:
                 self.uc.mem_write(args[6], struct.pack("<I", 0))
             return 0
 
-        # Request layout, read off DrvMgt.dll rather than assumed:
-        #   +0x00 major (3)   +0x04 minor (0x16)   +0x08 zero
-        #   +0x0C COMMAND     +0x10 VerificationData[4]   +0x410 argument
+        # Structures used by secdrv 4.3.86 / SafeDiscLoader2:
+        # input:  version[3], command, VerificationData[0x100],
+        #         ExtraDataSize at +0x410, ExtraData at +0x414
+        # output: version[3], VerificationData[0x100],
+        #         ExtraDataSize at +0x40C, ExtraData at +0x410
         command = struct.unpack_from("<I", payload, 0x0C)[0] if len(payload) >= 0x10 else 0
         expected = SECDRV_RESPONSES.get(command)
-
-        # Response requirements, all from DrvMgt's own readers:
-        #   0x10001000  out[0] >= 3, and if == 3 then out[4] >= 0x16
-        #   0x10001203  GetTickCount - out[0xC] <= 400   (a freshness check)
-        #   0x10001258  the payload the caller receives is at out + 0x410
         response = bytearray(max(out_len, 0x420))
-        struct.pack_into("<III", response, 0, 3, 0x16, 0)
-        struct.pack_into("<I", response, 0x0C, self.virtual_ms())
-        if len(payload) >= 0x20:
-            response[0x10:0x20] = payload[0x10:0x20]   # echo VerificationData
-        if expected is not None:
-            struct.pack_into("<I", response, 0x410, expected)
-        if command == 0x3F and self.secdrv_seed and len(payload) >= 0x418:
-            # 0x3F is an indexed 4-byte query (arg = {len:4, index:N}, N = 0..95).
-            # Make the answer depend on --secdrv-seed so two runs with different
-            # seeds can be diffed: if the run is bit-identical, the driver's data
-            # is not consumed and cannot be key material; if it diverges, it is.
-            index = struct.unpack_from("<I", payload, 0x414)[0]
-            struct.pack_into("<I", response, 0x410,
-                             (self.secdrv_seed * 0x9E3779B1 + index) & 0xFFFFFFFF)
+        struct.pack_into("<III", response, 0, 4, 3, 86)
+
+        # The real replacement rejects malformed/unsupported requests. This is
+        # semantically important: THUG2 deliberately sends command 0x43 once
+        # with ExtraData[1] == 0xF and expects DeviceIoControl to fail.
+        # ``payload`` is deliberately capped at 0x40 bytes for cheap logging;
+        # ``argument`` is the separately captured block beginning at +0x410.
+        extra0 = struct.unpack_from("<I", argument, 4)[0] if len(argument) >= 8 else 0
+        extra1 = struct.unpack_from("<I", argument, 8)[0] if len(argument) >= 12 else 0
+        valid = expected is not None
+        if command == 0x3F:
+            valid = out_len == 0xC18 and extra0 <= 0x60
+        elif command == 0x40:
+            valid = out_len == 0xC18 and extra0 != 0 and extra1 != 0
+            expected = 0x56791283 if extra1 <= 0x80 else 0x587C1284
+        elif command == 0x41:
+            valid = out_len == 0xC18 and (extra0 & 0xFF) != 0
+        elif command == 0x42:
+            valid = False
+        elif command == 0x43:
+            valid = extra0 == 0x98A64100 and extra1 <= 7 and extra1 != 4
+
+        if not valid:
+            if len(args) > 6 and args[6]:
+                self.uc.mem_write(args[6], struct.pack("<I", 0))
+            log(f"      FAKE secdrv: command 0x{command:02X} -> FALSE "
+                f"(extra0=0x{extra0:08X}, extra1=0x{extra1:08X})", always=True)
+            return 0
+
+        # Latest secdrv VerificationData. Word zero encodes a kernel tick count;
+        # the three recurrence values let the caller verify the response. The
+        # optional seed is a small diagnostic tick offset, not command payload.
+        verification = [0, 0, 0, 0]
+        verification[0] = (self.virtual_ms() + self.secdrv_seed) & 0xFFFFFFFF
+        cur = 0xF367AC7F
+        for index in range(3, 0, -1):
+            cur = (0x361962E9 - 0x0D5ACB1B * cur) & 0xFFFFFFFF
+            verification[index] = cur
+            verification[0] ^= cur
+        struct.pack_into("<4I", response, 0x0C, *verification)
+        struct.pack_into("<I", response, 0x40C, 4)
+        struct.pack_into("<I", response, 0x410, expected)
 
         if out_ptr:
             try:
@@ -2123,7 +2161,7 @@ class SafeDiscEmulator:
                 pass
         if len(args) > 6 and args[6]:
             self.uc.mem_write(args[6], struct.pack("<I", out_len or len(response)))
-        detail = f"0x{expected:08X}" if expected is not None else "NO KNOWN RESPONSE"
+        detail = f"0x{expected:08X}"
         log(f"      FAKE secdrv: command 0x{command:02X} -> {detail}", always=True)
         return 1
 
@@ -2176,7 +2214,7 @@ class SafeDiscEmulator:
                 # guessing the volume label, size and timestamp, every one of
                 # which the check can compare; with the actual image those
                 # answers are simply true.
-                data = b"".join(self.disc.read_sector(lba + i) for i in range(count))
+                data = b"".join(self.read_disc_sector(lba + i) for i in range(count))
             else:
                 data = self.iso9660_sector(lba)
         if not data:
@@ -2193,6 +2231,47 @@ class SafeDiscEmulator:
         except UcError:
             pass
         return True
+
+    def read_disc_sector(self, lba: int) -> bytes:
+        """Read one sector, optionally reconstructing the protected root extent.
+
+        The supplied scene image contains the correct files but AuthServ's own
+        decrypted comparison requires the root directory extent to be at least
+        0x51D92.  CD1 ends before that address and places its root at LBA 27, so
+        it cannot preserve the original protected mastering layout.  The opt-in
+        override moves only that ISO extent virtually: the source image remains
+        untouched and all directory/file data still comes from it.
+        """
+        data = self.disc.read_sector(lba)
+        virtual = self.disc_root_extent_override
+        original = self.disc_original_root_extent
+        if virtual is None or original is None:
+            return data
+
+        if lba == 16:
+            patched = bytearray(data)
+            struct.pack_into("<I", patched, 80,
+                             max(struct.unpack_from("<I", patched, 80)[0], virtual + 1))
+            struct.pack_into(">I", patched, 84,
+                             max(struct.unpack_from(">I", patched, 84)[0], virtual + 1))
+            struct.pack_into("<I", patched, 158, virtual)
+            struct.pack_into(">I", patched, 162, virtual)
+            return bytes(patched)
+
+        if lba == virtual:
+            patched = bytearray(self.disc.read_sector(original))
+            # Keep the self and parent records coherent with the virtual PVD.
+            offset = 0
+            for expected_name in (0, 1):
+                length = patched[offset]
+                if length < 34 or patched[offset + 32] != 1 \
+                        or patched[offset + 33] != expected_name:
+                    break
+                struct.pack_into("<I", patched, offset + 2, virtual)
+                struct.pack_into(">I", patched, offset + 6, virtual)
+                offset += length
+            return bytes(patched)
+        return data
 
     def iso9660_sector(self, lba: int) -> bytes:
         """Synthesise the sectors an ISO9660 volume has at fixed offsets.
@@ -2555,6 +2634,23 @@ class SafeDiscEmulator:
         self.instructions += 1
         if self.trail is not None:
             self.trail.append(address)
+        # Apply diagnostic overrides before tracing so the register snapshot is
+        # the state the instruction will actually consume.  Range tracing also
+        # lives before every early-return hook below: a requested range really
+        # does include API stubs, harness trampolines and stop points.
+        if address in self.register_overrides:
+            for reg_name, value in self.register_overrides[address].items():
+                uc.reg_write(REGISTER_IDS[reg_name], value & 0xFFFFFFFF)
+            self.override_hits[address] += 1
+        range_traced = False
+        # Avoid another Python method call on all ~113 million instructions.
+        # Before the trigger, only an address comparison is needed; afterwards,
+        # decoding is entered only for an in-range instruction with budget left.
+        if self.trace_limit and (
+                (not self.trace_active and address == self.trace_after)
+                or (self.trace_active and self.trace_budget > 0
+                    and any(lo <= address < hi for lo, hi in self.trace_ranges))):
+            range_traced = self.trace_range_step(uc, address, size)
         # Generic OEP detection: execution entering a page of the ORIGINAL image
         # that has been written since load. That is the "tail jump" every packer
         # ends with, and it is protection-agnostic -- nothing here knows what
@@ -2615,10 +2711,6 @@ class SafeDiscEmulator:
             uc.reg_write(UC_X86_REG_EIP, ret)
             return
 
-        if address in self.register_overrides:
-            for reg_name, value in self.register_overrides[address].items():
-                uc.reg_write(REGISTER_IDS[reg_name], value & 0xFFFFFFFF)
-            self.override_hits[address] += 1
         if address in self.stop_points:
             self.dump_state(uc, address)
             self.stop(uc, f"reached --stop-at 0x{address:08X}")
@@ -2627,7 +2719,8 @@ class SafeDiscEmulator:
             self.dump_state(uc, address)
         if self.trace_remaining > 0:
             self.trace_remaining -= 1
-            self.disassemble_one(address, size)
+            if not range_traced:
+                self.disassemble_one(address, size)
 
     def consider_oep(self, uc, address: int) -> None:
         """Decide whether entering a written page is really the tail jump.
@@ -2948,6 +3041,61 @@ class SafeDiscEmulator:
                 print(f"    0x{insn.address:08X}  {insn.mnemonic:<8} {insn.op_str}")
         except (UcError, capstone.CsError):
             pass
+
+    def trace_range_step(self, uc, address: int, size: int) -> bool:
+        """Emit one stateful trace line when this instruction is in range."""
+        if (self.trace_after is not None and not self.trace_after_hit
+                and address == self.trace_after):
+            self.trace_after_hits += 1
+            if self.trace_after_hits == self.trace_after_count:
+                self.trace_after_hit = True
+                self.trace_active = True
+                log(f"--trace-after reached 0x{address:08X} for hit "
+                    f"{self.trace_after_hits} at instruction {self.instructions:,}; "
+                    "range trace armed")
+        if (not self.trace_active or self.trace_budget <= 0
+                or not any(lo <= address < hi for lo, hi in self.trace_ranges)):
+            return False
+
+        try:
+            code = bytes(uc.mem_read(address, max(size, 1)))
+        except UcError:
+            code = b""
+        mnemonic, operands = "<undecodable>", ""
+        if capstone is not None and code:
+            try:
+                if self.trace_md is None:
+                    self.trace_md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+                insn = next(self.trace_md.disasm(code, address), None)
+                if insn is not None:
+                    mnemonic, operands = insn.mnemonic, insn.op_str
+            except capstone.CsError:
+                pass
+
+        register_ids = (
+            UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDX,
+            UC_X86_REG_ESI, UC_X86_REG_EDI, UC_X86_REG_EBP, UC_X86_REG_ESP,
+        )
+        register_names = ("eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp")
+        values = [uc.reg_read(reg) for reg in register_ids]
+        eflags = uc.reg_read(UC_X86_REG_EFLAGS)
+        flag_names = " ".join(name for bit, name in (
+            (0, "CF"), (2, "PF"), (4, "AF"), (6, "ZF"), (7, "SF"),
+            (8, "TF"), (9, "IF"), (10, "DF"), (11, "OF"),
+        ) if eflags & (1 << bit)) or "-"
+        raw = code.hex(" ")
+        state = " ".join(
+            f"{name}={value:08X}" for name, value in zip(register_names, values)
+        )
+        print(f"[trace] #{self.instructions:>9}  0x{address:08X}  {raw:<44} "
+              f"{mnemonic:<8} {operands:<28} | {state} "
+              f"efl={eflags:08X}[{flag_names}]")
+
+        self.trace_budget -= 1
+        self.trace_emitted += 1
+        if self.trace_budget == 0:
+            log(f"--trace-range budget exhausted after {self.trace_emitted} lines")
+        return True
 
     # --- run ------------------------------------------------------------
 
@@ -3305,6 +3453,16 @@ class SafeDiscEmulator:
             print("REGISTER OVERRIDES APPLIED (results are conditional on these):")
             for addr, count in self.override_hits.items():
                 print(f"    0x{addr:08X} x{count}")
+        if self.trace_limit:
+            print()
+            status = f"{self.trace_emitted}/{self.trace_limit} lines emitted"
+            if self.trace_after is not None and not self.trace_after_hit:
+                status += (f"; trigger 0x{self.trace_after:08X} reached "
+                           f"{self.trace_after_hits}/{self.trace_after_count} times")
+            elif self.trace_budget == 0:
+                status += "; budget exhausted"
+            ranges = ", ".join(f"0x{lo:08X}-0x{hi:08X}" for lo, hi in self.trace_ranges)
+            print(f"range trace {ranges}: {status}")
         if self.sector_reads:
             print()
             print("disc sectors read by the media check:")
@@ -3312,9 +3470,8 @@ class SafeDiscEmulator:
                 print(f"    LBA {lba} x{count}")
         if self.storage_ioctls:
             print()
-            print("raw storage IOCTLs on the disc volume (denied - we have the disc's")
-            print("FILES but not its physical layer, and inventing that data would be")
-            print("fabricating the very thing being authenticated):")
+            print("storage IOCTLs on the disc volume (benign queries and supported")
+            print("SCSI reads are answered; unsupported physical-media commands fail):")
             for code, count in self.storage_ioctls.most_common():
                 label = {0x0004D004: "IOCTL_SCSI_PASS_THROUGH",
                          0x0004D014: "IOCTL_SCSI_PASS_THROUGH_DIRECT",
@@ -3445,6 +3602,45 @@ def log(message: str, always: bool = False) -> None:
     except UnicodeEncodeError:
         text = text.encode(encoding, "replace").decode(encoding, "replace")
     print(text)
+
+
+def parse_hex_address(value: str) -> int:
+    """Parse one 32-bit address written in hex, with or without ``0x``."""
+    try:
+        address = int(value.strip(), 16)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"not a hex address: {value!r}") from exc
+    if not 0 <= address <= 0xFFFFFFFF:
+        raise argparse.ArgumentTypeError(f"address is outside 32-bit range: {value!r}")
+    return address
+
+
+def parse_hex_range(value: str) -> tuple[int, int]:
+    """Parse a half-open 32-bit address range (LO inclusive, HI exclusive)."""
+    if value.count("-") != 1:
+        raise argparse.ArgumentTypeError("expected a hex range in LO-HI form")
+    lo_text, hi_text = (part.strip() for part in value.split("-", 1))
+    if not lo_text or not hi_text:
+        raise argparse.ArgumentTypeError("expected both addresses in LO-HI form")
+    try:
+        lo, hi = int(lo_text, 16), int(hi_text, 16)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"not a hex range: {value!r}") from exc
+    if not 0 <= lo <= 0xFFFFFFFF or not 0 < hi <= 0x100000000:
+        raise argparse.ArgumentTypeError(f"range is outside 32-bit address space: {value!r}")
+    if lo >= hi:
+        raise argparse.ArgumentTypeError("range must have LO < HI")
+    return lo, hi
+
+
+def positive_int(value: str) -> int:
+    try:
+        result = int(value, 0)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"not an integer: {value!r}") from exc
+    if result <= 0:
+        raise argparse.ArgumentTypeError("value must be greater than zero")
+    return result
 
 
 # stdcall argument counts, so the stub can clean up the stack correctly. Only
@@ -3643,10 +3839,10 @@ def main() -> int:
                          "default: a fabricated challenge answer risks a wrong key and "
                          "a plausible-looking garbage decrypt. Command 0x3E's expected "
                          "value is confirmed by DrvMgt.Setup's own compare")
-    ap.add_argument("--secdrv-seed", type=lambda v: int(v, 0), default=0x00100000,
-                    help="Seed for the faked driver VerificationData. Run twice with "
-                         "different seeds and diff the dumps: identical output proves "
-                         "no driver value reaches the key schedule")
+    ap.add_argument("--secdrv-seed", type=lambda v: int(v, 0), default=0,
+                    help="Diagnostic offset added to the faked driver's kernel tick "
+                         "before building VerificationData (default 0). Large offsets "
+                         "can intentionally fail the driver's freshness check")
     ap.add_argument("--allow-unknown-api", action="store_true",
                     help="Continue past an API with no known stdcall arg count "
                          "instead of stopping (the stack will drift)")
@@ -3663,12 +3859,37 @@ def main() -> int:
                          "READ(10). Without it the ISO9660 volume descriptor is "
                          "synthesised, which means GUESSING the volume label, size and "
                          "timestamp -- all of which the check can compare")
+    ap.add_argument("--disc-root-extent", type=lambda v: int(v, 0), metavar="LBA",
+                    help="Opt-in virtual reconstruction of the disc's ISO root-directory "
+                         "extent. The PVD is patched in memory and reads of the virtual "
+                         "LBA are served from the image's real root extent; the image "
+                         "file itself is never changed")
     ap.add_argument("--set-reg", action="append", default=[], metavar="ADDR:REG=VAL",
                     help="At this hex address, force a register before the instruction "
                          "runs, e.g. --set-reg 10323C88:eax=0x01020050. Intended for "
                          "testing whether an obfuscated check is a GATE or a key "
                          "source -- if forcing it yields code that disassembles, it "
                          "was a gate; if it yields noise, it fed the key")
+    ap.add_argument("--trace-range", type=parse_hex_range, metavar="LO-HI",
+                    help="Disassemble every instruction executed inside this hex range. "
+                         "LO is inclusive and HI is exclusive. "
+                         "The only way to read code that is GENERATED at runtime and "
+                         "re-protected after each call -- SafeDisc computes its final "
+                         "media verdict in a block it builds on the stack")
+    ap.add_argument("--trace-extra-range", type=parse_hex_range, action="append",
+                    default=[], metavar="LO-HI",
+                    help="Add another disjoint range to --trace-range (repeatable). "
+                         "Useful for capturing a transformed module and generated "
+                         "stack code in one expensive run")
+    ap.add_argument("--trace-budget", type=positive_int, default=400,
+                    help="Cap on --trace-range lines (default 400)")
+    ap.add_argument("--trace-after", type=parse_hex_address, metavar="ADDR",
+                    help="Arm --trace-range only after execution reaches this hex "
+                         "address. Useful when earlier generated blocks execute in "
+                         "the same stack range and would consume the trace budget")
+    ap.add_argument("--trace-after-count", type=positive_int, default=1, metavar="N",
+                    help="Arm on the Nth execution of --trace-after (default 1). "
+                         "Useful for tracing the final retry of a repeated check")
     ap.add_argument("--stop-at", action="append", default=[], metavar="ADDR",
                     help="Stop cleanly when EIP reaches this hex address, so --trail and "
                          "--dump reflect THAT moment. The only way to inspect code that "
@@ -3685,6 +3906,15 @@ def main() -> int:
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
+    if args.trace_after is not None and args.trace_range is None:
+        ap.error("--trace-after requires --trace-range")
+    if args.trace_extra_range and args.trace_range is None:
+        ap.error("--trace-extra-range requires --trace-range")
+    if args.trace_after_count != 1 and args.trace_after is None:
+        ap.error("--trace-after-count requires --trace-after")
+    if args.disc_root_extent is not None and args.disc is None:
+        ap.error("--disc-root-extent requires --disc")
+
     if not args.exe.is_file():
         print(f"not found: {args.exe}", file=sys.stderr)
         return 2
@@ -3699,14 +3929,27 @@ def main() -> int:
         from iso9660_reader import DiscImage  # noqa: PLC0415
         emu.disc = DiscImage(args.disc)
         info = emu.disc.pvd()
+        emu.disc_original_root_extent = info["root_lba"]
+        emu.disc_root_extent_override = args.disc_root_extent
         log(f"disc: {args.disc.name}, {emu.disc.sectors:,} sectors, "
             f"volume '{info['volume_id']}', created {info['created'][:14]}")
+        if args.disc_root_extent is not None:
+            log(f"disc layout reconstruction: root extent LBA {info['root_lba']} "
+                f"-> {args.disc_root_extent} (0x{args.disc_root_extent:X})")
     emu.fake_secdrv = args.fake_secdrv
     emu.secdrv_seed = args.secdrv_seed
     if args.trail:
         emu.trail = deque(maxlen=args.trail)
     emu.breakpoints = {int(a, 16) for a in args.breakpoints}
     emu.stop_points = {int(a, 16) for a in args.stop_at}
+    if args.trace_range:
+        emu.trace_lo, emu.trace_hi = args.trace_range
+        emu.trace_ranges = [args.trace_range, *args.trace_extra_range]
+        emu.trace_budget = args.trace_budget
+        emu.trace_limit = args.trace_budget
+        emu.trace_after = args.trace_after
+        emu.trace_after_count = args.trace_after_count
+        emu.trace_active = args.trace_after is None
     for spec in args.set_reg:
         where, _, assignment = spec.partition(":")
         reg, _, value = assignment.partition("=")
