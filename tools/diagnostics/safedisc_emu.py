@@ -406,6 +406,16 @@ BACKSLASH = chr(92)
 NUL = chr(0)
 
 SECDRV_HANDLE = 0x100
+# The game disc. AuthServ scans every drive letter for it, so exactly one
+# must look like a CD-ROM carrying 00000001.TMP -- the SafeDisc marker file,
+# which this build ships and HostFileMap already resolves by basename.
+CDROM_HANDLE = 0x104
+CDROM_DRIVE_LETTER = 'D'
+# ISO9660 volume identity presented to the media check. The real disc's
+# label is unknown; a well-formed generic PVD is the honest best effort, and
+# if the check tests a specific value the failure signature will say so.
+ISO_VOLUME_ID = 'THUG2'
+ISO_VOLUME_SECTORS = 0x00050000
 
 # Kernel-debugger devices SafeDisc probes for. Recovered by decrypting the
 # SecServ DLL's own string table (tools/diagnostics/safedisc_string_decrypt.py,
@@ -723,6 +733,9 @@ class SafeDiscEmulator:
         self.service_handles: dict[int, str] = {}
         self.antidebug_probes: list[str] = []
         self.registry_probes: list[str] = []
+        self.volume_opens: list[str] = []
+        self.storage_ioctls: Counter = Counter()
+        self.scsi_commands: Counter = Counter()
         self.sleep_ms = 0
         self.fake_secdrv = False
         self.secdrv_seed = 0x00100000
@@ -1718,7 +1731,14 @@ class SafeDiscEmulator:
             return 1
 
         if name in ("GetDriveTypeA", "GetDriveTypeW"):
-            return 5  # DRIVE_CDROM - keeps a disc-presence scan moving
+            root = self.read_cstr(args[0], wide=name.endswith("W")) if args and args[0] else ""
+            letter = root[0].upper() if root else ""
+            if letter == CDROM_DRIVE_LETTER:
+                return 5  # DRIVE_CDROM
+            if letter == "C":
+                return 3  # DRIVE_FIXED
+            return 1      # DRIVE_NO_ROOT_DIR -- claiming every letter is a CD is
+                          # incoherent and makes a disc scan meaningless
 
         if name in ("GetLogicalDriveStringsA", "GetLogicalDriveStringsW"):
             # Was falling through to a bare "return 1" with the buffer left
@@ -1970,7 +1990,7 @@ class SafeDiscEmulator:
         payload = b""
         if in_ptr and in_len:
             try:
-                payload = bytes(self.uc.mem_read(in_ptr, min(in_len, 64)))
+                payload = bytes(self.uc.mem_read(in_ptr, min(in_len, 0x40)))
             except UcError:
                 payload = b""
         # Read enough to see the ARGUMENT at +0x410, not just the header: whether
@@ -1987,6 +2007,55 @@ class SafeDiscEmulator:
         if payload:
             log(f"      hdr: {payload[:16].hex(' ')}"
                 + (f"  arg@0x410: {argument.hex(' ')}" if argument else ""), always=True)
+
+        if handle == CDROM_HANDLE:
+            # Raw storage IOCTLs on the disc volume -- 0x0004D004 is
+            # IOCTL_SCSI_PASS_THROUGH, i.e. AuthServ sending its own SCSI CDBs
+            # to read the physical media. We have the disc's FILES but not its
+            # physical layer, so answering with invented data would be fabricating
+            # the very thing being authenticated. Fail cleanly instead: a driver
+            # or policy that refuses pass-through is a real configuration, and it
+            # is the honest answer.
+            self.storage_ioctls[code] += 1
+            if code in (0x0004D004, 0x0004D014) and payload and len(payload) >= 0x30:
+                # SCSI_PASS_THROUGH: Cdb[16] sits at offset 0x1C on 32-bit (the
+                # header is 0x1C bytes). The opcode says exactly what AuthServ
+                # wants off the physical disc, hence whether an image could supply it.
+                cdb = payload[0x1C:0x2C]
+                opcode = cdb[0]
+                names = {0x28: "READ(10)", 0xBE: "READ CD", 0x42: "READ SUB-CHANNEL",
+                         0x43: "READ TOC", 0x51: "READ DISC INFORMATION",
+                         0x52: "READ TRACK INFORMATION", 0x12: "INQUIRY",
+                         0x25: "READ CAPACITY", 0x5A: "MODE SENSE(10)"}
+                self.scsi_commands[opcode] += 1
+                log(f"      SCSI CDB {cdb.hex(' ')}  = {names.get(opcode, 'opcode 0x%02X' % opcode)}",
+                    always=True)
+            # Answer the BENIGN queries honestly -- we really do have a data CD,
+            # so "media present" and a plain single-track TOC are true. Deny only
+            # the raw SCSI pass-through, where any answer would be invented.
+            if code in (0x00024804,):                     # STORAGE_CHECK_VERIFY
+                return 1
+            if code == 0x00041018 and out_ptr:            # CDROM_READ_TOC
+                toc = struct.pack("<HBB", 4, 1, 1)        # length, first, last track
+                self.uc.mem_write(out_ptr, toc.ljust(min(out_len, 8), b"\x00"))
+                if len(args) > 6 and args[6]:
+                    self.uc.mem_write(args[6], struct.pack("<I", min(out_len, 8)))
+                return 1
+            if code == 0x00024000 and out_ptr:            # STORAGE_QUERY_PROPERTY
+                self.uc.mem_write(out_ptr, b"\x00" * min(out_len, 0x400))
+                if len(args) > 6 and args[6]:
+                    self.uc.mem_write(args[6], struct.pack("<I", min(out_len, 0x400)))
+                return 1
+            if code in (0x0004D004, 0x0004D014) and payload and len(payload) >= 0x2C:
+                answered = self.answer_scsi(payload, out_ptr, out_len)
+                if answered:
+                    if len(args) > 6 and args[6]:
+                        self.uc.mem_write(args[6], struct.pack("<I", out_len))
+                    return 1
+            self.last_error = 1  # ERROR_INVALID_FUNCTION
+            if len(args) > 6 and args[6]:
+                self.uc.mem_write(args[6], struct.pack("<I", 0))
+            return 0
 
         if not self.fake_secdrv or handle != SECDRV_HANDLE:
             if len(args) > 6 and args[6]:
@@ -2030,6 +2099,84 @@ class SafeDiscEmulator:
         log(f"      FAKE secdrv: command 0x{command:02X} -> {detail}", always=True)
         return 1
 
+    def answer_scsi(self, request: bytes, out_ptr: int, out_len: int) -> bool:
+        """Answer the SCSI commands AuthServ sends to the disc drive.
+
+        Worth being precise about what these are, because it decides whether the
+        goal is reachable at all. AuthServ sends exactly three:
+
+            INQUIRY            -- the DRIVE's identity
+            MODE SENSE(10) 2A  -- the DRIVE's capabilities
+            READ(10) LBA 16    -- the ISO9660 Primary Volume Descriptor
+
+        None of them is a weak-sector or subchannel read. The first two describe
+        the drive, not the disc, and the third is ordinary filesystem metadata at
+        a fixed, standard location. So all three can be answered truthfully-in-
+        kind without fabricating physical-media secrets -- unlike the raw
+        sector-timing reads SafeDisc is usually described as performing.
+
+        Returns True if the command was answered.
+        """
+        cdb = request[0x1C:0x2C]
+        data_offset = struct.unpack_from("<I", request, 0x14)[0]
+        transfer = struct.unpack_from("<I", request, 0x0C)[0]
+        if not out_ptr or data_offset >= out_len:
+            return False
+        room = min(transfer, out_len - data_offset)
+        if room <= 0:
+            return False
+
+        opcode = cdb[0]
+        data = b""
+        if opcode == 0x12:                       # INQUIRY
+            data = (bytes([0x05, 0x80, 0x02, 0x02, 0x1F, 0, 0, 0])
+                    + b"SafeDisc"                # vendor   (8)
+                    + b"Emulated CD-ROM "        # product (16)
+                    + b"1.0 ")                   # revision (4)
+        elif opcode == 0x5A and (cdb[2] & 0x3F) == 0x2A:   # MODE SENSE(10), CD caps
+            page = bytearray(28)
+            page[0], page[1] = 0x2A, 26          # page code, length
+            page[2] = 0x00                       # read CD-R/RW: nothing exotic
+            page[4] = 0x01                       # audio play
+            data = bytes(8) + bytes(page)        # 8-byte mode parameter header
+        elif opcode == 0x28:                     # READ(10)
+            lba = struct.unpack_from(">I", cdb, 2)[0]
+            data = self.iso9660_sector(lba)
+        if not data:
+            return False
+
+        self.uc.mem_write(out_ptr + data_offset, data[:room].ljust(min(room, len(data)), b"\x00"))
+        return True
+
+    def iso9660_sector(self, lba: int) -> bytes:
+        """Synthesise the sectors an ISO9660 volume has at fixed offsets.
+
+        Sector 16 is the Primary Volume Descriptor and 17 the terminator; both
+        are standard structures, not disc-specific secrets.
+        """
+        if lba == 17:
+            return bytes([0xFF]) + b"CD001" + bytes([0x01]) + bytes(2041)
+        if lba != 16:
+            return b""
+        pvd = bytearray(2048)
+        pvd[0] = 1                                        # primary volume descriptor
+        pvd[1:6] = b"CD001"
+        pvd[6] = 1                                        # version
+        pvd[8:40] = b"WIN32".ljust(32)                    # system identifier
+        pvd[40:72] = ISO_VOLUME_ID.encode("latin1").ljust(32)
+        struct.pack_into("<I", pvd, 80, ISO_VOLUME_SECTORS)          # both-endian
+        struct.pack_into(">I", pvd, 84, ISO_VOLUME_SECTORS)
+        struct.pack_into("<H", pvd, 120, 1)               # volume set size
+        struct.pack_into(">H", pvd, 122, 1)
+        struct.pack_into("<H", pvd, 124, 1)               # volume sequence number
+        struct.pack_into(">H", pvd, 126, 1)
+        struct.pack_into("<H", pvd, 128, 2048)            # logical block size
+        struct.pack_into(">H", pvd, 130, 2048)
+        stamp = b"2004100400000000"                       # creation date + hundredths
+        pvd[813:830] = stamp + bytes([0])
+        pvd[881] = 1                                      # file structure version
+        return bytes(pvd)
+
     def api_create_file(self, target: str, args: list[int]) -> int:
         """Open a file the loader asks for, backed by the real build tree.
 
@@ -2059,6 +2206,21 @@ class SafeDiscEmulator:
         # device handle meant the copy read nothing -- so the service install
         # failed and DrvMgt never got as far as issuing an ioctl.
         if target.startswith("\\\\.\\"):
+            device = target[4:].rstrip("\\")
+            # A VOLUME device (\\.\D:) is not the SafeDisc driver. Handing back
+            # the secdrv pseudo-handle for every \\.\ path routed the media
+            # check's raw drive I/O into the driver responder. AuthServ
+            # enumerates every letter looking for the disc, so only the
+            # designated CD letter answers; the rest fail as they would on a
+            # machine without those drives.
+            if len(device) == 2 and device[1] == ":":
+                letter = device[0].upper()
+                if letter != CDROM_DRIVE_LETTER:
+                    self.last_error = 2
+                    return 0xFFFFFFFF
+                self.volume_opens.append(target)
+                log(f"    CreateFile({target})  <-- CD-ROM volume", always=True)
+                return CDROM_HANDLE
             self.driver_opens.append(target)
             log(f"    CreateFile({target})  <-- SafeDisc DRIVER device", always=True)
             return SECDRV_HANDLE
@@ -3072,6 +3234,18 @@ class SafeDiscEmulator:
             print("REGISTER OVERRIDES APPLIED (results are conditional on these):")
             for addr, count in self.override_hits.items():
                 print(f"    0x{addr:08X} x{count}")
+        if self.storage_ioctls:
+            print()
+            print("raw storage IOCTLs on the disc volume (denied - we have the disc's")
+            print("FILES but not its physical layer, and inventing that data would be")
+            print("fabricating the very thing being authenticated):")
+            for code, count in self.storage_ioctls.most_common():
+                label = {0x0004D004: "IOCTL_SCSI_PASS_THROUGH",
+                         0x0004D014: "IOCTL_SCSI_PASS_THROUGH_DIRECT",
+                         0x00041018: "IOCTL_CDROM_READ_TOC",
+                         0x00024000: "IOCTL_STORAGE_QUERY_PROPERTY",
+                         0x00024804: "IOCTL_STORAGE_CHECK_VERIFY"}.get(code, "")
+                print(f"    0x{code:08X} x{count}  {label}")
         if self.antidebug_probes:
             print()
             print(f"anti-debug probes denied ({len(self.antidebug_probes)}): "
