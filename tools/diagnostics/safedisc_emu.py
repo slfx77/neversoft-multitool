@@ -411,6 +411,9 @@ SECDRV_HANDLE = 0x100
 # which this build ships and HostFileMap already resolves by basename.
 CDROM_HANDLE = 0x104
 CDROM_DRIVE_LETTER = 'D'
+# IOCTL_CDROM_RAW_READ and its neighbours. SafeDisc reads raw 2352-byte
+# sectors here; with a real image these are answerable exactly.
+CDROM_RAW_READ_CODES = {0x0002403E, 0x0002404C, 0x00024038}
 # ISO9660 volume identity presented to the media check. The real disc's
 # label is unknown; a well-formed generic PVD is the honest best effort, and
 # if the check tests a specific value the failure signature will say so.
@@ -737,6 +740,7 @@ class SafeDiscEmulator:
         self.storage_ioctls: Counter = Counter()
         self.scsi_commands: Counter = Counter()
         self.sector_reads: Counter = Counter()
+        self.reported_ioctls: set[int] = set()
         self.disc = None
         self.sleep_ms = 0
         self.fake_secdrv = False
@@ -2054,6 +2058,27 @@ class SafeDiscEmulator:
                     if len(args) > 6 and args[6]:
                         self.uc.mem_write(args[6], struct.pack("<I", out_len))
                     return 1
+            # RAW_READ_INFO { LARGE_INTEGER DiskOffset; ULONG SectorCount;
+            #                 TRACK_MODE_TYPE TrackMode; } -> raw 2352-byte
+            # sectors. With the real image this is answerable exactly, sync
+            # bytes and header included, which a synthesised sector cannot be.
+            if code in CDROM_RAW_READ_CODES and self.disc is not None and payload and out_ptr:
+                if len(payload) >= 16:
+                    offset = struct.unpack_from("<Q", payload, 0)[0]
+                    count = struct.unpack_from("<I", payload, 8)[0] or 1
+                    lba = offset // 2048
+                    self.sector_reads[lba] += 1
+                    raw = b"".join(self.disc.read_raw(lba + i) for i in range(count))
+                    self.uc.mem_write(out_ptr, raw[:out_len])
+                    if len(args) > 6 and args[6]:
+                        self.uc.mem_write(args[6], struct.pack("<I", min(len(raw), out_len)))
+                    log(f"      CDROM_RAW_READ LBA {lba} x{count} -> real sectors",
+                        always=True)
+                    return 1
+            if code not in self.reported_ioctls:
+                self.reported_ioctls.add(code)
+                log(f"      unhandled storage IOCTL 0x{code:08X} in={in_len} out={out_len}"
+                    + (f" data={payload[:24].hex(' ')}" if payload else ""), always=True)
             self.last_error = 1  # ERROR_INVALID_FUNCTION
             if len(args) > 6 and args[6]:
                 self.uc.mem_write(args[6], struct.pack("<I", 0))
@@ -2157,6 +2182,15 @@ class SafeDiscEmulator:
             return False
 
         self.uc.mem_write(out_ptr + data_offset, data[:room].ljust(min(room, len(data)), b"\x00"))
+        # The caller reads ScsiStatus (offset 0x02) before trusting the data, and
+        # a SCSI_PASS_THROUGH that leaves it untouched carries whatever the
+        # request happened to hold. 0 is GOOD; clear the sense length too, since
+        # sense data only accompanies a failure.
+        try:
+            self.uc.mem_write(out_ptr + 0x02, bytes([0x00]))
+            self.uc.mem_write(out_ptr + 0x07, bytes([0x00]))
+        except UcError:
+            pass
         return True
 
     def iso9660_sector(self, lba: int) -> bytes:
@@ -3139,6 +3173,27 @@ class SafeDiscEmulator:
             written.append((out.name, len(image), entropy(image[:0x40000])))
         return written
 
+    def dump_heap(self, directory: Path) -> tuple[int, float]:
+        """Write the used heap out.
+
+        CJumpRun does not decrypt a virtualised function in place -- it patches
+        the original site to `jmp <heap>` and relocates the plaintext body to a
+        freshly allocated block. So the protection's real code is in the HEAP,
+        not in any module image, and this is the only way to read it. The dump
+        is a flat image based at HEAP_BASE, so a heap address maps to
+        (address - HEAP_BASE).
+        """
+        directory.mkdir(parents=True, exist_ok=True)
+        used = self.heap_next - HEAP_BASE
+        if used <= 0:
+            return 0, 0.0
+        try:
+            data = bytes(self.uc.mem_read(HEAP_BASE, used))
+        except UcError:
+            return 0, 0.0
+        (directory / "heap.bin").write_bytes(data)
+        return len(data), entropy(data[:0x80000])
+
     def dump_emulated_files(self, directory: Path) -> list[tuple[str, int, str]]:
         """Write out every file the loader CREATED in emulated memory.
 
@@ -3312,6 +3367,11 @@ class SafeDiscEmulator:
                       f"(these are DECRYPTED; the on-disk files are not):")
                 for mname, msize, ment in modules:
                     print(f"    {msize:10,} bytes  entropy {ment:.3f}  {mname}")
+            heap_size, heap_entropy = self.dump_heap(self.temp_dump_dir)
+            if heap_size:
+                print(f"    {heap_size:10,} bytes  entropy {heap_entropy:.3f}  "
+                      f"heap.bin (CJumpRun relocates decrypted bodies here, "
+                      f"based at 0x{HEAP_BASE:08X})")
             written = self.dump_emulated_files(self.temp_dump_dir)
             if written:
                 print()
