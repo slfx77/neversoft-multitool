@@ -24,18 +24,19 @@ Three protection-agnostic pieces do the work:
     that has been written since load. That rule alone is far too weak -- a stub
     self-patches constantly -- so it is qualified by three more conditions in
     `consider_oep`, all of them packer-agnostic.
-  * IMPORT REBUILDING that is EXACT rather than heuristic. Every IAT slot in a
-    dump holds one of our own API stub addresses, and the emulator recorded the
-    name and DLL behind each one, so `write_unpacked_pe` looks the answer up.
-    Scylla/ImpREC have to resolve addresses back to exports and guess at
-    forwarders; this cannot be wrong by construction. It is the strongest single
-    argument for unpacking under emulation rather than under a debugger.
+  * A CONSERVATIVE IMPORT SNAPSHOT. For an IAT slot that still holds one of the
+    emulator's API-stub addresses, the API name and DLL identity are exact.
+    Discovering which stub-valued dwords are genuine slots still requires care:
+    `find_iat_slots` accepts only file-backed non-executable dwords referenced by
+    executable `FF 15`/`FF 25` operands. Unverified values are left untouched.
+    The resulting table is diagnostic and must not be mistaken for proof that
+    every protected import or payload region was restored.
 
-This does not require the disc, the driver, or a VM. If the decryption key
-turns out to be derived from the SafeDisc driver's challenge/response, that
-shows up here as a `DeviceIoControl` on the secdrv handle whose output feeds
-the key schedule - which answers the "is it disc-derived?" question that
-nothing static can.
+The THUG2 run requires a disc image, the opt-in emulated secdrv contract, and
+the matching mastering metadata.  `--thug2-retail-disc-profile` reconstructs
+the latter in memory for the supplied reauthored scene BIN; it never changes
+the image on disk.  Generic switches expose the same sector overlays, marker,
+root extent, and unreadable-sector model for research on other titles.
 
 Usage:
     python tools/diagnostics/safedisc_emu.py <exe>
@@ -45,7 +46,45 @@ Usage:
 
 Requires: pip install unicorn capstone pefile
 
-STATUS (2026-08-07, second pass): RUNS THE PROTECTION CORE, NOT YET DECRYPTING.
+STATUS (2026-08-08): EMULATOR OUTPUT PARTIAL; USABLE SAME-BUILD EXE RECOVERED.
+
+The requested unprotected executable is bundled on the supplied CD3 as
+`CRACK/THUG2.EXE`. `thug2_cd3_recover.py` verifies the complete CD3 and
+protected-EXE hashes plus the embedded file's PE identity before recovering
+it. The result is 2,695,168 bytes, SHA-256
+`52fc88849654b34839ec2f96bff3a8c0b7a855df9a207aab9f2fca2e6bd440f3`,
+with game OEP RVA 0x22583D and 193 imports across 11 DLLs. It is the
+scene-release no-CD, not an emulator output or a claimed pristine publisher
+pre-SafeDisc image.
+
+The faithful emulator run still provides valuable protection research, but
+the same-build comparison proved its memory dump incomplete. The first 0x4E20
+bytes of `.text` and first 0x5DC bytes of `.data` remain wrongly transformed;
+77 calls still redirect to ciphertext, 18 IAT operands remain permuted, live
+instructions remain replaced by `0xCC`, and only 163 of 193 game imports are
+plaintext. `safedisc_finalize_dump.py` can make this partial dump
+loader-readable for diagnosis, but cannot make it a complete deliverable.
+
+For this build, use `--disc <CD1 BIN> --thug2-retail-disc-profile
+--fake-secdrv`.  The title profile embeds only four 2,048-byte ISO descriptor
+sectors (no game payload), aliases the authentic ISO/Joliet roots 24/58 to the
+scene roots 27/61, and models the verified 964..10320 protection band.
+SafeDisc uses that exact error map to
+choose clean optical timing probes; the old conclusion that the check involved
+only ordinary filesystem metadata was incomplete.
+
+The first main-image dump also stopped before SafeDisc restored `stxt774`.
+Three real game-code jumps target ciphertext there (VA 0x7DF5B5, 0x7DF800,
+and 0x7DF81D). A corrected FILETIME/media rerun produced the same dump
+byte-for-byte and the same bad table count, disproving that route as the
+stolen-key cause. See `docs/backlog/safedisc-emulation-handoff.md` for the
+completed CD3 recovery and the byte-level audit of the partial emulator path.
+
+The chronology below is retained as a debugging record.  Its intermediate
+"current blocker", instruction counts, and no-decryption conclusions are
+superseded by the status above and by `docs/backlog/safedisc-emulation-handoff.md`.
+
+HISTORICAL DEVELOPMENT LOG (SUPERSEDED):
 
 Depth went from ~155,900 instructions to ~18,870,000 (121x) and the run now
 executes SafeDisc's own protection DLL rather than its outermost stub.
@@ -324,9 +363,13 @@ STILL MISSING, in rough order of likely need:
 from __future__ import annotations
 
 import argparse
+import base64
+import datetime
+import hashlib
 import math
 import struct
 import sys
+import zlib
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 
@@ -372,6 +415,7 @@ HEAP_BASE = 0x01000000
 HEAP_SIZE = 0x04000000
 STUB_BASE = 0x70000000          # one byte per stubbed export, hooked on execute
 STUB_SIZE = 0x00010000
+IMAGE_SCN_MEM_EXECUTE = 0x20000000
 FAKE_MODULE_BASE = 0x71000000   # handles handed back by LoadLibrary for unknown DLLs
 FAKE_MODULE_STEP = 0x00010000
 LOADED_MODULE_BASE = 0x10000000  # where PEs the loader extracts are really mapped
@@ -414,6 +458,122 @@ CDROM_DRIVE_LETTER = 'D'
 # IOCTL_CDROM_RAW_READ and its neighbours. SafeDisc reads raw 2352-byte
 # sectors here; with a real image these are answerable exactly.
 CDROM_RAW_READ_CODES = {0x0002403E, 0x0002404C, 0x00024038}
+# SCSI status and fixed-format sense data used when the opt-in mastering
+# profile classifies a protected LBA as unreadable.  The I/O-control request
+# itself still completes successfully: CHECK CONDITION is the device's answer,
+# while failing DeviceIoControl would instead mean the pass-through transport
+# did not run.
+SCSI_STATUS_GOOD = 0x00
+SCSI_STATUS_CHECK_CONDITION = 0x02
+SCSI_UNRECOVERED_READ_SENSE = bytes([
+    0x70, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x0A,
+    0x00, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00,
+    0x00, 0x00,
+])
+# AuthServ first asks the drive to expose 2,340- or 2,352-byte blocks.  A drive
+# is allowed to reject that MODE SELECT parameter list, after which AuthServ
+# deliberately falls back to ordinary 2,048-byte reads.  Report the rejection
+# at the SCSI layer (transport success + CHECK CONDITION), not as a failed
+# DeviceIoControl call.  05/26/00 is ILLEGAL REQUEST / invalid field in the
+# parameter list.
+SCSI_MODE_SELECT_REJECT_SENSE = bytes([
+    0x70, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x0A,
+    0x00, 0x00, 0x00, 0x00, 0x26, 0x00, 0x00, 0x00,
+    0x00, 0x00,
+])
+
+# A stable, plausible absolute epoch for GetSystemTimeAsFileTime.  AuthServ
+# subtracts the low FILETIME dwords around disc reads; virtual_ms supplies the
+# monotonic part while this 2020-01-01 UTC base keeps other callers away from
+# implausibly early dates.
+FILETIME_BASE_2020 = 132_223_104_000_000_000
+FILETIME_EPOCH = datetime.datetime(1601, 1, 1, tzinfo=datetime.timezone.utc)
+
+# The supplied Reloaded BIN is the correct game release but was reauthored: its
+# volume descriptors have a different root extent and its ISO application-use
+# field contains spaces where the SafeDisc mastering record lived.  These four
+# compressed 2,048-byte descriptor sectors are metadata recovered from the
+# matching retail master (LBAs 16..19); they contain no game file payload.  The
+# title-specific CLI profile below combines them with the independently
+# verified unreadable-sector geometry.  Keeping the bytes here makes the
+# successful run reproducible from the user's existing scene image, while the
+# generic overlay/profile switches remain available for other discs.
+THUG2_RETAIL_DESCRIPTOR_SECTORS_ZLIB_B64 = (
+    "eNpjdHYxMDBkZFAgAEI8Qt2N4g1xyjNAwfQKFgYGlorpDAQAIxCBMAMHB8MWRrDI"
+    "FhGEtCiIUGKQgPAkGDhAFAdDBiefgJzxEyaYfoVRMAroB4wMDEwMLA1NDM2MDUw"
+    "NDQwYMAQM0ACmACPDSAcrrh7dn90xZ9GjCZZ6u/+bVnUzfGz7IDzNx7585b18na"
+    "VapyMSzZ673GU6/EGyLz5G9NbujovPrpf4btqs0Gnn39PapfGpIFo0Iu1DgfRm5"
+    "U3OCU++NG3au7zS2rFeZt6U5fd8Unkn3G7WDJNJ5BWNZ8uomX3g9YQ3ayxjvWeF"
+    "yjnoTj1w6jgz1B1ngAx3DSCDz4NJWIWJYfv/////ArE9MIr8NXC7fzdD3+vbLO5"
+    "rerPmlL5JTTuf4LRg6+uzrUCZpO9bkqIOTljzLECrSn9GY/Wa7Mryk3nbJ4nxVa"
+    "Qt2uii8eAd6049B5u4tCNN/wTUdpfOecQ4XWzZkZOstmWHmNoevPOMfr3ic6jwf"
+    "KHXC9QD1Uy2dIm93bOsRV7Njlfe+d80wf9Rx7nfczffvuj5LKkowd1mBsPj061G"
+    "72vKfvwvlFn1jHf7y5Dqq7UMo2AUEA0YR+v/UTAKRuv/UTAKRsGIA0zQ+p9BgQ"
+    "AMYfBgCGVwZzBiiGcwxCKPVv+r6rsSXf87MIFd4iCGkBaH1P9WEJ4VrvqfoKtH4"
+    "SiknqLR+n8UjIJRMIzAf1j9PwpGwSgYBaNgFIyCEQMAj9muQQ=="
+)
+THUG2_RETAIL_ROOT_EXTENT = 0x18
+THUG2_RETAIL_ROOT_ALIASES = {
+    0x18: 0x1B,  # retail ISO PVD root 24 -> scene PVD root 27
+    0x3A: 0x3D,  # retail Joliet SVD root 58 -> scene SVD root 61
+}
+THUG2_RETAIL_BAD_SECTOR_PROFILE = (0x3C4, 0x2850, 0xB7EC1EFB, 7, 7)
+THUG2_PROTECTED_EXE_SHA256 = (
+    "c34ea46e041d08d7d85565a262473c29b90ed8a4d5b740d6cc04d4fe48d52347"
+)
+THUG2_SCENE_CD1_PVD_SHA256 = (
+    "aeafd7863d68d0ae1aca3652177f57a5e0e0213c179839c18783579be00520e1"
+)
+THUG2_SCENE_CD1_BIN_SHA256 = (
+    "5e8b570d999b88ad9ffad1ffe152b9af9cd342fbde6aeba561b9ff504183e68f"
+)
+
+
+def thug2_retail_descriptor_sectors() -> dict[int, bytes]:
+    """Return the matching retail CD1 ISO descriptor sectors (LBAs 16..19)."""
+    packed = base64.b64decode(THUG2_RETAIL_DESCRIPTOR_SECTORS_ZLIB_B64)
+    blob = zlib.decompress(packed)
+    if len(blob) != 4 * 2048:  # Guard source corruption, not user input.
+        raise ValueError("embedded THUG2 retail descriptor profile is corrupt")
+    return {lba: blob[(lba - 16) * 2048:(lba - 15) * 2048]
+            for lba in range(16, 20)}
+
+
+def sha256_file(path: Path) -> str:
+    """Hash a potentially large image without loading it all into memory."""
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def systemtime_from_filetime(ticks: int) -> bytes:
+    """Encode one UTC FILETIME value as a Win32 SYSTEMTIME structure."""
+    moment = FILETIME_EPOCH + datetime.timedelta(microseconds=ticks // 10)
+    day_of_week = (moment.weekday() + 1) % 7  # Python Monday=0; Win32 Sunday=0.
+    return struct.pack(
+        "<8H", moment.year, moment.month, day_of_week, moment.day,
+        moment.hour, moment.minute, moment.second, moment.microsecond // 1000,
+    )
+
+
+def filetime_from_systemtime(data: bytes) -> int:
+    """Convert a Win32 UTC SYSTEMTIME structure to 100-ns FILETIME ticks."""
+    year, month, _day_of_week, day, hour, minute, second, milliseconds = \
+        struct.unpack("<8H", data[:16])
+    if milliseconds > 999:
+        raise ValueError("SYSTEMTIME milliseconds exceed 999")
+    moment = datetime.datetime(
+        year, month, day, hour, minute, second, milliseconds * 1000,
+        tzinfo=datetime.timezone.utc,
+    )
+    delta = moment - FILETIME_EPOCH
+    ticks = ((delta.days * 86_400 + delta.seconds) * 10_000_000
+             + delta.microseconds * 10)
+    if not 0 <= ticks <= 0xFFFFFFFFFFFFFFFF:
+        raise ValueError("SYSTEMTIME lies outside the FILETIME range")
+    return ticks
 # ISO9660 volume identity presented to the media check. The real disc's
 # label is unknown; a well-formed generic PVD is the honest best effort, and
 # if the check tests a specific value the failure signature will say so.
@@ -756,8 +916,13 @@ class SafeDiscEmulator:
         self.sector_reads: Counter = Counter()
         self.reported_ioctls: set[int] = set()
         self.disc = None
+        self.disc_sector_overlays: dict[int, bytes] = {}
+        self.disc_sector_aliases: dict[int, int] = {}
         self.disc_root_extent_override: int | None = None
         self.disc_original_root_extent: int | None = None
+        self.disc_application_use_marker: bytes | None = None
+        self.disc_bad_sector_profile: tuple[int, int, int, int, int] | None = None
+        self.bad_sector_reads: Counter = Counter()
         self.sleep_ms = 0
         self.fake_secdrv = False
         self.secdrv_seed = 0x00100000
@@ -1863,6 +2028,73 @@ class SafeDiscEmulator:
             self.uc.mem_write(args[0], struct.pack("<Q", self.virtual_ms() * 3579))
             return 1
 
+        if name == "GetSystemTimeAsFileTime":
+            # This API returns through its FILETIME pointer (it is void).  A
+            # success-only stub left AuthServ's stack local untouched, making
+            # every media-read delta a subtraction of stale return addresses.
+            # FILETIME units are 100 ns, hence 10,000 ticks per millisecond.
+            if args and args[0]:
+                ticks = FILETIME_BASE_2020 + self.virtual_ms() * 10_000
+                self.uc.mem_write(args[0], struct.pack("<Q", ticks))
+            return 0
+
+        if name in ("GetSystemTime", "GetLocalTime"):
+            # The emulated time zone is UTC, so local and system time agree.
+            if args and args[0]:
+                ticks = FILETIME_BASE_2020 + self.virtual_ms() * 10_000
+                self.uc.mem_write(args[0], systemtime_from_filetime(ticks))
+            return 0
+
+        if name == "GetTimeZoneInformation":
+            if not args or not args[0]:
+                self.last_error = 87  # ERROR_INVALID_PARAMETER
+                return 0xFFFFFFFF     # TIME_ZONE_ID_INVALID
+            info = bytearray(172)
+            # Bias, StandardBias and DaylightBias remain zero. Both transition
+            # SYSTEMTIMEs are also zero: this deterministic zone has no DST.
+            utc_name = "UTC".encode("utf-16le") + b"\x00\x00"
+            info[4:4 + len(utc_name)] = utc_name
+            info[88:88 + len(utc_name)] = utc_name
+            self.uc.mem_write(args[0], bytes(info))
+            return 0  # TIME_ZONE_ID_UNKNOWN (valid; no DST rule applies)
+
+        if name == "SystemTimeToFileTime":
+            if len(args) < 2 or not args[0] or not args[1]:
+                self.last_error = 87
+                return 0
+            try:
+                system_time = bytes(self.uc.mem_read(args[0], 16))
+                ticks = filetime_from_systemtime(system_time)
+                self.uc.mem_write(args[1], struct.pack("<Q", ticks))
+            except (ValueError, OverflowError, UcError):
+                self.last_error = 87
+                return 0
+            return 1
+
+        if name == "FileTimeToSystemTime":
+            if len(args) < 2 or not args[0] or not args[1]:
+                self.last_error = 87
+                return 0
+            try:
+                ticks = struct.unpack("<Q", bytes(self.uc.mem_read(args[0], 8)))[0]
+                self.uc.mem_write(args[1], systemtime_from_filetime(ticks))
+            except (ValueError, OverflowError, UcError):
+                self.last_error = 87
+                return 0
+            return 1
+
+        if name in ("FileTimeToLocalFileTime", "LocalFileTimeToFileTime"):
+            # UTC has zero bias, so these conversions are exact copies.
+            if len(args) < 2 or not args[0] or not args[1]:
+                self.last_error = 87
+                return 0
+            try:
+                self.uc.mem_write(args[1], bytes(self.uc.mem_read(args[0], 8)))
+            except UcError:
+                self.last_error = 87
+                return 0
+            return 1
+
         if name == "IsDebuggerPresent":
             return 0
 
@@ -2043,7 +2275,8 @@ class SafeDiscEmulator:
                 # wants off the physical disc, hence whether an image could supply it.
                 cdb = payload[0x1C:0x2C]
                 opcode = cdb[0]
-                names = {0x28: "READ(10)", 0xBE: "READ CD", 0x42: "READ SUB-CHANNEL",
+                names = {0x15: "MODE SELECT(6)", 0x28: "READ(10)",
+                         0xBE: "READ CD", 0x42: "READ SUB-CHANNEL",
                          0x43: "READ TOC", 0x51: "READ DISC INFORMATION",
                          0x52: "READ TRACK INFORMATION", 0x12: "INQUIRY",
                          0x25: "READ CAPACITY", 0x5A: "MODE SENSE(10)"}
@@ -2067,7 +2300,22 @@ class SafeDiscEmulator:
                     self.uc.mem_write(args[6], struct.pack("<I", min(out_len, 0x400)))
                 return 1
             if code in (0x0004D004, 0x0004D014) and payload and len(payload) >= 0x2C:
-                answered = self.answer_scsi(payload, out_ptr, out_len)
+                request = payload
+                copy_size = min(in_len, out_len)
+                if in_ptr and copy_size:
+                    try:
+                        request = bytes(self.uc.mem_read(in_ptr, copy_size))
+                        # DeviceIoControl's buffered control structure starts as
+                        # a copy of the input even when callers supplied distinct
+                        # user pointers. answer_scsi then updates status/lengths.
+                        if out_ptr and out_ptr != in_ptr:
+                            self.uc.mem_write(out_ptr, request)
+                    except UcError:
+                        request = payload
+                answered = self.answer_scsi(
+                    request, out_ptr, out_len,
+                    direct=(code == 0x0004D014),
+                )
                 if answered:
                     if len(args) > 6 and args[6]:
                         self.uc.mem_write(args[6], struct.pack("<I", out_len))
@@ -2165,34 +2413,90 @@ class SafeDiscEmulator:
         log(f"      FAKE secdrv: command 0x{command:02X} -> {detail}", always=True)
         return 1
 
-    def answer_scsi(self, request: bytes, out_ptr: int, out_len: int) -> bool:
-        """Answer the SCSI commands AuthServ sends to the disc drive.
+    def complete_scsi_request(self, request: bytes, out_ptr: int, out_len: int,
+                              status: int, sense: bytes = b"",
+                              transferred: int = 0) -> int:
+        """Write SCSI status/sense fields and return the sense bytes written."""
+        sense_written = 0
+        try:
+            if out_len > 0x02:
+                self.uc.mem_write(out_ptr + 0x02, bytes([status]))
+            if status == SCSI_STATUS_GOOD:
+                # No sense accompanies a successful command. This matches the
+                # responder's pre-existing behaviour and keeps stale request
+                # bytes from being mistaken for an error record.
+                if out_len > 0x07:
+                    self.uc.mem_write(out_ptr + 0x07, b"\x00")
+                if out_len >= 0x10:
+                    self.uc.mem_write(
+                        out_ptr + 0x0C, struct.pack("<I", transferred)
+                    )
+                return 0
 
-        Worth being precise about what these are, because it decides whether the
-        goal is reachable at all. AuthServ sends exactly three:
+            # A failed READ transfers no user data even though DeviceIoControl
+            # itself succeeds and returns the SCSI device's CHECK CONDITION.
+            if out_len >= 0x10:
+                self.uc.mem_write(out_ptr + 0x0C, struct.pack("<I", 0))
+            if sense and len(request) >= 0x1C:
+                sense_capacity = request[0x07]
+                sense_offset = struct.unpack_from("<I", request, 0x18)[0]
+                if sense_capacity and sense_offset and sense_offset < out_len:
+                    sense_written = min(len(sense), sense_capacity,
+                                        out_len - sense_offset)
+                    if sense_written:
+                        self.uc.mem_write(out_ptr + sense_offset, sense[:sense_written])
+            if out_len > 0x07:
+                self.uc.mem_write(out_ptr + 0x07, bytes([sense_written]))
+        except UcError:
+            pass
+        return sense_written
 
-            INQUIRY            -- the DRIVE's identity
-            MODE SENSE(10) 2A  -- the DRIVE's capabilities
-            READ(10) LBA 16    -- the ISO9660 Primary Volume Descriptor
+    def answer_scsi(self, request: bytes, out_ptr: int, out_len: int,
+                    direct: bool = False) -> bool:
+        """Answer AuthServ's drive queries and opt-in protected-sector reads.
 
-        None of them is a weak-sector or subchannel read. The first two describe
-        the drive, not the disc, and the third is ordinary filesystem metadata at
-        a fixed, standard location. So all three can be answered truthfully-in-
-        kind without fabricating physical-media secrets -- unlike the raw
-        sector-timing reads SafeDisc is usually described as performing.
+        INQUIRY and MODE SENSE describe the emulated drive. MODE SELECT(6)
+        returns a device-level ILLEGAL REQUEST so AuthServ takes its designed
+        ordinary-2048-byte fallback; accepting it would require subsequent
+        READ(10)s to return true 2,340/2,352-byte raw blocks. READ(10) normally
+        serves exact user sectors from the supplied image, but a caller-supplied
+        SafeDisc mastering profile can classify LBAs in its protected band as
+        unreadable. Such reads return the device-level CHECK CONDITION / MEDIUM
+        ERROR / unrecovered-read response; no latency or timing is guessed.
 
-        Returns True if the command was answered.
+        Returns True when the SCSI command was handled, including CHECK
+        CONDITION responses for deliberately unreadable sectors.
         """
-        cdb = request[0x1C:0x2C]
-        data_offset = struct.unpack_from("<I", request, 0x14)[0]
-        transfer = struct.unpack_from("<I", request, 0x0C)[0]
-        if not out_ptr or data_offset >= out_len:
+        if not out_ptr or out_len <= 0x02 or len(request) < 0x2C:
             return False
-        room = min(transfer, out_len - data_offset)
+
+        cdb = request[0x1C:0x2C]
+        opcode = cdb[0]
+        if opcode == 0x15:                       # MODE SELECT(6)
+            sense_written = self.complete_scsi_request(
+                request, out_ptr, out_len, SCSI_STATUS_CHECK_CONDITION,
+                SCSI_MODE_SELECT_REJECT_SENSE,
+            )
+            log("      SCSI MODE SELECT(6) -> CHECK CONDITION, ILLEGAL REQUEST / "
+                f"invalid field ({sense_written} sense bytes); retaining 2048-byte blocks",
+                always=True)
+            return True
+
+        data_location = struct.unpack_from("<I", request, 0x14)[0]
+        transfer = struct.unpack_from("<I", request, 0x0C)[0]
+        if direct:
+            if not data_location:
+                return False
+            data_ptr = data_location
+            room = transfer
+        else:
+            if data_location >= out_len:
+                return False
+            data_ptr = out_ptr + data_location
+            room = min(transfer, out_len - data_location)
         if room <= 0:
             return False
 
-        opcode = cdb[0]
         data = b""
         if opcode == 0x12:                       # INQUIRY
             data = (bytes([0x05, 0x80, 0x02, 0x02, 0x1F, 0, 0, 0])
@@ -2204,11 +2508,33 @@ class SafeDiscEmulator:
             page[0], page[1] = 0x2A, 26          # page code, length
             page[2] = 0x00                       # read CD-R/RW: nothing exotic
             page[4] = 0x01                       # audio play
-            data = bytes(8) + bytes(page)        # 8-byte mode parameter header
+            header = bytearray(8)
+            # MODE DATA LENGTH excludes its own two bytes: 8-byte header plus
+            # 28-byte page is a 36-byte response, hence 34 (0x0022).
+            struct.pack_into(">H", header, 0, len(header) + len(page) - 2)
+            data = bytes(header) + bytes(page)
         elif opcode == 0x28:                     # READ(10)
             lba = struct.unpack_from(">I", cdb, 2)[0]
             count = struct.unpack_from(">H", cdb, 7)[0] or 1
             self.sector_reads[lba] += 1
+            bad_lba = None
+            if self.disc_bad_sector_profile is not None:
+                bad_lba = next(
+                    (candidate for candidate in range(lba, lba + count)
+                     if is_bad_disc_sector(candidate, self.disc_bad_sector_profile)),
+                    None,
+                )
+            if bad_lba is not None:
+                self.bad_sector_reads[bad_lba] += 1
+                sense_written = self.complete_scsi_request(
+                    request, out_ptr, out_len, SCSI_STATUS_CHECK_CONDITION,
+                    SCSI_UNRECOVERED_READ_SENSE,
+                )
+                log(f"      SCSI READ(10) LBA {lba} x{count} includes protected "
+                    f"LBA {bad_lba} (0x{bad_lba:X}) -> CHECK CONDITION, "
+                    f"MEDIUM ERROR / unrecovered read ({sense_written} sense bytes)",
+                    always=True)
+                return True
             if self.disc is not None:
                 # REAL sectors. Synthesising the Primary Volume Descriptor means
                 # guessing the volume label, size and timestamp, every one of
@@ -2220,33 +2546,52 @@ class SafeDiscEmulator:
         if not data:
             return False
 
-        self.uc.mem_write(out_ptr + data_offset, data[:room].ljust(min(room, len(data)), b"\x00"))
-        # The caller reads ScsiStatus (offset 0x02) before trusting the data, and
-        # a SCSI_PASS_THROUGH that leaves it untouched carries whatever the
-        # request happened to hold. 0 is GOOD; clear the sense length too, since
-        # sense data only accompanies a failure.
+        transferred = min(room, len(data))
         try:
-            self.uc.mem_write(out_ptr + 0x02, bytes([0x00]))
-            self.uc.mem_write(out_ptr + 0x07, bytes([0x00]))
+            self.uc.mem_write(data_ptr, data[:transferred])
         except UcError:
-            pass
+            return False
+        self.complete_scsi_request(
+            request, out_ptr, out_len, SCSI_STATUS_GOOD,
+            transferred=transferred,
+        )
         return True
+
+    def relocated_root_sector(self, source_lba: int, virtual_lba: int) -> bytes:
+        """Read a root-directory sector and relocate its dot records in memory."""
+        patched = bytearray(self.disc.read_sector(source_lba))
+        offset = 0
+        for expected_name in (0, 1):
+            length = patched[offset]
+            if length < 34 or patched[offset + 32] != 1 \
+                    or patched[offset + 33] != expected_name:
+                break
+            struct.pack_into("<I", patched, offset + 2, virtual_lba)
+            struct.pack_into(">I", patched, offset + 6, virtual_lba)
+            offset += length
+        return bytes(patched)
 
     def read_disc_sector(self, lba: int) -> bytes:
         """Read one sector, optionally reconstructing the protected root extent.
 
-        The supplied scene image contains the correct files but AuthServ's own
-        decrypted comparison requires the root directory extent to be at least
-        0x51D92.  CD1 ends before that address and places its root at LBA 27, so
-        it cannot preserve the original protected mastering layout.  The opt-in
-        override moves only that ISO extent virtually: the source image remains
-        untouched and all directory/file data still comes from it.
+        The supplied scene image contains the correct files but places its ISO
+        and Joliet roots three sectors later than the matching retail master.
+        Opt-in aliases map the virtual extents to the scene image's real root
+        data and rewrite only the self/parent records in memory.  Sector
+        overlays take precedence, and the source image is never modified.
         """
+        overlay = self.disc_sector_overlays.get(lba)
+        if overlay is not None:
+            return overlay
+
+        aliased_source = self.disc_sector_aliases.get(lba)
+        if aliased_source is not None:
+            return self.relocated_root_sector(aliased_source, lba)
+
         data = self.disc.read_sector(lba)
         virtual = self.disc_root_extent_override
         original = self.disc_original_root_extent
-        if virtual is None or original is None:
-            return data
+        marker = self.disc_application_use_marker
 
         # AuthServ walks the complete volume-descriptor set and requires the
         # Primary and Supplementary descriptors to report the same volume
@@ -2254,30 +2599,30 @@ class SafeDiscEmulator:
         # 17, so reconstruct the common size in both.  Only the PVD's root is
         # relocated: its source extent is the one recorded by DiscImage.pvd()
         # and used by the protected root-extent comparison.
-        if data[0] in (1, 2) and data[1:7] == b"CD001\x01":
+        if data[0] in (1, 2) and data[1:7] == b"CD001\x01" \
+                and (virtual is not None or marker is not None):
             patched = bytearray(data)
-            struct.pack_into("<I", patched, 80,
-                             max(struct.unpack_from("<I", patched, 80)[0], virtual + 1))
-            struct.pack_into(">I", patched, 84,
-                             max(struct.unpack_from(">I", patched, 84)[0], virtual + 1))
-            if data[0] == 1:
-                struct.pack_into("<I", patched, 158, virtual)
-                struct.pack_into(">I", patched, 162, virtual)
+            if virtual is not None:
+                struct.pack_into("<I", patched, 80,
+                                 max(struct.unpack_from("<I", patched, 80)[0], virtual + 1))
+                struct.pack_into(">I", patched, 84,
+                                 max(struct.unpack_from(">I", patched, 84)[0], virtual + 1))
+                if data[0] == 1:
+                    struct.pack_into("<I", patched, 158, virtual)
+                    struct.pack_into(">I", patched, 162, virtual)
+            # SafeDisc stores its 64-byte mastering record in the PVD's
+            # application-use field. Scene re-authoring replaced this window
+            # with spaces. Keep reconstruction explicit and caller-supplied:
+            # this is disc data, not a branch or register override.
+            if data[0] == 1 and marker is not None:
+                patched[0x4B3:0x4F3] = marker
             return bytes(patched)
 
+        if virtual is None or original is None:
+            return data
+
         if lba == virtual:
-            patched = bytearray(self.disc.read_sector(original))
-            # Keep the self and parent records coherent with the virtual PVD.
-            offset = 0
-            for expected_name in (0, 1):
-                length = patched[offset]
-                if length < 34 or patched[offset + 32] != 1 \
-                        or patched[offset + 33] != expected_name:
-                    break
-                struct.pack_into("<I", patched, offset + 2, virtual)
-                struct.pack_into(">I", patched, offset + 6, virtual)
-                offset += length
-            return bytes(patched)
+            return self.relocated_root_sector(original, virtual)
         return data
 
     def iso9660_sector(self, lba: int) -> bytes:
@@ -3177,14 +3522,14 @@ class SafeDiscEmulator:
         return ""
 
     def write_unpacked_pe(self, out_path: Path) -> dict:
-        """Dump the emulated image as a loadable PE with a REBUILT import table.
+        """Dump the emulated image as a loader-readable diagnostic PE.
 
-        This is where emulation beats a conventional dumper. Scylla/ImpREC see an
-        IAT full of addresses and must guess which export each one was, resolving
-        back through module exports and often getting it wrong for forwarded or
-        redirected entries. Here every IAT slot holds one of OUR stub addresses,
-        and `self.stubs` already maps each to its exact name and DLL -- so the
-        rebuild is a lookup, not a heuristic.
+        When a verified IAT slot holds one of our API-stub addresses,
+        ``self.stubs`` gives its exact name and DLL without reverse-resolving a
+        host address. Slot discovery is deliberately conservative, however, and
+        this routine cannot prove that all protected imports or payload bytes
+        were restored. ``find_iat_slots`` leaves unverifiable values untouched
+        rather than corrupting incidental stub-range literals.
 
         The dump uses FileAlignment == SectionAlignment with PointerToRawData ==
         VirtualAddress, i.e. the file IS the memory image. That is the standard
@@ -3197,14 +3542,20 @@ class SafeDiscEmulator:
 
         slots = self.find_iat_slots(image, base)
         runs = self.group_iat_runs(slots)
-        import_rva, import_blob = self.build_import_directory(image, runs, size)
-
-        section_align = self.pe.OPTIONAL_HEADER.SectionAlignment or 0x1000
-        total = ((import_rva + len(import_blob)) + section_align - 1) & ~(section_align - 1)
-        image.extend(b"\x00" * (total - len(image)))
-        image[import_rva : import_rva + len(import_blob)] = import_blob
-
-        self.patch_dump_headers(image, import_rva, len(import_blob), total)
+        imports_rebuilt = bool(slots)
+        if imports_rebuilt:
+            import_rva, import_blob = self.build_import_directory(image, runs, size)
+            section_align = self.pe.OPTIONAL_HEADER.SectionAlignment or 0x1000
+            total = ((import_rva + len(import_blob)) + section_align - 1) & ~(section_align - 1)
+            image.extend(b"\x00" * (total - len(image)))
+            image[import_rva : import_rva + len(import_blob)] = import_blob
+            self.patch_dump_headers(image, import_rva, len(import_blob), total)
+        else:
+            # An empty conservative scan does not prove that the image has no
+            # imports.  In particular, a packer's original IAT may be unaligned
+            # or live in an executable section.  Preserve both directory entries
+            # and avoid appending a misleading null-only .idata section.
+            self.patch_dump_headers(image, None, 0, len(image))
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(bytes(image))
 
@@ -3215,16 +3566,51 @@ class SafeDiscEmulator:
             "iat_runs": len(runs),
             "dlls": sorted({dll for _, _, dll in slots}),
             "entry": self.oep_found or self.entry,
+            "imports_rebuilt": imports_rebuilt,
         }
 
     def find_iat_slots(self, image: bytearray, base: int) -> list[tuple[int, str, str]]:
-        """Every dword in the image that is one of our API stub addresses."""
+        """Find referenced stub dwords in file-backed, non-executable sections.
+
+        Stub addresses are ordinary 32-bit values and can occur by chance in
+        instructions or their immediates.  Treating every aligned match in the
+        image as an IAT entry corrupts such code when the import directory is
+        rebuilt.  Real IATs may be hidden in ``.rdata`` or ``.data`` rather
+        than a named ``.idata`` section, so select by section characteristics
+        instead of section name.  A candidate must also be the absolute memory
+        operand of an executable ``FF 15`` call or ``FF 25`` jump.  This is
+        deliberately conservative: an unverified import is better left intact
+        than synthesized from an incidental stub-valued data dword.
+        """
         found: list[tuple[int, str, str]] = []
-        for offset in range(0, len(image) - 4, 4):
-            value = int.from_bytes(image[offset : offset + 4], "little")
-            if STUB_BASE <= value < STUB_BASE + STUB_SIZE and value in self.stubs:
-                name = self.stubs[value][0]
-                found.append((offset, name, self.stub_dll.get(name, "kernel32.dll")))
+        sections = sorted(self.pe.sections, key=lambda section: section.VirtualAddress)
+        referenced_slots: set[int] = set()
+        for section in sections:
+            if not (section.Characteristics & IMAGE_SCN_MEM_EXECUTE):
+                continue
+            section_start = max(0, section.VirtualAddress)
+            section_end = min(len(image), section_start + section.SizeOfRawData)
+            for offset in range(section_start, section_end - 5):
+                if image[offset] != 0xFF or image[offset + 1] not in (0x15, 0x25):
+                    continue
+                address = int.from_bytes(image[offset + 2:offset + 6], "little")
+                slot = address - base
+                if 0 <= slot <= len(image) - 4:
+                    referenced_slots.add(slot)
+
+        for section in sections:
+            if section.Characteristics & IMAGE_SCN_MEM_EXECUTE:
+                continue
+            section_start = max(0, section.VirtualAddress)
+            section_end = min(len(image), section_start + section.SizeOfRawData)
+            aligned_start = (section_start + 3) & ~3
+            for offset in range(aligned_start, section_end - 3, 4):
+                if offset not in referenced_slots:
+                    continue
+                value = int.from_bytes(image[offset : offset + 4], "little")
+                if STUB_BASE <= value < STUB_BASE + STUB_SIZE and value in self.stubs:
+                    name = self.stubs[value][0]
+                    found.append((offset, name, self.stub_dll.get(name, "kernel32.dll")))
         return found
 
     def group_iat_runs(self, slots: list[tuple[int, str, str]]) -> list[tuple[str, int, list[str]]]:
@@ -3274,7 +3660,7 @@ class SafeDiscEmulator:
         descriptors.extend(b"\x00" * 20)   # terminator
         return rva, bytes(descriptors + tail)
 
-    def patch_dump_headers(self, image: bytearray, import_rva: int, import_size: int,
+    def patch_dump_headers(self, image: bytearray, import_rva: int | None, import_size: int,
                            total: int) -> None:
         """Rewrite the headers so the dump is loadable: raw layout == virtual layout."""
         nt = int.from_bytes(image[0x3C:0x40], "little")
@@ -3286,8 +3672,9 @@ class SafeDiscEmulator:
             "<I", (self.oep_found or self.entry) - self.image_base)   # AddressOfEntryPoint
         image[opt + 0x38 : opt + 0x3C] = struct.pack("<I", total)     # SizeOfImage
         image[opt + 0x24 : opt + 0x28] = struct.pack("<I", section_align)  # FileAlignment
-        image[opt + 0x68 : opt + 0x70] = struct.pack("<II", import_rva, import_size)
-        image[opt + 0xC0 : opt + 0xC8] = struct.pack("<II", 0, 0)     # kill the old IAT dir
+        if import_rva is not None:
+            image[opt + 0x68 : opt + 0x70] = struct.pack("<II", import_rva, import_size)
+            image[opt + 0xC0 : opt + 0xC8] = struct.pack("<II", 0, 0)  # kill old IAT dir
 
         table = opt + self.pe.FILE_HEADER.SizeOfOptionalHeader
         for i in range(num_sections):
@@ -3300,26 +3687,28 @@ class SafeDiscEmulator:
             flags = int.from_bytes(image[header + 36 : header + 40], "little")
             image[header + 36 : header + 40] = struct.pack("<I", flags | 0x80000000)
 
-        # Append the import section header if there is room in the header block.
-        new_header = table + 40 * num_sections
-        if new_header + 40 <= self.pe.OPTIONAL_HEADER.SizeOfHeaders:
-            image[new_header : new_header + 40] = (
-                b".idata\x00\x00"
-                + struct.pack("<IIII", import_size, import_rva, (import_size + section_align - 1)
-                              & ~(section_align - 1), import_rva)
-                + b"\x00" * 12
-                + struct.pack("<I", 0xC0000040)
-            )
-            image[nt + 6 : nt + 8] = struct.pack("<H", num_sections + 1)
+        if import_rva is not None:
+            # Append the import section header if there is room in the header block.
+            new_header = table + 40 * num_sections
+            if new_header + 40 <= self.pe.OPTIONAL_HEADER.SizeOfHeaders:
+                image[new_header : new_header + 40] = (
+                    b".idata\x00\x00"
+                    + struct.pack("<IIII", import_size, import_rva,
+                                  (import_size + section_align - 1)
+                                  & ~(section_align - 1), import_rva)
+                    + b"\x00" * 12
+                    + struct.pack("<I", 0xC0000040)
+                )
+                image[nt + 6 : nt + 8] = struct.pack("<H", num_sections + 1)
 
     def dump_loaded_modules(self, directory: Path) -> list[tuple[str, int, float]]:
         """Write each loaded module's CURRENT memory image.
 
-        SecServ decrypts its own function bodies at runtime, so the file on disk
-        and the image in memory are different programs. Static analysis of the
-        file reports both PerformTransform overrides and GetKeyData as encrypted;
-        those same addresses are plaintext here once the loader has run through
-        them. This is the only way to read them.
+        This is a state snapshot, not an assertion that a module's full .text is
+        decrypted. CJumpRun installs five-byte entry jumps, exposes protected
+        bodies only while a call is active, and may relocate transient plaintext
+        into the heap. The module and heap dumps together preserve the patches,
+        generated code, globals and any body that is still live at the stop.
         """
         directory.mkdir(parents=True, exist_ok=True)
         written: list[tuple[str, int, float]] = []
@@ -3475,6 +3864,9 @@ class SafeDiscEmulator:
             print("disc sectors read by the media check:")
             for lba, count in self.sector_reads.most_common(8):
                 print(f"    LBA {lba} x{count}")
+            for lba, count in self.bad_sector_reads.most_common(8):
+                print(f"    protected LBA {lba} x{count} -> CHECK CONDITION / "
+                      "MEDIUM ERROR / unrecovered read")
         if self.storage_ioctls:
             print()
             print("storage IOCTLs on the disc volume (benign queries and supported")
@@ -3533,7 +3925,7 @@ class SafeDiscEmulator:
             if modules:
                 print()
                 print(f"runtime module images -> {self.temp_dump_dir} "
-                      f"(these are DECRYPTED; the on-disk files are not):")
+                      f"(current emulated-memory snapshots):")
                 for mname, msize, ment in modules:
                     print(f"    {msize:10,} bytes  entropy {ment:.3f}  {mname}")
             heap_size, heap_entropy = self.dump_heap(self.temp_dump_dir)
@@ -3569,10 +3961,13 @@ class SafeDiscEmulator:
                 print(f"  entry 0x{info['entry']:08X}, "
                       f"{info['iat_slots']} IAT slots rebuilt in {info['iat_runs']} runs "
                       f"across {len(info['dlls'])} DLLs")
-                if info["dlls"]:
+                if info["imports_rebuilt"]:
                     print(f"  {', '.join(info['dlls'][:10])}")
-                print("  imports are EXACT: every slot held a stub whose name and DLL "
-                      "the emulator recorded, so none had to be guessed")
+                    print("  rebuilt imports are exact for every selected slot: each held "
+                          "a stub whose name and DLL the emulator recorded")
+                else:
+                    print("  no verified IAT slots; preserved the original Import/IAT "
+                          "directories and appended no .idata section")
             return
 
         if dump_path and self.text_writes:
@@ -3648,6 +4043,74 @@ def positive_int(value: str) -> int:
     if result <= 0:
         raise argparse.ArgumentTypeError("value must be greater than zero")
     return result
+
+
+def parse_marker_hex(value: str) -> bytes:
+    """Parse the 64-byte SafeDisc PVD application-use record."""
+    try:
+        result = bytes.fromhex(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("marker must contain only hexadecimal bytes") from exc
+    if len(result) != 64:
+        raise argparse.ArgumentTypeError(
+            f"marker must be exactly 64 bytes (got {len(result)})"
+        )
+    return result
+
+
+def parse_bad_sector_profile(value: str) -> tuple[int, int, int, int, int]:
+    """Parse ``LO:HI:SEED:LOW_MARGIN:HIGH_MARGIN`` mastering parameters."""
+    parts = [part.strip() for part in value.split(":")]
+    if len(parts) != 5 or any(not part for part in parts):
+        raise argparse.ArgumentTypeError(
+            "expected a bad-sector profile in LO:HI:SEED:A:B form"
+        )
+    try:
+        lo, hi, seed, low_margin, high_margin = (int(part, 0) for part in parts)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"bad-sector profile fields must be decimal or 0x-prefixed integers: {value!r}"
+        ) from exc
+    if not 0 <= lo <= 0xFFFFFFFF or not 0 <= hi <= 0xFFFFFFFF:
+        raise argparse.ArgumentTypeError("bad-sector profile LBAs must fit in 32 bits")
+    if lo > hi:
+        raise argparse.ArgumentTypeError("bad-sector profile requires LO <= HI")
+    if not 0 <= seed <= 0xFFFFFFFF:
+        raise argparse.ArgumentTypeError("bad-sector profile seed must fit in 32 bits")
+    if not 0 <= low_margin <= 0xFF or not 0 <= high_margin <= 0xFF:
+        raise argparse.ArgumentTypeError(
+            "bad-sector profile margins must be in the range 0..255"
+        )
+    return lo, hi, seed, low_margin, high_margin
+
+
+def is_bad_disc_sector(lba: int, profile: tuple[int, int, int, int, int]) -> bool:
+    """Apply the mastering record's exact protected-sector classifier."""
+    lo, hi, seed, low_margin, high_margin = profile
+    if not lo <= lba <= hi:
+        return False
+    hashed = (((lba ^ seed) * 0x5A6D) + 0x6A7F) & 0xFFFFFFFF
+    return (((hashed >> 8) & 0xFF) % (low_margin + high_margin + 2)) == 0
+
+
+def parse_disc_sector_overlay(value: str) -> tuple[int, Path]:
+    """Parse one ``LBA:PATH`` virtual user-sector overlay specification."""
+    lba_text, separator, path_text = value.partition(":")
+    if not separator or not lba_text.strip() or not path_text.strip():
+        raise argparse.ArgumentTypeError(
+            "expected an overlay in LBA:PATH form"
+        )
+    try:
+        lba = int(lba_text.strip(), 0)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"overlay LBA is not a decimal or 0x-prefixed integer: {lba_text!r}"
+        ) from exc
+    if not 0 <= lba <= 0xFFFFFFFF:
+        raise argparse.ArgumentTypeError(
+            f"overlay LBA is outside the 32-bit range: {lba_text!r}"
+        )
+    return lba, Path(path_text.strip())
 
 
 # stdcall argument counts, so the stub can clean up the stack correctly. Only
@@ -3776,7 +4239,8 @@ ARG_COUNTS: dict[str, int] = {
     "EnumSystemLocalesA": 2, "EnumSystemLocalesW": 2,
     "LCMapStringA": 6, "LCMapStringW": 6, "CompareStringA": 6, "CompareStringW": 6,
     "GetTimeZoneInformation": 1, "GetDateFormatA": 6, "GetTimeFormatA": 6,
-    "FileTimeToLocalFileTime": 2, "FileTimeToSystemTime": 2,
+    "FileTimeToLocalFileTime": 2, "LocalFileTimeToFileTime": 2,
+    "FileTimeToSystemTime": 2,
     "GetCurrentDirectoryW": 2, "SetEnvironmentVariableW": 2,
     "GetEnvironmentVariableW": 3, "GetModuleFileNameExA": 4,
     "GetProcessTimes": 5, "GetSystemTime": 1,
@@ -3835,9 +4299,11 @@ def main() -> int:
     ap.add_argument("--max-instructions", type=int, default=20_000_000)
     ap.add_argument("--trace", type=int, default=0, help="Disassemble the first N instructions")
     ap.add_argument("--dump", type=Path, metavar="OUT.exe",
-                    help="Write the unpacked image here, with a REBUILT import table. "
-                         "Emitted once the original entry point is reached (or on any "
-                         "image write, so a partial unpack is still inspectable)")
+                    help="Write a loader-readable diagnostic memory image here. "
+                         "Referenced API-stub IAT slots are rebuilt with exact names, "
+                         "but the dump may still have missing imports or protected "
+                         "payload bytes; safedisc_finalize_dump.py can repoint a "
+                         "separately recovered hidden import table")
     ap.add_argument("--no-stop-at-oep", action="store_true",
                     help="Keep running past the original entry point instead of stopping "
                          "there (useful to see what the unpacked program does next)")
@@ -3866,11 +4332,34 @@ def main() -> int:
                          "READ(10). Without it the ISO9660 volume descriptor is "
                          "synthesised, which means GUESSING the volume label, size and "
                          "timestamp -- all of which the check can compare")
+    ap.add_argument("--thug2-retail-disc-profile", action="store_true",
+                    help="Apply the recovered THUG2 CD1 retail mastering metadata to "
+                         "the supplied reauthored BIN: authentic descriptor sectors "
+                         "16..19, root extent 24, and the verified unreadable-sector "
+                         "geometry. The protected EXE and source PVD hashes are "
+                         "verified first; the image file is never changed")
     ap.add_argument("--disc-root-extent", type=lambda v: int(v, 0), metavar="LBA",
                     help="Opt-in virtual reconstruction of the disc's ISO root-directory "
                          "extent. The PVD is patched in memory and reads of the virtual "
                          "LBA are served from the image's real root extent; the image "
                          "file itself is never changed")
+    ap.add_argument("--disc-marker-hex", type=parse_marker_hex, metavar="HEX",
+                    help="Opt-in virtual reconstruction of the 64-byte SafeDisc mastering "
+                         "record at PVD application-use offset 0x4B3. Supply exactly 128 "
+                         "hex digits; the image file itself is never changed")
+    ap.add_argument("--disc-bad-sector-profile", type=parse_bad_sector_profile,
+                    metavar="LO:HI:SEED:A:B",
+                    help="Opt-in SafeDisc unreadable-sector profile. LO and HI are an "
+                         "inclusive LBA band, SEED is the 32-bit mastering seed, and A/B "
+                         "are its low/high margins; fields accept decimal or 0x-prefixed "
+                         "integers. Matching READ(10)s return CHECK CONDITION / MEDIUM "
+                         "ERROR without inventing sector latency")
+    ap.add_argument("--disc-sector-overlay", type=parse_disc_sector_overlay,
+                    action="append", default=[], metavar="LBA:PATH",
+                    help="Serve one caller-supplied 2048-byte ISO user-data sector at "
+                         "the given decimal or 0x-prefixed LBA (repeatable). Overlays "
+                         "take precedence over other virtual disc reconstruction and "
+                         "never modify the image file")
     ap.add_argument("--set-reg", action="append", default=[], metavar="ADDR:REG=VAL",
                     help="At this hex address, force a register before the instruction "
                          "runs, e.g. --set-reg 10323C88:eax=0x01020050. Intended for "
@@ -3919,12 +4408,57 @@ def main() -> int:
         ap.error("--trace-extra-range requires --trace-range")
     if args.trace_after_count != 1 and args.trace_after is None:
         ap.error("--trace-after-count requires --trace-after")
+    if args.thug2_retail_disc_profile and args.disc is None:
+        ap.error("--thug2-retail-disc-profile requires --disc")
+    if args.thug2_retail_disc_profile and any((
+            args.disc_root_extent is not None,
+            args.disc_marker_hex is not None,
+            args.disc_bad_sector_profile is not None,
+            bool(args.disc_sector_overlay),
+    )):
+        ap.error("--thug2-retail-disc-profile cannot be combined with manual disc "
+                 "reconstruction options")
     if args.disc_root_extent is not None and args.disc is None:
         ap.error("--disc-root-extent requires --disc")
+    if args.disc_marker_hex is not None and args.disc is None:
+        ap.error("--disc-marker-hex requires --disc")
+    if args.disc_bad_sector_profile is not None and args.disc is None:
+        ap.error("--disc-bad-sector-profile requires --disc")
+    if args.disc_sector_overlay and args.disc is None:
+        ap.error("--disc-sector-overlay requires --disc")
 
     if not args.exe.is_file():
         print(f"not found: {args.exe}", file=sys.stderr)
         return 2
+    if args.thug2_retail_disc_profile:
+        try:
+            exe_digest = hashlib.sha256(args.exe.read_bytes()).hexdigest()
+        except OSError as exc:
+            ap.error(f"cannot hash THUG2 executable {args.exe}: {exc}")
+        if exe_digest != THUG2_PROTECTED_EXE_SHA256:
+            ap.error("--thug2-retail-disc-profile only supports the verified THUG2 "
+                     f"executable (expected SHA-256 {THUG2_PROTECTED_EXE_SHA256}, "
+                     f"got {exe_digest})")
+
+    overlay_paths: dict[int, Path] = {}
+    for lba, path in args.disc_sector_overlay:
+        if lba in overlay_paths:
+            ap.error(f"duplicate --disc-sector-overlay LBA {lba} (0x{lba:X})")
+        overlay_paths[lba] = path
+
+    disc_sector_overlays = (thug2_retail_descriptor_sectors()
+                            if args.thug2_retail_disc_profile else {})
+    for lba, path in overlay_paths.items():
+        try:
+            sector = path.read_bytes()
+        except OSError as exc:
+            ap.error(f"cannot read disc-sector overlay {path}: {exc}")
+        if len(sector) != 2048:
+            ap.error(
+                f"disc-sector overlay {path} for LBA {lba} must be exactly "
+                f"2048 bytes (got {len(sector)})"
+            )
+        disc_sector_overlays[lba] = sector
 
     emu = SafeDiscEmulator(args.exe, args.verbose)
     emu.stop_on_unknown_api = not args.allow_unknown_api
@@ -3934,15 +4468,60 @@ def main() -> int:
     if args.disc:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from iso9660_reader import DiscImage  # noqa: PLC0415
+        if args.thug2_retail_disc_profile:
+            try:
+                bin_digest = sha256_file(args.disc)
+            except OSError as exc:
+                ap.error(f"cannot hash THUG2 CD1 image {args.disc}: {exc}")
+            if bin_digest != THUG2_SCENE_CD1_BIN_SHA256:
+                ap.error("--thug2-retail-disc-profile only supports the verified "
+                         f"reauthored CD1 BIN (expected SHA-256 "
+                         f"{THUG2_SCENE_CD1_BIN_SHA256}, got {bin_digest})")
         emu.disc = DiscImage(args.disc)
         info = emu.disc.pvd()
+        if args.thug2_retail_disc_profile:
+            pvd_digest = hashlib.sha256(emu.disc.read_sector(16)).hexdigest()
+            if pvd_digest != THUG2_SCENE_CD1_PVD_SHA256:
+                ap.error("--thug2-retail-disc-profile only supports the verified "
+                         f"reauthored CD1 PVD (expected SHA-256 "
+                         f"{THUG2_SCENE_CD1_PVD_SHA256}, got {pvd_digest})")
+        emu.disc_sector_overlays = disc_sector_overlays
+        emu.disc_sector_aliases = (
+            dict(THUG2_RETAIL_ROOT_ALIASES)
+            if args.thug2_retail_disc_profile else {}
+        )
         emu.disc_original_root_extent = info["root_lba"]
-        emu.disc_root_extent_override = args.disc_root_extent
+        emu.disc_root_extent_override = (
+            THUG2_RETAIL_ROOT_EXTENT if args.thug2_retail_disc_profile
+            else args.disc_root_extent
+        )
+        emu.disc_application_use_marker = args.disc_marker_hex
+        emu.disc_bad_sector_profile = (
+            THUG2_RETAIL_BAD_SECTOR_PROFILE if args.thug2_retail_disc_profile
+            else args.disc_bad_sector_profile
+        )
         log(f"disc: {args.disc.name}, {emu.disc.sectors:,} sectors, "
             f"volume '{info['volume_id']}', created {info['created'][:14]}")
-        if args.disc_root_extent is not None:
+        if args.thug2_retail_disc_profile:
+            log("THUG2 retail disc profile: authentic descriptor LBAs 16..19, "
+                "root extent 24, and protected-sector geometry", always=True)
+            log(f"disc layout reconstruction: root extent LBA {info['root_lba']} "
+                f"-> {THUG2_RETAIL_ROOT_EXTENT} "
+                f"(0x{THUG2_RETAIL_ROOT_EXTENT:X})")
+            log("disc layout reconstruction: Joliet root extent LBA 61 -> 58 "
+                "(0x3A)")
+        elif args.disc_root_extent is not None:
             log(f"disc layout reconstruction: root extent LBA {info['root_lba']} "
                 f"-> {args.disc_root_extent} (0x{args.disc_root_extent:X})")
+        if args.disc_marker_hex is not None:
+            log("disc layout reconstruction: 64-byte PVD application-use marker "
+                f"{args.disc_marker_hex[:8].hex()}...", always=True)
+        if emu.disc_bad_sector_profile is not None:
+            lo, hi, seed, low_margin, high_margin = emu.disc_bad_sector_profile
+            log(f"disc bad-sector profile: LBA {lo}..{hi} inclusive, "
+                f"seed=0x{seed:08X}, margins={low_margin}/{high_margin}", always=True)
+        for lba, path in overlay_paths.items():
+            log(f"disc sector overlay: LBA {lba} (0x{lba:X}) <- {path}", always=True)
     emu.fake_secdrv = args.fake_secdrv
     emu.secdrv_seed = args.secdrv_seed
     if args.trail:
