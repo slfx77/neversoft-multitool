@@ -46,24 +46,28 @@ Usage:
 
 Requires: pip install unicorn capstone pefile
 
-STATUS (2026-08-08): EMULATOR OUTPUT PARTIAL; USABLE SAME-BUILD EXE RECOVERED.
+STATUS (2026-08-09): PROTECTED-INPUT DECRYPTOR COMPLETE.
 
-The requested unprotected executable is bundled on the supplied CD3 as
-`CRACK/THUG2.EXE`. `thug2_cd3_recover.py` verifies the complete CD3 and
-protected-EXE hashes plus the embedded file's PE identity before recovering
-it. The result is 2,695,168 bytes, SHA-256
-`52fc88849654b34839ec2f96bff3a8c0b7a855df9a207aab9f2fca2e6bd440f3`,
-with game OEP RVA 0x22583D and 193 imports across 11 DLLs. It is the
-scene-release no-CD, not an emulator output or a claimed pristine publisher
-pre-SafeDisc image.
+For the exact THUG2 build, `thug2_safedisc_decrypt.py` is the production entry
+point. It verifies the protected executable and CD1, runs this emulator to the
+game OEP with the title-specific media/key profile, and consumes the retained
+runtime checkpoint plus `PfdRun.pfd`. It then reproduces the remaining lazy
+SafeDisc repairs from protected/runtime state and emits a 2,695,168-byte
+standalone PE with game OEP RVA 0x22583D and 193 imports across 11 DLLs. The
+deterministic output SHA-256 is
+`f7ca9c1d0e4eed40808ce3dec6a9df854c0236c4916aa6d09cb1a3405d2676ae`.
 
-The faithful emulator run still provides valuable protection research, but
-the same-build comparison proved its memory dump incomplete. The first 0x4E20
-bytes of `.text` and first 0x5DC bytes of `.data` remain wrongly transformed;
-77 calls still redirect to ciphertext, 18 IAT operands remain permuted, live
-instructions remain replaced by `0xCC`, and only 163 of 193 game imports are
-plaintext. `safedisc_finalize_dump.py` can make this partial dump
-loader-readable for diagnosis, but cannot make it a complete deliverable.
+The CD3 `CRACK/THUG2.EXE` is not required and contributes no output bytes. It
+remains an optional validation-only oracle: after neutralizing its known
+scene-release padding, all core-section bytes agree with the protected-input
+result. `thug2_cd3_recover.py` is retained separately for provenance research.
+
+The raw OEP checkpoint is intentionally not a standalone executable. SafeDisc
+keeps some import names, call-site permutations, redirect payloads, and Alt
+fragments in its runtime managers for lazy use rather than writing them all
+back to the main image. The protected-input finalizer authenticates and
+materializes those records before removing the two protection sections. Older
+pre-key-repair dumps remain useful diagnostics but are materially incomplete.
 
 For this build, use `--disc <CD1 BIN> --thug2-retail-disc-profile
 --fake-secdrv`.  The title profile embeds only four 2,048-byte ISO descriptor
@@ -74,11 +78,11 @@ choose clean optical timing probes; the old conclusion that the check involved
 only ordinary filesystem metadata was incomplete.
 
 The first main-image dump also stopped before SafeDisc restored `stxt774`.
-Three real game-code jumps target ciphertext there (VA 0x7DF5B5, 0x7DF800,
-and 0x7DF81D). A corrected FILETIME/media rerun produced the same dump
-byte-for-byte and the same bad table count, disproving that route as the
-stolen-key cause. See `docs/backlog/safedisc-emulation-handoff.md` for the
-completed CD3 recovery and the byte-level audit of the partial emulator path.
+Three real game-code jumps targeted ciphertext there (VA 0x7DF5B5, 0x7DF800,
+and 0x7DF81D). That failure and the other partial-dump findings below are
+historical; the protected-input decryptor now reconstructs and validates each
+corresponding runtime record. See
+`docs/backlog/safedisc-emulation-handoff.md` for the exact recovery chain.
 
 The chronology below is retained as a debugging record.  Its intermediate
 "current blocker", instruction counts, and no-decryption conclusions are
@@ -224,6 +228,11 @@ at 0x10323C88 is forced, reaching 0x10003670) but cannot produce a correct key.
 A forced pass would yield a plausible-looking garbage decrypt, which is exactly
 the outcome this harness is built to avoid.
 
+The later opt-in --thug2-sd3-key-repair is deliberately narrower than that
+diagnostic register override: it reproduces SafeDiscLoader2's published SD3
+HookCDCheck contract, including the raw/derived storage-page side effects and
+the exact return value, and fails closed if those storage objects do not match.
+
 WHAT IS STILL UNRESOLVED, and it decides everything: whether the bytes AuthServ
 delivers originate from the DISC or from the FILES. Evidence both ways --
 AuthServ reads THUG2.exe itself (919,858 bytes) and the driver's own data
@@ -366,6 +375,7 @@ import argparse
 import base64
 import datetime
 import hashlib
+import json
 import math
 import struct
 import sys
@@ -527,6 +537,67 @@ THUG2_SCENE_CD1_PVD_SHA256 = (
 THUG2_SCENE_CD1_BIN_SHA256 = (
     "5e8b570d999b88ad9ffad1ffe152b9af9cd342fbde6aeba561b9ff504183e68f"
 )
+
+# SafeDisc 3 keeps three 1-KiB encoded key-storage pages in SecServ.  AuthServ
+# contains their raw source tables.  The independently published
+# SafeDiscLoader2 implementation has two mutually exclusive ways to locate
+# those pages.  THUG2 AuthServ uniquely matches its v40 raw-table signature at
+# RVA 0x23B04, while SecServ contains no HookDecodeTable signature.  Therefore
+# this build takes the direct TablePtr path: it performs no CallDecrypt selector
+# calls, resolves slots 3/2/4 directly, and copies all 1,024 raw table-3 bytes
+# into SecondCopy/ThirdCopy.  It deliberately delays the full XOR-derived page
+# for FirstCopy until its HookCDCheck replacement executes.  That hook returns
+# 0x01020050 without invoking the original virtual CD-check call.
+# Source provenance (commit pinned so these semantics remain auditable):
+#   https://github.com/nckstwrt/SafeDiscLoader2/blob/
+#   91b6b89da8296276c36ff1a8fea2456c892ca865/src/version.cpp#L517-L530
+#   https://github.com/nckstwrt/SafeDiscLoader2/blob/
+#   91b6b89da8296276c36ff1a8fea2456c892ca865/src/version.cpp#L687-L784
+THUG2_AUTHSERV_CD_CHECK_KEY_HOOK_RVA = 0x23CA6
+THUG2_AUTHSERV_CD_CHECK_KEY_RETURN_RVA = 0x23CAF
+THUG2_SD3_CD_CHECK_RETURN_VALUE = 0x01020050
+THUG2_AUTHSERV_RAW_KEYS_RVA = 0x3E6F0
+THUG2_SD3_TABLE2_OFFSET = 0x555
+THUG2_SD3_TABLE3_OFFSET = 0xA82
+THUG2_SD3_IMPORTANT_KEY_COPY_SIZE = 1024
+THUG2_SECSERV_KEY_MANAGER_RVA = 0xF2618
+THUG2_SECSERV_FIRST_COPY_SLOT = 3
+THUG2_SECSERV_SECOND_COPY_SLOT = 2
+THUG2_SECSERV_THIRD_COPY_SLOT = 4
+THUG2_SECSERV_IMPORT_VECTOR_RVA = 0x454C6
+THUG2_SECSERV_IMPORT_VECTOR_RETURN_RVA = 0x91F92
+THUG2_SECSERV_CJUMP_DISPATCHER_RVA = 0x12C2E4
+THUG2_SECSERV_ALT_RECORD_RVA = 0x12A39
+
+
+def derive_thug2_sd3_important_key(auth_image: bytes) -> tuple[int, bytes]:
+    """Derive THUG2's 1-KiB SafeDisc 3 FirstCopy storage from AuthServ.
+
+    The first dwords of tables 1 and 2 form one repeating XOR mask.  Applying
+    it to the SD3 table-3 source yields the key that must enter SecServ's
+    FirstCopy at the media-check boundary.  The caller decides how many bytes
+    the target build copies; returning all 1,024 keeps this transform exact.
+    """
+    base = THUG2_AUTHSERV_RAW_KEYS_RVA
+    end = base + THUG2_SD3_TABLE3_OFFSET + 1024
+    if len(auth_image) < end:
+        raise ValueError(
+            f"AuthServ image is too small for THUG2 SD3 tables "
+            f"(need 0x{end:X}, got 0x{len(auth_image):X})"
+        )
+    first = struct.unpack_from("<I", auth_image, base)[0]
+    second = struct.unpack_from("<I", auth_image,
+                                base + THUG2_SD3_TABLE2_OFFSET)[0]
+    xor_key = first ^ second
+    source = auth_image[
+        base + THUG2_SD3_TABLE3_OFFSET:
+        base + THUG2_SD3_TABLE3_OFFSET + 1024
+    ]
+    storage = bytearray(source)
+    for offset in range(0, len(storage), 4):
+        value = struct.unpack_from("<I", storage, offset)[0] ^ xor_key
+        struct.pack_into("<I", storage, offset, value)
+    return xor_key, bytes(storage)
 
 
 def thug2_retail_descriptor_sectors() -> dict[int, bytes]:
@@ -849,8 +920,12 @@ class SafeDiscEmulator:
         self.next_loaded_base = LOADED_MODULE_BASE
         self.resolved_exports: Counter = Counter()
         self.heap_sizes: dict[int, int] = {}
-        self.deferred_call: tuple[int, list[int]] | None = None
-        self.pending_returns: list[tuple[int, int, int]] = []
+        # The optional tag identifies which mapped module's DllMain is being
+        # run.  SafeDiscLoader2 publishes the raw SD3 storage pages only after
+        # AuthServ's DllMain has returned, so that boundary must survive nested
+        # deferred calls rather than living in one unscoped boolean.
+        self.deferred_call: tuple[int, list[int], str | None] | None = None
+        self.pending_returns: list[tuple[int, int, int, str | None]] = []
         self.env_block_ansi = 0
         self.env_block_wide = 0
         self.next_tls_slot = 0
@@ -859,6 +934,10 @@ class SafeDiscEmulator:
         self.fault_repeats: Counter = Counter()
         self.write_channels: Counter = Counter()
         self.watch_lo = 0
+        self.stop_write_ranges: list[tuple[int, int]] = []
+        self.stop_write_hit = False
+        self.stop_write_match_count = 0
+        self.stop_write_match_target = 1
         self.last_exception_record = 0
         self.temp_file_serial = 0
         self.mappings: dict[int, EmulatedFile | None] = {}
@@ -923,6 +1002,25 @@ class SafeDiscEmulator:
         self.disc_application_use_marker: bytes | None = None
         self.disc_bad_sector_profile: tuple[int, int, int, int, int] | None = None
         self.bad_sector_reads: Counter = Counter()
+        self.thug2_sd3_key_repair = False
+        self.thug2_sd3_key_hook_address = 0
+        self.thug2_sd3_key_return_address = 0
+        self.thug2_sd3_raw_storage_installed = False
+        self.thug2_sd3_raw_storage_install_count = 0
+        self.thug2_sd3_raw_storage: bytes | None = None
+        self.thug2_sd3_derived_storage: bytes | None = None
+        self.thug2_sd3_storage_slots: tuple[
+            tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]
+        ] | None = None
+        self.thug2_sd3_key_installed = False
+        self.thug2_sd3_key_install_count = 0
+        self.thug2_sd3_key_xor = 0
+        self.thug2_import_vector_hook_address = 0
+        self.thug2_import_vector_return_address = 0
+        self.thug2_import_vector_pending: list[dict] = []
+        self.thug2_import_vector_captures: list[dict] = []
+        self.thug2_alt_record_hook_address = 0
+        self.thug2_alt_record_captures: list[dict] = []
         self.sleep_ms = 0
         self.fake_secdrv = False
         self.secdrv_seed = 0x00100000
@@ -1364,6 +1462,10 @@ class SafeDiscEmulator:
                     for insn in list(md.disasm(payload, dest))[:8]:
                         log(f"        0x{insn.address:08X}  {insn.mnemonic:<7} {insn.op_str}",
                             always=True)
+            self.maybe_stop_on_write(
+                self.uc, dest, len(payload), via="WriteProcessMemory",
+                source=source, payload=payload, eip=self.current_return,
+            )
             return 1
 
         if name in ("ReadProcessMemory",):
@@ -2823,6 +2925,25 @@ class SafeDiscEmulator:
         ]
         self.loaded_modules[key] = module
         self.modules_by_base[base] = module
+        if self.thug2_sd3_key_repair and key == "~df394b.tmp":
+            self.thug2_import_vector_hook_address = (
+                base + THUG2_SECSERV_IMPORT_VECTOR_RVA
+            )
+            self.thug2_import_vector_return_address = (
+                base + THUG2_SECSERV_IMPORT_VECTOR_RETURN_RVA
+            )
+            self.thug2_alt_record_hook_address = (
+                base + THUG2_SECSERV_ALT_RECORD_RVA
+            )
+        if self.thug2_sd3_key_repair and key == "~de36b4.tmp":
+            self.thug2_sd3_key_hook_address = (
+                base + THUG2_AUTHSERV_CD_CHECK_KEY_HOOK_RVA
+            )
+            self.thug2_sd3_key_return_address = (
+                base + THUG2_AUTHSERV_CD_CHECK_KEY_RETURN_RVA
+            )
+            log("    THUG2 SD3 key repair armed at AuthServ "
+                f"0x{self.thug2_sd3_key_hook_address:08X}", always=True)
         log(f"    LOADED {key} at 0x{base:08X} ({size // 1024} KB): "
             f"{len(exports)} exports, {imported} imports stubbed, {relocated} relocs",
             always=True)
@@ -2831,7 +2952,7 @@ class SafeDiscEmulator:
         # resumes. Skipping it leaves the module's CRT uninitialised, which shows
         # up as a call through a null function pointer somewhere inside it.
         if entry:
-            self.deferred_call = (entry, [base, 1, 0])
+            self.deferred_call = (entry, [base, 1, 0], key)
         return base
 
     def apply_relocations(self, pe, base: int, delta: int) -> int:
@@ -2965,6 +3086,326 @@ class SafeDiscEmulator:
             text = raw.decode("latin1", "ignore")
         return text.split("\0")[0]
 
+    def thug2_sd3_storage_state(self, uc):
+        """Resolve AuthServ storage bytes and SecServ's three backing pages."""
+        auth = self.loaded_modules.get("~de36b4.tmp")
+        sec = self.loaded_modules.get("~df394b.tmp")
+        if auth is None or sec is None:
+            raise ValueError("AuthServ and SecServ are not both loaded")
+
+        auth_image = bytes(uc.mem_read(auth.base, auth.size))
+        xor_key, derived_storage = derive_thug2_sd3_important_key(auth_image)
+        raw_storage = auth_image[
+            THUG2_AUTHSERV_RAW_KEYS_RVA + THUG2_SD3_TABLE3_OFFSET:
+            THUG2_AUTHSERV_RAW_KEYS_RVA + THUG2_SD3_TABLE3_OFFSET + 1024
+        ]
+
+        manager = struct.unpack(
+            "<I", uc.mem_read(sec.base + THUG2_SECSERV_KEY_MANAGER_RVA, 4)
+        )[0]
+        slot_count = struct.unpack("<I", uc.mem_read(manager + 4, 4))[0]
+        slots = struct.unpack("<I", uc.mem_read(manager + 0x0C, 4))[0]
+        if slot_count <= THUG2_SECSERV_THIRD_COPY_SLOT or slots == 0:
+            raise ValueError(
+                f"invalid SecServ key manager (count={slot_count}, "
+                f"slots=0x{slots:08X})"
+            )
+
+        def slot(index: int) -> tuple[int, int, int]:
+            record = slots + index * 0x10
+            return struct.unpack("<III", uc.mem_read(record + 4, 12))
+
+        first = slot(THUG2_SECSERV_FIRST_COPY_SLOT)
+        second = slot(THUG2_SECSERV_SECOND_COPY_SLOT)
+        third = slot(THUG2_SECSERV_THIRD_COPY_SLOT)
+        needed = THUG2_SD3_IMPORTANT_KEY_COPY_SIZE
+        # CKeyBasic's final dword is the active logical key length (0x10 or
+        # 0x20 here), not the allocation size.  SafeDiscLoader2 writes the
+        # backing 0x400-byte storage directly, so capacity is the safety bound.
+        if (first[0] == 0 or second[0] == 0 or third[0] == 0
+                or first[1] < needed or second[1] < needed
+                or third[1] < needed):
+            raise ValueError(
+                "invalid SecServ storage pages: "
+                f"FirstCopy=0x{first[0]:08X}/{first[1]}/{first[2]}, "
+                f"SecondCopy=0x{second[0]:08X}/{second[1]}/{second[2]}, "
+                f"ThirdCopy=0x{third[0]:08X}/{third[1]}/{third[2]}"
+            )
+        return xor_key, derived_storage, raw_storage, first, second, third
+
+    def install_thug2_sd3_raw_storage(self, uc) -> bool:
+        """Publish raw SecondCopy/ThirdCopy after AuthServ's DllMain returns."""
+        try:
+            xor_key, derived_storage, raw_storage, first, second, third = (
+                self.thug2_sd3_storage_state(uc)
+            )
+            needed = THUG2_SD3_IMPORTANT_KEY_COPY_SIZE
+            uc.mem_write(second[0], raw_storage[:needed])
+            uc.mem_write(third[0], raw_storage[:needed])
+        except (UcError, ValueError, struct.error) as exc:
+            self.stop(uc, f"THUG2 SD3 raw-storage install failed: {exc}")
+            return False
+
+        self.thug2_sd3_raw_storage_installed = True
+        self.thug2_sd3_raw_storage_install_count += 1
+        # SafeDiscLoader2 caches both storage representations and the three
+        # destination pages while AuthServ is fresh.  HookCDCheck consumes the
+        # cached ThirdKey later; recomputing it from a mutated live table is not
+        # equivalent.
+        self.thug2_sd3_raw_storage = bytes(raw_storage)
+        self.thug2_sd3_derived_storage = bytes(derived_storage)
+        self.thug2_sd3_storage_slots = (first, second, third)
+        self.thug2_sd3_key_xor = xor_key
+        log(f"*** THUG2 SD3 RAW STORAGE INSTALLED after AuthServ DllMain: "
+            f"{needed} bytes -> slots {THUG2_SECSERV_SECOND_COPY_SLOT}/"
+            f"{THUG2_SECSERV_THIRD_COPY_SLOT}", always=True)
+        return True
+
+    def run_thug2_sd3_cd_check_hook(self, uc) -> bool:
+        """Reproduce SafeDiscLoader2 HookCDCheck and skip the native vcall."""
+        try:
+            needed = THUG2_SD3_IMPORTANT_KEY_COPY_SIZE
+            if (not self.thug2_sd3_raw_storage_installed
+                    or self.thug2_sd3_raw_storage is None
+                    or self.thug2_sd3_derived_storage is None
+                    or self.thug2_sd3_storage_slots is None):
+                raise ValueError("raw SecondCopy/ThirdCopy storage was not installed")
+            raw_storage = self.thug2_sd3_raw_storage
+            derived_storage = self.thug2_sd3_derived_storage
+            first, _second, third = self.thug2_sd3_storage_slots
+            # SecondCopy is expected to pass through SafeDisc's three CRC
+            # transforms before this delayed hook.  ThirdCopy is the retained
+            # raw source and is the only page whose storage representation can
+            # be checked here.
+            if bytes(uc.mem_read(third[0], needed)) != raw_storage[:needed]:
+                raise ValueError("raw ThirdCopy storage changed before CD hook")
+            uc.mem_write(first[0], derived_storage[:needed])
+        except (UcError, ValueError, struct.error) as exc:
+            self.stop(uc, f"THUG2 SD3 HookCDCheck failed: {exc}")
+            return False
+
+        self.thug2_sd3_key_installed = True
+        self.thug2_sd3_key_install_count += 1
+        uc.reg_write(UC_X86_REG_EAX, THUG2_SD3_CD_CHECK_RETURN_VALUE)
+        uc.reg_write(UC_X86_REG_EIP, self.thug2_sd3_key_return_address)
+        digest = hashlib.sha256(derived_storage).hexdigest()
+        log(f"*** THUG2 SD3 HookCDCheck: {needed} XOR-derived storage bytes -> "
+            f"slot {THUG2_SECSERV_FIRST_COPY_SLOT} at 0x{first[0]:08X}; "
+            f"xor=0x{self.thug2_sd3_key_xor:08X}; SHA-256 {digest}; returning "
+            f"EAX=0x{THUG2_SD3_CD_CHECK_RETURN_VALUE:08X} at "
+            f"0x{self.thug2_sd3_key_return_address:08X} (native vcall skipped)",
+            always=True)
+        return True
+
+    def classify_thug2_import_vector_return(self, uc, return_address: int) -> str:
+        """Validate a native or CJump-generated return from SecServ 0x454C6."""
+        if (self.thug2_import_vector_return_address
+                and return_address == self.thug2_import_vector_return_address):
+            return "fixed-caller"
+
+        # CJumpRun can call the restored routine through a freshly generated
+        # heap thunk.  Its ten-byte contract is exact: push its own address, then
+        # jump to SecServ's dispatcher.  Requiring the entire thunk to lie in a
+        # known allocation prevents an arbitrary executable byte sequence from
+        # becoming an accepted attestation boundary.
+        allocated = any(
+            base <= return_address
+            and return_address + 10 <= base + allocation_size
+            for base, allocation_size in self.heap_sizes.items()
+        )
+        if not allocated:
+            raise ValueError(
+                f"unexpected return 0x{return_address:08X}: not fixed caller "
+                "or an allocated heap thunk"
+            )
+        thunk = bytes(uc.mem_read(return_address, 10))
+        if thunk[0] != 0x68 or thunk[5] != 0xE9:
+            raise ValueError(
+                f"heap return 0x{return_address:08X} is not a push-self/jmp thunk"
+            )
+        pushed = struct.unpack_from("<I", thunk, 1)[0]
+        if pushed != return_address:
+            raise ValueError(
+                f"heap return 0x{return_address:08X} pushes 0x{pushed:08X}, "
+                "not itself"
+            )
+        displacement = struct.unpack_from("<i", thunk, 6)[0]
+        target = (return_address + 10 + displacement) & 0xFFFFFFFF
+        sec = self.loaded_modules.get("~df394b.tmp")
+        if sec is None:
+            raise ValueError("CJump return encountered before SecServ was loaded")
+        expected = sec.base + THUG2_SECSERV_CJUMP_DISPATCHER_RVA
+        if target != expected:
+            raise ValueError(
+                f"heap return 0x{return_address:08X} jumps to 0x{target:08X}, "
+                f"not SecServ CJump dispatcher 0x{expected:08X}"
+            )
+        return "cjump-thunk"
+
+    def capture_thug2_import_vector_entry(self, uc) -> bool:
+        """Attest SecServ's live 0x454C6 vector arguments for finalization."""
+        try:
+            esp = uc.reg_read(UC_X86_REG_ESP)
+            return_address, data_ptr, count, key_ptr = struct.unpack(
+                "<4I", uc.mem_read(esp, 16)
+            )
+            return_kind = self.classify_thug2_import_vector_return(
+                uc, return_address
+            )
+            if not 0 < count <= 4096:
+                raise ValueError(f"invalid vector count {count}")
+            encoded = bytes(uc.mem_read(data_ptr, count * 4))
+            key = bytes(uc.mem_read(key_ptr, 16))
+        except (UcError, ValueError, struct.error) as exc:
+            self.stop(uc, f"THUG2 import-vector capture failed: {exc}")
+            return False
+
+        record = {
+            "count": count,
+            "data_ptr": data_ptr,
+            "key_ptr": key_ptr,
+            "key_hex": key.hex(),
+            "return_address": return_address,
+            "return_kind": return_kind,
+            "input_sha256": hashlib.sha256(encoded).hexdigest(),
+        }
+        self.thug2_import_vector_pending.append(record)
+        if not self.thug2_import_vector_captures:
+            log("*** THUG2 IMPORT-VECTOR KEY CAPTURED at SecServ 0x454C6: "
+                f"count={count}, key={key.hex()}, return=0x{return_address:08X} "
+                f"({return_kind})", always=True)
+        return True
+
+    def capture_thug2_import_vector_return(
+            self, uc, return_address: int) -> bool:
+        if not self.thug2_import_vector_pending:
+            self.stop(uc, "THUG2 import-vector return had no matching entry capture")
+            return False
+        record = self.thug2_import_vector_pending[-1]
+        try:
+            if return_address != record["return_address"]:
+                raise ValueError(
+                    f"return 0x{return_address:08X} does not match pending "
+                    f"0x{record['return_address']:08X}"
+                )
+            return_kind = self.classify_thug2_import_vector_return(
+                uc, return_address
+            )
+            if return_kind != record["return_kind"]:
+                raise ValueError(
+                    f"return kind changed from {record['return_kind']} "
+                    f"to {return_kind}"
+                )
+            decoded = bytes(uc.mem_read(record["data_ptr"], record["count"] * 4))
+        except (UcError, ValueError, struct.error) as exc:
+            self.stop(uc, f"THUG2 import-vector output capture failed: {exc}")
+            return False
+        self.thug2_import_vector_pending.pop()
+        record["output_sha256"] = hashlib.sha256(decoded).hexdigest()
+        self.thug2_import_vector_captures.append(record)
+        return True
+
+    def capture_thug2_alt_record(self, uc) -> bool:
+        """Attest one successfully decoded SafeDisc Alt metadata record.
+
+        SecServ computes MD5 over two little-endian dwords, uses the first
+        digest dword (big-endian) as the PfdRun 0x3FC row key, and XORs that
+        row's sixteen-byte value with digest bytes 4..7.  The resulting record
+        contains a control byte and eight payload bytes.  Capturing
+        both sides of this transform lets the offline finalizer independently
+        decode PfdRun and reject a mismatched or fabricated checkpoint.
+        """
+        try:
+            ebp = uc.reg_read(UC_X86_REG_EBP)
+            status = struct.unpack("<I", uc.mem_read(ebp - 0x1C, 4))[0]
+            # A missing PFD row is a normal failure path through CAltAsc.  It
+            # does not produce repair metadata, so leave it out of the typed
+            # manifest; the finalizer's exact record-count gate remains fatal.
+            if status != 0:
+                return True
+
+            site_va = struct.unpack("<I", uc.mem_read(ebp - 0x18, 4))[0]
+            site_rva = struct.unpack("<I", uc.mem_read(ebp - 0x58, 4))[0]
+            preimage = bytes(uc.mem_read(ebp - 0x9C, 8))
+            digest = bytes(uc.mem_read(ebp - 0x20C, 16))
+            value = bytes(uc.mem_read(ebp - 0x1FC, 16))
+            mask = bytes(uc.mem_read(ebp + 0x10, 4))
+            decoded = bytes(uc.mem_read(ebp - 0xE4, 16))
+
+            expected_digest = hashlib.md5(preimage).digest()
+            if digest != expected_digest:
+                raise ValueError(
+                    f"MD5 mismatch: captured {digest.hex()}, expected "
+                    f"{expected_digest.hex()}"
+                )
+            if mask != digest[4:8]:
+                raise ValueError(
+                    f"decode mask {mask.hex()} does not match MD5[4:8] "
+                    f"{digest[4:8].hex()}"
+                )
+            expected_decoded = bytes(
+                byte ^ mask[index & 3] for index, byte in enumerate(value)
+            )
+            if decoded != expected_decoded:
+                raise ValueError(
+                    f"decoded value {decoded.hex()} does not match PFD value/XOR "
+                    f"transform {expected_decoded.hex()}"
+                )
+            control = decoded[0]
+            if control != 2:
+                raise ValueError(
+                    f"decoded Alt control {control} is not the THUG2 value 2"
+                )
+            if decoded[1:3] != b"\0\0" or decoded[11] != 0:
+                raise ValueError(
+                    "decoded Alt record lacks zero sentinels at offsets "
+                    "1, 2, and 11"
+                )
+            if decoded[12:16] != digest[12:16]:
+                raise ValueError(
+                    f"decoded tail {decoded[12:16].hex()} does not match "
+                    f"MD5[12:16] {digest[12:16].hex()}"
+                )
+            if not self.image_lo <= site_va < self.image_hi:
+                raise ValueError(
+                    f"site VA 0x{site_va:08X} is outside the original image"
+                )
+            expected_rva = site_va - self.image_base
+            if site_rva != expected_rva:
+                raise ValueError(
+                    f"site RVA 0x{site_rva:X} does not match VA-derived "
+                    f"RVA 0x{expected_rva:X}"
+                )
+            preimage_site = struct.unpack_from("<I", preimage)[0]
+            if preimage_site != site_rva:
+                raise ValueError(
+                    f"MD5 preimage site 0x{preimage_site:X} does not match "
+                    f"captured RVA 0x{site_rva:X}"
+                )
+        except (UcError, ValueError, struct.error) as exc:
+            self.stop(uc, f"THUG2 Alt-record capture failed: {exc}")
+            return False
+
+        record = {
+            "site_va": site_va,
+            "site_rva": site_rva,
+            "status": status,
+            "preimage_hex": preimage.hex(),
+            "digest_hex": digest.hex(),
+            "row_key": int.from_bytes(digest[:4], "big"),
+            "mask_hex": mask.hex(),
+            "value_hex": value.hex(),
+            "decoded_hex": decoded.hex(),
+            "control": control,
+            "payload_hex": decoded[3:11].hex(),
+        }
+        self.thug2_alt_record_captures.append(record)
+        if len(self.thug2_alt_record_captures) == 1:
+            log("*** THUG2 ALT RECORD CAPTURED at SecServ 0x12A39: "
+                f"site=0x{site_va:08X}, RVA=0x{site_rva:X}, control={control}, "
+                f"row-key=0x{record['row_key']:08X}", always=True)
+        return True
+
     # --- hooks ----------------------------------------------------------
 
     def stop(self, uc, reason: str) -> None:
@@ -2986,6 +3427,27 @@ class SafeDiscEmulator:
         self.instructions += 1
         if self.trail is not None:
             self.trail.append(address)
+        if address == self.thug2_import_vector_hook_address:
+            if not self.capture_thug2_import_vector_entry(uc):
+                return
+        elif (self.thug2_import_vector_pending
+              and any(address == record["return_address"]
+                      for record in self.thug2_import_vector_pending)):
+            # The output is complete when control first reaches the call's own
+            # return address.  Capture before a generated CJump thunk executes
+            # and mutates the stack on its way back through the dispatcher.
+            if not self.capture_thug2_import_vector_return(uc, address):
+                return
+        if address == self.thug2_alt_record_hook_address:
+            if not self.capture_thug2_alt_record(uc):
+                return
+        if address == self.thug2_sd3_key_hook_address:
+            # SafeDiscLoader2 replaces the nine-byte `mov ecx; call [ecx+4]`
+            # sequence at this address.  Redirecting EIP here is the emulator
+            # equivalent of that CALL+NOP patch and must return immediately so
+            # Unicorn cannot execute the native virtual call afterwards.
+            self.run_thug2_sd3_cd_check_hook(uc)
+            return
         # Apply diagnostic overrides before tracing so the register snapshot is
         # the state the instruction will actually consume.  Range tracing also
         # lives before every early-return hook below: a requested range really
@@ -3028,7 +3490,10 @@ class SafeDiscEmulator:
                               "call - a guest `ret` landed on MAGIC_CALL_RETURN, so a "
                               "stack frame is unbalanced somewhere above it")
                 return
-            resume_eip, resume_esp, resume_eax = self.pending_returns.pop()
+            resume_eip, resume_esp, resume_eax, module_key = self.pending_returns.pop()
+            if self.thug2_sd3_key_repair and module_key == "~de36b4.tmp":
+                if not self.install_thug2_sd3_raw_storage(uc):
+                    return
             uc.reg_write(UC_X86_REG_EAX, resume_eax & 0xFFFFFFFF)
             uc.reg_write(UC_X86_REG_ESP, resume_esp)
             uc.reg_write(UC_X86_REG_EIP, resume_eip)
@@ -3047,9 +3512,9 @@ class SafeDiscEmulator:
             # LoadLibrary must call the new module's DllMain. Divert to that
             # function now and deliver `result` when it returns.
             if self.deferred_call is not None:
-                target, call_args = self.deferred_call
+                target, call_args, module_key = self.deferred_call
                 self.deferred_call = None
-                self.pending_returns.append((ret, resume_esp, result))
+                self.pending_returns.append((ret, resume_esp, result, module_key))
                 frame = resume_esp - 4 * (len(call_args) + 1)
                 uc.mem_write(frame, struct.pack("<I", MAGIC_CALL_RETURN))
                 for i, value in enumerate(call_args):
@@ -3170,6 +3635,108 @@ class SafeDiscEmulator:
             eip = uc.reg_read(UC_X86_REG_EIP)
             log(f"    WATCH write 0x{address:08X} <- 0x{value:X} ({size}B) from "
                 f"0x{eip:08X}{self.describe_address(eip)}", always=True)
+        self.maybe_stop_on_write(uc, address, size, via="store", value=value)
+
+    def maybe_stop_on_write(
+            self, uc, address: int, size: int, *, via: str,
+            source: int | None = None, payload: bytes | None = None,
+            value: int | None = None, eip: int | None = None) -> bool:
+        """Stop at the first write overlapping a requested provenance range.
+
+        Normal Unicorn memory hooks expose only the destination and scalar value.
+        For x86 MOVS stores the source is nevertheless unambiguous (ESI), while
+        the API shim supplies the explicit ``lpBuffer`` for WriteProcessMemory.
+        Keeping this diagnostic in one place makes those two write channels
+        comparable and avoids an expensive run that merely says "memcpy wrote it".
+        """
+        if not self.matches_stop_write(address, size):
+            return False
+
+        self.stop_write_hit = True
+        writer = eip if eip is not None else uc.reg_read(UC_X86_REG_EIP)
+        try:
+            code = bytes(uc.mem_read(writer, 15))
+        except UcError:
+            code = b""
+        instruction = ""
+        if code and capstone is not None:
+            md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+            insn = next(md.disasm(code, writer), None)
+            if insn is not None:
+                instruction = f"{insn.bytes.hex(' ')}  {insn.mnemonic} {insn.op_str}".rstrip()
+
+        # REP MOVSB/MOVSD is the important bulk-copy case. Skip ordinary x86
+        # prefixes to identify A4/A5 without assuming a fixed instruction size.
+        if source is None and code:
+            index = 0
+            while index < len(code) and code[index] in (
+                    0xF0, 0xF2, 0xF3, 0x2E, 0x36, 0x3E, 0x26, 0x64, 0x65,
+                    0x66, 0x67):
+                index += 1
+            if index < len(code) and code[index] in (0xA4, 0xA5):
+                source = uc.reg_read(UC_X86_REG_ESI)
+
+        if payload is None:
+            if source is not None:
+                try:
+                    payload = bytes(uc.mem_read(source, min(max(size, 1), 32)))
+                except UcError:
+                    payload = None
+            elif value is not None:
+                payload = int(value).to_bytes(size, "little", signed=False)
+
+        matched = next(
+            (bounds for bounds in self.stop_write_ranges
+             if ranges_overlap(address, size, *bounds)),
+            None,
+        )
+        assert matched is not None
+        lo, hi = matched
+        print(f"[emu] STOP-ON-WRITE 0x{address:08X}-0x{address + size:08X} "
+              f"overlaps 0x{lo:08X}-0x{hi:08X} via {via}")
+        print(f"      writer=0x{writer:08X}{self.describe_address(writer)}")
+        if instruction:
+            print(f"      instruction: {instruction}")
+        if source is not None:
+            print(f"      source=0x{source:08X}{self.describe_address(source)}")
+        if payload is not None:
+            print(f"      source/value bytes: {payload[:32].hex(' ')}")
+
+        registers = (
+            ("eax", UC_X86_REG_EAX), ("ebx", UC_X86_REG_EBX),
+            ("ecx", UC_X86_REG_ECX), ("edx", UC_X86_REG_EDX),
+            ("esi", UC_X86_REG_ESI), ("edi", UC_X86_REG_EDI),
+            ("ebp", UC_X86_REG_EBP), ("esp", UC_X86_REG_ESP),
+        )
+        print("      " + "  ".join(
+            f"{name}=0x{uc.reg_read(register):08X}"
+            for name, register in registers
+        ))
+        esp = uc.reg_read(UC_X86_REG_ESP)
+        for index in range(12):
+            try:
+                word = struct.unpack("<I", bytes(uc.mem_read(esp + 4 * index, 4)))[0]
+            except UcError:
+                break
+            tag = " <-- return address slot" if index == 0 else ""
+            print(f"      [esp+{4 * index:02X}] = 0x{word:08X}"
+                  f"{self.describe_address(word)}{tag}")
+
+        self.stop(
+            uc,
+            f"first write overlapping --stop-on-write "
+            f"0x{lo:08X}-0x{hi:08X} from 0x{writer:08X}",
+        )
+        return True
+
+    def matches_stop_write(self, address: int, size: int) -> bool:
+        """Count matching events and select the requested provenance hit."""
+        if self.stop_write_hit or not any(
+                ranges_overlap(address, size, lo, hi)
+                for lo, hi in self.stop_write_ranges):
+            return False
+        self.stop_write_match_count += 1
+        return self.stop_write_match_count == self.stop_write_match_target
 
     def hook_invalid(self, uc, access, address, size, value, _user):
         """An access violation is an EXCEPTION, not necessarily the end.
@@ -3743,6 +4310,87 @@ class SafeDiscEmulator:
         (directory / "heap.bin").write_bytes(data)
         return len(data), entropy(data[:0x80000])
 
+    def checkpoint_register_overrides(self) -> list[dict[str, object]]:
+        """Serialize every diagnostic register override, including zero hits."""
+        return [
+            {
+                "address": address,
+                "registers": {
+                    name: value & 0xFFFFFFFF
+                    for name, value in sorted(assignments.items())
+                },
+                "hits": int(self.override_hits[address]),
+            }
+            for address, assignments in sorted(self.register_overrides.items())
+        ]
+
+    def dump_execution_checkpoint(self, directory: Path) -> list[tuple[str, int]]:
+        """Preserve transient main-image, stack, and register state.
+
+        CJumpRun can execute a temporarily decrypted body on the stack and
+        re-protect it before returning.  Module and heap snapshots therefore
+        are not sufficient to reproduce a stop inside one of those calls.  A
+        flat main-image dump plus the complete emulated stack and registers is
+        the smallest useful checkpoint for offline instruction replay.
+
+        This is diagnostic state, not a resumable process serialization: open
+        host files, API-shim bookkeeping, and Unicorn's translation cache are
+        intentionally not represented.
+        """
+        directory.mkdir(parents=True, exist_ok=True)
+        written: list[tuple[str, int]] = []
+        main_runtime_sha256: str | None = None
+        regions = (
+            ("main.runtime.bin", self.image_base,
+             (self.pe.OPTIONAL_HEADER.SizeOfImage + 0xFFF) & ~0xFFF),
+            ("stack.bin", STACK_BASE, STACK_SIZE),
+        )
+        for name, base, size in regions:
+            try:
+                data = bytes(self.uc.mem_read(base, size))
+            except UcError:
+                continue
+            (directory / name).write_bytes(data)
+            written.append((name, len(data)))
+            if name == "main.runtime.bin":
+                main_runtime_sha256 = hashlib.sha256(data).hexdigest()
+
+        register_ids = (
+            ("eax", UC_X86_REG_EAX), ("ebx", UC_X86_REG_EBX),
+            ("ecx", UC_X86_REG_ECX), ("edx", UC_X86_REG_EDX),
+            ("esi", UC_X86_REG_ESI), ("edi", UC_X86_REG_EDI),
+            ("ebp", UC_X86_REG_EBP), ("esp", UC_X86_REG_ESP),
+            ("eip", UC_X86_REG_EIP), ("eflags", UC_X86_REG_EFLAGS),
+            ("cs", UC_X86_REG_CS), ("ds", UC_X86_REG_DS),
+            ("es", UC_X86_REG_ES), ("fs", UC_X86_REG_FS),
+            ("ss", UC_X86_REG_SS),
+        )
+        register_overrides = self.checkpoint_register_overrides()
+        manifest = {
+            "format": 2,
+            "conditional": bool(register_overrides),
+            "register_overrides": register_overrides,
+            "instructions": self.instructions,
+            "stop_reason": self.stop_reason,
+            "image_base": self.image_base,
+            "image_size": self.pe.OPTIONAL_HEADER.SizeOfImage,
+            "main_runtime_sha256": main_runtime_sha256,
+            "stack_base": STACK_BASE,
+            "stack_size": STACK_SIZE,
+            "heap_base": HEAP_BASE,
+            "heap_used": max(0, self.heap_next - HEAP_BASE),
+            "thug2_import_vectors": list(self.thug2_import_vector_captures),
+            "thug2_alt_records": list(self.thug2_alt_record_captures),
+            "registers": {
+                name: self.uc.reg_read(register) & 0xFFFFFFFF
+                for name, register in register_ids
+            },
+        }
+        encoded = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+        (directory / "checkpoint.json").write_text(encoded, encoding="utf-8")
+        written.append(("checkpoint.json", len(encoded.encode("utf-8"))))
+        return written
+
     def dump_emulated_files(self, directory: Path) -> list[tuple[str, int, str]]:
         """Write out every file the loader CREATED in emulated memory.
 
@@ -3827,6 +4475,17 @@ class SafeDiscEmulator:
         print("=" * 70)
         print(f"stopped after {self.instructions:,} instructions")
         print(f"reason: {self.stop_reason}")
+        if self.thug2_sd3_key_repair:
+            if self.thug2_sd3_key_installed:
+                status = (f"raw storage x{self.thug2_sd3_raw_storage_install_count}; "
+                          f"HookCDCheck x{self.thug2_sd3_key_install_count} "
+                          f"(xor=0x{self.thug2_sd3_key_xor:08X})")
+            elif self.thug2_sd3_raw_storage_installed:
+                status = (f"raw storage x{self.thug2_sd3_raw_storage_install_count}; "
+                          "HookCDCheck not reached")
+            else:
+                status = "not reached"
+            print(f"THUG2 SD3 published storage repair: {status}")
         print()
         print(f"API calls: {sum(self.api_calls.values())} across {len(self.api_calls)} distinct")
         for name, count in self.api_calls.most_common(20):
@@ -3844,11 +4503,19 @@ class SafeDiscEmulator:
             print("files the loader READ (this is where the encrypted payload comes from):")
             for fname, total in self.file_reads.most_common(10):
                 print(f"    {total:10,} bytes  {fname}")
-        if self.override_hits:
+        # Merely configuring --set-reg makes the run diagnostic/conditional,
+        # even when execution never reaches the requested address.  Do not let
+        # a zero-hit override run look like an unconditional reconstruction.
+        if self.register_overrides:
             print()
-            print("REGISTER OVERRIDES APPLIED (results are conditional on these):")
-            for addr, count in self.override_hits.items():
-                print(f"    0x{addr:08X} x{count}")
+            print("REGISTER OVERRIDES CONFIGURED (diagnosis-only; results are conditional):")
+            for addr in sorted(self.register_overrides):
+                assignments = ", ".join(
+                    f"{name}=0x{value:08X}"
+                    for name, value in sorted(self.register_overrides[addr].items())
+                )
+                print(f"    0x{addr:08X} hits={self.override_hits[addr]}  "
+                      f"{assignments}")
         if self.trace_limit:
             print()
             status = f"{self.trace_emitted}/{self.trace_limit} lines emitted"
@@ -3921,6 +4588,12 @@ class SafeDiscEmulator:
         print(f".text entropy now: {self.text_entropy():.3f} (encrypted ~7.999, real code ~6.3)")
 
         if self.temp_dump_dir is not None:
+            checkpoint = self.dump_execution_checkpoint(self.temp_dump_dir)
+            if checkpoint:
+                print()
+                print(f"execution checkpoint -> {self.temp_dump_dir}:")
+                for name, size in checkpoint:
+                    print(f"    {size:10,} bytes  {name}")
             modules = self.dump_loaded_modules(self.temp_dump_dir)
             if modules:
                 print()
@@ -4033,6 +4706,11 @@ def parse_hex_range(value: str) -> tuple[int, int]:
     if lo >= hi:
         raise argparse.ArgumentTypeError("range must have LO < HI")
     return lo, hi
+
+
+def ranges_overlap(address: int, size: int, lo: int, hi: int) -> bool:
+    """Return whether a non-wrapping write overlaps a half-open range."""
+    return size > 0 and address < hi and lo < address + size
 
 
 def positive_int(value: str) -> int:
@@ -4338,6 +5016,14 @@ def main() -> int:
                          "16..19, root extent 24, and the verified unreadable-sector "
                          "geometry. The protected EXE and source PVD hashes are "
                          "verified first; the image file is never changed")
+    ap.add_argument("--thug2-sd3-key-repair", action="store_true",
+                    help="Reproduce SafeDiscLoader2's published SD3 path: after "
+                         "AuthServ loads, use its v40 direct TablePtr path to "
+                         "copy all 1,024 raw table-3 storage bytes into "
+                         "SecondCopy/ThirdCopy; at HookCDCheck copy the full "
+                         "XOR-derived storage page into FirstCopy, return "
+                         "EAX=0x01020050, and skip the native virtual CD-check call. Requires "
+                         "--thug2-retail-disc-profile")
     ap.add_argument("--disc-root-extent", type=lambda v: int(v, 0), metavar="LBA",
                     help="Opt-in virtual reconstruction of the disc's ISO root-directory "
                          "extent. The PVD is patched in memory and reads of the virtual "
@@ -4362,10 +5048,9 @@ def main() -> int:
                          "never modify the image file")
     ap.add_argument("--set-reg", action="append", default=[], metavar="ADDR:REG=VAL",
                     help="At this hex address, force a register before the instruction "
-                         "runs, e.g. --set-reg 10323C88:eax=0x01020050. Intended for "
-                         "testing whether an obfuscated check is a GATE or a key "
-                         "source -- if forcing it yields code that disassembles, it "
-                         "was a gate; if it yields noise, it fed the key")
+                         "runs, e.g. --set-reg 10323C88:eax=0x01020050. Diagnosis-only: "
+                         "every run configured with this option is reported as "
+                         "conditional, including when the address is never reached")
     ap.add_argument("--trace-range", type=parse_hex_range, metavar="LO-HI",
                     help="Disassemble every instruction executed inside this hex range. "
                          "LO is inclusive and HI is exclusive. "
@@ -4393,6 +5078,15 @@ def main() -> int:
     ap.add_argument("--watch", metavar="LO-HI",
                     help="Log every write into this hex address range with the writing "
                          "EIP, e.g. --watch 100F2600-100F2700")
+    ap.add_argument("--stop-on-write", type=parse_hex_range, action="append", default=[],
+                    metavar="LO-HI",
+                    help="Stop at the first instruction store or WriteProcessMemory "
+                         "overlapping this half-open range and report writer provenance, "
+                         "registers, source bytes, and stack dwords (repeatable)")
+    ap.add_argument("--stop-on-write-hit", type=positive_int, default=1, metavar="N",
+                    help="Stop on matching write event N instead of the first. With a "
+                         "one-byte range at a bulk-copy destination, this selects the "
+                         "Nth copy invocation (default 1)")
     ap.add_argument("--trail", type=int, default=0, metavar="N",
                     help="Keep the last N executed addresses and print them on stop, "
                          "annotated with module and section. The fastest way to see "
@@ -4408,6 +5102,10 @@ def main() -> int:
         ap.error("--trace-extra-range requires --trace-range")
     if args.trace_after_count != 1 and args.trace_after is None:
         ap.error("--trace-after-count requires --trace-after")
+    if args.stop_on_write_hit != 1 and not args.stop_on_write:
+        ap.error("--stop-on-write-hit requires --stop-on-write")
+    if args.thug2_sd3_key_repair and not args.thug2_retail_disc_profile:
+        ap.error("--thug2-sd3-key-repair requires --thug2-retail-disc-profile")
     if args.thug2_retail_disc_profile and args.disc is None:
         ap.error("--thug2-retail-disc-profile requires --disc")
     if args.thug2_retail_disc_profile and any((
@@ -4465,6 +5163,7 @@ def main() -> int:
     emu.seh_limit = args.seh_limit
     emu.temp_dump_dir = args.dump_temp_files
     emu.stop_at_oep = not args.no_stop_at_oep
+    emu.thug2_sd3_key_repair = args.thug2_sd3_key_repair
     if args.disc:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from iso9660_reader import DiscImage  # noqa: PLC0415
@@ -4528,6 +5227,8 @@ def main() -> int:
         emu.trail = deque(maxlen=args.trail)
     emu.breakpoints = {int(a, 16) for a in args.breakpoints}
     emu.stop_points = {int(a, 16) for a in args.stop_at}
+    emu.stop_write_ranges = list(args.stop_on_write)
+    emu.stop_write_match_target = args.stop_on_write_hit
     if args.trace_range:
         emu.trace_lo, emu.trace_hi = args.trace_range
         emu.trace_ranges = [args.trace_range, *args.trace_extra_range]

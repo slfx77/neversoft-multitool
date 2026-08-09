@@ -1,327 +1,396 @@
-# THUG2 SafeDisc recovery and emulation handoff
+# THUG2 SafeDisc protected-input decryptor handoff
 
-Updated 2026-08-08. Facts below are measured unless a sentence is explicitly
-labelled **Inference**.
+Updated 2026-08-09. Facts below are measured from the exact protected build or
+its loader runtime unless a sentence is explicitly labelled **Inference**.
 
-## Completed result
+## Current result
 
-The requested usable unprotected executable is:
+The protected-input solution is now mapped end to end. The production entry
+point is `tools/diagnostics/thug2_safedisc_decrypt.py`: it takes the exact
+protected `THUG2.exe` and the owner's CD1 BIN, runs the protected loader to the
+game OEP, restores every remaining lazy SafeDisc record from protected/runtime
+state, and emits a five-section standalone PE. It does not extract or copy the
+CD3 no-CD executable.
 
-| File | Size | SHA-256 |
-|---|---:|---|
-| `TestOutput/THUG2_decrypted_complete.exe` | 2,695,168 | `52fc88849654b34839ec2f96bff3a8c0b7a855df9a207aab9f2fca2e6bd440f3` |
+The final artifact below came from a fresh format-2, one-command run of the
+protected executable plus CD1—not from the historical CD3 extraction:
 
-It was recovered byte-for-byte from `CRACK/THUG2.EXE` at LBA 111 of the
-user-supplied CD3 `rld-thuc.bin`. It is the same game build as the protected
-input: PE timestamp `0x41477593`, image base `0x00400000`, the same five core
-section identities, original entry point RVA `0x22583D` (VA `0x0062583D`), and
-import directory RVA/size `0x27A564/0xF0`. It has 11 populated DLL descriptors
-and 193 imports.
+> **FINAL BUILD RECORD**
+>
+> - emitted file: `TestOutput/THUG2_decrypted_from_protected.exe`
+> - size: `2,695,168` bytes (`0x292000`)
+> - SHA-256: `f7ca9c1d0e4eed40808ce3dec6a9df854c0236c4916aa6d09cb1a3405d2676ae`
+> - fresh loader run: natural OEP after `231,636,087` instructions; format-2
+>   checkpoint is unconditional, has no register overrides, and matches its
+>   `main.runtime.bin` SHA-256
+> - structure: x86, five core sections, OEP RVA `0x22583D`, 11 import
+>   descriptors/193 thunks, zero SafeDisc control-transfer residue
+> - reproducibility: fresh checkpoint replay and optional-oracle replay are
+>   byte-identical to the one-command result; normalized oracle comparison has
+>   zero core-section differences
+> - smoke: remained alive for 12 seconds with game window title, loaded
+>   `binkw32` plus all expected DirectX/Win32 DLL families, then the exact PID
+>   was terminated; no matching process remained
 
-The provenance matters: this is the no-CD executable bundled with the supplied
-scene-release CD3, **not** an output of `safedisc_emu.py`, and its recovery did
-not decrypt the protected file. It is also not claimed to be a pristine
-publisher pre-SafeDisc link output. The bundled file contains 264 `RLD!\0`
-tags in locations which are `0xCC` padding elsewhere; these are the only bytes
-currently proven to be crack-only. The filename records that the user's usable
-unprotected-binary goal is complete, not that every byte is pristine.
+The retained fresh runtime evidence is in
+`TestOutput/THUG2_decrypted_end_to_end_v2.safedisc-work`; the complete tee is
+`TestOutput/THUG2_decrypted_end_to_end_v2_driver.log`.
 
-Exact source identities:
+The exact supported inputs are:
 
-| Source | Size | SHA-256 |
+| Input | Size | SHA-256 |
 |---|---:|---|
 | protected `Setup/Data/Game/THUG2.exe` | 3,926,726 | `c34ea46e041d08d7d85565a262473c29b90ed8a4d5b740d6cc04d4fe48d52347` |
-| supplied CD3 `rld-thuc.bin` | 801,947,328 | `cc74ac7cfc458c342fdcccd6533c0a67e3102597bbe2f8bf97782ef02786ac5d` |
-| CD3 `CRACK/THUG2.EXE` | 2,695,168 | `52fc88849654b34839ec2f96bff3a8c0b7a855df9a207aab9f2fca2e6bd440f3` |
+| reauthored scene CD1 `rld-thua.bin` | verified by the profile | `5e8b570d999b88ad9ffad1ffe152b9af9cd342fbde6aeba561b9ff504183e68f` |
+| scene CD1 PVD user data | 2,048 | `aeafd7863d68d0ae1aca3652177f57a5e0e0213c179839c18783579be00520e1` |
 
-Neither input is modified.
+Neither input is modified. The tool refuses a different protected hash, disc
+hash/PVD, section layout, an existing output, or an existing work directory.
 
-## Reproducing the completed recovery
+## Exact decryptor pipeline
 
-`tools/diagnostics/thug2_cd3_recover.py` verifies the exact protected EXE and
-complete CD3 hashes before extraction. It also requires the `THUG2_3` ISO9660
-identity, exact `CRACK/THUG2.EXE` path/LBA/size/hash, protected seven-section
-layout, recovered five-section layout, timestamp, image base, OEP, import
-directory, all 11 descriptors, and all 193 imports. It writes only after every
-check passes and refuses to overwrite either input or any existing output.
-
-The output path in this command must therefore not already exist:
+The default command is one fail-closed pipeline:
 
 ```powershell
-$protected = "Sample/Builds/Tony Hawks Underground 2 (2004-10-4, Windows - Final)/Setup/Data/Game/THUG2.exe"
-$cd3 = "C:/Users/mmc99/Desktop/Games/TCRF/Spider-Man Research/Media/Tony Hawk's Underground 2 (2004-10-4, PC - Final)/CD3/rld-thuc.bin"
+$exe = "Sample/Builds/Tony Hawks Underground 2 (2004-10-4, Windows - Final)/Setup/Data/Game/THUG2.exe"
+$disc = "C:/path/to/THUG2/CD1/rld-thua.bin"
 
-python tools/diagnostics/thug2_cd3_recover.py `
-  $cd3 $protected TestOutput/THUG2_decrypted_complete.exe
+python tools/diagnostics/thug2_safedisc_decrypt.py $exe `
+  --disc $disc `
+  --output TestOutput/THUG2_decrypted_from_protected.exe
 ```
 
-`tools/diagnostics/thug2_cd3_recover_selftest.py` builds a fixture-free
-synthetic MODE1/2352 ISO and PE, tests successful extraction, input/output
-guards, and verifies that a hash failure writes nothing.
+The default work directory is
+`TestOutput/THUG2_decrypted_from_protected.safedisc-work`. It preserves the
+complete emulator log, `checkpoint.json`, `main.runtime.bin`, `heap.bin`,
+`PfdRun.pfd`, and the extracted/runtime SecServ and AuthServ modules.
 
-## Exact validation performed
+The stages are deliberately ordered:
 
-- The recovery helper completed against the full 801,947,328-byte CD3 and
-  produced the exact size and SHA-256 above.
-- `pefile` parsed the result and the helper verified all five sections, the
-  OEP, import directory, 11 descriptors, and 193 import thunks. Import counts
-  are: `binkw32` 15, `WS2_32` 17, `d3d9` 1, `WINMM` 2, `DINPUT8` 1,
-  `DSOUND` 2, `KERNEL32` 114, `USER32` 22, `GDI32` 1, `ADVAPI32` 7, and
-  `WSOCK32` 11.
-- Microsoft `DUMPBIN /HEADERS /IMPORTS` accepts the image. All 193 imported
-  names/ordinals resolve against the supplied retail `binkw32.dll` and this
-  machine's 32-bit system DLL exports.
-- A clean emulator smoke run mapped all 193 imports and executed 5,000
-  instructions from the real OEP through CRT startup without an invalid
-  instruction or malformed-image failure. See
-  `TestOutput/thug2_cd3_crack_smoke.log`.
-- `python -m py_compile` and both fixture-free recovery self-tests pass.
+1. Verify the exact protected hash, seven-section layout, image base
+   `0x00400000`, and the complete CD1/profile identities.
+2. Run `safedisc_emu.py` with `--thug2-retail-disc-profile`,
+   `--thug2-sd3-key-repair`, `--fake-secdrv`, and an explicit stop at the game
+   OEP `0x0062583D`. The published SD3 v40 repair described below is part of
+   this loader run, not a post-hoc plaintext patch.
+3. Accept only a format-2 checkpoint whose stop reason says it reached that
+   OEP, whose SHA-256 binds the exact `main.runtime.bin`, and whose conditional
+   metadata proves that no diagnostic register override was configured. The
+   earlier SecServ return at `0x100160B9`/`EAX=0x258` is not sufficient.
+4. Use the checkpoint-attested SecServ key to reconstruct the three protected
+   import vectors and all 30 encoded API-name records from the protected EXE.
+5. Restore three `stxt` import calls, 77 redirect records, 18
+   permuted `FF 15` operands, and 113 Alt/INT3 fragments from the exact
+   SecServ heap/module state and `PfdRun.pfd`.
+6. Require 11 import descriptors/193 thunks, the complete 11-record SafeDisc
+   restoration table, a valid CRT initializer array, and zero transfers into
+   either SafeDisc `stxt` section or RVA `0x1D79`.
+7. Normalize each disk IAT from its recovered INT, retain the original five
+   game sections, remove both protection-added `stxt` sections, set OEP RVA
+   `0x22583D`, set the import directory to RVA/size `0x27A564/0xF0`, and emit
+   a `0x292000`-byte standalone PE. Require the deterministic protected-input
+   SHA-256 before creating the output with exclusive, no-overwrite semantics.
 
-This proves exact recovery from the supplied CD3, structural PE validity, and
-early emulated startup. It does not by itself prove full gameplay or that the
-scene no-CD changes are identical to an unpublished pristine executable.
+Advanced checkpoint finalization is available with `--memory` and the required
+`--checkpoint`. Legacy/conditional manifests are rejected. Those files must be
+siblings of the matching `heap.bin`, `PfdRun.pfd`, and signature-matched
+SecServ runtime image. An explicit `--import-key-hex` is diagnostic-only and
+can only cross-check the live checkpoint attestation; it cannot replace it.
 
-## Emulator-derived artifacts are partial diagnostics
+## SafeDisc 3 v40 key repair
 
-| File | Size | SHA-256 | Meaning |
-|---|---:|---|---|
-| `TestOutput/thug2_decrypted_candidate.exe` | 4,091,904 | `fbfa75d959a115da71370248b260befe3b456427a5eb534b604494ecbebba38e` | Authentic-loader memory dump with stale SafeDisc headers and incomplete restoration |
-| `TestOutput/thug2_decrypted_final.exe` | 4,091,904 | `76d5b0d653045b44b3f8502968f56b36ef651eb4b0f4657cf5d951e7219f82ae` | Historical provisional header-finalized form; despite its name, not a complete deliverable |
-| `TestOutput/thug2_decrypted_timefix_profile.exe` | 4,091,904 | `fbfa75d959a115da71370248b260befe3b456427a5eb534b604494ecbebba38e` | Corrected-profile rerun, byte-identical to the candidate |
+This was the key correction that made the loader's broad `.text` and `.data`
+passes produce plaintext.
 
-The CD3 executable made a byte-level completeness audit possible. It disproved
-the earlier inference that touching every `.text` page and obtaining coherent
-code at the OEP meant the whole payload was restored:
+THUG2 AuthServ has the unique v40 direct-TablePtr signature at runtime RVA
+`0x23B04`; SecServ has no HookDecodeTable signature. Therefore the applicable
+published SafeDiscLoader2 branch does **not** call `CallDecrypt(3/2/4)` and
+does **not** copy 1,014 bytes. Its exact contract is:
 
-- the first `0x4E20` bytes of `.text`, VA
-  `0x00401000..0x00405E1F`, remain wrongly transformed/high-entropy ciphertext
-  in the emulator dump;
-- the first `0x5DC` bytes of `.data`, VA
-  `0x0067C000..0x0067C5DB`, have the same gap (1,486 of 1,500 byte values differ);
-- outside that bad `.text` block, the partial dump has 77 five-byte
-  `E8 rel32` calls redirected to ciphertext VA `0x00401D79`. Sixty-four
-  replace calls to real helpers/import thunks and 13 replace other original
-  five-byte sequences. The spans cover 385 bytes, with 316 actual differing
-  byte values;
-- 18 `FF 15` indirect calls retain permuted IAT operands (18 differing operand
-  bytes), and three six-byte stolen-text hooks replace the real imported calls
-  (18 bytes);
-- about 90 candidate-`0xCC` holes cover another 288 bytes where the bundled
-  executable has live instructions;
-- the old diagnostic `find_iat_slots` heuristic corrupted 24 bytes at six
-  incidental stub-valued dwords: executable VAs `0x00442D78`, `0x004E2824`,
-  and `0x0058496C`, plus `.rdata` VAs `0x0066BCB0`, `0x0066BFC0`, and
-  `0x0066CAE0`. The scanner now requires a non-executable slot plus an
-  executable `FF 15`/`FF 25` reference and excludes all six false positives;
-- the provisional import table has only 8 populated descriptors and 163
-  imports. The complete file has 11/193; `USER32` contributes 22, `GDI32` 1,
-  and `ADVAPI32` 7. The formerly “authentic empty descriptors” conclusion was
-  therefore wrong.
+- AuthServ raw-key base is RVA `0x3E6F0`;
+- table 2 is at `base+0x555`, table 3 at `base+0xA82`;
+- the build copies all 1,024 table-3 bytes through direct storage-page
+  pointers;
+- after AuthServ `DllMain`, raw table 3 is copied to SecServ `SecondCopy`
+  slot 2 and `ThirdCopy` slot 4;
+- the derived page is table 3 with each little-endian dword XORed by
+  `first_dword(table1) ^ first_dword(table2) = 0x2F94504C`;
+- at AuthServ RVA `0x23CA6`, the HookCDCheck replacement writes that complete
+  derived page to `FirstCopy` slot 3, sets `EAX=0x01020050`, resumes at RVA
+  `0x23CAF`, and skips the original virtual media-check call.
 
-The 264 `RLD!\0` padding tags are excluded from the gap accounting above and
-remain the only differences proven specific to the bundled crack. Other
-differences establish that the emulator dump is incomplete; they do not prove
-that every corresponding byte in the no-CD file is pristine publisher output.
+The full derived storage page has SHA-256
+`eb9a171da0255bf122fd0aa5c172680db5b0d8a5b7368d0ca36de4c14dfb7009`.
+The hook validates that slot 4 still holds the raw source; slot 2 is allowed to
+have passed through SafeDisc's expected CRC transforms. The corrected run
+reached the OEP after 231,636,087 instructions and captured the broad loader
+transforms before any offline repair.
 
-`tools/diagnostics/safedisc_finalize_dump.py` remains useful for inspecting a
-memory-layout dump: it validates recovered descriptors and can repoint the OEP,
-Import, and IAT directories without guessing APIs. Header finalization cannot
-repair ciphertext, missing instructions/imports, or protection redirects, so
-its output must remain diagnostic for this run.
+## Import vectors and names
 
-## Reproducing the authentic retail-disc view (diagnostic)
+The runtime restoration table at main RVA `0x3E1000` begins with **11**, not
+3. It contains one six-byte header for every import descriptor. Exactly three
+headers carry the protected flag:
 
-The supplied Reloaded CD1 BIN is the correct game release, but its ISO was
-reauthored. The matching retail master measures as follows:
+| Index | DLL | Imports | SecServ seed |
+|---:|---|---:|---:|
+| 7 | `USER32.dll` | 22 | `0x48351DEF` |
+| 8 | `GDI32.dll` | 1 | `0x0027B0F8` |
+| 9 | `ADVAPI32.dll` | 7 | `0x99CA2F1D` |
 
-- exact descriptor user-data sectors at LBAs 16–19;
-- volume ID `THUG2_1`, volume size 293,015 sectors, root extent LBA 24, and
-  creation timestamp `2004091416305100`;
-- a 64-byte encoded PVD application-use record at offset `0x4B3`, which
-  AuthServ's fallback permutation decodes to `C-Dilla\0`, protected band LBA
-  `0x3C4..0x2850`, seed `0xB7EC1EFB`, and low/high margins `7/7`;
-- exactly 584 deliberately invalid Mode-1 sectors in that inclusive band.
+The separate SecServ value 3 counts protected vectors, not table records. The
+other eight descriptors are already represented in plaintext in the protected
+input.
 
-For an LBA in the band, the measured bad-sector classifier is:
+At SecServ `0x100454C6`, the loader exposes the exact three ciphertext-vector
+inputs and a single 16-byte key:
+`0192892b9117f0c3718e9fcebf140a37`. The checkpoint records input and
+pre-scatter output hashes for counts 22, 1, and 7. CJump retries are collapsed
+only when every attested field agrees.
+
+The offline reconstruction reproduces SecServ rather than guessing names:
+
+- `0x454C6`: LCG whitening plus 32-round little-endian TEA pair decryption;
+- `0x4596E`: the keyed permutation/scatter of the decoded RVAs;
+- `0x453CB`: overlapping trailing-block handling, whitening, and TEA decode of
+  each encoded API-name buffer (including its NUL);
+- inverse `0x45300`: every decoded name must re-encrypt byte-for-byte to the
+  protected source before any write occurs.
+
+The restored descriptors and counts are `binkw32` 15, `WS2_32` 17, `d3d9` 1,
+`WINMM` 2, `DINPUT8` 1, `DSOUND` 2, `KERNEL32` 114, `USER32` 22, `GDI32` 1,
+`ADVAPI32` 7, and `WSOCK32` 11: 11 descriptors and 193 imports total.
+
+## Three stxt import-call repairs
+
+SecServ's static table at runtime RVA `0xB0444` contains three
+`(return_rva, iat_rva)` pairs and a null terminator. It restores these exact
+six-byte calls:
+
+| Main site RVA | Restored call |
+|---:|---|
+| `0x0E1913` | `FF 15 08 50 64 00` — `ADVAPI32!RegQueryValueExA` |
+| `0x0E2C29` | `FF 15 30 52 64 00` — `USER32!InvalidateRect` |
+| `0x0E2C37` | `FF 15 28 52 64 00` — `USER32!ShowWindow` |
+
+The input must be either the exact protected `E9` residue targeting an `stxt`
+RVA or the already-restored call. No CD3 bytes supply this table.
+
+## Seventy-seven redirect records
+
+At the OEP there are exactly 77 `E8 rel32` markers targeting main RVA
+`0x1D79`. SecServ runtime `[base+0xAF484]` points into `heap.bin` at the
+corresponding dictionary:
+
+- header count 77 and serialized size `0x125B`;
+- 128 `u16` occupancy flags at `+8`;
+- records at `+0x108 + slot*0xFC`;
+- record key `u32(+0x28) ^ 0x2EF77DB9`;
+- payload length `u32(+0xC8)+1`, exactly 5;
+- special flags at `+0xCC:+0xCE`;
+- payload bytes at `+0xCE`.
+
+For a marker at RVA `r`, its lookup key is the little-endian first dword of
+`MD5(<I r+5>)`. All 77 marker keys and all 77 dictionary records match
+one-to-one. Exactly 76 occupied records carry flags `00 00`; the sole special
+record is slot 18/key `0x61065B12`, carries flags `01 01`, and materializes its
+five-byte payload plus one trailing zero. That protected-only distinction
+restores `81 C6 B8 1E 00 00` at RVA `0x56AAB` rather than leaving a live
+`0xCC` byte in the immediate operand. The finalizer validates all records and
+386 output bytes before mutating the image; unused/duplicate records, changed
+flags, a non-five-byte payload, or a remaining marker is fatal.
+
+## Eighteen permuted FF15 operands
+
+SafeDisc separately permutes selected `FF 15` IAT operands. The finalizer
+validates SecServ's live manager, per-descriptor records, masks, item objects,
+and three registered main-image ranges before selecting a site.
+
+For a site offset `x`, the exact selector is:
+
+```text
+x ^= SecServ_929BD(x)
+x ^= SecServ_928A8(x)
+selected iff (x & 3) < 2
+```
+
+Both `0x115`-byte selector bodies are hash-pinned. A candidate must reference
+one of the three protected FirstThunk arrays and its live IAT value must equal
+that item's dispatcher thunk; this excludes direct API entries. With manager
+seed `u32(manager+0x26)`, the selected position is advanced as follows:
+
+```text
+step = (seed + site_offset) % descriptor_import_count
+do position = (position - step) % descriptor_import_count
+while descriptor_mask[position] is clear
+```
+
+The replacement operand is the mapped item's validated IAT address. Exact
+provenance counts are 49 protected-IAT candidates, 48 dispatcher-backed
+candidates, 19 selector-true sites, and 18 changed operands; one selected site
+cycles to itself. All four counts are required.
+
+## Alt/INT3 fragments are solved protected-only
+
+The former “about 90 unresolved CC holes” conclusion is obsolete. They are
+SafeDisc Alt fragments whose typed rows live in protected `PfdRun.pfd`.
+
+Four PFD payload chunks (`0x600C..0x700C`, `0x7018..0x8018`,
+`0x8024..0x9024`, and `0x9030..0x9104`) are decoded with the native
+overlapping TEA operation, the PFD password whitening, and the inner TEA pass.
+They concatenate to 625 20-byte rows (`0x30D4` bytes), SHA-256
+`6183dd3faba576114e6987368e9d6e1b0ea811a7821efbdcc76d7c42651dc4f7`.
+
+The exact selector is cheap enough to scan the full `.text` on one CPU:
+
+```text
+context = (site_rva * 0x215D7FC6) mod 2^32
+digest  = MD5(<II site_rva, context>)
+row key = big_endian_u32(digest[0:4])
+decoded = row.encoded16 XOR repeat(digest[4:8])
+```
+
+An authenticated row has this decoded schema:
+
+```text
+control, 00, 00, payload[8], 00, digest[12:16]
+```
+
+`control` must be 1 through 8 and the target must still be exactly
+`CC * control`. The restored bytes are
+`payload[:control] XOR 0xFA`. Sites and rows must be unique and writes may not
+overlap.
+
+The build-specific protected-only census is exact:
+
+- 291 typed row matches in `.text`;
+- 178 inactive type-7 padding records (176 `CC CC -> CC CC` shapes and two
+  `CC 90 -> 90 90` shapes);
+- 113 active unique fragments touching 89 original maximal CC runs;
+- 287 restored bytes;
+- controls `{2: 92, 3: 8, 6: 12, 7: 1}`.
+
+`TestOutput/pfd_alt_cpu_recover.py` reproduces the scan in about three seconds.
+Its manifest is `TestOutput/pfd_alt_cpu_manifest.json`, SHA-256
+`0ec909193fc5c9f78a8acebc38e2a3456e988d0f82cdcf2114b965e08d5654cc`.
+Applying only this Alt layer to the OEP runtime image yields SHA-256
+`68da0ff4e983274259b32afce67cc4cc815c1551175e6266c9c0a24abfc4616a`.
+The proof uses no plaintext executable; the CD3 comparison reports zero
+mismatches only after reconstruction.
+
+## Completion gates and standalone layout
+
+The finalizer must pass all of these before creating the output path:
+
+- exact protected input plus a format-2, unconditional OEP checkpoint whose
+  SHA-256 binds `main.runtime.bin`;
+- exact sibling `heap.bin`, `PfdRun.pfd`, and one signature-matched SecServ
+  runtime image;
+- 30 protected imports reconstructed and re-encryption-verified;
+- exactly 3 stxt calls, 77 redirect records/386 bytes, 18 FF15 operand changes,
+  and 113 Alt fragments/287 bytes;
+- import-restoration table count 11, with protected records exactly
+  `(index,count) = (7,22),(8,1),(9,7)` and payload ending at RVA `0x3E1063`;
+- 11 import descriptors and 193 valid name/ordinal thunks plus a null
+  descriptor;
+- zero rel32 transfers into RVA `0x3DF000..0x3E5FFF` and zero `E8` transfers
+  to RVA `0x1D79`;
+- CRT initializer range RVA `0x27C000..0x27C13B`: one zero sentinel followed
+  by 78 pointers into the recovered `.text`;
+- final five-section layout, OEP, import directory, output size, and canonical
+  SHA-256 `f7ca9c1d0e4eed40808ce3dec6a9df854c0236c4916aa6d09cb1a3405d2676ae`.
+
+The standalone sections are `.text`, `.rdata`, `.data`, `.tls`, and `.rsrc`.
+The two protection sections are omitted, their section headers are zeroed, the
+IAT directory is cleared for normalization, and `SizeOfImage` becomes
+`0x3DF000`.
+
+## CD3 is validation-only
+
+The supplied CD3 contains a same-build Reloaded no-CD executable, SHA-256
+`52fc88849654b34839ec2f96bff3a8c0b7a855df9a207aab9f2fca2e6bd440f3`.
+It was invaluable for falsifying incomplete intermediate dumps and validating
+the independently recovered transforms. It is not a production input and
+does not complete the protected-input decryption goal by itself.
+
+`--oracle` is optional. It hash-checks that exact CD3 executable, maps it for a
+comparison, changes its 264 `RLD!\0` padding tags to `CC`, and normalizes only
+two structurally guarded inter-function padding gaps (`125B:1260` and
+`3409:3410`) in the temporary comparison buffer. The five core sections then
+match byte-for-byte. Oracle bytes are never returned by a decoder or copied to
+the output.
+
+`tools/diagnostics/thug2_cd3_recover.py` remains a strict historical
+extraction/validation helper. Its output is a scene no-CD executable, not the
+output of the protected loader and not a substitute for this pipeline.
+
+## Retail-disc profile retained by the emulator
+
+The supplied scene CD1 is the correct release but was reauthored. The in-memory
+retail profile supplies the measured master view without modifying the BIN:
+
+- descriptor user-data sectors at LBAs 16–19;
+- volume ID `THUG2_1`, volume size 293,015 sectors, retail ISO/Joliet roots
+  24/58 aliased to scene roots 27/61, and creation timestamp
+  `2004091416305100`;
+- the decoded application-use record `C-Dilla\0`, protected band
+  `0x3C4..0x2850`, seed `0xB7EC1EFB`, and low/high margins 7/7;
+- 584 deliberately invalid Mode-1 sectors, classified by:
 
 ```text
 h = (((lba ^ 0xB7EC1EFB) * 0x5A6D) + 0x6A7F) mod 2^32
 bad iff (((h >> 8) & 0xFF) % 16) == 0
 ```
 
-The bad retail sectors have `0x55` user/EDC/ECC bytes and invalid error
-correction; the reauthored scene BIN contains valid sectors there. The four
-authentic descriptor sectors are embedded in the harness as compressed
-metadata. The title-specific switch aliases the retail ISO/Joliet roots
-24/58 to the scene roots 27/61 and applies the verified bad-sector geometry.
-All reconstruction is in memory.
+Bad `READ(10)` requests report SCSI `CHECK CONDITION`, `MEDIUM ERROR
+03/11/00`. AuthServ's raw-block `MODE SELECT(6)` reports transport success
+with `ILLEGAL REQUEST 05/26/00`, selecting the designed 2,048-byte fallback.
+On the emulated Windows XP predicates, the decrypted timing helper bypasses
+the legacy timing verdict, so no invented distance delay is required.
 
-Use this command for a clean run against the existing scene BIN:
+## Corrected conclusions and guardrails
 
-```powershell
-$exe = "Sample/Builds/Tony Hawks Underground 2 (2004-10-4, Windows - Final)/Setup/Data/Game/THUG2.exe"
-$disc = "C:/Users/mmc99/Desktop/Games/TCRF/Spider-Man Research/Media/Tony Hawk's Underground 2 (2004-10-4, PC - Final)/CD1/rld-thua.bin"
+- The runtime table count at main RVA `0x3E1000` is 11. The value 3 is the
+  number of protected import vectors, not the record count.
+- THUG2 uses the v40 direct-TablePtr SD3 branch: 1,024-byte storage pages and
+  no `CallDecrypt(3/2/4)` sequence. The earlier 1,014-byte/manual-selector
+  interpretation was the wrong SafeDiscLoader2 branch.
+- AuthServ's original CD-check virtual call must be skipped by HookCDCheck.
+  Calling it after installing the derived page overwrites `FirstCopy` and
+  reproduces the old parser failure.
+- A SafeDisc CKey storage page is encoded storage, not a raw logical key.
+  Directly writing a guessed logical seed produces a plausible but wrong
+  transform.
+- The CC/INT3 population is resolved: 113 authenticated Alt fragments, not an
+  oracle-selected patch list.
+- The 77 redirects and 18 FF15 changes are selected by runtime dictionaries,
+  masks, objects, and hash functions, not a CD3-derived site list.
+- Do not force verdict registers or use `--set-reg` to make a deliverable.
+  Success paths populate state consumed by later transforms. `--set-reg` is
+  diagnosis-only, and the report labels every run configured with it as
+  conditional even if the requested address is never reached.
+- `0xABADDADA` is only one CKey input feeder, not a standalone file-local
+  decrypt key.
+- SecServ `.text` was not wholesale decrypted at runtime; the observed
+  changes were CJumpRun patches.
+- `0x007E210F` is on the success route to the game OEP, not the failure branch.
 
-python tools/diagnostics/safedisc_emu.py $exe `
-  --disc $disc --thug2-retail-disc-profile --fake-secdrv `
-  --max-instructions 600000000 `
-  --dump TestOutput/thug2_decrypted_profile.exe `
-  --dump-temp-files TestOutput/safedisc_profile_temp
-```
-
-`--thug2-retail-disc-profile` cannot be combined with the lower-level manual
-root, marker, bad-sector, or sector-overlay switches. Those switches remain for
-diagnosis and other discs. The title profile also verifies the protected EXE
-and both the complete source scene BIN and its PVD by SHA-256 before applying
-any reconstruction, so it cannot silently be used on a different build or disc
-mastering.
-
-## What the media check actually measures
-
-The former conclusion that this check was only ordinary filesystem metadata
-and did not involve bad sectors or timing was wrong.
-
-Measured AuthServ behavior alternates a baseline read at LBA 964 with reads of
-pseudorandom classifier-clean LBAs in the protected band. It brackets those
-reads with `GetSystemTimeAsFileTime` and stores both elapsed times and LBAs for
-10–20 samples. The observed path deliberately selects clean sectors; that does
-not make the mastered bad-sector geometry irrelevant, because the embedded
-record defines the classification and sample population.
-
-The protected post-sampling helper has now been decrypted and replayed. On the
-Windows XP state advertised by this emulator (`VER_PLATFORM_WIN32_NT`, major
-version 5), two version predicates bypass the legacy timing comparison and the
-helper returns zero regardless of the measured deltas. Therefore the faithful
-emulator behavior needs no artificial distance-dependent delay for XP
-authentication; the deltas have no verdict or key consumer on this path.
-This was replayed from decrypted helper `0x103193F0`; predicates
-`0x1030A0B0` (NT platform) and `0x1030A0E0` (major version >4) select the XP
-bypass. Local boundary evidence is in
-`TestOutput/_timing_193f0_trace_{xp,legacy_under,legacy_equal,legacy_over}.txt`.
-
-For completeness, the inactive legacy path compares one read delta `D` with
-twice the outer-loop average `A`. `D <= 2*A` enters a seven-read bad-sector
-confirmation, while `D > 2*A` sets an internal classification word; both tested
-paths still return zero. A downstream legacy media-read/precheck mismatch or
-its adjacent internal-error path can produce `0x4D`. Controlled boundary
-probes at `A=100`, `D=199/200/201` confirmed the comparison and equality
-behavior.
-
-Two fidelity corrections are now in the harness:
-
-- Win32 time uses a deterministic 2020 UTC FILETIME epoch plus monotonic
-  virtual milliseconds. `GetSystemTimeAsFileTime`, UTC/local `SYSTEMTIME`,
-  timezone, and FILETIME conversion APIs now round-trip consistently.
-- AuthServ's raw-block `MODE SELECT(6)` is answered as transport success with
-  SCSI `CHECK CONDITION`, `ILLEGAL REQUEST 05/26/00`. AuthServ then takes its
-  designed 2,048-byte fallback. The old behavior accepted 2,340/2,352-byte mode
-  without actually supplying those blocks and was not faithful.
-
-Profile-classified bad `READ(10)` requests likewise complete at the transport
-layer while reporting SCSI `CHECK CONDITION`, `MEDIUM ERROR 03/11/00`, with no
-invented transfer data. `tools/diagnostics/safedisc_emu_selftest.py` covers the
-time conversions/monotonicity, MODE SELECT fallback, and embedded descriptor
-profile hash/structure.
-
-## Corrected full-loader diagnostic cross-check
-
-The corrected run completed after **389,237,134 instructions**. It used the
-authentic descriptor sectors, protected-sector geometry, coherent Win32 time
-APIs, and MODE SELECT fallback, then stopped on the same read of `0x007E6000`
-at SecServ `0x1009286B`. It did not reach the game OEP.
-
-Its dump, `TestOutput/thug2_decrypted_timefix_profile.exe`, is byte-identical to
-the earlier candidate: SHA-256
-`fbfa75d959a115da71370248b260befe3b456427a5eb534b604494ecbebba38e`.
-It recorded the same 2,395,382 bytes of `.text` write events across 580 pages,
-the same 6.580 sampled entropy, the same `0xCED7` stolen-table count, and the
-same six heuristic stub matches that the CD3 comparison later proved were
-false IAT positives. See
-`TestOutput/safedisc_timefix_profile_full.log` and
-`TestOutput/safedisc_timefix_profile_temp`.
-
-This disproves the missing-FILETIME/media-timing hypothesis for the stolen
-text. The process loaded just before the later Joliet `58 -> 61` alias and
-whole-BIN guard were added, but neither affects the already-consumed key path.
-This path is useful protection research, but is no longer the source of the
-completed deliverable.
-
-## Stolen-text findings from the partial emulator path
-
-The old authentic-profile run stopped in SecServ at `0x1009286B` on an
-unhandled read of VA `0x007E6000`. Its `stxt774` record table at RVA `0x3E1000`
-still had an impossible count `0xCED7`; mapping another page would only hide
-the corruption. That run lacked the corrected Win32 time APIs, but the sampled
-timing values are telemetry-only on the active XP path and do not feed a gate
-or key. The byte-identical corrected rerun confirms those media samples do
-**not** explain the bad stolen-text key/table. The unresolved earlier slot-4
-transform/key path explains one part of the emulator dump's incompleteness,
-not a remaining blocker to CD3 recovery.
-
-The expected count is now statically proven to be **3**: SecServ global
-`[0x100B1144]` is 3, `0x10044F2A` bounds a monotonically increasing record
-index against it, and the old snapshot exposes exactly three record pairs.
-That matches the three game-code jumps one-for-one. Parser `0x100927AD` only
-consumes an already-plaintext table; the still-missing step is the earlier
-transform that should make RVA `0x3E1000` begin with `03 00`.
-
-An initial linear scan incorrectly reported no references. Instruction-aligned
-review found three real near jumps from coherent game code into `stxt774`:
-
-- `0x004E1913 -> 0x007DF5B5`;
-- `0x004E2C29 -> 0x007DF800`;
-- `0x004E2C37 -> 0x007DF81D`.
-
-All three targets remain high-entropy garbage in the provisional dump. The CD3
-executable proves the original six-byte instructions at the source sites:
-
-- `0x004E1913`: `FF 15 08 50 64 00`,
-  `call [0x00645008]` (`ADVAPI32!RegQueryValueExA`);
-- `0x004E2C29`: `FF 15 30 52 64 00`,
-  `call [0x00645230]` (`USER32!InvalidateRect`);
-- `0x004E2C37`: `FF 15 28 52 64 00`,
-  `call [0x00645228]` (`USER32!ShowWindow`).
-
-The three `stxt774` targets do not exist in the five-section unprotected image,
-which ends at VA `0x007DEDA6`; they are protection-added trampolines. Restoring
-only these calls would still not make the partial dump complete because of the
-larger ciphertext, redirect, instruction-hole, and import gaps documented
-above. No near branch into `stxt371` was found. The protection ranges are:
-
-- `stxt774`: VA `0x007DF000..0x007E1063`;
-- `stxt371`: VA `0x007E2000..0x007E53D2`.
-
-The SecServ parser evidence and exact same-build comparison together show that
-the old parser fault is material to emulator completeness. The recovered OEP
-and much of the game code are genuine, but the provisional PE must not be
-described as fully decrypted.
-
-## Tools and guardrails
+## Tools and evidence
 
 | File | Purpose |
 |---|---|
-| `tools/diagnostics/thug2_cd3_recover.py` | Strict recovery of the bundled same-build unprotected EXE from the exact supplied CD3 |
-| `tools/diagnostics/thug2_cd3_recover_selftest.py` | Fixture-free ISO/PE recovery, hash-failure, and overwrite-guard tests |
-| `tools/diagnostics/safedisc_emu.py` | Unicorn x86 loader emulator, Win32/SCSI model, tracing, OEP detection, and memory-layout dump writer |
-| `tools/diagnostics/safedisc_finalize_dump.py` | Makes a partial memory dump loader-readable for diagnosis; it does not prove payload completeness |
-| `tools/diagnostics/safedisc_emu_selftest.py` | Focused time, SCSI, disc-profile, root-alias, and conservative IAT-scan regression tests |
+| `tools/diagnostics/thug2_safedisc_decrypt.py` | One-command protected-input loader run, protected/runtime restoration, completion gates, and standalone PE writer |
+| `tools/diagnostics/safedisc_emu.py` | Unicorn loader/Win32/SCSI model, retail-disc profile, published v40 key repair, OEP checkpoint, and import-vector capture |
+| `tools/diagnostics/safedisc_emu_selftest.py` | Focused emulator, disc, timing, SCSI, and SD3 regression tests |
+| `TestOutput/pfd_alt_cpu_recover.py` | Pure-CPU proof of the exact PFD Alt selector and 113-fragment population |
+| `TestOutput/ff15_runtime_selector_proof.py` | Runtime-only FF15 selector/permutation proof |
+| `tools/diagnostics/thug2_cd3_recover.py` | Historical strict CD3 extraction for validation; not the decryptor |
+| `tools/diagnostics/safedisc_finalize_dump.py` | Historical partial-dump PE normalizer; not sufficient for a deliverable |
 | `tools/diagnostics/safedisc_string_decrypt.py` | Recovered SafeDisc string cipher |
-| `tools/diagnostics/safedisc_deobfuscate.py` | Junk-jump linearizer/call-site analysis |
+| `tools/diagnostics/safedisc_deobfuscate.py` | Junk-jump linearizer and call-site analysis |
 | `tools/diagnostics/iso9660_reader.py` | MODE1/2352 reader and ISO9660 walker |
 
-Keep these conclusions:
-
-- Do not use `--set-reg` or a patched verdict to make a deliverable. Success
-  paths populate later state and key slots; forced gates produce conditional
-  evidence at best.
-- `0xABADDADA` is only one of two `CKeyMngr::Input` feeders, not a standalone
-  file-local decrypt key.
-- SecServ `.text` was not wholesale decrypted at runtime; the observed changes
-  were CJumpRun jump patches.
-- `0x007E210F` is on the success route to the game OEP, not the failure branch.
-- The earlier proposed root extent `0x51D92` was not authentic. Matching retail
-  metadata proves root extent 24.
-
-`tools/diagnostics/` is gitignored, so new diagnostic files require
-`git add -f`. Preserve unrelated worktree changes, especially
+`tools/diagnostics/` and most `TestOutput/` diagnostics are gitignored, so new
+files require `git add -f` when they are intentionally committed. Preserve
+unrelated worktree changes, especially
 `src/NeversoftMultitool/App/Tabs/TextureTab.xaml`.

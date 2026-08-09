@@ -13,8 +13,9 @@ as produced by ``safedisc_emu.py --dump``.  No protected branch is patched and
 no key material is fabricated: every DLL, import name/ordinal, and thunk address
 comes from the recovered image itself.  Producing a loadable PE does not prove
 that every protected code/data region or import was restored.  In particular,
-the known THUG2 dump is a useful diagnostic but is materially incomplete; use
-``thug2_cd3_recover.py`` for the complete bundled same-build executable.
+the old THUG2 dump is a useful diagnostic but is materially incomplete; use
+``thug2_safedisc_decrypt.py`` for the complete protected-input reconstruction.
+``thug2_cd3_recover.py`` is retained as a separate validation/provenance path.
 """
 
 from __future__ import annotations
