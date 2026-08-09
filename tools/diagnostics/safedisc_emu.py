@@ -2248,14 +2248,21 @@ class SafeDiscEmulator:
         if virtual is None or original is None:
             return data
 
-        if lba == 16:
+        # AuthServ walks the complete volume-descriptor set and requires the
+        # Primary and Supplementary descriptors to report the same volume
+        # size.  The scene image has an ISO9660 PVD at 16 and a Joliet SVD at
+        # 17, so reconstruct the common size in both.  Only the PVD's root is
+        # relocated: its source extent is the one recorded by DiscImage.pvd()
+        # and used by the protected root-extent comparison.
+        if data[0] in (1, 2) and data[1:7] == b"CD001\x01":
             patched = bytearray(data)
             struct.pack_into("<I", patched, 80,
                              max(struct.unpack_from("<I", patched, 80)[0], virtual + 1))
             struct.pack_into(">I", patched, 84,
                              max(struct.unpack_from(">I", patched, 84)[0], virtual + 1))
-            struct.pack_into("<I", patched, 158, virtual)
-            struct.pack_into(">I", patched, 162, virtual)
+            if data[0] == 1:
+                struct.pack_into("<I", patched, 158, virtual)
+                struct.pack_into(">I", patched, 162, virtual)
             return bytes(patched)
 
         if lba == virtual:
