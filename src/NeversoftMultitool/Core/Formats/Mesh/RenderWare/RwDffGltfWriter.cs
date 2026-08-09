@@ -335,8 +335,8 @@ public static class RwDffGltfWriter
         }
 
         // UVs pass through unflipped: RW TXD PNGs decode top-down, matching glTF's V=0-at-top.
-        // Verified byte-faithful against raw DFF UV arrays (LOD 2/3 audit 2026-07-16,
-        // tools/diagnostics/rwdff_lod_uv_probe.py).
+        // Verified byte-faithful against raw DFF UV arrays in the LOD 2/3 audit
+        // (2026-07-16); RwDffFileTests pins the exact UV-to-vertex pairing.
         var uv = Vector2.Zero;
         if (geometry.UVs != null && index < geometry.UVs.Length)
             uv = geometry.UVs[index];

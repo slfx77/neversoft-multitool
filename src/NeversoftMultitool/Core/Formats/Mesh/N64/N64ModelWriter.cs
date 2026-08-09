@@ -554,8 +554,7 @@ internal sealed class N64MaterialCache(
     ///         port dropped the marker, so the N64 file can only say "this face
     ///         is an average blend". Which way to read that is settled by a
     ///         Rosetta over every THPS1 level pair, joining on the texture ids
-    ///         the ports reuse verbatim
-    ///         (<c>tools/diagnostics/n64_ps1_alpha_rosetta.py</c>):
+    ///         the ports reuse verbatim:
     ///         <list type="bullet">
     ///             <item>
     ///                 Rate 0 over art with NO alpha channel at all — 2,028

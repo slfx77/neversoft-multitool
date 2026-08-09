@@ -22,8 +22,6 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     nine PS1-era binaries (Apocalypse, THPS1 x2, THPS2 x2, Spider-Man x2,
 ///     SM2:EE x3 — Spider-Man final at 0x8007BFE4), so this is engine-wide
 ///     behaviour rather than a per-game quirk.
-///
-///     Scanner: <c>tools/diagnostics/psx_light_table_scan.py</c>.
 /// </summary>
 internal sealed record PsxEngineLight(
     Vector3[] Directions,

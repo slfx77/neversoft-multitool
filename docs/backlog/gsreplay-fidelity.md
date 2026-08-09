@@ -8,7 +8,7 @@ Created 2026-07-03. Distilled from the `memory/gsdump_*` topic files. **Re-verif
 
 **Primary sources:** `memory/gsdump_shadow_streaks_143551.md`, `memory/gsdump_overbrightness_not_green_tint.md`, `memory/gsdump_replay_pcrtc_handoff.md`, plus the `memory/gsdump_*` dead-end notes (read those first — they record what NOT to reattempt).
 
-**Tooling:** PCSX2 at `C:/Users/mmc99/Downloads/pcsx2-v2.3.218-...`; runbook `tools/diagnostics/thaw_pcsx2_runbook.md`; sweep `tools/diagnostics/sweep_compare.py`; baseline in `TestOutput/baseline` (mean MAE ~9.68 as of 2026-07-02).
+**Tooling:** PCSX2 at `<pcsx2>/pcsx2-qt.exe`; runbook `docs/runbooks/thaw-worldzone-pcsx2.md`; sweep `tools/validation/gsdump/sweep_compare.py`; baseline in `TestOutput/baseline` (mean MAE ~9.68 as of 2026-07-02).
 
 ---
 

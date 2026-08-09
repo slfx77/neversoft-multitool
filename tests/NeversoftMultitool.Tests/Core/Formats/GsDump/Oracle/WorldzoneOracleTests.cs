@@ -19,7 +19,7 @@ public sealed class WorldzoneOracleTests
     public void Classifier_AgreesWithEveryObservedBlendState()
     {
         Assert.SkipWhen(!GsOracleGoldenData.HasGoldens,
-            "GS-oracle goldens absent — regenerate with tools/diagnostics/build_gsoracle.ps1.");
+            "GS-oracle goldens absent — regenerate with tools/validation/gsdump/build_gsoracle.ps1.");
 
         var failures = new List<string>();
         foreach (var (tag, report) in GsOracleGoldenData.LoadOracleReports())

@@ -75,8 +75,7 @@ public sealed class Ps2GeomVifVertexDecoderTests
     [Fact]
     public void ExtractBillboardFromVif_AxisAligned_ReturnsLongAxisDescriptor()
     {
-        // Mirrors the 145 axis-Y-aligned Format-B leaves found in z_sm by
-        // tools/diagnostics/thaw_billboard_classify.py.
+        // Mirrors all 145 axis-Y-aligned Format-B leaves found in the z_sm corpus audit.
         var data = BuildBillboardStream(
             new Vector3(10f, 20f, 30f),
             new Vector2(4f, 6f),

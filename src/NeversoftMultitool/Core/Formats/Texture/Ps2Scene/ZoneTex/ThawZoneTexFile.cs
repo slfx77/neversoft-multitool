@@ -8,7 +8,7 @@ namespace NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 ///     Public decode paths prefer the prepared source-slot path seen in the decompiled runtime
 ///     and fall back to upload-snapshot GS VRAM decode when source-slot decode cannot resolve
 ///     an entry.
-///     Format documented in tools/ghidra/thaw-ps2/output/zone_tex_format.md.
+///     Format documented in docs/formats/thaw-zone-texture.md.
 /// </summary>
 public static class ThawZoneTexFile
 {
@@ -297,8 +297,8 @@ public static class ThawZoneTexFile
         //   2. fileLength - maxEnd onwards: Prepared CPU-side source data (already linear)
         //
         // The runtime FUN_0019cd48 decodes from section (2) via the +0x14/+0x18 pointers
-        // (see zone_tex_format.md Phase 6+). Reading from section (2) gives decoded textures
-        // directly without needing to replay the DMA chain.
+        // (see docs/formats/thaw-zone-texture.md, Phase 6+). Reading from section (2)
+        // gives decoded textures directly without needing to replay the DMA chain.
         //
         // We use section (2) here, computed via the legacy heuristic. Cross-verified that
         // record 317 (A20AA4CB) decodes correctly to a smooth round shape from this location.

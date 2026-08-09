@@ -28,7 +28,7 @@ public sealed class PsxFace
     ///     (average), 1 = Back + Front (additive), 2 = Back − Front
     ///     (subtractive), 3 = Back + 0.25×Front. For opaque faces bit 7 is
     ///     the loader's draw-enable toggle instead, so the rate reads 0.
-    ///     Corpus survey (tools/diagnostics/psx_abr_survey.py): 62.5% of
+    ///     Corpus survey: 62.5% of
     ///     semi-transparent faces are rate 0, 24.7% rate 1, 10.1% rate 2,
     ///     2.7% rate 3.
     /// </summary>

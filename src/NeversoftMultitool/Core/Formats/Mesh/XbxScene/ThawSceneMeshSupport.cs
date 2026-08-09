@@ -27,8 +27,8 @@ internal static class ThawSceneMeshSupport
         var passChecksums = ReadUInt32Array(r, ThawSceneFile.MaxPasses);
         var passColors = new Vector3[ThawSceneFile.MaxPasses];
         // The 4th colour component mirrors the engine's m_color[pass][3]
-        // (= fixed_alpha/128 in THUG material.cpp:671) — captured for the
-        // FixedAlpha investigation (XbxPass.ColorW, tools/XbxPassSurvey).
+        // (= fixed_alpha/128 in THUG material.cpp:671). Preserve it as
+        // XbxPass.ColorW so *_FIXED blend decoding can compare both sources.
         var passColorWs = new float[ThawSceneFile.MaxPasses];
         for (var i = 0; i < ThawSceneFile.MaxPasses; i++)
         {

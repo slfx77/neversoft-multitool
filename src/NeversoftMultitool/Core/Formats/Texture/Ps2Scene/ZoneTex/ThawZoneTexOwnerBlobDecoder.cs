@@ -16,7 +16,8 @@ namespace NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 ///         </code>
 ///     followed immediately by primary_count * 0x50 bytes of primaries, then
 ///     secondary_count * 0x40 bytes of secondaries (texture records).
-///     2. Each secondary (0x40 bytes) at the standard layout described in zone_tex_format.md.
+///     2. Each secondary (0x40 bytes) uses the standard layout described in
+///     docs/formats/thaw-zone-texture.md.
 ///     FUN_001e9ac0 relocates fields per record:
 ///     <code>
 ///         relocated cumul_off    = header_base + record.cumul_off    + base_b

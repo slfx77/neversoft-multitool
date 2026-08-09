@@ -7,8 +7,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 ///     Parser for THAW-generation .ske skeletons — little-endian on PS2/PC
 ///     (bare .ske inside paks) and big-endian on GameCube (.ske.ngc). The two
 ///     are field-for-field endian mirrors; layout established via PS2↔GC
-///     Rosetta pairs and validated structurally on all 330 pairs
-///     (tools/diagnostics/thaw_ske_probe.py):
+///     Rosetta pairs and validated structurally on all 330 pairs:
 ///     <code>
 ///     0x00  u16 version = 1, u16 headerSize = 0x30
 ///     0x04  u32 numBones

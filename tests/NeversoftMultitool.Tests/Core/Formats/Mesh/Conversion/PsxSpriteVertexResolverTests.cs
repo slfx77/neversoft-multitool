@@ -8,8 +8,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 ///     PSX sprite vertices (type bit4) store anchor/axis-mate byte offsets and
 ///     a signed half-width instead of a position; the resolver bakes the
 ///     engine's axial-billboard expansion (corner = A + k·Z·L̂, k = 1.6 for
-///     vertical axes) into static glTF positions. Corpus census:
-///     tools/diagnostics/psx_sprite_vertex_census.py.
+///     vertical axes) into static glTF positions. These tests pin the formula
+///     derived from the corpus census.
 /// </summary>
 public sealed class PsxSpriteVertexResolverTests(TestPaths paths)
 {

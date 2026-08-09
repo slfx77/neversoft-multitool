@@ -127,7 +127,7 @@ internal static class Ps2GeomVifVertexDecoder
         var pvl = new Vector3(pvlX, pvlY, pvlZ);
         var axis = new Vector3(axisX, axisY, axisZ);
 
-        // P1 diagnostic on z_sm (tools/diagnostics/thaw_billboard_classify.py) found 145/145
+        // The z_sm corpus audit found 145/145 Format-B leaves
         // axis-aligned with axis = (0, 1, 0) — every Format-B leaf in the corpus rotates around
         // world Y. The screen-aligned case isn't observed but the kind is preserved so a future
         // dataset that uses it can be handled without a decoder change.

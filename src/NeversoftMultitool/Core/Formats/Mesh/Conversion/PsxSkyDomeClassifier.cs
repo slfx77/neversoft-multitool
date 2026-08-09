@@ -17,7 +17,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     is dead data the engine never reads (sksf parks its dome 6,350 units
 ///     below the level). Classification therefore joins the TRG's
 ///     BackgroundCreate checksums against the bank's mesh name hashes
-///     (298/302 corpus commands join; tools/diagnostics/psx_sky_background_survey.py),
+///     (298/302 corpus commands join),
 ///     with the older geometric heuristic kept only as a fallback for
 ///     TRG-less oddballs. TRG command 0xCA (<c>SetSkyColor</c>) supplies the
 ///     flat backdrop colour drawn behind the sky model.

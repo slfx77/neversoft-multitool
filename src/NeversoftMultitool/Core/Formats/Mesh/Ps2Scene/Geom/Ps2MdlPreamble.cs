@@ -298,7 +298,7 @@ public static class Ps2MdlPreamble
     ///     Per-class record stored in the MDL preamble at a 0x50-byte stride. Signature
     ///     0x4B189680 sits at record+0x18. The 4-floats at +0x20..+0x2C form a unit quaternion
     ///     multiplied by a scalar magnitude; normalizing yields the object's rotation.
-    ///     Full format reference: tools/ghidra/thaw-ps2/output/phase400_91e1028d_full_layout.md
+    ///     Full format reference: docs/formats/thaw-worldzone-record-layout.md
     /// </summary>
     public sealed record PreambleRecord
     {

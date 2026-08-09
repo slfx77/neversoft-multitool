@@ -17,8 +17,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     @0x80099728, handler 0x8009950C, byte-identical in all nine PS1-era
 ///     exes). This bake evaluates that formula head-on (view direction glTF
 ///     +Z) so the exported quad has its authored width instead of the
-///     degenerate sliver the raw fields produced; corpus census:
-///     tools/diagnostics/psx_sprite_vertex_census.py (5,241 sprite meshes /
+///     degenerate sliver the raw fields produced; the corpus census found 5,241 sprite meshes /
 ///     117 files, all axes Y-dominant, all anchors on the mesh-local Y axis).
 /// </summary>
 internal sealed class PsxSpriteVertexResolver

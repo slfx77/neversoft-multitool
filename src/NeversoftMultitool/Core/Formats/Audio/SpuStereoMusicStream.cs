@@ -12,7 +12,7 @@ namespace NeversoftMultitool.Core.Formats.Audio;
 ///     STREAM_PITCH = 22050 Hz (pcm_com.c:19) — the existing headerless default.
 ///     Empirically confirmed: channel-envelope correlation spikes to 0.86-0.96
 ///     at 0x18000 on THPS3/THPS4/THUG music vs ~0.1 at every other chunk size
-///     (tools/diagnostics/vag_stereo_interleave_probe.py).
+///     in the corpus comparison.
 /// </summary>
 public static class SpuStereoMusicStream
 {

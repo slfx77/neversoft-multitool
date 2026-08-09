@@ -31,21 +31,21 @@ Date: 2026-04-21
 - Translation defaults to anchored additive:
   `bindT + (skaT - firstSkaT)`.
 - HAnim ID/index ordering is reported for THPS3 `--skn` exports.
-- `tools/diagnostics/thps3_variant_sweep.py` exports GLBs, renders GIFs, and
+- `tools/research/thps3-animation/thps3_variant_sweep.py` exports GLBs, renders GIFs, and
   builds labeled contact sheets from sampled GIF frames.
-- `tools/diagnostics/thps3_matrix_dump.py` dumps a 29-bone matrix palette from
+- `tools/research/thps3-animation/thps3_matrix_dump.py` dumps a 29-bone matrix palette from
   PCSX2 PINE or a `.p2s` savestate once the EE buffer address is known.
-- `tools/diagnostics/thps3_matrix_compare.py` scores runtime matrix dumps
+- `tools/research/thps3-animation/thps3_matrix_compare.py` scores runtime matrix dumps
   against every diagnostic GLB in the sweep, including local/model/skin and
   transpose conventions.
-- `tools/diagnostics/thps3_pose_scan.py` scans PCSX2 savestates for candidate
+- `tools/research/thps3-animation/thps3_pose_scan.py` scans PCSX2 savestates for candidate
   29-bone THPS3 runtime pose structs when debugger register capture is noisy.
-- `tools/diagnostics/thps3_pose_compare.py` scores scanned/dumped Q/T poses
+- `tools/research/thps3-animation/thps3_pose_compare.py` scores scanned/dumped Q/T poses
   against diagnostic GLBs.
-- `tools/diagnostics/thps3_ska_runtime_compare.py` compares runtime Q/T pose
+- `tools/research/thps3-animation/thps3_ska_runtime_compare.py` compares runtime Q/T pose
   buffers directly against SKA parser decode variants (`xyzw`/`wxyz`,
   raw/conjugated, first/last duplicate policy).
-- `tools/diagnostics/thps3_runtime_qblob_dump.py` reconstructs the game's
+- `tools/research/thps3-animation/thps3_runtime_qblob_dump.py` reconstructs the game's
   loaded 20-byte Q-key blob from a savestate and maps each runtime record back
   to the serialized 24-byte SKA Q record.
 - Focused tests cover rotation modes, anchored/raw translation, HAnim mapping
@@ -56,7 +56,7 @@ Date: 2026-04-21
 Command:
 
 ```powershell
-python tools\diagnostics\thps3_variant_sweep.py `
+python tools\research\thps3-animation\thps3_variant_sweep.py `
   --out TestOutput\thps3_qschedule_variant_sweep `
   --size 512 --fps 15 --columns 8 --thumb-size 192
 ```
@@ -67,7 +67,7 @@ python tools\diagnostics\thps3_variant_sweep.py `
 ```powershell
 src\NeversoftMultitool\bin\Debug\net10.0\NeversoftMultitool.exe ska ...
 src\NeversoftMultitool\bin\Debug\net10.0\NeversoftMultitool.exe glb-gif ...
-python tools\diagnostics\thps3_variant_sweep.py `
+python tools\research\thps3-animation\thps3_variant_sweep.py `
   --out TestOutput\thps3_qschedule_variant_sweep --contact-only `
   --columns 8 --thumb-size 192
 ```
@@ -104,17 +104,18 @@ controls until final matrix evidence proves otherwise.
 
 ## Runtime Pose Evidence
 
-Savestate:
+Savestate fixture (user-supplied and not committed): `thp3_debug.p2s`.
+Set its path once for the commands below:
 
-```text
-C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s
+```powershell
+$savestate = "<path-to-savestate>\thp3_debug.p2s"
 ```
 
 Scan command:
 
 ```powershell
-python tools\diagnostics\thps3_pose_scan.py `
-  "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
+python tools\research\thps3-animation\thps3_pose_scan.py `
+  $savestate `
   --top 20 `
   --animation skater_m_Idle --time 0.0 `
   --out TestOutput\thps3_runtime_matrices\pose_scan_candidates.json `
@@ -139,25 +140,25 @@ parser-level Q-track fix below.
 Additional parser-level checks:
 
 ```powershell
-python tools\diagnostics\thps3_pose_dump.py `
-  --savestate "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
+python tools\research\thps3-animation\thps3_pose_dump.py `
+  --savestate $savestate `
   --pose-addr 0x00B404C0 --slot output `
   --animation skater_m_Idle `
   --out TestOutput\thps3_runtime_matrices\debug_output_pose.json
 
-python tools\diagnostics\thps3_pose_dump.py `
-  --savestate "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
+python tools\research\thps3-animation\thps3_pose_dump.py `
+  --savestate $savestate `
   --pose-addr 0x00B404C0 --slot source-a `
   --animation skater_m_Idle `
   --out TestOutput\thps3_runtime_matrices\debug_source_a_pose.json
 
-python tools\diagnostics\thps3_pose_dump.py `
-  --savestate "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
+python tools\research\thps3-animation\thps3_pose_dump.py `
+  --savestate $savestate `
   --pose-addr 0x00B404C0 --slot source-b `
   --animation skater_m_Idle `
   --out TestOutput\thps3_runtime_matrices\debug_source_b_pose.json
 
-python tools\diagnostics\thps3_ska_runtime_compare.py `
+python tools\research\thps3-animation\thps3_ska_runtime_compare.py `
   --ska tests\TestData\Thps3\Ska\skater_m_Idle.ska `
   --pose TestOutput\thps3_runtime_matrices\debug_output_pose.json `
   --pose TestOutput\thps3_runtime_matrices\debug_source_a_pose.json `
@@ -179,7 +180,7 @@ Results before the Q-track parser fix:
 Results after the Q-track parser fix:
 
 ```powershell
-python tools\diagnostics\thps3_ska_runtime_compare.py `
+python tools\research\thps3-animation\thps3_ska_runtime_compare.py `
   --ska tests\TestData\Thps3\Ska\skater_m_Idle.ska `
   --pose TestOutput\thps3_runtime_matrices\debug_output_pose.json `
   --pose TestOutput\thps3_runtime_matrices\debug_source_a_pose.json `
@@ -196,8 +197,8 @@ python tools\diagnostics\thps3_ska_runtime_compare.py `
 Critical Q-track finding:
 
 ```powershell
-python tools\diagnostics\thps3_runtime_qblob_dump.py `
-  --savestate "C:\Users\mmc99\Desktop\Games\Emulation\PS2\pcsx2-v1.7.5558-windows-x64-Qt\thp3_debug.p2s" `
+python tools\research\thps3-animation\thps3_runtime_qblob_dump.py `
+  --savestate $savestate `
   --ska tests\TestData\Thps3\Ska\skater_m_Idle.ska `
   --out TestOutput\thps3_runtime_matrices\debug_runtime_qblob.json
 ```
@@ -222,20 +223,16 @@ root. `SkaThps3Parser.ParseThps3` now implements this rule.
 
 Matrix-palette scan:
 
-- `tools/diagnostics/thps3_matrix_palette_scan.py` was run against
-  `thp3_debug.p2s` and `C:\Users\mmc99\Desktop\thps3\1.p2s`.
+- `tools/research/thps3-animation/thps3_matrix_palette_scan.py` was run against
+  `thp3_debug.p2s` and the additional user-supplied `1.p2s` capture.
 - No credible simple contiguous 29-matrix EE palette was found in the tested
   `mat4`, `mat3x4`, and `mat4x3` layouts. Best hits had only one anchor and
   RMSE around `2.77`, so the final palette is either elsewhere, transformed
   differently, or not stored as a simple contiguous float array in the tested
   windows.
 
-Additional standing-idle savestates:
-
-- `C:\Users\mmc99\Desktop\thps3\1.p2s`
-- `C:\Users\mmc99\Desktop\thps3\2.p2s`
-- `C:\Users\mmc99\Desktop\thps3\3.p2s`
-- `C:\Users\mmc99\Desktop\thps3\4.p2s`
+Additional standing-idle savestates: `1.p2s`, `2.p2s`, `3.p2s`, and `4.p2s`,
+all supplied from the same external capture directory.
 
 All four scan to the same best pose addresses:
 

@@ -102,8 +102,8 @@ internal static class PsxGeometryHelpers
     ///     variant via M3dAsm_GetDynamicLighting (thps2-psx-proto M3D.cpp
     ///     ~1041). Characters are typically mixed (venom 394/414 lit, docock
     ///     371/539), so the unlit remainder keeps its authored colours —
-    ///     census: tools/PsxAnalyzer lit-census (levels/pickups carry ZERO lit
-    ///     faces). Lit faces also export WITHOUT the PS1 packet colour so the
+    ///     the completed corpus census found ZERO lit faces in levels/pickups.
+    ///     Lit faces also export WITHOUT the PS1 packet colour so the
     ///     viewer's PS1-fidelity path falls back to normals-lit shading — the
     ///     in-game pad's darker thumbsticks/bumpers are runtime lighting, and
     ///     the unlit-packet path rendered them uniformly flat.

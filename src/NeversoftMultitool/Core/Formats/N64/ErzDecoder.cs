@@ -7,9 +7,9 @@ namespace NeversoftMultitool.Core.Formats.N64;
 ///     N64). No public RE of this format exists; this is a mechanical
 ///     transcription of the version-2 decompressor in the ROMs' boot segment
 ///     (THPS2 core at RAM 0x80000CF8, located by its <c>lui 0x4552</c>
-///     magic-check dispatch), validated byte-for-byte against
-///     <c>tools/diagnostics/erz_emu_decode.py</c>, which executes the original
-///     MIPS code under emulation.
+///     magic-check dispatch), validated byte-for-byte against emulated
+///     execution of the original MIPS code. The resulting golden hashes are
+///     pinned by <c>ErzDecoderTests</c>.
 ///
 ///     Block layout (big-endian): <c>"ERZ"</c> + version byte, u16 0x0001,
 ///     u16 0, u32 decompressedSize, u32 compressedSize, 6 opaque bytes the

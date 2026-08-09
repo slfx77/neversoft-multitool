@@ -10,8 +10,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     Resolves world placements for the model bank stored by <c>*_o.psx</c>.
 ///     The bank's object table is itself a placed layer: its stored positions
 ///     are authored world instances (the same convention DDM level assembly
-///     reads from PSX layout entries), verified corpus-wide by
-///     <c>tools/diagnostics/psx_level_object_survey.py</c> — TRG
+///     reads from PSX layout entries), verified corpus-wide: TRG
 ///     <c>V_MODEL_CHECKSUM</c> nodes reference only a fraction of every bank
 ///     (final l2a2: 4 of 63; several levels: zero), and where a platform node
 ///     references a model at its home position the node's coordinates coincide

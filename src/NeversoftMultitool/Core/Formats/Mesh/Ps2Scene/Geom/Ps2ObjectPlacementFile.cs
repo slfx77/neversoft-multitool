@@ -8,7 +8,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 ///     Each file holds a chain of blocks, where each block encodes one placed object as a pair of
 ///     items (render-side + scene-side). Item 0's bbox fields give the world-space AABB; its
 ///     +0x44 field is a byte offset into the preceding .mdl's preamble record table.
-///     Full format reference: tools/ghidra/thaw-ps2/output/phase400_91e1028d_full_layout.md
+///     Full format reference: docs/formats/thaw-worldzone-record-layout.md
 /// </summary>
 public static class Ps2ObjectPlacementFile
 {
@@ -103,7 +103,7 @@ public static class Ps2ObjectPlacementFile
     {
         var span = data.AsSpan(offset);
 
-        // PS2 interleaved AABB layout (per phase400_91e1028d_full_layout.md):
+        // PS2 interleaved AABB layout (per docs/formats/thaw-worldzone-record-layout.md):
         //   +0x20 min_x, +0x24 min_y, +0x28 max_z
         //   +0x2C max_x, +0x30 max_y, +0x34 min_z
         var minX = BinaryPrimitives.ReadSingleLittleEndian(span[0x20..]);

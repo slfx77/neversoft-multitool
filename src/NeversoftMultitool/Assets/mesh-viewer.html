@@ -1228,8 +1228,8 @@ if (psxFlags.z < 0.5) {
       // position plus a per-frame axis-angle quaternion reproduces the
       // engine's behavior. Multi-primitive sprite meshes load as a Group
       // carrying the extras; rotating the group rotates all quads about the
-      // shared axis line (corpus-verified: every sprite anchor sits on the
-      // mesh-local Y axis, psx_sprite_vertex_census.py).
+      // shared axis line (the 5,241-mesh corpus census found every sprite
+      // anchor on the mesh-local Y axis).
       root.traverse(obj => {
         if (!obj.userData || obj.userData.neversoftAxialBillboard !== true) return;
         const axisArr = obj.userData.neversoftBillboardAxis;

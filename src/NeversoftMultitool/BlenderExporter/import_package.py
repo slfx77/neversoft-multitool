@@ -1588,8 +1588,8 @@ def _apply_axial_billboard_constraint(obj, mesh, billboard_meta):
     and keep just translation+scale on the object. Post-bake, the corpus'
     universally model-Y-vertical axis is object-local Z and the quad's face
     normal is -Y, so lock_axis='LOCK_Z' + track_axis='TRACK_NEGATIVE_Y'.
-    Corpus-wide every sprite anchor sits on the mesh-local Y axis
-    (psx_sprite_vertex_census.py), so the rotation pivot (the object origin)
+    The 5,241-mesh corpus census found every sprite anchor on the mesh-local Y axis,
+    so the rotation pivot (the object origin)
     is always on the anchor line."""
     axis = billboard_meta.get("axis") or [0.0, 1.0, 0.0]
     loc, rot, scale = obj.matrix_world.decompose()

@@ -40,7 +40,7 @@ new format). NxTools' P8/THPG `.col` "gap" was likewise struck: the format is al
   Rosetta-validated: pigeon exact vs PC (46 verts/45 tris both), ped_baller UVs+normals vs PS2 decode.
   **Sweep: 722/722 files, 427,343 triangles, 0 failures, 0 glTF validator errors**; textured renders
   verified (ped_baller Lakers jersey, pigeon alpha-cut wings, board_default griptape+trucks).
-  Diagnostics: `tools/diagnostics/ngc_scene_probe.py` (structural walk + OBJ dump of any .ngc scene).
+  The shipped parser and its corpus coverage are pinned by `NgcSceneFileTests`.
 - 🔴 **Collision** (`.col.ngc` 722): layout fully mapped 2026-07-07 but **GC col files ship WITHOUT
   vertex positions** (vertex+intensity region 0xFF-wiped on disc; faces/BSP intact; engine rebuilds
   positions at runtime). Now that render meshes decode, a reconstruction pass matching col faces to
@@ -59,20 +59,20 @@ new format). NxTools' P8/THPG `.col` "gap" was likewise struck: the format is al
   position** (Queen-Bee `HeaderStart + FileOffset`); the 2026-07-09 "hoisted tiling" model was a
   near-equivalent approximation, and the original absolute-offset reads silently garbled every
   multi-entry LE pak. Signature-validated 2026-07-10: PS2 12,120 + PC 12,756 + GC 14,325 payload
-  hits, 0 mismatches (`tools/diagnostics/pak_offset_check.py`). 48 `*_sfx.pak.ngc` = raw audio
+  hits, 0 mismatches; `PakArchiveTests` pins the offset rules. 48 `*_sfx.pak.ngc` = raw audio
   blobs (skipped). Routed: `archive` CLI, `unpack`, GUI Archive Extractor.
   ⚠️ **Sample/Builds pak-extracted subtrees predate the offset fix** — payloads extracted from
   multi-entry paks (qb.pak, cutscene mains, cas paks, worldzone paks) are byte-garbled on disk
-  and need regeneration via `tools/SampleGenerator`.
+  and need regeneration via `tools/corpus/SampleGenerator`.
 - ✅ **THAW QB decoding — shipped 2026-07-10 for ALL THREE platforms** (`.qb.ps2`/`.qb.wpc`/
   `.qb.ngc` + `.sqb.*`): THAW uses the sectioned QB format (Guitar Hero family, Queen-Bee
   reference at `Sample/queen-bee`), NOT the raw THPS3-THUG2 token stream and NOT "BE tokens with
   a size prefix" as previously guessed. `QbSectionParser` (auto endian + old/new info-encoding
   detection, LZSS scripts, THAW tokens 0x47-0x4A, inline-script struct items) synthesizes classic
   token streams for the existing decompiler. Sweep: 11,909/11,909 files, 49,755 scripts, 0
-  failures. **Name resolution 97.1% PS2 / 99.2% PC / 89.1% GC** via 137,054 pairs harvested from
-  the shipped `dbg.pak` debug archives (`QbKeyNames.ThawDbg.txt`,
-  `tools/utilities/harvest_thaw_dbg_names.py`).
+  failures. **Name resolution 97.1% PS2 / 99.2% PC / 89.1% GC** via 137,054 re-hash-validated
+  pairs recovered from the shipped `dbg.pak` debug archives and embedded as
+  `QbKeyNames.ThawDbg.txt`.
 - ✅ **THAW animation family — shipped 2026-07-10 for ALL THREE platforms** (`.ske` + `.ske.ngc`,
   `.ska` + `.ska.ngc`): the GC files are field-for-field endian mirrors of the PS2/PC ones, and
   NO platform parsed them before (the old "BE payload" framing was wrong twice over). THAW SKE
@@ -85,8 +85,8 @@ new format). NxTools' P8/THPG `.col` "gap" was likewise struck: the format is al
   raw LE even on GC. **The rumored cutscene `.ska` "descriptor block with embedded cam pak path"
   does NOT exist** — that data is `<name>_cam_pak_info.qb.ngc`, a sectioned QB string array the
   QB parser already handles. Camera masters export as named node-TRS GLB rigs via `ska`.
-  Diagnostics: `thaw_anim_pairs.py`, `thaw_ske_probe.py`, `thaw_ska_probe.py`,
-  `ska_version_census.py`. Remaining niceties: bit28 custom-key event decode (35 files carry
+  Durable coverage: `ThawSkeletonFileTests`, `ThawSkaFileTests`, and the cross-game animation
+  corpus tests. Remaining niceties: bit28 custom-key event decode (35 files carry
   them; skipped, Q/T unaffected), glTF camera node with FOV for cam rigs, THAW skin+anim
   combined export (needs QbKey-based track binding through CAS rigs).
 
@@ -139,14 +139,14 @@ new format). NxTools' P8/THPG `.col` "gap" was likewise struck: the format is al
 - Shipped 2026-07-23 instead: `PsxItemsBankSubstitution` — bank meshes sharing a name hash with an
   items model render from the items copy (fixes the l1a1 "?" to its vivid staggered-blue pulse).
 - **Table PINNED 2026-07-23** by disassembling the `CPowerUp` ctor's `switch(mType-8)` in both PSX
-  binaries (capstone via the THPS2 decomp's `tools/dis_crossgame.py`; ctor found by xref'ing the
+  binaries (Capstone via `dis_crossgame.py` in the external THPS2 decomp project; ctor found by xref'ing the
   `"items"` string + the 1.0-confidence `Spool_GetModel` anchor). The ctor stores its type arg to
   `mType` (0x38 proto / 0x34 final) then loads an items.psx mesh-name hash per case →
   `Spool_GetModel(hash, ItemsRegion)`. `Trig_CreateObject` passes the TRG node's `pickupType`
   straight in, so **TRG pickupType == ctor mType** (verified: census values map to sensible models
-  — 8=web cartridge matches the user's screenshot, 11=the "?"). Re-verified on every run by
-  `tools/diagnostics/spiderman_pickup_table_probe.py` (reads the jump tables live from the EXEs +
-  resolves hashes against items.psx + censuses the TRGs). **No per-type scale** — the ctor's
+  — 8=web cartridge matches the user's screenshot, 11=the "?"). The tables were read directly
+  from each shipped executable, resolved against items.psx, and cross-checked against the TRG corpus.
+  **No per-type scale** — the ctor's
   0xDE/0xD8/0xD0 stores are spin/counter fields, not mScale; the spidey-decomp `Spidey_CIcon` ×0.5
   is a DIFFERENT class (the HUD nav icon), not the type-11 CPowerUp "?".
   - proto ctor @0x800349CC, jumptable @0x800B03A4 (mType 8..16):
@@ -174,8 +174,8 @@ new format). NxTools' P8/THPG `.col` "gap" was likewise struck: the format is al
   `ParsePowerup` now skips the node's link list before reading position (`ReadLinks`), which the old
   "read link COUNT only" code botched — POWERUP nodes with links (the "?" markers, 4-5 links each)
   had million-unit garbage coordinates. Grounded-flag terrain snap remains out of scope (authored Y).
-  Diagnostics: `spiderman_pickup_table_probe.py`. Tests: `PsxPowerupPlacementResolverTests`,
-  `PsxItemsBankSubstitutionTests`, `TrgFileTests.Parse_SpiderManPowerupWithLinks_*`.
+  Durable coverage: `PsxPowerupPlacementResolverTests`, `PsxItemsBankSubstitutionTests`,
+  `TrgFileTests.Parse_SpiderManPowerupWithLinks_*`.
 - **Generalized to the PS1 lineage 2026-07-24** (`MeshCompanionResolver.TryResolvePsxLevelCompanions`):
   THPS1/THPS2 get the FULL bank + PLATFORM-overlay + POWERUP stack. THPS pickup table transcribed
   verbatim from the **matched THPS2 decomp** `POWERUP.cpp` `CPowerUp::CPowerUp` (`switch(mType)`,
@@ -186,8 +186,8 @@ new format). NxTools' P8/THPG `.col` "gap" was likewise struck: the format is al
   added to Sample/Builds (9-mesh items = final table). See memory `psx_crossgame_level_objects.md`.
 - **Apocalypse SHIPPED 2026-07-24** (full parity): the pickup table was reverse-engineered from
   `apocalypse_final.exe` (SLUS_003.73, no SYM) by **signature-matching against the THPS2 decomp** —
-  located the "items" string + the items.psx hash-load cluster (`tools/diagnostics/psx_hash_load_scan.py`
-  @0x8001fec0), read the `CPowerUp` ctor jump table @0x800A11EC (keyed by mType-1), and cross-checked
+  located the "items" string + the items.psx hash-load cluster at 0x8001FEC0, read the `CPowerUp`
+  ctor jump table @0x800A11EC (keyed by mType-1), and cross-checked
   against the TRG POWERUP census (types 4/5/6/10/14/15/16 = 176/281 nodes; 14/15/16 are three spin
   variants of the shared grey-gear 0x7E74F3D4; 17=plus_one region, non-items). TRG pickupType == mType,
   no per-type scale, node scale div 2.25 verified in-bounds. POWERUP + PLATFORM overlay both enabled
@@ -215,7 +215,7 @@ new format). NxTools' P8/THPG `.col` "gap" was likewise struck: the format is al
 
 ## Census 2026-07-10 — newly surfaced items + working priorities
 
-Full-corpus extension census (`tools/diagnostics/corpus_extension_census.py`). **User-set priority
+Full-corpus extension census (`tools/validation/support/corpus_extension_census.py`). **User-set priority
 order: 1) hashes → 2) archives/containers → 3) image formats → 4) mesh formats → 5) animation
 formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
 
@@ -223,11 +223,11 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
   is now in `PakArchive.KnownTypes` (~35 added, incl. bruted `0x689028A5=.pimg`,
   `0x6290993B=.mcol`, and `0x52D95838=QbKey("unknown")` — the pak builder's fallback type for
   unclassified files; a RIFF sniff in `ExtractFiles` renames those to `.wav` when the payload is
-  a WAV). Filename-hash recovery shipped alongside: `QbKeyNames.ThpgDbg.txt` (55,530 pairs from
-  THPG's dbg/dbgq paks, `tools/utilities/harvest_thaw_dbg_names.py`) + `QbKeyNames.ThawGcPaks.txt`
-  (715 GC entry names proven via QB-string harvest, `tools/utilities/harvest_gc_pak_names.py`;
-  GC key rule = QbKey of the lowercased full path minus the last extension). Coverage
-  (`tools/diagnostics/pak_name_coverage.py`): 53.9% → **57.2%** named (65,878/115,205); GC
+  a WAV). Filename-hash recovery shipped alongside: `QbKeyNames.ThpgDbg.txt` (55,530
+  re-hash-validated pairs from THPG's dbg/dbgq paks) + `QbKeyNames.ThawGcPaks.txt` (715 GC entry
+  names proven by matching QB strings against archive key hashes; GC key rule = QbKey of the
+  lowercased full path minus the last extension). The coverage audit found
+  53.9% → **57.2%** named (65,878/115,205); GC
   unresolved 12,864 → 9,104. Hard limits: 40,223 LE entries are keyless (no key stored — offset
   names are all there is), and the remaining ~9k GC keys hash vocabulary that ships in no
   wordlist (gameplay-anim/CAS-part names in the skaterparts/anims apks: .ska 2,582, .img 1,970,
@@ -282,7 +282,7 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
   reason and is pinned by `ThugPcSndSurveyTests`.
   - **Oracle in hand**: 350 basenames ship as both `.snd` (PC) and `.pcm` (Xbox) — the same source
     audio in two encodes — and the `.pcm` side now decodes bit-exactly. Harness:
-    `tools/diagnostics/snd_codec_fit.py` (median windowed NCC over pairs; acceptance ≥ 0.97 over
+    `tools/research/snd-codec/snd_codec_fit.py` (median windowed NCC over pairs; acceptance ≥ 0.97 over
     ≥ 100 pairs).
   - **Best current finding**: correlating the **first differences** gives a uniform **0.84–0.87**
     across every file, while the raw waveform ranges 0.26–0.99 purely by content (0.99 on
@@ -357,7 +357,7 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
 
 ## By design / won't-fix ⚪
 
-- ⚪ **PSX texture-name → string resolution.** The PSX "texture name" array stores build-tool-assigned identifiers (e.g. `0x0000001E`), used as `TextureChecksumHashTable` keys — **not** CRC-32 name hashes and not pixel checksums (`CLAUDE.md` → QBKey section; `tools/ghidra/thps2-psx-proto/output/psx_decompiled.c`). GHIDRA string extraction found 0 texture matches across 15 executables. Name resolution is not applicable to textures; don't chase it. (Mesh hashes are resolved — 81.9%.)
+- ⚪ **PSX texture-name → string resolution.** The PSX "texture name" array stores build-tool-assigned identifiers (e.g. `0x0000001E`), used as `TextureChecksumHashTable` keys — **not** CRC-32 name hashes and not pixel checksums. Engine analysis plus string extraction across 15 executables found 0 texture-name matches. Name resolution is not applicable to textures; don't chase it. (Mesh hashes are resolved — 81.9%.)
 - ⚪ **VID (THAW GameCube movie) full decode via external APIs** — the container is documented; frame decode historically depended on external decoder APIs. VID1 now ships (see Done); no further deferral needed.
 - ⚪ **`.bik` (Bink Video)** in THPG/P8 — proprietary RAD codec, out of scope.
 - ⚪ **BIN / SCC / PRK** — MIPS code overlays, VSS version files, park saves. Not game asset data (`CLAUDE.md` → *Not Game Formats*).
@@ -377,17 +377,17 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
   LZ bitstream from +12 (literals visible: "sk2de…"). THPS1 ships ERZ v1; THPS2/THPS3/Spider-Man
   ERZ v2. Census: thps1 1,124 / thps2 1,158 / thps3 1,121 / spidey 1,584 blocks — the ENTIRE
   asset corpus is ERZ-wrapped.
-- **ERZ v2 DECODES (2026-08-05)**: `tools/diagnostics/erz_emu_decode.py` runs the ROM's own
-  boot-segment decompressor (located via its `lui 0x4552` magic-check signature; THPS2 core at
+- **ERZ v2 DECODES (2026-08-05)**: emulated execution of the ROM's own boot-segment decompressor
+  (located via its `lui 0x4552` magic-check signature; THPS2 core at
   RAM 0x80000CF8) in a minimal MIPS-BE interpreter — bit-exact by construction. Header confirmed
   from the code: `+4 u32 BE decompressedSize` (0x10000 blocks), `+8 u32 BE compressedSize`,
   bitstream from +18. THPS2 entry 0 → 64 KB of skater-definition data ("sk2def", bone names,
   gear/BMP names); entries 1-2 → MIPS code overlays. The early sub-file table is the CODE
   package; asset tables (BE PSX payloads) sit later in ROM.
-- Next: C# `ErzDecoder` port using emulator outputs as golden fixtures (the disassembly shows a
-  bit-flagged LZ with an MSB-first sentinel bit buffer and 0x10000-byte blocks); ERZ v1 core
-  (THPS1) wiring in the emulator; walk ALL sub-file tables per ROM and classify payloads; then
+- **C# decoder shipped**: `ErzDecoder` mechanically transcribes both v1 and v2, with emulator-derived
+  SHA-256 fixtures pinned by `ErzDecoderTests`. Next: walk ALL sub-file tables per ROM and classify payloads; then
   `.z64` routing through `unpack` (gate `.n64`/`.v64` byte orders out with a clear message) and
   textures — if payloads are BE-mirrored PSX files, the endian-parameterized reader pattern (GC
   precedent) may cover them with no new texture code.
-- Inventory tool: `tools/diagnostics/n64_rom_inventory.py` (header/entropy/signature/table scan).
+- Durable inventory and extraction live in `N64RomArchive`; `N64RomArchiveTests` pins header,
+  master-directory, table, and standalone-block discovery.

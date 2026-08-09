@@ -4,7 +4,7 @@ namespace NeversoftMultitool.Core.Formats.Vid1;
 ///     DCT coefficient VLC decoder for Factor 5 M4Decoder (FUN_802A08B4).
 ///     Decodes run-level-last tokens from the bitstream using two VLC bundles
 ///     (A and B), each with three-range peek-12 dispatch + escape modes.
-///     Ported from tools/diagnostics/dump_vid1_coeffs.py which was validated
+///     Ported from tools/validation/video/dump_vid1_coeffs.py, which was validated
 ///     against the THAW GC DOL tables.
 /// </summary>
 internal static class Vid1CoefficientDecoder

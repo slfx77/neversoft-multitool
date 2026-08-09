@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-BUILDS_DEFAULT = Path(r"C:\Users\mmc99\Desktop\Games\TCRF\Spider-Man Research\Builds")
+BUILDS_DEFAULT = Path(__file__).resolve().parents[2] / "Sample" / "Builds"
 TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_./\\-]{1,255}")
 
 
@@ -130,7 +130,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path(__file__).resolve().parent,
+        default=repo_root() / "TestOutput" / "qbkey_pipeline",
         help="Directory for decompiled_script_names.txt and stats.",
     )
     parser.add_argument(

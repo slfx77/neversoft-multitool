@@ -6,7 +6,7 @@ its loader runtime unless a sentence is explicitly labelled **Inference**.
 ## Current result
 
 The protected-input solution is now mapped end to end. The production entry
-point is `tools/diagnostics/thug2_safedisc_decrypt.py`: it takes the exact
+point is `tools/safedisc/thug2_safedisc_decrypt.py`: it takes the exact
 protected `THUG2.exe` and the owner's CD1 BIN, runs the protected loader to the
 game OEP, restores every remaining lazy SafeDisc record from protected/runtime
 state, and emits a five-section standalone PE. It does not extract or copy the
@@ -55,7 +55,7 @@ The default command is one fail-closed pipeline:
 $exe = "Sample/Builds/Tony Hawks Underground 2 (2004-10-4, Windows - Final)/Setup/Data/Game/THUG2.exe"
 $disc = "C:/path/to/THUG2/CD1/rld-thua.bin"
 
-python tools/diagnostics/thug2_safedisc_decrypt.py $exe `
+python tools/safedisc/thug2_safedisc_decrypt.py $exe `
   --disc $disc `
   --output TestOutput/THUG2_decrypted_from_protected.exe
 ```
@@ -320,7 +320,7 @@ two structurally guarded inter-function padding gaps (`125B:1260` and
 match byte-for-byte. Oracle bytes are never returned by a decoder or copied to
 the output.
 
-`tools/diagnostics/thug2_cd3_recover.py` remains a strict historical
+`tools/safedisc/thug2_cd3_recover.py` remains a strict historical
 extraction/validation helper. Its output is a scene no-CD executable, not the
 output of the protected loader and not a substitute for this pipeline.
 
@@ -379,18 +379,16 @@ the legacy timing verdict, so no invented distance delay is required.
 
 | File | Purpose |
 |---|---|
-| `tools/diagnostics/thug2_safedisc_decrypt.py` | One-command protected-input loader run, protected/runtime restoration, completion gates, and standalone PE writer |
-| `tools/diagnostics/safedisc_emu.py` | Unicorn loader/Win32/SCSI model, retail-disc profile, published v40 key repair, OEP checkpoint, and import-vector capture |
-| `tools/diagnostics/safedisc_emu_selftest.py` | Focused emulator, disc, timing, SCSI, and SD3 regression tests |
+| `tools/safedisc/thug2_safedisc_decrypt.py` | One-command protected-input loader run, protected/runtime restoration, completion gates, and standalone PE writer |
+| `tools/safedisc/safedisc_emu.py` | Unicorn loader/Win32/SCSI model, retail-disc profile, published v40 key repair, OEP checkpoint, and import-vector capture |
+| `tools/safedisc/safedisc_emu_selftest.py` | Focused emulator, disc, timing, SCSI, and SD3 regression tests |
 | `TestOutput/pfd_alt_cpu_recover.py` | Pure-CPU proof of the exact PFD Alt selector and 113-fragment population |
 | `TestOutput/ff15_runtime_selector_proof.py` | Runtime-only FF15 selector/permutation proof |
-| `tools/diagnostics/thug2_cd3_recover.py` | Historical strict CD3 extraction for validation; not the decryptor |
-| `tools/diagnostics/safedisc_finalize_dump.py` | Historical partial-dump PE normalizer; not sufficient for a deliverable |
-| `tools/diagnostics/safedisc_string_decrypt.py` | Recovered SafeDisc string cipher |
-| `tools/diagnostics/safedisc_deobfuscate.py` | Junk-jump linearizer and call-site analysis |
-| `tools/diagnostics/iso9660_reader.py` | MODE1/2352 reader and ISO9660 walker |
+| `tools/safedisc/thug2_cd3_recover.py` | Historical strict CD3 extraction for validation; not the decryptor |
+| `tools/safedisc/safedisc_string_decrypt.py` | Recovered SafeDisc string cipher |
+| `tools/safedisc/safedisc_deobfuscate.py` | Junk-jump linearizer and call-site analysis |
+| `tools/safedisc/iso9660_reader.py` | MODE1/2352 reader and ISO9660 walker |
 
-`tools/diagnostics/` and most `TestOutput/` diagnostics are gitignored, so new
-files require `git add -f` when they are intentionally committed. Preserve
-unrelated worktree changes, especially
-`src/NeversoftMultitool/App/Tabs/TextureTab.xaml`.
+The maintained suite is tracked under `tools/safedisc/`; runtime captures and
+work directories remain ignored under `TestOutput/`. Keep new regression
+probes fixture-free when possible.

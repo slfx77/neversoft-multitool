@@ -240,17 +240,17 @@ renderers, and PS2 GS behavior still needs capture-based validation.
 
 ### GS Capture Comparison
 
-Existing diagnostic tool:
+The durable implementation is the C# `gsdump` command:
 
 ```powershell
-python tools\diagnostics\thaw_gsdump_parser.py "C:\Users\mmc99\Documents\PCSX2\snaps\Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260507234210.gs" --gif
+dotnet run --project src/NeversoftMultitool -- gsdump "<snaps>\Tony Hawk's American Wasteland [Collector's Edition]_SLUS-21295_20260507234210.gs" --json-only --dump-vertices
 ```
 
-The current tool parses the PCSX2 dump container and GIF register stream. It is
-useful for confirming runtime draw state, but it is still a packet/register
-summarizer, not a mesh/raster comparator.
+`GsDumpCommand` parses the PCSX2 dump container and GIF register stream and can
+emit both audit reports and post-VU1 vertex CSVs. Its replay coverage is pinned
+by the `GsDump` test suite; converter coupling remains a separate comparison step.
 
-Sampled captures from `C:\Users\mmc99\Documents\PCSX2\snaps`:
+Sampled historical captures from the user-supplied PCSX2 snaps directory:
 
 | Capture | XYZ writes | Unique runtime TEX0 | Exact TEX0 overlap with `z_sm` export |
 | --- | ---: | ---: | ---: |
@@ -288,9 +288,10 @@ Visual status:
 
 Next GS work needed for a real comparison:
 
-1. Extend `thaw_gsdump_parser.py` to emit ordered GS vertex events, not just
-   register counts: current `PRIM`, `RGBAQ`, `ST`/`UV`, `XYZF2`/`XYZ2`, `ADC`,
-   `TEX0`, `ALPHA`, `TEST`, `CLAMP`, `FRAME`, `ZBUF`, `XYOFFSET`, `SCISSOR`.
+1. Extend the current C# `GsGifInterpreter` / `GsDumpAuditRunner` path to expose
+   ordered GS vertex events alongside the decoded `PRIM`, `RGBAQ`, `ST`/`UV`,
+   `XYZF2`/`XYZ2`, `ADC`, `TEX0`, `ALPHA`, `TEST`, `CLAMP`, `FRAME`, `ZBUF`,
+   `XYOFFSET`, and `SCISSOR` state.
 2. Decode runtime strips/fans/sprites from those events into a frame-local mesh
    stream.
 3. Correlate GS `TEX0` fields to `ZoneTextureCatalog` entries by VRAM page,

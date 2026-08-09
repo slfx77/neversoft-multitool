@@ -27,12 +27,12 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
 - Source: this session (2026-07-03).
 - **Controlled repro** (the key lever): `gped_bam.skin.ps2` ships in **both** games. Same header `(1,9,9)` = THAW pre-compiled skin (`numObjects=1, meshes=9, dataSize=0xE4C0`≈filesize), **same file size 58,576 B**, headers byte-identical except one bbox float at `0x1C`. But `cmp` shows **16,553 bytes differ**, all in the VIF payload from offset `0x291` onward. Result: **P8 `gped_bam` renders perfectly; THPG `gped_bam` renders scrambled blocks.** Same decoder, same header, different VIF payload → THPG changed the vertex/strip encoding.
 - More THPG evidence: `gped_anchorman_body` `(2,6,6)` → scrambled; `gped_bobburnquist` `(1,7,7)` → **head correct, body scrambled** (fails on higher-vertex meshes). Simple THPG meshes still work: `cas_acc_gloves01` renders clean gloves. So the break is in the character-body VIF batches, not the whole format.
-- **Divergence localized (2026-07-03)** via `tools/diagnostics/thpg_vif_compare.py` on the P8↔THPG `gped_bam` pair:
+- **Divergence localized (2026-07-03)** by a byte-level comparison of the P8↔THPG `gped_bam` pair:
   - VIF opcode **framing is identical** — same opcodes at the same offsets. Opcode 8 = `UNPACK V3_16 num=42` at `0x600` (data `0x604`) in **both** files. So it's not a framing/layout change (STCYCL, batch order, UNPACK types all match).
   - The **vertex position DATA differs from the very first batch**. Reading `0x604` as V3_16÷16: P8 = clean surface positions (v0 = −38, 942, 25; y ~838–942, z small/incrementing); THPG = garbage (v0 = −9616, −20977, 6504).
   - Byte relationship (v0): P8 `da ff | ae 03 | 19 00` vs THPG `70 da | 0f ae | 68 19`. **THPG's per-coord high byte ≈ P8's low (meaningful) byte, with an extra low byte of precision inserted.** THPG appears to store positions at **higher precision / a different fixed-point** inside the same V3_16 UNPACK slot — our `PositionScale = 1/16` V3_16 read (`ThawPs2ReplayVertexDecoder.DecodeVertexSources`) then produces scrambled positions.
   - Histogram hint: THPG's stream uses `STMOD`/`STMASK` (VIF row/mask add modes) that P8's does not — a candidate mechanism for the different position reconstruction (unpacked value + STROW base, or a masked write). Needs confirmation with a synced walk (the crude Python walker desyncs at the first gap chunk `0x21C4`).
-- **Second-pass confirmation (2026-07-03, `tools/diagnostics/thpg_vif_diff.py`) — sharpens the above:**
+- **Second-pass confirmation (2026-07-03, synchronized UNPACK-payload comparison) — sharpens the above:**
   - **Positions-ONLY.** Diffed each UNPACK payload: V3_8 normals (`0x704`) and V4_16 uv/bone (`0x788`) are
     **byte-identical** P8↔THPG. Only the V3_16 positions differ. So normals/UVs/bones/strip-topology all decode
     correctly for THPG already — the fix is isolated to the position values.
@@ -89,9 +89,9 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
   cross-section welds (identical instanced details weld to the wrong copy), carry/origin-provenance cross-section
   welds (merged components then fight their section boxes).
 - **🔬 VU1 microcode RE (2026-07-06) — mechanism hunt; major format structures decoded, band rule still open.**
-  Extracted VU1 microprograms from both ELFs (`SLUS_214.44` / `SLUS_216.16`) by scanning for VIF MPG chains
-  (`tools/diagnostics/thpg_elf_ucode_scan.py`), disassembled with a new minimal VU disassembler
-  (`tools/diagnostics/vu_disasm.py`, tables ported from PCSX2 `DisVUmicro.h`). **Definitive: THPG's programs are
+  Extracted VU1 microprograms from both ELFs (`SLUS_214.44` / `SLUS_216.16`) by scanning for VIF MPG chains,
+  then disassembled them with `tools/reverse-engineering/ps2/vu_disasm.py` (tables ported from PCSX2
+  `DisVUmicro.h`). **Definitive: THPG's programs are
   byte-identical to P8's except ITOF4→ITOF12 swaps (19 sites in the main renderer, 5 in the second) and ONE
   float constant scaled by exactly 1/256 (264192→1032) — the Q12.4→Q4.12 domain shift. There is NO band
   reconstruction logic in the microcode**: positions are ITOF12'd and immediately matrix-transformed.
@@ -134,9 +134,9 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
     a placement signal (slots local, clusters loose).
 - **✅ MECHANISM QUESTION RESOLVED (2026-07-06, GS dumps + savestates): there is NO reconstruction mechanism —
   the game never renders the wrapping files.**
-  - New tooling: `gsdump --dump-vertices` writes every post-VU1 kicked vertex (screen XYZ + STQ + no-kick) to
-    CSV; `tools/diagnostics/thpg_gsdump_band_check.py` / `thpg_gsdump_alias_check.py` match `.skin.ps2` batches
-    to GS draws by UV fingerprint (skin ucode emits ST = uv×Q → s/q = raw uv/4096). Matching validated at
+  - The C# `gsdump --dump-vertices` path writes every post-VU1 kicked vertex (screen XYZ + STQ + no-kick) to
+    CSV; the audit matched `.skin.ps2` batches to GS draws by UV fingerprint (skin ucode emits
+    ST = uv×Q → s/q = raw uv/4096). Matching validated at
     0.8–1.8px adjacent-vertex screen coherence across 100+ batches.
   - **Wrap census: 78 of ~750 THPG skins wrap** — ALL full-character exports (gped pros, 66 level peds,
     `skater_pro/shaba_*`, `skater_secret/*`). The Q4.12 exporter silently wraps geometry beyond ±8 units.
@@ -170,8 +170,8 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
   **THPG support status: complete for everything the game renders.** The gped/ped reconstruction (95.6%)
   remains as best-effort recovery of cut/legacy content only.
 - Debug: `THPG_UNWRAP_DBG=1` prints component structure, candidate scores, and placement decisions.
-- Reusable tools: `tools/diagnostics/thpg_vif_compare.py`, `thpg_vif_diff.py`, `thpg_band_analysis.py`
-  (oracle band computation; proved bands spatially continuous and bone-slot-uncorrelated).
+- The retained finding from the oracle comparisons is that bands are spatially continuous and
+  bone-slot-uncorrelated; the production unwrapper and its tests now carry that result.
 
 ### ⚪ RETRACTED (2026-07-26) — `.col` is NOT a newer unsupported version; it is version 10 and parses
 - Original claim (2026-07-03): THPG/P8 `.col` begins `00 FF 00 FF 03 00 00 00` (a `0xFF00FF00` marker), not the `9`/`10` int32 `ColFile.cs` expects, so a new container format needed RE.

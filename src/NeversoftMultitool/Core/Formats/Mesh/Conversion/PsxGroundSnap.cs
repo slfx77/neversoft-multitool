@@ -5,7 +5,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 /// <summary>
 ///     Reseats a grounded TRG POWERUP pickup onto the terrain, reproducing the
 ///     engine's runtime ground-snap EXACTLY. Decompiled from the Spider-Man final
-///     <c>CPowerUp</c> (SLUS_008.75, <c>tools/diagnostics/psx_disasm.py</c>):
+///     <c>CPowerUp</c> (SLUS_008.75, <c>tools/reverse-engineering/psx/psx_disasm.py</c>):
 ///     <list type="bullet">
 ///       <item>ctor @0x8001DDB0: a grounded pickup (<c>Flags &amp; 4</c>) sets
 ///       <c>mGroundY = Utils_GetGroundHeight(&amp;mOrgPos, above=512, below=8000)</c>

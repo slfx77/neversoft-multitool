@@ -50,8 +50,7 @@ public static class ThawPs2SkinFile
     ///     records are laid out differently: the u32 at entry+44 (THAW's owner-object
     ///     checksum) holds unrelated data there. In genuine THAW skins every entry's
     ///     owner is either 0 (unowned) or one of the object-table checksums —
-    ///     validated at 332/332 THAW accepts vs 746 THUG2 rejects, see
-    ///     tools/diagnostics/ps2_skin_header_probe.py.
+    ///     validated corpus-wide at 332/332 THAW accepts versus 746 THUG2 rejects.
     /// </summary>
     private static bool EntryTableIsValid(byte[] data, long fileSize, uint numObjects, uint totalMeshes2)
     {

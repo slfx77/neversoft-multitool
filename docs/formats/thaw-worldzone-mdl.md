@@ -14,7 +14,12 @@ One file per worldzone — streets, rooftops, interiors — packed inside
   - Parser: [`Ps2GeomFile.ParsePakMdl`](../../src/NeversoftMultitool/Core/Formats/Mesh/Ps2Scene/Geom/Ps2GeomFile.cs),
     [`Ps2MdlPreamble`](../../src/NeversoftMultitool/Core/Formats/Mesh/Ps2Scene/Geom/Ps2MdlPreamble.cs),
     [`Ps2GeomVifVertexDecoder`](../../src/NeversoftMultitool/Core/Formats/Mesh/Ps2Scene/Geom/Ps2GeomVifVertexDecoder.cs).
-  - Engine decomp: [`tools/ghidra/thaw-ps2/output/phase410..424_*.c`](../../tools/ghidra/thaw-ps2/output/).
+  - Runtime analysis: the durable phase 410–424 findings are integrated below;
+    the companion placement-record layout is documented in
+    [`thaw-worldzone-record-layout.md`](thaw-worldzone-record-layout.md).
+  - Reproduction helpers: [`DecompileFunctionsByAddress.java`](../../tools/reverse-engineering/ghidra/DecompileFunctionsByAddress.java),
+    [`DumpInstructionsByAddress.java`](../../tools/reverse-engineering/ghidra/DumpInstructionsByAddress.java), and
+    [`DumpXrefsByAddress.java`](../../tools/reverse-engineering/ghidra/DumpXrefsByAddress.java).
   - Raw captures: `TestOutput/mdl_ground_truth/` (disk bytes + EE-RAM snapshot at base 0x0155FA00).
 
 > **Status header.** The runtime behaviour of this format has been decompiled
@@ -44,7 +49,7 @@ a structural rule (see [`Ps2LevelMdlParser.IsLevelMdl`](../../src/NeversoftMulti
 ### 1.1 Resource-class mapping
 
 The engine dispatches on the PAK entry's type hash via
-[`FUN_0025D260`](../../tools/ghidra/thaw-ps2/output/phase424_upstream.c)
+`FUN_0025D260`
 (decompiled in phase 424), which is a `switch(type_hash)` that returns a
 resource-class index. Level MDL gets **case 3**, distinct from object MDL
 (case 6) and animations (`.ska` = case 6 too):
@@ -67,14 +72,14 @@ resource-class index. Level MDL gets **case 3**, distinct from object MDL
 | 18 | `0x7E1ABC70` | (unmapped) |
 
 The class index drives the factory dispatch in
-[`FUN_00255578`](../../tools/ghidra/thaw-ps2/output/phase423_resource_creation.c#L161).
+`FUN_00255578`.
 For case 3, it allocates a `0x1C`-byte WorldZone outer object via
 `FUN_0011C4B0(DAT_004985F0, 0x1C, 1, 0)`, runs the base constructor
-[`FUN_00257D90`](../../tools/ghidra/thaw-ps2/output/phase422c_setup_path.c#L10),
+`FUN_00257D90`,
 and stamps vtable `0x004CAB10` at `outer+0x18` (see
-[`FUN_00258B28`](../../tools/ghidra/thaw-ps2/output/phase423_resource_creation.c#L252)).
+`FUN_00258B28`).
 `FUN_00258B28` has exactly 1 caller (`FUN_00255578` at
-[phase424_xrefs.txt](../../tools/ghidra/thaw-ps2/output/phase424_xrefs.txt)),
+phase424_xrefs.txt),
 so this factory is dedicated to the worldzone class.
 
 ## 2. File layout (top-down)
@@ -117,7 +122,7 @@ The engine path for obtaining `K` is still partly unresolved; see
 ## 3. Preamble records
 
 Each preamble record is exactly `0x50` bytes. Records are contiguous in
-`[first_preamble..end)`. A record is identified by the constant signature
+`first_preamble..end)`. A record is identified by the constant signature
 `0x4B189680` at record+0x18.
 
 Fields with **decomp evidence** are cited against `phase417_cgeomnode_walker.c`
@@ -133,8 +138,8 @@ records validated against the rendered output.
 | +0x0C | u32 | `Field0C` | empirical | `0x80808080` constant on disk. **Overwritten with a runtime pool pointer at load**. Looks like a vertex-colour scale default. |
 | +0x10 | u32 | `Field10` | empirical | `0xFF00FF00` constant on all 3,977 z_bh leaves. Probably a GS register default (`FBA_1` / `TEST_1`?). |
 | +0x14 | u32 | `Field14` | empirical | Small int, 72 distinct values in z_bh. **Meaning unknown**, see Open Questions #2. |
-| +0x18 | u32 | `Signature` | [phase417:260](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c#L260) | Fixed constant `0x4B189680`. Used to anchor parsing. |
-| +0x1C | u32 | `Flags` (runtime) | [phase417:73,84,90,…](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c#L73) | Runtime flag bitfield. On disk this is `0xFFFFFFFF` and is **cleared to a real flag value at load**. |
+| +0x18 | u32 | `Signature` | [phase417:260 | Fixed constant `0x4B189680`. Used to anchor parsing. |
+| +0x1C | u32 | `Flags` (runtime) | phase417:73,84,90,… | Runtime flag bitfield. On disk this is `0xFFFFFFFF` and is **cleared to a real flag value at load**. |
 | +0x20 | f32 | `CentreX` | empirical | Leaf bounding-sphere centre (world space). For object MDLs this position overloads as a quaternion `qx`. |
 | +0x24 | f32 | `CentreY` | empirical | |
 | +0x28 | f32 | `CentreZ` | empirical | |
@@ -219,20 +224,20 @@ a fold of data from the corresponding preamble record. See §5.
 result to `FUN_001CFB58`, which walks the tree recursively, rewriting
 offset fields to absolute RAM pointers in place. Every read of
 `*(node + N)` in the walker is listed below, with evidence lines from
-[`phase417_cgeomnode_walker.c`](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c):
+`phase417_cgeomnode_walker.c`:
 
 | Offset | Type | Role | Evidence |
 |---:|---|---|---|
-| +0x18 | u64 | Lookup marker, tested against `0x400200000000` | [phase417:260](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c#L260) |
-| +0x1C | u32 | Flags bitfield — see §5.1 | [phase417:73,84,90,256,260,262,267,376](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c#L73) |
-| +0x20 | ptr | Child (relocated `iVar22 + val`). Points at a GIF-tag register list (V4 stride at +0x26, triplet array at +0x28) | [phase417:91,98,125,132](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c#L91) |
-| +0x24 | ptr | Auxiliary pointer (−1 = null) | [phase417:78-83](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c#L78) |
-| +0x28 | ptr | Next sibling | [phase417:215,242,248,384](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c#L215) |
-| +0x2C | u32 | 1-based index into preamble table at `ctx+0x10` | [phase417:107-108](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c#L107) |
-| +0x34 | ptr | Conditional (zeroed when +0x1C bit 9 and +0x18 bit 41/42 set) | [phase417:261,265](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c#L261) |
-| +0x38 | ptr | Complex structure, nested relocation loop | [phase417:270,316-367](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c#L316) |
-| +0x44 | ptr | Matrix/handle struct (fields at +0x10, +0x18, +0x3C, +0x40) | [phase417:87-88,115,273](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c#L273) |
-| +0x4C | ptr | Alternate traversal pointer | [phase417:250,254](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c#L250) |
+| +0x18 | u64 | Lookup marker, tested against `0x400200000000` | phase417:260 |
+| +0x1C | u32 | Flags bitfield — see §5.1 | phase417:73,84,90,256,260,262,267,376 |
+| +0x20 | ptr | Child (relocated `iVar22 + val`). Points at a GIF-tag register list (V4 stride at +0x26, triplet array at +0x28) | phase417:91,98,125,132 |
+| +0x24 | ptr | Auxiliary pointer (−1 = null) | phase417:78-83 |
+| +0x28 | ptr | Next sibling | phase417:215,242,248,384 |
+| +0x2C | u32 | 1-based index into preamble table at `ctx+0x10` | phase417:107-108 |
+| +0x34 | ptr | Conditional (zeroed when +0x1C bit 9 and +0x18 bit 41/42 set) | phase417:261,265 |
+| +0x38 | ptr | Complex structure, nested relocation loop | phase417:270,316-367 |
+| +0x44 | ptr | Matrix/handle struct (fields at +0x10, +0x18, +0x3C, +0x40) | phase417:87-88,115,273 |
+| +0x4C | ptr | Alternate traversal pointer | phase417:250,254 |
 
 ### 5.1 Runtime flags (`+0x1C`)
 
@@ -245,7 +250,7 @@ parens are tentative, carried over from THUG's NODEFLAG_*.
 ### 5.2 GIF-tag walk
 
 The walker at
-[phase417:132-210](../../tools/ghidra/thaw-ps2/output/phase417_cgeomnode_walker.c#L132)
+phase417:132-210
 scans the triplet register array found at `(*(node+0x20)) + 0x28` and
 records pointers to **GS register codes 0x06 (TEX0_1), 0x08 (CLAMP_1),
 and 0x42 (ALPHA_1)**. Crucially, **it stores the pointers without
@@ -298,8 +303,8 @@ The relocation base is passed to `FUN_001CFB58` as its `param_2`, sourced
 from `FUN_001A0360(X)` where `X = *(inner_obj + 4)` and `inner_obj` is the
 resource-manager handle reachable via `outer_obj + 0x10`. The resource
 handle is looked up in a per-context hash table keyed on the PAK-entry
-metadata ([`FUN_002564A8`](../../tools/ghidra/thaw-ps2/output/phase422d_inner_obj.c),
-[`FUN_002562F0`](../../tools/ghidra/thaw-ps2/output/phase423_resource_creation.c)).
+metadata (`FUN_002564A8`,
+`FUN_002562F0`).
 
 The chain is:
 
@@ -314,7 +319,7 @@ outer (WorldZone)        +0x10 ──► inner_obj (ResourceHandle)
 ### 6.3 The PAK dispatcher (`FUN_0025D560`)
 
 `FUN_0025D560` (decompiled in phase 424b, see
-[phase424b_pak_dispatcher.c](../../tools/ghidra/thaw-ps2/output/phase424b_pak_dispatcher.c))
+phase424b_pak_dispatcher.c)
 is the per-PAK iterator. It walks PAK entries via
 `FUN_0025D0E8(pak)` (get-first) and `FUN_0025D0F0(entry)` (get-next), and
 for each one switches on the type hash. The level-MDL branch (`0x7EA7357B`)
@@ -355,7 +360,7 @@ PAK-entry record, accessed by word index):
 | `puVar9[7]` | 32-bit flag bitfield — bits 0/3/4/5 drive load behaviour | bit 0 = "must load", bit 3 = "X", bit 4 = "Y", bit 5 = "use named registration" |
 
 `FUN_0025D488` is then called with `(pak_entry, type_hash, &params_struct)`.
-Inside it, [`FUN_0025D150`](../../tools/ghidra/thaw-ps2/output/phase422c_setup_path.c#L199)
+Inside it, `FUN_0025D150`
 computes `file_data_addr = pak_entry + pak_entry[1]` (entry word 1 = file
 offset). That file_data_addr is passed onward through `FUN_00255BD8` and
 ultimately reaches `FUN_001D4248`'s `param_1`.
@@ -366,7 +371,7 @@ The remaining piece — the precise origin of `X+0x14 = base_ee + K` — is
 *partly* answered by the dispatcher trace but not fully closed:
 
 - `FUN_00255BD8` calls `FUN_002564A8(ctx, pak_entry[6], 1)` and stores the
-  result at `outer+0x10` (via [`FUN_00258488`](../../tools/ghidra/thaw-ps2/output/phase422d_inner_obj.c#L291)).
+  result at `outer+0x10` (via `FUN_00258488`).
 - `FUN_002564A8` is a hash-table lookup in `ctx+0x28` keyed on
   `pak_entry[6]`. It returns either an existing handle or, on miss, calls
   `FUN_002562F0` (also a hash-table lookup, in a secondary table).
@@ -394,7 +399,7 @@ investigator can pick it up if needed.
 WorldZone vtable lives at `0x004CAB10`. Each slot is an 8-byte
 `(adjust_short, pad, fn_ptr)` triple. Most slots inherit from a base
 class; the ones I've identified, with addresses verified by re-counting
-the byte dump in [phase422b_vtable_bytes.txt](../../tools/ghidra/thaw-ps2/output/phase422b_vtable_bytes.txt):
+the byte dump in phase422b_vtable_bytes.txt:
 
 | `*(vtable+N)` | Address | Behaviour |
 |---:|---|---|
@@ -484,7 +489,7 @@ those decode to one or more VIF batches.
 
 ## 9. Open questions
 
-1. **Pre-VIF region `[0..K)`.** Looks packed; not consumed by the
+1. **Pre-VIF region `0..K)`.** Looks packed; not consumed by the
    geometry pipeline. Candidates: VU microcode, GS register defaults,
    shared palette/CLUT pre-load. Finding its consumer would require
    tracing who else reads `file_data + 0` beyond the MDL parser.
@@ -493,7 +498,7 @@ those decode to one or more VIF batches.
    (limited cardinality, distinctive packing) but no known consumer.
 
 3. **Four config hashes at outer+0x94..0xA0.** `0x9E6EA452 /
-   0xB5BD28D8 / 0x3D559E7D / 0x417149C8` ([phase412:96-106](../../tools/ghidra/thaw-ps2/output/phase412_level_mdl_parse.c#L96)).
+   0xB5BD28D8 / 0x3D559E7D / 0x417149C8` ([phase412:96-106).
    Passed as `FUN_00197EB0`'s flag bits; no branch in the decomped
    pipeline tests them.
 
@@ -504,13 +509,16 @@ those decode to one or more VIF batches.
 
 ## 10. Evidence trail
 
-- Decomp phases 410–424: [tools/ghidra/thaw-ps2/output/phase41*.c](../../tools/ghidra/thaw-ps2/output/) and
-  [phase42*.c](../../tools/ghidra/thaw-ps2/output/).
-- Running summary with line-number citations: [phase421_verified_fields.md](../../tools/ghidra/thaw-ps2/output/phase421_verified_fields.md).
-- Earlier exploratory notes (superseded): [phase41x_summary.md](../../tools/ghidra/thaw-ps2/output/phase41x_summary.md).
-- Diagnostic scripts: [tools/diagnostics/thaw_mdl_bone_probe.py](../../tools/diagnostics/thaw_mdl_bone_probe.py)
-  (bone-relative geometry probe), [tools/diagnostics/thaw_pcsx2_runbook.md](../../tools/diagnostics/thaw_pcsx2_runbook.md)
-  (how to collect an EE-RAM snapshot).
+- The durable conclusions from targeted decompilation phases 410–424 are
+  recorded directly in §§1–8, including function addresses, field offsets,
+  relocation formulas, and the resource-class dispatch table.
+- Targeted decompilation, instruction dumps, and xref exports can be reproduced
+  with the generic Ghidra helpers linked in the source list above.
+- Superseded exploratory notes and saved Ghidra project output were intentionally
+  not retained after their verified findings were incorporated here.
+- The bone-relative geometry findings are integrated into `Ps2LevelMdlParser`;
+  see the [PCSX2 EE-RAM capture runbook](../runbooks/thaw-worldzone-pcsx2.md)
+  for runtime verification.
 
 ## 11. Changelog
 

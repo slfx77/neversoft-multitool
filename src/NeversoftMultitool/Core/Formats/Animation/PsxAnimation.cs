@@ -33,7 +33,7 @@ public sealed class PsxAnimation
     // let the consumer decide whether to emit translation channels or skip
     // them. Rotation-only animations on a correctly-parented skeleton
     // produce stable previews; per-frame translation snapping is tracked as
-    // followup work in the format reference (see psx-anim-format.md).
+    // followup work in the format reference (docs/formats/psx-animation.md).
     private const float TranslationScale = 1f;
 
     /// <summary>Number of frames in this animation.</summary>

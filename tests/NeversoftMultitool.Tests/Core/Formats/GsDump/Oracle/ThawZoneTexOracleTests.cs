@@ -54,7 +54,7 @@ public sealed class ThawZoneTexOracleTests
     public void NoNewDivergentDecodes()
     {
         Assert.SkipWhen(!GsOracleGoldenData.HasGoldens,
-            "GS-oracle goldens absent — regenerate with tools/diagnostics/build_gsoracle.ps1.");
+            "GS-oracle goldens absent — regenerate with tools/validation/gsdump/build_gsoracle.ps1.");
 
         var offenders = new List<string>();
         foreach (var (tag, report) in GsOracleGoldenData.LoadTextureOracleReports())
@@ -80,7 +80,7 @@ public sealed class ThawZoneTexOracleTests
     public void CorrelationCoverageDoesNotCollapse()
     {
         Assert.SkipWhen(!GsOracleGoldenData.HasGoldens,
-            "GS-oracle goldens absent — regenerate with tools/diagnostics/build_gsoracle.ps1.");
+            "GS-oracle goldens absent — regenerate with tools/validation/gsdump/build_gsoracle.ps1.");
 
         // Seeded coverage over the z_bh catalog sits at 22-29% of textured
         // draws per THAW capture (mixed scenes; the catalog is one zone). The

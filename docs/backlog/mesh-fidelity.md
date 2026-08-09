@@ -52,7 +52,7 @@ Conversion + `glb-render` inspection, current HEAD (post-v1.2.1 alpha fix `884d0
 
 ### 🔴 Build a mesh-QA regression harness (the real remaining fidelity work)
 - Source: this session — the fidelity story is currently "looks good when spot-checked," which is how the stale notes above went unnoticed.
-- What's left: a repeatable sweep that, across every supported mesh format + game, (1) batch-converts and flags hard failures (0-tri, glTF-validator errors), (2) where a PC/`.wpc` or other ground truth exists, computes **triangle recall** and flags files below a threshold, and (3) emits a render **contact sheet** for eyeball review. Wire it as a `tools/diagnostics/` script (Python over the CLI + `glb-render`) so regressions like the alpha bug are caught mechanically, not by a user noticing a hole months later. This is the durable answer to "are the meshes we claim to support actually perfect."
+- What's left: a repeatable sweep that, across every supported mesh format + game, (1) batch-converts and flags hard failures (0-tri, glTF-validator errors), (2) where a PC/`.wpc` or other ground truth exists, computes **triangle recall** and flags files below a threshold, and (3) emits a render **contact sheet** for eyeball review. Wire it under `tools/validation/mesh/` (Python over the CLI + `glb-render`) so regressions like the alpha bug are caught mechanically, not by a user noticing a hole months later. This is the durable answer to "are the meshes we claim to support actually perfect."
 
 ### 🔶 THAW worldzone level geometry — "missing parts" (NOT re-verified this session)
 - Source: `memory/thaw_worldzone_phase420_solved.md` (user visual feedback after phase-420: *"level layout is now there, looks accurate, mostly correct textures… still missing parts"*).
@@ -86,8 +86,8 @@ Conversion + `glb-render` inspection, current HEAD (post-v1.2.1 alpha fix `884d0
   semantic as the v6 PC rule, but the PS1 engine applies it PER FACE (characters are mixed: venom
   394/414 lit, docock 371/539, torch 323/596 — the unlit remainder keeps authored colours).
 - Shipped: `ComputePsxFaceColors` neutralizes `mesh.UsesDynamicLighting && (face.Flags & 0x0004)` faces
-  for every version (the v6 per-mesh loader-derived bypass is unchanged above it). Corpus census via the
-  new `tools/PsxAnalyzer lit-census`: lit faces are characters/FE props ONLY — every `_g`/bare-stem
+  for every version (the v6 per-mesh loader-derived bypass is unchanged above it). The completed corpus
+  census, now represented by the conversion tests, found lit faces only in characters/FE props — every `_g`/bare-stem
   level, `_o` bank (except l8a5_o's 23 faces), and items.psx/pickup file has ZERO lit faces, so baked
   level lighting and the user-validated pulse pickups are untouched (byte-identical GLBs verified for
   l1a1_g/items/symbiote; venom 469 verts 0.83→0.95 neutral with 44 authored kept; spidey's authored
@@ -127,9 +127,9 @@ Conversion + `glb-render` inspection, current HEAD (post-v1.2.1 alpha fix `884d0
   - **control.psx stick colors** — all 892 faces are lit-flagged; the PS1 loader ORs face bit2 into
     SModel.Flags (decomp §5.3), so the lit-face neutral rule (2026-07-27, uncommitted) is the fix;
     verified 2126/2126 vertex colors at exact neutral.
-  - **"Missing" leaves/antennas/rail posts — RETRACTED as a converter bug**: 10/10 PS1 binaries carry the
-    identical unconditional bit7 loader XOR + 0xC0 renderer skip (byte-level scan,
-    `tools/diagnostics/psx_bit7_loader_scan.py`); TRG cross-ref proves the dropped whole meshes are
+  - **"Missing" leaves/antennas/rail posts — RETRACTED as a converter bug**: a byte-level scan found
+    the identical unconditional bit7 loader XOR + 0xC0 renderer skip in 10/10 PS1 binaries; TRG
+    cross-reference proves the dropped whole meshes are
     COMMANDPOINT trigger volumes / GapPolyHit detectors / camera zones (skph 155/162 COMMANDPOINTs bind
     dropped meshes; l2a1 37/47; the verified-hidden THPS1 skdown control shows the same 130/132 pattern).
     The visible trees/towers are separate meshes the converter already renders. Remaining follow-ups below.
@@ -170,8 +170,8 @@ while N64 ERZ v1 work proceeds:
   fixed for THPS1/2 via `PsxTrgBootScript` (AUTOEXEC2 replaces AUTOEXEC; no SetObjFile = no bank).
   THPS3 PS1's `aa<stem>_2` variants resolve through that path, so either its AUTOEXEC2 genuinely
   names the full bank (faithful, then the report is about fidelity of the mode split) or the
-  boot-script read fails silently for these TRGs. Check `psx_variant_bank_report.py` over the
-  THPS3/4 PS1 builds first — it already prints exactly this decision.
+  boot-script read fails silently for these TRGs. Inspect the `PsxTrgBootScript` decision over the
+  THPS3/4 PS1 builds first; the companion-selection tests pin the expected bankless variants.
 - **skny: wrong texture wins on coplanar storefront layers** (screenshot: Pinky's Loans pawnbroker
   sign truncated) — not z-fighting, a stable-but-wrong paint order. skny is reused THPS2 NY; check
   whether the coplanar overlay detector flags the pair and ranks it backwards vs the PS1 OT rule,

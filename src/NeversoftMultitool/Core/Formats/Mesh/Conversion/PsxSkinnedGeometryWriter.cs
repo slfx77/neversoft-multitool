@@ -338,7 +338,8 @@ internal static class PsxSkinnedGeometryWriter
             out var i2);
         // glTF front faces are CCW; PSX slot order is CW under the (X,-Y,-Z)
         // handedness map, so emit reversed to make winding agree with the
-        // stored (outward) normals. Probe: psx_lod_part_probe.py --normals.
+        // stored (outward) normals, as established by the historical corpus
+        // analysis and pinned by the PSX geometry regression tests.
         ModelDocumentGeometryAdapter.AddSkinnedTriangle(vertices, indices, influences, v0, i0, v2, i2, v1, i1);
 
         if (face.IsQuad)

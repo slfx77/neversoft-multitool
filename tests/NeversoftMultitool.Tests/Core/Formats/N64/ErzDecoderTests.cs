@@ -5,8 +5,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.N64;
 
 /// <summary>
 ///     Validates the C# ERZ transcription against golden outputs produced by
-///     <c>tools/diagnostics/erz_emu_decode.py</c>, which decodes the SAME
-///     blocks by executing the ROM's own MIPS decompressor under emulation —
+///     decoding the same blocks with the ROM's own MIPS decompressor under emulation —
 ///     bit-exact ground truth by construction (2026-08-05). The four blocks
 ///     cover the observed stream features: text-heavy data (skater
 ///     definitions), two MIPS code overlays, and a table-heavy block.

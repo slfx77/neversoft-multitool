@@ -62,9 +62,9 @@ Re-open with an independent oracle.
 
 ### 4b. Coincident-geometry residue — measured 2026-08-04, cause not yet isolated
 
-`tools/diagnostics/glb_coincident_census.py` is the independent oracle items 4 and 5 asked for. It
-reads EXPORTED GLB world-space geometry and never calls the detector, so it cannot agree with it by
-construction. Building it corrected four flaws that had inflated every earlier count:
+The independent oracle requested by items 4 and 5 reads exported GLB world-space geometry and
+never calls the detector, so it cannot agree with it by construction. That census corrected four
+flaws that had inflated every earlier count:
 
 | correction | effect |
 | --- | --- |
@@ -103,12 +103,13 @@ investigation). Deliberately NOT fixed speculatively at the end of round 5: the 
 
 ### 6. Spider-Man's light rigs — CLOSED 2026-08-03
 
-Traced with `tools/diagnostics/psx_xref_scan.py`. The binary makes exactly two
+The shipped-binary xref trace found exactly two
 `mpLight` (offset 0x38) assignments: the item constructor at 0x80058D90 using
 `M3d_DefaultLight` (0x800A6214), and 0x80048214 using **0x80098F1C**, whose
 constructor (0x80047DF8) is called from two sites that each allocate a
 0x1020-byte object — the game's largest entity, the structural analogue of
-THPS2's CBruce. Shipped as the `spiderman-player` preset.
+THPS2's CBruce. Shipped as the `spiderman-player` preset in `PsxEngineLight`,
+with preset coverage in `PsxEngineLightTests`.
 
 0x80098E00 and 0x80098E40 are referenced by nothing at all and are NOT exposed.
 

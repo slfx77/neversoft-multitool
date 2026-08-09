@@ -70,7 +70,7 @@ internal static class PsxAnimationChannelWriter
         // (M3dAsm_SetSuperTransforms / TransformAndOutcodeSuperVertices), so
         // anim translations and model vertices share one unit and one divisor:
         // ScaleDivisor, which already contains that >>4. See the fixed-point
-        // contract in tools/diagnostics/psx-anim-format.md.
+        // contract in docs/formats/psx-animation.md.
         var translationDivisor = psxFile.ScaleDivisor > 0f
             ? psxFile.ScaleDivisor
             : psxFile.TranslationDivisor;

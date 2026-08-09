@@ -14,15 +14,15 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 ///     green, and the near-equal branch's interior-overlap rule moved several
 ///     more. The l2a1_g / l1a2_g node pins alone cannot see any of it — both
 ///     files are insensitive to the semi-transparent and near-equal branches.
-///     Measured 2026-07-30 with `PsxAnalyzer overlay-census`, which reports the
-///     same set this asserts; a count that moves here is not necessarily wrong,
+///     Measured by the completed 2026-07-30 corpus census, whose result is now
+///     embodied by this test; a count that moves here is not necessarily wrong,
 ///     but it must be explained and re-pinned deliberately rather than silently.
 /// </summary>
 public sealed class PsxCoplanarOverlayCensusTests(TestPaths paths)
 {
     [CorpusTheory]
-    // Re-pinned 2026-08-03 for the three-part detection change, measured with
-    // `PsxAnalyzer overlay-census`. Per-file delta is the sum of three moves.
+    // Re-pinned 2026-08-03 for the three-part detection change. Per-file delta
+    // is the sum of three moves from the completed corpus census.
     // ADDS from IsExactTwin now also requiring identical APPEARANCE, because
     // coincident same-texture twins whose colours or UVs differ — the baked
     // light-and-shadow duplicates, the corpus' biggest unseparated class —

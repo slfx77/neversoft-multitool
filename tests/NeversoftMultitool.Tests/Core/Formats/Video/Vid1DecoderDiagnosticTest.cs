@@ -300,7 +300,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
                 CreateNoWindow = true,
                 WorkingDirectory = GetRepoRoot()
             };
-            startInfo.ArgumentList.Add("tools/diagnostics/dump_vid1_coeffs.py");
+            startInfo.ArgumentList.Add("tools/validation/video/dump_vid1_coeffs.py");
             startInfo.ArgumentList.Add(path);
             startInfo.ArgumentList.Add("--frame");
             startInfo.ArgumentList.Add(frameIndex.ToString(CultureInfo.InvariantCulture));

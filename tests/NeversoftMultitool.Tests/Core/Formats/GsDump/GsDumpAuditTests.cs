@@ -1037,7 +1037,7 @@ public sealed class GsDumpAuditTests
             Ps2GifQwordWordOrder.Identity);
         vram.WriteRawBytes(0, memory);
 
-        // The seed audit (tools/diagnostics/gsdump_seed_audit.ps1) shows the file bytes at
+        // The seed-file bytes at
         // FBP=4480 are populated PSMCT16 data ("21 04 21 04 ..."). After WriteRawBytes,
         // ReadRectPSMCT16 should recover non-zero pixels at the same location.
         var rgba = vram.ReadRectPSMCT16(4480, 10, 16, 4);

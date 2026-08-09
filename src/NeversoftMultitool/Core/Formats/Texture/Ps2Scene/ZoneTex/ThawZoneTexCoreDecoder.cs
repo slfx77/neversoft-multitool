@@ -9,7 +9,7 @@ namespace NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 ///     prefers the prepared CPU-side source slots described by the record table, and falls back
 ///     to upload-snapshot GS VRAM decode when the source-slot path cannot resolve an entry.
 ///     Based on Ghidra decompilation of the THAW PS2 binary (FUN_0019cd48 pixel decode,
-///     FUN_001cfb58 blob processing). See tools/ghidra/thaw-ps2/output/zone_tex_format.md.
+///     FUN_001cfb58 blob processing). See docs/formats/thaw-zone-texture.md.
 /// </summary>
 internal static class ThawZoneTexCoreDecoder
 {

@@ -68,8 +68,8 @@ public sealed class PsxCoplanarOverlayDetectorTests(TestPaths paths)
         // Re-pinned 2026-08-03 (82 to 77): back-to-back single-sided pairs no
         // longer flag anywhere — backface culling already separates them — and
         // that removes five of this file's flags; the appearance-twin and
-        // exact-area-decal additions do not fire here. PsxAnalyzer
-        // overlay-census reports 77.
+        // exact-area-decal additions do not fire here. The retired corpus
+        // census also measured 77.
         Assert.Equal(77, overlays.Count);
         Assert.Contains(new PsxFaceInstanceKey(47, 0), overlays);
         Assert.Contains(new PsxFaceInstanceKey(47, 5), overlays);

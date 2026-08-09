@@ -8,31 +8,28 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.N64;
 ///     <para>
 ///         The N64 ports re-encoded Neversoft's PS1 <c>.psx</c> containers, so a
 ///         bundle's mesh-name-hash SET identifies the PS1 file it came from. The
-///         PS1 corpus is not available at runtime, so the identity is harvested
-///         offline by <c>tools/utilities/harvest_n64_bundle_names.py</c> into an
-///         embedded dictionary keyed by a digest of that set.
+///         PS1 corpus is not available at runtime, so the 2026-08-07 offline
+///         corpus match is materialized into an embedded dictionary keyed by a
+///         digest of that set.
 ///     </para>
 ///     <para>
-///         The digest is the load-bearing contract: it is computed independently
-///         in Python (harvest) and C# (runtime), and if the two ever disagree the
-///         dictionary silently resolves nothing. <see cref="ComputeKey_MatchesTheHarvestSelfTestVector" />
-///         pins the exact literal that <c>--selftest</c> prints, which is the only
-///         thing tying the two implementations together.
+///         The digest is the load-bearing contract: if its implementation changes,
+///         the embedded dictionary silently resolves nothing. <see cref="ComputeKey_MatchesReferenceVector" />
+///         pins the independently established digest for a known hash set.
 ///     </para>
 /// </summary>
 public sealed class N64BundleNamesTests(TestPaths paths)
 {
     /// <summary>
-    ///     The value <c>harvest_n64_bundle_names.py --selftest</c> prints. If a
-    ///     change moves this, the embedded table must be regenerated in the same
-    ///     commit or every lookup starts missing.
+    ///     Reference digest for the set { 0x00010000, 0x00020000 }. If a change
+    ///     moves this, the embedded table no longer matches the runtime key.
     /// </summary>
-    private const ulong SelfTestVector = 0x79938094ABD6A2EA;
+    private const ulong ReferenceVector = 0x79938094ABD6A2EA;
 
     [Fact]
-    public void ComputeKey_MatchesTheHarvestSelfTestVector()
+    public void ComputeKey_MatchesReferenceVector()
     {
-        Assert.Equal(SelfTestVector, N64BundleNames.ComputeKey([0x0001_0000, 0x0002_0000]));
+        Assert.Equal(ReferenceVector, N64BundleNames.ComputeKey([0x0001_0000, 0x0002_0000]));
     }
 
     /// <summary>
@@ -43,7 +40,7 @@ public sealed class N64BundleNamesTests(TestPaths paths)
     [Fact]
     public void ComputeKey_IgnoresOrderAndDuplicates()
     {
-        Assert.Equal(SelfTestVector,
+        Assert.Equal(ReferenceVector,
             N64BundleNames.ComputeKey([0x0002_0000, 0x0001_0000, 0x0001_0000]));
     }
 
@@ -55,7 +52,7 @@ public sealed class N64BundleNamesTests(TestPaths paths)
     [Fact]
     public void ComputeKey_IgnoresHashesBelowTheMinimum()
     {
-        Assert.Equal(SelfTestVector,
+        Assert.Equal(ReferenceVector,
             N64BundleNames.ComputeKey([0x0001_0000, 0x0000_0005, 0x0002_0000]));
         Assert.Null(N64BundleNames.ComputeKey([0x0000_0005]));
         Assert.Null(N64BundleNames.ComputeKey([]));

@@ -13,7 +13,7 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 ///     SMatrix.t raw), in the same 1/16-world unit as model vertices, so they
 ///     are emitted absolute at the vertex ScaleDivisor. Clips whose
 ///     translation streams are entirely zero keep bind placement. See
-///     tools/diagnostics/psx-anim-format.md (fixed-point contract).
+///     docs/formats/psx-animation.md (fixed-point contract).
 /// </param>
 /// <param name="LegacyRotationChain">
 ///     When true, emit each bone's per-frame rotation directly without

@@ -12,8 +12,8 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     <c>neversoftBillboardAxis</c> / <c>neversoftBillboardAnchor</c> (the
 ///     in-app viewer spins tagged meshes about the axis toward the camera);
 ///     the Blender importer attaches a Locked Track constraint with the axis
-///     locked. Anchor and axis are in mesh-local glTF units — corpus-wide
-///     (5,241 sprite meshes across 117 files, psx_sprite_vertex_census.py)
+///     locked. Anchor and axis are in mesh-local glTF units — across the full
+///     corpus (5,241 sprite meshes in 117 files),
 ///     every anchor sits exactly on the mesh-local Y axis, so the axis line
 ///     always passes through the node origin.
 /// </summary>

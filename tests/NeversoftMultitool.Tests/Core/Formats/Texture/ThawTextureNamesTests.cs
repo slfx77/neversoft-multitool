@@ -6,8 +6,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Texture;
 public class ThawTextureNamesTests
 {
     // Checksums come from the debug.log build transcripts inside THAW QTex .tex.zip
-    // bundles (harvested by tools/utilities/harvest_thaw_texture_names.py). They are
-    // opaque build-tool ids, NOT QbKeys.
+    // bundles and are opaque build-tool ids, NOT QbKeys. These vectors pin the
+    // materialized checksum/name side map against known transcript pairs.
     [Theory]
     [InlineData(0x5A11D8F1u, "cat_bg_new")]
     [InlineData(0x560644FEu, "Acc_Elbowpads01")]

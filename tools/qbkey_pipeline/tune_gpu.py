@@ -15,6 +15,8 @@ RATE_RE = re.compile(
     r"Length\s+(\d+):\s+([0-9]+)\s+strings,.*\(([0-9.]+)\s+B/s\)"
 )
 WG_RE = re.compile(r"Brute kernel WG limit:\s+([0-9]+), preferred multiple:\s+([0-9]+)")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_EXE = REPO_ROOT / "TestOutput" / "qbkey_pipeline" / "qbkey_pipeline.exe"
 
 
 def parse_csv_ints(text: str) -> list[int]:
@@ -89,8 +91,8 @@ def main() -> int:
     parser.add_argument(
         "--exe",
         type=Path,
-        default=Path(__file__).with_name("qbkey_pipeline.exe"),
-        help="Path to qbkey_pipeline executable.",
+        default=DEFAULT_EXE,
+        help="Path to qbkey_pipeline executable (default: %(default)s).",
     )
     parser.add_argument(
         "-m",

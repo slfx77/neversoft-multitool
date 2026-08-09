@@ -3,7 +3,7 @@ namespace NeversoftMultitool.Core.Formats.Vid1;
 /// <summary>
 ///     Native C# decoder for THAW GameCube VID1 (Factor 5 f5vid) video.
 ///     Ports Factor 5's <c>M4Decoder</c> pipeline — see
-///     <c>tools/ghidra/thaw-gc/output/M4DECODER_INVENTORY.md</c> — with some
+///     <c>docs/formats/vid1-decoder-provenance.md</c> — with some
 ///     first-pass simplifications listed in the plan. Produces RGB24 frames
 ///     that can be piped to ffmpeg or rendered via WinUI <c>WriteableBitmap</c>.
 /// </summary>

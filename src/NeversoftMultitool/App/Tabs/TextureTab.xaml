@@ -85,10 +85,13 @@
               <ColumnDefinition Width="70" />
               <ColumnDefinition Width="90" />
             </Grid.ColumnDefinitions>
+            <!--  Starts in the parent's own name column (1), not the chevron
+                  gutter (0), so the indent step stays 20px even after the
+                  gutter column is drag-resized.  -->
             <TextBlock
-              Grid.Column="0"
-              Grid.ColumnSpan="3"
-              Margin="28,0,0,0"
+              Grid.Column="1"
+              Grid.ColumnSpan="2"
+              Margin="20,0,0,0"
               VerticalAlignment="Center"
               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
               Text="{x:Bind NameDisplay}"

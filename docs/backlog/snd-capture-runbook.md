@@ -6,7 +6,7 @@ the part that needs real hardware and the game.
 ## Why a capture
 
 `.snd` (788 files, THUG2 PC only) is a 4-bit IMA-family codec whose predictor
-rule is unknown. `tools/diagnostics/snd_codec_fit.py` scores candidates against
+rule is unknown. `tools/research/snd-codec/snd_codec_fit.py` scores candidates against
 350 known-plaintext pairs — basenames that ship as both PC `.snd` and Xbox
 `.pcm` — but those are *two independent lossy encodes of the same audio*, so
 even a perfect decoder could not score 1.0. Best model reaches 0.65.
@@ -28,10 +28,10 @@ predictor diverges. One good capture should settle it.
 
 | File | Purpose | Status |
 |---|---|---|
-| `tools/diagnostics/snd_probe_gen.py` | Writes chosen-plaintext `.snd` probes with corpus-exact headers | done |
-| `tools/diagnostics/snd_capture.js` | Frida hook: dumps decoded DirectSound buffers, labelled by the `.snd` just opened | done |
-| `tools/diagnostics/snd_solve.py` | Recovers step table / diff form / leak from (probe, capture) pairs | done, **`--self-test` passes** |
-| `tools/diagnostics/snd_codec_fit.py` | Scores a finished candidate against the 350 pairs | done |
+| `tools/research/snd-codec/snd_probe_gen.py` | Writes chosen-plaintext `.snd` probes with corpus-exact headers | done |
+| `tools/research/snd-codec/snd_capture.js` | Frida hook: dumps decoded DirectSound buffers, labelled by the `.snd` just opened | done |
+| `tools/research/snd-codec/snd_solve.py` | Recovers step table / diff form / leak from (probe, capture) pairs | done, **`--self-test` passes** |
+| `tools/research/snd-codec/snd_codec_fit.py` | Scores a finished candidate against the 350 pairs | done |
 
 `snd_solve.py --self-test` runs the whole analysis chain against a synthetic
 engine with a deliberately non-textbook rule (leak 0.990, diff shift 3) and
@@ -98,14 +98,14 @@ locate where the key comes from without executing the loader.
 
 **What "crack it without a VM" would actually mean:** emulating the loader
 until it decrypts itself, then dumping — the same trick this repo already used
-for the N64 ERZ codec, where `tools/diagnostics/erz_emu_decode.py` runs the
+for the N64 ERZ codec, where a retired Python emulator ran the
 ROM's own decompressor under a minimal MIPS interpreter. The x86 equivalent is
 Unicorn Engine plus stubbed Windows APIs. Tractable, and it would also reveal
 whether the key is disc-derived — but it is a multi-day project against an
 actively anti-emulation loader.
 
 **UPDATE 2026-08-07 — the emulator was built, and it works.**
-`tools/diagnostics/safedisc_emu.py` runs the loader under Unicorn and has
+`tools/safedisc/safedisc_emu.py` runs the loader under Unicorn and has
 already gone far enough to change what we know. Read its module docstring for
 the current state; the headline results:
 
@@ -172,7 +172,7 @@ Install the game from `Setup/`, confirm it launches and plays a sound.
 ## Step 2 — probes
 
 ```
-python tools/diagnostics/snd_probe_gen.py -o probes/ --seconds 0.25
+python tools/research/snd-codec/snd_probe_gen.py -o TestOutput/snd-codec/probes/ --seconds 0.25
 ```
 
 Six probes, each isolating one unknown:
@@ -192,7 +192,7 @@ the original, then copy a probe over it:
 
 ```
 copy "Game\Data\sounds\...\SOMESOUND.snd" SOMESOUND.snd.bak
-copy probes\probe_ramp-max.snd "Game\Data\sounds\...\SOMESOUND.snd"
+copy TestOutput\snd-codec\probes\probe_ramp-max.snd "Game\Data\sounds\...\SOMESOUND.snd"
 ```
 
 ## Step 3 — capture
@@ -200,7 +200,7 @@ copy probes\probe_ramp-max.snd "Game\Data\sounds\...\SOMESOUND.snd"
 ```
 pip install frida-tools
 mkdir C:\snd_capture
-frida -f "C:\...\THUG2.exe" -l tools\diagnostics\snd_capture.js
+frida -f "C:\...\THUG2.exe" -l tools\research\snd-codec\snd_capture.js
 ```
 
 Trigger the sound. Buffers land in `C:\snd_capture\` as raw s16le mono, named
@@ -213,9 +213,9 @@ attach with `frida -n THUG2.exe` instead.
 ## Step 4 — solve
 
 ```
-python tools/diagnostics/snd_solve.py \
-    --pair ramp-max=probes/probe_ramp-max.snd,C:/snd_capture/SOMESOUND_0.raw \
-    --pair settle=probes/probe_settle.snd,C:/snd_capture/SOMESOUND_1.raw
+python tools/research/snd-codec/snd_solve.py \
+    --pair ramp-max=TestOutput/snd-codec/probes/probe_ramp-max.snd,C:/snd_capture/SOMESOUND_0.raw \
+    --pair settle=TestOutput/snd-codec/probes/probe_settle.snd,C:/snd_capture/SOMESOUND_1.raw
 ```
 
 First thing to check in the output is `samples per payload byte`. It should be

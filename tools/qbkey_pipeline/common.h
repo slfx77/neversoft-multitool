@@ -41,7 +41,7 @@
 #define HSET_MASK       (HSET_SIZE - 1)
 
 #define MAX_NAME_LEN    256
-#define BUILDS_DEFAULT  "C:\\Users\\mmc99\\Desktop\\Games\\TCRF\\Spider-Man Research\\Builds"
+#define BUILDS_DEFAULT  "Sample\\Builds"
 
 /* ========================================================================= */
 /* Performance timer                                                         */

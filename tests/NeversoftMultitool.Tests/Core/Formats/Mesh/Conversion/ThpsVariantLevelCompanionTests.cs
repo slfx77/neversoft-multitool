@@ -153,8 +153,8 @@ public sealed class ThpsVariantLevelCompanionTests(TestPaths paths)
 
     /// <summary>
     ///     The regions whose boot script names no object bank, per build —
-    ///     transcribed from the shipped TRGs, not from this tool's output
-    ///     (<c>tools/diagnostics/psx_variant_bank_report.py</c> lists them).
+    ///     transcribed from the shipped TRGs, not inferred from this tool's output;
+    ///     the expected build-specific sets are pinned below.
     /// </summary>
     private static string[] ExpectedBanklessVariants(string buildName)
     {

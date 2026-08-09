@@ -4,7 +4,7 @@ This repo keeps code cleanup local-first.
 
 ## SonarQube
 
-Use the local wrapper in [tools/run-sonarqube.ps1](/c:/Users/mmc99/source/repos/NeversoftMultitool/tools/run-sonarqube.ps1).
+Use the local wrapper in [tools/maintenance/run-sonarqube.ps1](../tools/maintenance/run-sonarqube.ps1).
 
 Prerequisites:
 
@@ -15,7 +15,7 @@ Example:
 
 ```powershell
 $env:SONAR_TOKEN = "..."
-.\tools\run-sonarqube.ps1 `
+.\tools\maintenance\run-sonarqube.ps1 `
   -HostUrl "https://sonarqube.example.com" `
   -ProjectKey "NeversoftMultitool" `
   -ProjectName "NeversoftMultitool"
@@ -40,8 +40,8 @@ That includes:
 
 ## Repo Rules
 
-- Run `.\tools\verify-repo-structure.ps1` for repo-structure checks. This is intentionally a script, not a unit test.
-- Partial classes are limited to XAML code-behind, source-generation bridge types (`[GeneratedRegex]`, `JsonSerializerContext`), and the explicitly-tracked stateful splits (`GsGifInterpreter`, `Ps2GsVram`); the authoritative allowlist lives in `tools/verify-repo-structure.ps1`.
+- Run `.\tools\maintenance\verify-repo-structure.ps1` for repo-structure checks. This is intentionally a script, not a unit test.
+- Partial classes are limited to XAML code-behind, source-generation bridge types (`[GeneratedRegex]`, `JsonSerializerContext`), and the explicitly-tracked stateful splits (`GsGifInterpreter`, `Ps2GsVram`); the authoritative allowlist lives in `tools/maintenance/verify-repo-structure.ps1`.
 - Tracked C# files under `src` and `tests` should stay near the soft `<=500` line target.
-- Any intentional exceptions to the soft size target must stay explicit in `tools/verify-repo-structure.ps1`.
+- Any intentional exceptions to the soft size target must stay explicit in `tools/maintenance/verify-repo-structure.ps1`.
 - GUI code-behind should remain UI wiring only; non-UI workflows belong in helpers/controllers/services.

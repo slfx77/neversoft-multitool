@@ -123,8 +123,8 @@ public sealed class RwDffFileTests(TestPaths paths)
     //
     // The LOD 2/3 "texture mapping off" report was root-caused to the SHIPPED file
     // data (sloppy LOD UV authoring), not the decoder: the raw UV array, the binmesh
-    // strips, normals, and skin weights all cross-validate the current decode
-    // (tools/diagnostics/rwdff_lod_uv_probe.py). These tests pin the exact UV↔vertex
+    // strips, normals, and skin weights all cross-validate the current decode.
+    // These tests pin the exact UV↔vertex
     // pairing on two LOD fixtures so any future change to the geometry-struct walk
     // (surface-property skip, PRELIT block, UV-set count) fails loudly instead of
     // silently re-pairing UVs.

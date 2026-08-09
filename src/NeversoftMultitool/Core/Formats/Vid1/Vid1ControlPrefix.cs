@@ -4,7 +4,7 @@ namespace NeversoftMultitool.Core.Formats.Vid1;
 ///     Per-macroblock control-prefix parsers for Factor 5 M4Decoder.
 ///     Ports <c>probe_caller_control_99a38_from_reader</c> and
 ///     <c>probe_caller_control_998f8_from_reader</c> from the validated
-///     Python probes in <c>tools/diagnostics/dump_vid1_coeffs.py</c>.
+///     Python probes in <c>tools/validation/video/dump_vid1_coeffs.py</c>.
 /// </summary>
 internal static class Vid1ControlPrefix
 {

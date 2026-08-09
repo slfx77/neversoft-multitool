@@ -13,8 +13,8 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     Two <c>pickupType → hash</c> table families are reverse-engineered:
 ///     <list type="bullet">
 ///         <item>
-///             Spider-Man (<c>switch(mType-8)</c>, per-build tables from
-///             <c>tools/diagnostics/spiderman_pickup_table_probe.py</c>);
+///             Spider-Man (<c>switch(mType-8)</c>, per-build tables read directly
+///             from each shipped executable and cross-checked against its TRGs);
 ///         </item>
 ///         <item>
 ///             THPS1/THPS2 (<c>switch(mType)</c>, SKATE letters + bonus/money,
@@ -52,7 +52,7 @@ internal static class PsxPowerupPlacementResolver
     private const uint ApocalypseItemsMarker = 0x350E968C;
 
     // pickupType -> items mesh-name hash, per build. Each entry is provenanced
-    // by its ctor jump table (see spiderman_pickup_table_probe.py). No
+    // by its shipped constructor jump table and pinned by resolver tests. No
     // pickupType ever maps to two DIFFERENT non-default models across builds,
     // and the census subset {8,11,14,15,16} is identical everywhere — the drift
     // is only in which extra types resolve, which the items.psx signature

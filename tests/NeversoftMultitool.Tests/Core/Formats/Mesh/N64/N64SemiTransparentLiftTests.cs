@@ -195,8 +195,7 @@ public sealed class N64SemiTransparentLiftTests(TestPaths paths)
 
     /// <summary>
     ///     The reported defect, measured. Before the lift Downtown exported 539
-    ///     same-facing coplanar overlapping pairs (per
-    ///     <c>tools/diagnostics/n64_coplanar_probe.py --limit 512</c>), 436 of
+    ///     same-facing coplanar overlapping pairs in the 512-pair corpus census, 436 of
     ///     them a street line fighting the road it is painted on. Every
     ///     semi-transparent one is gone.
     ///     <para>

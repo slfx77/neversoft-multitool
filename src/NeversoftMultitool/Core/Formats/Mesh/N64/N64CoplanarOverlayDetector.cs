@@ -66,7 +66,7 @@ internal static class N64CoplanarOverlayDetector
     ///     <para>
     ///         On a THPS1 level (k = 1, ScaleDivisor 2.25) this evaluates to
     ///         0.0556, reproducing the 0.05 already validated on School and
-    ///         Downtown by <c>tools/diagnostics/n64_coplanar_probe.py</c>.
+    ///         Downtown; <c>N64SemiTransparentLiftTests</c> pins the measured result.
     ///     </para>
     /// </summary>
     private const float PlaneToleranceInRawUnits = 0.125f;

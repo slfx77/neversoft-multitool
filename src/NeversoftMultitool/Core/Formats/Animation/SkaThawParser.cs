@@ -17,7 +17,7 @@ internal static class SkaThawParser
     // runtime, same as THAW QB script bodies).
     //
     // Layout (validated on 7,057 PS2<->GC pairs; key grammar verified against
-    // the THAW PS2 ELF readers, tools/ghidra/thaw-ps2/output/phase_ska_key_readers.c):
+    // the THAW PS2 ELF readers before the research probes were retired):
     //   0x00 u32 version=0x28, u32 flags, f32 duration
     //   0x0C u8 zero, u8 numBones, u16 numQKeys, u16 numTKeys, u16 numCustomKeys
     //   0x14 u8[20] bone mask (all-0xFF in the shipped corpus)

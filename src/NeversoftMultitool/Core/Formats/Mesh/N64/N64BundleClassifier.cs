@@ -41,8 +41,8 @@ public enum N64BundleClass
 ///     <para>
 ///         The THPS park-editor piece sets (<c>sked&lt;N&gt;_w&lt;M&gt;</c>, 40
 ///         bundles) were the one labelling risk, since the classification
-///         probe's own oracle assumed they were levels. Measured
-///         (<c>tools/diagnostics/n64_sked_piece_probe.py</c>): they span radius
+///         probe's own oracle assumed they were levels. The corpus measurements
+///         show that they span radius
 ///         4,122-10,357 with 27-49 objects, i.e. 3.4-8.5x the threshold, against
 ///         a THPS2 band of 906..1538. They are world geometry however they are
 ///         labelled, and cannot move the rule. Their PS1 siblings agree:
