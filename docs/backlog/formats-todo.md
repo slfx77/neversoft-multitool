@@ -272,60 +272,16 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
   settled by diffing both readings against ffmpeg's `adpcm_ima_xbox` (bit-exact one way,
   mismatched the other). `Core/Formats/Audio/XboxImaAdpcm.cs` + `XboxPcmDecoder.cs`, on a new
   shared `Core/BinaryIO/RiffWaveReader.cs`.
-- 🔶 **`.snd` (788, THUG2 **PC only**) — codec NOT decoded. The old claim here, "plain PCM WAV
-  (rename/route only)", was FALSE on three counts** (corrected 2026-08-07): it is PC-only (0 on
-  Xbox), there are 788 not 739, and it is not PCM. The `fmt ` chunk claims 16-bit mono PCM and
-  lies — `nAvgBytesPerSec` carries the DECODED byte count (`4 x dataSize`, or that minus 2 for an
-  odd sample count, in **788/788** files), so the payload is 2 samples per byte. Read as int16 it
-  is white noise (mean|Δ|/RMS **1.105** vs 0.02–0.20 for real audio; nibble entropy 3.63).
-  Shipping it as `.wav` would emit 788 files of static, so it probes as Unsupported with that
-  reason and is pinned by `ThugPcSndSurveyTests`.
-  - **Oracle in hand**: 350 basenames ship as both `.snd` (PC) and `.pcm` (Xbox) — the same source
-    audio in two encodes — and the `.pcm` side now decodes bit-exactly. Harness:
-    `tools/research/snd-codec/snd_codec_fit.py` (median windowed NCC over pairs; acceptance ≥ 0.97 over
-    ≥ 100 pairs).
-  - **Best current finding**: correlating the **first differences** gives a uniform **0.84–0.87**
-    across every file, while the raw waveform ranges 0.26–0.99 purely by content (0.99 on
-    impulsive hits, 0.26 on quiet sustained sounds). So textbook IMA already recovers the per-sample
-    deltas — nibble order, step table and index table are all correct — and the divergence is the
-    accumulated **predictor**. What remains unknown is the state/prediction rule, not the tables.
-  - **Ruled out**: `.snd` is not the `.pcm` bitstream minus its 4-byte block headers (1–8% byte
-    agreement = chance; independent encodes); nibble order (high-first drops deriv to 0.41);
-    initial step index (no effect); shift-accumulate diff form; state resets at 16/32 bytes;
-    Yamaha AICA; OKI/Dialogic; MS-ADPCM. A leaky integrator confirms the drift diagnosis
-    directionally (raw 0.60 → 0.65) without closing the gap.
-  - **Binary leads exhausted at this level**: `THUG2.exe` is SafeDisc-2 wrapped (`.text`/`.data`
-    entropy ~8.0; `.rdata` is readable and contains **no** IMA / MS-ADPCM / AICA / OKI / SPU
-    table), and imports DSOUND but **not MSACM32**, so the decode is in-engine software rather
-    than an ACM codec. The THUG source drop has no Win32 sound backend at all (`Gel/SoundFX/`
-    ships only NGPS/Xbox/ngc). `THAW.exe` (available unpacked) does carry the IMA step+index
-    tables at file offset `0x2D8310` → VA `0x6D9310`, but they have **zero xrefs in either
-    `.text` section** — dead linked-in library data, not a live decoder (THAW PC ships plain PCM
-    `.wav`, 1,148/1,148). The Xbox XBE is plaintext but decodes ADPCM in hardware, so it holds no
-    software codec either.
-  - **Public state of the art (searched 2026-08-07): nobody has solved this.** The THPS modding
-    community reached the same wall and no further — the thps-mods.com "THUG2 Sound format"
-    thread (site now dead; not in the Wayback proxy either) reports `.snd` as "basically Xbox
-    encoded wav files" that give **white noise** when played, notes the header is "4 bytes
-    shorter than the xb_adpcm spec with codec type 01", and states the xb_adpcm codec that works
-    on `.PCM` inside `.PRE` is **not** compatible with `.SND`. A ZenHAX thread on the THUG/THUG2
-    music WAD+DAT reports the same for the PC build ("sounds like garbage"). No decoder exists in
-    any public tool: not vgmstream, not aluigi's Xbox-ADPCM tools, and none of the THPS GitHub
-    repos (thps2-tools, NeverScript, THPS-Level-Editor, T2CMT, thug-pro-scripting). Our findings
-    above already go further than any published source.
-  - **Community theory TESTED AND REJECTED**: if those "4 bytes" were only the fmt-chunk
-    extension (cbSize + wSamplesPerBlock), the payload would still be 36-byte blocked and the
-    working Xbox ADPCM decoder would read it. It does not — raw NCC **0.006**, deriv **-0.005**,
-    and `.snd` data sizes are **never** a multiple of 36. Kept as the `xbox-blocked` model in the
-    harness so it is not re-proposed.
-  - **Two ways forward, both needing the user.** (a) The **LegacyThps Discord** is repeatedly
-    cited as where the deep format knowledge lives and is not web-searchable — cheapest ask.
-    (b) Far stronger than any static work: run the game in an XP/7 VM (the disc rip has
-    `SECDRV.SYS` + `DrvMgt.dll` + `00000001.TMP`, and it is **SafeDisc 3.20.22**) and capture the
-    DirectSound buffer for a known `.snd`. That yields EXACT input→output ground truth for the
-    same file, versus today's oracle of two different lossy encodes, and turns recovering the
-    predictor from a search into an algebra problem. Note `secdrv.sys` is CVE-2007-5587 and was
-    blocked by Microsoft in KB3086255 — VM only, never the host.
+- ✅ **`.snd` — DONE 2026-08-09.** 788 files, THUG2 Windows only. The decrypted retail
+  executable exposes the complete decoder at VA `0x005F5A20`: low nibble first, canonical IMA
+  tables, but the step index is updated **before** the current step lookup and the delta is
+  `((step * magnitude) >> 2) + (step >> 3)`. Predictor and index start at zero and carry across
+  the whole file. `nAvgBytesPerSec` is the decoded byte count, so the loader requests exactly
+  `nAvgBytesPerSec / 2` samples and ignores the last high nibble for odd counts. The original x86
+  routine and the clean-room implementation matched byte-for-byte on a stress vector; 350
+  independently encoded PC/Xbox name pairs reach median windowed NCC 0.9906. Implemented by
+  `Thug2PcSndCodec` / `Thug2PcSndDecoder`; full provenance is in
+  `docs/formats/thug2-pc-snd.md`.
 - ⚪ Not formats / no action: `.dep` (build path lists), `.chk` (checksum text), `.anr` (text
   anchor scripts), `.rec` replays, `.seq` ("Sequencer File" text on the DC proto), standard
   `.gif/.ogg/.jpg`, installer debris. `.zoo`/`.bfx`/`.ppv` = Codemasters WTC (see PPV entry).

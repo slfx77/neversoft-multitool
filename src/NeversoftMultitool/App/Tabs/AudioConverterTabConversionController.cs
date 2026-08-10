@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using NeversoftMultitool.Core.Formats.Audio;
 
 namespace NeversoftMultitool;
 
@@ -55,16 +56,20 @@ internal sealed class AudioConverterTabConversionController : IDisposable
         var totalFiles = parentFiles.Count;
         var token = cts.Token;
         var entries = parentFiles.ToList();
+        var outputStems = AudioOutputStemPlanner.Plan(entries
+            .Select(static entry => new AudioOutputStemInput(entry.FileName, entry.RelativePath))
+            .ToList());
 
         try
         {
             await Task.Run(() =>
             {
-                foreach (var entry in entries)
+                for (var entryIndex = 0; entryIndex < entries.Count; entryIndex++)
                 {
                     if (token.IsCancellationRequested)
                         break;
 
+                    var entry = entries[entryIndex];
                     dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
 
                     try
@@ -72,7 +77,8 @@ internal sealed class AudioConverterTabConversionController : IDisposable
                         var result = AudioConverterTabOperations.ConvertFile(
                             entry,
                             outputDir,
-                            vabSampleRate);
+                            vabSampleRate,
+                            outputStems[entryIndex]);
 
                         var processed = Interlocked.Increment(ref filesProcessed);
                         scope.Report(processed, totalFiles);

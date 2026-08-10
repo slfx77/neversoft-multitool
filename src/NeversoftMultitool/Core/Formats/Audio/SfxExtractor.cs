@@ -73,10 +73,15 @@ public static class SfxExtractor
 
     public static AudioConvertResult ExtractToWav(string inputPath, string outputDir)
     {
+        return ExtractToWav(inputPath, Path.GetFileNameWithoutExtension(inputPath), outputDir);
+    }
+
+    /// <summary>Filesystem variant with an explicit output stem for collision-safe batch conversion.</summary>
+    public static AudioConvertResult ExtractToWav(string inputPath, string stem, string outputDir)
+    {
         if (!SfxPathResolver.TryResolvePlan(inputPath, out var plan, out var error))
             return new AudioConvertResult { ErrorMessage = error };
 
-        var stem = Path.GetFileNameWithoutExtension(inputPath);
         return ExtractToWavCore(plan, stem, outputDir);
     }
 

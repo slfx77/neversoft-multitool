@@ -7,7 +7,7 @@ namespace NeversoftMultitool;
 internal static class AudioConverterTabOperations
 {
     private static readonly string[] SupportedExtensions =
-        [".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".pcm", ".pss", ".vid"];
+        [".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".pcm", ".snd", ".pss", ".vid"];
 
     public static bool IsAudioFile(string path)
     {
@@ -38,6 +38,7 @@ internal static class AudioConverterTabOperations
             ".vab" => "VAB",
             ".vag" => "VAG",
             ".pcm" => "PCM",
+            ".snd" => "SND",
             ".pss" => "PSS",
             ".vid" => "VID",
             ".kat" => "KAT",
@@ -148,23 +149,24 @@ internal static class AudioConverterTabOperations
     public static AudioConvertResult ConvertFile(
         AudioFileEntry entry,
         string outputDir,
-        int vabSampleRate)
+        int vabSampleRate,
+        string outputStem)
     {
         var source = entry.Source;
         var data = source.ReadBytes();
-        var stem = Path.GetFileNameWithoutExtension(entry.FileName);
 
         return entry.AudioFormat switch
         {
-            "ADX" => AdxDecoder.ConvertToWav(data, stem, outputDir),
-            "XA" => XaDecoder.ConvertToWav(data, stem, outputDir),
-            "VAB" => VabExtractor.ExtractToWav(data, stem, outputDir, vabSampleRate),
-            "VAG" => VagDecoder.ConvertToWav(data, stem, outputDir),
-            "PCM" => XboxPcmDecoder.ConvertToWav(data, stem, outputDir),
-            "PSS" => PssAudioExtractor.ConvertToWav(data, stem, outputDir),
-            "VID" => Vid1AudioExtractor.ConvertToWav(data, stem, outputDir),
-            "KAT" => KatExtractor.ExtractToWav(data, stem, outputDir),
-            "SFX" => ConvertSfxFile(source, data, stem, outputDir),
+            "ADX" => AdxDecoder.ConvertToWav(data, outputStem, outputDir),
+            "XA" => XaDecoder.ConvertToWav(data, outputStem, outputDir),
+            "VAB" => VabExtractor.ExtractToWav(data, outputStem, outputDir, vabSampleRate),
+            "VAG" => VagDecoder.ConvertToWav(data, outputStem, outputDir),
+            "PCM" => XboxPcmDecoder.ConvertToWav(data, outputStem, outputDir),
+            "SND" => Thug2PcSndDecoder.ConvertToWav(data, outputStem, outputDir),
+            "PSS" => PssAudioExtractor.ConvertToWav(data, outputStem, outputDir),
+            "VID" => Vid1AudioExtractor.ConvertToWav(data, outputStem, outputDir),
+            "KAT" => KatExtractor.ExtractToWav(data, outputStem, outputDir),
+            "SFX" => ConvertSfxFile(source, data, outputStem, outputDir),
             _ => new AudioConvertResult { ErrorMessage = "Unknown format" }
         };
     }
@@ -177,7 +179,7 @@ internal static class AudioConverterTabOperations
 
         // Filesystem fallback so the cross-sibling alias search still runs
         return source.FileSystemPath != null
-            ? SfxExtractor.ExtractToWav(source.FileSystemPath, outputDir)
+            ? SfxExtractor.ExtractToWav(source.FileSystemPath, stem, outputDir)
             : new AudioConvertResult { ErrorMessage = "SFX companion KAT/VAB not found in archive" };
     }
 
@@ -220,6 +222,7 @@ internal static class AudioConverterTabOperations
             "XA" => XaDecoder.ConvertToWav(data, stem, tempDir),
             "VAG" => VagDecoder.ConvertToWav(data, stem, tempDir),
             "PCM" => XboxPcmDecoder.ConvertToWav(data, stem, tempDir),
+            "SND" => Thug2PcSndDecoder.ConvertToWav(data, stem, tempDir),
             "PSS" => PssAudioExtractor.ConvertToWav(data, stem, tempDir),
             "VID" => Vid1AudioExtractor.ConvertToWav(data, stem, tempDir),
             _ => null

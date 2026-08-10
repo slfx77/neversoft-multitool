@@ -43,8 +43,11 @@ The **Game Unpacker** recursively extracts every archive under a directory in on
 | ADX    | CRI Middleware audio → WAV                                     | THPS2 DC, Spider-Man DC       |
 | KAT    | Dreamcast audio soundbank (ADPCM + PCM) → WAV                  | THPS2 DC, Spider-Man DC       |
 | SFX    | Dreamcast cue banks (resolves companion KAT/VAB samples) → WAV | THPS2 DC, Spider-Man DC       |
+| PCM    | Xbox IMA ADPCM sound effects → WAV                             | THUG2 Xbox / Windows          |
+| SND    | THUG2 PC continuous 4-bit IMA sound effects → WAV              | THUG2 Windows                 |
 
 The **Audio Converter** offers in-app playback with a seekable timeline for the whole file or individual bank samples.
+Recursive batches keep unique output names unchanged and add a stable path-derived suffix only when output names would otherwise collide.
 
 ### 3D Models & Animation
 
@@ -160,7 +163,7 @@ Every command takes an input file or directory, an `-o/--output` directory, and 
 | `rle`      | Convert RLE/BMR/ZLB/BMP/TGA bitmaps → PNG                   |
 | `archive`  | Extract a WAD/PKR/PRE/PRX/DDX/BON/PAK archive or disc image (ISO/CUE/GDI/IMG) |
 | `unpack`   | Recursively extract every archive under a directory         |
-| `audio`    | Convert ADX/XA/VAB/VAG/KAT/SFX/PSS/VID audio → WAV          |
+| `audio`    | Convert ADX/XA/VAB/VAG/KAT/SFX/PCM/SND/PSS/VID audio → WAV  |
 | `sfd`      | Convert SFD (Sofdec) / PSS video → MP4                      |
 | `str`      | Convert PS1 MDEC (STR) video → MP4                          |
 | `vid`      | Convert THAW GameCube VID1 video → MP4                      |
@@ -215,7 +218,7 @@ src/NeversoftMultitool/
       Archives/            # WAD, PKR, PRE, DDX, BON, PAK extraction
       ArchiveFs/           # Read-only filesystem over any archive (nested opens)
       DiscImage/           # ISO9660/XDVDFS/GCM disc images (iso, cue, ccd, gdi)
-      Audio/               # XA, VAB, VAG, ADX, KAT, SFX, PSS decoding
+      Audio/               # XA, VAB, VAG, ADX, KAT, SFX, PCM, SND, PSS decoding
       Mesh/                # PSX/DDM/RW/PS2/Xbox meshes → glTF
       Collision/           # COL collision meshes → glTF
       Animation/           # SKA + PSX skeletal animation

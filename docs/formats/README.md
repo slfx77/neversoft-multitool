@@ -15,6 +15,7 @@ who is not already familiar with the format can trust them.
 | Format | Games | Role | Status |
 |---|---|---|---|
 | [THAW worldzone MDL](thaw-worldzone-mdl.md) | THAW (PS2) | Level geometry (streets, buildings) | Incomplete: runtime-side decomp mostly verified, on-disk preamble fields partly speculative |
+| [THUG2 PC SND](thug2-pc-snd.md) | THUG2 (Windows) | Continuous 4-bit IMA-family sound effects | Complete: executable-derived and corpus-validated |
 
 ## Adding a new format doc
 

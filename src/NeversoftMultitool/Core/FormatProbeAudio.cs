@@ -13,7 +13,7 @@ internal static class FormatProbeAudio
         {
             ".adx" => ProbeAdxFile(filePath),
             ".pcm" => ProbePcmFile(filePath),
-            ".snd" => ProbeSndFile(),
+            ".snd" => ProbeSndFile(filePath),
             ".xa" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "XA Audio"),
             ".vab" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "VAB Sound Bank"),
             ".vag" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "VAG Audio"),
@@ -61,19 +61,18 @@ internal static class FormatProbeAudio
     }
 
     /// <summary>
-    ///     THUG2 PC <c>.snd</c>. The fmt chunk claims 16-bit mono PCM and is lying:
-    ///     the payload is a 4-bit compressed stream, and nAvgBytesPerSec carries the
-    ///     DECODED byte count instead of a byte rate (avg == 4 x dataSize, or that
-    ///     minus 2 for an odd sample count, in all 788 corpus files). Read as PCM it
-    ///     is white noise. Reported as unsupported on purpose — emitting a .wav from
-    ///     it would hand the user 788 files of loud static.
+    ///     THUG2 PC <c>.snd</c>. Its fmt chunk claims 16-bit mono PCM, while the
+    ///     payload is the game's custom 4-bit codec and nAvgBytesPerSec carries the
+    ///     decoded byte count rather than a byte rate.
     /// </summary>
-    private static FormatProbe.FormatProbeResult ProbeSndFile()
+    private static FormatProbe.FormatProbeResult ProbeSndFile(string filePath)
     {
-        return new FormatProbe.FormatProbeResult(
-            FormatProbe.FormatSupport.Unsupported,
-            "THUG2 PC Sound",
-            "4-bit compressed audio behind a PCM fmt header; the codec is not yet decoded");
+        return Thug2PcSndDecoder.Probe(filePath) != null
+            ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "THUG2 PC Sound")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "THUG2 PC Sound",
+                "Not a valid THUG2 PC SND container");
     }
 
     private static FormatProbe.FormatProbeResult ProbeSfxFile(string filePath)

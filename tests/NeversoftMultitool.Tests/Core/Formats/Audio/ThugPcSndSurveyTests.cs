@@ -6,8 +6,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Audio;
 /// <summary>
 ///     THUG2 PC <c>.snd</c> files declare 16-bit mono PCM in their <c>fmt </c>
 ///     chunk and are not PCM at all. This pins the evidence so the format is not
-///     re-implemented as a rename — <c>docs/backlog/formats-todo.md</c> claimed
-///     exactly that for a long time, and acting on it would emit 788 files of
+///     re-implemented as a rename — the format backlog claimed exactly that for
+///     a long time, and acting on it would emit 788 files of
 ///     white noise.
 /// </summary>
 public class ThugPcSndSurveyTests
@@ -70,6 +70,36 @@ public class ThugPcSndSurveyTests
                 offenders.Add($"{Path.GetFileName(file)}: tag={info.FormatTag} align={info.BlockAlign}");
         }
 
+        Assert.True(offenders.Count == 0, string.Join("\n", offenders.Take(20)));
+    }
+
+    /// <summary>
+    ///     The executable requests one fewer sample for 253 files. Its decoder
+    ///     therefore consumes only the low nibble of the last byte; the authored
+    ///     high nibble is consistently zero padding.
+    /// </summary>
+    [CorpusFact]
+    public void Snd_OddSampleStreamsHaveZeroUnusedHighNibble()
+    {
+        var files = _paths.FindSampleFiles(WindowsBuild, "*.snd").ToList();
+        Assert.SkipWhen(files.Count == 0, "No .snd files in Sample/Builds");
+
+        var oddFiles = 0;
+        var offenders = new List<string>();
+        foreach (var file in files)
+        {
+            var data = File.ReadAllBytes(file);
+            if (!RiffWaveReader.TryRead(data, out var info)
+                || info.AvgBytesPerSec != 4L * info.DataLength - 2)
+                continue;
+
+            oddFiles++;
+            var lastPayloadByte = data[info.DataOffset + info.DataLength - 1];
+            if ((lastPayloadByte & 0xF0) != 0)
+                offenders.Add($"{Path.GetFileName(file)}: final byte 0x{lastPayloadByte:X2}");
+        }
+
+        Assert.Equal(253, oddFiles);
         Assert.True(offenders.Count == 0, string.Join("\n", offenders.Take(20)));
     }
 }

@@ -129,7 +129,7 @@
           Text="Audio Conversion"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Convert ADX, XA, VAB, and KAT audio files to WAV"
+          Text="Convert ADX, XA, VAB, VAG, KAT, SFX, PCM, SND, PSS, and VID audio files to WAV"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>

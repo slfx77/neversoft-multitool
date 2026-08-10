@@ -41,6 +41,8 @@ The 2026-08 audit removed the old `PsxAnalyzer`, `DdmAnalyzer`,
 `WorldzoneOracleCensus`, `BlendModeDiag`, and `XbxPassSurvey` projects; their
 accepted behavior now lives in the application and focused tests. It also
 removed one-off format probes and harvesters, build-specific Ghidra projects,
-and generated QBKey/capture/build output. Tracked source remains recoverable
-from Git history; future regressions should start from the current C# behavior
-and retain a new tool only when it satisfies the lifecycle policy above.
+and generated QBKey/capture/build output. The THUG2 PC SND capture/probe suite
+was retired after the decrypted executable supplied the exact codec and it was
+implemented in C#. Tracked source remains recoverable from Git history; future
+regressions should start from the current C# behavior and retain a new tool only
+when it satisfies the lifecycle policy above.

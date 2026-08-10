@@ -107,7 +107,8 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]pvr[/]       Convert Dreamcast PVR texture files to PNG");
         AnsiConsole.MarkupLine("  [green]ngctex[/]    Extract textures from GameCube TEX dictionaries to PNG");
         AnsiConsole.MarkupLine("  [green]ddm[/]       Convert DDM mesh files to glTF (.glb)");
-        AnsiConsole.MarkupLine("  [green]audio[/]     Convert ADX/XA/VAB/VAG/KAT/SFX/PSS/VID audio files to WAV");
+        AnsiConsole.MarkupLine(
+            "  [green]audio[/]     Convert ADX/XA/VAB/VAG/KAT/SFX/PCM/SND/PSS/VID audio files to WAV");
         AnsiConsole.MarkupLine("  [green]qbkey[/]     QBKey hash utilities (cross-reference, lookup)");
         AnsiConsole.MarkupLine("  [green]trg[/]       Parse TRG level trigger/script files to JSON");
         AnsiConsole.MarkupLine("  [green]sfd[/]       Convert SFD (Sofdec) video files to MP4");

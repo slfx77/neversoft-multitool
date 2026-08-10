@@ -38,12 +38,13 @@ public readonly record struct RiffWaveInfo(
 ///             STOPS at <c>data</c> and never continues past it.
 ///         </item>
 ///     </list>
-///     Payload offsets reach 1,028 bytes in the corpus (a <c>bext</c>-prefixed
-///     broadcast-WAV layout), so a header prefix read must be generous.
+///     Payload offsets reach 1,028 bytes in the combined THUG2 audio corpus
+///     (an Xbox <c>.pcm</c> with a <c>bext</c>-prefixed broadcast-WAV layout;
+///     PC <c>.snd</c> reaches 1,024), so a header prefix read must be generous.
 /// </summary>
 public static class RiffWaveReader
 {
-    /// <summary>Bytes to read when probing a file: the largest observed data offset is 1,028.</summary>
+    /// <summary>Bytes to read when probing a file: the largest observed PCM/SND data offset is 1,028.</summary>
     public const int HeaderProbeBytes = 8192;
 
     public static bool IsRiffWave(ReadOnlySpan<byte> data)
