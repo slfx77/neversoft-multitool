@@ -57,6 +57,39 @@ internal static class PsxAnimationChannelWriter
         if (animations.Count == 0)
             return;
 
+        foreach (var clip in animations)
+        {
+            var modelAnim = new ModelAnimation { Name = clip.Name };
+            if (AppendPsxAnimationClipChannels(
+                    modelAnim, document, psxFile, skeletonIndex, clip, options))
+            {
+                document.Animations.Add(modelAnim);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Appends the channels decoded from one <paramref name="clip" /> to a
+    ///     caller-owned <paramref name="modelAnimation" />. The target is not
+    ///     added to <paramref name="document" />: callers can therefore append
+    ///     the same source clip for several skeleton instances and publish one
+    ///     shared animation record after all channel sets are present. This only
+    ///     aggregates IR channels; Blender export also requires instance-unique
+    ///     bone names so its FCurve data paths do not collide.
+    /// </summary>
+    /// <returns><see langword="true" /> when at least one channel was appended.</returns>
+    internal static bool AppendPsxAnimationClipChannels(
+        ModelAnimation modelAnimation,
+        ModelDocument document,
+        PsxMeshFile psxFile,
+        int skeletonIndex,
+        PsxAnimationClip clip,
+        PsxAnimationOptions options)
+    {
+        if ((uint)skeletonIndex >= (uint)document.Skeletons.Count)
+            return false;
+
+        var initialChannelCount = modelAnimation.Channels.Count;
         var skeleton = document.Skeletons[skeletonIndex];
         var jointCount = skeleton.Bones.Count;
         var gltfParentIndices = new int[jointCount];
@@ -101,57 +134,53 @@ internal static class PsxAnimationChannelWriter
         // The arm posing defect has a different, still-unknown cause.
         var flatSuperEngine = !psxFile.HasHierarchy;
 
-        foreach (var clip in animations)
+        var animation = clip.Animation;
+        var boneCount = Math.Min(jointCount, animation.BoneCount);
+        var frameCount = animation.FrameCount;
+        if (boneCount == 0 || frameCount == 0)
+            return false;
+
+        // Translation hierarchy: the engine composes anim translations
+        // through the hierarchy that ships WITH the anim data (pHierarchy /
+        // CalculateAnimOrder name-remap), so a clip decoded from an
+        // external bank carries that bank's parent table. Fall back to the
+        // character's own object hierarchy for embedded anims.
+        //
+        // v1 direct-matrix clips are exempt from ALL of that: their T
+        // cells are absolute model-space part origins even on HIER
+        // characters (see PsxAnimation.AbsoluteWorldTranslations —
+        // mullen/carnage verified numerically), so composing them through
+        // any parent chain double-counts ancestor origins and stretches
+        // the body. They always take flat parents + the world-solve path.
+        var flatTranslations = flatSuperEngine || clip.Animation.AbsoluteWorldTranslations;
+        int[] engineParentIndices;
+        if (flatTranslations)
+            engineParentIndices = BuildFlatParentIndices(boneCount);
+        else if (clip.TranslationParentIndices != null)
+            engineParentIndices = NormalizeParentIndices(clip.TranslationParentIndices, boneCount);
+        else
+            engineParentIndices = BuildPsxEngineParentIndices(psxFile, boneCount);
+        if (!options.SkipRotation)
         {
-            var animation = clip.Animation;
-            var modelAnim = new ModelAnimation { Name = clip.Name };
-            var boneCount = Math.Min(jointCount, animation.BoneCount);
-            var frameCount = animation.FrameCount;
-            if (boneCount == 0 || frameCount == 0)
-                continue;
-
-            // Translation hierarchy: the engine composes anim translations
-            // through the hierarchy that ships WITH the anim data (pHierarchy /
-            // CalculateAnimOrder name-remap), so a clip decoded from an
-            // external bank carries that bank's parent table. Fall back to the
-            // character's own object hierarchy for embedded anims.
-            //
-            // v1 direct-matrix clips are exempt from ALL of that: their T
-            // cells are absolute model-space part origins even on HIER
-            // characters (see PsxAnimation.AbsoluteWorldTranslations —
-            // mullen/carnage verified numerically), so composing them through
-            // any parent chain double-counts ancestor origins and stretches
-            // the body. They always take flat parents + the world-solve path.
-            var flatTranslations = flatSuperEngine || clip.Animation.AbsoluteWorldTranslations;
-            int[] engineParentIndices;
-            if (flatTranslations)
-                engineParentIndices = BuildFlatParentIndices(boneCount);
-            else if (clip.TranslationParentIndices != null)
-                engineParentIndices = NormalizeParentIndices(clip.TranslationParentIndices, boneCount);
-            else
-                engineParentIndices = BuildPsxEngineParentIndices(psxFile, boneCount);
-            if (!options.SkipRotation)
-            {
-                var rotationContext = new PsxRotationChannelContext(
-                    skeletonIndex, animation, gltfParentIndices, boneCount,
-                    frameCount, fps, options.RotationCompose, options.LegacyRotationChain,
-                    options.RotationScale);
-                AppendPsxRotationChannels(modelAnim, rotationContext);
-            }
-
-            if (!options.SkipTranslation && PsxTranslationChannelWriter.HasTranslationData(animation, boneCount))
-            {
-                var translationContext = new PsxTranslationChannelWriter.PsxTranslationChannelContext(
-                    skeletonIndex, skeleton, animation, gltfParentIndices, engineParentIndices, boneCount,
-                    frameCount, fps, translationDivisor, options.RotationCompose,
-                    options.LegacyRotationChain, options.RotationScale,
-                    options.AbsoluteTranslation, options.SkipRotation, flatTranslations);
-                PsxTranslationChannelWriter.EmitPsxTranslationChannels(modelAnim, in translationContext, options);
-            }
-
-            if (modelAnim.Channels.Count > 0)
-                document.Animations.Add(modelAnim);
+            var rotationContext = new PsxRotationChannelContext(
+                skeletonIndex, animation, gltfParentIndices, boneCount,
+                frameCount, fps, options.RotationCompose, options.LegacyRotationChain,
+                options.RotationScale);
+            AppendPsxRotationChannels(modelAnimation, rotationContext);
         }
+
+        if (!options.SkipTranslation && PsxTranslationChannelWriter.HasTranslationData(animation, boneCount))
+        {
+            var translationContext = new PsxTranslationChannelWriter.PsxTranslationChannelContext(
+                skeletonIndex, skeleton, animation, gltfParentIndices, engineParentIndices, boneCount,
+                frameCount, fps, translationDivisor, options.RotationCompose,
+                options.LegacyRotationChain, options.RotationScale,
+                options.AbsoluteTranslation, options.SkipRotation, flatTranslations);
+            PsxTranslationChannelWriter.EmitPsxTranslationChannels(
+                modelAnimation, in translationContext, options);
+        }
+
+        return modelAnimation.Channels.Count > initialChannelCount;
     }
 
     /// <summary>

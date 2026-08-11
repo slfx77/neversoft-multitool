@@ -31,20 +31,30 @@ internal static class PsxCoplanarOverlayDetector
     internal static IReadOnlyDictionary<PsxFaceInstanceKey, PsxCoplanarOverlayAssignment> FindGroups(
         PsxMeshFile file)
     {
-        var planes = CollectPlanes(file);
+        var discovery = DiscoverComparisons(file);
 
         var planeGroups = new List<Dictionary<PsxFaceInstanceKey, int>>();
-        foreach (var candidates in planes.Values)
+        foreach (var component in BuildComparisonComponents(discovery))
         {
             var overlays = new HashSet<PsxFaceInstanceKey>();
-            for (var i = 0; i < candidates.Count; i++)
+            foreach (var pair in component.Pairs)
             {
-                for (var j = i + 1; j < candidates.Count; j++)
-                    ClassifyPair(candidates[i], candidates[j], overlays);
+                ClassifyPair(
+                    pair.First,
+                    pair.Second,
+                    pair.FirstPlane,
+                    pair.SecondPlane,
+                    overlays,
+                    out _);
             }
 
             if (overlays.Count > 0)
-                planeGroups.Add(RankOverlays(candidates, overlays));
+            {
+                planeGroups.Add(RankOverlays(
+                    component.Candidates,
+                    overlays,
+                    component.ComparablePairs));
+            }
         }
 
         var groups = new Dictionary<PsxFaceInstanceKey, PsxCoplanarOverlayAssignment>();
@@ -61,6 +71,189 @@ internal static class PsxCoplanarOverlayDetector
     }
 
     /// <summary>
+    ///     Reports the result of every same-plane face-pair comparison made by
+    ///     the shipped detector. Diagnostics deliberately call
+    ///     <see cref="ClassifyPair" /> rather than duplicating its rules, so a
+    ///     residue investigation observes the exact branch that production
+    ///     used. A successful comparison names the selected overlay; a
+    ///     declined comparison names the reason and has no overlay.
+    /// </summary>
+    internal static IEnumerable<PsxCoplanarPairDiagnostic> DiagnosePairs(PsxMeshFile file)
+    {
+        var discovery = DiscoverComparisons(file);
+        foreach (var pair in discovery.Pairs.Values
+                     .OrderBy(static pair => (pair.First.Key.ObjectIndex, pair.First.Key.FaceIndex))
+                     .ThenBy(static pair => (pair.Second.Key.ObjectIndex, pair.Second.Key.FaceIndex)))
+        {
+            // ClassifyPair only adds to this set; prior additions do not affect
+            // later decisions. Keeping the real accumulator here makes this
+            // the same call shape as FindGroups, not a parallel classifier.
+            var overlays = new HashSet<PsxFaceInstanceKey>();
+            var overlay = ClassifyPair(
+                pair.First,
+                pair.Second,
+                pair.FirstPlane,
+                pair.SecondPlane,
+                overlays,
+                out var declineReason);
+            yield return new PsxCoplanarPairDiagnostic(
+                pair.First.Key,
+                pair.Second.Key,
+                overlay,
+                declineReason,
+                null,
+                DescribePlanes(pair.First),
+                DescribePlanes(pair.Second))
+            {
+                AdmittedPlaneDistanceDelta = MathF.Abs(
+                    pair.FirstPlane.RawDistance - pair.SecondPlane.RawDistance),
+                FirstAdmissionUsesPrimaryTriangle = pair.FirstPlane.IsPrimary,
+                SecondAdmissionUsesPrimaryTriangle = pair.SecondPlane.IsPrimary,
+                SharedAreaFraction = CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
+                    pair.First.Points,
+                    pair.Second.Points),
+                AdmittedTriangleSharedAreaFraction = AdmittedTriangleSharedAreaFraction(pair),
+                FirstArea = pair.First.Area,
+                SecondArea = pair.Second.Area
+            };
+        }
+    }
+
+    /// <summary>
+    ///     Diagnoses a requested source-face pair even when production never
+    ///     compared it. This separates a <see cref="ClassifyPair" /> decline
+    ///     from candidate rejection and plane-bucket mismatch — an important
+    ///     distinction for exported triangle pairs originating in warped
+    ///     quads, because production assigns one plane to the whole face.
+    /// </summary>
+    internal static PsxCoplanarPairDiagnostic DiagnosePair(
+        PsxMeshFile file,
+        PsxFaceInstanceKey firstKey,
+        PsxFaceInstanceKey secondKey)
+    {
+        if (firstKey == secondKey)
+        {
+            return new PsxCoplanarPairDiagnostic(
+                firstKey,
+                secondKey,
+                null,
+                null,
+                PsxCoplanarPairNotComparedReason.SameFace,
+                null,
+                null);
+        }
+
+        var discovery = DiscoverComparisons(file);
+        var hasFirst = TryFindCandidate(discovery.Candidates, firstKey, out var first);
+        var hasSecond = TryFindCandidate(discovery.Candidates, secondKey, out var second);
+        PsxCoplanarFacePlaneKeys? firstPlanes = hasFirst ? DescribePlanes(first) : null;
+        PsxCoplanarFacePlaneKeys? secondPlanes = hasSecond ? DescribePlanes(second) : null;
+        if (!hasFirst || !hasSecond)
+        {
+            var reason = (hasFirst, hasSecond) switch
+            {
+                (false, false) => PsxCoplanarPairNotComparedReason.BothFacesHaveNoCandidate,
+                (false, true) => PsxCoplanarPairNotComparedReason.FirstFaceHasNoCandidate,
+                _ => PsxCoplanarPairNotComparedReason.SecondFaceHasNoCandidate
+            };
+            return new PsxCoplanarPairDiagnostic(
+                firstKey,
+                secondKey,
+                null,
+                null,
+                reason,
+                firstPlanes,
+                secondPlanes);
+        }
+
+        var pairKey = CandidatePairKey.Create(firstKey, secondKey);
+        if (!discovery.Pairs.TryGetValue(pairKey, out var pair))
+        {
+            return new PsxCoplanarPairDiagnostic(
+                firstKey,
+                secondKey,
+                null,
+                null,
+                PsxCoplanarPairNotComparedReason.DifferentPlaneBuckets,
+                firstPlanes,
+                secondPlanes);
+        }
+
+        var requestedInDiscoveryOrder = pair.First.Key == firstKey;
+        var secondPlane = requestedInDiscoveryOrder
+            ? pair.SecondPlane
+            : pair.FirstPlane;
+        var firstPlane = requestedInDiscoveryOrder
+            ? pair.FirstPlane
+            : pair.SecondPlane;
+        var overlay = ClassifyPair(
+            first,
+            second,
+            firstPlane,
+            secondPlane,
+            [],
+            out var declineReason);
+        return new PsxCoplanarPairDiagnostic(
+            firstKey,
+            secondKey,
+            overlay,
+            declineReason,
+            null,
+            firstPlanes,
+            secondPlanes)
+        {
+            AdmittedPlaneDistanceDelta = MathF.Abs(
+                pair.FirstPlane.RawDistance - pair.SecondPlane.RawDistance),
+            FirstAdmissionUsesPrimaryTriangle = requestedInDiscoveryOrder
+                ? pair.FirstPlane.IsPrimary
+                : pair.SecondPlane.IsPrimary,
+            SecondAdmissionUsesPrimaryTriangle = requestedInDiscoveryOrder
+                ? pair.SecondPlane.IsPrimary
+                : pair.FirstPlane.IsPrimary,
+            SharedAreaFraction = CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
+                first.Points,
+                second.Points),
+            AdmittedTriangleSharedAreaFraction = AdmittedTriangleSharedAreaFraction(pair),
+            FirstArea = first.Area,
+            SecondArea = second.Area
+        };
+    }
+
+    private static bool TryFindCandidate(
+        IReadOnlyList<Candidate> candidates,
+        PsxFaceInstanceKey key,
+        out Candidate candidate)
+    {
+        foreach (var item in candidates)
+        {
+            if (item.Key != key)
+                continue;
+
+            candidate = item;
+            return true;
+        }
+
+        candidate = null!;
+        return false;
+    }
+
+    private static PsxCoplanarFacePlaneKeys DescribePlanes(Candidate candidate)
+    {
+        var secondary = candidate.SecondaryPlane.HasValue
+            ? ToDiagnosticPlaneKey(candidate.SecondaryPlane.Value.Key)
+            : (PsxCoplanarPlaneKey?)null;
+
+        return new PsxCoplanarFacePlaneKeys(
+            ToDiagnosticPlaneKey(candidate.PrimaryPlane.Key),
+            secondary);
+    }
+
+    private static PsxCoplanarPlaneKey ToDiagnosticPlaneKey(PlaneKey plane)
+    {
+        return new PsxCoplanarPlaneKey(plane.X, plane.Y, plane.Z, plane.Distance);
+    }
+
+    /// <summary>
     ///     Assigns draw ranks to a plane's flagged faces: iterate in PS1 paint
     ///     order (descending insertion key — the ordering table prepends, so the
     ///     last-inserted face paints first) and stack each face one rank above
@@ -70,7 +263,8 @@ internal static class PsxCoplanarOverlayDetector
     /// </summary>
     private static Dictionary<PsxFaceInstanceKey, int> RankOverlays(
         List<Candidate> candidates,
-        HashSet<PsxFaceInstanceKey> overlays)
+        HashSet<PsxFaceInstanceKey> overlays,
+        IReadOnlyDictionary<CandidatePairKey, CandidateComparison> comparablePairs)
     {
         var flagged = candidates
             .Where(candidate => overlays.Contains(candidate.Key))
@@ -83,8 +277,10 @@ internal static class PsxCoplanarOverlayDetector
             var rank = 1;
             for (var j = 0; j < i; j++)
             {
+                var pairKey = CandidatePairKey.Create(flagged[i].Key, flagged[j].Key);
                 if (ranks[flagged[j].Key] >= rank
-                    && HasInteriorOverlap(flagged[i], flagged[j]))
+                    && comparablePairs.TryGetValue(pairKey, out var comparison)
+                    && HasInteriorOverlap(comparison))
                 {
                     rank = ranks[flagged[j].Key] + 1;
                 }
@@ -162,9 +358,35 @@ internal static class PsxCoplanarOverlayDetector
 
     private static readonly Dictionary<PsxFaceInstanceKey, int> EmptySteps = [];
 
+    /// <summary>
+    ///     The semi-transparent layer detector deliberately keeps the original
+    ///     primary-triangle buckets. Its lift rule was calibrated separately
+    ///     from opaque draw-order overlays; secondary triangles and adjacent
+    ///     distance buckets are evidence for the latter only.
+    /// </summary>
     private static Dictionary<PlaneKey, List<Candidate>> CollectPlanes(PsxMeshFile file)
     {
         var planes = new Dictionary<PlaneKey, List<Candidate>>();
+        foreach (var candidate in CollectCandidates(file, resolveSpriteVertices: false))
+        {
+            var plane = candidate.PrimaryPlane.Key;
+            if (!planes.TryGetValue(plane, out var candidates))
+            {
+                candidates = [];
+                planes.Add(plane, candidates);
+            }
+
+            candidates.Add(candidate);
+        }
+
+        return planes;
+    }
+
+    private static List<Candidate> CollectCandidates(
+        PsxMeshFile file,
+        bool resolveSpriteVertices)
+    {
+        var candidates = new List<Candidate>();
         for (var objectIndex = 0; objectIndex < file.Objects.Count; objectIndex++)
         {
             var obj = file.Objects[objectIndex];
@@ -172,31 +394,226 @@ internal static class PsxCoplanarOverlayDetector
                 continue;
 
             var mesh = file.Meshes[obj.MeshIndex];
+            var spriteResolver = resolveSpriteVertices
+                ? PsxSpriteVertexResolver.TryCreate(mesh)
+                : null;
             var offset = PsxMeshSemantics.ToGltfPosition(
                 PsxMeshSemantics.GetObjectOffset(file, obj));
             for (var faceIndex = 0; faceIndex < mesh.Faces.Count; faceIndex++)
             {
                 var face = mesh.Faces[faceIndex];
                 if (!TryCreateCandidate(
+                        candidates.Count,
                         new PsxFaceInstanceKey(objectIndex, faceIndex),
                         mesh,
                         face,
                         offset,
-                        out var plane,
+                        spriteResolver,
                         out var candidate))
                     continue;
-
-                if (!planes.TryGetValue(plane, out var candidates))
-                {
-                    candidates = [];
-                    planes.Add(plane, candidates);
-                }
 
                 candidates.Add(candidate);
             }
         }
 
-        return planes;
+        return candidates;
+    }
+
+    /// <summary>
+    ///     Builds the opaque detector's exact comparison set. A face may enter
+    ///     through either rendered triangle of a quad, and two triangle planes
+    ///     may differ by one DISTANCE bucket after 1/100 quantisation. Normal
+    ///     components must still match exactly: accepting their neighbours as
+    ///     well would turn this narrow rounding seam into an angular tolerance.
+    ///     Each source-face pair is retained once, using its closest and most
+    ///     primary admission, so diagnostics and grouping cannot duplicate it.
+    /// </summary>
+    private static ComparisonDiscovery DiscoverComparisons(PsxMeshFile file)
+    {
+        // Opaque comparisons must observe the same points the writer emits.
+        // Type-bit sprite vertices store anchor/mate offsets rather than
+        // positions, so their head-on billboard corners are resolved here.
+        // The separately calibrated semi-transparent lift detector retains
+        // its legacy raw candidate path through CollectPlanes.
+        var candidates = CollectCandidates(file, resolveSpriteVertices: true);
+        var indexedPlanes = new Dictionary<PlaneKey, List<CandidatePlaneInstance>>();
+        var pairs = new Dictionary<CandidatePairKey, CandidateComparison>();
+
+        foreach (var candidate in candidates)
+        {
+            foreach (var candidatePlane in EnumerateDistinctPlanes(candidate))
+            {
+                for (var distanceDelta = -1; distanceDelta <= 1; distanceDelta++)
+                {
+                    var lookup = candidatePlane.Key with
+                    {
+                        Distance = candidatePlane.Key.Distance + distanceDelta
+                    };
+                    if (!indexedPlanes.TryGetValue(lookup, out var priorPlanes))
+                        continue;
+
+                    foreach (var prior in priorPlanes)
+                    {
+                        if (prior.Candidate.DiscoveryIndex == candidate.DiscoveryIndex)
+                            continue;
+
+                        var legacyPrimaryBucket = prior.Plane.IsPrimary
+                                                  && candidatePlane.IsPrimary
+                                                  && prior.Plane.Key == candidatePlane.Key;
+                        if (!legacyPrimaryBucket
+                            && MathF.Abs(prior.Plane.RawDistance - candidatePlane.RawDistance)
+                            > PsxAdjacentPlaneDistanceTolerance)
+                        {
+                            continue;
+                        }
+
+                        var comparison = new CandidateComparison(
+                            prior.Candidate,
+                            candidate,
+                            prior.Plane,
+                            candidatePlane);
+                        var key = CandidatePairKey.Create(prior.Candidate.Key, candidate.Key);
+                        if (!pairs.TryGetValue(key, out var existing)
+                            || IsBetterAdmission(comparison, existing))
+                        {
+                            pairs[key] = comparison;
+                        }
+                    }
+                }
+
+                if (!indexedPlanes.TryGetValue(candidatePlane.Key, out var samePlane))
+                {
+                    samePlane = [];
+                    indexedPlanes.Add(candidatePlane.Key, samePlane);
+                }
+
+                samePlane.Add(new CandidatePlaneInstance(candidate, candidatePlane));
+            }
+        }
+
+        return new ComparisonDiscovery(candidates, pairs);
+    }
+
+    private static IEnumerable<CandidatePlane> EnumerateDistinctPlanes(Candidate candidate)
+    {
+        yield return candidate.PrimaryPlane;
+        if (candidate.SecondaryPlane is { } secondary
+            && secondary != candidate.PrimaryPlane)
+        {
+            yield return secondary;
+        }
+    }
+
+    private static bool IsBetterAdmission(
+        CandidateComparison candidate,
+        CandidateComparison existing)
+    {
+        return AdmissionPriority(candidate).CompareTo(AdmissionPriority(existing)) < 0;
+
+        static (int DistanceDelta, int SecondaryCount, int FirstDistance, int SecondDistance,
+            int FirstFlipped, int SecondFlipped) AdmissionPriority(CandidateComparison comparison)
+        {
+            return (
+                Math.Abs(comparison.FirstPlane.Key.Distance - comparison.SecondPlane.Key.Distance),
+                (comparison.FirstPlane.IsPrimary ? 0 : 1)
+                + (comparison.SecondPlane.IsPrimary ? 0 : 1),
+                comparison.FirstPlane.Key.Distance,
+                comparison.SecondPlane.Key.Distance,
+                comparison.FirstPlane.NormalFlipped ? 1 : 0,
+                comparison.SecondPlane.NormalFlipped ? 1 : 0);
+        }
+    }
+
+    private static float AdmittedTriangleSharedAreaFraction(CandidateComparison comparison)
+    {
+        return CoplanarOverlayGeometry.CoplanarSharedAreaFraction(
+            GetAdmittedTriangle(comparison.First, comparison.FirstPlane),
+            GetAdmittedTriangle(comparison.Second, comparison.SecondPlane));
+    }
+
+    private static Vector3[] GetAdmittedTriangle(Candidate candidate, CandidatePlane plane)
+    {
+        return plane.IsPrimary
+            ? [candidate.Points[0], candidate.Points[2], candidate.Points[1]]
+            : [candidate.Points[1], candidate.Points[2], candidate.Points[3]];
+    }
+
+    /// <summary>
+    ///     A quad can bridge its two triangle planes and adjacent distance
+    ///     buckets can bridge quantisation seams. Union those comparison edges
+    ///     once so every face receives at most one deterministic group/rank.
+    ///     Ranking still tests the direct comparison set, preventing a chain at
+    ///     distances d/d+1/d+2 from treating the endpoints as coplanar.
+    /// </summary>
+    private static IEnumerable<ComparisonComponent> BuildComparisonComponents(
+        ComparisonDiscovery discovery)
+    {
+        if (discovery.Pairs.Count == 0)
+            yield break;
+
+        var parents = Enumerable.Range(0, discovery.Candidates.Count).ToArray();
+        var orderedPairs = discovery.Pairs.Values
+            .OrderBy(static pair => pair.First.DiscoveryIndex)
+            .ThenBy(static pair => pair.Second.DiscoveryIndex)
+            .ToList();
+        foreach (var pair in orderedPairs)
+            Union(pair.First.DiscoveryIndex, pair.Second.DiscoveryIndex);
+
+        var builders = new Dictionary<int, ComponentBuilder>();
+        foreach (var pair in orderedPairs)
+        {
+            var root = FindRoot(pair.First.DiscoveryIndex);
+            if (!builders.TryGetValue(root, out var builder))
+            {
+                builder = new ComponentBuilder();
+                builders.Add(root, builder);
+            }
+
+            builder.CandidateIndices.Add(pair.First.DiscoveryIndex);
+            builder.CandidateIndices.Add(pair.Second.DiscoveryIndex);
+            builder.Pairs.Add(pair);
+        }
+
+        foreach (var builder in builders.Values
+                     .OrderBy(static builder => builder.CandidateIndices.Min()))
+        {
+            var componentCandidates = builder.CandidateIndices
+                .Order()
+                .Select(index => discovery.Candidates[index])
+                .ToList();
+            var comparablePairs = builder.Pairs.ToDictionary(
+                static pair => CandidatePairKey.Create(pair.First.Key, pair.Second.Key));
+            yield return new ComparisonComponent(
+                componentCandidates,
+                builder.Pairs,
+                comparablePairs);
+        }
+
+        int FindRoot(int index)
+        {
+            while (parents[index] != index)
+            {
+                parents[index] = parents[parents[index]];
+                index = parents[index];
+            }
+
+            return index;
+        }
+
+        void Union(int first, int second)
+        {
+            var firstRoot = FindRoot(first);
+            var secondRoot = FindRoot(second);
+            if (firstRoot == secondRoot)
+                return;
+
+            // Always attach the higher discovery index. Component identity is
+            // therefore independent of dictionary insertion/runtime hashing.
+            if (firstRoot < secondRoot)
+                parents[secondRoot] = firstRoot;
+            else
+                parents[firstRoot] = secondRoot;
+        }
     }
 
     /// <summary>
@@ -246,6 +663,16 @@ internal static class PsxCoplanarOverlayDetector
 
     private const float PsxRealOverlap = 0.25f;
 
+    /// <summary>
+    ///     Raw plane-distance seam admitted in addition to the legacy exact
+    ///     primary bucket. Quantised neighbouring buckets alone span almost
+    ///     0.02 world units at their far edges; the six independent round-3
+    ///     residue pairs instead measure 0..0.0048828125. A 0.005 cap covers
+    ///     that evidence while staying below half of one 1/100 distance bucket
+    ///     and about 1/89 of the PS1 authoring-grid step.
+    /// </summary>
+    private const float PsxAdjacentPlaneDistanceTolerance = 0.005f;
+
     private static bool BoundsOverlap(
         (Vector3 Min, Vector3 Max) first,
         (Vector3 Min, Vector3 Max) second)
@@ -255,14 +682,14 @@ internal static class PsxCoplanarOverlayDetector
     }
 
     private static bool TryCreateCandidate(
+        int discoveryIndex,
         PsxFaceInstanceKey key,
         PsxMesh mesh,
         PsxFace face,
         Vector3 offset,
-        out PlaneKey plane,
+        PsxSpriteVertexResolver? spriteResolver,
         out Candidate candidate)
     {
-        plane = default;
         candidate = null!;
         var count = face.IsQuad ? 4 : 3;
         var points = new Vector3[count];
@@ -272,28 +699,46 @@ internal static class PsxCoplanarOverlayDetector
             if (vertexIndex >= mesh.Vertices.Count)
                 return false;
             var vertex = mesh.Vertices[(int)vertexIndex];
-            points[slot] = new Vector3(vertex.X, -vertex.Y, -vertex.Z) + offset;
+            points[slot] = (spriteResolver != null
+                            && spriteResolver.TryResolvePosition(vertexIndex, out var spriteCorner)
+                ? spriteCorner
+                : new Vector3(vertex.X, -vertex.Y, -vertex.Z)) + offset;
         }
 
-        var cross = Vector3.Cross(points[2] - points[0], points[1] - points[0]);
-        var twiceFirstArea = cross.Length();
-        if (twiceFirstArea < 1e-5f)
+        if (!TryCreatePlaneKey(
+                points[0],
+                points[2],
+                points[1],
+                out var primaryPlane,
+                out var twiceFirstArea,
+                out var normalFlipped,
+                out var primaryDistance))
+        {
             return false;
+        }
+
+        var primary = new CandidatePlane(primaryPlane, normalFlipped, true, primaryDistance);
+        CandidatePlane? secondary = null;
+        if (face.IsQuad
+            && TryCreatePlaneKey(
+                points[1],
+                points[2],
+                points[3],
+                out var secondaryPlane,
+                out _,
+                out var secondaryNormalFlipped,
+                out var secondaryDistance))
+        {
+            secondary = new CandidatePlane(
+                secondaryPlane,
+                secondaryNormalFlipped,
+                false,
+                secondaryDistance);
+        }
 
         var area = twiceFirstArea * 0.5f;
         if (face.IsQuad)
             area += Vector3.Cross(points[2] - points[1], points[3] - points[1]).Length() * 0.5f;
-
-        var normal = cross / twiceFirstArea;
-        var normalFlipped = CoplanarOverlayGeometry.FirstSignificantComponent(normal) < 0f;
-        if (normalFlipped)
-            normal = -normal;
-        var distance = Vector3.Dot(normal, points[0]);
-        plane = new PlaneKey(
-            (int)MathF.Round(normal.X * 1000f),
-            (int)MathF.Round(normal.Y * 1000f),
-            (int)MathF.Round(normal.Z * 1000f),
-            (int)MathF.Round(distance * 100f));
         var centroid = points.Aggregate(Vector3.Zero, static (sum, point) => sum + point) / points.Length;
         var min = points[0];
         var max = points[0];
@@ -303,15 +748,65 @@ internal static class PsxCoplanarOverlayDetector
             max = Vector3.Max(max, points[i]);
         }
 
-        candidate = new Candidate(key, face, points, area, centroid, min, max, normalFlipped);
+        candidate = new Candidate(
+            discoveryIndex,
+            key,
+            face,
+            points,
+            area,
+            centroid,
+            min,
+            max,
+            primary,
+            secondary);
         return true;
     }
 
-    private static void ClassifyPair(
+    /// <summary>
+    ///     Builds the exact quantised key production uses for one candidate
+    ///     triangle. Callers pass source-face positions in emitted winding
+    ///     order: PSX face half 0 is (0,2,1), and quad half 1 is (1,2,3).
+    /// </summary>
+    private static bool TryCreatePlaneKey(
+        Vector3 first,
+        Vector3 second,
+        Vector3 third,
+        out PlaneKey plane,
+        out float twiceArea,
+        out bool normalFlipped,
+        out float rawDistance)
+    {
+        plane = default;
+        normalFlipped = false;
+        rawDistance = 0f;
+        var cross = Vector3.Cross(second - first, third - first);
+        twiceArea = cross.Length();
+        if (twiceArea < 1e-5f)
+            return false;
+
+        var normal = cross / twiceArea;
+        normalFlipped = CoplanarOverlayGeometry.FirstSignificantComponent(normal) < 0f;
+        if (normalFlipped)
+            normal = -normal;
+        rawDistance = Vector3.Dot(normal, first);
+        plane = new PlaneKey(
+            (int)MathF.Round(normal.X * 1000f),
+            (int)MathF.Round(normal.Y * 1000f),
+            (int)MathF.Round(normal.Z * 1000f),
+            (int)MathF.Round(rawDistance * 100f));
+        return true;
+    }
+
+    private static PsxFaceInstanceKey? ClassifyPair(
         Candidate first,
         Candidate second,
-        HashSet<PsxFaceInstanceKey> overlays)
+        CandidatePlane firstPlane,
+        CandidatePlane secondPlane,
+        HashSet<PsxFaceInstanceKey> overlays,
+        out PsxCoplanarPairDeclineReason? declineReason)
     {
+        declineReason = null;
+
         // Back-to-back single-sided faces (a wall authored once per side) land
         // in one bucket because the plane key canonicalizes the normal sign,
         // but they never rasterize together — backface culling shows at most
@@ -319,23 +814,33 @@ internal static class PsxCoplanarOverlayDetector
         // Verifier-measured 2026-08-03: without this the appearance-narrowed
         // twin rule below roughly doubled the corpus flags (+5.3k) on pairs
         // culling already separates. Double-sided faces stay in: both render.
-        if (first.NormalFlipped != second.NormalFlipped
+        if (firstPlane.NormalFlipped != secondPlane.NormalFlipped
             && !first.Face.IsDoubleSided
             && !second.Face.IsDoubleSided)
         {
-            return;
+            declineReason = PsxCoplanarPairDeclineReason.BackToBackSingleSided;
+            return null;
         }
 
         if (first.Face.TextureHash == second.Face.TextureHash
-            && first.Face.IsTextured == second.Face.IsTextured
-            && (IsExactTwin(first, second) || !BoundsOverlap((first.Min, first.Max), (second.Min, second.Max))))
+            && first.Face.IsTextured == second.Face.IsTextured)
         {
-            // Same texture: exact whole-face twins (duplicated objects draw
-            // the identical fragments — stable, no shimmer) and edge-adjacent
-            // tiling stay untouched. Same-texture DIFFERENT-shape overlaps
-            // (l2a1's start rooftop patches its gravel with offset quads of
-            // the same texture) z-fight like any other pair and fall through.
-            return;
+            if (IsExactTwin(first, second))
+            {
+                // Same-texture exact whole-face twins draw identical fragments
+                // and are stable without separation.
+                declineReason = PsxCoplanarPairDeclineReason.SameTextureExactTwin;
+                return null;
+            }
+
+            if (!BoundsOverlap((first.Min, first.Max), (second.Min, second.Max)))
+            {
+                // Edge-adjacent/disjoint tiling stays untouched. Same-texture
+                // DIFFERENT-shape overlaps (l2a1's start rooftop patches its
+                // gravel with offset quads of the same texture) fall through.
+                declineReason = PsxCoplanarPairDeclineReason.SameTextureWithoutBoundsOverlap;
+                return null;
+            }
         }
 
         var smaller = first.Area <= second.Area ? first : second;
@@ -355,7 +860,10 @@ internal static class PsxCoplanarOverlayDetector
         // face to the FRONT of what it covers rather than into it (see the OPEN
         // note in CLAUDE.md).
         if (smaller.Face.IsSemiTransparent || larger.Face.IsSemiTransparent)
-            return;
+        {
+            declineReason = PsxCoplanarPairDeclineReason.SemiTransparentMember;
+            return null;
+        }
 
         if (smaller.Area < larger.Area * 0.95f)
         {
@@ -366,9 +874,16 @@ internal static class PsxCoplanarOverlayDetector
             // overlap where neither centroid lands inside its partner — 335
             // corpus pairs (2026-08-03), 100% of SKB1/SKB2's unseparated
             // class, with real misses up to 0.44 of the smaller face.
-            if (HasInteriorOverlap(smaller, larger))
-                overlays.Add(smaller.Key);
-            return;
+            var smallerPlane = ReferenceEquals(smaller, first) ? firstPlane : secondPlane;
+            var largerPlane = ReferenceEquals(smaller, first) ? secondPlane : firstPlane;
+            if (!HasInteriorOverlap(smaller, smallerPlane, larger, largerPlane))
+            {
+                declineReason = PsxCoplanarPairDeclineReason.SmallerFaceHasInsufficientSharedArea;
+                return null;
+            }
+
+            overlays.Add(smaller.Key);
+            return smaller.Key;
         }
 
         // Near-equal footprints: baked light/shadow duplicates — retail skmar
@@ -390,15 +905,23 @@ internal static class PsxCoplanarOverlayDetector
         // skmall.psx 2 more (0.23, 22,595 units^2), regions that then z-fight.
         // So clip the two coplanar polygons against each other and require a
         // meaningful shared area instead: exact for both failure classes.
-        if (!BoundsOverlap((first.Min, first.Max), (second.Min, second.Max))
-            || !HasInteriorOverlap(first, second))
+        if (!BoundsOverlap((first.Min, first.Max), (second.Min, second.Max)))
         {
-            return;
+            declineReason = PsxCoplanarPairDeclineReason.NearEqualWithoutBoundsOverlap;
+            return null;
+        }
+
+        if (!HasInteriorOverlap(first, firstPlane, second, secondPlane))
+        {
+            declineReason = PsxCoplanarPairDeclineReason.NearEqualHasInsufficientSharedArea;
+            return null;
         }
 
         var firstKey = (first.Key.ObjectIndex, first.Key.FaceIndex);
         var secondKey = (second.Key.ObjectIndex, second.Key.FaceIndex);
-        overlays.Add(firstKey.CompareTo(secondKey) <= 0 ? first.Key : second.Key);
+        var overlay = firstKey.CompareTo(secondKey) <= 0 ? first.Key : second.Key;
+        overlays.Add(overlay);
+        return overlay;
     }
 
     /// <summary>
@@ -411,15 +934,91 @@ internal static class PsxCoplanarOverlayDetector
         return CoplanarOverlayGeometry.HasInteriorOverlap(first.Points, second.Points);
     }
 
+    private static bool HasInteriorOverlap(CandidateComparison comparison)
+    {
+        return HasInteriorOverlap(
+            comparison.First,
+            comparison.FirstPlane,
+            comparison.Second,
+            comparison.SecondPlane);
+    }
+
+    private static bool HasInteriorOverlap(
+        Candidate first,
+        CandidatePlane firstPlane,
+        Candidate second,
+        CandidatePlane secondPlane)
+    {
+        // Primary-primary comparisons keep the historical whole-face
+        // classifier. When a secondary triangle admits a warped quad, only the
+        // two triangles established as coplanar may prove interior overlap;
+        // projecting the WHOLE quad promoted Marseille pairs whose matched
+        // triangles shared only 0.23..0.47% (below the established 1% floor).
+        if (firstPlane.IsPrimary && secondPlane.IsPrimary)
+            return HasInteriorOverlap(first, second);
+
+        return CoplanarOverlayGeometry.HasInteriorOverlap(
+            GetAdmittedTriangle(first, firstPlane),
+            GetAdmittedTriangle(second, secondPlane));
+    }
+
     private readonly record struct PlaneKey(int X, int Y, int Z, int Distance);
 
+    private readonly record struct CandidatePlane(
+        PlaneKey Key,
+        bool NormalFlipped,
+        bool IsPrimary,
+        float RawDistance);
+
+    private readonly record struct CandidatePlaneInstance(
+        Candidate Candidate,
+        CandidatePlane Plane);
+
+    private readonly record struct CandidatePairKey(
+        PsxFaceInstanceKey First,
+        PsxFaceInstanceKey Second)
+    {
+        internal static CandidatePairKey Create(
+            PsxFaceInstanceKey first,
+            PsxFaceInstanceKey second)
+        {
+            return (first.ObjectIndex, first.FaceIndex)
+                       .CompareTo((second.ObjectIndex, second.FaceIndex)) <= 0
+                ? new CandidatePairKey(first, second)
+                : new CandidatePairKey(second, first);
+        }
+    }
+
+    private readonly record struct CandidateComparison(
+        Candidate First,
+        Candidate Second,
+        CandidatePlane FirstPlane,
+        CandidatePlane SecondPlane);
+
+    private sealed record ComparisonDiscovery(
+        List<Candidate> Candidates,
+        Dictionary<CandidatePairKey, CandidateComparison> Pairs);
+
+    private sealed record ComparisonComponent(
+        List<Candidate> Candidates,
+        List<CandidateComparison> Pairs,
+        IReadOnlyDictionary<CandidatePairKey, CandidateComparison> ComparablePairs);
+
+    private sealed class ComponentBuilder
+    {
+        internal HashSet<int> CandidateIndices { get; } = [];
+
+        internal List<CandidateComparison> Pairs { get; } = [];
+    }
+
     /// <summary>
-    ///     <paramref name="NormalFlipped" /> records whether the face's raw
-    ///     winding normal was negated to reach the canonical plane key — two
-    ///     candidates in one bucket face OPPOSITE directions iff their flags
-    ///     differ (the back-to-back wall case).
+    ///     Both rendered triangles retain their own canonical plane and winding
+    ///     orientation. The admitting triangle matters for warped quads: a
+    ///     secondary-plane match must not inherit the primary triangle's
+    ///     back-to-back flag.
     /// </summary>
     private sealed record Candidate(
+        int DiscoveryIndex,
         PsxFaceInstanceKey Key,
         PsxFace Face,
         Vector3[] Points,
@@ -427,7 +1026,8 @@ internal static class PsxCoplanarOverlayDetector
         Vector3 Centroid,
         Vector3 Min,
         Vector3 Max,
-        bool NormalFlipped);
+        CandidatePlane PrimaryPlane,
+        CandidatePlane? SecondaryPlane);
 }
 
 /// <summary>
@@ -438,3 +1038,88 @@ internal static class PsxCoplanarOverlayDetector
 ///     DrawIndex values and stacked separation offsets.
 /// </summary>
 internal readonly record struct PsxCoplanarOverlayAssignment(int GroupId, int DrawRank);
+
+/// <summary>
+///     Why a same-plane pair compared by
+///     <see cref="PsxCoplanarOverlayDetector" /> did not produce an overlay.
+///     Successful comparisons use a null reason and name their selected
+///     overlay in <see cref="PsxCoplanarPairDiagnostic.Overlay" />.
+/// </summary>
+internal enum PsxCoplanarPairDeclineReason
+{
+    BackToBackSingleSided,
+    SameTextureExactTwin,
+    SameTextureWithoutBoundsOverlap,
+    SemiTransparentMember,
+    SmallerFaceHasInsufficientSharedArea,
+    NearEqualWithoutBoundsOverlap,
+    NearEqualHasInsufficientSharedArea
+}
+
+/// <summary>
+///     Why a requested source-face pair never reached the production
+///     classifier. These are intentionally separate from
+///     <see cref="PsxCoplanarPairDeclineReason" />: no classification rule
+///     declined the pair because <c>ClassifyPair</c> was never called.
+/// </summary>
+internal enum PsxCoplanarPairNotComparedReason
+{
+    SameFace,
+    FirstFaceHasNoCandidate,
+    SecondFaceHasNoCandidate,
+    BothFacesHaveNoCandidate,
+    DifferentPlaneBuckets
+}
+
+/// <summary>
+///     A detector plane bucket: canonical normal components quantised to
+///     1/1000, followed by signed plane distance quantised to 1/100.
+/// </summary>
+internal readonly record struct PsxCoplanarPlaneKey(int X, int Y, int Z, int Distance);
+
+/// <summary>
+///     The primary candidate triangle's production bucket plus, for a quad,
+///     the second source triangle's independently measured bucket. Both keys
+///     participate in opaque candidate discovery; when a secondary key admits
+///     a warped quad, its own rendered triangle must establish shared area.
+///     Opaque discovery uses writer-equivalent points, including resolved
+///     sprite corners; the separately calibrated transparent-layer collector
+///     continues to use its legacy raw candidates.
+/// </summary>
+internal readonly record struct PsxCoplanarFacePlaneKeys(
+    PsxCoplanarPlaneKey Primary,
+    PsxCoplanarPlaneKey? Secondary);
+
+/// <summary>
+///     The production detector's result for one requested pair. An accepted
+///     comparison populates <paramref name="Overlay" />; a compared decline
+///     populates <paramref name="DeclineReason" />; a pair production did not
+///     compare populates <paramref name="NotComparedReason" />.
+/// </summary>
+internal readonly record struct PsxCoplanarPairDiagnostic(
+    PsxFaceInstanceKey First,
+    PsxFaceInstanceKey Second,
+    PsxFaceInstanceKey? Overlay,
+    PsxCoplanarPairDeclineReason? DeclineReason,
+    PsxCoplanarPairNotComparedReason? NotComparedReason,
+    PsxCoplanarFacePlaneKeys? FirstPlanes,
+    PsxCoplanarFacePlaneKeys? SecondPlanes)
+{
+    /// <summary>
+    ///     Absolute unquantised distance difference between the two triangle
+    ///     planes that admitted this production comparison.
+    /// </summary>
+    internal float? AdmittedPlaneDistanceDelta { get; init; }
+
+    internal bool? FirstAdmissionUsesPrimaryTriangle { get; init; }
+
+    internal bool? SecondAdmissionUsesPrimaryTriangle { get; init; }
+
+    internal float? SharedAreaFraction { get; init; }
+
+    internal float? AdmittedTriangleSharedAreaFraction { get; init; }
+
+    internal float? FirstArea { get; init; }
+
+    internal float? SecondArea { get; init; }
+}

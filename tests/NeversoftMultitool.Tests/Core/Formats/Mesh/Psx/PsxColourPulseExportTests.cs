@@ -36,22 +36,51 @@ public class PsxColourPulseExportTests
         throw new InvalidDataException("No JSON chunk in GLB");
     }
 
-    private byte[] ExportPulsedBank()
+    private ModelDocument ParsePulsedBank()
     {
         var path = _paths.FindSampleFile(ProtoBuild, "l1a1_o.psx");
         Assert.SkipWhen(path is null, "l1a1_o.psx not present in Sample/Builds");
 
-        var document = new MeshModelParser().Parse(new MeshImportRequest
+        return new MeshModelParser().Parse(new MeshImportRequest
         {
             Source = new FileSystemAssetSource(path!),
             FileName = Path.GetFileName(path!),
             OutputStem = "l1a1_o",
             SourceKind = ModelSourceKind.Psx
         });
+    }
 
-        var (glb, _) = ModelExportService.BuildGlbBytes(document);
+    private byte[] ExportPulsedBank()
+    {
+        var (glb, _) = ModelExportService.BuildGlbBytes(ParsePulsedBank());
         Assert.NotNull(glb);
         return glb!;
+    }
+
+    /// <summary>
+    ///     Real pulse-only viewer fixture. This is the exact shape that exposed
+    ///     the shared-clock bug: pulse bindings are present, but no primitive
+    ///     has UV-wibble data to keep the old clock moving.
+    /// </summary>
+    [Fact]
+    public void Export_L1A1ObjectBank_IsPulseOnlySurfaceAnimation()
+    {
+        var document = ParsePulsedBank();
+        var primitives = document.Meshes.SelectMany(static mesh => mesh.Primitives).ToArray();
+        var pulsedPrimitives = primitives
+            .Where(static primitive => primitive.Vertices.Any(static vertex => vertex.ColourPulseChannel > 0))
+            .ToArray();
+
+        var channels = Assert.Single(document.NativeMetadata.OfType<PsxColourPulseTableMetadata>());
+        Assert.Equal(6, channels.Channels.Count);
+        Assert.Equal(15, pulsedPrimitives.Length);
+        Assert.Equal(
+            192,
+            pulsedPrimitives.Sum(static primitive =>
+                primitive.Vertices.Count(static vertex => vertex.ColourPulseChannel > 0)));
+        Assert.DoesNotContain(
+            primitives,
+            static primitive => primitive.Vertices.Any(static vertex => vertex.TextureWibble.HasValue));
     }
 
     [Fact]
@@ -95,10 +124,10 @@ public class PsxColourPulseExportTests
     }
 
     /// <summary>
-    ///     Pulsed corners must NOT cost a new custom vertex attribute. Blender's
-    ///     glTF importer mis-zips a hash-randomized set of custom-attribute names
-    ///     against append-ordered arrays, so a third attribute on the overbright
-    ///     struct would make that documented crash more likely.
+    ///     PSX primitives must expose at most the sole native custom semantic,
+    ///     _PSX_COLOR_0. Flags, pulse binding, and wibble data use standard
+    ///     COLOR/TEXCOORD carriers so Blender never sees a custom-name set to
+    ///     mis-zip against append-ordered arrays.
     /// </summary>
     [Fact]
     public void Export_AddsNoNewCustomVertexAttribute()
@@ -115,12 +144,21 @@ public class PsxColourPulseExportTests
 
         Assert.DoesNotContain("_PSX_PULSE_0", attributeNames);
         Assert.Subset(
-            new HashSet<string> { "_PSX_COLOR_0", "_PSX_FLAGS_0", "_PSX_UV_WIBBLE_0", "_PSX_UV_WIBBLE_1", "_PSX_UV_WIBBLE_2" },
+            new HashSet<string> { "_PSX_COLOR_0" },
             attributeNames);
+
+        Assert.All(
+            json.RootElement.GetProperty("meshes").EnumerateArray()
+                .SelectMany(mesh => mesh.GetProperty("primitives").EnumerateArray()),
+            primitive => Assert.InRange(
+                primitive.GetProperty("attributes").EnumerateObject()
+                    .Count(attribute => attribute.Name.StartsWith('_')),
+                0,
+                1));
     }
 
     [Fact]
-    public void Export_FlagsAttributeStaysVec3()
+    public void Export_FlagsAndPulseAttributeIsNormalizedUshortVec4()
     {
         using var json = ParseGlbJson(ExportPulsedBank());
         var accessors = json.RootElement.GetProperty("accessors");
@@ -128,10 +166,13 @@ public class PsxColourPulseExportTests
         foreach (var primitive in json.RootElement.GetProperty("meshes").EnumerateArray()
                      .SelectMany(mesh => mesh.GetProperty("primitives").EnumerateArray()))
         {
-            if (!primitive.GetProperty("attributes").TryGetProperty("_PSX_FLAGS_0", out var index))
+            if (!primitive.GetProperty("attributes").TryGetProperty("COLOR_1", out var index))
                 continue;
 
-            Assert.Equal("VEC3", accessors[index.GetInt32()].GetProperty("type").GetString());
+            var accessor = accessors[index.GetInt32()];
+            Assert.Equal("VEC4", accessor.GetProperty("type").GetString());
+            Assert.Equal(5123, accessor.GetProperty("componentType").GetInt32());
+            Assert.True(accessor.GetProperty("normalized").GetBoolean());
         }
     }
 

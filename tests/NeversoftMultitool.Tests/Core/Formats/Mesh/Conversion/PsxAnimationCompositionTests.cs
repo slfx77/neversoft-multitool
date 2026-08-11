@@ -93,6 +93,80 @@ public sealed class PsxAnimationCompositionTests
     }
 
     [Fact]
+    public void AppendClipChannels_TwoSkeletonsShareOneAnimationWithoutChangingChannels()
+    {
+        var decoded = BuildAnimation(
+            2,
+            (bone: 0, channelIndex: 1, frame: 1,
+                s16Value: AngleToS16Units(MathF.PI / 3f)),
+            (bone: 1, channelIndex: 3, frame: 0, s16Value: 36),
+            (bone: 1, channelIndex: 3, frame: 1, s16Value: 72));
+        var clip = new PsxAnimationClip("decoded_clip", decoded);
+        var psxFile = BuildPsxFile(36f, 2.25f);
+        var options = new PsxAnimationOptions(SkipTranslation: false);
+
+        var baseline = CreateThreeBoneDocument();
+        PsxAnimationChannelWriter.PopulatePsxAnimationClips(
+            baseline, psxFile, 0, [clip], options);
+        var expectedChannels = Assert.Single(baseline.Animations).Channels;
+
+        var document = CreateTwoThreeBoneDocument();
+        var shared = new ModelAnimation { Name = "shared_clip" };
+        Assert.True(PsxAnimationChannelWriter.AppendPsxAnimationClipChannels(
+            shared, document, psxFile, 0, clip, options));
+        Assert.True(PsxAnimationChannelWriter.AppendPsxAnimationClipChannels(
+            shared, document, psxFile, 1, clip, options));
+
+        Assert.Empty(document.Animations);
+        document.Animations.Add(shared);
+        Assert.Same(shared, Assert.Single(document.Animations));
+        Assert.Equal("shared_clip", shared.Name);
+
+        var firstChannels = shared.Channels
+            .Where(static channel => channel.SkeletonIndex == 0)
+            .ToArray();
+        var secondChannels = shared.Channels
+            .Where(static channel => channel.SkeletonIndex == 1)
+            .ToArray();
+        Assert.Equal(expectedChannels.Count, firstChannels.Length);
+        Assert.Equal(expectedChannels.Count, secondChannels.Length);
+        for (var i = 0; i < expectedChannels.Count; i++)
+        {
+            AssertEquivalentChannel(expectedChannels[i], firstChannels[i], 0);
+            AssertEquivalentChannel(expectedChannels[i], secondChannels[i], 1);
+        }
+    }
+
+    [Fact]
+    public void PopulateClips_StillPublishesSeparateAnimations()
+    {
+        var first = BuildAnimation(
+            (bone: 0, channelIndex: 1,
+                s16Value: AngleToS16Units(MathF.PI / 4f)));
+        var second = BuildAnimation(
+            (bone: 1, channelIndex: 0,
+                s16Value: AngleToS16Units(MathF.PI / 6f)));
+        var document = CreateThreeBoneDocument();
+
+        PsxAnimationChannelWriter.PopulatePsxAnimationClips(
+            document,
+            BuildPsxFile(),
+            0,
+            [
+                new PsxAnimationClip("first_clip", first),
+                new PsxAnimationClip("second_clip", second)
+            ],
+            new PsxAnimationOptions());
+
+        Assert.Equal(["first_clip", "second_clip"],
+            document.Animations.Select(static animation => animation.Name));
+        Assert.All(document.Animations, static animation => Assert.NotEmpty(animation.Channels));
+        Assert.All(
+            document.Animations.SelectMany(static animation => animation.Channels),
+            static channel => Assert.Equal(0, channel.SkeletonIndex));
+    }
+
+    [Fact]
     public void Translation_AllZeroPlaceholderStreams_KeepBindAndEmitNoChannels()
     {
         // A clip whose translation streams are entirely zero carries placeholder
@@ -509,6 +583,17 @@ public sealed class PsxAnimationCompositionTests
         return document;
     }
 
+    private static ModelDocument CreateTwoThreeBoneDocument()
+    {
+        var document = CreateThreeBoneDocument();
+        var skeleton = new ModelSkeleton { Name = "rig_copy" };
+        skeleton.Bones.Add(new ModelBone { Name = "copy_root", ParentIndex = -1 });
+        skeleton.Bones.Add(new ModelBone { Name = "copy_mid", ParentIndex = 0 });
+        skeleton.Bones.Add(new ModelBone { Name = "copy_leaf", ParentIndex = 1 });
+        document.Skeletons.Add(skeleton);
+        return document;
+    }
+
     private static ModelDocument CreateTranslatedThreeBoneDocument()
     {
         var document = new ModelDocument { Name = "test" };
@@ -612,6 +697,19 @@ public sealed class PsxAnimationCompositionTests
             channel.Values[offset],
             channel.Values[offset + 1],
             channel.Values[offset + 2]);
+    }
+
+    private static void AssertEquivalentChannel(
+        ModelAnimationChannel expected,
+        ModelAnimationChannel actual,
+        int expectedSkeletonIndex)
+    {
+        Assert.Equal(expectedSkeletonIndex, actual.SkeletonIndex);
+        Assert.Equal(expected.BoneIndex, actual.BoneIndex);
+        Assert.Equal(expected.Property, actual.Property);
+        Assert.Equal(expected.Interpolation, actual.Interpolation);
+        Assert.Equal(expected.Times, actual.Times);
+        Assert.Equal(expected.Values, actual.Values);
     }
 
     private static void AssertQuaternionsClose(Quaternion expected, Quaternion actual)

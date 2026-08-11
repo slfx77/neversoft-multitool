@@ -20,6 +20,10 @@ internal static class PsxSkinnedGeometryWriter
     ///     own matrix. The exported glTF keeps the authored parent hierarchy for
     ///     bind placement, while animation channels compensate for glTF's parent
     ///     rotation chaining.
+    ///     Optional instance names, bone prefix, and root transform let a
+    ///     dedicated level-object caller emit several isolated copies without
+    ///     changing the source geometry or bind hierarchy. Their defaults are
+    ///     the historical single-character output contract.
     /// </summary>
     internal static void PopulatePsxSkinned(
         ModelDocument document,
@@ -28,15 +32,20 @@ internal static class PsxSkinnedGeometryWriter
         MeshChecksumTextureResolver? textureProvider,
         bool flatSkeleton,
         IReadOnlySet<int>? flatBoneIndices,
-        PsxMeshFile? splineClawFile,
-        MeshChecksumTextureResolver? splineClawTextureProvider,
+        PsxSplineClawLocator.ResolvedClaw? splineClaw,
+        IReadOnlyList<PsxSplineControllerChain>? splineChains,
         IReadOnlySet<int>? hiddenObjectIndices,
         bool reconstructSplineAppendages,
-        PsxEngineLight? engineLight = null)
+        PsxEngineLight? engineLight = null,
+        string skeletonName = "skeleton",
+        Matrix4x4? rootTransform = null,
+        string boneNamePrefix = "",
+        string combinedMeshName = "combined_mesh")
     {
         var skeletonIndex = document.Skeletons.Count;
         document.Skeletons.Add(BuildPsxSkeleton(
-            psxFile, pshFile, flatSkeleton, flatBoneIndices));
+            psxFile, pshFile, flatSkeleton, flatBoneIndices,
+            skeletonName, rootTransform, boneNamePrefix));
 
         var textureDims = new Dictionary<uint, (int Width, int Height)>();
         var materialCache = new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>();
@@ -48,15 +57,15 @@ internal static class PsxSkinnedGeometryWriter
         });
 
         var lodVariants = PsxGeometryHelpers.BuildPsxLodVariantSet(psxFile);
-        var splineChains = PsxSplineAppendageGeometry.FindControllerChains(psxFile);
+        splineChains ??= PsxSplineAppendageGeometry.FindControllerChains(psxFile);
         var splineControllerObjects = PsxSplineAppendageGeometry.BuildControllerObjectSet(splineChains);
         var embeddedTipPlacements = PsxSplineAppendageGeometry.FindEmbeddedTipPlacements(
             psxFile, splineChains);
         var buckets = new Dictionary<int, PsxSkinnedBucket>();
-        // claw.psx is a separate model and its small numeric texture
-        // checksums can overlap the parent character. Keep its material and
-        // dimension caches isolated so a parent material cannot steal a claw
-        // or tentacle image merely because the native hash is the same.
+        // The discovered tip kit belongs to a separate PSX asset scope and
+        // its small numeric texture checksums can overlap the parent character.
+        // Keep its caches isolated so a parent material cannot steal a tip or
+        // tentacle image merely because the native hash is the same.
         var splineTextureDims = new Dictionary<uint, (int Width, int Height)>();
         var splineMaterialCache =
             new Dictionary<(uint Hash, bool SemiTransparent, bool DoubleSided, int BlendRate), int>();
@@ -99,18 +108,18 @@ internal static class PsxSkinnedGeometryWriter
 
         if (reconstructSplineAppendages && splineChains.Count > 0)
         {
-            var tubeTextureHash = splineClawFile == null
+            var tubeTextureHash = splineClaw == null
                 ? PsxSplineAppendageGeometry.FindEmbeddedTailTextureHash(
                     psxFile, embeddedTipPlacements, textureProvider)
                 : PsxSplineAppendageGeometry.FindTubeTextureHash(
-                    splineClawFile, splineClawTextureProvider);
-            var tubeTextureProvider = splineClawFile == null
+                    splineClaw.File, splineClaw.MeshIndex, splineClaw.TextureProvider);
+            var tubeTextureProvider = splineClaw == null
                 ? textureProvider
-                : splineClawTextureProvider;
-            var tubeTextureDims = splineClawFile == null
+                : splineClaw.TextureProvider;
+            var tubeTextureDims = splineClaw == null
                 ? textureDims
                 : splineTextureDims;
-            var tubeMaterialCache = splineClawFile == null
+            var tubeMaterialCache = splineClaw == null
                 ? materialCache
                 : splineMaterialCache;
             var tubeMaterial = tubeTextureHash is { } hash
@@ -141,11 +150,15 @@ internal static class PsxSkinnedGeometryWriter
 
         if (reconstructSplineAppendages
             && splineChains.Count > 1
-            && splineClawFile is { Meshes.Count: > 0 })
+            && splineClaw is { } resolvedClaw
+            && resolvedClaw.ObjectIndex >= 0
+            && resolvedClaw.ObjectIndex < resolvedClaw.File.Objects.Count
+            && resolvedClaw.MeshIndex >= 0
+            && resolvedClaw.MeshIndex < resolvedClaw.File.Meshes.Count)
         {
-            const int clawObjectIndex = 0;
-            const int clawMeshIndex = 0;
-            var clawMesh = splineClawFile.Meshes[clawMeshIndex];
+            var clawObjectIndex = resolvedClaw.ObjectIndex;
+            var clawMeshIndex = resolvedClaw.MeshIndex;
+            var clawMesh = resolvedClaw.File.Meshes[clawMeshIndex];
             var clawForwardSign = PsxSplineAppendageGeometry.DetermineTipForwardSign(clawMesh);
 
             foreach (var chain in splineChains)
@@ -155,7 +168,7 @@ internal static class PsxSkinnedGeometryWriter
                 foreach (var face in clawMesh.Faces)
                 {
                     var (materialIndex, texDims) = ResolvePsxFaceMaterial(
-                        document, face, splineClawTextureProvider,
+                        document, face, resolvedClaw.TextureProvider,
                         splineTextureDims, splineMaterialCache, untexturedMaterial);
                     if (!buckets.TryGetValue(materialIndex, out var bucket))
                     {
@@ -166,13 +179,13 @@ internal static class PsxSkinnedGeometryWriter
                     AddPsxSkinnedFace(
                         engineLight,
                         bucket.Vertices, bucket.Indices, bucket.Influences,
-                        splineClawFile, clawObjectIndex, clawMeshIndex,
+                        resolvedClaw.File, clawObjectIndex, clawMeshIndex,
                         clawMesh, face, texDims, placement);
                 }
             }
         }
 
-        var combinedMesh = new ModelMesh { Name = "combined_mesh" };
+        var combinedMesh = new ModelMesh { Name = combinedMeshName };
         foreach (var (materialIndex, bucket) in buckets)
         {
             ModelDocumentGeometryAdapter.AddPrimitive(combinedMesh, $"mat_{materialIndex:D3}", materialIndex,
@@ -184,22 +197,30 @@ internal static class PsxSkinnedGeometryWriter
                 });
         }
 
-        ModelDocumentGeometryAdapter.AddMeshNode(document, "combined_mesh", combinedMesh);
+        ModelDocumentGeometryAdapter.AddMeshNode(document, combinedMeshName, combinedMesh);
     }
 
     /// <summary>
     ///     Builds the joint tree from the object table + HIER parents alone —
     ///     no mesh data involved, which is why the carved N64 model path can
     ///     reuse it against a shell whose geometry lives in a separate render
-    ///     bank.
+    ///     bank. Instance overrides affect only skeleton identity, bone names,
+    ///     and the synthetic-root placement; local binds remain source-authored.
     /// </summary>
     internal static ModelSkeleton BuildPsxSkeleton(
         PsxMeshFile psxFile,
         PshFile? pshFile,
         bool flatSkeleton,
-        IReadOnlySet<int>? flatBoneIndices)
+        IReadOnlySet<int>? flatBoneIndices,
+        string skeletonName = "skeleton",
+        Matrix4x4? rootTransform = null,
+        string boneNamePrefix = "")
     {
-        var skeleton = new ModelSkeleton { Name = "skeleton" };
+        var skeleton = new ModelSkeleton
+        {
+            Name = skeletonName,
+            RootTransform = rootTransform ?? Matrix4x4.Identity
+        };
         var objects = psxFile.Objects;
         var bonePositionsGltf = new Vector3[objects.Count];
         for (var i = 0; i < objects.Count; i++)
@@ -212,9 +233,12 @@ internal static class PsxSkinnedGeometryWriter
         {
             var worldBindGltf = bonePositionsGltf[i];
             var meshIndex = PsxMeshSemantics.GetCharacterMeshIndex(psxFile, i);
-            var name = pshFile?.GetBoneName(i)
-                       ?? (meshIndex >= 0 ? PsxGeometryHelpers.ResolvePsxMeshName(psxFile, meshIndex) : null)
-                       ?? $"bone_{i}";
+            var sourceName = pshFile?.GetBoneName(i)
+                             ?? (meshIndex >= 0
+                                 ? PsxGeometryHelpers.ResolvePsxMeshName(psxFile, meshIndex)
+                                 : null)
+                             ?? $"bone_{i}";
+            var name = string.Concat(boneNamePrefix, sourceName);
 
             var parent = flatSkeleton || flatBoneIndices?.Contains(i) == true
                 ? -1
@@ -309,7 +333,7 @@ internal static class PsxSkinnedGeometryWriter
         // Always emit the PS1 packet. Gating it on the lit state (added
         // 2026-07-29) made an all-lit file emit NO packet at all, which
         // downgrades the vertex type and strips both _PSX_COLOR_0 and
-        // _PSX_FLAGS_0 from the GLB — silently switching off the viewer's
+        // COLOR_1 from the GLB — silently switching off the viewer's
         // PS1-fidelity path for exactly the files it matters most on.
         var emitPacket = isPs1;
         var packetUsesTexturedScale = face.IsTextured &&

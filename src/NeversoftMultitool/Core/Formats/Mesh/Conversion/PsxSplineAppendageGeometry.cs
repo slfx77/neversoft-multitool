@@ -8,18 +8,48 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     Reconstructs Spider-Man's runtime spline appendages from the seven-box
 ///     controller chains stored in the character PSX. The boxes are editor and
 ///     animation controls, not render geometry. The game skins a tube through
-///     their transforms and, for Ock, instances the sibling claw.psx at each
-///     endpoint. Keeping the generated rings single-bone weighted to their
-///     corresponding controls lets the ordinary exported animation channels
-///     drive the reconstructed surface.
+///     their transforms and, for Ock, instances a structurally discovered
+///     sibling tip kit at each endpoint. Keeping the generated rings
+///     single-bone weighted to their corresponding controls lets the ordinary
+///     exported animation channels drive the reconstructed surface.
 /// </summary>
 internal static class PsxSplineAppendageGeometry
 {
-    private const uint ScorpionHookMeshHash = 0xAF6C87FE;
     private const int ControllersPerChain = 7;
     private const int TubeSides = 8;
 
-    internal static IReadOnlyList<PsxSplineControllerChain> FindControllerChains(PsxMeshFile psxFile)
+    /// <summary>
+    ///     Discovers appendage controls using the selected model and its own
+    ///     embedded animation bank. One-chain rigs need animation evidence to
+    ///     distinguish Scorpion's live tail from Lizard's abandoned editor
+    ///     controls; four-chain Ock rigs are structurally unambiguous.
+    /// </summary>
+    internal static IReadOnlyList<PsxSplineControllerChain> DiscoverControllerChains(
+        PsxMeshFile psxFile,
+        AssetSource source,
+        byte[] sourceBytes)
+    {
+        var structural = FindStructuralControllerChains(psxFile);
+        if (structural.Count != 1)
+            return structural;
+
+        var animations = DecodeEmbeddedAnimationEvidence(
+            source, sourceBytes, psxFile.Objects.Count);
+        return ValidateSingleControllerChain(psxFile, structural[0], animations);
+    }
+
+    internal static IReadOnlyList<PsxSplineControllerChain> FindControllerChains(
+        PsxMeshFile psxFile,
+        IReadOnlyList<PsxAnimation>? animationEvidence = null)
+    {
+        var structural = FindStructuralControllerChains(psxFile);
+        return structural.Count == 1
+            ? ValidateSingleControllerChain(psxFile, structural[0], animationEvidence ?? [])
+            : structural;
+    }
+
+    private static List<PsxSplineControllerChain> FindStructuralControllerChains(
+        PsxMeshFile psxFile)
     {
         if (!PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(psxFile)
             || psxFile.Objects.Count < ControllersPerChain)
@@ -39,20 +69,6 @@ internal static class PsxSplineAppendageGeometry
         if (controllerCount is not ControllersPerChain and not 4 * ControllersPerChain)
             return [];
 
-        // A lone seven-box run is not sufficient by itself. The February
-        // Spider-Man prototype's Lizard carries an otherwise matching,
-        // abandoned editor rig that later builds remove; treating it as a
-        // tail produces a pole through the character's waist. Scorpion's
-        // actual one-chain spline is independently identified by the
-        // authored hook-tip mesh that the runtime places at its endpoint.
-        // Four-chain Ock rigs use the sibling claw.psx and remain identified
-        // by their complete 4x7 structure.
-        if (controllerCount == ControllersPerChain
-            && !psxFile.MeshNameHashes.Contains(ScorpionHookMeshHash))
-        {
-            return [];
-        }
-
         var chains = new List<PsxSplineControllerChain>(controllerCount / ControllersPerChain);
         for (var start = firstController; start < psxFile.Objects.Count; start += ControllersPerChain)
         {
@@ -68,10 +84,119 @@ internal static class PsxSplineAppendageGeometry
                 return [];
             }
 
+            // The runtime treats every box in a spline as a peer under one
+            // character-space parent. Root controls use -1 on PC and are
+            // valid; only disagreement within the run is a rejection.
+            if (objectIndices
+                .Select(index => psxFile.Objects[index].ParentIndex)
+                .Distinct()
+                .Take(2)
+                .Count() != 1)
+            {
+                return [];
+            }
+
             chains.Add(new PsxSplineControllerChain(objectIndices, centers));
         }
 
         return chains;
+    }
+
+    private static IReadOnlyList<PsxSplineControllerChain> ValidateSingleControllerChain(
+        PsxMeshFile psxFile,
+        PsxSplineControllerChain chain,
+        IReadOnlyList<PsxAnimation> animations)
+    {
+        if (animations.Count == 0)
+            return [];
+
+        var endpointObjectIndex = chain.ObjectIndices[^1];
+        var parentIndex = psxFile.Objects[endpointObjectIndex].ParentIndex;
+        var controllerObjects = chain.ObjectIndices.ToHashSet();
+        var candidates = Enumerable.Range(0, psxFile.Objects.Count)
+            .Where(index => !controllerObjects.Contains(index))
+            .Where(index => psxFile.Objects[index].ParentIndex == parentIndex)
+            .Where(index => IsDrawableObject(psxFile, index))
+            .Where(index => HasEndpointAnimationSignature(
+                index, endpointObjectIndex, animations))
+            .Take(2)
+            .ToArray();
+        if (candidates.Length != 1)
+            return [];
+
+        return [chain with { EmbeddedTipObjectIndex = candidates[0] }];
+    }
+
+    private static bool IsDrawableObject(PsxMeshFile psxFile, int objectIndex)
+    {
+        var meshIndex = PsxMeshSemantics.GetCharacterMeshIndex(psxFile, objectIndex);
+        return meshIndex >= 0
+               && meshIndex < psxFile.Meshes.Count
+               && psxFile.Meshes[meshIndex].Faces.Count > 0;
+    }
+
+    private static bool HasEndpointAnimationSignature(
+        int tipObjectIndex,
+        int endpointObjectIndex,
+        IReadOnlyList<PsxAnimation> animations)
+    {
+        var sawAnimation = false;
+        var sawSharedTranslationTrack = false;
+        var sawRotationAsymmetry = false;
+        foreach (var animation in animations)
+        {
+            if (tipObjectIndex >= animation.BoneCount
+                || endpointObjectIndex >= animation.BoneCount
+                || animation.FrameCount <= 0)
+            {
+                continue;
+            }
+
+            sawAnimation = true;
+            for (var frame = 0; frame < animation.FrameCount; frame++)
+            {
+                for (var channel = 3; channel < PsxAnimation.ChannelsPerBone; channel++)
+                {
+                    if (animation.Channels[tipObjectIndex, channel, frame]
+                        != animation.Channels[endpointObjectIndex, channel, frame])
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            // An all-zero translation grid is the codec's placeholder, not an
+            // endpoint relationship. Equality above proves that a non-zero
+            // endpoint track is shared by the candidate tip as well.
+            if (animation.IsTranslationAnimated(endpointObjectIndex))
+                sawSharedTranslationTrack = true;
+
+            if (animation.FrameCount > 1
+                && animation.IsRotationAnimated(tipObjectIndex)
+                && !animation.IsRotationAnimated(endpointObjectIndex))
+            {
+                sawRotationAsymmetry = true;
+            }
+        }
+
+        return sawAnimation && sawSharedTranslationTrack && sawRotationAsymmetry;
+    }
+
+    private static PsxAnimation[] DecodeEmbeddedAnimationEvidence(
+        AssetSource source,
+        byte[] sourceBytes,
+        int boneCount)
+    {
+        var bank = PsxAnimationBank.TryProbe(source, sourceBytes, boneCount);
+        if (bank == null || bank.BoneCount != boneCount)
+            return [];
+
+        var selections = PsxAnimationBank.ResolveSelections(
+            bank.AnimFile, -1, null, null);
+        return PsxAnimationBank.Decode(bank, boneCount, selections)
+            .Animations
+            .Select(static entry => entry.Animation)
+            .ToArray();
     }
 
     internal static HashSet<int> BuildControllerObjectSet(
@@ -95,6 +220,35 @@ internal static class PsxSplineAppendageGeometry
         if (textureProvider == null)
             return null;
 
+        for (var meshIndex = clawFile.Meshes.Count - 1; meshIndex >= 0; meshIndex--)
+        {
+            if (FindMappedTubeTextureHash(clawFile, meshIndex, textureProvider) is { } mapped)
+                return mapped;
+        }
+
+        return FindUnusedSquareTextureHash(clawFile, textureProvider);
+    }
+
+    internal static uint? FindTubeTextureHash(
+        PsxMeshFile clawFile,
+        int meshIndex,
+        MeshChecksumTextureResolver? textureProvider)
+    {
+        if (textureProvider == null)
+            return null;
+
+        return FindMappedTubeTextureHash(clawFile, meshIndex, textureProvider)
+               ?? FindUnusedSquareTextureHash(clawFile, textureProvider);
+    }
+
+    internal static uint? FindMappedTubeTextureHash(
+        PsxMeshFile clawFile,
+        int meshIndex,
+        MeshChecksumTextureResolver textureProvider)
+    {
+        if (meshIndex < 0 || meshIndex >= clawFile.Meshes.Count)
+            return null;
+
         var renderedTextureHashes = clawFile.Meshes
             .SelectMany(static mesh => mesh.Faces)
             .Where(static face => face.IsTextured && face.TextureHash != 0)
@@ -106,9 +260,7 @@ internal static class PsxSplineAppendageGeometry
         // mapping, while unrelated unused texture slots have no template face
         // at all. Follow that source association instead of relying on texture
         // table order.
-        foreach (var faceRead in clawFile.Meshes
-                     .SelectMany(static mesh => mesh.FaceReadInfos)
-                     .Reverse())
+        foreach (var faceRead in clawFile.Meshes[meshIndex].FaceReadInfos.Reverse())
         {
             var textureHash = faceRead.TextureHash;
             if (textureHash == 0 || renderedTextureHashes.Contains(textureHash))
@@ -130,6 +282,18 @@ internal static class PsxSplineAppendageGeometry
             return textureHash;
         }
 
+        return null;
+    }
+
+    private static uint? FindUnusedSquareTextureHash(
+        PsxMeshFile clawFile,
+        MeshChecksumTextureResolver textureProvider)
+    {
+        var renderedTextureHashes = clawFile.Meshes
+            .SelectMany(static mesh => mesh.Faces)
+            .Where(static face => face.IsTextured && face.TextureHash != 0)
+            .Select(static face => face.TextureHash)
+            .ToHashSet();
         // Older synthetic callers may not retain raw face diagnostics. A lone
         // unused square texture is still unambiguous; multiple candidates are
         // deliberately rejected rather than guessing by slot order.
@@ -214,26 +378,13 @@ internal static class PsxSplineAppendageGeometry
         PsxMeshFile psxFile,
         IReadOnlyList<PsxSplineControllerChain> chains)
     {
-        if (chains.Count != 1)
+        if (chains.Count != 1 || chains[0].EmbeddedTipObjectIndex is not { } objectIndex)
             return new Dictionary<int, PsxSplineTipPlacement>();
 
-        for (var objectIndex = 0; objectIndex < psxFile.Objects.Count; objectIndex++)
+        return new Dictionary<int, PsxSplineTipPlacement>
         {
-            var meshIndex = PsxMeshSemantics.GetCharacterMeshIndex(psxFile, objectIndex);
-            if (meshIndex < 0 || meshIndex >= psxFile.MeshNameHashes.Length
-                              || psxFile.MeshNameHashes[meshIndex] != ScorpionHookMeshHash)
-            {
-                continue;
-            }
-
-            var chain = chains[0];
-            return new Dictionary<int, PsxSplineTipPlacement>
-            {
-                [objectIndex] = CreateTipPlacement(chain)
-            };
-        }
-
-        return new Dictionary<int, PsxSplineTipPlacement>();
+            [objectIndex] = CreateTipPlacement(chains[0])
+        };
     }
 
     internal static void AppendGeneratedTubes(

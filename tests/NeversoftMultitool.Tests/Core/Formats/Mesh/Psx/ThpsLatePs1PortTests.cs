@@ -1,5 +1,7 @@
+using System.Numerics;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Trg;
 using NeversoftMultitool.Tests.Helpers;
 
@@ -57,6 +59,86 @@ public sealed class ThpsLatePs1PortTests(TestPaths paths)
         // level companion path (a1col_o.psx bank + a1col_t.trg).
         Assert.Equal(10_586, document.TriangleCount);
         Assert.True(document.Textures.Count > 50);
+    }
+
+    /// <summary>
+    ///     Closes the visual report that College's sky gradient might be
+    ///     vertically reversed. The bank itself authors the dome dark at its
+    ///     native-space top and bright toward the horizon. PSX native +Y is
+    ///     down, so the ordinary (x, -y, -z) glTF handedness conversion must
+    ///     reverse the Y ordering while keeping each corner's palette colour
+    ///     attached to it. The viewer then draws the dome unlit over the TRG's
+    ///     light-blue SetSkyColor backdrop; no converter-side colour reversal
+    ///     is involved.
+    /// </summary>
+    [Fact]
+    public void Thps4_College_SkyGradientPreservesTheAuthoredVerticalDirection()
+    {
+        var levelPath = paths.FindSampleFile(Thps4Build, "a1col_g.psx");
+        var bankPath = paths.FindSampleFile(Thps4Build, "a1col_o.psx");
+        Assert.SkipWhen(levelPath == null || bankPath == null, "THPS4 PS1 College samples not available");
+
+        var bank = Assert.IsType<PsxMeshFile>(
+            PsxMeshFile.Parse(bankPath!, bakeColourPulses: false));
+        var skyMeshIndex = Array.IndexOf(bank.MeshNameHashes, 0xAD50109Bu);
+        Assert.Equal(5, skyMeshIndex);
+        var skyMesh = bank.Meshes[skyMeshIndex];
+        Assert.All(skyMesh.Faces, static face =>
+        {
+            Assert.True(face.IsGouraud);
+            Assert.True(face.IsTextured);
+        });
+
+        var palette = Assert.IsType<Vector4[]>(bank.GouraudPalette);
+        var nativeCorners = skyMesh.Faces
+            .SelectMany(face => Enumerable.Range(0, face.IsQuad ? 4 : 3)
+                .Select(slot => (
+                    Y: skyMesh.Vertices[(int)GetFaceVertexIndex(face, slot)].Y,
+                    Color: palette[GetFacePaletteIndex(face, slot)])))
+            .ToArray();
+        var nativeTopY = nativeCorners.Min(static corner => corner.Y);
+        var nativeHorizonY = nativeCorners.Max(static corner => corner.Y);
+        var nativeTop = nativeCorners.Where(corner => NearlyEqual(corner.Y, nativeTopY)).ToArray();
+        var nativeHorizon = nativeCorners.Where(corner => NearlyEqual(corner.Y, nativeHorizonY)).ToArray();
+
+        // The serialized top ring is the dark blue RGBs[0] entry. The bottom
+        // ring is more than 0.3 display-luminance brighter: this is authored
+        // data, before any converter or viewer transform can affect it.
+        var authoredTopColor = new Vector4(35f / 255f, 35f / 255f, 66f / 255f, 1f);
+        Assert.All(nativeTop, corner => AssertVectorClose(authoredTopColor, corner.Color));
+        Assert.True(
+            nativeHorizon.Average(static corner => Luminance(corner.Color))
+            > nativeTop.Average(static corner => Luminance(corner.Color)) + 0.3f);
+
+        var document = ParseDocument(levelPath!);
+        var emittedSky = Assert.Single(document.Meshes,
+            static mesh => mesh.Name == "sky__mesh_00000005");
+        Assert.Equal(112, emittedSky.Primitives.Sum(static primitive => primitive.TriangleCount));
+        var emittedVertices = emittedSky.Primitives
+            .SelectMany(static primitive => primitive.Vertices)
+            .ToArray();
+        Assert.All(emittedVertices, static vertex => Assert.True(vertex.PsxPacketColor.HasValue));
+
+        var emittedTopY = emittedVertices.Max(static vertex => vertex.Position.Y);
+        var emittedHorizonY = emittedVertices.Min(static vertex => vertex.Position.Y);
+        Assert.True(NearlyEqual(emittedTopY, -nativeTopY));
+        Assert.True(NearlyEqual(emittedHorizonY, -nativeHorizonY));
+        var emittedTop = emittedVertices.Where(vertex => NearlyEqual(vertex.Position.Y, emittedTopY)).ToArray();
+        var emittedHorizon = emittedVertices
+            .Where(vertex => NearlyEqual(vertex.Position.Y, emittedHorizonY))
+            .ToArray();
+        Assert.All(emittedTop,
+            vertex => AssertVectorClose(authoredTopColor, vertex.PsxPacketColor!.Value));
+        Assert.True(
+            emittedHorizon.Average(static vertex => Luminance(vertex.PsxPacketColor!.Value))
+            > emittedTop.Average(static vertex => Luminance(vertex.PsxPacketColor!.Value)) + 0.3f);
+
+        var skyMetadata = emittedSky.Primitives
+            .SelectMany(static primitive => primitive.NativeMetadata)
+            .OfType<PsxSkyRenderMetadata>()
+            .ToArray();
+        Assert.NotEmpty(skyMetadata);
+        Assert.All(skyMetadata, static metadata => Assert.Equal(0xAEC0DDu, metadata.SkyColor));
     }
 
     [Fact]
@@ -138,5 +220,44 @@ public sealed class ThpsLatePs1PortTests(TestPaths paths)
             SourceKind = ModelSourceKind.Psx,
             IncludeLevelObjects = true
         });
+    }
+
+    private static uint GetFaceVertexIndex(PsxFace face, int slot)
+    {
+        return slot switch
+        {
+            0 => face.Index0,
+            1 => face.Index1,
+            2 => face.Index2,
+            3 => face.Index3,
+            _ => throw new ArgumentOutOfRangeException(nameof(slot))
+        };
+    }
+
+    private static byte GetFacePaletteIndex(PsxFace face, int slot)
+    {
+        return slot switch
+        {
+            0 => face.R,
+            1 => face.G,
+            2 => face.B,
+            3 => face.Mode,
+            _ => throw new ArgumentOutOfRangeException(nameof(slot))
+        };
+    }
+
+    private static float Luminance(Vector4 color)
+    {
+        return color.X * 0.2126f + color.Y * 0.7152f + color.Z * 0.0722f;
+    }
+
+    private static bool NearlyEqual(float left, float right)
+    {
+        return MathF.Abs(left - right) <= 0.001f;
+    }
+
+    private static void AssertVectorClose(Vector4 expected, Vector4 actual)
+    {
+        Assert.InRange(Vector4.Distance(expected, actual), 0f, 1e-6f);
     }
 }

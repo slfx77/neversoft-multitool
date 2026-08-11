@@ -28,8 +28,8 @@ internal static class PsxGeometryWriter
         PshFile? pshFile = null,
         bool flatSkeleton = false,
         IReadOnlySet<int>? flatBoneIndices = null,
-        PsxMeshFile? splineClawFile = null,
-        MeshChecksumTextureResolver? splineClawTextureProvider = null,
+        PsxSplineClawLocator.ResolvedClaw? splineClaw = null,
+        IReadOnlyList<PsxSplineControllerChain>? splineChains = null,
         IReadOnlySet<int>? hiddenObjectIndices = null,
         bool reconstructSplineAppendages = false,
         string nodeNamePrefix = "object",
@@ -38,14 +38,16 @@ internal static class PsxGeometryWriter
         IReadOnlySet<int>? skyObjectIndices = null,
         IReadOnlyDictionary<int, int>? skyLayerOrder = null,
         uint? skyColor = null,
-        PsxGhostEmissionOptions? ghostOptions = null)
+        PsxGhostEmissionOptions? ghostOptions = null,
+        IReadOnlyDictionary<PsxPlacedFaceInstanceKey, PsxCoplanarOverlayAssignment>?
+            placedCoplanarOverlays = null)
     {
         if (PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(psxFile))
         {
             PsxSkinnedGeometryWriter.PopulatePsxSkinned(
                 document, psxFile, pshFile, textureProvider,
-                flatSkeleton, flatBoneIndices, splineClawFile,
-                splineClawTextureProvider, hiddenObjectIndices,
+                flatSkeleton, flatBoneIndices, splineClaw,
+                splineChains, hiddenObjectIndices,
                 reconstructSplineAppendages, context?.EngineLight);
             ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
             return;
@@ -55,6 +57,12 @@ internal static class PsxGeometryWriter
         var textureDims = context.TextureDimensions;
         var materialCache = context.Materials;
         var coplanarOverlays = PsxCoplanarOverlayDetector.FindGroups(psxFile);
+        // Placed cross-file groups are local to this writer call. Offset them
+        // beyond the intrinsic per-file groups so unrelated faces cannot merge
+        // into one (group, rank) mesh and inherit the wrong separation normal.
+        var placedCoplanarGroupOffset = coplanarOverlays.Count == 0
+            ? 0
+            : coplanarOverlays.Values.Max(static assignment => assignment.GroupId) + 1;
         var semiTransparentLiftSteps = PsxCoplanarOverlayDetector.FindSemiTransparentLayerSteps(psxFile);
         var semiTransparentLiftDirections = BuildSemiTransparentLiftDirections(psxFile);
         var untexturedMaterial = context.UntexturedMaterialIndex ??=
@@ -140,6 +148,9 @@ internal static class PsxGeometryWriter
                         untexturedMaterial,
                         textureProvider,
                         coplanarOverlays,
+                        placedCoplanarOverlays,
+                        placementIndex,
+                        placedCoplanarGroupOffset,
                         semiTransparentLiftSteps,
                         semiTransparentLiftDirections,
                         context.EngineLight,
@@ -166,6 +177,9 @@ internal static class PsxGeometryWriter
                     untexturedMaterial,
                     textureProvider,
                     coplanarOverlays,
+                    null,
+                    null,
+                    0,
                     semiTransparentLiftSteps,
                     semiTransparentLiftDirections,
                     context.EngineLight,
@@ -206,6 +220,10 @@ internal static class PsxGeometryWriter
         int untexturedMaterial,
         MeshChecksumTextureResolver? textureProvider,
         IReadOnlyDictionary<PsxFaceInstanceKey, PsxCoplanarOverlayAssignment> coplanarOverlays,
+        IReadOnlyDictionary<PsxPlacedFaceInstanceKey, PsxCoplanarOverlayAssignment>?
+            placedCoplanarOverlays,
+        int? placementIndex,
+        int placedCoplanarGroupOffset,
         IReadOnlyDictionary<PsxFaceInstanceKey, int> semiTransparentLiftSteps,
         IReadOnlyDictionary<(int X, int Y, int Z), Vector3>? semiTransparentLiftDirections,
         PsxEngineLight? engineLight = null,
@@ -242,10 +260,31 @@ internal static class PsxGeometryWriter
 
         var indexedFaces = emittedFaces
             .Select((face, faceIndex) => (Face: face, FaceIndex: faceIndex))
-            .ToLookup(item =>
-                coplanarOverlays.TryGetValue(new PsxFaceInstanceKey(objectIndex, item.FaceIndex), out var assignment)
-                    ? (assignment.GroupId, assignment.DrawRank)
-                    : (GroupId: -1, DrawRank: 0));
+            .ToLookup(item => ResolveCoplanarAssignment(item.FaceIndex));
+
+        (int GroupId, int DrawRank) ResolveCoplanarAssignment(int faceIndex)
+        {
+            // Intrinsic source-file classification is valid at every rigid
+            // placement and therefore takes precedence over an assembled
+            // level/bank observation for one instance.
+            if (coplanarOverlays.TryGetValue(
+                    new PsxFaceInstanceKey(objectIndex, faceIndex), out var intrinsic))
+            {
+                return (intrinsic.GroupId, intrinsic.DrawRank);
+            }
+
+            if (placementIndex is { } placedIndex
+                && placedCoplanarOverlays?.TryGetValue(
+                    new PsxPlacedFaceInstanceKey(objectIndex, placedIndex, faceIndex),
+                    out var placed) == true)
+            {
+                return (
+                    placed.GroupId + placedCoplanarGroupOffset,
+                    placed.DrawRank);
+            }
+
+            return (GroupId: -1, DrawRank: 0);
+        }
 
         var liftContext = new PsxMeshEmissionContext(
             objectIndex,
@@ -630,7 +669,7 @@ internal static class PsxGeometryWriter
         // Always emit the PS1 packet. Gating it on the lit state (added
         // 2026-07-29) made an all-lit file emit NO packet at all, which
         // downgrades the vertex type and strips both _PSX_COLOR_0 and
-        // _PSX_FLAGS_0 from the GLB — silently switching off the viewer's
+        // COLOR_1 from the GLB — silently switching off the viewer's
         // PS1-fidelity path for exactly the files it matters most on.
         var emitPacket = isPs1;
         // A semi-transparent zero-hash primitive has just been converted into
@@ -944,9 +983,9 @@ internal static class PsxGeometryWriter
         }
         else if (colourPulseChannel > 0)
         {
-            // v6 emits no PS1 packet, so the flags vector would stay zero and
-            // the channel lane would never reach the GLB. Mark the packet
-            // invalid (Z = 0) but keep the Gouraud lane alive to carry it.
+            // v6 emits no PS1 packet. Keep that path explicitly packet-invalid
+            // (Z = 0) while retaining the authored Gouraud fact; COLOR_1.W
+            // carries the pulse channel independently.
             psxPrimitiveFlags = new Vector3(0f, 1f, 0f);
         }
 

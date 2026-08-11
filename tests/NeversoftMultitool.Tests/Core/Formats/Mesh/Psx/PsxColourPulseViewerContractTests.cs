@@ -47,6 +47,46 @@ public class PsxColourPulseViewerContractTests
         Assert.Contains("updatePsxColourPulses(", nearby);
     }
 
+    /// <summary>
+    ///     Synthetic pulse-only scene: the shared clock must advance before UV
+    ///     work is skipped. Historically the first no-wibble return also froze
+    ///     every colour-pulse channel at frame zero.
+    /// </summary>
+    [Fact]
+    public void Viewer_PulseOnlySceneAdvancesTheSharedClock()
+    {
+        var viewer = ReadViewer();
+        var body = ExtractFunction(viewer, "function updatePsxTextureWibbles(dt)");
+
+        var inactiveGate = body.IndexOf(
+            "textureWibbleMeshes.length === 0 && colourPulseMeshes.length === 0",
+            StringComparison.Ordinal);
+        var clockAdvance = body.IndexOf("textureWibbleFrame = (textureWibbleFrame + dt * 60)", StringComparison.Ordinal);
+        var uvOnlyGate = body.IndexOf("if (textureWibbleMeshes.length === 0) return", StringComparison.Ordinal);
+
+        Assert.True(inactiveGate >= 0, "The shared clock is not gated by both animation types.");
+        Assert.True(clockAdvance > inactiveGate, "The shared clock must advance after the all-inactive guard.");
+        Assert.True(uvOnlyGate > clockAdvance, "Pulse-only scenes must advance before UV mutation is skipped.");
+    }
+
+    /// <summary>
+    ///     Synthetic inert scene: without UV wibbles or colour-pulse bindings,
+    ///     the timeline retains its frame-zero fallback.
+    /// </summary>
+    [Fact]
+    public void Viewer_NoSurfaceAnimationKeepsTheFrameZeroFallback()
+    {
+        var viewer = ReadViewer();
+        var body = ExtractFunction(viewer, "function updatePsxTextureWibbles(dt)");
+        var firstReturn = body.IndexOf("return;", StringComparison.Ordinal);
+        var clockAdvance = body.IndexOf("textureWibbleFrame =", StringComparison.Ordinal);
+
+        Assert.Contains(
+            "if (textureWibbleMeshes.length === 0 && colourPulseMeshes.length === 0) return;",
+            body);
+        Assert.InRange(firstReturn, 0, clockAdvance - 1);
+    }
+
     [Fact]
     public void Viewer_ConfiguresPulsesForBothSceneRoots()
     {
@@ -75,25 +115,66 @@ public class PsxColourPulseViewerContractTests
     {
         var viewer = ReadViewer();
 
-        var start = viewer.IndexOf("function unloadCurrent()", StringComparison.Ordinal);
-        Assert.True(start > 0, "unloadCurrent not found.");
-        var body = viewer.Substring(start, Math.Min(1400, viewer.Length - start));
+        var body = ExtractFunction(viewer, "function unloadCurrent()");
 
         Assert.Contains("colourPulseMeshes = []", body);
         Assert.Contains("colourPulseChannels = []", body);
     }
 
     /// <summary>
-    ///     The viewer must decode the lane as Y - 2, matching
-    ///     PsxColourPulseLane.DecodeIndex. Y - 1 binds every vertex to the wrong
-    ///     channel and still animates, so it fails silently.
+    ///     The main model and detached sky root are configured in two calls.
+    ///     These collections must therefore append during setup and reset only
+    ///     once, before a new model is loaded. Resetting one inside its
+    ///     configure function silently discards the main-scene entries when the
+    ///     sky call follows (the historical frozen-UV-wibble regression).
     /// </summary>
     [Fact]
-    public void Viewer_DecodesTheLaneAsMinusTwo()
+    public void Viewer_ResetsAppendOnlyMainAndSkyCollectionsOnlyOnUnload()
+    {
+        var viewer = ReadViewer();
+        var unload = ExtractFunction(viewer, "function unloadCurrent()");
+        var gpuSetup = ExtractFunction(viewer, "function configurePsxGpuVertexColors(root)");
+        var wibbleSetup = ExtractFunction(viewer, "function configurePsxTextureWibbles(root)");
+        var pulseSetup = ExtractFunction(viewer, "function configurePsxColourPulses(root, channels)");
+
+        AssertResetOwnedByUnload("psxGpuMaterials = []", unload, gpuSetup);
+        AssertResetOwnedByUnload("textureWibbleMeshes = []", unload, wibbleSetup);
+        AssertResetOwnedByUnload("colourPulseMeshes = []", unload, pulseSetup);
+        AssertResetOwnedByUnload("colourPulseChannels = []", unload, pulseSetup);
+    }
+
+    /// <summary>
+    ///     New normalized COLOR_1 alpha decodes through its exact byte code;
+    ///     the Y-2 rule remains only as legacy-GLB compatibility.
+    /// </summary>
+    [Fact]
+    public void Viewer_DecodesNewPulseCodeAndKeepsLegacyMinusTwoFallback()
     {
         var viewer = ReadViewer();
 
         Assert.Contains("Math.round(laneValue) - 2", viewer);
+        Assert.Contains("Math.round(color1.getW(i) * 255) - 1", viewer);
+    }
+
+    [Fact]
+    public void Viewer_GatesAndDecodesTheBlenderSafeWibbleCarriers()
+    {
+        var viewer = ReadViewer();
+        var body = ExtractFunction(viewer, "function installPsxCarrierAliases(obj)");
+
+        Assert.Contains("obj.userData.neversoftPsxVertexCarriers === 1", body);
+        Assert.Contains("geometry.getAttribute('_psx_color_0')", body);
+        Assert.Contains("geometry.getAttribute('uv1')", body);
+        Assert.Contains("geometry.getAttribute('uv2')", body);
+        Assert.Contains("geometry.getAttribute('uv3')", body);
+        Assert.Contains("1 - velocityCarrier.getY(i)", body);
+        Assert.Contains("Math.round(1 - waveCarrier.getY(i))", body);
+        Assert.Contains("1 - sizeCarrier.getY(i)", body);
+        Assert.Contains("(packed >>> 12) & 15", body);
+        Assert.Contains("(packed >>> 8) & 15", body);
+        Assert.Contains("(packed >>> 4) & 15", body);
+        Assert.Contains("packed & 15", body);
+        Assert.Contains("width > 0 && height > 0", body);
     }
 
     [Fact]
@@ -110,5 +191,42 @@ public class PsxColourPulseViewerContractTests
         // would make their update order significant.
         Assert.Contains("psxColor", body);
         Assert.DoesNotContain(".setXY(", body);
+    }
+
+    private static void AssertResetOwnedByUnload(
+        string reset,
+        string unload,
+        string configure)
+    {
+        Assert.Contains(reset, unload);
+        Assert.DoesNotContain(reset, configure);
+    }
+
+    private static string ExtractFunction(string source, string signature)
+    {
+        var start = source.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"{signature} not found.");
+
+        var openBrace = source.IndexOf('{', start);
+        Assert.True(openBrace >= 0, $"Opening brace for {signature} not found.");
+
+        var depth = 0;
+        for (var i = openBrace; i < source.Length; i++)
+        {
+            switch (source[i])
+            {
+                case '{':
+                    depth++;
+                    break;
+                case '}':
+                    depth--;
+                    if (depth == 0)
+                        return source[start..(i + 1)];
+                    break;
+            }
+        }
+
+        Assert.Fail($"Closing brace for {signature} not found.");
+        return string.Empty;
     }
 }

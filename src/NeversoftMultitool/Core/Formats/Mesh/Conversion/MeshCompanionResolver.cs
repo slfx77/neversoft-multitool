@@ -49,12 +49,13 @@ internal static class MeshCompanionResolver
     ///             have neither companion), so no suffix blocklist is needed.
     ///         </item>
     ///         <item>
-    ///             THPS1/THPS2 mode-variant regions <c>&lt;base&gt;_2</c> (two
+    ///             THPS1-3 mode-variant regions <c>&lt;base&gt;_2</c> (two
     ///             player) and <c>&lt;base&gt;_h</c> (H-O-R-S-E) ship NO companions
     ///             under their own stem — the SHARED <c>&lt;base&gt;_t.trg</c>
     ///             spools them by name (RESTART <c>SpoolEnv</c>), and the bank is
-    ///             the reduced two-player <c>&lt;base&gt;_o2.psx</c> or its
-    ///             8.3-squeezed spelling <c>&lt;base&gt;o2.psx</c> (THPS1 final
+    ///             the reduced two-player <c>&lt;base&gt;_o2.psx</c>, THPS3's
+    ///             <c>&lt;base&gt;2o.psx</c>, or the 8.3-squeezed spelling
+    ///             <c>&lt;base&gt;o2.psx</c> (THPS1 final
     ///             ships skjamo2/skmallo2/skroso2 but sksf_o2; THPS2 always keeps
     ///             the underscore), falling back to the one-player
     ///             <c>&lt;base&gt;_o.psx</c> (skburn_t's AUTOEXEC2 sets SkBurn_O;
@@ -99,7 +100,7 @@ internal static class MeshCompanionResolver
     }
 
     /// <summary>
-    ///     THPS1/THPS2 mode variants — <c>&lt;base&gt;_2</c> (two player) and
+    ///     THPS1-3 mode variants — <c>&lt;base&gt;_2</c> (two player) and
     ///     <c>&lt;base&gt;_h</c> (H-O-R-S-E) — are alternate geometry regions of
     ///     <c>&lt;base&gt;</c>, spooled by the SHARED <c>&lt;base&gt;_t.trg</c>.
     ///     The bank comes from that TRG's BOOT script, exactly as the engine
@@ -168,9 +169,9 @@ internal static class MeshCompanionResolver
             }
 
             var namedBank = selection.BankName + ".psx";
-            if (source.CompanionExists(namedBank))
+            if (TryResolveNamedPsxBank(source, namedBank, out var resolvedBank))
             {
-                companions = new PsxLevelCompanions(baseStem, namedBank, true);
+                companions = new PsxLevelCompanions(baseStem, resolvedBank, true);
                 return true;
             }
         }
@@ -178,16 +179,52 @@ internal static class MeshCompanionResolver
         // Fallback only: no parsable TRG / no boot script, or it named a bank
         // this build does not ship.
         string[] bankCandidates = isTwoPlayer
-            ? [baseStem + "_o2.psx", baseStem + "o2.psx", baseStem + PsxBankSuffix]
+            ? [baseStem + "_o2.psx", baseStem + "o2.psx", baseStem + "2o.psx", baseStem + PsxBankSuffix]
             : [baseStem + PsxBankSuffix];
         foreach (var bank in bankCandidates)
         {
-            if (!source.CompanionExists(bank))
+            if (!TryResolveNamedPsxBank(source, bank, out var resolvedBank))
                 continue;
-            companions = new PsxLevelCompanions(baseStem, bank, true);
+            companions = new PsxLevelCompanions(baseStem, resolvedBank, true);
             return true;
         }
 
+        return false;
+    }
+
+    /// <summary>
+    ///     Resolves a TRG-authored bank name in both a live hashed HED/WAD and
+    ///     an older extracted tree. Late-PS1 HED entries are case-sensitive
+    ///     CRCs of lower-case names; before a name was added to the dictionary,
+    ///     extraction preserved that entry as <c>XXXXXXXX.dat</c>. Accepting the
+    ///     exact hash alias keeps those already-extracted trees usable without
+    ///     weakening the boot script's choice or guessing from file contents.
+    /// </summary>
+    private static bool TryResolveNamedPsxBank(
+        AssetSource source,
+        string namedBank,
+        out string resolvedBank)
+    {
+        var lowerBank = namedBank.ToLowerInvariant();
+        foreach (var candidate in new[] { namedBank, lowerBank }.Distinct(StringComparer.Ordinal))
+        {
+            if (source.CompanionExists(candidate))
+            {
+                resolvedBank = candidate;
+                return true;
+            }
+
+            var hash = BinaryReaderExtensions.Crc32Neversoft(
+                System.Text.Encoding.ASCII.GetBytes(candidate));
+            var hashAlias = $"{hash:X8}.dat";
+            if (!source.CompanionExists(hashAlias))
+                continue;
+
+            resolvedBank = hashAlias;
+            return true;
+        }
+
+        resolvedBank = string.Empty;
         return false;
     }
 

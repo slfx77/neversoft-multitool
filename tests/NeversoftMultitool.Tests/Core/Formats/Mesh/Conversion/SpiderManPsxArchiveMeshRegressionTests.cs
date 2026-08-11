@@ -683,8 +683,10 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         // count. 75 small-decal + 7 genuine stacks (was 394 with 312
         // edge-adjacent false positives). Re-pinned 2026-08-03 (82 to 77):
         // back-to-back single-sided pairs no longer flag — backface culling
-        // already separates them (the retired corpus census also measured 77).
-        Assert.Equal(77, overlays.Count);
+        // already separates them. Re-pinned 2026-08-10 (77 to 80): secondary-
+        // triangle discovery recovers one verified overlay and writer-expanded
+        // sprite corners recover two more (matching the live corpus census).
+        Assert.Equal(80, overlays.Count);
         Assert.Contains(new PsxFaceInstanceKey(47, 0), overlays);
     }
 

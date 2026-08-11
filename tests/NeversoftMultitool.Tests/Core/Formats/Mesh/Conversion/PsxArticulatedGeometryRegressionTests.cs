@@ -15,6 +15,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
 {
     private const string BuildName = "Spider-Man (2000-9-1, PSX - Final)";
     private const string PcBuildName = "Spider-Man (2001-9-17, PC - Final)";
+    private const string PrototypeBuildName = "Spider-Man (2000-2-18, PSX - Prototype)";
     private static readonly int[] CarnageHandObjects = [13, 14, 17, 18];
 
     [Fact]
@@ -176,7 +177,8 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
         var file = PsxMeshFile.Parse(fixture.Source.ReadBytes());
         Assert.NotNull(file);
 
-        var chains = PsxSplineAppendageGeometry.FindControllerChains(file!);
+        var chains = PsxSplineAppendageGeometry.DiscoverControllerChains(
+            file!, fixture.Source, fixture.Source.ReadBytes());
 
         Assert.Equal(expectedChainCount, chains.Count);
         Assert.Equal(firstControllerObject, chains[0].ObjectIndices[0]);
@@ -185,6 +187,48 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
         Assert.Equal(
             Enumerable.Range(firstControllerObject, expectedChainCount * 7),
             chains.SelectMany(static chain => chain.ObjectIndices));
+    }
+
+    [Theory]
+    [InlineData(BuildName, "CD.WAD", 16)]
+    [InlineData(PcBuildName, "data.pkr", 0)]
+    public void ScorpionSplineDiscovery_UsesAnimatedEndpointRelationship_NotMeshChecksum(
+        string buildName,
+        string archiveName,
+        int expectedTipObjectIndex)
+    {
+        using var fixture = OpenArchiveEntry("scorpion.psx", buildName, archiveName);
+        if (fixture == null)
+            return;
+
+        var bytes = fixture.Source.ReadBytes();
+        var file = PsxMeshFile.Parse(bytes);
+        Assert.NotNull(file);
+        Array.Fill(file!.MeshNameHashes, 0u);
+
+        var chain = Assert.Single(PsxSplineAppendageGeometry.DiscoverControllerChains(
+            file, fixture.Source, bytes));
+
+        Assert.Equal(expectedTipObjectIndex, chain.EmbeddedTipObjectIndex);
+        Assert.Equal(
+            file.Objects[chain.ObjectIndices[^1]].ParentIndex,
+            file.Objects[expectedTipObjectIndex].ParentIndex);
+    }
+
+    [Fact]
+    public void PrototypeLizardSplineCandidate_HasNoAnimationPairedEndpoint()
+    {
+        using var fixture = OpenArchiveEntry(
+            "lizard.psx", PrototypeBuildName, "CD.WAD");
+        if (fixture == null)
+            return;
+
+        var bytes = fixture.Source.ReadBytes();
+        var file = PsxMeshFile.Parse(bytes);
+        Assert.NotNull(file);
+
+        Assert.Empty(PsxSplineAppendageGeometry.DiscoverControllerChains(
+            file!, fixture.Source, bytes));
     }
 
     [Theory]
@@ -217,7 +261,8 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
 
         var file = PsxMeshFile.Parse(fixture.Source.ReadBytes());
         Assert.NotNull(file);
-        var chains = PsxSplineAppendageGeometry.FindControllerChains(file!);
+        var chains = PsxSplineAppendageGeometry.DiscoverControllerChains(
+            file!, fixture.Source, fixture.Source.ReadBytes());
         Assert.Equal(expectedChainCount, chains.Count);
 
         var document = ParseAnimated(fixture.Source, entryName, file.Objects.Count);
@@ -442,8 +487,9 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
             textureProvider,
             false,
             null,
-            claw,
-            clawTextureProvider,
+            new PsxSplineClawLocator.ResolvedClaw(
+                claw, 0, 0, clawTextureProvider),
+            chains,
             null,
             true);
 
@@ -505,7 +551,8 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
 
         var file = PsxMeshFile.Parse(fixture.Source.ReadBytes());
         Assert.NotNull(file);
-        var chains = PsxSplineAppendageGeometry.FindControllerChains(file!);
+        var chains = PsxSplineAppendageGeometry.DiscoverControllerChains(
+            file!, fixture.Source, fixture.Source.ReadBytes());
         Assert.NotEmpty(chains);
 
         var document = Parse(fixture.Source, entryName);

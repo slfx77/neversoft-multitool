@@ -69,7 +69,9 @@ public sealed class PsxAnimatedMeshExtrasTests
             .GetProperty("meshes")[0]
             .GetProperty("primitives")[0]
             .GetProperty("attributes");
-        Assert.True(attributes.TryGetProperty("_PSX_UV_WIBBLE_0", out _));
+        Assert.True(attributes.TryGetProperty("TEXCOORD_1", out _));
+        Assert.True(attributes.TryGetProperty("TEXCOORD_2", out _));
+        Assert.True(attributes.TryGetProperty("TEXCOORD_3", out _));
     }
 
     /// <summary>

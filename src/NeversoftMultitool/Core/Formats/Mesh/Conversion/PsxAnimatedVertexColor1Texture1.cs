@@ -15,10 +15,10 @@ internal struct PsxAnimatedVertexColor1Texture1 :
     IEquatable<PsxAnimatedVertexColor1Texture1>
 {
     internal const string ColorAttributeName = "_PSX_COLOR_0";
-    internal const string FlagsAttributeName = "_PSX_FLAGS_0";
-    internal const string MotionAttributeName = "_PSX_UV_WIBBLE_0";
-    internal const string WaveAttributeName = "_PSX_UV_WIBBLE_1";
-    internal const string SizeAttributeName = "_PSX_UV_WIBBLE_2";
+    internal const string FlagsAttributeName = PsxGltfVertexCarriers.FlagsAndPulseAttributeName;
+    internal const string MotionAttributeName = PsxGltfVertexCarriers.WibbleVelocityAttributeName;
+    internal const string WaveAttributeName = PsxGltfVertexCarriers.WibbleWaveAttributeName;
+    internal const string SizeAttributeName = PsxGltfVertexCarriers.WibbleSizeAttributeName;
 
     private static readonly KeyValuePair<string, AttributeFormat>[] EncodingAttributes =
     [
@@ -26,72 +26,70 @@ internal struct PsxAnimatedVertexColor1Texture1 :
             DimensionType.VEC4, EncodingType.UNSIGNED_SHORT, true)),
         new("TEXCOORD_0", new AttributeFormat(DimensionType.VEC2)),
         new(ColorAttributeName, new AttributeFormat(DimensionType.VEC4)),
-        new(FlagsAttributeName, new AttributeFormat(DimensionType.VEC3)),
-        new(MotionAttributeName, new AttributeFormat(DimensionType.VEC4)),
-        new(WaveAttributeName, new AttributeFormat(DimensionType.VEC4)),
+        new(FlagsAttributeName, new AttributeFormat(
+            DimensionType.VEC4, EncodingType.UNSIGNED_SHORT, true)),
+        new(MotionAttributeName, new AttributeFormat(DimensionType.VEC2)),
+        new(WaveAttributeName, new AttributeFormat(DimensionType.VEC2)),
         new(SizeAttributeName, new AttributeFormat(DimensionType.VEC2))
     ];
 
     private static readonly string[] CustomAttributeNames =
     [
-        ColorAttributeName,
-        FlagsAttributeName,
-        MotionAttributeName,
-        WaveAttributeName,
-        SizeAttributeName
+        ColorAttributeName
     ];
 
     internal PsxAnimatedVertexColor1Texture1(ModelVertex vertex)
     {
         PortableColor = Vector4.Clamp(vertex.Color, Vector4.Zero, Vector4.One);
         PsxColor = vertex.PsxPacketColor ?? vertex.Color;
-        // The colour-pulse channel rides in the Gouraud lane (Y) rather than a
-        // new custom attribute: Blender's glTF importer mis-zips a
-        // hash-randomized set of custom-attribute names against append-ordered
-        // arrays, so each extra attribute makes that documented crash likelier.
-        // A pulsed corner is Gouraud by definition, so "y >= 0.5" stays true.
-        // CPU-side only - never read this lane in a shader (see
-        // ModelVertex.ColourPulseChannel).
-        PsxFlags = vertex.ColourPulseChannel > 0
-            ? new Vector3(
-                vertex.PsxPrimitiveFlags.X,
-                PsxColourPulseLane.Encode(vertex.ColourPulseChannel),
-                vertex.PsxPrimitiveFlags.Z)
-            : vertex.PsxPrimitiveFlags;
+        PsxFlagsAndPulse = PsxGltfVertexCarriers.EncodeFlagsAndPulse(
+            vertex.PsxPrimitiveFlags,
+            vertex.ColourPulseChannel);
         TexCoord = vertex.TexCoord;
 
         if (vertex.TextureWibble is { } wibble)
         {
-            Motion = new Vector4(
+            if (wibble.TextureWidth <= 0 || wibble.TextureHeight <= 0)
+            {
+                throw new InvalidOperationException(
+                    "PS1 texture-wibble dimensions must be positive; zero is reserved for the no-wibble sentinel.");
+            }
+
+            WibbleVelocity = new Vector2(
                 wibble.UVelocity,
-                wibble.VVelocity,
+                PsxGltfVertexCarriers.EncodeSecondTexCoordComponent(wibble.VVelocity));
+            WibbleWave = new Vector2(
                 wibble.Frequency,
-                1f);
-            Wave = new Vector4(
-                wibble.UAmplitude,
-                wibble.UPhase,
-                wibble.VAmplitude,
-                wibble.VPhase);
-            TextureSize = new Vector2(wibble.TextureWidth, wibble.TextureHeight);
+                PsxGltfVertexCarriers.EncodeSecondTexCoordComponent(
+                    PsxGltfVertexCarriers.PackWibbleNibbles(
+                        wibble.UAmplitude,
+                        wibble.UPhase,
+                        wibble.VAmplitude,
+                        wibble.VPhase)));
+            TextureSize = new Vector2(
+                wibble.TextureWidth,
+                PsxGltfVertexCarriers.EncodeSecondTexCoordComponent(wibble.TextureHeight));
         }
         else
         {
-            Motion = Vector4.Zero;
-            Wave = Vector4.Zero;
-            TextureSize = Vector2.One;
+            WibbleVelocity = new Vector2(0f, 1f);
+            WibbleWave = new Vector2(0f, 1f);
+            // Real wibbles always have positive dimensions (FromFace clamps
+            // each to at least one), making logical (0,0) unambiguous.
+            TextureSize = new Vector2(0f, 1f);
         }
     }
 
     public Vector4 PortableColor;
     public Vector4 PsxColor;
-    public Vector3 PsxFlags;
+    public Vector4 PsxFlagsAndPulse;
     public Vector2 TexCoord;
-    public Vector4 Motion;
-    public Vector4 Wave;
+    public Vector2 WibbleVelocity;
+    public Vector2 WibbleWave;
     public Vector2 TextureSize;
 
-    public readonly int MaxColors => 1;
-    public readonly int MaxTextCoords => 1;
+    public readonly int MaxColors => 2;
+    public readonly int MaxTextCoords => 4;
     public readonly IEnumerable<string> CustomAttributes => CustomAttributeNames;
 
     readonly IEnumerable<KeyValuePair<string, AttributeFormat>>
@@ -102,28 +100,60 @@ internal struct PsxAnimatedVertexColor1Texture1 :
 
     public readonly Vector4 GetColor(int index)
     {
-        return index == 0
-            ? PortableColor
-            : throw new ArgumentOutOfRangeException(nameof(index));
+        return index switch
+        {
+            0 => PortableColor,
+            1 => PsxFlagsAndPulse,
+            _ => throw new ArgumentOutOfRangeException(nameof(index))
+        };
     }
 
     public readonly Vector2 GetTexCoord(int index)
     {
-        return index == 0
-            ? TexCoord
-            : throw new ArgumentOutOfRangeException(nameof(index));
+        return index switch
+        {
+            0 => TexCoord,
+            1 => WibbleVelocity,
+            2 => WibbleWave,
+            3 => TextureSize,
+            _ => throw new ArgumentOutOfRangeException(nameof(index))
+        };
     }
 
     public void SetColor(int setIndex, Vector4 color)
     {
-        ArgumentOutOfRangeException.ThrowIfNotEqual(setIndex, 0);
-        PortableColor = Vector4.Clamp(color, Vector4.Zero, Vector4.One);
+        switch (setIndex)
+        {
+            case 0:
+                PortableColor = Vector4.Clamp(color, Vector4.Zero, Vector4.One);
+                break;
+            case 1:
+                PsxFlagsAndPulse = Vector4.Clamp(color, Vector4.Zero, Vector4.One);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(setIndex));
+        }
     }
 
     public void SetTexCoord(int setIndex, Vector2 coord)
     {
-        ArgumentOutOfRangeException.ThrowIfNotEqual(setIndex, 0);
-        TexCoord = coord;
+        switch (setIndex)
+        {
+            case 0:
+                TexCoord = coord;
+                break;
+            case 1:
+                WibbleVelocity = coord;
+                break;
+            case 2:
+                WibbleWave = coord;
+                break;
+            case 3:
+                TextureSize = coord;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(setIndex));
+        }
     }
 
     public readonly bool TryGetCustomAttribute(string attributeName, out object? value)
@@ -131,10 +161,6 @@ internal struct PsxAnimatedVertexColor1Texture1 :
         value = attributeName switch
         {
             ColorAttributeName => PsxColor,
-            FlagsAttributeName => PsxFlags,
-            MotionAttributeName => Motion,
-            WaveAttributeName => Wave,
-            SizeAttributeName => TextureSize,
             _ => null
         };
         return value != null;
@@ -147,26 +173,14 @@ internal struct PsxAnimatedVertexColor1Texture1 :
             case (ColorAttributeName, Vector4 color):
                 PsxColor = color;
                 break;
-            case (FlagsAttributeName, Vector3 flags):
-                PsxFlags = flags;
-                break;
-            case (MotionAttributeName, Vector4 motion):
-                Motion = motion;
-                break;
-            case (WaveAttributeName, Vector4 wave):
-                Wave = wave;
-                break;
-            case (SizeAttributeName, Vector2 size):
-                TextureSize = size;
-                break;
         }
     }
 
     public readonly void Validate()
     {
-        if (!IsFinite(PortableColor) || !IsFinite(PsxColor) || !IsFinite(PsxFlags) ||
-            !IsFinite(TexCoord) || !IsFinite(Motion) ||
-            !IsFinite(Wave) || !IsFinite(TextureSize))
+        if (!IsFinite(PortableColor) || !IsFinite(PsxColor) || !IsFinite(PsxFlagsAndPulse) ||
+            !IsFinite(TexCoord) || !IsFinite(WibbleVelocity) ||
+            !IsFinite(WibbleWave) || !IsFinite(TextureSize))
         {
             throw new InvalidOperationException(
                 "PS1 animated vertex attributes must be finite.");
@@ -198,10 +212,10 @@ internal struct PsxAnimatedVertexColor1Texture1 :
     {
         return PortableColor.Equals(other.PortableColor)
                && PsxColor.Equals(other.PsxColor)
-               && PsxFlags.Equals(other.PsxFlags)
+               && PsxFlagsAndPulse.Equals(other.PsxFlagsAndPulse)
                && TexCoord.Equals(other.TexCoord)
-               && Motion.Equals(other.Motion)
-               && Wave.Equals(other.Wave)
+               && WibbleVelocity.Equals(other.WibbleVelocity)
+               && WibbleWave.Equals(other.WibbleWave)
                && TextureSize.Equals(other.TextureSize);
     }
 
@@ -212,19 +226,14 @@ internal struct PsxAnimatedVertexColor1Texture1 :
 
     public readonly override int GetHashCode()
     {
-        var first = HashCode.Combine(PortableColor, PsxColor, PsxFlags, TexCoord, Motion);
-        return HashCode.Combine(first, Wave, TextureSize);
+        var first = HashCode.Combine(
+            PortableColor, PsxColor, PsxFlagsAndPulse, TexCoord, WibbleVelocity);
+        return HashCode.Combine(first, WibbleWave, TextureSize);
     }
 
     private static bool IsFinite(Vector2 value)
     {
         return float.IsFinite(value.X) && float.IsFinite(value.Y);
-    }
-
-    private static bool IsFinite(Vector3 value)
-    {
-        return float.IsFinite(value.X) && float.IsFinite(value.Y) &&
-               float.IsFinite(value.Z);
     }
 
     private static bool IsFinite(Vector4 value)

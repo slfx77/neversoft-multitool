@@ -1,3 +1,5 @@
+using System.Globalization;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Trg;
@@ -11,12 +13,133 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 ///     their placements are removed by default behind an opt-in visibility
 ///     group.
 /// </summary>
-public sealed class PsxWhatIfContentGateTests
+public sealed class PsxWhatIfContentGateTests(TestPaths paths)
 {
+    private const string SpiderManFinalBuild = "Spider-Man (2000-9-1, PSX - Final)";
+    private const string EnterElectroFinalBuild =
+        "Spider-Man 2 - Enter Electro (2001-8-15, PSX - Final)";
     private const uint ModelHash = 0x12345678;
     private const uint WhatIfModelHash = 0x0F0F0F0F;
     private const uint AssetHash = 0xCAFEF00D;
     private const string GroupId = "psx.whatif.CAFEF00D";
+
+    public static TheoryData<string, int[], int, int, uint> SpiderManDisplayGateCases => new()
+    {
+        { "l1a3", [322], 0, 0, 0xA9933E06u },
+        { "l5a3", [192, 196, 198], 6, 6, 0xA2907FFCu }
+    };
+
+    public static TheoryData<string, int[], int, int, uint> EnterElectroElseBranchCases => new()
+    {
+        { "e1m2", [316], 14, 14, 0x88A65242u },
+        { "e3m3", [3, 306], 13, 13, 0x88A65242u }
+    };
+
+    [Theory]
+    [MemberData(nameof(SpiderManDisplayGateCases))]
+    public void FinalSpiderMan_DisplayOffWhatIfNodes_GateTheirExactPlacements(
+        string levelStem,
+        int[] expectedNodeIndices,
+        int expectedObjectIndex,
+        int expectedMeshIndex,
+        uint expectedModelHash)
+    {
+        var (trg, objectBank) = LoadCorpusLevel(SpiderManFinalBuild, levelStem);
+        var resolved = PsxLevelObjectPlacementResolver.ResolveDetailed(trg, objectBank);
+
+        Assert.All(expectedNodeIndices, nodeIndex =>
+        {
+            Assert.Contains(nodeIndex, resolved.WhatIfNodeIndices);
+            var node = Assert.Single(trg.Nodes, candidate => candidate.Index == nodeIndex);
+            Assert.Contains(node.Script!, static op => op.Opcode == "0x212F");
+            Assert.Contains(node.Script!, static op => op.Opcode == "0x4204");
+            Assert.Contains(node.Script!, static op => op.Opcode == "0x4117");
+            Assert.Contains(node.Script!, static op => op.Opcode == "0x4203");
+        });
+
+        var placedObjects = expectedNodeIndices.ToDictionary(
+            static nodeIndex => nodeIndex,
+            nodeIndex => FindPlacedObjectIndex(resolved.Placements, nodeIndex));
+        var modelIdentities = placedObjects.ToDictionary(
+            static pair => pair.Key,
+            pair => GetModelIdentity(objectBank, pair.Value));
+        Assert.All(placedObjects, pair => Assert.Equal(expectedObjectIndex, pair.Value));
+        Assert.All(modelIdentities, pair =>
+            Assert.Equal((expectedMeshIndex, expectedModelHash), pair.Value));
+
+        var hiddenDocument = new ModelDocument { Name = levelStem + "_g" };
+        var hidden = PsxWhatIfContentGate.Apply(
+            hiddenDocument, null, AssetHash, resolved);
+        Assert.All(placedObjects, pair =>
+            Assert.DoesNotContain(
+                hidden.GetValueOrDefault(pair.Value, []),
+                placement => placement.TriggerNodeIndex == pair.Key));
+
+        var visibleDocument = new ModelDocument { Name = levelStem + "_g" };
+        var visible = PsxWhatIfContentGate.Apply(
+            visibleDocument,
+            new Dictionary<string, bool> { [GroupId] = true },
+            AssetHash,
+            resolved);
+        Assert.All(placedObjects, pair =>
+        {
+            Assert.Contains(
+                visible[pair.Value],
+                placement => placement.TriggerNodeIndex == pair.Key);
+            Assert.Equal(modelIdentities[pair.Key], GetModelIdentity(objectBank, pair.Value));
+        });
+        var group = Assert.Single(hiddenDocument.VisibilityGroups);
+        Assert.All(expectedNodeIndices, nodeIndex =>
+            Assert.Contains(
+                nodeIndex.ToString(CultureInfo.InvariantCulture),
+                group.SourceReference,
+                StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [MemberData(nameof(EnterElectroElseBranchCases))]
+    public void EnterElectro_ElseBranchNodes_KeepTheirNormalPlayPlacements(
+        string levelStem,
+        int[] expectedNodeIndices,
+        int expectedObjectIndex,
+        int expectedMeshIndex,
+        uint expectedModelHash)
+    {
+        var (trg, objectBank) = LoadCorpusLevel(EnterElectroFinalBuild, levelStem);
+        var resolved = PsxLevelObjectPlacementResolver.ResolveDetailed(trg, objectBank);
+        var placedObjects = expectedNodeIndices.ToDictionary(
+            static nodeIndex => nodeIndex,
+            nodeIndex => FindPlacedObjectIndex(resolved.Placements, nodeIndex));
+        Assert.All(placedObjects, pair => Assert.Equal(expectedObjectIndex, pair.Value));
+        Assert.Equal(
+            (expectedMeshIndex, expectedModelHash),
+            GetModelIdentity(objectBank, expectedObjectIndex));
+
+        Assert.All(expectedNodeIndices, nodeIndex =>
+        {
+            var node = Assert.Single(trg.Nodes, candidate => candidate.Index == nodeIndex);
+            Assert.Contains(node.Script!, static op => op.Opcode == "0x4117");
+            Assert.Contains(node.Script!, static op => op.Opcode == "0x4122");
+            Assert.True(node.Script!
+                .Where(static op => op.Opcode == "0x212F")
+                .Select(static op => op.Value)
+                .Distinct()
+                .Count() >= 2);
+            Assert.DoesNotContain(nodeIndex, resolved.WhatIfNodeIndices);
+        });
+
+        var document = new ModelDocument { Name = levelStem + "_g" };
+        var normalPlay = PsxWhatIfContentGate.Apply(document, null, AssetHash, resolved);
+        Assert.All(placedObjects, pair =>
+        {
+            Assert.Contains(
+                normalPlay[pair.Value],
+                placement => placement.TriggerNodeIndex == pair.Key);
+            Assert.Equal(
+                (expectedMeshIndex, expectedModelHash),
+                GetModelIdentity(objectBank, pair.Value));
+        });
+    }
 
     [Fact]
     public void ResolveDetailed_DetectsWhatIfGatedPlatformNodes()
@@ -205,6 +328,52 @@ public sealed class PsxWhatIfContentGateTests
 
         Assert.Same(resolved.Placements, gated);
         Assert.Empty(document.VisibilityGroups);
+    }
+
+    private (TrgFile Trg, PsxMeshFile ObjectBank) LoadCorpusLevel(
+        string buildName,
+        string levelStem)
+    {
+        var wadPath = paths.FindSampleFile(buildName, "CD.WAD");
+        Assert.SkipWhen(wadPath == null, $"{buildName} CD.WAD sample not available");
+
+        var backend = ArchiveAssetBackend.TryOpen(wadPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend!.FileSystem;
+        var geometryEntry = backend.FindEntry(levelStem + "_g.psx");
+        Assert.NotNull(geometryEntry);
+        var source = new ArchiveAssetSource(backend, geometryEntry!);
+
+        var triggerBytes = source.TryReadCompanion(levelStem + "_t.trg");
+        Assert.NotNull(triggerBytes);
+        TrgFile trg;
+        using (var stream = new MemoryStream(triggerBytes!, false))
+        using (var reader = new BinaryReader(stream))
+            trg = TrgFile.Parse(reader, levelStem + "_t.trg");
+
+        var objectBytes = source.TryReadCompanion(levelStem + "_o.psx");
+        Assert.NotNull(objectBytes);
+        var objectBank = PsxMeshFile.Parse(objectBytes!);
+        Assert.NotNull(objectBank);
+        return (trg, objectBank!);
+    }
+
+    private static int FindPlacedObjectIndex(
+        IReadOnlyDictionary<int, IReadOnlyList<PsxLevelObjectPlacement>> placements,
+        int nodeIndex)
+    {
+        return Assert.Single(placements
+            .Where(pair => pair.Value.Any(placement =>
+                placement.TriggerNodeIndex == nodeIndex))
+            .Select(static pair => pair.Key));
+    }
+
+    private static (int MeshIndex, uint ModelHash) GetModelIdentity(
+        PsxMeshFile objectBank,
+        int objectIndex)
+    {
+        var meshIndex = objectBank.Objects[objectIndex].MeshIndex;
+        return (meshIndex, objectBank.MeshNameHashes[meshIndex]);
     }
 
     private static TrgFile BuildTriggerFile(params TrgNode[] nodes)

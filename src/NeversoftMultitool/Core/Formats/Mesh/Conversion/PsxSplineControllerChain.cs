@@ -4,4 +4,5 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
 internal sealed record PsxSplineControllerChain(
     IReadOnlyList<int> ObjectIndices,
-    IReadOnlyList<Vector3> Centers);
+    IReadOnlyList<Vector3> Centers,
+    int? EmbeddedTipObjectIndex = null);

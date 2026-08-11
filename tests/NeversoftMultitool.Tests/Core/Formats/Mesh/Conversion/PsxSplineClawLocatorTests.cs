@@ -5,42 +5,133 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 
 public sealed class PsxSplineClawLocatorTests(TestPaths paths)
 {
+    private const string FinalBuild = "Spider-Man (2000-9-1, PSX - Final)";
+    private const string PrototypeBuild = "Spider-Man (2000-2-18, PSX - Prototype)";
+
     [Fact]
-    public void Locate_RetailDocock_UsesSiblingClawPsx()
+    public void Locate_RetailDocock_PrefersUniqueSelfContainedStructuralKit()
     {
-        var docockPath = paths.FindSampleFile(
-            "Spider-Man (2000-9-1, PSX - Final)", "docock.psx");
+        var docockPath = paths.FindSampleFile(FinalBuild, "docock.psx");
         Assert.SkipWhen(docockPath == null, "Spider-Man final docock.psx not available");
 
         var claw = PsxSplineClawLocator.Locate(new FileSystemAssetSource(docockPath!));
 
         Assert.NotNull(claw);
-        Assert.Contains(PsxSplineClawLocator.ClawMeshHash, claw!.File.MeshNameHashes);
-        Assert.NotNull(claw.TextureProvider);
+        Assert.Single(claw!.File.Objects);
+        var mesh = Assert.Single(claw.File.Meshes);
+        Assert.Equal(0, claw.ObjectIndex);
+        Assert.Equal(0, claw.MeshIndex);
+        Assert.Equal(40, mesh.Faces.Sum(static face => face.IsQuad ? 2 : 1));
+        Assert.NotNull(claw.TextureProvider(mesh.Faces[0].TextureHash));
     }
 
     [Fact]
-    public void Locate_PrototypeDocock_ExtractsClawFromLevelObjectBank()
+    public void Locate_PrototypeDocock_CarriesActualBankObjectAndMeshIndices()
     {
-        // The February 2000 prototypes ship no standalone claw.psx — the claw
-        // mesh lives inside the boss arena's object bank (l8a4_o.psx). Without
-        // this fallback the tentacle tips exported bare (user-reported).
-        var docockPath = paths.FindSampleFile(
-            "Spider-Man (2000-2-18, PSX - Prototype)", "docock.psx");
-        Assert.SkipWhen(docockPath == null, "Spider-Man 2/18 prototype docock.psx not available");
+        var archivePath = paths.FindSampleFile(PrototypeBuild, "CD.WAD");
+        Assert.SkipWhen(archivePath == null, "Spider-Man 2/18 CD.WAD not available");
+        var backend = ArchiveAssetBackend.TryOpen(archivePath!);
+        Assert.NotNull(backend);
+        try
+        {
+            var entry = backend!.FindEntry("docock.psx");
+            Assert.NotNull(entry);
+            var claw = PsxSplineClawLocator.Locate(
+                new ArchiveAssetSource(backend, entry!));
 
-        var claw = PsxSplineClawLocator.Locate(new FileSystemAssetSource(docockPath!));
+            Assert.NotNull(claw);
+            Assert.True(claw!.File.Objects.Count > 1);
+            Assert.True(claw.File.Meshes.Count > 1);
+            Assert.Equal(1, claw.MeshIndex);
+            Assert.InRange(claw.ObjectIndex, 0, claw.File.Objects.Count - 1);
+            Assert.Equal(claw.MeshIndex, claw.File.Objects[claw.ObjectIndex].MeshIndex);
+            var mesh = claw.File.Meshes[claw.MeshIndex];
+            Assert.Equal(22, mesh.Vertices.Count);
+            Assert.Equal(40, mesh.Faces.Sum(static face => face.IsQuad ? 2 : 1));
+        }
+        finally
+        {
+            backend?.FileSystem.Dispose();
+        }
+    }
 
-        Assert.NotNull(claw);
-        var mesh = Assert.Single(claw!.File.Meshes);
-        Assert.Equal([PsxSplineClawLocator.ClawMeshHash], claw.File.MeshNameHashes);
-        Assert.True(mesh.Faces.Count > 0);
-        // Local space: the writer applies the spline tip transform itself, so
-        // the repackaged bank object must not carry the bank's world position.
-        var obj = Assert.Single(claw.File.Objects);
-        Assert.Equal(0, obj.RawX);
-        Assert.Equal(0, obj.RawY);
-        Assert.Equal(0, obj.RawZ);
-        Assert.NotNull(claw.TextureProvider);
+    [Fact]
+    public void Locate_RenamedStandaloneKit_IsFilenameIndependentAndCached()
+    {
+        var docockPath = paths.FindSampleFile(FinalBuild, "docock.psx");
+        var clawPath = paths.FindSampleFile(FinalBuild, "claw.psx");
+        Assert.SkipWhen(
+            docockPath == null || clawPath == null,
+            "Spider-Man final loose docock/claw samples not available");
+
+        using var directory = new TempDirectory("nmt-appendage-");
+        var characterPath = Path.Combine(directory.Path, "renamed_character.psx");
+        File.Copy(docockPath!, characterPath);
+        File.Copy(clawPath!, Path.Combine(directory.Path, "runtime_payload.psx"));
+        var source = new FileSystemAssetSource(characterPath);
+
+        var first = PsxSplineClawLocator.Locate(source);
+        var second = PsxSplineClawLocator.Locate(source);
+
+        Assert.NotNull(first);
+        Assert.Same(first, second);
+    }
+
+    [Fact]
+    public void Locate_FileSystemScopeMutation_InvalidatesMissingAndPositiveCacheEntries()
+    {
+        var docockPath = paths.FindSampleFile(FinalBuild, "docock.psx");
+        var clawPath = paths.FindSampleFile(FinalBuild, "claw.psx");
+        Assert.SkipWhen(
+            docockPath == null || clawPath == null,
+            "Spider-Man final loose docock/claw samples not available");
+
+        using var directory = new TempDirectory("nmt-appendage-mutation-");
+        var characterPath = Path.Combine(directory.Path, "character.psx");
+        File.Copy(docockPath!, characterPath);
+        var source = new FileSystemAssetSource(characterPath);
+
+        Assert.Null(PsxSplineClawLocator.Locate(source));
+
+        File.Copy(clawPath!, Path.Combine(directory.Path, "payload_a.psx"));
+        Assert.NotNull(PsxSplineClawLocator.Locate(source));
+
+        File.Copy(clawPath!, Path.Combine(directory.Path, "payload_b.psx"));
+        Assert.Null(PsxSplineClawLocator.Locate(source));
+    }
+
+    [Fact]
+    public void Locate_TwoRenamedStandaloneKits_IsAmbiguous()
+    {
+        var docockPath = paths.FindSampleFile(FinalBuild, "docock.psx");
+        var clawPath = paths.FindSampleFile(FinalBuild, "claw.psx");
+        Assert.SkipWhen(
+            docockPath == null || clawPath == null,
+            "Spider-Man final loose docock/claw samples not available");
+
+        using var directory = new TempDirectory("nmt-appendage-ambiguous-");
+        var characterPath = Path.Combine(directory.Path, "character.psx");
+        File.Copy(docockPath!, characterPath);
+        File.Copy(clawPath!, Path.Combine(directory.Path, "payload_a.psx"));
+        File.Copy(clawPath!, Path.Combine(directory.Path, "payload_b.psx"));
+
+        Assert.Null(PsxSplineClawLocator.Locate(
+            new FileSystemAssetSource(characterPath)));
+    }
+
+    private sealed class TempDirectory : IDisposable
+    {
+        internal TempDirectory(string prefix)
+        {
+            Path = Directory.CreateTempSubdirectory(prefix).FullName;
+        }
+
+        internal string Path { get; }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+                Directory.Delete(Path, true);
+        }
     }
 }

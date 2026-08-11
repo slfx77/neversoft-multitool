@@ -5,7 +5,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Psx;
 
 /// <summary>
 ///     Re-derives the viewer's own work from an exported GLB — bucket vertices by
-///     the <c>_PSX_FLAGS_0.Y</c> lane, look the channel up in the scene-level
+///     normalized <c>COLOR_1.W</c> lane, look the channel up in the scene-level
 ///     table, evaluate it at frame 0 — and checks the result against the colour
 ///     actually stored on the vertex.
 ///     <para>
@@ -40,7 +40,7 @@ internal static class PsxColourPulseGlbInspector
                      .SelectMany(mesh => mesh.GetProperty("primitives").EnumerateArray()))
         {
             var attributes = primitive.GetProperty("attributes");
-            if (!attributes.TryGetProperty("_PSX_FLAGS_0", out var flagsIndex)
+            if (!attributes.TryGetProperty("COLOR_1", out var flagsIndex)
                 || !attributes.TryGetProperty("_PSX_COLOR_0", out var colorIndex))
             {
                 continue;
@@ -51,7 +51,7 @@ internal static class PsxColourPulseGlbInspector
 
             for (var i = 0; i < flags.Count && i < colors.Count; i++)
             {
-                var channel = PsxColourPulseLane.DecodeIndex(flags[i][1]);
+                var channel = PsxColourPulseLane.DecodeIndex(flags[i][3]);
                 if (channel < 0)
                     continue;
 

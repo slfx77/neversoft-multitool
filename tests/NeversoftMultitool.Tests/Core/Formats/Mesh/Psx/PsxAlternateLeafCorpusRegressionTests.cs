@@ -151,8 +151,10 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
                 Assert.False(face.IsTextured);
             });
         });
-        Assert.DoesNotContain(0xAF6C87FEu, file.MeshNameHashes);
-
+        Assert.All(Enumerable.Range(17, 7), objectIndex =>
+            Assert.Equal(-1, file.Objects[objectIndex].ParentIndex));
+        // The animation-paired endpoint rejection is covered by the conversion
+        // regression that decodes this model's complete embedded bank.
         Assert.Empty(PsxSplineAppendageGeometry.FindControllerChains(file));
     }
 

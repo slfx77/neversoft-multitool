@@ -55,11 +55,13 @@ internal static class HedDictionaryPart5
         names[0x9C70299C] = "a9xxx_t.trg";
         names[0xDAF05EF9] = "aaair.psx";
         names[0x17A111AB] = "aaair_2.psx";
+        names[0x98CAEB0D] = "aaair2o.psx";
         names[0xE022DA55] = "aaair_l.psx";
         names[0x9CC0432A] = "aaair_o.psx";
         names[0x474E1BC0] = "aaair_t.trg";
         names[0x90D55D28] = "aaburb.psx";
         names[0x5B61AE7A] = "aaburb_2.psx";
+        names[0xD40A54DC] = "aaburb2o.psx";
         names[0xACE26584] = "aaburb_l.psx";
         names[0xD000FCFB] = "aaburb_o.psx";
         names[0x0B8EA411] = "aaburb_t.trg";
@@ -70,11 +72,13 @@ internal static class HedDictionaryPart5
         names[0x8B4D71DD] = "aacana_t.trg";
         names[0xFB3F8095] = "aadnhl.psx";
         names[0x2F7E7180] = "aadnhl_2.psx";
+        names[0xA0158B26] = "aadnhl2o.psx";
         names[0xD8FDBA7E] = "aadnhl_l.psx";
         names[0xA41F2301] = "aadnhl_o.psx";
         names[0x7F917BEB] = "aadnhl_t.trg";
         names[0x1BC10C51] = "aafoun.psx";
         names[0x96BF21CB] = "aafoun_2.psx";
+        names[0x19D4DB6D] = "aafoun2o.psx";
         names[0x613CEA35] = "aafoun_l.psx";
         names[0x1DDE734A] = "aafoun_o.psx";
         names[0xC6502BA0] = "aafoun_t.trg";
@@ -84,6 +88,7 @@ internal static class HedDictionaryPart5
         names[0x7D2B6C1E] = "aajap_t.trg";
         names[0x9A5BAE78] = "aala.psx";
         names[0xAAC7B210] = "aala_2.psx";
+        names[0x25AC48B6] = "aala2o.psx";
         names[0x5D4479EE] = "aala_l.psx";
         names[0x21A6E091] = "aala_o.psx";
         names[0xFA28B87B] = "aala_t.trg";
@@ -95,6 +100,7 @@ internal static class HedDictionaryPart5
         names[0x6F007B0A] = "aario_t.trg";
         names[0xA012221E] = "aaskil.psx";
         names[0xDCB26EA3] = "aaskil_2.psx";
+        names[0x53D99405] = "aaskil2o.psx";
         names[0x2B31A55D] = "aaskil_l.psx";
         names[0x57D33C22] = "aaskil_o.psx";
         names[0x8C5D64C8] = "aaskil_t.trg";

@@ -32,22 +32,30 @@ public sealed class PsxCoplanarOverlayCensusTests(TestPaths paths)
     // back-to-back SINGLE-SIDED pairs — opposing raw normals in one
     // canonical-plane bucket — excluded everywhere because backface culling
     // already separates them, making their old flags needless splits.
+    // Re-pinned 2026-08-10 for the narrow plane-discovery seam: +1 secondary-
+    // triangle overlay in l2a1_g, and +2 raw-distance-neighbour overlays in
+    // Marseille (identical in PSX/DC). Six other fixtures remain unchanged.
+    // Re-pinned 2026-08-10 for writer-expanded opaque sprite candidates:
+    // the Spider-Man rooftop gains two independently verified antenna/card overlays.
+    // SKPH also gains 14 nested sprite layers (six foliage panels and eight
+    // segmented pole strips). Transparent-layer discovery intentionally keeps
+    // its separately calibrated raw candidates and does not move this census.
     //
     // Spider-Man: the decal-heavy start rooftop, the demo level's sign panels,
     // and l7a2_g whose glass sheets drove the lift-orientation fix.
-    [InlineData("Spider-Man (2000-9-1, PSX - Final)", "l2a1_g.psx", 77)] // 82: −5 back-to-back
+    [InlineData("Spider-Man (2000-9-1, PSX - Final)", "l2a1_g.psx", 80)] // 77: +1 secondary triangle, +2 sprite cards
     [InlineData("Spider-Man (2000-9-1, PSX - Final)", "lda1_g.psx", 5)] // 18: −13 back-to-back
     [InlineData("Spider-Man (2000-9-1, PSX - Final)", "l7a2_g.psx", 593)] // 538: +55 appearance twins
     // THPS2 Dreamcast: the reported water (SKB2), the baked light/shadow floor
     // duplicates (SKMAR), and the fence/sprite level (SKPH).
     [InlineData("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", "SKB2.PSX", 24)] // 1: +23 exact-area decals (its whole unseparated class)
-    [InlineData("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", "SKMAR.PSX", 101)] // 102: −1 back-to-back
-    [InlineData("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", "SKPH.PSX", 27)] // 29: −2 back-to-back
+    [InlineData("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", "SKMAR.PSX", 103)] // 101: +2 raw-distance seam
+    [InlineData("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", "SKPH.PSX", 41)] // 29: −2 back-to-back, +14 sprite layers
     // THPS2 PS1 + THPS1: skware's baked bright/shadow wall duplicates (the
     // o117f9/o151f9 exemplar) and skmall's storefronts, which are mostly
     // back-to-back single-sided walls the old rule flagged needlessly.
     [InlineData("Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)", "skware.psx", 106)] // 37: +69 appearance twins
-    [InlineData("Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)", "skmar.psx", 37)] // 39: −2 back-to-back
+    [InlineData("Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)", "skmar.psx", 39)] // 37: +2 raw-distance seam
     [InlineData("Tony Hawk's Pro Skater (1999-9-29, PSX - Final)", "skmall.psx", 7)] // 47: −40 back-to-back
     public void Find_FlagsThePinnedOverlayCount(string buildName, string fileName, int expected)
     {

@@ -16,7 +16,7 @@ internal struct PsxOverbrightVertexColor1Texture1 :
     IEquatable<PsxOverbrightVertexColor1Texture1>
 {
     internal const string AttributeName = "_PSX_COLOR_0";
-    internal const string FlagsAttributeName = "_PSX_FLAGS_0";
+    internal const string FlagsAttributeName = PsxGltfVertexCarriers.FlagsAndPulseAttributeName;
 
     private static readonly KeyValuePair<string, AttributeFormat>[] EncodingAttributes =
     [
@@ -26,38 +26,27 @@ internal struct PsxOverbrightVertexColor1Texture1 :
         new(AttributeName, new AttributeFormat(
             DimensionType.VEC4, EncodingType.FLOAT, false)),
         new(FlagsAttributeName, new AttributeFormat(
-            DimensionType.VEC3, EncodingType.FLOAT, false))
+            DimensionType.VEC4, EncodingType.UNSIGNED_SHORT, true))
     ];
 
-    private static readonly string[] CustomAttributeNames =
-        [AttributeName, FlagsAttributeName];
+    private static readonly string[] CustomAttributeNames = [AttributeName];
 
     internal PsxOverbrightVertexColor1Texture1(ModelVertex vertex)
     {
         PortableColor = Vector4.Clamp(vertex.Color, Vector4.Zero, Vector4.One);
         PsxColor = vertex.PsxPacketColor ?? vertex.Color;
-        // The colour-pulse channel rides in the Gouraud lane (Y) rather than a
-        // new custom attribute: Blender's glTF importer mis-zips a
-        // hash-randomized set of custom-attribute names against append-ordered
-        // arrays, so each extra attribute makes that documented crash likelier.
-        // A pulsed corner is Gouraud by definition, so "y >= 0.5" stays true.
-        // CPU-side only - never read this lane in a shader (see
-        // ModelVertex.ColourPulseChannel).
-        PsxFlags = vertex.ColourPulseChannel > 0
-            ? new Vector3(
-                vertex.PsxPrimitiveFlags.X,
-                PsxColourPulseLane.Encode(vertex.ColourPulseChannel),
-                vertex.PsxPrimitiveFlags.Z)
-            : vertex.PsxPrimitiveFlags;
+        PsxFlagsAndPulse = PsxGltfVertexCarriers.EncodeFlagsAndPulse(
+            vertex.PsxPrimitiveFlags,
+            vertex.ColourPulseChannel);
         TexCoord = vertex.TexCoord;
     }
 
     public Vector4 PortableColor;
     public Vector4 PsxColor;
-    public Vector3 PsxFlags;
+    public Vector4 PsxFlagsAndPulse;
     public Vector2 TexCoord;
 
-    public readonly int MaxColors => 1;
+    public readonly int MaxColors => 2;
     public readonly int MaxTextCoords => 1;
     public readonly IEnumerable<string> CustomAttributes => CustomAttributeNames;
 
@@ -69,9 +58,12 @@ internal struct PsxOverbrightVertexColor1Texture1 :
 
     public readonly Vector4 GetColor(int index)
     {
-        return index == 0
-            ? PortableColor
-            : throw new ArgumentOutOfRangeException(nameof(index));
+        return index switch
+        {
+            0 => PortableColor,
+            1 => PsxFlagsAndPulse,
+            _ => throw new ArgumentOutOfRangeException(nameof(index))
+        };
     }
 
     public readonly Vector2 GetTexCoord(int index)
@@ -83,8 +75,17 @@ internal struct PsxOverbrightVertexColor1Texture1 :
 
     public void SetColor(int setIndex, Vector4 color)
     {
-        ArgumentOutOfRangeException.ThrowIfNotEqual(setIndex, 0);
-        PortableColor = Vector4.Clamp(color, Vector4.Zero, Vector4.One);
+        switch (setIndex)
+        {
+            case 0:
+                PortableColor = Vector4.Clamp(color, Vector4.Zero, Vector4.One);
+                break;
+            case 1:
+                PsxFlagsAndPulse = Vector4.Clamp(color, Vector4.Zero, Vector4.One);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(setIndex));
+        }
     }
 
     public void SetTexCoord(int setIndex, Vector2 coord)
@@ -101,12 +102,6 @@ internal struct PsxOverbrightVertexColor1Texture1 :
             return true;
         }
 
-        if (attributeName == FlagsAttributeName)
-        {
-            value = PsxFlags;
-            return true;
-        }
-
         value = null;
         return false;
     }
@@ -118,9 +113,6 @@ internal struct PsxOverbrightVertexColor1Texture1 :
             case (AttributeName, Vector4 color):
                 PsxColor = color;
                 break;
-            case (FlagsAttributeName, Vector3 flags):
-                PsxFlags = flags;
-                break;
         }
     }
 
@@ -130,8 +122,8 @@ internal struct PsxOverbrightVertexColor1Texture1 :
             !IsFinite(PortableColor.Z) || !IsFinite(PortableColor.W) ||
             !IsFinite(PsxColor.X) || !IsFinite(PsxColor.Y) ||
             !IsFinite(PsxColor.Z) || !IsFinite(PsxColor.W) ||
-            !IsFinite(PsxFlags.X) || !IsFinite(PsxFlags.Y) ||
-            !IsFinite(PsxFlags.Z) ||
+            !IsFinite(PsxFlagsAndPulse.X) || !IsFinite(PsxFlagsAndPulse.Y) ||
+            !IsFinite(PsxFlagsAndPulse.Z) || !IsFinite(PsxFlagsAndPulse.W) ||
             !IsFinite(TexCoord.X) || !IsFinite(TexCoord.Y))
         {
             throw new InvalidOperationException(
@@ -164,7 +156,7 @@ internal struct PsxOverbrightVertexColor1Texture1 :
     {
         return PortableColor.Equals(other.PortableColor)
                && PsxColor.Equals(other.PsxColor)
-               && PsxFlags.Equals(other.PsxFlags)
+               && PsxFlagsAndPulse.Equals(other.PsxFlagsAndPulse)
                && TexCoord.Equals(other.TexCoord);
     }
 
@@ -175,7 +167,7 @@ internal struct PsxOverbrightVertexColor1Texture1 :
 
     public readonly override int GetHashCode()
     {
-        return HashCode.Combine(PortableColor, PsxColor, PsxFlags, TexCoord);
+        return HashCode.Combine(PortableColor, PsxColor, PsxFlagsAndPulse, TexCoord);
     }
 
     private static bool IsFinite(float value)

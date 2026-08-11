@@ -7,7 +7,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     document's channel table each frame and rewrites the primitive's colour
 ///     attributes.
 ///     <para>
-///         The per-vertex channel index rides in <c>_PSX_FLAGS_0.Y</c> rather
+///         The per-vertex channel index rides in normalized <c>COLOR_1.W</c> rather
 ///         than a new custom attribute — see <see cref="ModelVertex.ColourPulseChannel" />.
 ///     </para>
 /// </summary>

@@ -728,6 +728,63 @@
       }
     }
 
+    function installPsxCarrierAliases(obj) {
+      // New GLBs keep _PSX_COLOR_0 as their sole custom semantic. The rest of
+      // the native payload uses standard COLOR_1/TEXCOORD_1..3 so Blender's
+      // importer cannot mis-zip multiple custom attributes. Synthesize the
+      // viewer's historical runtime names locally; legacy GLBs already have
+      // those names and remain readable without mutation.
+      const geometry = obj.geometry;
+      const isNewCarrier = obj.userData.neversoftPsxVertexCarriers === 1 &&
+        !!geometry.getAttribute('_psx_color_0');
+      if (!isNewCarrier) return;
+
+      const color1 = geometry.getAttribute('color_1');
+      if (!geometry.getAttribute('_psx_flags_0') && color1 && color1.itemSize >= 4) {
+        const flags = new Float32Array(color1.count * 3);
+        for (let i = 0; i < color1.count; i++) {
+          flags[i * 3] = color1.getX(i);
+          flags[i * 3 + 1] = color1.getY(i);
+          flags[i * 3 + 2] = color1.getZ(i);
+        }
+        geometry.setAttribute('_psx_flags_0', new THREE.BufferAttribute(flags, 3));
+      }
+
+      if (geometry.getAttribute('_psx_uv_wibble_0')) return;
+      const velocityCarrier = geometry.getAttribute('uv1');
+      const waveCarrier = geometry.getAttribute('uv2');
+      const sizeCarrier = geometry.getAttribute('uv3');
+      if (!velocityCarrier || !waveCarrier || !sizeCarrier ||
+          velocityCarrier.count !== waveCarrier.count ||
+          velocityCarrier.count !== sizeCarrier.count) return;
+
+      const motion = new Float32Array(velocityCarrier.count * 4);
+      const wave = new Float32Array(velocityCarrier.count * 4);
+      const size = new Float32Array(velocityCarrier.count * 2);
+      for (let i = 0; i < velocityCarrier.count; i++) {
+        // Blender applies 1-v to every TEXCOORD set. The GLB pre-flips these
+        // application lanes, so raw-glTF consumers reverse the stored Y here.
+        const vVelocity = 1 - velocityCarrier.getY(i);
+        const packed = Math.round(1 - waveCarrier.getY(i));
+        const width = sizeCarrier.getX(i);
+        const height = 1 - sizeCarrier.getY(i);
+        const present = width > 0 && height > 0;
+        motion.set([
+          velocityCarrier.getX(i), vVelocity, waveCarrier.getX(i), present ? 1 : 0
+        ], i * 4);
+        wave.set([
+          (packed >>> 12) & 15,
+          (packed >>> 8) & 15,
+          (packed >>> 4) & 15,
+          packed & 15
+        ], i * 4);
+        size.set([width, height], i * 2);
+      }
+      geometry.setAttribute('_psx_uv_wibble_0', new THREE.BufferAttribute(motion, 4));
+      geometry.setAttribute('_psx_uv_wibble_1', new THREE.BufferAttribute(wave, 4));
+      geometry.setAttribute('_psx_uv_wibble_2', new THREE.BufferAttribute(size, 2));
+    }
+
     function configurePsxGpuVertexColors(root) {
       // APPENDS to psxGpuMaterials: loadModel calls this once for modelRoot
       // and once for skySceneRoot, so resetting here would wipe the main
@@ -736,6 +793,7 @@
       const materialStates = new Map();
       root.traverse(obj => {
         if (!obj.isMesh || !obj.geometry) return;
+        installPsxCarrierAliases(obj);
         // GLTFLoader preserves unknown glTF attributes by lowercasing their
         // semantic. Keep its standard COLOR_0 binding intact: packet-valid
         // flags select the native path, while synthetic/non-PS1 vertices keep
@@ -926,6 +984,7 @@ if (psxFlags.z < 0.5) {
       root.traverse(obj => {
         if (!obj.isMesh || !obj.geometry) return;
         const geometry = obj.geometry;
+        installPsxCarrierAliases(obj);
         const uv = geometry.getAttribute('uv');
         const motion = geometry.getAttribute('_psx_uv_wibble_0');
         const wave = geometry.getAttribute('_psx_uv_wibble_1');
@@ -944,12 +1003,8 @@ if (psxFlags.z < 0.5) {
       });
     }
 
-    // Zero-based index into colourPulseChannels for a _psx_flags_0.Y value, or
-    // -1 when the corner is not pulsed. Y = 1 + oneBasedChannel, so the table
-    // index is Y - 2 — mirrors PsxColourPulseLane.DecodeIndex exactly. Using
-    // Y - 1 here binds every vertex to the wrong channel, which still animates
-    // and so looks plausible; the exporter test pins frame 0 against the baked
-    // colour precisely to catch that.
+    // Legacy zero-based decoder for _psx_flags_0.Y. New GLBs use the exact
+    // byte-code value oneBasedChannel/255 in normalized COLOR_1.W.
     const PSX_PULSE_THRESHOLD = 1.5;
 
     function psxColourPulseIndex(laneValue) {
@@ -965,7 +1020,11 @@ if (psxFlags.z < 0.5) {
       root.traverse(obj => {
         if (!obj.isMesh || !obj.geometry) return;
         const geometry = obj.geometry;
-        const flags = geometry.getAttribute('_psx_flags_0');
+        const isNewCarrier = obj.userData.neversoftPsxVertexCarriers === 1 &&
+          !!geometry.getAttribute('_psx_color_0');
+        const color1 = isNewCarrier ? geometry.getAttribute('color_1') : null;
+        const legacyFlags = geometry.getAttribute('_psx_flags_0');
+        const flags = color1 || legacyFlags;
         if (!flags) return;
 
         const psxColor = geometry.getAttribute('_psx_color_0');
@@ -974,7 +1033,9 @@ if (psxFlags.z < 0.5) {
 
         const groups = new Map();
         for (let i = 0; i < flags.count; i++) {
-          const index = psxColourPulseIndex(flags.getY(i));
+          const index = color1
+            ? Math.round(color1.getW(i) * 255) - 1
+            : psxColourPulseIndex(legacyFlags.getY(i));
           if (index < 0 || index >= colourPulseChannels.length) continue;
           let bucket = groups.get(index);
           if (!bucket) { bucket = []; groups.set(index, bucket); }
@@ -1067,8 +1128,13 @@ if (psxFlags.z < 0.5) {
     }
 
     function updatePsxTextureWibbles(dt) {
-      if (textureWibbleMeshes.length === 0) return;
+      // This function owns the shared PS1 60 Hz surface-animation clock. A
+      // pulse-only model still needs that clock even though there are no UVs
+      // to mutate; with neither animation type present, frame zero remains the
+      // inert fallback.
+      if (textureWibbleMeshes.length === 0 && colourPulseMeshes.length === 0) return;
       textureWibbleFrame = (textureWibbleFrame + dt * 60) % 0x100000;
+      if (textureWibbleMeshes.length === 0) return;
       const nativeFrame = Math.floor(textureWibbleFrame);
 
       for (const entry of textureWibbleMeshes) {

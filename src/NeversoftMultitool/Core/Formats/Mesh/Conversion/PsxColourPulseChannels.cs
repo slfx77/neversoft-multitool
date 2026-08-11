@@ -21,9 +21,11 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 public sealed class PsxColourPulseChannels
 {
     /// <summary>
-    ///     The bake lerps in the 0..255 byte domain then divides; a consumer
-    ///     lerps already-normalized keys. Same maths, different float rounding,
-    ///     so allow ~1e-3. A genuinely mis-bound channel is out by 0.1-0.7.
+    ///     Packet keys are a linear normalization of the 0..255 byte domain, so
+    ///     their interpolation matches the emitted PS1 packet aside from float
+    ///     rounding. Portable endpoint transforms can be nonlinear and are not
+    ///     the invariant checked here. A genuinely mis-bound packet channel is
+    ///     out by 0.1-0.7.
     /// </summary>
     private const float FrameZeroTolerance = 1e-3f;
 
@@ -41,9 +43,9 @@ public sealed class PsxColourPulseChannels
     ///     colour is static.
     /// </summary>
     /// <param name="exportedColor">
-    ///     The colour the writer is about to store on this corner. The channel is
-    ///     only handed out when its own frame 0 reproduces this value — see the
-    ///     remarks on <see cref="ReproducesExportedColor" />.
+    ///     The value in the writer's validation domain: the emitted PS1 packet
+    ///     when present, otherwise the portable colour. The channel is only
+    ///     handed out when its packet-key table reproduces this frame-zero value.
     /// </param>
     public int Resolve(
         PsxMeshFile? file,
@@ -86,13 +88,10 @@ public sealed class PsxColourPulseChannels
     }
 
     /// <summary>
-    ///     The animation is only correct if it passes through the colour that was
-    ///     actually exported: the vertex holds the static bake, and the consumer
-    ///     starts from frame 0. Checking that here rather than trusting the
-    ///     transform chain makes the invariant hold BY CONSTRUCTION — any corner
-    ///     whose colour this class cannot reproduce simply does not animate and
-    ///     keeps its existing static appearance, instead of pulsing to a colour
-    ///     the engine never showed.
+    ///     Validate the binding in the emitted packet domain. This catches a
+    ///     wrong pulse/context key without assuming that endpoint-transformed
+    ///     portable keys commute with a mid-interval nonlinear colour transform.
+    ///     A corner whose packet value cannot be reproduced remains static.
     /// </summary>
     private static bool ReproducesExportedColor(ModelColourPulseChannel channel, Vector4 exportedColor)
     {
@@ -139,9 +138,10 @@ public sealed class PsxColourPulseChannels
     }
 
     /// <summary>
-    ///     Runs every key of the pulse through the SAME transform chain the
-    ///     static bake uses, so channel key 0 evaluated at frame 0 reproduces the
-    ///     baked vertex colour exactly.
+    ///     Runs every endpoint through the same transform helpers the exporters
+    ///     use. Packet interpolation remains frame-zero comparable to the native
+    ///     byte bake; portable interpolation is intentionally performed after
+    ///     endpoint transformation and can differ at a mid-interval playhead.
     /// </summary>
     private static ModelColourPulseChannel BuildChannel(PsxColourPulse pulse, ChannelKey key)
     {

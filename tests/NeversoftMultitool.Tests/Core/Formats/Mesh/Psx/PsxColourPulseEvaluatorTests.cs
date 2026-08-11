@@ -90,15 +90,13 @@ public class PsxColourPulseEvaluatorTests
     }
 
     /// <summary>
-    ///     The lane packing is 1 + oneBasedChannel, so the table index is Y - 2.
-    ///     Decoding it as Y - 1 binds every vertex to the WRONG channel, which
-    ///     still animates and therefore still looks plausible — it was caught only
-    ///     by comparing frame 0 against the baked colour.
+    ///     COLOR_1 alpha is an exact byte code: zero is static and 1..255 are
+    ///     1-based channel identifiers.
     /// </summary>
     [Theory]
-    [InlineData(1, 2f, 0)]
-    [InlineData(2, 3f, 1)]
-    [InlineData(6, 7f, 5)]
+    [InlineData(1, 1f / 255f, 0)]
+    [InlineData(2, 2f / 255f, 1)]
+    [InlineData(6, 6f / 255f, 5)]
     public void Lane_RoundTripsAChannel(int oneBasedChannel, float expectedLane, int expectedIndex)
     {
         var lane = PsxColourPulseLane.Encode(oneBasedChannel);
@@ -107,20 +105,15 @@ public class PsxColourPulseEvaluatorTests
         Assert.Equal(expectedIndex, PsxColourPulseLane.DecodeIndex(lane));
     }
 
-    [Theory]
-    [InlineData(0f)] // flat-shaded corner
-    [InlineData(1f)] // plain Gouraud corner, unpulsed
-    public void Lane_UnpulsedValues_DecodeToNoChannel(float lane)
+    [Fact]
+    public void Lane_ZeroDecodesToNoChannel()
     {
-        Assert.Equal(-1, PsxColourPulseLane.DecodeIndex(lane));
+        Assert.Equal(-1, PsxColourPulseLane.DecodeIndex(0f));
     }
 
     [Fact]
-    public void Lane_PlainGouraudNeverCollidesWithAChannel()
+    public void Lane_RejectsValuesOutsideTheByteCodebook()
     {
-        // Channel 1 must not encode to the same lane value as an unpulsed
-        // Gouraud corner, or every such corner would animate.
-        Assert.True(PsxColourPulseLane.Encode(1) > 1f);
-        Assert.Equal(-1, PsxColourPulseLane.DecodeIndex(1f));
+        Assert.Throws<ArgumentOutOfRangeException>(() => PsxColourPulseLane.Encode(256));
     }
 }
