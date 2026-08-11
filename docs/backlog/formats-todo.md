@@ -1,15 +1,16 @@
 # Backlog — Unimplemented / Deferred Formats
 
 Created 2026-07-03. Distilled from `CLAUDE.md` (*Deferred Items* / *Not Yet Implemented*) + `memory/`.
-**Re-verified 2026-07-07** with a full-corpus extension census (all 27 build dirs), magic-byte probes, and
+**Re-verified 2026-07-07** with a full-corpus extension census, magic-byte probes, and
 conversion sweeps — several entries here turned out stale (see *Done* below). NxTools (`Sample/nxtools`)
 was surveyed as a reference source: it covers THUG2/THAW scene+tex families across xbx/wpc/xen/ps3 and
 Downhill Jam (`thdj` = ngc/wii, later engine gen), plus a full PS1 `.psx` importer — but has NO coverage
 for `.stex` payloads or THAW GameCube.
-**Re-verified 2026-07-26 vs HEAD (v1.3.4, 60d0b81) — full-domain audit.** Two more entries shipped since
-07-07 (THAW `.tex.ps2` scene metadata, CIF2 `0x508AE2F2`) and moved to *Done*; the THPG/P8 `.col` entry
-was corrected (it is version 10 and parses — the real gap is bare-`.col`/`.skin` extension routing, not a
-new format). NxTools' P8/THPG `.col` "gap" was likewise struck: the format is already supported.
+
+**Re-verified 2026-08-10 against the current tree, tests, and corpus evidence.** Standalone payload-bearing
+PS2 `.stex`, bare `.col`/`.skin` routing, PSX colour-pulse playback, and the N64 ERZ/archive/texture/mesh
+foundation have shipped since the earlier audit. Their investigations are retained under *Done*; do not
+schedule work from their old descriptions.
 
 **Status legend:** 🔴 Open · 🔶 Partial · 🟢 Verified this session · ✅ Done · ⚪ By design
 
@@ -84,26 +85,83 @@ new format). NxTools' P8/THPG `.col` "gap" was likewise struck: the format is al
   camera/object masters, bits 14+17 additive translations). Key blobs + standardkey tables ship
   raw LE even on GC. **The rumored cutscene `.ska` "descriptor block with embedded cam pak path"
   does NOT exist** — that data is `<name>_cam_pak_info.qb.ngc`, a sectioned QB string array the
-  QB parser already handles. Camera masters export as named node-TRS GLB rigs via `ska`.
+  QB parser already handles. Camera masters export as node-TRS GLB rigs via `ska`; camera masters
+  do not carry the bit-24 QbKey names used by object masters, so their sole track can retain a
+  checksum-style fallback name.
   Durable coverage: `ThawSkeletonFileTests`, `ThawSkaFileTests`, and the cross-game animation
-  corpus tests. Remaining niceties: bit28 custom-key event decode (35 files carry
-  them; skipped, Q/T unaffected), glTF camera node with FOV for cam rigs, THAW skin+anim
-  combined export (needs QbKey-based track binding through CAS rigs).
+  corpus tests. **Bit28 custom events shipped 2026-08-10:** the endian-aware reader consumes the
+  bounded `{u32 timestamp, u32 type, u32 totalSize, payload}` records after Q/T, decodes the two
+  live THAW payloads (type 1 horizontal-FOV-radians float, despite its historical
+  `CHANGE_FOCAL_LENGTH` enum name, and type 4 RunScript QbKey), and preserves
+  unknown payloads losslessly. The CLI writes a stable `<stem>.ska.json` inspection sidecar only
+  when events exist. A 20,425-file THAW sweep pins 100 physical event-bearing files (36 PS2,
+  35 GC, 29 PC), counts 2–121, only types 1/4 and 16-byte live records, exact tail consumption,
+  and PS2/GC typed equality. `timestamp` stays a raw integer: its THAW v0x28 runtime unit is not
+  proven and some event timelines extend beyond their local Q/T clip. **Static authored camera
+  projection shipped 2026-08-10:** one-track PLATFORM camera masters with a valid timestamp-zero
+  type-1 event now attach a native perspective camera to the animated track in both glTF and
+  Blender. The horizontal source value converts to vertical FOV at the engine's canonical 4:3
+  aspect; Blender binds the camera to the same animated pose bone with no view-axis correction.
+  `ska --format glb|blend|both` routes every skeletal/object/camera branch through the shared export
+  service and defaults to GLB. Later FOV events remain JSON-only because neither path implements
+  lens animation. The 347-file GC camera census pins 35 eligible projections, 312 TRS-only rigs with
+  no authored FOV, 391 total FOV events, and zero non-camera FOV files. Near/far `1/100000` are an
+  explicit broad PS2-derived export policy, not SKA metadata. Real PS2/GC StorySelect exports pin
+  matching `0.13479553` vertical FOV in GLB plus successful skeleton-only `.blend` output.
+- ✅ **Explicit THAW/legacy QbKey track binding shipped 2026-08-10.** Gameplay SKAs do not name
+  their tracks, so `ska --animation-ske <source.ske> --ske <target.ske>` now takes the source rig
+  explicitly and maps only exact numeric bone QbKeys. Duplicate/zero names, malformed hierarchies,
+  an unmapped root, a skipped parent, or any changed mapped parent edge reject; equal bone counts never
+  authorize index binding. The proven `thps7_human` 52-bone source → THUG2 `thps6_human` 50-bone
+  target maps 48 tracks, drops source indices 15/16/27/28, maps 17→16, and leaves target shoulders
+  15/26 in bind pose. A 330-file GC skeleton audit found 133 52-bone files but **47 distinct ordered
+  QbKey identities**; canonical `thps7_human` occurs in only 29, proving count is not identity.
+  Skeleton-only exports and an explicitly supplied ordinary PS2 `.iskin.ps2` already authored for
+  the target skeleton use the map. The general mesh parser already routes native THAW `.skin.ps2`,
+  discovers the skeleton, selects a same-stem PC/Xbox weight companion, and transfers its weights.
+  The narrower `ska --skin` path does not select that THAW subformat or remap skin joint indices, so
+  its supplied skin must already match `--ske`. The Animations pane now accepts `.ske`, `.ske.ps2`,
+  and `.ske.ngc` source rigs as extracted files or direct entries in root/nested archives; full virtual
+  paths preserve duplicate identity, and a disposable catalog keeps every required handle alive through
+  parse and exact-map validation. One captured plan reaches preview, GLB, and Blender export, while
+  invalid, cancelled, or superseded loads preserve the previous rig and stale queued previews are
+  rejected. The real GC `global_s.apk.ngc` fixture loads 52 bones and maps 48 after catalog disposal.
+  Native Xbox/PC/GameCube scene weights now have caller-explicit CLI and GUI routes. `mesh --ske` accepts
+  direct/prepared/exact-stem-directory rigs; the Meshes & Characters tab keeps a parsed skeleton
+  selection independently on each eligible Xbox/PC/GameCube entry from an extracted file or a direct/nested
+  archive entry and snapshots it for preview, GLB, Blender, PNG, GIF, and batch work. The animation archive
+  policy remains narrow while the mesh policy additionally admits `.ske.xbx`; full virtual identities and
+  backend ownership survive through parse, after which only the self-contained skeleton remains. Both paths
+  use the same global emitted-corner influence preflight, with
+  normalized four-weight output and byte-identical rigid fallback for missing, malformed,
+  incompatible, or non-unit-scale inputs. Non-worldzone entries retain scale 1 even in mixed batches,
+  and a rig change cannot reuse a stale cached render. THUG2 Xbox, THAW WPC, and THAW GameCube pigeon
+  fixtures each pin the exact four-joint rig, 46 vertices, and 45 triangles; GameCube direct/prepared
+  GLBs are byte-identical and the Blender file reopens with one bound four-bone armature at rest. Its
+  `.ske.ngc` rigs ship inside mission/worldzone archives rather than beside loose skins. The real THUG2
+  `skeletons.prx` exposes 58 skeleton entries; its selected pigeon rig is byte-identical to the loose fixture
+  and produces the same GLB after catalog disposal. Automatic rig inference remains outside this slice.
 
-### 🔴 `.stex` — raw streaming-texture payloads (NOT a self-contained container)
-- Source: 2026-07-07 probe (re-scoped). ~3,400 files: THAW PS2 (2,423), P8 (365), THPG (627), extracted
-  from PAKs via QbKey `.stex` = 0x2B0A3095.
-- Evidence: leading magics are all over the map (floats, 0x80808080 fill, small ints, VIF-like data) —
-  these are headerless streamed texture DATA blobs whose dimensions/format metadata live elsewhere
-  (zone catalogs / scene tex metadata). `ZoneTextureCatalog` already consumes `.stex`-typed PAK entries
-  for worldzone texturing; the `xbxtex` CLI `.stex` route covers only ABADD00D-headed Xbox/PC variants.
-- What's left: pair standalone PS2 `.stex` blobs with their metadata source (likely the same-checksum
-  `.tex.ps2` scene metadata or zone blobs) before standalone conversion is possible. Research item.
-
-### 🔶 STR (PS1 MDEC) video — VLC drift on longer streams
-- Source: `memory/str_mdec_decoder_status.md`.
-- Evidence: IDCT, YCbCr→RGB, block ordering, and the VLC table are all verified identical to jpsxdec — but **VLC decompression drifts after ~600 blocks / ~2617 codes**. Notably both our code AND jpsxdec's standalone `makeV2` fail the same way; only jpsxdec's full-disc pipeline succeeds, suggesting the bug is in stream framing / sector assembly rather than the codec core.
-- What's left: diff our sector/stream assembly against jpsxdec's full pipeline (`Sample/jpsxdec_v2.0/`, source compiled under `Sample/jpsxdec/`). STR is listed as a supported format and converts short clips; this is a correctness gap on longer content, not a total failure.
+### ✅ STR (PS1 MDEC) long-stream drift — RESOLVED 2026-08-09
+- The historical mismatch was not a VLC defect. The original demuxer copied all 2,296 bytes after
+  the XA/video headers from each Mode-2 Form-1 sector, inserting 280 EDC/ECC bytes after the valid
+  2,016-byte video piece. The recorded bit-16,069 divergence is exactly five bits into that first
+  invalid tail.
+- Commit `d13e356` already switched assembly to the XA Form bit and the correct 2,016-byte Form-1
+  piece. On the audited clean Apocalypse frames, current assembled bytes match jPSXdec's full
+  pipeline, and its standalone STRv2 reader reaches all 1,800 blocks when fed those bytes. The
+  bundled corpus contains 323 recognized STR videos, all Form 1; no Form-2 video fixture is
+  currently known.
+- `MdecDecoderTests` now pins the 2,016-byte synthetic sector boundary, a multi-sector Apocalypse
+  frame's exact jPSXdec assembly SHA plus the local RGB regression SHA, recursive fixture discovery,
+  complete-frame counting, and explicit rejection of unsupported or incomplete frames. Direct
+  preview converts such a rejected frame to opaque black instead of terminating playback, matching
+  the MP4 converter's existing fail-soft behavior. The first
+  yielded frame of the damaged SM2 Final `E5M6` fixture (header frame 2) is separately pinned: the
+  jPSXdec standalone decoder rejects our complete assembly at the same macroblock and bit. Its
+  normalized RIFF payload differs from the byte-identical Prototype/Rev1 copies in only 604 bytes
+  across 30 of the first 40 sectors, confirming damaged input rather than a framing rule. There is
+  no remaining STR framing backlog item.
 
 ### ⚪ PPV container — RESOLVED 2026-07-10: not a Neversoft format (out of scope)
 - The *Spider-Man (2000-2-4, PSX — Prototype)* build is a **multi-game demo disc** (SCED_026.36:
@@ -116,13 +174,6 @@ new format). NxTools' P8/THPG `.col` "gap" was likewise struck: the format is al
   disc dump needed), though they carry no literal `BVmC`/".PPV" references either (loader likely
   resolves via .ZOO tables). Disposition: out of scope like `.bik` — Codemasters formats belong
   to Codemasters tooling. Same applies to the `.zoo`/`.bfx` census entries.
-
-### 🟡 PSX animated surfaces — UV wibble supported; pulsing-colour playback pending
-- Source: decomp contract `thps2-psx-proto docs/wibbly_texture_animation.md` (2026-07-09; `M3dInit_FlagZeroWibbles` + `uWibble`/`vWibble` PERFECT).
-- Face bit5 (0x20) "animated texture" is UV scroll + per-vertex sine wibble, never an image flipbook. Actual animation membership comes from tagged chunk 6's wibble table, not the flag alone.
-- **Implemented 2026-07-17:** parse `pTexWibData`, retain every emitted vertex's velocity/frequency/amplitude/phase and texture dimensions in `ModelDocument`, write a correct frame-zero fallback, transport the parameters as application-specific GLB vertex attributes, reproduce the native 64-sample fixed-point table in the live viewer, and build a timeline-driven UV shader in `.blend` exports. Core glTF consumers that ignore custom attributes continue to display frame zero; core glTF has no portable per-vertex UV-animation channel.
-- **Spider-Man PC v6 contract (verified against `SpideyPC.exe` 0x0047619F-0x00476259):** tag-6's legacy base-UV bytes are non-authoritative (zero placeholders or redundant byte-range copies); animation starts from each face's widened UVs in the fixed 512-coordinate space. The PC path doubles only the scrolling term. Treating L2A1's zero placeholders as base UVs collapsed animated faces to one texel, while normalizing motion by the decoded (often much smaller) texture dimensions made it appear several times too fast.
-- What's left: animate parsed `pColourPulseData` (`{r,g,b,Interval}` keyframe lists) instead of exporting only its authored initial phase. UV formula now implemented by the viewer: `U = (u<<8) + (t*uVel>>4) + WibbleTables[amp][(t*Freq>>10)+phase*4 & 63]`, with the engine's 16×64 LUT reconstructed from `rcossin_tbl`.
 
 ### ✅ Spider-Man TRG POWERUP placements from items.psx — SHIPPED 2026-07-23
 - Source: user request 2026-07-22 ("if we're going to place objects, we should probably also see if
@@ -173,7 +224,9 @@ new format). NxTools' P8/THPG `.col` "gap" was likewise struck: the format is al
   "?", the only such case corpus-wide) still redirects to the items copy. Required a TRG parser fix:
   `ParsePowerup` now skips the node's link list before reading position (`ReadLinks`), which the old
   "read link COUNT only" code botched — POWERUP nodes with links (the "?" markers, 4-5 links each)
-  had million-unit garbage coordinates. Grounded-flag terrain snap remains out of scope (authored Y).
+  had million-unit garbage coordinates. Grounded spawn semantics were completed later: Spider-Man
+  grounded pickups query the level terrain and apply the engine's 128-unit hover, while the matched
+  THPS/Apocalypse paths retain authored Y unless an entity is on their separate dropping path.
   Durable coverage: `PsxPowerupPlacementResolverTests`, `PsxItemsBankSubstitutionTests`,
   `TrgFileTests.Parse_SpiderManPowerupWithLinks_*`.
 - **Generalized to the PS1 lineage 2026-07-24** (`MeshCompanionResolver.TryResolvePsxLevelCompanions`):
@@ -194,22 +247,91 @@ new format). NxTools' P8/THPG `.col` "gap" was likewise struck: the format is al
   (`ApplyTriggerOverlay=true`); the overlay's Apocalypse refs are mostly authored BADDY/PLATFORM spawn
   re-instances (worth a visual eyeball, one-line revert via the flag if too busy).
 
-### 🔶 PSX level-object animation export (skeletal path)
+### 🔶 PSX level-object animation export (skeletal path; traffic snapshot shipped)
 - Source: decomp contract `thps2-psx-proto docs/level_object_anim_binding.md` (2026-07-09; RunAnim/CycleAnim/CalculateAnimOrder PERFECT).
 - Binding chain is fully known: item→region by filename (`Spool_FindRegion`), stream selected by the item's own `mAnim` index into the region's `pAnimFile` table (stride 8, count-prefixed — NOT stream-i→item-i), per-bone positional with parent tree from `pHierarchy` (`mapTable[bone]=parent`), cross-model retarget by name via CalculateAnimOrder. `has pAnimFile ≡ IsSuper` — animated level objects (traffic cars etc.) are CSuper instances on the same skeletal path as characters.
-- What's left: teach the PSX level exporter to enumerate anim streams in hier-level files (skdown: 836 placed objects) and emit glTF animations per placed object. MEDIUM-confidence open question: whether placed level geometry also uses the name-keyed tag-0x45 packet path (all observed `Spool_FindAnim` callers are UI).
+- Shipped 2026-08-10: `PsxPlacedTrafficResolver` handles the proven D5–DA constructor table and separate traffic `CSuper` files, first-road-node placement, initial Y offset, instance roots, skins, and embedded loop 0. Script-reachable non-startup nodes are deliberately behind a default-disabled snapshot group because trigger time, repeats, suspension, and route translation are not reconstructed. Final Downtown emits three taxi rigs (+711 triangles); San Francisco emits one van and two cable cars (+318); prototype Downtown uses the proven `taxi.psx` fallback. Distinct GLB/Blender roots and shared per-source actions are regression-pinned, and optional source failures roll back atomically.
+- The former plan was based on a false premise: prototype `skdown.psx` has 836 level object records but no 0x2A/0x2C animation chunk. Traffic animation resides in separate TRG-selected super files. No animated-door fixture was found, and tag 0x45 remains a separate observed UI/effect path.
+- What's left: runtime-accurate script timing/repeated spawns/road motion, plus any other placed skeletal family once a named fixture and binding contract exist. Do not broaden the traffic snapshot into a claim of general placed-object animation support.
 
-### 🔴 THPG / Project 8 `.col` + `.skin` — bare-extension ROUTING gap (S each)
-- Cross-ref: `game-thpg-p8.md`. **Corrected 2026-07-26:** there is NO "newer `0x00FF00FF` collision
-  version" — that header was GARBAGE from the pre-2026-07-10 absolute-offset PAK-extraction bug
-  (`memory/pak_header_relative_offsets.md`); the builds were re-extracted after the fix. At HEAD all
-  **85 THPG + 79 P8 `.col` start `0a 00 00 00` = version 10** and `Core/Formats/Collision/ColFile.cs`
-  (v9/10) parses them cleanly. The data is fully supported.
-- What's left (both S, user-facing, parser already handles the data):
-  - Bare `.col` (no platform suffix) is not dispatched to the collision parser — adding the extension
-    to mesh/collision discovery unblocks ALL THPG/P8 collision.
-  - Bare `.skin` (no platform suffix) is likewise not routed to the scene parser — unblocks THPG/P8
-    level/cutscene scene geometry.
+### ⚪ THUG2 precompiled `.skin.ps2` without `.iskin.ps2` — no shipped orphan demonstrated
+- Re-audited 2026-08-10. The old extension census counted physical preload copies as unique unsupported assets. THUG2 PS2 contains 2,478 `.skin.ps2` copies but only 739 unique payload hashes. Every one of the 739 canonical files has a same-stem `.iskin.ps2`; all 1,739 apparent bare copies are byte-identical to one of those paired canonical skins. Archive and directory scans already prefer the higher-quality intermediate file, so every shipped unique model has a supported source.
+- The 746 non-THAW-conformant entry tables must continue to reject rather than replay through `ThawPs2SkinFile`. A native THUG2 precompiled VIF decoder is now evidence-gated, not active backlog: re-open only for a genuinely unique orphan fixture or an explicit detached-copy conversion requirement.
+
+### 🔶 N64 ROMs (THPS1/2/3 + Spider-Man) — archive/texture/mesh/embedded-animation foundation shipped
+- Re-verified 2026-08-10. The old “container mapped, ERZ compression unRE'd” description is obsolete. `ErzDecoder` mechanically implements both v1 and v2 with emulator-derived SHA fixtures; `N64RomArchive` walks the master directory and reassembles stream groups; `N64AssetCarver` emits typed assets; `.z64` opens through `ArchiveFileSystem`; N64 textures and render-bank meshes route through the GUI/CLI. Corpus carve counts are pinned at 2,176 / 3,962 / 3,313 / 4,286 assets, and every render bank decodes with in-bounds indices.
+- The render path also covers descriptor-bound textures, per-vertex matrix placement, alpha modes, the ROM light rig, and coplanar/semi-transparent separation. Do not reopen ERZ, `.z64` routing, “missing ROM filesystem,” or “render-bank codec” from older notes.
+- Concrete residuals and completed follow-ups:
+  - ✅ **Stored texture mip export — SHIPPED 2026-08-10.** The earlier `abutton` premise was false:
+    format word `0x0014` is a canonical RGBA16 top plus a full-resolution aligned 4bpp auxiliary
+    coverage/alpha plane, not an 8×8 mip. The parser now publishes only exact, fully consumed mip
+    chains: 36/9,459 dictionary records (THPS1 7, THPS2 9, THPS3 12, Spider-Man 8), with 3–5 stored
+    lower levels across RGBA16/CI4/IA4/IA8/I4/I8. The CLI, legacy conversion helper, and Texture-tab
+    extraction preserve `{stem}.png` and add `{stem}_mipN.png`; preview and model embedding remain
+    level zero. `N64TexFileTests` pins the corpus census and all five RGBA SHAs of a real IA8 chain.
+    The 69 `0x0014` auxiliary planes are identified and reported but deliberately not applied to the
+    exported alpha until a separate runtime-combine/visual oracle approves that behavior change;
+  - ✅ **Nintendo Sound Tools PTR/WBK inspection — SHIPPED 2026-08-10.** The ROMs do not contain
+    SGI CTL/TBL `ALBankFile` graphs. `N64SoundToolsBank` instead consumes the exact big-endian
+    `N64 PtrTablesV2` descriptor graph together with its paired `N64 WaveTables` payload: checked
+    file-relative wave/book/loop pointers, the unaligned final-record boundary, canonical 16-byte WBK
+    packing, base-note/coarse-tune bytes, signed fine-detune workspace cells, and all required padding.
+    `n64-audio-inspect <game.z64> -o bank.json` pairs the unique carved assets by content magic;
+    standalone PTR input requires an explicit `--wave`. Both routes produce byte-identical schema-v1
+    JSON with `sampleRate: null` and cue mapping marked unresolved. The four-ROM corpus pins 1,775
+    waves / 320 loops, complete asset hashes and P/A/Z offsets, and Spider-Man's final loop ending raw
+    at `D+0xCC == P`. This command remains inspection-only: it reports no inferred sample rate and does
+    not execute BFX/song bytecode, apply pitch, expand loops, or join Neversoft cues;
+  - ✅ **N64 ABI1 stored-wave decode — SHIPPED 2026-08-10.** `N64AdpcmDecoder` consumes the validated
+    WBK slice and parsed predictor book as 9-byte frames / 16 mono samples using the signed-32 wrapping
+    and saturated-history behavior of the ABI1/libultra audio-microcode runtime. Synthetic nibble,
+    recurrence, saturation, and positive/negative wrap vectors plus clipped real-wave hashes distinguish
+    this runtime path from Nintendo's non-bit-identical offline `vadpcm_dec` utility. The strict corpus
+    dialect is pinned across 3,390,907 frames: predictors 0–3 and scales 0–12 only. The separate
+    `n64-audio-decode <PTR|ROM> --index N --sample-rate Hz -o out.wav` route requires the rate from the
+    caller and emits one selected stored wave once as mono PCM16; explicit PTR input also requires
+    `--wave`. Parsing, range checks, decoding, and WAV-size validation complete before the destination is
+    touched. Authoritative rate discovery, loop scheduling, pitch application, BFX execution, and cue
+    ownership remain separate;
+  - ✅ **Nintendo Sound Tools BFX inspection — SHIPPED 2026-08-10.** These no-magic big-endian
+    `fx_header_t` banks store signed default priorities, file-relative component offsets, opaque effect
+    payloads, and an EOF-consuming u16 local-wave→PTR table. `N64SoundToolsFxBank` owns every byte and
+    validates every local target against a complete PTR graph without requiring WBK audio.
+    `n64-audio-fx-inspect <game.z64> -o effects.json` selects the unique structural BFX and PTR singletons;
+    standalone BFX input requires explicit `--pointer`. The manifest records that binding basis because
+    BFX contains no PTR identity. Across 13,737 carved assets the predicate finds exactly four candidates
+    and zero false positives, pinning 1,680 components/effects, 30,626 opaque bytes, and 1,608 mappings.
+    Bytecode remains opaque and Neversoft cue aliases, playback rate, pitch, loop scheduling, decode, and
+    WAV output remain unresolved. This is Nintendo Sound Tools BFX, not the unrelated Codemasters WTC
+    `.bfx` family documented elsewhere in this file;
+  - ✅ **Strict N64 raw SFX cue inspection — SHIPPED 2026-08-10.** `N64SfxCueBank` consumes zero or
+    more complete 16-byte big-endian records followed by the exact `FFFFFFFF` terminator, preserves every
+    raw field/hash, and rejects nonzero record padding or trailing bytes. `n64-sfx-inspect <SFX|ROM> -o
+    cues.json` uses one deterministic aggregate schema for a direct bank or all strict structural matches
+    carved from a ROM. Selection deliberately ignores filename classification: two valid THPS2 tables are
+    named `.bin`. The four-ROM scan covers 13,737 assets and pins 83 banks / 3,172 records (THPS1 0,
+    THPS2 14/671, THPS3 14/572, Spider-Man 55/1,929), including the valid empty THPS1 aggregate.
+    Alias-to-BFX/PTR ownership, rate/pitch application, loop scheduling, and playback remain unresolved;
+  - ✅ **N64 direct/compressed animation — conservative global-joint slice shipped 2026-08-10.**
+    The reader consumes big-endian 0x2A tables plus 24-byte big-endian `SMatrix` records and mixed-endian
+    0x2C tables/channel payloads. Each direct slot is bounded by the next pool offset, sized from playback
+    frames and `tween+1`, copied only to that checked size, s16-swapped, and passed to the established PSX
+    direct-matrix decoder. Successful opt-in animation binds each emitted corner by its global `G_MTX`
+    joint when render placements are unique and either the historical relative expression is identical or
+    `objectIndex + G_MTX` is provably out of range; ordinary conversion and invalid/all-failed selections
+    retain the historical static bytes. The GUI Animations pane routes exact selected slots, while
+    `mesh --n64-animations` explicitly requests the full eligible bank. A four-ROM CorpusFact pins 155
+    animated nonempty shells / 3,259 clips and admits 153 / 3,215: 96 shells / 801 direct clips plus 57 /
+    2,414 compressed clips. The only exclusions are Spider-Man slot 007 `docock` (43 compressed clips) and
+    slot 108 `map` (one direct clip), where global and relative interpretations are both in range but
+    disagree. All 802 direct slots decode within their owned ranges (798 exact and four one-frame-slack
+    slots at Spider-Man 145/263 clips 43/50), and seven PSX/N64 Rosetta pairs match after s16 swapping
+    across 585,144 payload bytes. Real global-binding oracles include the 110-joint, 33-placement THPS2
+    `sk2def` direct shell and the nonzero-placement Spider-Man slot 225 compressed shell; both GLBs pass
+    Khronos with zero issues. Preview uses the existing 30 fps PSX cadence, and direct tween endings use
+    the established CycleAnim wrap, as explicit export policies; N64 runtime cadence and per-clip
+    loop/clamp behavior remain unproven. The two byte-ambiguous shells stay static by design;
+  - improve incomplete bundle naming only from proven trigger/content correspondences (416/594 currently named), never an arbitrary first-candidate guess.
 
 ---
 
@@ -249,13 +371,23 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
     and integrated into `CutArchive`; **105/105 corpus payloads parse**, objects land in the
     `{stem}.cif.json` manifest with file cross-links. (Was "dumped raw"; the dictionary reverse-lookup
     plan is superseded.)
-  - **Still open (not blockers):** bare-`.cut` ver=3 INTERMEDIATE|UNCOMPRESSED master anims (43 files,
-    the richest uncompressed authoring keys) — extract raw now, parse in the animation phase. WGT/CAS
-    payload decoding beyond raw dump — no consumer yet.
-  - **Deferred to Priority 3 (images):** the `debug.log` texture-checksum→source-name side map
-    (2,005 platform-invariant pairs) for THAW texture export naming — belongs with texture work,
-    NOT in `QbKeyNames*.txt` (those aren't CRC(name) pairs and would poison the harvest scripts).
-- 🔴 **Priority 3 — image formats**: `.tga` DONE 2026-07-11 — all 4 corpus TGAs verified standard
+  - ✅ **Bare-`.cut` INTERMEDIATE animation inspection — SHIPPED 2026-08-10.** The 43 THUG authoring
+    containers pair with 43 compiled `.cut.ps2` containers and 194/194 SKA members match by CUT stem
+    plus TOC name checksum. `SkaIntermediateParser` consumes the version-2/3 little-endian full-float
+    grammar exactly (embedded checksum/name/parent/flip skeleton, per-bone Q/T counts, 20-byte XYZW Q
+    keys, and 16-byte XYZ T keys), pinning **4,588,265 Q + 6,079,925 T keys** and exact EOF across the
+    corpus. The `ska` CLI emits schema-v1 `<stem>.ska.json` with raw frames/source quaternions and the
+    engine-facing convention. This remains deliberately inspection-only: the embedded skeleton has no
+    neutral-pose matrices, three v2 roots receive compiler-side prerotation, and some compiled
+    translations wrap the signed-16 runtime range, so neither discovery nor `--ske`/`--skin` advertises
+    an unproven glTF export. Four valid members omit bit29, so the supported family is described as
+    INTERMEDIATE/full-float rather than universally flag-marked UNCOMPRESSED.
+  - **Still open (not blockers):** WGT/CAS payload decoding beyond raw dump — no consumer yet.
+  - ✅ **`debug.log` texture-name side map — SHIPPED.** `ThawTextureNames.txt` carries 2,132
+    compiled-texture checksum → original-art-name pairs harvested from the QTex bundles, and
+    `ThawTexFile`/`NgcTexFile` use it before the general QBKey fallback. It remains deliberately
+    separate from `QbKeyNames*.txt`: these identifiers are opaque build IDs, not CRC(name) pairs.
+- ⚪ **Priority 3 — image formats**: `.tga` DONE 2026-07-11 — all 4 corpus TGAs verified standard
   (types 1/2 uncompressed, one 32-bit with real alpha); decoded via ImageSharp through the
   `Core/Formats/Rle/BitmapFile.cs` facade (`rle` CLI + Bitmap Converter tab), alpha preserved.
   Standard `.bmp` (3,535 files, all `BM`/BITMAPINFOHEADER) shipped in the same pass. Remaining:
@@ -264,8 +396,15 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
   dirs (`DD/`, `WTC/` = TOCA) — out of scope as non-Neversoft content.
 - ✅ **`.dff` — DONE 2026-08-07.** Was a routing-only gap; `.dff` now resolves through
   `MeshTypeDetector` alongside `.skn`. 477 files.
-- 🔴 **Priority 4/5 — mesh/anim formats**: `.anim` (193, THPS2X, `Anm\0` magic) — Xbox-era
-  animation format, unstudied.
+- ✅ **THPS2X `.ANIM` frontend timelines — SHIPPED 2026-08-10.** The old “Xbox-era skeletal
+  animation” label was false: all 193 files live under `frontend/` and form UI timeline forests.
+  `Thps2XFrontendAnimFile` parses the `Anm\0` v1 header and a deterministic recursive node grammar:
+  bounded ASCII names, twelve raw base floats, one semantic-free u32, 42-byte timeline keys, nested
+  nodes, and a closing screen/owner string. The uncertain u32 and u16 key fields remain raw rather
+  than receiving invented meanings. Every file consumes exactly to EOF: 921 roots, 1,148 nodes,
+  4,581 keys, maximum observed depth 1. `thps2x-anim` writes schema-v1 inspection JSON, preserving
+  relative directories in batch mode so repeated basenames cannot overwrite. This is inspection,
+  not skeletal export or a claim that the UI runtime has been reproduced.
 - ✅ **`.pcm` — DONE 2026-08-07.** 2,752 files (1,376 identical on the Xbox and Windows discs).
   RIFF + Xbox ADPCM 0x0069, mono, nBlockAlign 36, wSamplesPerBlock 64, at 11025/22050/44100/48000.
   A block emits the header predictor as sample 0 then **63** nibbles — the 64th is padding;
@@ -290,6 +429,11 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
 
 ## Done (for reference) ✅
 
+- ✅ **Payload-bearing PS2 `.stex` standalone decode** — the earlier “raw blob needs external metadata” conclusion was false. Byte-zero owner blobs contain their texture records and decode through `ThawZoneTexFile.DecodeAllFromFile`; `FormatProbeTexture` and the Texture tab route them directly. `ThawArchiveTextureRegressionTests` pins two real nested `.stex` files by checksum, dimensions, and RGBA SHA-256. The 2026-08-09 corpus audit found all payload-bearing THAW/P8/THPG files recognizable; three 144-byte THAW owner stubs contain no texture records and correctly produce no output.
+- ✅ **PSX animated-surface playback** — both previously tracked paths now ship:
+  - UV wibble (2026-07-17): face bit 5 is UV scroll + per-vertex sine wibble, not an image flipbook; actual membership comes from tagged chunk 6. The exporter carries velocity/frequency/amplitude/phase with a frame-zero fallback, the viewer reproduces the native 64-sample table, and `.blend` exports build a timeline-driven UV shader. Spider-Man PC v6 correctly starts from widened face UVs in fixed 512-coordinate space and doubles only the scroll term; its legacy base-UV bytes are non-authoritative.
+  - Colour pulse (2026-08-07, `a9d7c1a`; Blender follow-up 2026-08-10): frame zero remains a portable fallback; the GLB carries pre-transformed channel keys and the in-app viewer evaluates them on the shared 60 Hz timeline. A clock correction makes that timeline advance when either animation type is present instead of returning early with zero wibble meshes; the real February `l1a1_o.psx` pulse-only bank pins 6 channels, 15 pulsed primitives, 192 pulsed vertices, and zero wibble primitives. Direct `.blend` export now carries validated portable tables and byte-per-vertex POINT channel IDs into a shared Geometry Nodes evaluator that stores animated CORNER `Color`; malformed buffers/channels remain static, and additive/subtractive alpha, zero holds, accumulators, overbright keys, `fps_base`, mixed faces, and a 56-channel stress graph survive save/reopen in Blender 5.1. Blender native-time zero preserves the authored bake; later ticks use portable linear-output interpolation rather than claiming the viewer's packet-domain/nonlinear PS1-exact result.
+- ✅ **THPG / Project 8 bare `.col` and `.skin` routing** — shipped 2026-08-07 (`21edfa5`). `MeshTypeDetector` recognizes bare `.col`, content-probes ambiguous `.skin`/`.mdl`, and routes `.dff`; the permissive Xbox `(1,1,1)` probe is intentionally last because many PS2-build scenes share that prefix. Routing tests pin both collision and scene cases. The underlying THPG/P8 `.col` files are ordinary version 10; the old `00 FF 00 FF` evidence was corrupt pre-offset-fix PAK extraction.
 - ✅ GS-alpha export scaling (128=opaque → PNG 255=opaque) — `memory/ps2_alpha_export_scale.md` (v1.2.1). `DecodePixels(rawGsAlpha)`: export scales ×255/128, GS replay keeps raw.
 - ✅ VID1 (THAW GameCube movie container) → MP4 — shipped (`vid` CLI command + Video Converter tab); the old `CLAUDE.md` "Deferred > VID" note predates it.
 - ✅ **THAW `.tex.ps2` scene texture metadata** — IMPLEMENTED (confirmed 2026-07-26; the old 🔴 "Not Yet
@@ -317,33 +461,3 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
 - ⚪ **VID (THAW GameCube movie) full decode via external APIs** — the container is documented; frame decode historically depended on external decoder APIs. VID1 now ships (see Done); no further deferral needed.
 - ⚪ **`.bik` (Bink Video)** in THPG/P8 — proprietary RAD codec, out of scope.
 - ⚪ **BIN / SCC / PRK** — MIPS code overlays, VSS version files, park saves. Not game asset data (`CLAUDE.md` → *Not Game Formats*).
-
-### 🔶 N64 ROMs (THPS1/2/3 + Spider-Man, Edge of Reality) — container mapped, ERZ compression unRE'd (2026-08-05)
-
-- Corpus: 4 .z64 big-endian ROMs in `Sample/Builds` (`* (…, N64 - Final)`), mirrored verbatim.
-- **The Neversoft data lineage survived**: ROMs carry `_t.trg`/`_le.psx`/`cretex.bin` string
-  fragments (LZ literals), big-endian `PSX-mesh v3/v4` headers, byte-swapped `_TRG` containers,
-  and `edgeofreality.com`. Expectation: decompressed payloads are BE-mirrored PSX/TRG data → the
-  endian-parameterized reader pattern (GC precedent) applies once extraction works.
-- **Container**: sub-file tables of `u32 BE count` + `count+1` ascending u32 offsets (relative to
-  table start; first offset == table size). THPS2 table example at ROM 0x13B74: count 15,
-  entries 0x44..0x65C52.
-- **Compression = "ERZ"**, Edge of Reality's own, NO public RE exists (searched n64decompress,
-  en64 wiki, EmuTalk). Header: `"ERZ" u8 version | u16 0x0001 | u16 0 | u32 BE decompressedSize`,
-  LZ bitstream from +12 (literals visible: "sk2de…"). THPS1 ships ERZ v1; THPS2/THPS3/Spider-Man
-  ERZ v2. Census: thps1 1,124 / thps2 1,158 / thps3 1,121 / spidey 1,584 blocks — the ENTIRE
-  asset corpus is ERZ-wrapped.
-- **ERZ v2 DECODES (2026-08-05)**: emulated execution of the ROM's own boot-segment decompressor
-  (located via its `lui 0x4552` magic-check signature; THPS2 core at
-  RAM 0x80000CF8) in a minimal MIPS-BE interpreter — bit-exact by construction. Header confirmed
-  from the code: `+4 u32 BE decompressedSize` (0x10000 blocks), `+8 u32 BE compressedSize`,
-  bitstream from +18. THPS2 entry 0 → 64 KB of skater-definition data ("sk2def", bone names,
-  gear/BMP names); entries 1-2 → MIPS code overlays. The early sub-file table is the CODE
-  package; asset tables (BE PSX payloads) sit later in ROM.
-- **C# decoder shipped**: `ErzDecoder` mechanically transcribes both v1 and v2, with emulator-derived
-  SHA-256 fixtures pinned by `ErzDecoderTests`. Next: walk ALL sub-file tables per ROM and classify payloads; then
-  `.z64` routing through `unpack` (gate `.n64`/`.v64` byte orders out with a clear message) and
-  textures — if payloads are BE-mirrored PSX files, the endian-parameterized reader pattern (GC
-  precedent) may cover them with no new texture code.
-- Durable inventory and extraction live in `N64RomArchive`; `N64RomArchiveTests` pins header,
-  master-directory, table, and standalone-block discovery.

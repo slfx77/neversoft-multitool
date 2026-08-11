@@ -1,8 +1,8 @@
-# Backlog — Tony Hawk's Proving Ground + Project 8 (PS2)
+# Completed reference — Tony Hawk's Proving Ground + Project 8 (PS2)
 
 Created 2026-07-03; **re-investigated 2026-07-03** (render sweep, not just triangle counts). See `BACKLOG_SUMMARY.md`.
 
-> **Re-verified 2026-07-26 vs HEAD (v1.3.4, 60d0b81) — full-domain audit.** The `.col` "newer 0x00FF00FF version" item is retracted (it was PAK-extraction garbage from the pre-2026-07-10 absolute-offset bug — the real files are version 10 and parse via `ColFile.cs`; only extension **routing** is missing). `.mdl.ps2`/`.ska`/`.qb`/textures verified working. THPG whole-character skin reconstruction stands as best-effort for legacy content only — the game itself renders only the piece-local CAS/pro assets, which decode exactly.
+> **Re-verified 2026-08-09 against the current tree and routing tests.** The `.col` "newer 0x00FF00FF version" item remains retracted (it was PAK-extraction garbage from the pre-2026-07-10 absolute-offset bug; the real files are version 10), and bare `.col`/`.skin` routing has now shipped through `MeshTypeDetector`. `.mdl.ps2`/`.ska`/`.qb`/textures work. THPG whole-character reconstruction is best-effort recovery of unused legacy content; the piece-local CAS/pro assets the game actually renders decode exactly. **No user-facing THPG/P8-specific backlog item remains.**
 
 **Status legend:** 🔴 Open · 🔶 Partial · 🟢 Verified this session · ✅ Done · ⚪ By design
 
@@ -10,20 +10,20 @@ Created 2026-07-03; **re-investigated 2026-07-03** (render sweep, not just trian
 
 **Depends on / cross-ref:** `memory/thaw_ps2_skin_format.md` (THAW `.skin.ps2` VIF/DMA strip decode), `ThawPs2SkinFile.cs`, `ThawPs2SkinVifLayout.cs`.
 
-> **Correction (2026-07-03).** The first pass of this file claimed *both* games' character skins garble — that was extrapolated from triangle counts **without rendering P8**. On actually rendering: **Project 8 skins render correctly; only Proving Ground (2007) skins garble.** P8 uses the THAW-compatible VIF/DMA encoding our decoder already handles; THPG re-encoded it. (Same over-generalization pattern as the `README.md` "tested games" error — render before claiming.)
+> **Historical correction (2026-07-03, superseded in scope by the later runtime proof below).** The first pass claimed both games' character skins garbled without rendering P8. Rendering proved P8 correct and isolated THPG's different encoding. Later GS-dump/savestate work then established that the wrapping THPG whole-character files are unused old-scale legacy exports; shipped piece-local assets do not have the defect.
 
 ---
 
 ## Project 8 — WORKS (🟢 verified 2026-07-03)
 
-Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_dustindollin` `(1,8,8)`, `gped_anchorman` `(2,3,3)` jacket, `gped_chalk`, `gped_colonel` — all complete, correct characters. Textures (`.tex.ps2`/`.img.ps2`) decode correctly. **No mesh work needed for P8 character skins.** (Other P8 families — `.mdl.ps2`, worldzones, `.ska`, `.col` — not yet swept; see below.)
+Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_dustindollin` `(1,8,8)`, `gped_anchorman` `(2,3,3)` jacket, `gped_chalk`, `gped_colonel` — all complete, correct characters. Textures (`.tex.ps2`/`.img.ps2`) decode correctly. **No mesh work needed for P8 character skins.** The other families were swept later and are summarized below.
 
 ---
 
-## Remaining — needs work
+## Completed / retained investigations
 
-### ✅ Proving Ground (THPG) character skins — RESOLVED for shipped content (🔶 legacy recovery only)
-- **Status (2026-07-26 audit):** NOT a user-facing break. The game renders only piece-local CAS/pro assets, which are non-wrapping Q4.12 and decode **exactly** today. The old-scale whole-character exports (`gped_*`/`shaba_*`/peds) that garble at `/16` are legacy content the shipped engine never loads (proven by GS dumps + savestates, below); our heuristic reconstruction recovers them at 95.6% as best-effort — the ~4.4% residual has no in-game ground truth and is moot. The 🔶 below tracks only that legacy-recovery quality, not a shipped-asset defect.
+### ✅ Proving Ground (THPG) character skins — RESOLVED for shipped content (⚪ legacy recovery only)
+- **Status (2026-07-26 audit):** NOT a user-facing break. The game renders only piece-local CAS/pro assets, which are non-wrapping Q4.12 and decode **exactly** today. The old-scale whole-character exports (`gped_*`/`shaba_*`/peds) that garble at `/16` are legacy content the shipped engine never loads (proven by GS dumps + savestates, below); our heuristic reconstruction recovers them at 95.6% as best-effort — the ~4.4% residual has no in-game ground truth and is moot. The residual below records only that legacy-recovery quality, not active backlog or a shipped-asset defect.
 - Source: this session (2026-07-03).
 - **Controlled repro** (the key lever): `gped_bam.skin.ps2` ships in **both** games. Same header `(1,9,9)` = THAW pre-compiled skin (`numObjects=1, meshes=9, dataSize=0xE4C0`≈filesize), **same file size 58,576 B**, headers byte-identical except one bbox float at `0x1C`. But `cmp` shows **16,553 bytes differ**, all in the VIF payload from offset `0x291` onward. Result: **P8 `gped_bam` renders perfectly; THPG `gped_bam` renders scrambled blocks.** Same decoder, same header, different VIF payload → THPG changed the vertex/strip encoding.
 - More THPG evidence: `gped_anchorman_body` `(2,6,6)` → scrambled; `gped_bobburnquist` `(1,7,7)` → **head correct, body scrambled** (fails on higher-vertex meshes). Simple THPG meshes still work: `cas_acc_gloves01` renders clean gloves. So the break is in the character-body VIF batches, not the whole format.
@@ -80,7 +80,7 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
   contact distance. Fixed the three large boundary re-render meshes (8, 27, 67). Also tried and rejected
   (2026-07-06): two-pass placement deferring mislabeled components + file-order neighbor-grid proximity —
   slightly worse (246 → 256), reverted.
-- **🔶 Remaining gap (~4.4% of vertices on `gped_bam`): three stubborn detail pieces.**
+- **⚪ Legacy-recovery residual (~4.4% of vertices on `gped_bam`): three stubborn detail pieces; no shipped-content action.**
   Mesh 15 (74 verts: right-wrist skin patch placed at the neck, error (−2,0,0) bands — not a re-render, so no
   exact coincidence exists); meshes 58 + 72 (76 + 70 verts: geometrically near-identical twin detail pieces
   swapped feet↔hat, errors (0,+4)/(0,−4) — indistinguishable by any local geometric signal); mesh 57 (21/40
@@ -88,7 +88,7 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
   comments): bone-offset cluster voting (c2[14:8] is a batch-local slot remap, not a global bone id), positional
   cross-section welds (identical instanced details weld to the wrong copy), carry/origin-provenance cross-section
   welds (merged components then fight their section boxes).
-- **🔬 VU1 microcode RE (2026-07-06) — mechanism hunt; major format structures decoded, band rule still open.**
+- **🔬 Historical VU1 microcode phase (2026-07-06) — major structures decoded; its band question is closed by the runtime proof below.**
   Extracted VU1 microprograms from both ELFs (`SLUS_214.44` / `SLUS_216.16`) by scanning for VIF MPG chains,
   then disassembled them with `tools/reverse-engineering/ps2/vu_disasm.py` (tables ported from PCSX2
   `DisVUmicro.h`). **Definitive: THPG's programs are
@@ -108,7 +108,7 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
   anchors (slot verts span 75 units), additive per-slot anchors, (section,slot) spatial clustering (loose,
   62-unit extents — palettes re-upload per batch). Nearest-band-to-anchor with oracle-derived per-(batch,slot)
   anchors reaches 97.87% — an upper bound needing real bone anchors we don't have.
-  **Open question**: how hardware recovers per-vertex bands with no per-vertex data and no ucode logic.
+  **Question at this historical phase**: how hardware recovered per-vertex bands with no per-vertex data and no ucode logic. The later GS-dump/savestate proof below answered it: the shipped game never loads the wrapping files.
 - **🔬 PCSX2 savestate RE (2026-07-06) — load-time rewrite FALSIFIED; runtime pipeline fully mapped.**
   User provided a THPG savestate (`SLUS-21616 (391A7331).01.p2s`, skater in-level). Savestates are ZIPs with
   raw 32MB `eeMemory.bin` + `vu1Memory.bin` + `vu1MicroMem.bin`. Findings (all verified in RAM):
@@ -177,10 +177,9 @@ Rendered clean via `mesh` + `glb-render` at HEAD: `gped_bam` `(1,9,9)`, `gped_du
 - Original claim (2026-07-03): THPG/P8 `.col` begins `00 FF 00 FF 03 00 00 00` (a `0xFF00FF00` marker), not the `9`/`10` int32 `ColFile.cs` expects, so a new container format needed RE.
 - **Retraction (2026-07-26 audit vs HEAD 60d0b81):** the `00 FF 00 FF` header was **PAK-extraction garbage** produced by the pre-2026-07-10 absolute-offset PAK bug (see `memory/pak_header_relative_offsets.md`); the builds were re-extracted after that fix. At HEAD **all 85 THPG + 79 P8 `.col` files start `0a 00 00 00` = version 10** and `ColFile.cs` (v9/10) parses them cleanly. There is no new format to reverse.
 
-### 🔴 Bare `.col` / `.skin` extension routing (S each) — user-facing
-- Source: 2026-07-26 audit.
-- The parsers already support the THPG/P8 data (`.col` v10 via `ColFile.cs`; scene skins via the THAW/PS2 scene path). The ONLY remaining gap is **dispatch**: a bare `.col` (no `.xbx`/`.wpc`/`.ps2` suffix) is not routed to the collision parser, and a bare `.skin` is not routed to the scene mesh parser, so these extract but don't convert.
-- What's left: add the bare-extension routing in the mesh/collision command + format-probe dispatch. Trivial (S) each — unblocks ALL THPG/P8 collision meshes and level/cutscene scene geometry that ship with bare extensions.
+### ✅ Bare `.col` / `.skin` extension routing — SHIPPED 2026-08-07 (`21edfa5`)
+- Source: 2026-07-26 audit; implemented by the centralized `Core/Formats/Mesh/Detection/MeshTypeDetector` path.
+- `MeshTypeDetector` now recognizes bare `.col` and content-probes bare `.skin`/`.mdl`; all CLI/GUI/probe discovery paths consume the same route. The permissive Xbox `(1,1,1)` test is intentionally last because roughly 32% of PS2-build bare skins share that prefix. `MeshTypeDetectorContentRoutingTests` pins THPG/P8 collision and ambiguous-scene cases. `MeshOutputPathPlanner` separately prevents the heavily repeated bare filenames from overwriting one another.
 
 ---
 
@@ -195,7 +194,7 @@ The 2026-07-26 audit swept the previously-unknown families for both games at HEA
 - 🟢 **Character skins** — P8 renders correctly; THPG renders correctly for the piece-local CAS/pro assets the game actually loads (the legacy old-scale whole-character exports remain best-effort recovery only — see the reconstruction item above).
 - ⚪ **`.bik` video** (Bink) — proprietary RAD Game Tools codec; out of scope (see By design below).
 
-The only genuinely-open THPG/P8-specific gaps are the two bare-extension **routing** fixes above (`.col`/`.skin`). All parsers exist.
+There are no genuinely-open THPG/P8-specific conversion gaps in this stream. The bare-extension routing fixes have shipped, and every asset family the games use is supported. Keep the legacy whole-character analysis only as recovery/history, not as evidence of a shipped-content defect.
 
 ## By design / won't-fix (⚪)
 

@@ -1,7 +1,11 @@
-# THUG2 SafeDisc protected-input decryptor handoff
+# Completed reference — THUG2 SafeDisc protected-input decryptor
 
 Updated 2026-08-09. Facts below are measured from the exact protected build or
 its loader runtime unless a sentence is explicitly labelled **Inference**.
+
+> **Status: ✅ Done.** The end-to-end protected-input implementation, standalone
+> PE writer, reproducibility gates, and smoke record are complete. This file is
+> retained under `docs/backlog` as a handoff/evidence record, not as active work.
 
 ## Current result
 

@@ -5,7 +5,7 @@ Branch `feat/psx-round3-fidelity`. Round-3 feedback shipped as `73e5999`; an adv
 agents) found more in those fixes. 76 unique findings total — mostly verification quality, a
 minority real defects.
 
-Revised 2026-08-03. Several items in the previous revision are now CLOSED and are listed as such so
+Revised 2026-08-10. Several items in the previous revision are now CLOSED and are listed as such so
 nobody re-opens them from a stale doc.
 
 ## Closed
@@ -60,7 +60,7 @@ lifting behind or along the wall, but those pairs could not be reproduced throug
 plane bucketing, and the speculative orientation fix was reverted rather than shipped unverified.
 Re-open with an independent oracle.
 
-### 4b. Coincident-geometry residue — measured 2026-08-04, cause not yet isolated
+### 4b. Coincident-geometry residue — CLOSED 2026-08-10
 
 The independent oracle requested by items 4 and 5 reads exported GLB world-space geometry and
 never calls the detector, so it cannot agree with it by construction. That census corrected four
@@ -74,32 +74,73 @@ flaws that had inflated every earlier count:
 | credit backface culling | back-to-back single-sided walls cannot fight: 69/104 skschl, 111/135 l2a1 |
 
 Residue after those corrections: **skschl 11 actionable pairs, l2a1 4** — not the 80 previously
-reported. Every one lands in the SAME detector plane bucket, so bucketing is NOT the cause and all
-were compared and declined by rule.
+reported. The 2026-08-04 conclusion that every same-file pair reached `ClassifyPair` was wrong: its
+"detector plane key" was recomputed from each emitted GLB triangle, while the then-current production
+code assigned a single primary-triangle key to each source face.
 
 Ruled out by measurement, so nobody re-tests them: semi-transparency (no residue face has flag
 0x40), the appearance twin rule (their colours differ), bounds overlap (penetration is hundreds of
 units on two axes), and interior overlap (shared area 0.13–1.00 of the smaller face).
 
-Confirmed for exactly ONE pair — `school_outerwall05` vs `obj_gym_door`: the detector runs on a
-single `PsxMeshFile`, so a bank object PLACED into a level is never compared against level
-geometry. That is a structural scope gap, not a rule gap.
+The production diagnostic reports the selected overlay or exact `ClassifyPair` decline, separates a
+decline from a pair production never compared, and exposes both rendered triangle planes for quads.
+The 14 same-file oracle pairs collapse to eight source-face pairs. Before the fix all eight reported
+`DifferentPlaneBuckets`; focused tests pin that attribution as well as every classifier decline.
 
-The other 14 are level-vs-level and cannot be attributed from outside the detector. The next step is
-to make the decline reason observable from the shipped code (an out-parameter on `ClassifyPair`,
-not a parallel reimplementation in a diagnostic — that discrepancy invalidated an earlier
-investigation). Deliberately NOT fixed speculatively at the end of round 5: the round-3 rule was
-"do not ship a behaviour change that cannot be demonstrated firing on the case that motivated it".
+The misses had three measured causes:
 
-### 5. Remaining coverage gaps
+- coincident faces could quantize to adjacent plane-distance buckets (the key differed by exactly one);
+- a quad's secondary writer-emitted triangle could match another face while production bucketed the
+  whole quad by its primary triangle; and
+- sprite faces were compared from raw anchor/offset fields even though the writer expands them to
+  their actual rendered corners.
 
-- Nothing pins the viewer's collection-reset location; `node --check` passes with the bug restored.
-  The whole of `mesh-viewer.html` has no test.
-- The What-If corpus guard is inert: green whether or not the fix is present, and none of the 60
-  nodes the fix releases is pinned anywhere.
-- The overlay census pins are characterization snapshots. The geometry unit tests now cover the
-  shared-area semantics, but `l7a2_g = 538` is decided by float32 rounding of the plane key and
-  flips to 531 in double precision.
+The same-file behavior is now fixed. Opaque discovery uses both writer-emitted quad triangles and the
+same `PsxSpriteVertexResolver` corners as export, and compares adjacent distance buckets only when the
+unquantized gap is at most **0.005** (the six measured non-sprite pairs span 0..0.0048828125). A
+secondary admission must establish shared area on the two matched triangles, not the whole warped
+quad. This rejects three Marseille slivers whose whole faces overlap 4.8..6.9% but admitted triangles
+overlap only 0.23..0.47%, and a neighbouring 0.0073242188 plane gap stays undiscovered. The
+semi-transparent layer detector deliberately retains its separately calibrated raw/primary path.
+
+All eight motivating same-file source pairs now select the independently expected overlay. The pinned
+nine-file census changes only at explained sites: `l2a1_g` 77→80 (one secondary-triangle pair and two
+sprite cards), PSX/DC Marseille +2 each (distance seams), and DC Philly 27→41 (six nested foliage
+panels and eight segmented pole strips); the other fixtures are unchanged.
+
+The fifteenth pair — `school_outerwall05` vs `obj_gym_door` — is fixed without broadening the
+classifier. `PsxPlacedCoplanarOverlayResolver` assembles writer-equivalent level geometry plus the
+bank placements that survive What-If/items/sky/hidden-object filtering, then delegates to the same
+detector. Assignments include the placement index, so a face is split only at the transform where it
+overlaps; exact duplicate transforms are classified once and expanded back to their emitted nodes.
+The synthetic appearance identity uses resolved per-file colours, authoritative widened UVs,
+colour-pulse identity, and structural texture-wibble identity, avoiding raw palette-index aliases.
+Discovery is optional and fail-open: an unexpected face cannot suppress bank geometry.
+
+The final School fixture yields exactly one cross-file pair: level object 200 face 0 against bank
+object 4 placement 0 face 1, with the bank face selected. Its coincident PLATFORM node 215 replaces
+the bank home slot, so exactly one door instance receives draw-order metadata. A rotated duplicate
+and far-repeat regression proves placement isolation; final Downhill's 936 level objects plus 23
+bank placements complete the same scan in under one second on the audited machine and find no pair.
+`PsxPlacedCoplanarOverlayResolverTests` pins the adapter, production parser output, colour/UV/animation
+provenance, and a five-second upper guard for that large scope.
+
+### 5. Remaining coverage gap
+
+Closed 2026-08-10: the What-If guard now has exact real-corpus identity pins, not only aggregate
+placement counts. Final Spider-Man `l1a3` node 322 and `l5a3` nodes 192/196/198 are asserted by
+node/object/mesh/hash to disappear in normal play and return only under the opt-in group. Enter
+Electro `e1m2` node 316 and `e3m3` nodes 3/306 pin the opposite `else`-branch case: their normal-play
+models remain present and are not misclassified as What-If-only content. The synthetic grammar tests
+remain alongside these corpus anchors in `PsxWhatIfContentGateTests`.
+
+- The overlay census pins are characterization snapshots. Geometry tests now cover shared-area and
+  plane-seam semantics, but the underlying `l7a2_g` candidate population still has a known seven-face
+  float32-vs-double plane-key sensitivity that has not been given a format-grounded precision rule.
+
+Closed 2026-08-09: `PsxColourPulseViewerContractTests` extracts the actual viewer functions and pins
+that append-only material/wibble/pulse collections reset only in `unloadCurrent`, not once per loaded
+GLB root. Restoring the leak now fails the contract test even though `node --check` still passes.
 
 ### 6. Spider-Man's light rigs — CLOSED 2026-08-03
 

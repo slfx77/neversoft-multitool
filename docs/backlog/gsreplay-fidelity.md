@@ -1,14 +1,14 @@
 # Backlog — THAW GS-Replay Render Fidelity (research stream)
 
-Created 2026-07-03. Distilled from the `memory/gsdump_*` topic files. **Re-verified 2026-07-26 vs HEAD (v1.3.4, 60d0b81) — full-domain audit.** The original "Remaining" items below were superseded by later `memory/gsdump_*` notes; see the retractions inline. See `BACKLOG_SUMMARY.md`.
+Created 2026-07-03. Distilled from the `memory/gsdump_*` topic files. **Re-verified 2026-08-10 against the current replay, validation tools, committed oracle goldens, and SW-native baseline.** The original "Remaining" items below were superseded by later work; see the retractions inline. See `BACKLOG_SUMMARY.md`.
 
 **Status legend:** 🔴 Open · 🔶 Partial · 🟢 Verified this session · ✅ Done · ⚪ By design
 
-**What this stream is:** the software GS replay engine (`Core/Formats/GsDump/`) that replays PCSX2 `.gs` dumps as a **validation reference** for THAW rendering. It is not a user-facing converter — it exists to prove our THAW texture/blend/mesh decoding matches real hardware. Progress is measured as **MAE against PCSX2 screenshots** across a 14-capture sweep. This stream is deep, self-contained, and lower-urgency than the converters.
+**What this stream is:** the software GS replay engine (`Core/Formats/GsDump/`) that replays PCSX2 `.gs` dumps as a **validation reference** for THAW rendering. It is not a user-facing converter — it exists to prove our THAW texture/blend/mesh decoding matches real hardware. Progress is gated against PCSX2 **SW-native** captures and committed `.gsoracle.json` / `.texoracle.json` converter-adjudication goldens. This stream is deep, self-contained, and lower-urgency than the converters.
 
 **Primary sources:** `memory/gsdump_shadow_streaks_143551.md`, `memory/gsdump_overbrightness_not_green_tint.md`, `memory/gsdump_replay_pcrtc_handoff.md`, plus the `memory/gsdump_*` dead-end notes (read those first — they record what NOT to reattempt).
 
-**Tooling:** PCSX2 at `<pcsx2>/pcsx2-qt.exe`; runbook `docs/runbooks/thaw-worldzone-pcsx2.md`; sweep `tools/validation/gsdump/sweep_compare.py`; baseline in `TestOutput/baseline` (mean MAE ~9.68 as of 2026-07-02).
+**Tooling:** PCSX2 at `<pcsx2>/pcsx2-qt.exe`; runbook `docs/runbooks/thaw-worldzone-pcsx2.md`; SW-native sweep/gate in `tools/validation/gsdump/native_reference_sweep.py` and `native_gate.py`; committed metric baseline in `tools/validation/gsdump/native_baseline.json`; oracle regeneration in `tools/validation/gsdump/build_gsoracle.ps1`.
 
 ---
 
@@ -16,7 +16,7 @@ Created 2026-07-03. Distilled from the `memory/gsdump_*` topic files. **Re-verif
 
 ### ⚪ Shadow-decal vertical streaks (canonical capture 143551) — RED HERRING, closed
 - Source: `memory/gsdump_shadow_streaks_143551.md`.
-- **Retraction:** the streaks are gone at HEAD. The character drop-shadow is a PSMT4 subtractive ground decal and it **renders correctly** — there is no re-projection/streak defect to fix. The queued "force-latch-magenta-palette experiment" and the PCSX2 `GSClut` dirty-gating port are **stale — do not attempt them.** All that remains is cosmetic CLUT palette-count accounting (bookkeeping only, no visible artifact); tracked under Remaining below.
+- **Retraction:** the streaks are gone at HEAD. The character drop-shadow is a PSMT4 subtractive ground decal and it **renders correctly** — there is no re-projection/streak defect to fix. The queued "force-latch-magenta-palette experiment" and the PCSX2 `GSClut` dirty-gating port are **stale — do not attempt them.** Cosmetic CLUT palette-count accounting remains bookkeeping only, with no visible artifact, and is not scheduled as fidelity work.
 
 ### ⚪ Residual over-brightness / "0.7× compression ceiling as a render bug" — retracted
 - Source: `memory/gsdump_overbrightness_not_green_tint.md`, `memory/gsdump_reference_bias_native.md`.
@@ -25,33 +25,27 @@ Created 2026-07-03. Distilled from the `memory/gsdump_*` topic files. **Re-verif
 ### ⚪ Magenta SPECIAL meter / PCRTC-composition gap — SOLVED, retracted
 - **Retraction:** the "magenta meter" / HUD holes were a **float32 Z-interp overshoot past 2^24** (GEQUAL depth holes), fixed via double-precision Z interp + clamp to vertex extremes (`74a603b`, `2c078f9`; see Done). The full PCRTC-sim refactor the old notes queued is **unnecessary** — do not reattempt.
 
-### 🟢 GsDump test suite
-- **30/30 pass at HEAD** (any earlier "13/30 fail" reading is stale).
+### ✅ GsDump regression suite
+- The current default suite passes. Earlier fixed-count summaries such as “13/30 fail” or “30/30 pass” are historical snapshots, not a durable status metric; use the current test executable and oracle ratchets.
 
 ---
 
-## Remaining — needs work (internal, LOW urgency)
+## Current status — no established replay residual
 
-All items here are internal to the replay reference — none are user-facing converter defects.
+All work in this stream is internal to the replay reference; none is a user-facing converter defect.
 
-### 🔶 FBW-aliased bloom (PSMCT16/16S)
+### ✅ FBW-aware PSMCT16/16S render-target composition — completed 2026-08-10
 - Source: `memory/gsdump_bloom_left_smear_tbw.md`, `memory/gsdump_z_swizzle_sweep_residual.md`.
-- Evidence: bloom compose still lacks **per-(FBP,FBW) separation** for PSMCT16/16S buffers, so same-FBP-different-FBW targets alias. The TBW-preferred RT-cache compose (`f4b8a80`) removed the phantom left-haze, but the underlying FBW aliasing gap remains.
-- What's left: per-(FBP,FBW) buffer separation for the 16-bit bloom path (per the PCRTC handoff phases B/C/D).
-
-### 🔶 Biased reference metric (not a trustworthy scorecard)
-- Source: `memory/gsdump_reference_bias_native.md`.
-- Evidence: the 14-capture sweep MAE is measured against embedded-HW screenshots whose tone is compressed (slope ~0.16), so the number does not track true render error. Re-baseline every comparison against PCSX2 **SW-native ≥45s** captures before trusting a delta.
-- What's left: a fixed, SW-native metric so regressions/wins are measurable.
-
-### 🔴 No programmatic oracle→converter coupling (most useful gap)
-- Evidence: the replay is **human-read** — nothing imports `Core/Formats/GsDump/` into the converters or tests. So GS-verified facts (blend modes, swizzle, alpha) cannot automatically confirm or refute a converter's output.
-- What's left: wire the replay as a programmatic oracle (e.g. converter output ↔ replay pixel checks) plus the fixed SW-native metric above — together these are what would let the **THAW blend-mode claims be VERIFIED, not just implemented**.
+- `GsRenderTargetCache.TryComposeSample` now uses the GS's 64×64 page rows for PSMCT16/16S, ceiling-covers partial pages, and preserves the established TBW-preferred then any-FBW fallback. PSMCT16 and PSMCT16S never cross-compose because their within-page block permutations differ.
+- `GsRenderTargetCacheTests` supplies a non-zero `Ps2GsVram` placement oracle for both layouts and pins partial pages, FBW preference, and cross-layout rejection. The focused cache suite passes 8/8; the existing GS audit suite passes 30/30 and the three committed oracle ratchets remain green.
+- All 17 audited captures replay successfully. The authoritative PCSX2 SW-native gate passes all 13 baseline captures (maximum slope delta 0.0002; maximum MAE delta +0.008, well inside its bands). The old embedded-reference score moves only trivially and is not the acceptance oracle. No quantization or vertical-band behavior changed.
 
 ---
 
 ## Done (for reference) ✅
 
+- ✅ **SW-native metric gate** — `tools/validation/gsdump/native_reference_sweep.py`, `native_gate.py`, and committed `native_baseline.json` replace the biased embedded-HW screenshot scorecard (`c696daf`). The gate tracks per-capture slope/MAE bands and an aggregate baseline against PCSX2 SW-native output.
+- ✅ **Programmatic GS→converter oracle coupling** — `GsDumpAuditRunner` builds a `GsTextureOracleComparer` and emits `.gsoracle.json` / `.texoracle.json`; committed goldens are consumed by `WorldzoneOracleTests` and `ThawZoneTexOracleTests` (`c696daf`, `36fda07`). The latter proves zero zone-TEX decode divergences across 17 captures after adjudicating the final two attribution artifacts.
 - ✅ Per-(FBP,FBW,PSM) render-target buffers + PCRTC dual-circuit composition (`d86f183`).
 - ✅ Spec-correct Z swizzle PSMZ32/24/16/16S; depth persistence to VRAM; depth-as-texture feedback (`8615bfc`, `f88114c`).
 - ✅ Double-precision Z interp + clamp to vertex extremes — killed HUD "screen-door" holes (`74a603b`, `2c078f9`; `memory/gsdump_orb_holes_bezel_cutout.md`).
@@ -62,7 +56,7 @@ All items here are internal to the replay reference — none are user-facing con
 
 ## Proven dead-ends — do NOT reattempt ⚪
 
-- ⚪ **PSMCT16 RT-compose** — net regression, reverted (`memory/gsdump_psmct16_compose_dead_end.md`). The "vertical bands" it targeted are 5-bit quantization.
+- ⚪ **Old PSMCT16 vertical-band experiment** — net regression, reverted (`memory/gsdump_psmct16_compose_dead_end.md`). It targeted 5-bit quantization and is distinct from the completed FBW/page-placement composer above.
 - ⚪ **PSM-aware upload cache** — MAE-neutral / byte-identical; the VRAM-stomping hypothesis was disproven (`memory/gsdump_upload_cache_dead_end.md`). Do not reattempt without a PSM-aware re-decode design.
 - ⚪ "Image shifted up" — PCSX2 16:9 widescreen letterbox, not a PCRTC bug (`memory/gsdump_pcsx2_16x9_letterbox.md`).
 - ⚪ **Framebuffer-feedback triage** — closed, no fixes needed; the 0290 scramble is genuine game-side aliasing (`memory/gsdump_framebuffer_feedback_triage.md`).
