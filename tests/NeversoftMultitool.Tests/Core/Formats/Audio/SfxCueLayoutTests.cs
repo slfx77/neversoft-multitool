@@ -16,9 +16,9 @@ namespace NeversoftMultitool.Tests.Core.Formats.Audio;
 ///         throughout, so the pad is four bytes where the PS1 has six.
 ///     </para>
 ///     <para>
-///         Parsing the cue TABLE is all this buys today: the N64 sample banks
-///         are libultra wavetables with no VAB anywhere, so nothing here
-///         resolves to playable audio until that codec exists.
+///         Parsing the cue TABLE is all this buys today: ABI1 stored-wave
+///         decoding exists, but cue-to-BFX/PTR ownership and authoritative
+///         rate, pitch, and loop scheduling remain unresolved.
 ///     </para>
 /// </summary>
 public sealed class SfxCueLayoutTests(TestPaths paths)

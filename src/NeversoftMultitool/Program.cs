@@ -40,6 +40,10 @@ public static class Program
         rootCommand.Subcommands.Add(PvrCommand.Create());
         rootCommand.Subcommands.Add(NgcTexCommand.Create());
         rootCommand.Subcommands.Add(N64TexCommand.Create());
+        rootCommand.Subcommands.Add(N64AudioInspectCommand.Create());
+        rootCommand.Subcommands.Add(N64AudioFxInspectCommand.Create());
+        rootCommand.Subcommands.Add(N64SfxInspectCommand.Create());
+        rootCommand.Subcommands.Add(N64AudioDecodeCommand.Create());
         rootCommand.Subcommands.Add(DdmCommand.Create());
         rootCommand.Subcommands.Add(AudioCommand.Create());
         rootCommand.Subcommands.Add(QbKeyCommand.Create());
@@ -65,6 +69,7 @@ public static class Program
         rootCommand.Subcommands.Add(GlbGifCommand.Create());
         rootCommand.Subcommands.Add(GsDumpCommand.Create());
         rootCommand.Subcommands.Add(SkaCommand.Create());
+        rootCommand.Subcommands.Add(Thps2XFrontendAnimCommand.Create());
 
         return rootCommand.Parse(args).Invoke();
     }
@@ -106,6 +111,10 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]archive[/]   Extract files from WAD/PKR/PRE/DDX/BON/PAK archives");
         AnsiConsole.MarkupLine("  [green]pvr[/]       Convert Dreamcast PVR texture files to PNG");
         AnsiConsole.MarkupLine("  [green]ngctex[/]    Extract textures from GameCube TEX dictionaries to PNG");
+        AnsiConsole.MarkupLine("  [green]n64-audio-inspect[/] Inspect paired N64 Sound Tools PTR/WBK files as JSON");
+        AnsiConsole.MarkupLine("  [green]n64-audio-fx-inspect[/] Inspect opaque N64 Sound Tools BFX data and local PTR bindings");
+        AnsiConsole.MarkupLine("  [green]n64-sfx-inspect[/] Inspect strict raw N64 SFX cue tables as aggregate JSON");
+        AnsiConsole.MarkupLine("  [green]n64-audio-decode[/] Decode one stored N64 Sound Tools wave to mono PCM16 WAV at a caller-supplied rate");
         AnsiConsole.MarkupLine("  [green]ddm[/]       Convert DDM mesh files to glTF (.glb)");
         AnsiConsole.MarkupLine(
             "  [green]audio[/]     Convert ADX/XA/VAB/VAG/KAT/SFX/PCM/SND/PSS/VID audio files to WAV");
@@ -128,6 +137,7 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]glb-render[/] Render .glb files to .png images");
         AnsiConsole.MarkupLine("  [green]glb-gif[/]    Render animated .glb files to .gif images");
         AnsiConsole.MarkupLine("  [green]gsdump[/]     Audit raw PCSX2 GS dumps and compare to screenshot PNGs");
+        AnsiConsole.MarkupLine("  [green]thps2x-anim[/] Inspect THPS2X frontend UI .ANIM timelines as JSON");
 #if WINDOWS_GUI
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]For GUI mode:[/]");
@@ -146,6 +156,10 @@ public static class Program
             args.Any(a => a.Equals("archive", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("pvr", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("ngctex", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("n64-audio-inspect", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("n64-audio-fx-inspect", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("n64-sfx-inspect", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("n64-audio-decode", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("ddm", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("audio", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("qbkey", StringComparison.OrdinalIgnoreCase)) ||
@@ -166,7 +180,8 @@ public static class Program
             args.Any(a => a.Equals("unpack", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("qb", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("gsdump", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("ska", StringComparison.OrdinalIgnoreCase)));
+            args.Any(a => a.Equals("ska", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("thps2x-anim", StringComparison.OrdinalIgnoreCase)));
     }
 #endif
 }
