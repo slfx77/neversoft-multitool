@@ -62,6 +62,7 @@ public static class Program
         rootCommand.Subcommands.Add(RwDffCommand.Create());
         rootCommand.Subcommands.Add(RwBspCommand.Create());
         rootCommand.Subcommands.Add(ColCommand.Create());
+        rootCommand.Subcommands.Add(NgcColCommand.Create());
         rootCommand.Subcommands.Add(XbxTexCommand.Create());
         rootCommand.Subcommands.Add(UnpackCommand.Create());
         rootCommand.Subcommands.Add(QbCommand.Create());
@@ -131,6 +132,7 @@ public static class Program
         AnsiConsole.MarkupLine("  [green]rwdff[/]     Convert RenderWare DFF mesh files (.SKN) to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]rwbsp[/]     Convert RenderWare BSP level files to glTF (.glb)");
         AnsiConsole.MarkupLine("  [green]col[/]       Convert collision (.col) files to glTF (.glb)");
+        AnsiConsole.MarkupLine("  [green]ngccol[/]    Inspect GameCube collision (.col.ngc) structure as JSON");
         AnsiConsole.MarkupLine("  [green]xbxtex[/]    Extract textures from Xbox/PC TEX/IMG files to PNG");
         AnsiConsole.MarkupLine("  [green]unpack[/]    Recursively extract all archives in-place");
         AnsiConsole.MarkupLine("  [green]qb[/]        Decompile QB compiled script files to source text");
@@ -176,6 +178,7 @@ public static class Program
             args.Any(a => a.Equals("ps2tex", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("rwdff", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("col", StringComparison.OrdinalIgnoreCase)) ||
+            args.Any(a => a.Equals("ngccol", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("xbxtex", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("unpack", StringComparison.OrdinalIgnoreCase)) ||
             args.Any(a => a.Equals("qb", StringComparison.OrdinalIgnoreCase)) ||

@@ -42,15 +42,28 @@ schedule work from their old descriptions.
   **Sweep: 722/722 files, 427,343 triangles, 0 failures, 0 glTF validator errors**; textured renders
   verified (ped_baller Lakers jersey, pigeon alpha-cut wings, board_default griptape+trucks).
   The shipped parser and its corpus coverage are pinned by `NgcSceneFileTests`.
-- 🔴 **Collision** (`.col.ngc` 722): layout fully mapped 2026-07-07 but **GC col files ship WITHOUT
-  vertex positions** (vertex+intensity region 0xFF-wiped on disc; faces/BSP intact; engine rebuilds
-  positions at runtime). Now that render meshes decode, a reconstruction pass matching col faces to
-  scene geometry is feasible — but col objects (trigger boxes etc.) don't all have render twins; needs
-  a study of how the engine sources the vertices. Layout: 24B BE header (version=10, numObjects,
-  totalVerts, totalFaces, ssRows, ssCols) + 32B scene bounds + 64B object records (checksum, u32
-  numVerts, u16 numFaces, u32 firstFaceOffset in bytes, bboxMin/Max 4×f32 each, u32 0, u32 firstVert
-  INDEX, u32 optOffset, pad) + 0xFF-wiped vertex region + faces (always 10-byte large records: u16be
-  flags, terrain, i0, i1, i2 — triangulation matches the PC pairs exactly) + BSP/opt tables.
+- ✅ **Collision structural inspection shipped 2026-08-10** (`.col.ngc`, 722 loose + 680 apk-extracted
+  = 1,402 in the THAW GC build, the only build that ships them): `NgcColFile` + `ngccol` CLI emit a
+  schema-v1 JSON manifest per file. The 2026-07-07 layout notes were partly wrong; the engine-exact
+  layout was transcribed from the THUG source's `__PLAT_NGC__` paths (`NxScene.cpp read_collision`,
+  `CollTriData.h/.cpp`) and corpus-verified byte-exact on **1,402/1,402 files**: 24B BE header
+  (version=10, numObjects, totalVerts, totalFaces, ssRows, ssCols) + 32B scene bounds + 64B object
+  records (checksum, u32 numVerts, u16 numFaces + u16 pad, u32 faceByteOffset, bboxMin/Max 4×f32,
+  u32 0 = the runtime vertex-pool pointer slot, u32 bspNodeByteOffset, u32 cornerIntensityByteOffset
+  = 3×cumulative faces, u32 pad) + **totalFaces×3 per-corner INTENSITY bytes** (the region the old
+  note called a "0xFF-wiped vertex region" — 0xFF is just uniform full intensity, valid data; 251 of
+  1,402 files carry varied authored values) + align4 + 10-byte BE face records + 2-byte pad when the
+  face count is odd + u32 node-array size + 8-byte BSP nodes (leaf when byte 3 == 3: u16 numFaces,
+  pad, axis, u32 pool offset; interior: i32 split point with axis in the low 2 bits, u32 child byte
+  offset with a left-is-greater low bit) + u16 face-index pool to exact EOF. Corpus: 18,431 objects,
+  977,186 faces, 129,199 leaves + 110,768 interior nodes, max tree depth 7; face vertex indices are
+  object-contained in 1,258 files and compacted-global in 144; the ssRows/ssCols grid (up to 40×25)
+  has NO cell table — the engine builds supersectors at runtime. **Vertex positions are absent BY
+  DESIGN, not wiped**: `InitCollObjTriData` binds `mp_raw_vert_pos` to the render scene's
+  `mp_pos_pool`, which answers the old "needs a study of how the engine sources the vertices" —
+  a future GLB reconstruction would join col face indices onto the companion scene's vertex pool
+  (open follow-up; index-domain mapping for the 144 compacted files is the hard part). Pinned by
+  `NgcColFileTests` (fixture + strictness + corpus totals).
 - ✅ **`.apk.ngc` / `.pak.ngc` archives — extraction shipped 2026-07-09, offset model CORRECTED
   2026-07-10.** They are big-endian Neversoft PAKs (sentinel-detected; `PakArchive` handles both
   endians). `.mpk.ngc` = the companion DATA file (like PS2 .pab), not padding — 3,603 of 4,424 are

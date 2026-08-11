@@ -15,7 +15,7 @@ This file is the current queue. The stream files retain completed investigations
 
 ## Start here — smallest evidence-backed work first
 
-1. **GameCube `.col.ngc` structural inspection** (M). The canonical loose corpus has exact big-endian v10 headers/object/face topology, but its declared vertex regions are absent/wiped. A metadata-only JSON parser is bounded; GLB reconstruction remains evidence-blocked and must not receive synthetic vertices.
+(The queue is empty as of 2026-08-10 — the previous smallest item, GameCube `.col.ngc` structural inspection, shipped; see below.)
 
 Larger or evidence-dependent work remains in the stream files: THPS3 final matrix composition (needs a useful final-palette capture), PSX scripted-object trigger timing and road motion, the remaining `skny` visual report (needs the source screenshot), broad “missing level parts” reports, N64 cue/effect rendering and authoritative output-rate recovery, and the two deliberately ambiguous N64 animation shells.
 
@@ -27,12 +27,13 @@ Larger or evidence-dependent work remains in the stream files: THPS3 final matri
 | `mesh-fidelity.md` | THAW compact-prop VIF chains, QB-driven placement, and all-format mesh QA are complete; one evidence-blocked late-PS1 report remains | 🔶 |
 | `animation.md` | THPS3 final transform composition is unresolved; the proven PSX traffic-skeleton snapshot path ships, while scripted lifecycle/road motion remains | 🔶 |
 | `gsreplay-fidelity.md` | SW-native gate, programmatic GS/zone-TEX oracle, and PSMCT16/16S FBW-aware composition ship; no demonstrated replay residual remains | ✅ |
-| `formats-todo.md` | THAW custom events/static camera projection, exact cross-rig QbKey binding, explicit-rig WPC/Xbox/NGC weights, conservative N64 animation, and Sound Tools PTR/WBK/BFX plus raw-cue inspection and ABI1 stored-wave decoding ship; active gaps include `.col.ngc`, N64 cue rendering, and two byte-ambiguous animation shells | 🔴 / 🔶 |
+| `formats-todo.md` | THAW custom events/static camera projection, exact cross-rig QbKey binding, explicit-rig WPC/Xbox/NGC weights, conservative N64 animation, Sound Tools PTR/WBK/BFX plus raw-cue inspection and ABI1 stored-wave decoding, and `.col.ngc` structural inspection ship; active gaps are N64 cue rendering, two byte-ambiguous animation shells, and the optional `.col.ngc` scene-pool GLB reconstruction | 🔶 |
 | `psx-round3-audit-followups.md` | Item 4b's plane/sprite/cross-file overlay fixes ship; remaining notes are narrow coverage/precision follow-ups | 🔶 |
 | `safedisc-emulation-handoff.md` | Completed protected-input decryptor implementation and reproducibility record | ✅ reference |
 
 ## Closed or completed by 2026-08-10
 
+- ✅ **GameCube `.col.ngc` structural inspection** — `NgcColFile` + the `ngccol` CLI parse all 1,402 THAW GC collision files byte-exact to a schema-v1 JSON manifest (header, scene bounds, objects with QbKey-resolved names, faces with flags/terrain, per-object BSP trees, corner-intensity region). The engine-exact layout came from the THUG source's `__PLAT_NGC__` paths, which also corrected two old claims: the "wiped vertex region" is actually totalFaces×3 per-corner INTENSITY bytes (0xFF = uniform full intensity; 251 files carry varied data), and vertices are absent by design — `InitCollObjTriData` binds them to the render scene's `mp_pos_pool` at load, so a scene-pool GLB reconstruction is now evidence-unblocked (open follow-up, complicated by 144 files with compacted-global face indices). Pinned by `NgcColFileTests`.
 - ✅ **Bare `.col`, bare `.skin`/`.mdl`, and `.dff` routing** — centralized in `MeshTypeDetector`; ambiguous bare scenes use content probing with the permissive Xbox `(1,1,1)` check last. Routing shipped in `21edfa5`; output-name collisions are handled by `MeshOutputPathPlanner` (`acf1696`).
 - ✅ **PC/Xbox THAW multipass and ADD/SUBTRACT export** — `XbxPassCompositor` composites pass-k overlays and bakes portable framebuffer ADD/SUB approximations; `XbxGeometryWriterBlendTests` pins both paths (`25d3283`).
 - ✅ **PS2 worldzone multipass ordering** — authored vertices stay unchanged while draw/pass/overlap metadata carries GS submission order into the viewer and Blender; pinned by `Ps2WorldzoneDrawOrderTests` (`3b66842`).
