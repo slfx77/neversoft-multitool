@@ -32,32 +32,37 @@ internal static class Ps2WorldzoneGeometryWriter
 
         // THAW worldzone MDLs normally do not expose a trusted normal stream.
         // Leave vertex colours as parsed unless a caller explicitly opts into
-        // the synthetic worldzone lighting model.
+        // the synthetic worldzone lighting model. Guard the entire conversion,
+        // including archive discovery and early returns, because this is
+        // ThreadStatic state.
         ModelDocumentGeometryAdapter.ActivePs2WorldzoneLighting = lighting;
-
-        var typedEntries = PakArchive.GetTypedEntries(pakBytes);
-        var mdlEntries = typedEntries
-            .Where(static entry => entry.TypeHash is
-                Ps2WorldzoneDetection.WorldzoneMdlTypeHash or
-                Ps2WorldzoneDetection.WorldzoneLevelMdlTypeHash)
-            .Select(static entry => entry.Entry)
-            .ToList();
-
-        if (mdlEntries.Count == 0)
-        {
-            ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
-            return;
-        }
-
-        document.NativeMetadata.Add(new Ps2WorldzoneRenderMetadata(
-            sourceName,
-            mdlEntries.Count,
-            timeOfDay.ToString(),
-            coordinateScale));
-
-        var materialCache = new Dictionary<Ps2WorldzoneMaterialWriter.Ps2WorldzoneMaterialKey, int>();
         try
         {
+            var typedEntries = PakArchive.GetTypedEntries(pakBytes);
+            var qbObjectResources = Ps2WorldzoneQbObjectResolver.Resolve(
+                pakBytes,
+                typedEntries,
+                Path.GetFileName(sourceName).Contains("_net.", StringComparison.OrdinalIgnoreCase));
+            var mdlEntries = typedEntries
+                .Where(static entry => entry.TypeHash is
+                    Ps2WorldzoneDetection.WorldzoneMdlTypeHash or
+                    Ps2WorldzoneDetection.WorldzoneLevelMdlTypeHash)
+                .Select(static entry => entry.Entry)
+                .ToList();
+
+            if (mdlEntries.Count == 0)
+            {
+                ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
+                return;
+            }
+
+            document.NativeMetadata.Add(new Ps2WorldzoneRenderMetadata(
+                sourceName,
+                mdlEntries.Count,
+                timeOfDay.ToString(),
+                coordinateScale));
+
+            var materialCache = new Dictionary<Ps2WorldzoneMaterialWriter.Ps2WorldzoneMaterialKey, int>();
             foreach (var mdlEntry in mdlEntries)
             {
                 if (mdlEntry.Offset < 0 ||
@@ -79,6 +84,37 @@ internal static class Ps2WorldzoneGeometryWriter
                 var mdlTex0Resolver = textureCatalog?.CreateTex0ChecksumResolver(mdlTextureHint)
                                       ?? tex0Resolver;
                 var geomScene = Ps2GeomFile.ParsePakMdl(mdlData, mdlName);
+
+                // Compact THAW object resources have no MDL bone-placement table.
+                // Their preceding model QB establishes ownership and the main NQB
+                // supplies every authored instance. A successfully resolved empty
+                // set is intentional (for example script-created objects), so it
+                // suppresses the legacy origin fallback too.
+                if (geomScene.MdlPreamble is { Bones.Count: 0 } &&
+                    qbObjectResources.TryGetValue(mdlEntry.Offset, out var qbResource))
+                {
+                    if (qbResource.Instances.Count > 0)
+                    {
+                        var qbPlacements = qbResource.Instances
+                            .Select(static instance => (instance.Position, instance.Rotation))
+                            .ToList();
+                        PopulatePs2WorldzoneLeaves(
+                            document,
+                            geomScene,
+                            mdlName,
+                            qbPlacements,
+                            leaf => ShouldIncludeWorldzoneLeaf(leaf, timeOfDay),
+                            materialCache,
+                            textureProvider,
+                            texaTextureProvider,
+                            mdlTex0Resolver,
+                            coordinateScale,
+                            "qb");
+                    }
+
+                    continue;
+                }
+
                 var placements = geomScene.MdlPreamble?.Bones.Count > 0
                     ? Ps2MdlPlacementResolver.ResolveWorldzonePlacements(geomScene.MdlPreamble)
                     : [];
@@ -124,13 +160,13 @@ internal static class Ps2WorldzoneGeometryWriter
                         "local");
                 }
             }
+
+            ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
         }
         finally
         {
             ModelDocumentGeometryAdapter.ActivePs2WorldzoneLighting = null;
         }
-
-        ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
     }
 
     internal static void PopulatePs2WorldzoneLeaves(

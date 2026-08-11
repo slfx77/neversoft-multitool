@@ -47,6 +47,131 @@ internal static class Ps2GeomMdlBatchScanner
         return ranges;
     }
 
+    /// <summary>
+    ///     Find the audited compact THAW prop layouts whose VIF data is split across
+    ///     contiguous DMA source chains. A whole-file VIF walk cannot safely cross the DMA
+    ///     tags between those chains.
+    ///
+    ///     The ordinary ID=6 / OFFSET / STCYCL chain grammar is widespread (including
+    ///     cutscene frames and mission MDLs), so it is not sufficient to opt a file into
+    ///     this path. Keep this deliberately limited to the proven prop layouts:
+    ///     exact file length, DMA starts, header-declared final end, and decoded per-chain
+    ///     triangle counts must all agree. Every other object MDL retains the legacy scan.
+    /// </summary>
+    internal static List<(int Start, int End)> FindProvenCompactDmaChainBatchRanges(byte[] data, int vifStart)
+    {
+        const int DmaPrefixSize = 12; // 8-byte DMA tag + inline OFFSET code
+        if (vifStart != 0x2C || data.Length is not (1328 or 1696 or 1920 or 2192 or 2832 or 2944))
+            return [];
+
+        var ranges = new List<(int Start, int End)>();
+        var dmaStarts = new List<int>();
+        var triangleCounts = new List<int>();
+        var dmaStart = vifStart - DmaPrefixSize;
+
+        while (TryGetContiguousDmaChainEnd(data, dmaStart, out var dmaEnd))
+        {
+            // Include OFFSET at +8. It is a normal zero-payload VIF code and keeps
+            // each bounded walk equivalent to ExtractVerticesFromDma.
+            var chainRanges = FindMscalBatchRanges(data, dmaStart + 8, dmaEnd);
+            if (chainRanges.Count == 0)
+                return [];
+
+            dmaStarts.Add(dmaStart);
+            triangleCounts.Add(CountRenderableTriangles(data, chainRanges));
+            ranges.AddRange(chainRanges);
+            dmaStart = dmaEnd;
+        }
+
+        var declaredGeometryLength = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(0x10));
+        if ((long)declaredGeometryLength + 0x10 != dmaStart)
+            return [];
+
+        return MatchesProvenCompactLayout(data.Length, dmaStarts, triangleCounts) ? ranges : [];
+    }
+
+    private static bool MatchesProvenCompactLayout(
+        int fileLength,
+        IReadOnlyList<int> dmaStarts,
+        IReadOnlyList<int> triangleCounts)
+    {
+        return fileLength switch
+        {
+            1328 => dmaStarts.SequenceEqual([0x20, 0x2B0]) && triangleCounts.SequenceEqual([16, 2]),
+            1696 => dmaStarts.SequenceEqual([0x20, 0x120]) && triangleCounts.SequenceEqual([2, 18]),
+            1920 => dmaStarts.SequenceEqual([0x20, 0x310, 0x4F0]) &&
+                    triangleCounts.SequenceEqual([12, 6, 2]),
+            2192 => dmaStarts.SequenceEqual([0x20, 0x390]) && triangleCounts.SequenceEqual([12, 16]),
+            2944 => dmaStarts.SequenceEqual([0x20, 0x4A0, 0x5C0, 0x7D0]) &&
+                    triangleCounts.SequenceEqual([30, 4, 12, 6]),
+            2832 => dmaStarts.SequenceEqual([0x20, 0x5A0, 0x7B0]) &&
+                    triangleCounts.SequenceEqual([34, 12, 6]),
+            _ => false
+        };
+    }
+
+    private static int CountRenderableTriangles(byte[] data, IReadOnlyList<(int Start, int End)> ranges)
+    {
+        const float DegenerateEpsilon = 1e-8f;
+        var triangleCount = 0;
+
+        foreach (var (start, end) in ranges)
+        {
+            var vertices = Ps2GeomVifVertexDecoder.ExtractVerticesFromVif(data, start, end, Vector3.Zero);
+            for (var i = 2; i < vertices.Length; i++)
+            {
+                if (vertices[i].IsStripRestart)
+                    continue;
+
+                var a = vertices[i - 2].Position;
+                var b = vertices[i - 1].Position;
+                var c = vertices[i].Position;
+                if (Vector3.DistanceSquared(a, b) <= DegenerateEpsilon ||
+                    Vector3.DistanceSquared(b, c) <= DegenerateEpsilon ||
+                    Vector3.DistanceSquared(a, c) <= DegenerateEpsilon)
+                {
+                    continue;
+                }
+
+                if (Vector3.Cross(b - a, c - a).LengthSquared() > DegenerateEpsilon)
+                    triangleCount++;
+            }
+        }
+
+        return triangleCount;
+    }
+
+    private static bool TryGetContiguousDmaChainEnd(byte[] data, int dmaStart, out int dmaEnd)
+    {
+        dmaEnd = 0;
+        if (dmaStart < 0 || dmaStart + 20 > data.Length)
+            return false;
+
+        var tag = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(dmaStart));
+        var qwc = tag & 0xFFFF;
+        var tagId = (tag >> 28) & 0x7;
+        if (qwc == 0 || tagId != 6)
+            return false;
+
+        if (BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(dmaStart + 8)) != 0x02000000 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(dmaStart + 12)) != 0x01000101)
+        {
+            return false;
+        }
+
+        // The setup immediately after the inline tag must be the standard
+        // UNPACK V4_32 NUM=1 GIF-tag upload used by object MDLs.
+        if ((data[dmaStart + 19] & 0x7F) != 0x6C || data[dmaStart + 18] != 1)
+            return false;
+
+        var end = (long)dmaStart + 16 + ((long)qwc << 4);
+        if (end > data.Length)
+            return false;
+
+        dmaEnd = (int)end;
+        return true;
+    }
+
     internal static List<(int Start, int End)> FindRepeatedBatchSignatureRanges(byte[] data, int vifStart, int vifEnd)
     {
         // 4-byte-aligned brute-force scan: this catches more real batch starts

@@ -27,10 +27,15 @@ internal static class Ps2ObjectMdlParser
         var currentCenter = Vector3.Zero;
         var hasGsContext = false;
 
-        var batchRanges = Ps2GeomMdlBatchScanner.FindMscalBatchRanges(data, vifStart, data.Length);
-        var signatureBatchRanges = Ps2GeomMdlBatchScanner.FindRepeatedBatchSignatureRanges(data, vifStart, data.Length);
-        if (signatureBatchRanges.Count >= 8 && signatureBatchRanges.Count > batchRanges.Count)
-            batchRanges = signatureBatchRanges;
+        var batchRanges = Ps2GeomMdlBatchScanner.FindProvenCompactDmaChainBatchRanges(data, vifStart);
+        if (batchRanges.Count == 0)
+        {
+            batchRanges = Ps2GeomMdlBatchScanner.FindMscalBatchRanges(data, vifStart, data.Length);
+            var signatureBatchRanges =
+                Ps2GeomMdlBatchScanner.FindRepeatedBatchSignatureRanges(data, vifStart, data.Length);
+            if (signatureBatchRanges.Count >= 8 && signatureBatchRanges.Count > batchRanges.Count)
+                batchRanges = signatureBatchRanges;
+        }
 
         var placements = Ps2MdlPlacementResolver.ResolveObjectPlacements(preamble, batchRanges);
 

@@ -1,11 +1,14 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Archives;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Geom;
 
 public sealed class Ps2GeomFileTests(TestPaths paths)
 {
+    private const string ThawPs2Build = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
+
     private string? GetThawPakDir()
     {
         if (!paths.HasSampleBuilds) return null;
@@ -103,6 +106,50 @@ public sealed class Ps2GeomFileTests(TestPaths paths)
         {
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ParsePakMdl_ZBhSmallProps_AreStandardRenderablePakMdls()
+    {
+        var pakPath = paths.FindSampleFile(ThawPs2Build, "z_bh.pak.ps2");
+        Assert.SkipWhen(pakPath == null, "THAW PS2 z_bh.pak.ps2 sample not available");
+
+        var expected = new Dictionary<string, (int Size, int Leaves, int Vertices, int Triangles, int Rejections)>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            ["00042FB0.mdl"] = (880, 1, 17, 9, 0),
+            ["0003D1D0.mdl"] = (1024, 1, 24, 12, 0),
+            ["00040420.mdl"] = (1696, 2, 40, 20, 0),
+            ["00047960.mdl"] = (2832, 3, 76, 52, 0),
+            ["00045120.mdl"] = (2944, 4, 76, 52, 0)
+        };
+
+        var pakBytes = File.ReadAllBytes(pakPath!);
+        var typedEntries = PakArchive.GetTypedEntries(pakBytes);
+
+        foreach (var (name, counts) in expected)
+        {
+            var typedEntry = Assert.Single(typedEntries,
+                entry => entry.Entry.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(0x9BCC234D, typedEntry.TypeHash);
+            Assert.Equal(counts.Size, typedEntry.Entry.Size);
+
+            var data = pakBytes.AsSpan(
+                checked((int)typedEntry.Entry.Offset),
+                checked((int)typedEntry.Entry.Size)).ToArray();
+            Assert.Equal(0x2C, Ps2GeomMdlBatchScanner.FindMdlVifStart(data));
+            Assert.True(Ps2GeomFile.IsPakMdl(data));
+
+            var rejections = new List<Ps2GeomLeafRejection>();
+            var scene = Ps2GeomFile.ParsePakMdl(data, name, rejections.Add);
+            Assert.Equal(counts.Leaves, scene.Leaves.Count);
+            Assert.Equal(counts.Vertices, scene.Leaves.Sum(static leaf => leaf.Vertices.Length));
+            Assert.Equal(counts.Rejections, rejections.Count);
+
+            var document = new ModelDocument { Name = name };
+            Ps2SceneGeometryWriter.PopulatePs2Geom(document, scene, null, null);
+            Assert.Equal(counts.Triangles, document.TriangleCount);
         }
     }
 }
