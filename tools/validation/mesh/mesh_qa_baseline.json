@@ -1,0 +1,40 @@
+{
+  "cases": {
+    "thug2_ps2_pigeon": {
+      "fixtureFingerprint": "E76AFDCFE7797A07E36255EE175765B21BB85C4041A11DCC2E6D9D3EB638384D",
+      "metrics": {
+        "animationCount": 0,
+        "imageCount": 1,
+        "materialCount": 1,
+        "meshCount": 1,
+        "nodeCount": 6,
+        "outputCount": 1,
+        "primitiveCount": 1,
+        "skinCount": 1,
+        "textureCount": 1,
+        "triangleCount": 45,
+        "vertexCount": 46
+      },
+      "sourceSha256": "2E63139266C071625A4518D0B37E253E886422F239A5F803A13A49C6865892AC"
+    },
+    "thug2_windows_pigeon": {
+      "fixtureFingerprint": "A023F904BB5D8714255F94E9432A8B18800B07C4531265988A143B1FBF8AE9F3",
+      "metrics": {
+        "animationCount": 0,
+        "imageCount": 1,
+        "materialCount": 1,
+        "meshCount": 1,
+        "nodeCount": 1,
+        "outputCount": 1,
+        "primitiveCount": 1,
+        "skinCount": 0,
+        "textureCount": 1,
+        "triangleCount": 45,
+        "vertexCount": 46
+      },
+      "sourceSha256": "05C7A47EF0B69D3B36B7C6BAF0311C0E284D25686E3FE7C08688623231759744"
+    }
+  },
+  "manifestSha256": "B9EAB2A23C4F9FF464D5FBA8D78ADD8B3DE20E16444A4C0862C402EB5B43FCFE",
+  "schemaVersion": 1
+}

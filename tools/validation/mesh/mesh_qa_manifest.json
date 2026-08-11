@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "roots": {
+    "sampleBuilds": {
+      "default": "Sample/Builds",
+      "env": "NEVERSOFT_SAMPLE_BUILDS"
+    }
+  },
+  "defaults": {
+    "expect": {
+      "glbs": 1,
+      "allowZeroTriangles": false,
+      "reviewImagesPerGlb": 5
+    },
+    "render": true,
+    "renderSize": 256,
+    "timeoutSeconds": 120,
+    "blenderReview": false
+  },
+  "cases": [
+    {
+      "id": "thug2_windows_pigeon",
+      "description": "THUG2 Windows static pigeon geometry; triangle-recall reference for the PS2 skinned pair.",
+      "tags": [
+        "thug2",
+        "windows",
+        "xbx-scene",
+        "rosetta"
+      ],
+      "input": "${sampleBuilds}/Tony Hawks Underground 2 (2004-10-4, Windows - Final)/Installed/Tony Hawk's Underground 2/Game/Data/models/Animals/Anl_Pigeon/Anl_Pigeon.skin.xbx",
+      "meshArgs": [
+        "--tex",
+        "${sampleBuilds}/Tony Hawks Underground 2 (2004-10-4, Windows - Final)/Installed/Tony Hawk's Underground 2/Game/Data/models/Animals/Anl_Pigeon/Anl_Pigeon.tex.xbx"
+      ],
+      "companions": [
+        "${sampleBuilds}/Tony Hawks Underground 2 (2004-10-4, Windows - Final)/Installed/Tony Hawk's Underground 2/Game/Data/models/Animals/Anl_Pigeon/Anl_Pigeon.tex.xbx"
+      ]
+    },
+    {
+      "id": "thug2_ps2_pigeon",
+      "description": "THUG2 PS2 skinned pigeon Rosetta pair with explicit texture and skeleton dependencies.",
+      "tags": [
+        "thug2",
+        "ps2",
+        "ps2-scene",
+        "rosetta"
+      ],
+      "input": "${sampleBuilds}/Tony Hawk's Underground 2 (2004-8-22, PS2 - Final)/DATAP/models/animals/anl_pigeon/anl_pigeon.iskin.ps2",
+      "meshArgs": [
+        "--tex",
+        "${sampleBuilds}/Tony Hawk's Underground 2 (2004-8-22, PS2 - Final)/DATAP/models/animals/anl_pigeon/anl_pigeon.tex.ps2",
+        "--ske",
+        "${sampleBuilds}/Tony Hawk's Underground 2 (2004-8-22, PS2 - Final)/DATAP/skeletons/anl_pigeon.ske.ps2"
+      ],
+      "companions": [
+        "${sampleBuilds}/Tony Hawk's Underground 2 (2004-8-22, PS2 - Final)/DATAP/models/animals/anl_pigeon/anl_pigeon.tex.ps2",
+        "${sampleBuilds}/Tony Hawk's Underground 2 (2004-8-22, PS2 - Final)/DATAP/skeletons/anl_pigeon.ske.ps2"
+      ],
+      "oracle": {
+        "triangleReference": "thug2_windows_pigeon",
+        "minRecall": 1.0,
+        "maxRecall": 1.0
+      }
+    }
+  ]
+}
