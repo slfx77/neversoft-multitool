@@ -26,10 +26,15 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 ///     [Q keyframe data]   numQKeys × 8 bytes (standard) or × 14 bytes (hi-res)
 ///     [T keyframe data]   numTKeys × 8 bytes (standard) or × 14 bytes (hi-res)
 ///     </code>
+///     INTERMEDIATE authoring streams (flags bit 30), found inside THUG bare
+///     <c>.cut</c> libraries, are dispatched to <see cref="SkaIntermediateParser" />.
 /// </summary>
 internal static class SkaFile
 {
+    internal const uint FlagIntermediate = 1u << 30;
+    internal const uint FlagUncompressed = 1u << 29;
     internal const uint FlagPlatform = 1u << 28;
+    internal const uint FlagCompressedTime = 1u << 26;
 
     // bit 26 = compressed-time keys (the decoders infer per-key timing from the
     // header/flag byte, so it isn't gated on); bit 25 = pre-rotated root
@@ -49,6 +54,8 @@ internal static class SkaFile
         if (data.Length < 28) return false;
         if (SkaThawParser.IsThawSka(data, out _)) return true;
         var flags = BitConverter.ToUInt32(data[4..]);
+        if ((flags & FlagIntermediate) != 0)
+            return SkaIntermediateParser.IsIntermediateSka(data);
         return (flags & FlagPlatform) != 0
                || (flags & FlagUseCompressTable) != 0
                || (flags & FlagThps3RpHAnim) != 0;
@@ -72,6 +79,14 @@ internal static class SkaFile
 
         var flags = BitConverter.ToUInt32(data[4..]);
         var duration = BitConverter.ToSingle(data[8..]);
+
+        // Bare-CUT intermediate SKAs are inspection-only: their embedded
+        // skeleton has names/hierarchy but no proven neutral pose. Returning
+        // null keeps AnimationDiscovery and the Character Animation tab from
+        // advertising them as exportable character clips. The `ska` CLI uses
+        // IsSkaFile + Parse directly and writes their JSON inspection view.
+        if ((flags & FlagIntermediate) != 0)
+            return null;
 
         if (((flags & FlagPlatform) != 0 || (flags & FlagUseCompressTable) != 0)
             && data.Length >= 16)
@@ -102,6 +117,9 @@ internal static class SkaFile
         var flags = BitConverter.ToUInt32(data[4..]);
         var duration = BitConverter.ToSingle(data[8..]);
 
+        if ((flags & FlagIntermediate) != 0)
+            return SkaIntermediateParser.Parse(data);
+
         if ((flags & FlagUseCompressTable) != 0)
             return SkaCompressedParser.ParseCompressed(data, version, flags, duration, compressTable);
         if ((flags & FlagPlatform) != 0)
@@ -111,6 +129,20 @@ internal static class SkaFile
 
         throw new InvalidDataException(
             $"SKA: unrecognized flags 0x{flags:X8} (neither PLATFORM nor USECOMPRESSTABLE nor THPS3)");
+    }
+
+    /// <summary>
+    ///     Parse a candidate for character/default-pose export. INTERMEDIATE
+    ///     authoring streams are valid inspection inputs but lack a proven bind
+    ///     pose, so they deliberately return null from every character route.
+    /// </summary>
+    internal static SkaAnimation? ParseExportableCharacterAnimation(
+        ReadOnlySpan<byte> data, SkaCompressTable? compressTable = null)
+    {
+        if (!IsSkaFile(data)) return null;
+
+        var animation = Parse(data, compressTable);
+        return animation.IsIntermediateFormat ? null : animation;
     }
 
     /// <summary>

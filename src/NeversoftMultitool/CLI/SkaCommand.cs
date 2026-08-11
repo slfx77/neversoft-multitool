@@ -40,29 +40,38 @@ public static class SkaCommand
         };
         var skelOption = new Option<string?>("--ske")
         {
-            Description = "Skeleton file (.ske.ps2 or .ske) for glTF export"
+            Description = "Skeleton file (.ske.ps2 or .ske) for animation export"
+        };
+        var animationSkelOption = new Option<string?>("--animation-ske")
+        {
+            Description = "Skeleton whose bone order the SKA tracks use; requires --ske and binds by exact QbKey"
         };
         var skinOption = new Option<string?>("--skin")
         {
-            Description = "Skin mesh file (.skin.ps2 or .iskin.ps2) for combined mesh+animation glTF"
+            Description = "Skin mesh file (.skin.ps2 or .iskin.ps2) for combined mesh+animation export"
         };
         var texOption = new Option<string?>("--tex")
         {
-            Description = "Texture file (.tex.ps2) for embedding textures in glTF output"
+            Description = "Texture file (.tex.ps2) for embedding textures in export output"
         };
         var sknOption = new Option<string?>("--skn")
         {
             Description = "RenderWare DFF file (.SKN) for THPS3 PS2 skeleton + mesh"
         };
+        var formatOption = MeshExportCliOptions.CreateFormatOption();
+        var blenderHelperOption = MeshExportCliOptions.CreateBlenderHelperOption();
 
-        var command = new Command("ska", "Parse SKA animation files and optionally export to glTF");
+        var command = new Command("ska", "Parse SKA animation files and optionally export to glTF or Blender");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
         command.Options.Add(skelOption);
+        command.Options.Add(animationSkelOption);
         command.Options.Add(skinOption);
         command.Options.Add(texOption);
         command.Options.Add(sknOption);
+        command.Options.Add(formatOption);
+        command.Options.Add(blenderHelperOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -70,30 +79,59 @@ public static class SkaCommand
             var output = parseResult.GetValue(outputOption)!;
             var verbose = parseResult.GetValue(verboseOption);
             var skePath = parseResult.GetValue(skelOption);
+            var animationSkePath = parseResult.GetValue(animationSkelOption);
             var skinPath = parseResult.GetValue(skinOption);
             var texPath = parseResult.GetValue(texOption);
             var sknPath = parseResult.GetValue(sknOption);
+            if (!MeshExportCliOptions.ValidateFormat(parseResult.GetValue(formatOption), out var format))
+                return Task.FromResult(1);
+            var blenderHelperPath = parseResult.GetValue(blenderHelperOption);
 
             return Task.FromResult(Execute(
-                input, output, verbose, skePath, skinPath, texPath, sknPath));
+                input, output, verbose, skePath, skinPath, texPath, sknPath, animationSkePath,
+                format, blenderHelperPath, cancellationToken));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string output, bool verbose, string? skePath,
-        string? skinPath, string? texPath, string? sknPath)
+    internal static int Execute(string input, string output, bool verbose, string? skePath,
+        string? skinPath, string? texPath, string? sknPath, string? animationSkePath = null,
+        MeshOutputFormat format = MeshOutputFormat.Glb, string? blenderHelperPath = null,
+        CancellationToken cancellationToken = default)
     {
-        // Load skeleton if provided (enables glTF export)
+        if (animationSkePath != null && skePath == null)
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] --animation-ske requires --ske as the target skeleton");
+            return 1;
+        }
+
+        if (animationSkePath != null && sknPath != null)
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] --animation-ske cannot be combined with --skn");
+            return 1;
+        }
+
+        // Load skeleton if provided (enables 3D animation export).
         Ps2Skeleton? skeleton = null;
         if (skePath != null)
         {
-            var skelData = File.ReadAllBytes(skePath);
-            skeleton = skePath.EndsWith(".ps2", StringComparison.OrdinalIgnoreCase)
-                ? Ps2SkeletonFile.Parse(skelData)
-                : SkeletonFile.Parse(skelData);
+            skeleton = LoadSkeleton(skePath);
             AnsiConsole.MarkupLine(
                 $"Loaded skeleton: [green]{skeleton.Bones.Length}[/] bones from {Path.GetFileName(skePath)}");
+        }
+
+        Ps2Skeleton? animationSkeleton = null;
+        SkaQbKeyBoneMap? qbKeyBoneMap = null;
+        if (animationSkePath != null)
+        {
+            animationSkeleton = LoadSkeleton(animationSkePath);
+            qbKeyBoneMap = SkaQbKeyBoneMap.Create(animationSkeleton, skeleton!);
+            AnsiConsole.MarkupLine(
+                $"Loaded animation skeleton: [green]{animationSkeleton.Bones.Length}[/] bones from " +
+                $"{Path.GetFileName(animationSkePath)}; exact QbKey map binds " +
+                $"[green]{qbKeyBoneMap.MappedBoneCount}[/] and skips " +
+                $"[yellow]{qbKeyBoneMap.SourceBoneCount - qbKeyBoneMap.MappedBoneCount}[/]");
         }
 
         // Load skin mesh if provided (enables combined mesh+animation export)
@@ -133,6 +171,7 @@ public static class SkaCommand
         }
 
         List<string> files;
+        string? inputDirectoryRoot = null;
 
         if (File.Exists(input))
         {
@@ -140,7 +179,8 @@ public static class SkaCommand
         }
         else if (Directory.Exists(input))
         {
-            files = Directory.GetFiles(input, "*", SearchOption.AllDirectories)
+            inputDirectoryRoot = Path.GetFullPath(input);
+            files = Directory.GetFiles(inputDirectoryRoot, "*", SearchOption.AllDirectories)
                 .Where(static file =>
                 {
                     var fileName = Path.GetFileName(file);
@@ -175,7 +215,13 @@ public static class SkaCommand
                 {
                     var table = FindCompressTable(defaultSkaPath);
                     var defaultAnim = SkaFile.Parse(defaultData, table);
-                    if (defaultAnim.BoneTracks.Length == skeleton.Bones.Length)
+                    if (!IsUsableDefaultPose(defaultAnim))
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"[yellow]Found default anim {Path.GetFileName(defaultSkaPath)} but it is an " +
+                            "INTERMEDIATE authoring stream; skipping bind-pose enrichment[/]");
+                    }
+                    else if (defaultAnim.BoneTracks.Length == skeleton.Bones.Length)
                     {
                         skeleton = Ps2SkeletonDefaultPose.EnrichWithDefaultPose(skeleton, defaultAnim);
                         var relPath = Path.Combine(
@@ -205,9 +251,13 @@ public static class SkaCommand
         var totalBones = 0;
         var totalQKeys = 0;
         var totalTKeys = 0;
+        var totalCustomKeys = 0;
 
         foreach (var file in files)
         {
+            if (cancellationToken.IsCancellationRequested)
+                break;
+
             try
             {
                 var data = File.ReadAllBytes(file);
@@ -226,78 +276,113 @@ public static class SkaCommand
                 var boneCount = anim.BoneTracks.Length;
                 var qCount = anim.BoneTracks.Sum(t => t.RotationKeys.Length);
                 var tCount = anim.BoneTracks.Sum(t => t.TranslationKeys.Length);
+                var customCount = anim.CustomKeys.Length;
                 totalBones += boneCount;
                 totalQKeys += qCount;
                 totalTKeys += tCount;
+                totalCustomKeys += customCount;
 
                 if (verbose)
                 {
                     AnsiConsole.MarkupLine(
                         $"  [green]{Path.GetFileName(file)}[/]: " +
                         $"v={anim.Version} bones={boneCount} " +
-                        $"Q={qCount} T={tCount} dur={anim.Duration:F2}s " +
+                        $"Q={qCount} T={tCount} custom={customCount} dur={anim.Duration:F2}s " +
                         $"flags=0x{anim.Flags:X8}");
                 }
 
-                var stem = Path.GetFileNameWithoutExtension(
-                    Path.GetFileNameWithoutExtension(file));
-                var glbPath = Path.Combine(output, stem + ".glb");
+                var stem = GetOutputStem(file);
+
+                if (customCount > 0)
+                {
+                    var customKeyPath = GetCustomKeyOutputPath(output, file, inputDirectoryRoot);
+                    SkaCustomKeyJsonExporter.Write(customKeyPath, file, anim);
+                    if (verbose)
+                        AnsiConsole.MarkupLine(
+                            $"    → [blue]{customKeyPath}[/] ({customCount} custom events)");
+                }
+
+                if (anim.IsIntermediateFormat)
+                {
+                    // Authoring CUT masters carry an embedded checksum/name
+                    // hierarchy but no proven neutral pose. Keep this path
+                    // inspection-only even when --ske/--skin was supplied.
+                    var inspectionPath = GetCustomKeyOutputPath(output, file, inputDirectoryRoot);
+                    SkaIntermediateJsonExporter.Write(inspectionPath, file, anim);
+                    if (verbose)
+                        AnsiConsole.MarkupLine(
+                            $"    → [blue]{inspectionPath}[/] (intermediate authoring keys; no 3D export)");
+                    continue;
+                }
+
+                if (qbKeyBoneMap != null && boneCount != qbKeyBoneMap.SourceBoneCount)
+                {
+                    throw new InvalidDataException(
+                        $"SKA has {boneCount} tracks but --animation-ske has " +
+                        $"{qbKeyBoneMap.SourceBoneCount} bones; exact QbKey binding was not applied.");
+                }
 
                 // THPS3 path: RW DFF .SKN as skeleton + mesh source.
                 if (rwClump != null && sknPath != null)
                 {
-                    var result = ExportRwDffAnimated(sknPath, stem, anim, output, texPath);
+                    var result = ExportRwDffAnimated(
+                        sknPath, stem, anim, output, texPath, format, blenderHelperPath,
+                        cancellationToken);
                     if (verbose)
                     {
                         if (result.Triangles > 0)
                             AnsiConsole.MarkupLine(
-                                $"    → [blue]{glbPath}[/] (RW skinned, {result.Triangles} triangles)");
+                                $"    → [blue]{FormatOutputPaths(result)}[/] " +
+                                $"(RW skinned, {result.Triangles} triangles)");
                         else
                             AnsiConsole.MarkupLine("    [yellow]skipped (bone count or clump not skinned)[/]");
                     }
                 }
-                else if (skeleton != null && boneCount == skeleton.Bones.Length && skinPath != null &&
+                else if (skeleton != null &&
+                         (qbKeyBoneMap != null || boneCount == skeleton.Bones.Length) && skinPath != null &&
                          skinScene != null)
                 {
                     // Combined mesh + animation via the unified pipeline.
-                    var meshResult = ExportPs2SceneAnimated(skinPath, stem, anim, skeleton, output, texPath);
+                    var meshResult = ExportPs2SceneAnimated(
+                        skinPath, stem, anim, skeleton, output, texPath, qbKeyBoneMap,
+                        format, blenderHelperPath, cancellationToken);
                     if (verbose)
-                        AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] (skinned, {meshResult.Triangles} triangles)");
+                        AnsiConsole.MarkupLine(
+                            $"    → [blue]{FormatOutputPaths(meshResult)}[/] " +
+                            $"(skinned, {meshResult.Triangles} triangles)");
                 }
-                else if (skeleton != null && boneCount == skeleton.Bones.Length)
+                else if (skeleton != null &&
+                         (qbKeyBoneMap != null || boneCount == skeleton.Bones.Length))
                 {
                     // Skeleton-only animation: build an IR document with no meshes.
-                    var document = SkaModelDocumentBuilder.BuildSkeletonOnly(skeleton, [(stem, anim)], stem);
-                    new GltfModelExporter().Export(document, new MeshExportRequest
-                    {
-                        OutputDirectory = output,
-                        OutputStem = stem,
-                        Format = MeshOutputFormat.Glb
-                    });
+                    var document = SkaModelDocumentBuilder.BuildSkeletonOnly(
+                        skeleton, [(stem, anim)], stem, qbKeyBoneMap);
+                    var result = ExportDocument(
+                        document, output, stem, format, blenderHelperPath, cancellationToken);
                     if (verbose)
                     {
                         var channelCount = document.Animations.Sum(a => a.Channels.Count);
-                        AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] ({channelCount} channels)");
+                        AnsiConsole.MarkupLine(
+                            $"    → [blue]{FormatOutputPaths(result)}[/] ({channelCount} channels)");
                     }
                 }
                 else if (skeleton == null && anim.IsThawFormat && anim.IsPlatformFormat && boneCount > 0)
                 {
-                    // THAW cutscene camera/object master (hi-res keys, tracks named
-                    // by QbKey): no skeleton file exists for these — synthesize a
-                    // flat rig so the tracks export as named glTF node animations.
+                    // THAW cutscene camera/object master (hi-res keys): no
+                    // skeleton file exists for these, so synthesize a flat rig.
+                    // Object tracks may carry QbKey names; camera tracks use a
+                    // deterministic checksum/index fallback when they do not.
                     var rig = BuildThawObjectRig(anim);
                     var document = SkaModelDocumentBuilder.BuildSkeletonOnly(rig, [(stem, anim)], stem);
-                    new GltfModelExporter().Export(document, new MeshExportRequest
-                    {
-                        OutputDirectory = output,
-                        OutputStem = stem,
-                        Format = MeshOutputFormat.Glb
-                    });
+                    var result = ExportDocument(
+                        document, output, stem, format, blenderHelperPath, cancellationToken);
                     if (verbose)
                     {
                         var channelCount = document.Animations.Sum(a => a.Channels.Count);
                         var kind = anim.IsCameraData ? "camera" : "object";
-                        AnsiConsole.MarkupLine($"    → [blue]{glbPath}[/] ({kind} rig, {channelCount} channels)");
+                        AnsiConsole.MarkupLine(
+                            $"    → [blue]{FormatOutputPaths(result)}[/] " +
+                            $"({kind} rig, {channelCount} channels)");
                     }
                 }
             }
@@ -316,9 +401,77 @@ public static class SkaCommand
             $"([red]{failed}[/] failed) in {sw.Elapsed.TotalSeconds:F2}s");
         AnsiConsole.MarkupLine(
             $"Total: {totalQKeys:N0} rotation keys + {totalTKeys:N0} translation keys " +
-            $"across {totalBones:N0} bone tracks");
+            $"+ {totalCustomKeys:N0} custom events across {totalBones:N0} bone tracks");
 
         return failed > 0 ? 1 : 0;
+    }
+
+    /// <summary>
+    ///     Strip both the platform suffix and SKA extension when present, so
+    ///     foo.ska, foo.ska.ps2 and foo.ska.ngc all share the output stem foo.
+    /// </summary>
+    internal static string GetOutputStem(string file)
+    {
+        var stem = Path.GetFileNameWithoutExtension(file);
+        return stem.EndsWith(".ska", StringComparison.OrdinalIgnoreCase)
+            ? Path.GetFileNameWithoutExtension(stem)
+            : stem;
+    }
+
+    internal static string GetCustomKeyOutputName(string file)
+    {
+        return GetOutputStem(file) + ".ska.json";
+    }
+
+    internal static bool IsUsableDefaultPose(SkaAnimation animation) =>
+        !animation.IsIntermediateFormat;
+
+    internal static Ps2Skeleton LoadSkeleton(string path)
+    {
+        return SkeletonAssetLoader.Parse(Path.GetFileName(path), File.ReadAllBytes(path));
+    }
+
+    /// <summary>
+    ///     Keep directory-mode sidecars under their input-relative directory so
+    ///     repeated names such as CAM_0.ska.ngc cannot overwrite one another.
+    ///     Single-file mode intentionally retains the flat output name.
+    /// </summary>
+    internal static string GetCustomKeyOutputPath(
+        string outputDirectory, string file, string? inputDirectoryRoot)
+    {
+        var outputRoot = Path.GetFullPath(outputDirectory);
+        var relativeOutput = GetCustomKeyOutputName(file);
+
+        if (inputDirectoryRoot != null)
+        {
+            var inputRoot = Path.GetFullPath(inputDirectoryRoot);
+            var relativeInput = Path.GetRelativePath(inputRoot, Path.GetFullPath(file));
+            if (Path.IsPathRooted(relativeInput) ||
+                relativeInput.Equals("..", StringComparison.Ordinal) ||
+                relativeInput.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
+                relativeInput.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"SKA sidecar input '{file}' is outside directory root '{inputDirectoryRoot}'");
+            }
+
+            relativeOutput = Path.Combine(
+                Path.GetDirectoryName(relativeInput) ?? string.Empty,
+                relativeOutput);
+        }
+
+        var outputPath = Path.GetFullPath(Path.Combine(outputRoot, relativeOutput));
+        var outputRootPrefix = Path.EndsInDirectorySeparator(outputRoot)
+            ? outputRoot
+            : outputRoot + Path.DirectorySeparatorChar;
+        var pathComparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (!outputPath.StartsWith(outputRootPrefix, pathComparison))
+            throw new InvalidDataException(
+                $"SKA sidecar path '{outputPath}' escapes output directory '{outputDirectory}'");
+
+        return outputPath;
     }
 
     // THPS4 V1 skeletons (pre-2003) stored no bind pose in the .ske file; the engine
@@ -397,7 +550,10 @@ public static class SkaCommand
         string stem,
         SkaAnimation animation,
         string outputDirectory,
-        string? texPath)
+        string? texPath,
+        MeshOutputFormat format,
+        string? blenderHelperPath,
+        CancellationToken cancellationToken)
     {
         var document = new MeshModelParser().Parse(new MeshImportRequest
         {
@@ -409,12 +565,8 @@ public static class SkaCommand
             SkaAnimations = [(stem, animation)]
         });
 
-        return new GltfModelExporter().Export(document, new MeshExportRequest
-        {
-            OutputDirectory = outputDirectory,
-            OutputStem = stem,
-            Format = MeshOutputFormat.Glb
-        });
+        return ExportDocument(
+            document, outputDirectory, stem, format, blenderHelperPath, cancellationToken);
     }
 
     private static MeshExportResult ExportPs2SceneAnimated(
@@ -423,7 +575,11 @@ public static class SkaCommand
         SkaAnimation animation,
         Ps2Skeleton skeleton,
         string outputDirectory,
-        string? texPath)
+        string? texPath,
+        SkaQbKeyBoneMap? qbKeyBoneMap,
+        MeshOutputFormat format,
+        string? blenderHelperPath,
+        CancellationToken cancellationToken)
     {
         var document = new MeshModelParser().Parse(new MeshImportRequest
         {
@@ -433,22 +589,46 @@ public static class SkaCommand
             SourceKind = ModelSourceKind.Ps2Scene,
             TexturePath = texPath,
             PreparedSkeleton = skeleton,
-            SkaAnimations = [(stem, animation)]
+            SkaAnimations = [(stem, animation)],
+            SkaQbKeyBoneMap = qbKeyBoneMap
         });
 
-        return new GltfModelExporter().Export(document, new MeshExportRequest
+        return ExportDocument(
+            document, outputDirectory, stem, format, blenderHelperPath, cancellationToken);
+    }
+
+    internal static MeshExportResult ExportDocument(
+        ModelDocument document,
+        string outputDirectory,
+        string stem,
+        MeshOutputFormat format = MeshOutputFormat.Glb,
+        string? blenderHelperPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        return ModelExportService.Export(document, new MeshExportRequest
         {
             OutputDirectory = outputDirectory,
             OutputStem = stem,
-            Format = MeshOutputFormat.Glb
+            Format = format,
+            BlenderHelperPath = blenderHelperPath,
+            CancellationToken = cancellationToken
         });
+    }
+
+    private static string FormatOutputPaths(MeshExportResult result)
+    {
+        var paths = result.OutputPaths.Count == 0
+            ? "no output"
+            : string.Join(", ", result.OutputPaths.Select(Path.GetFileName));
+        return Markup.Escape(paths);
     }
 
     /// <summary>
     ///     Flat identity rig for THAW cutscene camera/object master anims, whose
     ///     tracks target free-standing scene nodes rather than a skeleton. Node
-    ///     names come from the tracks' QbKeys (resolved via the dbg dictionaries
-    ///     by the IR builder) so DCC imports show the original object names.
+    ///     names come from track QbKeys when bit24 supplies them (resolved via
+    ///     the dbg dictionaries by the IR builder); unnamed camera tracks get a
+    ///     deterministic index fallback.
     /// </summary>
     private static Ps2Skeleton BuildThawObjectRig(SkaAnimation anim)
     {

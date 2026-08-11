@@ -25,6 +25,13 @@ internal static class SkaAnimationWriter
         {
             if (animation.BoneTracks.Length == 0)
                 continue;
+            if (boneIndexMap is SkaQbKeyBoneMap qbKeyMap &&
+                animation.BoneTracks.Length != qbKeyMap.SourceBoneCount)
+            {
+                throw new InvalidDataException(
+                    $"SKA '{name}' has {animation.BoneTracks.Length} tracks but its " +
+                    $"animation-source skeleton has {qbKeyMap.SourceBoneCount} bones.");
+            }
 
             var modelAnimation = new ModelAnimation { Name = name };
             for (var trackIndex = 0; trackIndex < animation.BoneTracks.Length; trackIndex++)

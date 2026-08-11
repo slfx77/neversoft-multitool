@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Archives;
 
@@ -13,6 +14,17 @@ public class ThawSkaFileTests(TestPaths paths)
     private const string ThawPs2Build = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
     private const string ThawGcBuild = "Tony Hawk's American Wasteland (2005-8-22, GC - Final)";
     private const string ThawPcBuild = "Tony Hawk's American Wasteland (2006-2-6, PC - Final)";
+
+    private const string StorySelectPs2 =
+        "DATAP/worlds/worldzones/z_storyselect/z_storyselect.pak/00000310.ska";
+    private const string StorySelectGc =
+        "worlds/worldzones/z_storyselect/z_storyselect.apk/Skater_camera.ska.ngc";
+    private const string RocketPs2 =
+        "DATAP/cutscenes/HO_LevelEvent_Rocket/ps2/ho_levelevent_rocket_main/ho_levelevent_rocket_main.pak/00001310.ska";
+    private const string RocketGc =
+        "cutscenes/HO_LevelEvent_Rocket/ngc/ho_levelevent_rocket_main/ho_levelevent_rocket_main.apk/CAM_0.ska.ngc";
+    private const string Ho3Ps2 = "DATAP/cutscenes/HO_3/ps2/ho_3_main/ho_3_main.pak/000007E0.ska";
+    private const string Ho3Gc = "cutscenes/HO_3/ngc/ho_3_main/ho_3_main.apk/CAM_0.ska.ngc";
 
     private static string ExtractPak(string pakPath, string tag)
     {
@@ -40,6 +52,54 @@ public class ThawSkaFileTests(TestPaths paths)
         var t = Directory.GetFiles(buildDir, "standardkey?.bin", SearchOption.AllDirectories)
             .FirstOrDefault(f => Path.GetFileName(f).StartsWith("standardkeyt", StringComparison.OrdinalIgnoreCase));
         return q != null && t != null ? SkaCompressTable.TryLoad(q, t) : null;
+    }
+
+    [Fact]
+    public void Parse_StorySelectCustomFov_Ps2AndGcAreEndianMirrors()
+    {
+        var (ps2, gc, ps2Bytes, gcBytes) = ParseFixturePair(StorySelectPs2, StorySelectGc);
+
+        Assert.Equal(140, ps2Bytes.Length);
+        Assert.Equal(ps2Bytes.Length, gcBytes.Length);
+        AssertCustomKeysEqual(ps2, gc);
+        Assert.Equal(66.666664f, ps2.Duration);
+        Assert.Equal(2, ps2.CustomKeys.Length);
+        Assert.All(ps2.CustomKeys, static key => Assert.Equal(1u, key.Type));
+        Assert.Equal(0u, ps2.CustomKeys[0].Timestamp);
+        Assert.Equal(3998u, ps2.CustomKeys[1].Timestamp);
+        Assert.Equal(0.17951635f, ps2.CustomKeys[0].Fov);
+        Assert.Equal(0.17951635f, ps2.CustomKeys[1].Fov);
+    }
+
+    [Fact]
+    public void Parse_RocketCustomScripts_Ps2AndGcAreEndianMirrors()
+    {
+        var (ps2, gc, ps2Bytes, gcBytes) = ParseFixturePair(RocketPs2, RocketGc);
+
+        Assert.Equal(604, ps2Bytes.Length);
+        Assert.Equal(ps2Bytes.Length, gcBytes.Length);
+        AssertCustomKeysEqual(ps2, gc);
+        Assert.Equal(31, ps2.CustomKeys.Length);
+        Assert.Contains(ps2.CustomKeys, static key => key.Type == 4);
+        Assert.Equal(0u, ps2.CustomKeys[0].Timestamp);
+        Assert.Equal(4u, ps2.CustomKeys[0].Type);
+        Assert.Equal(0xAB328A00u, ps2.CustomKeys[0].ScriptQbKey);
+        Assert.Equal(2241u, ps2.CustomKeys[^1].Timestamp);
+    }
+
+    [Fact]
+    public void Parse_Ho3FovRichCustomKeys_Ps2AndGcAreEndianMirrors()
+    {
+        var (ps2, gc, ps2Bytes, gcBytes) = ParseFixturePair(Ho3Ps2, Ho3Gc);
+
+        Assert.Equal(1372, ps2Bytes.Length);
+        Assert.Equal(ps2Bytes.Length, gcBytes.Length);
+        AssertCustomKeysEqual(ps2, gc);
+        Assert.Equal(71, ps2.CustomKeys.Length);
+        Assert.Contains(ps2.CustomKeys, static key => key.Type == 1);
+        Assert.Contains(ps2.CustomKeys, static key => key.Type == 4);
+        Assert.Equal(0.60241574f, ps2.CustomKeys[0].Fov);
+        Assert.Equal(4081u, ps2.CustomKeys[^1].Timestamp);
     }
 
     [Fact]
@@ -100,6 +160,18 @@ public class ThawSkaFileTests(TestPaths paths)
 
         var failures = new List<string>();
         var total = 0;
+        var customFileCount = 0;
+        var customFilesByBuild = new Dictionary<string, int>
+        {
+            [ThawPs2Build] = 0,
+            [ThawGcBuild] = 0,
+            [ThawPcBuild] = 0
+        };
+        var firstFovCount = 0;
+        var firstScriptCount = 0;
+        var minCustomCount = int.MaxValue;
+        var maxCustomCount = 0;
+        var customFlags = new HashSet<uint>();
         // Minimums calibrated against the 2026-07-16 regeneration (header-relative
         // pak reads): PS2 6,616 / GC 7,354 / PC 6,455 extracted anims. The old GC
         // floor of 8,000 was measured on a stale pre-pak-fix tree whose misparsed
@@ -127,7 +199,8 @@ public class ThawSkaFileTests(TestPaths paths)
                 total++;
                 try
                 {
-                    var anim = SkaFile.Parse(File.ReadAllBytes(file), table);
+                    var data = File.ReadAllBytes(file);
+                    var anim = SkaFile.Parse(data, table);
                     Assert.Equal(0x28u, anim.Version);
                     var limit = anim.Duration * 60f + 1.5f;
                     foreach (var track in anim.BoneTracks)
@@ -146,6 +219,41 @@ public class ThawSkaFileTests(TestPaths paths)
                                 throw new InvalidDataException($"trans key {k} time {t} invalid (limit {limit})");
                         }
                     }
+
+                    if (anim.CustomKeys.Length > 0)
+                    {
+                        Assert.True(SkaThawParser.IsThawSka(data, out var bigEndian));
+                        var r = new EndianSpanReader(data, bigEndian);
+                        var headerCount = r.U16(0x12);
+                        Assert.Equal(headerCount, anim.CustomKeys.Length);
+                        Assert.True((anim.Flags & SkaFile.FlagPlatform) != 0,
+                            $"custom events unexpectedly used non-platform flags 0x{anim.Flags:X8}");
+
+                        var customStart = GetCustomKeyStart(data, bigEndian);
+                        Assert.Equal(data.Length, customStart + headerCount * 16);
+                        Assert.All(anim.CustomKeys, static key =>
+                        {
+                            Assert.Contains(key.Type, new uint[] { 1, 4 });
+                            Assert.Equal(16u, key.Size);
+                            Assert.Equal(4, key.Payload.Length);
+                        });
+
+                        for (var k = 1; k < anim.CustomKeys.Length; k++)
+                        {
+                            Assert.True(
+                                anim.CustomKeys[k].Timestamp >=
+                                anim.CustomKeys[k - 1].Timestamp,
+                                $"custom timestamps are not serialized in timeline order at key {k}");
+                        }
+
+                        customFileCount++;
+                        customFilesByBuild[build]++;
+                        if (anim.CustomKeys[0].Type == 1) firstFovCount++;
+                        if (anim.CustomKeys[0].Type == 4) firstScriptCount++;
+                        minCustomCount = Math.Min(minCustomCount, anim.CustomKeys.Length);
+                        maxCustomCount = Math.Max(maxCustomCount, anim.CustomKeys.Length);
+                        customFlags.Add(anim.Flags);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -157,5 +265,85 @@ public class ThawSkaFileTests(TestPaths paths)
         Assert.True(failures.Count == 0,
             $"{failures.Count}/{total} failed:\n" + string.Join("\n", failures.Take(10)));
         Assert.True(total >= 20000, $"expected the full three-platform corpus, swept {total}");
+        Assert.Equal(100, customFileCount);
+        Assert.Equal(36, customFilesByBuild[ThawPs2Build]);
+        Assert.Equal(35, customFilesByBuild[ThawGcBuild]);
+        Assert.Equal(29, customFilesByBuild[ThawPcBuild]);
+        Assert.Equal(35, firstFovCount);
+        Assert.Equal(65, firstScriptCount);
+        Assert.Equal(2, minCustomCount);
+        Assert.Equal(121, maxCustomCount);
+        Assert.Equal(new uint[] { 0x1E010100, 0x1E111000 }, customFlags.Order().ToArray());
+    }
+
+    private (SkaAnimation Ps2, SkaAnimation Gc, byte[] Ps2Bytes, byte[] GcBytes) ParseFixturePair(
+        string ps2RelativePath, string gcRelativePath)
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var ps2Path = Path.Combine(paths.SampleBuildsDir!, ThawPs2Build,
+            ps2RelativePath.Replace('/', Path.DirectorySeparatorChar));
+        var gcPath = Path.Combine(paths.SampleBuildsDir!, ThawGcBuild,
+            gcRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        Assert.SkipWhen(!File.Exists(ps2Path) || !File.Exists(gcPath), "THAW custom-key fixtures not found");
+
+        var ps2Bytes = File.ReadAllBytes(ps2Path);
+        var gcBytes = File.ReadAllBytes(gcPath);
+        return (SkaFile.Parse(ps2Bytes), SkaFile.Parse(gcBytes), ps2Bytes, gcBytes);
+    }
+
+    private static void AssertCustomKeysEqual(SkaAnimation expected, SkaAnimation actual)
+    {
+        Assert.Equal(expected.Duration, actual.Duration);
+        Assert.Equal(expected.CustomKeys.Length, actual.CustomKeys.Length);
+        for (var i = 0; i < expected.CustomKeys.Length; i++)
+        {
+            var left = expected.CustomKeys[i];
+            var right = actual.CustomKeys[i];
+            Assert.Equal(left.Timestamp, right.Timestamp);
+            Assert.Equal(left.Type, right.Type);
+            Assert.Equal(left.Size, right.Size);
+            Assert.Equal(left.Fov, right.Fov);
+            Assert.Equal(left.ScriptQbKey, right.ScriptQbKey);
+        }
+    }
+
+    private static int GetCustomKeyStart(ReadOnlySpan<byte> data, bool bigEndian)
+    {
+        var r = new EndianSpanReader(data, bigEndian);
+        var flags = r.U32(4);
+        var numBones = data[0x0D];
+        var numQKeys = r.U16(0x0E);
+        var numTKeys = r.U16(0x10);
+        var offset = 0x28;
+
+        if ((flags & SkaFile.FlagUseCompressTable) != 0)
+        {
+            var qBytes = checked((int)r.U32(0x28));
+            var tBytes = checked((int)r.U32(0x2C));
+            offset = 0x30 + 4 * numBones;
+            if ((flags & SkaFile.FlagPartialAnim) != 0)
+            {
+                var originalBones = checked((int)r.U32(offset));
+                offset += 4 + 4 * ((originalBones + 31) / 32);
+            }
+
+            offset += qBytes + tBytes;
+        }
+        else
+        {
+            if ((flags & SkaFile.FlagObjectAnimData) != 0)
+                offset += 4 * numBones;
+            if ((flags & SkaFile.FlagPartialAnim) != 0)
+            {
+                var originalBones = checked((int)r.U32(offset));
+                offset += 4 + 4 * ((originalBones + 31) / 32);
+            }
+
+            offset += ((flags & SkaFile.FlagHiResFramePointers) != 0 ? 4 : 2) * numBones;
+            offset = (offset + 3) & ~3;
+            offset += 16 * (numQKeys + numTKeys);
+        }
+
+        return (offset + 3) & ~3;
     }
 }

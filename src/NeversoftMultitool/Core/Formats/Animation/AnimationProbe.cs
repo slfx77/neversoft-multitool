@@ -14,6 +14,17 @@ internal sealed record AnimationProbe(
     int? FrameCount = null)
 {
     /// <summary>
+    ///     Reclassifies a cached probe when the active animation-source rig
+    ///     changes. Unknown counts remain eligible, matching discovery behavior.
+    /// </summary>
+    public AnimationProbe WithExpectedBoneCount(int? expectedBoneCount) => this with
+    {
+        MatchesSkeleton = !expectedBoneCount.HasValue
+                          || !BoneCount.HasValue
+                          || BoneCount.Value == expectedBoneCount.Value
+    };
+
+    /// <summary>
     ///     True for static single-pose "animations" (one keyframe, e.g. the
     ///     hundreds of pose slots in Spider-Man's PSX banks). SKA headers don't
     ///     expose a frame count, so a zero duration is the equivalent signal.

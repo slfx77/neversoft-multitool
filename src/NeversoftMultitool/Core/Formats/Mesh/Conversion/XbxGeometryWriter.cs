@@ -1,5 +1,6 @@
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
 
@@ -17,11 +18,19 @@ internal static class XbxGeometryWriter
         ModelDocument document,
         ParsedXbxScene scene,
         MeshChecksumTextureResolver? textureProvider,
-        float coordinateScale = 1f)
+        float coordinateScale = 1f,
+        Ps2Skeleton? explicitSkeleton = null)
     {
         if (!float.IsFinite(coordinateScale) || coordinateScale <= 0f)
             throw new ArgumentOutOfRangeException(nameof(coordinateScale), coordinateScale,
                 "Coordinate scale must be a finite positive number.");
+
+        int? skeletonIndex = null;
+        if (CanEmitExplicitSkin(scene, explicitSkeleton, coordinateScale))
+        {
+            skeletonIndex = document.Skeletons.Count;
+            document.Skeletons.Add(Ps2SceneGeometryWriter.BuildPs2Skeleton(explicitSkeleton!));
+        }
 
         var materialMap = new Dictionary<uint, int>();
         for (var i = 0; i < scene.Materials.Length && i < document.Materials.Count; i++)
@@ -47,12 +56,20 @@ internal static class XbxGeometryWriter
                 var mesh = new ModelMesh { Name = $"sector_{sector.Checksum:X8}" };
                 var vertices = new List<ModelVertex>();
                 var indices = new List<int>();
-                if (xbxMesh.IsPreTriangulated)
-                    AddXbxIndexedTriangles(vertices, indices, xbxMesh, coordinateScale);
-                else
-                    AddXbxTriangleStrip(vertices, indices, xbxMesh, coordinateScale);
+                var influences = skeletonIndex.HasValue && sector.IsSkinned
+                    ? new List<ModelBoneInfluences>()
+                    : null;
+                AddXbxTriangles(vertices, indices, influences, xbxMesh, coordinateScale);
 
-                ModelDocumentGeometryAdapter.AddPrimitive(mesh, "triangles", materialIndex, vertices, indices);
+                var skin = influences is { Count: > 0 }
+                    ? new ModelSkinBinding
+                    {
+                        SkeletonIndex = skeletonIndex!.Value,
+                        Influences = influences.ToArray()
+                    }
+                    : null;
+                ModelDocumentGeometryAdapter.AddPrimitive(
+                    mesh, "triangles", materialIndex, vertices, indices, skin);
                 ModelDocumentGeometryAdapter.AddMeshNode(document, mesh.Name, mesh);
             }
         }
@@ -170,34 +187,49 @@ internal static class XbxGeometryWriter
         }
     }
 
-    private static void AddXbxIndexedTriangles(
+    private static void AddXbxTriangles(
         List<ModelVertex> vertices,
         List<int> indices,
+        List<ModelBoneInfluences>? influences,
         XbxMesh mesh,
         float coordinateScale)
     {
-        for (var i = 0; i + 2 < mesh.FaceIndices.Length; i += 3)
+        foreach (var (i0, i1, i2) in EnumerateTriangleIndices(mesh))
         {
-            var i0 = mesh.FaceIndices[i];
-            var i1 = mesh.FaceIndices[i + 1];
-            var i2 = mesh.FaceIndices[i + 2];
-            if (i0 >= mesh.Vertices.Length || i1 >= mesh.Vertices.Length || i2 >= mesh.Vertices.Length)
-                continue;
-            ModelDocumentGeometryAdapter.AddTriangle(
-                vertices,
-                indices,
-                MakeXbxVertex(mesh.Vertices[i0], coordinateScale),
-                MakeXbxVertex(mesh.Vertices[i1], coordinateScale),
-                MakeXbxVertex(mesh.Vertices[i2], coordinateScale));
+            var v0 = MakeXbxVertex(mesh.Vertices[i0], coordinateScale);
+            var v1 = MakeXbxVertex(mesh.Vertices[i1], coordinateScale);
+            var v2 = MakeXbxVertex(mesh.Vertices[i2], coordinateScale);
+            if (influences == null)
+            {
+                ModelDocumentGeometryAdapter.AddTriangle(vertices, indices, v0, v1, v2);
+            }
+            else
+            {
+                ModelDocumentGeometryAdapter.AddSkinnedTriangle(
+                    vertices, indices, influences,
+                    v0, MakeXbxSkinInfluence(mesh.Vertices[i0]),
+                    v1, MakeXbxSkinInfluence(mesh.Vertices[i1]),
+                    v2, MakeXbxSkinInfluence(mesh.Vertices[i2]));
+            }
         }
     }
 
-    private static void AddXbxTriangleStrip(
-        List<ModelVertex> vertices,
-        List<int> indices,
-        XbxMesh mesh,
-        float coordinateScale)
+    private static IEnumerable<(int I0, int I1, int I2)> EnumerateTriangleIndices(XbxMesh mesh)
     {
+        if (mesh.IsPreTriangulated)
+        {
+            for (var i = 0; i + 2 < mesh.FaceIndices.Length; i += 3)
+            {
+                var i0 = mesh.FaceIndices[i];
+                var i1 = mesh.FaceIndices[i + 1];
+                var i2 = mesh.FaceIndices[i + 2];
+                if (i0 < mesh.Vertices.Length && i1 < mesh.Vertices.Length && i2 < mesh.Vertices.Length)
+                    yield return (i0, i1, i2);
+            }
+
+            yield break;
+        }
+
         for (var i = 2; i < mesh.FaceIndices.Length; i++)
         {
             var i0 = mesh.FaceIndices[i - 2];
@@ -211,25 +243,107 @@ internal static class XbxGeometryWriter
                 continue;
             }
 
-            if (i % 2 == 0)
+            yield return i % 2 == 0 ? (i0, i1, i2) : (i1, i0, i2);
+        }
+    }
+
+    internal static bool CanEmitExplicitSkin(
+        ParsedXbxScene scene,
+        Ps2Skeleton? skeleton,
+        float coordinateScale)
+    {
+        if (skeleton == null || skeleton.Bones.Length == 0 ||
+            BitConverter.SingleToInt32Bits(coordinateScale) != BitConverter.SingleToInt32Bits(1f))
+            return false;
+
+        var hasSkinnedTriangle = false;
+        foreach (var sector in scene.Sectors)
+        {
+            if (!sector.IsSkinned)
+                continue;
+
+            foreach (var mesh in sector.Meshes)
             {
-                ModelDocumentGeometryAdapter.AddTriangle(
-                    vertices,
-                    indices,
-                    MakeXbxVertex(mesh.Vertices[i0], coordinateScale),
-                    MakeXbxVertex(mesh.Vertices[i1], coordinateScale),
-                    MakeXbxVertex(mesh.Vertices[i2], coordinateScale));
-            }
-            else
-            {
-                ModelDocumentGeometryAdapter.AddTriangle(
-                    vertices,
-                    indices,
-                    MakeXbxVertex(mesh.Vertices[i1], coordinateScale),
-                    MakeXbxVertex(mesh.Vertices[i0], coordinateScale),
-                    MakeXbxVertex(mesh.Vertices[i2], coordinateScale));
+                foreach (var (i0, i1, i2) in EnumerateTriangleIndices(mesh))
+                {
+                    var v0 = mesh.Vertices[i0];
+                    var v1 = mesh.Vertices[i1];
+                    var v2 = mesh.Vertices[i2];
+                    // Match AddSkinnedTriangle exactly: discarded geometry has
+                    // no emitted corners, so its packed influence records are
+                    // outside the output preflight.
+                    if (ModelDocumentGeometryAdapter.IsDegenerate(v0.Position, v1.Position, v2.Position))
+                        continue;
+
+                    if (!HasValidInfluences(v0, skeleton.Bones.Length) ||
+                        !HasValidInfluences(v1, skeleton.Bones.Length) ||
+                        !HasValidInfluences(v2, skeleton.Bones.Length))
+                    {
+                        return false;
+                    }
+
+                    hasSkinnedTriangle = true;
+                }
             }
         }
+
+        return hasSkinnedTriangle;
+    }
+
+    private static bool HasValidInfluences(XbxVertex vertex, int jointCount)
+    {
+        // The sector flag says this record is skinned. An all-zero packed Xbox
+        // record intentionally leaves HasSkinData false and binds rigidly to root.
+        if (!vertex.HasSkinData)
+            return true;
+
+        var joints = new[]
+        {
+            vertex.BoneIndex0, vertex.BoneIndex1, vertex.BoneIndex2, vertex.BoneIndex3
+        };
+        var weights = new[]
+        {
+            vertex.BoneWeight0, vertex.BoneWeight1, vertex.BoneWeight2, vertex.BoneWeight3
+        };
+        var totalWeight = 0d;
+        for (var i = 0; i < weights.Length; i++)
+        {
+            var weight = weights[i];
+            if (!float.IsFinite(weight) || weight < 0f)
+                return false;
+            totalWeight += weight;
+            if (weight > 0f && (joints[i] < 0 || joints[i] >= jointCount))
+                return false;
+        }
+
+        return double.IsFinite(totalWeight) && totalWeight > 0d;
+    }
+
+    private static ModelBoneInfluences MakeXbxSkinInfluence(XbxVertex vertex)
+    {
+        if (!vertex.HasSkinData)
+            return ModelBoneInfluences.Single(0);
+
+        var weights = new[]
+        {
+            vertex.BoneWeight0, vertex.BoneWeight1, vertex.BoneWeight2, vertex.BoneWeight3
+        };
+        var joints = new[]
+        {
+            vertex.BoneIndex0, vertex.BoneIndex1, vertex.BoneIndex2, vertex.BoneIndex3
+        };
+        var totalWeight = weights.Sum(static weight => (double)weight);
+        for (var i = 0; i < weights.Length; i++)
+        {
+            if (weights[i] > 0f)
+                weights[i] = (float)(weights[i] / totalWeight);
+            else
+                joints[i] = 0;
+        }
+
+        return new ModelBoneInfluences(
+            joints[0], joints[1], joints[2], joints[3],
+            weights[0], weights[1], weights[2], weights[3]);
     }
 
     private static ModelVertex MakeXbxVertex(XbxVertex vertex, float coordinateScale)

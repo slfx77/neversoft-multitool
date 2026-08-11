@@ -11,10 +11,23 @@ public sealed class SkaAnimation
     public required float Duration { get; init; }
     public required SkaBoneTrack[] BoneTracks { get; init; }
 
+    /// <summary>
+    ///     Authored non-TRS events that follow the animation key streams.
+    ///     THAW cutscene masters use these for camera FOV changes and scripts.
+    /// </summary>
+    public SkaCustomKey[] CustomKeys { get; init; } = [];
+
+    /// <summary>
+    ///     Embedded authoring skeleton and raw frame indices for a THUG
+    ///     INTERMEDIATE stream. Null for ordinary runtime SKAs.
+    /// </summary>
+    internal SkaIntermediateMetadata? IntermediateMetadata { get; init; }
+
     public bool IsCompressedTime => (Flags & (1u << 26)) != 0;
     public bool IsPreRotatedRoot => (Flags & (1u << 25)) != 0;
     public bool UsesCompressTable => (Flags & (1u << 23)) != 0;
     public bool IsPlatformFormat => (Flags & (1u << 28)) != 0;
+    public bool IsIntermediateFormat => (Flags & (1u << 30)) != 0;
 
     /// <summary>THAW v0x28 container (all three platforms + P8/THPG).</summary>
     public bool IsThawFormat => Version == 0x28;

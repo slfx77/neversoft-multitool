@@ -32,7 +32,7 @@ internal static class SkaThawParser
     //        (u8 qCount, u8 tCount)[numBones], pad to 4
     //        Q keys: numQKeys x 16B (u16 ts15+sign, pad, f32 x/y/z)
     //        T keys: numTKeys x 16B (same shape)
-    //        [custom keys — event data, not consumed here]
+    //        custom keys: {u32 timestamp, u32 type, u32 totalSize, payload}
     //
     // THAW Q-key grammar deltas vs THUG (engine-verified):
     //   bit16 (always set): byte-width components are indices into the scalar
@@ -83,11 +83,12 @@ internal static class SkaThawParser
         int numBones = data[0x0D];
         int numQKeys = r.U16(0x0E);
         int numTKeys = r.U16(0x10);
+        int numCustomKeys = r.U16(0x12);
 
         if ((flags & SkaFile.FlagUseCompressTable) != 0)
-            return ParseThawCompressed(data, r, flags, duration, numBones, compressTable);
+            return ParseThawCompressed(data, r, flags, duration, numBones, numCustomKeys, compressTable);
         if ((flags & SkaFile.FlagPlatform) != 0)
-            return ParseThawHiRes(data, r, flags, duration, numBones, numQKeys, numTKeys);
+            return ParseThawHiRes(data, r, flags, duration, numBones, numQKeys, numTKeys, numCustomKeys);
 
         throw new InvalidDataException(
             $"THAW SKA: unrecognized flags 0x{flags:X8} (neither USECOMPRESSTABLE nor PLATFORM)");
@@ -95,12 +96,17 @@ internal static class SkaThawParser
 
     private static SkaAnimation ParseThawCompressed(
         ReadOnlySpan<byte> data, EndianSpanReader r, uint flags, float duration,
-        int numBones, SkaCompressTable? compressTable)
+        int numBones, int numCustomKeys, SkaCompressTable? compressTable)
     {
-        var qBytes = (int)r.U32(0x28);
-        var tBytes = (int)r.U32(0x2C);
+        var declaredQBytes = r.U32(0x28);
+        var declaredTBytes = r.U32(0x2C);
 
         var off = 0x30;
+        var sizeTableEnd = (long)off + 4L * numBones;
+        if (sizeTableEnd > data.Length)
+            throw new InvalidDataException(
+                $"THAW SKA compressed: {numBones}-bone Q/T size tables overrun file");
+
         var qSizes = new int[numBones];
         for (var i = 0; i < numBones; i++, off += 2)
             qSizes[i] = r.U16(off);
@@ -112,16 +118,41 @@ internal static class SkaThawParser
         {
             // u32 original bone count + one mask u32 per 32 original bones,
             // between the size tables and the key blobs.
-            var origBones = (int)r.U32(off);
-            off += 4 + 4 * ((origBones - 1) / 32 + 1);
+            if (off > data.Length - 4)
+                throw new InvalidDataException("THAW SKA compressed: partial-animation header overruns file");
+
+            var origBones = r.U32(off);
+            var partialEnd = (long)off + 4 + 4 * (((long)origBones + 31) / 32);
+            if (partialEnd > data.Length)
+                throw new InvalidDataException("THAW SKA compressed: partial-animation mask overruns file");
+            off = (int)partialEnd;
         }
+
+        var qSizeTotal = qSizes.Sum(static size => (long)size);
+        var tSizeTotal = tSizes.Sum(static size => (long)size);
+        if (qSizeTotal != declaredQBytes)
+            throw new InvalidDataException(
+                $"THAW SKA compressed: Q size table totals {qSizeTotal} bytes, header declares {declaredQBytes}");
+        if (tSizeTotal != declaredTBytes)
+            throw new InvalidDataException(
+                $"THAW SKA compressed: T size table totals {tSizeTotal} bytes, header declares {declaredTBytes}");
+
+        var streamsEnd = (long)off + declaredQBytes + declaredTBytes;
+        if (streamsEnd > data.Length)
+            throw new InvalidDataException(
+                $"THAW SKA compressed: Q/T blobs end at 0x{streamsEnd:X}, beyond file length 0x{data.Length:X}");
+
+        var qBytes = checked((int)declaredQBytes);
+        var tBytes = checked((int)declaredTBytes);
 
         var compact = (flags & FlagThawCompactKeys) != 0;
         var hiResTs = (flags & FlagThawHiResTimestamps) != 0;
 
         var tracks = new SkaBoneTrack[numBones];
         var qOff = off;
-        var tOff = off + qBytes;
+        var qEnd = off + qBytes;
+        var tOff = qEnd;
+        var tEnd = (int)streamsEnd;
         for (var bone = 0; bone < numBones; bone++)
         {
             var rotKeys = DecodeThawQKeys(data, ref qOff, qOff + qSizes[bone], compact, hiResTs, compressTable);
@@ -135,16 +166,22 @@ internal static class SkaThawParser
             };
         }
 
-        if (tOff != off + qBytes + tBytes)
+        if (qOff != qEnd)
+            throw new InvalidDataException(
+                $"THAW SKA: Q blobs consumed {qOff - off} of {qBytes} bytes");
+        if (tOff != tEnd)
             throw new InvalidDataException(
                 $"THAW SKA: T blobs consumed {tOff - off - qBytes} of {tBytes} bytes");
+
+        var customKeys = ParseThawCustomKeys(data, r, tOff, numCustomKeys);
 
         return new SkaAnimation
         {
             Version = ThawVersion,
             Flags = flags,
             Duration = duration,
-            BoneTracks = tracks
+            BoneTracks = tracks,
+            CustomKeys = customKeys
         };
     }
 
@@ -263,13 +300,17 @@ internal static class SkaThawParser
 
     private static SkaAnimation ParseThawHiRes(
         ReadOnlySpan<byte> data, EndianSpanReader r, uint flags, float duration,
-        int numBones, int numQKeys, int numTKeys)
+        int numBones, int numQKeys, int numTKeys, int numCustomKeys)
     {
         var off = 0x28;
 
         uint[]? boneNames = null;
         if ((flags & SkaFile.FlagObjectAnimData) != 0)
         {
+            var boneNamesEnd = (long)off + 4L * numBones;
+            if (boneNamesEnd > data.Length)
+                throw new InvalidDataException("THAW SKA hi-res: bone-name table overruns file");
+
             boneNames = new uint[numBones];
             for (var i = 0; i < numBones; i++, off += 4)
                 boneNames[i] = r.U32(off);
@@ -277,8 +318,14 @@ internal static class SkaThawParser
 
         if ((flags & SkaFile.FlagPartialAnim) != 0)
         {
-            var origBones = (int)r.U32(off);
-            off += 4 + 4 * ((origBones - 1) / 32 + 1);
+            if (off > data.Length - 4)
+                throw new InvalidDataException("THAW SKA hi-res: partial-animation header overruns file");
+
+            var origBones = r.U32(off);
+            var partialEnd = (long)off + 4 + 4 * (((long)origBones + 31) / 32);
+            if (partialEnd > data.Length)
+                throw new InvalidDataException("THAW SKA hi-res: partial-animation mask overruns file");
+            off = (int)partialEnd;
         }
 
         // Per-bone key counts: u8 pairs, or u16 pairs when a track exceeds 255
@@ -287,6 +334,10 @@ internal static class SkaThawParser
         var tCounts = new int[numBones];
         if ((flags & SkaFile.FlagHiResFramePointers) != 0)
         {
+            var countTableEnd = (long)off + 4L * numBones;
+            if (countTableEnd > data.Length)
+                throw new InvalidDataException("THAW SKA hi-res: Q/T count table overruns file");
+
             for (var i = 0; i < numBones; i++)
             {
                 qCounts[i] = r.U16(off + 4 * i);
@@ -297,6 +348,10 @@ internal static class SkaThawParser
         }
         else
         {
+            var countTableEnd = (long)off + 2L * numBones;
+            if (countTableEnd > data.Length)
+                throw new InvalidDataException("THAW SKA hi-res: Q/T count table overruns file");
+
             for (var i = 0; i < numBones; i++)
             {
                 qCounts[i] = data[off + 2 * i];
@@ -306,16 +361,27 @@ internal static class SkaThawParser
             off += 2 * numBones;
         }
 
+        var qCountTotal = qCounts.Sum();
+        var tCountTotal = tCounts.Sum();
+        if (qCountTotal != numQKeys)
+            throw new InvalidDataException(
+                $"THAW SKA hi-res: per-bone Q counts total {qCountTotal}, header declares {numQKeys}");
+        if (tCountTotal != numTKeys)
+            throw new InvalidDataException(
+                $"THAW SKA hi-res: per-bone T counts total {tCountTotal}, header declares {numTKeys}");
+
         if ((off & 3) != 0)
             off += 4 - (off & 3);
 
         // 16-byte hi-res keys: u16 (timestamp:15 | signBit:15th), pad, 3 × f32.
         var qStart = off;
-        var tStart = off + 16 * numQKeys;
-        var endOfKeys = tStart + 16 * numTKeys;
-        if (endOfKeys > data.Length)
+        var tStartLong = (long)off + 16L * numQKeys;
+        var endOfKeysLong = tStartLong + 16L * numTKeys;
+        if (endOfKeysLong > data.Length)
             throw new InvalidDataException(
-                $"THAW SKA hi-res: {numQKeys}Q+{numTKeys}T keys overrun file ({endOfKeys} > {data.Length})");
+                $"THAW SKA hi-res: {numQKeys}Q+{numTKeys}T keys overrun file ({endOfKeysLong} > {data.Length})");
+        var tStart = (int)tStartLong;
+        var endOfKeys = (int)endOfKeysLong;
 
         var tracks = new SkaBoneTrack[numBones];
         var qOff = qStart;
@@ -348,13 +414,86 @@ internal static class SkaThawParser
             };
         }
 
-        // Custom anim keys (event data) may follow — intentionally not consumed.
+        if (qOff != tStart || tOff != endOfKeys)
+            throw new InvalidDataException(
+                $"THAW SKA hi-res: per-bone Q/T counts did not consume their declared streams");
+
+        var customKeys = ParseThawCustomKeys(data, r, endOfKeys, numCustomKeys);
+
         return new SkaAnimation
         {
             Version = ThawVersion,
             Flags = flags,
             Duration = duration,
-            BoneTracks = tracks
+            BoneTracks = tracks,
+            CustomKeys = customKeys
         };
+    }
+
+    /// <summary>
+    ///     Custom keys share a 12-byte header: raw timestamp, type and total record
+    ///     size. The stream starts on the next four-byte boundary after Q/T.
+    ///     Only the two payloads present in THAW are interpreted here; every
+    ///     payload remains available as raw bytes so later engine types are not
+    ///     discarded.
+    /// </summary>
+    private static SkaCustomKey[] ParseThawCustomKeys(
+        ReadOnlySpan<byte> data, EndianSpanReader r, int offset, int count)
+    {
+        offset = (offset + 3) & ~3;
+        if (count == 0)
+        {
+            if (offset != data.Length)
+                throw new InvalidDataException(
+                    $"THAW SKA declares no custom keys, but {data.Length - offset} trailing bytes remain");
+            return [];
+        }
+
+        var keys = new SkaCustomKey[count];
+        for (var i = 0; i < keys.Length; i++)
+        {
+            if (offset < 0 || offset > data.Length - 12)
+                throw new InvalidDataException(
+                    $"THAW SKA custom key {i}: 12-byte header overruns file at 0x{offset:X}");
+
+            var timestamp = r.U32(offset);
+            var type = r.U32(offset + 4);
+            var size = r.U32(offset + 8);
+            if (size < 12)
+                throw new InvalidDataException(
+                    $"THAW SKA custom key {i}: record size {size} is smaller than its 12-byte header");
+            if ((size & 3) != 0)
+                throw new InvalidDataException(
+                    $"THAW SKA custom key {i}: record size {size} is not four-byte aligned");
+
+            var end = (long)offset + size;
+            if (end > data.Length)
+                throw new InvalidDataException(
+                    $"THAW SKA custom key {i}: record end 0x{end:X} exceeds file length 0x{data.Length:X}");
+
+            if ((type == 1 || type == 4) && size != 16)
+                throw new InvalidDataException(
+                    $"THAW SKA custom key {i}: decoded type {type} must be a 16-byte record (size {size})");
+
+            var payloadLength = checked((int)size - 12);
+            var payload = data.Slice(offset + 12, payloadLength).ToArray();
+            keys[i] = new SkaCustomKey
+            {
+                Timestamp = timestamp,
+                Type = type,
+                Size = size,
+                Payload = payload,
+                Fov = type == 1 ? r.F32(offset + 12) : null,
+                ScriptQbKey = type == 4 ? r.U32(offset + 12) : null
+            };
+
+            offset = checked((int)end);
+        }
+
+        if (offset != data.Length)
+            throw new InvalidDataException(
+                $"THAW SKA custom keys end at 0x{offset:X}, but file length is 0x{data.Length:X}");
+
+        return keys;
     }
 }

@@ -50,7 +50,11 @@ internal static class SkaCompressedKeyDecoders
 
                     if ((header & 0x2000) != 0)
                     {
-                        qx = (sbyte)data[off] / 16384f;
+                        // THUG's get_compressed_q_frame reads through an
+                        // unsigned-char pointer and assigns the byte directly
+                        // to the s16 component. Values 0x80..0xFF therefore
+                        // expand to +128..+255, not -128..-1.
+                        qx = data[off] / 16384f;
                         off += 1;
                     }
                     else
@@ -61,7 +65,7 @@ internal static class SkaCompressedKeyDecoders
 
                     if ((header & 0x1000) != 0)
                     {
-                        qy = (sbyte)data[off] / 16384f;
+                        qy = data[off] / 16384f;
                         off += 1;
                     }
                     else
@@ -72,7 +76,7 @@ internal static class SkaCompressedKeyDecoders
 
                     if ((header & 0x0800) != 0)
                     {
-                        qz = (sbyte)data[off] / 16384f;
+                        qz = data[off] / 16384f;
                         off += 1;
                     }
                     else
