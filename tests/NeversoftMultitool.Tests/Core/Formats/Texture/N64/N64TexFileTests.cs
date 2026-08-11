@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using NeversoftMultitool.Core.Formats.N64;
 using NeversoftMultitool.Core.Formats.Texture.N64;
 
@@ -7,7 +8,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Texture.N64;
 /// <summary>
 ///     Pins the N64 texture decode (2026-08-05) against fixtures whose
 ///     appearance was verified externally: 'abutton' renders the N64
-///     controller's blue A button (RGBA16 + one mip), 's2ddi02t' reproduces
+///     controller's blue A button (RGBA16 + a full-resolution 4bpp
+///     alpha/coverage plane), 's2ddi02t' reproduces
 ///     the THPS2 SWEET HEART deck art layout (CI4, authored recolor variant
 ///     of the PS1 original), 'psxtxt_bfd7c623' matches the PS1 skven_l.psx
 ///     porta-potty prop via the texture-id join — the fixture that
@@ -28,6 +30,139 @@ public sealed class N64TexFileTests(TestPaths paths)
         Assert.SkipWhen(romPath == null, "THPS2 N64 ROM sample not available");
         Assert.True(N64AssetCarver.TryCarve(File.ReadAllBytes(romPath!), out var assets));
         return assets.ToDictionary(static asset => asset.Path, static asset => asset.Data);
+    }
+
+    [Fact]
+    public void DictionaryRecord_DecodesEachCompleteStoredMip()
+    {
+        // 4x4 RGBA16 (32 bytes) followed by a 2x2 level (16 bytes).
+        // Fixed source words deliberately exercise the odd-row half swap in
+        // both levels; the exact output arrays make a skipped or misframed
+        // level visible without relying on the external ROM corpus.
+        var data = new byte[0x3F + 48];
+        Encoding.ASCII.GetBytes("mips").CopyTo(data, 0);
+        data[0x20] = 0;
+        data[0x21] = 4;
+        data[0x22] = 0;
+        data[0x23] = 4;
+        data[0x26] = 0;
+        data[0x27] = 0x10;
+        data[0x2A] = 0;
+        data[0x2B] = 48;
+
+        byte[] stored =
+        [
+            // 4x4 top level: odd rows decode word order 2,3,0,1.
+            0xF8, 0x01, 0x07, 0xC1, 0x00, 0x3F, 0xFF, 0xFF,
+            0x00, 0x01, 0x00, 0x00, 0xF8, 0x01, 0x07, 0xC1,
+            0x00, 0x3F, 0xFF, 0xFF, 0xF8, 0x01, 0x07, 0xC1,
+            0xF8, 0x01, 0x00, 0x3F, 0xFF, 0xFF, 0x00, 0x01,
+            // 2x2 mip: its odd row lives in the second 32-bit half.
+            0x07, 0xC1, 0x00, 0x3F, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0xF8, 0x01, 0xFF, 0xFF
+        ];
+        stored.CopyTo(data, 0x3F);
+
+        var texture = N64TexFile.Decode(data);
+
+        Assert.Equal(4, texture.Width);
+        Assert.Equal(4, texture.Height);
+        Assert.Equal("RGBA16", texture.Format);
+        Assert.Equal(0, texture.UndecodedPayloadByteCount);
+        Assert.Collection(
+            texture.MipLevels,
+            top =>
+            {
+                Assert.Equal(0, top.Level);
+                Assert.Equal(4, top.Width);
+                Assert.Equal(4, top.Height);
+                Assert.Same(texture.Rgba, top.Rgba);
+                Assert.Equal(
+                    [
+                        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+                        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 0, 255, 0, 0, 0, 0,
+                        0, 0, 255, 255, 255, 255, 255, 255, 255, 0, 0, 255, 0, 255, 0, 255,
+                        255, 255, 255, 255, 0, 0, 0, 255, 255, 0, 0, 255, 0, 0, 255, 255
+                    ],
+                    top.Rgba);
+            },
+            mip =>
+            {
+                Assert.Equal(1, mip.Level);
+                Assert.Equal(2, mip.Width);
+                Assert.Equal(2, mip.Height);
+                Assert.Equal(
+                    [
+                        0, 255, 0, 255, 0, 0, 255, 255,
+                        255, 0, 0, 255, 255, 255, 255, 255
+                    ],
+                    mip.Rgba);
+            });
+    }
+
+    [Fact]
+    public void DictionaryRecord_DoesNotPublishAPartialMipChain()
+    {
+        var data = new byte[0x3F + 36];
+        Encoding.ASCII.GetBytes("partial").CopyTo(data, 0);
+        data[0x21] = 4;
+        data[0x23] = 4;
+        data[0x27] = 0x10;
+        data[0x2B] = 36;
+
+        var texture = N64TexFile.Decode(data);
+
+        var top = Assert.Single(texture.MipLevels);
+        Assert.Equal((0, 4, 4, 4 * 4 * 4),
+            (top.Level, top.Width, top.Height, top.Rgba.Length));
+        Assert.Equal(4, texture.UndecodedPayloadByteCount);
+        Assert.False(texture.HasAuxiliaryPlane);
+    }
+
+    [Fact]
+    public void Abutton_DoesNotMisclassifyItsFullResolutionAuxiliaryPlaneAsAMip()
+    {
+        var assets = CarveThps2(paths);
+        var texture = N64TexFile.Decode(assets["textures/0000_abutton.tex.n64"]);
+
+        var top = Assert.Single(texture.MipLevels);
+        Assert.Equal((0, 16, 16, 16 * 16 * 4),
+            (top.Level, top.Width, top.Height, top.Rgba.Length));
+        Assert.Equal(
+            "fc2deb993434f46f273e63aad83ee6e8ec01fb3510fb5f884adc2bbe8f143e1a",
+            Convert.ToHexStringLower(SHA256.HashData(top.Rgba)));
+        Assert.True(texture.HasAuxiliaryPlane);
+        Assert.Equal(16 * 16 / 2, texture.UndecodedPayloadByteCount);
+    }
+
+    [Fact]
+    public void Ia8Record_ExposesItsCompleteShaPinnedMipChain()
+    {
+        var assets = CarveThps2(paths);
+        var texture = N64TexFile.Decode(assets["textures/1566_psxtxt_221c0004.tex.n64"]);
+        (int Level, int Width, int Height, int Bytes, string Sha256)[] expected =
+        [
+            (0, 16, 16, 1024, "4e34f3b3b6a6d366dbd8019818ac958d96b0c01faeed6e7818e642ae87c29234"),
+            (1, 8, 8, 256, "3e4a41b3fb2e0b83f3251c3f3fbff4fc4aa9c877ae6d08e68f9b9c00f713cb0d"),
+            (2, 4, 4, 64, "66d917d7460474bf2938fc8126fa2b6253f7824422270cd96c48994a4cb5f5c5"),
+            (3, 2, 2, 16, "26b8eb78f05268d12d78dff2d8114aadab989387eb56c17dec0701441e641136"),
+            (4, 1, 1, 4, "eea30439cc7cf92c547ef04ae8845d1cce1fbd165e83651bb6536064b0fb20c1")
+        ];
+
+        Assert.Equal("IA8", texture.Format);
+        Assert.Equal(expected.Length, texture.MipLevels.Count);
+        for (var i = 0; i < expected.Length; i++)
+        {
+            var actual = texture.MipLevels[i];
+            Assert.Equal(
+                (expected[i].Level, expected[i].Width, expected[i].Height, expected[i].Bytes),
+                (actual.Level, actual.Width, actual.Height, actual.Rgba.Length));
+            Assert.Equal(expected[i].Sha256,
+                Convert.ToHexStringLower(SHA256.HashData(actual.Rgba)));
+        }
+
+        Assert.False(texture.HasAuxiliaryPlane);
+        Assert.Equal(0, texture.UndecodedPayloadByteCount);
     }
 
     [Theory]
@@ -79,16 +214,19 @@ public sealed class N64TexFileTests(TestPaths paths)
     /// </summary>
     [CorpusTheory]
     [InlineData("Tony Hawk's Pro Skater (2000-2-29, N64 - Final)",
-        "Tony Hawk's Pro Skater (USA).z64", 1_488, 228)]
-    [InlineData(Thps2N64Build, RomName, 2_905, 99)]
+        "Tony Hawk's Pro Skater (USA).z64", 1_488, 228, 7, 6)]
+    [InlineData(Thps2N64Build, RomName, 2_905, 99, 9, 35)]
     [InlineData("Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)",
-        "Tony Hawk's Pro Skater 3 (USA).z64", 2_484, 109)]
-    [InlineData("Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64", 2_582, 46)]
+        "Tony Hawk's Pro Skater 3 (USA).z64", 2_484, 109, 12, 12)]
+    [InlineData("Spider-Man (2000-11-21, N64 - Final)",
+        "Spider-Man (USA).z64", 2_582, 46, 8, 16)]
     public void EveryCarvedTextureDecodes(
         string buildName,
         string romName,
         int expectedTextures,
-        int expectedImages)
+        int expectedImages,
+        int expectedTexturesWithMips,
+        int expectedTexturesWithAuxiliaryPlanes)
     {
         var romPath = paths.FindSampleFile(buildName, romName);
         Assert.SkipWhen(romPath == null, $"{buildName} ROM sample not available");
@@ -96,12 +234,30 @@ public sealed class N64TexFileTests(TestPaths paths)
 
         var textures = 0;
         var images = 0;
+        var texturesWithMips = 0;
+        var texturesWithAuxiliaryPlanes = 0;
         foreach (var asset in assets)
         {
             if (asset.Path.EndsWith(".tex.n64", StringComparison.Ordinal))
             {
                 var texture = N64TexFile.Decode(asset.Data);
                 Assert.Equal(texture.Width * texture.Height * 4, texture.Rgba.Length);
+                Assert.All(texture.MipLevels, static mip =>
+                    Assert.Equal(mip.Width * mip.Height * 4, mip.Rgba.Length));
+                if (texture.MipLevels.Count > 1)
+                    texturesWithMips++;
+                if (texture.HasAuxiliaryPlane)
+                {
+                    var auxiliaryStride = ((texture.Width * 4 + 7) / 8 + 7) & ~7;
+                    Assert.Equal(auxiliaryStride * texture.Height,
+                        texture.UndecodedPayloadByteCount);
+                    Assert.Single(texture.MipLevels);
+                    texturesWithAuxiliaryPlanes++;
+                }
+                else
+                {
+                    Assert.Equal(0, texture.UndecodedPayloadByteCount);
+                }
                 textures++;
             }
             else if (asset.Path.EndsWith(".img.n64", StringComparison.Ordinal))
@@ -114,5 +270,7 @@ public sealed class N64TexFileTests(TestPaths paths)
 
         Assert.Equal(expectedTextures, textures);
         Assert.Equal(expectedImages, images);
+        Assert.Equal(expectedTexturesWithMips, texturesWithMips);
+        Assert.Equal(expectedTexturesWithAuxiliaryPlanes, texturesWithAuxiliaryPlanes);
     }
 }

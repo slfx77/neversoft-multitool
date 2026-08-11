@@ -145,6 +145,8 @@ internal static class TextureTabTextureOperations
             case TextureFileFormat.N64Tex:
             {
                 var texture = TryDecodeN64(data);
+                // A record remains one selectable texture. Preview its
+                // authored level zero; extraction writes any stored mips.
                 return texture != null ? (texture.Rgba, texture.Width, texture.Height) : null;
             }
             default:
@@ -364,7 +366,10 @@ internal static class TextureTabTextureOperations
             return (0, 0, false, false);
 
         var outPath = BuildSingleTextureOutputPath(outputDir, stem, createSubDirs);
-        Core.BinaryIO.ImageWriter.WritePng(outPath, texture.Width, texture.Height, texture.Rgba);
+        // The row still represents one logical texture, so the extraction
+        // count remains one. Stored lower-resolution levels are written as
+        // deterministic _mipN companions beside the historical top-level PNG.
+        N64TextureOutput.WritePngLevels(texture, outPath);
         return (1, 1, false, true);
     }
 

@@ -9,7 +9,8 @@ namespace NeversoftMultitool.CLI;
 /// <summary>
 ///     Converts carved N64 texture records (.tex.n64 dictionary entries,
 ///     .img.n64 fullscreen image records — produced by extracting a .z64 via
-///     the archive/unpack commands) to PNG.
+///     the archive/unpack commands) to PNG, including complete stored mip
+///     levels when present.
 /// </summary>
 public static class N64TexCommand
 {
@@ -31,7 +32,9 @@ public static class N64TexCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("n64tex", "Convert carved N64 texture records to PNG");
+        var command = new Command(
+            "n64tex",
+            "Convert carved N64 texture records and their stored mip levels to PNG");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -83,12 +86,16 @@ public static class N64TexCommand
         {
             try
             {
-                var path = N64TexFile.ConvertToPng(file, output);
+                var paths = N64TextureOutput.ConvertToPngLevels(file, output);
                 converted++;
                 if (verbose)
                 {
+                    var mipSuffix = paths.Count > 1
+                        ? $" (+{paths.Count - 1} stored mip level(s))"
+                        : "";
                     AnsiConsole.MarkupLine(
-                        $"  {Markup.Escape(Path.GetFileName(file))} -> [green]{Markup.Escape(Path.GetFileName(path))}[/]");
+                        $"  {Markup.Escape(Path.GetFileName(file))} -> " +
+                        $"[green]{Markup.Escape(Path.GetFileName(paths[0]))}[/]{mipSuffix}");
                 }
             }
             catch (Exception ex) when (ex is InvalidDataException or IndexOutOfRangeException or ArgumentOutOfRangeException)

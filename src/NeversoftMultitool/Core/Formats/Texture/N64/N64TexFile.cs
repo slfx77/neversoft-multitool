@@ -14,7 +14,8 @@ namespace NeversoftMultitool.Core.Formats.Texture.N64;
 ///     DICTIONARY RECORD (.tex.n64, the global texture banks): 32-byte
 ///     NUL-padded name + BE u16 width/height at +0x20 + BE u16 format word at
 ///     +0x26 — high byte = G_IM_FMT (0 RGBA, 2 CI, 3 IA, 4 I), low byte =
-///     bits per texel (0x04/0x08/0x10, with 0x14 also meaning 16) — + BE u16
+///     bits per texel (0x04/0x08/0x10; 0x14 is RGBA16 plus a full-resolution
+///     4bpp auxiliary alpha/coverage plane) — + BE u16
 ///     dataSize at +0x2A + PIXEL DATA AT +0x3F: the header is 63 bytes, and
 ///     the whole record is BIG-endian (native N64) with no per-field
 ///     endianness exceptions. That one-byte start was pinned 2026-08-05 from
@@ -28,8 +29,8 @@ namespace NeversoftMultitool.Core.Formats.Texture.N64;
 ///     0x3F+dataSize). The skater-photo speckle previously attributed to
 ///     authored dither was this bug too — one defect, four symptoms. Rows
 ///     pad to whole 64-bit TMEM words (the source of the corpus's "odd"
-///     bytes-per-pixel ratios); dataSize beyond stride*height is the mip
-///     chain (the top level is exported). ODD ROWS store the two 32-bit
+///     bytes-per-pixel ratios); except for the 0x14 auxiliary plane, dataSize
+///     beyond stride*height is the mip chain. ODD ROWS store the two 32-bit
 ///     halves of each 64-bit TMEM word SWAPPED (texel x ^= 32/bpp) — the RDP
 ///     interleave baked into storage, on the 0x3F-based byte grid. Texels
 ///     and CI4 palette entries are BE u16 RGBA5551 (R bits 15-11, A bit 0);
@@ -49,7 +50,56 @@ public static class N64TexFile
     private const int DictPayloadOffset = 0x3F;
     private const uint ImageMagic = 0x00080410;
 
-    public sealed record N64Texture(string? Name, int Width, int Height, string Format, byte[] Rgba);
+    private readonly record struct StoredLevelLayout(
+        int Level,
+        int Width,
+        int Height,
+        int StrideBytes,
+        int Offset);
+
+    private readonly record struct StoredLevelPlan(
+        IReadOnlyList<StoredLevelLayout> Levels,
+        int UndecodedPayloadByteCount);
+
+    public sealed record N64MipLevel(int Level, int Width, int Height, byte[] Rgba);
+
+    /// <summary>
+    ///     A decoded N64 texture. The positional properties remain the top
+    ///     level for backwards compatibility; <see cref="MipLevels" />
+    ///     contains that same image at index 0 followed by every level from a
+    ///     complete canonical stored chain.
+    /// </summary>
+    public sealed record N64Texture(string? Name, int Width, int Height, string Format, byte[] Rgba)
+    {
+        public N64Texture(
+            string? name,
+            int width,
+            int height,
+            string format,
+            byte[] rgba,
+            IReadOnlyList<N64MipLevel> mipLevels)
+            : this(name, width, height, format, rgba)
+        {
+            MipLevels = mipLevels;
+        }
+
+        public IReadOnlyList<N64MipLevel> MipLevels { get; init; } =
+            [new N64MipLevel(0, Width, Height, Rgba)];
+
+        /// <summary>
+        ///     Bytes beyond the published levels that were deliberately left
+        ///     uninterpreted. This includes the 0x0014 full-resolution 4bpp
+        ///     auxiliary plane; it is not a mip level.
+        /// </summary>
+        public int UndecodedPayloadByteCount { get; init; }
+
+        /// <summary>
+        ///     True for format word 0x0014, whose trailing bytes are a
+        ///     full-resolution 4bpp auxiliary alpha/coverage plane rather than
+        ///     mips.
+        /// </summary>
+        public bool HasAuxiliaryPlane { get; init; }
+    }
 
     public static bool IsN64Texture(ReadOnlySpan<byte> data)
     {
@@ -72,13 +122,7 @@ public static class N64TexFile
     /// </summary>
     public static string ConvertToPng(string inputPath, string outputDir)
     {
-        var data = File.ReadAllBytes(inputPath);
-        var texture = Decode(data);
-        var stem = Path.GetFileName(inputPath).Split('.')[0];
-        Directory.CreateDirectory(outputDir);
-        var path = Path.Combine(outputDir, $"{stem}.png");
-        BinaryIO.ImageWriter.WritePng(path, texture.Width, texture.Height, texture.Rgba);
-        return path;
+        return N64TextureOutput.ConvertToPngLevels(inputPath, outputDir)[0];
     }
 
     // ---- dictionary records -------------------------------------------------
@@ -114,30 +158,122 @@ public static class N64TexFile
         var width = BinaryPrimitives.ReadUInt16BigEndian(span[0x20..]);
         var height = BinaryPrimitives.ReadUInt16BigEndian(span[0x22..]);
         var dataSize = BinaryPrimitives.ReadUInt16BigEndian(span[0x2A..]);
+        var formatWord = BinaryPrimitives.ReadUInt16BigEndian(span[0x26..]);
         if (!TryGetPixelLayout(span, width, height, out var format, out var bitsPerTexel))
         {
-            throw new InvalidDataException(
-                $"Unknown N64 texture format word 0x{BinaryPrimitives.ReadUInt16BigEndian(span[0x26..]):X4}");
+            throw new InvalidDataException($"Unknown N64 texture format word 0x{formatWord:X4}");
         }
 
         // Rows pad to whole 64-bit TMEM words (verified against the PS1
         // original of a width-24 CI4 record: 32-bit padding scrambles it,
-        // 8-byte padding reproduces the art) — dataSize beyond stride*height
-        // is the mip chain.
+        // 8-byte padding reproduces the art). A canonical mip interpretation
+        // is accepted only when its complete level prefix consumes dataSize;
+        // format 0x0014's auxiliary plane is classified separately below.
         var texelsPerWord = 32 / bitsPerTexel;
         var strideBytes = ((width * bitsPerTexel + 7) / 8 + 7) & ~7;
-        if (DictPayloadOffset + strideBytes * height > data.Length
+        if (DictPayloadOffset + dataSize > data.Length
             || strideBytes * height > dataSize)
         {
             throw new InvalidDataException(
                 $"N64 texture {name}: {width}x{height}@{bitsPerTexel}bpp exceeds dataSize {dataSize}");
         }
 
-        var pixels = span.Slice(DictPayloadOffset, strideBytes * height);
+        var hasAuxiliaryPlane = formatWord == 0x0014;
+        var plan = PlanStoredLevels(width, height, bitsPerTexel, dataSize, hasAuxiliaryPlane);
+
         var palette = format == 2
             ? ReadPalette(span, DictPayloadOffset + dataSize)
             : null;
 
+        var levels = new List<N64MipLevel>();
+        foreach (var layout in plan.Levels)
+        {
+            var levelSize = layout.StrideBytes * layout.Height;
+            var pixels = span.Slice(DictPayloadOffset + layout.Offset, levelSize);
+            var rgba = DecodeLevel(
+                pixels,
+                layout.Width,
+                layout.Height,
+                layout.StrideBytes,
+                texelsPerWord,
+                format,
+                bitsPerTexel,
+                palette);
+            levels.Add(new N64MipLevel(layout.Level, layout.Width, layout.Height, rgba));
+        }
+
+        // The top-level bounds check above guarantees at least one level.
+        var top = levels[0];
+        return new N64Texture(
+            name,
+            width,
+            height,
+            FormatName(format, bitsPerTexel),
+            top.Rgba,
+            levels)
+        {
+            UndecodedPayloadByteCount = plan.UndecodedPayloadByteCount,
+            HasAuxiliaryPlane = hasAuxiliaryPlane
+        };
+    }
+
+    private static StoredLevelPlan PlanStoredLevels(
+        int width,
+        int height,
+        int bitsPerTexel,
+        int dataSize,
+        bool hasAuxiliaryPlane)
+    {
+        var topStride = ((width * bitsPerTexel + 7) / 8 + 7) & ~7;
+        var top = new StoredLevelLayout(0, width, height, topStride, 0);
+        if (hasAuxiliaryPlane)
+        {
+            // 0x0014 is not a 16bpp mip flag. Across all 69 corpus records its
+            // remaining bytes are an aligned, full-resolution 4bpp plane; the
+            // verified RGBA16 top still uses the canonical 16bpp stride.
+            return new StoredLevelPlan([top], dataSize - topStride * height);
+        }
+
+        var canonical = new List<StoredLevelLayout>();
+        var level = 0;
+        var levelWidth = width;
+        var levelHeight = height;
+        var offset = 0;
+        while (true)
+        {
+            var stride = ((levelWidth * bitsPerTexel + 7) / 8 + 7) & ~7;
+            var size = stride * levelHeight;
+            if (offset + size > dataSize)
+                break;
+
+            canonical.Add(new StoredLevelLayout(level, levelWidth, levelHeight, stride, offset));
+            offset += size;
+            if (offset == dataSize)
+                return new StoredLevelPlan(canonical, 0);
+            if (levelWidth == 1 && levelHeight == 1)
+                break;
+
+            levelWidth = Math.Max(1, levelWidth / 2);
+            levelHeight = Math.Max(1, levelHeight / 2);
+            level++;
+        }
+
+        // Any partial prefix is ambiguous. Keep the verified top-level framing
+        // and report all bytes beyond it, but do not expose an inferred lower
+        // level unless the whole payload agrees.
+        return new StoredLevelPlan([top], dataSize - top.StrideBytes * top.Height);
+    }
+
+    private static byte[] DecodeLevel(
+        ReadOnlySpan<byte> pixels,
+        int width,
+        int height,
+        int strideBytes,
+        int texelsPerWord,
+        int format,
+        int bitsPerTexel,
+        byte[]? palette)
+    {
         var rgba = new byte[width * height * 4];
         for (var y = 0; y < height; y++)
         {
@@ -157,7 +293,7 @@ public static class N64TexFile
             }
         }
 
-        return new N64Texture(name, width, height, FormatName(format, bitsPerTexel), rgba);
+        return rgba;
     }
 
     private static bool TryGetPixelLayout(ReadOnlySpan<byte> data, int width, int height, out int format, out int bitsPerTexel)
