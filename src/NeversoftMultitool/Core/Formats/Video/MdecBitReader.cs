@@ -17,7 +17,11 @@ internal ref struct MdecBitReader
         _totalBits = data.Length * 8;
     }
 
-    public bool IsExhausted => _bitPos >= _totalBits;
+    public int BitsRemaining => Math.Max(0, _totalBits - _bitPos);
+
+    public int BitsRead => _bitPos;
+
+    public bool CanRead(int count) => count >= 0 && count <= BitsRemaining;
 
     /// <summary>
     ///     Reads a 16-bit word at the given byte offset in STR v2 byte order (byte-swapped LE).

@@ -160,8 +160,7 @@ public sealed class StrMediaSource : IDisposable
         }
 
         var frame = _frames[_frameIndex];
-        var rgb = MdecDecoder.DecodeFrame(frame.Data, _width, _height);
-        var bgra = ConvertRgb24ToBgra8(rgb, _width, _height);
+        var bgra = StrPreviewFrameDecoder.DecodeBgra8OrBlack(frame.Data, _width, _height);
 
         var timestamp = TimeSpan.FromSeconds(_frameIndex / _frameRate);
         var duration = TimeSpan.FromSeconds(1.0 / _frameRate);
@@ -214,22 +213,5 @@ public sealed class StrMediaSource : IDisposable
         _audioByteOffset = 0;
     }
 
-    private static byte[] ConvertRgb24ToBgra8(byte[] rgb, int width, int height)
-    {
-        var pixelCount = width * height;
-        var bgra = new byte[pixelCount * 4];
-
-        for (var i = 0; i < pixelCount; i++)
-        {
-            var srcIdx = i * 3;
-            var dstIdx = i * 4;
-            bgra[dstIdx] = rgb[srcIdx + 2]; // B
-            bgra[dstIdx + 1] = rgb[srcIdx + 1]; // G
-            bgra[dstIdx + 2] = rgb[srcIdx]; // R
-            bgra[dstIdx + 3] = 0xFF; // A
-        }
-
-        return bgra;
-    }
 }
 #endif

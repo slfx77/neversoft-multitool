@@ -1,18 +1,20 @@
+using System.Security.Cryptography;
 using NeversoftMultitool.Core.Formats.Video;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Video;
 
 public class MdecDecoderTests(TestPaths paths)
 {
+    private const string KnownCorruptSm2E5M6FrameSha256 =
+        "ec1ec8ae4e8927ef009c3f158357904e7f0acc1f7bef8c20121a4d2dcc957f34";
+
     private string? FindStrFile(string buildPattern, string fileName)
     {
         if (!paths.HasSampleBuilds) return null;
         var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
             .FirstOrDefault(d => Path.GetFileName(d).Contains(buildPattern, StringComparison.OrdinalIgnoreCase));
         if (buildDir == null) return null;
-        var strDir = Path.Combine(buildDir, "STR");
-        if (!Directory.Exists(strDir)) return null;
-        return Directory.GetFiles(strDir)
+        return Directory.GetFiles(buildDir, "*", SearchOption.AllDirectories)
             .FirstOrDefault(f => Path.GetFileName(f).Equals(fileName, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -22,11 +24,8 @@ public class MdecDecoderTests(TestPaths paths)
         return Directory.GetDirectories(paths.SampleBuildsDir!)
             .SelectMany(build =>
             {
-                var strDir = Path.Combine(build, "STR");
-                return Directory.Exists(strDir)
-                    ? Directory.GetFiles(strDir, "*.str", SearchOption.TopDirectoryOnly)
-                        .Concat(Directory.GetFiles(strDir, "*.STR", SearchOption.TopDirectoryOnly))
-                    : [];
+                return Directory.GetFiles(build, "*.str", SearchOption.AllDirectories)
+                    .Concat(Directory.GetFiles(build, "*.STR", SearchOption.AllDirectories));
             })
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Where(f =>
@@ -70,11 +69,8 @@ public class MdecDecoderTests(TestPaths paths)
             .FirstOrDefault(d => Path.GetFileName(d).Contains("DC", StringComparison.OrdinalIgnoreCase));
         Assert.SkipWhen(dcBuild == null, "No DC build found");
 
-        var strDir = Path.Combine(dcBuild!, "STR");
-        Assert.SkipWhen(!Directory.Exists(strDir), "DC build has no STR subdirectory");
-
-        var speechStr = Directory.GetFiles(strDir, "SPEECH.STR",
-            SearchOption.TopDirectoryOnly).FirstOrDefault();
+        var speechStr = Directory.GetFiles(dcBuild!, "SPEECH.STR",
+            SearchOption.AllDirectories).FirstOrDefault();
 
         if (speechStr == null) Assert.Skip("DC SPEECH.STR not found");
 
@@ -110,7 +106,45 @@ public class MdecDecoderTests(TestPaths paths)
     }
 
     [Fact]
-    public void CountFrames_ReturnsPositiveCount()
+    public void EnumerateFrames_Form1Chunks_ExcludeEdcAndEccTail()
+    {
+        const int sectorSize = 2336;
+        const int subheaderSize = 8;
+        const int videoHeaderSize = 32;
+        const int form1PieceSize = 2016;
+        var data = new byte[sectorSize * 2];
+
+        for (ushort chunkIndex = 0; chunkIndex < 2; chunkIndex++)
+        {
+            var sectorOffset = chunkIndex * sectorSize;
+            data[sectorOffset + 2] = 0x48; // Mode-2 Form-1 video sector.
+            var headerOffset = sectorOffset + subheaderSize;
+            BitConverter.TryWriteBytes(data.AsSpan(headerOffset, 2), (ushort)0x0160);
+            BitConverter.TryWriteBytes(data.AsSpan(headerOffset + 2, 2), (ushort)0x8001);
+            BitConverter.TryWriteBytes(data.AsSpan(headerOffset + 4, 2), chunkIndex);
+            BitConverter.TryWriteBytes(data.AsSpan(headerOffset + 6, 2), (ushort)2);
+            BitConverter.TryWriteBytes(data.AsSpan(headerOffset + 8, 4), 7u);
+            BitConverter.TryWriteBytes(data.AsSpan(headerOffset + 12, 4), (uint)(form1PieceSize * 2));
+            BitConverter.TryWriteBytes(data.AsSpan(headerOffset + 16, 2), (ushort)16);
+            BitConverter.TryWriteBytes(data.AsSpan(headerOffset + 18, 2), (ushort)16);
+
+            var pieceStart = headerOffset + videoHeaderSize;
+            data.AsSpan(pieceStart, form1PieceSize).Fill((byte)(0x11 + chunkIndex));
+            data.AsSpan(pieceStart + form1PieceSize, sectorSize - subheaderSize - videoHeaderSize - form1PieceSize)
+                .Fill(0xEE);
+        }
+
+        var frame = Assert.Single(StrDemuxer.EnumerateFrames(data));
+
+        Assert.Equal(form1PieceSize * 2, frame.Data.Length);
+        Assert.All(frame.Data[..form1PieceSize], value => Assert.Equal((byte)0x11, value));
+        Assert.All(frame.Data[form1PieceSize..], value => Assert.Equal((byte)0x12, value));
+        Assert.DoesNotContain((byte)0xEE, frame.Data);
+        Assert.Equal(1, StrDemuxer.CountFrames(data));
+    }
+
+    [Fact]
+    public void CountFrames_ApocalypseIntroCountsCompleteFramesRatherThanHeaderMaximum()
     {
         var file = FindStrFile("Apocalypse", "INTRO.STR");
         Assert.SkipWhen(file == null, "Apocalypse INTRO.STR not found");
@@ -118,7 +152,9 @@ public class MdecDecoderTests(TestPaths paths)
         var data = File.ReadAllBytes(file!);
         var count = StrDemuxer.CountFrames(data);
 
-        Assert.True(count > 10, $"Expected >10 frames, got {count}");
+        // This stream numbers its 1,960 frames 1..1,960. max+1 therefore
+        // produced 1,961 even on clean input.
+        Assert.Equal(1960, count);
     }
 
     [Fact]
@@ -214,6 +250,83 @@ public class MdecDecoderTests(TestPaths paths)
             $"Failed to decode {errors.Count}/{decoded + errors.Count} frames:\n{string.Join("\n", errors)}");
     }
 
+    [Fact]
+    public void DecodeFrame_ApocalypseIntroFrame101_PinsJpsxdecFramingAndRgbRegression()
+    {
+        var file = FindStrFile("Apocalypse", "INTRO.STR");
+        Assert.SkipWhen(file == null, "Apocalypse INTRO.STR not found");
+
+        var data = File.ReadAllBytes(file!);
+        var frame = StrDemuxer.EnumerateFrames(data).Single(candidate => candidate.FrameNumber == 101);
+
+        Assert.Equal(18144, frame.Data.Length);
+        Assert.Equal(
+            "0ad3d0dc67fa62f1bad45d804008b2531f459a36165beeb7e84acb3820bcd3c5",
+            Convert.ToHexStringLower(SHA256.HashData(frame.Data)));
+
+        var rgb = MdecDecoder.DecodeFrame(frame.Data, frame.Width, frame.Height);
+        Assert.Equal(
+            "343518ba1c192a7fe860ac7cc94ced46c683356ebf9caa4a53ba719511091147",
+            Convert.ToHexStringLower(SHA256.HashData(rgb)));
+    }
+
+    [Fact]
+    public void DecodeFrame_TruncatedBitstream_ThrowsInsteadOfReturningPartialImage()
+    {
+        var frame = new byte[9];
+        BitConverter.TryWriteBytes(frame.AsSpan(2, 2), (ushort)0x3800);
+        BitConverter.TryWriteBytes(frame.AsSpan(4, 2), (ushort)1);
+        BitConverter.TryWriteBytes(frame.AsSpan(6, 2), (ushort)2);
+
+        Assert.Throws<InvalidDataException>(() => MdecDecoder.DecodeFrame(frame, 16, 16));
+    }
+
+    [Fact]
+    public void StrPreviewFrameDecoder_TruncatedFrame_ReturnsOpaqueBlackBgra()
+    {
+        var frame = new byte[9];
+        BitConverter.TryWriteBytes(frame.AsSpan(2, 2), (ushort)0x3800);
+        BitConverter.TryWriteBytes(frame.AsSpan(4, 2), (ushort)1);
+        BitConverter.TryWriteBytes(frame.AsSpan(6, 2), (ushort)2);
+
+        var bgra = StrPreviewFrameDecoder.DecodeBgra8OrBlack(frame, 16, 16);
+
+        Assert.Equal(16 * 16 * 4, bgra.Length);
+        Assert.All(bgra.Chunk(4), pixel => Assert.Equal([0, 0, 0, 0xFF], pixel));
+    }
+
+    [Fact]
+    public void DecodeFrame_Version3_ReportsUnsupportedBitstream()
+    {
+        var frame = new byte[8];
+        BitConverter.TryWriteBytes(frame.AsSpan(2, 2), (ushort)0x3800);
+        BitConverter.TryWriteBytes(frame.AsSpan(4, 2), (ushort)1);
+        BitConverter.TryWriteBytes(frame.AsSpan(6, 2), (ushort)3);
+
+        var error = Assert.Throws<InvalidDataException>(() => MdecDecoder.DecodeFrame(frame, 16, 16));
+        Assert.Contains("only version 2 is supported", error.Message);
+    }
+
+    [Fact]
+    public void DecodeFrame_Sm2FinalE5M6HeaderFrame2_IsRejectedByBothDecoders()
+    {
+        var file = FindStrFile("Spider-Man 2 - Enter Electro (2001-8-15", "E5M6.STR");
+        Assert.SkipWhen(file == null, "SM2 Final E5M6.STR not found");
+
+        var data = File.ReadAllBytes(file!);
+        var frame = StrDemuxer.EnumerateFrames(data).First();
+
+        // Corrupt chunk headers prevent frame 1 from assembling as a complete
+        // frame, so the first frame the demuxer can yield is header frame 2.
+        Assert.Equal(2, frame.FrameNumber);
+        Assert.Equal(KnownCorruptSm2E5M6FrameSha256,
+            Convert.ToHexStringLower(SHA256.HashData(frame.Data)));
+        var error = Assert.Throws<InvalidDataException>(() =>
+            MdecDecoder.DecodeFrame(frame.Data, frame.Width, frame.Height));
+        Assert.Contains("macroblock (16, 5), block 3, bit 64832", error.Message);
+        Assert.Equal(551, StrDemuxer.CountFrames(data));
+    }
+
     // ── StrProbeResult Tests ───────────────────────────────────────────
 
     [Fact]
@@ -260,6 +373,8 @@ public class MdecDecoderTests(TestPaths paths)
         var errors = new List<string>();
         var demuxed = 0;
         var skippedNonVideo = 0;
+        var skippedUnsupported = 0;
+        var expectedCorrupt = 0;
 
         foreach (var file in files)
         {
@@ -285,6 +400,24 @@ public class MdecDecoderTests(TestPaths paths)
                 Assert.True(firstFrame.Height > 0 && firstFrame.Height % 16 == 0,
                     $"{Path.GetFileName(file)} has invalid height {firstFrame.Height}");
 
+                var version = firstFrame.Data.Length >= 8
+                    ? BitConverter.ToUInt16(firstFrame.Data, 6)
+                    : 0;
+                if (version != 2)
+                {
+                    skippedUnsupported++;
+                    continue;
+                }
+
+                var frameSha256 = Convert.ToHexStringLower(SHA256.HashData(firstFrame.Data));
+                if (frameSha256 == KnownCorruptSm2E5M6FrameSha256)
+                {
+                    Assert.Throws<InvalidDataException>(() =>
+                        MdecDecoder.DecodeFrame(firstFrame.Data, firstFrame.Width, firstFrame.Height));
+                    expectedCorrupt++;
+                    continue;
+                }
+
                 var rgb = MdecDecoder.DecodeFrame(firstFrame.Data, firstFrame.Width, firstFrame.Height);
                 Assert.Equal(firstFrame.Width * firstFrame.Height * 3, rgb.Length);
 
@@ -297,7 +430,9 @@ public class MdecDecoderTests(TestPaths paths)
         }
 
         Assert.True(errors.Count == 0,
-            $"Failed to demux+decode {errors.Count}/{files.Length - skippedNonVideo} video files:\n{string.Join("\n", errors)}");
+            $"Failed to demux+decode {errors.Count}/" +
+            $"{files.Length - skippedNonVideo - skippedUnsupported - expectedCorrupt} supported video files:\n" +
+            string.Join("\n", errors));
         Assert.True(demuxed > 0, "No files were demuxed");
     }
 }

@@ -17,11 +17,22 @@ public static class MdecDecoder
     /// <returns>RGB24 pixel data (width * height * 3 bytes)</returns>
     public static byte[] DecodeFrame(byte[] frameData, int width, int height)
     {
+        if (frameData.Length < 8)
+            throw new InvalidDataException("STR bitstream header is truncated.");
+
         // Parse 8-byte bitstream header
         // u16: halfMdecCodeCountCeil32
         // u16: magic 0x3800
         // u16: quantization scale
         // u16: version
+        var magic = BitConverter.ToUInt16(frameData, 2);
+        if (magic != 0x3800)
+            throw new InvalidDataException($"Invalid STR bitstream magic 0x{magic:X4}.");
+
+        var version = BitConverter.ToUInt16(frameData, 6);
+        if (version != 2)
+            throw new InvalidDataException($"Unsupported STR bitstream version {version}; only version 2 is supported.");
+
         var qscale = BitConverter.ToUInt16(frameData, 4);
 
         var reader = new MdecBitReader(frameData.AsSpan(8));
@@ -36,21 +47,18 @@ public static class MdecDecoder
 
         var block = new int[64];
         var idctOut = new int[64];
-        var corrupted = false;
-
         // Column-major macroblock order (X outer, Y inner — matching PS1 MDEC / jpsxdec)
-        for (var mbX = 0; mbX < mbWidth && !corrupted; mbX++)
+        for (var mbX = 0; mbX < mbWidth; mbX++)
         {
-            for (var mbY = 0; mbY < mbHeight && !corrupted; mbY++)
+            for (var mbY = 0; mbY < mbHeight; mbY++)
             {
                 // Each macroblock: Cr, Cb, Y0, Y1, Y2, Y3
                 for (var blockIdx = 0; blockIdx < 6; blockIdx++)
                 {
                     if (!DecodeBlock(ref reader, block, qscale))
-                    {
-                        corrupted = true;
-                        break;
-                    }
+                        throw new InvalidDataException(
+                            $"Incomplete or corrupt STR v2 frame at macroblock ({mbX}, {mbY}), " +
+                            $"block {blockIdx}, bit {reader.BitsRead + 64}.");
 
                     Idct(block, idctOut);
 
@@ -91,7 +99,7 @@ public static class MdecDecoder
     {
         Array.Clear(block);
 
-        if (reader.IsExhausted) return false;
+        if (!reader.CanRead(10)) return false;
 
         // STR v2: DC coefficient is 10 signed bits from bitstream.
         // Quantization scale is frame-level (from the 8-byte header), not per-block.
@@ -104,24 +112,25 @@ public static class MdecDecoder
         // Read AC coefficients via VLC
         var vectorPos = 0;
 
-        while (!reader.IsExhausted)
+        while (reader.BitsRemaining >= 2)
         {
             var peek = reader.PeekBits(MdecTables.VlcBits);
             var entry = MdecTables.VlcTable[peek];
 
-            if (entry.BitLength == 0)
+            if (entry.BitLength == 0 || !reader.CanRead(entry.BitLength))
                 return false; // Unrecognized VLC code = corruption
 
             reader.SkipBits(entry.BitLength);
 
             if (entry.IsEndOfBlock)
-                break;
+                return true;
 
             int run, level;
 
             if (entry.IsEscape)
             {
                 // Escape: read 6-bit run + 10-bit signed level as a 16-bit MDEC code
+                if (!reader.CanRead(16)) return false;
                 var escapeCode = (int)reader.ReadBits(16);
                 run = (escapeCode >> 10) & 0x3F;
                 level = escapeCode & 0x3FF;
@@ -145,7 +154,7 @@ public static class MdecDecoder
             }
         }
 
-        return true;
+        return false;
     }
 
     // ── IDCT (simple_idct from FFmpeg, LGPL) ─────────────────────────────

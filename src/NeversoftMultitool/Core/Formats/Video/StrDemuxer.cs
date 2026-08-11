@@ -2,10 +2,9 @@ namespace NeversoftMultitool.Core.Formats.Video;
 
 /// <summary>
 ///     Demuxes PS1 STR (MDEC) video files into video frames and audio sectors.
-///     Supports three sector layout variants:
+///     Supports two sector layout variants:
 ///     <list type="bullet">
 ///         <item>Standard: 2336-byte sectors (subheader + user data), used by most PS1 games</item>
-///         <item>8-byte prefix: 8-byte file header + standard 2336-byte sectors (Spider-Man Prototype)</item>
 ///         <item>RIFF/CDXA: 44-byte RIFF header + raw 2352-byte sectors (SM2: Enter Electro Final)</item>
 ///     </list>
 ///     All variants are normalized to standard 2336-byte sectors before processing.
@@ -48,7 +47,7 @@ public static class StrDemuxer
         // but is NOT a valid STR video file — only 1 of 10438 sectors is a video sector.
         // This is a non-video file with .STR extension. No special handling needed.
 
-        // 3. Standard: already 2336-byte sectors
+        // 2. Standard: already 2336-byte sectors
         if (data.Length >= SectorSize && data.Length % SectorSize == 0)
             return data;
 
@@ -145,7 +144,8 @@ public static class StrDemuxer
             if (frameNum != currentFrameNum)
             {
                 // Yield the previous frame if complete
-                if (currentFrameNum >= 0 && frameChunks.Count == expectedChunks)
+                if (currentFrameNum >= 0
+                    && HasCompleteChunkSet(frameChunks.Keys, frameChunks.Count, expectedChunks))
                 {
                     yield return AssembleFrame(currentFrameNum, frameWidth, frameHeight, frameQscale, frameChunks);
                 }
@@ -174,7 +174,8 @@ public static class StrDemuxer
         }
 
         // Yield final frame
-        if (currentFrameNum >= 0 && frameChunks.Count == expectedChunks)
+        if (currentFrameNum >= 0
+            && HasCompleteChunkSet(frameChunks.Keys, frameChunks.Count, expectedChunks))
         {
             yield return AssembleFrame(currentFrameNum, frameWidth, frameHeight, frameQscale, frameChunks);
         }
@@ -196,9 +197,9 @@ public static class StrDemuxer
             pos += chunk.Length;
         }
 
-        // Note: demux_size trimming is NOT applied here because the demux_size field
-        // counts bytes in the context of 2292-byte chunk payloads, and the decoder
-        // handles exhaustion gracefully via corruption detection.
+        // Keep the full allocated demux pieces, matching jPSXdec. The header's used-demux-size
+        // field is rounded up to four bytes and excludes only trailing allocation padding; the
+        // decoder stops after the frame's expected macroblocks.
 
         // Read quantization scale from assembled bitstream header (bytes 4-5)
         var bitstreamQscale = assembled.Length >= 6
@@ -256,7 +257,10 @@ public static class StrDemuxer
     {
         data = NormalizeToSectors(data) ?? data;
         var sectorCount = data.Length / SectorSize;
-        var maxFrame = -1;
+        var currentFrameNum = -1;
+        var expectedChunks = 0;
+        var frameChunks = new HashSet<int>();
+        var frameCount = 0;
 
         for (var s = 0; s < sectorCount; s++)
         {
@@ -271,11 +275,42 @@ public static class StrDemuxer
             var sectorType = BitConverter.ToUInt16(data, payloadOffset + 2);
             if (sectorType != 0x8001) continue;
 
+            var chunkIndex = BitConverter.ToUInt16(data, payloadOffset + 4);
+            var chunkCount = BitConverter.ToUInt16(data, payloadOffset + 6);
             var frameNum = (int)BitConverter.ToUInt32(data, payloadOffset + 8);
-            if (frameNum > maxFrame) maxFrame = frameNum;
+            if (frameNum != currentFrameNum)
+            {
+                if (currentFrameNum >= 0
+                    && HasCompleteChunkSet(frameChunks, frameChunks.Count, expectedChunks))
+                    frameCount++;
+
+                currentFrameNum = frameNum;
+                expectedChunks = chunkCount;
+                frameChunks.Clear();
+            }
+
+            frameChunks.Add(chunkIndex);
         }
 
-        return maxFrame + 1; // Frame numbers are 0-based
+        if (currentFrameNum >= 0
+            && HasCompleteChunkSet(frameChunks, frameChunks.Count, expectedChunks))
+            frameCount++;
+
+        return frameCount;
+    }
+
+    private static bool HasCompleteChunkSet(
+        IEnumerable<int> chunkIndices,
+        int actualCount,
+        int expectedCount)
+    {
+        if (expectedCount <= 0 || actualCount != expectedCount)
+            return false;
+
+        // With exactly expectedCount distinct keys, requiring every key to be
+        // in range proves the set is precisely 0..expectedCount-1. This keeps a
+        // corrupt out-of-range header from masquerading as a complete frame.
+        return chunkIndices.All(index => index >= 0 && index < expectedCount);
     }
 
     /// <summary>
