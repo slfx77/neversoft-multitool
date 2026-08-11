@@ -112,6 +112,10 @@ public static class N64ModelCompanions
                 try
                 {
                     var texture = N64TexFile.Decode(record);
+                    // glTF embeds one source image and lets the renderer build
+                    // its sampling pyramid. Keep that image at authored level
+                    // zero; stored N64 mips are disk-extraction companions,
+                    // not additional model materials.
                     var (cutout, graduated) = ClassifyAlpha(texture.Rgba);
                     resolved = new N64ResolvedTexture(
                         texture.Name ?? $"tex_{slot:D4}",

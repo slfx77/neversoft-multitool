@@ -1,6 +1,7 @@
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Formats.Mesh.N64;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 
@@ -8,6 +9,151 @@ namespace NeversoftMultitool.Tests.Core.Formats.Animation;
 
 public sealed class AnimationDiscoveryTests(TestPaths paths)
 {
+    [Fact]
+    public void FindForCharacter_N64DirectBank_RoutesExactEmbeddedSelectionBackToItsModel()
+    {
+        const string buildName = "Spider-Man (2000-11-21, N64 - Final)";
+        var romPath = paths.FindSampleFile(buildName, "Spider-Man (USA).z64");
+        Assert.SkipWhen(romPath == null, "Spider-Man N64 ROM sample not available");
+
+        var backend = ArchiveAssetBackend.TryOpen(romPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend.FileSystem;
+        var entry = N64Bundles.FindBundle(backend, "002");
+        var source = new ArchiveAssetSource(backend, entry);
+        var shell = PsxN64ShellFile.Parse(source.ReadBytes());
+        Assert.NotNull(shell);
+        Assert.Equal(16, shell!.Objects.Count);
+
+        var probes = AnimationDiscovery.FindForCharacter(
+            source,
+            skeletonBoneCount: shell.Objects.Count,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, probes.Count);
+        Assert.Equal(
+            Enumerable.Range(0, 3).Select(index => $"{entry.Name}::anim_{index}"),
+            probes.Select(static probe => probe.ResolvedDisplayName));
+        for (var index = 0; index < probes.Count; index++)
+        {
+            var animationSource = Assert.IsType<N64AnimationSource>(probes[index].Source);
+            Assert.Same(source, animationSource.ModelSource);
+            Assert.Equal(index, animationSource.AnimationIndex);
+            Assert.Equal(animationSource.FrameCount, probes[index].FrameCount);
+            Assert.True(probes[index].MatchesSkeleton);
+        }
+
+        // Exact GUI-style selection: one checked row contributes only its
+        // source slot, while companion lookup remains rooted at the shell.
+        var selected = Assert.IsType<N64AnimationSource>(probes[2].Source);
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = selected.ModelSource,
+            FileName = entry.Name,
+            OutputStem = "models_002",
+            SourceKind = ModelSourceKind.N64Model,
+            N64AnimationIndices = [selected.AnimationIndex]
+        });
+
+        var animation = Assert.Single(document.Animations);
+        Assert.Equal("anim_2", animation.Name);
+        Assert.All(document.Meshes.SelectMany(static mesh => mesh.Primitives),
+            static primitive => Assert.NotNull(primitive.Skin));
+    }
+
+    [Fact]
+    public void FindForCharacter_N64EligibleShell_RoutesExactEmbeddedSelectionBackToItsModel()
+    {
+        const string buildName = "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)";
+        var romPath = paths.FindSampleFile(buildName, "Tony Hawk's Pro Skater 2 (USA).z64");
+        Assert.SkipWhen(romPath == null, "THPS2 N64 ROM sample not available");
+
+        var backend = ArchiveAssetBackend.TryOpen(romPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend.FileSystem;
+        var entry = N64Bundles.FindBundle(backend, "045");
+        var source = new ArchiveAssetSource(backend, entry);
+
+        var probes = AnimationDiscovery.FindForCharacter(
+            source,
+            skeletonBoneCount: 19,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(218, probes.Count);
+        for (var index = 0; index < probes.Count; index++)
+        {
+            var animationSource = Assert.IsType<N64AnimationSource>(probes[index].Source);
+            Assert.Same(source, animationSource.ModelSource);
+            Assert.Equal(index, animationSource.AnimationIndex);
+            Assert.True(animationSource.FrameCount > 0);
+            Assert.Equal(animationSource.FrameCount, probes[index].FrameCount);
+            Assert.True(probes[index].MatchesSkeleton);
+        }
+
+        // This is the core conversion request built by the Animations panel:
+        // the selected embedded source contributes exactly its slot index, and
+        // the original shell remains the mesh source used for companion lookup.
+        var selected = Assert.IsType<N64AnimationSource>(probes[17].Source);
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = selected.ModelSource,
+            FileName = entry.Name,
+            OutputStem = "models_045",
+            SourceKind = ModelSourceKind.N64Model,
+            N64AnimationIndices = [selected.AnimationIndex]
+        });
+
+        var animation = Assert.Single(document.Animations);
+        Assert.Equal("anim_17", animation.Name);
+        Assert.All(document.Meshes.SelectMany(static mesh => mesh.Primitives),
+            static primitive => Assert.NotNull(primitive.Skin));
+    }
+
+    [Theory]
+    [InlineData("Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)",
+        "Tony Hawk's Pro Skater 2 (USA).z64", "046", 1)]
+    [InlineData("Spider-Man (2000-11-21, N64 - Final)",
+        "Spider-Man (USA).z64", "225", 6)]
+    public void FindForCharacter_N64ResidualGlobalBinding_RoutesExactSelectedSlot(
+        string buildName,
+        string romName,
+        string slot,
+        int expectedClips)
+    {
+        var romPath = paths.FindSampleFile(buildName, romName);
+        Assert.SkipWhen(romPath == null, $"{buildName} ROM sample not available");
+        var backend = ArchiveAssetBackend.TryOpen(romPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend!.FileSystem;
+        var entry = N64Bundles.FindBundle(backend, slot);
+        var source = new ArchiveAssetSource(backend, entry);
+        var shell = PsxN64ShellFile.Parse(source.ReadBytes());
+        Assert.NotNull(shell);
+
+        var probes = AnimationDiscovery.FindForCharacter(
+            source,
+            shell!.Objects.Count,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(expectedClips, probes.Count);
+        var selected = Assert.IsType<N64AnimationSource>(probes[^1].Source);
+        Assert.Same(source, selected.ModelSource);
+        Assert.Equal(expectedClips - 1, selected.AnimationIndex);
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = selected.ModelSource,
+            FileName = entry.Name,
+            OutputStem = $"models_{slot}",
+            SourceKind = ModelSourceKind.N64Model,
+            N64AnimationIndices = [selected.AnimationIndex]
+        });
+
+        var animation = Assert.Single(document.Animations);
+        Assert.Equal($"anim_{expectedClips - 1}", animation.Name);
+        Assert.All(document.Meshes.SelectMany(static mesh => mesh.Primitives),
+            static primitive => Assert.NotNull(primitive.Skin));
+    }
+
     [Fact]
     public void AnimationProbe_ListMetadata_IsPopulatedForUnnamedClip()
     {

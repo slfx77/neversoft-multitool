@@ -6,15 +6,17 @@ namespace NeversoftMultitool.Core.Formats.Mesh.N64;
 /// <summary>
 ///     Native payload for a model bundle carved from an N64 ROM: the PSX
 ///     shell (object table, hierarchy, mesh name hashes, animation chunk),
-///     the raw render-bank record its <c>renderbank-id.bin</c> points at, and
-///     the texture provider keyed by PS1 texture id.
+///     the raw shell bytes (needed for its mixed-endian embedded animation),
+///     the render-bank record its <c>renderbank-id.bin</c> points at, and the
+///     texture provider keyed by dictionary slot.
 ///     <para>
-///         <see cref="RenderBank" /> is kept as raw bytes because its vertex
-///         codec is not yet decoded; consumers that only need the skeleton or
-///         names ignore it.
+///         <see cref="RenderBank" /> stays raw at this boundary and is decoded
+///         by <see cref="N64RenderBankFile" /> while the document is populated;
+///         consumers that only need the shell can ignore it.
 ///     </para>
 /// </summary>
 public sealed record N64ModelNativeSource(
+    byte[] ShellData,
     PsxMeshFile Shell,
     byte[]? RenderBank,
     uint? RenderBankId,

@@ -31,6 +31,12 @@ internal static class AnimationDiscovery
     public static IReadOnlyList<AnimationProbe> FindForCharacter(
         AssetSource skinSource, int? skeletonBoneCount, CancellationToken ct)
     {
+        if (IsN64Character(skinSource))
+        {
+            ct.ThrowIfCancellationRequested();
+            return N64EmbeddedAnimationDiscovery.CreateProbes(skinSource);
+        }
+
         if (IsPsxCharacter(skinSource))
             return FindForPsxCharacter(skinSource, ct);
 
@@ -132,6 +138,11 @@ internal static class AnimationDiscovery
     public static bool IsPsxAnimationBankFileName(string path)
     {
         return path.EndsWith(".psx", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsN64Character(AssetSource source)
+    {
+        return source.EntryName.EndsWith(".psx.n64", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsPsxCharacter(AssetSource source)

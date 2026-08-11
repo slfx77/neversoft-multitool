@@ -1,29 +1,54 @@
+using System.Buffers.Binary;
+using System.Diagnostics;
+using System.Numerics;
 using NeversoftMultitool.Core.Formats;
+using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.ArchiveFs;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.N64;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
+using SharpGLTF.Schema2;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.N64;
 
 /// <summary>
-///     Pins the N64 model bundle path through the shared mesh pipeline
-///     (2026-08-06): a bundle read straight out of a .z64 produces a document
-///     with the shell's skeleton and a metadata record describing its render
-///     bank. Geometry is deliberately absent until the group2 vertex codec is
-///     decoded — the metadata says so explicitly rather than the document
-///     merely coming out empty.
+///     Pins the N64 model bundle path through the shared mesh pipeline: a
+///     bundle read straight out of a .z64 combines the shell skeleton with its
+///     decoded group2 render geometry. Embedded direct/compressed animation is
+///     explicit opt-in so ordinary conversion remains a compact, unskinned
+///     static model.
 /// </summary>
 public sealed class N64ModelParseTests(TestPaths paths)
 {
     private const string Thps2N64Build = "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)";
-    private const string RomName = "Tony Hawk's Pro Skater 2 (USA).z64";
+    private const string Thps2RomName = "Tony Hawk's Pro Skater 2 (USA).z64";
+    private const string SpiderN64Build = "Spider-Man (2000-11-21, N64 - Final)";
+    private const string SpiderRomName = "Spider-Man (USA).z64";
 
-    private ModelDocument ParseBundle(string slot, out IArchiveFileSystem fs)
+    private ModelDocument ParseBundle(
+        string slot,
+        out IArchiveFileSystem fs,
+        IReadOnlyList<int>? animationIndices = null,
+        bool includeAllAnimations = false)
     {
-        var romPath = paths.FindSampleFile(Thps2N64Build, RomName);
-        Assert.SkipWhen(romPath == null, "THPS2 N64 ROM sample not available");
-        fs = ArchiveFileSystem.TryOpen(romPath!)!;
-        var backend = ArchiveAssetBackend.TryOpen(romPath!)!;
+        return ParseBundle(
+            Thps2N64Build, Thps2RomName, slot, out fs,
+            animationIndices, includeAllAnimations);
+    }
+
+    private ModelDocument ParseBundle(
+        string build,
+        string rom,
+        string slot,
+        out IArchiveFileSystem fs,
+        IReadOnlyList<int>? animationIndices = null,
+        bool includeAllAnimations = false)
+    {
+        var romPath = paths.FindSampleFile(build, rom);
+        Assert.SkipWhen(romPath == null, $"{build} ROM sample not available");
+        var backend = ArchiveAssetBackend.TryOpen(romPath!);
+        Assert.NotNull(backend);
+        fs = backend!.FileSystem;
         var entry = N64Bundles.FindBundle(backend, slot);
         var source = new ArchiveAssetSource(backend, entry);
 
@@ -32,8 +57,106 @@ public sealed class N64ModelParseTests(TestPaths paths)
             Source = source,
             FileName = entry.Name,
             OutputStem = "models_000",
-            SourceKind = ModelSourceKind.N64Model
+            SourceKind = ModelSourceKind.N64Model,
+            N64AnimationIndices = animationIndices,
+            IncludeAllN64Animations = includeAllAnimations
         });
+    }
+
+    [Fact]
+    public void SelectedDirectClip_BuildsSkinnedAnimatedGlbWithoutMovingBindGeometry()
+    {
+        var staticDocument = ParseBundle(
+            SpiderN64Build, SpiderRomName, "002", out var staticFs);
+        using var _ = staticFs;
+        var animatedDocument = ParseBundle(
+            SpiderN64Build, SpiderRomName, "002", out var animatedFs, [0]);
+        using var __ = animatedFs;
+
+        Assert.True(staticDocument.TriangleCount > 0);
+        Assert.Equal(staticDocument.TriangleCount, animatedDocument.TriangleCount);
+        Assert.Empty(staticDocument.Animations);
+        Assert.All(staticDocument.Meshes.SelectMany(static mesh => mesh.Primitives),
+            static primitive => Assert.Null(primitive.Skin));
+
+        var native = Assert.IsType<N64ModelNativeSource>(animatedDocument.NativeSource);
+        Assert.Equal(16, native.Shell.Objects.Count);
+        var bank = N64CompressedAnimationBank.TryParse(native.ShellData);
+        Assert.NotNull(bank);
+        Assert.Equal(PsxMeshFile.HierChunkV1Tag, bank!.ChunkTag);
+        Assert.Equal(3, bank.Entries.Count);
+
+        var animation = Assert.Single(animatedDocument.Animations);
+        Assert.Equal("anim_0", animation.Name);
+        Assert.NotEmpty(animation.Channels);
+        Assert.All(animatedDocument.Meshes.SelectMany(static mesh => mesh.Primitives),
+            static primitive => Assert.NotNull(primitive.Skin));
+        AssertBindPoseLeavesVerticesUnchanged(animatedDocument);
+
+        var (glb, triangles) = ModelExportService.BuildGlbBytes(animatedDocument);
+        Assert.NotNull(glb);
+        Assert.Equal(animatedDocument.TriangleCount, triangles);
+        AssertKhronosClean(glb);
+        using var stream = new MemoryStream(glb, writable: false);
+        var model = ModelRoot.ReadGLB(stream);
+        Assert.Single(model.LogicalAnimations);
+        Assert.NotEmpty(model.LogicalSkins);
+        Assert.All(model.LogicalMeshes.SelectMany(static mesh => mesh.Primitives), primitive =>
+        {
+            Assert.NotNull(primitive.GetVertexAccessor("JOINTS_0"));
+            Assert.NotNull(primitive.GetVertexAccessor("WEIGHTS_0"));
+        });
+    }
+
+    private static void AssertKhronosClean(byte[] glb)
+    {
+        var validator = FindKhronosValidator();
+        if (validator == null)
+            return;
+
+        var path = Path.Combine(
+            Path.GetTempPath(), "nmt-n64-animation-" + Guid.NewGuid().ToString("N") + ".glb");
+        try
+        {
+            File.WriteAllBytes(path, glb);
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = validator,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add("--stdout");
+            startInfo.ArgumentList.Add(path);
+            using var process = Process.Start(startInfo);
+            Assert.NotNull(process);
+            var stdout = process!.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
+            Assert.True(process.WaitForExit(30_000), "Khronos glTF Validator timed out");
+            Assert.True(process.ExitCode == 0,
+                $"Khronos glTF Validator exit {process.ExitCode}:{Environment.NewLine}{stderr}{stdout}");
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    private static string? FindKhronosValidator()
+    {
+        var directory = AppContext.BaseDirectory;
+        for (var depth = 0; depth < 8 && directory != null; depth++)
+        {
+            var candidate = Path.Combine(
+                directory, "tools", "vendor", "gltf-validator", "gltf_validator.exe");
+            if (File.Exists(candidate))
+                return candidate;
+            directory = Path.GetDirectoryName(directory);
+        }
+
+        return null;
     }
 
     [Fact]
@@ -62,6 +185,321 @@ public sealed class N64ModelParseTests(TestPaths paths)
             .Sum(static p => p.Indices.Length);
         Assert.Equal(570 * 3, indices);
         Assert.Equal(document.Meshes.Count, document.Nodes.Count(static n => n.MeshIndex.HasValue));
+        Assert.Empty(document.Animations);
+        Assert.All(document.Meshes.SelectMany(static mesh => mesh.Primitives),
+            static primitive => Assert.Null(primitive.Skin));
+    }
+
+    [Fact]
+    public void SelectedCompressedClip_AddsRigidGlobalInfluencesWithoutMovingBindGeometry()
+    {
+        var staticDocument = ParseBundle("045", out var staticFs);
+        using var _ = staticFs;
+        var animatedDocument = ParseBundle("045", out var animatedFs, [0]);
+        using var __ = animatedFs;
+
+        Assert.Equal(570, staticDocument.TriangleCount);
+        Assert.Equal(staticDocument.TriangleCount, animatedDocument.TriangleCount);
+        var animation = Assert.Single(animatedDocument.Animations);
+        Assert.Equal("anim_0", animation.Name);
+        Assert.NotEmpty(animation.Channels);
+        AssertAnimationUsesShellTranslationScale(animatedDocument, animation);
+
+        var staticPrimitives = staticDocument.Meshes.SelectMany(static mesh => mesh.Primitives).ToArray();
+        var animatedPrimitives = animatedDocument.Meshes.SelectMany(static mesh => mesh.Primitives).ToArray();
+        Assert.Equal(staticPrimitives.Length, animatedPrimitives.Length);
+        for (var primitiveIndex = 0; primitiveIndex < staticPrimitives.Length; primitiveIndex++)
+        {
+            var expected = staticPrimitives[primitiveIndex];
+            var actual = animatedPrimitives[primitiveIndex];
+            Assert.Equal(expected.Indices, actual.Indices);
+            Assert.Equal(
+                expected.Vertices.Select(static vertex => vertex.Position),
+                actual.Vertices.Select(static vertex => vertex.Position));
+
+            var skin = Assert.IsType<ModelSkinBinding>(actual.Skin);
+            Assert.Equal(actual.Vertices.Length, skin.Influences.Length);
+            Assert.All(skin.Influences, influence =>
+            {
+                Assert.InRange(influence.Joint0, 0, animatedDocument.Skeletons[0].Bones.Count - 1);
+                Assert.Equal(1f, influence.Weight0);
+                Assert.Equal(0f, influence.Weight1);
+                Assert.Equal(0f, influence.Weight2);
+                Assert.Equal(0f, influence.Weight3);
+            });
+        }
+
+        // The render-bank corner position already includes object 0 plus the
+        // G_MTX joint's world bind offset. Pin the complete rest-skin equation
+        // so adding a rigid influence cannot apply that offset a second time:
+        // position * inverseBind(joint) * worldBind(joint) == position.
+        AssertBindPoseLeavesVerticesUnchanged(animatedDocument);
+
+        var (glb, triangles) = ModelExportService.BuildGlbBytes(animatedDocument);
+        Assert.NotNull(glb);
+        Assert.Equal(570, triangles);
+        using var stream = new MemoryStream(glb, writable: false);
+        var model = ModelRoot.ReadGLB(stream);
+        Assert.Single(model.LogicalAnimations);
+        Assert.NotEmpty(model.LogicalSkins);
+        Assert.All(model.LogicalMeshes.SelectMany(static mesh => mesh.Primitives), primitive =>
+        {
+            Assert.NotNull(primitive.GetVertexAccessor("JOINTS_0"));
+            Assert.NotNull(primitive.GetVertexAccessor("WEIGHTS_0"));
+        });
+    }
+
+    [Theory]
+    [InlineData(Thps2N64Build, Thps2RomName, "046", 0x2A, 110, 1, 33)]
+    [InlineData(SpiderN64Build, SpiderRomName, "225", 0x2C, 16, 6, 1)]
+    public void SelectedResidualClip_RoutesGlobalBindingThroughGlbAndRestPose(
+        string build,
+        string rom,
+        string slot,
+        int expectedTag,
+        int expectedJointCount,
+        int expectedClipCount,
+        int expectedPlacementCount)
+    {
+        var staticDocument = ParseBundle(build, rom, slot, out var staticFs);
+        using var staticFileSystem = staticFs;
+        var animatedDocument = ParseBundle(build, rom, slot, out var animatedFs, [0]);
+        using var __ = animatedFs;
+
+        Assert.Empty(staticDocument.Animations);
+        Assert.All(staticDocument.Meshes.SelectMany(static mesh => mesh.Primitives),
+            static primitive => Assert.Null(primitive.Skin));
+        Assert.True(staticDocument.TriangleCount > 0);
+        Assert.True(animatedDocument.TriangleCount > 0);
+
+        var native = Assert.IsType<N64ModelNativeSource>(animatedDocument.NativeSource);
+        Assert.Equal(expectedJointCount, native.Shell.Objects.Count);
+        var bank = N64CompressedAnimationBank.TryParse(native.ShellData);
+        Assert.NotNull(bank);
+        Assert.Equal((uint)expectedTag, bank!.ChunkTag);
+        Assert.Equal(expectedClipCount, bank.Entries.Count);
+
+        var meshes = N64RenderBankFile.Parse(Assert.IsType<byte[]>(native.RenderBank));
+        var byNode = meshes.ToDictionary(static mesh => mesh.NodeIndex);
+        var placements = native.Shell.Objects.Select((obj, index) => (Object: obj, Index: index))
+            .Where(item => byNode.TryGetValue(item.Object.MeshIndex, out var mesh)
+                           && mesh.Triangles.Count > 0)
+            .Select(item => (item.Index, Mesh: byNode[item.Object.MeshIndex]))
+            .ToArray();
+        Assert.Equal(expectedPlacementCount, placements.Length);
+        Assert.True(N64AnimatedModelGate.TryCreateBindingPlan(
+            native.Shell, meshes, out var binding));
+        Assert.Equal(N64MatrixOffsetMode.GlobalJoint, binding.OffsetMode);
+        var rigid = N64GeometryBindingPlan.Static(native.Shell.Objects.Count);
+        Assert.Contains(placements.SelectMany(placement => placement.Mesh.Triangles
+                .SelectMany(triangle => new[]
+                {
+                    (placement.Index, triangle.C0.MatrixIndex),
+                    (placement.Index, triangle.C1.MatrixIndex),
+                    (placement.Index, triangle.C2.MatrixIndex)
+                })),
+            corner => !rigid.TryResolveOffsetObjectIndex(
+                corner.Index, corner.MatrixIndex, out _));
+
+        var animation = Assert.Single(animatedDocument.Animations);
+        Assert.Equal("anim_0", animation.Name);
+        Assert.NotEmpty(animation.Channels);
+        var timedChannel = Assert.Single(animation.Channels.Where(static channel => channel.Times.Length > 1)
+            .Take(1));
+        Assert.Equal(1f / PsxAnimationBank.DefaultPreviewFps,
+            timedChannel.Times[1] - timedChannel.Times[0], 5);
+        Assert.All(animatedDocument.Meshes.SelectMany(static mesh => mesh.Primitives), primitive =>
+        {
+            var skin = Assert.IsType<ModelSkinBinding>(primitive.Skin);
+            Assert.All(skin.Influences, influence =>
+                Assert.InRange(influence.Joint0, 0, expectedJointCount - 1));
+        });
+
+        var staticPositions = staticDocument.Meshes.SelectMany(static mesh => mesh.Primitives)
+            .SelectMany(static primitive => primitive.Vertices)
+            .Select(static vertex => vertex.Position)
+            .ToArray();
+        var animatedPositions = animatedDocument.Meshes.SelectMany(static mesh => mesh.Primitives)
+            .SelectMany(static primitive => primitive.Vertices)
+            .Select(static vertex => vertex.Position)
+            .ToArray();
+        Assert.False(staticPositions.SequenceEqual(animatedPositions),
+            "successful global binding should differ from the legacy relative placement geometry");
+        AssertBindPoseLeavesVerticesUnchanged(animatedDocument);
+
+        var (glb, triangles) = ModelExportService.BuildGlbBytes(animatedDocument);
+        Assert.NotNull(glb);
+        Assert.Equal(animatedDocument.TriangleCount, triangles);
+        AssertKhronosClean(glb);
+        using var stream = new MemoryStream(glb, writable: false);
+        var model = ModelRoot.ReadGLB(stream);
+        Assert.Single(model.LogicalAnimations);
+        Assert.NotEmpty(model.LogicalSkins);
+        Assert.All(model.LogicalMeshes.SelectMany(static mesh => mesh.Primitives), primitive =>
+        {
+            Assert.NotNull(primitive.GetVertexAccessor("JOINTS_0"));
+            Assert.NotNull(primitive.GetVertexAccessor("WEIGHTS_0"));
+        });
+    }
+
+    private static void AssertBindPoseLeavesVerticesUnchanged(ModelDocument document)
+    {
+        var skeleton = Assert.Single(document.Skeletons);
+        var worldBinds = new Matrix4x4?[skeleton.Bones.Count];
+
+        Matrix4x4 ResolveWorldBind(int index)
+        {
+            if (worldBinds[index] is { } resolved)
+                return resolved;
+
+            var bone = skeleton.Bones[index];
+            resolved = bone.ParentIndex >= 0
+                ? bone.LocalTransform * ResolveWorldBind(bone.ParentIndex)
+                : bone.LocalTransform * skeleton.RootTransform;
+            worldBinds[index] = resolved;
+            return resolved;
+        }
+
+        // N64 HIER parents are not guaranteed to precede children in object
+        // order, so resolve recursively instead of reading an uninitialized
+        // parent matrix from a single forward pass.
+        for (var i = 0; i < skeleton.Bones.Count; i++)
+            _ = ResolveWorldBind(i);
+
+        foreach (var primitive in document.Meshes.SelectMany(static mesh => mesh.Primitives))
+        {
+            var skin = Assert.IsType<ModelSkinBinding>(primitive.Skin);
+            for (var i = 0; i < primitive.Vertices.Length; i++)
+            {
+                var position = primitive.Vertices[i].Position;
+                var joint = skin.Influences[i].Joint0;
+                var restSkin = skeleton.Bones[joint].InverseBindMatrix * worldBinds[joint]!.Value;
+                var transformed = Vector3.Transform(position, restSkin);
+                Assert.True(
+                    Vector3.Distance(position, transformed) < 1e-5f,
+                    $"joint {joint} moved bind vertex {i}: {position} -> {transformed}");
+            }
+        }
+    }
+
+    private static void AssertAnimationUsesShellTranslationScale(
+        ModelDocument document,
+        ModelAnimation modelAnimation)
+    {
+        var native = Assert.IsType<N64ModelNativeSource>(document.NativeSource);
+        var bank = N64CompressedAnimationBank.TryParse(native.ShellData);
+        Assert.NotNull(bank);
+        var decoded = bank.DecodeSlot(0, native.Shell.Objects.Count);
+
+        ModelAnimationChannel? selectedChannel = null;
+        var selectedFrame = -1;
+        foreach (var channel in modelAnimation.Channels.Where(static channel =>
+                     channel.Property == ModelAnimationProperty.Translation))
+        {
+            var frame0 = decoded.GetBoneTranslation(channel.BoneIndex, 0);
+            for (var frame = 1; frame < decoded.FrameCount; frame++)
+            {
+                if (decoded.GetBoneTranslation(channel.BoneIndex, frame) == frame0)
+                    continue;
+
+                selectedChannel = channel;
+                selectedFrame = frame;
+                break;
+            }
+
+            if (selectedChannel != null)
+                break;
+        }
+
+        Assert.NotNull(selectedChannel);
+        var boneIndex = selectedChannel.BoneIndex;
+        var rawTranslation = decoded.GetBoneTranslation(boneIndex, selectedFrame);
+        var expected = PsxMeshSemantics.ToGltfPosition(
+            rawTranslation / native.Shell.ScaleDivisor);
+        var wrongVertexScale = PsxMeshSemantics.ToGltfPosition(
+            rawTranslation * (8f / native.Shell.ScaleDivisor));
+        var offset = selectedFrame * 3;
+        var actual = new Vector3(
+            selectedChannel.Values[offset],
+            selectedChannel.Values[offset + 1],
+            selectedChannel.Values[offset + 2]);
+
+        Assert.True(Vector3.Distance(expected, actual) < 1e-5f,
+            $"N64 translation used a divisor other than shell ScaleDivisor {native.Shell.ScaleDivisor}: "
+            + $"bone {boneIndex}, frame {selectedFrame}, raw {rawTranslation}, "
+            + $"expected {expected}, actual {actual}, x8 {wrongVertexScale}");
+        Assert.True(Vector3.Distance(wrongVertexScale, actual) > 1e-3f,
+            "N64 animation translation incorrectly inherited the render-vertex x8 scale");
+    }
+
+    [Fact]
+    public void InvalidExactSelection_FailsBackToByteIdenticalStaticGlb()
+    {
+        // slot 046 is the 33-placement direct-matrix sk2def control. An
+        // invalid opt-in must not activate its otherwise valid global plan.
+        var staticDocument = ParseBundle("046", out var staticFs);
+        using var _ = staticFs;
+        var rejectedDocument = ParseBundle("046", out var rejectedFs, [int.MaxValue]);
+        using var __ = rejectedFs;
+
+        Assert.Empty(rejectedDocument.Animations);
+        Assert.All(rejectedDocument.Meshes.SelectMany(static mesh => mesh.Primitives),
+            static primitive => Assert.Null(primitive.Skin));
+
+        var (staticGlb, staticTriangles) = ModelExportService.BuildGlbBytes(staticDocument);
+        var (rejectedGlb, rejectedTriangles) = ModelExportService.BuildGlbBytes(rejectedDocument);
+        Assert.Equal(staticTriangles, rejectedTriangles);
+        Assert.Equal(staticGlb, rejectedGlb);
+    }
+
+    [Fact]
+    public void AllSelectedDecodesFail_PreservesUnskinnedByteIdenticalStaticGlb()
+    {
+        // Spider-Man slot 225 is a newly admitted compressed shell whose
+        // non-zero placement makes relative G_MTX addressing go out of range.
+        var romPath = paths.FindSampleFile(SpiderN64Build, SpiderRomName);
+        Assert.SkipWhen(romPath == null, "Spider-Man N64 ROM sample not available");
+        var backend = ArchiveAssetBackend.TryOpen(romPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend.FileSystem;
+        var entry = N64Bundles.FindBundle(backend, "225");
+        var archiveSource = new ArchiveAssetSource(backend, entry);
+        var corruptSource = new OverrideBytesAssetSource(
+            archiveSource,
+            MakeFirstClipOwnOneByte(archiveSource.ReadBytes()));
+
+        var parser = new MeshModelParser();
+        ModelDocument Parse(IReadOnlyList<int>? animationIndices) => parser.Parse(new MeshImportRequest
+        {
+            Source = corruptSource,
+            FileName = entry.Name,
+            OutputStem = "models_225",
+            SourceKind = ModelSourceKind.N64Model,
+            N64AnimationIndices = animationIndices
+        });
+
+        var staticDocument = Parse(null);
+        var rejectedDocument = Parse([0]);
+
+        Assert.Empty(rejectedDocument.Animations);
+        Assert.All(rejectedDocument.Meshes.SelectMany(static mesh => mesh.Primitives),
+            static primitive => Assert.Null(primitive.Skin));
+        var (staticGlb, staticTriangles) = ModelExportService.BuildGlbBytes(staticDocument);
+        var (rejectedGlb, rejectedTriangles) = ModelExportService.BuildGlbBytes(rejectedDocument);
+        Assert.True(staticTriangles > 0);
+        Assert.Equal(staticTriangles, rejectedTriangles);
+        Assert.Equal(staticGlb, rejectedGlb);
+    }
+
+    [Fact]
+    public void AllClipOptIn_ExportsTheWholeRealBank()
+    {
+        var document = ParseBundle("045", out var fs, includeAllAnimations: true);
+        using var _ = fs;
+
+        Assert.Equal(218, document.Animations.Count);
+        Assert.All(document.Meshes.SelectMany(static mesh => mesh.Primitives),
+            static primitive => Assert.NotNull(primitive.Skin));
     }
 
     /// <summary>
@@ -98,5 +536,56 @@ public sealed class N64ModelParseTests(TestPaths paths)
         });
 
         Assert.Contains("N64 model shell", error.Message, StringComparison.Ordinal);
+    }
+
+    private static byte[] MakeFirstClipOwnOneByte(byte[] source)
+    {
+        var bytes = (byte[])source.Clone();
+        var cursor = checked((int)BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(4)));
+        var compressedChunk = -1;
+        while (cursor + 8 <= bytes.Length)
+        {
+            var tag = BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(cursor));
+            if (tag == uint.MaxValue)
+                break;
+
+            var length = checked((int)BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(cursor + 4)));
+            var dataStart = cursor + 8;
+            if (tag == PsxMeshFile.HierChunkV2Tag)
+                compressedChunk = dataStart;
+            cursor = checked(dataStart + length);
+        }
+
+        Assert.True(compressedChunk >= 0, "real fixture should contain compressed 0x2C animation data");
+        var count = BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(compressedChunk));
+        Assert.True(count >= 3, "fixture needs a following offset to preserve table monotonicity");
+        var firstPoolOffset = BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(compressedChunk + 4));
+        BinaryPrimitives.WriteUInt32BigEndian(
+            bytes.AsSpan(compressedChunk + 12),
+            checked(firstPoolOffset + 1));
+
+        var bank = N64CompressedAnimationBank.TryParse(bytes);
+        Assert.NotNull(bank);
+        var shell = PsxN64ShellFile.Parse(bytes);
+        Assert.NotNull(shell);
+        Assert.NotNull(Record.Exception(() => bank!.DecodeSlot(0, shell!.Objects.Count)));
+        return bytes;
+    }
+
+    private sealed class OverrideBytesAssetSource(AssetSource inner, byte[] bytes) : AssetSource
+    {
+        public override string DisplayName => inner.DisplayName;
+        public override string EntryName => inner.EntryName;
+        public override string? FileSystemPath => inner.FileSystemPath;
+        public override byte[] ReadBytes() => bytes;
+        public override bool CompanionExists(string nameWithExtension) =>
+            inner.CompanionExists(nameWithExtension);
+        public override byte[]? TryReadCompanion(string nameWithExtension) =>
+            inner.TryReadCompanion(nameWithExtension);
+        public override byte[]? TryReadCompanion(
+            string stem,
+            IReadOnlyList<string> extensions,
+            IReadOnlyList<string>? subdirs = null) =>
+            inner.TryReadCompanion(stem, extensions, subdirs);
     }
 }

@@ -1,4 +1,5 @@
 using System.Numerics;
+using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
@@ -25,8 +26,8 @@ public static class N64ModelWriter
     /// <summary>
     ///     Everything one conversion needs that does not vary per triangle:
     ///     the shell it is placed against, the material cache, the raw-unit
-    ///     scale, the ROM's light rig, the coplanar-overlay assignments, and
-    ///     the semi-transparent lift.
+    ///     scale, the ROM's light rig, the coplanar-overlay assignments, the
+    ///     semi-transparent lift, and the selected matrix binding plan.
     /// </summary>
     private readonly record struct EmitContext(
         PsxMeshFile Shell,
@@ -34,7 +35,8 @@ public static class N64ModelWriter
         float Scale,
         N64LightRig? Rig,
         IReadOnlyDictionary<N64TriangleInstanceKey, N64CoplanarOverlayAssignment> Overlays,
-        N64SemiTransparentLift? Lift);
+        N64SemiTransparentLift? Lift,
+        N64GeometryBindingPlan Binding);
 
     /// <summary>
     ///     How far a decal separates from the surface it covers, in RAW N64
@@ -60,7 +62,11 @@ public static class N64ModelWriter
         return k / shell.ScaleDivisor;
     }
 
-    public static void Populate(ModelDocument document, N64ModelNativeSource source)
+    public static void Populate(
+        ModelDocument document,
+        N64ModelNativeSource source,
+        IReadOnlyList<int>? animationIndices = null,
+        bool includeAllAnimations = false)
     {
         var shell = source.Shell;
 
@@ -72,13 +78,51 @@ public static class N64ModelWriter
             ? N64RenderBankFile.Parse(source.RenderBank)
             : [];
 
+        // Embedded 0x2A direct-matrix and 0x2C compressed clips share one
+        // bounded global-G_MTX path. The gate proves every emitted corner and
+        // rejects multi-placement shapes whose relative/global interpretation
+        // is still ambiguous. Outside it this writer remains exactly the
+        // historical rigid/relative path.
+        var animationsRequested = includeAllAnimations || animationIndices is { Count: > 0 };
+        var animationPlan = animationsRequested
+            ? N64AnimatedModelGate.TryOpen(source.ShellData, shell, meshes)
+            : null;
+        var decodedAnimations = animationPlan != null
+            ? DecodeAnimations(
+                shell, animationPlan.Animations, animationIndices, includeAllAnimations)
+            : [];
+        if (decodedAnimations.Count > 0)
+        {
+            // Policies, not recovered N64 playback behavior: use the
+            // established PSX 30 fps preview cadence, and for tweened 0x2A
+            // endings use the shared CycleAnim wrap. N64 timing and per-clip
+            // loop/clamp mode remain unproven. Translation deliberately stays
+            // at shell.ScaleDivisor (/36 for a super). Only render vertices
+            // receive the N64 port's ×8 correction.
+            PsxAnimationChannelWriter.PopulatePsxAnimations(
+                document,
+                shell,
+                0,
+                decodedAnimations,
+                new PsxAnimationOptions(Fps: PsxAnimationBank.DefaultPreviewFps));
+        }
+
+        // A structurally eligible bank alone is not enough to alter geometry.
+        // Invalid selections, failed decodes, and all-placeholder clips retain
+        // the historical unskinned static document.
+        var binding = document.Animations.Count > 0
+            ? animationPlan!.Geometry
+            : N64GeometryBindingPlan.Static(shell.Objects.Count);
+
         var materials = new N64MaterialCache(document, source.TextureProvider);
         var scale = WorldScale(shell);
         var emitted = 0;
-        // Placement is OBJECT-driven, exactly as the PS1 writer does it: each
-        // object places the mesh its MeshIndex names, at its own offset. A mesh
-        // no object references is never drawn (a Downhill Jam shell carries 883
-        // meshes for 642 objects), and one mesh may be placed more than once.
+        // Mesh selection is OBJECT-driven, exactly as the PS1 writer does it:
+        // each object selects the mesh its MeshIndex names. Static conversion
+        // uses the placing object's relative matrix base; successful animation
+        // uses the gate's global matrix plan. A mesh no object references is
+        // never drawn (a Downhill Jam shell carries 883 meshes for 642 objects),
+        // and one mesh may be placed more than once on the static path.
         var byNode = meshes.ToDictionary(static m => m.NodeIndex);
         var placements = new List<(int ObjectIndex, N64RenderBankFile.N64RenderMesh Mesh)>();
         for (var objectIndex = 0; objectIndex < shell.Objects.Count; objectIndex++)
@@ -89,11 +133,12 @@ public static class N64ModelWriter
 
         // Built from the same placement list the emit loop walks, so detector,
         // lift and writer provably see the identical triangle set.
-        var candidates = BuildOverlayCandidates(placements, shell, scale);
+        var candidates = BuildOverlayCandidates(placements, shell, scale, binding);
         var overlays = N64CoplanarOverlayDetector.FindGroups(candidates, scale);
         var lift = N64SemiTransparentLift.Build(candidates, DecalLiftInRawUnits * scale);
 
-        var context = new EmitContext(shell, materials, scale, source.LightRig, overlays, lift);
+        var context = new EmitContext(
+            shell, materials, scale, source.LightRig, overlays, lift, binding);
         foreach (var (objectIndex, mesh) in placements)
         {
             if (EmitMesh(document, mesh, objectIndex, context))
@@ -110,32 +155,67 @@ public static class N64ModelWriter
             materials.UntexturedFaces));
     }
 
+    private static List<(string Name, PsxAnimation Animation)> DecodeAnimations(
+        PsxMeshFile shell,
+        N64CompressedAnimationBank bank,
+        IReadOnlyList<int>? requestedIndices,
+        bool includeAllAnimations)
+    {
+        IReadOnlyList<int> indices = includeAllAnimations
+            ? Enumerable.Range(0, bank.Entries.Count).ToArray()
+            : requestedIndices ?? [];
+        var seen = new HashSet<int>();
+        var clips = new List<(string Name, PsxAnimation Animation)>();
+        foreach (var index in indices)
+        {
+            if (!seen.Add(index) || (uint)index >= (uint)bank.Entries.Count)
+                continue;
+
+            try
+            {
+                clips.Add(($"anim_{index}", bank.DecodeSlot(index, shell.Objects.Count)));
+            }
+            catch (Exception ex) when (ex is InvalidDataException or ArgumentOutOfRangeException
+                                       or IndexOutOfRangeException or OverflowException)
+            {
+                // A malformed slot is never allowed to borrow from its
+                // neighbour. Keep valid siblings useful, but do not publish a
+                // partial channel set for the bad slot.
+            }
+        }
+
+        return clips;
+    }
+
     /// <summary>
     ///     Emits one render-bank mesh node, split into a node per
     ///     <c>G_MTX</c> index so the parts stay separable in the exported
     ///     scene.
     ///     <para>
-    ///         The G_MTX index selects the runtime animation matrix, so it
-    ///         separates parts but carries no placement of its own — the
-    ///         placing object's authored offset does that. Node vertices are
-    ///         MESH-LOCAL: verified on c_kart, whose box was the right size but
-    ///         displaced by exactly its object's (-10, 9, -92)/2.25, and which
-    ///         matches PS1 to ~0.2 (the port's trunc(raw/8) quantisation) once
-    ///         the offset is applied.
+    ///         The selected <see cref="N64GeometryBindingPlan" /> decides
+    ///         whether G_MTX is relative to the placing object (static) or a
+    ///         global animation joint. Node vertices are MESH-LOCAL: verified
+    ///         on c_kart, whose box was the right size but displaced by exactly
+    ///         its object's (-10, 9, -92)/2.25, and which matches PS1 to ~0.2
+    ///         (the port's trunc(raw/8) quantisation) once the offset is applied.
     ///     </para>
     /// </summary>
     /// <summary>
-    ///     World offset for one corner. G_MTX selects a matrix RELATIVE to the
-    ///     placing object: a level node draws with matrix 0 and takes its
-    ///     placer's offset, while a character is ONE node whose matrices walk
-    ///     the object table from the placer. Applied PER CORNER because the RSP
-    ///     transforms a vertex when it is loaded, so a triangle bridging two
-    ///     rigid parts carries two matrices.
+    ///     World offset for one corner. Static G_MTX is relative to the placing
+    ///     object; an admitted animated G_MTX is a global joint. The same plan
+    ///     is used here, by overlay detection, and by semi-transparent lifting.
+    ///     It is applied PER CORNER because the RSP transforms a vertex when it
+    ///     is loaded, so a triangle may bridge two rigid parts.
     /// </summary>
     private static Vector3 CornerOffset(
-        PsxMeshFile shell, int objectIndex, N64RenderBankFile.N64Corner corner)
+        PsxMeshFile shell,
+        int objectIndex,
+        N64RenderBankFile.N64Corner corner,
+        N64GeometryBindingPlan binding)
     {
-        return ObjectOffset(shell, objectIndex + corner.MatrixIndex);
+        var offsetObjectIndex = binding.ResolveOffsetObjectIndexOrDefault(
+            objectIndex, corner.MatrixIndex);
+        return ObjectOffset(shell, offsetObjectIndex);
     }
 
     /// <summary>Offset of an object, or the origin when the index is outside the table.</summary>
@@ -170,7 +250,8 @@ public static class N64ModelWriter
     private static List<N64OverlayCandidateSource> BuildOverlayCandidates(
         List<(int ObjectIndex, N64RenderBankFile.N64RenderMesh Mesh)> placements,
         PsxMeshFile shell,
-        float scale)
+        float scale,
+        N64GeometryBindingPlan binding)
     {
         var sources = new List<N64OverlayCandidateSource>();
         foreach (var (objectIndex, mesh) in placements)
@@ -184,9 +265,12 @@ public static class N64ModelWriter
                 sources.Add(new N64OverlayCandidateSource(
                     new N64TriangleInstanceKey(objectIndex, i),
                     [
-                        CornerPosition(mesh, triangle.C0, scale, CornerOffset(shell, objectIndex, triangle.C0)),
-                        CornerPosition(mesh, triangle.C1, scale, CornerOffset(shell, objectIndex, triangle.C1)),
-                        CornerPosition(mesh, triangle.C2, scale, CornerOffset(shell, objectIndex, triangle.C2)),
+                        CornerPosition(mesh, triangle.C0, scale,
+                            CornerOffset(shell, objectIndex, triangle.C0, binding)),
+                        CornerPosition(mesh, triangle.C1, scale,
+                            CornerOffset(shell, objectIndex, triangle.C1, binding)),
+                        CornerPosition(mesh, triangle.C2, scale,
+                            CornerOffset(shell, objectIndex, triangle.C2, binding)),
                     ],
                     triangle.TextureSlot,
                     triangle.FaceFlags));
@@ -215,12 +299,9 @@ public static class N64ModelWriter
 
         foreach (var part in indexed.GroupBy(static t => t.Triangle.MatrixIndex).OrderBy(static g => g.Key))
         {
-            // G_MTX selects a matrix RELATIVE to the placing object: a level
-            // node draws with matrix 0 and takes its placer's offset, while a
-            // character is ONE node whose matrices 0..N-1 walk the object table
-            // from the placer. object[placer + matrix] satisfies both - it
-            // reproduces the PS1 skater's height (93.3 vs 93.8) where using no
-            // offset gives 40.9.
+            // Static geometry retains the established relative object+matrix
+            // interpretation. A successfully decoded animation uses the gate's
+            // global plan for both bind placement and rigid joint influence.
             var baseName = $"n64_{objectIndex:D4}_part{part.Key:D3}";
             var layers = part.ToLookup(item =>
                 context.Overlays.TryGetValue(new N64TriangleInstanceKey(objectIndex, item.Index), out var assignment)
@@ -260,7 +341,10 @@ public static class N64ModelWriter
         MeshDrawOrderMetadata? drawOrder)
     {
         var modelMesh = new ModelMesh { Name = name };
-        var batches = new Dictionary<int, (List<ModelVertex> Vertices, List<int> Indices)>();
+        var batches = new Dictionary<int, (
+            List<ModelVertex> Vertices,
+            List<int> Indices,
+            List<ModelBoneInfluences> Influences)>();
 
         foreach (var (triangle, _) in layer)
         {
@@ -281,25 +365,46 @@ public static class N64ModelWriter
             var (materialIndex, size) = context.Materials.Resolve(triangle, translucent);
             if (!batches.TryGetValue(materialIndex, out var batch))
             {
-                batch = ([], []);
+                batch = ([], [], []);
                 batches[materialIndex] = batch;
             }
 
             var (l0, l1, l2) = SemiTransparentLift(mesh, triangle, objectIndex, context);
-            ModelDocumentGeometryAdapter.AddTriangle(
-                batch.Vertices, batch.Indices,
-                ToVertex(mesh, triangle.C0, size, objectIndex, context, l0),
-                ToVertex(mesh, triangle.C1, size, objectIndex, context, l1),
-                ToVertex(mesh, triangle.C2, size, objectIndex, context, l2));
+            var v0 = ToVertex(mesh, triangle.C0, size, objectIndex, context, l0);
+            var v1 = ToVertex(mesh, triangle.C1, size, objectIndex, context, l1);
+            var v2 = ToVertex(mesh, triangle.C2, size, objectIndex, context, l2);
+            if (context.Binding.IsSkinned)
+            {
+                ModelDocumentGeometryAdapter.AddSkinnedTriangle(
+                    batch.Vertices, batch.Indices, batch.Influences,
+                    v0, ModelBoneInfluences.Single(
+                        context.Binding.ResolveSkinJoint(triangle.C0.MatrixIndex)),
+                    v1, ModelBoneInfluences.Single(
+                        context.Binding.ResolveSkinJoint(triangle.C1.MatrixIndex)),
+                    v2, ModelBoneInfluences.Single(
+                        context.Binding.ResolveSkinJoint(triangle.C2.MatrixIndex)));
+            }
+            else
+            {
+                ModelDocumentGeometryAdapter.AddTriangle(
+                    batch.Vertices, batch.Indices, v0, v1, v2);
+            }
         }
 
         foreach (var (materialIndex, batch) in batches.OrderBy(static b => b.Key))
         {
             if (batch.Indices.Count == 0)
                 continue;
+            var skin = context.Binding.IsSkinned
+                ? new ModelSkinBinding
+                {
+                    SkeletonIndex = 0,
+                    Influences = batch.Influences.ToArray()
+                }
+                : null;
             var primitive = ModelDocumentGeometryAdapter.AddPrimitive(
                 modelMesh, $"{modelMesh.Name}_m{materialIndex:D3}",
-                materialIndex, batch.Vertices, batch.Indices);
+                materialIndex, batch.Vertices, batch.Indices, skin);
             if (primitive != null && drawOrder != null)
                 primitive.NativeMetadata.Add(drawOrder);
         }
@@ -387,11 +492,14 @@ public static class N64ModelWriter
         int objectIndex,
         EmitContext context)
     {
-        var (shell, _, scale, _, _, _) = context;
+        var (shell, _, scale, _, _, _, binding) = context;
         return (
-            CornerPosition(mesh, triangle.C0, scale, CornerOffset(shell, objectIndex, triangle.C0)),
-            CornerPosition(mesh, triangle.C1, scale, CornerOffset(shell, objectIndex, triangle.C1)),
-            CornerPosition(mesh, triangle.C2, scale, CornerOffset(shell, objectIndex, triangle.C2)));
+            CornerPosition(mesh, triangle.C0, scale,
+                CornerOffset(shell, objectIndex, triangle.C0, binding)),
+            CornerPosition(mesh, triangle.C1, scale,
+                CornerOffset(shell, objectIndex, triangle.C1, binding)),
+            CornerPosition(mesh, triangle.C2, scale,
+                CornerOffset(shell, objectIndex, triangle.C2, binding)));
     }
 
     /// <summary>
@@ -413,8 +521,8 @@ public static class N64ModelWriter
         EmitContext context,
         Vector3 lift)
     {
-        var (shell, _, scale, rig, _, _) = context;
-        var offset = CornerOffset(shell, objectIndex, corner);
+        var (shell, _, scale, rig, _, _, binding) = context;
+        var offset = CornerOffset(shell, objectIndex, corner, binding);
         var vertex = mesh.Vertices[corner.Vertex];
         var hasNormals = mesh.HasNormals;
         var uScale = 32f * Math.Max(1, size.Width);

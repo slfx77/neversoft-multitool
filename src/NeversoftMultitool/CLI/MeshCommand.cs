@@ -27,7 +27,9 @@ public static class MeshCommand
         };
         var skeletonOption = new Option<string?>("--ske")
         {
-            Description = "Skeleton file or directory for PS2 skin files"
+            Description =
+                "Skeleton file or directory for PS2, Xbox, PC, and GameCube skin weights " +
+                "when compatible"
         };
         var ddxOption = new Option<string?>("--ddx")
         {
@@ -59,6 +61,14 @@ public static class MeshCommand
                 + "authored colours for the viewer to light — the file records WHICH faces the "
                 + "engine lights but never WHICH light, so the rig cannot be inferred."
         };
+        var n64AnimationsOption = new Option<bool>("--n64-animations")
+        {
+            Description =
+                "Embed every direct 0x2A or compressed 0x2C clip for conservatively eligible "
+                + "N64 models. Off by default because character banks can contain hundreds of clips; "
+                + "direct tween endings use the PSX CycleAnim export policy while N64 timing and "
+                + "loop/clamp behavior remain unproven."
+        };
         var verboseOption = new Option<bool>("-v", "--verbose")
         {
             Description = "Enable verbose output"
@@ -78,6 +88,7 @@ public static class MeshCommand
         command.Options.Add(scaleOption);
         command.Options.Add(worldzoneTimeOfDayOption);
         command.Options.Add(psxLightOption);
+        command.Options.Add(n64AnimationsOption);
         command.Options.Add(verboseOption);
         command.Options.Add(formatOption);
         command.Options.Add(blenderHelperOption);
@@ -93,6 +104,7 @@ public static class MeshCommand
             var ddmTexturePath = parseResult.GetValue(ddmTexturesOption);
             var scale = parseResult.GetValue(scaleOption);
             var verbose = parseResult.GetValue(verboseOption);
+            var includeN64Animations = parseResult.GetValue(n64AnimationsOption);
             if (!MeshExportCliOptions.ValidateFormat(parseResult.GetValue(formatOption), out var format))
                 return Task.FromResult(1);
             var blenderHelperPath = parseResult.GetValue(blenderHelperOption);
@@ -136,6 +148,7 @@ public static class MeshCommand
                 verbose,
                 format,
                 blenderHelperPath,
+                includeN64Animations,
                 cancellationToken));
         });
 
@@ -156,6 +169,7 @@ public static class MeshCommand
         bool verbose,
         MeshOutputFormat format,
         string? blenderHelperPath,
+        bool includeN64Animations,
         CancellationToken cancellationToken)
     {
         var files = CollectInputFiles(input);
@@ -240,7 +254,8 @@ public static class MeshCommand
                     worldzoneTimeOfDay,
                     coordinateScale,
                     psxLightPreset,
-                    exportStem);
+                    exportStem,
+                    includeN64Animations);
 
                 converted++;
                 totalTriangles += result.Triangles;
