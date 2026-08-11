@@ -134,10 +134,16 @@ internal sealed class GsRenderTargetCache
         if (!IsSupportedPsm(tpsm) || tw <= 0 || th <= 0)
             return null;
 
-        // Sample's page geometry — only handle PSMCT32-family for now (page 64x32).
-        // PSMCT16 uses 64x64 page geometry so the offset math differs; defer for now.
-        if (!IsPsmct32Family(tpsm))
+        // PSMCT32/24 pages are 64x32 pixels; PSMCT16/16S pages are 64x64.
+        // FBW/TBW still counts 64-pixel page columns for both families. Keep the
+        // 16 and 16S layouts separate: their page geometry matches, but their
+        // within-page block swizzles do not.
+        var pageHeight = GetComposePageHeight(tpsm);
+        if (pageHeight == 0)
             return null;
+        var isPsmct16Family = pageHeight == 64;
+        var fallbackPagesPerRow = isPsmct16Family ? DivideRoundUp(tw, 64) : tw / 64;
+        var samplePageRows = isPsmct16Family ? DivideRoundUp(th, pageHeight) : th / pageHeight;
 
         // Two passes, strided-preferred:
         //   1. Only surfaces whose write FBW matches the sample's TBW, placed at the
@@ -151,13 +157,16 @@ internal sealed class GsRenderTargetCache
         //      any-FBW overlay so cross-stride reads (bloom seeding passes re-reading
         //      fbw10 content at tbw4) keep their previous content instead of dropping
         //      to transparent black.
-        var matched = ComposePass(tbp, tw, th, tbw != 0 ? (int)tbw : tw / 64, tbw, th / 32);
+        var matched = ComposePass(tbp, tw, th, tpsm,
+            tbw != 0 ? (int)tbw : fallbackPagesPerRow, tbw, samplePageRows, pageHeight);
         if (matched != null)
             return matched;
-        return ComposePass(tbp, tw, th, tw / 64, 0, th / 32);
+        return ComposePass(tbp, tw, th, tpsm,
+            fallbackPagesPerRow, 0, samplePageRows, pageHeight);
     }
 
-    private byte[]? ComposePass(uint tbp, int tw, int th, int samplePagesPerRow, uint requiredFbw, int samplePageRows)
+    private byte[]? ComposePass(uint tbp, int tw, int th, uint tpsm,
+        int samplePagesPerRow, uint requiredFbw, int samplePageRows, int pageHeight)
     {
         if (samplePagesPerRow <= 0 || samplePageRows <= 0)
             return null;
@@ -172,12 +181,12 @@ internal sealed class GsRenderTargetCache
 
         foreach (var (_, surface) in _surfaces)
         {
-            if (!IsPsmct32Family(surface.Psm))
+            if (!CanComposeSurface(tpsm, surface.Psm))
                 continue;
             if (requiredFbw != 0 && surface.Fbw != requiredFbw)
                 continue;
 
-            var surfacePagesTall = (surface.MaxYWritten + 32) / 32;
+            var surfacePagesTall = (surface.MaxYWritten + pageHeight) / pageHeight;
             if (surfacePagesTall <= 0)
                 continue;
             var surfaceBlockStart = surface.Fbp;
@@ -191,7 +200,7 @@ internal sealed class GsRenderTargetCache
             var samplePageRow = pageOffset / samplePagesPerRow;
             var samplePageCol = pageOffset % samplePagesPerRow;
             var sampleX0 = samplePageCol * 64;
-            var sampleY0 = samplePageRow * 32;
+            var sampleY0 = samplePageRow * pageHeight;
 
             // Allocate output lazily so we don't pay for a 4MB buffer if no surface matches.
             output ??= new byte[tw * th * 4];
@@ -256,6 +265,29 @@ internal sealed class GsRenderTargetCache
             or Ps2TexPixelDecoder.PSMCT24
             or Ps2GsVram.PSMZ32
             or Ps2GsVram.PSMZ24;
+    }
+
+    private static int GetComposePageHeight(uint psm)
+    {
+        if (IsPsmct32Family(psm))
+            return 32;
+        return psm is Ps2TexPixelDecoder.PSMCT16 or Ps2GsVram.PSMCT16S ? 64 : 0;
+    }
+
+    private static bool CanComposeSurface(uint texturePsm, uint surfacePsm)
+    {
+        if (IsPsmct32Family(texturePsm))
+            return IsPsmct32Family(surfacePsm);
+
+        // PSMCT16 and PSMCT16S share 64x64 page geometry but have different block
+        // permutations. Cross-layout reinterpretation must keep using GS VRAM.
+        return surfacePsm == texturePsm
+               && texturePsm is Ps2TexPixelDecoder.PSMCT16 or Ps2GsVram.PSMCT16S;
+    }
+
+    private static int DivideRoundUp(int value, int divisor)
+    {
+        return (value + divisor - 1) / divisor;
     }
 
     private readonly record struct RtKey(uint Fbp, uint Fbw, uint Psm);
