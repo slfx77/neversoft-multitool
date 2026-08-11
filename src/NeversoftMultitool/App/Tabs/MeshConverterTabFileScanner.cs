@@ -526,7 +526,7 @@ internal static class MeshConverterTabFileScanner
     /// <summary>
     ///     A carved N64 model bundle. The carver puts the bundle slot in the
     ///     file name, together with the PS1 name its content resolved to
-    ///     (NNN_<name>.psx.n64), so the row identifies itself; the
+    ///     (<c>NNN_&lt;name&gt;.psx.n64</c>), so the row identifies itself; the
     ///     geometry count comes from the linked render bank rather than the
     ///     shell, which holds no mesh chunks.
     /// </summary>
@@ -534,7 +534,8 @@ internal static class MeshConverterTabFileScanner
     {
         try
         {
-            var shell = PsxN64ShellFile.Parse(source.ReadBytes());
+            var shellData = source.ReadBytes();
+            var shell = PsxN64ShellFile.Parse(shellData);
             if (shell == null)
                 return null;
 
@@ -552,6 +553,8 @@ internal static class MeshConverterTabFileScanner
                 PsxIsSuperModel = shell.IsSuperModel,
                 PsxFormatRevision = shell.FormatRevision,
                 N64MaxBoundsRadius = N64ModelCompanions.TryReadMaxBoundsRadius(source) ?? 0f,
+                N64HasEmbeddedAnimations =
+                    N64AnimatedModelGate.TryOpen(shellData, shell, meshes) != null,
                 Source = source
             };
         }
@@ -817,7 +820,8 @@ internal static class MeshConverterTabFileScanner
                 Format = format,
                 ObjectCount = scene.Sectors.Length,
                 MeshCount = scene.Materials.Length,
-                Source = source
+                Source = source,
+                XbxHasSkinnedSectors = scene.Sectors.Any(static sector => sector.IsSkinned)
             };
         }
         catch

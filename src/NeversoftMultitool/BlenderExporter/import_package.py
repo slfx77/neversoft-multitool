@@ -2,7 +2,9 @@
 """Import a NeversoftMultitool stdin blend export payload and save a .blend file."""
 
 import json
+import hashlib
 import io
+import math
 import os
 import re
 import struct
@@ -10,7 +12,7 @@ import sys
 import zipfile
 
 import bpy
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Quaternion, Vector
 
 
 VERTEX_STRUCT = struct.Struct("<12f")
@@ -23,6 +25,9 @@ ANIM_FLOAT_STRUCT = struct.Struct("<f")
 # Parallel-to-vertex PS1 UV animation payload:
 # uVel, vVel, frequency, enabled, uAmp, uPhase, vAmp, vPhase, width, height.
 WIBBLE_STRUCT = struct.Struct("<10f")
+
+_PSX_COLOUR_PULSE_ATTRIBUTE = "neversoft_psx_colour_pulse_channel"
+_PSX_COLOUR_PULSE_GROUP = "Neversoft PSX Colour Pulses"
 
 # Source data is glTF-style Y-up (PS2 worldzones are emitted with Y as height,
 # X/Z forming the ground plane). Blender uses Z-up natively, so each imported
@@ -1152,7 +1157,6 @@ def _make_materials(manifest, package, package_dir):
             additive_uses_texture_alpha=psx_additive or xbx_baked_additive,
             use_vertex_alpha=not is_xbx_scene,
         )
-
         material["neversoft_native_metadata"] = _json(metadata)
         material["neversoft_alpha_mode"] = entry.get("AlphaMode", "Opaque")
         material["neversoft_alpha_cutoff"] = entry.get("AlphaCutoff", 0.5)
@@ -1169,6 +1173,58 @@ def _make_materials(manifest, package, package_dir):
 
         materials.append(material)
     return materials
+
+
+def _enabled_socket(sockets, name):
+    """Return the enabled socket with a repeated UI name (Mix has several)."""
+    for socket in sockets:
+        if socket.name == name and socket.enabled:
+            return socket
+    return None
+
+
+def _enable_psx_untextured_vertex_color_material(material, recipe):
+    """Make pulse-bearing, untextured PS1 materials consume the animated
+    ``Color`` layer. The old untextured path left the Principled defaults wired,
+    which made alpha-only ABR pulses animate geometry data without changing the
+    rendered material.
+    """
+    if (material is None or not material.use_nodes or
+            material.get("neversoft_psx_colour_pulse_material")):
+        return
+    node_tree = material.node_tree
+    principled = next(
+        (node for node in node_tree.nodes if node.bl_idname == "ShaderNodeBsdfPrincipled"),
+        None)
+    if principled is None:
+        return
+
+    vertex_color = node_tree.nodes.new("ShaderNodeVertexColor")
+    vertex_color.layer_name = _VERTEX_COLOR_LAYER
+    color_socket = vertex_color.outputs.get("Color")
+    alpha_socket = vertex_color.outputs.get("Alpha")
+    if color_socket is None or alpha_socket is None:
+        return
+
+    # Blender's unlit Principled setup emits independently of its Alpha input.
+    # Gate emission for ordinary/additive alpha just like the textured path;
+    # subtractive pulses intentionally keep their black RGB un-premultiplied.
+    emission_color = color_socket
+    if recipe != "subtractive":
+        alpha_color = _scalar_to_color_socket(node_tree, alpha_socket)
+        multiply = node_tree.nodes.new("ShaderNodeMixRGB")
+        multiply.blend_type = "MULTIPLY"
+        multiply.inputs["Fac"].default_value = 1.0
+        node_tree.links.new(color_socket, multiply.inputs["Color1"])
+        node_tree.links.new(alpha_color, multiply.inputs["Color2"])
+        emission_color = multiply.outputs["Color"]
+
+    emission_input = principled.inputs.get("Emission Color") or principled.inputs.get("Emission")
+    if emission_input is not None:
+        node_tree.links.new(emission_color, emission_input)
+    if _PRINCIPLED_ALPHA in principled.inputs:
+        node_tree.links.new(alpha_socket, principled.inputs[_PRINCIPLED_ALPHA])
+    material["neversoft_psx_colour_pulse_material"] = True
 
 
 def _read_vertices(package, package_dir, primitive):
@@ -1248,8 +1304,6 @@ def _assign_texture_wibble_attributes(mesh, values):
     if not values or len(values) != len(mesh.vertices):
         return False
 
-    import math
-
     columns = [[] for _ in _PSX_WIBBLE_ATTRIBUTE_NAMES]
     for (u_vel, v_vel, frequency, enabled,
          u_amp, u_phase, v_amp, v_phase, width, height) in values:
@@ -1277,6 +1331,274 @@ def _assign_texture_wibble_attributes(mesh, values):
         return True
     except Exception:
         return False
+
+
+def _validated_colour_pulse_channels(manifest):
+    """Validate without compacting: buffer codes index this list directly.
+
+    A malformed entry stays in its slot as ``None`` so later valid entries can
+    never slide under an earlier code. Readers map a code targeting ``None`` to
+    zero and retain the mesh's statically baked frame-zero colour.
+    """
+    channels = []
+    raw_channels = manifest.get("ColourPulseChannels", [])
+    if not isinstance(raw_channels, list):
+        return channels
+    for entry in raw_channels[:255]:
+        valid = None
+        try:
+            keys = entry.get("PortableKeys")
+            intervals = entry.get("Intervals")
+            raw_initial_key = entry.get("InitialKeyIndex", -1)
+            raw_accumulator = entry.get("InitialAccumulator", -1)
+            initial_key = int(raw_initial_key)
+            accumulator = int(raw_accumulator)
+            if not isinstance(keys, list) or not isinstance(intervals, list):
+                raise ValueError("pulse arrays are missing")
+            if not keys or len(keys) != len(intervals) or len(keys) > 255:
+                raise ValueError("pulse arrays have inconsistent lengths")
+            if (isinstance(raw_initial_key, bool) or isinstance(raw_accumulator, bool) or
+                    initial_key != raw_initial_key or accumulator != raw_accumulator):
+                raise ValueError("pulse playhead is not integral")
+            if not 0 <= initial_key < len(keys) or not 0 <= accumulator <= 255:
+                raise ValueError("pulse playhead is outside its byte domain")
+            converted_keys = []
+            for key in keys:
+                if not isinstance(key, list) or len(key) != 4:
+                    raise ValueError("pulse key is not RGBA")
+                if any(
+                        not isinstance(component, (int, float)) or isinstance(component, bool)
+                        for component in key):
+                    raise ValueError("pulse key contains a non-numeric component")
+                converted = tuple(float(component) for component in key)
+                if not all(
+                        math.isfinite(component) and 0.0 <= component <= 3.402823466e38
+                        for component in converted):
+                    raise ValueError("pulse key is outside Blender's float domain")
+                converted_keys.append(converted)
+            converted_intervals = []
+            for interval in intervals:
+                converted = int(interval)
+                if (isinstance(interval, bool) or converted != interval or
+                        not 0 <= converted <= 255):
+                    raise ValueError("pulse interval is outside its byte domain")
+                converted_intervals.append(converted)
+            valid = {
+                "keys": converted_keys,
+                "intervals": converted_intervals,
+                "initial_key": initial_key,
+                "accumulator": accumulator,
+            }
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            pass
+        channels.append(valid)
+    return channels
+
+
+def _read_colour_pulse_codes(package, package_dir, primitive, vertex_count, channels):
+    path = primitive.get("ColourPulseBuffer")
+    if not isinstance(path, str):
+        return []
+    data = _read_package_bytes(package, package_dir, path)
+    if not data or len(data) != vertex_count or not channels:
+        return []
+    values = [
+        code if 0 < code <= len(channels) and channels[code - 1] is not None else 0
+        for code in data
+    ]
+    return values if any(values) else []
+
+
+def _assign_colour_pulse_attribute(mesh, values):
+    if not values or len(values) != len(mesh.vertices):
+        return False
+    try:
+        attribute = mesh.attributes.new(
+            name=_PSX_COLOUR_PULSE_ATTRIBUTE,
+            type="INT",
+            domain="POINT")
+        attribute.data.foreach_set("value", values)
+        return True
+    except Exception:
+        return False
+
+
+def _new_rgba_value(node_tree, value, label=None):
+    # Geometry node trees reject ShaderNodeRGB in Blender 5.1. An RGBA Mix
+    # with Factor=0 is a geometry-compatible constant and, unlike Combine
+    # Color's component defaults, preserves positive overbright values > 1.
+    node = node_tree.nodes.new("ShaderNodeMix")
+    node.data_type = "RGBA"
+    if label:
+        node.label = label
+    factor = _enabled_socket(node.inputs, "Factor")
+    color_a = _enabled_socket(node.inputs, "A")
+    color_b = _enabled_socket(node.inputs, "B")
+    result = _enabled_socket(node.outputs, "Result")
+    if factor is None or color_a is None or color_b is None or result is None:
+        raise RuntimeError("Blender RGBA Mix sockets are unavailable")
+    factor.default_value = 0.0
+    color_a.default_value = value
+    color_b.default_value = value
+    return result
+
+
+def _new_clamped_factor(node_tree, time_socket, start, end):
+    node = node_tree.nodes.new("ShaderNodeMapRange")
+    node.clamp = True
+    node.interpolation_type = "LINEAR"
+    node_tree.links.new(time_socket, node.inputs["Value"])
+    node.inputs["From Min"].default_value = float(start)
+    node.inputs["From Max"].default_value = float(end)
+    node.inputs["To Min"].default_value = 0.0
+    node.inputs["To Max"].default_value = 1.0
+    return node.outputs["Result"]
+
+
+def _new_rgba_mix(node_tree, factor, color_a, color_b):
+    node = node_tree.nodes.new("ShaderNodeMix")
+    node.data_type = "RGBA"
+    factor_input = _enabled_socket(node.inputs, "Factor")
+    color_a_input = _enabled_socket(node.inputs, "A")
+    color_b_input = _enabled_socket(node.inputs, "B")
+    result = _enabled_socket(node.outputs, "Result")
+    if factor_input is None or color_a_input is None or color_b_input is None or result is None:
+        raise RuntimeError("Blender RGBA Mix sockets are unavailable")
+    node_tree.links.new(factor, factor_input)
+    node_tree.links.new(color_a, color_a_input)
+    color_b_input.default_value = color_b
+    return result
+
+
+def _build_colour_pulse_channel(node_tree, native_frame, channel, channel_number):
+    keys = channel["keys"]
+    intervals = channel["intervals"]
+    key_index = channel["initial_key"]
+
+    time_socket = native_frame
+    if channel["accumulator"]:
+        add = node_tree.nodes.new("ShaderNodeMath")
+        add.operation = "ADD"
+        node_tree.links.new(native_frame, add.inputs[0])
+        add.inputs[1].default_value = float(channel["accumulator"])
+        time_socket = add.outputs["Value"]
+
+    # Traverse in native playhead order. A zero-duration key is reached by the
+    # preceding positive interval, then held forever. If every interval is
+    # positive, modulo the whole cycle and continue cyclically.
+    order = [(key_index + offset) % len(keys) for offset in range(len(keys))]
+    first_zero = next((offset for offset, index in enumerate(order) if intervals[index] == 0), None)
+    if first_zero is None:
+        cycle = sum(intervals[index] for index in order)
+        modulo = node_tree.nodes.new("ShaderNodeMath")
+        modulo.operation = "MODULO"
+        node_tree.links.new(time_socket, modulo.inputs[0])
+        modulo.inputs[1].default_value = float(cycle)
+        time_socket = modulo.outputs["Value"]
+        segment_count = len(order)
+    else:
+        segment_count = first_zero
+
+    current = _new_rgba_value(
+        node_tree,
+        keys[order[0]],
+        label=f"Pulse {channel_number} Key {order[0]}")
+    start = 0
+    for offset in range(segment_count):
+        current_index = order[offset]
+        next_index = order[(offset + 1) % len(order)]
+        interval = intervals[current_index]
+        factor = _new_clamped_factor(node_tree, time_socket, start, start + interval)
+        current = _new_rgba_mix(node_tree, factor, current, keys[next_index])
+        start += interval
+    return current
+
+
+def _colour_pulse_table_signature(channels, scene_fps):
+    canonical = _json({"channels": channels, "scene_fps": scene_fps}).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _make_colour_pulse_node_group(channels):
+    scene = bpy.context.scene
+    scene_fps = max(float(scene.render.fps) / max(float(scene.render.fps_base), 1e-9), 1e-9)
+    signature = _colour_pulse_table_signature(channels, scene_fps)
+    for candidate in bpy.data.node_groups:
+        if candidate.get("neversoft_psx_colour_pulse_signature") == signature:
+            return candidate
+    group_name = f"{_PSX_COLOUR_PULSE_GROUP} {signature[:12]}"
+    existing = bpy.data.node_groups.get(group_name)
+    if existing is not None:
+        group_name = f"{_PSX_COLOUR_PULSE_GROUP} {signature}"
+
+    group = bpy.data.node_groups.new(group_name, "GeometryNodeTree")
+    group.interface.new_socket(name="Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    group.interface.new_socket(name="Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    group_input = group.nodes.new("NodeGroupInput")
+    group_output = group.nodes.new("NodeGroupOutput")
+
+    timeline = group.nodes.new("ShaderNodeValue")
+    timeline.label = "PS1 60 Hz timeline"
+    driver = timeline.outputs[0].driver_add("default_value").driver
+    driver.expression = f"(frame - 1.0) * {60.0 / scene_fps:.17g}"
+    floor = group.nodes.new("ShaderNodeMath")
+    floor.operation = "FLOOR"
+    group.links.new(timeline.outputs[0], floor.inputs[0])
+    native_frame = floor.outputs["Value"]
+
+    original = group.nodes.new("GeometryNodeInputNamedAttribute")
+    original.data_type = "FLOAT_COLOR"
+    original.inputs["Name"].default_value = _VERTEX_COLOR_LAYER
+    pulse_code = group.nodes.new("GeometryNodeInputNamedAttribute")
+    pulse_code.data_type = "INT"
+    pulse_code.inputs["Name"].default_value = _PSX_COLOUR_PULSE_ATTRIBUTE
+
+    select = group.nodes.new("GeometryNodeIndexSwitch")
+    select.data_type = "RGBA"
+    while len(select.index_switch_items) < len(channels) + 1:
+        select.index_switch_items.new()
+    group.links.new(pulse_code.outputs["Attribute"], select.inputs["Index"])
+    group.links.new(original.outputs["Attribute"], select.inputs[1])
+    for index, channel in enumerate(channels, start=1):
+        if channel is None:
+            group.links.new(original.outputs["Attribute"], select.inputs[index + 1])
+        else:
+            color = _build_colour_pulse_channel(group, native_frame, channel, index)
+            group.links.new(color, select.inputs[index + 1])
+
+    # Portable keys are already transformed and are intentionally interpolated
+    # in that output domain (matching the GLB/viewer contract). The native
+    # static bake instead interpolates packet bytes before its nonlinear colour
+    # transform, so serialized accumulators can make those two frame-zero
+    # values differ. Keep Blender frame 1 exactly on the baked Color fallback;
+    # subsequent native frames use the portable evaluator.
+    after_frame_zero = group.nodes.new("ShaderNodeMath")
+    after_frame_zero.operation = "GREATER_THAN"
+    group.links.new(native_frame, after_frame_zero.inputs[0])
+    after_frame_zero.inputs[1].default_value = 0.0
+    frame_zero_switch = group.nodes.new("GeometryNodeSwitch")
+    frame_zero_switch.input_type = "RGBA"
+    group.links.new(after_frame_zero.outputs["Value"], frame_zero_switch.inputs["Switch"])
+    group.links.new(original.outputs["Attribute"], frame_zero_switch.inputs["False"])
+    group.links.new(select.outputs["Output"], frame_zero_switch.inputs["True"])
+
+    store = group.nodes.new("GeometryNodeStoreNamedAttribute")
+    store.data_type = "FLOAT_COLOR"
+    store.domain = "CORNER"
+    store.inputs["Name"].default_value = _VERTEX_COLOR_LAYER
+    group.links.new(group_input.outputs["Geometry"], store.inputs["Geometry"])
+    group.links.new(frame_zero_switch.outputs["Output"], store.inputs["Value"])
+    group.links.new(store.outputs["Geometry"], group_output.inputs["Geometry"])
+    group["neversoft_psx_colour_pulse_channels"] = len(channels)
+    group["neversoft_psx_colour_pulse_signature"] = signature
+    return group
+
+
+def _enable_colour_pulse_modifier(obj, channels):
+    group = _make_colour_pulse_node_group(channels)
+    modifier = obj.modifiers.new(name=_PSX_COLOUR_PULSE_GROUP, type="NODES")
+    modifier.node_group = group
+    obj["neversoft_psx_colour_pulse"] = True
 
 
 def _named_float(node_tree, name):
@@ -1369,7 +1691,7 @@ def _enable_psx_texture_wibble_material(material):
     material["neversoft_psx_texture_wibble"] = True
 
 
-def _assign_colors(mesh, colors):
+def _assign_colors(mesh, colors, force_float=False):
     if not colors:
         return
     try:
@@ -1379,7 +1701,8 @@ def _assign_colors(mesh, colors):
         # same multiplier as the live and software renderers.
         color_type = (
             "FLOAT_COLOR"
-            if any(component < 0.0 or component > 1.0 for color in colors for component in color)
+            if force_float or
+               any(component < 0.0 or component > 1.0 for color in colors for component in color)
             else "BYTE_COLOR"
         )
         color_layer = mesh.color_attributes.new(name="Color", type=color_type, domain="CORNER")
@@ -1649,19 +1972,54 @@ def _flat_matrix(values):
     ))
 
 
+def _local_bind_trs(bone):
+    """Return a manifest bone's parent-relative bind TRS in Blender's
+    column-vector convention.
+
+    Blender edit bones represent the translation and rotation used by the
+    PSX/PS2/RW rigs. Keeping that split explicit gives animation channels the
+    exact edit-bone basis they must be converted against. Scaled, reflected,
+    or sheared binds cannot be represented exactly by this edit-bone path and
+    are rejected instead of silently producing plausible-but-corrupt skinning.
+    """
+    matrix = _flat_matrix(bone.get("LocalTransform"))
+    translation, rotation, scale = matrix.decompose()
+    scale_error = max(abs(scale[i] - 1.0) for i in range(3))
+    rigid = Matrix.LocRotScale(translation, rotation, (1.0, 1.0, 1.0))
+    linear_error = max(
+        abs(matrix[row][column] - rigid[row][column])
+        for row in range(3)
+        for column in range(3)
+    )
+    if scale_error > 1.0e-4 or linear_error > 1.0e-4:
+        bone_name = bone.get("Name") or "<unnamed>"
+        raise RuntimeError(
+            f"Bone '{bone_name}' has an unsupported non-rigid bind matrix "
+            f"(scale {tuple(round(scale[i], 6) for i in range(3))}, "
+            f"linear error {linear_error:.6g})."
+        )
+    return translation, rotation, scale
+
+
+def _edit_bone_local_matrix(bone):
+    translation, rotation, _scale = _local_bind_trs(bone)
+    return Matrix.LocRotScale(translation, rotation, (1.0, 1.0, 1.0))
+
+
 def _make_armatures(manifest, root):
     """Create one Blender Armature object per ModelSkeleton in the manifest.
 
     Returns a list of (armature_obj, [bone_name, ...]) tuples indexed by
-    skeleton index, with (None, []) for empty/missing entries. Bone names
-    in the returned list match the order of the IR's joint indices so a
-    primitive's per-vertex JOINTS_0 entries can resolve directly.
+    skeleton index, with (None, []) for empty/missing entries. Bone names match
+    the order of the IR's joint indices so a primitive's per-vertex JOINTS_0
+    entries resolve directly.
 
-    Each bone's rest position is derived by accumulating LocalTransform
-    matrices up the parent chain. Bones get a small +Y tail offset (their
-    visual length in armature-local space) since Blender requires
-    head != tail. Vertex group binding is by name, so the visual tail
-    direction doesn't affect skinning correctness."""
+    Edit bones carry bind translation + rotation, so the armature modifier is
+    neutral at the authored bind pose and animation can be expressed in the
+    correct pose-bone basis. The PSX and PS2 SKE binds covered here are rigid;
+    RenderWare rigs use this path when their binds are rigid. Arbitrary
+    non-rigid bind matrices are rejected explicitly because a per-vertex
+    preblend introduces incorrect cross terms for multi-weight skin."""
     armatures = []
     skeletons = manifest.get("Skeletons", [])
     for skeleton_index, skeleton in enumerate(skeletons):
@@ -1675,29 +2033,31 @@ def _make_armatures(manifest, root):
         armature_obj = bpy.data.objects.new(armature_name, armature_data)
         bpy.context.collection.objects.link(armature_obj)
 
-        # Chain local transforms up the parent to get world bind matrices.
-        # PSX HIER skeletons may store a child BEFORE its parent (Venom's
+        # Chain rigid edit-bone transforms up the parent hierarchy. PSX HIER
+        # skeletons may store a child BEFORE its parent (Venom's
         # tongue/jaw/forearm chains, e.g. bone 1 parented to bone 2), so a
         # single ordered pass would mis-root those bones: their rest heads
         # land at the bare local offset and every pose stretches the limb
         # (the v1.3.4-era "stretched face/arm/tongue" report). Resolve
         # memoized-recursively instead; a parent cycle falls back to root.
-        world_binds = [None] * len(bones)
+        edit_world_binds = [None] * len(bones)
 
-        def _world_bind(index, visiting):
-            if world_binds[index] is not None:
-                return world_binds[index]
-            local = _flat_matrix(bones[index].get("LocalTransform"))
+        def _edit_world_bind(index, visiting):
+            if edit_world_binds[index] is not None:
+                return edit_world_binds[index]
+            local = _edit_bone_local_matrix(bones[index])
             parent_index = bones[index].get("ParentIndex", -1)
             if (0 <= parent_index < len(bones) and parent_index != index
                     and parent_index not in visiting):
-                world_binds[index] = _world_bind(parent_index, visiting | {index}) @ local
+                edit_world_binds[index] = (
+                    _edit_world_bind(parent_index, visiting | {index}) @ local
+                )
             else:
-                world_binds[index] = local
-            return world_binds[index]
+                edit_world_binds[index] = local
+            return edit_world_binds[index]
 
         for i in range(len(bones)):
-            _world_bind(i, {i})
+            _edit_world_bind(i, {i})
 
         bpy.context.view_layer.objects.active = armature_obj
         bpy.ops.object.mode_set(mode='EDIT')
@@ -1711,9 +2071,16 @@ def _make_armatures(manifest, root):
                     bone_name = f"{bone_name}_{i:04d}"
                 bone_names.append(bone_name)
                 eb = edit_bones.new(bone_name)
-                head = world_binds[i].translation
+                edit_world = edit_world_binds[i]
+                head = edit_world @ Vector((0.0, 0.0, 0.0))
+                tail = edit_world @ Vector((0.0, 0.05, 0.0))
+                if (tail - head).length <= 1.0e-8:
+                    tail = head + Vector((0.0, 0.05, 0.0))
                 eb.head = head
-                eb.tail = head + Vector((0.0, 0.05, 0.0))
+                eb.tail = tail
+                roll_axis = edit_world @ Vector((0.0, 0.0, 1.0)) - head
+                if roll_axis.length > 1.0e-8:
+                    eb.align_roll(roll_axis)
 
             for i, bone in enumerate(bones):
                 parent_index = bone.get("ParentIndex", -1)
@@ -1722,10 +2089,95 @@ def _make_armatures(manifest, root):
         finally:
             bpy.ops.object.mode_set(mode='OBJECT')
 
-        armature_obj.matrix_world = root
+        for bone_name in bone_names:
+            pose_bone = armature_obj.pose.bones[bone_name]
+            pose_bone.rotation_mode = 'QUATERNION'
+
+        # RootTransform is authored in the manifest's source/Y-up space.
+        # _flat_matrix transposes the System.Numerics row-vector matrix into
+        # Blender's column-vector convention, so the global source-to-Blender
+        # basis must stay on the left: basis @ source_root.
+        armature_obj.matrix_world = root @ _flat_matrix(
+            skeleton.get("RootTransform")
+        )
         armatures.append((armature_obj, bone_names))
 
     return armatures
+
+
+def _make_cameras(manifest, armatures):
+    """Create static perspective cameras bound to animated rig bones.
+
+    ModelDocument cameras reference the same skeleton/bone indices as animation
+    channels. A world-space COPY_TRANSFORMS constraint therefore gives the
+    Blender camera exactly the armature pose-bone transform at every frame,
+    without baking duplicate object animation. Source and Blender/glTF camera
+    conventions both use local -Z as forward and +Y as up, so no view-axis
+    correction is applied here.
+    """
+    created = []
+    scene = bpy.context.scene
+
+    for camera_index, camera in enumerate(manifest.get("PerspectiveCameras", [])):
+        skeleton_index = camera.get("SkeletonIndex", -1)
+        bone_index = camera.get("BoneIndex", -1)
+        if not (0 <= skeleton_index < len(armatures)):
+            continue
+
+        armature_obj, bone_names = armatures[skeleton_index]
+        if armature_obj is None or not (0 <= bone_index < len(bone_names)):
+            continue
+
+        vertical_fov = camera.get("VerticalFieldOfViewRadians")
+        z_near = camera.get("ZNear")
+        z_far = camera.get("ZFar")
+        aspect_ratio = camera.get("AspectRatio")
+        if (not isinstance(vertical_fov, (int, float)) or
+                not math.isfinite(vertical_fov) or
+                not (0.0 < vertical_fov < math.pi) or
+                not isinstance(z_near, (int, float)) or
+                not math.isfinite(z_near) or z_near <= 0.0 or
+                not isinstance(z_far, (int, float)) or
+                not math.isfinite(z_far) or z_far <= z_near or
+                (aspect_ratio is not None and
+                 (not isinstance(aspect_ratio, (int, float)) or
+                  not math.isfinite(aspect_ratio) or aspect_ratio <= 0.0))):
+            continue
+
+        camera_name = camera.get("Name") or f"camera_{camera_index:04d}"
+        camera_data = bpy.data.cameras.new(camera_name)
+        camera_data.type = 'PERSP'
+        camera_data.lens_unit = 'FOV'
+        camera_data.sensor_fit = 'VERTICAL'
+        camera_data.angle = float(vertical_fov)
+        camera_data.clip_start = float(z_near)
+        camera_data.clip_end = float(z_far)
+
+        camera_obj = bpy.data.objects.new(camera_name, camera_data)
+        bpy.context.collection.objects.link(camera_obj)
+        constraint = camera_obj.constraints.new(type='COPY_TRANSFORMS')
+        constraint.name = "Neversoft camera bone"
+        constraint.target = armature_obj
+        constraint.subtarget = bone_names[bone_index]
+        constraint.target_space = 'WORLD'
+        constraint.owner_space = 'WORLD'
+        camera_obj["neversoft_skeleton_index"] = skeleton_index
+        camera_obj["neversoft_bone_index"] = bone_index
+        created.append(camera_obj)
+
+        if scene.camera is None:
+            scene.camera = camera_obj
+            if aspect_ratio is not None:
+                # THAW authored its static camera masters for a 4:3 viewport.
+                # Use an exact integral render size so angle_y and the saved
+                # scene projection agree with the manifest's vertical FOV.
+                render_height = 480
+                scene.render.resolution_x = max(1, round(render_height * aspect_ratio))
+                scene.render.resolution_y = render_height
+                scene.render.pixel_aspect_x = 1.0
+                scene.render.pixel_aspect_y = 1.0
+
+    return created
 
 
 def _read_skin_influences(package, package_dir, skin):
@@ -1739,7 +2191,7 @@ def _read_skin_influences(package, package_dir, skin):
     ]
 
 
-def _apply_skin(obj, primitive, armatures, package, package_dir):
+def _apply_skin(obj, primitive, armatures, package, package_dir, root):
     """Attach a Blender Armature modifier + vertex groups so the mesh deforms
     with bone pose changes. Called from _make_objects after the mesh object
     exists. No-op when the primitive has no Skin or the referenced skeleton
@@ -1770,11 +2222,24 @@ def _apply_skin(obj, primitive, armatures, package, package_dir):
                 vgs[joint] = vg
             vg.add([vertex_index], weight, 'REPLACE')
 
-    # Parent + ARMATURE modifier. Both the mesh and the armature were already
-    # placed at Y_UP_TO_Z_UP in world space. Setting matrix_parent_inverse to
-    # the armature's inverse world matrix preserves the mesh's world position
-    # post-parenting; otherwise Blender composes parent.world @ child.basis
-    # and the Y_UP_TO_Z_UP axis swap ends up applied twice (mesh ~90° off).
+    # The mesh starts at B @ N (global source-to-Blender basis B, authored node
+    # transform N), while its armature is at B @ R (skeleton RootTransform R).
+    # Insert R between B and N so both the joints and the skinned geometry share
+    # the placed skeleton root:
+    #
+    #   (B @ R) @ inverse(B) @ (B @ N) = B @ R @ N
+    #
+    # Keeping B on the left is essential for the Y-up -> Z-up conversion. For
+    # the identity-default R this reduces exactly to the historical B @ N.
+    # Keep the overwhelmingly common identity-root path bit-for-bit on its old
+    # object matrix; besides compatibility, this avoids needless B @ inverse(B)
+    # floating-point churn.
+    if armature_obj.matrix_world != root:
+        obj.matrix_world = armature_obj.matrix_world @ root.inverted() @ obj.matrix_world
+
+    # Parent + ARMATURE modifier. Preserve the corrected mesh world after
+    # parenting; otherwise Blender composes parent.world @ child.basis and the
+    # armature placement/basis would be applied a second time.
     obj.parent = armature_obj
     obj.parent_type = 'OBJECT'
     obj.matrix_parent_inverse = armature_obj.matrix_world.inverted()
@@ -1783,9 +2248,18 @@ def _apply_skin(obj, primitive, armatures, package, package_dir):
     mod.use_vertex_groups = True
 
 
-def _make_objects(manifest, package, package_dir, materials, root, armatures=None):
+def _make_objects(
+        manifest,
+        package,
+        package_dir,
+        materials,
+        root,
+        armatures=None,
+        colour_pulse_channels=None):
     collection = bpy.context.collection
     created = []
+    if colour_pulse_channels is None:
+        colour_pulse_channels = _validated_colour_pulse_channels(manifest)
 
     for node_index, node, mesh_entry, prim_index, primitive, leaf_meta in _object_build_items(manifest):
         vertices, normals, colors, uvs = _read_vertices(package, package_dir, primitive)
@@ -1810,7 +2284,22 @@ def _make_objects(manifest, package, package_dir, materials, root, armatures=Non
         wibbles = _read_texture_wibbles(package, package_dir, primitive)
         if _assign_texture_wibble_attributes(mesh, wibbles):
             _enable_psx_texture_wibble_material(material)
-        _assign_colors(mesh, colors)
+        pulse_codes = _read_colour_pulse_codes(
+            package,
+            package_dir,
+            primitive,
+            len(vertices),
+            colour_pulse_channels)
+        # A frame-zero key may be normalized while a later pulse key is
+        # overbright. Allocate float-backed Color up front so the modifier's
+        # animated values cannot be clamped by an existing BYTE_COLOR layer.
+        _assign_colors(mesh, colors, force_float=bool(pulse_codes))
+        has_colour_pulses = _assign_colour_pulse_attribute(mesh, pulse_codes)
+        if (has_colour_pulses and manifest.get("SourceKind") == "Psx" and material is not None and
+                not any(node.bl_idname == "ShaderNodeTexImage" for node in material.node_tree.nodes)):
+            _enable_psx_untextured_vertex_color_material(
+                material,
+                material.get("neversoft_viewport_blend_hint", "opaque"))
         try:
             mesh.normals_split_custom_set_from_vertices(normals)
             mesh.use_auto_smooth = True
@@ -1822,6 +2311,8 @@ def _make_objects(manifest, package, package_dir, materials, root, armatures=Non
             object_name = f"{object_name}_{prim_index:03d}"
         obj = bpy.data.objects.new(object_name, mesh)
         obj.matrix_world = _matrix_from_manifest(node.get("Transform"), root)
+        if has_colour_pulses:
+            _enable_colour_pulse_modifier(obj, colour_pulse_channels)
         obj["neversoft_mesh_metadata"] = _json(mesh_entry.get("NativeMetadata", []))
         obj["neversoft_primitive_metadata"] = _json(primitive.get("NativeMetadata", []))
         obj["neversoft_node_metadata"] = _json(node.get("NativeMetadata", []))
@@ -1849,7 +2340,7 @@ def _make_objects(manifest, package, package_dir, materials, root, armatures=Non
         else:
             collection.objects.link(obj)
         if armatures:
-            _apply_skin(obj, primitive, armatures, package, package_dir)
+            _apply_skin(obj, primitive, armatures, package, package_dir, root)
         created.append(obj)
 
     return created
@@ -1864,16 +2355,69 @@ def _read_float_buffer(package, package_dir, path, count):
     return [ANIM_FLOAT_STRUCT.unpack_from(data, i * ANIM_FLOAT_STRUCT.size)[0] for i in range(count)]
 
 
-def _bone_rest_local_translation(skeletons, skeleton_index, bone_index):
-    """The bone's rest parent-relative translation from its LocalTransform — the
-    same matrix _make_armatures uses to place the edit bone. Returns (x, y, z),
-    or zeros when out of range."""
+def _bone_bind_local_trs(skeletons, skeleton_index, bone_index):
+    """Return the local bind TRS used to construct an edit bone, or an
+    identity fallback when indices are invalid."""
     if 0 <= skeleton_index < len(skeletons):
         bones = skeletons[skeleton_index].get("Bones", [])
         if 0 <= bone_index < len(bones):
-            t = _flat_matrix(bones[bone_index].get("LocalTransform")).translation
-            return (t.x, t.y, t.z)
-    return (0.0, 0.0, 0.0)
+            return _local_bind_trs(bones[bone_index])
+    return (Vector((0.0, 0.0, 0.0)), Quaternion((1.0, 0.0, 0.0, 0.0)),
+            Vector((1.0, 1.0, 1.0)))
+
+
+def _channel_values_in_pose_basis(
+        property_name, values, key_count, value_stride,
+        edit_translation, edit_rotation):
+    """Convert absolute IR local-TRS keys into Blender pose-bone basis keys.
+
+    Blender evaluates BoneTRS = EditBone * PoseBasis.  The IR/glTF channels
+    replace the complete local T/R/S, so solving that equation gives:
+
+      basis.translation = inverse(edit.rotation) * (key - edit.translation)
+      basis.rotation    = inverse(edit.rotation) * key
+      basis.scale       = key
+
+    This is the source-independent matrix_basis form of the old PSX-only
+    translation subtraction. It reduces exactly to that subtraction for PSX's
+    identity bind rotations."""
+    edit_rotation_inverse = edit_rotation.conjugated()
+    converted = []
+
+    if property_name == "Translation" and value_stride == 3:
+        for key_i in range(key_count):
+            offset = key_i * value_stride
+            absolute = Vector((
+                values[offset], values[offset + 1], values[offset + 2]
+            ))
+            basis = edit_rotation_inverse @ (absolute - edit_translation)
+            converted.extend((basis.x, basis.y, basis.z))
+        return converted
+
+    if property_name == "Rotation" and value_stride == 4:
+        previous = None
+        for key_i in range(key_count):
+            offset = key_i * value_stride
+            absolute = Quaternion((
+                values[offset + 3], values[offset],
+                values[offset + 1], values[offset + 2]
+            ))
+            if absolute.magnitude <= 1.0e-8:
+                absolute = Quaternion((1.0, 0.0, 0.0, 0.0))
+            else:
+                absolute.normalize()
+            basis = edit_rotation_inverse @ absolute
+            basis.normalize()
+            if previous is not None and basis.dot(previous) < 0.0:
+                basis.negate()
+            # Keep the package's glTF order (X,Y,Z,W); the existing FCurve
+            # component mapping below converts it to Blender's (W,X,Y,Z).
+            converted.extend((basis.x, basis.y, basis.z, basis.w))
+            previous = basis.copy()
+        return converted
+
+    # Scale is already the pose-basis scale because edit bones carry no scale.
+    return values
 
 
 def _bind_action_slot(animation_data, action):
@@ -1898,33 +2442,26 @@ def _bind_strip_action_slot(strip, action):
 def _make_animations(manifest, armatures, package, package_dir):
     """Build a Blender Action per ModelAnimation, with FCurves per channel.
 
-    PSX animation values are absolute local pose transforms (the same convention
-    SKA uses). PSX rest pose has identity rotation per bone, so setting
-    pose_bone.rotation_quaternion directly to the IR value yields the correct
-    pose. Times are converted from seconds to frames via scene.render.fps.
+    Animation values are absolute local pose transforms (glTF replacement
+    semantics). Blender pose-bone properties instead describe matrix_basis,
+    relative to the edit bone. Every translation and rotation channel is
+    therefore converted through the bone's bind translation/rotation before
+    FCurves are emitted. Times are converted from seconds to frames via
+    scene.render.fps.
 
     The IR stores rotation values as (X, Y, Z, W) per glTF spec; Blender's
     rotation_quaternion is indexed as (W, X, Y, Z) so the components are
     remapped when emitting FCurves.
 
-    Translation channels need a rest-frame correction for PSX. A glTF/IR
-    Translation value is the bone's FULL parent-relative local translation and
-    REPLACES the node's rest translation (that is how the GLB path renders). But
-    a Blender pose_bone.location is a DELTA layered on top of the rest bone,
-    whose parent-relative matrix already carries that same bind translation — so
-    writing the raw value applies the offset TWICE and stretches every limb (~2x
-    at distal joints). Since PSX rest rotation is identity, the exact fix is a
-    per-component subtraction of the bone's rest local translation; the result
-    matches the GLB bit-for-bit. Gated on SourceKind == "Psx" so THAW/PS2/RW
-    exports (which have real bind rotations needing the general matrix_basis
-    form, and are out of scope here) stay byte-identical."""
+    The conversion is the same rigid-bind equation used by Blender's glTF
+    importer. For PSX, whose edit rotation is identity, it reduces exactly to
+    the previous rest-translation subtraction."""
     animations = manifest.get("Animations", [])
     if not animations:
         return
 
     scene_fps = bpy.context.scene.render.fps
     skeletons = manifest.get("Skeletons", [])
-    is_psx = manifest.get("SourceKind", "") == "Psx"
     actions_per_armature = {}
 
     for animation in animations:
@@ -1959,18 +2496,18 @@ def _make_animations(manifest, armatures, package, package_dir):
             if data_path is None:
                 continue
 
-            # Cancel the double-applied bind translation for PSX (see docstring).
-            rest_offset = (0.0, 0.0, 0.0)
-            if is_psx and property_name == "Translation":
-                rest_offset = _bone_rest_local_translation(skeletons, skeleton_index, bone_index)
+            edit_translation, edit_rotation, _bind_scale = _bone_bind_local_trs(
+                skeletons, skeleton_index, bone_index)
+            values = _channel_values_in_pose_basis(
+                property_name, values, key_count, value_stride,
+                edit_translation, edit_rotation)
 
             for component_index, value_offset in component_indices:
                 fcurve = fcurve_target.fcurves.new(data_path=data_path, index=component_index)
                 fcurve.keyframe_points.add(count=key_count)
-                bias = rest_offset[component_index] if property_name == "Translation" else 0.0
                 for key_i in range(key_count):
                     frame = times[key_i] * scene_fps
-                    value = values[key_i * value_stride + value_offset] - bias
+                    value = values[key_i * value_stride + value_offset]
                     fcurve.keyframe_points[key_i].co = (frame, value)
                     fcurve.keyframe_points[key_i].interpolation = 'LINEAR'
                 fcurve.update()
@@ -2085,9 +2622,18 @@ def main():
     _clear_scene()
     _apply_scene_metadata(manifest)
     root = _root_matrix(manifest)
+    colour_pulse_channels = _validated_colour_pulse_channels(manifest)
     materials = _make_materials(manifest, package, package_dir)
     armatures = _make_armatures(manifest, root)
-    _make_objects(manifest, package, package_dir, materials, root, armatures)
+    _make_cameras(manifest, armatures)
+    _make_objects(
+        manifest,
+        package,
+        package_dir,
+        materials,
+        root,
+        armatures,
+        colour_pulse_channels=colour_pulse_channels)
     _make_animations(manifest, armatures, package, package_dir)
 
     output_dir = os.path.dirname(blend_path)

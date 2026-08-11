@@ -41,8 +41,9 @@ public sealed class MeshImportRequest
 
     /// <summary>
     ///     Include supported level-object companions when the selected level has
-    ///     one. This currently applies to Spider-Man PSX <c>*_g.psx</c> levels
-    ///     with a sibling <c>*_o.psx</c> model bank.
+    ///     one. This includes Spider-Man PSX <c>*_g.psx</c> object banks and
+    ///     proven THPS traffic supers; script-created traffic remains behind its
+    ///     generated, default-disabled visibility snapshot.
     /// </summary>
     public bool IncludeLevelObjects { get; init; } = true;
 
@@ -73,14 +74,39 @@ public sealed class MeshImportRequest
     public IReadOnlyList<PsxAnimationClip>? PsxAnimationClips { get; init; }
 
     /// <summary>
+    ///     Optional exact embedded N64 0x2A/0x2C slot selection. Null or empty
+    ///     keeps ordinary export static; a concrete list is used by the GUI
+    ///     Animations pane for selected-clip output. N64 animation remains
+    ///     fail-closed when global and placement-relative G_MTX addressing
+    ///     cannot be distinguished conservatively.
+    /// </summary>
+    public IReadOnlyList<int>? N64AnimationIndices { get; init; }
+
+    /// <summary>
+    ///     Explicit CLI opt-in for every eligible embedded N64 0x2A/0x2C slot.
+    ///     Kept separate from <see cref="N64AnimationIndices" /> so null and
+    ///     empty never acquire overloaded meanings.
+    /// </summary>
+    public bool IncludeAllN64Animations { get; init; }
+
+    /// <summary>
     ///     Pre-decoded SKA animation slots, populated into <see cref="ModelDocument.Animations" />
     ///     by the PS2 Scene and RW DFF parsers. Null = no animations to embed.
     /// </summary>
     public IReadOnlyList<(string Name, SkaAnimation Animation)>? SkaAnimations { get; init; }
 
     /// <summary>
-    ///     Optional pre-loaded skeleton override for PS2 Scene parsing. When set, the
-    ///     parser uses this instead of re-loading from <see cref="SkeletonPath" />.
+    ///     Optional exact-QbKey mapping from the skeleton that authored
+    ///     <see cref="SkaAnimations" /> to the target mesh skeleton. This map is
+    ///     created explicitly by a CLI or GUI caller; null retains the existing
+    ///     same-rig index binding.
+    /// </summary>
+    public SkaQbKeyBoneMap? SkaQbKeyBoneMap { get; init; }
+
+    /// <summary>
+    ///     Optional pre-loaded skeleton override for PS2 Scene or XbxScene parsing.
+    ///     When set, the parser uses this instead of re-loading from
+    ///     <see cref="SkeletonPath" />.
     ///     Lets callers like <c>SkaCommand</c> apply THPS4 V1 default-pose enrichment
     ///     upstream and preserve it through the parser.
     /// </summary>

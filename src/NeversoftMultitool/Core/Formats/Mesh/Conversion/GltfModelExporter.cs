@@ -70,6 +70,8 @@ public sealed class GltfModelExporter : IModelExporter
         var materials = document.Materials.Select(material => BuildMaterial(material, document.Textures)).ToArray();
         var (skeletonJoints, skeletonRoots) = BuildSkeletonJointTrees(document.Skeletons);
         ApplyAnimations(skeletonJoints, document.Animations);
+        var (cameraSkeletons, cameraNames) =
+            AddPerspectiveCameras(scene, skeletonJoints, document);
         var totalTriangles = 0;
 
         var roots = document.Scenes.Count > 0
@@ -93,17 +95,58 @@ public sealed class GltfModelExporter : IModelExporter
         // make it into the output glTF.
         if (totalTriangles == 0 && skeletonRoots.Length > 0)
         {
-            foreach (var root in skeletonRoots)
-                scene.AddNode(root);
+            for (var i = 0; i < skeletonRoots.Length; i++)
+            {
+                // AddCamera already publishes this NodeBuilder armature. Do not
+                // add a second empty scene instance for the same skeleton root.
+                if (!cameraSkeletons.Contains(i))
+                    scene.AddNode(skeletonRoots[i]);
+            }
         }
-        else if (totalTriangles == 0 && document.Animations.Count == 0)
+        else if (totalTriangles == 0 && document.Animations.Count == 0 && cameraSkeletons.Count == 0)
         {
             return (null, 0);
         }
 
         var model = scene.ToGltf2();
+        for (var i = 0; i < cameraNames.Count && i < model.LogicalCameras.Count; i++)
+            model.LogicalCameras[i].Name = cameraNames[i];
         ApplyColourPulseTable(model, document);
         return (model, totalTriangles);
+    }
+
+    private static (HashSet<int> Skeletons, List<string> Names) AddPerspectiveCameras(
+        SceneBuilder scene,
+        (NodeBuilder Node, Matrix4x4 InverseBindMatrix)[][] skeletonJoints,
+        ModelDocument document)
+    {
+        var attachedSkeletons = new HashSet<int>();
+        var names = new List<string>();
+        foreach (var camera in document.PerspectiveCameras)
+        {
+            if (!ModelPerspectiveCameraValidation.IsValid(document, camera) ||
+                (uint)camera.SkeletonIndex >= (uint)skeletonJoints.Length)
+                continue;
+            var joints = skeletonJoints[camera.SkeletonIndex];
+            if ((uint)camera.BoneIndex >= (uint)joints.Length)
+            {
+                continue;
+            }
+
+            var builder = new CameraBuilder.Perspective(
+                camera.AspectRatio,
+                camera.VerticalFieldOfViewRadians,
+                camera.ZNear,
+                camera.ZFar)
+            {
+                Name = camera.Name
+            };
+            scene.AddCamera(builder, joints[camera.BoneIndex].Node);
+            attachedSkeletons.Add(camera.SkeletonIndex);
+            names.Add(camera.Name);
+        }
+
+        return (attachedSkeletons, names);
     }
 
     /// <summary>
@@ -256,7 +299,10 @@ public sealed class GltfModelExporter : IModelExporter
             // parentIndex == -1, so hang every orphan from a synthetic root
             // NodeBuilder. RW DFF / PS2 Scene skeletons have a single root and
             // are unaffected (the synthetic root just becomes their parent).
-            var syntheticRoot = new NodeBuilder($"{skeleton.Name}_root");
+            var syntheticRoot = new NodeBuilder($"{skeleton.Name}_root")
+            {
+                LocalMatrix = skeleton.RootTransform
+            };
 
             // Iterate parents-before-children — PSX character skeletons can
             // reference parent indices LARGER than the child's own (e.g.
@@ -455,7 +501,10 @@ public sealed class GltfModelExporter : IModelExporter
     ///     and anchor, mesh-local glTF units) so the viewer can spin the baked
     ///     quad about its authored axis toward the camera each frame.
     /// </summary>
-    private static void ApplyMeshExtras(SharpGLTF.BaseBuilder mesh, ModelMesh modelMesh)
+    private static void ApplyMeshExtras(
+        SharpGLTF.BaseBuilder mesh,
+        ModelMesh modelMesh,
+        bool psxVertexCarriers = false)
     {
         var drawOrder = modelMesh.Primitives
             .SelectMany(static primitive => primitive.NativeMetadata)
@@ -473,7 +522,8 @@ public sealed class GltfModelExporter : IModelExporter
             .SelectMany(static primitive => primitive.NativeMetadata)
             .OfType<PsxColourPulseMetadata>()
             .FirstOrDefault();
-        if (drawOrder == null && sky == null && billboard == null && colourPulse == null)
+        if (drawOrder == null && sky == null && billboard == null && colourPulse == null &&
+            !psxVertexCarriers)
             return;
 
         var extras = new System.Text.Json.Nodes.JsonObject();
@@ -503,6 +553,9 @@ public sealed class GltfModelExporter : IModelExporter
 
         if (colourPulse != null)
             extras["neversoftColourPulse"] = true;
+
+        if (psxVertexCarriers)
+            extras["neversoftPsxVertexCarriers"] = 1;
 
         mesh.Extras = extras;
     }
@@ -558,7 +611,7 @@ public sealed class GltfModelExporter : IModelExporter
 
         // Wibbled sprite/overlay meshes still carry billboard/draw-order
         // metadata (THPS2 skny's sprite trees animate their bark texture).
-        ApplyMeshExtras(mesh, modelMesh);
+        ApplyMeshExtras(mesh, modelMesh, psxVertexCarriers: true);
         scene.AddRigidMesh(mesh, worldTransform);
         return totalTriangles;
     }
@@ -587,6 +640,7 @@ public sealed class GltfModelExporter : IModelExporter
             totalTriangles += AddPsxAnimatedSkinnedTriangles(prim, primitive, skin);
         }
 
+        ApplyMeshExtras(mesh, modelMesh, psxVertexCarriers: true);
         if (totalTriangles > 0 && skeletonIndex >= 0)
             scene.AddSkinnedMesh(mesh, skeletonJoints[skeletonIndex]);
 
@@ -609,7 +663,7 @@ public sealed class GltfModelExporter : IModelExporter
             totalTriangles += AddPsxOverbrightTriangles(prim, primitive);
         }
 
-        ApplyMeshExtras(mesh, modelMesh);
+        ApplyMeshExtras(mesh, modelMesh, psxVertexCarriers: true);
         scene.AddRigidMesh(mesh, worldTransform);
         return totalTriangles;
     }
@@ -638,6 +692,7 @@ public sealed class GltfModelExporter : IModelExporter
             totalTriangles += AddPsxOverbrightSkinnedTriangles(prim, primitive, skin);
         }
 
+        ApplyMeshExtras(mesh, modelMesh, psxVertexCarriers: true);
         if (totalTriangles > 0 && skeletonIndex >= 0)
             scene.AddSkinnedMesh(mesh, skeletonJoints[skeletonIndex]);
 
@@ -667,7 +722,7 @@ public sealed class GltfModelExporter : IModelExporter
     }
 
     /// <summary>
-    ///     A pulsed mesh must reach a vertex struct that carries _PSX_FLAGS_0,
+    ///     A pulsed mesh must reach a vertex struct that carries COLOR_1,
     ///     because that is where the per-vertex channel index rides. v6 files
     ///     emit no PS1 packet, so without this they would fall through to the
     ///     plain struct and lose the lane entirely.

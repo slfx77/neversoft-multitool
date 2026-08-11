@@ -6,6 +6,7 @@ using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
@@ -136,11 +137,13 @@ public sealed class MeshModelParser : IModelParser
     /// </summary>
     private static ModelDocument ParseN64Model(MeshImportRequest request)
     {
-        var shell = PsxN64ShellFile.Parse(request.Source.ReadBytes())
+        var shellData = request.Source.ReadBytes();
+        var shell = PsxN64ShellFile.Parse(shellData)
                     ?? throw new InvalidOperationException(
                         "Not a readable N64 model shell (empty bundle slot or unrecognised container)");
 
         var native = new N64.N64ModelNativeSource(
+            shellData,
             shell,
             N64.N64ModelCompanions.TryReadRenderBank(request.Source),
             N64.N64ModelCompanions.TryReadRenderBankId(request.Source),
@@ -148,7 +151,11 @@ public sealed class MeshModelParser : IModelParser
             N64.N64ModelCompanions.TryReadLightRig(request.Source));
 
         var document = ModelDocument.CreateNative(request.OutputStem, ModelSourceKind.N64Model, native);
-        N64.N64ModelWriter.Populate(document, native);
+        N64.N64ModelWriter.Populate(
+            document,
+            native,
+            request.N64AnimationIndices,
+            request.IncludeAllN64Animations);
         return document;
     }
 
@@ -191,25 +198,24 @@ public sealed class MeshModelParser : IModelParser
             psxFile,
             request.VisibilityOverrides);
         document.VisibilityGroups.AddRange(visibility.Groups);
+        // Resolve this once from the model's complete embedded animation bank.
+        // The one-chain signature needs all authored slots, not merely whichever
+        // preview clip the user happened to select; the result is then shared by
+        // geometry suppression, reconstruction, and generated frame rotations.
+        var splineChains = PsxSplineAppendageGeometry.DiscoverControllerChains(
+            psxFile, request.Source, psxData);
         var reconstructSplineAppendages = request.PsxAnimationOptions != null
                                           && (request.PsxAnimationClips is { Count: > 0 }
                                               || request.PsxDecodedAnimations is { Count: > 0 });
-        PsxMeshFile? splineClawFile = null;
-        MeshChecksumTextureResolver? splineClawTextureProvider = null;
-        if (reconstructSplineAppendages
-            && PsxSplineAppendageGeometry.FindControllerChains(psxFile).Count == 4)
+        PsxSplineClawLocator.ResolvedClaw? splineClaw = null;
+        if (reconstructSplineAppendages && splineChains.Count == 4)
         {
             try
             {
-                // Retail sibling claw.psx first, then the claw mesh shipped
-                // inside a sibling level-object bank (the February prototypes
-                // carry it in l8a4_o.psx instead of a standalone file).
-                var claw = PsxSplineClawLocator.Locate(request.Source);
-                if (claw != null)
-                {
-                    splineClawFile = claw.File;
-                    splineClawTextureProvider = claw.TextureProvider;
-                }
+                // Discover the unique sibling tip kit by content. Dedicated
+                // payloads rank ahead of mapped or conservative legacy bank
+                // candidates; an ambiguous scope deliberately has no tip.
+                splineClaw = PsxSplineClawLocator.Locate(request.Source);
             }
             catch (Exception ex)
             {
@@ -226,14 +232,15 @@ public sealed class MeshModelParser : IModelParser
         };
         PsxGeometryWriter.PopulatePsx(
             document, psxFile, textureProvider, pshFile,
-            forceFlatSkeleton, request.PsxFlatBoneIndices, splineClawFile,
-            splineClawTextureProvider, visibility.HiddenObjectIndices,
+            forceFlatSkeleton, request.PsxFlatBoneIndices, splineClaw,
+            splineChains, visibility.HiddenObjectIndices,
             reconstructSplineAppendages, context: geometryContext);
 
         if (request.IncludeLevelObjects
             && !PsxGeometryHelpers.UsesCombinedPsxCharacterAssembly(psxFile))
             PopulatePsxLevelObjectCompanion(
-                document, request, geometryContext, psxFile);
+                document, request, geometryContext, psxFile,
+                visibility.HiddenObjectIndices);
 
         if (request.PsxAnimationOptions is { } animationOptions
             && document.Skeletons.Count > 0)
@@ -246,9 +253,7 @@ public sealed class MeshModelParser : IModelParser
                 if (reconstructSplineAppendages)
                 {
                     PsxSplineAppendageGeometry.ApplyGeneratedFrameRotations(
-                        document, 0,
-                        PsxSplineAppendageGeometry.FindControllerChains(psxFile),
-                        clips);
+                        document, 0, splineChains, clips);
                 }
             }
             else if (request.PsxDecodedAnimations is { Count: > 0 } animations)
@@ -261,9 +266,7 @@ public sealed class MeshModelParser : IModelParser
                         .Select(static entry => new PsxAnimationClip(entry.Name, entry.Animation))
                         .ToArray();
                     PsxSplineAppendageGeometry.ApplyGeneratedFrameRotations(
-                        document, 0,
-                        PsxSplineAppendageGeometry.FindControllerChains(psxFile),
-                        clipsForFrames);
+                        document, 0, splineChains, clipsForFrames);
                 }
             }
         }
@@ -295,7 +298,8 @@ public sealed class MeshModelParser : IModelParser
         ModelDocument document,
         MeshImportRequest request,
         PsxGeometryWriter.PsxGeometryWriterContext geometryContext,
-        PsxMeshFile levelMesh)
+        PsxMeshFile levelMesh,
+        IReadOnlySet<int>? hiddenLevelObjectIndices)
     {
         var geometryTranslationDivisor = levelMesh.TranslationDivisor;
         if (!MeshCompanionResolver.TryResolvePsxLevelCompanions(
@@ -332,7 +336,8 @@ public sealed class MeshModelParser : IModelParser
 
             PopulatePsxBankLayer(
                 document, request, geometryContext, companions,
-                trg, items, itemsPlacements, suppressHashes, levelMesh);
+                trg, items, itemsPlacements, suppressHashes, levelMesh,
+                hiddenLevelObjectIndices);
 
             if (items != null && itemsPlacements.Count > 0)
             {
@@ -346,6 +351,14 @@ public sealed class MeshModelParser : IModelParser
                         static pair => pair.Key,
                         static pair => (IReadOnlyList<PsxLevelObjectPlacement>)pair.Value));
             }
+
+            PopulatePsxPlacedTraffic(
+                document,
+                request,
+                geometryContext,
+                companions.LevelStem,
+                trg,
+                geometryTranslationDivisor);
         }
         catch (Exception ex)
         {
@@ -353,6 +366,321 @@ public sealed class MeshModelParser : IModelParser
             // not prevent the selected geometry layer from opening.
             Debug.WriteLine(
                 $"Unable to parse optional PSX level-object companion: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    ///     Emits independently-spooled traffic supers at their proven initial
+    ///     TRG positions. Runtime-created traffic is intentionally absent from
+    ///     the authored initial scene; those placements are exposed as a
+    ///     default-disabled snapshot because their road motion, repeats, and
+    ///     script timing are not reconstructed here.
+    /// </summary>
+    private static void PopulatePsxPlacedTraffic(
+        ModelDocument document,
+        MeshImportRequest request,
+        PsxGeometryWriter.PsxGeometryWriterContext geometryContext,
+        string levelStem,
+        TrgFile? trg,
+        float levelTranslationDivisor)
+    {
+        try
+        {
+            var resolved = PsxPlacedTrafficResolver.Resolve(
+                request.Source, trg, levelTranslationDivisor);
+            if (resolved.Count == 0)
+                return;
+
+            var assetHash = QbKey.QbKey.Hash(levelStem.ToUpperInvariant());
+            var scripted = resolved
+                .Where(static placement => !placement.InitiallyCreated)
+                .ToArray();
+            var scriptedEnabled = false;
+            if (scripted.Length > 0)
+            {
+                var id = $"psx.scripted_traffic.{assetHash:X8}";
+                scriptedEnabled = request.VisibilityOverrides?
+                    .TryGetValue(id, out var selected) == true && selected;
+                document.VisibilityGroups.Add(new ModelVisibilityGroup
+                {
+                    Id = id,
+                    Label = "Possible scripted traffic snapshot",
+                    DefaultEnabled = false,
+                    IsEnabled = scriptedEnabled,
+                    Source = ModelVisibilityGroupSource.TriggerCondition,
+                    SourceReference =
+                        "Script-reachable BADDY nodes "
+                        + string.Join(", ", scripted
+                            .Select(static placement => placement.TriggerNodeIndex)
+                            .Distinct()
+                            .Order())
+                        + "; initial road positions only (no path motion, timing, or repeats)"
+                });
+            }
+
+            var selectedPlacements = resolved
+                .Where(placement => placement.InitiallyCreated || scriptedEnabled)
+                .ToArray();
+            if (selectedPlacements.Length == 0)
+                return;
+
+            var emittedTraffic = false;
+            foreach (var sourceGroup in selectedPlacements.GroupBy(
+                         static placement => placement.Source))
+            {
+                emittedTraffic |= TryPopulatePsxPlacedTrafficSource(
+                    document,
+                    request.Source,
+                    geometryContext.EngineLight,
+                    sourceGroup.Key,
+                    sourceGroup.ToArray());
+            }
+
+            if (emittedTraffic)
+                ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
+        }
+        catch (Exception ex)
+        {
+            // Traffic is an optional runtime layer. Its TRG evidence, model,
+            // texture, or animation must never prevent the selected level and
+            // its ordinary object companions from opening.
+            Debug.WriteLine(
+                $"Unable to parse optional PSX placed traffic: {ex.Message}");
+        }
+    }
+
+    internal static bool TryPopulatePsxPlacedTrafficSource(
+        ModelDocument document,
+        AssetSource levelSource,
+        PsxEngineLight? engineLight,
+        PsxPlacedTrafficSource source,
+        IReadOnlyList<PsxPlacedTrafficPlacement> placements)
+    {
+        var snapshot = ModelDocumentAppendSnapshot.Capture(document);
+        try
+        {
+            if (placements.Count == 0)
+                return false;
+
+            MeshChecksumTextureResolver? textureProvider = null;
+            try
+            {
+                textureProvider = MeshCompanionResolver.BuildPsxTextureProvider(
+                    levelSource, source.CompanionName, source.Bytes);
+            }
+            catch (Exception ex)
+            {
+                // Missing or malformed optional texture libraries should leave
+                // usable untextured traffic geometry, not suppress the source.
+                Debug.WriteLine(
+                    $"Unable to resolve PSX traffic textures for "
+                    + $"{source.CompanionName}: {ex.Message}");
+            }
+
+            var pshFile = TryLoadPsxTrafficHierarchy(levelSource, source);
+            var sourceStem = Path.GetFileNameWithoutExtension(source.CompanionName);
+            var modelAnimation = new ModelAnimation
+            {
+                Name = $"{sourceStem}_anim_0"
+            };
+            var clip = new PsxAnimationClip("anim_0", source.Animation);
+            var animationOptions = new PsxAnimationOptions();
+
+            for (var placementIndex = 0; placementIndex < placements.Count; placementIndex++)
+            {
+                var placement = placements[placementIndex];
+                if (!IsFinite(placement.RootTransform))
+                    throw new InvalidDataException(
+                        $"Traffic BADDY {placement.TriggerNodeIndex} has a non-finite root transform.");
+
+                var instanceName =
+                    $"traffic_{sourceStem}_{placement.TriggerNodeIndex:D4}_{placementIndex:D3}";
+                var skeletonIndex = document.Skeletons.Count;
+                var meshStart = document.Meshes.Count;
+                var nodeStart = document.Nodes.Count;
+                PsxSkinnedGeometryWriter.PopulatePsxSkinned(
+                    document,
+                    source.MeshFile,
+                    pshFile,
+                    textureProvider,
+                    // A v1 direct-matrix clip carries absolute per-part world
+                    // transforms even when its model ships a HIER table. As in
+                    // the primary character path, its bind must be flat or the
+                    // glTF hierarchy re-composes and tears those parts apart.
+                    flatSkeleton: !source.MeshFile.HasHierarchy
+                                  || source.Animation.AbsoluteWorldTranslations,
+                    flatBoneIndices: null,
+                    splineClaw: null,
+                    splineChains: null,
+                    hiddenObjectIndices: null,
+                    reconstructSplineAppendages: false,
+                    engineLight: engineLight,
+                    skeletonName: $"{instanceName}_skeleton",
+                    rootTransform: placement.RootTransform,
+                    boneNamePrefix: $"{instanceName}_",
+                    combinedMeshName: $"{instanceName}_mesh");
+
+                if (!IsValidTrafficInstance(
+                        document, skeletonIndex, meshStart, nodeStart))
+                {
+                    throw new InvalidDataException(
+                        $"Traffic BADDY {placement.TriggerNodeIndex} emitted no complete skinned geometry.");
+                }
+
+                if (!PsxAnimationChannelWriter.AppendPsxAnimationClipChannels(
+                        modelAnimation,
+                        document,
+                        source.MeshFile,
+                        skeletonIndex,
+                        clip,
+                        animationOptions))
+                {
+                    throw new InvalidDataException(
+                        $"Traffic BADDY {placement.TriggerNodeIndex} emitted no animation channels.");
+                }
+            }
+
+            document.Animations.Add(modelAnimation);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            snapshot.Restore(document);
+            // Sources are independent (taxi, van, cable car, ...). Keep the
+            // other traffic types usable when one optional payload is novel or
+            // malformed.
+            Debug.WriteLine(
+                $"Unable to emit PSX traffic source {source.CompanionName}: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static bool IsValidTrafficInstance(
+        ModelDocument document,
+        int skeletonIndex,
+        int meshStart,
+        int nodeStart)
+    {
+        if (document.Skeletons.Count != skeletonIndex + 1
+            || document.Meshes.Count <= meshStart
+            || document.Nodes.Count <= nodeStart)
+        {
+            return false;
+        }
+
+        var referencedMeshes = document.Nodes
+            .Skip(nodeStart)
+            .Where(static node => node.MeshIndex.HasValue)
+            .Select(static node => node.MeshIndex!.Value)
+            .ToHashSet();
+        if (!Enumerable.Range(meshStart, document.Meshes.Count - meshStart)
+                .All(referencedMeshes.Contains))
+        {
+            return false;
+        }
+
+        var primitives = document.Meshes
+            .Skip(meshStart)
+            .SelectMany(static mesh => mesh.Primitives)
+            .ToArray();
+        return primitives.Length > 0
+               && primitives.Sum(static primitive => primitive.TriangleCount) > 0
+               && primitives.All(primitive =>
+                   primitive.Skin is { } skin
+                   && skin.SkeletonIndex == skeletonIndex
+                   && skin.Influences.Length == primitive.Vertices.Length);
+    }
+
+    private static bool IsFinite(Matrix4x4 matrix)
+    {
+        return float.IsFinite(matrix.M11)
+               && float.IsFinite(matrix.M12)
+               && float.IsFinite(matrix.M13)
+               && float.IsFinite(matrix.M14)
+               && float.IsFinite(matrix.M21)
+               && float.IsFinite(matrix.M22)
+               && float.IsFinite(matrix.M23)
+               && float.IsFinite(matrix.M24)
+               && float.IsFinite(matrix.M31)
+               && float.IsFinite(matrix.M32)
+               && float.IsFinite(matrix.M33)
+               && float.IsFinite(matrix.M34)
+               && float.IsFinite(matrix.M41)
+               && float.IsFinite(matrix.M42)
+               && float.IsFinite(matrix.M43)
+               && float.IsFinite(matrix.M44);
+    }
+
+    private static PshFile? TryLoadPsxTrafficHierarchy(
+        AssetSource levelSource,
+        PsxPlacedTrafficSource source)
+    {
+        if (!source.MeshFile.HasHierarchy)
+            return null;
+
+        try
+        {
+            var pshName = Path.GetFileNameWithoutExtension(source.CompanionName) + ".psh";
+            return levelSource.TryReadCompanion(pshName) is { } bytes
+                ? PshFile.Parse(bytes)
+                : null;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine(
+                $"Unable to parse optional PSX traffic hierarchy for "
+                + $"{source.CompanionName}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private readonly record struct ModelDocumentAppendSnapshot(
+        int SceneCount,
+        int[] SceneRootCounts,
+        int NodeCount,
+        int MeshCount,
+        int MaterialCount,
+        int TextureCount,
+        int SkeletonCount,
+        int AnimationCount,
+        int NativeMetadataCount,
+        int TriangleCount)
+    {
+        internal static ModelDocumentAppendSnapshot Capture(ModelDocument document)
+        {
+            return new ModelDocumentAppendSnapshot(
+                document.Scenes.Count,
+                document.Scenes.Select(static scene => scene.RootNodeIndices.Count).ToArray(),
+                document.Nodes.Count,
+                document.Meshes.Count,
+                document.Materials.Count,
+                document.Textures.Count,
+                document.Skeletons.Count,
+                document.Animations.Count,
+                document.NativeMetadata.Count,
+                document.TriangleCount);
+        }
+
+        internal void Restore(ModelDocument document)
+        {
+            var existingSceneCount = Math.Min(SceneCount, document.Scenes.Count);
+            for (var i = 0; i < existingSceneCount; i++)
+                Truncate(document.Scenes[i].RootNodeIndices, SceneRootCounts[i]);
+            Truncate(document.Scenes, SceneCount);
+            Truncate(document.Nodes, NodeCount);
+            Truncate(document.Meshes, MeshCount);
+            Truncate(document.Materials, MaterialCount);
+            Truncate(document.Textures, TextureCount);
+            Truncate(document.Skeletons, SkeletonCount);
+            Truncate(document.Animations, AnimationCount);
+            Truncate(document.NativeMetadata, NativeMetadataCount);
+            document.TriangleCount = TriangleCount;
+        }
+
+        private static void Truncate<T>(List<T> values, int count)
+        {
+            if (values.Count > count)
+                values.RemoveRange(count, values.Count - count);
         }
     }
 
@@ -371,7 +699,8 @@ public sealed class MeshModelParser : IModelParser
         PsxItemsBankSubstitution.LoadedItems? items,
         Dictionary<int, List<PsxLevelObjectPlacement>> itemsPlacements,
         IReadOnlySet<uint> suppressHashes,
-        PsxMeshFile levelMesh)
+        PsxMeshFile levelMesh,
+        IReadOnlySet<int>? hiddenLevelObjectIndices)
     {
         // The *_o.psx bank is optional and independent of the POWERUP layer: a
         // missing, malformed, or unreadable bank must not prevent the items
@@ -454,6 +783,32 @@ public sealed class MeshModelParser : IModelParser
                     remainingBank = withSkyAnchors;
                 }
 
+                // The per-file detector cannot see a bank face after its TRG
+                // placement lands on level geometry. Assemble that exact
+                // level+remaining-bank scope here, after What-If gating,
+                // items substitution, and sky anchoring have established what
+                // this pass will actually emit. Results stay keyed by placement
+                // index so a repeated prop is split only where it overlaps.
+                IReadOnlyDictionary<PsxPlacedFaceInstanceKey, PsxCoplanarOverlayAssignment>?
+                    placedCoplanarOverlays = null;
+                try
+                {
+                    placedCoplanarOverlays =
+                        PsxPlacedCoplanarOverlayResolver.FindBankOverlays(
+                            levelMesh,
+                            bank,
+                            remainingBank,
+                            sky?.ObjectIndices,
+                            hiddenLevelObjectIndices).Assignments;
+                }
+                catch (Exception ex)
+                {
+                    // This is optional ordering metadata. A novel transform or
+                    // malformed face must never suppress the bank geometry.
+                    Debug.WriteLine(
+                        $"Unable to resolve placed PSX coplanar overlays: {ex.Message}");
+                }
+
                 PsxGeometryWriter.PopulatePsx(
                     document,
                     bank,
@@ -469,7 +824,8 @@ public sealed class MeshModelParser : IModelParser
                     {
                         AssetHash = assetHash,
                         VisibilityOverrides = request.VisibilityOverrides
-                    });
+                    },
+                    placedCoplanarOverlays: placedCoplanarOverlays);
             }
         }
         catch (Exception ex)
@@ -584,7 +940,7 @@ public sealed class MeshModelParser : IModelParser
         if (request.SkaAnimations is { Count: > 0 } ps2Animations && document.Skeletons.Count > 0)
         {
             SkaAnimationWriter.PopulateSkaAnimations(
-                document, 0, ps2Animations);
+                document, 0, ps2Animations, boneIndexMap: request.SkaQbKeyBoneMap);
         }
 
         return document;
@@ -790,8 +1146,42 @@ public sealed class MeshModelParser : IModelParser
             document.Materials.Add(renderMaterial);
         }
 
-        XbxGeometryWriter.PopulateXbxScene(document, scene, textureProvider, request.WorldzoneScale);
+        var explicitSkeleton = request.PreparedSkeleton ?? TryLoadExplicitXbxSkeleton(
+            request.SkeletonPath, request.OutputStem);
+        XbxGeometryWriter.PopulateXbxScene(
+            document,
+            scene,
+            textureProvider,
+            request.WorldzoneScale,
+            explicitSkeleton);
         return document;
+    }
+
+    private static Ps2Skeleton? TryLoadExplicitXbxSkeleton(
+        string? skeletonPath,
+        string meshStem)
+    {
+        // Skin emission on this route is intentionally caller-explicit. Callers
+        // provide an exact file or a directory containing an exact-stem companion;
+        // a missing, malformed, or unrelated skeleton preserves historical rigid
+        // output. No implicit rig discovery or bone-count inference is permitted.
+        var resolvedPath = MeshCompanionResolver.ResolveExplicitPath(
+            skeletonPath,
+            meshStem,
+            [".ske.ps2", ".ske.xbx", ".ske.ngc", ".ske"],
+            ["SKE", "Skeletons"]);
+        if (resolvedPath == null)
+            return null;
+
+        try
+        {
+            return SkeletonAssetLoader.Parse(
+                Path.GetFileName(resolvedPath), File.ReadAllBytes(resolvedPath));
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static ModelDocument ParseRwDff(MeshImportRequest request)

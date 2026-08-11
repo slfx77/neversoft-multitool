@@ -4,6 +4,9 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using NeversoftMultitool.Core.Formats;
+using NeversoftMultitool.Core.Formats.Animation;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Settings;
@@ -36,6 +39,10 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     private bool _blendExportAvailable = true;
     private MeshConverterTabPreview? _preview;
     private CancellationTokenSource? _scanCts;
+    private CancellationTokenSource? _xbxSkeletonLoadCts;
+    private long _xbxSkeletonGeneration;
+    private MeshFileEntry? _xbxSkeletonPreviewEntry;
+    private XbxSkeletonSelection? _xbxSkeletonPreviewSelection;
     private bool _suppressAnimationSelectionChanged;
     private MeshFileEntry? _visibilityEntry;
 
@@ -46,6 +53,11 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
         _animPanel = new MeshConverterTabAnimationPanel(
             AnimDiscoveryStatusText,
+            AnimSourceRigControls,
+            AnimSourceRigText,
+            ChooseAnimSourceRigButton,
+            ChooseAnimArchiveSourceRigButton,
+            ClearAnimSourceRigButton,
             AddAnimFolderButton,
             AddAnimArchiveButton,
             ConvertGlbButton,
@@ -92,6 +104,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         ModelViewer.ModelLoaded -= ModelViewer_ModelLoaded;
         _scanCts?.Dispose();
         _scanCts = null;
+        _xbxSkeletonGeneration++;
+        CancelPendingXbxSkeletonLoad();
         _preview?.Dispose();
         _preview = null;
         _animPanel.Dispose();
@@ -322,8 +336,310 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             entry?.HasSupportedLevelObjectCompanion == true
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+        ApplyXbxSkeletonControlState();
         UpdateWorldzoneExportSettingsVisibility();
         UpdateLevelObjectExportSettingsVisibility();
+    }
+
+    private async void ChooseXbxSkeleton_Click(object sender, RoutedEventArgs e)
+    {
+        if (FilesListView.SelectedItem is not MeshFileEntry
+            {
+                SupportsExplicitXbxSkeleton: true
+            } entry)
+        {
+            return;
+        }
+
+        var (cts, generation) = BeginXbxSkeletonOperation();
+        XbxSkeletonSelection? installed = null;
+        string? failure = null;
+        var completedAsOwner = false;
+        try
+        {
+            var path = await FilePickerHelper.PickFileAsync([".ske", ".ps2", ".ngc", ".xbx"]);
+            if (path == null || !IsCurrentXbxSkeletonOperation(entry, cts, generation))
+                return;
+
+            var fileName = Path.GetFileName(path);
+            if (!SkeletonAssetLoader.IsSkeletonFileName(fileName))
+            {
+                failure = "Choose an extracted .ske, .ske.ps2, .ske.ngc, or .ske.xbx skeleton file.";
+                return;
+            }
+
+            var skeleton = await Task.Run(
+                () => SkeletonAssetLoader.Parse(fileName, File.ReadAllBytes(path)),
+                cts.Token);
+            if (!IsCurrentXbxSkeletonOperation(entry, cts, generation))
+                return;
+
+            installed = new XbxSkeletonSelection(fileName, skeleton);
+            entry.XbxSkeletonSelection = installed;
+            BeginXbxSkeletonPreview(entry, installed);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the row, picker, or tab is superseded.
+        }
+        catch (Exception ex)
+        {
+            if (IsCurrentXbxSkeletonOperation(entry, cts, generation))
+                failure = $"Skeleton rejected: {ex.Message}";
+        }
+        finally
+        {
+            completedAsOwner = CompleteXbxSkeletonOperation(cts);
+            if (completedAsOwner && failure != null &&
+                ReferenceEquals(FilesListView.SelectedItem, entry))
+            {
+                XbxSkeletonStatusText.Text = failure;
+            }
+        }
+
+        if (!completedAsOwner || installed == null ||
+            !ReferenceEquals(FilesListView.SelectedItem, entry) ||
+            !ReferenceEquals(entry.XbxSkeletonSelection, installed))
+        {
+            return;
+        }
+
+        try
+        {
+            await LoadStaticPreviewAsync(entry, preserveCamera: true);
+        }
+        finally
+        {
+            CompleteXbxSkeletonPreview(entry, installed);
+        }
+    }
+
+    private async void ChooseXbxArchiveSkeleton_Click(object sender, RoutedEventArgs e)
+    {
+        if (FilesListView.SelectedItem is not MeshFileEntry
+            {
+                SupportsExplicitXbxSkeleton: true
+            } entry)
+        {
+            return;
+        }
+
+        var (cts, generation) = BeginXbxSkeletonOperation();
+        XbxSkeletonSelection? installed = null;
+        string? failure = null;
+        var completedAsOwner = false;
+        try
+        {
+            var path = await FilePickerHelper.PickFileAsync(
+                ArchiveSourceRigCatalog.PickerExtensions);
+            if (path == null || !IsCurrentXbxSkeletonOperation(entry, cts, generation))
+                return;
+
+            XbxSkeletonStatusText.Text = "Scanning archive for skeletons…";
+            using var catalog = await Task.Run(
+                () => ArchiveSourceRigCatalog.Open(
+                    path,
+                    SkeletonAssetLoader.IsSkeletonFileName,
+                    cts.Token),
+                cts.Token);
+            if (!IsCurrentXbxSkeletonOperation(entry, cts, generation))
+                return;
+            if (catalog.Candidates.Count == 0)
+            {
+                failure =
+                    "The archive contains no .ske, .ske.ps2, .ske.ngc, or .ske.xbx entries.";
+                return;
+            }
+
+            var candidate = await ArchiveSourceRigDialog.ShowAsync(
+                XamlRoot,
+                catalog.Candidates,
+                cts.Token,
+                "Choose mesh skeleton from archive");
+            if (candidate == null ||
+                !IsCurrentXbxSkeletonOperation(entry, cts, generation))
+            {
+                return;
+            }
+
+            XbxSkeletonStatusText.Text = "Validating skeleton…";
+            var skeleton = await Task.Run(
+                () => SkeletonAssetLoader.Load(candidate.Source),
+                cts.Token);
+            if (!IsCurrentXbxSkeletonOperation(entry, cts, generation))
+                return;
+
+            // Consume the selected entry while the catalog still owns every
+            // root/nested backend. Only the parsed rig and full virtual label
+            // survive disposal, so preview and batch work retain no handles.
+            installed = new XbxSkeletonSelection(candidate.DisplayName, skeleton);
+            entry.XbxSkeletonSelection = installed;
+            BeginXbxSkeletonPreview(entry, installed);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the row, picker, dialog, or tab is superseded.
+        }
+        catch (Exception ex)
+        {
+            if (IsCurrentXbxSkeletonOperation(entry, cts, generation))
+                failure = $"Skeleton rejected: {ex.Message}";
+        }
+        finally
+        {
+            completedAsOwner = CompleteXbxSkeletonOperation(cts);
+            if (completedAsOwner && failure != null &&
+                ReferenceEquals(FilesListView.SelectedItem, entry))
+            {
+                XbxSkeletonStatusText.Text = failure;
+            }
+        }
+
+        if (!completedAsOwner || installed == null ||
+            !ReferenceEquals(FilesListView.SelectedItem, entry) ||
+            !ReferenceEquals(entry.XbxSkeletonSelection, installed))
+        {
+            return;
+        }
+
+        try
+        {
+            await LoadStaticPreviewAsync(entry, preserveCamera: true);
+        }
+        finally
+        {
+            CompleteXbxSkeletonPreview(entry, installed);
+        }
+    }
+
+    private async void ClearXbxSkeleton_Click(object sender, RoutedEventArgs e)
+    {
+        if (FilesListView.SelectedItem is not MeshFileEntry
+            {
+                SupportsExplicitXbxSkeleton: true,
+                XbxSkeletonSelection: not null
+            } entry)
+        {
+            return;
+        }
+
+        InvalidateXbxSkeletonOperation();
+        entry.XbxSkeletonSelection = null;
+        BeginXbxSkeletonPreview(entry, selection: null);
+        try
+        {
+            await LoadStaticPreviewAsync(entry, preserveCamera: true);
+        }
+        finally
+        {
+            CompleteXbxSkeletonPreview(entry, selection: null);
+        }
+    }
+
+    private void BeginXbxSkeletonPreview(
+        MeshFileEntry entry,
+        XbxSkeletonSelection? selection)
+    {
+        _xbxSkeletonPreviewEntry = entry;
+        _xbxSkeletonPreviewSelection = selection;
+        ApplyXbxSkeletonControlState();
+        RenderPngButton.IsEnabled = false;
+        RenderGifButton.IsEnabled = false;
+    }
+
+    private void CompleteXbxSkeletonPreview(
+        MeshFileEntry entry,
+        XbxSkeletonSelection? selection)
+    {
+        if (!ReferenceEquals(_xbxSkeletonPreviewEntry, entry)
+            || !ReferenceEquals(_xbxSkeletonPreviewSelection, selection))
+        {
+            return;
+        }
+
+        _xbxSkeletonPreviewEntry = null;
+        _xbxSkeletonPreviewSelection = null;
+        ApplyXbxSkeletonControlState();
+        if (ReferenceEquals(FilesListView.SelectedItem, entry)
+            && ReferenceEquals(entry.XbxSkeletonSelection, selection))
+        {
+            UpdateRenderButtons();
+        }
+    }
+
+    private (CancellationTokenSource Cts, long Generation) BeginXbxSkeletonOperation()
+    {
+        _xbxSkeletonGeneration++;
+        CancelPendingXbxSkeletonLoad();
+        var cts = new CancellationTokenSource();
+        _xbxSkeletonLoadCts = cts;
+        ApplyXbxSkeletonControlState();
+        XbxSkeletonStatusText.Text = "Validating skeleton…";
+        return (cts, _xbxSkeletonGeneration);
+    }
+
+    private bool IsCurrentXbxSkeletonOperation(
+        MeshFileEntry entry,
+        CancellationTokenSource cts,
+        long generation) =>
+        !cts.IsCancellationRequested
+        && ReferenceEquals(FilesListView.SelectedItem, entry)
+        && ReferenceEquals(_xbxSkeletonLoadCts, cts)
+        && _xbxSkeletonGeneration == generation;
+
+    private bool CompleteXbxSkeletonOperation(CancellationTokenSource cts)
+    {
+        var wasCurrent = ReferenceEquals(_xbxSkeletonLoadCts, cts);
+        if (wasCurrent)
+            _xbxSkeletonLoadCts = null;
+        cts.Dispose();
+        if (wasCurrent)
+            ApplyXbxSkeletonControlState();
+        return wasCurrent;
+    }
+
+    private void InvalidateXbxSkeletonOperation()
+    {
+        _xbxSkeletonGeneration++;
+        CancelPendingXbxSkeletonLoad();
+        ApplyXbxSkeletonControlState();
+    }
+
+    private void CancelPendingXbxSkeletonLoad()
+    {
+        var cts = _xbxSkeletonLoadCts;
+        _xbxSkeletonLoadCts = null;
+        cts?.Cancel();
+    }
+
+    private void ApplyXbxSkeletonControlState()
+    {
+        var entry = FilesListView?.SelectedItem as MeshFileEntry;
+        var state = XbxSkeletonControlState.Create(
+            entry?.SupportsExplicitXbxSkeleton == true,
+            entry?.XbxSkeletonSelection != null,
+            _xbxSkeletonLoadCts != null
+            || (ReferenceEquals(_xbxSkeletonPreviewEntry, entry)
+                && ReferenceEquals(_xbxSkeletonPreviewSelection, entry?.XbxSkeletonSelection)));
+
+        XbxSkeletonSettingsSection.Visibility = state.Visible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        ChooseXbxSkeletonButton.IsEnabled = state.ChooseEnabled;
+        ChooseXbxArchiveSkeletonButton.IsEnabled = state.ChooseEnabled;
+        ClearXbxSkeletonButton.IsEnabled = state.ClearEnabled;
+        if (!state.Visible)
+        {
+            XbxSkeletonStatusText.Text = "None — rigid output";
+            ToolTipService.SetToolTip(XbxSkeletonStatusText, null);
+            return;
+        }
+
+        var selection = entry!.XbxSkeletonSelection;
+        XbxSkeletonStatusText.Text = selection != null
+            ? $"{selection.DisplayLabel} ({selection.Skeleton.Bones.Length} bones)"
+            : "None — rigid output";
+        ToolTipService.SetToolTip(XbxSkeletonStatusText, selection?.DisplayLabel);
     }
 
     private void UpdateWorldzoneExportSettingsVisibility()
@@ -489,13 +805,16 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     {
         if (_preview == null) return;
 
+        var xbxSkeletonSelection = entry.XbxSkeletonSelection;
         var groups = await _preview.LoadPreviewAsync(
             entry,
             worldzoneTimeOfDay,
             GetVisibilityOverridesSnapshot(entry),
             preserveCamera,
-            includeLevelObjects: DisplayIncludeLevelObjectsCheckbox.IsChecked != false);
-        if (!ReferenceEquals(FilesListView.SelectedItem, entry)) return;
+            includeLevelObjects: DisplayIncludeLevelObjectsCheckbox.IsChecked != false,
+            xbxSkeletonSelection: xbxSkeletonSelection);
+        if (!ReferenceEquals(FilesListView.SelectedItem, entry) ||
+            !ReferenceEquals(entry.XbxSkeletonSelection, xbxSkeletonSelection)) return;
 
         if (groups != null)
             ApplyVisibilityGroups(entry, groups);
@@ -507,6 +826,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
     private async void FilesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        InvalidateXbxSkeletonOperation();
         RenderPngButton.IsEnabled = false;
         RenderGifButton.IsEnabled = false;
 
@@ -557,12 +877,18 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         var firstMatch = _animPanel.FirstMatch;
         if (firstMatch != null)
         {
+            var expectedSourceRig = _animPanel.SourceRig;
             // ListView can transiently retain the previous character's
             // SelectedItem while its observable source is being rebuilt. The
             // old null-only guard then selected nothing and no preview was
             // requested. Reconcile selection explicitly and load the preview
             // here rather than relying on a SelectionChanged side effect.
-            if (!await ReconcileAnimationSelectionAsync(entry, firstMatch))
+            if (!await ReconcileAnimationSelectionAsync(
+                    entry, firstMatch, expectedSourceRig)
+                || !ReferenceEquals(FilesListView.SelectedItem, entry)
+                || !ReferenceEquals(_animPanel.Character, entry)
+                || !ReferenceEquals(_animPanel.SourceRig, expectedSourceRig)
+                || !_animPanel.Animations.Contains(firstMatch))
                 return;
 
             await LoadAnimationPreviewAsync(entry, firstMatch);
@@ -578,7 +904,9 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     }
 
     private Task<bool> ReconcileAnimationSelectionAsync(
-        MeshFileEntry character, AnimationListEntry animation)
+        MeshFileEntry character,
+        AnimationListEntry animation,
+        SkaAnimationSourceRig? expectedSourceRig)
     {
         var completion = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -586,7 +914,9 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         void ApplySelection()
         {
             if (!ReferenceEquals(FilesListView.SelectedItem, character) ||
-                !ReferenceEquals(_animPanel.Character, character))
+                !ReferenceEquals(_animPanel.Character, character) ||
+                !ReferenceEquals(_animPanel.SourceRig, expectedSourceRig) ||
+                !_animPanel.Animations.Contains(animation))
             {
                 completion.TrySetResult(false);
                 return;
@@ -650,13 +980,16 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         }
 
         entry.IsActive = true;
+        var sourceRig = _animPanel.SourceRig;
         var groups = await _preview.LoadPreviewAsync(
             character,
             entry.Probe,
             GetVisibilityOverridesSnapshot(character),
-            preserveCamera);
+            preserveCamera,
+            sourceRig);
         if (!ReferenceEquals(FilesListView.SelectedItem, character) ||
-            !ReferenceEquals(_animPanel.Character, character))
+            !ReferenceEquals(_animPanel.Character, character) ||
+            !ReferenceEquals(_animPanel.SourceRig, sourceRig))
         {
             return;
         }
@@ -682,6 +1015,120 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     private async void AddAnimArchive_Click(object sender, RoutedEventArgs e)
     {
         await _animPanel.AddArchiveAsync();
+    }
+
+    private async void ChooseAnimSourceRig_Click(object sender, RoutedEventArgs e)
+    {
+        var character = _animPanel.Character;
+        if (character is not { IsPs2Scene: true } ||
+            !ReferenceEquals(FilesListView.SelectedItem, character)) return;
+
+        // FileOpenPicker filters on the final suffix, so compound skeleton
+        // names require broad .ps2/.ngc filters followed by a strict name gate.
+        var path = await FilePickerHelper.PickFileAsync([".ske", ".ps2", ".ngc"]);
+        if (path == null || !ReferenceEquals(_animPanel.Character, character) ||
+            !ReferenceEquals(FilesListView.SelectedItem, character)) return;
+        if (!ArchiveSourceRigCatalog.IsCandidateEntryName(Path.GetFileName(path)))
+        {
+            AnimDiscoveryStatusText.Text =
+                "Choose an extracted .ske, .ske.ps2, or .ske.ngc skeleton file.";
+            return;
+        }
+
+        bool CharacterRemainsSelected() =>
+            ReferenceEquals(_animPanel.Character, character)
+            && ReferenceEquals(FilesListView.SelectedItem, character);
+
+        if (!await _animPanel.TrySetSourceRigAsync(
+                new FileSystemAssetSource(path), CharacterRemainsSelected)) return;
+        if (!CharacterRemainsSelected()) return;
+        await ReconcileAfterSourceRigChangeAsync(character);
+    }
+
+    private async void ChooseAnimArchiveSourceRig_Click(object sender, RoutedEventArgs e)
+    {
+        var character = _animPanel.Character;
+        if (character is not { IsPs2Scene: true } ||
+            !ReferenceEquals(FilesListView.SelectedItem, character)) return;
+
+        var path = await FilePickerHelper.PickFileAsync(ArchiveSourceRigCatalog.PickerExtensions);
+        if (path == null || !ReferenceEquals(_animPanel.Character, character) ||
+            !ReferenceEquals(FilesListView.SelectedItem, character)) return;
+
+        bool CharacterRemainsSelected() =>
+            ReferenceEquals(_animPanel.Character, character)
+            && ReferenceEquals(FilesListView.SelectedItem, character);
+
+        var installed = await _animPanel.TryAcquireSourceRigAsync(
+            async (validateSourceAsync, token) =>
+            {
+                using var catalog = await Task.Run(
+                    () => ArchiveSourceRigCatalog.Open(path, token), token);
+                if (!CharacterRemainsSelected()) return null;
+                if (catalog.Candidates.Count == 0)
+                    throw new InvalidDataException(
+                        "The archive contains no .ske, .ske.ps2, or .ske.ngc entries.");
+
+                var candidate = await ArchiveSourceRigDialog.ShowAsync(
+                    XamlRoot, catalog.Candidates, token);
+                if (candidate == null || !CharacterRemainsSelected()) return null;
+
+                // The catalog (and its root/nested handles) remains alive until
+                // parsing and exact target-map validation have both completed.
+                return await validateSourceAsync(candidate.Source, token);
+            },
+            CharacterRemainsSelected);
+        if (!installed || !CharacterRemainsSelected()) return;
+        await ReconcileAfterSourceRigChangeAsync(character);
+    }
+
+    private async void ClearAnimSourceRig_Click(object sender, RoutedEventArgs e)
+    {
+        var character = _animPanel.Character;
+        if (character == null || !ReferenceEquals(FilesListView.SelectedItem, character) ||
+            !_animPanel.ClearSourceRig()) return;
+        await ReconcileAfterSourceRigChangeAsync(character);
+    }
+
+    private async Task ReconcileAfterSourceRigChangeAsync(MeshFileEntry character)
+    {
+        var expectedSourceRig = _animPanel.SourceRig;
+        bool IsCurrent(AnimationListEntry? expectedEntry = null) =>
+            ReferenceEquals(FilesListView.SelectedItem, character)
+            && ReferenceEquals(_animPanel.Character, character)
+            && ReferenceEquals(_animPanel.SourceRig, expectedSourceRig)
+            && (expectedEntry == null || _animPanel.Animations.Contains(expectedEntry));
+
+        if (!IsCurrent()) return;
+        ClearActiveAnimation();
+        var firstMatch = _animPanel.FirstMatch;
+        if (firstMatch != null)
+        {
+            if (!await ReconcileAnimationSelectionAsync(
+                    character, firstMatch, expectedSourceRig)
+                || !IsCurrent(firstMatch))
+                return;
+            await LoadAnimationPreviewAsync(character, firstMatch);
+            if (!IsCurrent(firstMatch)) return;
+        }
+        else
+        {
+            _suppressAnimationSelectionChanged = true;
+            try
+            {
+                AnimationListView.SelectedItem = null;
+            }
+            finally
+            {
+                _suppressAnimationSelectionChanged = false;
+            }
+
+            if (!IsCurrent()) return;
+            await LoadStaticPreviewAsync(character);
+            if (!IsCurrent()) return;
+        }
+
+        UpdateRenderButtons();
     }
 
     private void AnimsSelectAll_Click(object sender, RoutedEventArgs e)
@@ -711,7 +1158,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         await _animExporter.ExportGlbAsync(
             character,
             _animPanel.CheckedMatchingProbes(),
-            GetVisibilityOverridesSnapshot(character));
+            GetVisibilityOverridesSnapshot(character),
+            _animPanel.SourceRig);
     }
 
     private async void ConvertBlend_Click(object sender, RoutedEventArgs e)
@@ -721,7 +1169,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         await _animExporter.ExportBlendAsync(
             character,
             _animPanel.CheckedMatchingProbes(),
-            GetVisibilityOverridesSnapshot(character));
+            GetVisibilityOverridesSnapshot(character),
+            _animPanel.SourceRig);
     }
 
     // ─── Convert (batch over checked files) ───────────────────────────────
@@ -968,6 +1417,19 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
     private void UpdateRenderButtons()
     {
+        var selectedEntry = FilesListView.SelectedItem as MeshFileEntry;
+        if (MeshGuiRenderPolicy.IsSkeletonPreviewPending(
+                _xbxSkeletonPreviewEntry != null,
+                ReferenceEquals(_xbxSkeletonPreviewEntry, selectedEntry),
+                ReferenceEquals(
+                    _xbxSkeletonPreviewSelection,
+                    selectedEntry?.XbxSkeletonSelection)))
+        {
+            RenderPngButton.IsEnabled = false;
+            RenderGifButton.IsEnabled = false;
+            return;
+        }
+
         var hasGlb = ModelViewer.LastGlbBytes != null;
         var checkedCount = _items.Count(i => i.IsChecked);
         RenderPngButton.IsEnabled = hasGlb || checkedCount > 0;
@@ -983,8 +1445,11 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             ? null
             : GetVisibilityOverridesSnapshot(selectedEntry);
         var includeLevelObjects = ShouldIncludeLevelObjectsInExport();
-        var selectedNeedsExportRebuild = selectedEntry?.IsPakWorldzone == true
-                                         || selectedEntry?.HasSupportedLevelObjectCompanion == true;
+        var selectedNeedsExportRebuild = selectedEntry != null
+            && MeshGuiRenderPolicy.RequiresEntryRebuild(
+                selectedEntry.IsPakWorldzone,
+                selectedEntry.HasSupportedLevelObjectCompanion,
+                selectedEntry.SupportsExplicitXbxSkeleton);
         IEnumerable<MeshFileEntry> worldzoneEntries = checkedEntries;
         if (checkedEntries.Count <= 1 && selectedEntry != null)
             worldzoneEntries = [selectedEntry];

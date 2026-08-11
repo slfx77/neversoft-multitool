@@ -14,16 +14,20 @@ internal static class BlendPackageWriter
 
     public static void Write(ModelDocument document, Stream packageStream, string blendPath)
     {
-        if (!document.Nodes.Any(static node => node.MeshIndex.HasValue) ||
-            document.Meshes.All(static mesh => mesh.Primitives.Count == 0))
+        var hasGeometry = document.Nodes.Any(static node => node.MeshIndex.HasValue) &&
+                          document.Meshes.Any(static mesh => mesh.Primitives.Count > 0);
+        var hasSkeleton = document.Skeletons.Any(static skeleton => skeleton.Bones.Count > 0);
+        if (!hasGeometry && !hasSkeleton)
         {
             throw new InvalidOperationException(
-                $"Blend export requires ModelDocument geometry. Parser adapter for {document.SourceKind} did not populate geometry.");
+                $"Blend export requires ModelDocument geometry or a non-empty skeleton. " +
+                $"Parser adapter for {document.SourceKind} did not populate either.");
         }
 
         using var archive = new ZipArchive(packageStream, ZipArchiveMode.Create, true);
         var textures = WriteTextures(document, archive);
-        var meshes = WriteMeshes(document, archive);
+        var (colourPulseChannels, colourPulseCodeMap) = BuildColourPulseChannels(document);
+        var meshes = WriteMeshes(document, archive, colourPulseChannels, colourPulseCodeMap);
         var nodes = document.Nodes.Select(static node => new BlendNodeManifest
         {
             Name = node.Name,
@@ -35,6 +39,7 @@ internal static class BlendPackageWriter
         var skeletons = document.Skeletons.Select(static skeleton => new BlendSkeletonManifest
         {
             Name = skeleton.Name,
+            RootTransform = ToArray(skeleton.RootTransform),
             Bones = skeleton.Bones.Select(static bone => new BlendBoneManifest
             {
                 Name = bone.Name,
@@ -47,7 +52,15 @@ internal static class BlendPackageWriter
         var animations = WriteAnimations(document, archive);
 
         var manifest =
-            BlendPackageManifest.FromDocument(document, blendPath, textures, meshes, nodes, skeletons, animations);
+            BlendPackageManifest.FromDocument(
+                document,
+                blendPath,
+                textures,
+                meshes,
+                nodes,
+                skeletons,
+                animations,
+                colourPulseChannels);
         var manifestEntry = archive.CreateEntry("manifest.json", CompressionLevel.Fastest);
         using var manifestStream = manifestEntry.Open();
         JsonSerializer.Serialize(manifestStream, manifest, BlendPackageManifest.JsonOptions);
@@ -92,7 +105,11 @@ internal static class BlendPackageWriter
         return textures;
     }
 
-    private static List<BlendMeshManifest> WriteMeshes(ModelDocument document, ZipArchive archive)
+    private static List<BlendMeshManifest> WriteMeshes(
+        ModelDocument document,
+        ZipArchive archive,
+        IReadOnlyList<BlendColourPulseChannelManifest> colourPulseChannels,
+        IReadOnlyDictionary<int, byte> colourPulseCodeMap)
     {
         var meshes = new List<BlendMeshManifest>(document.Meshes.Count);
         for (var meshIndex = 0; meshIndex < document.Meshes.Count; meshIndex++)
@@ -131,6 +148,18 @@ internal static class BlendPackageWriter
                     WriteTextureWibbleBuffer(archive, textureWibblePath, primitive.Vertices);
                 }
 
+                string? colourPulsePath = null;
+                var colourPulseCodes = BuildColourPulseCodes(
+                    primitive.Vertices,
+                    colourPulseChannels,
+                    colourPulseCodeMap);
+                if (colourPulseCodes != null)
+                {
+                    var pulseFileName = $"mesh_{meshIndex:D4}_prim_{primitiveIndex:D4}.pulse.bin";
+                    colourPulsePath = $"buffers/{pulseFileName}";
+                    WriteByteBuffer(archive, colourPulsePath, colourPulseCodes);
+                }
+
                 primitives.Add(new BlendPrimitiveManifest
                 {
                     Name = primitive.Name,
@@ -142,6 +171,7 @@ internal static class BlendPackageWriter
                     TriangleCount = primitive.TriangleCount,
                     Skin = skin,
                     TextureWibbleBuffer = textureWibblePath,
+                    ColourPulseBuffer = colourPulsePath,
                     NativeMetadata = primitive.NativeMetadata.Select(BlendPackageManifest.ToDictionary).ToList()
                 });
             }
@@ -155,6 +185,98 @@ internal static class BlendPackageWriter
         }
 
         return meshes;
+    }
+
+    private static (
+        List<BlendColourPulseChannelManifest> Channels,
+        Dictionary<int, byte> CodeMap) BuildColourPulseChannels(ModelDocument document)
+    {
+        var result = new List<BlendColourPulseChannelManifest>();
+        var codeMap = new Dictionary<int, byte>();
+        var table = document.NativeMetadata.OfType<PsxColourPulseTableMetadata>().FirstOrDefault();
+        if (table == null)
+            return (result, codeMap);
+
+        var referencedCodes = document.Meshes
+            .SelectMany(static mesh => mesh.Primitives)
+            .SelectMany(static primitive => primitive.Vertices)
+            .Select(static vertex => vertex.ColourPulseChannel)
+            .Where(static code => code > 0)
+            .ToHashSet();
+
+        for (var sourceIndex = 0; sourceIndex < table.Channels.Count && result.Count < byte.MaxValue; sourceIndex++)
+        {
+            if (!referencedCodes.Contains(sourceIndex + 1))
+                continue;
+
+            var channel = table.Channels[sourceIndex];
+            if (!TryCreateColourPulseManifest(channel, out var manifest))
+                continue;
+
+            result.Add(manifest);
+            codeMap[sourceIndex + 1] = checked((byte)result.Count);
+        }
+
+        return (result, codeMap);
+    }
+
+    private static bool TryCreateColourPulseManifest(
+        ModelColourPulseChannel? channel,
+        out BlendColourPulseChannelManifest manifest)
+    {
+        manifest = null!;
+        if (channel?.PortableKeys == null || channel.Intervals == null || channel.PortableKeys.Count == 0 ||
+            channel.PortableKeys.Count != channel.Intervals.Count ||
+            channel.PortableKeys.Count > byte.MaxValue ||
+            channel.InitialKeyIndex >= channel.PortableKeys.Count ||
+            channel.PortableKeys.Any(static key => !IsFinite(key)))
+        {
+            return false;
+        }
+
+        manifest = new BlendColourPulseChannelManifest
+        {
+            PortableKeys = channel.PortableKeys.Select(static key => new[] { key.X, key.Y, key.Z, key.W }).ToList(),
+            Intervals = channel.Intervals.Select(static interval => (int)interval).ToList(),
+            InitialKeyIndex = channel.InitialKeyIndex,
+            InitialAccumulator = channel.InitialAccumulator
+        };
+        return true;
+    }
+
+    private static byte[]? BuildColourPulseCodes(
+        IReadOnlyList<ModelVertex> vertices,
+        IReadOnlyList<BlendColourPulseChannelManifest> channels,
+        IReadOnlyDictionary<int, byte> codeMap)
+    {
+        var result = new byte[vertices.Count];
+        var hasPulse = false;
+        for (var i = 0; i < vertices.Count; i++)
+        {
+            var vertex = vertices[i];
+            if (!codeMap.TryGetValue(vertex.ColourPulseChannel, out var code) ||
+                code == 0 || code > channels.Count)
+            {
+                continue;
+            }
+
+            result[i] = code;
+            hasPulse = true;
+        }
+
+        return hasPulse ? result : null;
+    }
+
+    private static bool IsFinite(Vector4 value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y) &&
+        float.IsFinite(value.Z) && float.IsFinite(value.W) &&
+        value.X >= 0f && value.Y >= 0f && value.Z >= 0f && value.W >= 0f;
+
+    private static void WriteByteBuffer(ZipArchive archive, string path, ReadOnlySpan<byte> values)
+    {
+        var entry = archive.CreateEntry(path, CompressionLevel.Fastest);
+        using var stream = entry.Open();
+        stream.Write(values);
     }
 
     private static void WriteVertexBuffer(ZipArchive archive, string path, IReadOnlyList<ModelVertex> vertices)

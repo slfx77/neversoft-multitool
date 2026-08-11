@@ -1,5 +1,6 @@
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool;
@@ -52,10 +53,30 @@ public class MeshFileEntry : BaseFileEntry
     /// </summary>
     internal float N64MaxBoundsRadius { get; init; }
 
+    /// <summary>
+    ///     True only when the shell/render-bank pair passes the bounded N64
+    ///     animation gate: embedded 0x2A/0x2C, every G_MTX in the global joint
+    ///     range, and no unresolved global-versus-relative address ambiguity.
+    /// </summary>
+    internal bool N64HasEmbeddedAnimations { get; init; }
+
     // True only when the scanner found a companion that the current parser can
     // assemble with this mesh. Unsupported formats remain false even if they
     // happen to use a similarly named sibling file.
     internal bool HasSupportedLevelObjectCompanion { get; init; }
+
+    /// <summary>
+    ///     Scan-time content verdict for the manual Xbox/PC/GameCube skeleton
+    ///     control. The sector flag is authoritative; filename suffixes only
+    ///     route the parser and do not prove that a scene carries skin records.
+    /// </summary>
+    internal bool XbxHasSkinnedSectors { get; init; }
+
+    /// <summary>
+    ///     Per-entry, fully parsed manual skeleton selection. Replacing this
+    ///     single immutable record keeps preview and batch snapshots coherent.
+    /// </summary>
+    internal XbxSkeletonSelection? XbxSkeletonSelection { get; set; }
 
     internal bool IsPlacedLevel => HasPlacedPsxCompanion;
 
@@ -80,7 +101,8 @@ public class MeshFileEntry : BaseFileEntry
         || (IsPs2Scene && Ps2SubFormat is Ps2SceneSubFormat.ThawSkin
             or Ps2SceneSubFormat.PakSkin
             or Ps2SceneSubFormat.Standard)
-        || (IsPsx && PsxIsSuperModel);
+        || (IsPsx && PsxIsSuperModel)
+        || (IsN64Model && N64HasEmbeddedAnimations);
 
     internal bool IsPs2Scene => Format is "PS2 (THPS4)" or "PS2 (THUG)"
         or "PS2 (THUG2)" or "PS2 (THAW)" or "PS2 (pre-compiled)";
@@ -90,6 +112,9 @@ public class MeshFileEntry : BaseFileEntry
     internal bool IsXbxScene => Format.StartsWith("Xbox (", StringComparison.Ordinal)
                                 || Format.StartsWith("PC (", StringComparison.Ordinal)
                                 || Format.StartsWith("GameCube (", StringComparison.Ordinal);
+
+    internal bool SupportsExplicitXbxSkeleton =>
+        XbxSkeletonEligibility.Supports(Format, XbxHasSkinnedSectors);
 
     public string FormatDisplay => Format;
     public string ObjectsDisplay => ObjectCount.ToString("N0");

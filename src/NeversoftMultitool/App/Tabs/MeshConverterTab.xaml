@@ -347,6 +347,50 @@
                     FontSize="12"
                     TextWrapping="Wrap"
                     Text="Select a skinned character to scan for animations." />
+                  <Grid x:Name="AnimSourceRigControls"
+                        RowSpacing="4"
+                        ColumnSpacing="4"
+                        Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="AnimSourceRigText"
+                               Grid.Row="0"
+                               Grid.ColumnSpan="2"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               FontSize="12"
+                               TextTrimming="CharacterEllipsis"
+                               Text="Animation rig: character skeleton" />
+                    <Button x:Name="ChooseAnimSourceRigButton"
+                            Grid.Row="1"
+                            Grid.Column="0"
+                            Content="Choose rig file..."
+                            Click="ChooseAnimSourceRig_Click"
+                            HorizontalAlignment="Stretch"
+                            IsEnabled="False"
+                            ToolTipService.ToolTip="Choose an extracted .ske, .ske.ps2, or .ske.ngc file that authored the selected animations" />
+                    <Button x:Name="ChooseAnimArchiveSourceRigButton"
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Content="Choose from archive..."
+                            Click="ChooseAnimArchiveSourceRig_Click"
+                            HorizontalAlignment="Stretch"
+                            IsEnabled="False"
+                            ToolTipService.ToolTip="Choose a .ske, .ske.ps2, or .ske.ngc entry directly from an archive" />
+                    <Button x:Name="ClearAnimSourceRigButton"
+                            Grid.Row="2"
+                            Grid.ColumnSpan="2"
+                            Content="Use character rig"
+                            Click="ClearAnimSourceRig_Click"
+                            HorizontalAlignment="Stretch"
+                            IsEnabled="False" />
+                  </Grid>
                   <Grid ColumnSpacing="4"
                         RowSpacing="4">
                     <Grid.RowDefinitions>
@@ -401,7 +445,7 @@
                     Content="Show all"
                     MinWidth="0"
                     IsChecked="False"
-                    ToolTipService.ToolTip="Also list animations whose bone count doesn't match this skeleton"
+                    ToolTipService.ToolTip="Also list animations whose bone count doesn't match the active animation rig"
                     Click="ShowAllAnims_Click" />
                 </StackPanel>
 
@@ -535,6 +579,52 @@
                       <ComboBoxItem Content="Night" Tag="night" />
                     </ComboBox>
                   </Grid>
+
+                  <StackPanel x:Name="XbxSkeletonSettingsSection"
+                              Spacing="6"
+                              Margin="0,8,0,0"
+                              Visibility="Collapsed">
+                    <TextBlock Text="Mesh skeleton"
+                               FontWeight="SemiBold" />
+                    <TextBlock x:Name="XbxSkeletonStatusText"
+                               Text="None — rigid output"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               TextTrimming="CharacterEllipsis"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    <Grid ColumnSpacing="6" RowSpacing="6">
+                      <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                      </Grid.RowDefinitions>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <Button x:Name="ChooseXbxSkeletonButton"
+                              Grid.Column="0"
+                              Content="Choose file..."
+                              HorizontalAlignment="Stretch"
+                              IsEnabled="False"
+                              Click="ChooseXbxSkeleton_Click"
+                              ToolTipService.ToolTip="Choose the exact skeleton that authored this Xbox/PC/GameCube mesh's joint indices" />
+                      <Button x:Name="ChooseXbxArchiveSkeletonButton"
+                              Grid.Column="1"
+                              Content="Choose from archive..."
+                              HorizontalAlignment="Stretch"
+                              IsEnabled="False"
+                              Click="ChooseXbxArchiveSkeleton_Click"
+                              ToolTipService.ToolTip="Choose an exact .ske, .ske.ps2, .ske.ngc, or .ske.xbx entry directly from an archive" />
+                      <Button x:Name="ClearXbxSkeletonButton"
+                              Grid.Row="1"
+                              Grid.ColumnSpan="2"
+                              Content="Clear"
+                              HorizontalAlignment="Stretch"
+                              IsEnabled="False"
+                              Click="ClearXbxSkeleton_Click"
+                              ToolTipService.ToolTip="Return this mesh to historical rigid output" />
+                    </Grid>
+                  </StackPanel>
 
                   <TextBlock Text="Visibility groups"
                              FontWeight="SemiBold"

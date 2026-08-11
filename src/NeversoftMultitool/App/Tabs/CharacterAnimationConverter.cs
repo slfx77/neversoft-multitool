@@ -3,6 +3,7 @@ using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
@@ -17,7 +18,8 @@ namespace NeversoftMultitool;
 ///     PS2 skinned scenes and THPS3 RW DFF characters through the unified
 ///     <see cref="MeshModelParser" /> + <see cref="GltfModelExporter" /> pipeline,
 ///     attaching parsed SKA animations via <c>MeshImportRequest.SkaAnimations</c>.
-///     PSX characters use the same pipeline with <c>PsxDecodedAnimations</c>.
+///     PSX characters use the same pipeline with <c>PsxDecodedAnimations</c>;
+///     conservatively gated N64 shells route selected embedded 0x2A/0x2C indices.
 /// </summary>
 internal static class CharacterAnimationConverter
 {
@@ -28,9 +30,11 @@ internal static class CharacterAnimationConverter
     public static Result BuildAnimatedGlb(
         MeshFileEntry character,
         IReadOnlyList<AnimationProbe> animations,
-        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
+        SkaAnimationSourceRig? animationSourceRig = null)
     {
-        var (document, error) = BuildDocument(character, animations, visibilityOverrides);
+        var (document, error) = BuildDocument(
+            character, animations, visibilityOverrides, animationSourceRig);
         if (document == null)
             return new Result(null, 0, error);
 
@@ -53,16 +57,25 @@ internal static class CharacterAnimationConverter
     public static DocumentResult BuildDocument(
         MeshFileEntry character,
         IReadOnlyList<AnimationProbe> animations,
-        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
+        SkaAnimationSourceRig? animationSourceRig = null)
     {
         if (animations.Count == 0)
             return new DocumentResult(null, "No animations selected.");
+
+        if (animationSourceRig != null && !character.IsPs2Scene)
+            return new DocumentResult(null,
+                "An explicit animation source rig is supported only for PS2-scene characters.");
 
         if (character.IsRwDff)
             return BuildRwDff(character, animations, visibilityOverrides);
 
         if (character.IsPs2Scene)
-            return BuildPs2Scene(character, animations, visibilityOverrides);
+            return BuildPs2Scene(
+                character, animations, visibilityOverrides, animationSourceRig);
+
+        if (character.IsN64Model && character.N64HasEmbeddedAnimations)
+            return BuildN64(character, animations);
 
         if (character.IsPsx && character.PsxIsSuperModel)
             return BuildPsx(character, animations, visibilityOverrides);
@@ -99,6 +112,9 @@ internal static class CharacterAnimationConverter
                 // supers have all-root joints rather than a HIER table.
                 return character.ObjectCount;
             }
+
+            if (character.IsN64Model && character.N64HasEmbeddedAnimations)
+                return character.ObjectCount;
         }
         catch
         {
@@ -110,10 +126,40 @@ internal static class CharacterAnimationConverter
         return null;
     }
 
+    private static DocumentResult BuildN64(
+        MeshFileEntry character,
+        IReadOnlyList<AnimationProbe> animations)
+    {
+        var indices = animations
+            .Select(static probe => probe.Source)
+            .OfType<N64AnimationSource>()
+            .Where(source => ReferenceEquals(source.ModelSource, character.Source))
+            .Select(static source => source.AnimationIndex)
+            .Distinct()
+            .ToArray();
+        if (indices.Length == 0)
+            return new DocumentResult(null, "No embedded N64 animation slots were selected.");
+
+        var fileName = Path.GetFileName(character.Source.FileSystemPath ?? character.FileName);
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = character.Source,
+            FileName = fileName,
+            OutputStem = MeshTypeDetector.GetN64BundleStem(fileName),
+            SourceKind = ModelSourceKind.N64Model,
+            N64AnimationIndices = indices
+        });
+
+        return document.Animations.Count > 0
+            ? new DocumentResult(document, null)
+            : new DocumentResult(null, "The selected N64 animation slots did not decode.");
+    }
+
     private static DocumentResult BuildPs2Scene(
         MeshFileEntry character,
         IReadOnlyList<AnimationProbe> animations,
-        IReadOnlyDictionary<string, bool>? visibilityOverrides)
+        IReadOnlyDictionary<string, bool>? visibilityOverrides,
+        SkaAnimationSourceRig? animationSourceRig)
     {
         var stem = MeshConverterTabFileScanner.StripCompoundExtension(character.FileName);
         var skeleton = MeshConverterTabFileConverter.TryLoadPs2Skeleton(character, stem);
@@ -129,13 +175,23 @@ internal static class CharacterAnimationConverter
                 skeleton = Ps2SkeletonDefaultPose.EnrichWithDefaultPose(skeleton, defaultAnim);
         }
 
+        SkaAnimationBindingPlan bindingPlan;
+        try
+        {
+            bindingPlan = SkaAnimationBindingPlan.Create(skeleton, animationSourceRig);
+        }
+        catch (InvalidDataException ex)
+        {
+            return new DocumentResult(null, $"Animation rig cannot bind to this character: {ex.Message}");
+        }
+
         var named = new List<(string Name, SkaAnimation Animation)>();
         var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var probe in animations)
         {
             var anim = TryParseAnimation(probe);
             if (anim == null) continue;
-            if (anim.BoneTracks.Length != skeleton.Bones.Length) continue;
+            if (!bindingPlan.MatchesTrackCount(anim.BoneTracks.Length)) continue;
             var animationName = AnimationExportName.ForMesh(
                 stem, StripAnimExtension(probe.ResolvedDisplayName), usedNames);
             named.Add((animationName, anim));
@@ -154,6 +210,7 @@ internal static class CharacterAnimationConverter
             Ps2SubFormat = character.Ps2SubFormat,
             PreparedSkeleton = skeleton,
             SkaAnimations = named,
+            SkaQbKeyBoneMap = bindingPlan.BoneMap,
             VisibilityOverrides = visibilityOverrides
         });
 
@@ -267,7 +324,6 @@ internal static class CharacterAnimationConverter
         try
         {
             var bytes = probe.Source.ReadBytes();
-            if (!SkaFile.IsSkaFile(bytes)) return null;
 
             // Filesystem animations can use a nearby compression table. Archive
             // sources cannot resolve one here: uncompressed clips still parse,
@@ -277,7 +333,7 @@ internal static class CharacterAnimationConverter
             if (fsPath != null)
                 table = SkaCommand.FindCompressTable(fsPath);
 
-            return SkaFile.Parse(bytes, table);
+            return SkaFile.ParseExportableCharacterAnimation(bytes, table);
         }
         catch
         {
@@ -301,10 +357,8 @@ internal static class CharacterAnimationConverter
             if (defaultPath == null) return null;
 
             var bytes = File.ReadAllBytes(defaultPath);
-            if (!SkaFile.IsSkaFile(bytes)) return null;
-
             var table = SkaCommand.FindCompressTable(defaultPath);
-            return SkaFile.Parse(bytes, table);
+            return SkaFile.ParseExportableCharacterAnimation(bytes, table);
         }
         catch
         {

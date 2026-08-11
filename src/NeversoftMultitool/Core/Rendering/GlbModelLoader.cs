@@ -312,7 +312,14 @@ internal static class GlbModelLoader
 
         var flags = primitive.GetVertexAccessor(
             PsxOverbrightVertexColor1Texture1.FlagsAttributeName);
-        if (flags?.AsVector3Array().Any(static value => value.Z >= 0.5f) == true)
+        if (flags?.AsVector4Array().Any(static value => value.Z >= 0.5f) == true)
+            return portable ?? custom;
+
+        // Read compatibility for GLBs written before the Blender-safe carrier
+        // rewrite. New files use normalized COLOR_1 and never emit this custom
+        // semantic.
+        var legacyFlags = primitive.GetVertexAccessor("_PSX_FLAGS_0");
+        if (legacyFlags?.AsVector3Array().Any(static value => value.Z >= 0.5f) == true)
             return portable ?? custom;
 
         var customColors = custom.AsVector4Array();

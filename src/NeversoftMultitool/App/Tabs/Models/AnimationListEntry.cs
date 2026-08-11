@@ -63,7 +63,7 @@ internal sealed class AnimationListEntry : INotifyPropertyChanged
 
     public string? MismatchTooltip => MatchesSkeleton
         ? null
-        : $"Bone count {BoneCountDisplay} doesn't match this character's skeleton.";
+        : $"Bone count {BoneCountDisplay} doesn't match the active animation rig.";
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

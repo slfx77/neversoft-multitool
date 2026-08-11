@@ -38,21 +38,10 @@ public readonly record struct ModelVertex(
     ///     when this corner's colour is static. <see cref="Color" /> and
     ///     <see cref="PsxPacketColor" /> always hold the frame-zero value, so a
     ///     consumer that ignores this renders exactly what it renders today.
-    ///     <para>
-    ///         At the GLB boundary this is folded into <c>_PSX_FLAGS_0.Y</c> as
-    ///         <c>1 + channel</c> rather than getting its own custom attribute:
-    ///         Blender's glTF importer mis-zips a hash-randomized set of custom
-    ///         attribute names against append-ordered arrays, so every extra
-    ///         attribute makes that documented crash more likely. Y is the
-    ///         Gouraud flag and a pulsed corner is Gouraud by definition, so
-    ///         every shader test of the form <c>y &gt;= 0.5</c> stays correct.
-    ///     </para>
-    ///     <para>
-    ///         RULE: this lane is CPU-side data, read only when setting up the
-    ///         per-frame update. It must never be read by a shader. Y is a
-    ///         varying, and a triangle mixing pulsed and unpulsed corners
-    ///         interpolates it to meaningless intermediate values.
-    ///     </para>
+    ///     At the GLB boundary the channel uses <c>COLOR_1.W</c>: zero is
+    ///     static and the 1-based channel is encoded as one of the exact
+    ///     byte-code values n/255. The RGB lanes independently preserve the
+    ///     textured, Gouraud, and packet-valid flags.
     /// </summary>
     public int ColourPulseChannel { get; init; }
 }

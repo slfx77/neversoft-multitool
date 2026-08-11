@@ -27,7 +27,9 @@ internal sealed class BlendPackageManifest
     public required List<BlendMeshManifest> Meshes { get; init; }
     public required List<BlendNodeManifest> Nodes { get; init; }
     public required List<BlendSkeletonManifest> Skeletons { get; init; }
+    public required List<BlendPerspectiveCameraManifest> PerspectiveCameras { get; init; }
     public required List<BlendAnimationManifest> Animations { get; init; }
+    public required List<BlendColourPulseChannelManifest> ColourPulseChannels { get; init; }
     public required List<Dictionary<string, object?>> NativeMetadata { get; init; }
 
     public static BlendPackageManifest FromDocument(
@@ -37,7 +39,8 @@ internal sealed class BlendPackageManifest
         List<BlendMeshManifest>? meshes = null,
         List<BlendNodeManifest>? nodes = null,
         List<BlendSkeletonManifest>? skeletons = null,
-        List<BlendAnimationManifest>? animations = null)
+        List<BlendAnimationManifest>? animations = null,
+        List<BlendColourPulseChannelManifest>? colourPulseChannels = null)
     {
         return new BlendPackageManifest
         {
@@ -66,7 +69,20 @@ internal sealed class BlendPackageManifest
             Meshes = meshes ?? [],
             Nodes = nodes ?? [],
             Skeletons = skeletons ?? [],
+            PerspectiveCameras = document.PerspectiveCameras
+                .Where(camera => ModelPerspectiveCameraValidation.IsValid(document, camera))
+                .Select(static camera => new BlendPerspectiveCameraManifest
+                {
+                    Name = camera.Name,
+                    SkeletonIndex = camera.SkeletonIndex,
+                    BoneIndex = camera.BoneIndex,
+                    AspectRatio = camera.AspectRatio,
+                    VerticalFieldOfViewRadians = camera.VerticalFieldOfViewRadians,
+                    ZNear = camera.ZNear,
+                    ZFar = camera.ZFar
+                }).ToList(),
             Animations = animations ?? [],
+            ColourPulseChannels = colourPulseChannels ?? [],
             NativeMetadata = document.NativeMetadata.Select(ToDictionary).ToList()
         };
     }

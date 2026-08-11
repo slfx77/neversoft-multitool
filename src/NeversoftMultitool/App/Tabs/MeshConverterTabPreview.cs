@@ -127,7 +127,8 @@ internal sealed class MeshConverterTabPreview : IDisposable
         WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         bool preserveCamera = false,
-        bool includeLevelObjects = true)
+        bool includeLevelObjects = true,
+        XbxSkeletonSelection? xbxSkeletonSelection = null)
     {
         var cts = await ReplacePreviewCancellationAsync();
         if (cts == null) return null;
@@ -148,7 +149,8 @@ internal sealed class MeshConverterTabPreview : IDisposable
                     entry,
                     worldzoneTimeOfDay,
                     visibilityOverrides: visibilityOverrides,
-                    includeLevelObjects: includeLevelObjects), token);
+                    includeLevelObjects: includeLevelObjects,
+                    preparedSkeleton: xbxSkeletonSelection?.Skeleton), token);
 
             if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return null;
 
@@ -204,7 +206,8 @@ internal sealed class MeshConverterTabPreview : IDisposable
         MeshFileEntry character,
         AnimationProbe animation,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
-        bool preserveCamera = false)
+        bool preserveCamera = false,
+        SkaAnimationSourceRig? animationSourceRig = null)
     {
         var cts = await ReplacePreviewCancellationAsync();
         if (cts == null) return null;
@@ -222,7 +225,7 @@ internal sealed class MeshConverterTabPreview : IDisposable
         {
             var result = await Task.Run(
                 () => CharacterAnimationConverter.BuildAnimatedGlb(
-                    character, [animation], visibilityOverrides),
+                    character, [animation], visibilityOverrides, animationSourceRig),
                 token);
 
             if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return null;

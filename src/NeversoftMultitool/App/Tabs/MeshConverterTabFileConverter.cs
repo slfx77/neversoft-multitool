@@ -41,14 +41,16 @@ internal static class MeshConverterTabFileConverter
         WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
         float worldzoneScale = 1f,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
-        bool includeLevelObjects = true)
+        bool includeLevelObjects = true,
+        Ps2Skeleton? preparedSkeleton = null)
     {
         var (glbBytes, triangles, _) = ConvertToGlbPreview(
             entry,
             worldzoneTimeOfDay,
             worldzoneScale,
             visibilityOverrides,
-            includeLevelObjects);
+            includeLevelObjects,
+            preparedSkeleton);
         return (glbBytes, triangles);
     }
 
@@ -58,14 +60,18 @@ internal static class MeshConverterTabFileConverter
             WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
             float worldzoneScale = 1f,
             IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
-            bool includeLevelObjects = true)
+            bool includeLevelObjects = true,
+            Ps2Skeleton? preparedSkeleton = null)
     {
+        var effectiveWorldzoneScale = MeshGuiCoordinateScalePolicy.Resolve(
+            entry.IsPakWorldzone, worldzoneScale);
         var document = Parser.Parse(CreateImportRequest(
             entry,
             worldzoneTimeOfDay,
-            worldzoneScale,
+            effectiveWorldzoneScale,
             visibilityOverrides,
-            includeLevelObjects));
+            includeLevelObjects,
+            preparedSkeleton));
         var groups = document.VisibilityGroups.ToArray();
         var (glbBytes, triangles) = ModelExportService.BuildGlbBytes(document);
         return (glbBytes, triangles, groups);
@@ -81,14 +87,18 @@ internal static class MeshConverterTabFileConverter
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         string? blenderHelperPath = null,
         bool includeLevelObjects = true,
+        Ps2Skeleton? preparedSkeleton = null,
         CancellationToken cancellationToken = default)
     {
+        var effectiveWorldzoneScale = MeshGuiCoordinateScalePolicy.Resolve(
+            entry.IsPakWorldzone, worldzoneScale);
         var document = Parser.Parse(CreateImportRequest(
             entry,
             worldzoneTimeOfDay,
-            worldzoneScale,
+            effectiveWorldzoneScale,
             visibilityOverrides,
-            includeLevelObjects));
+            includeLevelObjects,
+            preparedSkeleton));
         return ModelExportService.Export(
             document,
             new MeshExportRequest
@@ -98,7 +108,7 @@ internal static class MeshConverterTabFileConverter
                 Format = outputFormat,
                 BlenderHelperPath = blenderHelperPath,
                 WorldzoneTimeOfDay = worldzoneTimeOfDay,
-                WorldzoneScale = worldzoneScale,
+                WorldzoneScale = effectiveWorldzoneScale,
                 CancellationToken = cancellationToken
             });
     }
@@ -108,7 +118,8 @@ internal static class MeshConverterTabFileConverter
         WorldzoneTimeOfDay worldzoneTimeOfDay = WorldzoneTimeOfDay.All,
         float worldzoneScale = 1f,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
-        bool includeLevelObjects = true)
+        bool includeLevelObjects = true,
+        Ps2Skeleton? preparedSkeleton = null)
     {
         return new MeshImportRequest
         {
@@ -121,7 +132,11 @@ internal static class MeshConverterTabFileConverter
             VisibilityOverrides = visibilityOverrides,
             IncludeLevelObjects = includeLevelObjects,
             WorldzoneTimeOfDay = worldzoneTimeOfDay,
-            WorldzoneScale = worldzoneScale
+            WorldzoneScale = MeshGuiCoordinateScalePolicy.Resolve(
+                entry.IsPakWorldzone, worldzoneScale),
+            PreparedSkeleton = entry.SupportsExplicitXbxSkeleton
+                ? preparedSkeleton
+                : null
         };
     }
 

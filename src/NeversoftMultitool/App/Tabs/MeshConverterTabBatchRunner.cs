@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Rendering;
 
 namespace NeversoftMultitool;
@@ -53,6 +54,7 @@ internal sealed class MeshConverterTabBatchRunner(
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         bool includeLevelObjects = true)
     {
+        var skeletons = CaptureSkeletons(entries);
         var cts = await BeginOperationAsync("Converting meshes");
         var scope = _progressScope;
 
@@ -92,6 +94,7 @@ internal sealed class MeshConverterTabBatchRunner(
                             ? visibilityOverrides
                             : null,
                         includeLevelObjects: includeLevelObjects,
+                        preparedSkeleton: skeletons[entry],
                         cancellationToken: token);
                     Interlocked.Add(ref totalTriangles, result.Triangles);
                     Interlocked.Increment(ref totalConverted);
@@ -147,6 +150,7 @@ internal sealed class MeshConverterTabBatchRunner(
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         bool includeLevelObjects = true)
     {
+        var skeletons = CaptureSkeletons(entries);
         var cts = await BeginOperationAsync("Rendering PNGs");
         var scope = _progressScope;
         var token = cts.Token;
@@ -168,7 +172,8 @@ internal sealed class MeshConverterTabBatchRunner(
                         worldzoneTimeOfDay,
                         worldzoneScale,
                         ReferenceEquals(entry, visibilityEntry) ? visibilityOverrides : null,
-                        includeLevelObjects);
+                        includeLevelObjects,
+                        skeletons[entry]);
                     if (glb == null || glb.Length == 0)
                     {
                         skipped++;
@@ -253,6 +258,7 @@ internal sealed class MeshConverterTabBatchRunner(
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         bool includeLevelObjects = true)
     {
+        var preparedSkeleton = entry.XbxSkeletonSelection?.Skeleton;
         var cts = await BeginOperationAsync("Rendering PNG", indeterminate: true);
         try
         {
@@ -263,7 +269,8 @@ internal sealed class MeshConverterTabBatchRunner(
                     worldzoneTimeOfDay,
                     worldzoneScale,
                     visibilityOverrides,
-                    includeLevelObjects);
+                    includeLevelObjects,
+                    preparedSkeleton);
                 if (glb == null || glb.Length == 0)
                     throw new InvalidOperationException("The selected mesh produced no geometry.");
 
@@ -306,6 +313,7 @@ internal sealed class MeshConverterTabBatchRunner(
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         bool includeLevelObjects = true)
     {
+        var skeletons = CaptureSkeletons(entries);
         var cts = await BeginOperationAsync("Rendering GIFs");
         var scope = _progressScope;
         var token = cts.Token;
@@ -327,7 +335,8 @@ internal sealed class MeshConverterTabBatchRunner(
                         worldzoneTimeOfDay,
                         worldzoneScale,
                         ReferenceEquals(entry, visibilityEntry) ? visibilityOverrides : null,
-                        includeLevelObjects);
+                        includeLevelObjects,
+                        skeletons[entry]);
                     if (glb == null || glb.Length == 0 || !GlbHasAnimations(glb))
                     {
                         skipped++;
@@ -462,6 +471,12 @@ internal sealed class MeshConverterTabBatchRunner(
             return false;
         }
     }
+
+    private static IReadOnlyDictionary<MeshFileEntry, Ps2Skeleton?> CaptureSkeletons(
+        IReadOnlyList<MeshFileEntry> entries) =>
+        entries.ToDictionary(
+            static entry => entry,
+            static entry => entry.XbxSkeletonSelection?.Skeleton);
 
     private async Task<CancellationTokenSource> BeginOperationAsync(string label, bool indeterminate = false)
     {

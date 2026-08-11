@@ -59,7 +59,7 @@ public sealed class GltfModelExporterTests
             .AsVector4Array();
         var psxFlags = primitive
             .GetVertexAccessor(PsxOverbrightVertexColor1Texture1.FlagsAttributeName)
-            .AsVector3Array();
+            .AsVector4Array();
 
         Assert.All(portableColors, static color =>
         {
@@ -69,7 +69,7 @@ public sealed class GltfModelExporterTests
             Assert.InRange(color.W, 0f, 1f);
         });
         Assert.Contains(psxColors, static color => color.X > 1f);
-        Assert.All(psxFlags, static flags => Assert.Equal(Vector3.Zero, flags));
+        Assert.All(psxFlags, static flags => Assert.Equal(Vector4.Zero, flags));
 
         var renderScene = GlbModelLoader.Load(model, null, 0f);
         var renderColors = Assert.Single(renderScene.Submeshes).VertexColors;
@@ -94,10 +94,9 @@ public sealed class GltfModelExporterTests
         Assert.Equal("VEC4", customAccessor.GetProperty("type").GetString());
         Assert.False(customAccessor.TryGetProperty("normalized", out var normalized) &&
                      normalized.GetBoolean());
-        Assert.Equal(5126, flagsAccessor.GetProperty("componentType").GetInt32());
-        Assert.Equal("VEC3", flagsAccessor.GetProperty("type").GetString());
-        Assert.False(flagsAccessor.TryGetProperty("normalized", out normalized) &&
-                     normalized.GetBoolean());
+        Assert.Equal(5123, flagsAccessor.GetProperty("componentType").GetInt32());
+        Assert.Equal("VEC4", flagsAccessor.GetProperty("type").GetString());
+        Assert.True(flagsAccessor.GetProperty("normalized").GetBoolean());
     }
 
     [Fact]
@@ -177,11 +176,11 @@ public sealed class GltfModelExporterTests
             .AsVector4Array()[0];
         var flags = exported
             .GetVertexAccessor(PsxOverbrightVertexColor1Texture1.FlagsAttributeName)
-            .AsVector3Array();
+            .AsVector4Array();
 
         AssertVectorNear(portableLinear, portable, 2e-5f);
         AssertVectorNear(packetColor, packet, 1e-6f);
-        Assert.All(flags, value => Assert.Equal(packetFlags, value));
+        Assert.All(flags, value => Assert.Equal(new Vector4(packetFlags, 0f), value));
 
         var renderScene = GlbModelLoader.Load(model, null, 0f);
         var renderColors = Assert.Single(renderScene.Submeshes).VertexColors;
@@ -195,7 +194,7 @@ public sealed class GltfModelExporterTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void BuildGlbBytes_PreservesPsxTextureWibbleInCustomVertexAttributes(bool skinned)
+    public void BuildGlbBytes_PreservesPsxTextureWibbleInStandardVertexAttributes(bool skinned)
     {
         var document = CreateTriangleDocument(true, skinned);
         var primitive = Assert.Single(Assert.Single(document.Meshes).Primitives);
@@ -241,10 +240,10 @@ public sealed class GltfModelExporterTests
 
         var motion = exported
             .GetVertexAccessor(PsxAnimatedVertexColor1Texture1.MotionAttributeName)
-            .AsVector4Array();
+            .AsVector2Array();
         var wave = exported
             .GetVertexAccessor(PsxAnimatedVertexColor1Texture1.WaveAttributeName)
-            .AsVector4Array();
+            .AsVector2Array();
         var size = exported
             .GetVertexAccessor(PsxAnimatedVertexColor1Texture1.SizeAttributeName)
             .AsVector2Array();
@@ -253,12 +252,58 @@ public sealed class GltfModelExporterTests
             .AsVector4Array();
         var flags = exported
             .GetVertexAccessor(PsxAnimatedVertexColor1Texture1.FlagsAttributeName)
-            .AsVector3Array();
-        Assert.Contains(motion, static value => value == new Vector4(4096, -2048, 595, 1));
-        Assert.Contains(wave, static value => value == new Vector4(7, 3, 11, 9));
-        Assert.Contains(size, static value => value == new Vector2(64, 128));
+            .AsVector4Array();
+        Assert.Contains(motion, static value => value == new Vector2(4096, 2049));
+        Assert.Contains(wave, static value => value == new Vector2(595, 1 - 0x73B9));
+        Assert.Contains(size, static value => value == new Vector2(64, -127));
+        Assert.Contains(size, static value => value == new Vector2(0, 1));
+        Assert.Equal(
+            new ModelTextureWibble(4096, -2048, 595, 7, 3, 11, 9, 64, 128),
+            PsxGltfVertexCarriers.DecodeTextureWibble(motion[0], wave[0], size[0]));
+        Assert.Null(PsxGltfVertexCarriers.DecodeTextureWibble(motion[1], wave[1], size[1]));
         AssertVectorNear(packetColor, packetColors[0], 1e-6f);
-        Assert.All(flags, value => Assert.Equal(packetFlags, value));
+        Assert.All(flags, value => Assert.Equal(new Vector4(packetFlags, 0f), value));
+
+        Assert.All(attributes.Keys, static name =>
+        {
+            if (name.StartsWith('_'))
+                Assert.Equal(PsxAnimatedVertexColor1Texture1.ColorAttributeName, name);
+        });
+
+        using var json = ReadGlbJson(glbBytes);
+        Assert.Equal(
+            1,
+            json.RootElement.GetProperty("meshes")[0].GetProperty("extras")
+                .GetProperty("neversoftPsxVertexCarriers").GetInt32());
+    }
+
+    [Fact]
+    public void PsxCarriers_RoundTripEveryPulseByteAndAllWibbleNibbles()
+    {
+        for (var channel = 0; channel <= byte.MaxValue; channel++)
+        {
+            var encoded = PsxGltfVertexCarriers.EncodeFlagsAndPulse(
+                new Vector3(1f, 0f, 1f), channel);
+            Assert.Equal(channel, PsxGltfVertexCarriers.DecodeOneBasedPulseChannel(encoded.W));
+        }
+
+        for (var uAmplitude = 0; uAmplitude < 16; uAmplitude++)
+        {
+            for (var uPhase = 0; uPhase < 16; uPhase++)
+            {
+                for (var vAmplitude = 0; vAmplitude < 16; vAmplitude++)
+                {
+                    for (var vPhase = 0; vPhase < 16; vPhase++)
+                    {
+                        var packed = PsxGltfVertexCarriers.PackWibbleNibbles(
+                            (byte)uAmplitude, (byte)uPhase, (byte)vAmplitude, (byte)vPhase);
+                        Assert.Equal(
+                            ((byte)uAmplitude, (byte)uPhase, (byte)vAmplitude, (byte)vPhase),
+                            PsxGltfVertexCarriers.UnpackWibbleNibbles(packed));
+                    }
+                }
+            }
+        }
     }
 
     private static ModelDocument CreateTriangleDocument(bool overbright = false, bool skinned = false)
