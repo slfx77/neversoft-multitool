@@ -2574,7 +2574,7 @@ level.
 
 I did a narrow byte-level read of the local sample archive:
 
-- `Sample/Builds/.../PAK/z_ho.pak.ps2`
+- `Sample/Builds/.../DATAP/worlds/worldzones/z_ho/z_ho.pak.ps2`
 - size `0x008290F0` / `8,556,688` bytes
 - no companion `z_ho.pab.ps2`
 
@@ -2655,10 +2655,10 @@ The higher-level archive picture is now concrete rather than inferred.
 
 Local sample files:
 
-- `Sample/Builds/.../Archives/WAD/DATAP.HED`
-- `Sample/Builds/.../Archives/WAD/DATAP.WAD`
-- `Sample/Builds/.../PAK/z_ho.pak.ps2`
-- `Sample/Builds/.../PAK/z_ho_net.pak.ps2`
+- `Sample/Builds/.../DATAP.HED`
+- `Sample/Builds/.../DATAP.WAD`
+- `Sample/Builds/.../DATAP/worlds/worldzones/z_ho/z_ho.pak.ps2`
+- `Sample/Builds/.../DATAP/worlds/worldzones/z_ho/z_ho_net.pak.ps2`
 
 The important result:
 
@@ -4722,13 +4722,13 @@ The sample-side package evidence got sharper while checking that branch.
 From the shipped sample tree:
 
 - the only archive/index files under the PS2 sample build are:
-  - `Archives/WAD/DATAP.HED`
-  - `Archives/WAD/DATAP.WAD`
-  - `Archives/WAD/MUSICP.HED`
-  - `Archives/WAD/MUSICP.WAD`
-  - `Archives/WAD/STREAMP.HED`
-  - `Archives/WAD/STREAMP.WAD`
-  - plus `BIN/streamp*.hdp`
+  - `DATAP.HED`
+  - `DATAP.WAD`
+  - `MUSIC/MUSICP.HED`
+  - `MUSIC/MUSICP.WAD`
+  - `STREAMS/STREAMP.HED`
+  - `STREAMS/STREAMP.WAD`
+  - plus `DATAP/streams/streamp*.hdp`
 - there is no visible data-side `P.HED/HDP` pair analogous to what the runtime
   file backend formats in `phase193_backend_path_templates.txt`
 
@@ -4752,7 +4752,8 @@ That keeps the core contradiction intact:
 
 Direct inspection of the inner sample archive helped narrow the zone case:
 
-- the opening `0xC0` entries in `Sample/Builds/.../PAK/z_ho.pak.ps2` are full
+- the opening `0xC0` entries in
+  `Sample/Builds/.../DATAP/worlds/worldzones/z_ho/z_ho.pak.ps2` are full
   named entries with flags `0x22`
 - those names are things like:
   - `worlds\worldzones\z_ho\z_ho_sfx_dat_ps2.qb.ps2`

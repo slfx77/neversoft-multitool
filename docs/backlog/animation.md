@@ -2,18 +2,13 @@
 
 Created 2026-07-03. Distilled from `memory/` + `CLAUDE.md` + `docs/thps3-ska-animation-correctness-handoff.md`. See `BACKLOG_SUMMARY.md`.
 
-**Re-verified 2026-08-10 against the current tree, retained PSX corpus, and the THPS3 correctness handoff.**
+**Re-verified 2026-08-11 against the current tree, retained PSX corpus, and the THPS3 correctness handoff.**
 
 **Status legend:** 🔴 Open · 🔶 Partial · 🟢 Verified this session · ✅ Done · ⚪ By design
 
 ---
 
 ## Remaining — needs work
-
-### 🔶 THPS3 (RW DFF) SKA animation — COMPOSITION FIDELITY, not an unimplemented path
-- Source: `memory/thps3_ska_format_notes.md`, `memory/thps3_ska_animation_correctness_handoff.md`, `docs/thps3-ska-animation-correctness-handoff.md`.
-- Current state (rechecked 2026-08-09): this is **not** a bind-pose-only path and **not** a parser blocker. `SkaThps3Parser` reproduces the captured runtime Q-track linearization, and the overlay is wired into RenderWare DFF export. Validator-clean output proves container validity, not pose correctness: the remaining defect is the final transform convention after the runtime Q/T buffers combine with bind/model/skinning matrices.
-- What's left: capture or locate the final 29-bone runtime matrix palette, then compare it against the handoff's `bind-raw`, `bind-raw-rawt`, and required matrix-space variants. Keep `bind-raw` as the production default unless that final-matrix evidence proves another composition. More SKA field-order permutations are specifically not the next step.
 
 ### 🔶 PSX (PS1) animation — character and proven traffic-snapshot paths solved
 - Source: `memory/psx_anim_status.md`, MEMORY.md index.
@@ -24,10 +19,11 @@ Created 2026-07-03. Distilled from `memory/` + `CLAUDE.md` + `docs/thps3-ska-ani
 
 ### ~~🔴 RW DFF (THPS3) skinned models export in bind pose only~~ — CORRECTED 2026-07-26
 - Source: `CLAUDE.md` → *Not Yet Implemented* → "RW DFF / THPS3 animations".
-- **Retracted**: THPS3 does **not** export bind-pose/T-pose-only. THPS3 animation is Neversoft SKA (not RenderWare-native chunks), the parser reproduces the runtime Q-track split (`SkaThps3Parser.cs`), and the overlay is wired into the RW DFF export path (`MeshModelParser.cs:718-726`). The only remaining work is pose-composition fidelity, already tracked by the "THPS3 (RW DFF) SKA animation — COMPOSITION FIDELITY" item above. This item is closed as a duplicate.
+- **Retracted**: THPS3 does **not** export bind-pose/T-pose-only. THPS3 animation is Neversoft SKA (not RenderWare-native chunks), the parser reproduces the runtime Q-track split (`SkaThps3Parser.cs`), and the overlay is wired into the RW DFF export path. The former pose-composition residual is now runtime-palette proven and closed in the Done section below. This item remains closed as a duplicate.
 
 ## Done (for reference) ✅
 
+- ✅ **THPS3 (RW DFF) SKA final composition** — completed 2026-08-11. A retained PCSX2 state exposes the final 29-bone RwMatrix skin palette at `0x00B415F0` for `skater_m_Idle` at `0.799999475s`. The unique formula is raw authored translation plus the conjugate of the runtime XYZW quaternion, composed through the HAnim parent chain and then skinned as `IBM * global` in System.Numerics row convention. The exported GLB matches all 348 semantic RwMatrix floats with RMSE `0.000377701` and maximum error `0.00223009`; the next row-oriented convention is RMSE `4.97997`. The Z-up→Y-up transform now lives on the non-joint skeleton root so local animation remains source-faithful. `Thps3SkaRuntimePaletteTests` commits the normalized runtime golden and pins all 29 bones; a 3,000-file loose-disc census parses all 2,998 runtime-format members and proves no placeholder channel is suppressed.
 - ✅ **`.blend` skinned-character pose basis generalized** — completed 2026-08-09. Edit bones now carry rigid bind translation + rotation, and absolute IR translation/rotation channels are solved into Blender `matrix_basis` for every rigid skinned source rather than through a PSX-only subtraction. `BlendPoseBasisRegressionTests` pins a translated/rotated non-PSX hierarchy with mixed weights and animated scale, then compares every pose bone of the real THPS4 `Ped_F_Walk` rig against GLB at an authored key. The existing `PsxBlendExportRegressionTests` remains green. Non-rigid bind matrices now fail clearly instead of being approximated; the pinned PSX, PS2/SKA, and surveyed THPS3/RW binds are rigid.
 - ✅ **PSX pulsing-colour playback** — shipped 2026-08-07 (`a9d7c1a`). Frame zero stays baked as the portable fallback; pre-transformed channel keys ship in GLB scene extras (`neversoftColourPulseChannels`), and current marked PSX meshes carry the exact pulse byte in standard `COLOR_1` alpha so `_PSX_COLOR_0` remains the sole custom semantic. The in-app viewer evaluates the channels on its 60 Hz timeline and still reads legacy `_PSX_FLAGS_0` files. `PsxColourPulseEvaluatorTests`, `PsxColourPulseExportTests`, and the viewer-contract tests pin the path. Native `.blend` pulse playback was not part of this closed viewer/export item.
 - ✅ SKA animation import (THPS4/THUG/THUG2) — mesh deforms correctly; 1,892/1,892 THPS4 files parse, 1,279 GLBs, validator-clean. `memory/ska_animation_handoff.md`. Any historical shoulder/pectoral-jitter observation must be reproduced against the corrected narrow-quaternion decoder before it is treated as a remaining defect.

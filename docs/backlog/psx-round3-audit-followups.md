@@ -43,13 +43,20 @@ vertices in the affected files, 20–35% off (hamhead mean 33.6%). Now only reac
 Deleted from both `PsxMesh` and `PsxMeshFile` (the discredited "whole file is lit" signal;
 nothing referenced it since the lit gate became per-face). Build + full suite green.
 
-### 3. Layer-step tearing (disputed)
+### 3. Layer-step tearing — CLOSED 2026-08-11
 
-`FindSemiTransparentLayerSteps` gives step 2 to some faces and step 1 to their edge-neighbours, so a
-shared corner exports 0.25 apart; claimed to make DC SKPH worse than baseline. A second auditor
-showed the related skware "torn corners" are intended double-sided separation. Measure with an A/B
-against the mechanism disabled before acting — that method already disproved one tearing claim
-(identical counts with and without).
+The disputed DC SKPH case is now pinned from its actual face-instance topology, without changing
+production behavior. Final `SKPH.PSX` has 279 semi-transparent faces. The detector assigns step 2 to
+exactly 30 faces: every face, and only faces, using texture `0xA89F675A`. Its step-1 partner texture
+`0x71E2F16A` also has exactly 30 faces, with 30 exact whole-face corner matches between the layers.
+Across every non-vacuous same-texture face pair sharing an authored world-space corner, the effective
+step is identical, so no connected face within either layer tears. Final PSX `skware.psx` has zero
+step-2 faces, ruling out this mechanism as the source of its reported seams. The 0.25 difference is
+only between the two complete SKPH layers it is intended to separate.
+
+`PsxCoplanarOverlayDetectorTests.Thps2DcSkph_ExtraStepsSeparateWholeLayersWithoutTearingEitherLayer`
+pins the 279/30/30 populations, the actual face keys and corners, all 30 layer pairings, the
+same-texture shared-corner invariant, and the skware negative control.
 
 ### 4. Does the semi-transparent lift always land in front? — unresolved
 
@@ -154,9 +161,11 @@ with preset coverage in `PsxEngineLightTests`.
 
 0x80098E00 and 0x80098E40 are referenced by nothing at all and are NOT exposed.
 
-Still open from this thread: which rig the controller-config screen uses. It is
-not one of the two above, so it is set somewhere the scan did not reach (a
-front-end path assigning through a different offset or a copied struct).
+### 6b. Controller-config light rig — unresolved
+
+Which rig the controller-config screen uses remains open. It is not one of the
+two assignments above, so it is set somewhere the scan did not reach (a front-end
+path assigning through a different offset or a copied struct).
 
 ## Needs the user, not code
 

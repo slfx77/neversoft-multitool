@@ -1,5 +1,15 @@
 # Phase 400: `.91E1028D` Full File Layout — Multi-Block Chain + Outlier Sub-Formats
 
+> [!CAUTION]
+> **Superseded 2026-08-11:** this investigation used pre-offset-fix PAK slices. Their generated
+> `00015410.91E1028D`-style names came from unresolved stored offsets, and the bytes actually began
+> inside preceding archive entries rather than at the canonical `.rnb` payloads. After the
+> header-relative extraction fix and 2026-07-16 corpus regeneration, exact source-slice comparison
+> confirms the current payloads and all audited canonical `.rnb` files reject the block-chain grammar
+> below. The shipped worldzone object path is independent: `Ps2WorldzoneQbObjectResolver` joins exact
+> MQB/MDL/MCOL resources to authored QB NodeArray instances. The remainder of this document is retained
+> only as a historical record of the disproven mis-slice analysis; do not use it as an `.rnb` format spec.
+
 ## Summary
 
 This pass closes most of phase 399's open structural questions. The `.91E1028D` PAK entries (worldzone placement records) are a **chain of FUN_0025A818-shaped sub-blocks** followed by a 0x6290993B-style geometry trailer. 4 of 7 extracted samples in BH/HO fit the chain template cleanly. The 3 outliers split: one is the same record format with a degenerate (count-less) header, and two are a different sub-format that looks compressed/packed.

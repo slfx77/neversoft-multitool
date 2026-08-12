@@ -46,7 +46,8 @@ The **Game Unpacker** recursively extracts every archive under a directory in on
 | PCM    | Xbox IMA ADPCM sound effects → WAV                             | THUG2 Xbox / Windows          |
 | SND    | THUG2 PC continuous 4-bit IMA sound effects → WAV              | THUG2 Windows                 |
 | N64 PTR/WBK | Nintendo Sound Tools metadata → inspection JSON; selected stored wave → mono PCM16 WAV at an explicit caller rate | THPS1–3, Spider-Man N64 |
-| N64 BFX | Nintendo Sound Tools effect-bank components and local→PTR mappings → inspection JSON (bytecode remains opaque) | THPS1–3, Spider-Man N64 |
+| N64 BFX | Nintendo Sound Tools effect-bank components, local→PTR mappings, and conservative interpreter-proven initial-wave/initial-event metadata → schema-v3 inspection JSON (all other bytecode and cue/rate/pitch/playback behavior remain unresolved) | THPS1–3, Spider-Man N64 |
+| N64 runtime profile | Audited final-ROM Sound Tools global mixer/output profile → schema-v1 inspection JSON (not a per-wave or cue rate) | THPS1–3, Spider-Man N64 finals |
 | N64 SFX cues | Strict raw 16-byte cue records and terminal markers → aggregate inspection JSON (mapping/playback unresolved) | THPS1–3, Spider-Man N64 |
 
 The **Audio Converter** offers in-app playback with a seekable timeline for the whole file or individual bank samples.
@@ -65,7 +66,9 @@ Recursive batches keep unique output names unchanged and add a stable path-deriv
 | PS2 MDL / SKIN  | Native PS2 scene meshes (incl. `.iskin.ps2`) → glTF                       | THPS4, THUG, THUG2          |
 | PS2 GEOM        | Pre-compiled CGeomNode render trees (`.geom.ps2`) → glTF                  | THPS4, THUG, THUG2          |
 | THAW skin/zone  | Pre-compiled VIF/DMA skins + worldzone level PAKs → glTF                  | THAW PS2                    |
-| N64 model       | Carved shell + render bank → glTF; conservative global-joint 0x2A/0x2C animation via the Animations pane or `mesh --n64-animations` | THPS1–3, Spider-Man N64 |
+| CAS removal metadata | Strict PS2/Xbox v2 polygon-removal sidecars → inspection JSON (not applied to geometry) | THPS4, THUG, THUG2 |
+| WGT scaling metadata | Strict compiled PS2/Xbox v1 cutscene-head weight maps → inspection JSON (not applied to geometry) | THUG, THUG2 |
+| N64 model       | Carved shell + render bank → glTF; evidence-gated global/relative 0x2A/0x2C animation via the Animations pane or `mesh --n64-animations` | THPS1–3, Spider-Man N64 |
 | SKE / SKA       | Skeletons + compiled animation → glTF/Blender; THAW cameras and exact source-rig mapping; bare-CUT full-float SKA → JSON | THPS4–THAW |
 | PSX animation   | PS1 character skeletal animation → animated glTF (.glb / .gif)            | THPS1/2, Spider-Man, Apoc.   |
 
@@ -166,12 +169,16 @@ Most conversion commands take an input file or directory plus `-o/--output`; ins
 | `ps2tex`   | Convert PS2 TEX/IMG and RW TXD textures → PNG               |
 | `xbxtex`   | Convert Xbox/PC TEX/IMG textures → PNG                      |
 | `ngctex`   | Convert GameCube texture dictionaries → PNG                 |
+| `n64tex`   | Convert carved N64 TEX/IMG records and stored mip levels → PNG |
 | `rle`      | Convert RLE/BMR/ZLB/BMP/TGA bitmaps → PNG                   |
 | `archive`  | Extract a WAD/PKR/PRE/PRX/DDX/BON/PAK archive or disc image (ISO/CUE/GDI/IMG) |
+| `cas`      | Inspect typed PS2/Xbox CAS polygon-removal metadata → schema-v1 JSON (no geometry changes) |
+| `wgt`      | Inspect compiled PS2/Xbox WGT v1 mesh-scaling metadata → schema-v1 JSON (no geometry changes) |
 | `unpack`   | Recursively extract every archive under a directory         |
 | `audio`    | Convert ADX/XA/VAB/VAG/KAT/SFX/PCM/SND/PSS/VID audio → WAV  |
 | `n64-audio-inspect` | Inspect a paired N64 Sound Tools PTR/WBK bank → JSON |
-| `n64-audio-fx-inspect` | Inspect a Sound Tools BFX bank and its local-wave→PTR bindings → JSON |
+| `n64-audio-fx-inspect` | Inspect a Sound Tools BFX bank, its conservative initial event, and local-wave→PTR bindings → JSON |
+| `n64-audio-runtime-inspect` | Inspect an audited ROM-global Sound Tools mixer/output profile → JSON |
 | `n64-sfx-inspect` | Inspect one raw N64 cue bank or all strict structural matches in a ROM → aggregate JSON |
 | `n64-audio-decode` | Decode one stored Sound Tools wave with N64 ABI1 runtime semantics → mono PCM16 WAV at a required caller-supplied rate |
 | `sfd`      | Convert SFD (Sofdec) / PSS video → MP4                      |
@@ -180,15 +187,22 @@ Most conversion commands take an input file or directory plus `-o/--output`; ins
 | `mesh`     | Auto-detect and convert any supported mesh → glTF/Blender   |
 | `ddm`      | Convert DDM level meshes → glTF (with PSX placement)        |
 | `psx-mesh` | Convert PS1 PSX model files → glTF/Blender                  |
+| `psx-mesh-dump` | Dump PS1 mesh parse diagnostics → JSON              |
 | `rwdff`    | Convert RenderWare DFF (.SKN) meshes → glTF/Blender         |
 | `rwbsp`    | Convert RenderWare BSP levels → glTF/Blender                |
 | `col`      | Convert collision (.col) meshes → glTF/Blender              |
+| `ngccol`   | Inspect GameCube `.col.ngc` topology/BSP/intensity metadata → JSON (positions are external) |
 | `ska`      | Export compiled SKA animations → glTF/Blender (`--format`; THAW cameras; exact cross-rig binding via `--animation-ske`); inspect bare-CUT SKA → JSON |
+| `psxanim`  | Probe a PS1 character `.psx` for animation data             |
 | `psx-anim-export` | Export a PS1 character `.psx` as an animated `.glb`  |
+| `psx-anim-trace` | Trace PS1 animation bone transforms against an exporter or GLB |
+| `psx-anim-survey` | Survey PS1 files by version and animation-table layout |
 | `trg`      | Parse TRG trigger/script files → JSON                      |
 | `qb`       | Decompile compiled QB scripts → `.q` source                |
 | `qbkey`    | QBKey hash utilities (cross-reference, import)             |
 | `glb-render` / `glb-gif` | Render `.glb` files to PNG / animated GIF     |
+| `gsdump`   | Audit raw PCSX2 GS dumps and compare against screenshot PNGs |
+| `thps2x-anim` | Inspect THPS2X frontend UI `.ANIM` timelines → JSON     |
 
 #### Examples
 
@@ -208,16 +222,23 @@ NeversoftMultitool audio "path/to/sounds" -o out
 # Inspect the unique Sound Tools bank in an N64 ROM (sample rate/cues remain unresolved)
 NeversoftMultitool n64-audio-inspect game.z64 -o bank.json
 
-# Inspect an explicitly paired standalone bank
-NeversoftMultitool n64-audio-inspect bank.ptr.n64 --wave 000.bin -o bank.json
+# Inspect the separate ROM-global mixer/output profile for an evidence-matched audited ROM
+# (22050 requested → divisor 2208 / DACRATE 2207 → 22047 returned; not a wave rate)
+NeversoftMultitool n64-audio-runtime-inspect game.z64 -o runtime.json
 
-# Inspect the unique Sound Tools BFX/PTR singletons in an N64 ROM
+# Resolution is fail-closed: boot SHA, country byte, pinned NTSC clock, and the
+# exact raw-ROM osAiSetFrequency routine must all match the audited build.
+
+# Inspect an explicitly paired standalone bank
+NeversoftMultitool n64-audio-inspect bank.ptr.n64 --wave 000.wbk.n64 -o bank.json
+
+# Inspect the unique Sound Tools BFX/PTR singletons and conservative initial-event metadata
 NeversoftMultitool n64-audio-fx-inspect game.z64 -o effects.json
 
-# A standalone no-magic BFX needs its caller-selected PTR index space
-NeversoftMultitool n64-audio-fx-inspect effects.bfx --pointer bank.ptr.n64 -o effects.json
+# A uniquely validated carved BFX is named .bfx.n64; standalone input still needs its PTR index space
+NeversoftMultitool n64-audio-fx-inspect effects.bfx.n64 --pointer bank.ptr.n64 -o effects.json
 
-# Inspect every strict raw cue bank in a ROM (including structurally valid `.bin` entries)
+# Inspect every strict raw cue bank in a ROM (including legacy-extracted `.bin` entries)
 NeversoftMultitool n64-sfx-inspect game.z64 -o cues.json
 
 # Inspect one extracted raw cue table with the same aggregate schema
@@ -227,7 +248,16 @@ NeversoftMultitool n64-sfx-inspect cue.sfx.n64 -o cues.json
 NeversoftMultitool n64-audio-decode game.z64 --index 221 --sample-rate 32000 -o wave221.wav
 
 # Standalone PTR input still requires its explicit WBK payload
-NeversoftMultitool n64-audio-decode bank.ptr.n64 --wave 000.bin --index 221 --sample-rate 32000 -o wave221.wav
+NeversoftMultitool n64-audio-decode bank.ptr.n64 --wave 000.wbk.n64 --index 221 --sample-rate 32000 -o wave221.wav
+
+# Inspect GameCube collision metadata; no vertex positions are stored in this file
+NeversoftMultitool ngccol models -o collision-json -v
+
+# Inspect PS2/Xbox polygon-removal sidecars without applying them to geometry
+NeversoftMultitool cas models -o cas-json -v
+
+# Inspect compiled cutscene-head scaling weights without applying them to geometry
+NeversoftMultitool wgt models -o wgt-json -v
 
 # Decompile a compiled script
 NeversoftMultitool qb level.qb -o out

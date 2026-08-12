@@ -18,7 +18,7 @@ schedule work from their old descriptions.
 
 ## Remaining — needs work
 
-### 🔶 THAW GameCube platform — textures ✅ 2026-07-07, meshes ✅ 2026-07-08; collision remains
+### 🔶 THAW GameCube platform — textures ✅ 2026-07-07, meshes ✅ 2026-07-08, collision inspection ✅ 2026-08-10
 - Source: 2026-07-07 corpus census + format RE sessions (textures 07-07, meshes 07-08).
 - ✅ **Textures done**: `.tex.ngc` (722) + `.img.ngc` (2,647) parse via `NgcTexFile` (extended from the
   earlier committed skeleton). Format (established via PC↔GC Rosetta pairs, pixel-exact on `anl_pigeon`,
@@ -42,27 +42,28 @@ schedule work from their old descriptions.
   **Sweep: 722/722 files, 427,343 triangles, 0 failures, 0 glTF validator errors**; textured renders
   verified (ped_baller Lakers jersey, pigeon alpha-cut wings, board_default griptape+trucks).
   The shipped parser and its corpus coverage are pinned by `NgcSceneFileTests`.
-- ✅ **Collision structural inspection shipped 2026-08-10** (`.col.ngc`, 722 loose + 680 apk-extracted
-  = 1,402 in the THAW GC build, the only build that ships them): `NgcColFile` + `ngccol` CLI emit a
+- ✅ **Collision structural inspection shipped 2026-08-10** (`.col.ngc`, 722 canonical loose files;
+  680 apk-expanded copies are accepted but deliberately excluded from the oracle): `NgcColFile` + `ngccol` CLI emit a
   schema-v1 JSON manifest per file. The 2026-07-07 layout notes were partly wrong; the engine-exact
   layout was transcribed from the THUG source's `__PLAT_NGC__` paths (`NxScene.cpp read_collision`,
-  `CollTriData.h/.cpp`) and corpus-verified byte-exact on **1,402/1,402 files**: 24B BE header
+  `CollTriData.h/.cpp`) and corpus-verified byte-exact on **722/722 canonical files**: 24B BE header
   (version=10, numObjects, totalVerts, totalFaces, ssRows, ssCols) + 32B scene bounds + 64B object
-  records (checksum, u32 numVerts, u16 numFaces + u16 pad, u32 faceByteOffset, bboxMin/Max 4×f32,
+  records (checksum, u16 flags, u16 numVerts, u16 numFaces, u8 small-face selector, u8 fixed-vertex selector,
+  u32 faceByteOffset, bboxMin/Max 4×f32,
   u32 0 = the runtime vertex-pool pointer slot, u32 bspNodeByteOffset, u32 cornerIntensityByteOffset
   = 3×cumulative faces, u32 pad) + **totalFaces×3 per-corner INTENSITY bytes** (the region the old
-  note called a "0xFF-wiped vertex region" — 0xFF is just uniform full intensity, valid data; 251 of
-  1,402 files carry varied authored values) + align4 + 10-byte BE face records + 2-byte pad when the
+  note called a "0xFF-wiped vertex region" — 0xFF is just uniform full intensity, valid data; 78 of
+  722 files carry varied authored values) + align4 + 10-byte BE face records + 2-byte pad when the
   face count is odd + u32 node-array size + 8-byte BSP nodes (leaf when byte 3 == 3: u16 numFaces,
   pad, axis, u32 pool offset; interior: i32 split point with axis in the low 2 bits, u32 child byte
-  offset with a left-is-greater low bit) + u16 face-index pool to exact EOF. Corpus: 18,431 objects,
-  977,186 faces, 129,199 leaves + 110,768 interior nodes, max tree depth 7; face vertex indices are
-  object-contained in 1,258 files and compacted-global in 144; the ssRows/ssCols grid (up to 40×25)
+  offset with a left-is-greater low bit) + u16 face-index pool to exact EOF. Canonical corpus: 819 objects,
+  237,175 declared external vertices, 411,057 faces, 35,944 leaves + 35,125 interior nodes, max tree depth 7;
+  face indices stay within cumulative declared object ranges in 693 files and cross them in 29; the ssRows/ssCols grid
   has NO cell table — the engine builds supersectors at runtime. **Vertex positions are absent BY
   DESIGN, not wiped**: `InitCollObjTriData` binds `mp_raw_vert_pos` to the render scene's
   `mp_pos_pool`, which answers the old "needs a study of how the engine sources the vertices" —
-  a future GLB reconstruction would join col face indices onto the companion scene's vertex pool
-  (open follow-up; index-domain mapping for the 144 compacted files is the hard part). Pinned by
+  any future geometry reconstruction first needs an authoritative collision→scene-pool identity and index-domain
+  oracle (the collision file itself provides neither); the inspector intentionally synthesizes no geometry. Pinned by
   `NgcColFileTests` (fixture + strictness + corpus totals).
 - ✅ **`.apk.ngc` / `.pak.ngc` archives — extraction shipped 2026-07-09, offset model CORRECTED
   2026-07-10.** They are big-endian Neversoft PAKs (sentinel-detected; `PakArchive` handles both
@@ -75,9 +76,10 @@ schedule work from their old descriptions.
   multi-entry LE pak. Signature-validated 2026-07-10: PS2 12,120 + PC 12,756 + GC 14,325 payload
   hits, 0 mismatches; `PakArchiveTests` pins the offset rules. 48 `*_sfx.pak.ngc` = raw audio
   blobs (skipped). Routed: `archive` CLI, `unpack`, GUI Archive Extractor.
-  ⚠️ **Sample/Builds pak-extracted subtrees predate the offset fix** — payloads extracted from
-  multi-entry paks (qb.pak, cutscene mains, cas paks, worldzone paks) are byte-garbled on disk
-  and need regeneration via `tools/corpus/SampleGenerator`.
+  ✅ **Sample/Builds pak-extracted subtrees were regenerated after the offset fix on 2026-07-16.**
+  A 2026-08-11 source-slice audit matched **748/748 payloads byte-for-byte** (8,183,728 bytes,
+  zero missing or mismatched): PS2 `qb` 266/266, `rocket` 130/130, `storyselect` 8/8; GC `BH11`
+  67/67, `qb_i` 269/269, and `storyselect` 8/8.
 - ✅ **THAW QB decoding — shipped 2026-07-10 for ALL THREE platforms** (`.qb.ps2`/`.qb.wpc`/
   `.qb.ngc` + `.sqb.*`): THAW uses the sectioned QB format (Guitar Hero family, Queen-Bee
   reference at `Sample/queen-bee`), NOT the raw THPS3-THUG2 token stream and NOT "BE tokens with
@@ -289,12 +291,30 @@ schedule work from their old descriptions.
     `N64 PtrTablesV2` descriptor graph together with its paired `N64 WaveTables` payload: checked
     file-relative wave/book/loop pointers, the unaligned final-record boundary, canonical 16-byte WBK
     packing, base-note/coarse-tune bytes, signed fine-detune workspace cells, and all required padding.
-    `n64-audio-inspect <game.z64> -o bank.json` pairs the unique carved assets by content magic;
+    Exact WBK magic gives the four raw wavetable leaves the typed path `audio/000.wbk.n64`, while
+    every other uncompressed audio leaf remains `.bin`. `n64-audio-inspect <game.z64> -o bank.json`
+    pairs the unique carved assets by content magic;
     standalone PTR input requires an explicit `--wave`. Both routes produce byte-identical schema-v1
     JSON with `sampleRate: null` and cue mapping marked unresolved. The four-ROM corpus pins 1,775
     waves / 320 loops, complete asset hashes and P/A/Z offsets, and Spider-Man's final loop ending raw
     at `D+0xCC == P`. This command remains inspection-only: it reports no inferred sample rate and does
     not execute BFX/song bytecode, apply pitch, expand loops, or join Neversoft cues;
+  - ✅ **N64 Sound Tools ROM-global mixer profile — SHIPPED 2026-08-11.**
+    `n64-audio-runtime-inspect <game.z64> -o runtime.json` is deliberately separate from PTR/WBK/BFX/SFX
+    inspection and has no standalone mode. Schema v1 resolves only the four audited final ROMs using an
+    exact carved-`boot.bin` SHA allowlist, NTSC country byte `rom[0x3E] == 0x45`, the clock word at
+    that build's pinned raw-ROM offset, and the exact SHA of its pinned 0x160-byte raw-ROM
+    `osAiSetFrequency` routine. An unknown boot or any mismatch/truncation in those pinned evidence
+    regions fails before the destination directory is created. SDK `musConfig` places
+    `syn_output_rate` at `+0x2C`, and the
+    cartridge oracle pins the complete call chain: literal 22050 in argument 7, propagation into that
+    field, libmus loading it into `a0`, and a direct call to each exact 0x160-byte libultra
+    `osAiSetFrequency`. With the pinned NTSC clock 48,681,812, the routine rounds to divisor 2208, writes
+    AI DACRATE 2207, and returns 22047 by integer division. The manifest calls this a
+    `romGlobalMixerOutput` and publishes the country/clock/routine evidence coordinates and routine
+    hash; per-wave rate and cue mapping remain unresolved, pitch/loop scheduling is not applied, and
+    playback is not executed. Existing bank schemas stay byte-identical and
+    `n64-audio-decode --sample-rate` remains mandatory with no mixer-derived default;
   - ✅ **N64 ABI1 stored-wave decode — SHIPPED 2026-08-10.** `N64AdpcmDecoder` consumes the validated
     WBK slice and parsed predictor book as 9-byte frames / 16 mono samples using the signed-32 wrapping
     and saturated-history behavior of the ABI1/libultra audio-microcode runtime. Synthetic nibble,
@@ -304,47 +324,69 @@ schedule work from their old descriptions.
     `n64-audio-decode <PTR|ROM> --index N --sample-rate Hz -o out.wav` route requires the rate from the
     caller and emits one selected stored wave once as mono PCM16; explicit PTR input also requires
     `--wave`. Parsing, range checks, decoding, and WAV-size validation complete before the destination is
-    touched. Authoritative rate discovery, loop scheduling, pitch application, BFX execution, and cue
-    ownership remain separate;
+    touched. Authoritative per-wave/cue rate discovery, loop scheduling, pitch application, BFX
+    execution, and cue ownership remain separate;
   - ✅ **Nintendo Sound Tools BFX inspection — SHIPPED 2026-08-10.** These no-magic big-endian
     `fx_header_t` banks store signed default priorities, file-relative component offsets, opaque effect
     payloads, and an EOF-consuming u16 local-wave→PTR table. `N64SoundToolsFxBank` owns every byte and
-    validates every local target against a complete PTR graph without requiring WBK audio.
+    validates every local target against a complete PTR graph without requiring WBK audio. With no
+    magic to trust, the carver emits `.bfx.n64` only when the complete asset set has exactly one fully
+    parsed PTR and one full BFX match; missing, malformed, ambiguous, non-`.bin`, or colliding cases stay
+    unchanged, and consumers continue to scan content rather than suffix.
     `n64-audio-fx-inspect <game.z64> -o effects.json` selects the unique structural BFX and PTR singletons;
     standalone BFX input requires explicit `--pointer`. The manifest records that binding basis because
-    BFX contains no PTR identity. Across 13,737 carved assets the predicate finds exactly four candidates
-    and zero false positives, pinning 1,680 components/effects, 30,626 opaque bytes, and 1,608 mappings.
-    Bytecode remains opaque and Neversoft cue aliases, playback rate, pitch, loop scheduling, decode, and
-    WAV output remain unresolved. This is Nintendo Sound Tools BFX, not the unrelated Codemasters WTC
-    `.bfx` family documented elsewhere in this file;
+    BFX contains no PTR identity. The schema-v3 follow-up retains the v2 nullable byte-zero binding—direct
+    `81 <packed-local>` or the sole Spider-Man `95 <loop-count> 81 <packed-local>` wrapper—then resolves a
+    nullable initial event only when the exact following grammar is present: `84 env[7] 9C pan A6 volume
+    note<80 packed-length`. It exposes raw operands, the proven runtime pan half, `0x60` rest labeling, and
+    finite versus `0x7FFF` indefinite length without inventing MIDI, duration, rate, pitch, or playback
+    semantics. Continuation classification is separate and exact: direct remaining `80`, direct `80 E2`
+    with only `E2` retained as uninterpreted-after-stop, or wrapper count `0xFF` plus `96 80` as infinite
+    repeat. Wrong/truncated grammar, out-of-range bindings, and every other suffix remain nullable; neither
+    resolver scans later bytes or changes structural BFX acceptance. Across 13,737 carved assets the
+    predicate still finds exactly four candidates and zero false positives, pinning 1,680 components/effects,
+    30,626 opaque bytes, and 1,608 mappings. All 1,680 initial bindings/events classify (1,339 finite-stop,
+    340 indefinite-unreachable-stop, one infinite repeat) and cover all 1,608 local waves. The manifest
+    preserves every raw component byte and reports `opaqueBeyondInitialEvent`; Neversoft cue ownership and
+    per-wave rate remain unresolved, pitch/loop scheduling is not applied, and playback/decode/WAV output is
+    not executed. This is Nintendo Sound Tools BFX, not the unrelated Codemasters WTC `.bfx` family
+    documented elsewhere in this file;
   - ✅ **Strict N64 raw SFX cue inspection — SHIPPED 2026-08-10.** `N64SfxCueBank` consumes zero or
     more complete 16-byte big-endian records followed by the exact `FFFFFFFF` terminator, preserves every
     raw field/hash, and rejects nonzero record padding or trailing bytes. `n64-sfx-inspect <SFX|ROM> -o
     cues.json` uses one deterministic aggregate schema for a direct bank or all strict structural matches
-    carved from a ROM. Selection deliberately ignores filename classification: two valid THPS2 tables are
-    named `.bin`. The four-ROM scan covers 13,737 assets and pins 83 banks / 3,172 records (THPS1 0,
+    carved from a ROM. The archive carver now shares the same byte-only predicate, correcting two THPS2
+    tables that the old semantic note-range heuristic named `.bin`; ROM inspection still scans every asset
+    instead of treating suffixes as proof. The four-ROM scan covers 13,737 assets and pins 83 banks / 3,172 records (THPS1 0,
     THPS2 14/671, THPS3 14/572, Spider-Man 55/1,929), including the valid empty THPS1 aggregate.
     Alias-to-BFX/PTR ownership, rate/pitch application, loop scheduling, and playback remain unresolved;
-  - ✅ **N64 direct/compressed animation — conservative global-joint slice shipped 2026-08-10.**
+  - ✅ **N64 direct/compressed animation — conservative binding slice shipped 2026-08-10, exact flat-map profile added 2026-08-11.**
     The reader consumes big-endian 0x2A tables plus 24-byte big-endian `SMatrix` records and mixed-endian
     0x2C tables/channel payloads. Each direct slot is bounded by the next pool offset, sized from playback
     frames and `tween+1`, copied only to that checked size, s16-swapped, and passed to the established PSX
-    direct-matrix decoder. Successful opt-in animation binds each emitted corner by its global `G_MTX`
-    joint when render placements are unique and either the historical relative expression is identical or
-    `objectIndex + G_MTX` is provably out of range; ordinary conversion and invalid/all-failed selections
-    retain the historical static bytes. The GUI Animations pane routes exact selected slots, while
+    direct-matrix decoder. Successful opt-in animation normally binds each emitted corner by its global
+    `G_MTX` joint when render placements are unique and the interpretation is proven by coincident
+    addressing, an out-of-range `objectIndex + G_MTX`, or a hierarchical super's positional part order.
+    The exact Spider-Man `map` payload instead binds `objectIndex + G_MTX` and uses vertex factor k=1;
+    ordinary non-profile conversion and invalid/all-failed selections retain their static path. The GUI
+    Animations pane routes exact selected slots, while
     `mesh --n64-animations` explicitly requests the full eligible bank. A four-ROM CorpusFact pins 155
-    animated nonempty shells / 3,259 clips and admits 153 / 3,215: 96 shells / 801 direct clips plus 57 /
-    2,414 compressed clips. The only exclusions are Spider-Man slot 007 `docock` (43 compressed clips) and
-    slot 108 `map` (one direct clip), where global and relative interpretations are both in range but
-    disagree. All 802 direct slots decode within their owned ranges (798 exact and four one-frame-slack
+    animated nonempty shells / 3,259 clips and admits all 155 / 3,259: 97 shells / 802 direct clips plus
+    58 / 2,457 compressed clips. Spider-Man slot 007 `docock` supplies the positional-HIER oracle: its shell is
+    field-identical to PSX, all 256 referenced vertices map `G_MTX m` to PSX positional mesh `m`, and all
+    43 compressed clips match across 536,820 decoded s16 samples. Flat slot 108 `map` supplies the
+    relative/k=1 oracle: its 1,776-byte shell (`2712A50E…BD9`), 41,552-byte bank (`F1439FD7…65A`), and
+    render-bank id 215 must all match; its PC sibling is 32,536 bytes (`75EF75D6…56B0`), agrees on all
+    12 objects and 812 distinct positions, and every placement uses `G_MTX 0`. Static and animated
+    positions therefore remain identical while JOINTS_0 resolves to each placing object. All 802 direct slots
+    decode within their owned ranges (798 exact and four one-frame-slack
     slots at Spider-Man 145/263 clips 43/50), and seven PSX/N64 Rosetta pairs match after s16 swapping
     across 585,144 payload bytes. Real global-binding oracles include the 110-joint, 33-placement THPS2
     `sk2def` direct shell and the nonzero-placement Spider-Man slot 225 compressed shell; both GLBs pass
     Khronos with zero issues. Preview uses the existing 30 fps PSX cadence, and direct tween endings use
     the established CycleAnim wrap, as explicit export policies; N64 runtime cadence and per-clip
-    loop/clamp behavior remain unproven. The two byte-ambiguous shells stay static by design;
-  - improve incomplete bundle naming only from proven trigger/content correspondences (416/594 currently named), never an arbitrary first-candidate guess.
+    loop/clamp behavior remain unproven;
+  - improve incomplete bundle naming only from proven trigger/content correspondences (418/594 currently named), never an arbitrary first-candidate guess. Spider-Man's literal `Jameson` and `DEM4_G` outsider loads now disambiguate the sole remaining matching content occurrences; the duplicated Mysterio/firering pairs stay numeric.
 
 ---
 
@@ -395,7 +437,46 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
     translations wrap the signed-16 runtime range, so neither discovery nor `--ske`/`--skin` advertises
     an unproven glTF export. Four valid members omit bit29, so the supported family is described as
     INTERMEDIATE/full-float rather than universally flag-marked UNCOMPRESSED.
-  - **Still open (not blockers):** WGT/CAS payload decoding beyond raw dump — no consumer yet.
+  - ✅ **PS2/Xbox CAS polygon-removal metadata inspection — SHIPPED 2026-08-11.**
+    `CasPolyRemovalFile` accepts only explicitly typed `.cas.ps2` and `.cas.xbx`/Windows sidecars:
+    little-endian version 2, `{version, removalMask, count}`, then `count × 8` bytes of
+    `{mask, vertexReference}` on PS2 or `count × 12` bytes of `{mask, data0, data1}` on Xbox.
+    The Xbox packed words expose the runtime-proven mesh load order and three vertex indices while
+    retaining both raw words. Exact EOF, a nonnegative count, and the platform-selected stride are
+    required. The `cas` CLI emits deterministic schema-v1 JSON and marks geometry application
+    `notApplied`; it never infers a dialect from bare `.cas` bytes and never mutates a companion mesh.
+    The loose-file oracle covers 8,134 PS2 files / 145,803 records and 4,942 Xbox/Windows files /
+    44,106 records (13,076 files / 1,852,608 bytes / 189,909 records, zero failures). Its
+    Sample-Builds-relative Windows paths are ordinal-sorted before slash normalization, then hashed as
+    UTF-8 path + NUL + raw per-file SHA-256: `533B728E5099B292888F10EF0B10B35E92FFD4F07CF21B1EF8C9D6A998B5B7C8`;
+    raw file bytes in that same order hash to
+    `3FCDE1FB65DF4C1F0DC303F405767EC64281F3F5A1FF50EF673D5094DC04D019`. `CutArchive` now preserves
+    the container platform suffix on CAS members; bare authoring CUTs stay bare. The retained CUT census
+    pins 1,058 typed members / 561,520 bytes / 59,188 records, including 662 empty headers whose dialect
+    is knowable only from the container suffix.
+  - **Still open (not blockers):** applying CAS records to geometry remains unresolved because PS2
+    needs the runtime DMA/ADC binding and Xbox needs companion mesh load-order/strip identity. THAW
+    `.cas.ngc` uses a distinct big-endian `0x041000FE` envelope and is not accepted.
+  - ✅ **Compiled PS2/Xbox WGT v1 mesh-scaling metadata inspection — SHIPPED 2026-08-11.** The retained
+    THUG runtime reads a four-byte version, a signed vertex count, then exposes `3 × vertexCount`
+    little-endian float weights followed by `3 × vertexCount` signed-byte bone indices to
+    `SMeshScalingParameters`; the Xbox and PS2 mesh loaders consume those triples while loading the
+    cutscene head. `CutsceneWeightMapFile` admits only explicit `.wgt.ps2`/`.wgt.xbx` version 1 with a
+    nonnegative count, finite raw floats, and exact EOF `8 + 15 × vertexCount`. The `wgt` CLI preserves
+    every raw triple in deterministic schema-v1 JSON and marks geometry application `notApplied`.
+    Twelve loose files / 219,126 bytes / 14,602 vertices (eight unique payloads) form the accepted set;
+    their ordinal Sample-Builds-relative path + NUL + raw per-file SHA-256 digest is
+    `718F40AC62F4873ADF8BA77612568B1BFFD987C0D83EC0DBBE56B4FCCBF177AC`, and same-order raw bytes hash
+    to `F08B803965E3C620BDBA34B5BDEF951960BC7586A26B8FEAF1E110BF4190B15E`. `CutArchive` now preserves
+    the platform suffix on WGT members. The v1 CUT oracle pins 212 members in 52 containers /
+    3,997,036 bytes / 266,356 vertices (132 PS2 plus 80 Xbox/Windows), and every payload SHA matches
+    one of the eight loose v1 payloads.
+  - **WGT limits (fail closed):** eight bare authoring files use `4 + 24 × vertexCount` without the
+    retained compiler/consumer contract needed to claim their semantics. Four loose plus 40 CUT THUG2
+    PS2 files use version 2 and exact `8 + 19 × vertexCount`; their extra leading `4 × vertexCount`
+    region remains semantically unowned. Both dialects and `.wgt.ngc` are rejected. Geometry mutation
+    remains separate because it needs caller-selected profile bone scales and an authoritative WGT ↔
+    companion-skin vertex-order binding; the inspector never infers bone names or changes a mesh.
   - ✅ **`debug.log` texture-name side map — SHIPPED.** `ThawTextureNames.txt` carries 2,132
     compiled-texture checksum → original-art-name pairs harvested from the QTex bundles, and
     `ThawTexFile`/`NgcTexFile` use it before the general QBKey fallback. It remains deliberately
@@ -464,8 +545,10 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
   sweep: 490 character files, 0 real failures (non-conversions = texture-only costume files). See
   `mesh-fidelity.md`.
 - ✅ Dev-artifact non-formats identified 2026-07-07 (no work needed): `.usg`/`.usg.ps2` = memory-usage
-  build logs (text), Spider-Man `.tex` = hash manifests (text), `.psh` = C headers, `.cas.*`/`.fam.*` =
-  appearance config data. (The 2026-07-07 claim that `.mpk.ngc` = padding stubs was wrong for 821 of
+  build logs (text), Spider-Man `.tex` = hash manifests (text), `.psh` = C headers, and `.fam.*` =
+  appearance config data. The old `.cas.*` grouping was incorrect: `.cas.ps2`/`.cas.xbx` are binary
+  polygon-removal metadata (inspection now ships), while `.cas.ngc` is a separate unresolved envelope.
+  (The 2026-07-07 claim that `.mpk.ngc` = padding stubs was wrong for 821 of
   them — they are apk companion data files; see the .apk.ngc entry above.)
 
 ## By design / won't-fix ⚪

@@ -6,7 +6,7 @@ compile tag `"f5vid:id:May 27 2003 13:40:20"`).
 
 The transient build-specific Ghidra project and bulk decompiler output were not
 retained. This promoted inventory records the durable function addresses,
-roles, call relationships, and porting conclusions.
+roles, call relationships, porting conclusions, and current C# mapping.
 
 ## Pipeline summary
 
@@ -30,7 +30,7 @@ FUN_80299dc0 (DecodeFrame)
         FUN_8029EC34 (regular P-frame)  or  FUN_8029F7B8 (GMC sprite warp)
 ```
 
-## Key primitives (ordered by port priority)
+## Key primitives and current C# mapping
 
 ### Bit reader
 
@@ -43,9 +43,10 @@ State layout (one `uint[4]`):
 - `[2]` current bit position (0..31)
 - `[3]` pointer into source buffer (advances 4 bytes when word exhausted)
 
-Signature: `uint read_bits(uint* state, int n_bits)`. Straight port of what
-we already have in `dump_vid1_coeffs.BitReader`, but confirms the
-word-boundary handling and the prefetch convention.
+Signature: `uint read_bits(uint* state, int n_bits)`. The shipped counterpart
+is `Vid1BitReader`; the Python `dump_vid1_coeffs.BitReader` remains a diagnostic
+cross-check. The C# reader preserves the observed MSB-first behavior without
+claiming an in-memory replica of the DOL's four-word state.
 
 ### VLC decoders
 
@@ -57,8 +58,9 @@ word-boundary handling and the prefetch convention.
 | `0x802A07AC` | bit reader wrapper (called by cda0/cee0) | 72 B |
 | `0x802A07F4` | bit reader wrapper (called by cda0/cee0/a878) | 64 B |
 
-Tiny leaf functions — each is a VLC table lookup + shift. Port alongside
-the bit reader as a set.
+Tiny leaf functions — each is a VLC table lookup + shift. Their control and
+motion-vector counterparts ship in `Vid1VlcDecoder`; residual run/level VLCs
+ship in `Vid1CoefficientDecoder`.
 
 ### Control-prefix parsers
 
@@ -68,12 +70,13 @@ the bit reader as a set.
 | `0x802998F8` | special-16 / 998f8 control prefix | cda0, cee0, a878 |
 | `0x8029A878` | A878 residual block pipeline (see above) | 12 — full block loop |
 
-These match the bitstream probes we already have in
+These match the bitstream probes retained in
 [`tools/validation/video/dump_vid1_coeffs.py`](../../tools/validation/video/dump_vid1_coeffs.py)
 (`probe_caller_control_99a38_from_reader`,
-`probe_caller_control_998f8_from_reader`).
+`probe_caller_control_998f8_from_reader`). The active C# dispatch lives in
+`Vid1ControlPrefix`, `Vid1MacroblockDecoder`, and `Vid1Decoder`.
 
-### Pixel path (core port target)
+### Pixel path
 
 | Addr | Role | Size | Notes |
 |------|------|------|-------|
@@ -85,11 +88,17 @@ These match the bitstream probes we already have in
 | `0x8029EC34` | **motion compensation (regular)** | 180 B | called at end of a878 for P-frames |
 | `0x8029F7B8` | **motion compensation (GMC)** | 176 B | called at end of a878 when `param_1+0x84 != 0` and CBP flag 4 set |
 
+The corresponding C# implementations are `Vid1CoefficientDecoder`,
+`Vid1Prediction`, `Vid1Dequant`, `Vid1Idct`, `Vid1MotionComp`, and
+`Vid1SpriteWarp`, orchestrated by `Vid1Decoder` and
+`Vid1MacroblockDecoder`.
+
 **Note on IDCT**: Factor 5 used double-precision floating-point IDCT on
 Gekko, leveraging the PPC750 double-FP path. Typical PPC-PSN `0x3ff00000...`
 idiom converts `short` to `double` by OR-ing into the exponent bits of 1.0.
-We won't match bit-exact against integer-IDCT references (FFmpeg, reference
-C), but we will match this engine's PS2/PC output if they also use FP.
+`Vid1Idct` carries the DOL constants and rounding behavior. That structural
+match does not by itself prove bit-exact output against the GameCube decoder,
+an integer-IDCT reference, or another platform's build.
 
 ## Remaining unknowns
 
@@ -103,29 +112,41 @@ C), but we will match this engine's PS2/PC output if they also use FP.
 - `FUN_8029DA68`, `FUN_8029DA9C` — small helpers called from setup /
   teardown; probably quant-table setup and context-reset.
 
-These aren't blocking the port — read them when their callers are being
-translated.
+These identities remain hypotheses. The C# decoder implements the required
+state setup and frame reconstruction directly, but it does not establish a
+one-to-one mapping for these helpers. They therefore remain reverse-engineering
+follow-ups, not proof that the native port is bit-exact.
 
-## What this unlocks for the native C# port
+## Native C# implementation status
 
-The full pixel path is now known. For the Vid1 decoder's
-`DecodePixelFrame()` equivalent, port these in order:
+The former port-order checklist is complete: `Vid1Decoder` now drives the
+control-prefix, coefficient, prediction, dequantization, IDCT, motion, sprite,
+and reference-frame paths. `Vid1BFrameDecoder` handles the supported class-2
+direct, forward, backward, and bidirectional modes. `Vid1VideoConverter`
+streams the native decoder's RGB output to ffmpeg for MP4 encoding and muxing;
+ffmpeg is not used to decode VID1 frames. This is the shipped path documented
+in the README and format backlog.
 
-1. **Bit reader** + VLC lookups — straightforward 1:1 from `FUN_802A0834`
-   and the 5 tiny VLC functions.
-2. **Control-prefix parsers** — mostly already done in Python diagnostics;
-   port those to C# and validate against the Ghidra output.
-3. **Per-block pipeline** (the 7-step sequence inside `FUN_8029A878`) —
-   this is the heart of the port. Implement each step in the order above,
-   unit-test against a single macroblock's PS2/PC reference.
-4. **Motion compensation** — `FUN_8029EC34` first, then GMC
-   (`FUN_8029F7B8`) for class-3 frames.
-5. **Top-level `DecodeFrame`** — `FUN_80299DC0` orchestrates macroblock
-   iteration; wire it up last.
+Focused tests cover the bit reader, control/VLC primitives, dequantization,
+IDCT, motion compensation, canonical `intro.vid`/`atvi.vid`/`credits.vid`
+decoding behavior, presentation-order and seek consistency, current-output
+regression hashes, and an `intro.vid` MP4 conversion smoke test. Those tests
+pin the current implementation; the regression hashes and successful
+conversion are not a native-render pixel-fidelity oracle.
 
-With this pipeline implemented faithfully, the single-frame MAE against
-PS2 references should drop from the current ~65 (ffmpeg-transcode error
-frames) toward the ~17.77 PS2-vs-PC baseline.
+The remaining decoder limitations are explicit:
+
+- no retained GameCube framebuffer capture or equivalent oracle currently
+  proves pixel-exact output, so the historical MAE estimates are not a current
+  acceptance gate;
+- malformed or still-unmodelled macroblocks can take bounded bit-resynchronization,
+  neutral-plane, or reference-copy recovery paths, reported through
+  `Vid1FrameDecodeStats`;
+- class-2 field/GMC controls remain unsupported in `Vid1BFrameDecoder`, and
+  the non-class-2 field-prediction path remains opt-in pending score validation;
+- the exact pre-GMC feature-bit enable condition in `FUN_8029A878` is not yet
+  modelled; and
+- the helper identities listed under Remaining unknowns are still unproven.
 
 ## Reproducing targeted analysis
 
