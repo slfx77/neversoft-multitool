@@ -73,6 +73,102 @@ public sealed class SkaCompressedUnsignedComponentTests(TestPaths paths)
         Assert.Equal(new Vector3(-1f, 2f, -3f), t.Translation);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    public void DecodeCompressedQKeys_DirectKeyCannotCrossDeclaredTrackEnd(int end)
+    {
+        byte[] data = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+
+        var exception = Assert.Throws<InvalidDataException>(() => DecodeQ(data, 0, end));
+
+        Assert.Contains("track boundary", exception.Message);
+    }
+
+    [Fact]
+    public void DecodeCompressedQKeys_NarrowComponentCannotCrossDeclaredTrackEnd()
+    {
+        // All components are byte-width; the declared range ends before Z,
+        // while the backing buffer deliberately contains a tempting next byte.
+        byte[] data = [0x00, 0x78, 0x01, 0x02, 0x03];
+
+        var exception = Assert.Throws<InvalidDataException>(() => DecodeQ(data, 0, 4));
+
+        Assert.Contains("Q Z component", exception.Message);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    [InlineData(8)]
+    public void DecodeCompressedTKeys_DirectKeyCannotCrossDeclaredTrackEnd(int end)
+    {
+        // Full timestamp plus three direct s16 components.
+        byte[] data = [0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+
+        var exception = Assert.Throws<InvalidDataException>(() => DecodeT(data, 0, end));
+
+        Assert.Contains("track boundary", exception.Message);
+    }
+
+    [Fact]
+    public void CompressedLookupIndices_CannotCrossDeclaredTrackEnd()
+    {
+        byte[] qData = [0x00, 0x40, 0x7F];
+        byte[] tData = [0xC0, 0x7F];
+
+        var qException = Assert.Throws<InvalidDataException>(() => DecodeQ(qData, 0, 2));
+        var tException = Assert.Throws<InvalidDataException>(() => DecodeT(tData, 0, 1));
+
+        Assert.Contains("Q lookup index", qException.Message);
+        Assert.Contains("T lookup index", tException.Message);
+    }
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(1, 0)]
+    [InlineData(0, 2)]
+    public void CompressedKeyDecoders_RejectInvalidInitialRanges(int offset, int end)
+    {
+        byte[] data = [0x00];
+
+        Assert.Throws<InvalidDataException>(() => DecodeQ(data, offset, end));
+        Assert.Throws<InvalidDataException>(() => DecodeT(data, offset, end));
+    }
+
+    [Fact]
+    public void CompressedDirectKeys_ExactDeclaredRangesRemainValid()
+    {
+        byte[] qData = [0x05, 0x00, 0x00, 0x10, 0x00, 0xE0, 0x00, 0x08];
+        var qOffset = 0;
+        var q = Assert.Single(SkaCompressedKeyDecoders.DecodeCompressedQKeys(
+            qData, ref qOffset, qData.Length, null));
+
+        Assert.Equal(qData.Length, qOffset);
+        Assert.Equal(5f / 60f, q.Time);
+        Assert.Equal(new Vector3(-0.25f, 0.5f, -0.125f),
+            new Vector3(q.Rotation.X, q.Rotation.Y, q.Rotation.Z));
+
+        byte[] tData = [0x45, 0x20, 0x00, 0xC0, 0xFF, 0x60, 0x00];
+        var tOffset = 0;
+        var t = Assert.Single(SkaCompressedKeyDecoders.DecodeCompressedTKeys(
+            tData, ref tOffset, tData.Length, null));
+
+        Assert.Equal(tData.Length, tOffset);
+        Assert.Equal(5f / 60f, t.Time);
+        Assert.Equal(new Vector3(1f, -2f, 3f), t.Translation);
+    }
+
     [CorpusFact]
     public void ThugCompiledCut_QKeysMatchBareAuthoringValues_WithUnsignedByteLiterals()
     {
@@ -181,6 +277,16 @@ public sealed class SkaCompressedUnsignedComponentTests(TestPaths paths)
         }
 
         return members;
+    }
+
+    private static void DecodeQ(byte[] data, int offset, int end)
+    {
+        _ = SkaCompressedKeyDecoders.DecodeCompressedQKeys(data, ref offset, end, null);
+    }
+
+    private static void DecodeT(byte[] data, int offset, int end)
+    {
+        _ = SkaCompressedKeyDecoders.DecodeCompressedTKeys(data, ref offset, end, null);
     }
 
     private static BareRotations ReadBareRotations(byte[] data)

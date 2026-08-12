@@ -170,7 +170,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         AssertMatrixClose(expected, actual);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Decode_CarnageAnim0_DecompressStreamRoundtrips()
     {
         var path = paths.FindSampleFile(SpiderManBuild, "carnage.psx");
@@ -200,7 +200,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         Assert.InRange(consumed, 1000, 2000);
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeDirectMatrix_Hawk2Anim0_FillsAllChannels()
     {
         var path = paths.FindSampleFile(Thps2ProtoBuild, "hawk2.psx");
@@ -399,7 +399,7 @@ public class PsxAnimDecoderTests(TestPaths paths)
         Assert.Equal(45, animation.Channels[0, 3, 4]); // halfway back toward frame 0
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeDirectMatrix_BruceAnim0_TweenReducedPayloadDecodes()
     {
         // bruce.psx anim 0: 40 playback frames, tween=2 → interval 3, only 14

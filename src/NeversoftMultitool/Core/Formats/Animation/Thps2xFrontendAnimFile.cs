@@ -108,7 +108,7 @@ internal static class Thps2XFrontendAnimFile
         ref int nodeCount,
         ref int totalKeyCount)
     {
-        if (depth > MaxDepth)
+        if (depth >= MaxDepth)
             throw new InvalidDataException(
                 $"THPS2X frontend ANIM: node nesting exceeds the {MaxDepth}-level safety limit");
         if (++nodeCount > maximumNodes)

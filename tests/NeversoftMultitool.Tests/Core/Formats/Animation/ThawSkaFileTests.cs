@@ -102,7 +102,7 @@ public class ThawSkaFileTests(TestPaths paths)
         Assert.Equal(4081u, ps2.CustomKeys[^1].Timestamp);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_Bh11Cam0_Ps2AndGc_DecodeToIdenticalKeys()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

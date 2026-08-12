@@ -17,23 +17,29 @@ internal static class SkaThps3Parser
         const int QRecordSize = 24;
         const int TRecordSize = 20;
 
-        var numQKeys = (int)BitConverter.ToUInt32(data[12..]);
-        var numTKeys = (int)BitConverter.ToUInt32(data[16..]);
+        var rawNumQKeys = BitConverter.ToUInt32(data[12..]);
+        var rawNumTKeys = BitConverter.ToUInt32(data[16..]);
+        if (rawNumQKeys > int.MaxValue || rawNumTKeys > int.MaxValue)
+            throw new InvalidDataException(
+                $"THPS3 SKA key counts are too large: Q={rawNumQKeys}, T={rawNumTKeys}.");
+
+        var numQKeys = (int)rawNumQKeys;
+        var declaredTKeys = (int)rawNumTKeys;
 
         // Actual Q records stored = numQKeys - 1 (header over-counts by 1).
         // A 4-byte field sits between Q and T — purpose unknown, possibly a
         // trailing end-of-Q marker baked into the allocation.
         var qActual = Math.Max(0, numQKeys - 1);
         var qStart = HeaderSize + PreQMetadata;
-        var qEnd = qStart + qActual * QRecordSize;
-        var tStart = qEnd + QTPadding;
-        var tEnd = tStart + numTKeys * TRecordSize;
+        var qEnd64 = qStart + (long)qActual * QRecordSize;
+        var tStart64 = qEnd64 + QTPadding;
+        if (tStart64 > data.Length)
+            throw new InvalidDataException(
+                $"THPS3 SKA Q table needs {tStart64} bytes, but the file has {data.Length}.");
 
-        if (tEnd > data.Length)
-        {
-            // Don't crash on short files — cap numTKeys to what actually fits.
-            numTKeys = Math.Max(0, (data.Length - tStart) / TRecordSize);
-        }
+        var tStart = (int)tStart64;
+        // Don't crash on short files — cap numTKeys to what actually fits.
+        var numTKeys = Math.Min(declaredTKeys, (data.Length - tStart) / TRecordSize);
 
         var (qKeys, qSentinels) = ReadThps3Records(data, qStart, qActual, QRecordSize, ThpsRecordKind.Q);
         var (tKeys, tSentinels) = ReadThps3Records(data, tStart, numTKeys, TRecordSize, ThpsRecordKind.T);

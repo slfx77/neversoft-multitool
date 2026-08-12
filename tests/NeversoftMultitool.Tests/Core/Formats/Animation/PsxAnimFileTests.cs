@@ -9,7 +9,7 @@ public class PsxAnimFileTests(TestPaths paths)
     private const string Thps2ProtoBuild = "Tony Hawk's Pro Skater 2 (2000-3-29, PSX - Prototype)";
     private const string ApocalypseBuild = "Apocalypse (1998-11-17, PSX - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void Parse_CarnagePsx_DetectsMonolithicLayout()
     {
         var path = paths.FindSampleFile(SpiderManBuild, "carnage.psx");
@@ -40,7 +40,7 @@ public class PsxAnimFileTests(TestPaths paths)
         Assert.Equal(0, animFile.Entries[0].TweenFlag);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_BlackcatPsx_DetectsMonolithicLayout()
     {
         var path = paths.FindSampleFile(SpiderManBuild, "blackcat.psx");
@@ -59,7 +59,7 @@ public class PsxAnimFileTests(TestPaths paths)
             $"expected at least 10 valid entries, got {animFile.Entries.Count}");
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_Hawk2Psx_DetectsDirectMatrixLayout()
     {
         var path = paths.FindSampleFile(Thps2ProtoBuild, "hawk2.psx");
@@ -87,7 +87,7 @@ public class PsxAnimFileTests(TestPaths paths)
         Assert.Equal(19, psxFile.Objects.Count);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_CrocPsx_DetectsDirectMatrixLayout()
     {
         var path = paths.FindSampleFile(ApocalypseBuild, "croc.psx");
@@ -106,7 +106,7 @@ public class PsxAnimFileTests(TestPaths paths)
         Assert.True(animFile.Entries.Count >= 1, "at least one entry should be recoverable");
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_SpideyPsx_DetectsExtendedAnimationSlots()
     {
         var path = paths.FindSampleFile(SpiderManBuild, "spidey.psx");

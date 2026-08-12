@@ -151,7 +151,7 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
         Assert.Equal([1, 0], remap.SourceToTarget);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Probe_Sk2AnimPsx_DetectsSharedMonolithicBank()
     {
         var path = paths.FindSampleFile(Thps2ProtoBuild, "sk2anim.psx");
@@ -171,7 +171,7 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
         Assert.True(bank.MatchesTargetBoneCount);
     }
 
-    [Fact]
+    [CorpusFact]
     public void BoneMap_Sk2AnimToMullen_RemapsSharedSkaterOrder()
     {
         var mullenPath = paths.FindSampleFile(Thps2ProtoBuild, "mullen.psx");
@@ -196,7 +196,7 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
         Assert.Equal(5, remap.SourceToTarget[6]); // sk2anim left_shin -> mullen left_shin
     }
 
-    [Fact]
+    [CorpusFact]
     public void Decode_MullenPlusSk2Anim_CombinesEmbeddedAndExternalBanks()
     {
         var mullenPath = paths.FindSampleFile(Thps2ProtoBuild, "mullen.psx");
@@ -235,7 +235,7 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
         Assert.Equal(148, embedded.Animations.Count + external.Animations.Count);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Probe_Sk2DefPsx_DisablesMismatchedNineteenBoneSkater()
     {
         var path = paths.FindSampleFile(Thps2ProtoBuild, "sk2def.psx");

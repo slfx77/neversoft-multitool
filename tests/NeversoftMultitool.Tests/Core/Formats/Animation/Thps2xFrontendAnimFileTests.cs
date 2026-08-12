@@ -111,12 +111,24 @@ public sealed class Thps2XFrontendAnimFileTests(TestPaths paths)
     public void Parse_ExcessiveNestingIsRejected()
     {
         var node = Node("leaf", "close");
-        for (var i = 0; i <= Thps2XFrontendAnimFile.MaxDepth; i++)
+        for (var i = 0; i < Thps2XFrontendAnimFile.MaxDepth; i++)
             node = Node($"node{i}", "close", children: [node]);
 
         var ex = Assert.Throws<InvalidDataException>(
             () => Thps2XFrontendAnimFile.Parse(BuildFile(1f, node)));
         Assert.Contains("nesting exceeds", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_ExactlySixtyFourLevelsIsAccepted()
+    {
+        var node = Node("leaf", "close");
+        for (var i = 1; i < Thps2XFrontendAnimFile.MaxDepth; i++)
+            node = Node($"node{i}", "close", children: [node]);
+
+        var animation = Thps2XFrontendAnimFile.Parse(BuildFile(1f, node));
+
+        Assert.Equal(Thps2XFrontendAnimFile.MaxDepth, animation.NodeCount);
     }
 
     [Fact]
@@ -233,7 +245,7 @@ public sealed class Thps2XFrontendAnimFileTests(TestPaths paths)
             static node => Assert.Equal("Career Select a File 1", node.ClosingName));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_FullFrontendCorpus_ConsumesEveryFileAndPinsCensus()
     {
         var frontend = GetFrontendDirectory();

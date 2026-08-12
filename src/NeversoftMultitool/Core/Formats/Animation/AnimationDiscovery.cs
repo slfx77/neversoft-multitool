@@ -31,6 +31,8 @@ internal static class AnimationDiscovery
     public static IReadOnlyList<AnimationProbe> FindForCharacter(
         AssetSource skinSource, int? skeletonBoneCount, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+
         if (IsN64Character(skinSource))
         {
             ct.ThrowIfCancellationRequested();
@@ -81,6 +83,8 @@ internal static class AnimationDiscovery
         bool includePsxAnimationBanks = false,
         AssetSource? targetCharacterSource = null)
     {
+        ct.ThrowIfCancellationRequested();
+
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var results = new List<AnimationProbe>();
         if (includePsxAnimationBanks)
@@ -101,6 +105,8 @@ internal static class AnimationDiscovery
         bool includePsxAnimationBanks = false,
         AssetSource? targetCharacterSource = null)
     {
+        ct.ThrowIfCancellationRequested();
+
         var results = new List<AnimationProbe>();
         foreach (var entry in backend.Entries)
         {

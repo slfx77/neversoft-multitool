@@ -156,7 +156,7 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
         AssertMatrixClose(wrapped.WorldMatrix, looped.WorldMatrix, 1e-6f);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ParseAndExport_PedFWalkFactsStayStable()
     {
         var fixture = LoadThps4Fixture("Ped_F.ske", "skater_f.skin.ps2", "Ped_F_Walk.ska.ps2");
@@ -177,7 +177,7 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
         Assert.Equal(0, gltfAnimation.Channels.Count(channel => channel.TargetNodePath == PropertyPath.scale));
     }
 
-    [Fact]
+    [CorpusFact]
     public void BuildSkeletonOnly_Thps4EmitsAnimationChannelsForTrackedBones()
     {
         var fixture = LoadThps4Fixture("Ped_F.ske", "skater_f.skin.ps2", "Ped_F_Walk.ska.ps2");
@@ -255,7 +255,7 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
         AssertMatrixClose(explicitInverseBind, ibm, 1e-5f);
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("Ped_F.ske", "skater_f.skin.ps2", "Ped_F_Walk.ska.ps2")]
     [InlineData("human.ske", "skater_m.skin.ps2", "AirIdle.ska.ps2")]
     [InlineData("human.ske", "skater_m.skin.ps2", "AirWalk.ska.ps2")]
@@ -279,7 +279,7 @@ public sealed class SkaPoseEvaluatorTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void GlbModelLoader_PedFWalkBuiltInAndCustomSamplingStayInParity()
     {
         var fixture = LoadThps4Fixture("Ped_F.ske", "skater_f.skin.ps2", "Ped_F_Walk.ska.ps2");

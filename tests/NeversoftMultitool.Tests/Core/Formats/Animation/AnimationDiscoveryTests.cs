@@ -114,7 +114,9 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
         "Tony Hawk's Pro Skater 2 (USA).z64", "046", 1)]
     [InlineData("Spider-Man (2000-11-21, N64 - Final)",
         "Spider-Man (USA).z64", "225", 6)]
-    public void FindForCharacter_N64ResidualGlobalBinding_RoutesExactSelectedSlot(
+    [InlineData("Spider-Man (2000-11-21, N64 - Final)",
+        "Spider-Man (USA).z64", "108", 1)]
+    public void FindForCharacter_N64ProvenBinding_RoutesExactSelectedSlot(
         string buildName,
         string romName,
         string slot,
@@ -139,6 +141,10 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
         var selected = Assert.IsType<N64AnimationSource>(probes[^1].Source);
         Assert.Same(source, selected.ModelSource);
         Assert.Equal(expectedClips - 1, selected.AnimationIndex);
+        Assert.Equal(
+            selected.FrameCount / PsxAnimationBank.DefaultPreviewFps,
+            probes[^1].DurationSec,
+            6);
         var document = new MeshModelParser().Parse(new MeshImportRequest
         {
             Source = selected.ModelSource,

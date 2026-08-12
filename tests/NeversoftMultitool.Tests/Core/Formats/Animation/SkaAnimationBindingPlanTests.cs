@@ -114,7 +114,7 @@ public sealed class SkaAnimationBindingPlanTests(TestPaths paths)
         Assert.Equal(new AnimationPanelOperationControlState(false, false, false, false), state);
     }
 
-    [Fact]
+    [CorpusFact]
     public void RealThps7ToThps6Plan_Uses52TracksAndMaps48()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

@@ -91,7 +91,11 @@ internal static class SkaFile
         if (((flags & FlagPlatform) != 0 || (flags & FlagUseCompressTable) != 0)
             && data.Length >= 16)
         {
-            var numBones = (int)BitConverter.ToUInt32(data[12..]);
+            var rawNumBones = BitConverter.ToUInt32(data[12..]);
+            if (rawNumBones > int.MaxValue)
+                return null;
+
+            var numBones = (int)rawNumBones;
             return new SkaProbeResult(duration, numBones);
         }
 

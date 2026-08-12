@@ -10,16 +10,34 @@ internal static class SkaCompressedParser
         ReadOnlySpan<byte> data, uint version, uint flags, float duration,
         SkaCompressTable? compressTable)
     {
+        const int platformHeaderOffset = 12;
+        const int allocationHeaderOffset = platformHeaderOffset + 16;
+        const int sizeTablesOffset = allocationHeaderOffset + 8;
+
+        if (data.Length < sizeTablesOffset)
+            throw new InvalidDataException("SKA compressed: header is truncated");
+
         var off = 12;
 
         // Platform header (16 bytes): numBones, numQKeys@+4, numTKeys@+8,
         // numCustomAnimKeys@+12 — only numBones drives the parse; the key
         // totals are recomputed from the per-bone size tables below.
-        var numBones = (int)BitConverter.ToUInt32(data[off..]);
+        var numBonesRaw = BitConverter.ToUInt32(data[off..]);
+        var sizeTablesEnd = (long)sizeTablesOffset + 4L * numBonesRaw;
+        if (numBonesRaw > int.MaxValue || sizeTablesEnd > data.Length)
+        {
+            throw new InvalidDataException(
+                $"SKA compressed: {numBonesRaw}-bone Q/T size tables overrun file");
+        }
+
+        var numBones = (int)numBonesRaw;
         off += 16;
 
-        // Alloc sizes: qAllocSize, tAllocSize@+4 — only qAllocSize is consumed.
-        var qAllocSize = (int)BitConverter.ToUInt32(data[off..]);
+        // Alloc sizes bound the independent Q and T blobs. Per-bone tracks may
+        // leave allocation slack, but they must never consume the other blob or
+        // bytes following the declared animation data.
+        var qAllocSize = BitConverter.ToUInt32(data[off..]);
+        var tAllocSize = BitConverter.ToUInt32(data[(off + 4)..]);
         off += 8;
 
         // Per-bone frame byte sizes
@@ -41,12 +59,33 @@ internal static class SkaCompressedParser
         if ((off & 3) != 0)
             off += 4 - (off & 3);
 
+        var qSizeTotal = perBoneQSize.Sum(static size => (long)size);
+        var tSizeTotal = perBoneTSize.Sum(static size => (long)size);
+        if (qSizeTotal > qAllocSize)
+        {
+            throw new InvalidDataException(
+                $"SKA compressed: Q size table totals {qSizeTotal} bytes, exceeding declared allocation {qAllocSize}");
+        }
+
+        if (tSizeTotal > tAllocSize)
+        {
+            throw new InvalidDataException(
+                $"SKA compressed: T size table totals {tSizeTotal} bytes, exceeding declared allocation {tAllocSize}");
+        }
+
+        var streamsEnd = (long)off + qAllocSize + tAllocSize;
+        if (streamsEnd > data.Length)
+        {
+            throw new InvalidDataException(
+                $"SKA compressed: Q/T blobs end at 0x{streamsEnd:X}, beyond file length 0x{data.Length:X}");
+        }
+
         // Q keyframe data blob
         var qDataStart = off;
-        off += qAllocSize;
+        var qDataEnd = (int)((long)off + qAllocSize);
 
         // T keyframe data blob
-        var tDataStart = off;
+        var tDataStart = qDataEnd;
 
         // Decode per-bone tracks
         var tracks = new SkaBoneTrack[numBones];

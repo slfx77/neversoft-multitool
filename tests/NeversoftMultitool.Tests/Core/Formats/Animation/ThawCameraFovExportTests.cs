@@ -131,7 +131,7 @@ public sealed class ThawCameraFovExportTests(TestPaths paths)
         Assert.Equal(2, document.Animations.Count);
     }
 
-    [Fact]
+    [CorpusFact]
     public void StorySelect_Ps2AndGc_ProduceEqualFrameZeroProjection()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -157,7 +157,7 @@ public sealed class ThawCameraFovExportTests(TestPaths paths)
         Assert.Equal(ps2Camera.VerticalFieldOfViewRadians, gcCamera.VerticalFieldOfViewRadians);
     }
 
-    [Fact]
+    [CorpusFact]
     public void StorySelect_Ps2AndGc_SkaCliDefaultRemainsGlbWithStaticCamera()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -189,7 +189,7 @@ public sealed class ThawCameraFovExportTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void StorySelect_Ps2AndGc_SkaCliBothFormatRoutesEveryOutputThroughConfiguredHelper()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

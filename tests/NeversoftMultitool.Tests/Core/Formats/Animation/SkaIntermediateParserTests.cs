@@ -324,7 +324,7 @@ public sealed class SkaIntermediateParserTests(TestPaths paths)
         Assert.Equal(2, animation.BoneTracks.Length);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_RealFixtures_PinDenseV3AndSparseV2Layouts()
     {
         var fl = ReadCutMember("FL_01.cut", 0x545F29AA);

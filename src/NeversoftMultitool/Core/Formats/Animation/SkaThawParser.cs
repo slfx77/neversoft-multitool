@@ -189,6 +189,10 @@ internal static class SkaThawParser
         ReadOnlySpan<byte> data, ref int off, int end,
         bool compact, bool hiResTs, SkaCompressTable? table)
     {
+        if (off < 0 || end < off || end > data.Length)
+            throw new InvalidDataException(
+                $"THAW SKA: Q track range 0x{off:X}..0x{end:X} is outside the file");
+
         var keys = new List<SkaRotationKey>();
 
         while (off < end)
@@ -196,6 +200,7 @@ internal static class SkaThawParser
             int timestamp;
             if (hiResTs)
             {
+                EnsureThawQTrackBytes(off, end, 2, "high-resolution timestamp");
                 timestamp = (data[off] | (data[off + 1] << 8)) & 0x7FFF;
                 off += 2;
             }
@@ -204,9 +209,28 @@ internal static class SkaThawParser
                 timestamp = 0; // assigned from the header below
             }
 
+            EnsureThawQTrackBytes(off, end, 2, "key header");
             var header = (ushort)(data[off] | (data[off + 1] << 8));
             var signBit = (header & 0x8000) != 0;
             off += 2;
+
+            int payloadSize;
+            if ((header & 0x4000) == 0)
+            {
+                payloadSize = compact ? 3 : 6;
+            }
+            else if ((header & 0x3800) == 0)
+            {
+                payloadSize = 1;
+            }
+            else
+            {
+                payloadSize = ThawQComponentSize((header & 0x2000) != 0, compact)
+                              + ThawQComponentSize((header & 0x1000) != 0, compact)
+                              + ThawQComponentSize((header & 0x0800) != 0, compact);
+            }
+
+            EnsureThawQTrackBytes(off, end, payloadSize, "key payload");
 
             float qx, qy, qz;
             if ((header & 0x4000) != 0)
@@ -266,6 +290,18 @@ internal static class SkaThawParser
             throw new InvalidDataException($"THAW SKA: Q track consumed past its size table entry ({off} != {end})");
 
         return keys.ToArray();
+    }
+
+    private static int ThawQComponentSize(bool narrow, bool compact) => narrow || compact ? 1 : 2;
+
+    private static void EnsureThawQTrackBytes(int offset, int end, int count, string context)
+    {
+        if (offset < 0 || count < 0 || (long)offset + count > end)
+        {
+            throw new InvalidDataException(
+                $"THAW SKA: Q track {context} overruns its size-table entry at 0x{offset:X} " +
+                $"(need {count} bytes, end 0x{end:X})");
+        }
     }
 
     /// <summary>

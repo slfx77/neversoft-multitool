@@ -12,7 +12,7 @@ public sealed class PsxFormatRevisionCrossGameTests(TestPaths paths)
     private const string EnterElectroFinalBuild = "Spider-Man 2 - Enter Electro (2001-8-15, PSX - Final)";
     private const string SpiderManDcProtoBuild = "Spider-Man (2001-2-14, DC - Prototype)";
 
-    [Theory]
+    [CorpusTheory]
     [InlineData(
         Thps1ProtoBuild,
         "burnq.psx",
