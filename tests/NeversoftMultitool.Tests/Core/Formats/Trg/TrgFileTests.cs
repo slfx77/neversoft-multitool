@@ -7,16 +7,13 @@ namespace NeversoftMultitool.Tests.Core.Formats.Trg;
 
 public class TrgFileTests(TestPaths paths)
 {
-    private string? FindTrgFile(string buildPattern, string fileName)
+    private const string ApocalypseFinalBuild = "Apocalypse (1998-11-17, PSX - Final)";
+    private const string SpiderManFinalBuild = "Spider-Man (2000-9-1, PSX - Final)";
+    private const string Thps1FinalBuild = "Tony Hawk's Pro Skater (1999-9-29, PSX - Final)";
+
+    private string? FindTrgFile(string buildName, string fileName)
     {
-        if (!paths.HasSampleBuilds) return null;
-        var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
-            .FirstOrDefault(d => Path.GetFileName(d).Contains(buildPattern, StringComparison.OrdinalIgnoreCase));
-        if (buildDir == null) return null;
-        var trgDir = Path.Combine(buildDir, "TRG");
-        if (!Directory.Exists(trgDir)) return null;
-        return Directory.GetFiles(trgDir)
-            .FirstOrDefault(f => Path.GetFileName(f).Equals(fileName, StringComparison.OrdinalIgnoreCase));
+        return paths.FindSampleFile(buildName, fileName);
     }
 
     private string[] GetAllTrgFiles()
@@ -35,11 +32,12 @@ public class TrgFileTests(TestPaths paths)
     public void Parse_SpiderManPowerupWithLinks_HasSaneWorldPosition()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
-        var path = Path.Combine(paths.SampleBuildsDir!,
-            "Spider-Man (2000-2-18, PSX - Prototype)", "CD", "l1a1_t.trg");
-        Assert.SkipWhen(!File.Exists(path), "l1a1_t.trg not present");
+        var path = FindTrgFile(SpiderManFinalBuild, "l1a1_t.trg");
+        Assert.SkipWhen(path == null, $"{SpiderManFinalBuild}/CD/l1a1_t.trg not present");
+        AssertFixtureIdentity(path!, SpiderManFinalBuild, 12_884, "l1a1_t.trg");
 
-        var trg = TrgFile.Parse(path);
+        var trg = TrgFile.Parse(path!);
+        AssertFixtureShape(trg, 2, 1, 294, 2);
 
         // The three type-11 "?" POWERUP nodes carry link lists (4-5 links). The
         // parser must skip the links before reading position; consuming only the
@@ -62,47 +60,37 @@ public class TrgFileTests(TestPaths paths)
     [Fact]
     public void Parse_ApocalypseCityT_HasExpectedNodeCount()
     {
-        var file = FindTrgFile("Apocalypse", "city_t.trg");
+        var file = FindTrgFile(ApocalypseFinalBuild, "city_t.trg");
         Assert.SkipWhen(file == null, "Apocalypse city_t.trg not found");
+        AssertFixtureIdentity(file!, ApocalypseFinalBuild, 113_096, "city_t.trg");
 
         var trg = TrgFile.Parse(file!);
 
-        Assert.Equal(2, trg.VersionMajor);
-        Assert.Equal(0, trg.VersionMinor);
-        Assert.True(trg.NodeCount > 100, $"Expected >100 nodes, got {trg.NodeCount}");
-        Assert.Equal(trg.NodeCount, trg.Nodes.Count);
+        AssertFixtureShape(trg, 2, 0, 1_808, 10);
     }
 
     [Fact]
     public void Parse_ApocalypseDeathT_SmallFileParsesCorrectly()
     {
-        var file = FindTrgFile("Apocalypse", "death_t.trg");
+        var file = FindTrgFile(ApocalypseFinalBuild, "death_t.trg");
         Assert.SkipWhen(file == null, "Apocalypse death_t.trg not found");
+        AssertFixtureIdentity(file!, ApocalypseFinalBuild, 5_534, "death_t.trg");
 
         var trg = TrgFile.Parse(file!);
 
-        Assert.Equal(2, trg.VersionMajor);
-        Assert.Equal(0, trg.VersionMinor);
-        Assert.True(trg.NodeCount > 0);
-        // Last node should always be TERMINATOR
-        Assert.Equal("TERMINATOR", trg.Nodes[^1].Type);
-        Assert.Equal(255, trg.Nodes[^1].TypeId);
+        AssertFixtureShape(trg, 2, 0, 121, 1);
     }
 
     [Fact]
     public void Parse_SpiderManV21_ParsesCorrectVersion()
     {
-        // Try any Spider-Man build
-        var file = FindTrgFile("Spider-Man (2000-9-1", "l1a1_t.trg");
-        file ??= FindTrgFile("Spider-Man (2000-2-18", "l1a1_t.trg");
+        var file = FindTrgFile(SpiderManFinalBuild, "l1a1_t.trg");
         Assert.SkipWhen(file == null, "Spider-Man l1a1_t.trg not found");
+        AssertFixtureIdentity(file!, SpiderManFinalBuild, 12_884, "l1a1_t.trg");
 
         var trg = TrgFile.Parse(file!);
 
-        Assert.Equal(2, trg.VersionMajor);
-        Assert.Equal(1, trg.VersionMinor);
-        Assert.True(trg.NodeCount > 0);
-        Assert.Equal("TERMINATOR", trg.Nodes[^1].Type);
+        AssertFixtureShape(trg, 2, 1, 294, 2);
     }
 
     [Fact]
@@ -287,13 +275,15 @@ public class TrgFileTests(TestPaths paths)
     [Fact]
     public void Parse_RestartNodesHaveNamesAndPositions()
     {
-        var file = FindTrgFile("Apocalypse", "city_t.trg");
+        var file = FindTrgFile(ApocalypseFinalBuild, "city_t.trg");
         Assert.SkipWhen(file == null, "Apocalypse city_t.trg not found");
+        AssertFixtureIdentity(file!, ApocalypseFinalBuild, 113_096, "city_t.trg");
 
         var trg = TrgFile.Parse(file!);
+        AssertFixtureShape(trg, 2, 0, 1_808, 10);
         var restarts = trg.Nodes.Where(n => n.Type == "RESTART").ToList();
 
-        Assert.NotEmpty(restarts);
+        Assert.Equal(10, restarts.Count);
         foreach (var r in restarts)
         {
             Assert.NotNull(r.Name);
@@ -305,27 +295,18 @@ public class TrgFileTests(TestPaths paths)
     [Fact]
     public void Parse_RailPointsHavePositions()
     {
-        // THPS builds have the most rail points
-        string? file = null;
-        foreach (var pattern in new[] { "Tony Hawk's Pro Skater (1999-9-29", "Tony Hawk's Pro Skater 2 (2000-9-19" })
-        {
-            if (!paths.HasSampleBuilds) break;
-            var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
-                .FirstOrDefault(d => Path.GetFileName(d).Contains(pattern, StringComparison.OrdinalIgnoreCase));
-            if (buildDir == null) continue;
-            var trgDir = Path.Combine(buildDir, "TRG");
-            if (!Directory.Exists(trgDir)) continue;
-            file = Directory.GetFiles(trgDir).FirstOrDefault(f =>
-                Path.GetExtension(f).Equals(".trg", StringComparison.OrdinalIgnoreCase));
-            if (file != null) break;
-        }
-
-        Assert.SkipWhen(file == null, "No THPS TRG files found");
+        var file = FindTrgFile(Thps1FinalBuild, "skburn_t.trg");
+        Assert.SkipWhen(file == null, $"{Thps1FinalBuild}/CD/skburn_t.trg not found");
+        AssertFixtureIdentity(file!, Thps1FinalBuild, 10_656, "skburn_t.trg");
 
         var trg = TrgFile.Parse(file!);
+        Assert.Equal(2, trg.VersionMajor);
+        Assert.Equal(0, trg.VersionMinor);
+        Assert.Equal(333, trg.NodeCount);
+        Assert.Equal(333, trg.Nodes.Count);
         var rails = trg.Nodes.Where(n => n.Type is "RAILDEF" or "RAILPOINT").ToList();
 
-        Assert.NotEmpty(rails);
+        Assert.Equal(193, rails.Count);
         foreach (var r in rails)
         {
             Assert.NotNull(r.Position);
@@ -383,10 +364,12 @@ public class TrgFileTests(TestPaths paths)
     [Fact]
     public void ToJson_ProducesValidJson()
     {
-        var file = FindTrgFile("Apocalypse", "death_t.trg");
+        var file = FindTrgFile(ApocalypseFinalBuild, "death_t.trg");
         Assert.SkipWhen(file == null, "Apocalypse death_t.trg not found");
+        AssertFixtureIdentity(file!, ApocalypseFinalBuild, 5_534, "death_t.trg");
 
         var trg = TrgFile.Parse(file!);
+        AssertFixtureShape(trg, 2, 0, 121, 1);
         var json = trg.ToJson();
 
         Assert.NotEmpty(json);
@@ -396,5 +379,35 @@ public class TrgFileTests(TestPaths paths)
         // Verify it's valid JSON by parsing it
         var doc = JsonDocument.Parse(json);
         Assert.NotNull(doc);
+    }
+
+    private void AssertFixtureIdentity(
+        string actualPath,
+        string buildName,
+        long expectedSize,
+        string fileName)
+    {
+        var expectedPath = Path.GetFullPath(
+            Path.Combine(paths.SampleBuildsDir!, buildName, "CD", fileName));
+        Assert.True(
+            string.Equals(expectedPath, Path.GetFullPath(actualPath), StringComparison.OrdinalIgnoreCase),
+            $"Expected fixture '{expectedPath}', got '{actualPath}'");
+        Assert.Equal(expectedSize, new FileInfo(actualPath).Length);
+    }
+
+    private static void AssertFixtureShape(
+        TrgFile trg,
+        ushort expectedVersionMajor,
+        ushort expectedVersionMinor,
+        int expectedNodeCount,
+        int expectedRestartCount)
+    {
+        Assert.Equal(expectedVersionMajor, trg.VersionMajor);
+        Assert.Equal(expectedVersionMinor, trg.VersionMinor);
+        Assert.Equal(expectedNodeCount, trg.NodeCount);
+        Assert.Equal(expectedNodeCount, trg.Nodes.Count);
+        Assert.Equal(expectedRestartCount, trg.Nodes.Count(static node => node.Type == "RESTART"));
+        Assert.Equal("TERMINATOR", trg.Nodes[^1].Type);
+        Assert.Equal(255, trg.Nodes[^1].TypeId);
     }
 }

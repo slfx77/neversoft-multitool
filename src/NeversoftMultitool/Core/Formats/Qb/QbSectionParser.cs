@@ -22,6 +22,8 @@ namespace NeversoftMultitool.Core.Formats.Qb;
 /// </summary>
 public static class QbSectionParser
 {
+    private const uint OldSectionStringPointerOrStructItemQbKeyStringQs = 0x001A0400;
+
     private static readonly byte[] HeaderSignature =
     [
         0x1C, 0x08, 0x02, 0x04, 0x10, 0x04, 0x08, 0x0C, 0x0C, 0x08,
@@ -42,7 +44,7 @@ public static class QbSectionParser
         (ItemKind.SectionArray, 0x00200C00, 0x000C0400),
         (ItemKind.SectionQbKey, 0x00200D00, 0x000D0400),
         (ItemKind.SectionQbKeyString, 0x00201A00, 0x00041A00),
-        (ItemKind.SectionStringPointer, 0x00201B00, 0x001A0400),
+        (ItemKind.SectionStringPointer, 0x00201B00, OldSectionStringPointerOrStructItemQbKeyStringQs),
         (ItemKind.SectionQbKeyStringQs, 0x00201C00, 0x001C0400),
         (ItemKind.ArrayInteger, 0x00010100, 0x00010100),
         (ItemKind.ArrayFloat, 0x00010200, 0x00020100),
@@ -66,7 +68,7 @@ public static class QbSectionParser
         (ItemKind.StructItemArray, 0x008C0000, 0x00001900),
         (ItemKind.StructItemQbKey, 0x008D0000, 0x00001B00),
         (ItemKind.StructItemQbKeyString, 0x009A0000, 0x00003500),
-        (ItemKind.StructItemQbKeyStringQs, 0x009C0000, 0x001A0400),
+        (ItemKind.StructItemQbKeyStringQs, 0x009C0000, OldSectionStringPointerOrStructItemQbKeyStringQs),
         (ItemKind.Floats, 0x00010000, 0x00000100),
         (ItemKind.StructHeader, 0x00000100, 0x00010000)
     ];
@@ -361,8 +363,14 @@ public static class QbSectionParser
                 continue;
             }
 
-            var kind = ctx.KindAt(ptr) ?? throw new InvalidDataException(
-                $"Unknown struct item value 0x{ctx.U32(ptr):X8} at 0x{ptr:X}");
+            var rawKind = ctx.U32(ptr);
+            // The old PS2 encoding reuses 0x001A0400 for a top-level string
+            // pointer and a QS key inside a struct. Resolve it from its grammar
+            // context instead of the global type map's first matching entry.
+            var kind = !ctx.NewEncoding && rawKind == OldSectionStringPointerOrStructItemQbKeyStringQs
+                ? ItemKind.StructItemQbKeyStringQs
+                : ctx.KindAt(ptr) ?? throw new InvalidDataException(
+                    $"Unknown struct item value 0x{rawKind:X8} at 0x{ptr:X}");
 
             // Some files encode struct children with Array* values (Queen-Bee's
             // "array items" mode) — normalize to the equivalent struct item kind.

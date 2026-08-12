@@ -226,7 +226,7 @@ public static class QbDecompiler
 
             case QbTokenType.LocalString:
                 WordSpace(sb);
-                sb.Append($"'{EscapeString(t.StringValue ?? "")}'");
+                sb.Append($"'{EscapeLocalString(t.StringValue ?? "")}'");
                 break;
 
             case QbTokenType.Vector:
@@ -397,5 +397,10 @@ public static class QbDecompiler
     private static string EscapeString(string s)
     {
         return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r");
+    }
+
+    private static string EscapeLocalString(string s)
+    {
+        return EscapeString(s).Replace("'", "\\'");
     }
 }

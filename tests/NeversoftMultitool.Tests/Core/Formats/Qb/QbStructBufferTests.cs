@@ -90,4 +90,37 @@ public class QbStructBufferTests
         var ex = Assert.Throws<InvalidDataException>(() => QbStructBuffer.Parse(data));
         Assert.Contains("compression-table", ex.Message);
     }
+
+    [Fact]
+    public void Parse_SixtyFourNestedStructures_Succeeds()
+    {
+        var components = QbStructBuffer.Parse(BuildNestedStructures(64));
+
+        Assert.Single(components);
+    }
+
+    [Fact]
+    public void Parse_SixtyFiveNestedStructures_ThrowsBeforeUnboundedRecursion()
+    {
+        var exception = Assert.Throws<InvalidDataException>(
+            () => QbStructBuffer.Parse(BuildNestedStructures(65)));
+
+        Assert.Equal("serialized struct nesting exceeds the limit of 64", exception.Message);
+    }
+
+    private static byte[] BuildNestedStructures(int depth)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        for (var i = 0; i < depth; i++)
+        {
+            writer.Write(TStruct);
+            writer.Write((uint)i);
+        }
+
+        for (var i = 0; i <= depth; i++)
+            writer.Write(TNone);
+
+        return stream.ToArray();
+    }
 }

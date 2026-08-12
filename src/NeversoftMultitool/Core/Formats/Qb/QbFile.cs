@@ -137,6 +137,8 @@ public sealed class QbFile
                 // THAW-generation fast branch: if (0x47) / else (0x48) with a u16
                 // runtime skip offset. Explicit endif tokens still close the blocks,
                 // so the offset is redundant for decompilation.
+                if (pos + 3 > length)
+                    return tokens;
                 tokens.Add(new QbToken
                 {
                     Type = tokenByte == 0x47 ? QbTokenType.KeywordIf : QbTokenType.KeywordElse,
@@ -150,6 +152,8 @@ public sealed class QbFile
             {
                 // THAW-generation fast case-branch operand (u16 runtime skip after a
                 // case/default keyword) — structural keywords are emitted separately.
+                if (pos + 3 > length)
+                    return tokens;
                 pos += 3;
                 continue;
             }

@@ -4,30 +4,26 @@ namespace NeversoftMultitool.Tests.Core.Formats.Qb;
 
 public class QbFileTests(TestPaths paths)
 {
+    private const string Thps3Ps2Build = "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)";
+
     private string[] GetAllQbFiles()
     {
         if (!paths.HasSampleBuilds) return [];
-        return Directory.GetDirectories(paths.SampleBuildsDir!)
-            .SelectMany(build =>
-            {
-                var qbDir = Path.Combine(build, "QB");
-                return Directory.Exists(qbDir)
-                    ? Directory.GetFiles(qbDir, "*.qb", SearchOption.AllDirectories)
-                    : [];
-            })
+        return Directory.EnumerateDirectories(paths.SampleBuildsDir!)
+            .OrderBy(static build => build, StringComparer.Ordinal)
+            .SelectMany(static build => Directory.EnumerateFiles(
+                build, "*.qb", SearchOption.AllDirectories))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static file => file, StringComparer.Ordinal)
             .ToArray();
     }
 
-    private string? FindQbFile(string buildPattern, string fileName)
+    private string? FindQbFile(string fileName)
     {
         if (!paths.HasSampleBuilds) return null;
-        var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
-            .FirstOrDefault(d => Path.GetFileName(d).Contains(buildPattern, StringComparison.OrdinalIgnoreCase));
-        if (buildDir == null) return null;
-        var qbDir = Path.Combine(buildDir, "QB");
-        if (!Directory.Exists(qbDir)) return null;
-        return Directory.GetFiles(qbDir, "*.qb", SearchOption.AllDirectories)
-            .FirstOrDefault(f => Path.GetFileName(f).Equals(fileName, StringComparison.OrdinalIgnoreCase));
+        var file = Path.Combine(
+            paths.SampleBuildsDir!, Thps3Ps2Build, "SKATE3", "Scripts", fileName);
+        return File.Exists(file) ? file : null;
     }
 
     [CorpusFact]
@@ -40,8 +36,11 @@ public class QbFileTests(TestPaths paths)
 
         var errors = new List<string>();
         var parsed = 0;
+        var totalTokens = 0L;
         var totalScripts = 0;
         var totalGlobals = 0;
+
+        Assert.Equal(4_746, files.Length);
 
         foreach (var file in files)
         {
@@ -51,6 +50,7 @@ public class QbFileTests(TestPaths paths)
                 Assert.NotNull(qb.Tokens);
                 Assert.True(qb.Tokens.Count > 0, $"{Path.GetFileName(file)}: empty token list");
                 parsed++;
+                totalTokens += qb.Tokens.Count;
                 totalScripts += qb.ScriptCount;
                 totalGlobals += qb.GlobalCount;
             }
@@ -62,17 +62,20 @@ public class QbFileTests(TestPaths paths)
 
         Assert.True(errors.Count == 0,
             $"Failed to parse {errors.Count}/{files.Length} files:\n{string.Join("\n", errors)}");
-        Assert.True(parsed > 0, "No files were parsed");
+        Assert.Equal(files.Length, parsed);
+        Assert.Equal(17_133_640L, totalTokens);
+        Assert.Equal(62_542, totalScripts);
+        Assert.Equal(1_607_381, totalGlobals);
     }
 
     [Fact]
     public void Parse_ChecksumName_PopulatesLocalNames()
     {
         // airtricks.qb has CHECKSUM_NAME tokens for all trick names
-        var file = FindQbFile("Pro Skater 3", "airtricks.qb");
+        var file = FindQbFile("airtricks.qb");
         Assert.SkipWhen(file == null, "THPS3 airtricks.qb not found");
 
-        var qb = QbFile.Parse(file!);
+        var qb = ParseAirtricksFixture(file!);
 
         Assert.True(qb.LocalNames.Count > 0,
             "Expected CHECKSUM_NAME tokens to populate LocalNames");
@@ -82,10 +85,10 @@ public class QbFileTests(TestPaths paths)
     public void Parse_ScriptDefinition_CreatesScriptItem()
     {
         // alf_scripts.qb has top-level script definitions
-        var file = FindQbFile("Pro Skater 3", "alf_scripts.qb");
+        var file = FindQbFile("alf_scripts.qb");
         Assert.SkipWhen(file == null, "THPS3 alf_scripts.qb not found");
 
-        var qb = QbFile.Parse(file!);
+        var qb = ParseAlfScriptsFixture(file!);
         var scripts = qb.Items.Where(i => i.Kind == QbItemKind.Script).ToList();
 
         Assert.True(scripts.Count > 0, "Expected at least one script item");
@@ -100,10 +103,10 @@ public class QbFileTests(TestPaths paths)
     [Fact]
     public void Parse_GlobalAssignment_CreatesGlobalItem()
     {
-        var file = FindQbFile("Pro Skater 3", "airtricks.qb");
+        var file = FindQbFile("airtricks.qb");
         Assert.SkipWhen(file == null, "THPS3 airtricks.qb not found");
 
-        var qb = QbFile.Parse(file!);
+        var qb = ParseAirtricksFixture(file!);
         var globals = qb.Items.Where(i => i.Kind == QbItemKind.Global).ToList();
 
         Assert.True(globals.Count > 0, "Expected at least one global item");
@@ -116,10 +119,10 @@ public class QbFileTests(TestPaths paths)
     [Fact]
     public void Decompile_SimpleScript_ProducesReadableOutput()
     {
-        var file = FindQbFile("Pro Skater 3", "alf_scripts.qb");
+        var file = FindQbFile("alf_scripts.qb");
         Assert.SkipWhen(file == null, "THPS3 alf_scripts.qb not found");
 
-        var qb = QbFile.Parse(file!);
+        var qb = ParseAlfScriptsFixture(file!);
         var source = QbDecompiler.Decompile(qb);
 
         Assert.NotEmpty(source);
@@ -130,10 +133,10 @@ public class QbFileTests(TestPaths paths)
     [Fact]
     public void Decompile_IfElseEndif_Present()
     {
-        var file = FindQbFile("Pro Skater 3", "alf_scripts.qb");
+        var file = FindQbFile("alf_scripts.qb");
         Assert.SkipWhen(file == null, "THPS3 alf_scripts.qb not found");
 
-        var qb = QbFile.Parse(file!);
+        var qb = ParseAlfScriptsFixture(file!);
         var source = QbDecompiler.Decompile(qb);
 
         // Should contain if/endif blocks
@@ -152,10 +155,10 @@ public class QbFileTests(TestPaths paths)
     [Fact]
     public void DecompileItem_SingleScript_OnlyContainsOneScript()
     {
-        var file = FindQbFile("Pro Skater 3", "alf_scripts.qb");
+        var file = FindQbFile("alf_scripts.qb");
         Assert.SkipWhen(file == null, "THPS3 alf_scripts.qb not found");
 
-        var qb = QbFile.Parse(file!);
+        var qb = ParseAlfScriptsFixture(file!);
         var scriptItem = qb.Items.FirstOrDefault(i => i.Kind == QbItemKind.Script);
         Assert.SkipWhen(scriptItem == null, "No script items found");
 
@@ -179,6 +182,9 @@ public class QbFileTests(TestPaths paths)
 
         var errors = new List<string>();
         var decompiled = 0;
+        var totalOutputChars = 0L;
+
+        Assert.Equal(4_746, files.Length);
 
         foreach (var file in files)
         {
@@ -188,6 +194,7 @@ public class QbFileTests(TestPaths paths)
                 var source = QbDecompiler.Decompile(qb);
                 Assert.NotNull(source);
                 decompiled++;
+                totalOutputChars += source.Length;
             }
             catch (Exception ex)
             {
@@ -197,16 +204,17 @@ public class QbFileTests(TestPaths paths)
 
         Assert.True(errors.Count == 0,
             $"Failed to decompile {errors.Count}/{files.Length} files:\n{string.Join("\n", errors)}");
-        Assert.True(decompiled > 0, "No files were decompiled");
+        Assert.Equal(files.Length, decompiled);
+        Assert.Equal(105_403_160L, totalOutputChars);
     }
 
     [Fact]
     public void ResolveName_LocalName_ReturnsLocalFirst()
     {
-        var file = FindQbFile("Pro Skater 3", "airtricks.qb");
+        var file = FindQbFile("airtricks.qb");
         Assert.SkipWhen(file == null, "THPS3 airtricks.qb not found");
 
-        var qb = QbFile.Parse(file!);
+        var qb = ParseAirtricksFixture(file!);
         Assert.SkipWhen(qb.LocalNames.Count == 0, "No local names in file");
 
         // Local names should take priority
@@ -221,5 +229,34 @@ public class QbFileTests(TestPaths paths)
         var qb = QbFile.Parse([], "test.qb");
         var resolved = qb.ResolveName(0xDEADBEEF);
         Assert.Equal("#\"0xDEADBEEF\"", resolved);
+    }
+
+    private QbFile ParseAirtricksFixture(string file)
+    {
+        AssertFixtureIdentity(file, "airtricks.qb", 25_694);
+        var qb = QbFile.Parse(file);
+        Assert.Equal(5_084, qb.Tokens.Count);
+        Assert.Equal(450, qb.LocalNames.Count);
+        Assert.Equal(1, qb.GlobalCount);
+        return qb;
+    }
+
+    private QbFile ParseAlfScriptsFixture(string file)
+    {
+        AssertFixtureIdentity(file, "alf_scripts.qb", 105_331);
+        var qb = QbFile.Parse(file);
+        Assert.Equal(3_577, qb.Tokens.Count);
+        Assert.Equal(3, qb.ScriptCount);
+        return qb;
+    }
+
+    private void AssertFixtureIdentity(string actualPath, string fileName, long expectedSize)
+    {
+        var expectedPath = Path.GetFullPath(Path.Combine(
+            paths.SampleBuildsDir!, Thps3Ps2Build, "SKATE3", "Scripts", fileName));
+        Assert.True(
+            string.Equals(expectedPath, Path.GetFullPath(actualPath), StringComparison.OrdinalIgnoreCase),
+            $"Expected fixture '{expectedPath}', got '{actualPath}'");
+        Assert.Equal(expectedSize, new FileInfo(actualPath).Length);
     }
 }

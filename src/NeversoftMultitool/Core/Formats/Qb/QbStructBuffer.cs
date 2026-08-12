@@ -19,6 +19,8 @@ namespace NeversoftMultitool.Core.Formats.Qb;
 /// </summary>
 public static class QbStructBuffer
 {
+    private const int MaxNestingDepth = 64;
+
     // ESymbolType (THUG Gel/Scripting/symboltype.h)
     private const byte TypeNone = 0;
     private const byte TypeInteger = 1;
@@ -45,14 +47,15 @@ public static class QbStructBuffer
     public static List<Component> Parse(ReadOnlySpan<byte> data)
     {
         var pos = 0;
-        var components = ParseStruct(data, ref pos);
+        var components = ParseStruct(data, ref pos, 0);
         if (pos != data.Length)
             throw new InvalidDataException($"{data.Length - pos} trailing bytes after struct");
         return components;
     }
 
-    private static List<Component> ParseStruct(ReadOnlySpan<byte> data, ref int pos)
+    private static List<Component> ParseStruct(ReadOnlySpan<byte> data, ref int pos, int depth)
     {
+        EnsureNestingDepth(depth);
         var components = new List<Component>();
         while (true)
         {
@@ -104,10 +107,10 @@ public static class QbStructBuffer
                     break;
                 }
                 case TypeStructure:
-                    value = ParseStruct(data, ref pos);
+                    value = ParseStruct(data, ref pos, depth + 1);
                     break;
                 case TypeArray:
-                    value = ParseArray(data, ref pos);
+                    value = ParseArray(data, ref pos, depth + 1);
                     break;
                 case TypeName:
                     value = BitConverter.ToUInt32(Slice(data, ref pos, 4));
@@ -139,8 +142,9 @@ public static class QbStructBuffer
         }
     }
 
-    private static Array ParseArray(ReadOnlySpan<byte> data, ref int pos)
+    private static Array ParseArray(ReadOnlySpan<byte> data, ref int pos, int depth)
     {
+        EnsureNestingDepth(depth);
         var header = Slice(data, ref pos, 3);
         var elemType = header[0];
         int count = BitConverter.ToUInt16(header[1..]);
@@ -178,10 +182,10 @@ public static class QbStructBuffer
                     break;
                 }
                 case TypeStructure:
-                    array.Elements.Add(ParseStruct(data, ref pos));
+                    array.Elements.Add(ParseStruct(data, ref pos, depth + 1));
                     break;
                 case TypeArray:
-                    array.Elements.Add(ParseArray(data, ref pos));
+                    array.Elements.Add(ParseArray(data, ref pos, depth + 1));
                     break;
                 case TypeNone:
                     break;
@@ -191,6 +195,13 @@ public static class QbStructBuffer
         }
 
         return array;
+    }
+
+    private static void EnsureNestingDepth(int depth)
+    {
+        if (depth > MaxNestingDepth)
+            throw new InvalidDataException(
+                $"serialized struct nesting exceeds the limit of {MaxNestingDepth}");
     }
 
     private static ReadOnlySpan<byte> Slice(ReadOnlySpan<byte> data, ref int pos, int length)

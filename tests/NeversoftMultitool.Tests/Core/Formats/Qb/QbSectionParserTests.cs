@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Qb;
 
@@ -11,6 +12,12 @@ namespace NeversoftMultitool.Tests.Core.Formats.Qb;
 /// </summary>
 public class QbSectionParserTests(TestPaths paths)
 {
+    private static readonly byte[] SectionedQbSignature =
+    [
+        0x1C, 0x08, 0x02, 0x04, 0x10, 0x04, 0x08, 0x0C, 0x0C, 0x08,
+        0x02, 0x04, 0x14, 0x02, 0x04, 0x0C, 0x10, 0x10, 0x0C, 0x00
+    ];
+
     private const string ThawPs2Build = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
     private const string ThawGcBuild = "Tony Hawk's American Wasteland (2005-8-22, GC - Final)";
 
@@ -20,6 +27,68 @@ public class QbSectionParserTests(TestPaths paths)
         Directory.CreateDirectory(tempDir);
         PakArchive.ExtractFiles(pakPath, tempDir, token: TestContext.Current.CancellationToken);
         return tempDir;
+    }
+
+    [Fact]
+    public void Parse_OldStructQbKeyStringQs_UsesStructItemMeaning()
+    {
+        var qb = QbFile.Parse(BuildOldStruct(0x001A0400), "synthetic.qb.ps2");
+
+        var value = Assert.Single(qb.Tokens, static token => token.Offset == 64);
+        Assert.Equal(QbTokenType.Name, value.Type);
+        Assert.Equal(0x33333333u, value.NameChecksum);
+    }
+
+    [Fact]
+    public void Parse_OldStructQbKey_ControlRemainsName()
+    {
+        var qb = QbFile.Parse(BuildOldStruct(0x00001B00), "synthetic.qb.ps2");
+
+        var value = Assert.Single(qb.Tokens, static token => token.Offset == 64);
+        Assert.Equal(QbTokenType.Name, value.Type);
+        Assert.Equal(0x33333333u, value.NameChecksum);
+    }
+
+    [Fact]
+    public void Parse_OldTopLevelStringPointer_RetainsSectionMeaning()
+    {
+        var data = CreateOldSectionedQb(48);
+        WriteUInt32(data, 28, 0x001A0400); // SectionStringPointer
+        WriteUInt32(data, 32, 0x11111111); // section key
+        WriteUInt32(data, 40, 0x33333333); // language-string pointer
+
+        var qb = QbFile.Parse(data, "synthetic.qb.ps2");
+
+        var value = Assert.Single(qb.Tokens, static token => token.Offset == 40);
+        Assert.Equal(QbTokenType.HexInteger, value.Type);
+        Assert.Equal(0x33333333u, value.HexValue);
+    }
+
+    private static byte[] BuildOldStruct(uint itemKind)
+    {
+        var data = CreateOldSectionedQb(72);
+        WriteUInt32(data, 28, 0x000A0400); // SectionStruct
+        WriteUInt32(data, 32, 0x11111111); // section key
+        WriteUInt32(data, 40, 48); // section payload
+        WriteUInt32(data, 48, 0x00010000); // StructHeader
+        WriteUInt32(data, 52, 56); // first item
+        WriteUInt32(data, 56, itemKind);
+        WriteUInt32(data, 60, 0x22222222); // item key
+        WriteUInt32(data, 64, 0x33333333); // item value
+        return data; // next-item pointer at 68 remains zero
+    }
+
+    private static byte[] CreateOldSectionedQb(int size)
+    {
+        var data = new byte[size];
+        WriteUInt32(data, 4, (uint)size);
+        SectionedQbSignature.CopyTo(data, 8);
+        return data;
+    }
+
+    private static void WriteUInt32(byte[] data, int offset, uint value)
+    {
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset), value);
     }
 
     [Fact]

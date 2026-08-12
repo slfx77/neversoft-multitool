@@ -42,7 +42,7 @@ public class QbKeyCrossRefTests(TestPaths paths)
         Assert.Equal(name, QbKey.TryResolve(expectedHash));
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     public void EnumerateAllHashes_ReturnsNonEmptyMeshAndTextureHashes(string filename)
@@ -59,7 +59,7 @@ public class QbKeyCrossRefTests(TestPaths paths)
         Assert.True(hashes.TextureNameHashes.Length > 0, "No texture name hashes found");
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     public void EnumerateAllHashes_TextureHashesMatchEnumerateTextures(string filename)

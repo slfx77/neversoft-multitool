@@ -114,7 +114,7 @@ public sealed class TrgEndianTests(TestPaths paths)
     ///     entry point — the sniff keys on the magic, so a PS1 file cannot be
     ///     mistaken for a big-endian one.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void Ps1Trigger_StillReadsLittleEndian()
     {
         var file = paths
