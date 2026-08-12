@@ -1019,6 +1019,40 @@ public sealed class GsDumpAuditTests
     }
 
     [Fact]
+    public void AuditRunner_BareProbeOutputName_WritesToCurrentDirectory()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"NsMultitool_GsProbe_{Guid.NewGuid():N}");
+        var probeName = $"nmt-gs-probe-{Guid.NewGuid():N}.csv";
+        var probePath = Path.Combine(Directory.GetCurrentDirectory(), probeName);
+
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var gsPath = Path.Combine(tempDir, "synthetic.gs");
+            File.WriteAllBytes(gsPath, BuildRawDump());
+
+            var report = GsDumpAuditRunner.Run(
+                gsPath,
+                Path.Combine(tempDir, "out"),
+                new GsDumpAuditOptions
+                {
+                    JsonOnly = true,
+                    ProbeFbp = 0,
+                    ProbeOutputPath = probeName
+                });
+
+            Assert.Equal(0, report.PacketCount);
+            Assert.StartsWith("draw,primitive,fbp", Assert.Single(File.ReadAllLines(probePath)));
+        }
+        finally
+        {
+            File.Delete(probePath);
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void KnownThawCapture_SeedRoundtripsToVramAtFbp4480_WhenPresent()
     {
         var capturePath = Path.Combine(

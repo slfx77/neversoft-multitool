@@ -94,7 +94,7 @@ internal sealed class GsDumpFile
 
             if (screenshotWidth > 0 &&
                 screenshotHeight > 0 &&
-                screenshotSize == screenshotWidth * screenshotHeight * 4 &&
+                screenshotSize == (long)screenshotWidth * screenshotHeight * 4 &&
                 screenshotOffset >= 0 &&
                 screenshotOffset <= headerBlock.Length &&
                 screenshotSize <= headerBlock.Length - screenshotOffset)

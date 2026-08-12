@@ -49,7 +49,7 @@ internal static class GsDumpAuditRunner
                     : $"{stem}.probe-{options.ProbeX!.Value}-{options.ProbeY!.Value}.csv";
                 var probePath = options.ProbeOutputPath
                                 ?? Path.Combine(outputDirectory, defaultStem);
-                Directory.CreateDirectory(Path.GetDirectoryName(probePath)!);
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(probePath))!);
                 probeWriter = new StreamWriter(probePath, false);
                 probeWriter.WriteLine(
                     "draw,primitive,fbp,fbw,psm,fbmsk,tex0,alpha,test,z,tme,abe,sampled," +

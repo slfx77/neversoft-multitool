@@ -45,7 +45,8 @@ internal static class GsDumpAuditResolvers
     {
         return dump.ScreenshotWidth > 0 &&
                dump.ScreenshotHeight > 0 &&
-               dump.ScreenshotPixels.Length == dump.ScreenshotWidth * dump.ScreenshotHeight * 4;
+               dump.ScreenshotPixels.LongLength ==
+               (long)dump.ScreenshotWidth * dump.ScreenshotHeight * 4;
     }
 
     internal static GsDumpAuditRunner.ReferencePixels? LoadReferencePixels(GsDumpFile dump, string? pngPath)

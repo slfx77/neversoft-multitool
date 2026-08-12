@@ -516,7 +516,11 @@ internal sealed partial class GsGifInterpreter
         if (passes)
             return GsAlphaTestResult.Pass;
 
-        return ((context.Test >> 12) & 0x3) switch
+        var alphaFail = (int)((context.Test >> 12) & 0x3);
+        if (alphaFail == 3 && ((context.Frame >> 24) & 0xF) != 0)
+            alphaFail = 1;
+
+        return alphaFail switch
         {
             1 => GsAlphaTestResult.FailFramebufferOnly,
             2 => GsAlphaTestResult.FailZBufferOnly,

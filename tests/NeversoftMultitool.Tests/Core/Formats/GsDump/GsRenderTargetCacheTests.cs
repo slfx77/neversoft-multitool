@@ -77,6 +77,26 @@ public sealed class GsRenderTargetCacheTests
         Assert.Equal((0xD0, 0x60, 0x28, 0xFF), ReadPixel(composed, 32, 7, 8));
     }
 
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(1u)]
+    public void TryComposeSample_Psmct32_ComposesPartialPage(uint tbw)
+    {
+        var cache = new GsRenderTargetCache();
+        cache.WritePixel(0, 1, Ps2TexPixelDecoder.PSMCT32,
+            7, 8, 0x28, 0x60, 0xD0, 0xFF);
+
+        var composed = Assert.IsType<byte[]>(cache.TryComposeSample(
+            0, tbw, 16, 16, Ps2TexPixelDecoder.PSMCT32));
+
+        var expected = new byte[16 * 16 * 4];
+        expected[(8 * 16 + 7) * 4] = 0x28;
+        expected[(8 * 16 + 7) * 4 + 1] = 0x60;
+        expected[(8 * 16 + 7) * 4 + 2] = 0xD0;
+        expected[(8 * 16 + 7) * 4 + 3] = 0xFF;
+        Assert.Equal(expected, composed);
+    }
+
     private static (byte R, byte G, byte B, byte A) ReadPixel(byte[] rgba, int width, int x, int y)
     {
         var offset = (y * width + x) * 4;

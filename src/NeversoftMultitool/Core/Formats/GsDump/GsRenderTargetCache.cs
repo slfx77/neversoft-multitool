@@ -141,9 +141,8 @@ internal sealed class GsRenderTargetCache
         var pageHeight = GetComposePageHeight(tpsm);
         if (pageHeight == 0)
             return null;
-        var isPsmct16Family = pageHeight == 64;
-        var fallbackPagesPerRow = isPsmct16Family ? DivideRoundUp(tw, 64) : tw / 64;
-        var samplePageRows = isPsmct16Family ? DivideRoundUp(th, pageHeight) : th / pageHeight;
+        var fallbackPagesPerRow = DivideRoundUp(tw, 64);
+        var samplePageRows = DivideRoundUp(th, pageHeight);
 
         // Two passes, strided-preferred:
         //   1. Only surfaces whose write FBW matches the sample's TBW, placed at the

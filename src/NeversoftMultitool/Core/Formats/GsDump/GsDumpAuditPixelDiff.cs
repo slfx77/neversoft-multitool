@@ -78,7 +78,7 @@ internal static class GsDumpAuditPixelDiff
             MaxChannelDifference = max,
             RenderBounds = BuildPixelBounds(renderPixels, width, height),
             ReferenceBounds = BuildPixelBounds(referencePixels, width, height),
-            TopMismatchRegions = BuildMismatchRegions(diffPixels, width, height)
+            TopMismatchRegions = BuildMismatchRegions(renderPixels, referencePixels, width, height)
         };
     }
 
@@ -118,7 +118,11 @@ internal static class GsDumpAuditPixelDiff
             };
     }
 
-    private static List<GsMismatchRegion> BuildMismatchRegions(byte[] diffPixels, int width, int height)
+    private static List<GsMismatchRegion> BuildMismatchRegions(
+        byte[] renderPixels,
+        byte[] referencePixels,
+        int width,
+        int height)
     {
         const int tile = 32;
         var regions = new List<GsMismatchRegion>();
@@ -134,7 +138,9 @@ internal static class GsDumpAuditPixelDiff
                     for (var x = x0; x < x0 + w; x++)
                     {
                         var i = (y * width + x) * 4;
-                        sum += (diffPixels[i] + diffPixels[i + 1] + diffPixels[i + 2]) / 4.0;
+                        sum += Math.Abs(renderPixels[i] - referencePixels[i])
+                               + Math.Abs(renderPixels[i + 1] - referencePixels[i + 1])
+                               + Math.Abs(renderPixels[i + 2] - referencePixels[i + 2]);
                     }
                 }
 
