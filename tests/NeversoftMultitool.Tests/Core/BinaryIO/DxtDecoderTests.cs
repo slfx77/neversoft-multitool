@@ -1,0 +1,123 @@
+using System.Buffers.Binary;
+using NeversoftMultitool.Core.BinaryIO;
+
+namespace NeversoftMultitool.Tests.Core.BinaryIO;
+
+public sealed class DxtDecoderTests
+{
+    [Theory]
+    [InlineData(2, 85, 0, 170)]
+    [InlineData(3, 170, 0, 85)]
+    public void DecodeDxt3_Color0BelowColor1_UsesFourColorInterpolation(
+        int selector,
+        byte expectedRed,
+        byte expectedGreen,
+        byte expectedBlue)
+    {
+        var block = new byte[16];
+        Array.Fill(block, (byte)0xFF, 0, 8);
+        WriteColorBlock(block.AsSpan(8), selector);
+
+        var pixels = DxtDecoder.DecodeDxt3(block, 4, 4);
+
+        AssertSolidColor(pixels, expectedRed, expectedGreen, expectedBlue, 255);
+    }
+
+    [Theory]
+    [InlineData(2, 85, 0, 170)]
+    [InlineData(3, 170, 0, 85)]
+    public void DecodeDxt5_Color0BelowColor1_UsesFourColorInterpolation(
+        int selector,
+        byte expectedRed,
+        byte expectedGreen,
+        byte expectedBlue)
+    {
+        var block = new byte[16];
+        block[0] = 255;
+        block[1] = 255;
+        WriteColorBlock(block.AsSpan(8), selector);
+
+        var pixels = DxtDecoder.DecodeDxt5(block, 4, 4);
+
+        AssertSolidColor(pixels, expectedRed, expectedGreen, expectedBlue, 255);
+    }
+
+    [Fact]
+    public void DecodeDxt1_Color0BelowColor1_Selector3RemainsTransparent()
+    {
+        var block = new byte[8];
+        WriteColorBlock(block, selector: 3);
+
+        var pixels = DxtDecoder.DecodeDxt1(block, 4, 4);
+
+        AssertSolidColor(pixels, 0, 0, 0, 0);
+    }
+
+    [Fact]
+    public void DecodeDxt1_Color0BelowColor1_Selector2UsesFloorAverage()
+    {
+        var block = new byte[8];
+        WriteColorBlock(block, selector: 2);
+
+        var pixels = DxtDecoder.DecodeDxt1(block, 4, 4);
+
+        AssertSolidColor(pixels, 127, 0, 127, 255);
+    }
+
+    [Fact]
+    public void DecodeDxt1_TruncatedBlock_Throws()
+    {
+        var error = Assert.Throws<InvalidDataException>(() =>
+            DxtDecoder.DecodeDxt1(new byte[7], 4, 4));
+
+        Assert.Equal("Truncated DXT1 block data.", error.Message);
+    }
+
+    [Fact]
+    public void DecodeDxt3_TruncatedBlock_Throws()
+    {
+        var error = Assert.Throws<InvalidDataException>(() =>
+            DxtDecoder.DecodeDxt3(new byte[15], 4, 4));
+
+        Assert.Equal("Truncated DXT3 block data.", error.Message);
+    }
+
+    [Fact]
+    public void DecodeDxt5_TruncatedBlock_Throws()
+    {
+        var error = Assert.Throws<InvalidDataException>(() =>
+            DxtDecoder.DecodeDxt5(new byte[15], 4, 4));
+
+        Assert.Equal("Truncated DXT5 block data.", error.Message);
+    }
+
+    private static void WriteColorBlock(Span<byte> block, int selector)
+    {
+        // Blue sorts below red, exercising the endpoint order that triggers
+        // BC1's special three-color palette but not BC2/BC3's color palette.
+        BinaryPrimitives.WriteUInt16LittleEndian(block, 0x001F);
+        BinaryPrimitives.WriteUInt16LittleEndian(block[2..], 0xF800);
+
+        uint selectors = 0;
+        for (var pixel = 0; pixel < 16; pixel++)
+            selectors |= (uint)selector << (pixel * 2);
+        BinaryPrimitives.WriteUInt32LittleEndian(block[4..], selectors);
+    }
+
+    private static void AssertSolidColor(
+        byte[] pixels,
+        byte expectedRed,
+        byte expectedGreen,
+        byte expectedBlue,
+        byte expectedAlpha)
+    {
+        Assert.Equal(4 * 4 * 4, pixels.Length);
+        for (var offset = 0; offset < pixels.Length; offset += 4)
+        {
+            Assert.Equal(expectedRed, pixels[offset]);
+            Assert.Equal(expectedGreen, pixels[offset + 1]);
+            Assert.Equal(expectedBlue, pixels[offset + 2]);
+            Assert.Equal(expectedAlpha, pixels[offset + 3]);
+        }
+    }
+}

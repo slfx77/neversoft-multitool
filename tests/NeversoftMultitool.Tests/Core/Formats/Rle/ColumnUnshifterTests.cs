@@ -57,6 +57,23 @@ public class ColumnUnshifterTests
         Assert.Equal(3, GetCanvasHeight(result));
     }
 
+    [Fact]
+    public void Unshift_WithBlueMarker_PreservesBottomTwoRowsAfterRotation()
+    {
+        var canvas = MakeCanvas(
+            [(1, 0, 0), (2, 0, 0), (3, 0, 0), (0, 0, 144)],
+            [(11, 0, 0), (12, 0, 0), (13, 0, 0), (14, 0, 0)],
+            [(21, 0, 0), (22, 0, 0), (23, 0, 0), (24, 0, 0)]);
+
+        var result = CallUnshift(canvas);
+
+        AssertCanvasEquals(
+            result,
+            [(13, 0, 0), (14, 0, 0), (1, 0, 0), (2, 0, 0)],
+            [(13, 0, 0), (14, 0, 0), (11, 0, 0), (12, 0, 0)],
+            [(23, 0, 0), (24, 0, 0), (21, 0, 0), (22, 0, 0)]);
+    }
+
     // Helper: Create empty canvas (List<List<RgbColor>>)
     private static object MakeEmptyCanvas()
     {
@@ -80,6 +97,26 @@ public class ColumnUnshifterTests
             {
                 addPixel.Invoke(row, [MakeColor(fill.r, fill.g, fill.b)]);
             }
+
+            addRow.Invoke(canvas, [row]);
+        }
+
+        return canvas;
+    }
+
+    private static object MakeCanvas(params (byte r, byte g, byte b)[][] rows)
+    {
+        var rowListType = typeof(List<>).MakeGenericType(RgbColorType);
+        var canvasType = typeof(List<>).MakeGenericType(rowListType);
+        var canvas = Activator.CreateInstance(canvasType)!;
+        var addRow = canvasType.GetMethod("Add")!;
+
+        foreach (var sourceRow in rows)
+        {
+            var row = Activator.CreateInstance(rowListType)!;
+            var addPixel = rowListType.GetMethod("Add")!;
+            foreach (var color in sourceRow)
+                addPixel.Invoke(row, [MakeColor(color.r, color.g, color.b)]);
 
             addRow.Invoke(canvas, [row]);
         }
@@ -129,5 +166,31 @@ public class ColumnUnshifterTests
         var indexer = canvas.GetType().GetProperty("Item")!;
         var row = indexer.GetValue(canvas, [rowIndex])!;
         return (int)row.GetType().GetProperty("Count")!.GetValue(row)!;
+    }
+
+    private static object GetPixel(object canvas, int rowIndex, int columnIndex)
+    {
+        var canvasIndexer = canvas.GetType().GetProperty("Item")!;
+        var row = canvasIndexer.GetValue(canvas, [rowIndex])!;
+        var rowIndexer = row.GetType().GetProperty("Item")!;
+        return rowIndexer.GetValue(row, [columnIndex])!;
+    }
+
+    private static void AssertCanvasEquals(
+        object canvas,
+        params (byte r, byte g, byte b)[][] expectedRows)
+    {
+        Assert.Equal(expectedRows.Length, GetCanvasHeight(canvas));
+        for (var rowIndex = 0; rowIndex < expectedRows.Length; rowIndex++)
+        {
+            Assert.Equal(expectedRows[rowIndex].Length, GetRowWidth(canvas, rowIndex));
+            for (var columnIndex = 0; columnIndex < expectedRows[rowIndex].Length; columnIndex++)
+            {
+                var expected = expectedRows[rowIndex][columnIndex];
+                Assert.Equal(
+                    MakeColor(expected.r, expected.g, expected.b),
+                    GetPixel(canvas, rowIndex, columnIndex));
+            }
+        }
     }
 }

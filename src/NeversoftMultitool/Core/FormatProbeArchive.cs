@@ -57,7 +57,7 @@ internal static class FormatProbeArchive
     private static FormatProbe.FormatProbeResult ProbePreArchive(string filePath)
     {
         if (!BinaryProbeReader.TryReadHeader(filePath, 8, out var header, out var bytesRead))
-            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PRE Archive");
+            return HeaderReadFailure();
 
         if (bytesRead < 8)
             return FileTooSmall();

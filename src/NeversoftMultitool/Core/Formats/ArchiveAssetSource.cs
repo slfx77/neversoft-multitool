@@ -64,20 +64,6 @@ public sealed class ArchiveAssetSource : AssetSource
     {
         var candidates = Backend.FindAllByName(nameWithExtension);
         if (candidates.Count == 0)
-        {
-            // Plaintext HED/WAD entries historically retain their full relative
-            // path in ArchiveEntry.Name instead of splitting Directory + Name.
-            // Fall back to a basename scan so those archives receive the same
-            // directory-aware companion behavior as normalized entry tables.
-            candidates = Backend.Entries
-                .Where(candidate => string.Equals(
-                    GetEntryBasename(candidate),
-                    nameWithExtension,
-                    StringComparison.OrdinalIgnoreCase))
-                .ToList();
-        }
-
-        if (candidates.Count == 0)
             return null;
 
         // Archives such as THAW DATAP.WAD contain same-named male/female CAS
@@ -89,13 +75,6 @@ public sealed class ArchiveAssetSource : AssetSource
                 GetEntryDirectory(Entry),
                 StringComparison.OrdinalIgnoreCase));
         return sameDirectory ?? candidates[0];
-    }
-
-    private static string GetEntryBasename(ArchiveEntry entry)
-    {
-        var normalized = entry.Name.Replace('\\', '/');
-        var separator = normalized.LastIndexOf('/');
-        return separator < 0 ? normalized : normalized[(separator + 1)..];
     }
 
     private static string GetEntryDirectory(ArchiveEntry entry)

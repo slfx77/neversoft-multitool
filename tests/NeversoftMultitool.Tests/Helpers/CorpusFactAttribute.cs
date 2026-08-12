@@ -3,10 +3,11 @@ using System.Runtime.CompilerServices;
 namespace NeversoftMultitool.Tests.Helpers;
 
 /// <summary>
-///     Marks a full-corpus sweep test that walks real game data under Sample/Builds
-///     (hundreds to tens of thousands of files). Explicit tests are excluded from a
-///     default run; opt in with '--explicit on' (everything) or '--explicit only'
-///     (sweeps alone). Single-fixture tests that read one sample file stay [Fact].
+///     Marks a test that walks a full corpus or repeatedly reads real game data under
+///     Sample/Builds. Explicit tests are excluded from a default run; opt in with
+///     '--explicit on' (everything) or '--explicit only' (corpus tests alone).
+///     A single focused fixture may stay [Fact] when it does not require a broad
+///     Sample/Builds index or otherwise dominate the synthetic test suite.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class CorpusFactAttribute : FactAttribute
@@ -21,8 +22,8 @@ public sealed class CorpusFactAttribute : FactAttribute
 }
 
 /// <summary>
-///     Theory variant of <see cref="CorpusFactAttribute" /> for corpus sweeps that
-///     enumerate per-build test cases.
+///     Theory variant of <see cref="CorpusFactAttribute" /> for corpus sweeps and
+///     multi-fixture real-file oracle suites.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class CorpusTheoryAttribute : TheoryAttribute

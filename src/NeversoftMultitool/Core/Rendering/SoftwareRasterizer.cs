@@ -130,8 +130,15 @@ internal static class SoftwareRasterizer
                     texA = submesh.TextureData[tIdx + 3];
                 }
 
-                // MASK alpha test (before depth write)
-                if (submesh is { AlphaMode: 1 } && texA < submesh.AlphaCutoff * 255f)
+                // MASK alpha test. glTF base-color alpha is the product of the
+                // sampled texture, material factor, and vertex color.
+                var effectiveAlpha = texA / 255f;
+                if (submesh != null)
+                    effectiveAlpha *= submesh.BaseColorA;
+                if (tri.HasVertexColors)
+                    effectiveAlpha *= tri.A0 * w0 + tri.A1 * w1 + tri.A2 * w2;
+
+                if (submesh is { AlphaMode: 1 } && effectiveAlpha < submesh.AlphaCutoff)
                 {
                     depthBuffer[idx] = prevDepth; // restore depth
                     continue;

@@ -98,6 +98,21 @@ public class RleImageTests(TestPaths paths)
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Convert_InvalidZlb_ReturnsError(bool autoDetect)
+    {
+        var result = autoDetect
+            ? RleImage.Convert("NOPE"u8.ToArray(), "bad.zlb")
+            : RleImage.Convert("NOPE"u8.ToArray(), "bad.zlb", DefaultWidth);
+
+        Assert.False(result.Success);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Equal(autoDetect ? 0 : DefaultWidth, result.Width);
+        Assert.False(result.WidthAutoDetected);
+    }
+
+    [Theory]
     [InlineData(122_880, 512)] // 512x240 — standard PS1 half-height
     [InlineData(131_072, 512)] // 512x256
     [InlineData(307_200, 640)] // 640x480 — standard PS1 fullscreen (not 512x600)

@@ -19,8 +19,11 @@ public static class DxtDecoder
         {
             for (var bx = 0; bx < blocksX; bx++)
             {
-                if (offset + 8 > data.Length) return output;
-                DecodeDxt1Block(data.Slice(offset, 8), output, bx * 4, by * 4, width, height, true);
+                if (offset + 8 > data.Length)
+                    throw new InvalidDataException("Truncated DXT1 block data.");
+                DecodeDxt1Block(
+                    data.Slice(offset, 8), output, bx * 4, by * 4, width, height,
+                    allowTransparentMode: true);
                 offset += 8;
             }
         }
@@ -40,11 +43,14 @@ public static class DxtDecoder
         {
             for (var bx = 0; bx < blocksX; bx++)
             {
-                if (offset + 16 > data.Length) return output;
+                if (offset + 16 > data.Length)
+                    throw new InvalidDataException("Truncated DXT3 block data.");
 
                 // 8 bytes explicit alpha + 8 bytes color block
                 DecodeExplicitAlphaBlock(data.Slice(offset, 8), output, bx * 4, by * 4, width, height);
-                DecodeDxt1Block(data.Slice(offset + 8, 8), output, bx * 4, by * 4, width, height, false);
+                DecodeDxt1Block(
+                    data.Slice(offset + 8, 8), output, bx * 4, by * 4, width, height,
+                    allowTransparentMode: false);
                 offset += 16;
             }
         }
@@ -64,11 +70,14 @@ public static class DxtDecoder
         {
             for (var bx = 0; bx < blocksX; bx++)
             {
-                if (offset + 16 > data.Length) return output;
+                if (offset + 16 > data.Length)
+                    throw new InvalidDataException("Truncated DXT5 block data.");
 
                 // 8 bytes alpha block + 8 bytes color block
                 DecodeAlphaBlock(data.Slice(offset, 8), output, bx * 4, by * 4, width, height);
-                DecodeDxt1Block(data.Slice(offset + 8, 8), output, bx * 4, by * 4, width, height, false);
+                DecodeDxt1Block(
+                    data.Slice(offset + 8, 8), output, bx * 4, by * 4, width, height,
+                    allowTransparentMode: false);
                 offset += 16;
             }
         }
@@ -77,7 +86,7 @@ public static class DxtDecoder
     }
 
     private static void DecodeDxt1Block(ReadOnlySpan<byte> block, byte[] output,
-        int px, int py, int width, int height, bool hasAlpha)
+        int px, int py, int width, int height, bool allowTransparentMode)
     {
         var c0 = BinaryPrimitives.ReadUInt16LittleEndian(block);
         var c1 = BinaryPrimitives.ReadUInt16LittleEndian(block[2..]);
@@ -89,7 +98,9 @@ public static class DxtDecoder
         UnpackRgb565(c1, colors[4..]);
         colors[7] = 255;
 
-        if (c0 > c1)
+        // BC2/BC3 always use the four-color palette. Only BC1 switches to its
+        // three-color/punch-through-alpha palette when color0 <= color1.
+        if (!allowTransparentMode || c0 > c1)
         {
             // 4-color mode: c2 = 2/3*c0 + 1/3*c1, c3 = 1/3*c0 + 2/3*c1
             colors[8] = (byte)((2 * colors[0] + colors[4] + 1) / 3);
@@ -104,14 +115,14 @@ public static class DxtDecoder
         else
         {
             // 3-color + transparent: c2 = 1/2*c0 + 1/2*c1, c3 = transparent black
-            colors[8] = (byte)((colors[0] + colors[4] + 1) / 2);
-            colors[9] = (byte)((colors[1] + colors[5] + 1) / 2);
-            colors[10] = (byte)((colors[2] + colors[6] + 1) / 2);
+            colors[8] = (byte)((colors[0] + colors[4]) / 2);
+            colors[9] = (byte)((colors[1] + colors[5]) / 2);
+            colors[10] = (byte)((colors[2] + colors[6]) / 2);
             colors[11] = 255;
             colors[12] = 0;
             colors[13] = 0;
             colors[14] = 0;
-            colors[15] = hasAlpha ? (byte)0 : (byte)255;
+            colors[15] = 0;
         }
 
         for (var y = 0; y < 4; y++)
@@ -127,9 +138,9 @@ public static class DxtDecoder
                 output[dest] = colors[idx * 4];
                 output[dest + 1] = colors[idx * 4 + 1];
                 output[dest + 2] = colors[idx * 4 + 2];
-                if (hasAlpha)
+                if (allowTransparentMode)
                     output[dest + 3] = colors[idx * 4 + 3];
-                // DXT5: alpha written separately by DecodeAlphaBlock
+                // BC2/BC3 alpha is written by its separate alpha block.
             }
         }
     }

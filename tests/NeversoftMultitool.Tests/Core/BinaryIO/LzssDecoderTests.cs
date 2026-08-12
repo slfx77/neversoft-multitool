@@ -54,4 +54,26 @@ public class LzssDecoderTests
         var result = LzssDecoder.Decode(compressed, 16);
         Assert.Equal("0123456789ABCDEF"u8.ToArray(), result);
     }
+
+    [Fact]
+    public void Decode_TruncatedLiteralStream_ThrowsInsteadOfZeroPadding()
+    {
+        byte[] compressed = [0xFF, 0x41];
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            LzssDecoder.Decode(compressed, 2));
+
+        Assert.Contains("1 of 2", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Decode_TruncatedBackReference_ThrowsInsteadOfZeroPadding()
+    {
+        byte[] compressed = [0x00, 0x00];
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            LzssDecoder.Decode(compressed, 3));
+
+        Assert.Contains("0 of 3", exception.Message, StringComparison.Ordinal);
+    }
 }

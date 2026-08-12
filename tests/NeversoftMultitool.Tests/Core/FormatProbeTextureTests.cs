@@ -5,6 +5,17 @@ namespace NeversoftMultitool.Tests.Core;
 
 public sealed class FormatProbeTextureTests
 {
+    [Theory]
+    [InlineData("LEVEL.PSX", "PSX Texture")]
+    [InlineData("INTRO.PVR", "PVR Texture")]
+    public void ProbeTexture_SimpleExtensionsAreCaseInsensitive(string path, string expectedFormat)
+    {
+        var result = FormatProbe.ProbeTexture(path);
+
+        Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+        Assert.Equal(expectedFormat, result.FormatName);
+    }
+
     [Fact]
     public void ProbeTexture_PsxFile_Supported()
     {

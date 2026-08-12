@@ -7,6 +7,17 @@ public static class WavWriter
     /// </summary>
     public static void WritePcm16(string outputPath, int sampleRate, int channels, short[] samples)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(channels);
+        ArgumentNullException.ThrowIfNull(samples);
+        if (samples.Length % channels != 0)
+        {
+            throw new ArgumentException(
+                $"Sample count {samples.Length} does not contain whole {channels}-channel PCM frames.",
+                nameof(samples));
+        }
+
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);

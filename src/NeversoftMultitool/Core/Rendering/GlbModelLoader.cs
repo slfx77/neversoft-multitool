@@ -33,12 +33,14 @@ internal static class GlbModelLoader
             var skin = node.Skin;
             Matrix4x4[]? jointWorldTransforms = null;
             Matrix4x4[]? inverseBindMatrices = null;
+            Matrix4x4[]? jointNormalTransforms = null;
 
             if (skin != null)
             {
                 var jointCount = skin.JointsCount;
                 jointWorldTransforms = new Matrix4x4[jointCount];
                 inverseBindMatrices = new Matrix4x4[jointCount];
+                jointNormalTransforms = new Matrix4x4[jointCount];
 
                 for (var j = 0; j < jointCount; j++)
                 {
@@ -47,13 +49,14 @@ internal static class GlbModelLoader
                         ? jointNode.GetWorldMatrix(animation, time)
                         : GetWorldTransform(jointNode);
                     inverseBindMatrices[j] = ibm;
+                    jointNormalTransforms[j] = CreateNormalMatrix(ibm * jointWorldTransforms[j]);
                 }
             }
 
             foreach (var prim in node.Mesh.Primitives)
             {
                 var submesh = LoadPrimitive(prim, worldMatrix, skin,
-                    jointWorldTransforms, inverseBindMatrices);
+                    jointWorldTransforms, inverseBindMatrices, jointNormalTransforms);
                 if (submesh != null)
                 {
                     scene.Submeshes.Add(submesh);
@@ -73,7 +76,8 @@ internal static class GlbModelLoader
     }
 
     private static RenderSubmesh? LoadPrimitive(MeshPrimitive prim, Matrix4x4 worldMatrix,
-        Skin? skin, Matrix4x4[]? jointWorldTransforms, Matrix4x4[]? inverseBindMatrices)
+        Skin? skin, Matrix4x4[]? jointWorldTransforms, Matrix4x4[]? inverseBindMatrices,
+        Matrix4x4[]? jointNormalTransforms)
     {
         var posAccessor = prim.GetVertexAccessor("POSITION");
         if (posAccessor == null) return null;
@@ -156,9 +160,9 @@ internal static class GlbModelLoader
             normals = new float[vertexCount * 3];
 
             if (skin != null && jointsAccessor != null && weightsAccessor != null &&
-                jointWorldTransforms != null && inverseBindMatrices != null)
+                jointWorldTransforms != null && inverseBindMatrices != null && jointNormalTransforms != null)
             {
-                // Skinned normals: apply same joint transforms as positions
+                // Skinned normals: apply each joint's inverse-transpose transform.
                 var joints = jointsAccessor.AsVector4Array();
                 var weights = weightsAccessor.AsVector4Array();
 
@@ -170,13 +174,13 @@ internal static class GlbModelLoader
 
                     var skinned = Vector3.Zero;
                     ApplyJointWeightNormal(ref skinned, nrm, (int)j.X, w.X,
-                        jointWorldTransforms, inverseBindMatrices);
+                        jointNormalTransforms);
                     ApplyJointWeightNormal(ref skinned, nrm, (int)j.Y, w.Y,
-                        jointWorldTransforms, inverseBindMatrices);
+                        jointNormalTransforms);
                     ApplyJointWeightNormal(ref skinned, nrm, (int)j.Z, w.Z,
-                        jointWorldTransforms, inverseBindMatrices);
+                        jointNormalTransforms);
                     ApplyJointWeightNormal(ref skinned, nrm, (int)j.W, w.W,
-                        jointWorldTransforms, inverseBindMatrices);
+                        jointNormalTransforms);
 
                     var len = skinned.Length();
                     if (len > 0.001f) skinned /= len;
@@ -187,9 +191,10 @@ internal static class GlbModelLoader
             }
             else
             {
+                var normalMatrix = CreateNormalMatrix(worldMatrix);
                 for (var i = 0; i < vertexCount; i++)
                 {
-                    var n = Vector3.TransformNormal(rawNormals[i], worldMatrix);
+                    var n = Vector3.TransformNormal(rawNormals[i], normalMatrix);
                     var len = n.Length();
                     if (len > 0.001f) n /= len;
                     normals[i * 3] = n.X;
@@ -333,14 +338,19 @@ internal static class GlbModelLoader
     }
 
     private static void ApplyJointWeightNormal(ref Vector3 result, Vector3 normal,
-        int jointIndex, float weight,
-        Matrix4x4[] jointWorldTransforms, Matrix4x4[] inverseBindMatrices)
+        int jointIndex, float weight, Matrix4x4[] jointNormalTransforms)
     {
-        if (weight <= 0 || jointIndex < 0 || jointIndex >= jointWorldTransforms.Length)
+        if (weight <= 0 || jointIndex < 0 || jointIndex >= jointNormalTransforms.Length)
             return;
 
-        var skinMatrix = inverseBindMatrices[jointIndex] * jointWorldTransforms[jointIndex];
-        result += Vector3.TransformNormal(normal, skinMatrix) * weight;
+        result += Vector3.TransformNormal(normal, jointNormalTransforms[jointIndex]) * weight;
+    }
+
+    private static Matrix4x4 CreateNormalMatrix(Matrix4x4 transform)
+    {
+        return Matrix4x4.Invert(transform, out var inverse)
+            ? Matrix4x4.Transpose(inverse)
+            : transform;
     }
 
     private static void ApplyJointWeight(ref Vector3 result, Vector3 position,

@@ -36,4 +36,33 @@ public sealed class NaturalStringComparerTests
         Assert.True(comparer.Compare("a01b0", "a1b00") < 0);
         Assert.True(comparer.Compare("a1b00", "a01b0") > 0);
     }
+
+    [Fact]
+    public void LeadingZeroRuns_RemainTransitiveWhenOneNameEndsAtTheRun()
+    {
+        const string first = "anim_001";
+        const string second = "anim_1aa";
+        const string third = "anim_1b";
+        var comparer = NaturalStringComparer.OrdinalIgnoreCase;
+
+        Assert.True(comparer.Compare(first, second) < 0);
+        Assert.True(comparer.Compare(second, third) < 0);
+        Assert.True(comparer.Compare(first, third) < 0);
+
+        string[] names = [third, first, second];
+        Assert.Equal([first, second, third], names.OrderBy(static name => name, comparer));
+    }
+
+    [Fact]
+    public void NonAsciiDigits_UseOrdinalTextOrderingAndRemainTransitive()
+    {
+        const string first = "0:0١";
+        const string second = "0:A";
+        const string third = "0:١";
+        var comparer = NaturalStringComparer.OrdinalIgnoreCase;
+
+        Assert.True(comparer.Compare(first, second) < 0);
+        Assert.True(comparer.Compare(second, third) < 0);
+        Assert.True(comparer.Compare(first, third) < 0);
+    }
 }

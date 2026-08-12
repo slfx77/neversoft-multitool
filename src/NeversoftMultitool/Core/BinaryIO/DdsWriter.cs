@@ -77,7 +77,7 @@ public static class DdsWriter
     {
         var (pfFlags, rMask, gMask, bMask, aMask) = GetPixelFormatMasks(format);
         var pitch = width * 2; // 16 bits per pixel = 2 bytes
-        var hasMips = mipMapCount > 0;
+        var hasMips = mipMapCount > 1;
 
         // Magic
         writer.Write(DdsMagic);
@@ -89,7 +89,7 @@ public static class DdsWriter
         writer.Write((uint)width); // dwWidth
         writer.Write((uint)pitch); // dwPitchOrLinearSize
         writer.Write(0u); // dwDepth
-        writer.Write((uint)mipMapCount); // dwMipMapCount
+        writer.Write(hasMips ? (uint)mipMapCount : 0u); // dwMipMapCount
         for (var i = 0; i < 11; i++) // dwReserved1[11]
             writer.Write(0u);
 

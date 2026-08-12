@@ -7,7 +7,7 @@ public class BitmapFileTests(TestPaths paths)
     private const string Thps2Dc = "Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)";
     private const string Thug2Ps2 = "Tony Hawk's Underground 2 (2004-8-22, PS2 - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void Convert_StandardBmp_DecodesViaImageSharp()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -22,7 +22,7 @@ public class BitmapFileTests(TestPaths paths)
         Assert.Equal(result.Width * result.Height * 4, result.RgbaPixels!.Length);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Convert_ThirtyTwoBitTga_PreservesAlpha()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -51,7 +51,7 @@ public class BitmapFileTests(TestPaths paths)
         Assert.True(hasTransparency, "Expected at least one non-opaque alpha value in 32-bit TGA");
     }
 
-    [Fact]
+    [CorpusFact]
     public void Convert_ShortPaletteBmp_RepairsAndDecodes()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

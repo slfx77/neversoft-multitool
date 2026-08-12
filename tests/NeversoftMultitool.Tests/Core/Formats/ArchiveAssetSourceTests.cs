@@ -6,6 +6,37 @@ namespace NeversoftMultitool.Tests.Core.Formats;
 public sealed class ArchiveAssetSourceTests
 {
     [Fact]
+    public void BackendBasenameLookup_FindsPlaintextHedEntryWhoseNameContainsPath()
+    {
+        var (wadPath, tempDir) = BuildWadOnDisk(
+            ("pre/a/human.ske.ps2", new byte[] { 0x2A }),
+            ("human.ske.ps2", new byte[] { 0x2B }),
+            ("pre/b/human.ske.ps2", new byte[] { 0x2C }));
+        ArchiveAssetBackend? backend = null;
+
+        try
+        {
+            backend = ArchiveAssetBackend.TryOpen(wadPath);
+            Assert.NotNull(backend);
+
+            var entry = backend!.FindEntry("human.ske.ps2");
+            var all = backend.FindAllByName("human.ske.ps2");
+
+            Assert.NotNull(entry);
+            Assert.Equal(
+                ["pre/a/human.ske.ps2", "human.ske.ps2", "pre/b/human.ske.ps2"],
+                all.Select(static match => match.Name));
+            Assert.Same(all[0], entry);
+            Assert.Equal(new byte[] { 0x2A }, backend.ReadEntryBytes(entry));
+        }
+        finally
+        {
+            backend?.FileSystem.Dispose();
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void CompanionLookup_PrefersSelectedEntryDirectoryOverFlatFirstMatch()
     {
         var (wadPath, tempDir) = BuildWadOnDisk(

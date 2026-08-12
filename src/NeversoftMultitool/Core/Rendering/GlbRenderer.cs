@@ -31,7 +31,7 @@ public static class GlbRenderer
     {
         using var image = RenderToImage(
             glbPath, longEdge, azimuthDeg, elevationDeg, animationIndex, animationTime);
-        Directory.CreateDirectory(Path.GetDirectoryName(pngPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(pngPath))!);
         image.SaveAsPng(pngPath);
     }
 

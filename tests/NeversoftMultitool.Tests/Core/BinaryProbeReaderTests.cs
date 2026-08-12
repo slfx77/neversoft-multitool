@@ -38,6 +38,17 @@ public sealed class BinaryProbeReaderTests
     }
 
     [Fact]
+    public void TryReadHeader_NegativeLength_ReturnsFalse()
+    {
+        var result = BinaryProbeReader.TryReadHeader(
+            "not-read.bin", -1, out var header, out var bytesRead);
+
+        Assert.False(result);
+        Assert.Empty(header);
+        Assert.Equal(0, bytesRead);
+    }
+
+    [Fact]
     public void ReadUnsignedIntegerHelpers_ReadLittleEndianValues()
     {
         byte[] data = [0x34, 0x12, 0x78, 0x56, 0xEF, 0xCD, 0xAB, 0x90];

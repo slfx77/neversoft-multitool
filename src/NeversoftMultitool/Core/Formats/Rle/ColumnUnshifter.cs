@@ -41,6 +41,9 @@ internal static class ColumnUnshifter
         // The encoder shifts them down, so we reverse that.
         for (var i = 0; i < canvas.Count; i++)
         {
+            // The final encoded row has no following scanline to supply a
+            // shifted pair. Preserve both bottom rows after their horizontal
+            // rotation instead of copying that terminal pair upward.
             if (i + 2 < canvas.Count)
             {
                 canvas[i][0] = canvas[i + 1][0];

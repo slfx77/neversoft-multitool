@@ -7,12 +7,12 @@ internal static class FormatProbeVideo
     public static FormatProbe.FormatProbeResult Probe(string filePath)
     {
         var ext = Path.GetExtension(filePath);
-        return ext switch
+        return ext.ToLowerInvariant() switch
         {
             ".sfd" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "SFD Video"),
-            ".pss" or ".PSS" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PSS Video"),
-            ".bik" or ".BIK" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "BIK Video"),
-            ".vid" or ".VID" => ProbeVidFile(filePath),
+            ".pss" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PSS Video"),
+            ".bik" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "BIK Video"),
+            ".vid" => ProbeVidFile(filePath),
             ".str" => ProbeStrFile(filePath),
             _ => new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,

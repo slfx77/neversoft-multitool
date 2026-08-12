@@ -104,9 +104,9 @@ public static class CompanionSearch
                 continue;
             }
 
-            // Walk back until we find a shared prefix
+            // Walk back until we find a shared directory ancestor.
             while (commonRoot != null &&
-                   !dir.StartsWith(commonRoot, StringComparison.OrdinalIgnoreCase))
+                   !IsSameOrDescendant(commonRoot, dir))
             {
                 commonRoot = Path.GetDirectoryName(commonRoot);
             }
@@ -131,6 +131,18 @@ public static class CompanionSearch
 
         // Fallback: use the widened candidate (3 levels up from common root)
         return candidate;
+    }
+
+    private static bool IsSameOrDescendant(string ancestor, string path)
+    {
+        if (!path.StartsWith(ancestor, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (path.Length == ancestor.Length || Path.EndsInDirectorySeparator(ancestor))
+            return true;
+
+        var boundary = path[ancestor.Length];
+        return boundary == Path.DirectorySeparatorChar || boundary == Path.AltDirectorySeparatorChar;
     }
 
     /// <summary>

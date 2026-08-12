@@ -73,7 +73,8 @@ public sealed class ArchiveAssetBackend
     /// </summary>
     public ArchiveEntry? FindEntry(string basename)
     {
-        return FileSystem.FindByName(basename);
+        var matches = FindAllByName(basename);
+        return matches.Count > 0 ? matches[0] : null;
     }
 
     /// <summary>Full relative-path lookup; case-insensitive; '\' and '/' both accepted.</summary>
@@ -85,7 +86,20 @@ public sealed class ArchiveAssetBackend
     /// <summary>All entries sharing a basename — lets locators disambiguate by directory.</summary>
     public IReadOnlyList<ArchiveEntry> FindAllByName(string basename)
     {
-        return FileSystem.FindAllByName(basename);
+        // Plaintext HED/WAD tables may store the full relative path in Name
+        // rather than splitting it into Directory + Name. Preserve archive
+        // order and honor this API's basename contract even when a table mixes
+        // root names with path-bearing names.
+        return Entries
+            .Where(entry => string.Equals(
+                EntryBasename(entry.Name), basename, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        static string EntryBasename(string value)
+        {
+            var separator = value.LastIndexOfAny(['/', '\\']);
+            return separator >= 0 ? value[(separator + 1)..] : value;
+        }
     }
 
     /// <summary>

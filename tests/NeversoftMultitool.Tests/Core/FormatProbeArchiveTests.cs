@@ -4,6 +4,23 @@ namespace NeversoftMultitool.Tests.Core;
 
 public sealed class FormatProbeArchiveTests
 {
+    [Theory]
+    [InlineData(".pre")]
+    [InlineData(".prd")]
+    [InlineData(".prf")]
+    [InlineData(".prg")]
+    public void ProbeArchive_MissingPreFile_IsUnsupported(string extension)
+    {
+        var missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"{Guid.NewGuid():N}{extension}");
+
+        var result = FormatProbe.ProbeArchive(missingPath);
+
+        Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+        Assert.Contains("Failed to read file header", result.UnsupportedReason);
+    }
+
     [Fact]
     public void ProbeArchive_WadFile_Supported()
     {

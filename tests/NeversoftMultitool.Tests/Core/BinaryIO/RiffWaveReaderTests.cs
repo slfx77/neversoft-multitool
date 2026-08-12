@@ -72,6 +72,21 @@ public class RiffWaveReaderTests
         Assert.Equal(64, info.SamplesPerBlock);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void TryRead_FmtExtensionTooShort_DoesNotReadSamplesPerBlock(int extensionSize)
+    {
+        var format = Fmt(0x0069, 1, 44100, 36, 4, 64);
+        BitConverter.GetBytes((ushort)extensionSize).CopyTo(format, 16);
+        var wave = BuildWave([("fmt ", format), ("data", new byte[36])]);
+
+        Assert.True(RiffWaveReader.TryRead(wave, out var info));
+        Assert.Equal(0x0069, info.FormatTag);
+        Assert.Equal(36, info.DataLength);
+        Assert.Equal(0, info.SamplesPerBlock);
+    }
+
     [Fact]
     public void TryRead_BroadcastWaveLayout_WalksPastChunksBeforeFmt()
     {

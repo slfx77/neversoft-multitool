@@ -56,4 +56,67 @@ public sealed class SoftwareRasterizerTests
         Assert.InRange(pixels[2], 143, 144);
         Assert.Equal(255, pixels[3]);
     }
+
+    [Fact]
+    public void RasterizeTriangle_MaskedMaterialWithZeroFactorAlpha_PreservesColorAndDepth()
+    {
+        AssertZeroAlphaFragmentIsDiscarded(baseColorAlpha: 0f, vertexAlpha: 1f, hasVertexColors: false);
+    }
+
+    [Fact]
+    public void RasterizeTriangle_MaskedMaterialWithZeroVertexAlpha_PreservesColorAndDepth()
+    {
+        AssertZeroAlphaFragmentIsDiscarded(baseColorAlpha: 1f, vertexAlpha: 0f, hasVertexColors: true);
+    }
+
+    private static void AssertZeroAlphaFragmentIsDiscarded(
+        float baseColorAlpha,
+        float vertexAlpha,
+        bool hasVertexColors)
+    {
+        byte[] pixels = [11, 22, 33, 44];
+        var depth = new[] { float.NegativeInfinity };
+        var triangle = new RenderTriangle
+        {
+            Sx0 = 0f,
+            Sy0 = 0f,
+            Z0 = 1f,
+            Sx1 = 0f,
+            Sy1 = 2f,
+            Z1 = 1f,
+            Sx2 = 2f,
+            Sy2 = 0f,
+            Z2 = 1f,
+            R0 = 1f,
+            G0 = 1f,
+            B0 = 1f,
+            A0 = vertexAlpha,
+            R1 = 1f,
+            G1 = 1f,
+            B1 = 1f,
+            A1 = vertexAlpha,
+            R2 = 1f,
+            G2 = 1f,
+            B2 = 1f,
+            A2 = vertexAlpha,
+            HasVertexColors = hasVertexColors,
+            FlatShade = 1f
+        };
+        var submesh = new RenderSubmesh
+        {
+            Positions = [],
+            Triangles = [],
+            TextureData = [255, 255, 255, 255],
+            TextureWidth = 1,
+            TextureHeight = 1,
+            BaseColorA = baseColorAlpha,
+            AlphaMode = 1,
+            AlphaCutoff = 0.5f
+        };
+
+        SoftwareRasterizer.RasterizeTriangle(pixels, depth, 1, 1, triangle, [submesh]);
+
+        Assert.Equal([11, 22, 33, 44], pixels);
+        Assert.Equal(float.NegativeInfinity, depth[0]);
+    }
 }

@@ -64,6 +64,8 @@ public static class RecursiveUnpacker
     /// </summary>
     public static void ExtractArchive(string archivePath, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var parentDir = Path.GetDirectoryName(archivePath)!;
         var ext = GetArchiveExtension(archivePath);
 

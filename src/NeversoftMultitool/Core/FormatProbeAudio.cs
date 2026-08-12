@@ -6,6 +6,8 @@ namespace NeversoftMultitool.Core;
 
 internal static class FormatProbeAudio
 {
+    private const int AdxHeaderSize = 18;
+
     public static FormatProbe.FormatProbeResult Probe(string filePath)
     {
         var ext = Path.GetExtension(filePath).ToLowerInvariant();
@@ -27,10 +29,10 @@ internal static class FormatProbeAudio
 
     private static FormatProbe.FormatProbeResult ProbeAdxFile(string filePath)
     {
-        if (!BinaryProbeReader.TryReadHeader(filePath, 8, out var header, out var bytesRead))
+        if (!BinaryProbeReader.TryReadHeader(filePath, AdxHeaderSize, out var header, out var bytesRead))
             return HeaderReadFailure();
 
-        if (bytesRead < 6)
+        if (bytesRead < AdxHeaderSize)
             return FileTooSmall();
 
         if (header[0] == 0x80 && header[1] == 0x00)

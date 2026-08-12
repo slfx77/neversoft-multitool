@@ -4,6 +4,13 @@ internal static class BinaryProbeReader
 {
     public static bool TryReadHeader(string filePath, int headerLength, out byte[] header, out int bytesRead)
     {
+        if (headerLength < 0)
+        {
+            header = [];
+            bytesRead = 0;
+            return false;
+        }
+
         header = new byte[headerLength];
 
         try

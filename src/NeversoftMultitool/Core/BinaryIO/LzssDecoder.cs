@@ -75,6 +75,12 @@ public static class LzssDecoder
             }
         }
 
+        if (outPos != decompressedSize)
+        {
+            throw new InvalidDataException(
+                $"LZSS stream ended after {outPos} of {decompressedSize} decompressed bytes.");
+        }
+
         return output;
     }
 }

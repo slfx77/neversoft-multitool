@@ -176,4 +176,28 @@ public sealed class RecursiveUnpackerTests
                 Directory.Delete(tempDir, true);
         }
     }
+
+    [Fact]
+    public void ExtractArchive_PreCancelled_DoesNotCreateOutputDirectory()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(),
+            "NsMultitool_Test_Unpack_" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var archivePath = Path.Combine(tempDir, "missing.iso");
+            var outputDir = Path.Combine(tempDir, "missing");
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            Assert.Throws<OperationCanceledException>(() =>
+                RecursiveUnpacker.ExtractArchive(archivePath, cancellation.Token));
+            Assert.False(Directory.Exists(outputDir));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
 }

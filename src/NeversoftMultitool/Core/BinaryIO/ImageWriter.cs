@@ -11,13 +11,14 @@ public static class ImageWriter
     /// </summary>
     public static void WritePng(string outputPath, int width, int height, byte[] rgbaPixels)
     {
+        using var image = Image.LoadPixelData<Rgba32>(rgbaPixels, width, height);
+
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
         {
             Directory.CreateDirectory(directory);
         }
 
-        using var image = Image.LoadPixelData<Rgba32>(rgbaPixels, width, height);
         image.SaveAsPng(outputPath);
     }
 
@@ -39,13 +40,14 @@ public static class ImageWriter
     /// </summary>
     public static void WritePngRgb(string outputPath, int width, int height, byte[] rgbPixels)
     {
+        using var image = Image.LoadPixelData<Rgb24>(rgbPixels, width, height);
+
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
         {
             Directory.CreateDirectory(directory);
         }
 
-        using var image = Image.LoadPixelData<Rgb24>(rgbPixels, width, height);
         image.SaveAsPng(outputPath);
     }
 }

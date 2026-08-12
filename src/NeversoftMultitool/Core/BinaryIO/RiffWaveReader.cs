@@ -10,7 +10,9 @@ namespace NeversoftMultitool.Core.BinaryIO;
 ///     nAvgBytesPerSec as stored. NOT trustworthy as a byte rate — THUG2 PC
 ///     <c>.snd</c> files repurpose this field to carry the DECODED byte count.
 /// </param>
-/// <param name="SamplesPerBlock">wSamplesPerBlock, or 0 when the fmt chunk is shorter than 20 bytes.</param>
+/// <param name="SamplesPerBlock">
+///     wSamplesPerBlock, or 0 when the fmt chunk does not declare at least two extension bytes.
+/// </param>
 public readonly record struct RiffWaveInfo(
     int FormatTag,
     int Channels,
@@ -85,8 +87,12 @@ public static class RiffWaveReader
 
                 // wSamplesPerBlock lives at fmt+18, present only when the extension
                 // (cbSize) is at least 2 bytes.
-                if (size >= 20 && payload + 20 <= data.Length)
+                if (size >= 20 &&
+                    payload + 20 <= data.Length &&
+                    BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(payload + 16, 2)) >= 2)
+                {
                     samplesPerBlock = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(payload + 18, 2));
+                }
 
                 haveFormat = true;
             }

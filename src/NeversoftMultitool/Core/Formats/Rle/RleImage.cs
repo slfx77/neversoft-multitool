@@ -131,20 +131,23 @@ public static class RleImage
 
     private static RleConversionResult ConvertCore(byte[] data, string ext, int? width)
     {
-        (data, ext) = UnwrapIfZlb(data, ext);
-
-        var autoDetected = false;
-        if (width is null)
-        {
-            using var sizeProbe = new MemoryStream(data, false);
-            width = GuessWidth(GetTotalPixelCount(sizeProbe, ext));
-            autoDetected = true;
-        }
-
-        var result = new RleConversionResult { Width = width.Value, WidthAutoDetected = autoDetected };
+        var result = new RleConversionResult { Width = width.GetValueOrDefault() };
 
         try
         {
+            (data, ext) = UnwrapIfZlb(data, ext);
+
+            var autoDetected = false;
+            if (width is null)
+            {
+                using var sizeProbe = new MemoryStream(data, false);
+                width = GuessWidth(GetTotalPixelCount(sizeProbe, ext));
+                autoDetected = true;
+            }
+
+            result.Width = width.Value;
+            result.WidthAutoDetected = autoDetected;
+
             using var stream = new MemoryStream(data, false);
             using var reader = new BinaryReader(stream);
 

@@ -50,7 +50,7 @@ internal static class FormatProbeTexture
             return ProbePs2TexFile(filePath);
 
         var ext = Path.GetExtension(filePath);
-        return ext switch
+        return ext.ToLowerInvariant() switch
         {
             ".psx" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PSX Texture"),
             ".tex" or ".img" => ProbePs2TexFile(filePath),
