@@ -57,7 +57,7 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Probe_RepresentativeSamples_ReturnExpectedMetadata()
     {
         Assert.SkipWhen(!File.Exists(LongFormSample), "Representative THAW GameCube long-form VID sample not found");

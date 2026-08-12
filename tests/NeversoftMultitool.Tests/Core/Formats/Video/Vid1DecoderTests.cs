@@ -6,79 +6,65 @@ namespace NeversoftMultitool.Tests.Core.Formats.Video;
 
 public class Vid1DecoderTests(TestPaths paths)
 {
-    private string? FindIntroVid()
+    private const string ThawGcFinalBuild =
+        "Tony Hawk's American Wasteland (2005-8-22, GC - Final)";
+    private const long IntroVidSize = 18_840_160;
+    private const long AtviVidSize = 1_821_888;
+    private const long CreditsVidSize = 133_728_256;
+    private const int VidWidth = 512;
+    private const int VidHeight = 384;
+    private const int IntroFrameCount = 1_292;
+    private const int AtviFrameCount = 319;
+    private const int CreditsFrameCount = 8_020;
+
+    private static readonly string IntroVidRelativePath = Path.Combine("movies", "vid", "intro.vid");
+    private static readonly string AtviVidRelativePath = Path.Combine("movies", "vid", "atvi.vid");
+    private static readonly string CreditsVidRelativePath = Path.Combine("movies", "vid", "credits.vid");
+
+    private string? FindIntroVid() => FindCanonicalVid(IntroVidRelativePath);
+
+    private string? FindAtviVid() => FindCanonicalVid(AtviVidRelativePath);
+
+    private string? FindCreditsVid() => FindCanonicalVid(CreditsVidRelativePath);
+
+    private Vid1VideoFile ParseIntroVid() =>
+        ParseCanonicalVid(FindIntroVid(), IntroVidRelativePath, IntroVidSize, IntroFrameCount);
+
+    private Vid1VideoFile ParseAtviVid() =>
+        ParseCanonicalVid(FindAtviVid(), AtviVidRelativePath, AtviVidSize, AtviFrameCount);
+
+    private Vid1VideoFile ParseCreditsVid() =>
+        ParseCanonicalVid(FindCreditsVid(), CreditsVidRelativePath, CreditsVidSize, CreditsFrameCount);
+
+    private string? FindCanonicalVid(string relativePath)
     {
-        var repoCandidate = Path.Combine(GetRepoRoot(), "TestOutput", "intro_only_src", "intro.vid");
-        if (File.Exists(repoCandidate))
-            return repoCandidate;
+        if (!paths.HasSampleBuilds)
+            return null;
 
-        if (!paths.HasSampleBuilds) return null;
-        var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
-            .FirstOrDefault(d => Path.GetFileName(d).Contains("American Wasteland", StringComparison.OrdinalIgnoreCase)
-                                 && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
-        if (buildDir == null) return null;
-
-        var candidate = Path.Combine(buildDir, "movies", "vid", "intro.vid");
+        var candidate = Path.Combine(paths.SampleBuildsDir!, ThawGcFinalBuild, relativePath);
         return File.Exists(candidate) ? candidate : null;
     }
 
-    private string? FindAtviVid()
+    private static Vid1VideoFile ParseCanonicalVid(
+        string? path,
+        string relativePath,
+        long expectedSize,
+        int expectedFrameCount)
     {
-        var repoCandidate = Path.Combine(GetRepoRoot(), "TestOutput", "session7_atvi_src", "atvi.vid");
-        if (File.Exists(repoCandidate))
-            return repoCandidate;
-
-        if (!paths.HasSampleBuilds) return null;
-        var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
-            .FirstOrDefault(d => Path.GetFileName(d).Contains("American Wasteland", StringComparison.OrdinalIgnoreCase)
-                                 && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
-        if (buildDir == null) return null;
-
-        var candidate = Path.Combine(buildDir, "movies", "vid", "atvi.vid");
-        return File.Exists(candidate) ? candidate : null;
-    }
-
-    private string? FindCreditsVid()
-    {
-        var repoCandidate = Path.Combine(GetRepoRoot(), "TestOutput", "credits_slice_src", "credits.vid");
-        if (File.Exists(repoCandidate))
-            return repoCandidate;
-
-        if (!paths.HasSampleBuilds) return null;
-        var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
-            .FirstOrDefault(d => Path.GetFileName(d).Contains("American Wasteland", StringComparison.OrdinalIgnoreCase)
-                                 && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
-        if (buildDir == null) return null;
-
-        var candidate = Path.Combine(buildDir, "movies", "vid", "credits.vid");
-        return File.Exists(candidate) ? candidate : null;
-    }
-
-    private static string GetRepoRoot()
-    {
-        var current = AppContext.BaseDirectory;
-        while (!string.IsNullOrEmpty(current))
-        {
-            if (File.Exists(Path.Combine(current, "NeversoftMultitool.slnx")))
-                return current;
-
-            var parent = Directory.GetParent(current);
-            if (parent == null)
-                break;
-
-            current = parent.FullName;
-        }
-
-        return Directory.GetCurrentDirectory();
+        Assert.SkipWhen(path is null,
+            $"External fixture {ThawGcFinalBuild}/{relativePath.Replace('\\', '/')} is not available");
+        Assert.Equal(expectedSize, new FileInfo(path!).Length);
+        var file = Vid1VideoFile.Parse(path!);
+        Assert.Equal(VidWidth, file.Width);
+        Assert.Equal(VidHeight, file.Height);
+        Assert.Equal(expectedFrameCount, file.FrameCount);
+        return file;
     }
 
     [Fact]
     public void DecodeFrame_FirstFrame_DoesNotThrow_ReturnsCorrectShape()
     {
-        var path = FindIntroVid();
-        if (path == null) return; // skip when sample not available
-
-        var file = Vid1VideoFile.Parse(path);
+        var file = ParseIntroVid();
         var decoder = new Vid1Decoder(file);
 
         Assert.NotEmpty(file.Frames);
@@ -95,10 +81,7 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void DecodeFrame_FirstFrame_UsesNeutralFallback()
     {
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var file = ParseIntroVid();
         var decoder = new Vid1Decoder(file);
         var result = decoder.DecodeFrame(file.Frames[0]);
 
@@ -117,10 +100,7 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void DecodeFrame_MultipleFrames_NoThrow()
     {
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var file = ParseIntroVid();
         var decoder = new Vid1Decoder(file);
 
         // Decode first 10 frames — verify we can walk the stream sequentially
@@ -136,11 +116,9 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void DecodeFrame_AtviTinyBFrame_CopiesSkippedReference()
     {
-        var path = FindAtviVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
-        if (file.FrameCount <= 2) return;
+        var file = ParseAtviVid();
+        Assert.True(file.FrameCount > 2,
+            "Canonical THAW GC atvi.vid must contain its frame-2 class-2 regression case");
 
         Assert.Equal(2, file.Frames[2].PreambleClass);
 
@@ -155,10 +133,7 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void DecodeFrame_AtviClass2Frame_DoesNotPromoteBOutputAsReference()
     {
-        var path = FindAtviVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var file = ParseAtviVid();
         var targetIndex = Enumerable.Range(0, file.FrameCount)
             .FirstOrDefault(i =>
                 i > 10 &&
@@ -166,7 +141,8 @@ public class Vid1DecoderTests(TestPaths paths)
                 file.Frames[i].PreambleClass == 2 &&
                 file.Frames[i + 1].PreambleClass != 2 &&
                 file.Frames[i].CodedPayload.Length > 1024);
-        if (targetIndex == 0) return;
+        Assert.True(targetIndex > 0,
+            "Canonical THAW GC atvi.vid must contain a large class-2 frame followed by a reference frame");
 
         var withBDecoder = new Vid1Decoder(file);
         Vid1DecodedFrame? bFrame = null;
@@ -200,11 +176,9 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void PresentationProvider_Atvi_DisplaysClass2BeforeHeldReference()
     {
-        var path = FindAtviVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
-        if (file.FrameCount <= 2) return;
+        var file = ParseAtviVid();
+        Assert.True(file.FrameCount > 2,
+            "Canonical THAW GC atvi.vid must contain its first three presentation frames");
 
         Assert.Equal(0, file.Frames[0].PreambleClass);
         Assert.NotEqual(2, file.Frames[1].PreambleClass);
@@ -226,10 +200,7 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void DecodeFrame_Stats_ReportMacroblockCounters()
     {
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var file = ParseIntroVid();
         var decoder = new Vid1Decoder(file);
         decoder.DecodeFrame(file.Frames[0]);
 
@@ -245,13 +216,10 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void DecodeBgra_Perf_OptIn()
     {
-        if (Environment.GetEnvironmentVariable("VID1_RUN_PERF_TESTS") != "1")
-            return;
+        Assert.SkipWhen(Environment.GetEnvironmentVariable("VID1_RUN_PERF_TESTS") != "1",
+            "Set VID1_RUN_PERF_TESTS=1 to run VID1 performance checks");
 
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var file = ParseIntroVid();
         var provider = new Vid1BgraPresentationFrameProvider(file);
         var frameLimit = Math.Min(300, file.FrameCount);
 
@@ -276,13 +244,10 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void DecodeBgraSpan_Perf_OptIn()
     {
-        if (Environment.GetEnvironmentVariable("VID1_RUN_PERF_TESTS") != "1")
-            return;
+        Assert.SkipWhen(Environment.GetEnvironmentVariable("VID1_RUN_PERF_TESTS") != "1",
+            "Set VID1_RUN_PERF_TESTS=1 to run VID1 performance checks");
 
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var file = ParseIntroVid();
         var provider = new Vid1BgraPresentationFrameProvider(file);
         var destination = new byte[file.Width * file.Height * 4];
         var frameLimit = Math.Min(300, file.FrameCount);
@@ -308,13 +273,10 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void DecodeRgbSpanToNull_Perf_OptIn()
     {
-        if (Environment.GetEnvironmentVariable("VID1_RUN_PERF_TESTS") != "1")
-            return;
+        Assert.SkipWhen(Environment.GetEnvironmentVariable("VID1_RUN_PERF_TESTS") != "1",
+            "Set VID1_RUN_PERF_TESTS=1 to run VID1 performance checks");
 
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var file = ParseIntroVid();
         var provider = new Vid1PresentationFrameProvider(file);
         var destination = new byte[file.Width * file.Height * 3];
         var frameLimit = Math.Min(300, file.FrameCount);
@@ -345,14 +307,11 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void Regression_IntroPresentationHash_OptIn()
     {
-        if (Environment.GetEnvironmentVariable("VID1_RUN_REGRESSION_TESTS") != "1")
-            return;
-
-        var path = FindIntroVid();
-        if (path == null) return;
+        Assert.SkipWhen(Environment.GetEnvironmentVariable("VID1_RUN_REGRESSION_TESTS") != "1",
+            "Set VID1_RUN_REGRESSION_TESTS=1 to run VID1 presentation-hash regressions");
 
         AssertPresentationHash(
-            path,
+            ParseIntroVid(),
             61,
             "edc66c3357309c403657c9c08030458e9728fdae3a9b0ce8bdaf7e2d9fec9eb7");
     }
@@ -360,14 +319,11 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void Regression_CreditsPresentationHash_OptIn()
     {
-        if (Environment.GetEnvironmentVariable("VID1_RUN_REGRESSION_TESTS") != "1")
-            return;
-
-        var path = FindCreditsVid();
-        if (path == null) return;
+        Assert.SkipWhen(Environment.GetEnvironmentVariable("VID1_RUN_REGRESSION_TESTS") != "1",
+            "Set VID1_RUN_REGRESSION_TESTS=1 to run VID1 presentation-hash regressions");
 
         AssertPresentationHash(
-            path,
+            ParseCreditsVid(),
             120,
             "9fd9d8a17506381f0cfdfc30ca6ed3646dbdac5caea1b48a05f494bd3994b2a4");
     }
@@ -375,14 +331,11 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void Regression_AtviPresentationHash_OptIn()
     {
-        if (Environment.GetEnvironmentVariable("VID1_RUN_REGRESSION_TESTS") != "1")
-            return;
-
-        var path = FindAtviVid();
-        if (path == null) return;
+        Assert.SkipWhen(Environment.GetEnvironmentVariable("VID1_RUN_REGRESSION_TESTS") != "1",
+            "Set VID1_RUN_REGRESSION_TESTS=1 to run VID1 presentation-hash regressions");
 
         AssertPresentationHash(
-            path,
+            ParseAtviVid(),
             120,
             "c0909be665aec7be74ce7fde6493d1dbd862cdd2d7f45ea50e983c589581169a");
     }
@@ -390,11 +343,9 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void DecodeFrame_Frame3_CleanEndOfStreamCopiesReferenceLetterbox()
     {
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
-        if (file.FrameCount <= 3) return;
+        var file = ParseIntroVid();
+        Assert.True(file.FrameCount > 3,
+            "Canonical THAW GC intro.vid must contain its frame-3 letterbox regression case");
 
         var decoder = new Vid1Decoder(file);
         Vid1DecodedFrame? result = null;
@@ -423,10 +374,7 @@ public class Vid1DecoderTests(TestPaths paths)
     [Fact]
     public void Reset_ClearsReferenceBuffer()
     {
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var file = ParseIntroVid();
         var decoder = new Vid1Decoder(file);
         decoder.DecodeFrame(file.Frames[0]);
         decoder.Reset();
@@ -437,9 +385,11 @@ public class Vid1DecoderTests(TestPaths paths)
         Assert.Equal(file.Width * file.Height * 3, result.Rgb24.Length);
     }
 
-    private static void AssertPresentationHash(string path, int frameLimit, string expectedSha256)
+    private static void AssertPresentationHash(
+        Vid1VideoFile file,
+        int frameLimit,
+        string expectedSha256)
     {
-        var file = Vid1VideoFile.Parse(path);
         var provider = new Vid1BgraPresentationFrameProvider(file);
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 

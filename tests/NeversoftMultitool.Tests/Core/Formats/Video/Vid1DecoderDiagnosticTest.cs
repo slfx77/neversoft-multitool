@@ -13,38 +13,41 @@ namespace NeversoftMultitool.Tests.Core.Formats.Video;
 /// </summary>
 public class Vid1DecoderDiagnosticTest(TestPaths paths)
 {
+    private const string ThawGcFinalBuild =
+        "Tony Hawk's American Wasteland (2005-8-22, GC - Final)";
+    private const long IntroVidSize = 18_840_160;
+    private const long CreditsVidSize = 133_728_256;
+    private const int VidWidth = 512;
+    private const int VidHeight = 384;
+    private const int IntroFrameCount = 1_292;
+    private const int CreditsFrameCount = 8_020;
     private static readonly int[] IntraDcThresholdTable = [32, 13, 15, 17, 19, 21, 23, 1];
+    private static readonly string IntroVidRelativePath = Path.Combine("movies", "vid", "intro.vid");
+    private static readonly string CreditsVidRelativePath = Path.Combine("movies", "vid", "credits.vid");
 
-    private string? FindIntroVid()
+    private (string Path, Vid1VideoFile File) RequireIntroVid() =>
+        RequireCanonicalVid(IntroVidRelativePath, IntroVidSize, IntroFrameCount);
+
+    private (string Path, Vid1VideoFile File) RequireCreditsVid() =>
+        RequireCanonicalVid(CreditsVidRelativePath, CreditsVidSize, CreditsFrameCount);
+
+    private (string Path, Vid1VideoFile File) RequireCanonicalVid(
+        string relativePath,
+        long expectedSize,
+        int expectedFrameCount)
     {
-        var repoCandidate = Path.Combine(GetRepoRoot(), "TestOutput", "intro_only_src", "intro.vid");
-        if (File.Exists(repoCandidate))
-            return repoCandidate;
+        var path = paths.HasSampleBuilds
+            ? Path.Combine(paths.SampleBuildsDir!, ThawGcFinalBuild, relativePath)
+            : null;
+        Assert.SkipWhen(path is null || !File.Exists(path),
+            $"External fixture {ThawGcFinalBuild}/{relativePath.Replace('\\', '/')} is not available");
+        Assert.Equal(expectedSize, new FileInfo(path!).Length);
 
-        if (!paths.HasSampleBuilds) return null;
-        var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
-            .FirstOrDefault(d => Path.GetFileName(d).Contains("American Wasteland", StringComparison.OrdinalIgnoreCase)
-                                 && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
-        if (buildDir == null) return null;
-
-        var candidate = Path.Combine(buildDir, "movies", "vid", "intro.vid");
-        return File.Exists(candidate) ? candidate : null;
-    }
-
-    private string? FindCreditsVid()
-    {
-        var repoCandidate = Path.Combine(GetRepoRoot(), "TestOutput", "credits_slice_src", "credits.vid");
-        if (File.Exists(repoCandidate))
-            return repoCandidate;
-
-        if (!paths.HasSampleBuilds) return null;
-        var buildDir = Directory.GetDirectories(paths.SampleBuildsDir!)
-            .FirstOrDefault(d => Path.GetFileName(d).Contains("American Wasteland", StringComparison.OrdinalIgnoreCase)
-                                 && Path.GetFileName(d).Contains("GC", StringComparison.OrdinalIgnoreCase));
-        if (buildDir == null) return null;
-
-        var candidate = Path.Combine(buildDir, "movies", "vid", "credits.vid");
-        return File.Exists(candidate) ? candidate : null;
+        var file = Vid1VideoFile.Parse(path!);
+        Assert.Equal(VidWidth, file.Width);
+        Assert.Equal(VidHeight, file.Height);
+        Assert.Equal(expectedFrameCount, file.FrameCount);
+        return (path!, file);
     }
 
     private static byte[] BuildDefaultIntraMatrix()
@@ -343,17 +346,17 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
     [Fact]
     public void Diagnostic_CreditsFrame100_MotionResidualBlocks()
     {
-        if (Environment.GetEnvironmentVariable("VID1_RUN_CREDITS_DIAG") != "1")
-            return;
+        Assert.SkipWhen(Environment.GetEnvironmentVariable("VID1_RUN_CREDITS_DIAG") != "1",
+            "Set VID1_RUN_CREDITS_DIAG=1 to run this credits diagnostic");
 
-        var path = FindCreditsVid();
-        if (path == null) return;
+        var fixture = RequireCreditsVid();
+        var path = fixture.Path;
 
         var frameIndex = int.TryParse(Environment.GetEnvironmentVariable("VID1_CREDITS_DIAG_FRAME"),
             out var requestedFrame)
             ? requestedFrame
             : 100;
-        var file = Vid1VideoFile.Parse(path);
+        var file = fixture.File;
         var decoder = new Vid1Decoder(file);
         for (var index = 0; index < frameIndex; index++)
             decoder.DecodeFrame(file.Frames[index]);
@@ -429,11 +432,11 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
     [Fact]
     public void Diagnostic_CreditsA878_StripeWindow()
     {
-        if (Environment.GetEnvironmentVariable("VID1_RUN_CREDITS_A878_DIAG") != "1")
-            return;
+        Assert.SkipWhen(Environment.GetEnvironmentVariable("VID1_RUN_CREDITS_A878_DIAG") != "1",
+            "Set VID1_RUN_CREDITS_A878_DIAG=1 to run this credits diagnostic");
 
-        var path = FindCreditsVid();
-        if (path == null) return;
+        var fixture = RequireCreditsVid();
+        var path = fixture.Path;
 
         var frameIndex = int.TryParse(Environment.GetEnvironmentVariable("VID1_CREDITS_A878_FRAME"),
             out var requestedFrame)
@@ -452,7 +455,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             ? requestedMaxY
             : 20;
 
-        var file = Vid1VideoFile.Parse(path);
+        var file = fixture.File;
         var decoder = new Vid1Decoder(file);
         for (var index = 0; index < frameIndex; index++)
             decoder.DecodeFrame(file.Frames[index]);
@@ -913,10 +916,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
     [Fact]
     public void Diagnostic_Frame0_FirstMacroblock()
     {
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var (_, file) = RequireIntroVid();
         var frame = file.Frames[0];
 
         var log = new List<string>();
@@ -1049,10 +1049,9 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
     [Fact]
     public void Diagnostic_Frame0_FirstCodedBlock_PixelPipeline()
     {
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var fixture = RequireIntroVid();
+        var path = fixture.Path;
+        var file = fixture.File;
         var frame = file.Frames[0];
         var log = new List<string>();
         log.Add("=== Frame 0 first coded luma block-0 pixel pipeline ===");
@@ -1110,7 +1109,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
             Console.WriteLine(earlyMessage);
             File.WriteAllText(Path.Combine(GetDiagnosticOutputDir(), "frame0_firstcoded_pipeline.txt"), earlyMessage);
             Assert.NotEmpty(log);
-            return;
+            Assert.Fail("Canonical THAW GC intro.vid must contain a coded A878 block-0 before decode failure");
         }
 
         log.Add(
@@ -1269,10 +1268,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
     [Fact]
     public void Diagnostic_Frame0_TwoReaderSplit()
     {
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var (_, file) = RequireIntroVid();
         var frame = file.Frames[0];
 
         var log = new List<string>();
@@ -1372,10 +1368,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
     [Fact]
     public void Diagnostic_Frame0_FirstFailureResyncSearch()
     {
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var (_, file) = RequireIntroVid();
         var frame = file.Frames[0];
         var log = new List<string>();
         log.Add("=== Frame 0 first-failure resync search ===");
@@ -1478,10 +1471,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
     [Fact]
     public void Diagnostic_Frame0_PreFailureWindow()
     {
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var (_, file) = RequireIntroVid();
         var frame = file.Frames[0];
         var log = new List<string>();
         log.Add("=== Frame 0 pre-failure window ===");
@@ -1600,10 +1590,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
     [Fact]
     public void Diagnostic_Frame1_FirstFailureWithActiveDecoderPath()
     {
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var (_, file) = RequireIntroVid();
         var frame = file.Frames[1];
         var log = new List<string>();
         log.Add("=== Frame 1 active-path first failure ===");
@@ -1662,10 +1649,9 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
     [Fact]
     public void Diagnostic_Frame1_HeaderWalk_CurrentLayout()
     {
-        var path = FindIntroVid();
-        if (path == null) return;
-
-        var file = Vid1VideoFile.Parse(path);
+        var fixture = RequireIntroVid();
+        var path = fixture.Path;
+        var file = fixture.File;
         var frame = file.Frames[1];
         var payload = ReadFramePayload(path, 1);
         var headerStream = payload.AsSpan(12, payload.Length - 12 - 8).ToArray();

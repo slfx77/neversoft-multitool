@@ -281,6 +281,22 @@ public class MdecDecoderTests(TestPaths paths)
         Assert.Throws<InvalidDataException>(() => MdecDecoder.DecodeFrame(frame, 16, 16));
     }
 
+    [Theory]
+    [InlineData(0, 16, "width")]
+    [InlineData(16, 0, "height")]
+    public void DecodeFrame_ZeroWidthOrHeight_ThrowsArgumentOutOfRange(
+        int width, int height, string parameterName)
+    {
+        var frame = new byte[8];
+        BitConverter.TryWriteBytes(frame.AsSpan(2, 2), (ushort)0x3800);
+        BitConverter.TryWriteBytes(frame.AsSpan(4, 2), (ushort)1);
+        BitConverter.TryWriteBytes(frame.AsSpan(6, 2), (ushort)2);
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            MdecDecoder.DecodeFrame(frame, width, height));
+        Assert.Equal(parameterName, error.ParamName);
+    }
+
     [Fact]
     public void StrPreviewFrameDecoder_TruncatedFrame_ReturnsOpaqueBlackBgra()
     {

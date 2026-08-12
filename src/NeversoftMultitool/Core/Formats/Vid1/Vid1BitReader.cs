@@ -10,7 +10,7 @@ internal sealed class Vid1BitReader(byte[] data)
 {
     private readonly byte[] _data = data;
 
-    public int BytesConsumed => (BitPosition + 7) / 8;
+    public int BytesConsumed => (int)(((long)BitPosition + 7) / 8);
 
     public int BitPosition { get; private set; }
 
@@ -32,18 +32,17 @@ internal sealed class Vid1BitReader(byte[] data)
 
     public void SetBitPosition(int bitPosition)
     {
-        if (bitPosition < 0 || bitPosition > _data.Length * 8)
+        var totalBits = (long)_data.Length * 8;
+        if (bitPosition < 0 || bitPosition > totalBits)
             throw new EndOfStreamException(
-                $"VID1 bitstream is truncated: need absolute position {bitPosition}/{_data.Length * 8}");
+                $"VID1 bitstream is truncated: need absolute position {bitPosition}/{totalBits}");
 
         BitPosition = bitPosition;
     }
 
     public int PeekBits(int bitCount)
     {
-        if (bitCount < 0 || BitPosition + bitCount > _data.Length * 8)
-            throw new EndOfStreamException(
-                $"VID1 bitstream is truncated: need {bitCount} bits at pos {BitPosition}/{_data.Length * 8} (remaining {_data.Length * 8 - BitPosition})");
+        EnsureAvailable(bitCount);
 
         var value = 0;
         var pos = BitPosition;
@@ -60,18 +59,12 @@ internal sealed class Vid1BitReader(byte[] data)
 
     public void SkipBits(int bitCount)
     {
-        if (bitCount < 0 || BitPosition + bitCount > _data.Length * 8)
-            throw new EndOfStreamException(
-                $"VID1 bitstream is truncated: need {bitCount} bits at pos {BitPosition}/{_data.Length * 8} (remaining {_data.Length * 8 - BitPosition})");
-
-        BitPosition += bitCount;
+        BitPosition = EnsureAvailable(bitCount);
     }
 
     public int ReadBits(int bitCount)
     {
-        if (bitCount < 0 || BitPosition + bitCount > _data.Length * 8)
-            throw new EndOfStreamException(
-                $"VID1 bitstream is truncated: need {bitCount} bits at pos {BitPosition}/{_data.Length * 8} (remaining {_data.Length * 8 - BitPosition})");
+        EnsureAvailable(bitCount);
 
         var value = 0;
         for (var i = 0; i < bitCount; i++)
@@ -88,9 +81,7 @@ internal sealed class Vid1BitReader(byte[] data)
     public uint ReadBitsUInt32()
     {
         const int bitCount = 32;
-        if (BitPosition + bitCount > _data.Length * 8)
-            throw new EndOfStreamException(
-                $"VID1 bitstream is truncated: need {bitCount} bits at pos {BitPosition}/{_data.Length * 8} (remaining {_data.Length * 8 - BitPosition})");
+        EnsureAvailable(bitCount);
 
         uint value = 0;
         for (var i = 0; i < bitCount; i++)
@@ -112,6 +103,18 @@ internal sealed class Vid1BitReader(byte[] data)
     public void AlignToNextByte()
     {
         if ((BitPosition & 7) != 0)
-            BitPosition += 8 - (BitPosition & 7);
+            SkipBits(8 - (BitPosition & 7));
+    }
+
+    private int EnsureAvailable(int bitCount)
+    {
+        var totalBits = (long)_data.Length * 8;
+        var endPosition = (long)BitPosition + bitCount;
+        if (bitCount < 0 || BitPosition < 0 || endPosition > totalBits || endPosition > int.MaxValue)
+            throw new EndOfStreamException(
+                $"VID1 bitstream is truncated: need {bitCount} bits at pos {BitPosition}/{totalBits} " +
+                $"(remaining {totalBits - BitPosition})");
+
+        return (int)endPosition;
     }
 }

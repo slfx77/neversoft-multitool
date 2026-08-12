@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using NeversoftMultitool.Core.Formats.Audio;
 
@@ -143,7 +144,8 @@ public static class StrConverter
 
     private static string BuildFfmpegArgs(int width, int height, double frameRate, string? audioPath, string outputPath)
     {
-        var videoInput = $"-y -f rawvideo -pix_fmt rgb24 -s {width}x{height} -r {frameRate:F2} -i pipe:0";
+        var formattedFrameRate = frameRate.ToString("F2", CultureInfo.InvariantCulture);
+        var videoInput = $"-y -f rawvideo -pix_fmt rgb24 -s {width}x{height} -r {formattedFrameRate} -i pipe:0";
 
         return audioPath != null
             ? $"{videoInput} -i \"{audioPath}\" -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -movflags +faststart " +

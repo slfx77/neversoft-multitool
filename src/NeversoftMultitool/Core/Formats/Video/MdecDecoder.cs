@@ -17,6 +17,9 @@ public static class MdecDecoder
     /// <returns>RGB24 pixel data (width * height * 3 bytes)</returns>
     public static byte[] DecodeFrame(byte[] frameData, int width, int height)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+
         if (frameData.Length < 8)
             throw new InvalidDataException("STR bitstream header is truncated.");
 

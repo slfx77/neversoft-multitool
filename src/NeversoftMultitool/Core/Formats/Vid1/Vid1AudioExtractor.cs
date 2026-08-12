@@ -294,7 +294,7 @@ public static class Vid1AudioExtractor
     ///     header per track (e.g. one per dubbed language), and each FRAM chunk carries one
     ///     AUDD packet block per track in the same order.
     /// </summary>
-    private static bool TryParseVid1(byte[] data, out List<Vid1AudioTrack> tracks, out string error)
+    internal static bool TryParseVid1(byte[] data, out List<Vid1AudioTrack> tracks, out string error)
     {
         tracks = [];
 
@@ -626,26 +626,33 @@ public static class Vid1AudioExtractor
     {
         chunk = default;
 
-        if (offset < 0 || offset + 8 > limit || offset + 8 > data.Length)
+        if (offset < 0 || offset > limit || limit - offset < 8 || offset > data.Length - 8)
         {
             error = "VID1 chunk header is truncated";
             return false;
         }
 
-        var size = checked((int)ReadUInt32BigEndian(data, offset + 4));
+        var rawSize = ReadUInt32BigEndian(data, offset + 4);
+        if (rawSize > int.MaxValue)
+        {
+            error = "VID1 chunk size is invalid";
+            return false;
+        }
+
+        var size = (int)rawSize;
         if (size < 8)
         {
             error = "VID1 chunk size is invalid";
             return false;
         }
 
-        var endOffset = offset + size;
-        if (endOffset > limit || endOffset > data.Length)
+        if (size > limit - offset || size > data.Length - offset)
         {
             error = "VID1 chunk extends beyond the file";
             return false;
         }
 
+        var endOffset = offset + size;
         chunk = new Vid1Chunk(
             Encoding.ASCII.GetString(data, offset, 4),
             offset,

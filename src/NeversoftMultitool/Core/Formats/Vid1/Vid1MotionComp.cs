@@ -280,31 +280,6 @@ internal static class Vid1MotionComp
         }
     }
 
-    /// <summary>
-    ///     GMC sprite-warp stub: treat as identity (no warp). Full port is
-    ///     deferred; see <c>FUN_8029F7B8</c>. For now, class-3 frames with
-    ///     active GMC fall back to regular copy-reference behavior.
-    /// </summary>
-    public static void GmcWarpBlock(
-        byte[] refPlane, int refStride,
-        ReadOnlySpan<short> residual,
-        byte[] outPlane, int outStride,
-        int x, int y)
-    {
-        // Identity warp — pixel-for-pixel copy + residual.
-        // This is a placeholder; real GMC uses the sprite trajectory points
-        // to compute a per-pixel affine/perspective mapping.
-        for (var row = 0; row < 8; row++)
-        {
-            for (var col = 0; col < 8; col++)
-            {
-                var predicted = refPlane[(y + row) * refStride + x + col];
-                var combined = predicted + residual[row * 8 + col];
-                outPlane[(y + row) * outStride + x + col] = ClampByte(combined);
-            }
-        }
-    }
-
     private static int FetchPredictionPixel(
         byte[] refPlane, int refStride, int refWidth, int refHeight,
         int x, int y, int halfX, int halfY, int roundingBias)

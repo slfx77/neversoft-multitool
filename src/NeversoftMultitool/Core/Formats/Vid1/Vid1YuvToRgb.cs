@@ -33,7 +33,7 @@ internal static class Vid1YuvToRgb
         if (rgb.Length < width * height * 3)
             throw new ArgumentException("RGB destination is too small", nameof(rgb));
 
-        var chromaWidth = width >> 1;
+        var chromaWidth = (width + 1) >> 1;
 
         for (var y = 0; y < height; y += 2)
         {
@@ -96,7 +96,7 @@ internal static class Vid1YuvToRgb
         if (bgra.Length < width * height * 4)
             throw new ArgumentException("BGRA destination is too small", nameof(bgra));
 
-        var chromaWidth = width >> 1;
+        var chromaWidth = (width + 1) >> 1;
 
         for (var y = 0; y < height; y += 2)
         {

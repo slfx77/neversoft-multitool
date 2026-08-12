@@ -119,7 +119,7 @@ public static partial class SfdConverter
 
             if (process.ExitCode != 0) return null;
 
-            return ParseProbeJson(json, inputPathLabel, pssAudio);
+            return ParseProbeJson(json, inputPathLabel, pssAudio, stdinData?.LongLength);
         }
         catch
         {
@@ -340,10 +340,11 @@ public static partial class SfdConverter
         return new SfdConvertResult { Success = true, OutputPath = outputPath };
     }
 
-    private static SfdProbeResult? ParseProbeJson(
+    internal static SfdProbeResult? ParseProbeJson(
         string json,
         string inputPath,
-        PssAudioExtractor.PssAudioProbeResult? pssAudio)
+        PssAudioExtractor.PssAudioProbeResult? pssAudio,
+        long? fileSize = null)
     {
         try
         {
@@ -415,7 +416,7 @@ public static partial class SfdConverter
                 AudioCodec = audioCodec,
                 AudioSampleRate = audioSampleRate,
                 AudioChannels = audioChannels,
-                FileSize = new FileInfo(inputPath).Length
+                FileSize = fileSize ?? new FileInfo(inputPath).Length
             };
         }
         catch

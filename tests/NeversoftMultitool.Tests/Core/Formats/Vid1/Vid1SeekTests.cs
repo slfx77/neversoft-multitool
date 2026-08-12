@@ -13,7 +13,7 @@ public sealed class Vid1SeekTests(TestPaths paths)
     private const string ThawGcBuild = "Tony Hawk's American Wasteland (2005-8-22, GC - Final)";
     private const int LinearFrames = 40;
 
-    [Fact]
+    [CorpusFact]
     public void SeekToEmissionOrdinal_ReproducesLinearDecodeExactly()
     {
         var vidPath = paths.FindSampleFile(ThawGcBuild, "atvi.vid");
@@ -47,7 +47,7 @@ public sealed class Vid1SeekTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void SeekViaAnchors_PastFirstCaptureOrdinal_ReproducesLinearDecodeExactly()
     {
         var vidPath = paths.FindSampleFile(ThawGcBuild, "atvi.vid");
@@ -87,7 +87,7 @@ public sealed class Vid1SeekTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void SeekPastEnd_ReportsEndOfStream()
     {
         var vidPath = paths.FindSampleFile(ThawGcBuild, "atvi.vid");

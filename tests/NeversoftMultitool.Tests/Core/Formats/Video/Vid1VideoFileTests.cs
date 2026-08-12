@@ -137,6 +137,48 @@ public sealed class Vid1VideoFileTests(TestPaths paths)
     }
 
     [Fact]
+    public void TryParse_DeclaredFrameCountMismatch_ParserAndProbeReject()
+    {
+        var rootChunk = Vid1VideoTestBuilder.BuildChunk("VID1", new byte[0x18]);
+        var vidhChunk = Vid1VideoTestBuilder.CreateVidhChunk(frameCount: 2);
+        var headPayload = new byte[4 + vidhChunk.Length];
+        vidhChunk.CopyTo(headPayload.AsSpan(4));
+        var headChunk = Vid1VideoTestBuilder.BuildChunk("HEAD", headPayload);
+        var frameChunk = Vid1VideoTestBuilder.CreateFrameChunk(
+            new Vid1SyntheticVideoFrameSpec(
+                0x2107,
+                Quantizer: 7,
+                CurrentFrameStateWord: 0x11223344,
+                HasSpecialCallerGate: true));
+        var data = rootChunk.Concat(headChunk).Concat(frameChunk).ToArray();
+        const string expectedError = "VID1 frame count mismatch: header declares 2, parsed 1";
+
+        var success = Vid1VideoFile.TryParse(data, "truncated.vid", out var file, out var error);
+
+        Assert.False(success);
+        Assert.Null(file);
+        Assert.Equal(expectedError, error);
+
+        var tempPath = Path.Combine(
+            Path.GetTempPath(),
+            "NsMultitool_Vid1FrameCount_" + Guid.NewGuid().ToString("N") + ".vid");
+        try
+        {
+            File.WriteAllBytes(tempPath, data);
+
+            var probeSuccess = Vid1VideoConverter.TryProbe(tempPath, out var probe, out var probeError);
+
+            Assert.False(probeSuccess);
+            Assert.Null(probe);
+            Assert.Equal(expectedError, probeError);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
     public void Parse_RepresentativeLongFormSample_ReturnsExpectedMetadata()
     {
         Assert.SkipWhen(!File.Exists(LongFormSample), "Representative THAW GameCube long-form VID sample not found");

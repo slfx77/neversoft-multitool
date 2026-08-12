@@ -79,12 +79,8 @@ public static class StrDemuxer
             if ((submode & 0x04) == 0) // Not audio
             {
                 var payloadOffset = offset + SubheaderSize;
-                if (payloadOffset + 4 <= normalized.Length)
-                {
-                    var sectorType = BitConverter.ToUInt16(normalized, payloadOffset + 2);
-                    if (sectorType == 0x8001)
-                        return true;
-                }
+                if (TryReadVideoDimensions(normalized, payloadOffset, out _, out _))
+                    return true;
             }
         }
 
@@ -116,7 +112,7 @@ public static class StrDemuxer
                 continue;
 
             var payloadOffset = offset + SubheaderSize;
-            if (payloadOffset + VideoHeaderSize > data.Length)
+            if (!TryReadVideoDimensions(data, payloadOffset, out var width, out var height))
                 continue;
 
             // Video sector header (32 bytes):
@@ -130,15 +126,9 @@ public static class StrDemuxer
             // u16: height
             // ... rest of header (quantization scale is in the bitstream header, not here)
 
-            var sectorType = BitConverter.ToUInt16(data, payloadOffset + 2);
-            if (sectorType != 0x8001)
-                continue;
-
             var chunkIndex = BitConverter.ToUInt16(data, payloadOffset + 4);
             var chunkCount = BitConverter.ToUInt16(data, payloadOffset + 6);
             var frameNum = (int)BitConverter.ToUInt32(data, payloadOffset + 8);
-            var width = BitConverter.ToUInt16(data, payloadOffset + 16);
-            var height = BitConverter.ToUInt16(data, payloadOffset + 18);
 
             // New frame started?
             if (frameNum != currentFrameNum)
@@ -270,10 +260,7 @@ public static class StrDemuxer
             if ((submode & 0x04) != 0) continue; // skip audio
 
             var payloadOffset = offset + SubheaderSize;
-            if (payloadOffset + 12 > data.Length) continue;
-
-            var sectorType = BitConverter.ToUInt16(data, payloadOffset + 2);
-            if (sectorType != 0x8001) continue;
+            if (!TryReadVideoDimensions(data, payloadOffset, out _, out _)) continue;
 
             var chunkIndex = BitConverter.ToUInt16(data, payloadOffset + 4);
             var chunkCount = BitConverter.ToUInt16(data, payloadOffset + 6);
@@ -311,6 +298,24 @@ public static class StrDemuxer
         // in range proves the set is precisely 0..expectedCount-1. This keeps a
         // corrupt out-of-range header from masquerading as a complete frame.
         return chunkIndices.All(index => index >= 0 && index < expectedCount);
+    }
+
+    private static bool TryReadVideoDimensions(
+        byte[] data,
+        int payloadOffset,
+        out ushort width,
+        out ushort height)
+    {
+        width = 0;
+        height = 0;
+        if (payloadOffset < 0 || payloadOffset > data.Length - VideoHeaderSize)
+            return false;
+        if (BitConverter.ToUInt16(data, payloadOffset + 2) != 0x8001)
+            return false;
+
+        width = BitConverter.ToUInt16(data, payloadOffset + 16);
+        height = BitConverter.ToUInt16(data, payloadOffset + 18);
+        return width > 0 && height > 0;
     }
 
     /// <summary>
@@ -363,10 +368,7 @@ public static class StrDemuxer
             }
 
             var payloadOffset = offset + SubheaderSize;
-            if (payloadOffset + 12 > data.Length) continue;
-
-            var sectorType = BitConverter.ToUInt16(data, payloadOffset + 2);
-            if (sectorType != 0x8001) continue;
+            if (!TryReadVideoDimensions(data, payloadOffset, out _, out _)) continue;
 
             var frameNum = (int)BitConverter.ToUInt32(data, payloadOffset + 8);
             var chunkCount = BitConverter.ToUInt16(data, payloadOffset + 6);

@@ -2,23 +2,32 @@ namespace NeversoftMultitool.Core.Formats.Vid1;
 
 /// <summary>
 ///     Per-macroblock decode orchestrator for Factor 5 M4Decoder.
-///     A simplified first-pass port of <c>FUN_8029A878</c> from the THAW GC
+///     A decomp-backed port of <c>FUN_8029A878</c> from the THAW GC
 ///     DOL: iterates the 6 blocks of a 16×16 macroblock (4 luma + 2 chroma),
 ///     runs the <c>coefficient decode → dequantize → IDCT → prediction+residual</c>
 ///     pipeline for each, and writes the result into the output YUV planes.
 /// </summary>
 /// <remarks>
-///     The following are intentionally simplified in this first pass; see
-///     the plan file for the refinement backlog:
+///     Regular half-pel and four-vector motion prediction are implemented, as
+///     are class-3 translational and affine sprite warps with coded residuals.
+///     The remaining limitations are explicit:
 ///     <list type="bullet">
 ///         <item>
-///             Motion vector decode — inter macroblocks use a zero motion vector
-///             (prediction = reference block at the same position).
+///             The separate pre-GMC feature-bit read in <c>FUN_8029A878</c>
+///             is not consumed because its exact sprite-anchor enable condition
+///             has not been modelled.
 ///         </item>
-///         <item>GMC sprite warping — stubbed to identity.</item>
 ///         <item>
-///             CBP extras (<c>FUN_8029C214</c> / <c>FUN_8029CE08</c>) — skipped;
-///             we rely solely on <c>control.ControlWord</c> as the CBP mask.
+///             Coded-block selection uses the low six bits of
+///             <c>control.ControlWord</c>; no additional DOL-side CBP state
+///             beyond that mapping has been score-validated. The
+///             <c>FUN_8029C214</c>/<c>FUN_8029CE08</c> DC paths themselves
+///             are implemented by <c>Vid1IntraDc</c>.
+///         </item>
+///         <item>
+///             The field-prediction implementation remains opt-in through
+///             <c>VID1_FIELD_PREDICTION=1</c> pending linear-plane score
+///             validation.
 ///         </item>
 ///     </list>
 /// </remarks>

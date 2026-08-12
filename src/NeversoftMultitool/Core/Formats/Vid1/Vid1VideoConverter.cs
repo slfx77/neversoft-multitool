@@ -20,6 +20,8 @@ public static class Vid1VideoConverter
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!TryProbe(inputPath, out _, out var error))
             return new SfdConvertResult { ErrorMessage = error };
 
@@ -84,6 +86,8 @@ public static class Vid1VideoConverter
         string outputDir,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!TryProbe(inputPath, out _, out var error))
             return new SfdConvertResult { ErrorMessage = error };
 
@@ -122,6 +126,8 @@ public static class Vid1VideoConverter
         string outputDir,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!TryProbe(inputPath, out _, out var error))
             return new SfdConvertResult { ErrorMessage = error };
 

@@ -136,6 +136,12 @@ public sealed class Vid1VideoFile
             return false;
         }
 
+        if (frames.Count != frameCount)
+        {
+            error = $"VID1 frame count mismatch: header declares {frameCount}, parsed {frames.Count}";
+            return false;
+        }
+
         var variant = ClassifyVariant(sourceName, frames);
         file = new Vid1VideoFile(
             null,
@@ -517,26 +523,33 @@ public sealed class Vid1VideoFile
     {
         chunk = default;
 
-        if (offset < 0 || offset + 8 > limit || offset + 8 > data.Length)
+        if (offset < 0 || offset > limit || limit - offset < 8 || offset > data.Length - 8)
         {
             error = "VID1 chunk header is truncated";
             return false;
         }
 
-        var size = checked((int)ReadUInt32BigEndian(data, offset + 4));
+        var rawSize = ReadUInt32BigEndian(data, offset + 4);
+        if (rawSize > int.MaxValue)
+        {
+            error = "VID1 chunk size is invalid";
+            return false;
+        }
+
+        var size = (int)rawSize;
         if (size < 8)
         {
             error = "VID1 chunk size is invalid";
             return false;
         }
 
-        var endOffset = offset + size;
-        if (endOffset > limit || endOffset > data.Length)
+        if (size > limit - offset || size > data.Length - offset)
         {
             error = "VID1 chunk extends beyond the file";
             return false;
         }
 
+        var endOffset = offset + size;
         chunk = new Vid1Chunk(
             Encoding.ASCII.GetString(data, offset, 4),
             offset,

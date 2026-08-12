@@ -72,4 +72,24 @@ public class Vid1BitReaderTests
         reader.ReadBits(3);
         Assert.Equal(8, reader.BitPosition);
     }
+
+    [Theory]
+    [InlineData("peek")]
+    [InlineData("read")]
+    [InlineData("skip")]
+    public void VariableBitOperations_OverflowingCount_ThrowWithoutAdvancing(string operation)
+    {
+        var reader = new Vid1BitReader([0]);
+        reader.SkipBits(1);
+        Action action = operation switch
+        {
+            "peek" => () => _ = reader.PeekBits(int.MaxValue),
+            "read" => () => _ = reader.ReadBits(int.MaxValue),
+            "skip" => () => reader.SkipBits(int.MaxValue),
+            _ => throw new InvalidOperationException()
+        };
+
+        Assert.Throws<EndOfStreamException>(action);
+        Assert.Equal(1, reader.BitPosition);
+    }
 }

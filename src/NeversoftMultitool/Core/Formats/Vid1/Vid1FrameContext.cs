@@ -22,8 +22,8 @@ internal sealed class Vid1FrameContext
 
         Width = width;
         Height = height;
-        ChromaWidth = width / 2;
-        ChromaHeight = height / 2;
+        ChromaWidth = (width + 1) / 2;
+        ChromaHeight = (height + 1) / 2;
 
         var lumaSize = width * height;
         var chromaSize = ChromaWidth * ChromaHeight;
