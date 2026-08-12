@@ -122,14 +122,20 @@ public static class ColFile
 
         // ── Vertices ──
         var vertices = new Vector3[numVerts];
-        var absVertOffset = baseVertOffset + firstVertOffset;
+        var vertexStride = useFixed ? SizeofFixedVert : SizeofFloatVert;
+        var absVertOffset = GetRequiredRegionOffset(
+            data.Length,
+            baseVertOffset,
+            firstVertOffset,
+            numVerts,
+            vertexStride,
+            "vertex");
 
         if (useFixed)
         {
             for (var v = 0; v < numVerts; v++)
             {
                 var off = absVertOffset + v * SizeofFixedVert;
-                if (off + SizeofFixedVert > data.Length) break;
                 var rx = BinaryPrimitives.ReadUInt16LittleEndian(data[off..]);
                 var ry = BinaryPrimitives.ReadUInt16LittleEndian(data[(off + 2)..]);
                 var rz = BinaryPrimitives.ReadUInt16LittleEndian(data[(off + 4)..]);
@@ -145,7 +151,6 @@ public static class ColFile
             for (var v = 0; v < numVerts; v++)
             {
                 var off = absVertOffset + v * SizeofFloatVert;
-                if (off + SizeofFloatVert > data.Length) break;
                 vertices[v] = new Vector3(
                     BitConverter.ToSingle(data[off..]),
                     BitConverter.ToSingle(data[(off + 4)..]),
@@ -165,14 +170,20 @@ public static class ColFile
 
         // ── Faces ──
         var faces = new ColFace[numFaces];
-        var absFaceOffset = baseFaceOffset + firstFaceOffset;
+        var faceStride = useSmallFaces ? SizeofSmallFace : SizeofLargeFace;
+        var absFaceOffset = GetRequiredRegionOffset(
+            data.Length,
+            baseFaceOffset,
+            firstFaceOffset,
+            numFaces,
+            faceStride,
+            "face");
 
         if (useSmallFaces)
         {
             for (var f = 0; f < numFaces; f++)
             {
                 var off = absFaceOffset + f * SizeofSmallFace;
-                if (off + SizeofSmallFace > data.Length) break;
                 var faceFlags = BinaryPrimitives.ReadUInt16LittleEndian(data[off..]);
                 var terrain = BinaryPrimitives.ReadUInt16LittleEndian(data[(off + 2)..]);
                 faces[f] = new ColFace(faceFlags, terrain, data[off + 4], data[off + 5], data[off + 6]);
@@ -183,7 +194,6 @@ public static class ColFile
             for (var f = 0; f < numFaces; f++)
             {
                 var off = absFaceOffset + f * SizeofLargeFace;
-                if (off + SizeofLargeFace > data.Length) break;
                 var faceFlags = BinaryPrimitives.ReadUInt16LittleEndian(data[off..]);
                 var terrain = BinaryPrimitives.ReadUInt16LittleEndian(data[(off + 2)..]);
                 var v0 = BinaryPrimitives.ReadUInt16LittleEndian(data[(off + 4)..]);
@@ -203,6 +213,28 @@ public static class ColFile
             Faces = faces,
             Intensities = intensities
         };
+    }
+
+    private static int GetRequiredRegionOffset(
+        int dataLength,
+        int baseOffset,
+        int relativeOffset,
+        int count,
+        int stride,
+        string regionName)
+    {
+        if (count == 0)
+            return 0;
+
+        var start = (long)baseOffset + relativeOffset;
+        var length = (long)count * stride;
+        if (start < 0 || start > dataLength || length > dataLength - start)
+        {
+            throw new InvalidDataException(
+                $"COL {regionName} data is truncated: offset {start}, length {length}, file size {dataLength}");
+        }
+
+        return (int)start;
     }
 
     private static int Align16(int value)

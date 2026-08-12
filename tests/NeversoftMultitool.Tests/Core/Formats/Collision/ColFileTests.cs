@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.Formats.Collision;
+using System.Buffers.Binary;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Collision;
 
@@ -8,7 +9,7 @@ public sealed class ColFileTests(TestPaths paths)
 
     // ── Format Detection ──
 
-    [Fact]
+    [CorpusFact]
     public void IsColFile_ValidColFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -55,9 +56,50 @@ public sealed class ColFileTests(TestPaths paths)
         Assert.True(ColFile.IsColFile(data));
     }
 
-    // ── Parsing Known Files ──
+    [Fact]
+    public void Parse_DeclaredFloatVertexPastEndOfFile_Throws()
+    {
+        var data = CreateOneObjectFile(totalVertices: 1, totalLargeVertices: 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(38, 2), 1);
+
+        var error = Assert.Throws<InvalidDataException>(() => ColFile.Parse(data));
+
+        Assert.Contains("vertex data is truncated", error.Message);
+    }
 
     [Fact]
+    public void Parse_DeclaredSmallFacePastEndOfFile_Throws()
+    {
+        var data = CreateOneObjectFile(totalVertices: 3, totalLargeVertices: 3, length: 136);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(12, 4), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(16, 4), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(38, 2), 3);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(40, 2), 1);
+        data[42] = 1;
+
+        var error = Assert.Throws<InvalidDataException>(() => ColFile.Parse(data));
+
+        Assert.Contains("face data is truncated", error.Message);
+    }
+
+    private static byte[] CreateOneObjectFile(
+        int totalVertices,
+        int totalLargeVertices,
+        int length = 96)
+    {
+        var data = new byte[length];
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(0, 4), 10);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(4, 4), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(8, 4), totalVertices);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(20, 4), totalLargeVertices);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(32, 4), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(88, 4), -1);
+        return data;
+    }
+
+    // ── Parsing Known Files ──
+
+    [CorpusFact]
     public void Parse_Arrow_HasExpectedStructure()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -71,7 +113,7 @@ public sealed class ColFileTests(TestPaths paths)
         Assert.Equal(26, scene.TotalTriangles);
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("Arrow.col.xbx")]
     [InlineData("Anl_Cat.col.xbx")]
     public void Parse_KnownFile_HasObjectsAndFaces(string filename)
@@ -87,7 +129,7 @@ public sealed class ColFileTests(TestPaths paths)
 
     // ── Vertex Validation ──
 
-    [Fact]
+    [CorpusFact]
     public void Parse_Arrow_VerticesAreFinite()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -106,7 +148,7 @@ public sealed class ColFileTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_Arrow_FaceIndicesInRange()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -130,7 +172,7 @@ public sealed class ColFileTests(TestPaths paths)
 
     // ── Batch Parsing ──
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllColFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -170,7 +212,7 @@ public sealed class ColFileTests(TestPaths paths)
 
     // ── glTF Output ──
 
-    [Fact]
+    [CorpusFact]
     public void Write_Arrow_ProducesValidGlb()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
