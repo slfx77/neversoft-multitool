@@ -191,7 +191,7 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void ProbeTracks_RepresentativeMultiTrackSample_ReturnsMultipleDubbedTracks()
     {
         Assert.SkipWhen(!File.Exists(RepresentativeMultiTrackSampleFile),
@@ -212,7 +212,7 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void TryReadTracks_RepresentativeMultiTrackSample_KeepsPerTrackAudioPacketsSeparate()
     {
         Assert.SkipWhen(!File.Exists(RepresentativeMultiTrackSampleFile),
@@ -238,7 +238,7 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
         Assert.All(packetCounts, count => Assert.True(count > 0));
     }
 
-    [Fact]
+    [CorpusFact]
     public void ConvertToWav_RepresentativeMultiTrackSample_WritesOneWavPerTrack()
     {
         Assert.SkipWhen(!File.Exists(RepresentativeMultiTrackSampleFile),
@@ -273,7 +273,7 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Probe_RepresentativeSample_ReturnsExpectedMetadata()
     {
         Assert.SkipWhen(!File.Exists(RepresentativeSampleFile), "Representative THAW GameCube VID sample not found");
@@ -287,7 +287,7 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
         Assert.True(probe.TotalSamples > 0);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ConvertToWav_RepresentativeSample_WritesWave()
     {
         Assert.SkipWhen(!File.Exists(RepresentativeSampleFile), "Representative THAW GameCube VID sample not found");
@@ -316,7 +316,7 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeToPcm16_RepresentativeSample_MatchesVideoDuration()
     {
         var vidPath = FindRepresentativeVid();

@@ -98,6 +98,9 @@ public static class XboxPcmDecoder
             return null;
 
         var blockAlign = XboxImaAdpcm.BlockAlignPerChannel * info.Channels;
+        if (info.BlockAlign != blockAlign || info.DataLength < blockAlign)
+            return null;
+
         var blocks = info.DataLength / blockAlign;
         var frames = blocks * XboxImaAdpcm.SamplesPerBlock;
         return new XboxPcmProbeResult(info.SampleRate, info.Channels, (double)frames / info.SampleRate);

@@ -54,7 +54,8 @@ public static class SpuAdpcm
     public static void DecodeBlock(ReadOnlySpan<byte> block, ref int prev1, ref int prev2, List<short> output)
     {
         var shiftFilter = block[0];
-        var shift = Math.Min(shiftFilter & 0x0F, 12);
+        var shift = shiftFilter & 0x0F;
+        if (shift > 12) shift = 9;
         var filter = (shiftFilter >> 4) & 0x0F;
         if (filter > 4) filter = 0;
 
@@ -68,7 +69,7 @@ public static class SpuAdpcm
             // Low nibble first (earlier sample)
             var lo = byteVal & 0x0F;
             if (lo >= 8) lo -= 16;
-            var sample = (lo << (12 - shift)) + (f0 * prev1 + f1 * prev2 + 32) / 64;
+            var sample = (lo << (12 - shift)) + ((f0 * prev1) >> 6) + ((f1 * prev2) >> 6);
             sample = Math.Clamp(sample, short.MinValue, short.MaxValue);
             prev2 = prev1;
             prev1 = sample;
@@ -77,7 +78,7 @@ public static class SpuAdpcm
             // High nibble (later sample)
             var hi = (byteVal >> 4) & 0x0F;
             if (hi >= 8) hi -= 16;
-            sample = (hi << (12 - shift)) + (f0 * prev1 + f1 * prev2 + 32) / 64;
+            sample = (hi << (12 - shift)) + ((f0 * prev1) >> 6) + ((f1 * prev2) >> 6);
             sample = Math.Clamp(sample, short.MinValue, short.MaxValue);
             prev2 = prev1;
             prev1 = sample;

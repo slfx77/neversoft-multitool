@@ -98,7 +98,10 @@ public static class SfxExtractor
     private static AudioConvertResult ExtractToWavCore(SfxExtractionPlan plan, string stem, string outputDir)
     {
         var outDir = Path.Combine(outputDir, stem);
-        var tempDir = Path.Combine(outDir, "__sfx_tmp");
+        // This directory is unconditionally removed in the finally block, so
+        // give this invocation a name that it owns instead of reusing a
+        // predictable path that may already contain user data.
+        var tempDir = Path.Combine(outDir, $".__sfx_tmp_{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
 
         try

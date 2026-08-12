@@ -128,6 +128,11 @@ public static class KatExtractor
 
         if (entry.Size == 0 || entry.SampleRate == 0) return null;
 
+        var dataOffset = (long)entry.Offset;
+        var dataSize = (long)entry.Size;
+        if (dataOffset > stream.Length || dataSize > stream.Length - dataOffset)
+            return null;
+
         stream.Position = entry.Offset;
         var rawData = reader.ReadBytes((int)entry.Size);
         if (IsAllZeros(rawData)) return null;
@@ -201,6 +206,24 @@ public static class KatExtractor
                 Unknown = reader.ReadUInt32(),
                 Name = reader.ReadBytes(16)
             };
+        }
+
+        for (var i = 0; i < entries.Length; i++)
+        {
+            var entry = entries[i];
+            if (entry.Size == 0)
+                continue;
+
+            var dataOffset = (long)entry.Offset;
+            var dataSize = (long)entry.Size;
+            if (dataOffset > stream.Length || dataSize > stream.Length - dataOffset)
+            {
+                return new AudioConvertResult
+                {
+                    ErrorMessage =
+                        $"KAT entry {i} data range ({entry.Offset}, {entry.Size}) extends past end of file ({stream.Length} bytes)"
+                };
+            }
         }
 
         var outDir = Path.Combine(outputDir, stem);

@@ -9,6 +9,8 @@ namespace NeversoftMultitool.Core.Formats.Audio;
 /// </summary>
 public static class AdxDecoder
 {
+    private const int HeaderSize = 18;
+
     /// <summary>
     ///     Converts an ADX file to a WAV file in the specified output directory.
     /// </summary>
@@ -50,11 +52,41 @@ public static class AdxDecoder
         if (header.Encoding != 3)
             return new AudioConvertResult { ErrorMessage = $"Unsupported ADX encoding type: {header.Encoding}" };
 
+        if (header.BlockSize <= 2)
+            return new AudioConvertResult { ErrorMessage = $"Invalid ADX block size: {header.BlockSize}" };
+
+        if (header.ChannelCount == 0)
+            return new AudioConvertResult { ErrorMessage = "Invalid ADX channel count: 0" };
+
+        if (header.SampleRate <= 0)
+            return new AudioConvertResult { ErrorMessage = $"Invalid ADX sample rate: {header.SampleRate}" };
+
+        if (header.TotalSamples <= 0)
+            return new AudioConvertResult { ErrorMessage = $"Invalid ADX total sample count: {header.TotalSamples}" };
+
+        if (header.DataOffset < HeaderSize || header.DataOffset > stream.Length)
+            return new AudioConvertResult { ErrorMessage = $"Invalid ADX data offset: {header.DataOffset}" };
+
+        var samplesPerFrame = (header.BlockSize - 2) * 2;
+        var framesPerChannel = ((long)header.TotalSamples + samplesPerFrame - 1) / samplesPerFrame;
+        var requiredPayloadBytes = framesPerChannel * header.ChannelCount * header.BlockSize;
+        var availablePayloadBytes = stream.Length - header.DataOffset;
+
+        if (requiredPayloadBytes > availablePayloadBytes)
+        {
+            return new AudioConvertResult
+            {
+                ErrorMessage =
+                    $"ADX payload is truncated: header declares {header.TotalSamples} samples per channel " +
+                    $"requiring {requiredPayloadBytes} bytes, but only {availablePayloadBytes} bytes are available."
+            };
+        }
+
         var (coef1, coef2) = CalculateCoefficients(header.HighpassFrequency, header.SampleRate);
 
         stream.Position = header.DataOffset;
 
-        var samples = DecodeFrames(reader, header, coef1, coef2);
+        var samples = DecodeFrames(reader, header, framesPerChannel, coef1, coef2);
 
         var outputPath = Path.Combine(outputDir, stem + ".wav");
         WavWriter.WritePcm16(outputPath, header.SampleRate, header.ChannelCount, samples);
@@ -105,11 +137,10 @@ public static class AdxDecoder
         return (coef1, coef2);
     }
 
-    private static short[] DecodeFrames(BinaryReader reader, AdxHeader header, int coef1, int coef2)
+    private static short[] DecodeFrames(BinaryReader reader, AdxHeader header, long framesPerChannel,
+        int coef1, int coef2)
     {
-        var samplesPerFrame = (header.BlockSize - 2) * 2; // 2 bytes header, rest are nibble pairs
-        var totalFrames = (header.TotalSamples + samplesPerFrame - 1) / samplesPerFrame;
-        var totalInterleavedFrames = totalFrames * header.ChannelCount;
+        var totalInterleavedFrames = framesPerChannel * header.ChannelCount;
 
         // Per-channel history
         var hist1 = new int[header.ChannelCount];
@@ -120,11 +151,11 @@ public static class AdxDecoder
         for (var ch = 0; ch < header.ChannelCount; ch++)
             channelBuffers[ch] = new List<short>(header.TotalSamples);
 
-        var framesDecoded = 0;
+        long framesDecoded = 0;
         while (framesDecoded < totalInterleavedFrames &&
                reader.BaseStream.Position + header.BlockSize <= reader.BaseStream.Length)
         {
-            var ch = framesDecoded % header.ChannelCount;
+            var ch = (int)(framesDecoded % header.ChannelCount);
 
             var scale = ReadBigEndianInt16(reader) + 1;
             var dataBytes = reader.ReadBytes(header.BlockSize - 2);

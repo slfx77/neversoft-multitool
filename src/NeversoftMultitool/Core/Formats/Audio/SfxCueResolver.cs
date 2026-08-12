@@ -51,15 +51,22 @@ internal static class SfxCueResolver
         }
 
         var reader = new EndianSpanReader(data, layout.BigEndian);
+        var stoppedAtTerminatorOrPadding = false;
         for (var offset = 0; offset + SfxExtractor.EntrySize <= data.Length; offset += SfxExtractor.EntrySize)
         {
             // The terminator is 0xFFFFFFFF either way round, so it needs no
             // byte order of its own.
             if (SfxAliasResolver.ReadUInt32LittleEndian(data, offset) == SfxExtractor.CueTerminator)
+            {
+                stoppedAtTerminatorOrPadding = true;
                 break;
+            }
 
             if (SfxAliasResolver.IsZeroedEntry(data, offset))
+            {
+                stoppedAtTerminatorOrPadding = true;
                 break;
+            }
 
             // Every real cue record ends in zero pad; a nonzero pad byte means
             // this is not a cue table at all.
@@ -86,6 +93,32 @@ internal static class SfxCueResolver
                 reader.U16(offset + layout.PitchOffset),
                 reader.U16(offset + layout.VolumeOffset),
                 alias));
+        }
+
+        if (!stoppedAtTerminatorOrPadding)
+        {
+            var tailOffset = data.Length - data.Length % SfxExtractor.EntrySize;
+            var tail = data.AsSpan(tailOffset);
+            var hasCompleteTerminator = tail.Length >= sizeof(uint) &&
+                                        BinaryPrimitives.ReadUInt32LittleEndian(tail) == SfxExtractor.CueTerminator;
+            var hasNonzeroByte = false;
+            foreach (var value in tail)
+            {
+                if (value == 0)
+                    continue;
+
+                hasNonzeroByte = true;
+                break;
+            }
+
+            if (tail.IsEmpty || (!hasCompleteTerminator && hasNonzeroByte))
+            {
+                cues = [];
+                error = tail.IsEmpty
+                    ? "SFX cue table is missing its terminator"
+                    : "SFX cue table has a nonzero incomplete trailing record";
+                return false;
+            }
         }
 
         if (cues.Count == 0)

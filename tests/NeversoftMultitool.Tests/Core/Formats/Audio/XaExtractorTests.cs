@@ -85,7 +85,7 @@ public sealed class XaExtractorTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void EnumerateChannels_RepresentativeSample_FindsMultipleChannels()
     {
         var samplePath = paths.FindSampleFile("Spider-Man (2000-2-4, PSX - Prototype)", "VOICE00.XA");

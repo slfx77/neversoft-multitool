@@ -85,6 +85,18 @@ public sealed class SpuStereoMusicStreamTests
     }
 
     [Fact]
+    public void EstimateDuration_CompleteChunkPairs_ReportsDecodedFrameDuration()
+    {
+        Assert.Equal(7.168, SpuStereoMusicStream.EstimateDuration(4L * ChunkSize), 12);
+    }
+
+    [Fact]
+    public void EstimateDuration_FinalLeftOnlyChunk_UsesShorterDecodedChannel()
+    {
+        Assert.Equal(7.168, SpuStereoMusicStream.EstimateDuration(5L * ChunkSize), 12);
+    }
+
+    [Fact]
     public void ConvertToWav_HeaderedVagp_StaysMonoAtHeaderRate()
     {
         var data = new byte[48 + BlockSize * 4];

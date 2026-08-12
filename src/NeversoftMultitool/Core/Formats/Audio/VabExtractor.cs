@@ -96,7 +96,8 @@ public static class VabExtractor
         using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         var layout = ReadLayout(reader);
-        if (layout == null || sampleIndex < 1 || sampleIndex > layout.Header.VagCount)
+        if (layout == null || sampleIndex < 1 || sampleIndex > layout.Header.VagCount ||
+            sampleIndex >= VagSizeTableEntries)
             return null;
 
         var size = layout.VagSizes[sampleIndex];
@@ -105,6 +106,9 @@ public static class VabExtractor
         var currentOffset = layout.VagDataOffset;
         for (var v = 0; v < sampleIndex; v++)
             currentOffset += layout.VagSizes[v];
+
+        if (!IsDataRangeWithinStream(currentOffset, size, stream.Length))
+            return null;
 
         stream.Position = currentOffset;
         var vagData = reader.ReadBytes(size);
@@ -155,6 +159,26 @@ public static class VabExtractor
         if (layout == null)
             return new AudioConvertResult { ErrorMessage = "Invalid VAB header (missing pBAV magic)" };
 
+        var preflightOffset = layout.VagDataOffset;
+        for (var v = 0; v < VagSizeTableEntries; v++)
+        {
+            var size = layout.VagSizes[v];
+            if (size <= 0)
+                continue;
+
+            if (v > 0 && v <= layout.Header.VagCount &&
+                !IsDataRangeWithinStream(preflightOffset, size, stream.Length))
+            {
+                return new AudioConvertResult
+                {
+                    ErrorMessage =
+                        $"VAB sample {v} data range ({preflightOffset}, {size}) extends past end of file ({stream.Length} bytes)"
+                };
+            }
+
+            preflightOffset += size;
+        }
+
         var outDir = Path.Combine(outputDir, stem);
         var filesWritten = 0;
 
@@ -184,6 +208,14 @@ public static class VabExtractor
         }
 
         return new AudioConvertResult { Success = true, SamplesWritten = filesWritten };
+    }
+
+    private static bool IsDataRangeWithinStream(long offset, int size, long streamLength)
+    {
+        return offset >= 0 &&
+               offset <= streamLength &&
+               size >= 0 &&
+               size <= streamLength - offset;
     }
 
     private static VabLayout? ReadLayout(BinaryReader reader)

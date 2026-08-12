@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using NeversoftMultitool.Core.Formats.Audio;
 using NeversoftMultitool.Tests.Helpers;
 
@@ -154,6 +155,42 @@ public class AudioOutputStemPlannerTests
 
         Assert.Equal(first["Archive/A/hit.snd"], second["Archive/A/hit.snd"]);
         Assert.Equal(first["Archive/a/hit.snd"], second["Archive/a/hit.snd"]);
+    }
+
+    [Fact]
+    public void Plan_CanonicallyEquivalentStemsReceiveDistinctStableSuffixes()
+    {
+        AudioOutputStemInput[] inputs =
+        [
+            new("caf\u00E9.snd", "A/caf\u00E9.snd"),
+            new("cafe\u0301.snd", "B/cafe\u0301.snd")
+        ];
+
+        var forward = AudioOutputStemPlanner.Plan(inputs);
+        var reverseInputs = inputs.Reverse().ToArray();
+        var reverse = AudioOutputStemPlanner.Plan(reverseInputs);
+        var reverseByPath = reverseInputs
+            .Select((input, index) => (input.RelativePath, Stem: reverse[index]))
+            .ToDictionary(static pair => pair.RelativePath, static pair => pair.Stem);
+
+        Assert.All(forward, static stem =>
+        {
+            Assert.True(stem.IsNormalized(NormalizationForm.FormC));
+            Assert.Matches("^caf\u00E9_[0-9a-f]{8}$", stem);
+        });
+        Assert.Equal(2, new HashSet<string>(forward, StringComparer.OrdinalIgnoreCase).Count);
+        for (var i = 0; i < inputs.Length; i++)
+            Assert.Equal(forward[i], reverseByPath[inputs[i].RelativePath]);
+    }
+
+    [Fact]
+    public void Plan_DecomposedSingletonReturnsFormCStem()
+    {
+        var stems = AudioOutputStemPlanner.Plan(
+            [new("cafe\u0301.snd", "Sounds/cafe\u0301.snd")]);
+
+        Assert.Equal(["caf\u00E9"], stems);
+        Assert.True(stems[0].IsNormalized(NormalizationForm.FormC));
     }
 
     [Fact]

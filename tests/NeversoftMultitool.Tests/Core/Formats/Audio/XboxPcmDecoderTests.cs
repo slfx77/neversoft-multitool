@@ -22,6 +22,29 @@ public class XboxPcmDecoderTests
         return block;
     }
 
+    private static byte[] Wave(int blockAlign, int dataLength)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        writer.Write("RIFF"u8);
+        writer.Write(4 + 8 + 20 + 8 + dataLength);
+        writer.Write("WAVE"u8);
+        writer.Write("fmt "u8);
+        writer.Write(20);
+        writer.Write((ushort)XboxImaAdpcm.FormatTag);
+        writer.Write((ushort)1);
+        writer.Write(44100);
+        writer.Write(44100 * XboxImaAdpcm.BlockAlignPerChannel / XboxImaAdpcm.SamplesPerBlock);
+        writer.Write((ushort)blockAlign);
+        writer.Write((ushort)4);
+        writer.Write((ushort)2);
+        writer.Write((ushort)XboxImaAdpcm.SamplesPerBlock);
+        writer.Write("data"u8);
+        writer.Write(dataLength);
+        writer.Write(new byte[dataLength]);
+        return stream.ToArray();
+    }
+
     [Fact]
     public void Decode_EmitsHeaderPredictorThenSixtyThreeSamples()
     {
@@ -92,6 +115,27 @@ public class XboxPcmDecoderTests
         Assert.Empty(XboxImaAdpcm.Decode([], 1));
     }
 
+    [Theory]
+    [InlineData(35, 36)]
+    [InlineData(36, 35)]
+    public void Probe_RejectsGeometryThatConversionCannotDecode(int blockAlign, int dataLength)
+    {
+        Assert.Null(XboxPcmDecoder.Probe(Wave(blockAlign, dataLength)));
+    }
+
+    [Fact]
+    public void Probe_AcceptsOneCompleteMonoBlock()
+    {
+        var probe = XboxPcmDecoder.Probe(Wave(
+            XboxImaAdpcm.BlockAlignPerChannel,
+            XboxImaAdpcm.BlockAlignPerChannel));
+
+        Assert.NotNull(probe);
+        Assert.Equal(44100, probe!.SampleRate);
+        Assert.Equal(1, probe.Channels);
+        Assert.Equal(XboxImaAdpcm.SamplesPerBlock / 44100.0, probe.DurationSeconds);
+    }
+
     /// <summary>
     ///     Golden decodes verified against ffmpeg's dedicated <c>adpcm_ima_xbox</c>
     ///     decoder, which agrees with this implementation bit for bit. Reproduce with:
@@ -100,7 +144,7 @@ public class XboxPcmDecoderTests
     ///     44100 / 48000) and all three chunk layouts (data at 48, at 1028 behind a
     ///     bext broadcast header, and at 514 behind a JUNK chunk).
     /// </summary>
-    [Theory]
+    [CorpusTheory]
     [InlineData("RollMetalGrating_11.pcm", 11025, 46848,
         "21d80b43f2ca876d803da7ed3275543eaa839fde8ef7b53d370b371ec062c76f")]
     [InlineData("GrindWireSpark.pcm", 22050, 46400,
@@ -133,7 +177,7 @@ public class XboxPcmDecoderTests
         Assert.Equal(sha256, Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant());
     }
 
-    [Fact]
+    [CorpusFact]
     public void ConvertToWav_RealFixture_WritesAPlayableMonoWav()
     {
         var path = _paths.FindSampleFile(XboxBuild, "CarBrakeSqueal.pcm");

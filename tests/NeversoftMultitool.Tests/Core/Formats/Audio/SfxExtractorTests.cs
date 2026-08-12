@@ -99,6 +99,43 @@ public sealed class SfxExtractorTests(TestPaths paths)
     }
 
     [Fact]
+    public void EnumerateSamples_NonzeroIncompleteCueTail_IsRejected()
+    {
+        var sfx = SfxTestBuilder.CreateSfx([0], appendTerminator: false).Append((byte)0x7F).ToArray();
+        var bank = new SfxExtractor.SfxBankBytes(
+            SfxTestBuilder.CreateKat([0x1000], [4], 16000),
+            "KAT");
+
+        Assert.Empty(SfxExtractor.EnumerateSamples(sfx, bank));
+    }
+
+    [Fact]
+    public void EnumerateSamples_CompleteCueWithoutTerminator_IsRejected()
+    {
+        var sfx = SfxTestBuilder.CreateSfx([0], appendTerminator: false);
+        var bank = new SfxExtractor.SfxBankBytes(
+            SfxTestBuilder.CreateKat([0x1000], [4], 16000),
+            "KAT");
+
+        Assert.Empty(SfxExtractor.EnumerateSamples(sfx, bank));
+    }
+
+    [Theory]
+    [InlineData("00")]
+    [InlineData("FFFFFFFF")]
+    public void EnumerateSamples_AllowedCueTableEndings_ArePreserved(string tailHex)
+    {
+        var sfx = SfxTestBuilder.CreateSfx([0], appendTerminator: false)
+            .Concat(Convert.FromHexString(tailHex))
+            .ToArray();
+        var bank = new SfxExtractor.SfxBankBytes(
+            SfxTestBuilder.CreateKat([0x1000], [4], 16000),
+            "KAT");
+
+        Assert.Single(SfxExtractor.EnumerateSamples(sfx, bank));
+    }
+
+    [Fact]
     public void ExtractToWav_DirectReference_WritesCueNamedFiles()
     {
         var tempDir = FormatProbeTestHelper.CreateTempDirectory("sfx_extract");
@@ -315,7 +352,7 @@ internal static class SfxTestBuilder
     public static byte[] CreateSfx(
         IReadOnlyList<int> programs,
         IReadOnlyList<int>? categories = null,
-        bool appendTerminator = false,
+        bool appendTerminator = true,
         int trailingPaddingEntries = 0,
         IReadOnlyList<bool>? loops = null,
         byte note = 60)

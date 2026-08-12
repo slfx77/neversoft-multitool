@@ -51,9 +51,17 @@ public static class VagDecoder
 
             if (TryParseVagHeader(data, out var header))
             {
+                if (!HasCompleteVagPayload(data.Length, header.DataSize))
+                {
+                    return new AudioConvertResult
+                    {
+                        ErrorMessage =
+                            $"VAG payload is truncated: header declares {header.DataSize} bytes, but only {data.Length - VagHeaderSize} bytes are available."
+                    };
+                }
+
                 sampleRate = overrideSampleRate > 0 ? overrideSampleRate : header.SampleRate;
-                var dataLength = Math.Min(header.DataSize, data.Length - VagHeaderSize);
-                adpcmData = data.AsSpan(VagHeaderSize, dataLength);
+                adpcmData = data.AsSpan(VagHeaderSize, header.DataSize);
             }
             else if (SpuStereoMusicStream.IsStereoMusic(data))
             {
@@ -100,6 +108,9 @@ public static class VagDecoder
 
             if (TryParseVagHeader(data, out var header))
             {
+                if (!HasCompleteVagPayload(data.Length, header.DataSize))
+                    return null;
+
                 var totalBlocks = header.DataSize / SpuAdpcm.BlockSize;
                 var totalSamples = totalBlocks * SpuAdpcm.SamplesPerBlock;
                 return new VagProbeResult(
@@ -146,6 +157,9 @@ public static class VagDecoder
 
             if (TryParseVagHeader(headerBytes, out var header))
             {
+                if (!HasCompleteVagPayload(stream.Length, header.DataSize))
+                    return null;
+
                 var totalBlocks = header.DataSize / SpuAdpcm.BlockSize;
                 var totalSamples = totalBlocks * SpuAdpcm.SamplesPerBlock;
                 return new VagProbeResult(
@@ -186,6 +200,11 @@ public static class VagDecoder
         {
             return null;
         }
+    }
+
+    private static bool HasCompleteVagPayload(long fileLength, int dataSize)
+    {
+        return fileLength >= VagHeaderSize && dataSize <= fileLength - VagHeaderSize;
     }
 
     private static bool TryParseVagHeader(ReadOnlySpan<byte> data, out VagHeader header)

@@ -158,7 +158,7 @@ public class Thug2PcSndDecoderTests
     ///     cover every corpus sample rate, even and odd sample counts, and all four
     ///     observed RIFF chunk layouts.
     /// </summary>
-    [Theory]
+    [CorpusTheory]
     [InlineData("SloppyLanding.snd", 11025, 16185,
         "5d574f299b37a98bc52c776e64b37af76f23920e5a663c3086664283feca53d5")]
     [InlineData("GrindWireSpark.snd", 22050, 46397,

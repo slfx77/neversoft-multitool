@@ -100,7 +100,7 @@ public static class XaDecoder
             if (IsSectored(data))
                 return DecodeSectored(data, stem, outputDir);
 
-            if (data.Length % SoundGroupSize == 0)
+            if (data.Length >= SoundGroupSize && data.Length % SoundGroupSize == 0)
                 return DecodeRaw(data, stem, outputDir);
 
             return new AudioConvertResult { ErrorMessage = "Unrecognized XA format" };

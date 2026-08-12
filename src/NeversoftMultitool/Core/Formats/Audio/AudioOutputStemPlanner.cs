@@ -152,7 +152,8 @@ public static class AudioOutputStemPlanner
         var cleaned = new string(stem
             .Select(character => character < ' ' || invalid.Contains(character) ? '_' : character)
             .ToArray())
-            .TrimEnd(' ', '.');
+            .TrimEnd(' ', '.')
+            .Normalize(NormalizationForm.FormC);
 
         if (string.IsNullOrWhiteSpace(cleaned) || cleaned is "." or "..")
             cleaned = "audio";

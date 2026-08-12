@@ -70,7 +70,15 @@ public static class SpuStereoMusicStream
     /// <summary>Estimated duration in seconds (per-channel samples at 48 kHz).</summary>
     public static double EstimateDuration(long fileLength)
     {
-        var samplesPerChannel = fileLength / 2 / SpuAdpcm.BlockSize * SpuAdpcm.SamplesPerBlock;
+        var pairSize = (long)ChunkSize * 2;
+        var fullPairs = fileLength / pairSize;
+        var remainder = fileLength - fullPairs * pairSize;
+        var leftTail = Math.Min(remainder, ChunkSize);
+        var rightTail = remainder - leftTail;
+        var leftBytes = fullPairs * ChunkSize + leftTail;
+        var rightBytes = fullPairs * ChunkSize + rightTail;
+        var completeBlocksPerChannel = Math.Min(leftBytes, rightBytes) / SpuAdpcm.BlockSize;
+        var samplesPerChannel = completeBlocksPerChannel * SpuAdpcm.SamplesPerBlock;
         return samplesPerChannel / (double)SampleRate;
     }
 

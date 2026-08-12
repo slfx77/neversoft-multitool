@@ -70,6 +70,70 @@ public sealed class PssAudioExtractorTests(TestPaths paths)
     }
 
     [Fact]
+    public void Probe_MissingInput_ReturnsNull()
+    {
+        var inputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing_pss_{Guid.NewGuid():N}.pss");
+
+        Assert.False(File.Exists(inputPath));
+        Assert.Null(PssAudioExtractor.Probe(inputPath));
+
+        var routedProbe = FormatProbe.ProbeAudio(inputPath);
+        Assert.Equal(FormatProbe.FormatSupport.Unsupported, routedProbe.Support);
+        Assert.Equal("PSS Audio", routedProbe.FormatName);
+    }
+
+    [Fact]
+    public void ConvertToWav_MissingInput_ReturnsFailureWithoutCreatingOutput()
+    {
+        var inputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing_pss_{Guid.NewGuid():N}.pss");
+        var outputDir = Path.Combine(
+            Path.GetTempPath(),
+            $"missing_pss_output_{Guid.NewGuid():N}");
+
+        try
+        {
+            var result = PssAudioExtractor.ConvertToWav(inputPath, outputDir);
+
+            Assert.False(result.Success);
+            Assert.False(string.IsNullOrWhiteSpace(result.ErrorMessage));
+            Assert.False(Directory.Exists(outputDir));
+        }
+        finally
+        {
+            if (Directory.Exists(outputDir))
+                Directory.Delete(outputDir, true);
+        }
+    }
+
+    [Fact]
+    public void TryWriteWav_MissingInput_ReturnsFalseWithError()
+    {
+        var inputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing_pss_{Guid.NewGuid():N}.pss");
+        var outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing_pss_{Guid.NewGuid():N}.wav");
+
+        try
+        {
+            var success = PssAudioExtractor.TryWriteWav(inputPath, outputPath, out var error);
+
+            Assert.False(success);
+            Assert.False(string.IsNullOrWhiteSpace(error));
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
     public void Probe_RepresentativeSample_ReturnsEmbeddedAdsMetadata()
     {
         Assert.SkipWhen(!File.Exists(RepresentativeSampleFile), "Representative PS2 PSS sample not found");
