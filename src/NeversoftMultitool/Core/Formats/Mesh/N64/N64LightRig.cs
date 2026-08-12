@@ -144,7 +144,7 @@ public sealed record N64LightRig(Vector3 Ambient, Vector3 Colour, Vector3 Direct
     /// </summary>
     private static N64LightRig? TryDecodeBody(ReadOnlySpan<byte> body)
     {
-        if (body[3] != 0 || body[7] != 0 || body[11] != 0 || body[19] != 0)
+        if (body[3] != 0 || body[7] != 0 || body[11] != 0 || body[15] != 0 || body[19] != 0)
             return null;
         if (body[0] != body[4] || body[1] != body[5] || body[2] != body[6])
             return null;

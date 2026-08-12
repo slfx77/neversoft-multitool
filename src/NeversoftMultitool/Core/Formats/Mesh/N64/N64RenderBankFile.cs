@@ -445,7 +445,7 @@ public static class N64RenderBankFile
     /// </summary>
     private static List<(int Start, int End)>? ReadTable(byte[] data, int offset, int limit)
     {
-        if (offset < 0 || offset + 8 > limit || limit > data.Length)
+        if (offset < 0 || limit < 0 || limit > data.Length || offset > limit || limit - offset < 8)
             return null;
 
         var count = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(offset));
@@ -453,12 +453,17 @@ public static class N64RenderBankFile
             return null;
 
         var headerSize = 4 + 4 * ((int)count + 1);
-        if (offset + headerSize > limit)
+        if (headerSize > limit - offset)
             return null;
 
         var offsets = new int[count + 1];
         for (var i = 0; i <= count; i++)
-            offsets[i] = (int)BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(offset + 4 + i * 4));
+        {
+            var relativeOffset = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(offset + 4 + i * 4));
+            if (relativeOffset > int.MaxValue)
+                return null;
+            offsets[i] = (int)relativeOffset;
+        }
 
         if (offsets[0] != headerSize && offsets[0] != headerSize + 4)
             return null;
@@ -469,7 +474,7 @@ public static class N64RenderBankFile
                 return null;
         }
 
-        if (offset + offsets[count] > limit)
+        if (offsets[count] > limit - offset)
             return null;
 
         var children = new List<(int, int)>((int)count);

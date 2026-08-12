@@ -50,16 +50,16 @@ public static class N64ModelWriter
     private const float DecalLiftInRawUnits = 0.5f;
 
     /// <summary>
-    ///     The N64 build stores vertices as <c>trunc(PS1raw / k)</c>, k = 8 for
-    ///     the animated (super) models the PS1 stores ×16 and k = 1 elsewhere,
-    ///     so world units are <c>raw × k / shellScaleDivisor</c>. k is inferred
-    ///     from the shell's super flag — the correlation is 45/46 across the
-    ///     measured corpus and no field carrying it has been found.
+    ///     The N64 build stores vertices as <c>trunc(PS1raw / k)</c>, so world
+    ///     units are <c>raw × k / shellScaleDivisor</c>. The selected binding
+    ///     plan owns k: ordinary supers retain ×8, ordinary non-supers ×1, and
+    ///     the exact Spider-Man map payload profile proves the one ×1 super.
     /// </summary>
-    private static float WorldScale(PsxMeshFile shell)
+    private static float WorldScale(
+        PsxMeshFile shell,
+        N64GeometryBindingPlan binding)
     {
-        var k = shell.IsSuperModel ? 8f : 1f;
-        return k / shell.ScaleDivisor;
+        return binding.VertexScaleFactor / shell.ScaleDivisor;
     }
 
     public static void Populate(
@@ -78,14 +78,28 @@ public static class N64ModelWriter
             ? N64RenderBankFile.Parse(source.RenderBank)
             : [];
 
+        // Payload profiles affect static geometry too. Resolve before looking
+        // at animation selection so a rejected/absent clip cannot put the
+        // exact ×1 map back on the ordinary ×8-super scale.
+        var staticBinding = N64AnimatedModelGate.CreateStaticBindingPlan(
+            source.ShellData,
+            shell,
+            source.RenderBank,
+            source.RenderBankId,
+            meshes);
+
         // Embedded 0x2A direct-matrix and 0x2C compressed clips share one
-        // bounded global-G_MTX path. The gate proves every emitted corner and
-        // rejects multi-placement shapes whose relative/global interpretation
-        // is still ambiguous. Outside it this writer remains exactly the
-        // historical rigid/relative path.
+        // bounded plan. The structural path uses global G_MTX joints; the one
+        // exact map profile uses placement-relative joints. Both prove every
+        // emitted corner, and everything else remains rigid/relative.
         var animationsRequested = includeAllAnimations || animationIndices is { Count: > 0 };
         var animationPlan = animationsRequested
-            ? N64AnimatedModelGate.TryOpen(source.ShellData, shell, meshes)
+            ? N64AnimatedModelGate.TryOpen(
+                source.ShellData,
+                shell,
+                source.RenderBank,
+                source.RenderBankId,
+                meshes)
             : null;
         var decodedAnimations = animationPlan != null
             ? DecodeAnimations(
@@ -98,7 +112,7 @@ public static class N64ModelWriter
             // endings use the shared CycleAnim wrap. N64 timing and per-clip
             // loop/clamp mode remain unproven. Translation deliberately stays
             // at shell.ScaleDivisor (/36 for a super). Only render vertices
-            // receive the N64 port's ×8 correction.
+            // receive the binding plan's render-vertex correction.
             PsxAnimationChannelWriter.PopulatePsxAnimations(
                 document,
                 shell,
@@ -112,17 +126,18 @@ public static class N64ModelWriter
         // the historical unskinned static document.
         var binding = document.Animations.Count > 0
             ? animationPlan!.Geometry
-            : N64GeometryBindingPlan.Static(shell.Objects.Count);
+            : staticBinding;
 
         var materials = new N64MaterialCache(document, source.TextureProvider);
-        var scale = WorldScale(shell);
+        var scale = WorldScale(shell, binding);
         var emitted = 0;
         // Mesh selection is OBJECT-driven, exactly as the PS1 writer does it:
         // each object selects the mesh its MeshIndex names. Static conversion
-        // uses the placing object's relative matrix base; successful animation
-        // uses the gate's global matrix plan. A mesh no object references is
-        // never drawn (a Downhill Jam shell carries 883 meshes for 642 objects),
-        // and one mesh may be placed more than once on the static path.
+        // uses the placing object's relative matrix base. Successful animation
+        // uses either the gate's structural global plan or its exact-payload
+        // relative plan. A mesh no object references is never drawn (a
+        // Downhill Jam shell carries 883 meshes for 642 objects), and one mesh
+        // may be placed more than once on the static path.
         var byNode = meshes.ToDictionary(static m => m.NodeIndex);
         var placements = new List<(int ObjectIndex, N64RenderBankFile.N64RenderMesh Mesh)>();
         for (var objectIndex = 0; objectIndex < shell.Objects.Count; objectIndex++)
@@ -193,17 +208,18 @@ public static class N64ModelWriter
     ///     scene.
     ///     <para>
     ///         The selected <see cref="N64GeometryBindingPlan" /> decides
-    ///         whether G_MTX is relative to the placing object (static) or a
-    ///         global animation joint. Node vertices are MESH-LOCAL: verified
+    ///         whether G_MTX is relative to the placing object (static or the
+    ///         exact flat-map animation profile) or a global animation joint.
+    ///         Node vertices are MESH-LOCAL: verified
     ///         on c_kart, whose box was the right size but displaced by exactly
     ///         its object's (-10, 9, -92)/2.25, and which matches PS1 to ~0.2
     ///         (the port's trunc(raw/8) quantisation) once the offset is applied.
     ///     </para>
     /// </summary>
     /// <summary>
-    ///     World offset for one corner. Static G_MTX is relative to the placing
-    ///     object; an admitted animated G_MTX is a global joint. The same plan
-    ///     is used here, by overlay detection, and by semi-transparent lifting.
+    ///     World offset for one corner. G_MTX is either relative to the placing
+    ///     object or a global joint according to the admitted plan. The same
+    ///     plan is used here, by overlay detection, and by semi-transparent lifting.
     ///     It is applied PER CORNER because the RSP transforms a vertex when it
     ///     is loaded, so a triangle may bridge two rigid parts.
     /// </summary>
@@ -300,8 +316,8 @@ public static class N64ModelWriter
         foreach (var part in indexed.GroupBy(static t => t.Triangle.MatrixIndex).OrderBy(static g => g.Key))
         {
             // Static geometry retains the established relative object+matrix
-            // interpretation. A successfully decoded animation uses the gate's
-            // global plan for both bind placement and rigid joint influence.
+            // interpretation. A successfully decoded animation uses its
+            // admitted plan for both bind placement and rigid joint influence.
             var baseName = $"n64_{objectIndex:D4}_part{part.Key:D3}";
             var layers = part.ToLookup(item =>
                 context.Overlays.TryGetValue(new N64TriangleInstanceKey(objectIndex, item.Index), out var assignment)
@@ -378,11 +394,11 @@ public static class N64ModelWriter
                 ModelDocumentGeometryAdapter.AddSkinnedTriangle(
                     batch.Vertices, batch.Indices, batch.Influences,
                     v0, ModelBoneInfluences.Single(
-                        context.Binding.ResolveSkinJoint(triangle.C0.MatrixIndex)),
+                        context.Binding.ResolveSkinJoint(objectIndex, triangle.C0.MatrixIndex)),
                     v1, ModelBoneInfluences.Single(
-                        context.Binding.ResolveSkinJoint(triangle.C1.MatrixIndex)),
+                        context.Binding.ResolveSkinJoint(objectIndex, triangle.C1.MatrixIndex)),
                     v2, ModelBoneInfluences.Single(
-                        context.Binding.ResolveSkinJoint(triangle.C2.MatrixIndex)));
+                        context.Binding.ResolveSkinJoint(objectIndex, triangle.C2.MatrixIndex)));
             }
             else
             {

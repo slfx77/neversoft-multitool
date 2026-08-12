@@ -4,13 +4,13 @@ using NeversoftMultitool.Core.Formats.Mesh.Psx;
 namespace NeversoftMultitool.Core.Formats.Mesh.N64;
 
 /// <summary>
-///     Conservative eligibility gate for embedded N64 animation. It admits
-///     direct-matrix <c>0x2A</c> and compressed <c>0x2C</c> supers whose render
-///     geometry proves one unambiguous global-<c>G_MTX</c> binding plan. The
-///     two interpretations are accepted when they coincide (the historical
-///     object-zero/single-placement subset), or when every global joint is in
-///     range and at least one placement-relative lookup is impossible. Cases
-///     where both interpretations remain viable are deliberately rejected.
+///     Conservative eligibility gate for embedded N64 animation. It normally
+///     admits direct-matrix <c>0x2A</c> and compressed <c>0x2C</c> supers only
+///     when their geometry proves one unambiguous global-<c>G_MTX</c> binding
+///     plan. One flat Spider-Man map instead has a cross-platform oracle for
+///     placement-relative joints and ×1 vertices; that exception requires an
+///     exact shell/render/id payload profile. Other flat supers where both
+///     interpretations remain viable are deliberately rejected.
 /// </summary>
 internal static class N64AnimatedModelGate
 {
@@ -19,8 +19,20 @@ internal static class N64AnimatedModelGate
         PsxMeshFile shell,
         IReadOnlyList<N64RenderBankFile.N64RenderMesh> meshes)
     {
+        return TryOpen(shellData, shell, renderBankData: null, renderBankId: null, meshes);
+    }
+
+    public static N64AnimatedModelPlan? TryOpen(
+        byte[] shellData,
+        PsxMeshFile shell,
+        byte[]? renderBankData,
+        uint? renderBankId,
+        IReadOnlyList<N64RenderBankFile.N64RenderMesh> meshes)
+    {
         ArgumentNullException.ThrowIfNull(shellData);
-        if (!TryCreateBindingPlan(shell, meshes, out var bindingPlan))
+        var profile = N64ModelPayloadProfile.TryResolve(
+            shellData, renderBankData, renderBankId);
+        if (!TryCreateBindingPlan(shell, meshes, profile, out var bindingPlan))
             return null;
 
         var bank = N64CompressedAnimationBank.TryParse(shellData);
@@ -38,47 +50,82 @@ internal static class N64AnimatedModelGate
         return TryCreateBindingPlan(shell, meshes, out _);
     }
 
+    internal static bool IsGeometryEligible(
+        byte[] shellData,
+        PsxMeshFile shell,
+        byte[]? renderBankData,
+        uint? renderBankId,
+        IReadOnlyList<N64RenderBankFile.N64RenderMesh> meshes)
+    {
+        ArgumentNullException.ThrowIfNull(shellData);
+        var profile = N64ModelPayloadProfile.TryResolve(
+            shellData, renderBankData, renderBankId);
+        return TryCreateBindingPlan(shell, meshes, profile, out _);
+    }
+
+    /// <summary>
+    ///     Selects the rigid plan before animation opt-in. An exact payload's
+    ///     scale exception is used only if the same unique-placement and
+    ///     all-corner structural checks required for its animated plan pass;
+    ///     any mismatch retains the historical shell-derived scale.
+    /// </summary>
+    internal static N64GeometryBindingPlan CreateStaticBindingPlan(
+        byte[] shellData,
+        PsxMeshFile shell,
+        byte[]? renderBankData,
+        uint? renderBankId,
+        IReadOnlyList<N64RenderBankFile.N64RenderMesh> meshes)
+    {
+        ArgumentNullException.ThrowIfNull(shellData);
+        ArgumentNullException.ThrowIfNull(shell);
+        ArgumentNullException.ThrowIfNull(meshes);
+
+        var fallback = N64GeometryBindingPlan.StaticRelative(
+            shell.Objects.Count,
+            N64ModelPayloadProfile.DefaultVertexScaleFactor(shell));
+        var profile = N64ModelPayloadProfile.TryResolve(
+            shellData, renderBankData, renderBankId);
+        if (profile == null
+            || !TryCollectPlacements(shell, meshes, out var placements)
+            || !TryCreateProfileBindingPlan(
+                shell, meshes, placements, profile, out _))
+        {
+            return fallback;
+        }
+
+        return N64GeometryBindingPlan.StaticRelative(
+            shell.Objects.Count, profile.VertexScaleFactor);
+    }
+
     internal static bool TryCreateBindingPlan(
         PsxMeshFile shell,
         IReadOnlyList<N64RenderBankFile.N64RenderMesh> meshes,
+        out N64GeometryBindingPlan bindingPlan)
+    {
+        return TryCreateBindingPlan(shell, meshes, profile: null, out bindingPlan);
+    }
+
+    private static bool TryCreateBindingPlan(
+        PsxMeshFile shell,
+        IReadOnlyList<N64RenderBankFile.N64RenderMesh> meshes,
+        N64ModelPayloadProfile? profile,
         out N64GeometryBindingPlan bindingPlan)
     {
         ArgumentNullException.ThrowIfNull(shell);
         ArgumentNullException.ThrowIfNull(meshes);
         bindingPlan = default;
 
-        if (!shell.IsSuperModel || shell.Objects.Count == 0 || meshes.Count == 0)
+        if (!TryCollectPlacements(shell, meshes, out var placements))
             return false;
 
-        var byNode = new Dictionary<int, N64RenderBankFile.N64RenderMesh>();
-        foreach (var mesh in meshes)
-        {
-            if (!byNode.TryAdd(mesh.NodeIndex, mesh))
-                return false;
-        }
+        if (profile != null)
+            return TryCreateProfileBindingPlan(shell, meshes, placements, profile, out bindingPlan);
 
-        var placements = new List<(int ObjectIndex, N64RenderBankFile.N64RenderMesh Mesh)>();
-        var placedNodes = new HashSet<int>();
-        for (var objectIndex = 0; objectIndex < shell.Objects.Count; objectIndex++)
-        {
-            if (!byNode.TryGetValue(shell.Objects[objectIndex].MeshIndex, out var mesh)
-                || mesh.Triangles.Count == 0)
-            {
-                continue;
-            }
-
-            // A repeated node would become duplicate coincident geometry under
-            // global matrices. Its runtime selection semantics are not proven.
-            if (!placedNodes.Add(mesh.NodeIndex))
-                return false;
-            placements.Add((objectIndex, mesh));
-        }
-
-        if (placements.Count == 0)
-            return false;
-
-        var animated = N64GeometryBindingPlan.Animated(shell.Objects.Count);
-        var rigid = N64GeometryBindingPlan.Static(shell.Objects.Count);
+        var vertexScaleFactor = N64ModelPayloadProfile.DefaultVertexScaleFactor(shell);
+        var animated = N64GeometryBindingPlan.AnimatedGlobal(
+            shell.Objects.Count, vertexScaleFactor);
+        var rigid = N64GeometryBindingPlan.StaticRelative(
+            shell.Objects.Count, vertexScaleFactor);
         var interpretationsCoincide = true;
         var relativeLookupFails = false;
 
@@ -117,14 +164,97 @@ internal static class N64AnimatedModelGate
             }
         }
 
-        // If both address modes are in range but select different joints, raw
-        // geometry alone cannot decide between them (Spider-Man map/docock are
-        // the corpus controls). Keep those shells static until a runtime or
-        // Rosetta oracle settles them.
-        if (!interpretationsCoincide && !relativeLookupFails)
+        // HIER supers use positional part order: RenderSuperItem draws
+        // ppModels[part] and the animation track at that same part index.
+        // Spider-Man docock supplies the cross-platform oracle for the one
+        // otherwise-ambiguous corpus shape: its N64 shell is field-identical
+        // to PSX, every G_MTX m vertex belongs to PSX positional mesh m, and
+        // all 43 compressed clips decode sample-for-sample identically.
+        if (!interpretationsCoincide
+            && !relativeLookupFails
+            && !PsxMeshSemantics.UsesCharacterObjectOrder(shell))
+        {
             return false;
+        }
 
         bindingPlan = animated;
+        return true;
+    }
+
+    private static bool TryCollectPlacements(
+        PsxMeshFile shell,
+        IReadOnlyList<N64RenderBankFile.N64RenderMesh> meshes,
+        out List<(int ObjectIndex, N64RenderBankFile.N64RenderMesh Mesh)> placements)
+    {
+        placements = [];
+        if (!shell.IsSuperModel || shell.Objects.Count == 0 || meshes.Count == 0)
+            return false;
+
+        var byNode = new Dictionary<int, N64RenderBankFile.N64RenderMesh>();
+        foreach (var mesh in meshes)
+        {
+            if (!byNode.TryAdd(mesh.NodeIndex, mesh))
+                return false;
+        }
+
+        var placedNodes = new HashSet<int>();
+        for (var objectIndex = 0; objectIndex < shell.Objects.Count; objectIndex++)
+        {
+            if (!byNode.TryGetValue(shell.Objects[objectIndex].MeshIndex, out var mesh)
+                || mesh.Triangles.Count == 0)
+            {
+                continue;
+            }
+
+            // A repeated node has no unique placement ownership. Its runtime
+            // selection semantics are not proven for either animated mode.
+            if (!placedNodes.Add(mesh.NodeIndex))
+                return false;
+            placements.Add((objectIndex, mesh));
+        }
+
+        if (placements.Count == 0)
+            return false;
+
+        return true;
+    }
+
+    private static bool TryCreateProfileBindingPlan(
+        PsxMeshFile shell,
+        IReadOnlyList<N64RenderBankFile.N64RenderMesh> meshes,
+        IReadOnlyList<(int ObjectIndex, N64RenderBankFile.N64RenderMesh Mesh)> placements,
+        N64ModelPayloadProfile profile,
+        out N64GeometryBindingPlan bindingPlan)
+    {
+        bindingPlan = default;
+        if (profile.AnimatedBindingMode is not N64GeometryBindingMode.AnimatedRelative
+            || shell.HasHierarchy
+            || shell.Objects.Count != 12
+            || meshes.Count != 12
+            || placements.Count != shell.Objects.Count)
+        {
+            return false;
+        }
+
+        var relative = N64GeometryBindingPlan.AnimatedRelative(
+            shell.Objects.Count, profile.VertexScaleFactor);
+        foreach (var (objectIndex, mesh) in placements)
+        {
+            foreach (var triangle in mesh.Triangles)
+            {
+                if (!relative.TryResolveOffsetObjectIndex(
+                        objectIndex, triangle.C0.MatrixIndex, out _)
+                    || !relative.TryResolveOffsetObjectIndex(
+                        objectIndex, triangle.C1.MatrixIndex, out _)
+                    || !relative.TryResolveOffsetObjectIndex(
+                        objectIndex, triangle.C2.MatrixIndex, out _))
+                {
+                    return false;
+                }
+            }
+        }
+
+        bindingPlan = relative;
         return true;
     }
 }

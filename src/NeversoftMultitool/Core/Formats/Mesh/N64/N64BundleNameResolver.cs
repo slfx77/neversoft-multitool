@@ -25,8 +25,8 @@ namespace NeversoftMultitool.Core.Formats.Mesh.N64;
 ///     </para>
 ///     <para>
 ///         FALLBACK — <see cref="N64BundleNames" />, content identity against
-///         the PS1 corpus. Characters, props and vehicles are named by no
-///         trigger, so this covers what the primary cannot.
+///         the PS1 corpus. Most characters, props and vehicles do not belong to
+///         a level-family run, so this covers what the primary alignment cannot.
 ///     </para>
 ///     <para>
 ///         The alignment is ANCHORED on a content-named slot rather than on
@@ -36,11 +36,21 @@ namespace NeversoftMultitool.Core.Formats.Mesh.N64;
 ///         candidate run must agree, so a coincidental single match cannot
 ///         mis-name a whole run.
 ///     </para>
+///     <para>
+///         A final fail-closed pass can resolve a content ambiguity when a TRG
+///         names one candidate as an outsider, every other occurrence of that
+///         content key already has an authoritative family/content name, and no
+///         other unresolved key competes for the literal. This proves two more
+///         Spider-Man slots (<c>Jameson</c> and <c>DEM4_G</c>) without guessing
+///         between the still-ambiguous Mysterio/firering pairs.
+///     </para>
 /// </summary>
 internal static class N64BundleNameResolver
 {
     /// <summary>One carved bundle: its slot directory name and its shell bytes.</summary>
     internal readonly record struct Bundle(string Slot, byte[] Shell);
+
+    internal readonly record struct ContentIdentity(ulong Key, IReadOnlyList<string> Candidates);
 
     /// <summary>
     ///     Slot → name for every slot either source can name. Slots absent from
@@ -53,14 +63,25 @@ internal static class N64BundleNameResolver
         // Content names first: they are the anchors the run alignment needs, and
         // the fallback for everything no trigger mentions.
         var content = new string?[bundles.Count];
+        var identities = new ContentIdentity?[bundles.Count];
         for (var i = 0; i < bundles.Count; i++)
-            content[i] = N64BundleNames.TryResolveShell(bundles[i].Shell);
+        {
+            if (N64BundleNames.TryReadShellIdentity(bundles[i].Shell) is not { } identity)
+                continue;
+
+            identities[i] = new ContentIdentity(identity.Key, identity.Candidates);
+            content[i] = N64BundleNames.TryResolve(identity.Key);
+        }
+
+        var fileSets = triggers
+            .Select(TryReadFileSet)
+            .OfType<N64TrgFileReferences.FileSet>()
+            .ToArray();
 
         var resolved = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var trigger in triggers)
+        foreach (var set in fileSets)
         {
-            var fileSet = TryReadFileSet(trigger);
-            if (fileSet is not { HasFamily: true } set)
+            if (!set.HasFamily)
                 continue;
 
             var assignment = TryAlign(bundles, content, set.Family);
@@ -79,7 +100,60 @@ internal static class N64BundleNameResolver
                 resolved.TryAdd(bundles[i].Slot, name);
         }
 
+        var currentNames = new string?[bundles.Count];
+        for (var i = 0; i < bundles.Count; i++)
+            resolved.TryGetValue(bundles[i].Slot, out currentNames[i]);
+
+        var outsiderNames = fileSets
+            .SelectMany(static set => set.Outsiders)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var (index, name) in SelectUniqueOutsiderNames(identities, currentNames, outsiderNames))
+            resolved.Add(bundles[index].Slot, name);
+
         return resolved;
+    }
+
+    /// <summary>
+    ///     Selects only outsider literals which have a one-to-one remaining
+    ///     content assignment. A shared rig or repeated unresolved shell stays
+    ///     unnamed; so does a literal already consumed by another named slot.
+    /// </summary>
+    internal static Dictionary<int, string> SelectUniqueOutsiderNames(
+        IReadOnlyList<ContentIdentity?> identities,
+        IReadOnlyList<string?> currentNames,
+        IReadOnlySet<string> outsiderNames)
+    {
+        if (identities.Count != currentNames.Count)
+            throw new ArgumentException("Identity and current-name arrays must have equal length");
+
+        var usedNames = currentNames
+            .OfType<string>()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var unresolvedByKey = Enumerable.Range(0, identities.Count)
+            .Where(i => identities[i] != null && currentNames[i] == null)
+            .GroupBy(i => identities[i]!.Value.Key)
+            .Where(static group => group.Count() == 1);
+
+        var proposals = new List<(int Index, string Name)>();
+        foreach (var group in unresolvedByKey)
+        {
+            var index = group.Single();
+            var matches = identities[index]!.Value.Candidates
+                .Where(name => outsiderNames.Contains(name) && !usedNames.Contains(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (matches.Length == 1)
+                proposals.Add((index, matches[0]));
+        }
+
+        // A literal which still fits two different content keys does not say
+        // which bundle the trigger meant. Retain neither assignment.
+        return proposals
+            .GroupBy(static proposal => proposal.Name, StringComparer.OrdinalIgnoreCase)
+            .Where(static group => group.Count() == 1)
+            .Select(static group => group.Single())
+            .ToDictionary(static proposal => proposal.Index, static proposal => proposal.Name);
     }
 
     private static N64TrgFileReferences.FileSet? TryReadFileSet(byte[] trigger)

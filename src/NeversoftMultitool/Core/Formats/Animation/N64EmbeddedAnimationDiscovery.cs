@@ -21,7 +21,9 @@ internal static class N64EmbeddedAnimationDiscovery
                 return [];
 
             var meshes = N64RenderBankFile.Parse(renderData);
-            var plan = N64AnimatedModelGate.TryOpen(shellData, shell, meshes);
+            var renderBankId = N64ModelCompanions.TryReadRenderBankId(source);
+            var plan = N64AnimatedModelGate.TryOpen(
+                shellData, shell, renderData, renderBankId, meshes);
             if (plan == null)
                 return [];
 

@@ -38,13 +38,16 @@ namespace NeversoftMultitool.Core.Formats.Mesh.N64;
 ///         files can share content (Spider-Man's <c>l9a3_o</c>/<c>l9a4_o</c>/
 ///         <c>lba3_o</c>/<c>lba4_o</c> are one 4-mesh set; <c>skss_o</c> and
 ///         <c>skss_o2</c> are the one- and two-player banks). 95 of 987 keys
-///         carry more than one candidate. <see cref="TryResolve" /> returns the
-///         first and <see cref="ResolveAll" /> exposes the rest; the carver's
-///         slot prefix keeps the emitted path unique either way.
+///         carry more than one candidate. <see cref="TryResolve" /> returns a
+///         name only when every candidate agrees on a prefix that is itself a
+///         candidate, while <see cref="ResolveAll" /> exposes the complete set;
+///         the carver's slot prefix keeps the emitted path unique either way.
 ///     </para>
 /// </summary>
 public static class N64BundleNames
 {
+    internal readonly record struct ShellIdentity(ulong Key, IReadOnlyList<string> Candidates);
+
     /// <summary>
     ///     Hashes below this are ordinals and sentinels rather than QbKey name
     ///     hashes. The harvest applies the identical filter, so the key is
@@ -175,6 +178,18 @@ public static class N64BundleNames
     /// </summary>
     public static string? TryResolveShell(byte[] shellBytes)
     {
+        var identity = TryReadShellIdentity(shellBytes);
+        return identity == null ? null : TryResolve(identity.Value.Key);
+    }
+
+    /// <summary>
+    ///     Reads the content key and every PS1 candidate for a carved shell.
+    ///     The resolver uses the complete candidate set only when an independent
+    ///     ROM filename literal can safely disambiguate it; ordinary callers
+    ///     should continue to use <see cref="TryResolveShell" />.
+    /// </summary>
+    internal static ShellIdentity? TryReadShellIdentity(byte[] shellBytes)
+    {
         PsxMeshFile? shell;
         try
         {
@@ -190,7 +205,7 @@ public static class N64BundleNames
             return null;
 
         var key = ComputeKey(shell.MeshNameHashes);
-        return key == null ? null : TryResolve(key.Value);
+        return key == null ? null : new ShellIdentity(key.Value, ResolveAll(key.Value));
     }
 
     private static FrozenDictionary<ulong, string[]> Load()

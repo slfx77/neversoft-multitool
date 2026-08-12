@@ -331,6 +331,8 @@ public static class N64RomArchive
         Action<int, int>? onFileExtracted = null,
         CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
+
         var rom = File.ReadAllBytes(romPath);
         Directory.CreateDirectory(outputDir);
         if (N64AssetCarver.TryCarve(rom, out var assets))

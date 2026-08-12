@@ -14,12 +14,33 @@ public static class N64TextureOutput
     /// </summary>
     public static IReadOnlyList<string> ConvertToPngLevels(string inputPath, string outputDir)
     {
+        return ConvertToPngLevels(inputPath, outputDir, GetLegacyOutputStem(inputPath));
+    }
+
+    /// <summary>
+    ///     Decodes <paramref name="inputPath" /> and writes every stored level
+    ///     using the caller-selected <paramref name="outputStem" />. The legacy
+    ///     two-argument overload delegates here with its established first-dot
+    ///     filename rule.
+    /// </summary>
+    internal static IReadOnlyList<string> ConvertToPngLevels(
+        string inputPath,
+        string outputDir,
+        string outputStem)
+    {
         var texture = N64TexFile.Decode(File.ReadAllBytes(inputPath));
-        // Carved records are slot-prefixed and therefore already unique. Keep
-        // the original ConvertToPng stem rule rather than using the embedded
-        // art name, which can legitimately repeat in a dictionary.
-        var stem = Path.GetFileName(inputPath).Split('.')[0];
-        return WritePngLevels(texture, Path.Combine(outputDir, $"{stem}.png"));
+        return WritePngLevels(texture, Path.Combine(outputDir, $"{outputStem}.png"));
+    }
+
+    /// <summary>
+    ///     Returns the historical output stem. Carved records are slot-prefixed
+    ///     and therefore already unique within one bank; using the text before
+    ///     the first dot preserves that slot instead of the embedded art name,
+    ///     which can legitimately repeat.
+    /// </summary>
+    internal static string GetLegacyOutputStem(string inputPath)
+    {
+        return Path.GetFileName(inputPath).Split('.')[0];
     }
 
     /// <summary>
@@ -52,11 +73,16 @@ public static class N64TextureOutput
 
     internal static string BuildMipPath(string topLevelPath, int level)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(level, 1);
         var directory = Path.GetDirectoryName(topLevelPath);
         var stem = Path.GetFileNameWithoutExtension(topLevelPath);
         var extension = Path.GetExtension(topLevelPath);
-        var fileName = $"{stem}_mip{level}{extension}";
+        var fileName = $"{BuildMipStem(stem, level)}{extension}";
         return string.IsNullOrEmpty(directory) ? fileName : Path.Combine(directory, fileName);
+    }
+
+    internal static string BuildMipStem(string topLevelStem, int level)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(level, 1);
+        return $"{topLevelStem}_mip{level}";
     }
 }

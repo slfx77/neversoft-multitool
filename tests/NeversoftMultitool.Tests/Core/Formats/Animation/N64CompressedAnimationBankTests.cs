@@ -7,6 +7,16 @@ namespace NeversoftMultitool.Tests.Core.Formats.Animation;
 public sealed class N64CompressedAnimationBankTests
 {
     [Fact]
+    public void TryParse_OverflowingMetadataOffset_ReturnsNull()
+    {
+        var data = new byte[12];
+        BinaryPrimitives.WriteUInt32BigEndian(data, 0x00020003);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(4), int.MaxValue);
+
+        Assert.Null(N64CompressedAnimationBank.TryParse(data));
+    }
+
+    [Fact]
     public void ParseAndDecode_UsesBigEndianTableAndLittleEndianChannelValues()
     {
         var bytes = BuildShell(PsxMeshFile.HierChunkV2Tag, [(3, ConstantChannels(1, 2, 3, 4, 5, 0x1234))]);

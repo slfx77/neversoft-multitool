@@ -12,7 +12,7 @@ public sealed class MeshCommandN64AnimationTests(TestPaths paths)
     private const string SpiderN64Build = "Spider-Man (2000-11-21, N64 - Final)";
     private const string SpiderRomName = "Spider-Man (USA).z64";
 
-    [Fact]
+    [CorpusFact]
     public void MeshCommand_N64AnimationFlag_IsOptInAndWiresTheWholeEmbeddedBank()
     {
         var romPath = paths.FindSampleFile(Thps2N64Build, Thps2RomName);
@@ -61,7 +61,7 @@ public sealed class MeshCommandN64AnimationTests(TestPaths paths)
         Assert.NotEmpty(animatedModel.LogicalSkins);
     }
 
-    [Fact]
+    [CorpusFact]
     public void MeshCommand_N64AnimationFlag_WiresTheWholeDirectMatrixBank()
     {
         var romPath = paths.FindSampleFile(SpiderN64Build, SpiderRomName);

@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
+using NeversoftMultitool.Core.Formats.Audio;
 using NeversoftMultitool.Core.Formats.Mesh.N64;
 
 namespace NeversoftMultitool.Core.Formats.N64;
@@ -77,7 +78,9 @@ public static class N64AssetCarver
             }
 
             // Uncompressed group: each leaf is its own payload (wavetables +
-            // instrument banks), not a 16 KB slice of a stream.
+            // instrument banks), not a 16 KB slice of a stream. WBK has an
+            // exact 16-byte magic; every other raw leaf deliberately remains
+            // .bin rather than acquiring a guessed type.
             var dir = UniqueDir(usedDirs, "audio", group.Index);
             var width = SlotWidth(group.Leaves.Count);
             for (var slot = 0; slot < group.Leaves.Count; slot++)
@@ -85,14 +88,73 @@ public static class N64AssetCarver
                 var (offset, length) = group.Leaves[slot];
                 if (length == 0)
                     continue;
+                var data = rom[offset..(offset + length)];
+                var extension = N64SoundToolsBank.HasWaveMagic(data)
+                    ? ".wbk.n64"
+                    : ".bin";
                 assets.Add(new CarvedAsset(
-                    $"{dir}/{slot.ToString($"D{width}")}.bin",
-                    rom[offset..(offset + length)]));
+                    $"{dir}/{slot.ToString($"D{width}")}{extension}",
+                    data));
             }
         }
 
+        NameSoundToolsFxBank(assets);
         NameBundles(assets);
         return true;
+    }
+
+    /// <summary>
+    ///     Gives the one structurally proven Sound Tools effects bank a typed
+    ///     suffix. BFX has no file magic, so naming is deliberately deferred
+    ///     until the complete carve can supply a unique, fully parsed PTR bank
+    ///     and exactly one payload satisfying the complete BFX predicate.
+    ///     Any missing, malformed, ambiguous, already-typed, or colliding case
+    ///     remains unchanged.
+    /// </summary>
+    internal static void NameSoundToolsFxBank(List<CarvedAsset> assets)
+    {
+        var pointerAssets = assets.Where(static asset =>
+            N64SoundToolsBank.HasPointerMagic(asset.Data)).ToArray();
+        if (pointerAssets.Length != 1)
+            return;
+
+        N64SoundToolsPointerBank pointerBank;
+        try
+        {
+            pointerBank = N64SoundToolsBank.ParsePointer(pointerAssets[0].Data);
+        }
+        catch (InvalidDataException)
+        {
+            return;
+        }
+
+        var candidateIndex = -1;
+        for (var i = 0; i < assets.Count; i++)
+        {
+            if (!N64SoundToolsFxBank.TryParse(assets[i].Data, pointerBank, out _))
+                continue;
+
+            if (candidateIndex >= 0)
+                return;
+            candidateIndex = i;
+        }
+
+        if (candidateIndex < 0)
+            return;
+
+        var candidate = assets[candidateIndex];
+        if (!candidate.Path.EndsWith(".bin", StringComparison.Ordinal))
+            return;
+
+        var targetPath = candidate.Path[..^".bin".Length] + ".bfx.n64";
+        if (assets.Where((_, index) => index != candidateIndex)
+            .Any(asset => string.Equals(asset.Path, targetPath,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        assets[candidateIndex] = candidate with { Path = targetPath };
     }
 
     /// <summary>
@@ -354,33 +416,16 @@ public static class N64AssetCarver
     }
 
     /// <summary>
-    ///     SFX cue bank: flat 16-byte records (the decomp-verified PS1 cue
-    ///     grammar with fields big-endianized: marker u8, VAB program u8,
-    ///     category u8, MIDI note u8, BE pitch, BE volume, widened BE alias)
-    ///     with a 0xFFFFFFFF terminator. Every record is validated — trailing
-    ///     0xFFFFFFFF runs inside render-bank payloads otherwise satisfy the
-    ///     shape test.
+    ///     SFX cue bank: zero or more complete 16-byte big-endian raw records,
+    ///     each with four zero pad bytes, followed immediately by the exact
+    ///     0xFFFFFFFF terminator. Classification deliberately shares the
+    ///     inspection parser's byte-only predicate: semantic note/pitch ranges
+    ///     are not part of the serialized grammar (two THPS2 banks carry note
+    ///     bytes above 0x7F).
     /// </summary>
     private static bool IsSfxCueBank(byte[] data)
     {
-        if (data.Length is < 36 or > 4096 || data.Length % 16 is not (0 or 4))
-            return false;
-        if (BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(data.Length - 4)) != 0xFFFFFFFF)
-            return false;
-
-        var records = (data.Length - 4) / 16;
-        for (var r = 0; r < records; r++)
-        {
-            var p = r * 16;
-            if (data[p] is not (0x00 or 0x01 or 0xFE))
-                return false;
-            if (data[p + 3] > 0x7F)
-                return false;
-            if (BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p + 4)) == 0)
-                return false;
-        }
-
-        return true;
+        return N64SfxCueBank.TryParse(data, out _);
     }
 
     private static string? DetermineRole(List<(int Slot, byte[] Data, Classification Cls)> entries)

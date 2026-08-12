@@ -209,7 +209,7 @@ public sealed class N64SemiTransparentLiftTests(TestPaths paths)
     ///         material as ordinary tessellation, which this does not.
     ///     </para>
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void Downtown_HasNoSemiTransparentFaceLeftFightingItsSurface()
     {
         var document = ParseBundle("004", out var fs);

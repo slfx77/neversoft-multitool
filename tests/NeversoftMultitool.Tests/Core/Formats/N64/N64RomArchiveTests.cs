@@ -15,7 +15,7 @@ public sealed class N64RomArchiveTests(TestPaths paths)
     private const string Thps2N64Build = "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)";
     private const string RomName = "Tony Hawk's Pro Skater 2 (USA).z64";
 
-    [Fact]
+    [CorpusFact]
     public void Thps2Rom_TableWalkFindsTheBootPackage()
     {
         var romPath = paths.FindSampleFile(Thps2N64Build, RomName);
@@ -42,7 +42,7 @@ public sealed class N64RomArchiveTests(TestPaths paths)
     ///     standalone back-to-back blocks. THPS2's assets are ERZ v1 (only its
     ///     boot package is v2); the enumeration must still surface all of them.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void Thps2Rom_StandaloneScanSurfacesTheAssetCorpus()
     {
         var romPath = paths.FindSampleFile(Thps2N64Build, RomName);
@@ -63,7 +63,7 @@ public sealed class N64RomArchiveTests(TestPaths paths)
     ///     whole asset corpus — including the raw audio groups and the
     ///     odd-offset blocks the aligned magic scan missed.
     /// </summary>
-    [Theory]
+    [CorpusTheory]
     [InlineData("Tony Hawk's Pro Skater (2000-2-29, N64 - Final)",
         "Tony Hawk's Pro Skater (USA).z64", 7, 1_097)]
     [InlineData(Thps2N64Build, RomName, 9, 1_151)]
@@ -97,7 +97,7 @@ public sealed class N64RomArchiveTests(TestPaths paths)
     ///     records; 14 SFX cue banks; the sk2anim shell at models/045 is the
     ///     587,000-byte trick-animation bank).
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void CarvedListing_MatchesTheTaxonomy()
     {
         var romPath = paths.FindSampleFile(Thps2N64Build, RomName);
@@ -112,9 +112,21 @@ public sealed class N64RomArchiveTests(TestPaths paths)
         Assert.Equal(2_905, CountUnder("textures"));
         Assert.Equal(99, CountUnder("images"));
         Assert.Equal(14, CountUnder("sfx"));
+        Assert.Equal(14, entries.Count(static entry =>
+            entry.Name.EndsWith(".sfx.n64", StringComparison.Ordinal)));
+        Assert.Contains(entries, static entry => entry.Name == "sfx/001.sfx.n64");
+        Assert.Contains(entries, static entry => entry.Name == "sfx/003.sfx.n64");
         Assert.Equal(194, CountUnder("misc"));
+        Assert.Contains(entries, static entry => entry.Name == "misc/000.bfx.n64");
+        Assert.Contains(entries, static entry => entry.Name == "misc/001.ptr.n64");
+        Assert.Single(entries, static entry =>
+            entry.Name.EndsWith(".bfx.n64", StringComparison.Ordinal));
         Assert.Equal(163, CountUnder("group2")); // N64-native render bank, format still open
         Assert.Equal(8, CountUnder("audio"));    // raw wavetable + instrument banks
+        Assert.Contains(entries, static entry => entry.Name == "audio/000.wbk.n64");
+        Assert.Equal(7, entries.Count(static entry =>
+            entry.Name.StartsWith("audio/", StringComparison.Ordinal)
+            && entry.Name.EndsWith(".bin", StringComparison.Ordinal)));
         Assert.Contains(entries, static entry => entry.Name == "boot.bin");
         // Slot 045 is a shared-rig character: 433 of 450 bundles match a PS1
         // file, but nine unrelated skaters share this content key, so it keeps
@@ -135,19 +147,22 @@ public sealed class N64RomArchiveTests(TestPaths paths)
     ///     Spider-Man's render bank, whose single chance 24,064-byte entry
     ///     must NOT drag the group into "misc" via the size-only .rec test.
     /// </summary>
-    [Theory]
+    [CorpusTheory]
     [InlineData("Tony Hawk's Pro Skater (2000-2-29, N64 - Final)",
-        "Tony Hawk's Pro Skater (USA).z64", 2_176, "textures", 1_488)]
+        "Tony Hawk's Pro Skater (USA).z64", 2_176, "textures", 1_488,
+        "audiobanks/014.bfx.n64")]
     [InlineData("Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)",
-        "Tony Hawk's Pro Skater 3 (USA).z64", 3_313, "textures", 2_484)]
+        "Tony Hawk's Pro Skater 3 (USA).z64", 3_313, "textures", 2_484,
+        "misc/000.bfx.n64")]
     [InlineData("Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64",
-        4_286, "group2", 280)]
+        4_286, "group2", 280, "audiobanks/000.bfx.n64")]
     public void CarvedListing_PinsTheOtherRoms(
         string buildName,
         string romName,
         int expectedEntries,
         string pinnedDir,
-        int pinnedCount)
+        int pinnedCount,
+        string expectedFxPath)
     {
         var romPath = paths.FindSampleFile(buildName, romName);
         Assert.SkipWhen(romPath == null, $"{buildName} ROM sample not available");
@@ -156,6 +171,9 @@ public sealed class N64RomArchiveTests(TestPaths paths)
         Assert.Equal(expectedEntries, entries.Count);
         Assert.Equal(pinnedCount, entries.Count(entry =>
             entry.Name.StartsWith(pinnedDir + "/", StringComparison.Ordinal)));
+        Assert.Contains(entries, entry => entry.Name == expectedFxPath);
+        Assert.Single(entries, static entry =>
+            entry.Name.EndsWith(".bfx.n64", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -166,7 +184,7 @@ public sealed class N64RomArchiveTests(TestPaths paths)
     ///     Extraction output must never carry the ERZ magic, and on-disk sizes
     ///     must match the listing's sizes.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void ExtractFiles_WritesFullyDecodedOutput()
     {
         var romPath = paths.FindSampleFile(Thps2N64Build, RomName);
@@ -207,7 +225,7 @@ public sealed class N64RomArchiveTests(TestPaths paths)
     ///     three THPS ROMs are v1 asset corpora). Any stream either core
     ///     mishandles throws and fails the sweep.
     /// </summary>
-    [Theory]
+    [CorpusTheory]
     // Per-ROM packing varies: Spider-Man/THPS2/THPS3 keep their asset corpora
     // as standalone back-to-back blocks; THPS1 packages EVERYTHING into
     // multi-block tables (7 asset packages + boot). The sweep decodes every

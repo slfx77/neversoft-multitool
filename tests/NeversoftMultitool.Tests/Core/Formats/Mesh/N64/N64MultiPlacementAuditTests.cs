@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Security.Cryptography;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Mesh.N64;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
@@ -6,10 +7,11 @@ using NeversoftMultitool.Core.Formats.Mesh.Psx;
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.N64;
 
 /// <summary>
-///     Independent raw-geometry census for the global-G_MTX animation gate.
+///     Independent raw-geometry/payload census for the N64 animation gate.
 ///     The test derives both address modes directly from shell placements and
-///     display-list corners instead of asking the production plan to classify
-///     itself, then verifies the production verdict shell by shell.
+///     display-list corners, and rederives the one exact relative profile from
+///     literal payload identity, instead of asking production to classify
+///     itself. It then verifies the production verdict shell by shell.
 /// </summary>
 public sealed class N64MultiPlacementAuditTests(TestPaths paths)
 {
@@ -26,15 +28,17 @@ public sealed class N64MultiPlacementAuditTests(TestPaths paths)
             new Expected(23, 5, 23, 20, 3, 20, 339, 0, 359)),
         ("SM", "Spider-Man (2000-11-21, N64 - Final)",
             "Spider-Man (USA).z64",
-            new Expected(56, 52, 54, 29, 25, 734, 794, 2, 1572))
+            new Expected(56, 52, 56, 30, 26, 735, 837, 0, 1572))
     ];
 
     [CorpusFact]
-    public void FourRomCorpus_PinsConservativeGlobalBindingBoundary()
+    public void FourRomCorpus_PinsConservativeGlobalAndExactRelativeBindingBoundary()
     {
         var total = new Expected();
         var residualGlobalAndUnique = 0;
-        var residualProvenGlobal = 0;
+        var residualProvenByRelativeOutOfRange = 0;
+        var residualProvenByHierarchicalPartOrder = 0;
+        var residualProvenByExactRelativePayload = 0;
         var ambiguousControls = new List<(string Identity, int ClipCount)>();
         foreach (var (label, build, rom, expected) in Cases)
         {
@@ -52,6 +56,7 @@ public sealed class N64MultiPlacementAuditTests(TestPaths paths)
                 var shellData = source.ReadBytes();
                 var shell = PsxN64ShellFile.Parse(shellData);
                 var renderData = N64ModelCompanions.TryReadRenderBank(source);
+                var renderBankId = N64ModelCompanions.TryReadRenderBankId(source);
                 if (shell == null || renderData == null
                     || !TryGetLastAnimationHeader(shellData, out var tag, out var rawClipCount))
                     continue;
@@ -102,9 +107,25 @@ public sealed class N64MultiPlacementAuditTests(TestPaths paths)
 
                 var legacyCoincident = shell.IsSuperModel && uniqueNodes
                                        && globalInRange && interpretationsCoincide;
-                var eligible = shell.IsSuperModel && uniqueNodes && globalInRange
-                               && (interpretationsCoincide || relativeLookupFails);
-                Assert.Equal(eligible, N64AnimatedModelGate.IsGeometryEligible(shell, meshes));
+                var positionalHierarchy = PsxMeshSemantics.UsesCharacterObjectOrder(shell);
+                var globalEligible = shell.IsSuperModel && uniqueNodes && globalInRange
+                                     && (interpretationsCoincide
+                                         || relativeLookupFails
+                                         || positionalHierarchy);
+                var exactRelativeEligible = shell.IsSuperModel
+                                            && !shell.HasHierarchy
+                                            && shell.Objects.Count == 12
+                                            && meshes.Count == 12
+                                            && placements.Length == shell.Objects.Count
+                                            && uniqueNodes
+                                            && !relativeLookupFails
+                                            && IsExactSpiderMapPayload(
+                                                shellData, renderData, renderBankId);
+                var eligible = globalEligible || exactRelativeEligible;
+                Assert.Equal(globalEligible,
+                    N64AnimatedModelGate.IsGeometryEligible(shell, meshes));
+                Assert.Equal(eligible, N64AnimatedModelGate.IsGeometryEligible(
+                    shellData, shell, renderData, renderBankId, meshes));
 
                 if (legacyCoincident)
                     actual.LegacyCoincident++;
@@ -112,7 +133,11 @@ public sealed class N64MultiPlacementAuditTests(TestPaths paths)
                 {
                     residualGlobalAndUnique++;
                     if (relativeLookupFails)
-                        residualProvenGlobal++;
+                        residualProvenByRelativeOutOfRange++;
+                    else if (positionalHierarchy)
+                        residualProvenByHierarchicalPartOrder++;
+                    else if (exactRelativeEligible)
+                        residualProvenByExactRelativePayload++;
                 }
 
                 if (eligible)
@@ -130,7 +155,7 @@ public sealed class N64MultiPlacementAuditTests(TestPaths paths)
                     }
                 }
                 else if (uniqueNodes && globalInRange && !interpretationsCoincide
-                         && !relativeLookupFails)
+                         && !relativeLookupFails && !positionalHierarchy)
                 {
                     actual.Ambiguous++;
                     var slot = entry.Directory.Replace(
@@ -143,6 +168,12 @@ public sealed class N64MultiPlacementAuditTests(TestPaths paths)
                 {
                     AssertSk2DefRawBindingEvidence(shell, placements);
                 }
+
+                if (label == "SM"
+                    && entry.Directory.Equals("models/007", StringComparison.OrdinalIgnoreCase))
+                {
+                    AssertDocOckHierarchicalBindingEvidence(shell, placements);
+                }
             }
 
             Assert.Equal(expected, actual);
@@ -152,18 +183,65 @@ public sealed class N64MultiPlacementAuditTests(TestPaths paths)
         Assert.Equal(new Expected(
             Animated: 155,
             LegacyCoincident: 88,
-            Eligible: 153,
-            DirectEligible: 96,
-            CompressedEligible: 57,
-            DirectClips: 801,
-            CompressedClips: 2414,
-            Ambiguous: 2,
+            Eligible: 155,
+            DirectEligible: 97,
+            CompressedEligible: 58,
+            DirectClips: 802,
+            CompressedClips: 2457,
+            Ambiguous: 0,
             RawClips: 3259), total);
         Assert.Equal(67, residualGlobalAndUnique);
-        Assert.Equal(65, residualProvenGlobal);
-        Assert.Equal(
-            [("SM:007:2C", 43), ("SM:108:2A", 1)],
-            ambiguousControls);
+        Assert.Equal(65, residualProvenByRelativeOutOfRange);
+        Assert.Equal(1, residualProvenByHierarchicalPartOrder);
+        Assert.Equal(1, residualProvenByExactRelativePayload);
+        Assert.Empty(ambiguousControls);
+    }
+
+    private static bool IsExactSpiderMapPayload(
+        byte[] shellData,
+        byte[] renderData,
+        uint? renderBankId)
+    {
+        return renderBankId == 215
+               && shellData.Length == 1_776
+               && renderData.Length == 41_552
+               && Convert.ToHexString(SHA256.HashData(shellData))
+               == "2712A50ED97F86E34B603FC8C6E736C2D8985FBC834DBAA5AFECA2BA9D0F2BD9"
+               && Convert.ToHexString(SHA256.HashData(renderData))
+               == "F1439FD75A9448DF5DE15EC352749AFF9E55E50B5030707C7BB5D45776CEE65A";
+    }
+
+    private static void AssertDocOckHierarchicalBindingEvidence(
+        PsxMeshFile shell,
+        (int Index, N64RenderBankFile.N64RenderMesh Mesh)[] placements)
+    {
+        Assert.True(shell.HasHierarchy);
+        Assert.True(PsxMeshSemantics.UsesCharacterObjectOrder(shell));
+        Assert.Equal(46, shell.Objects.Count);
+        var placement = Assert.Single(placements);
+        Assert.Equal(14, placement.Index);
+        Assert.Equal(0, placement.Mesh.NodeIndex);
+        Assert.Equal(504, placement.Mesh.Triangles.Count);
+        Assert.Equal(Enumerable.Range(0, 17), placement.Mesh.Triangles
+            .SelectMany(static triangle => new[]
+            {
+                triangle.C0.MatrixIndex,
+                triangle.C1.MatrixIndex,
+                triangle.C2.MatrixIndex
+            })
+            .Distinct()
+            .Order());
+
+        // Both candidates fit, which is why raw range arithmetic alone could
+        // not admit this shell. HIER positional part order is the independent
+        // discriminator; the full PSX Rosetta proof lives beside the decoder
+        // corpus test.
+        Assert.All(placement.Mesh.Triangles.SelectMany(static triangle => new[]
+        {
+            triangle.C0.MatrixIndex,
+            triangle.C1.MatrixIndex,
+            triangle.C2.MatrixIndex
+        }), matrixIndex => Assert.InRange(placement.Index + matrixIndex, 14, 30));
     }
 
     private static void AssertSk2DefRawBindingEvidence(

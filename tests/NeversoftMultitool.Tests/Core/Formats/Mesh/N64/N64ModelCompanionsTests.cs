@@ -28,7 +28,7 @@ public sealed class N64ModelCompanionsTests(TestPaths paths)
         return (fs!, N64Bundles.OpenBundle(backend!, slot));
     }
 
-    [Fact]
+    [CorpusFact]
     public void RenderBankId_ResolvesToItsGroup2Record()
     {
         var (fs, source) = OpenBundle("000");
@@ -44,7 +44,7 @@ public sealed class N64ModelCompanionsTests(TestPaths paths)
         Assert.Equal(1u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bank));
     }
 
-    [Fact]
+    [CorpusFact]
     public void TextureProvider_DecodesByDictionarySlot()
     {
         var (fs, source) = OpenBundle("000");
@@ -70,7 +70,7 @@ public sealed class N64ModelCompanionsTests(TestPaths paths)
         Assert.Null(provider(65000));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Shell_ParsesFromInsideTheRom()
     {
         var (fs, source) = OpenBundle("045");

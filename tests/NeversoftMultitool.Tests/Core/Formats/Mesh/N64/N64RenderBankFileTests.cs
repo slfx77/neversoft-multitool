@@ -22,7 +22,7 @@ public sealed class N64RenderBankFileTests(TestPaths paths)
             .ToDictionary(static asset => asset.Path, static asset => asset.Data);
     }
 
-    [Fact]
+    [CorpusFact]
     public void TransposedPool_DecodesTheThps2Bank()
     {
         var banks = CarveBanks(paths,
@@ -48,7 +48,7 @@ public sealed class N64RenderBankFileTests(TestPaths paths)
         });
     }
 
-    [Fact]
+    [CorpusFact]
     public void PlainPool_DecodesTheThps1Bank()
     {
         var banks = CarveBanks(paths,

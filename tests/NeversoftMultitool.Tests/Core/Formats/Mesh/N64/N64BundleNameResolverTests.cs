@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.Formats.N64;
+using NeversoftMultitool.Core.Formats.Mesh.N64;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.N64;
 
@@ -18,12 +19,36 @@ public sealed class N64BundleNameResolverTests(TestPaths paths)
     {
         // build, rom, minimum named, total model slots.
         // Measured 2026-08-08. Content identity alone reached 329 of 594
-        // overall and could never reach a stub; with the triggers it is 416.
+        // overall and could never reach a stub; family alignment plus the two
+        // uniquely disambiguated outsider literals bring the total to 418.
         { "Tony Hawk's Pro Skater (2000-2-29, N64 - Final)", "Tony Hawk's Pro Skater (USA).z64", 73, 80 },
         { "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)", "Tony Hawk's Pro Skater 2 (USA).z64", 98, 141 },
         { "Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)", "Tony Hawk's Pro Skater 3 (USA).z64", 66, 112 },
-        { "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64", 179, 261 }
+        { "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64", 181, 261 }
     };
+
+    [Fact]
+    public void OutsiderLiteralDisambiguation_RequiresAOneToOneRemainingAssignment()
+    {
+        var identities = new N64BundleNameResolver.ContentIdentity?[]
+        {
+            new(1, ["level", "actor"]),
+            new(1, ["level", "actor"]),
+            new(2, ["shared", "other"]),
+            new(2, ["shared", "other"]),
+            new(3, ["used", "fresh"]),
+            new(4, ["twice", "left"]),
+            new(5, ["twice", "right"])
+        };
+        string?[] current = ["level", null, null, null, "used", null, null];
+        var outsiders = new HashSet<string>(
+            ["ACTOR", "shared", "fresh", "twice"], StringComparer.OrdinalIgnoreCase);
+
+        var selected = N64BundleNameResolver.SelectUniqueOutsiderNames(
+            identities, current, outsiders);
+
+        Assert.Equal(new Dictionary<int, string> { [1] = "actor" }, selected);
+    }
 
     [CorpusTheory]
     [MemberData(nameof(Coverage))]
@@ -92,6 +117,28 @@ public sealed class N64BundleNameResolverTests(TestPaths paths)
             Assert.True(file.StartsWith(slot, StringComparison.Ordinal),
                 $"{path} does not lead with its slot");
         }
+    }
+
+    /// <summary>
+    ///     Spider-Man has four ambiguous content keys touched by outsider TRG
+    ///     literals. Jameson and DEM4_G each leave exactly one unresolved slot
+    ///     after authoritative family alignment, so they are provable. The two
+    ///     Mysterio and two firering occurrences remain indistinguishable and
+    ///     must retain numeric names.
+    /// </summary>
+    [CorpusFact]
+    public void SpiderMan_DisambiguatesOnlyTheUniqueOutsiderLiteralSlots()
+    {
+        var shells = CarveShells(
+            "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64");
+
+        Assert.Contains("models/014/014_jameson.psx.n64", shells);
+        Assert.Contains("models/254/254_dem4_g.psx.n64", shells);
+        Assert.Contains("models/110/110.psx.n64", shells);
+        Assert.Contains("models/224/224.psx.n64", shells);
+        Assert.Contains("models/166/166.psx.n64", shells);
+        Assert.Contains("models/226/226.psx.n64", shells);
+        Assert.Equal(181, shells.Count(IsNamed));
     }
 
     private static bool IsNamed(string path)

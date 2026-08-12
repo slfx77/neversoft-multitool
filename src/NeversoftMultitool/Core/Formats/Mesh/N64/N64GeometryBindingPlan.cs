@@ -1,32 +1,58 @@
 namespace NeversoftMultitool.Core.Formats.Mesh.N64;
 
 /// <summary>
-///     Resolves the object-table matrix used to place an N64 render-bank
-///     corner. Static rendering uses the established placement-relative
-///     expression (<c>placing object + G_MTX</c>); animation may opt into the
-///     recovered global-joint interpretation only after the animation gate has
-///     proved it for the complete emitted placement set.
+///     Resolves the object-table matrix and skin joint used by an N64
+///     render-bank corner. Static rendering and the one exact flat-map profile
+///     use the established placement-relative expression
+///     (<c>placing object + G_MTX</c>); all other admitted animation uses the
+///     recovered global-joint interpretation. The plan also owns the raw
+///     render-vertex scale so binding and scale cannot diverge.
 /// </summary>
 internal readonly record struct N64GeometryBindingPlan
 {
-    private N64GeometryBindingPlan(int objectCount, N64MatrixOffsetMode offsetMode)
+    private N64GeometryBindingPlan(
+        int objectCount,
+        N64GeometryBindingMode mode,
+        float vertexScaleFactor)
     {
+        if (objectCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(objectCount));
+        if (!float.IsFinite(vertexScaleFactor) || vertexScaleFactor <= 0f)
+            throw new ArgumentOutOfRangeException(nameof(vertexScaleFactor));
+
         ObjectCount = objectCount;
-        OffsetMode = offsetMode;
+        Mode = mode;
+        VertexScaleFactor = vertexScaleFactor;
     }
 
     public int ObjectCount { get; }
-    public N64MatrixOffsetMode OffsetMode { get; }
-    public bool IsSkinned => OffsetMode == N64MatrixOffsetMode.GlobalJoint;
+    public N64GeometryBindingMode Mode { get; }
+    public float VertexScaleFactor { get; }
+    public bool IsSkinned => Mode is not N64GeometryBindingMode.StaticRelative;
+    private bool IsGlobal => Mode is N64GeometryBindingMode.AnimatedGlobal;
 
-    public static N64GeometryBindingPlan Static(int objectCount)
+    public static N64GeometryBindingPlan StaticRelative(
+        int objectCount,
+        float vertexScaleFactor)
     {
-        return new N64GeometryBindingPlan(objectCount, N64MatrixOffsetMode.RelativeToPlacement);
+        return new N64GeometryBindingPlan(
+            objectCount, N64GeometryBindingMode.StaticRelative, vertexScaleFactor);
     }
 
-    public static N64GeometryBindingPlan Animated(int objectCount)
+    public static N64GeometryBindingPlan AnimatedGlobal(
+        int objectCount,
+        float vertexScaleFactor)
     {
-        return new N64GeometryBindingPlan(objectCount, N64MatrixOffsetMode.GlobalJoint);
+        return new N64GeometryBindingPlan(
+            objectCount, N64GeometryBindingMode.AnimatedGlobal, vertexScaleFactor);
+    }
+
+    public static N64GeometryBindingPlan AnimatedRelative(
+        int objectCount,
+        float vertexScaleFactor)
+    {
+        return new N64GeometryBindingPlan(
+            objectCount, N64GeometryBindingMode.AnimatedRelative, vertexScaleFactor);
     }
 
     /// <summary>
@@ -39,7 +65,7 @@ internal readonly record struct N64GeometryBindingPlan
         int matrixIndex,
         out int offsetObjectIndex)
     {
-        var candidate = OffsetMode == N64MatrixOffsetMode.GlobalJoint
+        var candidate = IsGlobal
             ? matrixIndex
             : (long)placingObjectIndex + matrixIndex;
         if (candidate < 0 || candidate >= ObjectCount)
@@ -59,16 +85,19 @@ internal readonly record struct N64GeometryBindingPlan
             : -1;
     }
 
-    public int ResolveSkinJoint(int matrixIndex)
+    public int ResolveSkinJoint(int placingObjectIndex, int matrixIndex)
     {
-        if (!IsSkinned || (uint)matrixIndex >= (uint)ObjectCount)
-            throw new InvalidOperationException("N64 corner is not covered by a global-joint binding plan.");
-        return matrixIndex;
+        if (!IsSkinned)
+            throw new InvalidOperationException("N64 corner is not covered by an animated binding plan.");
+        if (!TryResolveOffsetObjectIndex(placingObjectIndex, matrixIndex, out var jointIndex))
+            throw new InvalidOperationException("N64 corner is outside the animated binding plan.");
+        return jointIndex;
     }
 }
 
-internal enum N64MatrixOffsetMode
+internal enum N64GeometryBindingMode
 {
-    RelativeToPlacement,
-    GlobalJoint
+    StaticRelative,
+    AnimatedGlobal,
+    AnimatedRelative
 }

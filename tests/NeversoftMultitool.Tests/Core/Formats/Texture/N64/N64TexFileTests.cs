@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using NeversoftMultitool.Core.Formats.N64;
@@ -39,29 +40,7 @@ public sealed class N64TexFileTests(TestPaths paths)
         // Fixed source words deliberately exercise the odd-row half swap in
         // both levels; the exact output arrays make a skipped or misframed
         // level visible without relying on the external ROM corpus.
-        var data = new byte[0x3F + 48];
-        Encoding.ASCII.GetBytes("mips").CopyTo(data, 0);
-        data[0x20] = 0;
-        data[0x21] = 4;
-        data[0x22] = 0;
-        data[0x23] = 4;
-        data[0x26] = 0;
-        data[0x27] = 0x10;
-        data[0x2A] = 0;
-        data[0x2B] = 48;
-
-        byte[] stored =
-        [
-            // 4x4 top level: odd rows decode word order 2,3,0,1.
-            0xF8, 0x01, 0x07, 0xC1, 0x00, 0x3F, 0xFF, 0xFF,
-            0x00, 0x01, 0x00, 0x00, 0xF8, 0x01, 0x07, 0xC1,
-            0x00, 0x3F, 0xFF, 0xFF, 0xF8, 0x01, 0x07, 0xC1,
-            0xF8, 0x01, 0x00, 0x3F, 0xFF, 0xFF, 0x00, 0x01,
-            // 2x2 mip: its odd row lives in the second 32-bit half.
-            0x07, 0xC1, 0x00, 0x3F, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0xF8, 0x01, 0xFF, 0xFF
-        ];
-        stored.CopyTo(data, 0x3F);
+        var data = N64TexTestBuilder.CreateDictionaryWithCompleteStoredMipChain();
 
         var texture = N64TexFile.Decode(data);
 
@@ -272,5 +251,54 @@ public sealed class N64TexFileTests(TestPaths paths)
         Assert.Equal(expectedImages, images);
         Assert.Equal(expectedTexturesWithMips, texturesWithMips);
         Assert.Equal(expectedTexturesWithAuxiliaryPlanes, texturesWithAuxiliaryPlanes);
+    }
+}
+
+internal static class N64TexTestBuilder
+{
+    public static byte[] CreateDictionaryWithCompleteStoredMipChain()
+    {
+        var data = new byte[0x3F + 48];
+        Encoding.ASCII.GetBytes("mips").CopyTo(data, 0);
+        data[0x21] = 4;
+        data[0x23] = 4;
+        data[0x27] = 0x10;
+        data[0x2B] = 48;
+
+        byte[] stored =
+        [
+            // 4x4 top level: odd rows decode word order 2,3,0,1.
+            0xF8, 0x01, 0x07, 0xC1, 0x00, 0x3F, 0xFF, 0xFF,
+            0x00, 0x01, 0x00, 0x00, 0xF8, 0x01, 0x07, 0xC1,
+            0x00, 0x3F, 0xFF, 0xFF, 0xF8, 0x01, 0x07, 0xC1,
+            0xF8, 0x01, 0x00, 0x3F, 0xFF, 0xFF, 0x00, 0x01,
+            // 2x2 mip: its odd row lives in the second 32-bit half.
+            0x07, 0xC1, 0x00, 0x3F, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0xF8, 0x01, 0xFF, 0xFF
+        ];
+        stored.CopyTo(data, 0x3F);
+        return data;
+    }
+
+    public static byte[] CreateImageRecord()
+    {
+        var data = new byte[51];
+        BinaryPrimitives.WriteUInt32BigEndian(data, 3);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(4), 20);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(8), 48);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(12), 50);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(16), 51);
+
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(20), 0x00080410);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(24), 3);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(28), 1);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(32), 1);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(36), 1);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(40), 1);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(44), 0);
+
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(48), 0xF801);
+        data[50] = 0;
+        return data;
     }
 }

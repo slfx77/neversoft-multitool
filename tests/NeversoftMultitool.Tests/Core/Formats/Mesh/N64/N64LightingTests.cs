@@ -80,7 +80,7 @@ public sealed class N64LightingTests(TestPaths paths)
     ///     two rigs in this corpus differ and a table would silently mis-shade
     ///     any build not in it.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void LightRig_IsReadOutOfTheBootImage()
     {
         using var fs = ArchiveFileSystem.TryOpen(RomPath())!;
@@ -122,7 +122,7 @@ public sealed class N64LightingTests(TestPaths paths)
     ///     and can never reach white, which is exactly what the old heuristic
     ///     got wrong.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void LitCharacter_IsShadedByTheRigAndNeverWhite()
     {
         var document = ParseBundle("074", out var fs);
@@ -139,7 +139,7 @@ public sealed class N64LightingTests(TestPaths paths)
     ///     shades to flat ambient. Before the rig it exported black; under a
     ///     white-for-lit rule it would have exported white. Neither is right.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void LitModelWithZeroNormals_ShadesToFlatAmbient()
     {
         var document = ParseBundle("045", out var fs);
@@ -157,7 +157,7 @@ public sealed class N64LightingTests(TestPaths paths)
     ///     them as normals and exported them pure white against a level authored
     ///     at roughly 0.3 mean.
     /// </summary>
-    [Theory]
+    [CorpusTheory]
     [InlineData("004")]   // Downtown, the user's report
     [InlineData("008")]   // c_kart, which the geometric oracle mis-read as lit
     public void UnlitBank_KeepsItsAuthoredColour(string bundle)

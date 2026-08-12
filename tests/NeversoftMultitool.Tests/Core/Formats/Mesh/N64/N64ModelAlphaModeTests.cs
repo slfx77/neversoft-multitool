@@ -43,7 +43,7 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
         });
     }
 
-    [Fact]
+    [CorpusFact]
     public void AverageBlendWithOneBitArt_BecomesAlphaTestSoItWritesDepth()
     {
         var document = ParseBundle("030", out var fs);
@@ -61,7 +61,7 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
         Assert.DoesNotContain("__st", material.Name, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [CorpusFact]
     public void AdditiveBlend_KeepsBlendingEvenWithOneBitArt()
     {
         var document = ParseBundle("030", out var fs);
@@ -86,7 +86,7 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
     ///     level pair puts 2,028 triangles in this cell and finds the PS1 bake
     ///     translucent for all of them, none solid.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void AverageBlendWithNoArtAlpha_BecomesFiftyPercentGlass()
     {
         var document = ParseBundle("004", out var fs);
@@ -113,7 +113,7 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
     ///     medal is two sheets 3.55 units apart, and a non-depth-writing front
     ///     sheet let the far sheet paint through it.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void Medals_HaveNoBlendedMaterialsAtAll()
     {
         var document = ParseBundle("061", out var fs);

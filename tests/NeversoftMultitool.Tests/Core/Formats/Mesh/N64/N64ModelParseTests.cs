@@ -250,8 +250,9 @@ public sealed class N64ModelParseTests(TestPaths paths)
     }
 
     [Theory]
-    [InlineData(Thps2N64Build, Thps2RomName, "046", 0x2A, 110, 1, 33)]
-    [InlineData(SpiderN64Build, SpiderRomName, "225", 0x2C, 16, 6, 1)]
+    [InlineData(Thps2N64Build, Thps2RomName, "046", 0x2A, 110, 1, 33, true)]
+    [InlineData(SpiderN64Build, SpiderRomName, "225", 0x2C, 16, 6, 1, true)]
+    [InlineData(SpiderN64Build, SpiderRomName, "007", 0x2C, 46, 43, 1, false)]
     public void SelectedResidualClip_RoutesGlobalBindingThroughGlbAndRestPose(
         string build,
         string rom,
@@ -259,7 +260,8 @@ public sealed class N64ModelParseTests(TestPaths paths)
         int expectedTag,
         int expectedJointCount,
         int expectedClipCount,
-        int expectedPlacementCount)
+        int expectedPlacementCount,
+        bool expectRelativeLookupFailure)
     {
         var staticDocument = ParseBundle(build, rom, slot, out var staticFs);
         using var staticFileSystem = staticFs;
@@ -289,17 +291,31 @@ public sealed class N64ModelParseTests(TestPaths paths)
         Assert.Equal(expectedPlacementCount, placements.Length);
         Assert.True(N64AnimatedModelGate.TryCreateBindingPlan(
             native.Shell, meshes, out var binding));
-        Assert.Equal(N64MatrixOffsetMode.GlobalJoint, binding.OffsetMode);
-        var rigid = N64GeometryBindingPlan.Static(native.Shell.Objects.Count);
-        Assert.Contains(placements.SelectMany(placement => placement.Mesh.Triangles
+        Assert.Equal(N64GeometryBindingMode.AnimatedGlobal, binding.Mode);
+        var rigid = N64GeometryBindingPlan.StaticRelative(
+            native.Shell.Objects.Count, 8f);
+        var corners = placements.SelectMany(placement => placement.Mesh.Triangles
                 .SelectMany(triangle => new[]
                 {
                     (placement.Index, triangle.C0.MatrixIndex),
                     (placement.Index, triangle.C1.MatrixIndex),
                     (placement.Index, triangle.C2.MatrixIndex)
-                })),
-            corner => !rigid.TryResolveOffsetObjectIndex(
+                }))
+            .ToArray();
+        if (expectRelativeLookupFailure)
+        {
+            Assert.Contains(corners, corner => !rigid.TryResolveOffsetObjectIndex(
                 corner.Index, corner.MatrixIndex, out _));
+        }
+        else
+        {
+            Assert.True(native.Shell.HasHierarchy);
+            Assert.DoesNotContain(corners, corner => !rigid.TryResolveOffsetObjectIndex(
+                corner.Index, corner.MatrixIndex, out _));
+            Assert.Contains(corners, corner =>
+                rigid.ResolveOffsetObjectIndexOrDefault(corner.Index, corner.MatrixIndex)
+                != binding.ResolveOffsetObjectIndexOrDefault(corner.Index, corner.MatrixIndex));
+        }
 
         var animation = Assert.Single(animatedDocument.Animations);
         Assert.Equal("anim_0", animation.Name);
@@ -327,6 +343,140 @@ public sealed class N64ModelParseTests(TestPaths paths)
             "successful global binding should differ from the legacy relative placement geometry");
         AssertBindPoseLeavesVerticesUnchanged(animatedDocument);
 
+        var (glb, triangles) = ModelExportService.BuildGlbBytes(animatedDocument);
+        Assert.NotNull(glb);
+        Assert.Equal(animatedDocument.TriangleCount, triangles);
+        AssertKhronosClean(glb);
+        using var stream = new MemoryStream(glb, writable: false);
+        var model = ModelRoot.ReadGLB(stream);
+        Assert.Single(model.LogicalAnimations);
+        Assert.NotEmpty(model.LogicalSkins);
+        Assert.All(model.LogicalMeshes.SelectMany(static mesh => mesh.Primitives), primitive =>
+        {
+            Assert.NotNull(primitive.GetVertexAccessor("JOINTS_0"));
+            Assert.NotNull(primitive.GetVertexAccessor("WEIGHTS_0"));
+        });
+    }
+
+    [Fact]
+    public void SelectedSpiderMapClip_UsesRelativeJointsK1GeometryAndCleanRestPose()
+    {
+        var staticDocument = ParseBundle(
+            SpiderN64Build, SpiderRomName, "108", out var staticFs);
+        using var staticFileSystem = staticFs;
+        var animatedDocument = ParseBundle(
+            SpiderN64Build, SpiderRomName, "108", out var animatedFs, [0]);
+        using var animatedFileSystem = animatedFs;
+        var rejectedDocument = ParseBundle(
+            SpiderN64Build, SpiderRomName, "108", out var rejectedFs, [int.MaxValue]);
+        using var rejectedFileSystem = rejectedFs;
+
+        Assert.Empty(staticDocument.Animations);
+        Assert.All(staticDocument.Meshes.SelectMany(static mesh => mesh.Primitives),
+            static primitive => Assert.Null(primitive.Skin));
+        Assert.Empty(rejectedDocument.Animations);
+        Assert.All(rejectedDocument.Meshes.SelectMany(static mesh => mesh.Primitives),
+            static primitive => Assert.Null(primitive.Skin));
+        var animation = Assert.Single(animatedDocument.Animations);
+        Assert.Equal("anim_0", animation.Name);
+        Assert.NotEmpty(animation.Channels);
+        Assert.Equal(staticDocument.TriangleCount, animatedDocument.TriangleCount);
+        Assert.True(animatedDocument.TriangleCount > 0);
+
+        var native = Assert.IsType<N64ModelNativeSource>(animatedDocument.NativeSource);
+        var renderData = Assert.IsType<byte[]>(native.RenderBank);
+        var meshes = N64RenderBankFile.Parse(renderData);
+        var staticBinding = N64AnimatedModelGate.CreateStaticBindingPlan(
+            native.ShellData,
+            native.Shell,
+            renderData,
+            native.RenderBankId,
+            meshes);
+        var animatedPlan = N64AnimatedModelGate.TryOpen(
+            native.ShellData,
+            native.Shell,
+            renderData,
+            native.RenderBankId,
+            meshes);
+        Assert.NotNull(animatedPlan);
+        Assert.Equal(N64GeometryBindingMode.StaticRelative, staticBinding.Mode);
+        Assert.Equal(N64GeometryBindingMode.AnimatedRelative, animatedPlan!.Geometry.Mode);
+        Assert.Equal(1f, staticBinding.VertexScaleFactor);
+        Assert.Equal(1f, animatedPlan.Geometry.VertexScaleFactor);
+
+        var staticPositions = staticDocument.Meshes.SelectMany(static mesh => mesh.Primitives)
+            .SelectMany(static primitive => primitive.Vertices)
+            .Select(static vertex => vertex.Position)
+            .ToArray();
+        var animatedPositions = animatedDocument.Meshes.SelectMany(static mesh => mesh.Primitives)
+            .SelectMany(static primitive => primitive.Vertices)
+            .Select(static vertex => vertex.Position)
+            .ToArray();
+        Assert.Equal(staticPositions, animatedPositions);
+
+        var (staticGlb, staticTriangles) = ModelExportService.BuildGlbBytes(staticDocument);
+        var (rejectedGlb, rejectedTriangles) = ModelExportService.BuildGlbBytes(rejectedDocument);
+        Assert.Equal(staticTriangles, rejectedTriangles);
+        Assert.Equal(staticGlb, rejectedGlb);
+
+        var byNode = meshes.ToDictionary(static mesh => mesh.NodeIndex);
+        for (var objectIndex = 0; objectIndex < native.Shell.Objects.Count; objectIndex++)
+        {
+            var prefix = $"n64_{objectIndex:D4}_";
+            var emittedMeshes = animatedDocument.Meshes
+                .Where(mesh => mesh.Name.StartsWith(prefix, StringComparison.Ordinal))
+                .ToArray();
+            Assert.NotEmpty(emittedMeshes);
+            Assert.All(emittedMeshes.SelectMany(static mesh => mesh.Primitives), primitive =>
+            {
+                var skin = Assert.IsType<ModelSkinBinding>(primitive.Skin);
+                Assert.All(skin.Influences, influence =>
+                    Assert.Equal(objectIndex, influence.Joint0));
+            });
+
+            var renderMesh = byNode[native.Shell.Objects[objectIndex].MeshIndex];
+            var opaqueCorners = renderMesh.Triangles
+                .Where(static triangle => !PsxFaceFlags.IsInvisible(triangle.FaceFlags)
+                                          && (triangle.FaceFlags & PsxFaceFlags.SemiTransparent) == 0)
+                .SelectMany(static triangle => new[]
+                {
+                    triangle.C0,
+                    triangle.C1,
+                    triangle.C2
+                })
+                .ToArray();
+            if (opaqueCorners.Length == 0)
+                continue;
+
+            var corner = opaqueCorners.MaxBy(candidate =>
+            {
+                var vertex = renderMesh.Vertices[candidate.Vertex];
+                return (long)vertex.X * vertex.X
+                       + (long)vertex.Y * vertex.Y
+                       + (long)vertex.Z * vertex.Z;
+            });
+            var raw = renderMesh.Vertices[corner.Vertex];
+            var offset = PsxMeshSemantics.GetObjectOffset(
+                native.Shell, native.Shell.Objects[objectIndex]);
+            var k1Scale = 1f / native.Shell.ScaleDivisor;
+            var expectedK1 = PsxMeshSemantics.ToGltfPosition(
+                new Vector3(raw.X, raw.Y, raw.Z) * k1Scale + offset);
+            var wrongK8 = PsxMeshSemantics.ToGltfPosition(
+                new Vector3(raw.X, raw.Y, raw.Z) * (8f / native.Shell.ScaleDivisor) + offset);
+            var emittedPositions = emittedMeshes.SelectMany(static mesh => mesh.Primitives)
+                .SelectMany(static primitive => primitive.Vertices)
+                .Select(static vertex => vertex.Position)
+                .ToArray();
+            Assert.Contains(emittedPositions,
+                position => Vector3.Distance(position, expectedK1) < 1e-4f);
+            if (Vector3.Distance(expectedK1, wrongK8) > 1e-3f)
+            {
+                Assert.DoesNotContain(emittedPositions,
+                    position => Vector3.Distance(position, wrongK8) < 1e-4f);
+            }
+        }
+
+        AssertBindPoseLeavesVerticesUnchanged(animatedDocument);
         var (glb, triangles) = ModelExportService.BuildGlbBytes(animatedDocument);
         Assert.NotNull(glb);
         Assert.Equal(animatedDocument.TriangleCount, triangles);

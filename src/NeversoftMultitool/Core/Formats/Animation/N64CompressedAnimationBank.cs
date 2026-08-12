@@ -198,19 +198,19 @@ internal sealed class N64CompressedAnimationBank
         if (metaTopValue > int.MaxValue)
             return false;
         var cursor = (int)metaTopValue;
-        if (cursor < 12 || cursor + 4 > data.Length)
+        if (cursor < 12 || cursor > data.Length - 4)
             return false;
 
         var found = false;
         for (var chunks = 0; chunks < 64; chunks++)
         {
-            if (cursor + 4 > data.Length)
+            if (cursor < 0 || cursor > data.Length - 4)
                 return false;
 
             var tag = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(cursor));
             if (tag == uint.MaxValue)
                 return found;
-            if (cursor + 8 > data.Length)
+            if (cursor > data.Length - 8)
                 return false;
 
             var lengthValue = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(cursor + 4));

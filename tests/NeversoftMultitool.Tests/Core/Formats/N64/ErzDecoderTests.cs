@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using NeversoftMultitool.Core.Formats.N64;
 
@@ -14,6 +15,22 @@ public sealed class ErzDecoderTests(TestPaths paths)
 {
     private const string Thps2N64Build = "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)";
     private const string RomName = "Tony Hawk's Pro Skater 2 (USA).z64";
+
+    [Fact]
+    public void DecodeV2_ExactDeclaredPayload_DecodesLiteral()
+    {
+        var block = CreateSingleLiteralV2Block(3);
+
+        Assert.Equal([0x41], ErzDecoder.Decode(block));
+    }
+
+    [Fact]
+    public void DecodeV2_UndersizedCompressedSize_DoesNotBorrowTrailingBytes()
+    {
+        var block = CreateSingleLiteralV2Block(1);
+
+        Assert.Throws<InvalidDataException>(() => ErzDecoder.Decode(block));
+    }
 
     [Theory]
     [InlineData(0x13BB8, 65_536, "42e9d73b36a74ff1481aee6eea20ab651f065b15983153e0cdc6baea39ad217f")]
@@ -73,5 +90,19 @@ public sealed class ErzDecoderTests(TestPaths paths)
 
         Assert.Equal(expectedLength, decoded.Length);
         Assert.Equal(expectedSha256, Convert.ToHexStringLower(SHA256.HashData(decoded)));
+    }
+
+    private static byte[] CreateSingleLiteralV2Block(int declaredCompressedSize)
+    {
+        byte[] block =
+        [
+            (byte)'E', (byte)'R', (byte)'Z', 2,
+            0, 0, 0, 1, // decompressed size
+            0, 0, 0, 0, // compressed size, written below
+            0, 0, 0, 0, 0, 0, // opaque header bytes
+            0x1E, 0x41, 0x00 // one literal followed by the end escape
+        ];
+        BinaryPrimitives.WriteInt32BigEndian(block.AsSpan(8), declaredCompressedSize);
+        return block;
     }
 }

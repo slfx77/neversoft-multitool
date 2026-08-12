@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Security.Cryptography;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.N64;
@@ -17,7 +18,7 @@ public sealed class N64AnimationCorpusTests(TestPaths paths)
         ("Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)",
             "Tony Hawk's Pro Skater 3 (USA).z64", new Counts(23, 20, 3, 23, 20, 3, 20, 20, 339)),
         ("Spider-Man (2000-11-21, N64 - Final)",
-            "Spider-Man (USA).z64", new Counts(56, 30, 26, 54, 29, 25, 735, 734, 794))
+            "Spider-Man (USA).z64", new Counts(56, 30, 26, 56, 30, 26, 735, 735, 837))
     ];
 
     [CorpusFact]
@@ -48,6 +49,7 @@ public sealed class N64AnimationCorpusTests(TestPaths paths)
                 var shellData = source.ReadBytes();
                 var shell = PsxN64ShellFile.Parse(shellData);
                 var renderData = N64ModelCompanions.TryReadRenderBank(source);
+                var renderBankId = N64ModelCompanions.TryReadRenderBankId(source);
                 if (shell == null || renderData == null)
                     continue;
 
@@ -104,7 +106,8 @@ public sealed class N64AnimationCorpusTests(TestPaths paths)
                 else
                     actual.Compressed++;
 
-                if (!N64AnimatedModelGate.IsGeometryEligible(shell, meshes))
+                if (!N64AnimatedModelGate.IsGeometryEligible(
+                        shellData, shell, renderData, renderBankId, meshes))
                     continue;
 
                 actual.GeometryGated++;
@@ -147,20 +150,339 @@ public sealed class N64AnimationCorpusTests(TestPaths paths)
             Animated: 155,
             Direct: 97,
             Compressed: 58,
-            GeometryGated: 153,
-            DirectGated: 96,
-            CompressedGated: 57,
+            GeometryGated: 155,
+            DirectGated: 97,
+            CompressedGated: 58,
             DirectClips: 802,
-            DirectEligibleClips: 801,
-            CompressedClips: 2414), total);
+            DirectEligibleClips: 802,
+            CompressedClips: 2457), total);
+        Assert.Equal(3_259, total.DirectEligibleClips + total.CompressedClips);
         Assert.Equal(802, decodedDirectClips);
         Assert.Equal(798, exactDirectPayloads);
         Assert.Equal(4, oneStoredFrameSlackPayloads);
         Assert.Equal(["145:43", "145:50", "263:43", "263:50"], directSlackLocations);
-        Assert.Equal(2414, decodedClips);
+        Assert.Equal(2457, decodedClips);
         Assert.Equal(150, maxClipFrames);
         Assert.Equal(6922, maxShellFrames);
         Assert.Equal(300, maxShellClips);
+    }
+
+    [Fact]
+    public void SpiderDocOck_CompressedClipsAndGlobalPartsMatchPsxSiblingExactly()
+    {
+        const string n64Build = "Spider-Man (2000-11-21, N64 - Final)";
+        const string psxBuild = "Spider-Man (2000-9-1, PSX - Final)";
+        var romPath = paths.FindSampleFile(n64Build, "Spider-Man (USA).z64");
+        var psxPath = paths.FindSampleFile(psxBuild, "docock.psx");
+        Assert.SkipWhen(romPath == null || psxPath == null,
+            "Spider-Man N64 ROM and PSX docock sibling are required");
+
+        var backend = ArchiveAssetBackend.TryOpen(romPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend!.FileSystem;
+        var entry = N64Bundles.FindBundle(backend, "007");
+        Assert.Contains("_docock", entry.Name, StringComparison.OrdinalIgnoreCase);
+        var source = new ArchiveAssetSource(backend, entry);
+        var n64Bytes = source.ReadBytes();
+        var n64Shell = PsxN64ShellFile.Parse(n64Bytes);
+        Assert.NotNull(n64Shell);
+
+        var psxBytes = File.ReadAllBytes(psxPath!);
+        var psxShell = PsxMeshFile.Parse(psxBytes);
+        Assert.NotNull(psxShell);
+        Assert.True(PsxMeshSemantics.UsesCharacterObjectOrder(psxShell!));
+        Assert.True(n64Shell!.HasHierarchy);
+        Assert.True(n64Shell.IsSuperModel);
+        Assert.Equal(46, n64Shell.Objects.Count);
+        Assert.Equal(psxShell!.Objects.Count, n64Shell.Objects.Count);
+        Assert.Equal(psxShell.MeshNameHashes, n64Shell.MeshNameHashes);
+        for (var index = 0; index < n64Shell.Objects.Count; index++)
+        {
+            var expected = psxShell.Objects[index];
+            var actual = n64Shell.Objects[index];
+            Assert.Equal(expected.Flags, actual.Flags);
+            Assert.Equal(expected.RawX, actual.RawX);
+            Assert.Equal(expected.RawY, actual.RawY);
+            Assert.Equal(expected.RawZ, actual.RawZ);
+            Assert.Equal(expected.MeshIndex, actual.MeshIndex);
+            Assert.Equal(expected.ParentIndex, actual.ParentIndex);
+        }
+
+        var renderData = N64ModelCompanions.TryReadRenderBank(source);
+        Assert.NotNull(renderData);
+        var renderMesh = Assert.Single(N64RenderBankFile.Parse(renderData!));
+        Assert.Equal(0, renderMesh.NodeIndex);
+        Assert.Equal(504, renderMesh.Triangles.Count);
+        var placement = Assert.Single(
+            n64Shell.Objects.Select((obj, objectIndex) =>
+                (Object: obj, ObjectIndex: objectIndex)),
+            item => item.Object.MeshIndex == renderMesh.NodeIndex);
+        Assert.Equal(14, placement.ObjectIndex);
+
+        // A HIER super renders mesh/animation parts positionally. The shell's
+        // item MeshIndex fields are deliberately permuted, so matching through
+        // them would be circular and wrong. Every N64 G_MTX m vertex instead
+        // lands in PSX positional mesh m after the port's exact trunc(raw/8).
+        var referencedVertices = 0;
+        var referencedCorners = 0;
+        var placementRelativeMatches = 0;
+        foreach (var group in renderMesh.Triangles
+                     .SelectMany(static triangle => new[]
+                     {
+                         triangle.C0,
+                         triangle.C1,
+                         triangle.C2
+                     })
+                     .GroupBy(static corner => corner.MatrixIndex)
+                     .OrderBy(static group => group.Key))
+        {
+            Assert.InRange(group.Key, 0, psxShell.Meshes.Count - 1);
+            var n64Positions = group
+                .Select(corner => renderMesh.Vertices[corner.Vertex])
+                .Select(static vertex => (
+                    X: (int)vertex.X,
+                    Y: (int)vertex.Y,
+                    Z: (int)vertex.Z))
+                .Distinct()
+                .ToArray();
+            var psxPositions = psxShell.Meshes[group.Key].Vertices
+                .Select(static vertex => (
+                    X: vertex.RawX / 8,
+                    Y: vertex.RawY / 8,
+                    Z: vertex.RawZ / 8))
+                .ToHashSet();
+            Assert.All(n64Positions, position => Assert.Contains(position, psxPositions));
+            var relativePart = placement.ObjectIndex + group.Key;
+            Assert.InRange(relativePart, 0, psxShell.Meshes.Count - 1);
+            var relativePositions = psxShell.Meshes[relativePart].Vertices
+                .Select(static vertex => (
+                    X: vertex.RawX / 8,
+                    Y: vertex.RawY / 8,
+                    Z: vertex.RawZ / 8))
+                .ToHashSet();
+            foreach (var corner in group)
+            {
+                var vertex = renderMesh.Vertices[corner.Vertex];
+                var position = ((int)vertex.X, (int)vertex.Y, (int)vertex.Z);
+                Assert.Contains(position, psxPositions);
+                if (relativePositions.Contains(position))
+                    placementRelativeMatches++;
+                referencedCorners++;
+            }
+            referencedVertices += n64Positions.Length;
+        }
+
+        Assert.Equal(Enumerable.Range(0, 17), renderMesh.Triangles
+            .SelectMany(static triangle => new[]
+            {
+                triangle.C0.MatrixIndex,
+                triangle.C1.MatrixIndex,
+                triangle.C2.MatrixIndex
+            })
+            .Distinct()
+            .Order());
+        Assert.Equal(256, referencedVertices);
+        Assert.Equal(1_512, referencedCorners);
+        Assert.Equal(0, placementRelativeMatches);
+
+        var n64Bank = N64CompressedAnimationBank.TryParse(n64Bytes);
+        var psxBank = PsxAnimFile.Parse(psxBytes, psxShell.Objects.Count);
+        Assert.NotNull(n64Bank);
+        Assert.NotNull(psxBank);
+        Assert.Equal(PsxMeshFile.HierChunkV2Tag, n64Bank!.ChunkTag);
+        Assert.Equal(43, n64Bank.Entries.Count);
+        Assert.Equal(psxBank!.Entries.Count, n64Bank.Entries.Count);
+        long comparedSamples = 0;
+        for (var index = 0; index < n64Bank.Entries.Count; index++)
+        {
+            var n64Animation = n64Bank.DecodeSlot(index, n64Shell.Objects.Count);
+            var psxEntry = psxBank.Entries[index];
+            var psxAnimation = PsxAnimDecoder.Decode(
+                psxBank.Pool.Span[psxEntry.PoolOffset..],
+                psxShell.Objects.Count,
+                psxEntry.FrameCount,
+                out _);
+            Assert.Equal(psxEntry.FrameCount, n64Bank.Entries[index].FrameCount);
+            Assert.Equal(psxAnimation.Channels, n64Animation.Channels);
+            comparedSamples += (long)n64Animation.BoneCount
+                               * PsxAnimation.ChannelsPerBone
+                               * n64Animation.FrameCount;
+        }
+
+        Assert.Equal(536_820, comparedSamples);
+    }
+
+    [Fact]
+    public void SpiderMap_ExactPayloadAdmitsRelativeK1AndRejectsGlobalInterpretation()
+    {
+        const string n64Build = "Spider-Man (2000-11-21, N64 - Final)";
+        const string pcBuild = "Spider-Man (2001-9-17, PC - Final)";
+        var romPath = paths.FindSampleFile(n64Build, "Spider-Man (USA).z64");
+        var pcPath = paths.FindSampleFile(pcBuild, "map.psx");
+        Assert.SkipWhen(romPath == null || pcPath == null,
+            "Spider-Man N64 ROM and PC map sibling are required");
+
+        var backend = ArchiveAssetBackend.TryOpen(romPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend!.FileSystem;
+        var entry = N64Bundles.FindBundle(backend, "108");
+        Assert.Contains("_map", entry.Name, StringComparison.OrdinalIgnoreCase);
+        var source = new ArchiveAssetSource(backend, entry);
+        var n64Bytes = source.ReadBytes();
+        var n64Shell = PsxN64ShellFile.Parse(n64Bytes);
+        var pcBytes = File.ReadAllBytes(pcPath!);
+        var pcShell = PsxMeshFile.Parse(pcBytes);
+        Assert.NotNull(n64Shell);
+        Assert.NotNull(pcShell);
+        Assert.False(n64Shell!.HasHierarchy);
+        Assert.True(n64Shell.IsSuperModel);
+        Assert.False(pcShell!.HasHierarchy);
+        Assert.Equal(1_776, n64Bytes.Length);
+        Assert.Equal(
+            N64ModelPayloadProfile.SpiderMapShellSha256,
+            Convert.ToHexString(SHA256.HashData(n64Bytes)));
+        Assert.Equal(32_536, pcBytes.Length);
+        Assert.Equal(
+            "75EF75D6AD918D016D92800B93B60E0430A16D3FA72588B3069D03D304DE56B0",
+            Convert.ToHexString(SHA256.HashData(pcBytes)));
+        Assert.Equal(12, n64Shell.Objects.Count);
+        Assert.Equal(pcShell.MeshNameHashes, n64Shell.MeshNameHashes);
+        for (var index = 0; index < n64Shell.Objects.Count; index++)
+        {
+            var expected = pcShell.Objects[index];
+            var actual = n64Shell.Objects[index];
+            Assert.Equal(expected.Flags, actual.Flags);
+            Assert.Equal(expected.RawX, actual.RawX);
+            Assert.Equal(expected.RawY, actual.RawY);
+            Assert.Equal(expected.RawZ, actual.RawZ);
+            Assert.Equal(expected.MeshIndex, actual.MeshIndex);
+            Assert.Equal(expected.ParentIndex, actual.ParentIndex);
+        }
+
+        var renderData = N64ModelCompanions.TryReadRenderBank(source);
+        Assert.NotNull(renderData);
+        var renderBankId = N64ModelCompanions.TryReadRenderBankId(source);
+        Assert.Equal(N64ModelPayloadProfile.SpiderMapRenderBankId, renderBankId);
+        Assert.Equal(N64ModelPayloadProfile.SpiderMapRenderBankLength, renderData!.Length);
+        Assert.Equal(
+            N64ModelPayloadProfile.SpiderMapRenderBankSha256,
+            Convert.ToHexString(SHA256.HashData(renderData)));
+        var profile = N64ModelPayloadProfile.TryResolve(
+            n64Bytes, renderData, renderBankId);
+        Assert.NotNull(profile);
+        Assert.Equal(N64GeometryBindingMode.AnimatedRelative, profile!.AnimatedBindingMode);
+        Assert.Equal(1f, profile.VertexScaleFactor);
+
+        var mutatedShell = (byte[])n64Bytes.Clone();
+        mutatedShell[^1] ^= 1;
+        Assert.Null(N64ModelPayloadProfile.TryResolve(
+            mutatedShell, renderData, renderBankId));
+        var mutatedRender = (byte[])renderData.Clone();
+        mutatedRender[^1] ^= 1;
+        Assert.Null(N64ModelPayloadProfile.TryResolve(
+            n64Bytes, mutatedRender, renderBankId));
+        Assert.Null(N64ModelPayloadProfile.TryResolve(
+            n64Bytes, renderData, renderBankId!.Value + 1u));
+
+        var renderMeshes = N64RenderBankFile.Parse(renderData!)
+            .OrderBy(static mesh => mesh.NodeIndex)
+            .ToArray();
+        Assert.Equal(12, renderMeshes.Length);
+        Assert.Equal([168, 19, 19, 176, 19, 19, 184, 176, 8, 8, 8, 8],
+            renderMeshes.Select(static mesh => mesh.Vertices
+                .Select(static vertex => (vertex.X, vertex.Y, vertex.Z))
+                .Distinct()
+                .Count()));
+
+        var comparedPositions = 0;
+        for (var index = 0; index < renderMeshes.Length; index++)
+        {
+            var renderMesh = renderMeshes[index];
+            Assert.Equal(index, renderMesh.NodeIndex);
+            Assert.Equal(index, n64Shell.Objects[index].MeshIndex);
+            Assert.All(renderMesh.Triangles.SelectMany(static triangle => new[]
+            {
+                triangle.C0.MatrixIndex,
+                triangle.C1.MatrixIndex,
+                triangle.C2.MatrixIndex
+            }), static matrixIndex => Assert.Equal(0, matrixIndex));
+
+            var n64Positions = renderMesh.Vertices
+                .Select(static vertex => (vertex.X, vertex.Y, vertex.Z))
+                .ToHashSet();
+            var pcPositions = pcShell.Meshes[index].Vertices
+                .Select(static vertex => (vertex.RawX, vertex.RawY, vertex.RawZ))
+                .ToHashSet();
+            Assert.True(n64Positions.SetEquals(pcPositions));
+            comparedPositions += n64Positions.Count;
+        }
+
+        Assert.Equal(812, comparedPositions);
+        Assert.NotEqual(n64Shell.Objects[0].RawX, n64Shell.Objects[1].RawX);
+        var relative = N64GeometryBindingPlan.StaticRelative(n64Shell.Objects.Count, 1f);
+        var global = N64GeometryBindingPlan.AnimatedGlobal(n64Shell.Objects.Count, 8f);
+        Assert.Equal(1, relative.ResolveOffsetObjectIndexOrDefault(1, 0));
+        Assert.Equal(0, global.ResolveOffsetObjectIndexOrDefault(1, 0));
+        Assert.False(N64AnimatedModelGate.IsGeometryEligible(n64Shell, renderMeshes));
+        Assert.True(N64AnimatedModelGate.IsGeometryEligible(
+            n64Bytes, n64Shell, renderData, renderBankId, renderMeshes));
+        var plan = N64AnimatedModelGate.TryOpen(
+            n64Bytes, n64Shell, renderData, renderBankId, renderMeshes);
+        Assert.NotNull(plan);
+        Assert.Equal(N64GeometryBindingMode.AnimatedRelative, plan!.Geometry.Mode);
+        Assert.Equal(1f, plan.Geometry.VertexScaleFactor);
+        var exactStatic = N64AnimatedModelGate.CreateStaticBindingPlan(
+            n64Bytes, n64Shell, renderData, renderBankId, renderMeshes);
+        Assert.Equal(N64GeometryBindingMode.StaticRelative, exactStatic.Mode);
+        Assert.Equal(1f, exactStatic.VertexScaleFactor);
+
+        Assert.Null(N64AnimatedModelGate.TryOpen(
+            mutatedShell, n64Shell, renderData, renderBankId, renderMeshes));
+        Assert.Equal(8f, N64AnimatedModelGate.CreateStaticBindingPlan(
+            mutatedShell, n64Shell, renderData, renderBankId, renderMeshes)
+            .VertexScaleFactor);
+        Assert.Null(N64AnimatedModelGate.TryOpen(
+            n64Bytes, n64Shell, mutatedRender, renderBankId, renderMeshes));
+        Assert.Equal(8f, N64AnimatedModelGate.CreateStaticBindingPlan(
+            n64Bytes, n64Shell, mutatedRender, renderBankId, renderMeshes)
+            .VertexScaleFactor);
+        Assert.Null(N64AnimatedModelGate.TryOpen(
+            n64Bytes, n64Shell, renderData, renderBankId.Value + 1u, renderMeshes));
+        Assert.Equal(8f, N64AnimatedModelGate.CreateStaticBindingPlan(
+            n64Bytes, n64Shell, renderData, renderBankId.Value + 1u, renderMeshes)
+            .VertexScaleFactor);
+        Assert.Null(N64AnimatedModelGate.TryOpen(
+            n64Bytes, n64Shell, renderData, renderBankId, renderMeshes[..^1]));
+        Assert.Equal(8f, N64AnimatedModelGate.CreateStaticBindingPlan(
+            n64Bytes, n64Shell, renderData, renderBankId, renderMeshes[..^1])
+            .VertexScaleFactor);
+        for (var objectIndex = 0; objectIndex < renderMeshes.Length; objectIndex++)
+        {
+            Assert.All(renderMeshes[objectIndex].Triangles.SelectMany(static triangle => new[]
+            {
+                triangle.C0,
+                triangle.C1,
+                triangle.C2
+            }), corner => Assert.Equal(
+                objectIndex,
+                plan.Geometry.ResolveSkinJoint(objectIndex, corner.MatrixIndex)));
+        }
+
+        var n64Bank = N64CompressedAnimationBank.TryParse(n64Bytes);
+        var pcBank = PsxAnimFile.Parse(pcBytes, pcShell.Objects.Count);
+        Assert.NotNull(n64Bank);
+        Assert.NotNull(pcBank);
+        Assert.Equal(PsxMeshFile.HierChunkV1Tag, n64Bank!.ChunkTag);
+        var n64Animation = n64Bank.DecodeSlot(0, n64Shell.Objects.Count);
+        var pcEntry = Assert.Single(pcBank!.Entries);
+        var pcAnimation = PsxAnimDecoder.DecodeDirectMatrix(
+            pcBank.Pool.Span[pcEntry.PoolOffset..],
+            pcShell.Objects.Count,
+            pcEntry.FrameCount,
+            pcEntry.TweenFlag);
+        Assert.Equal(1, n64Animation.FrameCount);
+        Assert.Equal(pcAnimation.Channels, n64Animation.Channels);
+        Assert.Equal(pcAnimation.DirectRotations, n64Animation.DirectRotations);
     }
 
     [Fact]

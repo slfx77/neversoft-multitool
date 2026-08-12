@@ -69,7 +69,7 @@ public sealed class N64CoplanarOverlayTests(TestPaths paths)
         return Vector3.Zero;
     }
 
-    [Fact]
+    [CorpusFact]
     public void Downtown_SplitsItsDecalsIntoDrawOrderedOverlayMeshes()
     {
         var document = ParseBundle("004", out var fs);
@@ -88,7 +88,7 @@ public sealed class N64CoplanarOverlayTests(TestPaths paths)
     ///     corners unmodified, so the outward normal is cross(p1-p0, p2-p0);
     ///     the PS1 writer's opposite convention would invert every decal.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void OverlayLift_PointsOutOfTheSurface()
     {
         var document = ParseBundle("004", out var fs);
@@ -112,7 +112,7 @@ public sealed class N64CoplanarOverlayTests(TestPaths paths)
     ///     layer lookup is dropping or duplicating geometry and every other
     ///     measurement here is meaningless.
     /// </summary>
-    [Theory]
+    [CorpusTheory]
     [InlineData("004", 9875)]
     [InlineData("014", 10781)]
     [InlineData("061", 264)]
@@ -130,7 +130,7 @@ public sealed class N64CoplanarOverlayTests(TestPaths paths)
     ///     for nothing, and this is the fixture that catches an inverted
     ///     same-facing gate.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void Medals_HaveNoOverlaysBecauseTheirCoplanarPairsFaceOppositeWays()
     {
         var document = ParseBundle("061", out var fs);

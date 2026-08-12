@@ -303,6 +303,15 @@ public static class ErzDecoder
         if (decompressedSize < 0 || decompressedSize > 1 << 24)
             throw new InvalidDataException($"Implausible ERZ output size {decompressedSize}");
 
+        var compressedSize = GetCompressedSize(block);
+        if (compressedSize <= 0 || compressedSize > block.Length - HeaderSize)
+        {
+            throw new InvalidDataException(
+                $"Implausible ERZ v2 compressed size {compressedSize} for a {block.Length}-byte block");
+        }
+
+        var compressedEnd = HeaderSize + compressedSize;
+
         var output = new byte[decompressedSize];
         var i = HeaderSize;      // v1 — stream pointer
         var o = 0;               // a1 — output pointer
@@ -311,7 +320,7 @@ public static class ErzDecoder
 
         byte NextByte()
         {
-            if (i >= block.Length)
+            if (i >= compressedEnd)
                 throw new InvalidDataException("ERZ stream overrun");
             return block[i++];
         }

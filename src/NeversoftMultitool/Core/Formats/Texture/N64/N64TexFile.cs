@@ -146,8 +146,16 @@ public static class N64TexFile
             return false;
 
         var dataSize = BinaryPrimitives.ReadUInt16BigEndian(data[0x2A..]);
-        return TryGetPixelLayout(data, width, height, out _, out _)
-               && DictPayloadOffset + dataSize <= data.Length;
+        if (!TryGetPixelLayout(data, width, height, out var format, out _))
+            return false;
+
+        // CI4 records require a 16-entry, big-endian RGBA5551 palette after
+        // the declared pixel payload. Include it in the recognition boundary
+        // so a probe cannot accept a record that DecodeDictionaryRecord must
+        // subsequently reject. Use long arithmetic to keep the range check
+        // safe if the on-disk field widths ever grow.
+        var requiredLength = (long)DictPayloadOffset + dataSize + (format == 2 ? 32 : 0);
+        return requiredLength <= data.Length;
     }
 
     public static N64Texture DecodeDictionaryRecord(byte[] data)

@@ -17,7 +17,8 @@ public sealed class N64AnimatedModelGateTests
 
         Assert.NotNull(plan);
         Assert.Single(plan!.Animations.Entries);
-        Assert.Equal(N64MatrixOffsetMode.GlobalJoint, plan.Geometry.OffsetMode);
+        Assert.Equal(N64GeometryBindingMode.AnimatedGlobal, plan.Geometry.Mode);
+        Assert.Equal(8f, plan.Geometry.VertexScaleFactor);
     }
 
     [Fact]
@@ -43,15 +44,32 @@ public sealed class N64AnimatedModelGateTests
         var plan = N64AnimatedModelGate.TryOpen(CreateAnimationBytes(), shell, meshes);
 
         Assert.NotNull(plan);
-        Assert.Equal(N64MatrixOffsetMode.GlobalJoint, plan!.Geometry.OffsetMode);
+        Assert.Equal(N64GeometryBindingMode.AnimatedGlobal, plan!.Geometry.Mode);
         Assert.Equal(1, plan.Geometry.ResolveOffsetObjectIndexOrDefault(1, 1));
-        Assert.Equal(1, plan.Geometry.ResolveSkinJoint(1));
+        Assert.Equal(1, plan.Geometry.ResolveSkinJoint(1, 1));
     }
 
     [Fact]
-    public void Gate_RejectsMultiPlacementWhenGlobalAndRelativeModesBothRemainPossible()
+    public void Gate_AcceptsHierarchicalPlacementByPositionalPartContract()
     {
         var shell = CreateShell(99, 0, 1);
+        var meshes = new[]
+        {
+            CreateMesh(0, 0, 0, 0),
+            CreateMesh(1, 0, 0, 0)
+        };
+
+        var plan = N64AnimatedModelGate.TryOpen(CreateAnimationBytes(), shell, meshes);
+
+        Assert.NotNull(plan);
+        Assert.Equal(N64GeometryBindingMode.AnimatedGlobal, plan!.Geometry.Mode);
+        Assert.Equal(0, plan.Geometry.ResolveSkinJoint(1, 0));
+    }
+
+    [Fact]
+    public void Gate_RejectsFlatPlacementWhenGlobalAndRelativeModesBothRemainPossible()
+    {
+        var shell = CreateShell(hasHierarchy: false, 99, 0, 1);
         var meshes = new[]
         {
             CreateMesh(0, 0, 0, 0),
@@ -62,23 +80,48 @@ public sealed class N64AnimatedModelGateTests
     }
 
     [Fact]
-    public void BindingPlans_PinGlobalVersusPlacementRelativeAddressing()
+    public void BindingPlans_DistinguishStaticGlobalAndAnimatedRelativeAddressing()
     {
-        var rigid = N64GeometryBindingPlan.Static(4);
-        var animated = N64GeometryBindingPlan.Animated(4);
+        var rigid = N64GeometryBindingPlan.StaticRelative(4, 8f);
+        var global = N64GeometryBindingPlan.AnimatedGlobal(4, 8f);
+        var relative = N64GeometryBindingPlan.AnimatedRelative(4, 1f);
 
         Assert.Equal(3, rigid.ResolveOffsetObjectIndexOrDefault(2, 1));
-        Assert.Equal(1, animated.ResolveOffsetObjectIndexOrDefault(2, 1));
+        Assert.Equal(1, global.ResolveOffsetObjectIndexOrDefault(2, 1));
+        Assert.Equal(3, relative.ResolveOffsetObjectIndexOrDefault(2, 1));
         Assert.Equal(-1, rigid.ResolveOffsetObjectIndexOrDefault(3, 1));
-        Assert.Equal(1, animated.ResolveSkinJoint(1));
+        Assert.False(rigid.IsSkinned);
+        Assert.True(global.IsSkinned);
+        Assert.True(relative.IsSkinned);
+        Assert.Equal(1, global.ResolveSkinJoint(2, 1));
+        Assert.Equal(3, relative.ResolveSkinJoint(2, 1));
+        Assert.Equal(8f, rigid.VertexScaleFactor);
+        Assert.Equal(8f, global.VertexScaleFactor);
+        Assert.Equal(1f, relative.VertexScaleFactor);
+        Assert.Throws<InvalidOperationException>(() => rigid.ResolveSkinJoint(2, 1));
+        Assert.Throws<InvalidOperationException>(() => relative.ResolveSkinJoint(3, 1));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Gate_RejectsAmbiguousNonZeroOrRepeatedPlacement(bool multiple)
+    [Fact]
+    public void ExactPayloadProfile_RejectsWrongIdentityBeforeHashAdmission()
     {
-        var shell = multiple ? CreateShell(0, 0) : CreateShell(99, 0);
+        var shell = new byte[N64ModelPayloadProfile.SpiderMapShellLength];
+        var render = new byte[N64ModelPayloadProfile.SpiderMapRenderBankLength];
+
+        Assert.Null(N64ModelPayloadProfile.TryResolve(
+            shell, render, N64ModelPayloadProfile.SpiderMapRenderBankId));
+        Assert.Null(N64ModelPayloadProfile.TryResolve(
+            shell, render, N64ModelPayloadProfile.SpiderMapRenderBankId + 1));
+        Assert.Null(N64ModelPayloadProfile.TryResolve(
+            shell[..^1], render, N64ModelPayloadProfile.SpiderMapRenderBankId));
+        Assert.Null(N64ModelPayloadProfile.TryResolve(
+            shell, render[..^1], N64ModelPayloadProfile.SpiderMapRenderBankId));
+    }
+
+    [Fact]
+    public void Gate_RejectsRepeatedPlacementEvenForHierarchicalSuper()
+    {
+        var shell = CreateShell(0, 0);
         var meshes = new[] { CreateMesh(0, 0, 0, 0) };
 
         Assert.Null(N64AnimatedModelGate.TryOpen(CreateAnimationBytes(), shell, meshes));
@@ -93,6 +136,11 @@ public sealed class N64AnimatedModelGateTests
 
     private static PsxMeshFile CreateShell(params ushort[] meshIndices)
     {
+        return CreateShell(hasHierarchy: true, meshIndices);
+    }
+
+    private static PsxMeshFile CreateShell(bool hasHierarchy, params ushort[] meshIndices)
+    {
         return new PsxMeshFile
         {
             Version = 4,
@@ -100,7 +148,7 @@ public sealed class N64AnimatedModelGateTests
             Meshes = [],
             MeshNameHashes = [],
             TextureHashes = [],
-            HasHierarchy = true,
+            HasHierarchy = hasHierarchy,
             IsSuperModel = true,
             ScaleDivisor = 36f,
             TranslationDivisor = 2.25f
