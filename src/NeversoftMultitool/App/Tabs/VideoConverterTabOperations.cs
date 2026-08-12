@@ -169,27 +169,11 @@ internal static class VideoConverterTabOperations
             return SfdConverter.ConvertToMp4(data, stem, outputDir, progress, cancellationToken: cancellationToken);
         }
 
-        // Temp-file fallback for STR / VID / PSS from archives.
-        var tempPath = Path.Combine(
-            Path.GetTempPath(), "NeversoftMultitool", "ArchiveVideo",
-            $"{Guid.NewGuid():N}_{entry.FileName}");
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(tempPath)!);
-            File.WriteAllBytes(tempPath, data);
-            return ConvertFile(tempPath, outputDir, progress, cancellationToken: cancellationToken);
-        }
-        finally
-        {
-            try
-            {
-                if (File.Exists(tempPath)) File.Delete(tempPath);
-            }
-            catch
-            {
-                /* ignore */
-            }
-        }
+        // Temp-file fallback for STR / VID / PSS from archives. Keep the
+        // original leaf name so converters retain deterministic output stems
+        // and VID1 can classify intro/atvi by basename.
+        using var staged = ArchiveVideoTempFile.Write("ArchiveVideo", entry.FileName, data);
+        return ConvertFile(staged.Path, outputDir, progress, cancellationToken: cancellationToken);
     }
 
     public static string FormatTime(TimeSpan ts)

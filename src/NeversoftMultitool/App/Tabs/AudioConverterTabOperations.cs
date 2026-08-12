@@ -48,16 +48,16 @@ internal static class AudioConverterTabOperations
         };
     }
 
-    public static List<AudioSampleEntry> EnumerateChildren(AssetSource source, string parentFileName,
-        string audioFormat)
+    public static List<AudioSampleEntry> EnumerateChildren(AudioFileEntry parent)
     {
+        var source = parent.Source;
         var data = source.ReadBytes();
-        return audioFormat switch
+        return parent.AudioFormat switch
         {
             "VAB" => VabExtractor.EnumerateSamples(data)
                 .Select(sample => new AudioSampleEntry
                 {
-                    ParentFileName = parentFileName,
+                    Parent = parent,
                     SampleIndex = sample.Index,
                     Encoding = "SPU-ADPCM",
                     SampleRate = sample.SampleRate,
@@ -68,7 +68,7 @@ internal static class AudioConverterTabOperations
             "KAT" => KatExtractor.EnumerateSamples(data)
                 .Select(sample => new AudioSampleEntry
                 {
-                    ParentFileName = parentFileName,
+                    Parent = parent,
                     SampleIndex = sample.Index,
                     Encoding = sample.Encoding,
                     SampleRate = sample.SampleRate,
@@ -76,8 +76,8 @@ internal static class AudioConverterTabOperations
                     DataSize = sample.DataSize
                 })
                 .ToList(),
-            "SFX" => EnumerateSfxSamples(source, data, parentFileName),
-            "XA" => EnumerateXaChannels(data, parentFileName),
+            "SFX" => EnumerateSfxSamples(source, data, parent),
+            "XA" => EnumerateXaChannels(data, parent),
             _ => []
         };
     }
@@ -86,7 +86,7 @@ internal static class AudioConverterTabOperations
     ///     One child row per interleaved XA channel. Single-channel (and raw,
     ///     non-sectored) XA yields no children so the file stays a flat row.
     /// </summary>
-    private static List<AudioSampleEntry> EnumerateXaChannels(byte[] data, string parentFileName)
+    private static List<AudioSampleEntry> EnumerateXaChannels(byte[] data, AudioFileEntry parent)
     {
         var channels = XaExtractor.EnumerateChannels(data);
         if (channels.Count <= 1)
@@ -94,7 +94,7 @@ internal static class AudioConverterTabOperations
 
         return channels.Select(channel => new AudioSampleEntry
         {
-            ParentFileName = parentFileName,
+            Parent = parent,
             SampleIndex = channel.ChannelNumber,
             Encoding = $"Channel {channel.ChannelNumber:D2} — " +
                        TimeDisplay.Format(TimeSpan.FromSeconds(channel.DurationSeconds)),
@@ -104,7 +104,7 @@ internal static class AudioConverterTabOperations
         }).ToList();
     }
 
-    private static List<AudioSampleEntry> EnumerateSfxSamples(AssetSource source, byte[] data, string parentFileName)
+    private static List<AudioSampleEntry> EnumerateSfxSamples(AssetSource source, byte[] data, AudioFileEntry parent)
     {
         var bankBytes = TryResolveSfxBankFromSource(source);
         var filesystemPath = source.FileSystemPath;
@@ -119,7 +119,7 @@ internal static class AudioConverterTabOperations
 
         return samples.Select(sample => new AudioSampleEntry
         {
-            ParentFileName = parentFileName,
+            Parent = parent,
             SampleIndex = sample.CueIndex,
             Encoding = $"{sample.Encoding} via {sample.BankFormat} #{sample.BankSampleIndex:D3}",
             SampleRate = sample.SampleRate,
@@ -186,7 +186,6 @@ internal static class AudioConverterTabOperations
     public static string? ConvertForPreview(
         IListEntry item,
         string tempDir,
-        IReadOnlyList<AudioFileEntry> parentFiles,
         int vabSampleRate)
     {
         // Unique per-conversion directory: the decoders derive output names
@@ -201,7 +200,7 @@ internal static class AudioConverterTabOperations
             return ConvertFilePreview(parent, conversionDir);
 
         if (item is AudioSampleEntry sample)
-            return ConvertSamplePreview(sample, conversionDir, parentFiles, vabSampleRate);
+            return ConvertSamplePreview(sample, conversionDir, vabSampleRate);
 
         return null;
     }
@@ -242,13 +241,9 @@ internal static class AudioConverterTabOperations
     private static string? ConvertSamplePreview(
         AudioSampleEntry sample,
         string tempDir,
-        IReadOnlyList<AudioFileEntry> parentFiles,
         int vabSampleRate)
     {
-        var parentEntry = parentFiles.FirstOrDefault(parent =>
-            parent.FileName.Equals(sample.ParentFileName, StringComparison.OrdinalIgnoreCase));
-        if (parentEntry == null)
-            return null;
+        var parentEntry = sample.Parent;
 
         var data = parentEntry.Source.ReadBytes();
         var stem = Path.GetFileNameWithoutExtension(parentEntry.FileName);

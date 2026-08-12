@@ -32,8 +32,6 @@ internal sealed class MeshConverterTabAnimationPanel(
     ComboBox filterCombo,
     Func<bool> blendExportAvailable) : IDisposable
 {
-    private static readonly string[] ArchiveExtensions = [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr"];
-
     private readonly List<AnimationProbe> _allProbes = [];
     private bool _characterReady;
     private CancellationTokenSource? _loadCts;
@@ -186,7 +184,7 @@ internal sealed class MeshConverterTabAnimationPanel(
         var character = Character;
         if (character == null) return;
         if (character.IsN64Model) return;
-        var path = await FilePickerHelper.PickFileAsync(ArchiveExtensions);
+        var path = await FilePickerHelper.PickFileAsync(ArchiveSourceRigCatalog.PickerExtensions);
         if (path == null || !ReferenceEquals(Character, character)) return;
 
         var (cts, generation) = BeginStateOperation();

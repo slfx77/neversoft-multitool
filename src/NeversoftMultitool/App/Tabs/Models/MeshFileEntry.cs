@@ -55,8 +55,9 @@ public class MeshFileEntry : BaseFileEntry
 
     /// <summary>
     ///     True only when the shell/render-bank pair passes the bounded N64
-    ///     animation gate: embedded 0x2A/0x2C, every G_MTX in the global joint
-    ///     range, and no unresolved global-versus-relative address ambiguity.
+    ///     animation gate: embedded 0x2A/0x2C plus unique, in-range placements
+    ///     under either the structurally proven global-joint rules or an exact
+    ///     payload's proven placement-relative profile.
     /// </summary>
     internal bool N64HasEmbeddedAnimations { get; init; }
 

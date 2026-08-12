@@ -71,11 +71,15 @@ internal sealed class MeshConverterTabBatchRunner(
         var totalFiles = entries.Count;
         string? firstError = null;
         var token = cts.Token;
+        var outputPlan = entries.Count > 1
+            ? PlanBatchOutputs(entries, MeshBatchOutputNaming.ConversionStem)
+            : null;
 
         await Task.Run(() =>
         {
-            foreach (var entry in entries)
+            for (var entryIndex = 0; entryIndex < entries.Count; entryIndex++)
             {
+                var entry = entries[entryIndex];
                 if (token.IsCancellationRequested)
                     break;
 
@@ -83,13 +87,17 @@ internal sealed class MeshConverterTabBatchRunner(
 
                 try
                 {
+                    var planned = outputPlan?[entryIndex];
+                    var entryOutputDir = planned is { } output
+                        ? GetPlannedOutputDirectory(outputDir, output.Subdirectory)
+                        : outputDir;
                     var result = MeshConverterTabFileConverter.ConvertFile(
                         entry,
-                        outputDir,
+                        entryOutputDir,
                         worldzoneTimeOfDay,
                         worldzoneScale,
                         outputFormat,
-                        outputStem: entries.Count == 1 ? singleOutputStem : null,
+                        outputStem: planned?.Stem ?? singleOutputStem,
                         visibilityOverrides: ReferenceEquals(entry, visibilityEntry)
                             ? visibilityOverrides
                             : null,
@@ -157,12 +165,16 @@ internal sealed class MeshConverterTabBatchRunner(
         var rendered = 0;
         var skipped = 0;
         string? firstError = null;
+        var outputPlan = entries.Count > 1
+            ? PlanBatchOutputs(entries, MeshBatchOutputNaming.RenderStem)
+            : null;
 
         await Task.Run(() =>
         {
             var processed = 0;
-            foreach (var entry in entries)
+            for (var entryIndex = 0; entryIndex < entries.Count; entryIndex++)
             {
+                var entry = entries[entryIndex];
                 if (token.IsCancellationRequested) break;
 
                 try
@@ -180,8 +192,14 @@ internal sealed class MeshConverterTabBatchRunner(
                     }
                     else
                     {
-                        var stem = MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
-                        RenderGlbToPngs(glb, outputDir, stem, size, azimuth, elevation, objectReview);
+                        var planned = outputPlan?[entryIndex];
+                        var stem = planned?.Stem
+                                   ?? MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
+                        var entryOutputDir = planned is { } output
+                            ? GetPlannedOutputDirectory(outputDir, output.Subdirectory)
+                            : outputDir;
+                        RenderGlbToPngs(
+                            glb, entryOutputDir, stem, size, azimuth, elevation, objectReview);
                         rendered++;
                     }
                 }
@@ -320,12 +338,16 @@ internal sealed class MeshConverterTabBatchRunner(
         var rendered = 0;
         var skipped = 0;
         string? firstError = null;
+        var outputPlan = entries.Count > 1
+            ? PlanBatchOutputs(entries, MeshBatchOutputNaming.RenderStem)
+            : null;
 
         await Task.Run(() =>
         {
             var processed = 0;
-            foreach (var entry in entries)
+            for (var entryIndex = 0; entryIndex < entries.Count; entryIndex++)
             {
+                var entry = entries[entryIndex];
                 if (token.IsCancellationRequested) break;
 
                 try
@@ -343,8 +365,13 @@ internal sealed class MeshConverterTabBatchRunner(
                     }
                     else
                     {
-                        var stem = MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
-                        var outputPath = Path.Combine(outputDir, stem + ".gif");
+                        var planned = outputPlan?[entryIndex];
+                        var stem = planned?.Stem
+                                   ?? MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
+                        var entryOutputDir = planned is { } output
+                            ? GetPlannedOutputDirectory(outputDir, output.Subdirectory)
+                            : outputDir;
+                        var outputPath = Path.Combine(entryOutputDir, stem + ".gif");
                         RenderGlbToGif(glb, outputPath, size, fps, azimuth, elevation);
                         rendered++;
                     }
@@ -433,6 +460,23 @@ internal sealed class MeshConverterTabBatchRunner(
         {
             GlbScratchFile.TryDelete(tempGlb);
         }
+    }
+
+    private static IReadOnlyList<MeshOutputPathPlanner.PlannedOutput> PlanBatchOutputs(
+        IReadOnlyList<MeshFileEntry> entries,
+        Func<string, string> stemOf)
+    {
+        var files = entries.Select(static entry => entry.FilePath).ToArray();
+        return MeshOutputPathPlanner.Plan(files, stemOf, inputRoot: null);
+    }
+
+    private static string GetPlannedOutputDirectory(string outputRoot, string subdirectory)
+    {
+        var directory = subdirectory.Length == 0
+            ? outputRoot
+            : Path.Combine(outputRoot, subdirectory);
+        Directory.CreateDirectory(directory);
+        return directory;
     }
 
     private static (int Frames, double Duration) RenderGlbToGif(

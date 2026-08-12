@@ -541,6 +541,7 @@ internal static class MeshConverterTabFileScanner
 
             var bank = N64ModelCompanions.TryReadRenderBank(source);
             var meshes = bank != null ? N64RenderBankFile.Parse(bank) : [];
+            var renderBankId = N64ModelCompanions.TryReadRenderBankId(source);
 
             return new MeshFileEntry
             {
@@ -554,7 +555,8 @@ internal static class MeshConverterTabFileScanner
                 PsxFormatRevision = shell.FormatRevision,
                 N64MaxBoundsRadius = N64ModelCompanions.TryReadMaxBoundsRadius(source) ?? 0f,
                 N64HasEmbeddedAnimations =
-                    N64AnimatedModelGate.TryOpen(shellData, shell, meshes) != null,
+                    N64AnimatedModelGate.TryOpen(
+                        shellData, shell, bank, renderBankId, meshes) != null,
                 Source = source
             };
         }

@@ -12,14 +12,13 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
 {
     private static readonly TimeSpan CacheMaxAge = TimeSpan.FromDays(30);
 
-    // Temp files written for archive-sourced previews; cleaned up on tab unload.
-    private readonly List<string> _archivePreviewTempFiles = [];
     private readonly string _cacheDir;
     private readonly VideoPreviewView _view;
     private MediaPlayer? _mediaPlayer;
     private DispatcherTimer? _positionTimer;
     private CancellationTokenSource? _previewCts;
     private Task? _previewTask;
+    private bool _disposed;
     private bool _updatingSlider;
 
     public VideoConverterTabPreviewController(VideoPreviewView view)
@@ -46,46 +45,46 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+            return;
+
+        _disposed = true;
         StopPlayback();
+        _previewCts?.Cancel();
         _previewCts?.Dispose();
         _previewCts = null;
         _previewTask = null;
-
-        foreach (var tempFile in _archivePreviewTempFiles)
-        {
-            try
-            {
-                if (File.Exists(tempFile)) File.Delete(tempFile);
-            }
-            catch
-            {
-                /* ignore */
-            }
-        }
-
-        _archivePreviewTempFiles.Clear();
     }
 
     /// <summary>
     ///     Archive-sourced video preview needs a real path for MediaPlayerElement
-    ///     and for the STR/VID decoders. Write bytes to a uniquely-named temp file
-    ///     and track it for cleanup on tab unload.
+    ///     and for the STR/VID decoders. Write bytes under the original leaf name
+    ///     in a unique directory. The caller owns the returned stage for the
+    ///     duration of direct decoding or fallback conversion.
     /// </summary>
-    private string EnsurePreviewPath(SfdFileEntry entry)
+    private static ArchiveVideoTempFile? PreparePreviewPath(
+        SfdFileEntry entry,
+        out string previewPath)
     {
         if (entry.Source.FileSystemPath is { } filesystemPath)
-            return filesystemPath;
+        {
+            previewPath = filesystemPath;
+            return null;
+        }
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "VideoPreview");
-        Directory.CreateDirectory(tempDir);
-        var tempPath = Path.Combine(tempDir, $"{Guid.NewGuid():N}_{entry.FileName}");
-        File.WriteAllBytes(tempPath, entry.Source.ReadBytes());
-        _archivePreviewTempFiles.Add(tempPath);
-        return tempPath;
+        var staged = ArchiveVideoTempFile.Write(
+            "VideoPreview",
+            entry.FileName,
+            entry.Source.ReadBytes());
+        previewPath = staged.Path;
+        return staged;
     }
 
     public async Task ShowPreviewAsync(SfdFileEntry entry, bool ffmpegAvailable)
     {
+        if (_disposed)
+            return;
+
         var previousCts = _previewCts;
         if (previousCts != null)
         {
@@ -106,6 +105,11 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
             }
         }
 
+        // A tab unload can occur while the previous preview is winding down.
+        // Do not create a new token, stage, or touch unloaded controls afterward.
+        if (_disposed)
+            return;
+
         var cts = new CancellationTokenSource();
         _previewCts = cts;
         // Snapshot the token before any await: tab teardown disposes _previewCts
@@ -117,15 +121,21 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
         ShowPreviewShell(entry);
 
         string previewPath;
+        ArchiveVideoTempFile? stagedPreview;
         try
         {
-            previewPath = EnsurePreviewPath(entry);
+            stagedPreview = PreparePreviewPath(entry, out previewPath);
         }
         catch (Exception ex)
         {
             ShowPreviewError($"Preview prep failed: {ex.Message}");
             return;
         }
+
+        // Direct STR/VID preview fully materializes its media source, while
+        // fallback conversion moves the result to the cache. The archive stage
+        // is therefore needed only until this preview attempt completes.
+        using var previewStage = stagedPreview;
 
         if (OrdinalIsStr(entry.FileName)
             && await TryStartDirectStrPlaybackAsync(previewPath, token))
@@ -138,6 +148,9 @@ internal sealed class VideoConverterTabPreviewController : IDisposable
         {
             return;
         }
+
+        if (token.IsCancellationRequested || _disposed)
+            return;
 
         if (!ffmpegAvailable)
         {

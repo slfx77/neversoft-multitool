@@ -289,9 +289,7 @@ public sealed partial class TextureTab : UserControl, IDisposable
         try
         {
             parent.CachedChildren = TextureTabTextureOperations.EnumerateChildren(
-                parent.Source,
-                parent.FileName,
-                parent.Format);
+                parent);
         }
         catch
         {
@@ -506,9 +504,8 @@ public sealed partial class TextureTab : UserControl, IDisposable
         TexturePreview.SetLoading(true);
         PreviewInfoText.Text = "";
 
-        var parent = _parentFiles.FirstOrDefault(p =>
-            p.FileName.Equals(texture.ParentFileName, StringComparison.OrdinalIgnoreCase));
-        if (parent == null)
+        var parent = texture.Parent;
+        if (!_parentFiles.Any(candidate => ReferenceEquals(candidate, parent)))
         {
             TexturePreview.Clear();
             PreviewInfoText.Text = "Parent not found";
@@ -516,13 +513,13 @@ public sealed partial class TextureTab : UserControl, IDisposable
         }
 
         var source = parent.Source;
-        var nameHash = texture.NameHash;
+        var textureIndex = texture.Index;
         var format = parent.Format;
 
         try
         {
             var result = await Task.Run(
-                () => TextureTabTextureOperations.GetPreviewRgba(source, nameHash, format),
+                () => TextureTabTextureOperations.GetPreviewRgba(source, textureIndex, format),
                 token);
 
             if (_disposed || token.IsCancellationRequested) return;

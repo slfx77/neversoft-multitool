@@ -432,7 +432,7 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
 
     private async void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        await _exporter.CancelAsync(ExportButton, CancelButton);
+        await _exporter.CancelAsync();
     }
 
     private void ScriptDecompilerTab_Unloaded(object sender, RoutedEventArgs e)

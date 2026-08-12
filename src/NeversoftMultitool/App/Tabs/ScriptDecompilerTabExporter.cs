@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Qb;
 using NeversoftMultitool.Core.Formats.Trg;
 
@@ -9,11 +10,18 @@ namespace NeversoftMultitool;
 
 internal sealed class ScriptDecompilerTabExporter : IDisposable
 {
+    private readonly object _operationGate = new();
     private CancellationTokenSource? _cts;
+    private bool _disposed;
 
     public void Dispose()
     {
-        DisposeCancellationTokenSource();
+        lock (_operationGate)
+        {
+            _disposed = true;
+            // The running ExportAsync invocation owns disposal and UI cleanup.
+            _cts?.Cancel();
+        }
     }
 
     public async Task ExportAsync(
@@ -27,67 +35,95 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
         if (parentFiles.Count == 0 || string.IsNullOrEmpty(outputDir))
             return;
 
-        var previousCts = _cts;
-        if (previousCts != null)
+        CancellationTokenSource cts;
+        lock (_operationGate)
         {
-            _cts = null;
-            await previousCts.CancelAsync();
-            previousCts.Dispose();
+            if (_disposed || _cts != null)
+            {
+                // The visible export button is normally enough to prevent reentry;
+                // this also closes programmatic, event-ordering, and post-disposal
+                // races.
+                return;
+            }
+
+            cts = new CancellationTokenSource();
+            _cts = cts;
         }
 
-        var cts = new CancellationTokenSource();
-        _cts = cts;
-
-        foreach (var file in parentFiles)
-        {
-            if (file is BaseFileEntry baseEntry)
-                baseEntry.Status = ExtractionStatus.Pending;
-        }
-
-        exportButton.Visibility = Visibility.Collapsed;
-        cancelButton.Visibility = Visibility.Visible;
-        exportProgress.Visibility = Visibility.Visible;
-        exportProgress.Value = 0;
-
-        using var scope = GlobalProgress.Begin("Exporting scripts");
-
-        var stopwatch = Stopwatch.StartNew();
-        var filesProcessed = 0;
-        var totalFiles = parentFiles.Count;
-        var token = cts.Token;
-        var entries = parentFiles.ToList();
-
+        var ownsControls = false;
         try
         {
+            foreach (var file in parentFiles)
+            {
+                if (file is BaseFileEntry baseEntry)
+                    baseEntry.Status = ExtractionStatus.Pending;
+            }
+
+            exportButton.Visibility = Visibility.Collapsed;
+            cancelButton.Visibility = Visibility.Visible;
+            exportProgress.Visibility = Visibility.Visible;
+            exportProgress.Value = 0;
+            ownsControls = true;
+
+            using var scope = GlobalProgress.Begin("Exporting scripts");
+
+            var stopwatch = Stopwatch.StartNew();
+            var filesProcessed = 0;
+            var filesSucceeded = 0;
+            var filesFailed = 0;
+            var totalFiles = parentFiles.Count;
+            var token = cts.Token;
+            var entries = parentFiles.ToList();
+            var outputPaths = ScriptOutputPathPlanner.Plan(entries
+                    .Select(static entry => entry switch
+                    {
+                        QbFileEntry qb => new ScriptOutputPathInput(qb.FilePath, ScriptOutputKind.Qb),
+                        TrgFileEntry trg => new ScriptOutputPathInput(trg.FilePath, ScriptOutputKind.Trg),
+                        _ => throw new InvalidOperationException(
+                            $"Unsupported script entry type '{entry.GetType().Name}'.")
+                    })
+                    .ToArray())
+                .Select(outputName => Path.Combine(outputDir, outputName))
+                .ToArray();
+
             await Task.Run(() =>
             {
+                token.ThrowIfCancellationRequested();
                 Directory.CreateDirectory(outputDir);
 
-                foreach (var entry in entries)
+                for (var entryIndex = 0; entryIndex < entries.Count; entryIndex++)
                 {
-                    if (token.IsCancellationRequested)
-                        break;
+                    token.ThrowIfCancellationRequested();
 
+                    var entry = entries[entryIndex];
+                    var outputPath = outputPaths[entryIndex];
                     switch (entry)
                     {
                         case TrgFileEntry trg:
                             ExportTrgFile(
-                                trg, outputDir, dispatcher, exportProgress, scope,
-                                ref filesProcessed, totalFiles);
+                                trg, outputPath, dispatcher, exportProgress, scope,
+                                ref filesProcessed, ref filesSucceeded, ref filesFailed,
+                                totalFiles);
                             break;
                         case QbFileEntry qb:
                             ExportQbFile(
-                                qb, outputDir, dispatcher, exportProgress, scope,
-                                ref filesProcessed, totalFiles);
+                                qb, outputPath, dispatcher, exportProgress, scope,
+                                ref filesProcessed, ref filesSucceeded, ref filesFailed,
+                                totalFiles);
                             break;
                     }
                 }
+
+                // Cancellation can arrive while the final file is being written.
+                token.ThrowIfCancellationRequested();
             }, token);
 
+            token.ThrowIfCancellationRequested();
             stopwatch.Stop();
             exportProgress.Value = 100;
             MainWindow.Instance?.SetStatus(
-                $"Exported {filesProcessed} files in {stopwatch.Elapsed.TotalSeconds:F2}s");
+                $"Export complete: {filesSucceeded} succeeded, {filesFailed} failed " +
+                $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
         }
         catch (OperationCanceledException)
         {
@@ -95,40 +131,45 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
         }
         finally
         {
-            DisposeCancellationTokenSource();
-            cancelButton.Visibility = Visibility.Collapsed;
-            exportButton.Visibility = Visibility.Visible;
+            lock (_operationGate)
+            {
+                if (ReferenceEquals(_cts, cts))
+                {
+                    // Keep the operation gate held until its controls are restored;
+                    // a replacement export cannot acquire ownership in between.
+                    if (ownsControls)
+                    {
+                        cancelButton.Visibility = Visibility.Collapsed;
+                        exportButton.Visibility = Visibility.Visible;
+                    }
+
+                    _cts = null;
+                    cts.Dispose();
+                }
+            }
         }
     }
 
-    public async Task CancelAsync(Button exportButton, Button cancelButton)
+    public Task CancelAsync()
     {
-        var cts = _cts;
-        if (cts != null)
+        lock (_operationGate)
         {
-            _cts = null;
-            await cts.CancelAsync();
-            cts.Dispose();
+            // ExportAsync keeps both CTS and UI ownership until its worker exits.
+            _cts?.Cancel();
         }
 
-        cancelButton.Visibility = Visibility.Collapsed;
-        exportButton.Visibility = Visibility.Visible;
-        MainWindow.Instance?.SetStatus("Export cancelled");
-    }
-
-    private void DisposeCancellationTokenSource()
-    {
-        _cts?.Dispose();
-        _cts = null;
+        return Task.CompletedTask;
     }
 
     private static void ExportTrgFile(
         TrgFileEntry entry,
-        string outputDir,
+        string outputPath,
         DispatcherQueue dispatcher,
         ProgressBar exportProgress,
         IGlobalProgressScope scope,
         ref int filesProcessed,
+        ref int filesSucceeded,
+        ref int filesFailed,
         int totalFiles)
     {
         dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
@@ -138,9 +179,9 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
             var trg = entry.CachedParsedFile ?? TrgFile.Parse(entry.FilePath);
             entry.CachedParsedFile ??= trg;
 
-            var outputPath = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(entry.FileName) + ".json");
             trg.WriteJson(outputPath);
 
+            Interlocked.Increment(ref filesSucceeded);
             var processed = Interlocked.Increment(ref filesProcessed);
             scope.Report(processed, totalFiles);
             dispatcher.TryEnqueue(() =>
@@ -151,6 +192,7 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
         }
         catch
         {
+            Interlocked.Increment(ref filesFailed);
             var processed = Interlocked.Increment(ref filesProcessed);
             scope.Report(processed, totalFiles);
             dispatcher.TryEnqueue(() =>
@@ -163,11 +205,13 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
 
     private static void ExportQbFile(
         QbFileEntry entry,
-        string outputDir,
+        string outputPath,
         DispatcherQueue dispatcher,
         ProgressBar exportProgress,
         IGlobalProgressScope scope,
         ref int filesProcessed,
+        ref int filesSucceeded,
+        ref int filesFailed,
         int totalFiles)
     {
         dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
@@ -177,10 +221,10 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
             var qb = entry.CachedParsedFile ?? QbFile.Parse(entry.FilePath);
             entry.CachedParsedFile ??= qb;
 
-            var outputPath = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(entry.FileName) + ".q");
             var source = QbDecompiler.Decompile(qb);
             File.WriteAllText(outputPath, source);
 
+            Interlocked.Increment(ref filesSucceeded);
             var processed = Interlocked.Increment(ref filesProcessed);
             scope.Report(processed, totalFiles);
             dispatcher.TryEnqueue(() =>
@@ -191,6 +235,7 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
         }
         catch
         {
+            Interlocked.Increment(ref filesFailed);
             var processed = Interlocked.Increment(ref filesProcessed);
             scope.Report(processed, totalFiles);
             dispatcher.TryEnqueue(() =>

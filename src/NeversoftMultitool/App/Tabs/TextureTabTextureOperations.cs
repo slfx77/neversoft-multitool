@@ -67,7 +67,7 @@ internal static class TextureTabTextureOperations
         var data = source.ReadBytes();
         return format switch
         {
-            TextureFileFormat.Ps2Tex => CountParsedTextures(Ps2TexFile.Parse(data)),
+            TextureFileFormat.Ps2Tex => CountParsedTextures(Ps2TextureParser.Parse(data)),
             TextureFileFormat.NgcTex => CountParsedTextures(NgcTexFile.Parse(data)),
             TextureFileFormat.XbxTex => CountParsedTextures(ParseXbxTextures(data, format)),
             TextureFileFormat.XbxImg => CountParsedTextures(ParseXbxTextures(data, format)),
@@ -77,21 +77,19 @@ internal static class TextureTabTextureOperations
         };
     }
 
-    public static List<PsxTextureEntry> EnumerateChildren(
-        AssetSource source,
-        string parentFileName,
-        TextureFileFormat format)
+    public static List<PsxTextureEntry> EnumerateChildren(PsxFileEntry parent)
     {
+        var source = parent.Source;
         var data = source.ReadBytes();
-        return format switch
+        return parent.Format switch
         {
-            TextureFileFormat.Ps2Tex => BuildPs2Entries(Ps2TexFile.Parse(data), parentFileName),
-            TextureFileFormat.NgcTex => BuildNgcEntries(NgcTexFile.Parse(data), parentFileName),
-            TextureFileFormat.XbxTex => BuildXboxEntries(ParseXbxTextures(data, format), parentFileName, format),
-            TextureFileFormat.XbxImg => BuildXboxEntries(ParseXbxTextures(data, format), parentFileName, format),
-            TextureFileFormat.Pvr => BuildPvrEntries(data, parentFileName),
-            TextureFileFormat.N64Tex => BuildN64Entries(data, parentFileName),
-            _ => BuildPsxEntries(data, parentFileName)
+            TextureFileFormat.Ps2Tex => BuildPs2Entries(Ps2TextureParser.Parse(data), parent),
+            TextureFileFormat.NgcTex => BuildNgcEntries(NgcTexFile.Parse(data), parent),
+            TextureFileFormat.XbxTex => BuildXboxEntries(ParseXbxTextures(data, parent.Format), parent),
+            TextureFileFormat.XbxImg => BuildXboxEntries(ParseXbxTextures(data, parent.Format), parent),
+            TextureFileFormat.Pvr => BuildPvrEntries(data, parent),
+            TextureFileFormat.N64Tex => BuildN64Entries(data, parent),
+            _ => BuildPsxEntries(data, parent)
         };
     }
 
@@ -119,38 +117,33 @@ internal static class TextureTabTextureOperations
 
     public static (byte[] rgba, int width, int height)? GetPreviewRgba(
         AssetSource source,
-        uint nameHash,
+        int textureIndex,
         TextureFileFormat format)
     {
         var data = source.ReadBytes();
         switch (format)
         {
             case TextureFileFormat.Ps2Tex:
-                return GetPreviewTexture(Ps2TexFile.Parse(data), nameHash);
+                return GetPreviewTexture(Ps2TextureParser.Parse(data), textureIndex);
             case TextureFileFormat.NgcTex:
-                return GetPreviewTexture(NgcTexFile.Parse(data), nameHash);
+                return GetPreviewTexture(NgcTexFile.Parse(data), textureIndex);
             case TextureFileFormat.XbxTex:
-                return GetPreviewTexture(ParseXbxTextures(data, format), nameHash);
+                return GetPreviewTexture(ParseXbxTextures(data, format), textureIndex);
             case TextureFileFormat.XbxImg:
-            {
-                var result = ParseXbxTextures(data, format);
-                if (!result.Success)
-                    return null;
-
-                var tex = result.Textures.FirstOrDefault(t => t.Pixels != null);
-                return tex?.Pixels != null ? (tex.Pixels, tex.Width, tex.Height) : null;
-            }
+                return GetPreviewTexture(ParseXbxTextures(data, format), textureIndex);
             case TextureFileFormat.Pvr:
-                return PvrFileDecoder.DecodeToRgba(data);
+                return textureIndex == 0 ? PvrFileDecoder.DecodeToRgba(data) : null;
             case TextureFileFormat.N64Tex:
             {
+                if (textureIndex != 0)
+                    return null;
                 var texture = TryDecodeN64(data);
                 // A record remains one selectable texture. Preview its
                 // authored level zero; extraction writes any stored mips.
                 return texture != null ? (texture.Rgba, texture.Width, texture.Height) : null;
             }
             default:
-                return PsxLibrary.ExtractTextureByHash(data, nameHash, source.EntryName);
+                return PsxLibrary.ExtractTextureAt(data, textureIndex, source.EntryName);
         }
     }
 
@@ -159,37 +152,39 @@ internal static class TextureTabTextureOperations
         return result.Success ? result.Textures.Count(texture => texture.Pixels != null) : 0;
     }
 
-    private static List<PsxTextureEntry> BuildPs2Entries(Ps2TexResult result, string parentFileName)
+    private static List<PsxTextureEntry> BuildPs2Entries(Ps2TexResult result, PsxFileEntry parent)
     {
         return result.Success
-            ? result.Textures.Where(texture => texture.Pixels != null)
-                .Select((texture, index) => new PsxTextureEntry
+            ? result.Textures.Select((texture, index) => (Texture: texture, Index: index))
+                .Where(item => item.Texture.Pixels != null)
+                .Select(item => new PsxTextureEntry
                 {
-                    ParentFileName = parentFileName,
-                    NameHash = texture.Checksum,
-                    Width = texture.Width,
-                    Height = texture.Height,
-                    PaletteType = Ps2TexFile.DescribePsm(texture.Psm),
-                    Index = index,
-                    ResolvedName = texture.Name ?? QbKey.TryResolve(texture.Checksum)
+                    Parent = parent,
+                    NameHash = item.Texture.Checksum,
+                    Width = item.Texture.Width,
+                    Height = item.Texture.Height,
+                    PaletteType = Ps2TexFile.DescribePsm(item.Texture.Psm),
+                    Index = item.Index,
+                    ResolvedName = item.Texture.Name ?? QbKey.TryResolve(item.Texture.Checksum)
                 })
                 .ToList()
             : [];
     }
 
-    private static List<PsxTextureEntry> BuildNgcEntries(Ps2TexResult result, string parentFileName)
+    private static List<PsxTextureEntry> BuildNgcEntries(Ps2TexResult result, PsxFileEntry parent)
     {
         return result.Success
-            ? result.Textures.Where(texture => texture.Pixels != null)
-                .Select((texture, index) => new PsxTextureEntry
+            ? result.Textures.Select((texture, index) => (Texture: texture, Index: index))
+                .Where(item => item.Texture.Pixels != null)
+                .Select(item => new PsxTextureEntry
                 {
-                    ParentFileName = parentFileName,
-                    NameHash = texture.Checksum,
-                    Width = texture.Width,
-                    Height = texture.Height,
+                    Parent = parent,
+                    NameHash = item.Texture.Checksum,
+                    Width = item.Texture.Width,
+                    Height = item.Texture.Height,
                     PaletteType = "NGC TEX",
-                    Index = index,
-                    ResolvedName = texture.Name ?? QbKey.TryResolve(texture.Checksum)
+                    Index = item.Index,
+                    ResolvedName = item.Texture.Name ?? QbKey.TryResolve(item.Texture.Checksum)
                 })
                 .ToList()
             : [];
@@ -197,26 +192,26 @@ internal static class TextureTabTextureOperations
 
     private static List<PsxTextureEntry> BuildXboxEntries(
         Ps2TexResult result,
-        string parentFileName,
-        TextureFileFormat format)
+        PsxFileEntry parent)
     {
         return result.Success
-            ? result.Textures.Where(texture => texture.Pixels != null)
-                .Select((texture, index) => new PsxTextureEntry
+            ? result.Textures.Select((texture, index) => (Texture: texture, Index: index))
+                .Where(item => item.Texture.Pixels != null)
+                .Select(item => new PsxTextureEntry
                 {
-                    ParentFileName = parentFileName,
-                    NameHash = texture.Checksum,
-                    Width = texture.Width,
-                    Height = texture.Height,
-                    PaletteType = format == TextureFileFormat.XbxImg ? "Xbox IMG" : "Xbox TEX",
-                    Index = index,
-                    ResolvedName = texture.Name ?? QbKey.TryResolve(texture.Checksum)
+                    Parent = parent,
+                    NameHash = item.Texture.Checksum,
+                    Width = item.Texture.Width,
+                    Height = item.Texture.Height,
+                    PaletteType = parent.Format == TextureFileFormat.XbxImg ? "Xbox IMG" : "Xbox TEX",
+                    Index = item.Index,
+                    ResolvedName = item.Texture.Name ?? QbKey.TryResolve(item.Texture.Checksum)
                 })
                 .ToList()
             : [];
     }
 
-    private static List<PsxTextureEntry> BuildPvrEntries(byte[] data, string parentFileName)
+    private static List<PsxTextureEntry> BuildPvrEntries(byte[] data, PsxFileEntry parent)
     {
         var pvr = PvrFileDecoder.DecodeToRgba(data);
         return pvr != null
@@ -224,13 +219,13 @@ internal static class TextureTabTextureOperations
             [
                 new PsxTextureEntry
                 {
-                    ParentFileName = parentFileName,
+                    Parent = parent,
                     NameHash = 0,
                     Width = pvr.Value.Width,
                     Height = pvr.Value.Height,
                     PaletteType = "PVR",
                     Index = 0,
-                    ResolvedName = Path.GetFileNameWithoutExtension(parentFileName)
+                    ResolvedName = Path.GetFileNameWithoutExtension(parent.FileName)
                 }
             ]
             : [];
@@ -241,7 +236,7 @@ internal static class TextureTabTextureOperations
     ///     records) beats the file stem, and psxtxt_&lt;id&gt; names carry the PS1
     ///     cross-platform texture id.
     /// </summary>
-    private static List<PsxTextureEntry> BuildN64Entries(byte[] data, string parentFileName)
+    private static List<PsxTextureEntry> BuildN64Entries(byte[] data, PsxFileEntry parent)
     {
         var texture = TryDecodeN64(data);
         return texture != null
@@ -249,13 +244,13 @@ internal static class TextureTabTextureOperations
             [
                 new PsxTextureEntry
                 {
-                    ParentFileName = parentFileName,
+                    Parent = parent,
                     NameHash = 0,
                     Width = texture.Width,
                     Height = texture.Height,
                     PaletteType = $"N64 {texture.Format}",
                     Index = 0,
-                    ResolvedName = texture.Name ?? StripCompoundExtension(parentFileName)
+                    ResolvedName = texture.Name ?? StripCompoundExtension(parent.FileName)
                 }
             ]
             : [];
@@ -273,12 +268,12 @@ internal static class TextureTabTextureOperations
         }
     }
 
-    private static List<PsxTextureEntry> BuildPsxEntries(byte[] data, string parentFileName)
+    private static List<PsxTextureEntry> BuildPsxEntries(byte[] data, PsxFileEntry parent)
     {
         return PsxLibrary.EnumerateTextures(data)
             .Select((texture, index) => new PsxTextureEntry
             {
-                ParentFileName = parentFileName,
+                Parent = parent,
                 NameHash = texture.NameHash,
                 Width = texture.Header.Width,
                 Height = texture.Header.Height,
@@ -294,7 +289,7 @@ internal static class TextureTabTextureOperations
         string outputDir,
         string stem)
     {
-        var result = Ps2TexFile.Parse(data);
+        var result = Ps2TextureParser.Parse(data);
         if (!result.Success)
             return (0, 0, false, false);
 
@@ -397,13 +392,9 @@ internal static class TextureTabTextureOperations
         return outPath;
     }
 
-    private static (byte[] rgba, int width, int height)? GetPreviewTexture(Ps2TexResult result, uint nameHash)
+    private static (byte[] rgba, int width, int height)? GetPreviewTexture(Ps2TexResult result, int textureIndex)
     {
-        if (!result.Success)
-            return null;
-
-        var texture = result.Textures.FirstOrDefault(item => item.Checksum == nameHash && item.Pixels != null);
-        return texture?.Pixels != null ? (texture.Pixels, texture.Width, texture.Height) : null;
+        return TexturePreviewSelector.Select(result, textureIndex);
     }
 
     private static Ps2TexResult ParseXbxTextures(byte[] data, TextureFileFormat format)

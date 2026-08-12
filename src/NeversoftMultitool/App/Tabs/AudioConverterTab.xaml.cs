@@ -18,7 +18,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
     private readonly AudioConverterTabConversionController _conversionController = new();
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<AudioFileEntry> _parentFiles = [];
-    private readonly Dictionary<string, string> _previewCache = [];
+    private readonly Dictionary<AudioPreviewCacheKey, string> _previewCache = [];
 
     // Temp file cache
     private readonly string _tempDir = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "AudioPreview");
@@ -319,9 +319,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         try
         {
             parent.CachedChildren = AudioConverterTabOperations.EnumerateChildren(
-                parent.Source,
-                parent.FileName,
-                parent.AudioFormat);
+                parent);
         }
         catch
         {
@@ -500,19 +498,19 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         // changing the rate would replay a stale WAV converted at the old one.
         var vabSampleRate = GetSelectedVabSampleRate();
 
-        string cacheKey;
+        AudioPreviewCacheKey cacheKey;
         string displayName;
         string infoText;
 
         if (item is AudioFileEntry parent)
         {
-            cacheKey = $"{Path.Combine(_inputDir, parent.FileName)}@{vabSampleRate}";
+            cacheKey = new AudioPreviewCacheKey(parent, null, vabSampleRate);
             displayName = parent.FileName;
             infoText = parent.AudioFormat;
         }
         else if (item is AudioSampleEntry sample)
         {
-            cacheKey = $"{Path.Combine(_inputDir, sample.ParentFileName)}#{sample.SampleIndex}@{vabSampleRate}";
+            cacheKey = new AudioPreviewCacheKey(sample.Parent, sample.SampleIndex, vabSampleRate);
             displayName = $"{sample.ParentFileName} #{sample.SampleIndex:D3}";
             infoText = sample.InfoDisplay;
         }
@@ -539,7 +537,6 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
                     () => AudioConverterTabOperations.ConvertForPreview(
                         item,
                         _tempDir,
-                        _parentFiles,
                         vabSampleRate),
                     token);
             }

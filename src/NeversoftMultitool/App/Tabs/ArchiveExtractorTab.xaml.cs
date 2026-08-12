@@ -36,27 +36,8 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
     private async void OpenArchiveButton_Click(object sender, RoutedEventArgs e)
     {
         var picker = new FileOpenPicker();
-        picker.FileTypeFilter.Add(".wad");
-        picker.FileTypeFilter.Add(".pkr");
-        picker.FileTypeFilter.Add(".pre");
-        picker.FileTypeFilter.Add(".prx");
-        picker.FileTypeFilter.Add(".prd");
-        picker.FileTypeFilter.Add(".prf");
-        picker.FileTypeFilter.Add(".ddx");
-        picker.FileTypeFilter.Add(".bon");
-        picker.FileTypeFilter.Add(".pak");
-        picker.FileTypeFilter.Add(".zip");
-        picker.FileTypeFilter.Add(".cut");
-        picker.FileTypeFilter.Add(".ps2");
-        picker.FileTypeFilter.Add(".ngc");
-        picker.FileTypeFilter.Add(".wpc");
-        picker.FileTypeFilter.Add(".xbx");
-        picker.FileTypeFilter.Add(".iso");
-        picker.FileTypeFilter.Add(".cue");
-        picker.FileTypeFilter.Add(".gdi");
-        picker.FileTypeFilter.Add(".img");
-        picker.FileTypeFilter.Add(".bin");
-        picker.FileTypeFilter.Add(".z64");
+        foreach (var extension in ArchiveExtractorRoute.PickerExtensions)
+            picker.FileTypeFilter.Add(extension);
         var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
         InitializeWithWindow.Initialize(picker, hwnd);
 
@@ -65,7 +46,7 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
 
         _archivePath = file.Path;
         InputPathText.Text = _archivePath;
-        var ext = Path.GetExtension(_archivePath).ToLowerInvariant();
+        var ext = ArchiveExtractorRoute.ResolveExtension(_archivePath);
 
         _files.Clear();
 
@@ -114,7 +95,7 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                     _archiveType = "CUT";
                     entries = CutArchive.GetFileList(_archivePath);
                     break;
-                case ".pak" or ".ps2" or ".ngc" when PakArchive.IsPakArchive(_archivePath):
+                case ".pak" or ".apk" or ".ps2" or ".ngc" when PakArchive.IsPakArchive(_archivePath):
                     _archiveType = "PAK";
                     entries = PakArchive.GetFileList(_archivePath);
                     break;

@@ -110,7 +110,7 @@ public sealed partial class BitmapConverterTab : UserControl, IDisposable
                 {
                     FileName = name,
                     Source = source,
-                    RelativePath = $"{archiveName}::{name}",
+                    RelativePath = $"{archiveName}::{archiveEntry.FullName}",
                     DetectedWidth = detectedWidth
                 });
             }
@@ -212,14 +212,19 @@ public sealed partial class BitmapConverterTab : UserControl, IDisposable
 
         var stopwatch = Stopwatch.StartNew();
         var filesProcessed = 0;
-        var totalFiles = _files.Count;
+        var entries = _files.ToList();
+        var outputPlans = BitmapOutputPathPlanner.Plan(
+            entries.Select(static entry => entry.Source.DisplayName).ToArray(),
+            _inputDir);
+        var totalFiles = entries.Count;
         var outputDir = _outputDir;
         var dispatcher = DispatcherQueue;
 
         await Task.Run(() =>
         {
-            foreach (var entry in _files)
+            for (var index = 0; index < entries.Count; index++)
             {
+                var entry = entries[index];
                 dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
 
                 var result = BitmapFile.Convert(entry.Source.ReadBytes(), entry.FileName,
@@ -227,8 +232,7 @@ public sealed partial class BitmapConverterTab : UserControl, IDisposable
 
                 if (result.Success)
                 {
-                    var outputFile = Path.Combine(outputDir,
-                        Path.GetFileNameWithoutExtension(entry.FileName) + ".png");
+                    var outputFile = Path.Combine(outputDir, outputPlans[index].RelativePngPath);
                     BitmapFile.SavePng(result, outputFile);
                 }
 
