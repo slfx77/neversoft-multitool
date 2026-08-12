@@ -35,7 +35,7 @@ public sealed class PsxWhatIfContentGateTests(TestPaths paths)
         { "e3m3", [3, 306], 13, 13, 0x88A65242u }
     };
 
-    [Theory]
+    [CorpusTheory]
     [MemberData(nameof(SpiderManDisplayGateCases))]
     public void FinalSpiderMan_DisplayOffWhatIfNodes_GateTheirExactPlacements(
         string levelStem,
@@ -96,7 +96,7 @@ public sealed class PsxWhatIfContentGateTests(TestPaths paths)
                 StringComparison.Ordinal));
     }
 
-    [Theory]
+    [CorpusTheory]
     [MemberData(nameof(EnterElectroElseBranchCases))]
     public void EnterElectro_ElseBranchNodes_KeepTheirNormalPlayPlacements(
         string levelStem,

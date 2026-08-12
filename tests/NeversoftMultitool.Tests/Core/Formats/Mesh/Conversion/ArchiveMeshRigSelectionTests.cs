@@ -11,7 +11,7 @@ public sealed class ArchiveMeshRigSelectionTests(TestPaths paths)
     private const string Thug2XboxBuild =
         "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void RealThug2SkeletonArchive_PigeonMatchesLooseRigAndPreparedGlbAfterDisposal()
     {
         var archivePath = paths.FindSampleFile(Thug2XboxBuild, "skeletons.prx");

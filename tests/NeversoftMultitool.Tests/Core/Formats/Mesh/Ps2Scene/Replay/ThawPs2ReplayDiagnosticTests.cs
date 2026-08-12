@@ -7,7 +7,7 @@ public sealed class ThawPs2ReplayDiagnosticTests(TestPaths paths)
 {
     private const string BuildName = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void Diagnostic_SkaterLasek_KickAnalysis()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -164,7 +164,7 @@ public sealed class ThawPs2ReplayDiagnosticTests(TestPaths paths)
         Assert.True(addr652Kicks.Count > 0, "Expected some ADDR=652 kicks");
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("skater_lasek")]
     [InlineData("pro_vallely_head")]
     public void Diagnostic_GapTrace(string stem)

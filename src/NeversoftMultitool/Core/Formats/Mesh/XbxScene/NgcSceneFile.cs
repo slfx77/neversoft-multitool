@@ -34,7 +34,7 @@ public static class NgcSceneFile
 
     public static bool IsNgcScene(byte[] data)
     {
-        return data.Length >= 0x30
+        return data.Length >= HeaderSize
                && BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(0x2C)) == Sentinel;
     }
 

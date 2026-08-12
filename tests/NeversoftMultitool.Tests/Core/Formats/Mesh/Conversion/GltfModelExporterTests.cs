@@ -306,6 +306,51 @@ public sealed class GltfModelExporterTests
         }
     }
 
+    [Fact]
+    public void GlbModelLoader_NonUniformNodeScale_UsesInverseTransposeForNormals()
+    {
+        var document = CreateTriangleDocument();
+        var sourceNormal = Vector3.Normalize(new Vector3(1f, 1f, 0f));
+        var primitive = Assert.Single(Assert.Single(document.Meshes).Primitives);
+        primitive.Vertices[0] = primitive.Vertices[0] with
+        {
+            Position = Vector3.Zero,
+            Normal = sourceNormal
+        };
+        primitive.Vertices[1] = primitive.Vertices[1] with
+        {
+            Position = new Vector3(-1f, 1f, 0f),
+            Normal = sourceNormal
+        };
+        primitive.Vertices[2] = primitive.Vertices[2] with
+        {
+            Position = Vector3.UnitZ,
+            Normal = sourceNormal
+        };
+        document.Nodes[0] = new ModelNode
+        {
+            Name = "triangle",
+            MeshIndex = 0,
+            Transform = Matrix4x4.CreateScale(2f, 1f, 1f)
+        };
+
+        var (glbBytes, triangles) = new GltfModelExporter().BuildGlbBytes(document);
+
+        Assert.Equal(1, triangles);
+        Assert.NotNull(glbBytes);
+        using var stream = new MemoryStream(glbBytes, false);
+        var model = ModelRoot.ReadGLB(stream);
+        var submesh = Assert.Single(GlbModelLoader.Load(model, null, 0f).Submeshes);
+        var normals = Assert.IsType<float[]>(submesh.Normals);
+        var expected = Vector3.Normalize(new Vector3(0.5f, 1f, 0f));
+        for (var vertex = 0; vertex < 3; vertex++)
+        {
+            var offset = vertex * 3;
+            var actual = new Vector3(normals[offset], normals[offset + 1], normals[offset + 2]);
+            Assert.InRange(Vector3.Distance(expected, actual), 0f, 1e-5f);
+        }
+    }
+
     private static ModelDocument CreateTriangleDocument(bool overbright = false, bool skinned = false)
     {
         var document = new ModelDocument { Name = "high_precision_vertex_color" };

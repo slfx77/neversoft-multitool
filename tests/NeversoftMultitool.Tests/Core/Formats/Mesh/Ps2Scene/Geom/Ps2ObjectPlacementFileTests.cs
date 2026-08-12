@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 
@@ -5,62 +6,61 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Geom;
 
 public sealed class Ps2ObjectPlacementFileTests(TestPaths paths)
 {
-    [Fact]
-    public void TryParse_FittingZBhFile_ParsesTwoBlocksCountTwoEach()
-    {
-        var data = LoadPlacementData("z_bh", "00015410.91E1028D");
+    private const string BuildName = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
 
-        Assert.True(Ps2ObjectPlacementFile.TryParse(data, out var file, out var skip));
-        Assert.NotNull(file);
-        Assert.Equal(string.Empty, skip);
-        Assert.Equal(2, file!.Blocks.Count);
-        Assert.All(file.Blocks, b => Assert.Equal(2, b.Items.Count));
+    [Fact]
+    public void TryParse_CanonicalZBh1256ByteRnb_FailsStatic()
+    {
+        AssertCanonicalRnbRejected(
+            "z_bh", "000155D0.rnb", 1_256,
+            "A7CD9840EFE15489CD4A9B4C3D1E2E7CC0EDB41FC08410E6715C2DB23C214B6A",
+            1_110_237_086);
     }
 
     [Fact]
-    public void TryParse_FittingZBhFile_ThreeBlocksLastCountOne()
+    public void TryParse_CanonicalZBh776ByteRnb_FailsStatic()
     {
-        var data = LoadPlacementData("z_bh", "00026D20.91E1028D");
-
-        Assert.True(Ps2ObjectPlacementFile.TryParse(data, out var file, out _));
-        Assert.NotNull(file);
-        Assert.Equal(3, file!.Blocks.Count);
-        Assert.Equal(2, file.Blocks[0].Items.Count);
-        Assert.Equal(2, file.Blocks[1].Items.Count);
-        Assert.Single(file.Blocks[2].Items);
+        AssertCanonicalRnbRejected(
+            "z_bh", "00027020.rnb", 776,
+            "42E70FAFB91BE04D46E0DEA6E9E5EF896FECCC7BBD44B9E05028682A925E8589",
+            1_112_164_405);
     }
 
     [Fact]
-    public void TryParse_FittingFile_BboxHasValidMinMaxOnAllAxes()
+    public void TryParse_CanonicalZHo776ByteRnb_FailsStatic()
     {
-        var data = LoadPlacementData("z_bh", "00026D20.91E1028D");
-
-        Assert.True(Ps2ObjectPlacementFile.TryParse(data, out var file, out _));
-        Assert.NotNull(file);
-        // Item 0 of each block carries the world-space AABB.
-        foreach (var block in file!.Blocks)
-        {
-            var item0 = block.Items[0];
-            Assert.True(item0.BboxMin.X <= item0.BboxMax.X,
-                $"min.X ({item0.BboxMin.X}) <= max.X ({item0.BboxMax.X})");
-            Assert.True(item0.BboxMin.Y <= item0.BboxMax.Y,
-                $"min.Y ({item0.BboxMin.Y}) <= max.Y ({item0.BboxMax.Y})");
-            Assert.True(item0.BboxMin.Z <= item0.BboxMax.Z,
-                $"min.Z ({item0.BboxMin.Z}) <= max.Z ({item0.BboxMax.Z})");
-        }
+        AssertCanonicalRnbRejected(
+            "z_ho", "00017100.rnb", 776,
+            "8094275170320922070C77C81855296848EDE890470E11CD8A53387F0AC9DD87",
+            1_110_069_753);
     }
 
     [Fact]
-    public void TryParse_OutlierBulkFloatFile_ReturnsFalseWithSkipReason()
+    public void TryParse_CanonicalZBh162728ByteRnb_FailsStatic()
     {
-        // 000516F0.91E1028D in z_bh is ~160KB of dense float data with no preamble signatures.
-        // The phase400 RE classifies this as a non-placement-record sub-format.
-        var data = LoadPlacementData("z_bh", "000516F0.91E1028D");
+        AssertCanonicalRnbRejected(
+            "z_bh", "00052430.rnb", 162_728,
+            "6A72FFF4669B11C28EC94507D2A9C1ABA9DF58D3785356B2BD1AF497A6BBD5EF",
+            3_271_758_116);
+    }
+
+    private void AssertCanonicalRnbRejected(
+        string pakStem,
+        string entryName,
+        int expectedLength,
+        string expectedSha256,
+        uint expectedLegacyCount)
+    {
+        var data = LoadPlacementData(pakStem, entryName);
+        Assert.Equal(expectedLength, data.Length);
+        Assert.Equal(expectedSha256, Convert.ToHexString(SHA256.HashData(data)));
 
         var parsed = Ps2ObjectPlacementFile.TryParse(data, out var file, out var skip);
         Assert.False(parsed);
         Assert.Null(file);
-        Assert.NotEmpty(skip);
+        Assert.Equal(
+            $"first block count {expectedLegacyCount} exceeds sanity limit at +0xC",
+            skip);
     }
 
     private byte[] LoadPlacementData(string pakStem, string entryName)
@@ -69,12 +69,8 @@ public sealed class Ps2ObjectPlacementFileTests(TestPaths paths)
         if (existing != null)
             return File.ReadAllBytes(existing);
 
-        Assert.SkipWhen(!paths.HasSampleBuilds, "THAW PAK samples not available");
-
-        var pakDir = Path.Combine(paths.SampleBuildsDir!,
-            "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)", "PAK");
-        var pakPath = Path.Combine(pakDir, pakStem + ".pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), $"PAK not found: {pakPath}");
+        var pakPath = paths.FindSampleFile(BuildName, pakStem + ".pak.ps2");
+        Assert.SkipWhen(pakPath is null, $"{pakStem}.pak.ps2 not found");
 
         var tempDir = Path.Combine(Path.GetTempPath(),
             "NsMultitool_Test_Placement_" + Guid.NewGuid().ToString("N")[..8]);
@@ -82,10 +78,10 @@ public sealed class Ps2ObjectPlacementFileTests(TestPaths paths)
         try
         {
             Directory.CreateDirectory(tempDir);
-            PakArchive.ExtractFiles(pakPath, tempDir, token: TestContext.Current.CancellationToken);
+            PakArchive.ExtractFiles(pakPath!, tempDir, token: TestContext.Current.CancellationToken);
 
             var candidate = Path.Combine(tempDir, pakStem + ".pak", entryName);
-            Assert.SkipWhen(!File.Exists(candidate), $"placement entry not extracted: {entryName}");
+            Assert.True(File.Exists(candidate), $"placement entry not extracted: {entryName}");
             return File.ReadAllBytes(candidate);
         }
         finally

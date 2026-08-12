@@ -26,6 +26,8 @@ public static class RwDffFile
         var (type, size, version) = ReadChunkHeader(data, ref offset);
         if (type != RW_CLUMP)
             throw new InvalidDataException($"Not an RW Clump (got 0x{type:X4})");
+        if ((long)size > data.Length - (long)offset)
+            throw new InvalidDataException("RW Clump chunk exceeds the file length");
 
         var clumpEnd = offset + (int)size;
 

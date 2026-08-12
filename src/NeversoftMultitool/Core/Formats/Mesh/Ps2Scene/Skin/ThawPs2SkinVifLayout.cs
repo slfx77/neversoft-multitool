@@ -66,7 +66,7 @@ internal static class ThawPs2SkinVifLayout
         var totalMeshes2 = BitConverter.ToUInt32(data, 8);
         var dataSize = BitConverter.ToUInt32(data, 12);
         var entryTableEnd = (int)(32 + numObjects * 8 + totalMeshes2 * 64);
-        var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
+        var vifEnd = (int)Math.Min((long)dataSize + 16, data.Length);
 
         var directOffsets = new List<int>();
         for (var offset = entryTableEnd; offset + 8 <= vifEnd && offset + 8 <= data.Length; offset += 4)

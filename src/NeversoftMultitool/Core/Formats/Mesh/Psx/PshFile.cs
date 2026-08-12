@@ -111,11 +111,12 @@ public sealed class PshFile
     /// </summary>
     public static PshFile? FindCompanion(string psxFilePath)
     {
-        var dir = Path.GetDirectoryName(psxFilePath);
-        if (dir == null)
-            return null;
-
-        var stem = Path.GetFileNameWithoutExtension(psxFilePath);
+        // The game constructs and opens bare relative names such as
+        // "<base>.psh" (Spool_LoadPSH in the THPS2 PSX demo). Resolve the
+        // model path first so filename-only command inputs retain that lookup.
+        var fullPath = Path.GetFullPath(psxFilePath);
+        var dir = Path.GetDirectoryName(fullPath)!;
+        var stem = Path.GetFileNameWithoutExtension(fullPath);
         var candidates = Directory.GetFiles(dir, stem + ".psh",
             new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
 

@@ -30,7 +30,7 @@ public sealed class PsxEngineLightTests
     ///     hamhead is fully lit (289/289), so no authored-colour faces can
     ///     produce false conflicts.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void BakedLight_IsAFunctionOfTheExportedNormal_OnAStitchedCharacter()
     {
         var paths = new NeversoftMultitool.Tests.Helpers.TestPaths();

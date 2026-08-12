@@ -267,6 +267,10 @@ public static class Ps2SceneFile
 
         // Vertices
         var numVertices = r.ReadInt32();
+        if (numVertices < 0)
+            throw new InvalidDataException(
+                $"Mesh 0x{meshChecksum:X8} has invalid vertex count {numVertices}.");
+
         var vertices = numVertices > 0
             ? ReadVertices(r, numVertices, meshFlags, meshVer)
             : [];

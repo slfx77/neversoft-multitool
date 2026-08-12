@@ -4,12 +4,19 @@ namespace NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 internal static class XbxSceneMaterialReader
 {
+    private const int MaxPasses = 4;
 
     public static XbxMaterial ReadMaterial(BinaryReader r)
     {
         var checksum = r.ReadUInt32();
         var nameChecksum = r.ReadUInt32();
         var numPasses = r.ReadInt32();
+        if (numPasses is < 0 or > MaxPasses)
+        {
+            throw new InvalidDataException(
+                $"Xbox material pass count {numPasses} is outside 0..{MaxPasses}");
+        }
+
         var alphaCutoff = r.ReadInt32();
         var sorted = r.ReadByte() != 0;
         var drawOrder = r.ReadSingle();

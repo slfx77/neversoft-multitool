@@ -78,9 +78,10 @@ public sealed class ThawSceneFileTests(TestPaths paths)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
         var zonePath = Path.Combine("worldzones", "Z_SM", "z_sm.pak");
-        var file = paths.FindSampleFiles(BuildName, "007858E0.mdl")
+        var file = paths.FindSampleFiles(BuildName, "007865A0.mdl")
             .FirstOrDefault(path => path.Contains(zonePath, StringComparison.OrdinalIgnoreCase));
         Assert.SkipWhen(file is null, "Extracted PC z_sm worldzone MDL not found");
+        Assert.Equal(4_435_412L, new FileInfo(file!).Length);
 
         var data = File.ReadAllBytes(file);
         Assert.True(ThawSceneFile.IsThawScene(data));

@@ -15,7 +15,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
     private const string BuildName = "Spider-Man (2000-9-1, PSX - Final)";
     private const string PcBuildName = "Spider-Man (2001-9-17, PC - Final)";
 
-    [Theory]
+    [CorpusTheory]
     // Re-pinned 2026-07-23: the POWERUP layer adds items.psx pickups
     // (l1a3 +796 tris/+3 textures, l2a1 +308 tris/+4 textures).
     [InlineData("l1a3_g.psx", 6998, 111)]
@@ -130,7 +130,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Lda2_FromCdWad_PreservesAdditiveSpotlightMaterial()
     {
         const uint spotlightTextureHash = 0x06A567C0u;
@@ -197,7 +197,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
                             pixel.B != byte.MaxValue);
     }
 
-    [Fact]
+    [CorpusFact]
     public void L5A1_EnvironmentVisibilityDoesNotSuppressPlacedObjectBankGeometry()
     {
         var wadPath = paths.FindSampleFile(BuildName, "CD.WAD");
@@ -241,7 +241,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         Assert.Equal(PlacedObjectTriangles(document), PlacedObjectTriangles(shown));
     }
 
-    [Fact]
+    [CorpusFact]
     public void L2A1_FromCdWad_GatesWhatIfEasterEggPropsBehindDisabledGroup()
     {
         var wadPath = paths.FindSampleFile(BuildName, "CD.WAD");
@@ -286,7 +286,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
             group => group.Id == whatIf.Id).IsEnabled);
     }
 
-    [Fact]
+    [CorpusFact]
     public void L1A2_FromCdWad_RendersTheWatcherApparitionAsGhostGeometry()
     {
         var wadPath = paths.FindSampleFile(BuildName, "CD.WAD");
@@ -340,7 +340,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         Assert.Equal(document.TriangleCount + 196, shown.TriangleCount);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Lda3_FromCdWad_DecodesEveryBillboardPaletteKeySlot()
     {
         const uint billboardTextureHash = 0x856A83ABu;
@@ -395,7 +395,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
             pixel.A != 0 && pixel.R == byte.MaxValue && pixel.G == 0 && pixel.B == byte.MaxValue);
     }
 
-    [Fact]
+    [CorpusFact]
     public void L1A4_FromCdWad_MultipleRestartsKeepRoomGeometryVisible()
     {
         var wadPath = paths.FindSampleFile(BuildName, "CD.WAD");
@@ -443,7 +443,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         Assert.Equal(5416, document.TriangleCount);
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("firedome.psx", 60)]
     [InlineData("torch.psx", 273)]
     public void SurfaceEffects_FromCdWad_ApplyTag6BaseUvs(
@@ -525,7 +525,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
                 PsxAnimatedVertexColor1Texture1.MotionAttributeName) != null);
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("firedome.psx", 7)]
     [InlineData("l1a4_g.psx", 60)]
     public void PulsingColours_FromCdWad_BakeAuthoredInitialPhase(
@@ -586,7 +586,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void ItemsQuestionMark_FromCdWad_BakesStoredBlueColourPulse()
     {
         const uint questionMarkMeshHash = 0x7F648179u;
@@ -662,7 +662,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         AssertDocumentContainsColor(document, expectedLinearQuestionColor);
     }
 
-    [Fact]
+    [CorpusFact]
     public void L2A1_FromCdWad_ClassifiesOpaqueOrderingTableOverlays()
     {
         var wadPath = paths.FindSampleFile(BuildName, "CD.WAD");
@@ -690,7 +690,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         Assert.Contains(new PsxFaceInstanceKey(47, 0), overlays);
     }
 
-    [Fact]
+    [CorpusFact]
     public void SymDark_FromCdWad_UsesDisplayRgbForUntexturedGouraudFaces()
     {
         var wadPath = paths.FindSampleFile(BuildName, "CD.WAD");
@@ -818,7 +818,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
             PsxGeometryHelpers.DisplayRgbToLinear(colors.C1));
     }
 
-    [Fact]
+    [CorpusFact]
     public void L7A3_FromCdWad_BlendsOnlyRailingTextureStpPixels()
     {
         const uint railingTextureHash = 0x44DB120Eu;
@@ -878,7 +878,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         Assert.Equal(2638, cutoutPixels.Count(static pixel => pixel.A == 255));
     }
 
-    [Fact]
+    [CorpusFact]
     public void L1A3_FromCdWad_PreservesAuthoredFlatFluorescentFixtureSides()
     {
         var wadPath = paths.FindSampleFile(BuildName, "CD.WAD");
@@ -931,7 +931,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         Assert.Equal(1f, untextured.BaseColor.W);
     }
 
-    [Fact]
+    [CorpusFact]
     public void PcL1A1_FromDataPkr_UsesRgbPaletteForV6GouraudColors()
     {
         var pkrPath = paths.FindSampleFile(PcBuildName, "data.pkr");
@@ -988,7 +988,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
             PsxGeometryHelpers.DisplayRgbToLinear(flatColor));
     }
 
-    [Fact]
+    [CorpusFact]
     public void PcJameson_FromDataPkr_UsesRuntimeLightingInsteadOfRgbPalette()
     {
         var pkrPath = paths.FindSampleFile(PcBuildName, "data.pkr");
@@ -1077,7 +1077,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         Assert.Equal(Vector4.One, colors.C3);
     }
 
-    [Fact]
+    [CorpusFact]
     public void PcL2A1_FromDataPkr_PreservesWidenedBaseUvsAndNativeScrollScale()
     {
         var pkrPath = paths.FindSampleFile(PcBuildName, "data.pkr");
@@ -1137,7 +1137,7 @@ public sealed class SpiderManPsxArchiveMeshRegressionTests(TestPaths paths)
         Assert.True(animatedVertices.Select(static vertex => vertex.TexCoord).Distinct().Count() > 4);
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData(BuildName, "CD.WAD", 0x04, 0x4AF40103u, 32)]
     [InlineData(PcBuildName, "data.pkr", 0x06, 0x224DF7AFu, 40)]
     public void L2a1Antenna_FromArchive_PreservesConnectedAuthoredTriangles(

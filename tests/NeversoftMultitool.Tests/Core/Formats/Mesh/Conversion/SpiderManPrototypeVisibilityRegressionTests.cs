@@ -16,7 +16,7 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
     private const string GeometryEntryName = "l1a2_g.psx";
     private const string ObjectEntryName = "l1a2_o.psx";
 
-    [Fact]
+    [CorpusFact]
     public void L1A2_GeometryEntry_AssemblesLevelObjectCompanion()
     {
         var fixture = OpenFixture();
@@ -112,7 +112,7 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
         Assert.All(combined.VisibilityGroups, static group => Assert.True(group.IsEnabled));
     }
 
-    [Fact]
+    [CorpusFact]
     public void L1A2_GeometryEntry_CanExcludeLevelObjectCompanion()
     {
         var fixture = OpenFixture();
@@ -133,7 +133,7 @@ public sealed class SpiderManPrototypeVisibilityRegressionTests(TestPaths paths)
             static node => node.Name.StartsWith("objects_", StringComparison.Ordinal));
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData(ObjectCompanionBehavior.Missing)]
     [InlineData(ObjectCompanionBehavior.Malformed)]
     [InlineData(ObjectCompanionBehavior.ReadFailure)]

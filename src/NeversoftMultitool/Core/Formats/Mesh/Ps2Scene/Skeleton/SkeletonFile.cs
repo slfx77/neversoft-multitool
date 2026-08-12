@@ -181,6 +181,13 @@ public static class SkeletonFile
             var tz = r.ReadSingle();
             _ = r.ReadSingle(); // W (unused)
 
+            if (!float.IsFinite(qx) || !float.IsFinite(qy) || !float.IsFinite(qz) || !float.IsFinite(qw) ||
+                !float.IsFinite(tx) || !float.IsFinite(ty) || !float.IsFinite(tz))
+            {
+                throw new InvalidDataException(
+                    $"Bone {i} neutral pose contains non-finite values");
+            }
+
             // QuatVecToMatrix conjugates the quaternion (see Ps2SkeletonFile.cs)
             var quat = Quaternion.Conjugate(new Quaternion(qx, qy, qz, qw));
             var translation = new Vector3(tx, ty, tz);

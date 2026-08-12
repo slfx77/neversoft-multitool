@@ -174,7 +174,7 @@ public sealed class PsxPowerupPlacementResolverTests(TestPaths paths)
         Assert.Equal(WebCartridge, items.MeshNameHashes[items.Objects[entry.Key].MeshIndex]);
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("Spider-Man (2000-2-18, PSX - Prototype)")]
     [InlineData("Spider-Man (2000-4-29, PSX - Prototype)")]
     [InlineData("Spider-Man (2000-6-12, PSX - Prototype)")]

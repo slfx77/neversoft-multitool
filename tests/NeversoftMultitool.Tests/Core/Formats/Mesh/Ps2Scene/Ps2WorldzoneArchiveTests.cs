@@ -24,7 +24,7 @@ public sealed class Ps2WorldzoneArchiveTests(TestPaths paths)
                 ThawPs2Build,
                 "DATAP.WAD");
 
-    [Fact]
+    [CorpusFact]
     public void WadNestedWorldzonePak_IsDetectedAndConvertsWithTextures()
     {
         Assert.SkipWhen(!File.Exists(WadPath), "THAW PS2 DATAP.WAD sample not available");

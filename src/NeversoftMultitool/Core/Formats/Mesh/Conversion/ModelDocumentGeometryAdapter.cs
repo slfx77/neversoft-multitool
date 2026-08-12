@@ -192,6 +192,9 @@ internal static class ModelDocumentGeometryAdapter
 
     internal static bool IsDegenerate(Vector3 a, Vector3 b, Vector3 c)
     {
+        if (!IsFinite(a) || !IsFinite(b) || !IsFinite(c))
+            return true;
+
         const float epsilon = 1e-8f;
         if (Vector3.DistanceSquared(a, b) <= epsilon ||
             Vector3.DistanceSquared(b, c) <= epsilon ||
@@ -202,6 +205,9 @@ internal static class ModelDocumentGeometryAdapter
 
         var cross = Vector3.Cross(b - a, c - a);
         return cross.LengthSquared() <= epsilon;
+
+        static bool IsFinite(Vector3 value) =>
+            float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
     }
 
     internal static (Vector3, Vector3, Vector3) SortedTriangleKey(Vector3 a, Vector3 b, Vector3 c)

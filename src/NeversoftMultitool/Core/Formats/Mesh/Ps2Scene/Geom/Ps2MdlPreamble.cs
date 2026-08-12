@@ -286,19 +286,18 @@ public static class Ps2MdlPreamble
         public ObjectTrailer? Trailer { get; init; }
 
         /// <summary>
-        ///     0x50-byte preamble records that carry per-class rotation + local size for worldzone
-        ///     object placement. Keyed by byte offset within the MDL so worldzone placement items
-        ///     (Ps2ObjectPlacementFile.PlacementItem.Field_44) can look up records directly.
+        ///     0x50-byte preamble records retained by byte offset within the canonical MDL. The former
+        ///     claim that <c>.rnb</c> placement items address these records came from pre-fix PAK
+        ///     mis-slices and is superseded.
         /// </summary>
         public IReadOnlyDictionary<int, PreambleRecord> Records { get; init; }
             = new Dictionary<int, PreambleRecord>();
     }
 
     /// <summary>
-    ///     Per-class record stored in the MDL preamble at a 0x50-byte stride. Signature
-    ///     0x4B189680 sits at record+0x18. The 4-floats at +0x20..+0x2C form a unit quaternion
-    ///     multiplied by a scalar magnitude; normalizing yields the object's rotation.
-    ///     Full format reference: docs/formats/thaw-worldzone-record-layout.md
+    ///     Record stored in the MDL preamble at a 0x50-byte stride. Signature 0x4B189680 sits at
+    ///     record+0x18. The 4-floats at +0x20..+0x2C normalize as a quaternion, but their former
+    ///     connection to <c>.rnb</c> placement items is superseded.
     /// </summary>
     public sealed record PreambleRecord
     {

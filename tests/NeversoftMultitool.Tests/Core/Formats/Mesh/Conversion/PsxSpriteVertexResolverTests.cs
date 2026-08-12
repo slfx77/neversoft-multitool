@@ -121,7 +121,7 @@ public sealed class PsxSpriteVertexResolverTests(TestPaths paths)
         AssertResolves(resolver, 7, new Vector3(40f, 5f, 0f));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Thps2Skph_KnownSpriteMeshExpandsToItsAuthoredWidth()
     {
         var path = paths.SampleBuildsDir is null

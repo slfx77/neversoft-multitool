@@ -263,7 +263,17 @@ internal static class RwGeometryWriter
             globalBind[i] = bind;
         }
 
-        var skeleton = new ModelSkeleton { Name = "skeleton" };
+        // Keep the export-only Z-up -> Y-up conversion above the animated bone
+        // tree. THPS3 animation channels replace a bone's authored local TRS,
+        // baking this rotation into bone 0 would therefore either lose the
+        // conversion or force the animation itself to absorb a non-runtime
+        // transform. A synthetic skeleton root preserves the same bind-world
+        // matrices while leaving the THPS3 local channels source-faithful.
+        var skeleton = new ModelSkeleton
+        {
+            Name = "skeleton",
+            RootTransform = RwDffZupToYupRotation
+        };
         for (var i = 0; i < skin.NumBones; i++)
         {
             var parent = parentIndex[i];
@@ -276,9 +286,7 @@ internal static class RwGeometryWriter
             }
             else
             {
-                // Root bones: pre-multiply by Z-up → Y-up rotation so the whole skeleton
-                // (and thus the skinned mesh) is rotated at bind pose without touching IBMs.
-                local = globalBind[i] * RwDffZupToYupRotation;
+                local = globalBind[i];
             }
 
             skeleton.Bones.Add(new ModelBone

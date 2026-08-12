@@ -30,7 +30,7 @@ public sealed class PsxArchiveTextureResolutionTests(TestPaths paths)
         Assert.True(candidates.IndexOf("int2_lib") < candidates.IndexOf("int_lib"));
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("city_1")]
     [InlineData("int_3")]
     [InlineData("death_1")]
@@ -70,7 +70,7 @@ public sealed class PsxArchiveTextureResolutionTests(TestPaths paths)
         Assert.All(usedTextureHashes, hash => Assert.Contains(hash, embeddedTextureHashes));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Thps1Skware_FromWad_PreservesUntexturedAdditivePlanes()
     {
         var wadPath = paths.FindSampleFile(Thps1Build, "CD.WAD");
@@ -106,7 +106,7 @@ public sealed class PsxArchiveTextureResolutionTests(TestPaths paths)
         Assert.Contains(additiveVertices, static vertex => vertex.Color.W < 1f);
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData(0x52158AD3u, 73)] // truck: wt*.bmp authored mask
     [InlineData(0x59BD3DD8u, 72)] // wheel: w_*.bmp authored mask
     public void Thps1Hawk_FromWad_AppliesAuthoredEquipmentCutout(

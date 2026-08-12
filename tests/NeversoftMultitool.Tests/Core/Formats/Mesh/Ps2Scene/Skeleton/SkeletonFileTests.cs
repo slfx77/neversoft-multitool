@@ -68,7 +68,7 @@ public sealed class SkeletonFileTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllThps4SkeFiles_NoneThrow()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -124,7 +124,7 @@ public sealed class SkeletonFileTests(TestPaths paths)
             "Expected at least some bones with non-identity poses");
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllThugSkeFiles_NoneThrow()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

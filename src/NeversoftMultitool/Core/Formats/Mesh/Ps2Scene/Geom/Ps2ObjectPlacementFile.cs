@@ -4,11 +4,12 @@ using System.Numerics;
 namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 
 /// <summary>
-///     Parser for THAW PS2 worldzone object-placement PAK entries (file type hash 0x91E1028D).
-///     Each file holds a chain of blocks, where each block encodes one placed object as a pair of
-///     items (render-side + scene-side). Item 0's bbox fields give the world-space AABB; its
-///     +0x44 field is a byte offset into the preceding .mdl's preamble record table.
-///     Full format reference: docs/formats/thaw-worldzone-record-layout.md
+///     Legacy experimental parser for byte slices once attributed to THAW PS2 <c>.rnb</c> entries
+///     (type hash 0x91E1028D). The 2026-08-11 archive audit proved those slices began at unresolved,
+///     pre-fix PAK offsets inside preceding entries; canonical header-relative <c>.rnb</c> payloads
+///     reject this grammar. Production worldzone instancing uses QB NodeArrays through
+///     <c>Ps2WorldzoneQbObjectResolver</c> and does not call this parser. Retained only as an explicit
+///     fail-static record of the superseded grammar.
 /// </summary>
 public static class Ps2ObjectPlacementFile
 {
@@ -20,9 +21,9 @@ public static class Ps2ObjectPlacementFile
     private const int MaxCountPerBlock = 100;
 
     /// <summary>
-    ///     Parse a .91E1028D PAK entry as a chain of placement blocks.
-    ///     Returns false with a populated <paramref name="skipReason" /> for outlier variants (dense
-    ///     float data, degenerate-header dumps, or anything else that doesn't parse as a block chain).
+    ///     Test a byte slice against the superseded pre-fix block-chain grammar. Canonical
+    ///     <c>.rnb</c> payloads are expected to return false with a populated
+    ///     <paramref name="skipReason" />.
     /// </summary>
     public static bool TryParse(byte[] data, out ObjectPlacementFile? result, out string skipReason)
     {
@@ -103,7 +104,7 @@ public static class Ps2ObjectPlacementFile
     {
         var span = data.AsSpan(offset);
 
-        // PS2 interleaved AABB layout (per docs/formats/thaw-worldzone-record-layout.md):
+        // Superseded mis-slice interpretation of an interleaved AABB layout:
         //   +0x20 min_x, +0x24 min_y, +0x28 max_z
         //   +0x2C max_x, +0x30 max_y, +0x34 min_z
         var minX = BinaryPrimitives.ReadSingleLittleEndian(span[0x20..]);
@@ -136,7 +137,7 @@ public static class Ps2ObjectPlacementFile
         public required IReadOnlyList<PlacementItem> Items { get; init; }
 
         /// <summary>
-        ///     World-space AABB center derived from item 0's bbox. Empty when the block has no items.
+        ///     Center derived under the legacy item-0 AABB interpretation. Empty when the block has no items.
         /// </summary>
         public Vector3 AabbCenter => Items.Count > 0
             ? (Items[0].BboxMin + Items[0].BboxMax) * 0.5f
@@ -147,26 +148,25 @@ public static class Ps2ObjectPlacementFile
     {
         public required int Offset { get; init; }
 
-        /// <summary>World-space bbox minimum corner. Only meaningful for item 0 of each block.</summary>
+        /// <summary>Legacy interpretation of the item-0 minimum corner.</summary>
         public required Vector3 BboxMin { get; init; }
 
-        /// <summary>World-space bbox maximum corner. Only meaningful for item 0 of each block.</summary>
+        /// <summary>Legacy interpretation of the item-0 maximum corner.</summary>
         public required Vector3 BboxMax { get; init; }
 
         /// <summary>
-        ///     Flag word at item+0x40. High byte encoded build-tool discriminator; bits 0x10/0x200/0x400 control
-        ///     post-processing.
+        ///     Opaque word at item+0x40 in the superseded byte-slice grammar.
         /// </summary>
 #pragma warning disable CA1707 // Unknown binary fields retain their hexadecimal byte offsets in their names.
         public required uint Field_40 { get; init; }
 
         /// <summary>
-        ///     For item 0: byte offset into the preceding .mdl preamble (looks up a PreambleRecord).
-        ///     For item 1: a class/instance hash.
+        ///     Legacy interpretation: item 0 pointed into the preceding mis-sliced MDL bytes and
+        ///     item 1 was treated as a class/instance hash.
         /// </summary>
         public required uint Field_44 { get; init; }
 
-        /// <summary>Class/instance hash. Item 0 holds a render-side class hash; item 1 typically holds 0xFFFFFFFF.</summary>
+        /// <summary>Legacy class/instance-hash interpretation.</summary>
         public required uint Field_4C { get; init; }
 #pragma warning restore CA1707
     }

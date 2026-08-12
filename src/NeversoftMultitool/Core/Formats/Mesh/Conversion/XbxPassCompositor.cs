@@ -123,7 +123,8 @@ internal static class XbxPassCompositor
                 // A higher-resolution overlay (e.g. a tattoo sheet over a low-res
                 // body base) would lose its detail sampled down — upscale the
                 // base canvas first instead.
-                if (overlay.Width > canvas.Width && overlay.Height > canvas.Height)
+                if (overlay.Width >= canvas.Width && overlay.Height >= canvas.Height &&
+                    (overlay.Width > canvas.Width || overlay.Height > canvas.Height))
                     canvas.Mutate(op => op.Resize(overlay.Width, overlay.Height));
 
                 BlendOverlayOntoCanvas(canvas, overlay, pass);

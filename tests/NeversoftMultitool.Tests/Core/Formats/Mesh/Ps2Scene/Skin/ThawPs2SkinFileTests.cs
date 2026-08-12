@@ -42,7 +42,7 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         Assert.False(ThawPs2SkinFile.IsThawPs2Skin(data));
     }
 
-    [Fact]
+    [CorpusFact]
     public void IsThawPs2Skin_WithThawFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -55,7 +55,7 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
 
     // ── Parsing ──
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("acc_backpack01.skin.ps2", 1, 168)] // PC: 168 — exact match
     [InlineData("skater_hawk.skin.ps2", 1, 3460)] // PC: 3463 (3 degenerate); unique non-degen: 3460 — exact
     [InlineData("skater_lasek.skin.ps2", 2, 3070)] // PC: 3070 — exact replay parity
@@ -81,7 +81,7 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         Assert.Equal(expectedTriangles, triangles);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_SkaterLasek_MatchesPcUniquePositions()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -97,13 +97,13 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         Assert.Equal(CountUniquePositions(pcScene), CountUniquePositions(ps2Scene));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_SkaterLasek_MatchesPcMaterialPositionCoverage()
     {
         AssertPs2MaterialPositionParity(paths, ThawPs2Build, ThawPcBuild, "skater_lasek");
     }
 
-    [Fact]
+    [CorpusFact]
     public void DiscoverThawSkeleton_SkaterLasek_FindsThps6Human()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -116,7 +116,7 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         Assert.EndsWith("thps6_human.ske.ps2", skeletonPath, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
+    [CorpusFact]
     public void DiscoverThawSkeleton_ProVallelyHead_FindsLegacyHeadSkeleton()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -129,7 +129,7 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         Assert.EndsWith("vallely_head.ske.ps2", skeletonPath, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ApplyPcSkinning_SkaterLasek_TransfersSkinDataOntoPs2Vertices()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -161,7 +161,7 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         });
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_SkaterHawk_DocumentsLegacySiblingMaterialSplitDivergence()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -185,7 +185,7 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         Assert.Equal([0x18717437u, 0x18717445u, 0x4D6C149Fu, 0x9F1F8203u], ps2OnlyMaterials);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_ProVallelyHead_DocumentsPcOnlyMaterialDivergence()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -210,19 +210,19 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         Assert.Equal(54, CountMissingPositions(pcByMaterial[0x02EA21B0], new HashSet<Vector3>()));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_SecJimbo_MatchesPcMaterialPositionCoverage()
     {
         AssertPs2MaterialPositionParity(paths, ThawPs2Build, ThawPcBuild, "sec_jimbo");
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_SecJimboXen_MatchesPcMaterialPositionCoverage()
     {
         AssertPs2MaterialPositionParity(paths, ThawPs2Build, ThawPcBuild, "sec_jimbo_xen");
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_ThawSkinFiles_PopulatesAlphaRefsFromDirectTestRegisters()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -244,7 +244,7 @@ public sealed class ThawPs2SkinFileTests(TestPaths paths)
         Assert.Equal(1, hawkByChecksum[0xC9B52576].AlphaRef);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AccBackpack01_HasReasonablePositions()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

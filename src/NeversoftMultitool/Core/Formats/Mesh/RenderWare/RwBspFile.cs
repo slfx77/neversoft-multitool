@@ -24,18 +24,36 @@ public static class RwBspFile
 
     public static RwBspWorld Parse(byte[] data)
     {
+        if (data.Length < 12)
+            throw new InvalidDataException("RW World header is truncated");
+
         var offset = 0;
         var (type, size, _) = ReadChunkHeader(data, ref offset);
         if (type != RW_WORLD)
             throw new InvalidDataException($"Not an RW World (got 0x{type:X4})");
 
-        var worldEnd = offset + (int)size;
+        // Some shipped worlds over-declare the outer container while still carrying a
+        // complete, usable prefix. Preserve that salvage behavior, but never let the
+        // declared extent move child parsing beyond the physical buffer.
+        var worldEnd = (int)Math.Min((long)offset + size, data.Length);
 
         // World STRUCT: 52 bytes for version 0x0310
         if (!TryReadStruct(data, ref offset, worldEnd, out _, out var structSize))
             throw new InvalidDataException("Missing World Struct");
 
         var structStart = offset;
+        if (structSize < 52)
+        {
+            throw new InvalidDataException(
+                $"World Struct is {structSize} bytes; expected at least 52");
+        }
+
+        if ((long)structSize > worldEnd - structStart)
+        {
+            throw new InvalidDataException(
+                $"World Struct declares {structSize} bytes beyond the World payload");
+        }
+
         // offset+4: invWorldOrigin (3 floats) — skip
         // offset+16: surfaceProperties (3 floats) — skip
         var numTriangles = BitConverter.ToInt32(data, structStart + 28);

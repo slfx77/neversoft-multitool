@@ -31,7 +31,7 @@ public sealed class PsxColourPulseBakeTests(TestPaths paths)
         Assert.Equal(expected, PsxMeshSemantics.IsLevelObjectBankName(fileName));
     }
 
-    [Fact]
+    [CorpusFact]
     public void LevelObjectBank_KeepsRawPaletteWhenBakeDisabled()
     {
         var bytes = ReadSample("l1a1_o.psx");
@@ -56,7 +56,7 @@ public sealed class PsxColourPulseBakeTests(TestPaths paths)
         Assert.Equal(6, baked.ColourPulses.Count);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ItemFile_BakesPulseOverBlackSerializedPalette()
     {
         var bytes = ReadSample("items.psx");

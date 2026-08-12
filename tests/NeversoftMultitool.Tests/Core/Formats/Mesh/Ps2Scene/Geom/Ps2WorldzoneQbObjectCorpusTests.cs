@@ -179,7 +179,7 @@ public sealed class Ps2WorldzoneQbObjectCorpusTests(TestPaths paths, ITestOutput
             metadata => mappedMdlNames.Contains(metadata.MdlName));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Resolve_AllThawPs2Worldzones_PinsProvenCompactObjectCensus()
     {
         var pakPaths = paths.FindSampleFiles(ThawPs2Build, "*.pak.ps2")

@@ -94,7 +94,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
             Assert.True(Vector3.Dot(frames[index - 1].Normal, frames[index].Normal) > 0f);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Carnage_FromCdWad_TreatsAxeHandsAsAlternateMeshes()
     {
         using var fixture = OpenArchiveEntry("carnage.psx");
@@ -161,7 +161,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
             axeDocument.TriangleCount);
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("scorpion.psx", 1, 17)]
     [InlineData("docock.psx", 4, 18)]
     [InlineData("superock.psx", 4, 17)]
@@ -189,7 +189,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
             chains.SelectMany(static chain => chain.ObjectIndices));
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData(BuildName, "CD.WAD", 16)]
     [InlineData(PcBuildName, "data.pkr", 0)]
     public void ScorpionSplineDiscovery_UsesAnimatedEndpointRelationship_NotMeshChecksum(
@@ -215,7 +215,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
             file.Objects[expectedTipObjectIndex].ParentIndex);
     }
 
-    [Fact]
+    [CorpusFact]
     public void PrototypeLizardSplineCandidate_HasNoAnimationPairedEndpoint()
     {
         using var fixture = OpenArchiveEntry(
@@ -231,7 +231,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
             file!, fixture.Source, bytes));
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("control.psx")]
     [InlineData("carnage.psx")]
     [InlineData("spidey.psx")]
@@ -246,7 +246,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
         Assert.Empty(PsxSplineAppendageGeometry.FindControllerChains(file!));
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("scorpion.psx", 1, 762)]
     [InlineData("docock.psx", 4, 1496)]
     [InlineData("superock.psx", 4, 1536)]
@@ -446,7 +446,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void PcDocOck_FromDataPkr_OrientsClawProngsAlongTentacleTangent()
     {
         using var fixture = OpenArchiveEntry(
@@ -538,7 +538,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
         Assert.True(Vector3.Dot(Vector3.Cross(transformedX, transformedY), transformedZ) > 0.999f);
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("scorpion.psx")]
     [InlineData("docock.psx")]
     [InlineData("superock.psx")]
@@ -572,7 +572,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
             controllerObject => Assert.DoesNotContain(controllerObject, weightedJoints));
     }
 
-    [Fact]
+    [CorpusFact]
     public void L8a4_FromCdWad_PreservesButInitiallyHidesKevinWhatIfGeometry()
     {
         using var fixture = OpenArchiveEntry("l8a4_g.psx");
@@ -694,7 +694,7 @@ public sealed class PsxArticulatedGeometryRegressionTests(TestPaths paths)
             allAuthoredGeometry.TriangleCount);
     }
 
-    [Fact]
+    [CorpusFact]
     public void L1a1_FromCdWad_ExposesInitiallyHiddenWhatIfSign()
     {
         using var fixture = OpenArchiveEntry("l1a1_g.psx");

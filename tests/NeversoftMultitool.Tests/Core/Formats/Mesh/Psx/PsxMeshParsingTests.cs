@@ -7,7 +7,7 @@ public sealed class PsxMeshParsingTests(TestPaths paths)
 {
     // ── Parse tests (Xbox PSX files — version 0x04) ───────────────────
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     [InlineData("hawk2.PSX")]
@@ -30,7 +30,7 @@ public sealed class PsxMeshParsingTests(TestPaths paths)
         Assert.Equal(result.Meshes.Count, result.MeshNameHashes.Length);
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("ring.psx")]
     [InlineData("bits.psx")]
     [InlineData("items.psx")]
@@ -53,7 +53,7 @@ public sealed class PsxMeshParsingTests(TestPaths paths)
 
     // ── Mesh content validation ───────────────────────────────────────
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     [InlineData("hawk2.PSX")]
@@ -92,7 +92,7 @@ public sealed class PsxMeshParsingTests(TestPaths paths)
         }
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     public void Parse_Xbox_ObjectMeshIndicesAreValid(string filename)
@@ -112,7 +112,7 @@ public sealed class PsxMeshParsingTests(TestPaths paths)
 
     // ── Texture hash consistency ──────────────────────────────────────
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     public void Parse_Xbox_TextureHashesMatchPsxLibrary(string filename)
@@ -183,7 +183,7 @@ public sealed class PsxMeshParsingTests(TestPaths paths)
 
     // ── Mesh name hash resolution ─────────────────────────────────────
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     public void Parse_Xbox_MeshNameHashesMatchPsxLibrary(string filename)
@@ -209,7 +209,7 @@ public sealed class PsxMeshParsingTests(TestPaths paths)
 
     // ── Character model vertex type validation ────────────────────────
 
-    [Fact]
+    [CorpusFact]
     public void Parse_Xbox_Hawk2_VertexTypesAreValidBitmasks()
     {
         Assert.SkipWhen(!paths.HasTestData, "Test data not available");
@@ -243,7 +243,7 @@ public sealed class PsxMeshParsingTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_Xbox_Hawk2_StitchedVerticesUseDeferredResolution()
     {
         Assert.SkipWhen(!paths.HasTestData, "Test data not available");

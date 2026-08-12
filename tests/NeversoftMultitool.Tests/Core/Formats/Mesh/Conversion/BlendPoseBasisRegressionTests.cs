@@ -121,7 +121,7 @@ public sealed class BlendPoseBasisRegressionTests(TestPaths paths)
         Assert.Contains("child", exception.Message);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Export_Blend_RealThps4Walk_MatchesGlbPose()
     {
         var helperPath = Environment.GetEnvironmentVariable("NEVERSOFT_BLENDER_HELPER");

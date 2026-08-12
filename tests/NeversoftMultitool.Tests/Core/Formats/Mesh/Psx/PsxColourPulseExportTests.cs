@@ -62,7 +62,7 @@ public class PsxColourPulseExportTests
     ///     the shared-clock bug: pulse bindings are present, but no primitive
     ///     has UV-wibble data to keep the old clock moving.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void Export_L1A1ObjectBank_IsPulseOnlySurfaceAnimation()
     {
         var document = ParsePulsedBank();
@@ -83,7 +83,7 @@ public class PsxColourPulseExportTests
             static primitive => primitive.Vertices.Any(static vertex => vertex.TextureWibble.HasValue));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Export_PublishesTheChannelTableAsSceneExtras()
     {
         using var json = ParseGlbJson(ExportPulsedBank());
@@ -110,7 +110,7 @@ public class PsxColourPulseExportTests
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Export_TagsPulsedMeshesWithMeshExtras()
     {
         using var json = ParseGlbJson(ExportPulsedBank());
@@ -129,7 +129,7 @@ public class PsxColourPulseExportTests
     ///     COLOR/TEXCOORD carriers so Blender never sees a custom-name set to
     ///     mis-zip against append-ordered arrays.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void Export_AddsNoNewCustomVertexAttribute()
     {
         using var json = ParseGlbJson(ExportPulsedBank());
@@ -157,7 +157,7 @@ public class PsxColourPulseExportTests
                 1));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Export_FlagsAndPulseAttributeIsNormalizedUshortVec4()
     {
         using var json = ParseGlbJson(ExportPulsedBank());
@@ -182,7 +182,7 @@ public class PsxColourPulseExportTests
     ///     mis-keyed dedup, a wrong palette binding, or a bad lane decode all fail
     ///     here and nowhere else.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void Export_Frame0OfEveryChannel_EqualsTheBakedVertexColour()
     {
         var glb = ExportPulsedBank();

@@ -9,7 +9,7 @@ public sealed class RwDffFileTests(TestPaths paths)
 
     // ── IsDffFile ──
 
-    [Fact]
+    [CorpusFact]
     public void IsDffFile_ValidSknFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -34,7 +34,7 @@ public sealed class RwDffFileTests(TestPaths paths)
 
     // ── Parse known files ──
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("Bird_A.SKN")]
     [InlineData("Bird_B.SKN")]
     [InlineData("Crowd_A.SKN")]
@@ -51,7 +51,7 @@ public sealed class RwDffFileTests(TestPaths paths)
         Assert.NotEmpty(clump.Frames);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_BirdA_HasExpectedGeometry()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -67,7 +67,7 @@ public sealed class RwDffFileTests(TestPaths paths)
         Assert.True(geom.UVs.Length > 0, "Should have UVs");
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_BirdA_HasMaterialsWithTextureNames()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -82,7 +82,7 @@ public sealed class RwDffFileTests(TestPaths paths)
         Assert.Contains(geom.Materials, m => !string.IsNullOrEmpty(m.TextureName));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_BirdA_AtomicLinksValid()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -100,7 +100,7 @@ public sealed class RwDffFileTests(TestPaths paths)
 
     // ── Vertex data validation ──
 
-    [Fact]
+    [CorpusFact]
     public void Parse_BirdA_VerticesAreFinite()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -129,7 +129,7 @@ public sealed class RwDffFileTests(TestPaths paths)
     // (surface-property skip, PRELIT block, UV-set count) fails loudly instead of
     // silently re-pairing UVs.
 
-    [Theory]
+    [CorpusTheory]
     // pedestrian_a_LOD02.skn: 190 verts; first / middle / last vertex.
     [InlineData("pedestrian_a_LOD02.skn", 190, 0, 7.593017578125f, -6.6396074295043945f, -0.7926748991012573f,
         0.8252797722816467f, 0.4846044182777405f)]
@@ -166,7 +166,7 @@ public sealed class RwDffFileTests(TestPaths paths)
         Assert.Equal(v, geom.UVs[index].Y);
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("pedestrian_a.skn")]
     [InlineData("pedestrian_a_LOD01.skn")]
     [InlineData("pedestrian_a_LOD02.skn")]
@@ -237,7 +237,7 @@ public sealed class RwDffFileTests(TestPaths paths)
 
     // ── glTF output ──
 
-    [Fact]
+    [CorpusFact]
     public void Write_BirdA_ProducesValidGlb()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -262,7 +262,7 @@ public sealed class RwDffFileTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Write_BirdA_WithTextures_ProducesLargerGlb()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

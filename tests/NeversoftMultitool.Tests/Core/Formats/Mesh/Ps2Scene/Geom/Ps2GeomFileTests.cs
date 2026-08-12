@@ -7,24 +7,13 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Geom;
 
 public sealed class Ps2GeomFileTests(TestPaths paths)
 {
-    private const string ThawPs2Build = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
-
-    private string? GetThawPakDir()
-    {
-        if (!paths.HasSampleBuilds) return null;
-        var dir = Path.Combine(paths.SampleBuildsDir!,
-            "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)", "PAK");
-        return Directory.Exists(dir) ? dir : null;
-    }
+    private const string BuildName = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
 
     [Fact]
     public void ParsePakMdl_ExtractedHollywoodZoneModel_ParsesSubstantialGeometry()
     {
-        var pakDir = GetThawPakDir();
-        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
-
-        var pakPath = Path.Combine(pakDir!, "z_ho.pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), "z_ho.pak.ps2 not found");
+        var pakPath = paths.FindSampleFile(BuildName, "z_ho.pak.ps2");
+        Assert.SkipWhen(pakPath is null, "z_ho.pak.ps2 not found");
 
         var tempDir = Path.Combine(Path.GetTempPath(),
             "NsMultitool_Test_ZHo_" + Guid.NewGuid().ToString("N")[..8]);
@@ -32,11 +21,11 @@ public sealed class Ps2GeomFileTests(TestPaths paths)
         try
         {
             Directory.CreateDirectory(tempDir);
-            PakArchive.ExtractFiles(pakPath, tempDir, token: TestContext.Current.CancellationToken);
+            PakArchive.ExtractFiles(pakPath!, tempDir, token: TestContext.Current.CancellationToken);
 
             var extractedDir = Path.Combine(tempDir, "z_ho.pak");
             var mdlPath = Directory.GetFiles(extractedDir, "*.mdl", SearchOption.TopDirectoryOnly)
-                .Single(path => Path.GetFileName(path).Equals("003B9540.mdl", StringComparison.OrdinalIgnoreCase));
+                .Single(path => Path.GetFileName(path).Equals("003BA5E0.mdl", StringComparison.OrdinalIgnoreCase));
 
             var data = File.ReadAllBytes(mdlPath);
             Assert.True(Ps2GeomFile.IsPakMdl(data));
@@ -78,11 +67,8 @@ public sealed class Ps2GeomFileTests(TestPaths paths)
     [Fact]
     public void ParsePakMdl_ExtractedHollywoodZoneModel_PreservesMipRegisters()
     {
-        var pakDir = GetThawPakDir();
-        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
-
-        var pakPath = Path.Combine(pakDir!, "z_ho.pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), "z_ho.pak.ps2 not found");
+        var pakPath = paths.FindSampleFile(BuildName, "z_ho.pak.ps2");
+        Assert.SkipWhen(pakPath is null, "z_ho.pak.ps2 not found");
 
         var tempDir = Path.Combine(Path.GetTempPath(),
             "NsMultitool_Test_ZHoMip_" + Guid.NewGuid().ToString("N")[..8]);
@@ -90,11 +76,11 @@ public sealed class Ps2GeomFileTests(TestPaths paths)
         try
         {
             Directory.CreateDirectory(tempDir);
-            PakArchive.ExtractFiles(pakPath, tempDir, token: TestContext.Current.CancellationToken);
+            PakArchive.ExtractFiles(pakPath!, tempDir, token: TestContext.Current.CancellationToken);
 
             var extractedDir = Path.Combine(tempDir, "z_ho.pak");
             var mdlPath = Directory.GetFiles(extractedDir, "*.mdl", SearchOption.TopDirectoryOnly)
-                .Single(path => Path.GetFileName(path).Equals("003B9540.mdl", StringComparison.OrdinalIgnoreCase));
+                .Single(path => Path.GetFileName(path).Equals("003BA5E0.mdl", StringComparison.OrdinalIgnoreCase));
 
             var scene = Ps2GeomFile.ParsePakMdl(File.ReadAllBytes(mdlPath));
 
@@ -112,7 +98,7 @@ public sealed class Ps2GeomFileTests(TestPaths paths)
     [Fact]
     public void ParsePakMdl_ZBhSmallProps_AreStandardRenderablePakMdls()
     {
-        var pakPath = paths.FindSampleFile(ThawPs2Build, "z_bh.pak.ps2");
+        var pakPath = paths.FindSampleFile(BuildName, "z_bh.pak.ps2");
         Assert.SkipWhen(pakPath == null, "THAW PS2 z_bh.pak.ps2 sample not available");
 
         var expected = new Dictionary<string, (int Size, int Leaves, int Vertices, int Triangles, int Rejections)>(

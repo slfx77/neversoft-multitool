@@ -32,7 +32,7 @@ public sealed class PsxN64ShellFileTests(TestPaths paths)
                 static asset => asset.Data);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_ReadsObjectsAndHierarchy_FromACarvedShell()
     {
         var shells = CarveShells(paths, Thps2N64Build, RomName);
@@ -54,7 +54,7 @@ public sealed class PsxN64ShellFileTests(TestPaths paths)
     ///     bytes to the PS1 reader must fail, or the swap could silently become
     ///     a no-op without any test noticing.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void RawCarvedBytes_AreRejectedByThePs1Reader()
     {
         var shells = CarveShells(paths, Thps2N64Build, RomName);

@@ -11,7 +11,7 @@ public sealed class ThawPs2ReplayTriangleDiagnosticTests(TestPaths paths)
     private const string ThawPs2Build = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
     private const string ThawPcBuild = "Tony Hawk's American Wasteland (2006-2-6, PC - Final)";
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("skater_lasek", 3070)]
     [InlineData("pro_vallely_head", 710)]
     public void Diagnostic_Ps2VsPc_TriangleComparison(string stem, int expectedPcTriangles)

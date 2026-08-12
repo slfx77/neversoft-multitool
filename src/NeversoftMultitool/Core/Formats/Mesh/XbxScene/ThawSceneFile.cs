@@ -104,6 +104,9 @@ public static class ThawSceneFile
         r.BaseStream.Position += 16; // reserved
         r.ReadInt32(); // unk_d
 
+        if (sectorCount < 0)
+            throw new InvalidDataException($"THAW scene sector count {sectorCount} is invalid");
+
         // ── CSectors (48 bytes each) ────────────────────────────────────────
         r.BaseStream.Position = offCSector;
         var sectorChecksums = new uint[sectorCount];

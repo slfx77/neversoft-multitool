@@ -96,8 +96,13 @@ public static class PsxTextureProviderFactory
 
     public static MeshChecksumTextureResolver FromFile(string psxPath)
     {
-        var stem = Path.GetFileNameWithoutExtension(psxPath);
-        var dir = Path.GetDirectoryName(psxPath)!;
+        // Spool_PSX in the THPS2 PSX demo accepts bare relative region names.
+        // Canonicalize once so command-line inputs such as "level.psx" search
+        // their companion libraries in the current directory instead of
+        // passing an empty directory name to Directory.GetFiles.
+        var fullPath = Path.GetFullPath(psxPath);
+        var stem = Path.GetFileNameWithoutExtension(fullPath);
+        var dir = Path.GetDirectoryName(fullPath)!;
         var libraries = new List<string>();
         foreach (var candidate in GetCompanionLibraryStems(stem))
         {
@@ -110,7 +115,7 @@ public static class PsxTextureProviderFactory
         return hash =>
         {
             var result = PsxLibrary.ExtractTextureByHash(
-                psxPath,
+                fullPath,
                 hash,
                 preserveRuntimeSemiTransparency: true);
             for (var i = 0; result == null && i < libraries.Count; i++)

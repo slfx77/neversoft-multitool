@@ -55,13 +55,16 @@ internal static class RwDffDataSections
 
     public static RwSkinData? ParseSkinPlg(byte[] data, int offset, int size)
     {
-        if (size < 8)
+        if (offset < 0 || size < 8 || offset > data.Length - 8)
             return null;
 
         var numBones = BitConverter.ToInt32(data, offset);
         var numVerts = BitConverter.ToInt32(data, offset + 4);
-        var expectedSize = 8 + numVerts * 4 + numVerts * 16 + numBones * 76;
-        if (numBones <= 0 || numBones > 256 || numVerts <= 0 || size < expectedSize)
+        if (numBones <= 0 || numBones > 256 || numVerts <= 0)
+            return null;
+
+        var expectedSize = 8L + (long)numVerts * 4 + (long)numVerts * 16 + (long)numBones * 76;
+        if (expectedSize > size || expectedSize > data.Length - (long)offset)
             return null;
 
         var pos = offset + 8;

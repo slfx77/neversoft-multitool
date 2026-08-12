@@ -110,6 +110,34 @@ public sealed class RwChunkReaderTests
         Assert.Equal(42u, size);
     }
 
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(int.MaxValue)]
+    public void TryReadHelpers_InvalidOffset_ReturnFalseWithoutAdvancing(int invalidOffset)
+    {
+        var data = new byte[12];
+
+        var structOffset = invalidOffset;
+        Assert.False(RwChunkReader.TryReadStruct(
+            data, ref structOffset, int.MaxValue, out var structType, out var structSize));
+        Assert.Equal(invalidOffset, structOffset);
+        Assert.Equal(0u, structType);
+        Assert.Equal(0u, structSize);
+
+        var expectedOffset = invalidOffset;
+        Assert.False(RwChunkReader.TryReadChunk(
+            data, ref expectedOffset, int.MaxValue, RwChunkReader.RW_CLUMP, out var expectedSize));
+        Assert.Equal(invalidOffset, expectedOffset);
+        Assert.Equal(0u, expectedSize);
+
+        var anyOffset = invalidOffset;
+        Assert.False(RwChunkReader.TryReadAnyChunk(
+            data, ref anyOffset, int.MaxValue, out var anyType, out var anySize));
+        Assert.Equal(invalidOffset, anyOffset);
+        Assert.Equal(0u, anyType);
+        Assert.Equal(0u, anySize);
+    }
+
     [Fact]
     public void ReadNullTerminatedString_ReadsCorrectly()
     {
@@ -123,6 +151,16 @@ public sealed class RwChunkReaderTests
     {
         var data = "hello world"u8.ToArray();
         var result = RwChunkReader.ReadNullTerminatedString(data, 0, 5);
+        Assert.Equal("hello", result);
+    }
+
+    [Fact]
+    public void ReadNullTerminatedString_OverflowingMaxLength_StopsAtBufferEnd()
+    {
+        var data = "xhello"u8.ToArray();
+
+        var result = RwChunkReader.ReadNullTerminatedString(data, 1, int.MaxValue);
+
         Assert.Equal("hello", result);
     }
 

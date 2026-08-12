@@ -105,7 +105,7 @@ public sealed class PsxBlendColourPulseTests
             static entry => entry.FullName.EndsWith(".pulse.bin", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [CorpusFact]
     public void BlendPackageWriter_L1A1ObjectBankCarriesMixedPointPulseCodes()
     {
         var path = _paths.FindSampleFile(ProtoBuild, "l1a1_o.psx");
@@ -299,7 +299,7 @@ public sealed class PsxBlendColourPulseTests
         AssertColorsClose(report.BaseColors, report.LateColors, 1e-6f);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Export_Blend_RealPulseFixturesSurviveSavedReopen()
     {
         var helperPath = GetBlenderHelperOrSkip();

@@ -26,12 +26,12 @@ public static class Ps2GeomFile
             throw new InvalidDataException($"File too small: {data.Length} bytes");
 
         var dataSectionOffset = BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(0));
-        if (dataSectionOffset < 0 || dataSectionOffset >= data.Length)
+        if (dataSectionOffset < 0 || dataSectionOffset > data.Length - sizeof(int))
             throw new InvalidDataException($"Invalid data section offset: 0x{dataSectionOffset:X}");
 
         var baseOffset = dataSectionOffset;
         var rootNodeOffset = BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(baseOffset));
-        if (rootNodeOffset < 0 || baseOffset + rootNodeOffset + 80 > data.Length)
+        if (rootNodeOffset < 0 || (long)baseOffset + rootNodeOffset + 80 > data.Length)
             throw new InvalidDataException($"Invalid root node offset: 0x{rootNodeOffset:X}");
 
         var leaves = new List<Ps2GeomLeaf>();

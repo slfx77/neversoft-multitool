@@ -19,7 +19,7 @@ public sealed class Ps2ArchiveMeshTextureResolutionTests(TestPaths paths)
         ? string.Empty
         : Path.Combine(paths.SampleBuildsDir, ThawPs2Build, "DATAP.WAD");
 
-    [Theory]
+    [CorpusTheory]
     [InlineData(
         "skies/cap_shell1_sky/cap_shell1_sky.pak.ps2",
         "00011700.mdl",

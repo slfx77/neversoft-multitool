@@ -77,8 +77,8 @@ public sealed class MeshImportRequest
     ///     Optional exact embedded N64 0x2A/0x2C slot selection. Null or empty
     ///     keeps ordinary export static; a concrete list is used by the GUI
     ///     Animations pane for selected-clip output. N64 animation remains
-    ///     fail-closed when global and placement-relative G_MTX addressing
-    ///     cannot be distinguished conservatively.
+    ///     fail-closed unless geometry proves global G_MTX addressing or a
+    ///     complete payload profile proves placement-relative addressing.
     /// </summary>
     public IReadOnlyList<int>? N64AnimationIndices { get; init; }
 

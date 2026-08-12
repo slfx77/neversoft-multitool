@@ -1,4 +1,6 @@
+using System.Buffers.Binary;
 using System.Numerics;
+using System.Security.Cryptography;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 
@@ -6,97 +8,61 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Geom;
 
 public sealed class Ps2MdlPreambleTests(TestPaths paths)
 {
-    public static IEnumerable<object[]> ObjectMdlCases()
+    private const string BuildName = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
+
+    public static TheoryData<string, string, int, string> CanonicalObjectMdlCases => new()
     {
-        yield return
-        [
-            "z_bh",
-            "0000BED0.mdl",
-            0x3AC,
-            0x19C,
-            0x1A0,
-            0x124,
-            0x1A,
-            0xF44,
-            new uint[]
-            {
-                8, 12, 23, 6, 18, 5, 20, 19, 2, 13, 9, 24, 4, 17, 1, 22, 0, 15, 7, 11, 21, 25, 14, 10, 16, 3
-            }
-        ];
-
-        yield return
-        [
-            "z_bh",
-            "0001D990.mdl",
-            0x4EC,
-            0x2DC,
-            0x2E0,
-            0x278,
-            0x15,
-            0xC88,
-            new uint[]
-            {
-                10, 14, 5, 17, 8, 20, 2, 15, 11, 4, 1, 9, 0, 13, 7, 18, 19, 12, 16, 6, 3
-            }
-        ];
-
-        yield return
-        [
-            "z_ho",
-            "00030680.mdl",
-            0x62C,
-            0x418,
-            0x420,
-            0x3B4,
-            0x15,
-            0xCA4,
-            new uint[]
-            {
-                17, 12, 8, 4, 16, 1, 20, 9, 13, 3, 5, 0, 11, 7, 18, 10, 19, 14, 6, 15, 2
-            }
-        ];
-    }
+        {
+            "z_bh", "0000C070.mdl", 38_240,
+            "828BB1CC14C11041DF8872A98FDB0FE0A034931E26B51278500A08B6BE2163B7"
+        },
+        {
+            "z_bh", "0001DC70.mdl", 37_808,
+            "BFAE771B021540B655A67641B8FCFAA1C9B11EE5FB96242BEEBF1CD31B66C604"
+        },
+        {
+            "z_ho", "00030AA0.mdl", 52_544,
+            "3B9DF16C9FB2ACD7DA85082C6A7311A88AB11FCB810AED387813F524E36F463F"
+        }
+    };
 
     [Theory]
-    [MemberData(nameof(ObjectMdlCases))]
-    public void TryParse_ObjectMdls_ParsesBoneBlockAndTrailer(
+    [MemberData(nameof(CanonicalObjectMdlCases))]
+    public void TryParse_CanonicalObjectMdls_DoesNotInventTheDiscardedPreEntryPrefix(
         string pakStem,
         string mdlName,
-        int expectedVifStart,
-        int expectedSentinelStart,
-        int expectedSentinelEnd,
-        int expectedHeaderOffset,
-        uint expectedTrailerCount,
-        uint expectedRawPointer,
-        uint[] expectedIndices)
+        int expectedLength,
+        string expectedSha256)
     {
         var data = LoadPakMdlData(pakStem, mdlName);
+        Assert.Equal(expectedLength, data.Length);
+        Assert.Equal(expectedSha256, Convert.ToHexString(SHA256.HashData(data)));
+
+        // Correct header-relative extraction starts at the owned bone block. The old fixtures
+        // included the preceding PAK bytes, including an unrelated CD sentinel and trailer.
+        Assert.Equal(0x1F0u, BinaryPrimitives.ReadUInt32LittleEndian(data));
+        Assert.Equal(0x10u, BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(4)));
+        Assert.Equal(6u, BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(8)));
+        Assert.Equal(6u, BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(12)));
 
         var vifStart = Ps2GeomMdlBatchScanner.FindMdlVifStart(data);
-        Assert.Equal(expectedVifStart, vifStart);
+        Assert.Equal(0x20C, vifStart);
 
         var preamble = Ps2MdlPreamble.TryParse(data, vifStart);
         Assert.NotNull(preamble);
-        Assert.Equal(expectedVifStart, preamble!.VifStart);
-        Assert.Equal(expectedSentinelStart, preamble.SentinelStart);
-        Assert.Equal(expectedSentinelEnd, preamble.SentinelEnd);
-        Assert.Equal((uint)0x1F0, preamble.BoneSectionSize);
-        Assert.Equal((uint)0x10, preamble.BoneSectionPadding);
-        Assert.Equal(6, preamble.Bones.Count);
-
-        Assert.NotNull(preamble.Trailer);
-        Assert.Equal(expectedHeaderOffset, preamble.Trailer!.HeaderOffset);
-        Assert.Equal((uint)0, preamble.Trailer.PrefixZero);
-        Assert.Equal((uint)0x00010100, preamble.Trailer.Marker);
-        Assert.Equal(expectedTrailerCount, preamble.Trailer.Count);
-        Assert.Equal(expectedRawPointer, preamble.Trailer.RawPointer);
-        Assert.Equal(expectedIndices, preamble.Trailer.Indices.ToArray());
+        Assert.Equal(vifStart, preamble!.VifStart);
+        Assert.Null(preamble.SentinelStart);
+        Assert.Null(preamble.SentinelEnd);
+        Assert.Null(preamble.BoneSectionSize);
+        Assert.Null(preamble.BoneSectionPadding);
+        Assert.Empty(preamble.Bones);
+        Assert.Null(preamble.Trailer);
     }
 
     [Fact]
     public void TryParse_WorldZoneMdl_ReturnsRawPreambleWithoutSentinel()
     {
-        var data = LoadPakMdlData("z_bh", "003B1940.mdl");
+        var data = LoadPakMdlData("z_bh", "003B2920.mdl");
 
         var vifStart = Ps2GeomMdlBatchScanner.FindMdlVifStart(data);
         Assert.True(vifStart > 0, "Expected a valid VIF start");
@@ -115,22 +81,22 @@ public sealed class Ps2MdlPreambleTests(TestPaths paths)
     [Fact]
     public void TryParse_WorldzoneMdl_RecoversPreambleRecordsWithValidQuaternions()
     {
-        // z_bh MDL at offset 0x1D990 in the PAK is the paired .mdl for the .91E1028D at 0x15410+0x4E8.
-        // Phase400 RE found 11 records at 0x50 stride starting at MDL+0x9030.
+        // The retained records begin at canonical MDL+0x8D50. The old pre-fix slice started
+        // 0x2E0 bytes too early and therefore reported this same byte as MDL+0x9030.
         // Record 0 is the zone header (class_hash=0), angle ~13.2° (normalized qw ~0.993).
-        var data = LoadPakMdlData("z_bh", "0001D990.mdl");
+        var data = LoadPakMdlData("z_bh", "0001DC70.mdl");
 
         var vifStart = Ps2GeomMdlBatchScanner.FindMdlVifStart(data);
         var preamble = Ps2MdlPreamble.TryParse(data, vifStart);
         Assert.NotNull(preamble);
         Assert.True(preamble!.Records.Count >= 10,
             $"Expected at least 10 preamble records, found {preamble.Records.Count}");
-        Assert.True(preamble.Records.ContainsKey(0x9030),
-            "Expected rec 0 at MDL offset 0x9030 (zone header)");
-        Assert.True(preamble.Records.ContainsKey(0x9120),
-            "Expected rec 3 at MDL offset 0x9120 (referenced by 00026D20 item 0 +0x44)");
+        Assert.True(preamble.Records.ContainsKey(0x8D50),
+            "Expected rec 0 at canonical MDL offset 0x8D50 (zone header)");
+        Assert.True(preamble.Records.ContainsKey(0x8E40),
+            "Expected rec 3 at canonical MDL offset 0x8E40");
 
-        var rec0 = preamble.Records[0x9030];
+        var rec0 = preamble.Records[0x8D50];
         Assert.Equal(0u, rec0.ClassHash);
         // Unit-quaternion qw component for ~13° rotation is ~0.993.
         Assert.InRange(rec0.Rotation.W, 0.98f, 1.00f);
@@ -148,27 +114,19 @@ public sealed class Ps2MdlPreambleTests(TestPaths paths)
     }
 
     [Fact]
-    public void ParsePakMdl_ObjectMdl_DoesNotApplySpeculativePlacement()
+    public void ParsePakMdl_CanonicalObjectMdl_DoesNotApplySpeculativePlacement()
     {
-        var scene = Ps2GeomFile.ParsePakMdl(LoadPakMdlData("z_bh", "0000BED0.mdl"));
+        var scene = Ps2GeomFile.ParsePakMdl(LoadPakMdlData("z_bh", "0000C070.mdl"));
 
         Assert.NotNull(scene.MdlPreamble);
-        Assert.NotNull(scene.Bones);
-        Assert.True(scene.Bones!.Count > 0, "Expected object MDL bones to remain available");
+        Assert.Null(scene.Bones);
+        Assert.Empty(scene.MdlPreamble!.Bones);
+        Assert.Null(scene.MdlPreamble.SentinelStart);
+        Assert.Null(scene.MdlPreamble.Trailer);
 
         var originCenteredDetailLeaves = scene.Leaves.Count(IsOriginCenteredDetailLeaf);
         Assert.True(originCenteredDetailLeaves >= 3,
             $"Expected >=3 detached detail leaves to remain centered at origin, found {originCenteredDetailLeaves}");
-    }
-
-    private string? GetThawPakDir()
-    {
-        if (!paths.HasSampleBuilds)
-            return null;
-
-        var dir = Path.Combine(paths.SampleBuildsDir!,
-            "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)", "PAK");
-        return Directory.Exists(dir) ? dir : null;
     }
 
     private byte[] LoadPakMdlData(string pakStem, string mdlName)
@@ -177,11 +135,8 @@ public sealed class Ps2MdlPreambleTests(TestPaths paths)
         if (existingExtracted != null)
             return File.ReadAllBytes(existingExtracted);
 
-        var pakDir = GetThawPakDir();
-        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
-
-        var pakPath = Path.Combine(pakDir!, pakStem + ".pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), $"PAK not found: {pakPath}");
+        var pakPath = paths.FindSampleFile(BuildName, pakStem + ".pak.ps2");
+        Assert.SkipWhen(pakPath is null, $"{pakStem}.pak.ps2 not found");
 
         var tempDir = Path.Combine(Path.GetTempPath(),
             "NsMultitool_Test_MdlPreamble_" + Guid.NewGuid().ToString("N")[..8]);
@@ -189,11 +144,11 @@ public sealed class Ps2MdlPreambleTests(TestPaths paths)
         try
         {
             Directory.CreateDirectory(tempDir);
-            PakArchive.ExtractFiles(pakPath, tempDir, token: TestContext.Current.CancellationToken);
+            PakArchive.ExtractFiles(pakPath!, tempDir, token: TestContext.Current.CancellationToken);
 
             var extractedDir = Path.Combine(tempDir, pakStem + ".pak");
             var mdlPath = Path.Combine(extractedDir, mdlName);
-            Assert.SkipWhen(!File.Exists(mdlPath), $"MDL not found after extraction: {mdlName}");
+            Assert.True(File.Exists(mdlPath), $"MDL not found after extraction: {mdlName}");
             return File.ReadAllBytes(mdlPath);
         }
         finally

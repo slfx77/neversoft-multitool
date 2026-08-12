@@ -60,7 +60,7 @@ public sealed class ThpsVariantLevelCompanionTests(TestPaths paths)
             new SyntheticCompanionSource(siblings), fileName, out _));
     }
 
-    [Fact]
+    [CorpusFact]
     public void SkMall2_Conversion_GainsBankObjectsAndPickups()
     {
         var path = paths.FindSampleFile(Thps1Final, "skmall_2.psx");
@@ -78,7 +78,7 @@ public sealed class ThpsVariantLevelCompanionTests(TestPaths paths)
             mesh.Name.StartsWith("itm_", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [CorpusFact]
     public void SkSf2_Conversion_GainsTheSkyClassification()
     {
         // sksf_o2.psx carries the level's TRG-registered background layer, so

@@ -18,7 +18,7 @@ public sealed class PsxSkyDomeClassifierTests(TestPaths paths)
 {
     private const string FinalBuild = "Spider-Man (2000-9-1, PSX - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void L1a1_Final_ClaimsTheUnregisteredSkylineAsSky()
     {
         var path = paths.FindSampleFile(FinalBuild, "l1a1_g.psx");
@@ -48,7 +48,7 @@ public sealed class PsxSkyDomeClassifierTests(TestPaths paths)
         Assert.Equal("sky__mesh_00000003", skyline.Name);
     }
 
-    [Theory]
+    [CorpusTheory]
     // Guard: the second pass must not move any other level. l2a2 owns a
     // complete two-layer set (both joined, no flag-0x2000 stragglers); lda1
     // registers all three layers itself, so the flagged skyline is already
@@ -82,7 +82,7 @@ public sealed class PsxSkyDomeClassifierTests(TestPaths paths)
     ///     Identifying the layers by triangle count keeps this test independent
     ///     of the rank it is checking.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void L2a1_SkylineRegistersAfterTheDome_SoItPaintsInFront()
     {
         var path = paths.FindSampleFile(FinalBuild, "l2a1_g.psx");
@@ -115,7 +115,7 @@ public sealed class PsxSkyDomeClassifierTests(TestPaths paths)
     ///     draws it as ordinary world geometry, and the background pass runs
     ///     before the world pass.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void L1a1_ClaimedBackdrop_PaintsInFrontOfTheRegisteredLayers()
     {
         var path = paths.FindSampleFile(FinalBuild, "l1a1_g.psx");

@@ -156,7 +156,8 @@ internal static class ThawSceneMeshSupport
         {
             var vertexOffset = offScene + vertexOffsetRaw;
             var vertexBytes = (long)vertexCount * vertexStride;
-            if (CanRead(r, vertexOffset, vertexBytes))
+            var minimumVertexStride = GetMinimumVertexStride(sectorFlags, passCount);
+            if (vertexStride >= minimumVertexStride && CanRead(r, vertexOffset, vertexBytes))
             {
                 r.BaseStream.Position = vertexOffset;
                 vertices = ReadVertexBuffer(r, sectorFlags, vertexCount, vertexStride, passCount);
@@ -187,6 +188,32 @@ internal static class ThawSceneMeshSupport
     {
         var length = r.BaseStream.Length;
         return offset >= 0 && byteCount >= 0 && offset <= length && byteCount <= length - offset;
+    }
+
+    private static int GetMinimumVertexStride(int sectorFlags, int passCount)
+    {
+        var isSkinned = (sectorFlags & ThawSceneFile.SecflagHasWeights) != 0;
+        var hasNormals = (sectorFlags & ThawSceneFile.SecflagHasNormals) != 0;
+        var hasColors = (sectorFlags & ThawSceneFile.SecflagHasColors) != 0;
+
+        var stride = 12;
+        if (isSkinned)
+        {
+            stride += 12;
+            if (hasNormals)
+                stride += 4;
+        }
+        else if (hasNormals)
+        {
+            stride += 12;
+        }
+
+        if (hasColors)
+            stride += 4;
+        if (passCount > 0)
+            stride += 8;
+
+        return stride;
     }
 
     private static ushort[] TriangulateStrips(ushort[] rawIndices, bool billboard)

@@ -8,7 +8,7 @@ public sealed class XbxSceneFileTests(TestPaths paths)
 
     // ── IsXbxScene ──
 
-    [Fact]
+    [CorpusFact]
     public void IsXbxScene_ValidFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -37,7 +37,7 @@ public sealed class XbxSceneFileTests(TestPaths paths)
 
     // ── Parse known file ──
 
-    [Fact]
+    [CorpusFact]
     public void Parse_KnownFile_ReturnsValidScene()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -52,7 +52,7 @@ public sealed class XbxSceneFileTests(TestPaths paths)
         Assert.True(scene.TotalVertices > 0, "Expected vertices > 0");
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_KnownFile_MaterialsHavePasses()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -68,7 +68,7 @@ public sealed class XbxSceneFileTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_KnownFile_MeshesHaveVertices()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

@@ -75,7 +75,7 @@ public sealed class PsxItemsBankSubstitutionTests(TestPaths paths)
         Assert.Equal([1], remaining.Keys);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Split_ProtoL1a1QuestionMark_RedirectsWhenUnsuppressed_DropsWhenSuppressed()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

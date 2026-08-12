@@ -24,7 +24,7 @@ public sealed class PsxTrgBootScriptBankTests(TestPaths paths)
     private const string Thps2Final = "Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)";
     private const string Apocalypse = "Apocalypse (1998-11-17, PSX - Final)";
 
-    [Theory]
+    [CorpusTheory]
     // AUTOEXEC2 present but with no SetObjFile: no bank, in both games.
     [InlineData(Thps1Final, "skdown_2.psx", "")]
     [InlineData(Thps2Final, "skdown_2.psx", "")]
@@ -63,7 +63,7 @@ public sealed class PsxTrgBootScriptBankTests(TestPaths paths)
     ///     to pick fly mode and the walk eye height, and the region still gets
     ///     its TRG sky and pickup layers.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void BanklessVariant_StillCountsAsALevel()
     {
         var path = paths.FindSampleFile(Thps2Final, "skdown_2.psx");
@@ -80,7 +80,7 @@ public sealed class PsxTrgBootScriptBankTests(TestPaths paths)
     ///     bank to every chunk — the per-chunk duplication the Apocalypse
     ///     resolver exists to prevent by attaching it to one primary.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void ApocalypseChunk_IsNotTreatedAsATwoPlayerVariant()
     {
         var path = paths.FindSampleFile(Apocalypse, "city_2.psx");

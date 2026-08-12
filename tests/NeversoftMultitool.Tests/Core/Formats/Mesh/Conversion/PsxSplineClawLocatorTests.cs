@@ -8,7 +8,7 @@ public sealed class PsxSplineClawLocatorTests(TestPaths paths)
     private const string FinalBuild = "Spider-Man (2000-9-1, PSX - Final)";
     private const string PrototypeBuild = "Spider-Man (2000-2-18, PSX - Prototype)";
 
-    [Fact]
+    [CorpusFact]
     public void Locate_RetailDocock_PrefersUniqueSelfContainedStructuralKit()
     {
         var docockPath = paths.FindSampleFile(FinalBuild, "docock.psx");
@@ -25,7 +25,7 @@ public sealed class PsxSplineClawLocatorTests(TestPaths paths)
         Assert.NotNull(claw.TextureProvider(mesh.Faces[0].TextureHash));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Locate_PrototypeDocock_CarriesActualBankObjectAndMeshIndices()
     {
         var archivePath = paths.FindSampleFile(PrototypeBuild, "CD.WAD");
@@ -55,7 +55,7 @@ public sealed class PsxSplineClawLocatorTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Locate_RenamedStandaloneKit_IsFilenameIndependentAndCached()
     {
         var docockPath = paths.FindSampleFile(FinalBuild, "docock.psx");
@@ -77,7 +77,7 @@ public sealed class PsxSplineClawLocatorTests(TestPaths paths)
         Assert.Same(first, second);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Locate_FileSystemScopeMutation_InvalidatesMissingAndPositiveCacheEntries()
     {
         var docockPath = paths.FindSampleFile(FinalBuild, "docock.psx");
@@ -100,7 +100,7 @@ public sealed class PsxSplineClawLocatorTests(TestPaths paths)
         Assert.Null(PsxSplineClawLocator.Locate(source));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Locate_TwoRenamedStandaloneKits_IsAmbiguous()
     {
         var docockPath = paths.FindSampleFile(FinalBuild, "docock.psx");

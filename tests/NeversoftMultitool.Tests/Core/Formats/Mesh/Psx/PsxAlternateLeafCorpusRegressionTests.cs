@@ -18,8 +18,6 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
     public void EnterElectroMercenaryGunPair_FromCdWad_IsAnAlternateVariant()
     {
         var file = ReadArchiveMesh(EnterElectroBuild, "CD.WAD", "mercthug.psx");
-        if (file == null)
-            return;
 
         Assert.Equal(0xBB7612A9u, file.MeshNameHashes[12]); // thug_gun_01
         Assert.Equal(25, file.Meshes[12].Vertices.Count);
@@ -45,8 +43,6 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
     public void Thps2LowDetailHeadPair_FromCdWad_IsAnAlternateVariant()
     {
         var file = ReadArchiveMesh(Thps2Build, "CD.WAD", "sk2def_l.psx");
-        if (file == null)
-            return;
 
         Assert.Equal(0x4D7DBE2Au, file.MeshNameHashes[15]); // skin_head
         Assert.Equal(0xCA5AD4F7u, file.MeshNameHashes[16]); // baldblack_head
@@ -77,8 +73,6 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
         string entryName)
     {
         var file = ReadArchiveMesh(buildName, archiveName, entryName);
-        if (file == null)
-            return;
 
         Assert.Empty(PsxMeshSemantics.FindAlternateLeafObjectIndices(file));
     }
@@ -121,8 +115,6 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
     public void SpiderManPcCarnage_FromDataPkr_RetainsTrueHandAlternates()
     {
         var file = ReadArchiveMesh(SpiderManPcBuild, "data.pkr", "carnage.psx");
-        if (file == null)
-            return;
 
         Assert.Equal(0x06, file.Version);
         Assert.Equal(
@@ -136,8 +128,6 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
     public void PrototypeLizardSevenBoxEditorRig_FromCdWad_IsNotASplineAppendage()
     {
         var file = ReadArchiveMesh(SpiderManPrototypeBuild, "CD.WAD", "lizard.psx");
-        if (file == null)
-            return;
 
         Assert.Equal(24, file.Objects.Count);
         Assert.All(Enumerable.Range(17, 7), objectIndex =>
@@ -158,32 +148,28 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
         Assert.Empty(PsxSplineAppendageGeometry.FindControllerChains(file));
     }
 
-    private PsxMeshFile? ReadArchiveMesh(
+    private PsxMeshFile ReadArchiveMesh(
         string buildName,
         string archiveName,
         string entryName)
     {
         var archivePath = paths.FindSampleFile(buildName, archiveName);
         Assert.SkipWhen(archivePath == null, $"{archiveName} sample archive not available");
-        if (archivePath == null)
-            return null;
 
-        var backend = ArchiveAssetBackend.TryOpen(archivePath);
+        var backend = ArchiveAssetBackend.TryOpen(archivePath!);
         Assert.NotNull(backend);
-        if (backend == null)
-            return null;
 
         try
         {
-            var entry = backend.FindEntry(entryName);
+            var entry = backend!.FindEntry(entryName);
             Assert.NotNull(entry);
-            return entry == null
-                ? null
-                : PsxMeshFile.Parse(new ArchiveAssetSource(backend, entry).ReadBytes());
+            var file = PsxMeshFile.Parse(new ArchiveAssetSource(backend, entry!).ReadBytes());
+            Assert.NotNull(file);
+            return file!;
         }
         finally
         {
-            backend.FileSystem.Dispose();
+            backend!.FileSystem.Dispose();
         }
     }
 }

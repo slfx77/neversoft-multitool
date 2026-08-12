@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 using NeversoftMultitool.Core.Formats.Texture.RenderWare;
 
@@ -9,7 +10,7 @@ public sealed class RwBspFileTests(TestPaths paths)
 
     // ── IsBspFile ──
 
-    [Fact]
+    [CorpusFact]
     public void IsBspFile_ValidBspFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -32,9 +33,53 @@ public sealed class RwBspFileTests(TestPaths paths)
         Assert.False(RwBspFile.IsBspFile(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0 }));
     }
 
+    [Fact]
+    public void Parse_MinimalWorldWithExactStruct_ReturnsEmptyWorld()
+    {
+        var world = RwBspFile.Parse(BuildMinimalWorld());
+
+        Assert.Equal(0, world.TotalTriangles);
+        Assert.Equal(0, world.TotalVertices);
+        Assert.Empty(world.Materials);
+        Assert.Empty(world.Sections);
+    }
+
+    [Fact]
+    public void Parse_WorldPayloadExtendsPastFile_UsesPhysicalBoundary()
+    {
+        var data = BuildMinimalWorld();
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4, 4), 65);
+
+        var world = RwBspFile.Parse(data);
+
+        Assert.Empty(world.Sections);
+    }
+
+    [Fact]
+    public void Parse_WorldStructSmallerThanRequired_Throws()
+    {
+        var data = BuildMinimalWorld();
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16, 4), 51);
+
+        var exception = Assert.Throws<InvalidDataException>(() => RwBspFile.Parse(data));
+
+        Assert.Contains("expected at least 52", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_WorldStructExtendsPastWorldPayload_Throws()
+    {
+        var data = BuildMinimalWorld();
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16, 4), 53);
+
+        var exception = Assert.Throws<InvalidDataException>(() => RwBspFile.Parse(data));
+
+        Assert.Contains("beyond the World payload", exception.Message, StringComparison.Ordinal);
+    }
+
     // ── Parse known files ──
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("Burn.bsp")]
     [InlineData("Can.bsp")]
     [InlineData("Tok.bsp")]
@@ -52,7 +97,7 @@ public sealed class RwBspFileTests(TestPaths paths)
         Assert.True(world.TotalVertices > 0, "Should report vertices");
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_Burn_HasExpectedGeometry()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -67,7 +112,7 @@ public sealed class RwBspFileTests(TestPaths paths)
         Assert.True(section.Triangles.Length > 0, "Should have triangles");
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_Burn_HasMaterialsWithTextureNames()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -82,7 +127,7 @@ public sealed class RwBspFileTests(TestPaths paths)
 
     // ── Vertex data validation ──
 
-    [Fact]
+    [CorpusFact]
     public void Parse_Burn_VerticesAreFinite()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -101,7 +146,7 @@ public sealed class RwBspFileTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_Burn_TriangleIndicesInRange()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -122,7 +167,7 @@ public sealed class RwBspFileTests(TestPaths paths)
 
     // ── Batch parse all BSP files ──
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllBspFiles_ZeroFailures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -157,7 +202,7 @@ public sealed class RwBspFileTests(TestPaths paths)
 
     // ── glTF output ──
 
-    [Fact]
+    [CorpusFact]
     public void Write_Burn_ProducesValidGlb()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -182,7 +227,7 @@ public sealed class RwBspFileTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Write_Burn_WithTextures_ProducesLargerGlb()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -217,5 +262,16 @@ public sealed class RwBspFileTests(TestPaths paths)
             if (Directory.Exists(outputDir))
                 Directory.Delete(outputDir, true);
         }
+    }
+
+    private static byte[] BuildMinimalWorld()
+    {
+        // WORLD payload = a 12-byte STRUCT header plus its required 52-byte body.
+        var data = new byte[76];
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0, 4), 0x000B);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4, 4), 64);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(12, 4), 0x0001);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16, 4), 52);
+        return data;
     }
 }

@@ -42,7 +42,8 @@ public sealed class PsxCoplanarOverlayCensusTests(TestPaths paths)
     // its separately calibrated raw candidates and does not move this census.
     //
     // Spider-Man: the decal-heavy start rooftop, the demo level's sign panels,
-    // and l7a2_g whose glass sheets drove the lift-orientation fix.
+    // and l7a2_g whose glass sheets drove the unresolved lift-orientation audit
+    // (the speculative behavior change was reverted).
     [InlineData("Spider-Man (2000-9-1, PSX - Final)", "l2a1_g.psx", 80)] // 77: +1 secondary triangle, +2 sprite cards
     [InlineData("Spider-Man (2000-9-1, PSX - Final)", "lda1_g.psx", 5)] // 18: −13 back-to-back
     [InlineData("Spider-Man (2000-9-1, PSX - Final)", "l7a2_g.psx", 593)] // 538: +55 appearance twins

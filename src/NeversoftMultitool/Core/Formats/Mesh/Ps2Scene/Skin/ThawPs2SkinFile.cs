@@ -37,7 +37,7 @@ public static class ThawPs2SkinFile
         if (numObjects == 0 || numObjects > 20) return false;
         if (totalMeshes2 == 0 || totalMeshes2 > 500) return false;
         if (totalMeshes1 > totalMeshes2) return false;
-        if (dataSize + 16 > fileSize) return false;
+        if ((long)dataSize + 16 > fileSize) return false;
 
         var bsR = BitConverter.ToSingle(data, 0x1C);
         if (float.IsNaN(bsR) || float.IsInfinity(bsR) || bsR <= 0) return false;
@@ -88,7 +88,7 @@ public static class ThawPs2SkinFile
         var totalMeshes2 = BitConverter.ToUInt32(data, 8);
         var dataSize = BitConverter.ToUInt32(data, 12);
         var entryTableEnd = (int)(32 + numObjects * 8 + totalMeshes2 * 64);
-        var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
+        var vifEnd = (int)Math.Min((long)dataSize + 16, data.Length);
         var (_, setupStarts) = ThawPs2SkinVifLayout.ResolveThawSetupBoundaries(data, entryTableEnd, vifEnd);
 
         using var ms = new MemoryStream(data);
@@ -178,7 +178,7 @@ public static class ThawPs2SkinFile
         var totalMeshes2 = BitConverter.ToUInt32(data, 8);
         var dataSize = BitConverter.ToUInt32(data, 12);
         var entryTableEnd = (int)(32 + numObjects * 8 + totalMeshes2 * 64);
-        var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
+        var vifEnd = (int)Math.Min((long)dataSize + 16, data.Length);
         var (vifStart, setupStarts) = ThawPs2SkinVifLayout.ResolveThawSetupBoundaries(data, entryTableEnd, vifEnd);
         var positionScale = ThpgPositionUnwrapper.UsesQ412Positions(data, entryTableEnd, vifEnd)
             ? ThawPs2ReplayVertexDecoder.Q412PositionScale
@@ -196,7 +196,7 @@ public static class ThawPs2SkinFile
         var totalMeshes2 = BitConverter.ToUInt32(data, 8);
         var dataSize = BitConverter.ToUInt32(data, 12);
         var entryTableEnd = (int)(32 + numObjects * 8 + totalMeshes2 * 64);
-        var vifEnd = (int)Math.Min(dataSize + 16, data.Length);
+        var vifEnd = (int)Math.Min((long)dataSize + 16, data.Length);
         var (vifStart, setupStarts) = ThawPs2SkinVifLayout.ResolveThawSetupBoundaries(data, entryTableEnd, vifEnd);
 
         // Proving Ground stores positions in Q4.12 fixed-point form. Decode at

@@ -311,7 +311,7 @@ public sealed class XbxGeometryWriterSkinTests(TestPaths paths)
         AssertRigidByteParity(scene, BuildSkeleton(1), coordinateScale: 1f);
     }
 
-    [Fact]
+    [CorpusFact]
     public void RealAnlPigeon_ExplicitExactSkeletonEmitsFourJointSkinAndRestPoseIdentity()
     {
         var skinPath = paths.FindSampleFile(Thug2XboxBuild, "Anl_Pigeon.skin.xbx");
@@ -355,7 +355,7 @@ public sealed class XbxGeometryWriterSkinTests(TestPaths paths)
         Assert.Equal(4, Assert.Single(prepared.Skeletons).Bones.Count);
     }
 
-    [Fact]
+    [CorpusFact]
     public void RealThawWpcPigeon_WithExplicitGcPigeonSkeletonEmitsSkin()
     {
         var skinPath = paths.FindSampleFile(ThawPcBuild, "anl_pigeon.skin.wpc");
@@ -390,7 +390,7 @@ public sealed class XbxGeometryWriterSkinTests(TestPaths paths)
             .Sum(primitive => primitive.GetVertexAccessor("POSITION").Count));
     }
 
-    [Fact]
+    [CorpusFact]
     public void RealThawNgcPigeon_PreparedRigMatchesDirectCliRigExactly()
     {
         var skinPath = paths.FindSampleFile(ThawGcBuild, "anl_pigeon.skin.ngc");
@@ -435,7 +435,7 @@ public sealed class XbxGeometryWriterSkinTests(TestPaths paths)
             .Sum(primitive => primitive.GetVertexAccessor("POSITION").Count));
     }
 
-    [Fact]
+    [CorpusFact]
     public void RealThawNgcPigeon_PreparedRigBlendHasRestBoundFourBoneArmature()
     {
         var helperPath = Environment.GetEnvironmentVariable("NEVERSOFT_BLENDER_HELPER");

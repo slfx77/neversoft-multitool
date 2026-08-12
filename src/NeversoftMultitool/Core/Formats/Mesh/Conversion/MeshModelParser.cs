@@ -1204,7 +1204,7 @@ public sealed class MeshModelParser : IModelParser
                 .FirstOrDefault(static s => s != null);
             var boneMap = SkaAnimationWriter.BuildRwDffBoneIndexMap(skin);
             SkaAnimationWriter.PopulateSkaAnimations(
-                document, 0, rwAnimations, SkaCompositionMode.BindComposed, boneMap);
+                document, 0, rwAnimations, SkaCompositionMode.Thps3Runtime, boneMap);
         }
 
         return document;

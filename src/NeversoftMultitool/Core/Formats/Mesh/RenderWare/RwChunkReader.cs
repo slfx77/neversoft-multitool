@@ -44,7 +44,7 @@ internal static class RwChunkReader
     {
         type = 0;
         size = 0;
-        if (offset + 12 > endOffset || offset + 12 > data.Length) return false;
+        if (!CanReadHeader(data, offset, endOffset)) return false;
 
         type = BitConverter.ToUInt32(data, offset);
         size = BitConverter.ToUInt32(data, offset + 4);
@@ -56,7 +56,7 @@ internal static class RwChunkReader
         uint expectedType, out uint size)
     {
         size = 0;
-        if (offset + 12 > endOffset || offset + 12 > data.Length) return false;
+        if (!CanReadHeader(data, offset, endOffset)) return false;
 
         var type = BitConverter.ToUInt32(data, offset);
         size = BitConverter.ToUInt32(data, offset + 4);
@@ -73,7 +73,7 @@ internal static class RwChunkReader
     {
         type = 0;
         size = 0;
-        if (offset < 0 || offset + 12 > endOffset || offset + 12 > data.Length) return false;
+        if (!CanReadHeader(data, offset, endOffset)) return false;
 
         type = BitConverter.ToUInt32(data, offset);
         size = BitConverter.ToUInt32(data, offset + 4);
@@ -81,10 +81,22 @@ internal static class RwChunkReader
         return true;
     }
 
+    private static bool CanReadHeader(byte[] data, int offset, int endOffset)
+    {
+        return offset >= 0
+               && offset <= endOffset
+               && endOffset - offset >= 12
+               && offset <= data.Length - 12;
+    }
+
     internal static string ReadNullTerminatedString(byte[] data, int offset, int maxLength)
     {
-        var end = offset + maxLength;
-        if (end > data.Length) end = data.Length;
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(offset, data.Length);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxLength);
+
+        var boundedLength = Math.Min(maxLength, data.Length - offset);
+        var end = offset + boundedLength;
 
         var len = 0;
         while (offset + len < end && data[offset + len] != 0)

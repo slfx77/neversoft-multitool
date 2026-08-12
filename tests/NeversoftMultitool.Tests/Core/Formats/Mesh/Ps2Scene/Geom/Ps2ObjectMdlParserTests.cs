@@ -84,7 +84,7 @@ public sealed class Ps2ObjectMdlParserTests(TestPaths paths, ITestOutputHelper o
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void ParsePakMdl_AllThawPs2WorldzoneObjectMdls_ExpandedLayoutsAreBounded()
     {
         var pakPaths = paths.FindSampleFiles(ThawPs2Build, "*.pak.ps2")

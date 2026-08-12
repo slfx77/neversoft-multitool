@@ -78,7 +78,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
             }
         };
 
-    [Theory]
+    [CorpusTheory]
     [MemberData(nameof(LockedCharacterFixtures))]
     public void Parse_LockedCharacterFixtures_MatchExpectedCounts(string relativePath, ushort expectedVersion,
         bool expectedHasHierarchy, int expectedObjects, int expectedMeshes, int expectedVertices, int expectedFaces,
@@ -106,7 +106,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal(expectedSnapshotHash, ComputeSnapshotHash(psxFile, Path.GetFileName(filePath)));
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData(
         @"Apocalypse (1998-11-17, PSX - Final)\CD\bruce.psx",
         PsxMeshFormatRevision.ApocalypseV3)]
@@ -132,7 +132,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal(expectedRevision, psxFile.FormatRevision);
     }
 
-    [Theory]
+    [CorpusTheory]
     [MemberData(nameof(LockedCharacterFixturePaths))]
     public void Resolve_LockedCharacterFixtures_StitchedFaceVerticesMatchAttachmentWorldPositions(string relativePath)
     {
@@ -245,7 +245,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal(2, PsxMeshSemantics.GetCharacterMeshIndex(psxFile, 0));
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("skvans.psx")]
     [InlineData("skvans_t.psx")]
     [InlineData("skdown.psx")]
@@ -301,7 +301,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal(new Vector3(11f, 0f, 0f), resolved.WorldPosition);
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData(SpiderManBuild, "spidey.psx")]
     [InlineData(Thps2ProtoBuild, "mullen.psx")]
     public void CharacterRouting_SampleSwappedMeshIndexDoesNotOverrideHierarchicalBindOrder(string buildName,
@@ -332,7 +332,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         }
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData(SpiderManBuild, "spidey.psx")]
     [InlineData(Thps2ProtoBuild, "mullen.psx")]
     public void CharacterBindUnits_HierarchicalObjectsKeepQ12PlacementScale(string buildName, string fileName)
@@ -352,7 +352,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal(obj.RawZ / (4096f * psxFile.TranslationDivisor), offset.Z, 5);
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData(Thps1ProtoBuild, "hawk.psx", false, true)]
     [InlineData(ApocalypseBuild, "bruce.psx", false, false)]
     public void CharacterBindUnits_NoHierarchySuperScaleTracksRuntimeRevision(
@@ -374,7 +374,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal(expectedScale, psxFile.ScaleDivisor);
     }
 
-    [Fact]
+    [CorpusFact]
     public void CharacterAlternates_SpideyDuplicateHandLeavesAreDetected()
     {
         var path = paths.FindSampleFile(SpiderManBuild, "spidey.psx");
@@ -388,7 +388,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal([6, 11], alternates.OrderBy(static i => i).ToArray());
     }
 
-    [Fact]
+    [CorpusFact]
     public void CharacterAlternates_PcSpAlt01BakedSeamHandIsStillDetected()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -411,7 +411,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal([6, 11], alternates.OrderBy(static i => i).ToArray());
     }
 
-    [Fact]
+    [CorpusFact]
     public void CharacterAlternates_Thps2HeadVariantsAreDetected()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -435,7 +435,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal([16, 17, 18], alternates.OrderBy(static i => i).ToArray());
     }
 
-    [Fact]
+    [CorpusFact]
     public void CharacterAlternates_Thps2HeadVariantsNormalizeConflictingSelections()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -472,7 +472,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal([9, 17, 18], normalized.HiddenObjectIndices.Order().ToArray());
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("docock.psx")]
     [InlineData("superock.psx")]
     public void CharacterAlternates_OckAppendageSegmentsRemainSimultaneous(string fileName)
@@ -492,7 +492,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Empty(alternates);
     }
 
-    [Fact]
+    [CorpusFact]
     public void CharacterAlternates_ControlSharedPivotPartsAreAllEmitted()
     {
         var path = paths.FindSampleFile(SpiderManBuild, "control.psx");
@@ -513,7 +513,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal(1_560, document.TriangleCount);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_XboxHawk2_RemainsVersion4RegressionFixture()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -531,7 +531,7 @@ public sealed class PsxMeshRegressionFixtureTests(TestPaths paths)
         Assert.Equal(0, psxFile.Meshes.Sum(mesh => mesh.StitchFailureCount));
     }
 
-    [Theory]
+    [CorpusTheory]
     [MemberData(nameof(LevelRegressionFixtures))]
     public void Parse_LevelRegressionFixtures_KeepFaceAndTriangleCounts(string relativePath, ushort expectedVersion,
         int expectedObjects, int expectedVertices, int expectedFaces, int expectedRawFaces, int expectedTriangles)

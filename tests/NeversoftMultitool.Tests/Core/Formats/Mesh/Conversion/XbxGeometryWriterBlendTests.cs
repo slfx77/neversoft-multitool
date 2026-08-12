@@ -216,6 +216,38 @@ public sealed class XbxGeometryWriterBlendTests
     }
 
     [Fact]
+    public void MultiPass_HigherResolutionOverlayWithEqualHeight_PreservesEveryTexel()
+    {
+        var basePng = CreatePngBytes(
+            new Rgba32(0, 0, 0, 255),
+            new Rgba32(0, 0, 0, 255));
+        Rgba32[] expected =
+        [
+            new(255, 0, 0, 255),
+            new(0, 255, 0, 255),
+            new(0, 0, 255, 255),
+            new(255, 255, 255, 255)
+        ];
+        var overlayPng = CreatePngBytes(expected);
+        var material = CreateMaterial(
+            new XbxPass { TextureChecksum = BaseTextureChecksum, BlendMode = 0 },
+            new XbxPass { TextureChecksum = OverlayTextureChecksum, BlendMode = 5 });
+
+        var (png, compositedCount) = XbxPassCompositor.CompositeOverlays(
+            material,
+            basePng,
+            CreateResolver((OverlayTextureChecksum, overlayPng)));
+
+        Assert.Equal(1, compositedCount);
+        using var image = Image.Load<Rgba32>(png);
+        Assert.Equal(4, image.Width);
+        Assert.Equal(1, image.Height);
+        var pixels = new Rgba32[image.Width * image.Height];
+        image.CopyPixelDataTo(pixels);
+        Assert.Equal(expected, pixels);
+    }
+
+    [Fact]
     public void OverlaySkipFlags()
     {
         // Environment passes use camera-generated UVs — they cannot bake, so

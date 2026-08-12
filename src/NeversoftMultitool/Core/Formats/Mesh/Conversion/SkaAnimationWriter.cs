@@ -80,6 +80,8 @@ internal static class SkaAnimationWriter
             var q = Quaternion.Normalize(keys[i].Rotation);
             if (composition == SkaCompositionMode.BindComposed)
                 q = Quaternion.Normalize(Quaternion.Multiply(bindRotation, q));
+            else if (composition == SkaCompositionMode.Thps3Runtime)
+                q = Quaternion.Conjugate(q);
 
             if (i > 0)
             {

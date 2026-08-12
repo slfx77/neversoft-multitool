@@ -34,7 +34,7 @@ public class ThawSkeletonFileTests(TestPaths paths)
             .ToArray();
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_Bh11Main_Ps2AndGc_AgreeOnHierarchyAndPose()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

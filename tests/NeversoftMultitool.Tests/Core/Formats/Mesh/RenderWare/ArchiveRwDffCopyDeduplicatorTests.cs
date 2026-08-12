@@ -8,7 +8,7 @@ public sealed class ArchiveRwDffCopyDeduplicatorTests(TestPaths paths)
 {
     private static readonly int[] ExpectedRootIndex = [0];
 
-    [Fact]
+    [CorpusFact]
     public void PedProMuska_Skate3Wad_SelectsOnlyRootExactCopy()
     {
         const string buildName = "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)";

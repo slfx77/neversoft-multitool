@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 namespace NeversoftMultitool.Tests.Core.Formats.XbxScene;
@@ -24,6 +25,29 @@ public sealed class NgcSceneFileTests(TestPaths paths)
         Assert.False(NgcSceneFile.IsNgcScene([]));
     }
 
+    [Theory]
+    [InlineData(48)]
+    [InlineData(63)]
+    public void IsNgcScene_SentinelWithoutCompleteHeader_IsRejected(int length)
+    {
+        var data = CreateSyntheticScene(length);
+
+        Assert.False(NgcSceneFile.IsNgcScene(data));
+        Assert.Throws<InvalidDataException>(() => NgcSceneFile.Parse(data));
+    }
+
+    [Fact]
+    public void Parse_CompleteEmptyHeader_IsAccepted()
+    {
+        var data = CreateSyntheticScene(64);
+
+        Assert.True(NgcSceneFile.IsNgcScene(data));
+        var scene = NgcSceneFile.Parse(data);
+        Assert.Empty(scene.Materials);
+        Assert.Empty(scene.Sectors);
+        Assert.Empty(scene.Links);
+    }
+
     [Fact]
     public void IsNgcScene_XboxSceneData_ReturnsFalse()
     {
@@ -33,6 +57,13 @@ public sealed class NgcSceneFileTests(TestPaths paths)
         BitConverter.GetBytes(1u).CopyTo(data, 4);
         BitConverter.GetBytes(1u).CopyTo(data, 8);
         Assert.False(NgcSceneFile.IsNgcScene(data));
+    }
+
+    private static byte[] CreateSyntheticScene(int length)
+    {
+        var data = new byte[length];
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(0x2C), 0xAAFFEEFF);
+        return data;
     }
 
     // ── Parse known files (values validated against PC/PS2 Rosetta pairs) ──

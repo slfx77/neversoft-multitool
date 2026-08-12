@@ -106,4 +106,31 @@ public class PshFileTests(TestPaths paths)
         var result = PshFile.Parse(Path.Combine(Path.GetTempPath(), "nonexistent", "fake.psh"));
         Assert.Null(result);
     }
+
+    [Fact]
+    public void FindCompanion_FilenameOnlyPath_UsesCurrentDirectory()
+    {
+        var stem = $"nmt-psh-{Guid.NewGuid():N}";
+        var companionName = stem + ".psh";
+        var companionPath = Path.GetFullPath(companionName);
+
+        try
+        {
+            File.WriteAllText(
+                companionPath,
+                "#define TESTPART_ROOT 0" + Environment.NewLine +
+                "//   parent: Scene Root" + Environment.NewLine);
+
+            var parsed = PshFile.FindCompanion(stem + ".psx");
+
+            var bone = Assert.Single(Assert.IsType<PshFile>(parsed).Bones);
+            Assert.Equal("root", bone.Name);
+            Assert.Equal(0, bone.Index);
+            Assert.Null(bone.ParentName);
+        }
+        finally
+        {
+            File.Delete(companionPath);
+        }
+    }
 }

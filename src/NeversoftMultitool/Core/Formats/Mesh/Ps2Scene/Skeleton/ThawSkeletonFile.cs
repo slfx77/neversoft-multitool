@@ -81,9 +81,16 @@ public static class ThawSkeletonFile
 
         // offsets[0..4] are u32-per-bone arrays; offsets[5] is a fixed 128-byte
         // block (0x7F7FC99E fill, constant across the corpus) ending the file.
-        return r.U32(0x10) == HeaderSize + numBones * 16 + numBones * 64
-               && r.U32(0x20) + numBones * 4 <= r.U32(0x24)
-               && r.U32(0x24) + 128 <= r.Length;
+        if (r.U32(0x10) != HeaderSize + numBones * 16 + numBones * 64)
+            return false;
+
+        for (var i = 0; i < 5; i++)
+        {
+            if ((long)r.U32(0x10 + i * 4) + numBones * 4 > r.U32(0x14 + i * 4))
+                return false;
+        }
+
+        return (long)r.U32(0x24) + 128 <= r.Length;
     }
 
     public static Ps2Skeleton Parse(string filePath)

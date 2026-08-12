@@ -118,7 +118,7 @@ internal static class MeshTextureHelper
                 {
                     ref var pixel = ref row[x];
                     var lum = (pixel.R * 77 + pixel.G * 150 + pixel.B * 29) >> 8;
-                    var alpha = (lum * pixel.A) >> 8;
+                    var alpha = lum * pixel.A / 255;
                     pixel = new Rgba32(255, 255, 255, (byte)alpha);
                 }
             }

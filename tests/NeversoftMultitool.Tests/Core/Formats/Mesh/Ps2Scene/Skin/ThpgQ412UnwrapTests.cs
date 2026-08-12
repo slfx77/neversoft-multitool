@@ -14,7 +14,7 @@ public sealed class ThpgQ412UnwrapTests(TestPaths paths)
     private const string P8Build = "Tony Hawk's Project 8 (2006-9-21, PS2 - Final)";
     private const string ThpgBuild = "Tony Hawk's Proving Ground (2007-9-3, PS2 - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void ThpgGpedBam_UnwrapsToMatchP8Oracle()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

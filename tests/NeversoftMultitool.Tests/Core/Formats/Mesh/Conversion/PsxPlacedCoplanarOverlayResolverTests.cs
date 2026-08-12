@@ -14,7 +14,7 @@ public sealed class PsxPlacedCoplanarOverlayResolverTests(
     private const uint SchoolOuterWall05 = 0x8D4A74FF;
     private const uint ObjGymDoor = 0xFA591A6B;
 
-    [Fact]
+    [CorpusFact]
     public void SchoolGymDoor_RecoversTheSoleCrossFileOraclePair()
     {
         var levelPath = paths.FindSampleFile(Thps1Final, "skschl.psx");
@@ -229,7 +229,7 @@ public sealed class PsxPlacedCoplanarOverlayResolverTests(
         Assert.Single(different.DetectedPairs); // widened emitted UVs differ
     }
 
-    [Fact]
+    [CorpusFact]
     public void Downhill_HighPlacementScope_RemainsBounded()
     {
         var levelPath = paths.FindSampleFile(Thps1Final, "skdown.psx");

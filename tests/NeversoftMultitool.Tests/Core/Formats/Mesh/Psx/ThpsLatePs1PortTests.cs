@@ -28,7 +28,7 @@ public sealed class ThpsLatePs1PortTests(TestPaths paths)
     private const string Thps3Build = "Tony Hawk's Pro Skater 3 (2001-10-3, PSX - Final)";
     private const string Thps4Build = "Tony Hawk's Pro Skater 4 (2002-9-28, PSX - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void Thps3_Japan_ConvertsWithBankAndTriggerLayers()
     {
         var path = paths.FindSampleFile(Thps3Build, "aajap.psx");
@@ -47,7 +47,7 @@ public sealed class ThpsLatePs1PortTests(TestPaths paths)
             || mesh.Name.StartsWith("mesh_", StringComparison.Ordinal));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Thps4_College_GeometryConvertsUnderTheSpiderManConvention()
     {
         var path = paths.FindSampleFile(Thps4Build, "a1col_g.psx");
@@ -71,7 +71,7 @@ public sealed class ThpsLatePs1PortTests(TestPaths paths)
     ///     light-blue SetSkyColor backdrop; no converter-side colour reversal
     ///     is involved.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void Thps4_College_SkyGradientPreservesTheAuthoredVerticalDirection()
     {
         var levelPath = paths.FindSampleFile(Thps4Build, "a1col_g.psx");
@@ -141,7 +141,7 @@ public sealed class ThpsLatePs1PortTests(TestPaths paths)
         Assert.All(skyMetadata, static metadata => Assert.Equal(0xAEC0DDu, metadata.SkyColor));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Thps4_Trg_ParsesWithFullNodePopulation()
     {
         var path = paths.FindSampleFile(Thps4Build, "a1col_t.trg");

@@ -252,7 +252,7 @@ public sealed class PsxPlacedTrafficResolverTests(TestPaths paths)
         Assert.Equal(0, source.ReadCount("c_taxi.psx"));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Resolve_Thps1FinalDowntownFindsThreeReachableScriptedTaxis()
     {
         var (source, trg, divisor) = LoadCorpusLevel(
@@ -304,7 +304,7 @@ public sealed class PsxPlacedTrafficResolverTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Resolve_Thps1FinalSanFranciscoFindsThreeReachableScriptedCars()
     {
         var (source, trg, divisor) = LoadCorpusLevel(
@@ -332,7 +332,7 @@ public sealed class PsxPlacedTrafficResolverTests(TestPaths paths)
             TriangleCount(placement.Source.MeshFile)));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Resolve_Thps1PrototypeDowntownFindsReachableScriptedTaxi()
     {
         var (source, trg, divisor) = LoadCorpusLevel(
@@ -355,7 +355,7 @@ public sealed class PsxPlacedTrafficResolverTests(TestPaths paths)
         Assert.Equal(5, placement.Source.Animation.BoneCount);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Resolve_Thps1FinalBurnsideRejectsUnreachableScriptCreatedTraffic()
     {
         var (source, trg, divisor) = LoadCorpusLevel(

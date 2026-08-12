@@ -1,3 +1,4 @@
+using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
@@ -187,6 +188,93 @@ public sealed class PsxCoplanarOverlayDetectorTests(TestPaths paths)
         // anywhere in this file, so iterating its (empty) results asserted
         // nothing at all and passed no matter what the detector did.
         Assert.Empty(steps);
+    }
+
+    [Fact]
+    public void Thps2DcSkph_ExtraStepsSeparateWholeLayersWithoutTearingEitherLayer()
+    {
+        const uint topTexture = 0xA89F675A;
+        const uint bottomTexture = 0x71E2F16A;
+        var path = paths.FindSampleFile(
+            "Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)",
+            "SKPH.PSX");
+        Assert.SkipWhen(path == null, "THPS2 DC SKPH fixture not available");
+
+        var file = PsxMeshFile.Parse(path!);
+        Assert.NotNull(file);
+        var steps = PsxCoplanarOverlayDetector.FindSemiTransparentLayerSteps(file!);
+        var faces = CollectSemiTransparentFaceTopology(file!);
+
+        Assert.Equal(279, faces.Count);
+        Assert.Equal(30, steps.Count);
+        Assert.All(steps, static step => Assert.Equal(2, step.Value));
+
+        var top = faces.Where(static face => face.TextureHash == topTexture).ToList();
+        var bottom = faces.Where(static face => face.TextureHash == bottomTexture).ToList();
+        Assert.Equal(30, top.Count);
+        Assert.Equal(30, bottom.Count);
+
+        // The detector selects every face of the complete top texture layer,
+        // and no face from its complete bottom partner. This is a two-layer
+        // separation, not a step change inside either authored sheet.
+        Assert.Equal(
+            top.Select(static face => face.Key)
+                .OrderBy(static key => (key.ObjectIndex, key.FaceIndex)),
+            steps.Keys.OrderBy(static key => (key.ObjectIndex, key.FaceIndex)));
+        Assert.All(bottom, face => Assert.DoesNotContain(face.Key, steps.Keys));
+
+        // Match the actual face-instance corners, independent of object or
+        // face ordering. Every top face has exactly one whole-face bottom
+        // partner, and all 30 members on both sides participate exactly once.
+        var exactWholeFacePairs = (
+                from topFace in top
+                from bottomFace in bottom
+                where HaveExactCorners(topFace.Corners, bottomFace.Corners)
+                select (Top: topFace.Key, Bottom: bottomFace.Key))
+            .ToList();
+        Assert.Equal(30, exactWholeFacePairs.Count);
+        Assert.Equal(30, exactWholeFacePairs.Select(static pair => pair.Top).Distinct().Count());
+        Assert.Equal(30, exactWholeFacePairs.Select(static pair => pair.Bottom).Distinct().Count());
+
+        // Check every same-texture face pair that shares even one authored
+        // world-space corner. The population is non-vacuous, and no connected
+        // face within one layer receives a different lift magnitude.
+        var sameTextureSharedCornerPairs = (
+                from index in Enumerable.Range(0, faces.Count)
+                from otherIndex in Enumerable.Range(index + 1, faces.Count - index - 1)
+                let first = faces[index]
+                let second = faces[otherIndex]
+                where first.TextureHash == second.TextureHash
+                      && first.Corners.Intersect(second.Corners).Any()
+                select (First: first.Key, Second: second.Key))
+            .ToList();
+        Assert.NotEmpty(sameTextureSharedCornerPairs);
+        var topKeys = top.Select(static face => face.Key).ToHashSet();
+        var bottomKeys = bottom.Select(static face => face.Key).ToHashSet();
+        // Each target texture has 26 face pairs touching at any corner; 24 of
+        // those pairs share a complete edge. This test uses the broader corner
+        // definition because a mismatched lift would crack either connection.
+        Assert.Equal(
+            [26, 26],
+            [
+                sameTextureSharedCornerPairs.Count(pair =>
+                    topKeys.Contains(pair.First) && topKeys.Contains(pair.Second)),
+                sameTextureSharedCornerPairs.Count(pair =>
+                    bottomKeys.Contains(pair.First) && bottomKeys.Contains(pair.Second))
+            ]);
+        Assert.DoesNotContain(
+            sameTextureSharedCornerPairs,
+            pair => EffectiveStep(steps, pair.First) != EffectiveStep(steps, pair.Second));
+
+        // The related final-PSX skware report cannot originate in the extra
+        // layer-step mechanism: production selects no step-2 face there.
+        var skwarePath = paths.FindSampleFile(
+            "Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)",
+            "skware.psx");
+        Assert.SkipWhen(skwarePath == null, "THPS2 PSX skware fixture not available");
+        var skware = PsxMeshFile.Parse(skwarePath!);
+        Assert.NotNull(skware);
+        Assert.Empty(PsxCoplanarOverlayDetector.FindSemiTransparentLayerSteps(skware!));
     }
 
     [Fact]
@@ -592,6 +680,66 @@ public sealed class PsxCoplanarOverlayDetectorTests(TestPaths paths)
             TranslationDivisor = 2.25f
         };
     }
+
+    private static List<SemiTransparentFaceTopology> CollectSemiTransparentFaceTopology(
+        PsxMeshFile file)
+    {
+        var result = new List<SemiTransparentFaceTopology>();
+        for (var objectIndex = 0; objectIndex < file.Objects.Count; objectIndex++)
+        {
+            var obj = file.Objects[objectIndex];
+            if (obj.MeshIndex >= file.Meshes.Count)
+                continue;
+
+            var mesh = file.Meshes[obj.MeshIndex];
+            var offset = PsxMeshSemantics.ToGltfPosition(
+                PsxMeshSemantics.GetObjectOffset(file, obj));
+            for (var faceIndex = 0; faceIndex < mesh.Faces.Count; faceIndex++)
+            {
+                var face = mesh.Faces[faceIndex];
+                if (!face.IsSemiTransparent)
+                    continue;
+
+                var corners = new Vector3[face.IsQuad ? 4 : 3];
+                for (var slot = 0; slot < corners.Length; slot++)
+                {
+                    var vertexIndex = PsxGeometryHelpers.GetPsxFaceVertexIndex(face, slot);
+                    Assert.True(
+                        vertexIndex < mesh.Vertices.Count,
+                        $"o{objectIndex}f{faceIndex} corner {slot} references vertex {vertexIndex} "
+                        + $"outside 0..{mesh.Vertices.Count - 1}");
+                    var vertex = mesh.Vertices[(int)vertexIndex];
+                    corners[slot] = new Vector3(vertex.X, -vertex.Y, -vertex.Z) + offset;
+                }
+
+                result.Add(new SemiTransparentFaceTopology(
+                    new PsxFaceInstanceKey(objectIndex, faceIndex),
+                    face.TextureHash,
+                    corners));
+            }
+        }
+
+        return result;
+    }
+
+    private static bool HaveExactCorners(Vector3[] first, Vector3[] second)
+    {
+        return first.Length == second.Length
+               && first.All(second.Contains)
+               && second.All(first.Contains);
+    }
+
+    private static int EffectiveStep(
+        IReadOnlyDictionary<PsxFaceInstanceKey, int> steps,
+        PsxFaceInstanceKey key)
+    {
+        return steps.TryGetValue(key, out var step) ? step : 1;
+    }
+
+    private readonly record struct SemiTransparentFaceTopology(
+        PsxFaceInstanceKey Key,
+        uint TextureHash,
+        Vector3[] Corners);
 
     private static PsxMesh CreateQuad(
         float size, float y, uint textureHash, bool semiTransparent = false, bool wibble = false,

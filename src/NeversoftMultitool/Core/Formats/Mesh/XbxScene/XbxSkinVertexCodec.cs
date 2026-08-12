@@ -47,6 +47,10 @@ internal static class XbxSkinVertexCodec
 
     private static byte ReadBoneIndex(BinaryReader r)
     {
-        return (byte)Math.Min(byte.MaxValue, r.ReadUInt16() / 3);
+        var storedIndex = r.ReadUInt16();
+        if (storedIndex % 3 != 0 || storedIndex / 3 > byte.MaxValue)
+            throw new InvalidDataException($"Invalid pre-multiplied bone index: {storedIndex}");
+
+        return (byte)(storedIndex / 3);
     }
 }

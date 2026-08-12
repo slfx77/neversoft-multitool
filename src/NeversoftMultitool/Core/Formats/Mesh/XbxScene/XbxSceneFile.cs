@@ -199,10 +199,22 @@ public static class XbxSceneFile
                 r.ReadByte(); // pad byte between buffers
 
             var blockBytes = r.ReadInt32();
+            var bufStart = r.BaseStream.Position;
+            if (blockBytes < 0 || blockBytes > r.BaseStream.Length - bufStart)
+            {
+                throw new InvalidDataException(
+                    $"Xbox scene vertex buffer {vb} declares an invalid {blockBytes}-byte block at 0x{bufStart:X}");
+            }
 
             if (vb == 0 && lodIndex == 0)
             {
-                var bufStart = r.BaseStream.Position;
+                var requiredVertexBytes = (long)vertexCount * vertexStride;
+                if (requiredVertexBytes > blockBytes)
+                {
+                    throw new InvalidDataException(
+                        $"Xbox scene vertex data requires {requiredVertexBytes} bytes, exceeding the declared {blockBytes}-byte block");
+                }
+
                 vertices = ReadVertexBuffer(r, sectorFlags, vertexCount, vertexStride, passCount);
                 r.BaseStream.Position = bufStart + blockBytes;
             }

@@ -75,7 +75,9 @@ public static class LitFile
             _ => LitLightType.Point
         };
 
-        SkipToOpenBrace(lines, ref i);
+        if (!SkipToOpenBrace(lines, ref i))
+            return null;
+
         var tokens = CollectBlockTokens(lines, ref i);
 
         var light = new LitLight { Name = name, Type = type };
@@ -83,18 +85,20 @@ public static class LitFile
         return light;
     }
 
-    private static void SkipToOpenBrace(string[] lines, ref int i)
+    private static bool SkipToOpenBrace(string[] lines, ref int i)
     {
         while (i < lines.Length)
         {
             if (lines[i].Trim().Contains('{'))
             {
                 i++;
-                return;
+                return true;
             }
 
             i++;
         }
+
+        return false;
     }
 
     /// <summary>

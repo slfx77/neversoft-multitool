@@ -317,7 +317,7 @@ public sealed class PsxN64ShellEndianTests(TestPaths paths)
     ///     order. If this ever fails, the port really did move the field and the
     ///     shared-grammar premise is wrong for the shell.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void MeshIndex_IsAtThePs1Offset_WhenReadBigEndian()
     {
         var shells = CarveShells(

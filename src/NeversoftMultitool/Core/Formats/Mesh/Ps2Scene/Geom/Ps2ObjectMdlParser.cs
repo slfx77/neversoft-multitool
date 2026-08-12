@@ -92,9 +92,10 @@ internal static class Ps2ObjectMdlParser
             if (nodeOffset == -1 || !visited.Add(nodeOffset))
                 continue;
 
-            var abs = baseOffset + nodeOffset;
-            if (abs + 80 > data.Length)
+            var abs64 = (long)baseOffset + nodeOffset;
+            if (abs64 < 0 || abs64 > data.Length - 80L)
                 continue;
+            var abs = (int)abs64;
 
             var span = data.AsSpan(abs);
             var sphereX = BinaryPrimitives.ReadSingleLittleEndian(span);
@@ -113,9 +114,10 @@ internal static class Ps2ObjectMdlParser
 
             if (isLeaf && u1 != -1)
             {
-                var dmaAbs = baseOffset + u1;
-                if (dmaAbs + 8 <= data.Length)
+                var dmaAbs64 = (long)baseOffset + u1;
+                if (dmaAbs64 >= 0 && dmaAbs64 <= data.Length - 8L)
                 {
+                    var dmaAbs = (int)dmaAbs64;
                     var center = new Vector3(sphereX, sphereY, sphereZ);
                     var vertices = Ps2GeomVifVertexDecoder.ExtractVerticesFromDma(data, dmaAbs, center);
                     var gsCtx = Ps2GeomVifVertexDecoder.ExtractGsContextFromDma(data, dmaAbs);

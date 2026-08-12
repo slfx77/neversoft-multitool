@@ -7,6 +7,14 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Ddm;
 /// </summary>
 public sealed class DdmFile
 {
+    private const int FileHeaderSize = 12;
+    private const int ObjectTableEntrySize = 8;
+    private const int ObjectHeaderSize = 136;
+    private const int MaterialSize = 152;
+    private const int VertexSize = 36;
+    private const int IndexSize = 2;
+    private const int SplitSize = 6;
+
     public required List<DdmObject> Objects { get; init; }
 
     /// <summary>
@@ -33,6 +41,8 @@ public sealed class DdmFile
     {
         var stream = reader.BaseStream;
 
+        EnsureRange(stream, 0, FileHeaderSize, "DDM file header");
+
         // File header: version (4) + dataSize (4) + objectCount (4)
         var version = reader.ReadUInt32();
         if (version != 1)
@@ -41,8 +51,13 @@ public sealed class DdmFile
         reader.ReadUInt32(); // dataSize — not needed
         var objectCount = reader.ReadUInt32();
 
+        if (objectCount > int.MaxValue)
+            throw new InvalidDataException($"DDM object count is too large: {objectCount}");
+
+        EnsureRange(stream, FileHeaderSize, (long)objectCount * ObjectTableEntrySize, "DDM object table");
+
         // Object table: offset (4) + size (4) per entry
-        var objectTable = new (uint Offset, uint Size)[objectCount];
+        var objectTable = new (uint Offset, uint Size)[(int)objectCount];
         for (var i = 0; i < objectCount; i++)
         {
             objectTable[i] = (reader.ReadUInt32(), reader.ReadUInt32());
@@ -52,11 +67,46 @@ public sealed class DdmFile
 
         for (var i = 0; i < objectCount; i++)
         {
-            stream.Seek(objectTable[i].Offset, SeekOrigin.Begin);
+            var (offset, size) = objectTable[i];
+            EnsureRange(stream, offset, size, $"DDM object {i}");
+
+            if (size < ObjectHeaderSize)
+            {
+                throw new InvalidDataException(
+                    $"DDM object {i} declares {size} bytes, smaller than its {ObjectHeaderSize}-byte header");
+            }
+
+            stream.Seek((long)offset + 120, SeekOrigin.Begin);
+            var materialCount = reader.ReadUInt32();
+            var vertexCount = reader.ReadUInt32();
+            var indexCount = reader.ReadUInt32();
+            var splitCount = reader.ReadUInt32();
+
+            var requiredSize = ObjectHeaderSize
+                               + (long)materialCount * MaterialSize
+                               + (long)vertexCount * VertexSize
+                               + (long)indexCount * IndexSize
+                               + (long)splitCount * SplitSize;
+            if (requiredSize > size)
+            {
+                throw new InvalidDataException(
+                    $"DDM object {i} requires {requiredSize} bytes for its declared records, but its table span is {size} bytes");
+            }
+
+            stream.Seek(offset, SeekOrigin.Begin);
             objects.Add(ReadObject(reader));
         }
 
         return new DdmFile { Objects = objects };
+    }
+
+    private static void EnsureRange(Stream stream, long offset, long size, string description)
+    {
+        if (offset < 0 || size < 0 || offset > stream.Length || size > stream.Length - offset)
+        {
+            throw new InvalidDataException(
+                $"{description} range ({offset}, {size}) exceeds the {stream.Length}-byte file");
+        }
     }
 
     private static DdmObject ReadObject(BinaryReader reader)

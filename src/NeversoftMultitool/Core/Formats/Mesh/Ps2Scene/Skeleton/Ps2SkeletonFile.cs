@@ -65,6 +65,12 @@ public static class Ps2SkeletonFile
             var tz = r.ReadSingle();
             _ = r.ReadSingle(); // W (unused)
 
+            if (!float.IsFinite(qx) || !float.IsFinite(qy) || !float.IsFinite(qz) || !float.IsFinite(qw)
+                || !float.IsFinite(tx) || !float.IsFinite(ty) || !float.IsFinite(tz))
+            {
+                throw new InvalidDataException($"Bone {i} neutral pose contains non-finite values");
+            }
+
             // QuatVecToMatrix (quat.inl line 617) conjugates the quaternion first:
             // pQ->Invert() negates XYZ via Vector::Negate() (which only touches XYZ, not W).
             // This means the file stores q but the engine uses q* (conjugate) for the rotation.

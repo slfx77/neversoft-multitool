@@ -8,7 +8,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
     private const string BuildName = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
     private static readonly int[] ValidKickAddresses = [280, 652];
 
-    [Fact]
+    [CorpusFact]
     public void ReplayBatches_SkaterLasek_HasReplayBatchMetadata()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -40,7 +40,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.True(second.Snapshot.Xtop >= 0);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayBatches_SkaterLasek_IncludesInitialMeshZeroPreambleBatch()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -67,7 +67,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.Contains(first.OutputKickPacket.Address, ValidKickAddresses);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayBatches_SkaterLasek_TracksFirstMaterialKickSnapshot()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -90,7 +90,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.True(firstMaterialKick.Snapshot.XtopWindow.Length > 0);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayBatches_SkaterLasek_FirstMaterialBatch_CapturesContextWrites()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -116,7 +116,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.Equal([648, 649, 650, 651], secondContext.WriteAddresses);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayBatches_SkaterLasek_FirstMaterialBatchSequenceMatchesReference()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -145,7 +145,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayBatches_SkaterLasek_FlaggedAddr652Batch0038A0_MinWriteWindowMatchesPython()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -167,7 +167,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
             word != new Vu1Qword(0x00000000, 0x00000000, 0x00000000, 0x00000000));
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayBatches_SkaterLasek_FlaggedAddr652Batch0038A0_CapturesWrappedContextWrites()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -185,7 +185,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.Equal([1018, 1019, 1020, 1021, 1022, 1023], context.WriteAddresses);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayBatches_SkaterLasek_FlaggedAddr652Batch004568_MinWriteWindowMatchesPython()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -209,7 +209,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.Equal(new Vu1Qword(0x000001E5, 0xFFFF8290, 0x000001C1, 0xFFFF8341), batch.Snapshot.MinWriteWindow[5]);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayBatches_SkaterLasek_FlaggedAddr280ShoeKicks_ShareStableKickBaseWindow()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -231,7 +231,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.All(setup02ShoeKick.Snapshot.KickBaseWindow, word => Assert.Equal(new Vu1Qword(0, 0, 0, 0), word));
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayBatches_BodyFTorso_FlagsPreambleBatches()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -245,7 +245,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.Contains(batches.Where(batch => batch.IsPreambleBatch), batch => batch.SetupIndex == 0);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayBatches_SkaterHawk_UsesResolvedChainStartAndPreservesPreambleBatches()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -260,7 +260,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.Contains(batches, batch => batch.VertexCount > 0 && batch.FirstCommandOffset == 0x000BEC);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayBatches_ProVallelyHead_UsesEarlierRawBoundary()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -277,7 +277,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.Contains(batches, batch => batch.FirstCommandOffset == 0x00217C && batch.SetupIndex == 1);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayExtractKicks_SkaterLasek_EmitsValidKickWindows()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -301,7 +301,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.Equal(3070, kicks.Sum(kick => kick.TriangleCount));
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayExtractKicks_ProVallelyHead_HasGapFreeKicks()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -316,7 +316,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.Equal(605, kicks.Sum(kick => kick.TriangleCount));
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayExtractKicks_SkaterLasek_FirstMaterialKick_IsAnchoredToCurrentWindow()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -333,7 +333,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.Equal(503, firstMaterialKick.FullOutputWindow[^1]);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayKickDebugReport_SkaterLasek_ContainsFirstMaterialKickName()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -350,7 +350,7 @@ public sealed class ThawPs2ReplayTests(TestPaths paths)
         Assert.Contains(ThawReplayDebugGltfWriter.GetKickColorHex(firstMaterialKick.KickIndex), report);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReplayTraceFormatter_BodyFTorso_EmitsPreambleTrace()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

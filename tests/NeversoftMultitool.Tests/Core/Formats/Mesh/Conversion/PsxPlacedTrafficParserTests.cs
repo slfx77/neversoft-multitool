@@ -15,7 +15,7 @@ public sealed class PsxPlacedTrafficParserTests(TestPaths paths)
     private const string Thps1FinalBuild =
         "Tony Hawk's Pro Skater (1999-9-29, PSX - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void FinalTrafficSources_AreHierModelsDrivenByAbsoluteV1Clips()
     {
         var sources = ResolveTrafficSources("skdown")
@@ -94,7 +94,7 @@ public sealed class PsxPlacedTrafficParserTests(TestPaths paths)
         Assert.Equal(1, animation.Channels[0].SkeletonIndex);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Downtown_DefaultRegistersScriptedSnapshotWithoutEmittingTraffic()
     {
         var document = ParseLevel(Thps1FinalBuild, "skdown.psx");
@@ -121,7 +121,7 @@ public sealed class PsxPlacedTrafficParserTests(TestPaths paths)
         AssertNoTrafficContent(withoutLevelObjects);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Downtown_OverrideEmitsThreePlacedTaxisAndOneSharedAnimation()
     {
         var defaultDocument = ParseLevel(Thps1FinalBuild, "skdown.psx");
@@ -209,7 +209,7 @@ public sealed class PsxPlacedTrafficParserTests(TestPaths paths)
         AssertBlendTraffic(document, expectedRoots);
     }
 
-    [Fact]
+    [CorpusFact]
     public void SanFrancisco_OverrideEmitsVanAndCableCarSourceGroups()
     {
         var defaultDocument = ParseLevel(Thps1FinalBuild, "sksf.psx");
