@@ -8,6 +8,9 @@ namespace NeversoftMultitool.Core.Formats.Collision;
 /// </summary>
 public sealed class NgcColBspNode
 {
+    /// <summary>Byte offset of this record in the shared BSP node array.</summary>
+    public required int NodeByteOffset { get; init; }
+
     /// <summary>Split axis: 0 = X, 1 = Y, 2 = Z, 3 = leaf.</summary>
     public required int Axis { get; init; }
 
@@ -38,6 +41,9 @@ public sealed class NgcColBspNode
 
     /// <summary>Leaves: face indices relative to the owning object's first face.</summary>
     public ushort[]? LeafFaceIndices { get; init; }
+
+    /// <summary>Leaves: starting u16 element offset in the shared face-index pool.</summary>
+    public int? LeafPoolElementOffset { get; init; }
 
     public int CountNodes()
     {

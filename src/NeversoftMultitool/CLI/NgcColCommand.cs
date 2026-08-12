@@ -47,8 +47,14 @@ public static class NgcColCommand
         return command;
     }
 
-    private static int Execute(string input, string output, bool verbose, CancellationToken cancellationToken)
+    internal static int Execute(string input, string output, bool verbose, CancellationToken cancellationToken)
     {
+        if (!File.Exists(input) && !Directory.Exists(input))
+        {
+            AnsiConsole.MarkupLine($"[red]Input does not exist: {Markup.Escape(input)}[/]");
+            return 1;
+        }
+
         var files = FindFiles(input);
         if (files.Length == 0)
         {
@@ -78,7 +84,7 @@ public static class NgcColCommand
                 {
                     var leaves = scene.Objects.Sum(static o => o.BspRoot.CountLeaves());
                     AnsiConsole.MarkupLine(
-                        $"  [green]{Path.GetFileName(file)}[/]: objects={scene.Objects.Length} " +
+                        $"  [green]{Markup.Escape(Path.GetFileName(file))}[/]: objects={scene.Objects.Length} " +
                         $"verts={scene.TotalVerts} faces={scene.TotalFaces} bspLeaves={leaves}");
                 }
             }
@@ -86,7 +92,7 @@ public static class NgcColCommand
             {
                 errors++;
                 AnsiConsole.MarkupLine(
-                    $"  [red]{Path.GetFileName(file)}: {Markup.Escape(ex.Message)}[/]");
+                    $"  [red]{Markup.Escape(Path.GetFileName(file))}: {Markup.Escape(ex.Message)}[/]");
             }
         }
 

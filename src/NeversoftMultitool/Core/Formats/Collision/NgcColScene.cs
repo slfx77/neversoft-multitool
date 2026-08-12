@@ -11,6 +11,12 @@ namespace NeversoftMultitool.Core.Formats.Collision;
 /// </summary>
 public sealed class NgcColScene
 {
+    /// <summary>Exact serialized byte count of the source file.</summary>
+    public required int SerializedSize { get; init; }
+
+    /// <summary>SHA-256 of the complete serialized file, uppercase hexadecimal.</summary>
+    public required string SerializedSha256 { get; init; }
+
     /// <summary>Always 10 in the shipped corpus.</summary>
     public required int Version { get; init; }
 
@@ -36,6 +42,15 @@ public sealed class NgcColScene
     /// <summary>Total u16 elements in the trailing BSP leaf face-index pool.</summary>
     public required int PoolElementCount { get; init; }
 
+    /// <summary>Serialized BSP node-array byte count.</summary>
+    public required int BspNodeByteCount { get; init; }
+
+    /// <summary>SHA-256 of the serialized BSP node array.</summary>
+    public required string BspNodeSha256 { get; init; }
+
+    /// <summary>SHA-256 of the serialized u16 BSP face-index pool.</summary>
+    public required string FaceIndexPoolSha256 { get; init; }
+
     /// <summary>
     ///     Raw per-face-corner intensity region (3 bytes per face). Uniform
     ///     0xFF (full intensity) in most files; some files carry varied
@@ -46,10 +61,13 @@ public sealed class NgcColScene
     /// <summary>True when every corner-intensity byte is 0xFF.</summary>
     public required bool CornerIntensitiesUniform { get; init; }
 
+    /// <summary>SHA-256 of the serialized three-bytes-per-face intensity region.</summary>
+    public required string CornerIntensitiesSha256 { get; init; }
+
     /// <summary>
     ///     True when every face's vertex indices stay inside its owning
-    ///     object's cumulative vertex range; false for the compacted global
-    ///     numbering some files use.
+    ///     object's inferred cumulative declared vertex range; false for the
+    ///     cross-object/global numbering some canonical files use.
     /// </summary>
-    public required bool FaceIndicesObjectContained { get; init; }
+    public required bool FaceIndicesWithinCumulativeDeclaredVertexRanges { get; init; }
 }

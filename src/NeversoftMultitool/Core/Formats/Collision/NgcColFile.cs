@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
+using System.Security.Cryptography;
 
 namespace NeversoftMultitool.Core.Formats.Collision;
 
@@ -12,7 +13,8 @@ namespace NeversoftMultitool.Core.Formats.Collision;
 ///     24B header  : version=10, numObjects, totalVerts, totalFaces,
 ///                   superSectorRows, superSectorCols
 ///     32B bounds  : scene bbox min(x,y,z,1) max(x,y,z,1)
-///     64B objects : checksum, numVerts u32, numFaces u16 + pad,
+///     64B objects : checksum, flags u16, numVerts u16, numFaces u16,
+///                   useSmallFaces u8, useFixedVerts u8,
 ///                   faceByteOffset u32, bboxMin 4f, bboxMax 4f,
 ///                   vertPoolPtrSlot (0), bspNodeByteOffset u32,
 ///                   cornerIntensityByteOffset u32 (= 3 * cumulative faces), pad
@@ -55,22 +57,24 @@ public static class NgcColFile
         if (data.Length < SizeofHeader + SizeofBounds)
             throw new InvalidDataException("File too small for NGC COL header");
 
-        var version = checked((int)BinaryPrimitives.ReadUInt32BigEndian(data));
+        var version = ReadInt32Count(data, 0, "version");
         if (version != 10)
             throw new InvalidDataException($"Unsupported NGC COL version: {version}");
 
-        var numObjects = checked((int)BinaryPrimitives.ReadUInt32BigEndian(data[4..]));
-        var totalVerts = checked((int)BinaryPrimitives.ReadUInt32BigEndian(data[8..]));
-        var totalFaces = checked((int)BinaryPrimitives.ReadUInt32BigEndian(data[12..]));
-        var ssRows = checked((int)BinaryPrimitives.ReadUInt32BigEndian(data[16..]));
-        var ssCols = checked((int)BinaryPrimitives.ReadUInt32BigEndian(data[20..]));
+        var numObjects = ReadInt32Count(data, 4, "object count");
+        var totalVerts = ReadInt32Count(data, 8, "vertex count");
+        var totalFaces = ReadInt32Count(data, 12, "face count");
+        var ssRows = ReadInt32Count(data, 16, "supersector row count");
+        var ssCols = ReadInt32Count(data, 20, "supersector column count");
         if (numObjects > MaxObjects)
             throw new InvalidDataException($"Unreasonable object count: {numObjects}");
 
         var boundsMin = ReadVector4(data, SizeofHeader);
         var boundsMax = ReadVector4(data, SizeofHeader + 16);
+        ValidateBounds(boundsMin, boundsMax, "Scene", totalVerts == 0 && totalFaces == 0);
 
-        var objectsEnd = SizeofHeader + SizeofBounds + numObjects * SizeofObject;
+        var objectsEnd = CheckedSectionEnd(
+            SizeofHeader + SizeofBounds, numObjects, SizeofObject, "object records");
         if (data.Length < objectsEnd)
             throw new InvalidDataException("File truncated inside object records");
 
@@ -84,29 +88,44 @@ public static class NgcColFile
             var record = new ObjectRecord
             {
                 Checksum = BinaryPrimitives.ReadUInt32BigEndian(data[o..]),
-                NumVerts = checked((int)BinaryPrimitives.ReadUInt32BigEndian(data[(o + 4)..])),
+                Flags = BinaryPrimitives.ReadUInt16BigEndian(data[(o + 4)..]),
+                NumVerts = BinaryPrimitives.ReadUInt16BigEndian(data[(o + 6)..]),
                 NumFaces = BinaryPrimitives.ReadUInt16BigEndian(data[(o + 8)..]),
-                FirstVertIndex = vertCursor,
+                UsesSmallFaces = data[o + 10] != 0,
+                UsesFixedVertices = data[o + 11] != 0,
+                CumulativeDeclaredVertexBase = vertCursor,
                 FirstFaceIndex = faceCursor,
                 BBoxMin = ReadVector4(data, o + 16),
                 BBoxMax = ReadVector4(data, o + 32),
-                BspNodeOffset = checked((int)BinaryPrimitives.ReadUInt32BigEndian(data[(o + 52)..]))
+                BspNodeOffset = ReadInt32Offset(data, o + 52, $"Object {i} BSP node"),
+                CornerIntensityOffset = ReadInt32Offset(
+                    data, o + 56, $"Object {i} corner intensity")
             };
 
-            if (BinaryPrimitives.ReadUInt16BigEndian(data[(o + 10)..]) != 0)
-                throw new InvalidDataException($"Object {i}: non-zero pad after face count");
-            if (BinaryPrimitives.ReadUInt32BigEndian(data[(o + 12)..]) != (uint)(faceCursor * SizeofFace))
-                throw new InvalidDataException($"Object {i}: face byte offset breaks cumulative layout");
+            if (record.UsesSmallFaces)
+                throw new InvalidDataException($"Object {i}: small-face encoding is not valid in THAW GC v10");
+            if (record.UsesFixedVertices)
+                throw new InvalidDataException($"Object {i}: fixed-vertex encoding is not valid in THAW GC v10");
+            RequireSerializedOffset(
+                BinaryPrimitives.ReadUInt32BigEndian(data[(o + 12)..]),
+                (long)faceCursor * SizeofFace,
+                $"Object {i}: face byte offset breaks cumulative layout");
             if (BinaryPrimitives.ReadUInt32BigEndian(data[(o + 48)..]) != 0)
                 throw new InvalidDataException($"Object {i}: vertex pool pointer slot is not zero");
-            if (BinaryPrimitives.ReadUInt32BigEndian(data[(o + 56)..]) != (uint)(faceCursor * 3))
-                throw new InvalidDataException($"Object {i}: corner intensity offset breaks cumulative layout");
+            RequireSerializedOffset(
+                BinaryPrimitives.ReadUInt32BigEndian(data[(o + 56)..]),
+                (long)faceCursor * 3,
+                $"Object {i}: corner intensity offset breaks cumulative layout");
             if (BinaryPrimitives.ReadUInt32BigEndian(data[(o + 60)..]) != 0)
                 throw new InvalidDataException($"Object {i}: non-zero trailing pad");
 
+            ValidateBounds(
+                record.BBoxMin, record.BBoxMax, $"Object {i}",
+                record.NumVerts == 0 && record.NumFaces == 0);
+
             records[i] = record;
-            vertCursor += record.NumVerts;
-            faceCursor += record.NumFaces;
+            vertCursor = CheckedAdd(vertCursor, record.NumVerts, "object vertex-count sum");
+            faceCursor = CheckedAdd(faceCursor, record.NumFaces, "object face-count sum");
         }
 
         if (vertCursor != totalVerts)
@@ -116,25 +135,22 @@ public static class NgcColFile
 
         // ── Region offsets (NxScene.cpp read_collision, NGC path) ──
         var cornerStart = objectsEnd;
-        var faceStart = Align4(cornerStart + totalFaces * 3);
-        var nodeSizeOffset = faceStart + totalFaces * SizeofFace + ((totalFaces & 1) != 0 ? 2 : 0);
-        if (nodeSizeOffset + 4 > data.Length)
+        var cornerEnd = CheckedSectionEnd(cornerStart, totalFaces, 3, "corner-intensity region");
+        var faceStart = Align4Checked(cornerEnd, "corner-intensity alignment");
+        var faceEnd = CheckedSectionEnd(faceStart, totalFaces, SizeofFace, "face records");
+        var nodeSizeOffset = CheckedAdd(
+            faceEnd, (totalFaces & 1) != 0 ? 2 : 0, "face alignment");
+        var nodeBase = CheckedAdd(nodeSizeOffset, 4, "BSP node-size field");
+        if (nodeBase > data.Length)
             throw new InvalidDataException("File truncated before BSP node array size");
+        RequireZeroBytes(data[cornerEnd..faceStart], "corner-intensity alignment padding");
+        RequireZeroBytes(data[faceEnd..nodeSizeOffset], "face alignment padding");
 
-        var cornerIntensities = data[cornerStart..(cornerStart + totalFaces * 3)].ToArray();
-        var cornerUniform = true;
-        foreach (var b in cornerIntensities)
-        {
-            if (b != 0xFF)
-            {
-                cornerUniform = false;
-                break;
-            }
-        }
+        var cornerIntensities = data[cornerStart..cornerEnd].ToArray();
+        var cornerUniform = cornerIntensities.All(static value => value == 0xFF);
 
-        var nodeSize = checked((int)BinaryPrimitives.ReadUInt32BigEndian(data[nodeSizeOffset..]));
-        var nodeBase = nodeSizeOffset + 4;
-        var poolBase = nodeBase + nodeSize;
+        var nodeSize = ReadInt32Count(data, nodeSizeOffset, "BSP node-array byte count");
+        var poolBase = CheckedAdd(nodeBase, nodeSize, "BSP node array");
         if (nodeSize % SizeofNode != 0)
             throw new InvalidDataException($"BSP node array size {nodeSize} is not a multiple of 8");
         if (poolBase > data.Length)
@@ -149,6 +165,7 @@ public static class NgcColFile
         var objects = new NgcColObject[numObjects];
         var faceOffset = faceStart;
         var coveredNodes = new bool[nodeSize / SizeofNode];
+        var coveredPoolElements = new bool[poolElements];
         for (var i = 0; i < numObjects; i++)
         {
             var record = records[i];
@@ -163,9 +180,10 @@ public static class NgcColFile
                 if (v0 >= totalVerts || v1 >= totalVerts || v2 >= totalVerts)
                     throw new InvalidDataException(
                         $"Object {i} face {f}: vertex index outside the file's vertex numbering");
-                if (v0 < record.FirstVertIndex || v0 >= record.FirstVertIndex + record.NumVerts ||
-                    v1 < record.FirstVertIndex || v1 >= record.FirstVertIndex + record.NumVerts ||
-                    v2 < record.FirstVertIndex || v2 >= record.FirstVertIndex + record.NumVerts)
+                var declaredVertexEnd = (long)record.CumulativeDeclaredVertexBase + record.NumVerts;
+                if (v0 < record.CumulativeDeclaredVertexBase || v0 >= declaredVertexEnd ||
+                    v1 < record.CumulativeDeclaredVertexBase || v1 >= declaredVertexEnd ||
+                    v2 < record.CumulativeDeclaredVertexBase || v2 >= declaredVertexEnd)
                 {
                     faceIndicesContained = false;
                 }
@@ -176,17 +194,22 @@ public static class NgcColFile
 
             var bspRoot = ParseBspNode(
                 data, nodeBase, nodeSize, poolBase, poolElements,
-                record.BspNodeOffset, record.NumFaces, coveredNodes, depth: 0,
+                record.BspNodeOffset, record.NumFaces, coveredNodes, coveredPoolElements, depth: 0,
                 objectIndex: i);
 
             objects[i] = new NgcColObject
             {
                 Checksum = record.Checksum,
+                Flags = record.Flags,
                 NumVerts = record.NumVerts,
                 BBoxMin = record.BBoxMin,
                 BBoxMax = record.BBoxMax,
-                FirstVertIndex = record.FirstVertIndex,
+                CumulativeDeclaredVertexBase = record.CumulativeDeclaredVertexBase,
                 FirstFaceIndex = record.FirstFaceIndex,
+                UsesSmallFaces = record.UsesSmallFaces,
+                UsesFixedVertices = record.UsesFixedVertices,
+                BspNodeByteOffset = record.BspNodeOffset,
+                CornerIntensityByteOffset = record.CornerIntensityOffset,
                 Faces = faces,
                 BspRoot = bspRoot
             };
@@ -198,8 +221,16 @@ public static class NgcColFile
                 throw new InvalidDataException($"BSP node slot {slot} belongs to no object's tree");
         }
 
+        for (var element = 0; element < coveredPoolElements.Length; element++)
+        {
+            if (!coveredPoolElements[element])
+                throw new InvalidDataException($"BSP face-index pool element {element} belongs to no leaf");
+        }
+
         return new NgcColScene
         {
+            SerializedSize = data.Length,
+            SerializedSha256 = Hash(data),
             Version = version,
             SuperSectorRows = ssRows,
             SuperSectorCols = ssCols,
@@ -209,21 +240,26 @@ public static class NgcColFile
             TotalVerts = totalVerts,
             TotalFaces = totalFaces,
             PoolElementCount = poolElements,
+            BspNodeByteCount = nodeSize,
+            BspNodeSha256 = Hash(data.Slice(nodeBase, nodeSize)),
+            FaceIndexPoolSha256 = Hash(data[poolBase..]),
             CornerIntensities = cornerIntensities,
             CornerIntensitiesUniform = cornerUniform,
-            FaceIndicesObjectContained = faceIndicesContained
+            CornerIntensitiesSha256 = Hash(cornerIntensities),
+            FaceIndicesWithinCumulativeDeclaredVertexRanges = faceIndicesContained
         };
     }
 
     private static NgcColBspNode ParseBspNode(
         ReadOnlySpan<byte> data, int nodeBase, int nodeSize, int poolBase, int poolElements,
-        int nodeOffset, int objectFaceCount, bool[] coveredNodes, int depth, int objectIndex)
+        int nodeOffset, int objectFaceCount, bool[] coveredNodes, bool[] coveredPoolElements,
+        int depth, int objectIndex)
     {
         if (depth > MaxTreeDepth)
             throw new InvalidDataException($"Object {objectIndex}: BSP tree exceeds depth {MaxTreeDepth}");
         if (nodeOffset % SizeofNode != 0)
             throw new InvalidDataException($"Object {objectIndex}: misaligned BSP node offset {nodeOffset}");
-        if (nodeOffset + SizeofNode > nodeSize)
+        if (nodeOffset < 0 || (long)nodeOffset + SizeofNode > nodeSize)
             throw new InvalidDataException($"Object {objectIndex}: BSP node offset {nodeOffset} outside node array");
         var slot = nodeOffset / SizeofNode;
         if (coveredNodes[slot])
@@ -239,15 +275,23 @@ public static class NgcColFile
             var numFaces = BinaryPrimitives.ReadUInt16BigEndian(record);
             if (record[2] != 0)
                 throw new InvalidDataException($"Object {objectIndex}: non-zero BSP leaf pad");
-            var poolOffset = checked((int)BinaryPrimitives.ReadUInt32BigEndian(record[4..]));
-            if (poolOffset + numFaces > poolElements)
+            var poolOffsetRaw = BinaryPrimitives.ReadUInt32BigEndian(record[4..]);
+            if (poolOffsetRaw > int.MaxValue)
+                throw new InvalidDataException($"Object {objectIndex}: BSP leaf pool offset is too large");
+            var poolOffset = (int)poolOffsetRaw;
+            if ((long)poolOffset + numFaces > poolElements)
                 throw new InvalidDataException($"Object {objectIndex}: BSP leaf list outside face-index pool");
 
             var indices = new ushort[numFaces];
             for (var k = 0; k < numFaces; k++)
             {
+                var poolElement = poolOffset + k;
+                if (coveredPoolElements[poolElement])
+                    throw new InvalidDataException(
+                        $"Object {objectIndex}: BSP face-index pool element {poolElement} referenced twice");
+                coveredPoolElements[poolElement] = true;
                 var value = BinaryPrimitives.ReadUInt16BigEndian(
-                    data[(poolBase + (poolOffset + k) * 2)..]);
+                    data[(poolBase + poolElement * 2)..]);
                 if (value >= objectFaceCount)
                     throw new InvalidDataException(
                         $"Object {objectIndex}: BSP leaf face index {value} outside object face count {objectFaceCount}");
@@ -256,7 +300,9 @@ public static class NgcColFile
 
             return new NgcColBspNode
             {
+                NodeByteOffset = nodeOffset,
                 Axis = 3,
+                LeafPoolElementOffset = poolOffset,
                 LeafFaceIndices = indices
             };
         }
@@ -265,18 +311,23 @@ public static class NgcColFile
         var childrenWord = BinaryPrimitives.ReadUInt32BigEndian(record[4..]);
         if ((childrenWord & 0x2) != 0)
             throw new InvalidDataException($"Object {objectIndex}: unexpected BSP child flag bit");
-        var childOffset = checked((int)(childrenWord & ~0x3u));
+        var childOffsetRaw = childrenWord & ~0x3u;
+        if (childOffsetRaw > int.MaxValue)
+            throw new InvalidDataException($"Object {objectIndex}: BSP child offset is too large");
+        var childOffset = (int)childOffsetRaw;
         var leftIsGreater = (childrenWord & 0x1) != 0;
 
         var left = ParseBspNode(
             data, nodeBase, nodeSize, poolBase, poolElements,
-            childOffset, objectFaceCount, coveredNodes, depth + 1, objectIndex);
+            childOffset, objectFaceCount, coveredNodes, coveredPoolElements, depth + 1, objectIndex);
         var right = ParseBspNode(
             data, nodeBase, nodeSize, poolBase, poolElements,
-            childOffset + SizeofNode, objectFaceCount, coveredNodes, depth + 1, objectIndex);
+            CheckedAdd(childOffset, SizeofNode, "BSP sibling node offset"), objectFaceCount,
+            coveredNodes, coveredPoolElements, depth + 1, objectIndex);
 
         return new NgcColBspNode
         {
+            NodeByteOffset = nodeOffset,
             Axis = axis,
             RawSplitWord = splitWord,
             SplitPoint = (splitWord >> 2) / 16.0f,
@@ -295,20 +346,113 @@ public static class NgcColFile
             BinaryPrimitives.ReadSingleBigEndian(data[(offset + 12)..]));
     }
 
-    private static int Align4(int value)
+    private static int ReadInt32Count(ReadOnlySpan<byte> data, int offset, string field)
     {
-        return (value + 3) & ~3;
+        var raw = BinaryPrimitives.ReadUInt32BigEndian(data[offset..]);
+        if (raw > int.MaxValue)
+            throw new InvalidDataException($"{field} exceeds the supported in-memory range");
+        return (int)raw;
+    }
+
+    private static int ReadInt32Offset(ReadOnlySpan<byte> data, int offset, string field)
+    {
+        var raw = BinaryPrimitives.ReadUInt32BigEndian(data[offset..]);
+        if (raw > int.MaxValue)
+            throw new InvalidDataException($"{field} offset exceeds the supported in-memory range");
+        return (int)raw;
+    }
+
+    private static int CheckedSectionEnd(int start, int count, int stride, string field)
+    {
+        var end = (long)start + (long)count * stride;
+        if (start < 0 || count < 0 || stride < 0 || end > int.MaxValue)
+            throw new InvalidDataException($"{field} size overflows the supported in-memory range");
+        return (int)end;
+    }
+
+    private static int CheckedAdd(int left, int right, string field)
+    {
+        var sum = (long)left + right;
+        if (left < 0 || right < 0 || sum > int.MaxValue)
+            throw new InvalidDataException($"{field} overflows the supported in-memory range");
+        return (int)sum;
+    }
+
+    private static int Align4Checked(int value, string field)
+    {
+        var aligned = ((long)value + 3) & ~3L;
+        if (value < 0 || aligned > int.MaxValue)
+            throw new InvalidDataException($"{field} overflows the supported in-memory range");
+        return (int)aligned;
+    }
+
+    private static void RequireSerializedOffset(uint actual, long expected, string message)
+    {
+        if (expected is < 0 or > uint.MaxValue || actual != (uint)expected)
+            throw new InvalidDataException(message);
+    }
+
+    private static void RequireZeroBytes(ReadOnlySpan<byte> bytes, string field)
+    {
+        foreach (var value in bytes)
+        {
+            if (value != 0)
+                throw new InvalidDataException($"Non-zero {field}");
+        }
+    }
+
+    private static void ValidateBounds(Vector4 min, Vector4 max, string owner, bool allowEmptySentinel)
+    {
+        if (!float.IsFinite(min.X) || !float.IsFinite(min.Y) || !float.IsFinite(min.Z) ||
+            !float.IsFinite(min.W) || !float.IsFinite(max.X) || !float.IsFinite(max.Y) ||
+            !float.IsFinite(max.Z) || !float.IsFinite(max.W))
+        {
+            throw new InvalidDataException($"{owner}: bounds contain a non-finite value");
+        }
+
+        if ((min.X > max.X || min.Y > max.Y || min.Z > max.Z) &&
+            !(allowEmptySentinel && IsEmptyBoundsSentinel(min, max)))
+        {
+            throw new InvalidDataException($"{owner}: bounds minimum exceeds maximum");
+        }
+        if (!IsExactOne(min.W) || !IsExactOne(max.W))
+            throw new InvalidDataException($"{owner}: bounds W components must both be 1");
+    }
+
+    private static bool IsEmptyBoundsSentinel(Vector4 min, Vector4 max)
+    {
+        return HasBits(min.X, 1000.0f) && HasBits(min.Y, 1000.0f) && HasBits(min.Z, 1000.0f) &&
+               HasBits(max.X, -1000.0f) && HasBits(max.Y, -1000.0f) && HasBits(max.Z, -1000.0f);
+    }
+
+    private static bool IsExactOne(float value)
+    {
+        return HasBits(value, 1.0f);
+    }
+
+    private static bool HasBits(float value, float expected)
+    {
+        return BitConverter.SingleToInt32Bits(value) == BitConverter.SingleToInt32Bits(expected);
+    }
+
+    private static string Hash(ReadOnlySpan<byte> bytes)
+    {
+        return Convert.ToHexString(SHA256.HashData(bytes));
     }
 
     private readonly struct ObjectRecord
     {
         public required uint Checksum { get; init; }
+        public required ushort Flags { get; init; }
         public required int NumVerts { get; init; }
         public required ushort NumFaces { get; init; }
-        public required int FirstVertIndex { get; init; }
+        public required bool UsesSmallFaces { get; init; }
+        public required bool UsesFixedVertices { get; init; }
+        public required int CumulativeDeclaredVertexBase { get; init; }
         public required int FirstFaceIndex { get; init; }
         public required Vector4 BBoxMin { get; init; }
         public required Vector4 BBoxMax { get; init; }
         public required int BspNodeOffset { get; init; }
+        public required int CornerIntensityOffset { get; init; }
     }
 }
