@@ -24,17 +24,22 @@ internal static class PsxAnimExportRunner
     internal static int Run(
         string input, string? output, string? animSourcePath, int animIndex, string? animName,
         PsxAnimationOptions opts, MeshOutputFormat format, string? blenderHelper,
-        bool flatSkeleton, IReadOnlySet<int>? flatBoneFilter, bool verbose)
+        bool flatSkeleton, IReadOnlySet<int>? flatBoneFilter, bool verbose,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!File.Exists(input))
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] File not found: {input}");
+            AnsiConsole.MarkupLine($"[red]Error:[/] File not found: {Markup.Escape(input)}");
             return 1;
         }
 
         var inputSource = new FileSystemAssetSource(input);
         var data = File.ReadAllBytes(input);
+        cancellationToken.ThrowIfCancellationRequested();
         var psxFile = PsxMeshFile.Parse(data);
+        cancellationToken.ThrowIfCancellationRequested();
         if (psxFile == null)
         {
             AnsiConsole.MarkupLine("[red]Error:[/] PSX file has no parseable mesh data.");
@@ -53,7 +58,8 @@ internal static class PsxAnimExportRunner
         {
             if (!File.Exists(animSourcePath))
             {
-                AnsiConsole.MarkupLine($"[red]Error:[/] Animation source not found: {animSourcePath}");
+                AnsiConsole.MarkupLine(
+                    $"[red]Error:[/] Animation source not found: {Markup.Escape(animSourcePath)}");
                 return 1;
             }
 
@@ -62,6 +68,7 @@ internal static class PsxAnimExportRunner
 
         var targetBoneCount = psxFile.Objects.Count;
         var embeddedBank = PsxAnimationBank.TryProbe(inputSource, data, targetBoneCount);
+        cancellationToken.ThrowIfCancellationRequested();
         if ((embeddedBank == null || embeddedBank.AnimFile.Entries.Count == 0) && externalSource == null)
         {
             AnsiConsole.MarkupLine("[red]Error:[/] No recognizable animation table in this PSX file.");
@@ -89,10 +96,12 @@ internal static class PsxAnimExportRunner
         if (externalSource != null)
         {
             var externalBank = PsxAnimationBank.TryProbe(externalSource, targetBoneCount);
+            cancellationToken.ThrowIfCancellationRequested();
             if (externalBank == null)
             {
                 AnsiConsole.MarkupLine(
-                    $"[red]Error:[/] No recognizable animation table in animation source: {animSourcePath}");
+                    $"[red]Error:[/] No recognizable animation table in animation source: " +
+                    Markup.Escape(animSourcePath!));
                 return 1;
             }
 
@@ -100,12 +109,13 @@ internal static class PsxAnimExportRunner
             {
                 AnsiConsole.MarkupLine(
                     $"[red]Error:[/] Animation source has {externalBank.BoneCount} bones; " +
-                    $"character has {targetBoneCount}: {animSourcePath}");
+                    $"character has {targetBoneCount}: {Markup.Escape(animSourcePath!)}");
                 return 1;
             }
 
             var remap = PsxAnimationBoneMap.TryCreate(
                 externalSource, inputSource, targetBoneCount, out var remapDiagnostic);
+            cancellationToken.ThrowIfCancellationRequested();
             if (remap is { IsIdentity: false })
             {
                 AnsiConsole.MarkupLine(
@@ -120,6 +130,7 @@ internal static class PsxAnimExportRunner
 
             var translationParents = PsxAnimationBank.TryBuildSourceParentIndices(
                 externalBank.Source, targetBoneCount, remap);
+            cancellationToken.ThrowIfCancellationRequested();
             if (verbose)
             {
                 AnsiConsole.MarkupLine(translationParents != null
@@ -144,6 +155,7 @@ internal static class PsxAnimExportRunner
         var decoded = new List<PsxAnimationClip>();
         foreach (var (kind, prefix, bank, remap, translationParents) in banks)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             PrintBankSummary(kind, bank);
 
             var selected = PsxAnimationBank.ResolveSelections(
@@ -151,11 +163,13 @@ internal static class PsxAnimExportRunner
                 animIndex,
                 externalSource == null ? animName : null,
                 prefix);
+            cancellationToken.ThrowIfCancellationRequested();
             if (selected.Count == 0)
                 continue;
 
             var decodeResult = PsxAnimationBank.Decode(
                 bank, targetBoneCount, selected, remap, opts.OneShot);
+            cancellationToken.ThrowIfCancellationRequested();
             decoded.AddRange(decodeResult.Animations.Select(entry =>
                 new PsxAnimationClip(
                     AnimationExportName.ForMesh(meshStem, entry.Name, usedAnimNames),
@@ -164,6 +178,7 @@ internal static class PsxAnimExportRunner
             PrintDecodeDiagnostics(decodeResult.Diagnostics, verbose);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         if (decoded.Count == 0)
         {
             AnsiConsole.MarkupLine(
@@ -190,14 +205,17 @@ internal static class PsxAnimExportRunner
             PsxFlatSkeleton = flatSkeleton,
             PsxFlatBoneIndices = flatBoneFilter
         });
+        cancellationToken.ThrowIfCancellationRequested();
 
         var result = ModelExportService.Export(document, new MeshExportRequest
         {
             OutputDirectory = outputDir,
             OutputStem = outputStem,
             Format = format,
-            BlenderHelperPath = blenderHelper
+            BlenderHelperPath = blenderHelper,
+            CancellationToken = cancellationToken
         });
+        cancellationToken.ThrowIfCancellationRequested();
 
         var emittedPaths = result.OutputPaths.Count > 0
             ? string.Join(", ", result.OutputPaths.Select(Path.GetFileName))
@@ -238,6 +256,7 @@ internal static class PsxAnimExportRunner
             $"skeleton={FormatSkeletonMode(flatSkeleton, flatBoneFilter)}  " +
             $"rotScale={opts.RotationScale:F3}");
 
+        cancellationToken.ThrowIfCancellationRequested();
         return result.Triangles == 0 ? 1 : 0;
     }
 
@@ -270,7 +289,8 @@ internal static class PsxAnimExportRunner
                 if (verbose)
                 {
                     AnsiConsole.MarkupLine(
-                        $"  [grey]{diagnostic.Name,-20}[/] frames={diagnostic.FrameCount,4}  " +
+                        $"  [grey]{Markup.Escape(diagnostic.Name.PadRight(20))}[/] " +
+                        $"frames={diagnostic.FrameCount,4}  " +
                         $"bytesConsumed={diagnostic.BytesConsumed,5}");
                 }
 

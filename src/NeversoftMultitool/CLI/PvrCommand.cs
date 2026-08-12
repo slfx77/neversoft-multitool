@@ -34,62 +34,76 @@ public static class PvrCommand
             var output = parseResult.GetValue(outputOption)!;
             var verbose = parseResult.GetValue(verboseOption);
 
-            string[] pvrFiles;
-            if (File.Exists(input))
-                pvrFiles = [input];
-            else if (Directory.Exists(input))
-                pvrFiles = Directory.GetFiles(input, "*.pvr");
-            else
-                pvrFiles = [];
-
-            if (pvrFiles.Length == 0)
-            {
-                AnsiConsole.MarkupLine("[red]Error:[/] No .pvr files found");
-                return Task.FromResult(1);
-            }
-
-            Directory.CreateDirectory(output);
-            AnsiConsole.MarkupLine($"Found [green]{pvrFiles.Length}[/] PVR file(s)");
-
-            var stopwatch = Stopwatch.StartNew();
-            var converted = 0;
-            var failed = 0;
-
-            foreach (var file in pvrFiles)
-            {
-                var filename = Path.GetFileName(file);
-                var pngName = Path.ChangeExtension(filename, ".png");
-                var pngPath = Path.Combine(output, pngName);
-
-                using var stream = File.OpenRead(file);
-                using var reader = new BinaryReader(stream);
-
-                var success = PvrFileDecoder.DecodeToPng(reader, 0, pngPath);
-
-                if (success)
-                {
-                    converted++;
-                    if (verbose)
-                        AnsiConsole.MarkupLine($"  [green]OK[/] {filename}");
-                }
-                else
-                {
-                    failed++;
-                    if (verbose)
-                        AnsiConsole.MarkupLine($"  [red]FAIL[/] {filename}: unsupported format");
-                }
-            }
-
-            stopwatch.Stop();
-            AnsiConsole.MarkupLine(
-                $"Converted [green]{converted}[/]/{pvrFiles.Length} files in {stopwatch.Elapsed.TotalSeconds:F2}s");
-
-            if (failed > 0)
-                AnsiConsole.MarkupLine($"[yellow]{failed} file(s) had unsupported formats[/]");
-
-            return Task.FromResult(0);
+            return Task.FromResult(Execute(input, output, verbose, cancellationToken));
         });
 
         return command;
+    }
+
+    internal static int Execute(
+        string input,
+        string output,
+        bool verbose,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        string[] pvrFiles;
+        if (File.Exists(input))
+            pvrFiles = [input];
+        else if (Directory.Exists(input))
+            pvrFiles = Directory.GetFiles(input, "*.pvr");
+        else
+            pvrFiles = [];
+
+        if (pvrFiles.Length == 0)
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] No .pvr files found");
+            return 1;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        Directory.CreateDirectory(output);
+        AnsiConsole.MarkupLine($"Found [green]{pvrFiles.Length}[/] PVR file(s)");
+
+        var stopwatch = Stopwatch.StartNew();
+        var converted = 0;
+        var failed = 0;
+
+        foreach (var file in pvrFiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var filename = Path.GetFileName(file);
+            var pngName = Path.ChangeExtension(filename, ".png");
+            var pngPath = Path.Combine(output, pngName);
+
+            using var stream = File.OpenRead(file);
+            using var reader = new BinaryReader(stream);
+
+            var success = PvrFileDecoder.DecodeToPng(reader, 0, pngPath);
+
+            if (success)
+            {
+                converted++;
+                if (verbose)
+                    AnsiConsole.MarkupLine($"  [green]OK[/] {Markup.Escape(filename)}");
+            }
+            else
+            {
+                failed++;
+                if (verbose)
+                    AnsiConsole.MarkupLine(
+                        $"  [red]FAIL[/] {Markup.Escape(filename)}: unsupported format");
+            }
+        }
+
+        stopwatch.Stop();
+        AnsiConsole.MarkupLine(
+            $"Converted [green]{converted}[/]/{pvrFiles.Length} files in {stopwatch.Elapsed.TotalSeconds:F2}s");
+
+        if (failed > 0)
+            AnsiConsole.MarkupLine($"[yellow]{failed} file(s) had unsupported formats[/]");
+
+        return failed > 0 ? 1 : 0;
     }
 }

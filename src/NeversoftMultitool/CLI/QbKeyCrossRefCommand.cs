@@ -378,6 +378,7 @@ internal static class QbKeyCrossRefCommand
             Directory.CreateDirectory(dir);
 
         File.WriteAllText(path, sb.ToString());
-        AnsiConsole.MarkupLine($"Exported {sorted.Count} mappings to [green]{path}[/]");
+        AnsiConsole.MarkupLine(
+            $"Exported {sorted.Count} mappings to [green]{Markup.Escape(path)}[/]");
     }
 }

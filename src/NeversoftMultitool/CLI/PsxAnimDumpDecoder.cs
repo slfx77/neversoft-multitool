@@ -55,8 +55,8 @@ internal static class PsxAnimDumpDecoder
                 var rx = ChannelSpan(animation, boneIndex, 0);
                 var ry = ChannelSpan(animation, boneIndex, 1);
                 var rz = ChannelSpan(animation, boneIndex, 2);
-                var translationLength = MathF.Sqrt(
-                    tx.Span * tx.Span + ty.Span * ty.Span + tz.Span * tz.Span);
+                var translationLength = CalculateTranslationSpanLength(
+                    tx.Span, ty.Span, tz.Span);
                 rows.Add(new BoneMotionRankRow(
                     i,
                     entry.FrameCount,
@@ -131,6 +131,20 @@ internal static class PsxAnimDumpDecoder
         }
 
         return (min, max, max - min);
+    }
+
+    internal static float CalculateTranslationSpanLength(
+        int xSpan,
+        int ySpan,
+        int zSpan)
+    {
+        // THPS2's SEulerPivot stores px/py/pz as signed 16-bit values, so a
+        // legal channel can span 65,535 units. Widen before squaring to avoid
+        // overflowing the host diagnostic's 32-bit integer arithmetic.
+        return (float)Math.Sqrt(
+            (double)xSpan * xSpan
+            + (double)ySpan * ySpan
+            + (double)zSpan * zSpan);
     }
 
     // ─── Layer 4: decompress one bone ───────────────────────────────────

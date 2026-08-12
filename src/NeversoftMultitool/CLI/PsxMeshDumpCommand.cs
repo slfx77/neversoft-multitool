@@ -24,39 +24,47 @@ public static class PsxMeshDumpCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
-            _ = cancellationToken;
             var input = parseResult.GetValue(inputArgument)!;
             var jsonPath = parseResult.GetValue(jsonOption)!;
-            return Task.FromResult(Execute(input, jsonPath));
+            return Task.FromResult(Execute(input, jsonPath, cancellationToken));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string jsonPath)
+    internal static int Execute(
+        string input,
+        string jsonPath,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!File.Exists(input))
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] File not found: {input}");
+            AnsiConsole.MarkupLine($"[red]Error:[/] File not found: {Markup.Escape(input)}");
             return 1;
         }
 
         try
         {
             var snapshot = PsxMeshDumpSnapshotBuilder.Build(input);
+            cancellationToken.ThrowIfCancellationRequested();
             var json = PsxMeshDumpSnapshotBuilder.Serialize(snapshot);
+            cancellationToken.ThrowIfCancellationRequested();
 
             var directory = Path.GetDirectoryName(jsonPath);
             if (!string.IsNullOrEmpty(directory))
                 Directory.CreateDirectory(directory);
 
+            cancellationToken.ThrowIfCancellationRequested();
             File.WriteAllText(jsonPath, json);
-            AnsiConsole.MarkupLine($"Wrote [green]{snapshot.Meshes.Count}[/] mesh snapshots to [green]{jsonPath}[/]");
+            AnsiConsole.MarkupLine(
+                $"Wrote [green]{snapshot.Meshes.Count}[/] mesh snapshots to [green]{Markup.Escape(jsonPath)}[/]");
             return 0;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] {ex.Message}");
+            AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
             return 1;
         }
     }

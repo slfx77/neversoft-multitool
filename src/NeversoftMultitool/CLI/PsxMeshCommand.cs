@@ -33,6 +33,7 @@ public static class PsxMeshCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
             var verbose = parseResult.GetValue(verboseOption);
@@ -46,14 +47,16 @@ public static class PsxMeshCommand
         return command;
     }
 
-    private static int Execute(
+    internal static int Execute(
         string input,
         string output,
         bool verbose,
         MeshOutputFormat format,
         string? blenderHelperPath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         List<string> psxFiles;
 
         if (File.Exists(input))
@@ -68,10 +71,12 @@ public static class PsxMeshCommand
         }
         else
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] Path not found: {input}");
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Path not found: {Markup.Escape(input)}");
             return 1;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         if (psxFiles.Count == 0)
         {
             AnsiConsole.MarkupLine("[yellow]No .psx files found.[/]");
@@ -79,6 +84,7 @@ public static class PsxMeshCommand
         }
 
         AnsiConsole.MarkupLine($"Found [green]{psxFiles.Count}[/] PSX file(s)");
+        cancellationToken.ThrowIfCancellationRequested();
         return MeshExportCliOptions.ExportFiles(
             psxFiles,
             output,

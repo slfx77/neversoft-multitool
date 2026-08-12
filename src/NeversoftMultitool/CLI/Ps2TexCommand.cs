@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.Diagnostics;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.SceneTex;
@@ -46,13 +47,23 @@ public static class Ps2TexCommand
             var verbose = parseResult.GetValue(verboseOption);
             var gifQwordOrderText = parseResult.GetValue(gifQwordOrderOption)!;
 
-            return Task.FromResult(Execute(input, output, verbose, gifQwordOrderText));
+            return Task.FromResult(Execute(
+                input,
+                output,
+                verbose,
+                gifQwordOrderText,
+                cancellationToken));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string output, bool verbose, string gifQwordOrderText)
+    internal static int Execute(
+        string input,
+        string output,
+        bool verbose,
+        string gifQwordOrderText,
+        CancellationToken cancellationToken = default)
     {
         if (!Ps2GifQwordWordOrder.TryParse(gifQwordOrderText, out var gifQwordWordOrder))
         {
@@ -75,7 +86,7 @@ public static class Ps2TexCommand
         }
         else
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] Path not found: {input}");
+            AnsiConsole.MarkupLine($"[red]Error:[/] Path not found: {Markup.Escape(input)}");
             return 1;
         }
 
@@ -103,6 +114,7 @@ public static class Ps2TexCommand
             return 0;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(output);
 
         // Separate zone TEX files from standard TEX/IMG files.
@@ -112,6 +124,7 @@ public static class Ps2TexCommand
         var zoneTexFiles = new List<string>();
         foreach (var file in files)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 var data = File.ReadAllBytes(file);
@@ -134,23 +147,30 @@ public static class Ps2TexCommand
         // Process zone TEX files as a batch with merged VRAM map
         if (zoneTexFiles.Count > 0)
         {
-            var zoneResult = ProcessZoneTexFiles(zoneTexFiles, output, verbose, gifQwordWordOrder);
+            var zoneResult = ProcessZoneTexFiles(
+                zoneTexFiles,
+                output,
+                verbose,
+                gifQwordWordOrder,
+                cancellationToken);
             totalTextures += zoneResult.Textures;
             if (zoneResult.Textures > 0) converted += zoneResult.FilesConverted;
             failed += zoneResult.FilesFailed;
         }
 
-        // Process standard TEX/IMG files individually
-        if (standardFiles.Count > 0)
-            AnsiConsole.MarkupLine($"Processing [green]{standardFiles.Count}[/] standard TEX/IMG file(s)");
+        // Process standard TEX/IMG files individually. Only colliding stems mirror
+        // their source folders; unique and direct-file inputs retain the flat layout.
+        var standardPlan = MeshOutputPathPlanner.Plan(
+            standardFiles,
+            GetStandardStem,
+            Directory.Exists(input) ? input : null);
+        if (standardPlan.Count > 0)
+            AnsiConsole.MarkupLine($"Processing [green]{standardPlan.Count}[/] standard TEX/IMG file(s)");
 
-        foreach (var file in standardFiles)
+        foreach (var (file, subdirectory, stem) in standardPlan)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var filename = Path.GetFileName(file);
-            var stem = Path.GetFileNameWithoutExtension(filename);
-            if (stem.EndsWith(".tex", StringComparison.OrdinalIgnoreCase) ||
-                stem.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
-                stem = stem[..^4];
 
             var result = Ps2TexFile.Parse(file);
             if (!result.Success)
@@ -160,18 +180,26 @@ public static class Ps2TexCommand
             {
                 failed++;
                 if (verbose)
-                    AnsiConsole.MarkupLine($"  {filename}: [red]{result.ErrorMessage}[/]");
+                {
+                    AnsiConsole.MarkupLine(
+                        $"  {Markup.Escape(filename)}: " +
+                        $"[red]{Markup.Escape(result.ErrorMessage ?? "Unknown error")}[/]");
+                }
                 continue;
             }
 
-            var count = Ps2TexFile.SaveAllAsPng(result, output, stem);
+            var fileOutput = subdirectory.Length == 0
+                ? output
+                : Path.Combine(output, subdirectory);
+            var count = Ps2TexFile.SaveAllAsPng(result, fileOutput, stem);
             totalTextures += count;
             converted++;
 
             if (verbose)
             {
                 AnsiConsole.MarkupLine(
-                    $"  {filename}: [green]{result.Textures.Count} textures, {count} PNGs[/]");
+                    $"  {Markup.Escape(filename)}: " +
+                    $"[green]{result.Textures.Count} textures, {count} PNGs[/]");
             }
         }
 
@@ -181,7 +209,7 @@ public static class Ps2TexCommand
             $"({totalTextures:N0} textures, {failed} failed) " +
             $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
 
-        return 0;
+        return failed == 0 ? 0 : 1;
     }
 
     /// <summary>
@@ -189,7 +217,11 @@ public static class Ps2TexCommand
     ///     upload-snapshot VRAM replay.
     /// </summary>
     private static ZoneTexBatchResult ProcessZoneTexFiles(
-        List<string> zoneTexFiles, string output, bool verbose, Ps2GifQwordWordOrder gifQwordWordOrder)
+        List<string> zoneTexFiles,
+        string output,
+        bool verbose,
+        Ps2GifQwordWordOrder gifQwordWordOrder,
+        CancellationToken cancellationToken)
     {
         AnsiConsole.MarkupLine(
             $"Processing [green]{zoneTexFiles.Count}[/] THAW zone TEX file(s)");
@@ -200,6 +232,7 @@ public static class Ps2TexCommand
         // upload-snapshot fallback when a slot-backed entry cannot be resolved.
         foreach (var file in zoneTexFiles)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var data = File.ReadAllBytes(file);
             var textures = ThawZoneTexFile.DecodeAllFromFile(data, gifQwordWordOrder);
 
@@ -210,7 +243,9 @@ public static class Ps2TexCommand
             {
                 var entries = ThawZoneTexFile.ParseHeaderEntries(data);
                 AnsiConsole.MarkupLine(
-                    $"  {Path.GetFileName(file)}: [green]{entries.Count} records[/], [green]{textures.Count} textures decoded[/]");
+                    $"  {Markup.Escape(Path.GetFileName(file))}: " +
+                    $"[green]{entries.Count} records[/], " +
+                    $"[green]{textures.Count} textures decoded[/]");
             }
         }
 
@@ -221,6 +256,7 @@ public static class Ps2TexCommand
         }
 
         // Save as PNGs under "zone_tex" subdirectory
+        cancellationToken.ThrowIfCancellationRequested();
         var result = new Ps2TexResult(textureMap.Values.ToList());
         var count = Ps2TexFile.SaveAllAsPng(result, output, "zone_tex");
 
@@ -240,6 +276,18 @@ public static class Ps2TexCommand
                || name.EndsWith(".img", StringComparison.OrdinalIgnoreCase)
                || name.EndsWith(".tex.ps2", StringComparison.OrdinalIgnoreCase)
                || name.EndsWith(".img.ps2", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetStandardStem(string file)
+    {
+        var stem = Path.GetFileNameWithoutExtension(file);
+        if (stem.EndsWith(".tex", StringComparison.OrdinalIgnoreCase) ||
+            stem.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
+        {
+            stem = stem[..^4];
+        }
+
+        return stem;
     }
 
     private record struct ZoneTexBatchResult(int Textures, int FilesConverted, int FilesFailed);

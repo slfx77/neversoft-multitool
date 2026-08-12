@@ -30,96 +30,154 @@ public static class StrCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
             var verbose = parseResult.GetValue(verboseOption);
 
+            return Task.FromResult(Execute(
+                input,
+                output,
+                verbose,
+                cancellationToken: cancellationToken));
+        });
+
+        return command;
+    }
+
+    internal static int Execute(
+        string input,
+        string output,
+        bool verbose,
+        Func<string, string, CancellationToken, SfdConvertResult>? convertOverride = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!Directory.Exists(input))
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Directory not found: {Markup.Escape(input)}");
+            return 1;
+        }
+
+        var strFiles = Directory.GetFiles(input, "*.str", SearchOption.TopDirectoryOnly)
+            .Concat(Directory.GetFiles(input, "*.STR", SearchOption.TopDirectoryOnly))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(IsCandidate)
+            .ToArray();
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (strFiles.Length == 0)
+        {
+            AnsiConsole.MarkupLine("[yellow]No .str files found in the specified directory.[/]");
+            return 0;
+        }
+
+        if (convertOverride == null)
+        {
             var ffmpegPath = SfdConverter.FindFfmpeg();
+            cancellationToken.ThrowIfCancellationRequested();
             if (ffmpegPath == null)
             {
                 AnsiConsole.MarkupLine(
                     "[red]Error:[/] ffmpeg not found on PATH. " +
                     "Install ffmpeg ([link]https://ffmpeg.org[/]) and ensure it's accessible.");
-                return Task.FromResult(1);
+                return 1;
             }
+        }
 
-            if (!Directory.Exists(input))
+        var converter = convertOverride ?? ConvertWithFfmpeg;
+
+        cancellationToken.ThrowIfCancellationRequested();
+        Directory.CreateDirectory(output);
+        cancellationToken.ThrowIfCancellationRequested();
+        AnsiConsole.MarkupLine($"Found [green]{strFiles.Length}[/] STR file(s)");
+
+        var stopwatch = Stopwatch.StartNew();
+        var totalConverted = 0;
+        var totalFailed = 0;
+
+        foreach (var file in strFiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var filename = Markup.Escape(Path.GetFileName(file));
+
+            if (verbose)
             {
-                AnsiConsole.MarkupLine($"[red]Error:[/] Directory not found: {input}");
-                return Task.FromResult(1);
-            }
-
-            var strFiles = Directory.GetFiles(input, "*.str", SearchOption.TopDirectoryOnly)
-                .Concat(Directory.GetFiles(input, "*.STR", SearchOption.TopDirectoryOnly))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Where(f =>
+                var probe = convertOverride == null ? StrConverter.Probe(file) : null;
+                cancellationToken.ThrowIfCancellationRequested();
+                var probeInfo = string.Empty;
+                if (probe != null)
                 {
-                    // Quick check: skip files that aren't valid STR (e.g. AFS archives)
-                    try
-                    {
-                        var header = new byte[16];
-                        using var fs = File.OpenRead(f);
-                        if (fs.Read(header, 0, 16) < 16) return false;
-                        // Reject AFS archives
-                        return !(header[0] == 'A' && header[1] == 'F' && header[2] == 'S' && header[3] == 0);
-                    }
-                    catch
-                    {
-                        return false;
-                    }
-                })
-                .ToArray();
+                    var audioInfo = probe.HasAudio ? ", audio" : string.Empty;
+                    probeInfo = $": {probe.ResolutionDisplay}, {probe.FrameCount} frames, " +
+                                $"{probe.DurationDisplay}{audioInfo}";
+                }
 
-            if (strFiles.Length == 0)
-            {
-                AnsiConsole.MarkupLine("[yellow]No .str files found in the specified directory.[/]");
-                return Task.FromResult(0);
+                AnsiConsole.MarkupLine($"  {filename}{Markup.Escape(probeInfo)}");
             }
 
-            Directory.CreateDirectory(output);
-            AnsiConsole.MarkupLine($"Found [green]{strFiles.Length}[/] STR file(s)");
+            var result = converter(file, output, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
 
-            var stopwatch = Stopwatch.StartNew();
-            var totalConverted = 0;
-
-            foreach (var file in strFiles)
+            if (result.Success)
             {
-                var filename = Path.GetFileName(file);
-
+                totalConverted++;
+                if (verbose)
+                    AnsiConsole.MarkupLine("    → [green]OK[/]");
+            }
+            else
+            {
+                totalFailed++;
                 if (verbose)
                 {
-                    var probe = StrConverter.Probe(file);
-                    if (probe != null)
-                    {
-                        AnsiConsole.MarkupLine(
-                            $"  {filename}: {probe.ResolutionDisplay}, {probe.FrameCount} frames, " +
-                            $"{probe.DurationDisplay}{(probe.HasAudio ? ", audio" : "")}");
-                    }
-                }
-
-                var result = StrConverter.ConvertToMp4(file, output,
-                    cancellationToken: cancellationToken);
-
-                if (result.Success)
-                {
-                    totalConverted++;
-                    if (verbose)
-                        AnsiConsole.MarkupLine("    → [green]OK[/]");
-                }
-                else if (verbose)
-                {
-                    AnsiConsole.MarkupLine($"    → [red]{result.ErrorMessage.EscapeMarkup()}[/]");
+                    var error = result.ErrorMessage ?? "Conversion failed";
+                    AnsiConsole.MarkupLine($"    → [red]{Markup.Escape(error)}[/]");
                 }
             }
+        }
 
-            stopwatch.Stop();
-            AnsiConsole.MarkupLine(
-                $"Converted [green]{totalConverted}[/]/{strFiles.Length} files " +
-                $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
+        cancellationToken.ThrowIfCancellationRequested();
+        stopwatch.Stop();
+        var failureInfo = totalFailed > 0 ? $", [red]{totalFailed} failed[/]" : "";
+        AnsiConsole.MarkupLine(
+            $"Converted [green]{totalConverted}[/]/{strFiles.Length} files{failureInfo} " +
+            $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
 
-            return Task.FromResult(0);
-        });
+        cancellationToken.ThrowIfCancellationRequested();
+        return totalFailed > 0 ? 1 : 0;
 
-        return command;
+        bool IsCandidate(string file)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Quick check: skip files that aren't valid STR candidates (e.g. AFS archives).
+            try
+            {
+                Span<byte> header = stackalloc byte[16];
+                using var stream = File.OpenRead(file);
+                if (stream.Read(header) < header.Length)
+                    return false;
+
+                return !(header[0] == 'A' && header[1] == 'F' &&
+                         header[2] == 'S' && header[3] == 0);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    private static SfdConvertResult ConvertWithFfmpeg(
+        string file,
+        string destination,
+        CancellationToken cancellationToken)
+    {
+        return StrConverter.ConvertToMp4(
+            file,
+            destination,
+            cancellationToken: cancellationToken);
     }
 }

@@ -42,8 +42,19 @@ public static class Thps2XFrontendAnimCommand
         return command;
     }
 
-    private static int Execute(string input, string output, bool verbose, CancellationToken cancellationToken)
+    internal static int Execute(
+        string input,
+        string output,
+        bool verbose,
+        CancellationToken cancellationToken = default)
     {
+        if (!File.Exists(input) && !Directory.Exists(input))
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Input not found: {Markup.Escape(input)}");
+            return 1;
+        }
+
         var files = FindFiles(input);
         if (files.Length == 0)
         {
@@ -72,7 +83,7 @@ public static class Thps2XFrontendAnimCommand
                 if (verbose)
                 {
                     AnsiConsole.MarkupLine(
-                        $"  [green]{Path.GetFileName(file)}[/]: roots={animation.Roots.Length} " +
+                        $"  [green]{Markup.Escape(Path.GetFileName(file))}[/]: roots={animation.Roots.Length} " +
                         $"nodes={animation.NodeCount} keys={animation.KeyCount} " +
                         $"duration={animation.Duration:F3}");
                 }
@@ -81,7 +92,8 @@ public static class Thps2XFrontendAnimCommand
             {
                 errors++;
                 AnsiConsole.MarkupLine(
-                    $"  [red]{Path.GetFileName(file)}: {Markup.Escape(ex.Message)}[/]");
+                    $"  [red]{Markup.Escape(Path.GetFileName(file))}: " +
+                    $"{Markup.Escape(ex.Message)}[/]");
             }
         }
 

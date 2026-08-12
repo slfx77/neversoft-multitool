@@ -122,7 +122,6 @@ public static class GsDumpCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
-            _ = cancellationToken;
             return Task.FromResult(Execute(
                 parseResult.GetValue(inputArgument)!,
                 parseResult.GetValue(outputOption)!,
@@ -143,13 +142,14 @@ public static class GsDumpCommand
                 parseResult.GetValue(saveRtOnStateTransitionOption),
                 parseResult.GetValue(dumpVramRegionOption),
                 parseResult.GetValue(dumpFbpBuffersOption),
-                parseResult.GetValue(dumpVerticesOption)));
+                parseResult.GetValue(dumpVerticesOption),
+                cancellationToken));
         });
 
         return command;
     }
 
-    private static int Execute(
+    internal static int Execute(
         string input,
         string output,
         string? pngPath,
@@ -169,10 +169,21 @@ public static class GsDumpCommand
         bool saveRtOnStateTransition,
         string[]? dumpVramRegionSpecs,
         bool dumpFbpBuffers,
-        bool dumpVertices)
+        bool dumpVertices,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!File.Exists(input) && !Directory.Exists(input))
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Input not found: {Markup.Escape(input)}");
+            return 1;
+        }
+
         var dumpVramRegions = ParseDumpVramRegionSpecs(dumpVramRegionSpecs);
         var files = CollectFiles(input);
+        cancellationToken.ThrowIfCancellationRequested();
         if (files.Count == 0)
         {
             AnsiConsole.MarkupLine("[yellow]No raw .gs dump files found.[/]");
@@ -207,12 +218,14 @@ public static class GsDumpCommand
         if (maxDumps.HasValue)
             files = files.Take(maxDumps.Value).ToList();
 
+        cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(output);
         AnsiConsole.MarkupLine($"Found [green]{files.Count}[/] raw GS dump(s)");
 
         var failed = 0;
         foreach (var file in files)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 var report = GsDumpAuditRunner.Run(
@@ -239,9 +252,10 @@ public static class GsDumpCommand
                         DumpVertices = dumpVertices
                     });
 
+                cancellationToken.ThrowIfCancellationRequested();
                 PrintSummary(file, report, verbose);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 failed++;
                 AnsiConsole.MarkupLine(
@@ -249,6 +263,7 @@ public static class GsDumpCommand
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         if (failed == 0)
         {
             AnsiConsole.MarkupLine(

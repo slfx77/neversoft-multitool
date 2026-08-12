@@ -54,6 +54,7 @@ public static class DdmCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
             var textures = parseResult.GetValue(texturesOption);
@@ -66,7 +67,8 @@ public static class DdmCommand
             var blenderHelper = parseResult.GetValue(blenderHelperOption);
 
             if (all)
-                return Task.FromResult(ExecuteAll(input, output, verbose, format, blenderHelper, cancellationToken));
+                return Task.FromResult(ExecuteAll(
+                    input, output, textures, verbose, ddx, psx, format, blenderHelper, cancellationToken));
             return Task.FromResult(Execute(input, output, textures, verbose, ddx, psx, format, blenderHelper,
                 cancellationToken));
         });
@@ -74,25 +76,32 @@ public static class DdmCommand
         return command;
     }
 
-    private static int ExecuteAll(
+    internal static int ExecuteAll(
         string parentDir,
         string output,
+        string? textures,
         bool verbose,
+        string? ddxPath,
+        string? psxPath,
         MeshOutputFormat format,
         string? blenderHelperPath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!Directory.Exists(parentDir))
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] Directory not found: {parentDir}");
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Directory not found: {Markup.Escape(parentDir)}");
             return 1;
         }
 
         var levelDirs = Directory.GetDirectories(parentDir)
             .Where(d => Directory.GetFiles(d, "*.ddm",
                 new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive }).Length > 0)
-            .OrderBy(d => Path.GetFileName(d))
+            .OrderBy(d => Path.GetFileName(d), StringComparer.OrdinalIgnoreCase)
             .ToList();
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (levelDirs.Count == 0)
         {
@@ -108,45 +117,53 @@ public static class DdmCommand
 
         foreach (var dir in levelDirs)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var name = Path.GetFileName(dir);
             var levelOutput = Path.Combine(output, name);
             var exitCode = Execute(
                 dir,
                 levelOutput,
-                null,
+                textures,
                 verbose,
-                null,
-                null,
+                ddxPath,
+                psxPath,
                 format,
                 blenderHelperPath,
                 cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (exitCode == 0)
                 totalConverted++;
             else
                 totalErrors++;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         stopwatch.Stop();
         var errorInfo = totalErrors > 0 ? $", [red]{totalErrors} errors[/]" : "";
         AnsiConsole.MarkupLine(
             $"\nBatch complete: [green]{totalConverted}[/]/{levelDirs.Count} levels{errorInfo} " +
             $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
 
+        cancellationToken.ThrowIfCancellationRequested();
         return totalErrors > 0 ? 1 : 0;
     }
 
-    private static int Execute(string input, string output, string? textures, bool verbose,
+    internal static int Execute(string input, string output, string? textures, bool verbose,
         string? ddxPath, string? psxPath, MeshOutputFormat format,
-        string? blenderHelperPath, CancellationToken cancellationToken)
+        string? blenderHelperPath, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!Directory.Exists(input))
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] Directory not found: {input}");
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Directory not found: {Markup.Escape(input)}");
             return 1;
         }
 
         var allDdmFiles = Directory.GetFiles(input, "*.ddm",
             new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (allDdmFiles.Length == 0)
         {
@@ -156,17 +173,23 @@ public static class DdmCommand
 
         ddxPath = ResolveCompanionDir(input, ddxPath, "*.ddx", "DDX");
         psxPath = ResolveCompanionDir(input, psxPath, "*.psx", "PSX");
+        cancellationToken.ThrowIfCancellationRequested();
 
-        var (placedLevels, objectDdmStems) = ClassifyDdmFiles(allDdmFiles, psxPath);
+        var (placedLevels, objectDdmStems) = ClassifyDdmFiles(
+            allDdmFiles, psxPath, cancellationToken);
         var standaloneDdmFiles = allDdmFiles
             .Where(f => !placedLevels.ContainsKey(f) &&
                         !objectDdmStems.Contains(Path.GetFileNameWithoutExtension(f)))
             .ToArray();
+        cancellationToken.ThrowIfCancellationRequested();
 
         Directory.CreateDirectory(output);
+        cancellationToken.ThrowIfCancellationRequested();
 
-        var textureInfo = textures != null && Directory.Exists(textures) ? $", textures={textures}" : "";
-        var ddxInfo = ddxPath != null ? $", ddx={ddxPath}" : "";
+        var textureInfo = textures != null && Directory.Exists(textures)
+            ? $", textures={Markup.Escape(textures)}"
+            : "";
+        var ddxInfo = ddxPath != null ? $", ddx={Markup.Escape(ddxPath)}" : "";
         var placedInfo = placedLevels.Count > 0 ? $", [blue]{placedLevels.Count} placed level(s)[/]" : "";
         AnsiConsole.MarkupLine(
             $"Found [green]{allDdmFiles.Length}[/] DDM file(s){placedInfo}{textureInfo}{ddxInfo}");
@@ -196,12 +219,15 @@ public static class DdmCommand
         string? blenderHelperPath,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var converted = 0;
         var failed = 0;
         var totalTriangles = 0;
 
         foreach (var (ddmFile, levelPsx) in placedLevels)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var name = Path.GetFileNameWithoutExtension(ddmFile);
             try
             {
@@ -217,21 +243,26 @@ public static class DdmCommand
                     ddxPath: ddxPath,
                     psxPath: psxDir ?? levelPsx,
                     ddmTexturePath: texturePath);
+                cancellationToken.ThrowIfCancellationRequested();
+                EnsureOutputWritten(result);
                 totalTriangles += result.Triangles;
                 converted++;
                 if (verbose)
-                    AnsiConsole.MarkupLine($"  {name}: [green]{result.Triangles:N0} triangles[/]");
+                    AnsiConsole.MarkupLine(
+                        $"  {Markup.Escape(name)}: [green]{result.Triangles:N0} triangles[/]");
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 failed++;
                 if (verbose)
-                    AnsiConsole.MarkupLine($"  {name}: [red]error: {ex.Message.EscapeMarkup()}[/]");
+                    AnsiConsole.MarkupLine(
+                        $"  {Markup.Escape(name)}: [red]error: {ex.Message.EscapeMarkup()}[/]");
             }
         }
 
         foreach (var file in standaloneDdmFiles)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var name = Path.GetFileNameWithoutExtension(file);
             try
             {
@@ -245,25 +276,37 @@ public static class DdmCommand
                     name,
                     ddxPath: ddxPath,
                     ddmTexturePath: texturePath);
+                cancellationToken.ThrowIfCancellationRequested();
+                EnsureOutputWritten(result);
                 totalTriangles += result.Triangles;
                 converted++;
                 if (verbose)
-                    AnsiConsole.MarkupLine($"  {name}: [green]{result.Triangles:N0} triangles[/]");
+                    AnsiConsole.MarkupLine(
+                        $"  {Markup.Escape(name)}: [green]{result.Triangles:N0} triangles[/]");
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 failed++;
                 if (verbose)
-                    AnsiConsole.MarkupLine($"  {name}: [red]error: {ex.Message.EscapeMarkup()}[/]");
+                    AnsiConsole.MarkupLine(
+                        $"  {Markup.Escape(name)}: [red]error: {ex.Message.EscapeMarkup()}[/]");
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         var total = standaloneDdmFiles.Length + placedLevels.Count;
         AnsiConsole.MarkupLine(
             $"Converted [green]{converted}[/]/{total} files " +
             $"({totalTriangles:N0} triangles)" +
             (failed > 0 ? $", [red]{failed} failed[/]" : ""));
+        cancellationToken.ThrowIfCancellationRequested();
         return failed > 0 ? 1 : 0;
+    }
+
+    private static void EnsureOutputWritten(MeshExportResult result)
+    {
+        if (result.OutputPaths.Count == 0)
+            throw new InvalidDataException("DDM contained no exportable geometry");
     }
 
     /// <summary>
@@ -283,7 +326,10 @@ public static class DdmCommand
     ///     Classifies DDM files into placed levels (have PSX companion) and object companions (_o suffix).
     /// </summary>
     private static (Dictionary<string, string> PlacedLevels, HashSet<string> ObjectStems)
-        ClassifyDdmFiles(string[] allDdmFiles, string? psxPath)
+        ClassifyDdmFiles(
+            string[] allDdmFiles,
+            string? psxPath,
+            CancellationToken cancellationToken)
     {
         var placedLevels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var objectStems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -293,6 +339,7 @@ public static class DdmCommand
 
         foreach (var ddmFile in allDdmFiles)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var stem = Path.GetFileNameWithoutExtension(ddmFile);
             if (stem.EndsWith("_o", StringComparison.OrdinalIgnoreCase))
             {
@@ -318,6 +365,14 @@ public static class DdmCommand
 
     private static string? FindCompanionFile(string directory, string stem, string extension)
     {
+        if (File.Exists(directory))
+            return Path.GetExtension(directory).Equals(extension, StringComparison.OrdinalIgnoreCase)
+                ? directory
+                : null;
+
+        if (!Directory.Exists(directory))
+            return null;
+
         var files = Directory.GetFiles(directory, stem + extension,
             new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
         return files.Length > 0 ? files[0] : null;

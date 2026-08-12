@@ -34,70 +34,88 @@ public static class TrgCommand
             var output = parseResult.GetValue(outputOption)!;
             var verbose = parseResult.GetValue(verboseOption);
 
-            var files = GetTrgFiles(input);
-            if (files.Length == 0)
-            {
-                AnsiConsole.MarkupLine("[yellow]No TRG files found.[/]");
-                return Task.FromResult(0);
-            }
-
-            Directory.CreateDirectory(output);
-            AnsiConsole.MarkupLine($"Found [green]{files.Length}[/] TRG file(s)");
-
-            var stopwatch = Stopwatch.StartNew();
-            var totalParsed = 0;
-            var totalNodes = 0;
-            var errors = 0;
-
-            foreach (var file in files)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var filename = Path.GetFileName(file);
-
-                try
-                {
-                    var trg = TrgFile.Parse(file);
-                    var outputPath = GetOutputPath(input, file, output, ".json");
-                    var outputDir = Path.GetDirectoryName(outputPath);
-                    if (!string.IsNullOrEmpty(outputDir))
-                        Directory.CreateDirectory(outputDir);
-                    trg.WriteJson(outputPath);
-
-                    totalParsed++;
-                    totalNodes += trg.NodeCount;
-
-                    if (verbose)
-                    {
-                        var typeSummary = trg.Nodes
-                            .GroupBy(n => n.Type)
-                            .OrderByDescending(g => g.Count())
-                            .Select(g => $"{g.Key}:{g.Count()}")
-                            .Take(5);
-                        AnsiConsole.MarkupLine(
-                            $"  {filename}: [green]{trg.NodeCount}[/] nodes " +
-                            $"(v{trg.VersionMajor}.{trg.VersionMinor}) " +
-                            $"[dim]{string.Join(", ", typeSummary)}[/]");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    errors++;
-                    if (verbose)
-                        AnsiConsole.MarkupLine($"  {filename}: [red]{ex.Message}[/]");
-                }
-            }
-
-            stopwatch.Stop();
-            var summary = $"Parsed [green]{totalParsed}[/]/{files.Length} files " +
-                          $"({totalNodes} nodes) in {stopwatch.Elapsed.TotalSeconds:F2}s";
-            if (errors > 0)
-                summary += $" ([red]{errors} errors[/])";
-            AnsiConsole.MarkupLine(summary);
-
-            return Task.FromResult(errors > 0 ? 1 : 0);
+            return Task.FromResult(Execute(input, output, verbose, cancellationToken));
         });
 
         return command;
+    }
+
+    internal static int Execute(
+        string input,
+        string output,
+        bool verbose,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(input) && !Directory.Exists(input))
+        {
+            AnsiConsole.MarkupLine($"[red]Error:[/] Path not found: {Markup.Escape(input)}");
+            return 1;
+        }
+
+        var files = GetTrgFiles(input);
+        if (files.Length == 0)
+        {
+            AnsiConsole.MarkupLine("[yellow]No TRG files found.[/]");
+            return 0;
+        }
+
+        Directory.CreateDirectory(output);
+        AnsiConsole.MarkupLine($"Found [green]{files.Length}[/] TRG file(s)");
+
+        var stopwatch = Stopwatch.StartNew();
+        var totalParsed = 0;
+        var totalNodes = 0;
+        var errors = 0;
+
+        foreach (var file in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var filename = Path.GetFileName(file);
+
+            try
+            {
+                var trg = TrgFile.Parse(file);
+                var outputPath = GetOutputPath(input, file, output, ".json");
+                var outputDir = Path.GetDirectoryName(outputPath);
+                if (!string.IsNullOrEmpty(outputDir))
+                    Directory.CreateDirectory(outputDir);
+                trg.WriteJson(outputPath);
+
+                totalParsed++;
+                totalNodes += trg.NodeCount;
+
+                if (verbose)
+                {
+                    var typeSummary = trg.Nodes
+                        .GroupBy(n => n.Type)
+                        .OrderByDescending(g => g.Count())
+                        .Select(g => $"{g.Key}:{g.Count()}")
+                        .Take(5);
+                    AnsiConsole.MarkupLine(
+                        $"  {Markup.Escape(filename)}: [green]{trg.NodeCount}[/] nodes " +
+                        $"(v{trg.VersionMajor}.{trg.VersionMinor}) " +
+                        $"[dim]{string.Join(", ", typeSummary)}[/]");
+                }
+            }
+            catch (Exception ex)
+            {
+                errors++;
+                if (verbose)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"  {Markup.Escape(filename)}: [red]{Markup.Escape(ex.Message)}[/]");
+                }
+            }
+        }
+
+        stopwatch.Stop();
+        var summary = $"Parsed [green]{totalParsed}[/]/{files.Length} files " +
+                      $"({totalNodes} nodes) in {stopwatch.Elapsed.TotalSeconds:F2}s";
+        if (errors > 0)
+            summary += $" ([red]{errors} errors[/])";
+        AnsiConsole.MarkupLine(summary);
+
+        return errors > 0 ? 1 : 0;
     }
 
     private static string[] GetTrgFiles(string input)
@@ -114,7 +132,6 @@ public static class TrgCommand
                 .ToArray();
         }
 
-        AnsiConsole.MarkupLine($"[red]Error:[/] Path not found: {input}");
         return [];
     }
 

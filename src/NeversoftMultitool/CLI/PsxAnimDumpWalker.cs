@@ -210,7 +210,8 @@ internal static class PsxAnimDumpWalker
         {
             var name = psh?.GetBoneName(i) ?? $"anim_{i}";
             AnsiConsole.MarkupLine(
-                $"  [grey]anim {i,3}[/] {name,-24}  poolOff=+0x{poolOffsets[i]:X6} ({poolOffsets[i],8:N0})  " +
+                $"  [grey]anim {i,3}[/] {Markup.Escape(name.PadRight(24))}  " +
+                $"poolOff=+0x{poolOffsets[i]:X6} ({poolOffsets[i],8:N0})  " +
                 $"frames={frameCounts[i],4} tween={tweenFlags[i],3}");
         }
 

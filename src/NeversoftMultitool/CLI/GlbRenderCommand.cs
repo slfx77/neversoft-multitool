@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.Diagnostics;
 using System.Globalization;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Rendering;
 using Spectre.Console;
 
@@ -74,14 +75,24 @@ public static class GlbRenderCommand
             var verbose = parseResult.GetValue(verboseOption);
 
             return Task.FromResult(Execute(
-                input, output, size, azimuth, elevation, preset, animIndex, time, verbose));
+                input, output, size, azimuth, elevation, preset, animIndex, time, verbose,
+                cancellationToken));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string? output, int longEdge,
-        float azimuth, float elevation, string? preset, int? animIndex, float? time, bool verbose)
+    internal static int Execute(
+        string input,
+        string? output,
+        int longEdge,
+        float azimuth,
+        float elevation,
+        string? preset,
+        int? animIndex,
+        float? time,
+        bool verbose,
+        CancellationToken cancellationToken = default)
     {
         List<string> files;
 
@@ -96,7 +107,7 @@ public static class GlbRenderCommand
         }
         else
         {
-            AnsiConsole.MarkupLine($"[red]Input not found:[/] {input}");
+            AnsiConsole.MarkupLine($"[red]Input not found:[/] {Markup.Escape(input)}");
             return 1;
         }
 
@@ -107,21 +118,52 @@ public static class GlbRenderCommand
             return 1;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // With an explicit output root, only colliding stems mirror their source
+        // directories. The default beside-source layout is already collision-safe
+        // and retains the filesystem enumeration order and historical names.
+        var inputRoot = Directory.Exists(input) ? input : null;
+        IReadOnlyList<MeshOutputPathPlanner.PlannedOutput> outputPlan = output == null
+            ? files.Select(static file => new MeshOutputPathPlanner.PlannedOutput(
+                file,
+                "",
+                Path.GetFileNameWithoutExtension(file))).ToList()
+            : MeshOutputPathPlanner.Plan(
+                files,
+                static file => Path.GetFileNameWithoutExtension(file),
+                inputRoot);
+
         var sw = Stopwatch.StartNew();
         var success = 0;
         var fail = 0;
         var useViewSuffix = views.Count > 1;
 
-        foreach (var file in files)
+        foreach (var planned in outputPlan)
         {
+            var file = planned.File;
+            var plannedOutput = output == null || string.IsNullOrEmpty(planned.Subdirectory)
+                ? output
+                : Path.Combine(output, planned.Subdirectory);
+
             foreach (var view in views)
             {
-                var pngPath = GetOutputPath(file, output, view, useViewSuffix, animIndex, time);
+                cancellationToken.ThrowIfCancellationRequested();
+                var pngPath = GetOutputPath(
+                    file,
+                    plannedOutput,
+                    planned.Stem,
+                    view,
+                    useViewSuffix,
+                    animIndex,
+                    time);
                 if (verbose)
                 {
                     var angleLabel = $"az={view.Azimuth:0.##}, el={view.Elevation:0.##}";
                     AnsiConsole.MarkupLine(
-                        $"Rendering [cyan]{Path.GetFileName(file)}[/] ({Markup.Escape(view.Name)}, {angleLabel}) -> [cyan]{pngPath}[/]");
+                        $"Rendering [cyan]{Markup.Escape(Path.GetFileName(file))}[/] " +
+                        $"({Markup.Escape(view.Name)}, {angleLabel}) -> " +
+                        $"[cyan]{Markup.Escape(pngPath)}[/]");
                 }
 
                 try
@@ -130,10 +172,11 @@ public static class GlbRenderCommand
                         file, pngPath, longEdge, view.Azimuth, view.Elevation, animIndex, time);
                     success++;
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     AnsiConsole.MarkupLine(
-                        $"[red]FAIL[/] {Path.GetFileName(file)} ({Markup.Escape(view.Name)}): {ex.Message}");
+                        $"[red]FAIL[/] {Markup.Escape(Path.GetFileName(file))} " +
+                        $"({Markup.Escape(view.Name)}): {Markup.Escape(ex.Message)}");
                     fail++;
                 }
             }
@@ -167,10 +210,10 @@ public static class GlbRenderCommand
 
     private static string GetOutputPath(
         string inputFile, string? outputDir,
+        string stem,
         RenderView view, bool useViewSuffix,
         int? animIndex, float? time)
     {
-        var stem = Path.GetFileNameWithoutExtension(inputFile);
         var suffix = useViewSuffix ? "_" + view.Name : "";
         if (animIndex.HasValue || time.HasValue)
         {

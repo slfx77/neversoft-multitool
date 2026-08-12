@@ -43,7 +43,8 @@ internal static class QbKeyImportCommand
     {
         if (!File.Exists(namesFile))
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] Names file not found: {namesFile}");
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Names file not found: {Markup.Escape(namesFile)}");
             return 1;
         }
 
@@ -53,7 +54,9 @@ internal static class QbKeyImportCommand
             .Where(l => l.Length > 0 && !l.StartsWith('#'))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        AnsiConsole.MarkupLine($"Loaded [green]{names.Count}[/] candidate names from {Path.GetFileName(namesFile)}");
+        AnsiConsole.MarkupLine(
+            $"Loaded [green]{names.Count}[/] candidate names from " +
+            Markup.Escape(Path.GetFileName(namesFile)));
 
         // Hash all names and check against existing dictionary
         var newMappings = new Dictionary<uint, string>();
@@ -75,7 +78,8 @@ internal static class QbKeyImportCommand
         {
             if (!Directory.Exists(psxDir))
             {
-                AnsiConsole.MarkupLine($"[red]Error:[/] PSX directory not found: {psxDir}");
+                AnsiConsole.MarkupLine(
+                    $"[red]Error:[/] PSX directory not found: {Markup.Escape(psxDir)}");
                 return 1;
             }
 
@@ -135,7 +139,7 @@ internal static class QbKeyImportCommand
         {
             var known = QbKey.TryResolve(hash);
             var status = known != null ? "[dim]known[/]" : "[green]NEW[/]";
-            table.AddRow(name, $"0x{hash:X8}", status);
+            table.AddRow(Markup.Escape(name), $"0x{hash:X8}", status);
         }
 
         AnsiConsole.Write(table);

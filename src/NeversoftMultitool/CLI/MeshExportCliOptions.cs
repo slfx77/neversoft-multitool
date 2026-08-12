@@ -70,6 +70,8 @@ internal static class MeshExportCliOptions
         float worldzoneScale = 1f,
         string? inputRoot = null)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         Directory.CreateDirectory(output);
 
         var converted = 0;
@@ -90,8 +92,7 @@ internal static class MeshExportCliOptions
 
         foreach (var (file, subdirectory, stem) in plan)
         {
-            if (cancellationToken.IsCancellationRequested)
-                break;
+            cancellationToken.ThrowIfCancellationRequested();
 
             var fileName = Path.GetFileName(file);
             var fileOutput = subdirectory.Length == 0 ? output : Path.Combine(output, subdirectory);
@@ -127,7 +128,7 @@ internal static class MeshExportCliOptions
                         $"  {Markup.Escape(fileName)}: [green]{result.Triangles:N0} triangles[/] -> {Markup.Escape(paths)}");
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 failed++;
                 AnsiConsole.MarkupLine(

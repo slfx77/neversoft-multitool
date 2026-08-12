@@ -73,6 +73,8 @@ public static class XbxSceneCommand
         float coordinateScale,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var files = CollectFiles(input);
         if (files == null) return 1;
         if (files.Count == 0)

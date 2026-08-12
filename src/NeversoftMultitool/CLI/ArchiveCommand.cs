@@ -41,7 +41,8 @@ public static class ArchiveCommand
 
             if (!File.Exists(input))
             {
-                AnsiConsole.MarkupLine($"[red]Error:[/] File not found: {input}");
+                AnsiConsole.MarkupLine(
+                    $"[red]Error:[/] File not found: {Markup.Escape(input)}");
                 return Task.FromResult(1);
             }
 
@@ -64,7 +65,9 @@ public static class ArchiveCommand
                             filesExtracted = current;
                             if (verbose)
                             {
-                                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {wadEntries[current - 1].Name}");
+                                AnsiConsole.MarkupLine(
+                                    $"  [[{current}/{total}]] " +
+                                    Markup.Escape(wadEntries[current - 1].Name));
                             }
                         }, cancellationToken);
                         break;
@@ -78,7 +81,9 @@ public static class ArchiveCommand
                             filesExtracted = current;
                             if (verbose)
                             {
-                                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {pkrEntries[current - 1].FullName}");
+                                AnsiConsole.MarkupLine(
+                                    $"  [[{current}/{total}]] " +
+                                    Markup.Escape(pkrEntries[current - 1].FullName));
                             }
                         }, cancellationToken);
                         break;
@@ -92,7 +97,9 @@ public static class ArchiveCommand
                             filesExtracted = current;
                             if (verbose)
                             {
-                                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {ddxEntries[current - 1].Name}");
+                                AnsiConsole.MarkupLine(
+                                    $"  [[{current}/{total}]] " +
+                                    Markup.Escape(ddxEntries[current - 1].Name));
                             }
                         }, cancellationToken);
                         break;
@@ -106,7 +113,9 @@ public static class ArchiveCommand
                             filesExtracted = current;
                             if (verbose)
                             {
-                                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {bonEntries[current - 1].Name}");
+                                AnsiConsole.MarkupLine(
+                                    $"  [[{current}/{total}]] " +
+                                    Markup.Escape(bonEntries[current - 1].Name));
                             }
                         }, cancellationToken);
                         break;
@@ -125,7 +134,8 @@ public static class ArchiveCommand
                             if (verbose)
                             {
                                 AnsiConsole.MarkupLine(
-                                    $"  [[{current}/{total}]] {compressedPreEntries[current - 1].FullName}");
+                                    $"  [[{current}/{total}]] " +
+                                    Markup.Escape(compressedPreEntries[current - 1].FullName));
                             }
                         }, cancellationToken);
                         break;
@@ -142,7 +152,9 @@ public static class ArchiveCommand
                             filesExtracted = current;
                             if (verbose)
                             {
-                                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {preEntries[current - 1].Name}");
+                                AnsiConsole.MarkupLine(
+                                    $"  [[{current}/{total}]] " +
+                                    Markup.Escape(preEntries[current - 1].Name));
                             }
                         }, cancellationToken);
                         break;
@@ -158,7 +170,8 @@ public static class ArchiveCommand
                             if (verbose)
                             {
                                 AnsiConsole.MarkupLine(
-                                    $"  [[{current}/{total}]] {pakEntries[current - 1].FullName}");
+                                    $"  [[{current}/{total}]] " +
+                                    Markup.Escape(pakEntries[current - 1].FullName));
                             }
                         }, cancellationToken);
                         break;
@@ -179,7 +192,8 @@ public static class ArchiveCommand
                             if (verbose)
                             {
                                 AnsiConsole.MarkupLine(
-                                    $"  [[{current}/{total}]] {zipEntries[current - 1].FullName}");
+                                    $"  [[{current}/{total}]] " +
+                                    Markup.Escape(zipEntries[current - 1].FullName));
                             }
                         }, cancellationToken);
                         break;
@@ -198,7 +212,8 @@ public static class ArchiveCommand
                             if (verbose)
                             {
                                 AnsiConsole.MarkupLine(
-                                    $"  [[{current}/{total}]] {cutEntries[current - 1].FullName}");
+                                    $"  [[{current}/{total}]] " +
+                                    Markup.Escape(cutEntries[current - 1].FullName));
                             }
                         }, cancellationToken);
                         break;
@@ -230,18 +245,21 @@ public static class ArchiveCommand
                         break;
 
                     case ".z64":
+                        var classification = N64RomArchive.ClassifyRom(input) ?? "Not an N64 ROM";
                         AnsiConsole.MarkupLine(
-                            $"[red]{N64RomArchive.ClassifyRom(input) ?? "Not an N64 ROM"}[/]");
+                            $"[red]{Markup.Escape(classification)}[/]");
                         return Task.FromResult(1);
 
                     default:
-                        AnsiConsole.MarkupLine($"[red]Unsupported archive format:[/] {ext}");
+                        AnsiConsole.MarkupLine(
+                            $"[red]Unsupported archive format:[/] {Markup.Escape(ext)}");
                         return Task.FromResult(1);
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                AnsiConsole.MarkupLine($"[red]Error:[/] {ex.Message}");
+                AnsiConsole.MarkupLine(
+                    $"[red]Error:[/] {Markup.Escape(ex.Message)}");
                 return Task.FromResult(1);
             }
 
@@ -265,7 +283,11 @@ public static class ArchiveCommand
         {
             filesExtracted = current;
             if (verbose)
-                AnsiConsole.MarkupLine($"  [[{current}/{total}]] {entries[current - 1].FullName}");
+            {
+                AnsiConsole.MarkupLine(
+                    $"  [[{current}/{total}]] " +
+                    Markup.Escape(entries[current - 1].FullName));
+            }
         }, cancellationToken);
         return filesExtracted;
     }

@@ -107,7 +107,6 @@ public static class PsxAnimTraceCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
-            _ = cancellationToken;
             var input = parseResult.GetValue(inputArgument)!;
             var animSource = parseResult.GetValue(animSourceOption);
             var anim = parseResult.GetValue(animOption);
@@ -125,13 +124,13 @@ public static class PsxAnimTraceCommand
             return Task.FromResult(Execute(
                 input, animSource, anim, frame, fps, bones, glb, glbAnim,
                 transDivisorScale, rotCompose, rotScale, flatSkeleton, flatBones,
-                vertexBounds));
+                vertexBounds, cancellationToken));
         });
 
         return command;
     }
 
-    private static int Execute(
+    internal static int Execute(
         string input,
         string? animSourcePath,
         int animIndex,
@@ -145,8 +144,11 @@ public static class PsxAnimTraceCommand
         float rotScale,
         bool flatSkeleton,
         string? flatBonesSpec,
-        bool vertexBounds)
+        bool vertexBounds,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!File.Exists(input))
         {
             AnsiConsole.MarkupLine($"[red]Error:[/] File not found: {Markup.Escape(input)}");
@@ -155,7 +157,9 @@ public static class PsxAnimTraceCommand
 
         var inputSource = new FileSystemAssetSource(input);
         var psxData = File.ReadAllBytes(input);
+        cancellationToken.ThrowIfCancellationRequested();
         var psxFile = PsxMeshFile.Parse(psxData);
+        cancellationToken.ThrowIfCancellationRequested();
         if (psxFile == null)
         {
             AnsiConsole.MarkupLine("[red]Error:[/] PSX file has no parseable mesh data.");
@@ -185,6 +189,7 @@ public static class PsxAnimTraceCommand
         }
 
         var bank = PsxAnimationBank.TryProbe(bankSource, targetBoneCount);
+        cancellationToken.ThrowIfCancellationRequested();
         if (bank == null)
         {
             AnsiConsole.MarkupLine(
@@ -206,6 +211,7 @@ public static class PsxAnimTraceCommand
                 bankSource, inputSource, targetBoneCount, out remapDiagnostic);
         var selected = PsxAnimationBank.ResolveSelections(
             bank.AnimFile, animIndex, null, null);
+        cancellationToken.ThrowIfCancellationRequested();
         if (selected.Count == 0)
         {
             AnsiConsole.MarkupLine(
@@ -214,6 +220,7 @@ public static class PsxAnimTraceCommand
         }
 
         var decoded = PsxAnimationBank.Decode(bank, targetBoneCount, selected, remap);
+        cancellationToken.ThrowIfCancellationRequested();
         if (decoded.Animations.Count != 1)
         {
             var error = (decoded.Diagnostics.Count > 0 ? decoded.Diagnostics[0].Error : null) ?? "decode failed";
@@ -223,14 +230,17 @@ public static class PsxAnimTraceCommand
 
         var animation = decoded.Animations[0].Animation;
         var sourceDecoded = PsxAnimationBank.Decode(bank, bank.BoneCount, selected);
+        cancellationToken.ThrowIfCancellationRequested();
         var sourceAnimation = sourceDecoded.Animations.Count == 1
             ? sourceDecoded.Animations[0].Animation
             : animation;
         var sourcePsxFile = IsSameAsset(bankSource, inputSource)
             ? psxFile
             : PsxMeshFile.ParseHeaderOnly(bankSource.ReadBytes()) ?? psxFile;
+        cancellationToken.ThrowIfCancellationRequested();
         var renderAnimOrder = BuildRenderAnimOrder(
             bankSource, inputSource, targetBoneCount, remap, remapDiagnostic);
+        cancellationToken.ThrowIfCancellationRequested();
         if (animation.FrameCount == 0)
         {
             AnsiConsole.MarkupLine("[red]Error:[/] Animation has no frames.");
@@ -253,6 +263,7 @@ public static class PsxAnimTraceCommand
             PsxFlatSkeleton = flatSkeleton,
             PsxFlatBoneIndices = flatBoneFilter
         });
+        cancellationToken.ThrowIfCancellationRequested();
         if (document.Skeletons.Count == 0)
         {
             AnsiConsole.MarkupLine("[red]Error:[/] Parsed character has no skeleton.");
@@ -282,24 +293,31 @@ public static class PsxAnimTraceCommand
         var engineParentIndices = BuildPsxEngineParentIndices(psxFile, boneCount);
 
         var bindWorld = MaterialiseBindWorldTranslations(skeleton, gltfParentIndices, boneCount);
+        cancellationToken.ThrowIfCancellationRequested();
         var engineLocalRotations = MaterialiseEngineLocalRotations(
             animation, boneCount, animation.FrameCount, compose, rotScale);
+        cancellationToken.ThrowIfCancellationRequested();
         var engineWorldRaw = MaterialiseEngineWorldTranslations(
             animation, engineParentIndices, boneCount, animation.FrameCount, engineLocalRotations);
+        cancellationToken.ThrowIfCancellationRequested();
         var directWorld = MaterialiseExporterDirectWorldTranslations(
             animation, skeleton, gltfParentIndices, boneCount, frame, exporterDivisor,
             engineLocalRotations);
+        cancellationToken.ThrowIfCancellationRequested();
         var sourceBoneCount = Math.Min(
             Math.Min(sourceAnimation.BoneCount, sourcePsxFile.Objects.Count),
             renderAnimOrder.TargetPartToSourceSlot.Length);
         var sourceParentIndices = BuildPsxEngineParentIndices(sourcePsxFile, sourceBoneCount);
         var sourceEngineLocalRotations = MaterialiseEngineLocalRotations(
             sourceAnimation, sourceBoneCount, sourceAnimation.FrameCount, compose, rotScale);
+        cancellationToken.ThrowIfCancellationRequested();
         var sourceEngineWorldRaw = MaterialiseEngineWorldTranslations(
             sourceAnimation, sourceParentIndices, sourceBoneCount,
             sourceAnimation.FrameCount, sourceEngineLocalRotations);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var glbSample = LoadGlbSample(glbPath, glbAnimIndex, time, skeleton, bones, out var glbInfo);
+        cancellationToken.ThrowIfCancellationRequested();
 
         PrintHeader(
             input, bankSource.DisplayName, bankKind, bank, animIndex, frame, animation,
@@ -307,6 +325,7 @@ public static class PsxAnimTraceCommand
             remap);
         if (!string.IsNullOrWhiteSpace(glbInfo))
             AnsiConsole.MarkupLine(glbInfo);
+        cancellationToken.ThrowIfCancellationRequested();
 
         PrintTraceTable(
             skeleton, animation, bones, frame, gltfParentIndices, engineParentIndices, bindWorld, directWorld,
@@ -314,17 +333,22 @@ public static class PsxAnimTraceCommand
         PrintSeparationHints(
             skeleton, bones, bindWorld, directWorld, engineWorldRaw, frame,
             baseTranslationDivisor, exporterDivisor, glbSample);
+        cancellationToken.ThrowIfCancellationRequested();
         if (vertexBounds)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             PrintRenderAnimOrder(
                 renderAnimOrder, skeleton, bones, engineParentIndices, sourceParentIndices);
+            cancellationToken.ThrowIfCancellationRequested();
             PrintVertexBounds(
                 psxFile, skeleton, bones, bindWorld, engineLocalRotations,
                 engineWorldRaw, frame, exporterDivisor, gltfParentIndices,
                 renderAnimOrder, sourceEngineLocalRotations, sourceEngineWorldRaw,
                 glbPath, glbAnimIndex, time);
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         return 0;
     }
 

@@ -7,6 +7,55 @@ namespace NeversoftMultitool;
 
 public static class Program
 {
+    private static readonly Func<Command>[] CliCommandFactories =
+    [
+        PsxCommand.Create,
+        RleCommand.Create,
+        ArchiveCommand.Create,
+        CasCommand.Create,
+        WgtCommand.Create,
+        PvrCommand.Create,
+        NgcTexCommand.Create,
+        N64TexCommand.Create,
+        N64AudioInspectCommand.Create,
+        N64AudioFxInspectCommand.Create,
+        N64AudioRuntimeInspectCommand.Create,
+        N64SfxInspectCommand.Create,
+        N64AudioDecodeCommand.Create,
+        DdmCommand.Create,
+        AudioCommand.Create,
+        QbKeyCommand.Create,
+        TrgCommand.Create,
+        SfdCommand.Create,
+        VidCommand.Create,
+        StrCommand.Create,
+        MeshCommand.Create,
+        PsxMeshCommand.Create,
+        PsxMeshDumpCommand.Create,
+        PsxAnimDumpCommand.Create,
+        PsxAnimExportCommand.Create,
+        PsxAnimTraceCommand.Create,
+        PsxAnimSurveyCommand.Create,
+        Ps2TexCommand.Create,
+        RwDffCommand.Create,
+        RwBspCommand.Create,
+        ColCommand.Create,
+        NgcColCommand.Create,
+        XbxTexCommand.Create,
+        UnpackCommand.Create,
+        QbCommand.Create,
+        GlbRenderCommand.Create,
+        GlbGifCommand.Create,
+        GsDumpCommand.Create,
+        SkaCommand.Create,
+        Thps2XFrontendAnimCommand.Create
+    ];
+
+    private static readonly Lazy<HashSet<string>> CliCommandNames = new(
+        static () => CliCommandFactories
+            .Select(static factory => factory().Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase));
+
     [STAThread]
     public static int Main(string[] args)
     {
@@ -34,48 +83,10 @@ public static class Program
 
         var rootCommand = BuildRootCommand();
 
-        rootCommand.Subcommands.Add(PsxCommand.Create());
-        rootCommand.Subcommands.Add(RleCommand.Create());
-        rootCommand.Subcommands.Add(ArchiveCommand.Create());
-        rootCommand.Subcommands.Add(PvrCommand.Create());
-        rootCommand.Subcommands.Add(NgcTexCommand.Create());
-        rootCommand.Subcommands.Add(N64TexCommand.Create());
-        rootCommand.Subcommands.Add(N64AudioInspectCommand.Create());
-        rootCommand.Subcommands.Add(N64AudioFxInspectCommand.Create());
-        rootCommand.Subcommands.Add(N64SfxInspectCommand.Create());
-        rootCommand.Subcommands.Add(N64AudioDecodeCommand.Create());
-        rootCommand.Subcommands.Add(DdmCommand.Create());
-        rootCommand.Subcommands.Add(AudioCommand.Create());
-        rootCommand.Subcommands.Add(QbKeyCommand.Create());
-        rootCommand.Subcommands.Add(TrgCommand.Create());
-        rootCommand.Subcommands.Add(SfdCommand.Create());
-        rootCommand.Subcommands.Add(VidCommand.Create());
-        rootCommand.Subcommands.Add(StrCommand.Create());
-        rootCommand.Subcommands.Add(MeshCommand.Create());
-        rootCommand.Subcommands.Add(PsxMeshCommand.Create());
-        rootCommand.Subcommands.Add(PsxMeshDumpCommand.Create());
-        rootCommand.Subcommands.Add(PsxAnimDumpCommand.Create());
-        rootCommand.Subcommands.Add(PsxAnimExportCommand.Create());
-        rootCommand.Subcommands.Add(PsxAnimTraceCommand.Create());
-        rootCommand.Subcommands.Add(PsxAnimSurveyCommand.Create());
-        rootCommand.Subcommands.Add(Ps2TexCommand.Create());
-        rootCommand.Subcommands.Add(RwDffCommand.Create());
-        rootCommand.Subcommands.Add(RwBspCommand.Create());
-        rootCommand.Subcommands.Add(ColCommand.Create());
-        rootCommand.Subcommands.Add(NgcColCommand.Create());
-        rootCommand.Subcommands.Add(XbxTexCommand.Create());
-        rootCommand.Subcommands.Add(UnpackCommand.Create());
-        rootCommand.Subcommands.Add(QbCommand.Create());
-        rootCommand.Subcommands.Add(GlbRenderCommand.Create());
-        rootCommand.Subcommands.Add(GlbGifCommand.Create());
-        rootCommand.Subcommands.Add(GsDumpCommand.Create());
-        rootCommand.Subcommands.Add(SkaCommand.Create());
-        rootCommand.Subcommands.Add(Thps2XFrontendAnimCommand.Create());
-
         return rootCommand.Parse(args).Invoke();
     }
 
-    private static RootCommand BuildRootCommand()
+    internal static RootCommand BuildRootCommand()
     {
         var rootCommand = new RootCommand("Neversoft Game Data Extraction Utilities");
 
@@ -91,55 +102,34 @@ public static class Program
         rootCommand.Options.Add(noGuiOption);
         rootCommand.Options.Add(verboseOption);
 
+        foreach (var commandFactory in CliCommandFactories)
+        {
+            rootCommand.Subcommands.Add(commandFactory());
+        }
+
         rootCommand.SetAction((parseResult, cancellationToken) =>
         {
             _ = cancellationToken;
-            PrintUsage();
+            PrintUsage(rootCommand);
             return Task.FromResult(0);
         });
 
         return rootCommand;
     }
 
-    private static void PrintUsage()
+    private static void PrintUsage(RootCommand rootCommand)
     {
         AnsiConsole.MarkupLine("[bold]Usage:[/]");
-        AnsiConsole.MarkupLine("  NeversoftMultitool [green]<command>[/] [options]");
+        AnsiConsole.MarkupLine("  NeversoftMultitool [green]<command>[/] [[options]]");
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]Commands:[/]");
-        AnsiConsole.MarkupLine("  [green]psx[/]       Extract textures from PSX model files");
-        AnsiConsole.MarkupLine("  [green]rle[/]       Convert RLE/BMR bitmap files to PNG");
-        AnsiConsole.MarkupLine("  [green]archive[/]   Extract files from WAD/PKR/PRE/DDX/BON/PAK archives");
-        AnsiConsole.MarkupLine("  [green]pvr[/]       Convert Dreamcast PVR texture files to PNG");
-        AnsiConsole.MarkupLine("  [green]ngctex[/]    Extract textures from GameCube TEX dictionaries to PNG");
-        AnsiConsole.MarkupLine("  [green]n64-audio-inspect[/] Inspect paired N64 Sound Tools PTR/WBK files as JSON");
-        AnsiConsole.MarkupLine("  [green]n64-audio-fx-inspect[/] Inspect opaque N64 Sound Tools BFX data and local PTR bindings");
-        AnsiConsole.MarkupLine("  [green]n64-sfx-inspect[/] Inspect strict raw N64 SFX cue tables as aggregate JSON");
-        AnsiConsole.MarkupLine("  [green]n64-audio-decode[/] Decode one stored N64 Sound Tools wave to mono PCM16 WAV at a caller-supplied rate");
-        AnsiConsole.MarkupLine("  [green]ddm[/]       Convert DDM mesh files to glTF (.glb)");
-        AnsiConsole.MarkupLine(
-            "  [green]audio[/]     Convert ADX/XA/VAB/VAG/KAT/SFX/PCM/SND/PSS/VID audio files to WAV");
-        AnsiConsole.MarkupLine("  [green]qbkey[/]     QBKey hash utilities (cross-reference, lookup)");
-        AnsiConsole.MarkupLine("  [green]trg[/]       Parse TRG level trigger/script files to JSON");
-        AnsiConsole.MarkupLine("  [green]sfd[/]       Convert SFD (Sofdec) video files to MP4");
-        AnsiConsole.MarkupLine("  [green]vid[/]       Convert THAW GameCube VID1 video files to MP4");
-        AnsiConsole.MarkupLine("  [green]str[/]       Convert PS1 STR (MDEC) video files to MP4");
-        AnsiConsole.MarkupLine(
-            "  [green]mesh[/]      Auto-detect and convert supported mesh files to glTF (.glb) or Blender (.blend)");
-        AnsiConsole.MarkupLine("  [green]psx-mesh[/]  Convert PSX model files to glTF (.glb)");
-        AnsiConsole.MarkupLine("  [green]psx-mesh-dump[/] Dump PSX mesh parse diagnostics to JSON");
-        AnsiConsole.MarkupLine("  [green]ps2tex[/]    Extract textures from PS2 TEX/IMG files to PNG");
-        AnsiConsole.MarkupLine("  [green]rwdff[/]     Convert RenderWare DFF mesh files (.SKN) to glTF (.glb)");
-        AnsiConsole.MarkupLine("  [green]rwbsp[/]     Convert RenderWare BSP level files to glTF (.glb)");
-        AnsiConsole.MarkupLine("  [green]col[/]       Convert collision (.col) files to glTF (.glb)");
-        AnsiConsole.MarkupLine("  [green]ngccol[/]    Inspect GameCube collision (.col.ngc) structure as JSON");
-        AnsiConsole.MarkupLine("  [green]xbxtex[/]    Extract textures from Xbox/PC TEX/IMG files to PNG");
-        AnsiConsole.MarkupLine("  [green]unpack[/]    Recursively extract all archives in-place");
-        AnsiConsole.MarkupLine("  [green]qb[/]        Decompile QB compiled script files to source text");
-        AnsiConsole.MarkupLine("  [green]glb-render[/] Render .glb files to .png images");
-        AnsiConsole.MarkupLine("  [green]glb-gif[/]    Render animated .glb files to .gif images");
-        AnsiConsole.MarkupLine("  [green]gsdump[/]     Audit raw PCSX2 GS dumps and compare to screenshot PNGs");
-        AnsiConsole.MarkupLine("  [green]thps2x-anim[/] Inspect THPS2X frontend UI .ANIM timelines as JSON");
+        var commandNameWidth = rootCommand.Subcommands.Max(static command => command.Name.Length);
+        foreach (var command in rootCommand.Subcommands)
+        {
+            var name = Markup.Escape(command.Name.PadRight(commandNameWidth));
+            var description = Markup.Escape(command.Description ?? string.Empty);
+            AnsiConsole.MarkupLine($"  [green]{name}[/]  {description}");
+        }
 #if WINDOWS_GUI
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]For GUI mode:[/]");
@@ -147,44 +137,13 @@ public static class Program
 #endif
     }
 
-#if WINDOWS_GUI
-    private static bool IsCliMode(string[] args)
+    internal static bool IsCliMode(string[] args)
     {
-        return args.Length > 0 && (
-            args.Any(a => a.Equals("--no-gui", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("-n", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("psx", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("rle", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("archive", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("pvr", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("ngctex", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("n64-audio-inspect", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("n64-audio-fx-inspect", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("n64-sfx-inspect", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("n64-audio-decode", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("ddm", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("audio", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("qbkey", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("trg", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("sfd", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("vid", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("str", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("mesh", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("psx-mesh", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("psx-mesh-dump", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("psx-anim-export", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("psx-anim-survey", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("psxanim", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("ps2tex", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("rwdff", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("col", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("ngccol", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("xbxtex", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("unpack", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("qb", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("gsdump", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("ska", StringComparison.OrdinalIgnoreCase)) ||
-            args.Any(a => a.Equals("thps2x-anim", StringComparison.OrdinalIgnoreCase)));
+        ArgumentNullException.ThrowIfNull(args);
+
+        return args.Length > 0 && args.Any(argument =>
+            argument.Equals("--no-gui", StringComparison.OrdinalIgnoreCase) ||
+            argument.Equals("-n", StringComparison.OrdinalIgnoreCase) ||
+            CliCommandNames.Value.Contains(argument));
     }
-#endif
 }

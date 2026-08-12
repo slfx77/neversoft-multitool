@@ -60,6 +60,8 @@ public static class Ps2GeomCommand
         string? texPath, bool verbose, MeshOutputFormat format, string? blenderHelperPath,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         List<string> files;
 
         if (File.Exists(input))

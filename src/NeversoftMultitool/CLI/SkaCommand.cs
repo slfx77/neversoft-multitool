@@ -100,6 +100,8 @@ public static class SkaCommand
         MeshOutputFormat format = MeshOutputFormat.Glb, string? blenderHelperPath = null,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (animationSkePath != null && skePath == null)
         {
             AnsiConsole.MarkupLine("[red]Error:[/] --animation-ske requires --ske as the target skeleton");
@@ -118,7 +120,8 @@ public static class SkaCommand
         {
             skeleton = LoadSkeleton(skePath);
             AnsiConsole.MarkupLine(
-                $"Loaded skeleton: [green]{skeleton.Bones.Length}[/] bones from {Path.GetFileName(skePath)}");
+                $"Loaded skeleton: [green]{skeleton.Bones.Length}[/] bones from " +
+                Markup.Escape(Path.GetFileName(skePath)));
         }
 
         Ps2Skeleton? animationSkeleton = null;
@@ -129,7 +132,7 @@ public static class SkaCommand
             qbKeyBoneMap = SkaQbKeyBoneMap.Create(animationSkeleton, skeleton!);
             AnsiConsole.MarkupLine(
                 $"Loaded animation skeleton: [green]{animationSkeleton.Bones.Length}[/] bones from " +
-                $"{Path.GetFileName(animationSkePath)}; exact QbKey map binds " +
+                $"{Markup.Escape(Path.GetFileName(animationSkePath))}; exact QbKey map binds " +
                 $"[green]{qbKeyBoneMap.MappedBoneCount}[/] and skips " +
                 $"[yellow]{qbKeyBoneMap.SourceBoneCount - qbKeyBoneMap.MappedBoneCount}[/]");
         }
@@ -141,7 +144,8 @@ public static class SkaCommand
             var skinData = File.ReadAllBytes(skinPath);
             skinScene = Ps2SceneFile.Parse(skinData);
             AnsiConsole.MarkupLine(
-                $"Loaded skin: [green]{skinScene.MeshGroups.Sum(g => g.Meshes.Count)}[/] meshes from {Path.GetFileName(skinPath)}");
+                $"Loaded skin: [green]{skinScene.MeshGroups.Sum(g => g.Meshes.Count)}[/] meshes from " +
+                Markup.Escape(Path.GetFileName(skinPath)));
         }
 
         // Load THPS3 RW DFF .SKN (has embedded skeleton + skinned mesh in one file).
@@ -158,7 +162,7 @@ public static class SkaCommand
                 .Max();
             AnsiConsole.MarkupLine(
                 $"Loaded RW DFF: [green]{rwClump.Geometries.Length}[/] geometries, " +
-                $"[green]{rwBoneCount}[/] bones from {Path.GetFileName(sknPath)}");
+                $"[green]{rwBoneCount}[/] bones from {Markup.Escape(Path.GetFileName(sknPath))}");
         }
 
         // Texture summary (the per-anim parser handles actual embedding).
@@ -167,7 +171,8 @@ public static class SkaCommand
             var textureCache = Ps2TextureLoader.BuildTextureCache([], texPath, verbose);
             if (textureCache.Count > 0)
                 AnsiConsole.MarkupLine(
-                    $"Loaded [green]{textureCache.Count}[/] textures from {Path.GetFileName(texPath)}");
+                    $"Loaded [green]{textureCache.Count}[/] textures from " +
+                    Markup.Escape(Path.GetFileName(texPath)));
         }
 
         List<string> files;
@@ -218,7 +223,8 @@ public static class SkaCommand
                     if (!IsUsableDefaultPose(defaultAnim))
                     {
                         AnsiConsole.MarkupLine(
-                            $"[yellow]Found default anim {Path.GetFileName(defaultSkaPath)} but it is an " +
+                            $"[yellow]Found default anim {Markup.Escape(Path.GetFileName(defaultSkaPath))} " +
+                            "but it is an " +
                             "INTERMEDIATE authoring stream; skipping bind-pose enrichment[/]");
                     }
                     else if (defaultAnim.BoneTracks.Length == skeleton.Bones.Length)
@@ -228,12 +234,13 @@ public static class SkaCommand
                             Path.GetFileName(Path.GetDirectoryName(defaultSkaPath)) ?? string.Empty,
                             Path.GetFileName(defaultSkaPath));
                         AnsiConsole.MarkupLine(
-                            $"Enriched V1 skeleton bind pose from [green]{relPath}[/]");
+                            $"Enriched V1 skeleton bind pose from [green]{Markup.Escape(relPath)}[/]");
                     }
                     else
                     {
                         AnsiConsole.MarkupLine(
-                            $"[yellow]Found default anim {Path.GetFileName(defaultSkaPath)} but bone counts differ" +
+                            $"[yellow]Found default anim {Markup.Escape(Path.GetFileName(defaultSkaPath))} " +
+                            "but bone counts differ" +
                             $" ({defaultAnim.BoneTracks.Length} vs {skeleton.Bones.Length}); skipping enrichment[/]");
                     }
                 }
@@ -255,8 +262,7 @@ public static class SkaCommand
 
         foreach (var file in files)
         {
-            if (cancellationToken.IsCancellationRequested)
-                break;
+            cancellationToken.ThrowIfCancellationRequested();
 
             try
             {
@@ -264,7 +270,11 @@ public static class SkaCommand
                 if (!SkaFile.IsSkaFile(data))
                 {
                     if (verbose)
-                        AnsiConsole.MarkupLine($"  [grey]{Path.GetFileName(file)}: not a valid SKA file[/]");
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"  [grey]{Markup.Escape(Path.GetFileName(file))}: " +
+                            "not a valid SKA file[/]");
+                    }
                     failed++;
                     continue;
                 }
@@ -285,7 +295,7 @@ public static class SkaCommand
                 if (verbose)
                 {
                     AnsiConsole.MarkupLine(
-                        $"  [green]{Path.GetFileName(file)}[/]: " +
+                        $"  [green]{Markup.Escape(Path.GetFileName(file))}[/]: " +
                         $"v={anim.Version} bones={boneCount} " +
                         $"Q={qCount} T={tCount} custom={customCount} dur={anim.Duration:F2}s " +
                         $"flags=0x{anim.Flags:X8}");
@@ -299,7 +309,8 @@ public static class SkaCommand
                     SkaCustomKeyJsonExporter.Write(customKeyPath, file, anim);
                     if (verbose)
                         AnsiConsole.MarkupLine(
-                            $"    → [blue]{customKeyPath}[/] ({customCount} custom events)");
+                            $"    → [blue]{Markup.Escape(customKeyPath)}[/] " +
+                            $"({customCount} custom events)");
                 }
 
                 if (anim.IsIntermediateFormat)
@@ -311,7 +322,8 @@ public static class SkaCommand
                     SkaIntermediateJsonExporter.Write(inspectionPath, file, anim);
                     if (verbose)
                         AnsiConsole.MarkupLine(
-                            $"    → [blue]{inspectionPath}[/] (intermediate authoring keys; no 3D export)");
+                            $"    → [blue]{Markup.Escape(inspectionPath)}[/] " +
+                            "(intermediate authoring keys; no 3D export)");
                     continue;
                 }
 
@@ -363,7 +375,8 @@ public static class SkaCommand
                     {
                         var channelCount = document.Animations.Sum(a => a.Channels.Count);
                         AnsiConsole.MarkupLine(
-                            $"    → [blue]{FormatOutputPaths(result)}[/] ({channelCount} channels)");
+                            $"    → [blue]{FormatOutputPaths(result)}[/] " +
+                            $"({channelCount} channels)");
                     }
                 }
                 else if (skeleton == null && anim.IsThawFormat && anim.IsPlatformFormat && boneCount > 0)
@@ -386,11 +399,15 @@ public static class SkaCommand
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 failed++;
                 if (verbose)
-                    AnsiConsole.MarkupLine($"  [red]{Path.GetFileName(file)}: {ex.Message}[/]");
+                {
+                    AnsiConsole.MarkupLine(
+                        $"  [red]{Markup.Escape(Path.GetFileName(file))}: " +
+                        $"{Markup.Escape(ex.Message)}[/]");
+                }
             }
         }
 

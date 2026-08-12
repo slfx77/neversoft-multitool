@@ -48,7 +48,7 @@ public static class ColCommand
         return command;
     }
 
-    private static int Execute(
+    internal static int Execute(
         string input,
         string output,
         bool verbose,
@@ -57,8 +57,9 @@ public static class ColCommand
         CancellationToken cancellationToken)
     {
         List<string> files;
+        var isSingleFile = File.Exists(input);
 
-        if (File.Exists(input))
+        if (isSingleFile)
         {
             files = [input];
         }
@@ -71,7 +72,8 @@ public static class ColCommand
         }
         else
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] Path not found: {input}");
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Path not found: {Markup.Escape(input)}");
             return 1;
         }
 
@@ -96,7 +98,7 @@ public static class ColCommand
         if (files.Count == 0)
         {
             AnsiConsole.MarkupLine("[yellow]No supported COL files to process.[/]");
-            return 0;
+            return isSingleFile ? 1 : 0;
         }
 
         AnsiConsole.MarkupLine($"Found [green]{files.Count}[/] COL file(s)");

@@ -36,18 +36,23 @@ public static class PsxAnimSurveyCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
-            _ = cancellationToken;
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption);
             var verbose = parseResult.GetValue(verboseOption);
-            return Task.FromResult(Execute(input, output, verbose));
+            return Task.FromResult(Execute(input, output, verbose, cancellationToken));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string? output, bool verbose)
+    internal static int Execute(
+        string input,
+        string? output,
+        bool verbose,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!Directory.Exists(input))
         {
             AnsiConsole.MarkupLine($"[red]Error:[/] Directory not found: {Markup.Escape(input)}");
@@ -59,13 +64,16 @@ public static class PsxAnimSurveyCommand
                 new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive, RecurseSubdirectories = true })
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
             .ToList();
+        cancellationToken.ThrowIfCancellationRequested();
 
         AnsiConsole.MarkupLine($"Scanning [green]{files.Count}[/] PSX file(s) under {Markup.Escape(rootFull)}");
 
         var rows = new List<SurveyRow>(files.Count);
         foreach (var file in files)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var row = ProbeFile(file, rootFull);
+            cancellationToken.ThrowIfCancellationRequested();
             rows.Add(row);
             if (verbose)
             {
@@ -78,11 +86,14 @@ public static class PsxAnimSurveyCommand
         }
 
         var csvPath = output ?? Path.Combine("TestOutput", "psx_anim_survey.csv");
+        cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(csvPath))!);
-        WriteCsv(csvPath, rows);
+        WriteCsv(csvPath, rows, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         AnsiConsole.MarkupLine($"\nWrote CSV: [green]{Markup.Escape(csvPath)}[/]");
 
         PrintSummary(rows);
+        cancellationToken.ThrowIfCancellationRequested();
         return 0;
     }
 
@@ -153,13 +164,18 @@ public static class PsxAnimSurveyCommand
         return sep > 0 ? relPath[..sep] : relPath;
     }
 
-    private static void WriteCsv(string path, IReadOnlyList<SurveyRow> rows)
+    private static void WriteCsv(
+        string path,
+        IReadOnlyList<SurveyRow> rows,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var writer = new StreamWriter(path);
         writer.WriteLine(
             "build,relpath,version,mesh_revision,has_hierarchy,bones,meshes,file_size,post_mesh_size,layout,anim_revision,num_streams_declared,entries_recovered,runtime_revision,error");
         foreach (var r in rows)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             writer.WriteLine(
                 $"{Csv(r.Build)},{Csv(r.RelPath)},{r.VersionLabel},{r.MeshRevisionLabel},{r.HasHierarchy},{r.Bones},{r.Meshes}," +
                 $"{r.FileSize},{r.PostMeshSize},{r.LayoutLabel},{r.AnimationRevisionLabel},{r.NumStreamsDecl}," +

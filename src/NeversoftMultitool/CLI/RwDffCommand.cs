@@ -40,6 +40,7 @@ public static class RwDffCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
             var texPath = parseResult.GetValue(texPathOption);
@@ -54,10 +55,12 @@ public static class RwDffCommand
         return command;
     }
 
-    private static int Execute(string input, string output,
+    internal static int Execute(string input, string output,
         string? texPath, bool verbose, MeshOutputFormat format, string? blenderHelperPath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         List<string> files;
 
         if (File.Exists(input))
@@ -72,10 +75,12 @@ public static class RwDffCommand
         }
         else
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] Path not found: {input}");
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Path not found: {Markup.Escape(input)}");
             return 1;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         if (files.Count == 0)
         {
             AnsiConsole.MarkupLine("[yellow]No RW DFF (.SKN) files found.[/]");
@@ -83,6 +88,7 @@ public static class RwDffCommand
         }
 
         AnsiConsole.MarkupLine($"Found [green]{files.Count}[/] DFF file(s)");
+        cancellationToken.ThrowIfCancellationRequested();
         return MeshExportCliOptions.ExportFiles(
             files,
             output,

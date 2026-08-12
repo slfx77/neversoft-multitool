@@ -31,91 +31,113 @@ public static class QbCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
-            var input = parseResult.GetValue(inputArgument)!;
-            var output = parseResult.GetValue(outputOption)!;
-            var verbose = parseResult.GetValue(verboseOption);
-
-            var files = GetQbFiles(input);
-            if (files.Length == 0)
-            {
-                AnsiConsole.MarkupLine("[yellow]No QB files found.[/]");
-                return Task.FromResult(0);
-            }
-
-            Directory.CreateDirectory(output);
-            AnsiConsole.MarkupLine($"Found [green]{files.Length}[/] QB file(s)");
-
-            var stopwatch = Stopwatch.StartNew();
-            var totalParsed = 0;
-            var totalScripts = 0;
-            var totalGlobals = 0;
-            var totalResolved = 0;
-            var totalNames = 0;
-            var errors = 0;
-
-            foreach (var file in files)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var filename = Path.GetFileName(file);
-
-                try
-                {
-                    var qb = QbFile.Parse(file);
-                    var source = QbDecompiler.Decompile(qb);
-                    var outputPath = GetOutputPath(input, file, output, ".q");
-                    var outputDir = Path.GetDirectoryName(outputPath);
-                    if (!string.IsNullOrEmpty(outputDir))
-                        Directory.CreateDirectory(outputDir);
-                    File.WriteAllText(outputPath, source);
-
-                    totalParsed++;
-                    totalScripts += qb.ScriptCount;
-                    totalGlobals += qb.GlobalCount;
-
-                    if (verbose)
-                    {
-                        // Count resolved vs unresolved names
-                        var nameTokens = qb.Tokens
-                            .Where(t => t.Type is QbTokenType.Name or QbTokenType.Enum)
-                            .ToList();
-                        var resolved = nameTokens.Count(t =>
-                            qb.LocalNames.ContainsKey(t.NameChecksum) ||
-                            QbKey.TryResolve(t.NameChecksum) != null);
-                        totalResolved += resolved;
-                        totalNames += nameTokens.Count;
-
-                        AnsiConsole.MarkupLine(
-                            $"  {filename}: [green]{qb.ScriptCount}[/] scripts, " +
-                            $"[blue]{qb.GlobalCount}[/] globals, " +
-                            $"[dim]{resolved}/{nameTokens.Count} names resolved[/]");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    errors++;
-                    if (verbose)
-                        AnsiConsole.MarkupLine($"  {filename}: [red]{ex.Message}[/]");
-                }
-            }
-
-            stopwatch.Stop();
-            var summary = $"Decompiled [green]{totalParsed}[/]/{files.Length} files " +
-                          $"({totalScripts} scripts, {totalGlobals} globals) " +
-                          $"in {stopwatch.Elapsed.TotalSeconds:F2}s";
-            if (verbose && totalNames > 0)
-            {
-                var pct = (double)totalResolved / totalNames * 100;
-                summary += $" — [dim]{pct:F1}% names resolved[/]";
-            }
-
-            if (errors > 0)
-                summary += $" ([red]{errors} errors[/])";
-            AnsiConsole.MarkupLine(summary);
-
-            return Task.FromResult(errors > 0 ? 1 : 0);
+            return Task.FromResult(Execute(
+                parseResult.GetValue(inputArgument)!,
+                parseResult.GetValue(outputOption)!,
+                parseResult.GetValue(verboseOption),
+                cancellationToken));
         });
 
         return command;
+    }
+
+    internal static int Execute(
+        string input,
+        string output,
+        bool verbose,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(input) && !Directory.Exists(input))
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Path not found: {Markup.Escape(input)}");
+            return 1;
+        }
+
+        var files = GetQbFiles(input);
+        if (files.Length == 0)
+        {
+            AnsiConsole.MarkupLine("[yellow]No QB files found.[/]");
+            return 0;
+        }
+
+        Directory.CreateDirectory(output);
+        AnsiConsole.MarkupLine($"Found [green]{files.Length}[/] QB file(s)");
+
+        var stopwatch = Stopwatch.StartNew();
+        var totalParsed = 0;
+        var totalScripts = 0;
+        var totalGlobals = 0;
+        var totalResolved = 0;
+        var totalNames = 0;
+        var errors = 0;
+
+        foreach (var file in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var filename = Path.GetFileName(file);
+
+            try
+            {
+                var qb = QbFile.Parse(file);
+                if (qb.Tokens.Count == 0)
+                    throw new InvalidDataException("QB contains no recognized tokens.");
+
+                var source = QbDecompiler.Decompile(qb);
+                var outputPath = GetOutputPath(input, file, output, ".q");
+                var outputDir = Path.GetDirectoryName(outputPath);
+                if (!string.IsNullOrEmpty(outputDir))
+                    Directory.CreateDirectory(outputDir);
+                File.WriteAllText(outputPath, source);
+
+                totalParsed++;
+                totalScripts += qb.ScriptCount;
+                totalGlobals += qb.GlobalCount;
+
+                if (verbose)
+                {
+                    // Count resolved vs unresolved names
+                    var nameTokens = qb.Tokens
+                        .Where(t => t.Type is QbTokenType.Name or QbTokenType.Enum)
+                        .ToList();
+                    var resolved = nameTokens.Count(t =>
+                        qb.LocalNames.ContainsKey(t.NameChecksum) ||
+                        QbKey.TryResolve(t.NameChecksum) != null);
+                    totalResolved += resolved;
+                    totalNames += nameTokens.Count;
+
+                    AnsiConsole.MarkupLine(
+                        $"  {Markup.Escape(filename)}: [green]{qb.ScriptCount}[/] scripts, " +
+                        $"[blue]{qb.GlobalCount}[/] globals, " +
+                        $"[dim]{resolved}/{nameTokens.Count} names resolved[/]");
+                }
+            }
+            catch (Exception ex)
+            {
+                errors++;
+                if (verbose)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"  {Markup.Escape(filename)}: [red]{Markup.Escape(ex.Message)}[/]");
+                }
+            }
+        }
+
+        stopwatch.Stop();
+        var summary = $"Decompiled [green]{totalParsed}[/]/{files.Length} files " +
+                      $"({totalScripts} scripts, {totalGlobals} globals) " +
+                      $"in {stopwatch.Elapsed.TotalSeconds:F2}s";
+        if (verbose && totalNames > 0)
+        {
+            var pct = (double)totalResolved / totalNames * 100;
+            summary += $" — [dim]{pct:F1}% names resolved[/]";
+        }
+
+        if (errors > 0)
+            summary += $" ([red]{errors} errors[/])";
+        AnsiConsole.MarkupLine(summary);
+
+        return errors > 0 ? 1 : 0;
     }
 
     private static string[] GetQbFiles(string input)
@@ -132,7 +154,6 @@ public static class QbCommand
                 .ToArray();
         }
 
-        AnsiConsole.MarkupLine($"[red]Error:[/] Path not found: {input}");
         return [];
     }
 

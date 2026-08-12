@@ -55,7 +55,6 @@ public static class PsxAnimDumpCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
-            _ = cancellationToken;
             var input = parseResult.GetValue(inputArgument)!;
             var bytes = parseResult.GetValue(bytesOption);
             var anim = parseResult.GetValue(animOption);
@@ -63,34 +62,48 @@ public static class PsxAnimDumpCommand
             var rankBone = parseResult.GetValue(rankBoneOption);
             var rankTop = parseResult.GetValue(rankTopOption);
             var verbose = parseResult.GetValue(verboseOption);
-            return Task.FromResult(Execute(input, bytes, anim, bone, rankBone, rankTop, verbose));
+            return Task.FromResult(Execute(
+                input,
+                bytes,
+                anim,
+                bone,
+                rankBone,
+                rankTop,
+                verbose,
+                cancellationToken));
         });
 
         return command;
     }
 
-    private static int Execute(
+    internal static int Execute(
         string input,
         int hexBytes,
         int animIndex,
         int boneIndex,
         int? rankBoneIndex,
         int rankTop,
-        bool verbose)
+        bool verbose,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!File.Exists(input))
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] File not found: {input}");
+            AnsiConsole.MarkupLine($"[red]Error:[/] File not found: {Markup.Escape(input)}");
             return 1;
         }
 
         var data = File.ReadAllBytes(input);
+        cancellationToken.ThrowIfCancellationRequested();
         var fileName = Path.GetFileName(input);
 
-        AnsiConsole.MarkupLine($"[bold cyan]File:[/] {fileName} ({data.Length:N0} bytes)");
+        AnsiConsole.MarkupLine(
+            $"[bold cyan]File:[/] {Markup.Escape(fileName)} ({data.Length:N0} bytes)");
 
         // ─── Mesh layer ────────────────────────────────────────────────
         var meshFile = PsxMeshFile.Parse(data);
+        cancellationToken.ThrowIfCancellationRequested();
         if (meshFile == null)
         {
             AnsiConsole.MarkupLine("[red]No mesh data — cannot locate post-mesh region.[/]");
@@ -102,6 +115,7 @@ public static class PsxAnimDumpCommand
             $"revision={meshFile.FormatRevision} meshes={meshFile.Meshes.Count} objects={meshFile.Objects.Count}");
 
         var parsedAnimFile = PsxAnimFile.Parse(data, meshFile.Objects.Count);
+        cancellationToken.ThrowIfCancellationRequested();
         if (parsedAnimFile != null)
         {
             AnsiConsole.MarkupLine(
@@ -111,9 +125,16 @@ public static class PsxAnimDumpCommand
         }
 
         if (rankBoneIndex is { } rankedBone)
-            return PsxAnimDumpDecoder.DumpRankedBoneMotion(parsedAnimFile, meshFile.Objects.Count, rankedBone, rankTop);
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var result = PsxAnimDumpDecoder.DumpRankedBoneMotion(
+                parsedAnimFile, meshFile.Objects.Count, rankedBone, rankTop);
+            cancellationToken.ThrowIfCancellationRequested();
+            return result;
+        }
 
         var boundary = PsxMeshFile.GetMeshBlockEnd(data);
+        cancellationToken.ThrowIfCancellationRequested();
         if (boundary <= 0 || boundary >= data.Length)
         {
             AnsiConsole.MarkupLine($"[red]Boundary detection failed (= {boundary}).[/]");
@@ -131,13 +152,16 @@ public static class PsxAnimDumpCommand
         }
 
         // ─── Layer 1: hex dump + u32 interpretation ─────────────────────
+        cancellationToken.ThrowIfCancellationRequested();
         AnsiConsole.MarkupLine("\n[bold underline]Layer 1[/] [grey]— hex dump after boundary[/]");
         PsxAnimDumpWalker.DumpHex(data, boundary, (int)Math.Min(hexBytes, trailing));
         PsxAnimDumpWalker.DumpFirstU32s(data, boundary, (int)Math.Min(16, trailing / 4));
+        cancellationToken.ThrowIfCancellationRequested();
 
         // ─── Layer 2: speculative anim-packet walk ──────────────────────
         AnsiConsole.MarkupLine("\n[bold underline]Layer 2[/] [grey]— anim packet walk (PreProcessAnimPacket)[/]");
         var afterAnimPacket = PsxAnimDumpWalker.TryWalkAnimPacket(data, boundary, meshFile.Meshes.Count, verbose);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var hierarchyStart = afterAnimPacket;
         if (PsxMeshFile.TryGetAnimChunkTag(data, out var animChunkTag, out var chunkDataOffset))
@@ -149,8 +173,11 @@ public static class PsxAnimDumpCommand
 
         // ─── Layer 3: speculative hierarchy walk ────────────────────────
         AnsiConsole.MarkupLine("\n[bold underline]Layer 3[/] [grey]— per-bone hierarchy walk[/]");
+        cancellationToken.ThrowIfCancellationRequested();
         var psh = TryLoadPshCompanion(input);
+        cancellationToken.ThrowIfCancellationRequested();
         var hierResult = PsxAnimDumpWalker.TryWalkHierarchy(data, hierarchyStart, psh, verbose);
+        cancellationToken.ThrowIfCancellationRequested();
 
         // ─── Layer 4: decompress one whole animation (all bones, 6 channels each) ───
         if (hierResult is not null)
@@ -165,7 +192,9 @@ public static class PsxAnimDumpCommand
             AnsiConsole.MarkupLine("\n[yellow]Layer 4 skipped: hierarchy not located.[/]");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         AnsiConsole.MarkupLine("\n[grey]Done. Iterate the heuristic if any layer looks wrong.[/]");
+        cancellationToken.ThrowIfCancellationRequested();
         return 0;
     }
 

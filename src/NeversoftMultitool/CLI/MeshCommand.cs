@@ -155,7 +155,7 @@ public static class MeshCommand
         return command;
     }
 
-    private static int Execute(
+    internal static int Execute(
         string input,
         string output,
         string? texturePath,
@@ -172,6 +172,8 @@ public static class MeshCommand
         bool includeN64Animations,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        var isSingleFile = File.Exists(input);
         var files = CollectInputFiles(input);
         if (files == null)
             return 1;
@@ -180,6 +182,7 @@ public static class MeshCommand
         var skipped = new List<(string File, string Reason)>();
         foreach (var file in files)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (TryDetect(file, psxPath, out var candidate, out var reason))
                 candidates.Add(candidate);
             else if (File.Exists(file))
@@ -192,9 +195,10 @@ public static class MeshCommand
             if (files.Count == 1 && skipped.Count == 1)
                 AnsiConsole.MarkupLine(
                     $"  {Markup.Escape(Path.GetFileName(skipped[0].File))}: {Markup.Escape(skipped[0].Reason)}");
-            return 0;
+            return isSingleFile ? 1 : 0;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(output);
         AnsiConsole.MarkupLine(
             $"Found [green]{candidates.Count}[/] mesh file(s)" +
@@ -230,8 +234,7 @@ public static class MeshCommand
 
         foreach (var (file, subdirectory, exportStem) in plan)
         {
-            if (cancellationToken.IsCancellationRequested)
-                break;
+            cancellationToken.ThrowIfCancellationRequested();
 
             var candidate = byFile[file];
             try
@@ -269,7 +272,7 @@ public static class MeshCommand
                         $"({Markup.Escape(candidate.DisplayFormat)}): {result.Triangles:N0} triangles -> {Markup.Escape(paths)}");
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 failed++;
                 AnsiConsole.MarkupLine(
@@ -292,7 +295,7 @@ public static class MeshCommand
 
         if (!Directory.Exists(input))
         {
-            AnsiConsole.MarkupLine($"[red]Error:[/] Path not found: {input}");
+            AnsiConsole.MarkupLine($"[red]Error:[/] Path not found: {Markup.Escape(input)}");
             return null;
         }
 

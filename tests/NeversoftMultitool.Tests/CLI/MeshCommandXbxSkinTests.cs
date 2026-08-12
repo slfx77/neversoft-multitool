@@ -8,7 +8,7 @@ public sealed class MeshCommandXbxSkinTests(TestPaths paths)
     private const string Thug2XboxBuild =
         "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void MeshCommand_ExplicitSkeleton_WiresXbxSkinWithoutChangingDefault()
     {
         var skinPath = paths.FindSampleFile(Thug2XboxBuild, "Anl_Pigeon.skin.xbx");

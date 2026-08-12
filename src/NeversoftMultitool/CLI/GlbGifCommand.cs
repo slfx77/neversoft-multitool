@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Diagnostics;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Rendering;
 using Spectre.Console;
 
@@ -67,14 +68,24 @@ public static class GlbGifCommand
             var elevation = parseResult.GetValue(elevationOption);
             var verbose = parseResult.GetValue(verboseOption);
 
-            return Task.FromResult(Execute(input, output, size, fps, animIndex, azimuth, elevation, verbose));
+            return Task.FromResult(Execute(
+                input, output, size, fps, animIndex, azimuth, elevation, verbose,
+                cancellationToken));
         });
 
         return command;
     }
 
-    private static int Execute(string input, string? output, int longEdge, int fps, int? animIndex,
-        float azimuth, float elevation, bool verbose)
+    internal static int Execute(
+        string input,
+        string? output,
+        int longEdge,
+        int fps,
+        int? animIndex,
+        float azimuth,
+        float elevation,
+        bool verbose,
+        CancellationToken cancellationToken = default)
     {
         List<string> files;
 
@@ -89,22 +100,44 @@ public static class GlbGifCommand
         }
         else
         {
-            AnsiConsole.MarkupLine($"[red]Input not found:[/] {input}");
+            AnsiConsole.MarkupLine($"[red]Input not found:[/] {Markup.Escape(input)}");
             return 1;
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // With an explicit output root, only colliding stems mirror their source
+        // directories. The default beside-source layout is already collision-safe
+        // and retains the historical names.
+        var inputRoot = Directory.Exists(input) ? input : null;
+        IReadOnlyList<MeshOutputPathPlanner.PlannedOutput> outputPlan = output == null
+            ? files.Select(static file => new MeshOutputPathPlanner.PlannedOutput(
+                file,
+                "",
+                Path.GetFileNameWithoutExtension(file))).ToList()
+            : MeshOutputPathPlanner.Plan(
+                files,
+                static file => Path.GetFileNameWithoutExtension(file),
+                inputRoot);
 
         var sw = Stopwatch.StartNew();
         var success = 0;
         var skipped = 0;
         var fail = 0;
 
-        foreach (var file in files)
+        foreach (var planned in outputPlan)
         {
-            var stem = Path.GetFileNameWithoutExtension(file);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var file = planned.File;
+            var stem = planned.Stem;
             if (animIndex.HasValue)
                 stem += $"_anim{animIndex.Value}";
-            var gifPath = output != null
-                ? Path.Combine(output, stem + ".gif")
+            var plannedOutput = output == null || string.IsNullOrEmpty(planned.Subdirectory)
+                ? output
+                : Path.Combine(output, planned.Subdirectory);
+            var gifPath = plannedOutput != null
+                ? Path.Combine(plannedOutput, stem + ".gif")
                 : Path.Combine(Path.GetDirectoryName(file) ?? ".", stem + ".gif");
 
             try
@@ -117,7 +150,11 @@ public static class GlbGifCommand
                 if (frameCount == 0)
                 {
                     if (verbose)
-                        AnsiConsole.MarkupLine($"  [grey]{Path.GetFileName(file)}: no animation, skipped[/]");
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"  [grey]{Markup.Escape(Path.GetFileName(file))}: " +
+                            "no animation, skipped[/]");
+                    }
                     skipped++;
                 }
                 else
@@ -125,13 +162,16 @@ public static class GlbGifCommand
                     success++;
                     if (verbose)
                         AnsiConsole.MarkupLine(
-                            $"  [green]{Path.GetFileName(file)}[/] -> [cyan]{gifPath}[/] " +
+                            $"  [green]{Markup.Escape(Path.GetFileName(file))}[/] -> " +
+                            $"[cyan]{Markup.Escape(gifPath)}[/] " +
                             $"({frameCount} frames, {duration:F2}s, {fileSw.Elapsed.TotalSeconds:F1}s render)");
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                AnsiConsole.MarkupLine($"[red]FAIL[/] {Path.GetFileName(file)}: {ex.Message}");
+                AnsiConsole.MarkupLine(
+                    $"[red]FAIL[/] {Markup.Escape(Path.GetFileName(file))}: " +
+                    Markup.Escape(ex.Message));
                 fail++;
             }
         }

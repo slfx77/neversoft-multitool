@@ -40,61 +40,91 @@ public static class PsxCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
-            var input = parseResult.GetValue(inputArgument)!;
-            var output = parseResult.GetValue(outputOption)!;
-            var subdirs = parseResult.GetValue(subdirsOption);
-            var verbose = parseResult.GetValue(verboseOption);
-            var noDds = parseResult.GetValue(noDdsOption);
-
-            if (!Directory.Exists(input))
-            {
-                AnsiConsole.MarkupLine($"[red]Error:[/] Directory not found: {input}");
-                return Task.FromResult(1);
-            }
-
-            var psxFiles = Directory.GetFiles(input, "*.psx");
-            if (psxFiles.Length == 0)
-            {
-                AnsiConsole.MarkupLine("[yellow]No .psx files found in the specified directory.[/]");
-                return Task.FromResult(0);
-            }
-
-            Directory.CreateDirectory(output);
-            AnsiConsole.MarkupLine($"Found [green]{psxFiles.Length}[/] PSX file(s)");
-
-            var stopwatch = Stopwatch.StartNew();
-            var totalTextures = 0;
-            var totalWritten = 0;
-
-            foreach (var file in psxFiles)
-            {
-                var filename = Path.GetFileName(file);
-                var result = PsxLibrary.ExtractTextures(file, output, subdirs, !noDds, !noDds);
-
-                totalTextures += result.TotalTextures;
-                totalWritten += result.TexturesWritten;
-
-                if (verbose)
-                {
-                    string status;
-                    if (result.Skipped)
-                        status = "[dim]skipped[/]";
-                    else if (result.Success)
-                        status = $"[green]{result.TexturesWritten} textures[/]";
-                    else
-                        status = $"[red]error: {result.ErrorMessage}[/]";
-                    AnsiConsole.MarkupLine($"  {filename}: {status}");
-                }
-            }
-
-            stopwatch.Stop();
-            AnsiConsole.MarkupLine(
-                $"Extracted [green]{totalWritten}[/]/{totalTextures} textures " +
-                $"from {psxFiles.Length} files in {stopwatch.Elapsed.TotalSeconds:F2}s");
-
-            return Task.FromResult(0);
+            return Task.FromResult(Execute(
+                parseResult.GetValue(inputArgument)!,
+                parseResult.GetValue(outputOption)!,
+                parseResult.GetValue(subdirsOption),
+                parseResult.GetValue(verboseOption),
+                parseResult.GetValue(noDdsOption),
+                cancellationToken));
         });
 
         return command;
+    }
+
+    internal static int Execute(
+        string input,
+        string output,
+        bool subdirs,
+        bool verbose,
+        bool noDds,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Directory.Exists(input))
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Directory not found: {Markup.Escape(input)}");
+            return 1;
+        }
+
+        // Keep the established command boundary: directory-only, immediate children,
+        // and the existing *.psx search pattern (no recursive or single-file expansion).
+        var psxFiles = Directory.GetFiles(input, "*.psx");
+        if (psxFiles.Length == 0)
+        {
+            AnsiConsole.MarkupLine("[yellow]No .psx files found in the specified directory.[/]");
+            return 0;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        Directory.CreateDirectory(output);
+        AnsiConsole.MarkupLine($"Found [green]{psxFiles.Length}[/] PSX file(s)");
+
+        var stopwatch = Stopwatch.StartNew();
+        var totalTextures = 0;
+        var totalWritten = 0;
+        var errors = 0;
+
+        foreach (var file in psxFiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var filename = Path.GetFileName(file);
+            var result = PsxLibrary.ExtractTextures(file, output, subdirs, !noDds, !noDds);
+
+            totalTextures += result.TotalTextures;
+            totalWritten += result.TexturesWritten;
+
+            // ErrorMessage is independent of the computed flags. In particular, invalid
+            // input can be Error+Skipped and a late corrupt header can be Error+Success.
+            // A non-skipped, non-success result with no message is still incomplete.
+            var failed = result.ErrorMessage is not null
+                         || (!result.Skipped && !result.Success);
+            if (failed)
+                errors++;
+
+            if (verbose)
+            {
+                string status;
+                if (result.ErrorMessage is { } errorMessage)
+                    status = $"[red]error: {Markup.Escape(errorMessage)}[/]";
+                else if (result.Skipped)
+                    status = "[dim]skipped[/]";
+                else if (result.Success)
+                    status = $"[green]{result.TexturesWritten} textures[/]";
+                else
+                    status = $"[red]error: extracted {result.TexturesWritten}/{result.TotalTextures} textures[/]";
+
+                AnsiConsole.MarkupLine($"  {Markup.Escape(filename)}: {status}");
+            }
+        }
+
+        stopwatch.Stop();
+        var summary = $"Extracted [green]{totalWritten}[/]/{totalTextures} textures " +
+                      $"from {psxFiles.Length} files in {stopwatch.Elapsed.TotalSeconds:F2}s";
+        if (errors > 0)
+            summary += $" ([red]{errors} errors[/])";
+        AnsiConsole.MarkupLine(summary);
+
+        return errors == 0 ? 0 : 1;
     }
 }

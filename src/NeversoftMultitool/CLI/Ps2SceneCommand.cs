@@ -156,6 +156,8 @@ public static class Ps2SceneCommand
         bool verbose,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!File.Exists(input))
         {
             AnsiConsole.MarkupLine($"[red]Error:[/] --worldzone requires an existing .pak.ps2 file: {input}");
@@ -205,7 +207,7 @@ public static class Ps2SceneCommand
                 $"in {stopwatch.Elapsed.TotalSeconds:F2}s");
             return 0;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             stopwatch.Stop();
             AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
@@ -238,6 +240,8 @@ public static class Ps2SceneCommand
         string? texPath, bool verbose, string? skePath, MeshOutputFormat format,
         string? blenderHelperPath, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         List<string> files;
 
         if (File.Exists(input))

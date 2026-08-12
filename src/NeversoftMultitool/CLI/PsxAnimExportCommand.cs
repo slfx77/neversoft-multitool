@@ -155,7 +155,7 @@ public static class PsxAnimExportCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
-            _ = cancellationToken;
+            cancellationToken.ThrowIfCancellationRequested();
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption);
             var anim = parseResult.GetValue(animOption);
@@ -197,7 +197,7 @@ public static class PsxAnimExportCommand
                 oneShot);
             return Task.FromResult(PsxAnimExportRunner.Run(
                 input, output, animSource, anim, name, opts, format, blenderHelper,
-                flatSkeleton, flatBoneFilter, verbose));
+                flatSkeleton, flatBoneFilter, verbose, cancellationToken));
         });
 
         return command;

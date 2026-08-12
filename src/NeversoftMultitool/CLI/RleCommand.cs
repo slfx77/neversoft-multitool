@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Diagnostics;
+using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Rle;
 using Spectre.Console;
 
@@ -41,64 +42,96 @@ public static class RleCommand
             var width = parseResult.GetValue(widthOption);
             var verbose = parseResult.GetValue(verboseOption);
 
-            if (!Directory.Exists(input))
-            {
-                AnsiConsole.MarkupLine($"[red]Error:[/] Directory not found: {input}");
-                return Task.FromResult(1);
-            }
-
-            var rleFiles = Directory.GetFiles(input)
-                .Where(BitmapFile.IsSupportedExtension)
-                .ToArray();
-
-            if (rleFiles.Length == 0)
-            {
-                AnsiConsole.MarkupLine(
-                    "[yellow]No .rle, .bmr, .zlb, .bmp, or .tga files found in the specified directory.[/]");
-                return Task.FromResult(0);
-            }
-
-            Directory.CreateDirectory(output);
-            var autoDetect = width == 0;
-            AnsiConsole.MarkupLine(autoDetect
-                ? $"Found [green]{rleFiles.Length}[/] bitmap file(s), width=auto"
-                : $"Found [green]{rleFiles.Length}[/] bitmap file(s), width={width}px");
-
-            var stopwatch = Stopwatch.StartNew();
-            var converted = 0;
-
-            foreach (var file in rleFiles)
-            {
-                var filename = Path.GetFileName(file);
-                var result = BitmapFile.Convert(
-                    File.ReadAllBytes(file), filename, autoDetect ? null : width);
-
-                if (result.Success)
-                {
-                    var outputFile = Path.Combine(output,
-                        Path.GetFileNameWithoutExtension(filename) + ".png");
-                    BitmapFile.SavePng(result, outputFile);
-                    converted++;
-
-                    if (verbose)
-                    {
-                        var autoTag = result.WidthAutoDetected ? " (auto)" : "";
-                        AnsiConsole.MarkupLine($"  {filename}: [green]{result.Width}x{result.Height}[/]{autoTag}");
-                    }
-                }
-                else if (verbose)
-                {
-                    AnsiConsole.MarkupLine($"  {filename}: [red]error: {result.ErrorMessage}[/]");
-                }
-            }
-
-            stopwatch.Stop();
-            AnsiConsole.MarkupLine(
-                $"Converted [green]{converted}[/]/{rleFiles.Length} files in {stopwatch.Elapsed.TotalSeconds:F2}s");
-
-            return Task.FromResult(0);
+            return Task.FromResult(Execute(input, output, width, verbose, cancellationToken));
         });
 
         return command;
+    }
+
+    internal static int Execute(
+        string input,
+        string output,
+        int width,
+        bool verbose,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Directory.Exists(input))
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] Directory not found: {Markup.Escape(input)}");
+            return 1;
+        }
+
+        var rleFiles = Directory.GetFiles(input)
+            .Where(BitmapFile.IsSupportedExtension)
+            .ToArray();
+
+        if (rleFiles.Length == 0)
+        {
+            AnsiConsole.MarkupLine(
+                "[yellow]No .rle, .bmr, .zlb, .bmp, or .tga files found in the specified directory.[/]");
+            return 0;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var outputPlan = MeshOutputPathPlanner.Plan(
+            rleFiles,
+            static file => Path.GetFileNameWithoutExtension(file),
+            input);
+
+        Directory.CreateDirectory(output);
+        var autoDetect = width == 0;
+        AnsiConsole.MarkupLine(autoDetect
+            ? $"Found [green]{rleFiles.Length}[/] bitmap file(s), width=auto"
+            : $"Found [green]{rleFiles.Length}[/] bitmap file(s), width={width}px");
+
+        var stopwatch = Stopwatch.StartNew();
+        var converted = 0;
+        var failed = 0;
+
+        foreach (var planned in outputPlan)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var file = planned.File;
+            var filename = Path.GetFileName(file);
+            var result = BitmapFile.Convert(
+                File.ReadAllBytes(file), filename, autoDetect ? null : width);
+
+            if (result.Success)
+            {
+                var plannedOutput = string.IsNullOrEmpty(planned.Subdirectory)
+                    ? output
+                    : Path.Combine(output, planned.Subdirectory);
+                var outputFile = Path.Combine(plannedOutput, planned.Stem + ".png");
+                BitmapFile.SavePng(result, outputFile);
+                converted++;
+
+                if (verbose)
+                {
+                    var autoTag = result.WidthAutoDetected ? " (auto)" : "";
+                    AnsiConsole.MarkupLine(
+                        $"  {Markup.Escape(filename)}: " +
+                        $"[green]{result.Width}x{result.Height}[/]{autoTag}");
+                }
+            }
+            else
+            {
+                failed++;
+                if (verbose)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"  {Markup.Escape(filename)}: " +
+                        $"[red]error: {Markup.Escape(result.ErrorMessage ?? string.Empty)}[/]");
+                }
+            }
+        }
+
+        stopwatch.Stop();
+        AnsiConsole.MarkupLine(
+            $"Converted [green]{converted}[/]/{rleFiles.Length} files in {stopwatch.Elapsed.TotalSeconds:F2}s");
+
+        return failed > 0 ? 1 : 0;
     }
 }
