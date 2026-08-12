@@ -401,6 +401,26 @@ public static class PsxLibrary
             preserveRuntimeSemiTransparency);
     }
 
+    /// <summary>
+    ///     Extracts the texture at the given physical library ordinal. This is
+    ///     intentionally separate from hash lookup because multiple texture
+    ///     records may share the same name hash.
+    /// </summary>
+    internal static (byte[] Rgba, int Width, int Height)? ExtractTextureAt(
+        byte[] data,
+        int textureIndex,
+        string label,
+        List<string>? diagnostics = null,
+        bool preserveRuntimeSemiTransparency = false)
+    {
+        return PsxLibraryLookup.ExtractTextureAt(
+            data,
+            textureIndex,
+            label,
+            diagnostics,
+            preserveRuntimeSemiTransparency);
+    }
+
     /// <summary>In-memory enumeration variant.</summary>
     public static List<(PsxTextureHeader Header, uint NameHash)> EnumerateTextures(byte[] data)
     {

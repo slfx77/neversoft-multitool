@@ -243,7 +243,8 @@ internal sealed partial class Ps2GsVram
     /// </summary>
     public byte[] ReadTexturePSMT4(uint tbp, uint tbw, int tw, int th)
     {
-        var output = new byte[tw * th / 2];
+        var pixelCount = checked(tw * th);
+        var output = new byte[pixelCount / 2 + (pixelCount & 1)];
         for (var y = 0; y < th; y++)
         {
             for (var x = 0; x < tw; x++)

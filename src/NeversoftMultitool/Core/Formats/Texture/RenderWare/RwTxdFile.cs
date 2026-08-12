@@ -60,8 +60,16 @@ public static class RwTxdFile
 
             var textures = new List<Ps2Texture>();
 
-            for (var i = 0; i < textureCount && offset < dictEnd; i++)
+            for (var i = 0; i < textureCount; i++)
             {
+                if (offset < 0 ||
+                    (long)offset + 12 > dictEnd ||
+                    (long)offset + 12 > data.Length)
+                {
+                    return Ps2TexResult.Fail(
+                        $"RW TexDict is truncated before declared texture {i + 1} of {textureCount}.");
+                }
+
                 var (tType, tSize, _) = ReadChunkHeader(data, ref offset);
                 var texEnd = offset + (int)tSize;
 

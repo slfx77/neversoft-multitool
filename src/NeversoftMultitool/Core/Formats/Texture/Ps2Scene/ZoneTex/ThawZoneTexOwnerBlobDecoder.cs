@@ -212,7 +212,7 @@ internal static class ThawZoneTexOwnerBlobDecoder
         // Relocate per FUN_001e9ac0
         var pixelAbs = headerBase + entry.CumulativeOffset + baseB;
         var clutAbs = headerBase + entry.DataOffset + baseB;
-        var pixelSize = psm == Ps2TexPixelDecoder.PSMT4 ? (long)tw * th / 2 : (long)tw * th;
+        var pixelSize = psm == Ps2TexPixelDecoder.PSMT4 ? ((long)tw * th + 1) / 2 : (long)tw * th;
 
         // Clamp pixel read to available file data (last record may extend past file end)
         if (pixelAbs < 0 || pixelAbs >= fileData.Length)

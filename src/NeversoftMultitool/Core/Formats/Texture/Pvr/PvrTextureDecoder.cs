@@ -127,7 +127,7 @@ public static class PvrTextureDecoder
         {
             for (var col = 0; col < header.Width / 2; col++)
             {
-                var colorOffset = MortonCurve.Interleave(row, col) + mipLevelOffset;
+                var colorOffset = MortonCurve.Interleave(col, row) + mipLevelOffset;
                 var colorBlock = GetColorBlock(reader, textureOffset, colorOffset);
 
                 var baseIndex = row * widthTimesTwo + col * 2;
@@ -364,7 +364,7 @@ public static class PvrTextureDecoder
         {
             for (var col = 0; col < blockDim; col++)
             {
-                var colorOffset = MortonCurve.Interleave(row, col) + indexStartOffset;
+                var colorOffset = MortonCurve.Interleave(col, row) + indexStartOffset;
 
                 // Read the index byte from the index region (at textureOffset + 0x800)
                 reader.BaseStream.Seek(textureOffset + 0x800 + colorOffset, SeekOrigin.Begin);

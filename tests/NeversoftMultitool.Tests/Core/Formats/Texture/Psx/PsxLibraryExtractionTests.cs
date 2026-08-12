@@ -7,7 +7,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Texture.Psx;
 
 public sealed class PsxLibraryExtractionTests(TestPaths paths)
 {
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     [InlineData("hawk2.PSX")]
@@ -50,7 +50,7 @@ public sealed class PsxLibraryExtractionTests(TestPaths paths)
         }
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("ring.psx")]
     [InlineData("bits.psx")]
     [InlineData("items.psx")]
@@ -114,7 +114,7 @@ public sealed class PsxLibraryExtractionTests(TestPaths paths)
         }
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     [InlineData("hawk2.PSX")]
@@ -179,7 +179,7 @@ public sealed class PsxLibraryExtractionTests(TestPaths paths)
         }
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     [InlineData("hawk2.PSX")]
@@ -243,7 +243,7 @@ public sealed class PsxLibraryExtractionTests(TestPaths paths)
         }
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     [InlineData("hawk2.PSX")]
@@ -276,7 +276,7 @@ public sealed class PsxLibraryExtractionTests(TestPaths paths)
         }
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("ring.psx")]
     [InlineData("bits.psx")]
     [InlineData("items.psx")]
@@ -306,7 +306,7 @@ public sealed class PsxLibraryExtractionTests(TestPaths paths)
         }
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     public void ExtractTextureByHash_PixelsMatchBatchExtraction(string filename)
@@ -348,7 +348,7 @@ public sealed class PsxLibraryExtractionTests(TestPaths paths)
         }
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     public void ExtractTextures_NoDds_ProducesOnlyPng(string filename)

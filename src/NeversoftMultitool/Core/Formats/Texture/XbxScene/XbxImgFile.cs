@@ -49,7 +49,7 @@ public static class XbxImgFile
             // offset+16 = format (D3DFMT enum, unused — we detect from clut_size)
             var pitchW = BitConverter.ToUInt16(data[24..]);
             var pitchH = BitConverter.ToUInt16(data[26..]);
-            var clutSize = (int)BitConverter.ToUInt32(data[28..]);
+            var clutSize = BitConverter.ToUInt32(data[28..]);
             var offset = 32;
 
             // Dimensions sanity check
@@ -61,11 +61,12 @@ public static class XbxImgFile
             if (clutSize > 0)
             {
                 // Paletted: read BGRA palette, then 8-bit indexed pixels with morton swizzle
-                if (offset + clutSize > data.Length)
+                if (clutSize > (uint)(data.Length - offset))
                     return Ps2TexResult.Fail("Truncated palette");
 
-                var palette = data.Slice(offset, clutSize).ToArray();
-                offset += clutSize;
+                var paletteSize = (int)clutSize;
+                var palette = data.Slice(offset, paletteSize).ToArray();
+                offset += paletteSize;
 
                 // Use pitch dimensions for pixel data stride (may be padded)
                 var pw = pitchW > 0 ? pitchW : width;

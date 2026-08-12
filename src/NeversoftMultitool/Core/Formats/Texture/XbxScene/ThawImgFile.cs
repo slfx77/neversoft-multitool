@@ -145,6 +145,10 @@ public static class ThawImgFile
     private static byte[]? DecodeMip(ReadOnlySpan<byte> data, int width, int height,
         int texelDepth, int compression, byte[]? palette)
     {
+        if (compression == 0
+            && !HasMinimumUncompressedData(data.Length, width, height, texelDepth, palette != null))
+            return null;
+
         return compression switch
         {
             1 => DxtDecoder.DecodeDxt1(data, width, height),
@@ -153,6 +157,25 @@ public static class ThawImgFile
             0 when texelDepth == 32 => DecodeBgra32(data, width, height),
             _ => null
         };
+    }
+
+    private static bool HasMinimumUncompressedData(
+        int dataLength,
+        int width,
+        int height,
+        int texelDepth,
+        bool hasPalette)
+    {
+        var pixelCount = (long)width * height;
+        var minimumBytes = (hasPalette, texelDepth) switch
+        {
+            (true, 8) => pixelCount,
+            (true, 4) => (pixelCount + 1) / 2,
+            (false, 32) => pixelCount * 4,
+            _ => -1
+        };
+
+        return minimumBytes >= 0 && dataLength >= minimumBytes;
     }
 
     private static byte[] DecodePaletted(ReadOnlySpan<byte> data, int width, int height,

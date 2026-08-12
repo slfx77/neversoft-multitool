@@ -82,6 +82,28 @@ public sealed class NgcTexFileTests(TestPaths paths)
     }
 
     [Fact]
+    public void Parse_WidthExponent32_FailsExplicitly()
+    {
+        var data = NgcTexTestBuilder.CreateDictionary(widthLog2: 32);
+
+        var result = NgcTexFile.Parse(data);
+
+        Assert.False(result.Success);
+        Assert.Equal("NGC TEX entry 0 has invalid width exponent 32.", result.ErrorMessage);
+    }
+
+    [Fact]
+    public void Parse_HeightExponent32_FailsExplicitly()
+    {
+        var data = NgcTexTestBuilder.CreateDictionary(heightLog2: 32);
+
+        var result = NgcTexFile.Parse(data);
+
+        Assert.False(result.Success);
+        Assert.Equal("NGC TEX entry 0 has invalid height exponent 32.", result.ErrorMessage);
+    }
+
+    [Fact]
     public void DecodeToRgba_CropsPaddedCmprImageToOriginalDimensions()
     {
         var pixels = NgcTexCmprDecoder.DecodeToRgba(NgcTexTestBuilder.CreateSolidRedCmprTextureData(), 4, 4);

@@ -47,7 +47,7 @@ public class ThawZoneTexOwnerBlobLinearDecodeTests(TestPaths paths)
         yield return new TheoryDataRow<string, uint, int, int>("PSMT8_32x128_D96E1609", 0xD96E1609u, 32, 128);
     }
 
-    [Theory]
+    [CorpusTheory]
     [MemberData(nameof(AnchorAndFailingRows))]
     public void DecodedTexture_MatchesPcGroundTruth(string label, uint checksum, int width, int height)
     {
@@ -84,7 +84,7 @@ public class ThawZoneTexOwnerBlobLinearDecodeTests(TestPaths paths)
             $"PC ground truth: {pcPngPath}");
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeTexture_UsesAlphaBearingMipWhenBaseLevelAlphaIsEmpty()
     {
         var pakPath = paths.FindSampleFile(ThawBuild, "z_sm.pak.ps2");

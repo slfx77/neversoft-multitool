@@ -20,7 +20,7 @@ public sealed class ThawTexFileTests(TestPaths paths)
         Assert.False(ThawTexFile.IsThawTex(new byte[] { 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }));
     }
 
-    [Fact]
+    [CorpusFact]
     public void IsThawTex_ValidFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -49,7 +49,7 @@ public sealed class ThawTexFileTests(TestPaths paths)
 
     // ── Parse known files ──
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AccBackpack01_ExtractsTexture()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -69,7 +69,7 @@ public sealed class ThawTexFileTests(TestPaths paths)
         Assert.Equal(64 * 64 * 4, tex.Pixels!.Length);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_TexturesHaveValidDimensions()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

@@ -308,7 +308,7 @@ internal static class ThawZoneTexVramSupport
             0 or 1 => rrw * rrh * 4,
             2 or 10 => rrw * rrh * 2,
             19 => rrw * rrh,
-            20 => rrw * rrh / 2,
+            20 => (rrw * rrh + 1) / 2,
             _ => rrw * rrh * 4
         };
     }

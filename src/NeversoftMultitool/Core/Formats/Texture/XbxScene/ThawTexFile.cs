@@ -135,6 +135,9 @@ public static class ThawTexFile
                 var compression = data[offset++];
                 var paletteDepth = data[offset++];
 
+                if (mipCount == 0)
+                    return FailOrPartial($"Texture {i} has no mip levels");
+
                 // Normalize compression: 2→1 (DXT1), 3→5 (DXT5)
                 if (compression == 2) compression = 1;
                 if (compression == 3) compression = 5;

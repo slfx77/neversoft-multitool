@@ -281,8 +281,22 @@ public static class NgcTexFile
         var span = data.Slice(offset, EntrySize);
         var magic = BinaryPrimitives.ReadUInt32BigEndian(span);
         var checksum = BinaryPrimitives.ReadUInt32BigEndian(span[4..]);
-        var width = 1 << span[10];
-        var height = 1 << span[11];
+        var widthExponent = span[10];
+        var heightExponent = span[11];
+        if (widthExponent >= 31)
+        {
+            error = $"NGC TEX entry {index} has invalid width exponent {widthExponent}.";
+            return false;
+        }
+
+        if (heightExponent >= 31)
+        {
+            error = $"NGC TEX entry {index} has invalid height exponent {heightExponent}.";
+            return false;
+        }
+
+        var width = 1 << widthExponent;
+        var height = 1 << heightExponent;
         var formatA = span[13];
         var formatB = span[14];
         var dataSize = checked((int)BinaryPrimitives.ReadUInt32BigEndian(span[16..]));

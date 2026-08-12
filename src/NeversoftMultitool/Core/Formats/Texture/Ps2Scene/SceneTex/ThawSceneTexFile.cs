@@ -162,7 +162,7 @@ public static class ThawSceneTexFile
             return Ps2TexResult.Fail("No valid TEX0 entries found in metadata");
 
         var textures = DecodeEntries(data, entries, off2);
-        return textures.Count > 0
+        return textures.Any(static texture => texture.Pixels != null)
             ? new Ps2TexResult(textures)
             : Ps2TexResult.Fail("No decodable textures found");
     }

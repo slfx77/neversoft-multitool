@@ -54,6 +54,31 @@ internal static class PsxLibraryLookup
         }
     }
 
+    public static (byte[] Rgba, int Width, int Height)? ExtractTextureAt(
+        byte[] data,
+        int textureIndex,
+        string label,
+        List<string>? diagnostics = null,
+        bool preserveRuntimeSemiTransparency = false)
+    {
+        try
+        {
+            using var stream = new MemoryStream(data, false);
+            using var reader = new BinaryReader(stream);
+            return ExtractTextureAtCore(
+                reader,
+                textureIndex,
+                diagnostics,
+                label,
+                preserveRuntimeSemiTransparency);
+        }
+        catch (Exception ex)
+        {
+            diagnostics?.Add($"{label}: {ex.GetType().Name}: {ex.Message}");
+            return null;
+        }
+    }
+
     private static (byte[] Rgba, int Width, int Height)? ExtractTextureByHashCore(
         BinaryReader reader,
         uint targetHash,
@@ -89,6 +114,48 @@ internal static class PsxLibraryLookup
             reader,
             (int)textureCount,
             targetIndex,
+            matchPhysicalOrdinal: false,
+            palette4Bit,
+            palette8Bit,
+            diagnostics,
+            label,
+            preserveRuntimeSemiTransparency);
+    }
+
+    private static (byte[] Rgba, int Width, int Height)? ExtractTextureAtCore(
+        BinaryReader reader,
+        int textureIndex,
+        List<string>? diagnostics,
+        string label,
+        bool preserveRuntimeSemiTransparency)
+    {
+        var magic = reader.ReadBytes(4);
+        if (!PsxLibrary.IsValidMagic(magic))
+        {
+            diagnostics?.Add($"{label}: invalid magic");
+            return null;
+        }
+
+        PsxLibrary.SkipModelData(reader);
+        PsxLibrary.ReadTextureInfo(reader);
+        var palette4Bit = PsxLibrary.ReadPalettes(reader, 16);
+        var palette8Bit = PsxLibrary.ReadPalettes(reader, 256);
+
+        var textureCount = ReadTextureCount(reader);
+        if (textureIndex < 0 || (uint)textureIndex >= textureCount || textureCount > int.MaxValue)
+        {
+            diagnostics?.Add($"{label}: texture index {textureIndex} is outside {textureCount} textures");
+            return null;
+        }
+
+        for (var i = 0; i < textureCount; i++)
+            reader.ReadBytes(4);
+
+        return FindAndDecodeTexture(
+            reader,
+            (int)textureCount,
+            textureIndex,
+            matchPhysicalOrdinal: true,
             palette4Bit,
             palette8Bit,
             diagnostics,
@@ -156,6 +223,7 @@ internal static class PsxLibraryLookup
         BinaryReader reader,
         int textureCount,
         int targetIndex,
+        bool matchPhysicalOrdinal,
         List<PsxPalette> palette4Bit,
         List<PsxPalette> palette8Bit,
         List<string>? diagnostics,
@@ -176,7 +244,10 @@ internal static class PsxLibraryLookup
                 }
             }
 
-            if (header.Index != (uint)targetIndex)
+            var isTarget = matchPhysicalOrdinal
+                ? i == targetIndex
+                : header.Index == (uint)targetIndex;
+            if (!isTarget)
             {
                 SkipTextureData(reader, header);
                 continue;

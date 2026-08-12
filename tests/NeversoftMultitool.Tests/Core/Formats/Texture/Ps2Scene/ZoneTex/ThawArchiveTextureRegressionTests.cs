@@ -47,7 +47,7 @@ public sealed class ThawArchiveTextureRegressionTests(TestPaths paths)
         Assert.Equal(0xA0, dmaStart);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ReportedStandaloneStexOwnerBlobs_DecodeFromByteZeroHeader()
     {
         Assert.SkipWhen(!File.Exists(WadPath), "THAW PS2 DATAP.WAD sample not available");
@@ -98,7 +98,7 @@ public sealed class ThawArchiveTextureRegressionTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void CagrAssetImg_PreservesItsStoredAlphaChannel()
     {
         Assert.SkipWhen(!File.Exists(WadPath), "THAW PS2 DATAP.WAD sample not available");

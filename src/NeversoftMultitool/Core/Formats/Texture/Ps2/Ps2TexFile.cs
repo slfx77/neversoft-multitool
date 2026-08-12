@@ -267,7 +267,9 @@ public static class Ps2TexFile
 
         for (var g = 0; g < numGroups; g++)
         {
-            if (offset + 4 > data.Length) break;
+            var groupHeaderSize = version >= 4 ? 16 : 12;
+            if (offset > data.Length - groupHeaderSize)
+                return Ps2TexResult.Fail($"Truncated group header at group {g}");
 
             ReadU32(data, ref offset); // groupChecksum
             if (version >= 2)
@@ -280,7 +282,9 @@ public static class Ps2TexFile
 
             for (var t = 0; t < numTextures; t++)
             {
-                if (offset + 24 > data.Length) break;
+                var textureHeaderSize = version >= 5 ? 28 : 24;
+                if (offset > data.Length - textureHeaderSize)
+                    return Ps2TexResult.Fail($"Truncated texture header at group {g}, texture {t}");
 
                 if (version >= 5)
                     ReadU32(data, ref offset); // per-texture flags

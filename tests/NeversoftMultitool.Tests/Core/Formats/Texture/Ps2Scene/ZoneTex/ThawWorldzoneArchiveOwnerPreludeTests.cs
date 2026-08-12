@@ -20,7 +20,7 @@ public sealed class ThawWorldzoneArchiveOwnerPreludeTests(TestPaths paths)
         ? string.Empty
         : Path.Combine(paths.SampleBuildsDir, ThawPs2Build, "DATAP.WAD");
 
-    [Fact]
+    [CorpusFact]
     public void ZszOwnerBlob_WithRetPrelude_DecodesAndBindsAllAuthoredRecords()
     {
         Assert.SkipWhen(!File.Exists(WadPath), "THAW PS2 DATAP.WAD sample not available");

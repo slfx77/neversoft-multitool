@@ -66,7 +66,8 @@ public static class Ps2VramAllocator
 
         for (var g = 0; g < numGroups; g++)
         {
-            if (offset + 4 > data.Length) break;
+            var groupHeaderSize = version >= 4 ? 16 : 12;
+            if (offset > data.Length - groupHeaderSize) break;
 
             var groupChecksum = ReadU32(data, ref offset);
             if (version >= 2)
@@ -88,7 +89,8 @@ public static class Ps2VramAllocator
 
             for (var t = 0; t < numTextures; t++)
             {
-                if (offset + 24 > data.Length) break;
+                var textureHeaderSize = version >= 5 ? 28 : 24;
+                if (offset > data.Length - textureHeaderSize) break;
 
                 if (version >= 5)
                     ReadU32(data, ref offset); // per-texture flags

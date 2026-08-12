@@ -17,6 +17,22 @@ public class Ps2ImgV2DestrideTests
     private const uint Psmt4 = 0x14;
 
     [Fact]
+    public void Parse_DimensionsWhoseRgbaBufferCannotFit_FailsBeforeSizeArithmetic()
+    {
+        var data = BuildImgV2(
+            0, 0, Psmct32, Psmct32,
+            ushort.MaxValue, ushort.MaxValue, [], []);
+
+        var result = Ps2ImgV2File.Parse(data);
+
+        Assert.False(result.Success);
+        Assert.Equal(
+            "IMG dimensions 65535x65535 exceed the supported RGBA pixel buffer",
+            result.ErrorMessage);
+        Assert.Empty(result.Textures);
+    }
+
+    [Fact]
     public void Parse_VramPaddedNonPot_DestridesBottomAnchoredRows()
     {
         // 6x4 image in an 8x8 VRAM buffer (TW=TH=3), PSMT8/PSMCT32.

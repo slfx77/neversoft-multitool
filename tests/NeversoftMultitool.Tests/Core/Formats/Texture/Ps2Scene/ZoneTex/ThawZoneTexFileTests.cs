@@ -84,7 +84,7 @@ public class ThawZoneTexFileTests
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void IsThawZoneTex_DetectsZoneTexFile()
     {
         var data = LoadZoneTexData();
@@ -100,7 +100,7 @@ public class ThawZoneTexFileTests
         Assert.False(ThawZoneTexFile.IsThawZoneTex(fakeData));
     }
 
-    [Fact]
+    [CorpusFact]
     public void ParseHeaderEntries_DiscoverCorrectRecordCount()
     {
         var data = LoadZoneTexData();
@@ -110,7 +110,7 @@ public class ThawZoneTexFileTests
         Assert.Equal(990, entries.Count);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ParseHeaderEntries_RecordsHaveValidChecksums()
     {
         var data = LoadZoneTexData();
@@ -124,7 +124,7 @@ public class ThawZoneTexFileTests
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void ParseHeaderEntries_PsmDistributionMatchesExpected()
     {
         var data = LoadZoneTexData();
@@ -139,7 +139,7 @@ public class ThawZoneTexFileTests
         Assert.Equal(1, psmCounts.GetValueOrDefault(Ps2TexPixelDecoder.PSMCT32));
     }
 
-    [Fact]
+    [CorpusFact]
     public void ParseHeaderEntries_RecordsHaveGroupChecksum()
     {
         var data = LoadZoneTexData();
@@ -151,7 +151,7 @@ public class ThawZoneTexFileTests
             $"Expected ~20 distinct group checksums, got {distinctGroups}");
     }
 
-    [Fact]
+    [CorpusFact]
     public void ParseHeaderEntries_CumulativeOffsetSet()
     {
         var data = LoadZoneTexData();
@@ -171,7 +171,7 @@ public class ThawZoneTexFileTests
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeAllFromFile_ProducesTexturesForAllUniqueChecksums()
     {
         var data = LoadZoneTexData();
@@ -188,7 +188,7 @@ public class ThawZoneTexFileTests
     // DecodeFromHeaderDataSlots path was a heuristic that produced different (and visibly
     // broken) output, so a byte-exact comparison between the two no longer makes sense.
 
-    [Fact]
+    [CorpusFact]
     public void DecodeAllFromFile_Psmct32TextureDecodes()
     {
         var data = LoadZoneTexData();
@@ -204,7 +204,7 @@ public class ThawZoneTexFileTests
         Assert.NotNull(ct32Texture.Pixels);
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFromHeaderEntries_WithEmptyUploads_DerivesUploadsFromFileData()
     {
         var data = LoadZoneTexData();
@@ -220,7 +220,7 @@ public class ThawZoneTexFileTests
         AssertEquivalentTextures(explicitByChecksum, derivedByChecksum, representativeEntries);
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFromHeaderEntries_UploadsOnly_MatchesExplicitUploadSnapshotDecode()
     {
         var data = LoadZoneTexData();

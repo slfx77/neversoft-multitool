@@ -78,7 +78,7 @@ public sealed class ThawImgFileTests(TestPaths paths)
         Assert.Equal([255, 255, 255, 255], tex.Pixels[28..32]); // 8
     }
 
-    [Fact]
+    [CorpusFact]
     public void IsThawImg_RealSample_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -89,7 +89,7 @@ public sealed class ThawImgFileTests(TestPaths paths)
         Assert.True(ThawImgFile.IsThawImg(data));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_LevelPosterHollywood_Succeeds()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -105,7 +105,7 @@ public sealed class ThawImgFileTests(TestPaths paths)
         Assert.NotNull(tex.Pixels);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_SpazznotchPaletted_Succeeds()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

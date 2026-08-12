@@ -10,7 +10,7 @@ public sealed class RwTxdArchiveQualityTests(TestPaths paths)
 {
     private const string Thps3Build = "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void PedProDictionaries_FromSkate3Wad_DecodeTheirAuthoredTopLevelRasters()
     {
         var wadPath = paths.FindSampleFile(Thps3Build, "SKATE3.WAD");
@@ -70,7 +70,7 @@ public sealed class RwTxdArchiveQualityTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void PedProMuska_FromSkate3Wad_ReferencesTheLowRastersInItsCompanionDictionary()
     {
         var wadPath = paths.FindSampleFile(Thps3Build, "SKATE3.WAD");

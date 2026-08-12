@@ -108,9 +108,12 @@ internal static class NgcTexCmprDecoder
 
     private static Rgba32 DecodeRgb565(ushort value)
     {
-        var r = (byte)(((value >> 11) & 0x1F) * 0xFF / 0x1F);
-        var g = (byte)(((value >> 5) & 0x3F) * 0xFF / 0x3F);
-        var b = (byte)((value & 0x1F) * 0xFF / 0x1F);
+        var r5 = (value >> 11) & 0x1F;
+        var g6 = (value >> 5) & 0x3F;
+        var b5 = value & 0x1F;
+        var r = (byte)((r5 << 3) | (r5 >> 2));
+        var g = (byte)((g6 << 2) | (g6 >> 4));
+        var b = (byte)((b5 << 3) | (b5 >> 2));
         return new Rgba32(r, g, b, 0xFF);
     }
 

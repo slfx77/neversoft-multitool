@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Texture.XbxScene;
 
 namespace NeversoftMultitool.Tests.Core.Formats.XbxScene;
@@ -29,6 +30,32 @@ public sealed class XbxTexFileTests(TestPaths paths)
     public void IsTexFile_WrongVersion_ReturnsFalse()
     {
         Assert.False(XbxTexFile.IsTexFile(new byte[] { 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }));
+    }
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(uint.MaxValue)]
+    public void Parse_NonPositiveMipLevelCount_FailsWithoutTextures(uint rawMipLevelCount)
+    {
+        var result = XbxTexFile.Parse(CreateSingleEntryTexture(rawMipLevelCount));
+
+        Assert.False(result.Success);
+        Assert.Equal(
+            $"Texture 0 has invalid mip level count {unchecked((int)rawMipLevelCount)}",
+            result.ErrorMessage);
+        Assert.Empty(result.Textures);
+    }
+
+    [Fact]
+    public void Parse_DxtVersion2_DecodesAsDxt1()
+    {
+        var result = XbxTexFile.Parse(CreateSingleMipVersion2Texture());
+
+        Assert.True(result.Success, result.ErrorMessage);
+        var texture = Assert.Single(result.Textures);
+        Assert.Equal(4, texture.Width);
+        Assert.Equal(4, texture.Height);
+        Assert.Equal(new byte[4 * 4 * 4], texture.Pixels);
     }
 
     // ── Parse known files ──
@@ -197,5 +224,41 @@ public sealed class XbxTexFileTests(TestPaths paths)
         Assert.True(failures.Count == 0,
             $"{failures.Count}/{files.Length} files failed:\n" +
             string.Join("\n", failures.Take(20)));
+    }
+
+    private static byte[] CreateSingleEntryTexture(uint rawMipLevelCount)
+    {
+        var data = new byte[40];
+        BinaryPrimitives.WriteUInt32LittleEndian(data, 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), 1);
+
+        var entry = data.AsSpan(8);
+        BinaryPrimitives.WriteUInt32LittleEndian(entry, 0x12345678);
+        BinaryPrimitives.WriteUInt32LittleEndian(entry[4..], 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(entry[8..], 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(entry[12..], rawMipLevelCount);
+        BinaryPrimitives.WriteUInt32LittleEndian(entry[16..], 32);
+        return data;
+    }
+
+    private static byte[] CreateSingleMipVersion2Texture()
+    {
+        var data = new byte[52];
+        BinaryPrimitives.WriteUInt32LittleEndian(data, 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), 1);
+
+        var entry = data.AsSpan(8);
+        BinaryPrimitives.WriteUInt32LittleEndian(entry, 0x12345678);
+        BinaryPrimitives.WriteUInt32LittleEndian(entry[4..], 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(entry[8..], 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(entry[12..], 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(entry[16..], 32);
+        BinaryPrimitives.WriteUInt32LittleEndian(entry[24..], 2);
+
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(40), 8);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(44), 0x001F);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(46), 0xF800);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(48), uint.MaxValue);
+        return data;
     }
 }

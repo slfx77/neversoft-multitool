@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.SceneTex;
 
@@ -35,6 +36,29 @@ public sealed class ThawSceneTexFileTests(TestPaths paths)
 
         var data = File.ReadAllBytes(file);
         Assert.True(ThawSceneTexFile.IsThawSceneTex(data));
+    }
+
+    [Fact]
+    public void Parse_OnlyDiscoveredTextureHasTruncatedPixels_FailsWithoutTextures()
+    {
+        var data = new byte[0x61];
+        BinaryPrimitives.WriteUInt16LittleEndian(data, 6);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(8), 0x58);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x0C), 0x60);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x40), 0x12345678);
+
+        const ulong tex0 = 0x2BC0UL // TBP
+                           | (1UL << 14) // TBW
+                           | (1UL << 26) // TW = 2 pixels
+                           | (1UL << 30); // TH = 2 pixels
+        BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(0x50), tex0);
+
+        var result = ThawSceneTexFile.Parse(data);
+
+        Assert.False(result.Success);
+        Assert.Equal("No decodable textures found", result.ErrorMessage);
+        Assert.Empty(result.Textures);
     }
 
     // ── Parse known files ──

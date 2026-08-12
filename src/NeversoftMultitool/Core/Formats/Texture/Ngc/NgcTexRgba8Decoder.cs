@@ -11,7 +11,20 @@ internal static class NgcTexRgba8Decoder
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
 
-        var pixels = new byte[width * height * 4];
+        var pixelCount = (long)width * height;
+        if (pixelCount > Array.MaxLength / 4L)
+        {
+            throw new InvalidDataException(
+                $"RGBA8 dimensions {width}x{height} exceed the runtime array limit");
+        }
+
+        var tileColumns = ((long)width + 3) / 4;
+        var tileRows = ((long)height + 3) / 4;
+        var tileCount = tileColumns * tileRows;
+        if (tileCount > data.Length / 64L)
+            throw new InvalidDataException("RGBA8 data truncated");
+
+        var pixels = new byte[(int)(pixelCount * 4)];
         var offset = 0;
         for (var tileY = 0; tileY < height; tileY += 4)
         {

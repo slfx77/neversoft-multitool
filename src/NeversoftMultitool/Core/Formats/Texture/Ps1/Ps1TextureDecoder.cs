@@ -24,6 +24,8 @@ public static class Ps1TextureDecoder
         padWidth >>= 1;
         var realLen = padWidth * header.Height + GetPaddingAmount(header, padWidth);
         var palIndices = reader.ReadBytes(realLen);
+        if (palIndices.Length != realLen)
+            return null;
 
         // Find matching palette
         foreach (var pal in palette4Bit)
@@ -79,6 +81,8 @@ public static class Ps1TextureDecoder
         var padWidth = (header.Width + 0x1) & ~0x1;
         var realLen = padWidth * header.Height + GetPaddingAmount(header, padWidth);
         var palIndices = reader.ReadBytes(realLen);
+        if (palIndices.Length != realLen)
+            return null;
 
         // Find matching palette
         foreach (var pal in palette8Bit)

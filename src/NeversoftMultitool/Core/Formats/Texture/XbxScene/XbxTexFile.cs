@@ -63,6 +63,9 @@ public static class XbxTexFile
                 var palSize = (int)BitConverter.ToUInt32(data[(offset + 28)..]);
                 offset += 32;
 
+                if (levels <= 0)
+                    return Ps2TexResult.Fail($"Texture {i} has invalid mip level count {levels}");
+
                 // Read optional palette
                 byte[]? palette = null;
                 if (palSize > 0)
@@ -132,7 +135,7 @@ public static class XbxTexFile
         return dxtVersion switch
         {
             1 => DxtDecoder.DecodeDxt1(data, width, height),
-            2 => DxtDecoder.DecodeDxt3(data, width, height),
+            2 => DxtDecoder.DecodeDxt1(data, width, height),
             5 => DxtDecoder.DecodeDxt5(data, width, height),
             0 when palette != null => DecodePaletted(data, width, height, texelDepth, palette),
             0 when texelDepth == 32 => DecodeBgra32(data, width, height),

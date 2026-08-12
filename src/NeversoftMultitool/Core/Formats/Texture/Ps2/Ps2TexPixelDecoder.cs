@@ -33,7 +33,29 @@ internal static class Ps2TexPixelDecoder
         ulong? texa = null,
         bool rawGsAlpha = false)
     {
-        var pixels = new byte[width * height * 4];
+        if (width <= 0 || height <= 0)
+            return null;
+
+        var pixelCount = (long)width * height;
+        if (pixelCount > Array.MaxLength / 4L)
+            return null;
+
+        var requiredBytes = psm switch
+        {
+            PSMCT32 => pixelCount * 4,
+            PSMCT24 => pixelCount * 3,
+            PSMCT16 => pixelCount * 2,
+            PSMT8 => pixelCount,
+            PSMT4 => (pixelCount + 1) / 2,
+            _ => -1
+        };
+        if (requiredBytes < 0 || requiredBytes > texData.Length)
+            return null;
+
+        if (psm is PSMT8 or PSMT4 && clut == null)
+            return null;
+
+        var pixels = new byte[(int)(pixelCount * 4)];
 
         switch (psm)
         {
@@ -47,12 +69,10 @@ internal static class Ps2TexPixelDecoder
                 DecodePsmct16(texData, pixels, width, height, texa, rawGsAlpha);
                 break;
             case PSMT8:
-                if (clut == null) return null;
-                DecodePsmt8(texData, pixels, width, height, clut, cpsm, texa, rawGsAlpha);
+                DecodePsmt8(texData, pixels, width, height, clut!, cpsm, texa, rawGsAlpha);
                 break;
             case PSMT4:
-                if (clut == null) return null;
-                DecodePsmt4(texData, pixels, width, height, clut, cpsm, texa, rawGsAlpha);
+                DecodePsmt4(texData, pixels, width, height, clut!, cpsm, texa, rawGsAlpha);
                 break;
             default:
                 return null;

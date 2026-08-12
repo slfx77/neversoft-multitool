@@ -80,9 +80,19 @@ public static class ColorHelpers
         var b = color & p.BlueMask;
         var a = (color & p.AlphaMask) >> p.AlphaShift;
 
-        rgba[0] = (byte)(r * 255 / p.RedMax);
-        rgba[1] = (byte)(g * 255 / p.GreenMax);
-        rgba[2] = (byte)(b * 255 / p.BlueMax);
+        if (format == ColorFormat.Rgb565)
+        {
+            rgba[0] = (byte)((r << 3) | (r >> 2));
+            rgba[1] = (byte)((g << 2) | (g >> 4));
+            rgba[2] = (byte)((b << 3) | (b >> 2));
+        }
+        else
+        {
+            rgba[0] = (byte)(r * 255 / p.RedMax);
+            rgba[1] = (byte)(g * 255 / p.GreenMax);
+            rgba[2] = (byte)(b * 255 / p.BlueMax);
+        }
+
         rgba[3] = p.AlphaMax == 0 ? (byte)255 : (byte)(a * 255 / p.AlphaMax);
     }
 

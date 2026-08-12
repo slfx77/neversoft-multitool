@@ -4,7 +4,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Texture.Psx;
 
 public sealed class PsxLibraryFormatTests(TestPaths paths)
 {
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     public void EnumerateTextures_ReturnsCorrectCount(string filename)
@@ -31,7 +31,7 @@ public sealed class PsxLibraryFormatTests(TestPaths paths)
     // (which the GUI calls for preview). This is the exact flow that must
     // work end-to-end for texture previews to function.
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("bits.psx")]
     [InlineData("Default.PSX")]
     [InlineData("hawk2.PSX")]
@@ -60,7 +60,7 @@ public sealed class PsxLibraryFormatTests(TestPaths paths)
         }
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("ring.psx")]
     [InlineData("bits.psx")]
     [InlineData("items.psx")]

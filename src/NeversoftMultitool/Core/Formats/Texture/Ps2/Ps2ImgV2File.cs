@@ -38,6 +38,10 @@ internal static class Ps2ImgV2File
         var vramHeight = 1 << (int)th;
         var width = origWidth > 0 ? origWidth : vramWidth;
         var height = origHeight > 0 ? origHeight : vramHeight;
+        var pixelCount = (long)width * height;
+        if (pixelCount > Array.MaxLength / 4L)
+            return Ps2TexResult.Fail(
+                $"IMG dimensions {width}x{height} exceed the supported RGBA pixel buffer");
 
         var offset = 32; // fixed header size, already 16-byte aligned
 
@@ -56,7 +60,7 @@ internal static class Ps2ImgV2File
         }
 
         var bpp = Ps2TexPixelDecoder.GetBitsPerPixel(psm);
-        var origBytes = (width * height * bpp + 7) / 8;
+        var origBytes = (int)((pixelCount * bpp + 7) / 8);
         var vramBytes = vramWidth * vramHeight * bpp / 8;
         var availableBytes = data.Length - offset;
 
