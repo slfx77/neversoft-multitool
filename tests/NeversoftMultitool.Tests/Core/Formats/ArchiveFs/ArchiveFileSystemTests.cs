@@ -188,6 +188,37 @@ public class ArchiveFileSystemTests(TestPaths paths)
     }
 
     [Fact]
+    public void ReadEntry_OverflowingOffset_ThrowsContainerRangeError()
+    {
+        var pre = BuildCompressedPreV3(("data.bin", [1, 2, 3, 4]));
+        using var fs = ArchiveFileSystem.TryOpen(pre, "test.pre", "test.pre");
+        var bogus = new ArchiveEntry { Name = "overflow.bin", Size = 1, Offset = long.MaxValue };
+
+        var exception = Assert.Throws<InvalidDataException>(() => fs!.ReadEntry(bogus));
+
+        Assert.Contains("outside the container", exception.Message);
+    }
+
+    [Fact]
+    public void ReadEntry_DiskBackendOverflowingOffset_ThrowsContainerRangeError()
+    {
+        var (wadPath, tempDir) = BuildWadOnDisk(("data.bin", [1, 2, 3, 4]));
+        try
+        {
+            using var fs = ArchiveFileSystem.TryOpen(wadPath);
+            var bogus = new ArchiveEntry { Name = "overflow.bin", Size = 1, Offset = long.MaxValue };
+
+            var exception = Assert.Throws<InvalidDataException>(() => fs!.ReadEntry(bogus));
+
+            Assert.Contains("outside the container", exception.Message);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void Decoder_DoesNotDecompressOverloadedFlags()
     {
         // PAK repurposes IsCompressed as "has .pab companion" and THUG WAD as

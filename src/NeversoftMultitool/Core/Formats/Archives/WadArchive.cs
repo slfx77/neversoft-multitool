@@ -267,10 +267,25 @@ public static class WadArchive
     public static void ExtractFiles(string wadPath, string outputDir,
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         var entries = GetFileList(wadPath);
         var archiveName = Path.GetFileNameWithoutExtension(wadPath);
+        var outputRoot = Path.GetFullPath(outputDir);
+        var extractionRoot = ArchiveExtractionPath.GetContainedPath(
+            outputRoot, archiveName, "WAD extraction directory");
 
         using var wadStream = File.OpenRead(wadPath);
+        var exportPaths = new string?[entries.Count];
+        for (var i = 0; i < entries.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            var entry = entries[i];
+            if (ShouldSkipEntry(entry, wadStream.Length))
+                continue;
+
+            exportPaths[i] = ArchiveExtractionPath.GetContainedPath(
+                extractionRoot, entry.FullName, "WAD entry");
+        }
 
         for (var i = 0; i < entries.Count; i++)
         {
@@ -279,15 +294,8 @@ public static class WadArchive
             var entry = entries[i];
 
             // Skip NO_WAD entries (THUG-era external file references not in WAD)
-            if (entry.IsCompressed && !string.IsNullOrEmpty(entry.Directory))
-            {
-                onFileExtracted?.Invoke(i + 1, entries.Count);
-                continue;
-            }
-
-            // Skip entries that reference data past the end of the WAD
-            // (can happen with truncated ISOs or dual-layer disc boundaries)
-            if (entry.Offset + entry.Size > wadStream.Length)
+            // or entries that reference data past the end of the WAD.
+            if (ShouldSkipEntry(entry, wadStream.Length))
             {
                 onFileExtracted?.Invoke(i + 1, entries.Count);
                 continue;
@@ -295,7 +303,7 @@ public static class WadArchive
 
             wadStream.Seek(entry.Offset, SeekOrigin.Begin);
 
-            var exportPath = Path.Combine(outputDir, archiveName, entry.FullName);
+            var exportPath = exportPaths[i]!;
             var exportDir = Path.GetDirectoryName(exportPath);
             if (!string.IsNullOrEmpty(exportDir))
                 Directory.CreateDirectory(exportDir);
@@ -308,6 +316,10 @@ public static class WadArchive
             onFileExtracted?.Invoke(i + 1, entries.Count);
         }
     }
+
+    private static bool ShouldSkipEntry(ArchiveEntry entry, long wadLength)
+        => entry.IsCompressed && !string.IsNullOrEmpty(entry.Directory) ||
+           entry.Offset + entry.Size > wadLength;
 
     private static string ReadNullTerminatedString(BinaryReader reader)
     {

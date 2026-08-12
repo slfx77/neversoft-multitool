@@ -76,6 +76,119 @@ public class MeshOutputPathPlannerTests
     }
 
     [Fact]
+    public void Plan_OrdinalBackstop_DoesNotStealAnotherGroupsPreferredStem()
+    {
+        string[] files =
+        [
+            @"C:\game\a\mission.col",
+            @"C:\game\a\mission.col.ps2",
+            @"C:\game\a\mission_2.col",
+            @"C:\game\b\mission_2.col"
+        ];
+
+        var plan = MeshOutputPathPlanner.Plan(files, Stem, @"C:\game");
+        var byFile = plan.ToDictionary(
+            static item => item.File,
+            static item => Path.Combine(item.Subdirectory, item.Stem));
+
+        Assert.Equal(Path.Combine("a", "mission"), byFile[files[0]]);
+        Assert.Equal(Path.Combine("a", "mission_3"), byFile[files[1]]);
+        Assert.Equal(Path.Combine("a", "mission_2"), byFile[files[2]]);
+        Assert.Equal(Path.Combine("b", "mission_2"), byFile[files[3]]);
+        Assert.Equal(
+            files.Length,
+            byFile.Values.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    [Fact]
+    public void Plan_ExpandedOutputs_ReservesDerivedAndNaturalAliasesGlobally()
+    {
+        string[] files =
+        [
+            @"C:\game\same\foo.tex",
+            @"C:\game\same\foo_mip1.img",
+            @"C:\game\else\unique.img"
+        ];
+
+        static string PreferredStem(string file)
+        {
+            return Path.GetFileNameWithoutExtension(file);
+        }
+
+        static IReadOnlyList<string> OutputStems(string file, string proposedStem)
+        {
+            return Path.GetFileName(file).Equals("foo.tex", StringComparison.OrdinalIgnoreCase)
+                ? [proposedStem, $"{proposedStem}_mip1"]
+                : [proposedStem];
+        }
+
+        var plan = MeshOutputPathPlanner.Plan(
+            files,
+            PreferredStem,
+            OutputStems,
+            @"C:\game");
+        var byFile = plan.ToDictionary(static item => item.File);
+
+        Assert.Equal("same", byFile[files[0]].Subdirectory);
+        Assert.Equal("foo", byFile[files[0]].Stem);
+        Assert.Equal("same", byFile[files[1]].Subdirectory);
+        Assert.Equal("foo_mip1_2", byFile[files[1]].Stem);
+        Assert.Equal("", byFile[files[2]].Subdirectory);
+        Assert.Equal("unique", byFile[files[2]].Stem);
+
+        var outputKeys = plan
+            .SelectMany(item => OutputStems(item.File, item.Stem)
+                .Select(stem => Path.Combine(item.Subdirectory, stem)))
+            .ToList();
+        Assert.Equal(
+            outputKeys.Count,
+            outputKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    [Fact]
+    public void Plan_ExpandedOutputs_RejectsMalformedAliasSets()
+    {
+        string[] files = [@"C:\game\mission.col"];
+
+        Assert.Throws<ArgumentException>(() => MeshOutputPathPlanner.Plan(
+            files,
+            Stem,
+            static (_, _) => null!,
+            @"C:\game"));
+        Assert.Throws<ArgumentException>(() => MeshOutputPathPlanner.Plan(
+            files,
+            Stem,
+            static (_, _) => [],
+            @"C:\game"));
+        Assert.Throws<ArgumentException>(() => MeshOutputPathPlanner.Plan(
+            files,
+            Stem,
+            static (_, proposedStem) => [proposedStem, proposedStem.ToUpperInvariant()],
+            @"C:\game"));
+        Assert.Throws<ArgumentException>(() => MeshOutputPathPlanner.Plan(
+            files,
+            Stem,
+            static (_, proposedStem) => [proposedStem, " "],
+            @"C:\game"));
+    }
+
+    [Fact]
+    public void Plan_ExpandedOutputs_NonVaryingDerivedAliasFailsBoundedly()
+    {
+        string[] files =
+        [
+            @"C:\game\pak\mission.col",
+            @"C:\game\pak\mission.col.ps2"
+        ];
+
+        Assert.Throws<InvalidOperationException>(() => MeshOutputPathPlanner.Plan(
+            files,
+            Stem,
+            static (_, proposedStem) => [proposedStem, "fixed"],
+            @"C:\game"));
+    }
+
+    [Fact]
     public void Plan_IsDeterministic_RegardlessOfEnumerationOrder()
     {
         string[] forward =
@@ -92,6 +205,22 @@ public class MeshOutputPathPlannerTests
             .ToDictionary(p => p.File, p => Path.Combine(p.Subdirectory, p.Stem));
 
         Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void Plan_DeterministicAllocation_PreservesCallerIterationOrder()
+    {
+        string[] files =
+        [
+            @"C:\game\pak\mission.col.xbx",
+            @"C:\game\unique.col",
+            @"C:\game\pak\mission.col",
+            @"C:\game\pak\mission.col.ps2"
+        ];
+
+        var plan = MeshOutputPathPlanner.Plan(files, Stem, @"C:\game");
+
+        Assert.Equal(files, plan.Select(static item => item.File));
     }
 
     [Fact]

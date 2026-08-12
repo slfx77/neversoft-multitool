@@ -62,6 +62,115 @@ public class QZipArchiveTests(TestPaths paths)
         }
     }
 
+    [Theory]
+    [InlineData("../../escaped.txt", "escaped.txt")]
+    [InlineData("../malicious-other/escaped.txt", "output/malicious-other/escaped.txt")]
+    public void ExtractFiles_TraversalEntryRejectsBeforeAnyPayloadIsWritten(
+        string maliciousEntry,
+        string escapedRelativePath)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(),
+            "NsMultitool_Test_QZipTraversal_" + Guid.NewGuid().ToString("N")[..8]);
+        var zipPath = Path.Combine(tempRoot, "malicious.zip");
+        var outputDir = Path.Combine(tempRoot, "output");
+        var escapedPath = Path.Combine(tempRoot, escapedRelativePath);
+        var safePath = Path.Combine(outputDir, "malicious", "safe.txt");
+        var callbackCount = 0;
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            using (var zipStream = File.Create(zipPath))
+            using (var zip = new ZipArchive(zipStream, ZipArchiveMode.Create))
+            {
+                var safe = zip.CreateEntry("safe.txt", CompressionLevel.NoCompression);
+                using (var stream = safe.Open())
+                    stream.Write("safe"u8);
+
+                var traversal = zip.CreateEntry(maliciousEntry, CompressionLevel.NoCompression);
+                using (var stream = traversal.Open())
+                    stream.Write("escaped"u8);
+            }
+
+            Assert.Throws<InvalidDataException>(() =>
+                QZipArchive.ExtractFiles(
+                    zipPath,
+                    outputDir,
+                    (_, _) => callbackCount++,
+                    token: TestContext.Current.CancellationToken));
+
+            Assert.Equal(0, callbackCount);
+            Assert.False(Directory.Exists(outputDir));
+            Assert.False(File.Exists(safePath));
+            Assert.False(File.Exists(escapedPath));
+            Assert.Equal([zipPath], Directory.GetFiles(tempRoot));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetContainedExportPath_AcceptsNestedRelativeAndRejectsRootedPath()
+    {
+        var extractionRoot = Path.GetFullPath(Path.Combine(
+            Path.GetTempPath(),
+            "NsMultitool_Test_QZipRoot_" + Guid.NewGuid().ToString("N")[..8]));
+        var expected = Path.Combine(extractionRoot, "nested", "safe.txt");
+        var rootedOutside = Path.Combine(
+            Path.GetPathRoot(extractionRoot)!,
+            "NsMultitool_Test_QZipOutside_" + Guid.NewGuid().ToString("N"),
+            "escaped.txt");
+
+        Assert.Equal(expected,
+            QZipArchive.GetContainedExportPath(extractionRoot, "nested/safe.txt"));
+        Assert.Throws<InvalidDataException>(() =>
+            QZipArchive.GetContainedExportPath(extractionRoot, rootedOutside));
+    }
+
+    [Fact]
+    public void ExtractFiles_TraversalArchiveStemRejectsBeforeAnyPayloadIsWritten()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(),
+            "NsMultitool_Test_QZipStem_" + Guid.NewGuid().ToString("N")[..8]);
+        var zipPath = Path.Combine(tempRoot, "...zip");
+        var outputDir = Path.Combine(tempRoot, "output");
+        var escapedPath = Path.Combine(tempRoot, "safe.txt");
+        var callbackCount = 0;
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            using (var zipStream = File.Create(zipPath))
+            using (var zip = new ZipArchive(zipStream, ZipArchiveMode.Create))
+            {
+                var safe = zip.CreateEntry("safe.txt", CompressionLevel.NoCompression);
+                using var stream = safe.Open();
+                stream.Write("safe"u8);
+            }
+
+            Assert.Equal("..", ArchiveNaming.GetExtractionStem(zipPath));
+            Assert.Throws<InvalidDataException>(() =>
+                QZipArchive.ExtractFiles(
+                    zipPath,
+                    outputDir,
+                    (_, _) => callbackCount++,
+                    TestContext.Current.CancellationToken));
+
+            Assert.Equal(0, callbackCount);
+            Assert.False(Directory.Exists(outputDir));
+            Assert.False(File.Exists(escapedPath));
+            Assert.Equal([zipPath], Directory.GetFiles(tempRoot));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     [Fact]
     public void IsZip_NonZipFile_ReturnsFalse()
     {

@@ -33,7 +33,7 @@ public static class GcmFileSystem
         var fstOffset = BinaryPrimitives.ReadUInt32BigEndian(header);
         var fstSize = BinaryPrimitives.ReadUInt32BigEndian(header[4..]);
 
-        if (fstOffset == 0 || fstSize == 0 || fstOffset + fstSize > stream.Length)
+        if (fstOffset == 0 || fstSize == 0 || (long)fstOffset + fstSize > stream.Length)
             throw new InvalidDataException("GCM FST offset/size invalid.");
 
         var fst = new byte[fstSize];

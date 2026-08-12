@@ -13,15 +13,16 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///         all but the last.
 ///     </para>
 ///     <para>
-///         Files whose stem is unique in the batch keep the flat
+///         Files whose complete output-name set is unique in the batch keep the flat
 ///         <c>&lt;output&gt;/&lt;stem&gt;</c> layout they have always had. Only
-///         colliding stems are relocated, into a subdirectory mirroring their
-///         source path, so no existing single-file or well-behaved batch workflow
-///         changes.
+///         records participating in an output-name collision are relocated, into a
+///         subdirectory mirroring their source path, so no existing single-file or
+///         well-behaved batch workflow changes.
 ///     </para>
 /// </summary>
 public static class MeshOutputPathPlanner
 {
+    /// <summary>One input file's collision-safe output location.</summary>
     /// <param name="File">The input file (or <c>archive::entry</c> virtual path).</param>
     /// <param name="Subdirectory">
     ///     Relative directory under the output root, or an empty string for the
@@ -32,7 +33,8 @@ public static class MeshOutputPathPlanner
 
     /// <summary>
     ///     Plans one output location per file. Guarantees a bijection: two inputs
-    ///     never share a (subdirectory, stem) pair.
+    ///     never share a (subdirectory, stem) pair. Ownership is deterministic,
+    ///     while the returned plan retains the caller's file order.
     /// </summary>
     /// <param name="files">The batch, in any order.</param>
     /// <param name="stemOf">The caller's stem rule (usually MeshTypeDetector.GetStem).</param>
@@ -45,48 +47,196 @@ public static class MeshOutputPathPlanner
         Func<string, string> stemOf,
         string? inputRoot)
     {
-        var planned = new List<PlannedOutput>(files.Count);
-        var byStem = files
-            .GroupBy(stemOf, StringComparer.OrdinalIgnoreCase)
+        return Plan(
+            files,
+            stemOf,
+            static (_, proposedStem) => [proposedStem],
+            inputRoot);
+    }
+
+    /// <summary>
+    ///     Plans records that can emit more than one output stem. The callback is
+    ///     evaluated for the preferred stem and again for any ordinal alternative,
+    ///     so derived names such as <c>foo_mip1</c> follow a relocated
+    ///     <c>foo_2</c> as <c>foo_2_mip1</c>. The returned plan retains the
+    ///     caller's file order.
+    /// </summary>
+    /// <param name="files">The batch, in any order.</param>
+    /// <param name="stemOf">The preferred base output stem for each file.</param>
+    /// <param name="outputStemsOf">
+    ///     Every output stem a file will write for a proposed base stem. The set
+    ///     must include that proposed base, be non-empty, and be internally unique
+    ///     under ordinal-ignore-case comparison.
+    /// </param>
+    /// <param name="inputRoot">
+    ///     The directory the batch was enumerated from, used to build mirrored
+    ///     subdirectories. Null falls back to each file's immediate parent.
+    /// </param>
+    public static IReadOnlyList<PlannedOutput> Plan(
+        IReadOnlyList<string> files,
+        Func<string, string> stemOf,
+        Func<string, string, IReadOnlyList<string>> outputStemsOf,
+        string? inputRoot)
+    {
+        // Sort before making any ownership decision. Filesystem enumeration order
+        // must not decide which record keeps a preferred output name.
+        var candidates = files
+            .Select((file, index) => new PlanningCandidate(index, file, stemOf(file)))
+            .OrderBy(static candidate => candidate.File, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static candidate => candidate.File, StringComparer.Ordinal)
             .ToList();
 
-        foreach (var group in byStem)
+        var flatOutputStems = candidates
+            .Select(candidate => GetOutputStems(
+                candidate.File,
+                candidate.PreferredStem,
+                outputStemsOf))
+            .ToList();
+
+        var flatAliasCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var outputStems in flatOutputStems)
         {
-            var members = group.ToList();
-            if (members.Count == 1)
+            foreach (var outputStem in outputStems)
+                flatAliasCounts[outputStem] = flatAliasCounts.GetValueOrDefault(outputStem) + 1;
+        }
+
+        var naturalPlans = new List<NaturalPlan>(candidates.Count);
+        for (var index = 0; index < candidates.Count; index++)
+        {
+            var candidate = candidates[index];
+            var participatesInFlatAlias = flatOutputStems[index]
+                .Any(outputStem => flatAliasCounts[outputStem] > 1);
+            var subdirectory = participatesInFlatAlias
+                ? MirroredSubdirectory(candidate.File, inputRoot)
+                : "";
+            naturalPlans.Add(new NaturalPlan(
+                candidate.OriginalIndex,
+                candidate.File,
+                candidate.PreferredStem,
+                subdirectory,
+                flatOutputStems[index]));
+        }
+
+        // Reserve all natural aliases before allocating any ordinal. Otherwise an
+        // early `foo_2` backstop can steal a later record's preferred `foo_2`.
+        var reservedPreferredKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var natural in naturalPlans)
+            reservedPreferredKeys.UnionWith(OutputKeys(natural.Subdirectory, natural.OutputStems));
+
+        var assignedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var planned = new PlannedOutput[naturalPlans.Count];
+        foreach (var natural in naturalPlans)
+        {
+            var preferredKeys = OutputKeys(natural.Subdirectory, natural.OutputStems);
+            if (preferredKeys.All(key => !assignedKeys.Contains(key)))
             {
-                planned.Add(new PlannedOutput(members[0], "", group.Key));
+                assignedKeys.UnionWith(preferredKeys);
+                planned[natural.OriginalIndex] = new PlannedOutput(
+                    natural.File,
+                    natural.Subdirectory,
+                    natural.PreferredStem);
                 continue;
             }
 
-            // Deterministic ordering so the same batch always plans the same way,
-            // whatever order the filesystem enumerated it in.
-            members.Sort(StringComparer.OrdinalIgnoreCase);
-
-            var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var file in members)
+            // A malformed callback can retain one fixed conflicting alias for every
+            // proposed base. Keep allocation fail-closed and bounded instead of
+            // spinning forever. Well-formed base-derived aliases need at most one
+            // attempt per already reserved/assigned name, plus the batch size.
+            var maxOrdinalAttempts = (long)reservedPreferredKeys.Count
+                                     + assignedKeys.Count
+                                     + naturalPlans.Count
+                                     + 1;
+            string? allocatedStem = null;
+            IReadOnlyList<string>? allocatedKeys = null;
+            for (var attempt = 0L; attempt < maxOrdinalAttempts; attempt++)
             {
-                var subdirectory = MirroredSubdirectory(file, inputRoot);
-                var stem = group.Key;
-
-                // A mirrored path is usually unique on its own; the ordinal suffix
-                // is the backstop for the rest (same stem, same directory, e.g.
-                // two entries of one archive).
-                var key = Path.Combine(subdirectory, stem);
-                if (!taken.Add(key))
+                var ordinal = attempt + 2;
+                var proposedStem = $"{natural.PreferredStem}_{ordinal}";
+                var proposedOutputStems = GetOutputStems(
+                    natural.File,
+                    proposedStem,
+                    outputStemsOf);
+                var proposedKeys = OutputKeys(natural.Subdirectory, proposedOutputStems);
+                if (proposedKeys.Any(assignedKeys.Contains)
+                    || proposedKeys.Any(reservedPreferredKeys.Contains))
                 {
-                    var ordinal = 2;
-                    while (!taken.Add(Path.Combine(subdirectory, $"{group.Key}_{ordinal}")))
-                        ordinal++;
-                    stem = $"{group.Key}_{ordinal}";
+                    continue;
                 }
 
-                planned.Add(new PlannedOutput(file, subdirectory, stem));
+                allocatedStem = proposedStem;
+                allocatedKeys = proposedKeys;
+                break;
             }
+
+            if (allocatedStem is null || allocatedKeys is null)
+            {
+                throw new InvalidOperationException(
+                    $"Unable to allocate a unique output stem for '{natural.File}'.");
+            }
+
+            assignedKeys.UnionWith(allocatedKeys);
+            planned[natural.OriginalIndex] = new PlannedOutput(
+                natural.File,
+                natural.Subdirectory,
+                allocatedStem);
         }
 
         return planned;
     }
+
+    private static IReadOnlyList<string> GetOutputStems(
+        string file,
+        string proposedStem,
+        Func<string, string, IReadOnlyList<string>> outputStemsOf)
+    {
+        var outputStems = outputStemsOf(file, proposedStem)
+                          ?? throw new ArgumentException(
+                              "The output-stem callback returned null.",
+                              nameof(outputStemsOf));
+        if (outputStems.Count == 0)
+        {
+            throw new ArgumentException(
+                "Every planned file must have at least one output stem.",
+                nameof(outputStemsOf));
+        }
+
+        var distinct = outputStems.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (outputStems.Any(string.IsNullOrWhiteSpace)
+            || distinct.Count != outputStems.Count)
+        {
+            throw new ArgumentException(
+                "A file's output stems must be non-empty and unique.",
+                nameof(outputStemsOf));
+        }
+
+        if (!distinct.Contains(proposedStem))
+        {
+            throw new ArgumentException(
+                "A file's output stems must include its proposed base stem.",
+                nameof(outputStemsOf));
+        }
+
+        return [.. outputStems];
+    }
+
+    private static IReadOnlyList<string> OutputKeys(
+        string subdirectory,
+        IReadOnlyList<string> outputStems)
+    {
+        return [.. outputStems.Select(outputStem => Path.Combine(subdirectory, outputStem))];
+    }
+
+    private readonly record struct PlanningCandidate(
+        int OriginalIndex,
+        string File,
+        string PreferredStem);
+
+    private readonly record struct NaturalPlan(
+        int OriginalIndex,
+        string File,
+        string PreferredStem,
+        string Subdirectory,
+        IReadOnlyList<string> OutputStems);
 
     /// <summary>
     ///     The source directory of <paramref name="file" /> relative to

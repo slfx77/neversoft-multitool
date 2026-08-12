@@ -141,11 +141,16 @@ public sealed class CueSheet
     private static long ParseMsfFrames(string msf)
     {
         var parts = msf.Split(':');
-        if (parts.Length != 3) return 0;
-        if (!int.TryParse(parts[0], out var m) ||
+        if (parts.Length != 3 ||
+            !int.TryParse(parts[0], out var m) ||
             !int.TryParse(parts[1], out var s) ||
-            !int.TryParse(parts[2], out var f))
-            return 0;
+            !int.TryParse(parts[2], out var f) ||
+            m < 0 ||
+            s is < 0 or >= 60 ||
+            f is < 0 or >= 75)
+        {
+            throw new InvalidDataException($"Invalid cue INDEX 01 timestamp '{msf}'.");
+        }
 
         return (m * 60L + s) * 75 + f;
     }

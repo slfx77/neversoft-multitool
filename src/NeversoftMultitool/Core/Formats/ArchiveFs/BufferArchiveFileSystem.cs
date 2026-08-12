@@ -52,16 +52,16 @@ public sealed class BufferArchiveFileSystem : ArchiveFileSystemBase
                          ?? throw new InvalidDataException(
                              $"{DisplayPath}::{entry.FullName}: companion-resident entry but no data file found.");
             }
-            else if (position + storedSize > data.Length && companion != null)
+            else if (!IsRangeWithin(position, storedSize, data.LongLength) && companion != null)
             {
                 source = companion;
                 position -= data.Length;
             }
         }
 
-        if (position < 0 || position + storedSize > source.Length)
+        if (!IsRangeWithin(position, storedSize, source.LongLength))
             throw new InvalidDataException(
-                $"{DisplayPath}::{entry.FullName}: data range [{position}, {position + storedSize}) " +
+                $"{DisplayPath}::{entry.FullName}: data range starting at {position} with length {storedSize} " +
                 $"is outside the container (length {source.Length}).");
 
         var stored = new byte[storedSize];

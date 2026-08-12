@@ -122,8 +122,19 @@ public static class CompressedPreArchive
     public static void ExtractFiles(string prePath, string outputDir,
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         var entries = GetFileList(prePath);
         var archiveName = ArchiveNaming.GetExtractionStem(prePath);
+        var outputRoot = Path.GetFullPath(outputDir);
+        var extractionRoot = ArchiveExtractionPath.GetContainedPath(
+            outputRoot, archiveName, "Compressed PRE extraction directory");
+        var exportPaths = new string[entries.Count];
+        for (var i = 0; i < entries.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            exportPaths[i] = ArchiveExtractionPath.GetContainedPath(
+                extractionRoot, entries[i].FullName, "Compressed PRE entry");
+        }
 
         using var stream = File.OpenRead(prePath);
 
@@ -144,7 +155,7 @@ public static class CompressedPreArchive
             else
                 outputData = rawData;
 
-            var exportPath = Path.Combine(outputDir, archiveName, entry.FullName);
+            var exportPath = exportPaths[i];
             var exportDir = Path.GetDirectoryName(exportPath);
             if (!string.IsNullOrEmpty(exportDir))
                 Directory.CreateDirectory(exportDir);

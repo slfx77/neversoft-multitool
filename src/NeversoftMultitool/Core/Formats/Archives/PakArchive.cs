@@ -290,6 +290,7 @@ public static class PakArchive
     public static void ExtractFiles(string pakPath, string outputDir,
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         var entries = GetFileList(pakPath);
         if (entries.Count == 0)
             return;
@@ -302,6 +303,21 @@ public static class PakArchive
         byte[]? pabData = null;
         if (File.Exists(pabPath))
             pabData = File.ReadAllBytes(pabPath);
+
+        var outputRoot = Path.GetFullPath(outputDir);
+        var extractionRoot = ArchiveExtractionPath.GetContainedPath(
+            outputRoot, archiveName, "PAK extraction directory");
+        var exportPaths = new string?[entries.Count];
+        for (var i = 0; i < entries.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            var entry = entries[i];
+            if (entry.Size <= 0 || !TryResolveEntryData(entry, pakData, pabData, out _, out _))
+                continue;
+
+            exportPaths[i] = ArchiveExtractionPath.GetContainedPath(
+                extractionRoot, entry.FullName, "PAK entry");
+        }
 
         for (var i = 0; i < entries.Count; i++)
         {
@@ -317,19 +333,7 @@ public static class PakArchive
             // GameCube companion offsets point directly into MPK data. Little-endian
             // offsets beyond the PAK length continue into PAB data after subtracting
             // the PAK length.
-            var sourceData = pakData;
-            var position = entry.Offset;
-            if (entry.InCompanion && pabData != null)
-            {
-                sourceData = pabData;
-            }
-            else if (position + entry.Size > pakData.Length && pabData != null)
-            {
-                sourceData = pabData;
-                position -= pakData.Length;
-            }
-
-            if (position < 0 || position + entry.Size > sourceData.Length)
+            if (!TryResolveEntryData(entry, pakData, pabData, out var sourceData, out var position))
             {
                 onFileExtracted?.Invoke(i + 1, entries.Count);
                 continue;
@@ -341,16 +345,15 @@ public static class PakArchive
             // QbKey("unknown")-typed entries are the pak builder's fallback for
             // unclassified files; sniff RIFF/WAVE payloads so THAW PC zone
             // ambience extracts directly playable.
-            var fullName = entry.FullName;
-            if (fullName.EndsWith(".unknown", StringComparison.OrdinalIgnoreCase)
+            var exportPath = exportPaths[i]!;
+            if (entry.FullName.EndsWith(".unknown", StringComparison.OrdinalIgnoreCase)
                 && fileData.Length >= 12
                 && fileData.AsSpan(0, 4).SequenceEqual("RIFF"u8)
                 && fileData.AsSpan(8, 4).SequenceEqual("WAVE"u8))
             {
-                fullName = fullName[..^".unknown".Length] + ".wav";
+                exportPath = Path.ChangeExtension(exportPath, ".wav");
             }
 
-            var exportPath = Path.Combine(outputDir, archiveName, fullName);
             var exportDir = Path.GetDirectoryName(exportPath);
             if (!string.IsNullOrEmpty(exportDir))
                 Directory.CreateDirectory(exportDir);
@@ -359,6 +362,24 @@ public static class PakArchive
 
             onFileExtracted?.Invoke(i + 1, entries.Count);
         }
+    }
+
+    private static bool TryResolveEntryData(
+        ArchiveEntry entry, byte[] pakData, byte[]? pabData, out byte[] sourceData, out long position)
+    {
+        sourceData = pakData;
+        position = entry.Offset;
+        if (entry.InCompanion && pabData != null)
+        {
+            sourceData = pabData;
+        }
+        else if (position + entry.Size > pakData.Length && pabData != null)
+        {
+            sourceData = pabData;
+            position -= pakData.Length;
+        }
+
+        return position >= 0 && position + entry.Size <= sourceData.Length;
     }
 
     /// <summary>

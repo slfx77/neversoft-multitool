@@ -30,6 +30,12 @@ public sealed class GdiSheet
 
     public static GdiSheet Parse(IReadOnlyList<string> lines, string baseDirectory)
     {
+        if (lines.Count == 0 || !int.TryParse(lines[0].Trim(), out var declaredTrackCount) ||
+            declaredTrackCount <= 0)
+        {
+            throw new InvalidDataException("GDI sheet track count is invalid.");
+        }
+
         var tracks = new List<GdiTrack>();
         foreach (var rawLine in lines.Skip(1))
         {
@@ -71,6 +77,12 @@ public sealed class GdiSheet
 
         if (tracks.Count == 0)
             throw new InvalidDataException("GDI sheet contains no tracks.");
+
+        if (tracks.Count != declaredTrackCount)
+        {
+            throw new InvalidDataException(
+                $"GDI sheet declares {declaredTrackCount} tracks but contains {tracks.Count}.");
+        }
 
         return new GdiSheet(tracks);
     }

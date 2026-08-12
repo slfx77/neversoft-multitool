@@ -17,7 +17,7 @@ public sealed class N64ArchiveFileSystemTests(TestPaths paths)
     private const string Thps2N64Build = "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)";
     private const string RomName = "Tony Hawk's Pro Skater 2 (USA).z64";
 
-    [Fact]
+    [CorpusFact]
     public void TryOpen_ListsTheCarvedTree_AndReadsDecodableEntries()
     {
         var romPath = paths.FindSampleFile(Thps2N64Build, RomName);

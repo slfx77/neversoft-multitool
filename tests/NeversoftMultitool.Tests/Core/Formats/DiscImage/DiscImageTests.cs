@@ -77,6 +77,20 @@ public sealed class DiscImageTests : IDisposable
         Assert.Equal(45000, gdi.DataSessionLba);
     }
 
+    [Fact]
+    public void GdiSheet_DeclaredTrackCountMismatch_Throws()
+    {
+        string[] lines =
+        [
+            "2",
+            "1 0 4 2352 track01.bin 0"
+        ];
+
+        var error = Assert.Throws<InvalidDataException>(() => GdiSheet.Parse(lines, _tempDir));
+
+        Assert.Equal("GDI sheet declares 2 tracks but contains 1.", error.Message);
+    }
+
     // ─── Synthetic ISO9660 round-trips ────────────────────────────────────
 
     [Fact]
@@ -100,6 +114,28 @@ public sealed class DiscImageTests : IDisposable
 
         Assert.Equal("Hello, disc!\n", File.ReadAllText(Path.Combine(outDir, "HELLO.TXT")));
         Assert.Equal([1, 2, 3, 4, 5], File.ReadAllBytes(Path.Combine(outDir, "DATA", "NESTED.BIN")));
+    }
+
+    [Fact]
+    public void PlainIso_TraversalEntryFailsBeforeAnyOutputOrCallback()
+    {
+        var isoPath = Path.Combine(_tempDir, "malicious.iso");
+        File.WriteAllBytes(isoPath, BuildIso9660Sectors("../ESCAPED.BIN;1"));
+        var escapedPath = Path.Combine(_tempDir, "ESCAPED.BIN");
+        File.WriteAllBytes(escapedPath, [0xCC]);
+        var outDir = Path.Combine(_tempDir, "out_escape");
+        var callbacks = 0;
+
+        Assert.Throws<InvalidDataException>(() =>
+            DiscImageArchive.ExtractFiles(
+                isoPath,
+                outDir,
+                (_, _) => callbacks++,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, callbacks);
+        Assert.Equal(new byte[] { 0xCC }, File.ReadAllBytes(escapedPath));
+        Assert.False(Directory.Exists(outDir));
     }
 
     [Fact]
@@ -230,7 +266,7 @@ public sealed class DiscImageTests : IDisposable
     ///     Minimal ISO9660 volume: PVD(16), terminator(17), root dir(20),
     ///     "DATA" subdir(21), HELLO.TXT data(22), NESTED.BIN data(23).
     /// </summary>
-    private static byte[] BuildIso9660Sectors()
+    private static byte[] BuildIso9660Sectors(string rootFileName = "HELLO.TXT;1")
     {
         var image = new byte[24 * 2048];
 
@@ -251,7 +287,7 @@ public sealed class DiscImageTests : IDisposable
         var offset = WriteDirRecord(root, 20, 2048, true, "\0");
         offset += WriteDirRecord(root[offset..], 20, 2048, true, "");
         offset += WriteDirRecord(root[offset..], 21, 2048, true, "DATA");
-        WriteDirRecord(root[offset..], 22, 13, false, "HELLO.TXT;1");
+        WriteDirRecord(root[offset..], 22, 13, false, rootFileName);
 
         // DATA directory
         var dataDir = image.AsSpan(21 * 2048);

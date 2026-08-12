@@ -11,6 +11,10 @@ public sealed class IsoSectorSource(Stream stream) : IDiscSectorSource
 
     public byte ReadSector(long lba, Span<byte> buffer)
     {
+        var sectorCount = SectorCount;
+        if (lba < 0 || lba >= sectorCount)
+            throw new InvalidDataException($"LBA {lba} is outside the ISO sector range [0, {sectorCount}).");
+
         stream.Position = lba * UserDataSize;
         stream.ReadExactly(buffer[..UserDataSize]);
         return 0;

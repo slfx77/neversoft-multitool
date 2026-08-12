@@ -4,74 +4,51 @@ namespace NeversoftMultitool.Tests.Core.Formats.Archives;
 
 public class PakArchiveTests(TestPaths paths)
 {
-    private const string ThawPakDir =
-        "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)/PAK";
-
-    private string? GetPakDir()
-    {
-        if (!paths.HasSampleBuilds) return null;
-        var dir = Path.Combine(paths.SampleBuildsDir!, ThawPakDir);
-        return Directory.Exists(dir) ? dir : null;
-    }
+    private const string BuildName = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
 
     [Fact]
     public void IsPakArchive_WithArchivePak_ReturnsTrue()
     {
-        var pakDir = GetPakDir();
-        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
+        var pakPath = paths.FindSampleFile(BuildName, "qb.pak.ps2");
+        Assert.SkipWhen(pakPath is null, "qb.pak.ps2 not found");
 
-        var pakPath = Path.Combine(pakDir!, "qb.pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), "qb.pak.ps2 not found");
-
-        Assert.True(PakArchive.IsPakArchive(pakPath));
+        Assert.True(PakArchive.IsPakArchive(pakPath!));
     }
 
     [Fact]
     public void IsPakArchive_WithShellPak_ReturnsTrue()
     {
-        var pakDir = GetPakDir();
-        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
+        var pakPath = paths.FindSampleFile(BuildName, "cap_shell2.pak.ps2");
+        Assert.SkipWhen(pakPath is null, "cap_shell2.pak.ps2 not found");
 
-        var pakPath = Path.Combine(pakDir!, "cap_shell2.pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), "cap_shell2.pak.ps2 not found");
-
-        Assert.True(PakArchive.IsPakArchive(pakPath));
+        Assert.True(PakArchive.IsPakArchive(pakPath!));
     }
 
     [Fact]
     public void IsPakArchive_WithSkyPak_ReturnsTrue()
     {
-        var pakDir = GetPakDir();
-        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
+        var pakPath = paths.FindSampleFile(BuildName, "cap_shell1_sky.pak.ps2");
+        Assert.SkipWhen(pakPath is null, "cap_shell1_sky.pak.ps2 not found");
 
-        var pakPath = Path.Combine(pakDir!, "cap_shell1_sky.pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), "cap_shell1_sky.pak.ps2 not found");
-
-        Assert.True(PakArchive.IsPakArchive(pakPath));
+        Assert.True(PakArchive.IsPakArchive(pakPath!));
     }
 
     [Fact]
     public void IsPakArchive_WithRawDataPak_ReturnsFalse()
     {
-        var pakDir = GetPakDir();
-        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
+        var pakPath = paths.FindSampleFile(BuildName, "cap_assets_fast_particle_data.pak.ps2");
+        Assert.SkipWhen(pakPath is null, "cap_assets_fast_particle_data.pak.ps2 not found");
 
-        var pakPath = Path.Combine(pakDir!, "cap_assets_fast_particle_data.pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), "cap_assets_fast_particle_data.pak.ps2 not found");
-
-        Assert.False(PakArchive.IsPakArchive(pakPath));
+        Assert.False(PakArchive.IsPakArchive(pakPath!));
     }
 
     [Fact]
     public void GetFileList_QbPak_Returns266Entries()
     {
-        var pakDir = GetPakDir();
-        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
+        var pakPath = paths.FindSampleFile(BuildName, "qb.pak.ps2");
+        Assert.SkipWhen(pakPath is null, "qb.pak.ps2 not found");
 
-        var pakPath = Path.Combine(pakDir!, "qb.pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), "qb.pak.ps2 not found");
-
-        var entries = PakArchive.GetFileList(pakPath);
+        var entries = PakArchive.GetFileList(pakPath!);
         Assert.Equal(266, entries.Count);
         Assert.All(entries, e => Assert.True(e.Size > 0, $"Entry {e.Name} has zero size"));
 
@@ -86,13 +63,10 @@ public class PakArchiveTests(TestPaths paths)
     [Fact]
     public void GetFileList_CapShellPak_ReturnsShellEntries()
     {
-        var pakDir = GetPakDir();
-        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
+        var pakPath = paths.FindSampleFile(BuildName, "cap_shell1.pak.ps2");
+        Assert.SkipWhen(pakPath is null, "cap_shell1.pak.ps2 not found");
 
-        var pakPath = Path.Combine(pakDir!, "cap_shell1.pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), "cap_shell1.pak.ps2 not found");
-
-        var entries = PakArchive.GetFileList(pakPath);
+        var entries = PakArchive.GetFileList(pakPath!);
         Assert.Equal(5, entries.Count);
 
         Assert.Contains(entries, e =>
@@ -106,13 +80,10 @@ public class PakArchiveTests(TestPaths paths)
     [Fact]
     public void GetFileList_CapShellSkyPak_ReturnsSkyEntries()
     {
-        var pakDir = GetPakDir();
-        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
+        var pakPath = paths.FindSampleFile(BuildName, "cap_shell1_sky.pak.ps2");
+        Assert.SkipWhen(pakPath is null, "cap_shell1_sky.pak.ps2 not found");
 
-        var pakPath = Path.Combine(pakDir!, "cap_shell1_sky.pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), "cap_shell1_sky.pak.ps2 not found");
-
-        var entries = PakArchive.GetFileList(pakPath);
+        var entries = PakArchive.GetFileList(pakPath!);
         Assert.Equal(4, entries.Count);
 
         Assert.Contains(entries, e =>
@@ -125,35 +96,29 @@ public class PakArchiveTests(TestPaths paths)
     [Fact]
     public void GetFileList_CapShellPak_UsesNormalOffsetSizeOrder()
     {
-        var pakDir = GetPakDir();
-        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
+        var pakPath = paths.FindSampleFile(BuildName, "cap_shell1.pak.ps2");
+        Assert.SkipWhen(pakPath is null, "cap_shell1.pak.ps2 not found");
 
-        var pakPath = Path.Combine(pakDir!, "cap_shell1.pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), "cap_shell1.pak.ps2 not found");
-
-        var entries = PakArchive.GetFileList(pakPath);
+        var entries = PakArchive.GetFileList(pakPath!);
 
         var texEntry = Assert.Single(entries, e => e.Name.EndsWith(".tex", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(0x00000990u, texEntry.Offset);
+        Assert.Equal(0x000009B0u, texEntry.Offset);
         Assert.Equal(0x00041BF0u, texEntry.Size);
 
         var mdlEntry = Assert.Single(entries, e => e.Name.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(0x00042560u, mdlEntry.Offset);
+        Assert.Equal(0x000425A0u, mdlEntry.Offset);
         Assert.Equal(0x0007DF80u, mdlEntry.Size);
 
         var colEntry = Assert.Single(entries, e => e.Name.EndsWith(".col", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(0x000C04C0u, colEntry.Offset);
+        Assert.Equal(0x000C0520u, colEntry.Offset);
         Assert.Equal(0x0002901Au, colEntry.Size);
     }
 
     [Fact]
     public void ExtractFiles_QbPak_AllFilesExtracted()
     {
-        var pakDir = GetPakDir();
-        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
-
-        var pakPath = Path.Combine(pakDir!, "qb.pak.ps2");
-        Assert.SkipWhen(!File.Exists(pakPath), "qb.pak.ps2 not found");
+        var pakPath = paths.FindSampleFile(BuildName, "qb.pak.ps2");
+        Assert.SkipWhen(pakPath is null, "qb.pak.ps2 not found");
 
         var tempDir = Path.Combine(Path.GetTempPath(),
             "NsMultitool_Test_Pak_" + Guid.NewGuid().ToString("N")[..8]);
@@ -162,7 +127,7 @@ public class PakArchiveTests(TestPaths paths)
             Directory.CreateDirectory(tempDir);
 
             var extractedCount = 0;
-            PakArchive.ExtractFiles(pakPath, tempDir, (current, total) => { extractedCount = current; },
+            PakArchive.ExtractFiles(pakPath!, tempDir, (current, total) => { extractedCount = current; },
                 TestContext.Current.CancellationToken);
 
             var extractedFiles = Directory.GetFiles(
@@ -198,10 +163,7 @@ public class PakArchiveTests(TestPaths paths)
     [CorpusFact]
     public void Parse_AllPakFiles_NoExceptions()
     {
-        var pakDir = GetPakDir();
-        Assert.SkipWhen(pakDir == null, "THAW PAK files not available");
-
-        var pakFiles = Directory.GetFiles(pakDir!, "*.pak.ps2");
+        var pakFiles = paths.FindSampleFiles(BuildName, "*.pak.ps2").ToArray();
         Assert.SkipWhen(pakFiles.Length == 0, "No PAK files found");
 
         var archiveCount = 0;

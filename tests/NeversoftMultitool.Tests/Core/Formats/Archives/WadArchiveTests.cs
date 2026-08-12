@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using NeversoftMultitool.Core.Formats.Archives;
 
@@ -84,5 +85,89 @@ public class WadArchiveTests(TestPaths paths)
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, true);
         }
+    }
+
+    [Fact]
+    public void ExtractFiles_TraversalEntryFailsBeforeAnyOutputOrCallback()
+    {
+        var tempRoot = CreateTempRoot();
+        try
+        {
+            var wadPath = Path.Combine(tempRoot, "malicious.wad");
+            WritePs1Wad(wadPath,
+                ("safe.txt", "safe"u8.ToArray()),
+                ("../../escaped.txt", "evil"u8.ToArray()));
+            var escapedPath = Path.Combine(tempRoot, "escaped.txt");
+            File.WriteAllBytes(escapedPath, "original"u8.ToArray());
+            var output = Path.Combine(tempRoot, "output");
+            var callbacks = 0;
+
+            Assert.Throws<InvalidDataException>(() =>
+                WadArchive.ExtractFiles(wadPath, output, (_, _) => callbacks++,
+                    TestContext.Current.CancellationToken));
+
+            Assert.Equal(0, callbacks);
+            Assert.Equal("original"u8.ToArray(), File.ReadAllBytes(escapedPath));
+            Assert.False(Directory.Exists(output));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, true);
+        }
+    }
+
+    [Fact]
+    public void ExtractFiles_TraversalArchiveStemFailsBeforeAnyOutput()
+    {
+        var tempRoot = CreateTempRoot();
+        try
+        {
+            var wadPath = Path.Combine(tempRoot, "...wad");
+            WritePs1Wad(wadPath, ("safe.txt", "safe"u8.ToArray()));
+            Assert.Equal("..", Path.GetFileNameWithoutExtension(wadPath));
+            var output = Path.Combine(tempRoot, "output");
+
+            Assert.Throws<InvalidDataException>(() =>
+                WadArchive.ExtractFiles(wadPath, output, token: TestContext.Current.CancellationToken));
+
+            Assert.False(Directory.Exists(output));
+            Assert.False(File.Exists(Path.Combine(tempRoot, "safe.txt")));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, true);
+        }
+    }
+
+    private static string CreateTempRoot()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "nmt-wad-archive-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static void WritePs1Wad(string wadPath, params (string Name, byte[] Data)[] entries)
+    {
+        using (var wad = File.Create(wadPath))
+        {
+            foreach (var entry in entries)
+                wad.Write(entry.Data);
+        }
+
+        using var hed = File.Create(WadArchive.GetHedPath(wadPath));
+        using var writer = new BinaryWriter(hed, Encoding.ASCII);
+        uint offset = 0;
+        foreach (var entry in entries)
+        {
+            writer.Write(Encoding.ASCII.GetBytes(entry.Name));
+            writer.Write((byte)0);
+            while (writer.BaseStream.Position % 4 != 0)
+                writer.Write((byte)0);
+            writer.Write(offset);
+            writer.Write((uint)entry.Data.Length);
+            offset += (uint)entry.Data.Length;
+        }
+
+        writer.Write((byte)0xFF);
     }
 }

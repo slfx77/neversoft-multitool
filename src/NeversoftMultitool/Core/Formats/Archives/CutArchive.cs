@@ -13,7 +13,8 @@ namespace NeversoftMultitool.Core.Formats.Archives;
 ///     header { u32 version=1; i32 numFiles } + numFiles × { u32 offset; i32 size;
 ///     u32 nameQbKey; u32 extQbKey } + contiguous data blobs (little-endian on all platforms).
 ///     Payloads are keyed by an extension checksum (SKA/CAM/OBA anims, SKIN/MDL/GEOM models,
-///     TEX textures, QB script, CIF object-binding list, CAS, WGT head-morph weights;
+///     TEX textures, QB script, CIF object-binding list, CAS, WGT cutscene-head
+///     mesh-scaling weight/index triples;
 ///     THUG2 adds SKE and "cifstruct" (the CIF replacement — a CStruct WriteToBuffer
 ///     stream, see <see cref="QbStructBuffer" />); bare THUG .cut masters add a
 ///     plaintext .q-style placement section). These extension checksums are NOT pak-style
@@ -67,7 +68,8 @@ public static partial class CutArchive
 
     // Payloads in the platform's compiled scene formats get the container's platform
     // suffix so extracted files route to the existing converters (.tex.xbx -> xbxtex etc.).
-    private static readonly HashSet<uint> PlatformTypedKeys = [ExtGeom, ExtSkin, ExtMdl, ExtTex];
+    private static readonly HashSet<uint> PlatformTypedKeys =
+        [ExtGeom, ExtSkin, ExtMdl, ExtTex, ExtCas, ExtWgt];
 
     // Engine fetches these by (nameKey=0, extKey) wildcard — one per cutscene, named by role.
     private static readonly Dictionary<uint, string> SingletonRoleNames = new()
@@ -119,6 +121,8 @@ public static partial class CutArchive
         {
             var extension = ExtensionByKey.GetValueOrDefault(e.ExtKey, $"{e.ExtKey:x8}");
             var fileName = $"{names[e]}.{extension}";
+            // The container suffix is provenance, not a claim that a consumer supports the payload.
+            // Bare authoring CUTs naturally keep bare member names because their suffix is empty.
             if (PlatformTypedKeys.Contains(e.ExtKey))
                 fileName += platformSuffix;
 
@@ -138,24 +142,37 @@ public static partial class CutArchive
     public static void ExtractFiles(string cutPath, string outputDir,
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         var data = File.ReadAllBytes(cutPath);
         var toc = ParseToc(data);
         var entries = GetFileList(cutPath);
         var archiveName = ArchiveNaming.GetExtractionStem(cutPath);
-        var extractDir = Path.Combine(outputDir, archiveName);
+        var outputRoot = Path.GetFullPath(outputDir);
+        var extractDir = ArchiveExtractionPath.GetContainedPath(
+            outputRoot, archiveName, "CUT extraction directory");
+        var exportPaths = new string[entries.Count];
+        for (var i = 0; i < entries.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            exportPaths[i] = ArchiveExtractionPath.GetContainedPath(
+                extractDir, entries[i].Name, "CUT entry");
+        }
+
+        var manifestPath = ArchiveExtractionPath.GetContainedPath(
+            outputRoot, archiveName + ".cif.json", "CUT manifest");
         Directory.CreateDirectory(extractDir);
 
         for (var i = 0; i < entries.Count; i++)
         {
             token.ThrowIfCancellationRequested();
             var entry = entries[i];
-            File.WriteAllBytes(Path.Combine(extractDir, entry.Name),
+            File.WriteAllBytes(exportPaths[i],
                 data.AsSpan((int)entry.Offset, (int)entry.Size).ToArray());
             onFileExtracted?.Invoke(i + 1, entries.Count);
         }
 
         var manifest = BuildManifest(Path.GetFileName(cutPath), data, toc, entries);
-        File.WriteAllText(Path.Combine(outputDir, archiveName + ".cif.json"),
+        File.WriteAllText(manifestPath,
             JsonSerializer.Serialize(manifest, JsonOptions));
     }
 

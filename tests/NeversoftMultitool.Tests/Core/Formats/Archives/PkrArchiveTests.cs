@@ -8,7 +8,7 @@ public class PkrArchiveTests(TestPaths paths)
 {
     private const string SpiderManPcBuild = "Spider-Man (2001-9-17, PC - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void GetFileList_MatchesGoldenManifest()
     {
         Assert.SkipWhen(!paths.HasTestData || !paths.HasGoldenFiles, "Test data not available");
@@ -36,7 +36,7 @@ public class PkrArchiveTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void ExtractFiles_AllFilesExtracted_WithCorrectContent()
     {
         Assert.SkipWhen(!paths.HasTestData, "Test data not available");
@@ -99,7 +99,7 @@ public class PkrArchiveTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void SpiderManPcDataPkr_NormalizesDirectorySeparatorsInDisplayPaths()
     {
         var pkrPath = paths.FindSampleFile(SpiderManPcBuild, "data.pkr");

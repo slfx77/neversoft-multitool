@@ -16,7 +16,17 @@ public sealed class RawSectorSource : IDiscSectorSource
 
     public RawSectorSource(IEnumerable<DiscTrackRegion> regions)
     {
-        foreach (var region in regions.OrderBy(r => r.StartLba))
+        var orderedRegions = regions.OrderBy(r => r.StartLba).ToList();
+        foreach (var region in orderedRegions)
+        {
+            if (region.PhysicalSectorSize is not (IsoSectorSource.UserDataSize or Mode2TailSize or RawSectorSize))
+            {
+                throw new InvalidDataException(
+                    $"Unsupported physical sector size {region.PhysicalSectorSize}; expected 2048, 2336, or 2352 bytes.");
+            }
+        }
+
+        foreach (var region in orderedRegions)
         {
             var stream = new FileStream(region.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             _tracks.Add((region, stream));

@@ -110,8 +110,17 @@ public static class QZipArchive
     public static void ExtractFiles(string zipPath, string outputDir,
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         var entries = GetFileList(zipPath);
         var archiveName = ArchiveNaming.GetExtractionStem(zipPath);
+        var outputRoot = Path.GetFullPath(outputDir);
+        var extractionRoot = GetContainedExportPath(outputRoot, archiveName);
+        var exportPaths = new string[entries.Count];
+        for (var i = 0; i < entries.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            exportPaths[i] = GetContainedExportPath(extractionRoot, entries[i].FullName);
+        }
 
         using var stream = File.OpenRead(zipPath);
 
@@ -137,7 +146,7 @@ public static class QZipArchive
                 outputData = rawData;
             }
 
-            var exportPath = Path.Combine(outputDir, archiveName, entry.FullName);
+            var exportPath = exportPaths[i];
             var exportDir = Path.GetDirectoryName(exportPath);
             if (!string.IsNullOrEmpty(exportDir))
                 Directory.CreateDirectory(exportDir);
@@ -147,4 +156,7 @@ public static class QZipArchive
             onFileExtracted?.Invoke(i + 1, entries.Count);
         }
     }
+
+    internal static string GetContainedExportPath(string extractionRoot, string entryName)
+        => ArchiveExtractionPath.GetContainedPath(extractionRoot, entryName, "Zip entry");
 }

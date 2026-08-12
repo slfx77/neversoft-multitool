@@ -62,7 +62,7 @@ public sealed class FileArchiveFileSystem : ArchiveFileSystemBase
                              $"{DisplayPath}::{entry.FullName}: companion-resident entry but no data file found.");
                 sourceLength = _companionLength;
             }
-            else if (position + storedSize > _length && _companionHandle != null)
+            else if (!IsRangeWithin(position, storedSize, _length) && _companionHandle != null)
             {
                 handle = _companionHandle;
                 position -= _length;
@@ -70,9 +70,9 @@ public sealed class FileArchiveFileSystem : ArchiveFileSystemBase
             }
         }
 
-        if (position < 0 || position + storedSize > sourceLength)
+        if (!IsRangeWithin(position, storedSize, sourceLength))
             throw new InvalidDataException(
-                $"{DisplayPath}::{entry.FullName}: data range [{position}, {position + storedSize}) " +
+                $"{DisplayPath}::{entry.FullName}: data range starting at {position} with length {storedSize} " +
                 $"is outside the container (length {sourceLength}).");
 
         var stored = new byte[storedSize];

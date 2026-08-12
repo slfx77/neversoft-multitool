@@ -4,6 +4,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Archives;
 
 public class CompressedPreArchiveTests(TestPaths paths)
 {
+    private const string Thps3PsxBuild = "Tony Hawk's Pro Skater 3 (2001-10-3, PSX - Final)";
+    private const string Thps3Ps2Build = "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)";
     private const string Thug2XboxBuild = "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)";
     private const string Thug2WindowsBuild = "Tony Hawks Underground 2 (2004-10-4, Windows - Final)";
 
@@ -12,12 +14,9 @@ public class CompressedPreArchiveTests(TestPaths paths)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
 
-        // Find a PS1 PRE file (these are the old uncompressed format)
-        var preDir = FindBuildSubdir("Archives", "PRE");
-        Assert.SkipWhen(preDir == null, "No PRE archives found in sample builds");
-
-        var preFile = Directory.EnumerateFiles(preDir, "*.pre", SearchOption.AllDirectories).FirstOrDefault();
-        Assert.SkipWhen(preFile == null, "No .pre file found");
+        var preFile = FindPlainPreFixture();
+        Assert.SkipWhen(preFile == null, $"{Thps3PsxBuild}/CD/tricksel.pre not available");
+        AssertPlainPreFixture(preFile!);
 
         Assert.False(CompressedPreArchive.IsCompressedPre(preFile!));
     }
@@ -43,12 +42,13 @@ public class CompressedPreArchiveTests(TestPaths paths)
     }
 
     [Fact]
-    public void IsCompressedPre_WithV3PreFile_ReturnsTrue()
+    public void IsCompressedPre_WithV2PreFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
 
-        var preFile = FindPs2PreFile();
-        Assert.SkipWhen(preFile == null, "No PS2 PRE/PRX files found in sample builds");
+        var preFile = FindCompressedPreFixture();
+        Assert.SkipWhen(preFile == null, $"{Thps3Ps2Build}/SKATE3/pre/Ware.pre not available");
+        AssertCompressedPreFixture(preFile!);
 
         Assert.True(CompressedPreArchive.IsCompressedPre(preFile!));
     }
@@ -58,11 +58,12 @@ public class CompressedPreArchiveTests(TestPaths paths)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
 
-        var preFile = FindPs2PreFile();
-        Assert.SkipWhen(preFile == null, "No PS2 PRE/PRX files found in sample builds");
+        var preFile = FindCompressedPreFixture();
+        Assert.SkipWhen(preFile == null, $"{Thps3Ps2Build}/SKATE3/pre/Ware.pre not available");
+        AssertCompressedPreFixture(preFile!);
 
         var entries = CompressedPreArchive.GetFileList(preFile!);
-        Assert.NotEmpty(entries);
+        Assert.Equal(33, entries.Count);
 
         // All entries should have non-empty names and positive sizes
         foreach (var entry in entries)
@@ -77,11 +78,13 @@ public class CompressedPreArchiveTests(TestPaths paths)
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
 
-        var preFile = FindPs2PreFile();
-        Assert.SkipWhen(preFile == null, "No PS2 PRE/PRX files found in sample builds");
+        var preFile = FindCompressedPreFixture();
+        Assert.SkipWhen(preFile == null, $"{Thps3Ps2Build}/SKATE3/pre/Ware.pre not available");
+        AssertCompressedPreFixture(preFile!);
 
         var entries = CompressedPreArchive.GetFileList(preFile!);
-        var tempDir = Path.Combine(Path.GetTempPath(), "NsMultitool_Test_PreV3_" + Guid.NewGuid().ToString("N")[..8]);
+        Assert.Equal(33, entries.Count);
+        var tempDir = Path.Combine(Path.GetTempPath(), "NsMultitool_Test_PreV2_" + Guid.NewGuid().ToString("N")[..8]);
 
         try
         {
@@ -149,7 +152,8 @@ public class CompressedPreArchiveTests(TestPaths paths)
             totalEntries += entries.Count;
         }
 
-        Assert.True(totalEntries > 0, "No entries found across all PS2 PRE files");
+        Assert.Equal(506, preFiles.Count);
+        Assert.Equal(50_190, totalEntries);
     }
 
     [Fact]
@@ -222,51 +226,62 @@ public class CompressedPreArchiveTests(TestPaths paths)
     // Helpers
     // -------------------------------------------------------------------
 
-    private string? FindBuildSubdir(params string[] parts)
+    private string? FindPlainPreFixture()
     {
-        if (paths.SampleBuildsDir == null) return null;
-
-        foreach (var buildDir in Directory.EnumerateDirectories(paths.SampleBuildsDir))
-        {
-            var candidate = Path.Combine([buildDir, .. parts]);
-            if (Directory.Exists(candidate))
-                return candidate;
-        }
-
-        return null;
+        return paths.FindSampleFile(Thps3PsxBuild, "tricksel.pre");
     }
 
-    private string? FindPs2PreFile()
+    private string? FindCompressedPreFixture()
     {
-        var files = FindAllPs2PreFiles();
-        return files.Count > 0 ? files[0] : null;
+        return paths.FindSampleFile(Thps3Ps2Build, "Ware.pre");
+    }
+
+    private void AssertPlainPreFixture(string preFile)
+    {
+        AssertFixturePath(preFile, Thps3PsxBuild, "CD", "tricksel.pre");
+        Assert.Equal(297_412L, new FileInfo(preFile).Length);
+
+        using var stream = File.OpenRead(preFile);
+        using var reader = new BinaryReader(stream);
+        Assert.Equal(20u, reader.ReadUInt32());
+        Assert.Equal(0x6F663273u, reader.ReadUInt32());
+    }
+
+    private void AssertCompressedPreFixture(string preFile)
+    {
+        AssertFixturePath(preFile, Thps3Ps2Build, "SKATE3", "pre", "Ware.pre");
+        Assert.Equal(580_612L, new FileInfo(preFile).Length);
+
+        using var stream = File.OpenRead(preFile);
+        using var reader = new BinaryReader(stream);
+        Assert.Equal(580_612, reader.ReadInt32());
+        Assert.Equal(0xABCD0002u, reader.ReadUInt32());
+        Assert.Equal(33, reader.ReadInt32());
+    }
+
+    private void AssertFixturePath(string actualPath, string buildName, params string[] relativeParts)
+    {
+        var expectedPath = Path.GetFullPath(
+            Path.Combine([paths.SampleBuildsDir!, buildName, .. relativeParts]));
+        Assert.True(
+            string.Equals(expectedPath, Path.GetFullPath(actualPath), StringComparison.OrdinalIgnoreCase),
+            $"Expected fixture '{expectedPath}', got '{actualPath}'");
     }
 
     private List<string> FindAllPs2PreFiles()
     {
         if (paths.SampleBuildsDir == null) return [];
 
-        var result = new List<string>();
-        foreach (var buildDir in Directory.EnumerateDirectories(paths.SampleBuildsDir))
-        {
-            // Only look in PS2 builds
-            if (!buildDir.Contains("PS2", StringComparison.OrdinalIgnoreCase)) continue;
-
-            var preDir = Path.Combine(buildDir, "Archives", "PRE");
-            if (!Directory.Exists(preDir)) continue;
-
-            foreach (var file in Directory.EnumerateFiles(preDir, "*.*", SearchOption.AllDirectories))
-            {
-                var ext = Path.GetExtension(file);
-                if (!ext.Equals(".pre", StringComparison.OrdinalIgnoreCase) &&
-                    !ext.Equals(".prx", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                if (CompressedPreArchive.IsCompressedPre(file))
-                    result.Add(file);
-            }
-        }
-
-        return result;
+        return Directory.EnumerateDirectories(paths.SampleBuildsDir)
+            .Select(Path.GetFileName)
+            .OfType<string>()
+            .Where(static build => build.Contains("PS2", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(static build => build, StringComparer.Ordinal)
+            .SelectMany(build => paths.FindSampleFiles(build, "*.pre")
+                .Concat(paths.FindSampleFiles(build, "*.prx")))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(CompressedPreArchive.IsCompressedPre)
+            .OrderBy(static file => file, StringComparer.Ordinal)
+            .ToList();
     }
 }

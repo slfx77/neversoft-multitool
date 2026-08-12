@@ -35,6 +35,7 @@ public static class BonArchive
     public static void ExtractFiles(string bonPath, string outputDir,
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         using var stream = File.OpenRead(bonPath);
         using var reader = new BinaryReader(stream);
 
@@ -44,6 +45,19 @@ public static class BonArchive
             : ReadV3V4Entries(reader, stream, textureCount);
 
         var archiveName = Path.GetFileNameWithoutExtension(bonPath);
+        var outputRoot = Path.GetFullPath(outputDir);
+        var extractionRoot = ArchiveExtractionPath.GetContainedPath(
+            outputRoot, archiveName, "BON extraction directory");
+        var exportPaths = new string[entries.Count];
+        for (var i = 0; i < entries.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            var outputName = version == 1
+                ? Path.ChangeExtension(entries[i].Name, ".png")
+                : entries[i].Name;
+            exportPaths[i] = ArchiveExtractionPath.GetContainedPath(
+                extractionRoot, outputName, "BON entry");
+        }
 
         for (var i = 0; i < entries.Count; i++)
         {
@@ -54,8 +68,7 @@ public static class BonArchive
             if (version == 1)
             {
                 // Decode PVR texture to PNG
-                var pngName = Path.ChangeExtension(entry.Name, ".png");
-                var exportPath = Path.Combine(outputDir, archiveName, pngName);
+                var exportPath = exportPaths[i];
                 var exportDir = Path.GetDirectoryName(exportPath);
                 if (!string.IsNullOrEmpty(exportDir))
                     Directory.CreateDirectory(exportDir);
@@ -66,7 +79,7 @@ public static class BonArchive
             {
                 // Extract raw DDS file
                 stream.Seek(entry.Offset, SeekOrigin.Begin);
-                var exportPath = Path.Combine(outputDir, archiveName, entry.Name);
+                var exportPath = exportPaths[i];
                 var exportDir = Path.GetDirectoryName(exportPath);
                 if (!string.IsNullOrEmpty(exportDir))
                     Directory.CreateDirectory(exportDir);

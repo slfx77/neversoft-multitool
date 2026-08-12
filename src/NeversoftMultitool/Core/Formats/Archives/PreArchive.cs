@@ -77,8 +77,19 @@ public static class PreArchive
     public static void ExtractFiles(string prePath, string outputDir,
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         var entries = GetFileList(prePath);
         var archiveName = ArchiveNaming.GetExtractionStem(prePath);
+        var outputRoot = Path.GetFullPath(outputDir);
+        var extractionRoot = ArchiveExtractionPath.GetContainedPath(
+            outputRoot, archiveName, "PRE extraction directory");
+        var exportPaths = new string[entries.Count];
+        for (var i = 0; i < entries.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            exportPaths[i] = ArchiveExtractionPath.GetContainedPath(
+                extractionRoot, entries[i].Name, "PRE entry");
+        }
 
         using var stream = File.OpenRead(prePath);
 
@@ -89,7 +100,7 @@ public static class PreArchive
             var entry = entries[i];
             stream.Seek(entry.Offset, SeekOrigin.Begin);
 
-            var exportPath = Path.Combine(outputDir, archiveName, entry.Name);
+            var exportPath = exportPaths[i];
             var exportDir = Path.GetDirectoryName(exportPath);
             if (!string.IsNullOrEmpty(exportDir))
                 Directory.CreateDirectory(exportDir);

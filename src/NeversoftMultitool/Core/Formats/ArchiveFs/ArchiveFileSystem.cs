@@ -49,7 +49,8 @@ public static class ArchiveFileSystem
                 _ => throw new InvalidOperationException()
             };
         }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException)
+        catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException
+                                   or ArgumentException or OverflowException)
         {
             return null;
         }
@@ -91,7 +92,8 @@ public static class ArchiveFileSystem
                 _ => throw new InvalidOperationException()
             };
         }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException)
+        catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException
+                                   or ArgumentException or OverflowException)
         {
             return null;
         }

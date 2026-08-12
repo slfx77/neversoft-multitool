@@ -21,8 +21,20 @@ public static class Iso9660FileSystem
         try
         {
             Span<byte> sector = stackalloc byte[SectorSize];
-            source.ReadSector(sessionLba + 16, sector);
-            return sector[0] == 1 && sector.Slice(1, 5).SequenceEqual("CD001"u8);
+            for (var lba = sessionLba + 16; lba < sessionLba + 32; lba++)
+            {
+                source.ReadSector(lba, sector);
+                if (!sector.Slice(1, 5).SequenceEqual("CD001"u8))
+                    return false;
+
+                if (sector[0] == 1)
+                    return true;
+
+                if (sector[0] == 255)
+                    return false;
+            }
+
+            return false;
         }
         catch
         {

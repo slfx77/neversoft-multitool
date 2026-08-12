@@ -39,6 +39,14 @@ public abstract class ArchiveFileSystemBase : IArchiveFileSystem
 
     public abstract byte[] ReadEntry(ArchiveEntry entry);
 
+    protected static bool IsRangeWithin(long position, int size, long sourceLength)
+    {
+        return position >= 0
+               && size >= 0
+               && position <= sourceLength
+               && size <= sourceLength - position;
+    }
+
     public ArchiveEntry? FindByPath(string relativePath)
     {
         return _byPath.Value.TryGetValue(NormalizePath(relativePath), out var entry) ? entry : null;

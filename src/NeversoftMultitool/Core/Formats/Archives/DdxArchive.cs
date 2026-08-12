@@ -100,8 +100,19 @@ public static class DdxArchive
     public static void ExtractFiles(string ddxPath, string outputDir,
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         var entries = GetFileList(ddxPath);
         var archiveName = Path.GetFileNameWithoutExtension(ddxPath);
+        var outputRoot = Path.GetFullPath(outputDir);
+        var extractionRoot = ArchiveExtractionPath.GetContainedPath(
+            outputRoot, archiveName, "DDX extraction directory");
+        var exportPaths = new string[entries.Count];
+        for (var i = 0; i < entries.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            exportPaths[i] = ArchiveExtractionPath.GetContainedPath(
+                extractionRoot, entries[i].Name, "DDX entry");
+        }
 
         using var stream = File.OpenRead(ddxPath);
 
@@ -112,7 +123,7 @@ public static class DdxArchive
             var entry = entries[i];
             stream.Seek(entry.Offset, SeekOrigin.Begin);
 
-            var exportPath = Path.Combine(outputDir, archiveName, entry.Name);
+            var exportPath = exportPaths[i];
             var exportDir = Path.GetDirectoryName(exportPath);
             if (!string.IsNullOrEmpty(exportDir))
                 Directory.CreateDirectory(exportDir);

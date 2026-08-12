@@ -36,18 +36,21 @@ public static class ArchiveTypeDetector
     /// </summary>
     public static string GetArchiveExtension(string filePath)
     {
-        var name = Path.GetFileName(filePath).ToLowerInvariant();
+        var finalExtension = Path.GetExtension(filePath).ToLowerInvariant();
 
-        // Check for double extensions (e.g. .pak.ps2, .pak.xen)
-        foreach (var archiveExt in ArchiveExtensions)
-        {
-            var pattern = archiveExt + ".";
-            var idx = name.IndexOf(pattern, StringComparison.Ordinal);
-            if (idx > 0)
-                return archiveExt;
-        }
+        // A supported final extension is the outer container. Compound scanning
+        // is only for platform suffixes such as .pak.ps2 and .zip.wpc.
+        if (ArchiveExtensions.Contains(finalExtension))
+            return finalExtension;
 
-        return Path.GetExtension(filePath).ToLowerInvariant();
+        // Check the immediately preceding extension for platform-qualified
+        // archives (e.g. .pak.ps2, .zip.wpc).
+        var precedingExtension = Path.GetExtension(
+            Path.GetFileNameWithoutExtension(filePath)).ToLowerInvariant();
+        if (ArchiveExtensions.Contains(precedingExtension))
+            return precedingExtension;
+
+        return finalExtension;
     }
 
     /// <summary>

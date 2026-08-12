@@ -94,7 +94,7 @@ public static class XdvdfsFileSystem
             var byteOffset = entryOffset * 4;
             if (entryOffset == 0xFFFF || !visited.Add(entryOffset))
                 continue;
-            if (byteOffset + 14 > data.Length)
+            if ((long)byteOffset + 14 > tableSize || byteOffset + 14 > data.Length)
                 continue;
 
             var left = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(byteOffset));
@@ -107,8 +107,11 @@ public static class XdvdfsFileSystem
             // 0xFFFF-filled padding marks the end of a sector's entries.
             if (left == 0xFFFF && right == 0xFFFF && startSector == 0xFFFFFFFF)
                 continue;
-            if (byteOffset + 14 + nameLength > data.Length)
+            if ((long)byteOffset + 14 + nameLength > tableSize ||
+                byteOffset + 14 + nameLength > data.Length)
+            {
                 continue;
+            }
 
             if (left != 0 && left != 0xFFFF)
                 pending.Push(left);

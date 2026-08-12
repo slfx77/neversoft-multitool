@@ -41,11 +41,30 @@ public static class PkrArchive
     public static void ExtractFiles(string pkrPath, string outputDir,
         Action<int, int>? onFileExtracted = null, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         using var stream = File.OpenRead(pkrPath);
         using var reader = new BinaryReader(stream);
 
         var (dirs, _) = SetupDirectories(reader);
         var allEntries = ReadAllFileEntries(reader, dirs);
+        var outputRoot = Path.GetFullPath(outputDir);
+        var directoryPaths = new string[dirs.Count];
+        for (var i = 0; i < dirs.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            directoryPaths[i] = string.IsNullOrEmpty(dirs[i].Name)
+                ? outputRoot
+                : ArchiveExtractionPath.GetContainedPath(
+                    outputRoot, dirs[i].Name, "PKR directory");
+        }
+
+        var exportPaths = new string[allEntries.Count];
+        for (var i = 0; i < allEntries.Count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            exportPaths[i] = ArchiveExtractionPath.GetContainedPath(
+                outputRoot, allEntries[i].FullName, "PKR entry");
+        }
 
         var totalFiles = allEntries.Count;
         var filesProcessed = 0;
@@ -54,9 +73,11 @@ public static class PkrArchive
         stream.Seek(0, SeekOrigin.Begin);
         var (extractDirs, _) = SetupDirectories(reader);
 
-        foreach (var dir in extractDirs)
+        for (var directoryIndex = 0; directoryIndex < extractDirs.Count; directoryIndex++)
         {
-            var extractedPath = Path.Combine(outputDir, dir.Name);
+            token.ThrowIfCancellationRequested();
+            var dir = extractDirs[directoryIndex];
+            var extractedPath = directoryPaths[directoryIndex];
             Directory.CreateDirectory(extractedPath);
 
             for (var i = 0; i < dir.NumFiles; i++)
@@ -87,7 +108,7 @@ public static class PkrArchive
                 if (crc != fileEntry.Crc)
                     throw new InvalidDataException($"CRC mismatch for {fileEntry.Name}");
 
-                var outputPath = Path.Combine(extractedPath, fileEntry.Name);
+                var outputPath = exportPaths[filesProcessed];
                 File.WriteAllBytes(outputPath, outputData);
 
                 stream.Seek(originalPos, SeekOrigin.Begin);

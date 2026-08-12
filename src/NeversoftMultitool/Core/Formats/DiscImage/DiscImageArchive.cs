@@ -80,29 +80,47 @@ public static class DiscImageArchive
         Action<int, int>? onProgress = null,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var disc = OpenedDisc.Open(path);
         var total = disc.Files.Count + disc.AudioTracks.Count;
         var current = 0;
+        var outputRoot = Path.GetFullPath(outputDir);
+        var filePaths = new string[disc.Files.Count];
+        for (var i = 0; i < disc.Files.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            filePaths[i] = ArchiveExtractionPath.GetContainedPath(
+                outputRoot, disc.Files[i].FullPath, "Disc file");
+        }
 
-        foreach (var file in disc.Files)
+        var audioPaths = new string[disc.AudioTracks.Count];
+        for (var i = 0; i < disc.AudioTracks.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var number = disc.AudioTracks[i].Number;
+            audioPaths[i] = ArchiveExtractionPath.GetContainedPath(
+                outputRoot, $"cdda/track{number:D2}.wav", "Disc audio track");
+        }
+
+        for (var i = 0; i < disc.Files.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             current++;
 
-            var outPath = Path.Combine(outputDir,
-                file.Directory.Replace('/', Path.DirectorySeparatorChar),
-                file.Name);
+            var file = disc.Files[i];
+            var outPath = filePaths[i];
             Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
             disc.ExtractFile(file, outPath, cancellationToken);
             onProgress?.Invoke(current, total);
         }
 
-        foreach (var (number, region) in disc.AudioTracks)
+        for (var i = 0; i < disc.AudioTracks.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             current++;
 
-            var outPath = Path.Combine(outputDir, "cdda", $"track{number:D2}.wav");
+            var (_, region) = disc.AudioTracks[i];
+            var outPath = audioPaths[i];
             Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
             ExtractAudioTrack(region, outPath, cancellationToken);
             onProgress?.Invoke(current, total);
