@@ -1,6 +1,6 @@
 # THPS3 SKA Animation Correctness Handoff
 
-Date: 2026-04-21
+Date: 2026-04-21; resolved 2026-08-11
 
 ## Current Status
 
@@ -13,31 +13,39 @@ Date: 2026-04-21
   is `q_rmse=5.11786e-08`, `t_rmse=2.071e-07`.
 - `xyzw` + raw quaternion decode is confirmed for the runtime intermediate
   Q/T buffers; `wxyz` and conjugated variants remain rejected.
-- The production/default exporter mode was not changed. The latest contact
-  sheets visually eliminate `direct-raw` and `direct-raw-rawt` because their
-  arms fold through/cross the torso. `bind-raw` remains the default.
+- The final palette is now captured. For `skater_m_Idle` at
+  `0.799999475479126s`, pose `0x00B404C0` feeds the 29 padded RwMatrix records
+  at `0x00B415F0`. The unique source-space formula is local
+  `TR(conjugate(runtimeQ), rawT)`, parent-chain composition, then
+  `IBM * global` in System.Numerics row convention.
+- Production uses that formula through `SkaCompositionMode.Thps3Runtime`.
+  Z-up→Y-up is isolated on the non-joint `skeleton_root`, outside the source
+  bone chain. Against all 348 semantic RwMatrix floats, a fresh GLB scores
+  RMSE `0.000377701`, max `0.00223009`; the next row-oriented convention is
+  RMSE `4.97997`.
 - Generated diagnostics for this repo should be written under `TestOutput\...`.
   THPS3 SKA input fixtures live at `tests\TestData\Thps3\Ska\skater_m_*.ska`
   (gitignored — extracted from disc locally).
 
 ## Implemented
 
-- THPS3 pose application is isolated in the shared `SkaPoseEvaluator` (the standalone `Thps3SkaPoseApplier` named here originally no longer exists).
+- THPS3 export composition is isolated in `SkaAnimationWriter`; the shared
+  `SkaPoseEvaluator` remains the generic SKE-side evaluator.
 - THPS3 SKA Q records are parsed using the runtime Q-blob grouping rule instead
   of the serialized `prev / 24` chains. T records still use `prev / 20`.
-- `ska --skn` accepts `--thps3-mode` with these diagnostic modes:
-  `bind-raw`, `direct-raw`, `bind-conjugated`, `direct-conjugated`,
-  `bind-raw-rawt`, `direct-raw-rawt`.
-- Translation defaults to anchored additive:
-  `bindT + (skaT - firstSkaT)`.
-- HAnim ID/index ordering is reported for THPS3 `--skn` exports.
-- `tools/research/thps3-animation/thps3_variant_sweep.py` exports GLBs, renders GIFs, and
-  builds labeled contact sheets from sampled GIF frames.
+- RW DFF imports select `Thps3Runtime`; other SKA/SKE routes retain their
+  existing raw/additive policies. Translation is authored raw T, not the old
+  anchored `bindT + (skaT - firstSkaT)` diagnostic hypothesis.
+- The retained skater SKN has exact HAnim IDs and Index values `0..28`; its
+  push/pop flags reconstruct the parent chain used by the golden.
+- `tools/research/thps3-animation/thps3_variant_sweep.py` is the historical GLB/GIF/contact-sheet
+  driver. It references a removed diagnostic CLI and must be modernized before
+  use; it is not a current acceptance path.
 - `tools/research/thps3-animation/thps3_matrix_dump.py` dumps a 29-bone matrix palette from
   PCSX2 PINE or a `.p2s` savestate once the EE buffer address is known.
 - `tools/research/thps3-animation/thps3_matrix_compare.py` scores runtime matrix dumps
-  against every diagnostic GLB in the sweep, including local/model/skin and
-  transpose conventions.
+  against compatible diagnostic GLBs, including local/model/skin and transpose
+  conventions. The committed C# palette test is the current production gate.
 - `tools/research/thps3-animation/thps3_pose_scan.py` scans PCSX2 savestates for candidate
   29-bone THPS3 runtime pose structs when debugger register capture is noisy.
 - `tools/research/thps3-animation/thps3_pose_compare.py` scores scanned/dumped Q/T poses
@@ -48,10 +56,29 @@ Date: 2026-04-21
 - `tools/research/thps3-animation/thps3_runtime_qblob_dump.py` reconstructs the game's
   loaded 20-byte Q-key blob from a savestate and maps each runtime record back
   to the serialized 24-byte SKA Q record.
-- Focused tests cover rotation modes, anchored/raw translation, HAnim mapping
-  status, and local THPS3 fixture counts when assets are present.
+- `Thps3SkaRuntimePaletteTests` commits a normalized 29-bone palette with full
+  executable/savestate/SKN/SKA provenance, verifies the exported skin matrices,
+  and pins 2,998/2,998 runtime-format files parsed in the 3,000-file loose-disc
+  corpus. The obsolete silent `c:/tmp` first-key heuristic was removed.
 
-## Latest Sweep Result
+## Final Runtime-Palette Result (2026-08-11)
+
+The retained state is `SLUS-20013 (F77E2FB5).01.p2s`, SHA-256
+`633B8BB6C80E34E212F693DAD09D29A4ADD4568859A2C11056861B38B897CD05`.
+Static code at `0x00231230` follows pose `+0x24` to the final RwMatrix palette.
+Each 0x40-byte RwMatrix is four `xyz + pad/flags` lanes; the words at
+`+0x0C/+0x1C/+0x2C/+0x3C` are not affine elements and must be discarded.
+`thps3_matrix_dump.py` now preserves those words separately while normalizing
+the comparison matrix to fourth slots `0/0/0/1`.
+
+The committed golden's 348 float payload hashes to
+`9361EDCF29A801A929E723DD244C5A6FA8710DBF6E94F40FC79611760C98F99F`.
+The source fixtures are `skater_m.skn` SHA-256
+`DB56BFBC17E0772E7B3C1DD03D9C0CE5863A2723C714525B325F6533779F99B6`
+and `skater_m_Idle.ska` SHA-256
+`D0118026564FDDC46A335B618324B9984D82ECF25A859A253B0FE442FAEA4CC0`.
+
+## Historical Visual Sweep (superseded by the matrix palette)
 
 Command:
 
@@ -82,15 +109,15 @@ Outputs inspected:
 HAnim diagnostic for the fixture reports `id=exact, index=exact`, so there is
 no current evidence for a THPS3 bone-order remap.
 
-No mode was promoted. `bind-raw` remains the default. The direct rotation modes
+At that historical stage no mode was promoted and `bind-raw` remained the default. The direct rotation modes
 are rejected visually in the latest sheets despite matching the runtime Q/T
 intermediate buffers, which indicates those buffers are not the final local
 skinning transforms by themselves. Raw-translation modes remain diagnostic
 controls until final matrix evidence proves otherwise.
 
-## Mode Notes
+## Historical Mode Notes (superseded)
 
-- `bind-raw`: current production default and latest visual winner/control.
+- `bind-raw`: former production default and visual winner/control before the palette capture.
 - `direct-raw`: parser-level Q/T match to runtime intermediate buffers, but
   contact sheets fold/cross the arms through the torso; do not promote.
 - `bind-conjugated`: obvious arm/torso distortion in Idle contact sheets.
@@ -204,9 +231,10 @@ python tools\research\thps3-animation\thps3_runtime_qblob_dump.py `
 ```
 
 The game-loaded Q blob starts at `0x00D12C28`, contains `158` packed 20-byte
-records, and splits into `28` runtime Q tracks. The current parser instead
-treats the serialized Q section as `159` records and groups it by simple
-`prev / 24` chains into `29` tracks. That grouping is wrong.
+records, and splits into `28` runtime Q tracks. The earlier parser instead
+treated the serialized Q section as `159` records and grouped it by simple
+`prev / 24` chains into `29` tracks. That grouping was wrong and has since been
+replaced by the runtime grouping in `SkaThps3Parser`.
 
 Example runtime Q tracks from the game-loaded blob:
 
@@ -221,15 +249,14 @@ interpolation. Root rotation appears implicit/identity; the loaded blob has 28
 animated Q tracks for bones 1-28, while translation has 29 tracks including
 root. `SkaThps3Parser.ParseThps3` now implements this rule.
 
-Matrix-palette scan:
+Historical blind matrix-palette scan (superseded):
 
 - `tools/research/thps3-animation/thps3_matrix_palette_scan.py` was run against
   `thp3_debug.p2s` and the additional user-supplied `1.p2s` capture.
-- No credible simple contiguous 29-matrix EE palette was found in the tested
-  `mat4`, `mat3x4`, and `mat4x3` layouts. Best hits had only one anchor and
-  RMSE around `2.77`, so the final palette is either elsewhere, transformed
-  differently, or not stored as a simple contiguous float array in the tested
-  windows.
+- No credible simple contiguous 29-matrix EE palette was found in those tested
+  `mat4`, `mat3x4`, and `mat4x3` windows. The later deterministic call-chain
+  trace followed `pose + 0x24` to `0x00B415F0`, whose 29 padded RwMatrix records
+  form the committed final-palette oracle.
 
 Additional standing-idle savestates: `1.p2s`, `2.p2s`, `3.p2s`, and `4.p2s`,
 all supplied from the same external capture directory.
@@ -249,22 +276,13 @@ runtime skater pose buffers, but they should not be used to validate
 `skater_m_Idle.ska` directly because the visual pose appears to be a different
 standing idle/state.
 
-## Next Step
+## Closure
 
-The parser-level blocker is resolved. The remaining correctness question is the
-final transform convention after the runtime Q/T intermediate buffers are
-combined with bind/model/skinning matrices. The next useful target is final
-matrix capture, not more SKA field-order permutations.
-
-Recommended next work:
-
-- Capture or locate the final 29-bone matrix palette after the game applies the
-  interpolated Q/T buffers.
-- Compare that palette against `bind-raw`, `bind-raw-rawt`, and any required
-  matrix-space variants. Direct modes can stay available but are visually
-  deprioritized.
-- Keep the production default at `bind-raw` unless final matrix evidence proves
-  raw translation or another composition.
+The parser grouping and final transform convention are both resolved and
+production-pinned. Do not reopen this item from the historical contact-sheet
+ranking or intermediate-Q/T notes. A future report needs a new captured final
+palette that contradicts the committed 29-bone oracle, not another visual mode
+sweep or SKA field-order permutation.
 
 Static Ghidra progress:
 
@@ -274,6 +292,6 @@ Static Ghidra progress:
 - `FUN_00231048` confirms `x,y,z,w` Hamilton quaternion composition and
   additive translation, but no direct caller was identified in the focused
   call-graph dump.
-- Live PCSX2 matrix capture is the remaining high-value evidence now that the
-  parser reproduces the Q-key runtime linearization shown by
+- The retained final palette closes the live-capture requirement after the
+  parser reproduced the Q-key runtime linearization shown by
   `debug_runtime_qblob.json`.

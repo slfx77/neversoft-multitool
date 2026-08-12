@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare THPS3 runtime matrix dumps against diagnostic GLBs.
+"""Compare THPS3 runtime RwMatrix dumps against diagnostic GLBs.
 
 Use this after `thps3_matrix_dump.py` has captured a PCSX2/PINE or savestate
 matrix buffer. The script samples a diagnostic GLB at the same animation time
@@ -374,8 +374,9 @@ def matrices_by_convention(glb: GlbData, time: float) -> dict[str, list[Matrix]]
     return by_name
 
 
-def flatten(matrix: Matrix) -> list[float]:
-    return [matrix[row][col] for row in range(4) for col in range(4)]
+def rw_semantic_values(matrix: Matrix) -> list[float]:
+    """Return the 12 authored values from RenderWare's padded 4x3 matrix."""
+    return [matrix[row][col] for row in range(4) for col in range(3)]
 
 
 def runtime_matrices(payload: dict[str, Any]) -> list[Matrix]:
@@ -393,7 +394,11 @@ def compare_matrices(runtime: Sequence[Matrix], expected: Sequence[Matrix]) -> t
     for bone, (actual, predicted) in enumerate(zip(runtime, expected)):
         bone_sq = 0.0
         bone_count = 0
-        for a, b in zip(flatten(actual), flatten(predicted)):
+        # Runtime RwMatrix records store one flags/pad word after each xyz row.
+        # The dump helper normalizes those four words to 0/0/0/1 for convenient
+        # affine math, but they are not transform samples and must not dilute
+        # the reported error.
+        for a, b in zip(rw_semantic_values(actual), rw_semantic_values(predicted)):
             diff = a - b
             abs_diff = abs(diff)
             bone_sq += diff * diff

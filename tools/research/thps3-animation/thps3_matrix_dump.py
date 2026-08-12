@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dump THPS3 PS2 runtime bone matrices from PCSX2 PINE or a savestate.
+"""Dump THPS3 PS2 runtime RwMatrix palettes from PCSX2 PINE or a savestate.
 
 This is a narrow diagnostic helper for the THPS3 SKA runbook. It does not find
 the matrix buffer by itself; use the PCSX2 debugger/Ghidra address from the
@@ -107,16 +107,23 @@ def dump_matrices(reader: PineClient | SavestateReader, base: int, count: int, s
         address = base + bone * stride
         raw = reader.read_bytes(address, 64)
         values = struct.unpack("<16f", raw)
+        # RenderWare stores four 3-float vectors in 0x10-byte lanes:
+        # right.xyz/flags, up.xyz/pad, at.xyz/pad, pos.xyz/pad. The fourth
+        # words are not affine matrix elements (one live THPS3 pad happens to
+        # decode as 2821.5088f), so preserve their bits separately and expose a
+        # normalized System.Numerics-style row matrix for comparisons.
+        padding_words = struct.unpack("<4I", raw[0x0C:0x10] + raw[0x1C:0x20] + raw[0x2C:0x30] + raw[0x3C:0x40])
         matrices.append(
             {
                 "bone": bone,
                 "address": f"0x{address:08X}",
                 "m": [
-                    list(values[0:4]),
-                    list(values[4:8]),
-                    list(values[8:12]),
-                    list(values[12:16]),
+                    [values[0], values[1], values[2], 0.0],
+                    [values[4], values[5], values[6], 0.0],
+                    [values[8], values[9], values[10], 0.0],
+                    [values[12], values[13], values[14], 1.0],
                 ],
+                "rw_padding_words": [f"0x{value:08X}" for value in padding_words],
             }
         )
     return matrices
@@ -168,6 +175,7 @@ def main() -> int:
             "base_address": f"0x{args.addr:08X}",
             "count": args.count,
             "stride": args.stride,
+            "layout": "rw-matrix-4x3-padded-normalized-affine",
             "animation": args.animation,
             "time": args.time,
             "matrices": dump_matrices(reader, args.addr, args.count, args.stride),
