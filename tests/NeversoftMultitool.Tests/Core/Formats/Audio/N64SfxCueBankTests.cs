@@ -29,7 +29,7 @@ public sealed class N64SfxCueBankTests(TestPaths paths)
         {
             Thps2N64Build, Thps2N64Rom,
             3_962, 14, 671, 10_792, 32, 65, 497, 174,
-            "FAD96818EAE87281971491004696D34A403F56EE49559CBC342D5F4BC951032B"
+            "BDCE333142A7AEB912444F74802F3A475BBE8CEE943F54683DF4DDCC00BE96EF"
         },
         {
             Thps3N64Build, Thps3N64Rom,
@@ -248,9 +248,9 @@ public sealed class N64SfxCueBankTests(TestPaths paths)
         Assert.True(N64AssetCarver.TryCarve(File.ReadAllBytes(romPath!), out var assets));
         Assert.Equal(expectedAssetCount, assets.Count);
 
-        // The old carver suffix is not the selection oracle: THPS2 contains
-        // two valid cue banks classified as .bin because their raw note byte
-        // exceeds the legacy classifier's unproven MIDI-range gate.
+        // Parse every asset independently rather than treating an extension as
+        // proof. The carver now shares this exact predicate; this scan guards
+        // against future taxonomy drift and unrelated false positives.
         var banks = new List<(string Path, N64SfxCueBank Bank)>();
         foreach (var asset in assets.OrderBy(static asset => asset.Path, StringComparer.Ordinal))
         {
@@ -284,9 +284,8 @@ public sealed class N64SfxCueBankTests(TestPaths paths)
             Assert.Equal(item.Bank.SerializedSize - N64SfxCueBank.TerminatorSize, item.Bank.TerminatorOffset);
         });
 
-        var suffixedBankCount = banks.Count(static item =>
-            item.Path.EndsWith(".sfx.n64", StringComparison.Ordinal));
-        Assert.Equal(rom == Thps2N64Rom ? 12 : expectedBankCount, suffixedBankCount);
+        Assert.Equal(expectedBankCount, banks.Count(static item =>
+            item.Path.EndsWith(".sfx.n64", StringComparison.Ordinal)));
         AssertRepresentativeBankHashes(rom, banks);
         Assert.Equal(expectedAggregateSha256, AggregatePathAndBankHashes(banks));
     }
@@ -303,9 +302,9 @@ public sealed class N64SfxCueBankTests(TestPaths paths)
             case Thps2N64Rom:
                 AssertBank(banks, "sfx/000.sfx.n64", 516, 32,
                     "CF92F19BD8DF34918DF69707E0C63BECC9FAB464A832F29A2D830C21577C8DB7");
-                AssertBank(banks, "sfx/001.bin", 708, 44,
+                AssertBank(banks, "sfx/001.sfx.n64", 708, 44,
                     "87E7B5A93CC67E4719651C95D314ACD7978238E7150C3F6473BA21AF8E65C5DF");
-                AssertBank(banks, "sfx/003.bin", 644, 40,
+                AssertBank(banks, "sfx/003.sfx.n64", 644, 40,
                     "A68FEB75325C3EDD423005268DE79F9F7EB070426041D76BB24D3B1854DC52E5");
                 break;
             case Thps3N64Rom:

@@ -7,7 +7,8 @@ namespace NeversoftMultitool.CLI;
 
 /// <summary>
 ///     Writes an inspection-only manifest for one N64 Sound Tools BFX effects
-///     bank and its explicit or uniquely carved PTR descriptor binding.
+///     bank, its conservative initial-event metadata, and its explicit or
+///     uniquely carved PTR descriptor binding.
 /// </summary>
 public static class N64AudioFxInspectCommand
 {
@@ -29,7 +30,7 @@ public static class N64AudioFxInspectCommand
 
         var command = new Command(
             "n64-audio-fx-inspect",
-            "Inspect opaque N64 Sound Tools BFX components and local-wave-to-PTR bindings as JSON");
+            "Inspect N64 Sound Tools BFX initial events and initial-wave-to-PTR bindings as JSON");
         command.Arguments.Add(inputArgument);
         command.Options.Add(pointerOption);
         command.Options.Add(outputOption);
@@ -67,7 +68,8 @@ public static class N64AudioFxInspectCommand
             AnsiConsole.MarkupLine(
                 $"Wrote [green]{sources.FxBank.Components.Count}[/] opaque Sound Tools BFX component slices " +
                 $"and [green]{sources.FxBank.LocalWaveMap.Count}[/] local-wave-to-PTR bindings to " +
-                $"[green]{Markup.Escape(jsonPath)}[/] (bytecode and cue ownership remain unresolved)");
+                $"[green]{Markup.Escape(jsonPath)}[/] (initial events and exact continuation suffixes " +
+                "classified conservatively; all other bytecode and cue ownership remain unresolved)");
             return 0;
         }
         catch (Exception ex) when (ex is InvalidDataException

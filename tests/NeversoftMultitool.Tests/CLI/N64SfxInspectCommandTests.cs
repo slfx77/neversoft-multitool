@@ -107,7 +107,7 @@ public sealed class N64SfxInspectCommandTests(TestPaths paths)
 
     [CorpusTheory]
     [MemberData(nameof(RomManifestExpectations))]
-    public void Command_RomWritesOneAggregateIncludingZeroBankAndMisclassifiedBinCases(
+    public void Command_RomWritesOneAggregateIncludingZeroBankAndCorrectedCueSuffixes(
         string build,
         string rom,
         int expectedBankCount,
@@ -137,8 +137,8 @@ public sealed class N64SfxInspectCommandTests(TestPaths paths)
             return;
         }
 
-        Assert.Contains("sfx/001.bin", bankPaths);
-        Assert.Contains("sfx/003.bin", bankPaths);
+        Assert.Contains("sfx/001.sfx.n64", bankPaths);
+        Assert.Contains("sfx/003.sfx.n64", bankPaths);
     }
 
     private static byte[] BuildBank(byte loopFlag, byte note)

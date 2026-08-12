@@ -98,7 +98,7 @@ public sealed class N64AdpcmDecoderTests(TestPaths paths)
         Assert.Throws<InvalidDataException>(() => N64AdpcmDecoder.Decode(lateBadHeader, validBook));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Decode_Thps3Wave221_MatchesAbi1RuntimeGoldenAndClampContext()
     {
         var fixture = LoadWaveFixture(Thps3Build, Thps3Rom, 221);
@@ -124,7 +124,7 @@ public sealed class N64AdpcmDecoderTests(TestPaths paths)
             pcm[35..48]);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Decode_Thps3Wave129_MatchesAbi1RuntimeGoldenAcrossClippedHistory()
     {
         var fixture = LoadWaveFixture(Thps3Build, Thps3Rom, 129);
@@ -146,7 +146,7 @@ public sealed class N64AdpcmDecoderTests(TestPaths paths)
             HashPcmLittleEndian(pcm));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Decode_Thps2Wave258_EmitsStoredFramesOnceAndIgnoresLoopState()
     {
         var fixture = LoadWaveFixture(Thps2Build, Thps2Rom, 258);

@@ -31,19 +31,22 @@ public sealed class N64AudioDecodeCommandTests(TestPaths paths)
         foreach (var sampleRate in new[] { int.MinValue, -1, 0, 192_001, int.MaxValue })
         {
             var output = Path.Combine(temp.Path, $"rate-{sampleRate}.wav");
-            Assert.Equal(1, N64AudioDecodeCommand.Execute(pointerPath, wavePath, 0, sampleRate, output));
+            Assert.Equal(1, N64AudioDecodeCommand.Execute(
+                pointerPath, wavePath, 0, sampleRate, output, TestContext.Current.CancellationToken));
             Assert.False(File.Exists(output));
         }
 
         foreach (var index in new[] { int.MinValue, -1, 3, int.MaxValue })
         {
             var output = Path.Combine(temp.Path, $"index-{index}.wav");
-            Assert.Equal(1, N64AudioDecodeCommand.Execute(pointerPath, wavePath, index, 32_000, output));
+            Assert.Equal(1, N64AudioDecodeCommand.Execute(
+                pointerPath, wavePath, index, 32_000, output, TestContext.Current.CancellationToken));
             Assert.False(File.Exists(output));
         }
 
         var noWaveOutput = Path.Combine(temp.Path, "missing-wave.wav");
-        Assert.Equal(1, N64AudioDecodeCommand.Execute(pointerPath, null, 0, 32_000, noWaveOutput));
+        Assert.Equal(1, N64AudioDecodeCommand.Execute(
+            pointerPath, null, 0, 32_000, noWaveOutput, TestContext.Current.CancellationToken));
         Assert.False(File.Exists(noWaveOutput));
 
         var malformedWave = waveData.ToArray();
@@ -54,7 +57,9 @@ public sealed class N64AudioDecodeCommandTests(TestPaths paths)
         byte[] sentinel = [0x51, 0x52, 0x53, 0x54];
         File.WriteAllBytes(malformedOutput, sentinel);
         Assert.Equal(1,
-            N64AudioDecodeCommand.Execute(pointerPath, malformedWavePath, 0, 32_000, malformedOutput));
+            N64AudioDecodeCommand.Execute(
+                pointerPath, malformedWavePath, 0, 32_000, malformedOutput,
+                TestContext.Current.CancellationToken));
         Assert.Equal(sentinel, File.ReadAllBytes(malformedOutput));
 
         var mismatchedWave = waveData.ToArray();
@@ -63,14 +68,65 @@ public sealed class N64AudioDecodeCommandTests(TestPaths paths)
         var mismatchedOutput = Path.Combine(temp.Path, "mismatched.wav");
         File.WriteAllBytes(mismatchedWavePath, mismatchedWave);
         Assert.Equal(1,
-            N64AudioDecodeCommand.Execute(pointerPath, mismatchedWavePath, 0, 32_000, mismatchedOutput));
+            N64AudioDecodeCommand.Execute(
+                pointerPath, mismatchedWavePath, 0, 32_000, mismatchedOutput,
+                TestContext.Current.CancellationToken));
         Assert.False(File.Exists(mismatchedOutput));
 
-        Assert.Equal(1, N64AudioDecodeCommand.Execute(pointerPath, wavePath, 0, 32_000, "\0"));
+        Assert.Equal(1, N64AudioDecodeCommand.Execute(
+            pointerPath, wavePath, 0, 32_000, "\0", TestContext.Current.CancellationToken));
         Assert.Throws<InvalidDataException>(() =>
             N64AudioDecodeCommand.ValidateWavBounds(
                 uint.MaxValue - uint.MaxValue % N64AdpcmDecoder.FrameSize,
                 192_000));
+    }
+
+    [Fact]
+    public void Command_CanonicalOutputPathsCannotOverwritePointerOrWaveSources()
+    {
+        using var temp = new TempDirectory();
+        var (pointerData, waveData) = N64SoundToolsBankTests.BuildPair(pointerTail: 6, waveTail: 1);
+        var pointerPath = Path.Combine(temp.Path, "bank.ptr.n64");
+        var wavePath = Path.Combine(temp.Path, "waves.wbk");
+        File.WriteAllBytes(pointerPath, pointerData);
+        File.WriteAllBytes(wavePath, waveData);
+
+        var pointerAlias = Path.Combine(temp.Path, ".", "bank.ptr.n64");
+        var waveAlias = Path.Combine(temp.Path, "nested", "..", "waves.wbk");
+        Assert.Equal(1,
+            N64AudioDecodeCommand.Execute(
+                pointerPath, wavePath, 0, 32_000, pointerAlias,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(1,
+            N64AudioDecodeCommand.Execute(
+                pointerPath, wavePath, 0, 32_000, waveAlias,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(pointerData, File.ReadAllBytes(pointerPath));
+        Assert.Equal(waveData, File.ReadAllBytes(wavePath));
+        Assert.Equal(2, Directory.GetFiles(temp.Path, "*", SearchOption.AllDirectories).Length);
+    }
+
+    [Fact]
+    public void Execute_PreCancelled_PropagatesBeforeInputOrOutputAccess()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "[cancelled].ptr.n64");
+        var output = Path.Combine(temp.Path, "nested", "cancelled.wav");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() => N64AudioDecodeCommand.Execute(
+            input,
+            wavePath: null,
+            waveIndex: 0,
+            sampleRate: 32_000,
+            outputPath: output,
+            cancellationToken: cancellation.Token));
+
+        Assert.False(Directory.Exists(Path.GetDirectoryName(output)));
+        Assert.False(File.Exists(output));
     }
 
     [Fact]
@@ -132,8 +188,10 @@ public sealed class N64AudioDecodeCommandTests(TestPaths paths)
         File.WriteAllBytes(pointerPath, sources.PointerData);
         File.WriteAllBytes(wavePath, sources.WaveData);
 
-        Assert.Equal(0, N64AudioDecodeCommand.Execute(romPath!, null, 221, 32_000, romOutput));
-        Assert.Equal(0, N64AudioDecodeCommand.Execute(pointerPath, wavePath, 221, 32_000, pairOutput));
+        Assert.Equal(0, N64AudioDecodeCommand.Execute(
+            romPath!, null, 221, 32_000, romOutput, TestContext.Current.CancellationToken));
+        Assert.Equal(0, N64AudioDecodeCommand.Execute(
+            pointerPath, wavePath, 221, 32_000, pairOutput, TestContext.Current.CancellationToken));
 
         var romWav = File.ReadAllBytes(romOutput);
         Assert.Equal(romWav, File.ReadAllBytes(pairOutput));

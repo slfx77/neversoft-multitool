@@ -197,9 +197,11 @@ public sealed class N64SoundToolsBankTests(TestPaths paths)
             File.WriteAllBytes(pointerPath, pointerData);
             File.WriteAllBytes(wavePath, waveData);
 
-            Assert.Equal(1, N64AudioInspectCommand.Execute(pointerPath, null, jsonPath));
+            Assert.Equal(1, N64AudioInspectCommand.Execute(
+                pointerPath, null, jsonPath, TestContext.Current.CancellationToken));
             Assert.False(File.Exists(jsonPath));
-            Assert.Equal(0, N64AudioInspectCommand.Execute(pointerPath, wavePath, jsonPath));
+            Assert.Equal(0, N64AudioInspectCommand.Execute(
+                pointerPath, wavePath, jsonPath, TestContext.Current.CancellationToken));
             Assert.True(File.Exists(jsonPath));
 
             using var json = JsonDocument.Parse(File.ReadAllText(jsonPath));
@@ -211,9 +213,11 @@ public sealed class N64SoundToolsBankTests(TestPaths paths)
             var badWaveData = waveData.ToArray();
             badWaveData[0x22] = 1;
             File.WriteAllBytes(mismatchedWave, badWaveData);
-            Assert.Equal(1, N64AudioInspectCommand.Execute(pointerPath, mismatchedWave, mismatchedJson));
+            Assert.Equal(1, N64AudioInspectCommand.Execute(
+                pointerPath, mismatchedWave, mismatchedJson, TestContext.Current.CancellationToken));
             Assert.False(File.Exists(mismatchedJson));
-            Assert.Equal(1, N64AudioInspectCommand.Execute(pointerPath, wavePath, "\0"));
+            Assert.Equal(1, N64AudioInspectCommand.Execute(
+                pointerPath, wavePath, "\0", TestContext.Current.CancellationToken));
         }
         finally
         {
@@ -286,7 +290,7 @@ public sealed class N64SoundToolsBankTests(TestPaths paths)
             // PTR magic and one WBK magic, with no path-name pairing fallback.
             var sources = N64AudioInspectCommand.ResolveSources(romPath!, wavePath: null);
             Assert.Equal(expected.PointerLeaf, sources.PointerSource);
-            Assert.Equal("000.bin", sources.WaveSource);
+            Assert.Equal("000.wbk.n64", sources.WaveSource);
             Assert.Equal(expected.PointerSha256, Convert.ToHexString(SHA256.HashData(sources.PointerData)));
             Assert.Equal(expected.WaveSha256, Convert.ToHexString(SHA256.HashData(sources.WaveData)));
 
@@ -365,8 +369,10 @@ public sealed class N64SoundToolsBankTests(TestPaths paths)
             var explicitJson = Path.Combine(tempRoot, "explicit.json");
             File.WriteAllBytes(pointerPath, thps1Sources.PointerData);
             File.WriteAllBytes(wavePath, thps1Sources.WaveData);
-            Assert.Equal(0, N64AudioInspectCommand.Execute(thps1RomPath!, null, romJson));
-            Assert.Equal(0, N64AudioInspectCommand.Execute(pointerPath, wavePath, explicitJson));
+            Assert.Equal(0, N64AudioInspectCommand.Execute(
+                thps1RomPath!, null, romJson, TestContext.Current.CancellationToken));
+            Assert.Equal(0, N64AudioInspectCommand.Execute(
+                pointerPath, wavePath, explicitJson, TestContext.Current.CancellationToken));
             Assert.Equal(File.ReadAllBytes(romJson), File.ReadAllBytes(explicitJson));
         }
         finally

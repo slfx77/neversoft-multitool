@@ -40,13 +40,19 @@ public static class N64AudioInspectCommand
             return Task.FromResult(Execute(
                 parseResult.GetValue(inputArgument)!,
                 parseResult.GetValue(waveOption),
-                parseResult.GetValue(outputOption)!));
+                parseResult.GetValue(outputOption)!,
+                cancellationToken));
         });
         return command;
     }
 
-    internal static int Execute(string input, string? wavePath, string jsonPath)
+    internal static int Execute(
+        string input,
+        string? wavePath,
+        string jsonPath,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!File.Exists(input))
         {
             AnsiConsole.MarkupLine($"[red]Error:[/] File not found: {Markup.Escape(input)}");
@@ -56,9 +62,12 @@ public static class N64AudioInspectCommand
         try
         {
             var sources = N64SoundToolsInputResolver.Resolve(input, wavePath);
+            cancellationToken.ThrowIfCancellationRequested();
             // Complete both-file validation before touching the destination.
             // The subsequent ordinary text-file write is not transactional.
             var bank = N64SoundToolsBank.Parse(sources.PointerData, sources.WaveData);
+            RejectCanonicalSourcePath(input, wavePath, jsonPath);
+            cancellationToken.ThrowIfCancellationRequested();
             N64SoundToolsBankJsonExporter.Write(
                 jsonPath,
                 sources.PointerSource,
@@ -87,4 +96,21 @@ public static class N64AudioInspectCommand
     internal static N64SoundToolsInputSources SelectCarvedPair(
         IReadOnlyList<N64AssetCarver.CarvedAsset> assets)
         => N64SoundToolsInputResolver.SelectCarvedPair(assets);
+
+    private static void RejectCanonicalSourcePath(string input, string? wavePath, string outputPath)
+    {
+        // This guards normalized path aliases. Symlink/hard-link identity is a
+        // separate filesystem-level overwrite policy.
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var canonicalOutput = Path.GetFullPath(outputPath);
+
+        if (string.Equals(canonicalOutput, Path.GetFullPath(input), comparison) ||
+            wavePath != null && string.Equals(canonicalOutput, Path.GetFullPath(wavePath), comparison))
+        {
+            throw new InvalidDataException(
+                "output path resolves to the same canonical path as an input PTR/WBK/ROM source");
+        }
+    }
 }

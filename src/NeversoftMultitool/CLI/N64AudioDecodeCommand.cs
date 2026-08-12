@@ -58,7 +58,8 @@ public static class N64AudioDecodeCommand
                 parseResult.GetValue(waveOption),
                 parseResult.GetValue(indexOption),
                 parseResult.GetValue(sampleRateOption),
-                parseResult.GetValue(outputOption)!));
+                parseResult.GetValue(outputOption)!,
+                cancellationToken));
         });
         return command;
     }
@@ -68,8 +69,11 @@ public static class N64AudioDecodeCommand
         string? wavePath,
         int waveIndex,
         int sampleRate,
-        string outputPath)
+        string outputPath,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!File.Exists(input))
         {
             AnsiConsole.MarkupLine($"[red]Error:[/] File not found: {Markup.Escape(input)}");
@@ -85,8 +89,12 @@ public static class N64AudioDecodeCommand
                     $"{MinimumSampleRate}..{MaximumSampleRate}");
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             var sources = N64SoundToolsInputResolver.Resolve(input, wavePath);
+            cancellationToken.ThrowIfCancellationRequested();
             var bank = N64SoundToolsBank.Parse(sources.PointerData, sources.WaveData);
+            cancellationToken.ThrowIfCancellationRequested();
             if ((uint)waveIndex >= (uint)bank.PointerBank.Waves.Count)
             {
                 throw new InvalidDataException(
@@ -99,8 +107,12 @@ public static class N64AudioDecodeCommand
 
             // Pairing, full PTR/WBK validation, index/range checks, output-size
             // preflight, and complete decode all precede destination creation.
+            cancellationToken.ThrowIfCancellationRequested();
             var pcm = N64AdpcmDecoder.Decode(encoded, wave.Book);
+            cancellationToken.ThrowIfCancellationRequested();
+            RejectCanonicalSourcePath(input, wavePath, outputPath);
             WavWriter.WritePcm16(outputPath, sampleRate, channels: 1, pcm);
+            cancellationToken.ThrowIfCancellationRequested();
 
             AnsiConsole.MarkupLine(
                 $"Decoded stored wave [green]{waveIndex}[/] once with N64 ABI1/libultra " +
@@ -137,5 +149,22 @@ public static class N64AudioDecodeCommand
             throw new InvalidDataException("decoded sample count exceeds the runtime array limit");
         if (dataSize > Array.MaxLength || dataSize > int.MaxValue || riffSize > int.MaxValue)
             throw new InvalidDataException("decoded mono PCM16 wave exceeds the supported RIFF/array size");
+    }
+
+    private static void RejectCanonicalSourcePath(string input, string? wavePath, string outputPath)
+    {
+        // This guards normalized path aliases. Symlink/hard-link identity is a
+        // separate filesystem-level overwrite policy.
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var canonicalOutput = Path.GetFullPath(outputPath);
+
+        if (string.Equals(canonicalOutput, Path.GetFullPath(input), comparison) ||
+            wavePath != null && string.Equals(canonicalOutput, Path.GetFullPath(wavePath), comparison))
+        {
+            throw new InvalidDataException(
+                "output path resolves to the same canonical path as an input PTR/WBK/ROM source");
+        }
     }
 }

@@ -109,8 +109,9 @@ public static class N64SfxInspectCommand
         var banks = new List<N64SfxCueBankSource>();
         foreach (var asset in assets)
         {
-            // Scan every carved asset. The legacy .sfx.n64 classifier is not
-            // an oracle: two real THPS2 banks are conservatively named .bin.
+            // Scan every carved asset. A suffix is not an oracle: this route
+            // must remain compatible with legacy extractions where two real
+            // THPS2 banks were conservatively named .bin.
             if (N64SfxCueBank.TryParse(asset.Data, out var bank))
                 banks.Add(new N64SfxCueBankSource(asset.Path, bank!));
         }

@@ -38,9 +38,11 @@ public sealed class SfxCueLayoutTests(TestPaths paths)
     }
 
     /// <summary>
-    ///     Every carved bank parses under the N64 layout, and the fields land in
-    ///     ranges the grammar allows — MIDI notes are 7-bit, and a pitch read
-    ///     with the wrong byte order lands far outside the engine's range.
+    ///     Every carved Spider-Man bank parses under the N64 layout, and this
+    ///     game's fields land in the measured 7-bit note range. That is a
+    ///     corpus property, not a classifier gate: two THPS2 raw note bytes
+    ///     exceed 0x7F. A pitch read with the wrong byte order still lands far
+    ///     outside this game's measured range.
     /// </summary>
     [CorpusFact]
     public void EveryCarvedCueBank_ParsesUnderTheN64Layout()
