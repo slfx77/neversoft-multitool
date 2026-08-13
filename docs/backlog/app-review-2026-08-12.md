@@ -12,9 +12,9 @@ Each item records whether it was **confirmed against code** during triage or is 
 
 ## A. PSX colour pulses (Spider-Man)
 
-### A1. 🔴 Pulses freeze after a few seconds of playback — CONFIRMED IN CODE
+### A1. ✅ Pulses freeze after a few seconds of playback — FIXED 2026-08-12
 
-Reported as "pulse animations eventually stop". **This is a real bug and the cause is identified.**
+Reported as "pulse animations eventually stop". **This was a real bug; cause identified and fixed.**
 
 Both playhead walks advance by subtracting one key interval per loop iteration, under a fixed 256-iteration guard, while `time` grows with the absolute frame counter:
 
@@ -27,7 +27,9 @@ Once `initialAccumulator + frame` exceeds the sum of the next 256 intervals, the
 
 **Do not "fix" `PsxColourPulseChannels.EvaluateFrameZero` (:110)** — it walks from `InitialAccumulator` only (a byte, ≤ 255), so it is correctly bounded, and it is the self-validation the export path depends on.
 
-**Why the green suite missed it**: `PsxColourPulseExportTests.Export_Frame0MatchesTheBake_AcrossEveryPulsedPsxFile` validates **frame zero only**, across the whole corpus. Nothing exercises a late playhead. Add a regression that evaluates a channel some thousands of frames in and asserts it still matches the same phase as the modulo-equivalent frame.
+**Why the green suite missed it**: `PsxColourPulseExportTests.Export_Frame0MatchesTheBake_AcrossEveryPulsedPsxFile` validates **frame zero only**, across the whole corpus. Nothing exercised a late playhead.
+
+**Fix as shipped**: both walks now fold the playhead into one cycle first (the walk is periodic in the cycle length, so this is equivalent wherever the old walk actually terminated, and frame-0 agreement with the bake is unchanged — the corpus sweep stays green). Regressions added: four late-playhead cases plus a short-interval sweep and an explicit "still animates late in playback" assertion in `PsxColourPulseEvaluatorTests`, and an ordering pin in `PsxColourPulseViewerContractTests` for the untestable viewer JS. Mutation-checked: four of the five new C# cases fail against the pre-fix evaluator.
 
 ### A2. 🔴 Pulses run at the wrong speed — REPORTED, needs one decomp check
 

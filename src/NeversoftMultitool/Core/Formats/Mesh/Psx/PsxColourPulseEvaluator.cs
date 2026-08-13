@@ -19,7 +19,12 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 /// </summary>
 public static class PsxColourPulseEvaluator
 {
-    /// <summary>Guards against a malformed key list with all-zero intervals.</summary>
+    /// <summary>
+    ///     Backstop for a malformed key list. The walk is bounded by the key
+    ///     count once <see cref="WrapIntoCycle" /> has folded the playhead into
+    ///     one cycle, so this only ever trips on data the cycle length cannot
+    ///     describe (every interval zero).
+    /// </summary>
     private const int WalkGuard = 256;
 
     /// <summary>
@@ -38,13 +43,12 @@ public static class PsxColourPulseEvaluator
         var keyIndex = initialKeyIndex < keys.Length ? initialKeyIndex : 0;
         var time = initialTimeAccumulator + frameOffset;
 
-        if (time < 0)
-        {
-            var cycle = CycleFrames(keys);
-            if (cycle <= 0)
-                return KeyColor(keys[keyIndex]);
-            time = (time % cycle + cycle) % cycle;
-        }
+        // Fold the playhead into one cycle BEFORE walking. Walking a raw frame
+        // count one interval at a time cannot reach a far-future playhead: the
+        // guard would stop the walk early, leaving time >= interval so the blend
+        // clamped to 1 and the pulse froze on that key for the rest of playback.
+        if (!WrapIntoCycle(keys, ref time))
+            return KeyColor(keys[keyIndex]);
 
         for (var guard = 0; guard < WalkGuard; guard++)
         {
@@ -62,6 +66,22 @@ public static class PsxColourPulseEvaluator
             : Math.Clamp(time / (float)current.Interval, 0f, 1f);
 
         return Vector3.Lerp(KeyColor(current), KeyColor(next), amount);
+    }
+
+    /// <summary>
+    ///     Folds <paramref name="time" /> into <c>[0, cycle)</c> so the key walk
+    ///     is bounded by the key count rather than by the elapsed frame count.
+    ///     Returns false when the pulse has no cycle at all (every interval
+    ///     zero), i.e. it holds its current key forever.
+    /// </summary>
+    private static bool WrapIntoCycle(PsxColourPulseKey[] keys, ref int time)
+    {
+        var cycle = CycleFrames(keys);
+        if (cycle <= 0)
+            return false;
+
+        time = ((time % cycle) + cycle) % cycle;
+        return true;
     }
 
     /// <summary>

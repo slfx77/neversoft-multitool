@@ -1063,6 +1063,21 @@ if (psxFlags.z < 0.5) {
       if (keyIndex >= keys.length) keyIndex = 0;
       let time = (channel.accumulator | 0) + frame;
 
+      // Fold the playhead into one cycle BEFORE walking. Subtracting one
+      // interval per iteration cannot reach a far-future playhead under the
+      // guard below: the walk stopped early with time >= interval, so `amount`
+      // clamped to 1 and every pulse froze a few seconds into playback. The
+      // walk is periodic in the cycle length, so wrapping first is equivalent
+      // wherever the old walk actually terminated.
+      let cycle = channel.cycleFrames;
+      if (cycle === undefined) {
+        cycle = 0;
+        for (let i = 0; i < intervals.length; i++) cycle += intervals[i] | 0;
+        channel.cycleFrames = cycle;
+      }
+      if (cycle <= 0) return { keyIndex, next: (keyIndex + 1) % keys.length, amount: 0 };
+      time = ((time % cycle) + cycle) % cycle;
+
       for (let guard = 0; guard < 256; guard++) {
         const interval = intervals[keyIndex] | 0;
         if (interval === 0 || time < interval) break;

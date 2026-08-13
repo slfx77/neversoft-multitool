@@ -56,6 +56,77 @@ public class PsxColourPulseEvaluatorTests
         Assert.Equal(start, wrapped);
     }
 
+    /// <summary>
+    ///     The playhead is periodic in the cycle length, so any frame must agree
+    ///     with its wrapped equivalent no matter how far into playback it is.
+    ///     Walking one interval per iteration could not reach a far-future frame
+    ///     under the evaluator's guard: the walk stopped early with time still
+    ///     past the interval, the blend clamped to 1, and the pulse froze on that
+    ///     key for the rest of playback. With a 32-frame interval that happened
+    ///     about 8,192 frames (~2 minutes at 60 Hz) in.
+    /// </summary>
+    [Theory]
+    [InlineData(8_192)]
+    [InlineData(8_208)]
+    [InlineData(100_016)]
+    [InlineData(1_000_003)]
+    public void Evaluate_FarIntoPlayback_AgreesWithTheWrappedFrame(int frameOffset)
+    {
+        var cycle = PsxColourPulseEvaluator.CycleFrames(RgbCycle());
+
+        var late = PsxColourPulseEvaluator.Evaluate(RgbCycle(), 0, 0, frameOffset);
+        var wrapped = PsxColourPulseEvaluator.Evaluate(RgbCycle(), 0, 0, frameOffset % cycle);
+
+        Assert.Equal(wrapped, late);
+    }
+
+    /// <summary>Short intervals reached the old guard sooner — cycle 6, not 96.</summary>
+    [Fact]
+    public void Evaluate_ShortIntervalsFarIntoPlayback_StillAgreeWithTheWrappedFrame()
+    {
+        var keys = RgbCycle(2);
+        var cycle = PsxColourPulseEvaluator.CycleFrames(keys);
+
+        for (var offset = 10_000; offset < 10_000 + cycle; offset++)
+        {
+            Assert.Equal(
+                PsxColourPulseEvaluator.Evaluate(keys, 0, 0, offset % cycle),
+                PsxColourPulseEvaluator.Evaluate(keys, 0, 0, offset));
+        }
+    }
+
+    /// <summary>
+    ///     The freeze presented as "pulses eventually stop", so assert motion
+    ///     directly: a run of consecutive late frames must not all be identical.
+    /// </summary>
+    [Fact]
+    public void Evaluate_LateFrames_StillAnimate()
+    {
+        var first = PsxColourPulseEvaluator.Evaluate(RgbCycle(), 0, 0, 500_000);
+        var moved = false;
+        for (var offset = 500_001; offset < 500_000 + 96; offset++)
+        {
+            if (PsxColourPulseEvaluator.Evaluate(RgbCycle(), 0, 0, offset) != first)
+            {
+                moved = true;
+                break;
+            }
+        }
+
+        Assert.True(moved, "colour pulse stopped animating late in playback");
+    }
+
+    /// <summary>A serialized accumulator past one cycle must not shift the phase.</summary>
+    [Fact]
+    public void Evaluate_AccumulatorPastAWholeCycle_MatchesTheWrappedAccumulator()
+    {
+        // 200 accumulator frames over a 96-frame cycle wraps to 8.
+        var wrapped = PsxColourPulseEvaluator.Evaluate(RgbCycle(), 0, 8);
+        var raw = PsxColourPulseEvaluator.Evaluate(RgbCycle(), 0, 200);
+
+        Assert.Equal(wrapped, raw);
+    }
+
     [Fact]
     public void Evaluate_ZeroInterval_HoldsItsKey()
     {

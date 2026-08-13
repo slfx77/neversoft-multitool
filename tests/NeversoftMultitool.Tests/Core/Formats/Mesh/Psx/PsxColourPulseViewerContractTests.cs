@@ -70,6 +70,27 @@ public class PsxColourPulseViewerContractTests
     }
 
     /// <summary>
+    ///     The viewer's playhead walk subtracts one key interval per iteration
+    ///     under a fixed guard, so it can only reach a playhead a bounded number
+    ///     of intervals away. Fed the absolute frame counter it ran out a few
+    ///     seconds into playback, leaving the blend clamped at 1 — every pulse
+    ///     froze. The wrap into one cycle must therefore happen BEFORE the walk.
+    /// </summary>
+    [Fact]
+    public void Viewer_WrapsThePlayheadIntoOneCycleBeforeWalkingKeys()
+    {
+        var viewer = ReadViewer();
+        var body = ExtractFunction(viewer, "function psxColourPulseSample(channel, frame)");
+
+        var wrap = body.IndexOf("time = ((time % cycle) + cycle) % cycle", StringComparison.Ordinal);
+        var walk = body.IndexOf("guard < 256", StringComparison.Ordinal);
+
+        Assert.True(wrap >= 0, "The sampler must fold the playhead into one cycle.");
+        Assert.True(walk >= 0, "Could not find the interval walk that anchors this check.");
+        Assert.True(wrap < walk, "The cycle wrap must run before the interval walk, not after.");
+    }
+
+    /// <summary>
     ///     Synthetic inert scene: without UV wibbles or colour-pulse bindings,
     ///     the timeline retains its frame-zero fallback.
     /// </summary>
