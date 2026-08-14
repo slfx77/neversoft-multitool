@@ -136,4 +136,72 @@ public class ColorHelpersTests
         Assert.Equal(0, rgba[2]);
         Assert.Equal(7 * 255 / 15, rgba[3]); // ~119
     }
+
+    [Fact]
+    public void Convert16BitTextureToRgba_NullBuffer_Throws()
+    {
+        var exception = Assert.Throws<ArgumentNullException>(() =>
+            ColorHelpers.Convert16BitTextureToRgba(1, 1, 1, null!));
+
+        Assert.Equal("textureBuffer", exception.ParamName);
+    }
+
+    [Theory]
+    [InlineData(0, 1, "width")]
+    [InlineData(-1, 1, "width")]
+    [InlineData(1, 0, "height")]
+    [InlineData(1, -1, "height")]
+    public void Convert16BitTextureToRgba_NonPositiveDimension_Throws(
+        int width,
+        int height,
+        string parameterName)
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ColorHelpers.Convert16BitTextureToRgba(1, width, height, []));
+
+        Assert.Equal(parameterName, exception.ParamName);
+    }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(5)]
+    public void Convert16BitTextureToRgba_InexactBufferLength_Throws(int bufferLength)
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            ColorHelpers.Convert16BitTextureToRgba(1, 2, 2, new ushort[bufferLength]));
+
+        Assert.Equal("textureBuffer", exception.ParamName);
+    }
+
+    [Fact]
+    public void Convert16BitTextureToRgba_OutputExceedsRuntimeArrayLimit_Throws()
+    {
+        var width = Array.MaxLength / 4 + 1;
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ColorHelpers.Convert16BitTextureToRgba(1, width, 1, []));
+
+        Assert.Equal("width", exception.ParamName);
+        Assert.StartsWith(
+            $"Texture dimensions {width}x1 exceed the maximum supported RGBA output size.",
+            exception.Message);
+    }
+
+    [Fact]
+    public void Convert16BitTextureToRgba_ExactRgb565Surface_ConvertsEveryPixel()
+    {
+        ushort[] textureBuffer = [0xF800, 0x07E0, 0x001F, 0xFFFF];
+
+        var rgba = ColorHelpers.Convert16BitTextureToRgba(1, 2, 2, textureBuffer);
+
+        Assert.Equal(
+            new byte[]
+            {
+                255, 0, 0, 255,
+                0, 255, 0, 255,
+                0, 0, 255, 255,
+                255, 255, 255, 255
+            },
+            rgba);
+    }
 }

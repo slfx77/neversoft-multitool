@@ -22,6 +22,7 @@ internal sealed partial class Ps2GsVram
 
     // PSM constants
     internal const uint PSMCT32 = 0x00;
+    internal const uint PSMCT24 = 0x01;
     internal const uint PSMCT16 = 0x02;
     internal const uint PSMCT16S = 0x0A;
     internal const uint PSMT8 = 0x13;
@@ -57,6 +58,28 @@ internal sealed partial class Ps2GsVram
         WriteRectPSMCT32Core(dbp, dbw, rrw, rrh, data, dsax, dsay, false);
     }
 
+    /// <summary>
+    ///     Write a rectangular region using PSMCT24 semantics. Source pixels occupy
+    ///     one 32-bit transfer word, but only RGB is written; the VRAM alpha byte is
+    ///     preserved.
+    /// </summary>
+    public void WriteRectPSMCT24(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
+    {
+        WriteRectPSMCT32Core(dbp, dbw, rrw, rrh, data, 0, 0, false, true);
+    }
+
+    public void WriteRectPSMCT24(
+        uint dbp,
+        uint dbw,
+        int rrw,
+        int rrh,
+        ReadOnlySpan<byte> data,
+        int dsax,
+        int dsay)
+    {
+        WriteRectPSMCT32Core(dbp, dbw, rrw, rrh, data, dsax, dsay, false, true);
+    }
+
     public void WriteRectPSMZ32(uint dbp, uint dbw, int rrw, int rrh, ReadOnlySpan<byte> data)
     {
         WriteRectPSMCT32Core(dbp, dbw, rrw, rrh, data, 0, 0, true);
@@ -85,7 +108,8 @@ internal sealed partial class Ps2GsVram
         ReadOnlySpan<byte> data,
         int dsax,
         int dsay,
-        bool zSwizzle)
+        bool zSwizzle,
+        bool preserveUpperByte = false)
     {
         var srcOff = 0;
         for (var y = 0; y < rrh; y++)
@@ -102,7 +126,11 @@ internal sealed partial class Ps2GsVram
                     ? GetWordAddressPSMZ32(dbp, dbw, dsax + x, dsay + y)
                     : GetWordAddressPSMCT32(dbp, dbw, dsax + x, dsay + y);
                 if (addr < VramWords)
-                    _vram[addr] = word;
+                {
+                    _vram[addr] = preserveUpperByte
+                        ? (_vram[addr] & 0xFF000000u) | (word & 0x00FFFFFFu)
+                        : word;
+                }
             }
         }
     }
@@ -200,6 +228,9 @@ internal sealed partial class Ps2GsVram
         {
             case PSMCT32:
                 WriteRectPSMCT32(dbp, dbw, rrw, rrh, data, dsax, dsay);
+                break;
+            case PSMCT24:
+                WriteRectPSMCT24(dbp, dbw, rrw, rrh, data, dsax, dsay);
                 break;
             case PSMZ32:
                 WriteRectPSMZ32(dbp, dbw, rrw, rrh, data, dsax, dsay);

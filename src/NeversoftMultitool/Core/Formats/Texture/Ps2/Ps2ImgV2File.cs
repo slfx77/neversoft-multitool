@@ -25,7 +25,10 @@ internal static class Ps2ImgV2File
         var th = BitConverter.ToUInt32(data, 12);
         var psm = BitConverter.ToUInt32(data, 16);
         var cpsm = BitConverter.ToUInt32(data, 20);
-        // MXL at offset 24 is always 0 for IMG files (sprite.cpp Dbg_Assert)
+        // THUG Gfx/NGPS/NX/sprite.cpp explicitly Dbg_Assert(mxl == 0)
+        // for this version-2 single-image grammar.
+        var mxl = BitConverter.ToUInt32(data, 24);
+        if (mxl != 0) return Ps2TexResult.Fail("IMG MXL must be zero");
 
         // Actual image dimensions (may differ from 1<<TW / 1<<TH for non-POT sprites)
         var origWidth = (int)BitConverter.ToUInt16(data, 28);

@@ -146,10 +146,14 @@ internal static class ThawZoneTexHeaderDataSupport
             return null;
 
         var slot = fileData.Slice((int)slotOffset, (int)slotLength);
-        var inferredPixelBytes = width * height * Ps2TexPixelDecoder.GetBitsPerPixel(psm) / 8;
-        var pixelBytes = entry.BasePixelBytes != 0 ? (int)entry.BasePixelBytes : inferredPixelBytes;
-        if (pixelBytes <= 0)
+        var inferredPixelBytes =
+            ((long)width * height * Ps2TexPixelDecoder.GetBitsPerPixel(psm) + 7) / 8;
+        var selectedPixelBytes = entry.BasePixelBytes != 0
+            ? entry.BasePixelBytes
+            : inferredPixelBytes;
+        if (selectedPixelBytes <= 0 || selectedPixelBytes > int.MaxValue)
             return null;
+        var pixelBytes = (int)selectedPixelBytes;
 
         VramUpload? matchedUpload = null;
         if (FindUploadIndexForOffset(uploads, entry.UploadOffset) is var uploadIndex && uploadIndex.HasValue)

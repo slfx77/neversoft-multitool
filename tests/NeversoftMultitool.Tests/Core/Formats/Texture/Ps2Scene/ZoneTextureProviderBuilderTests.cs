@@ -16,12 +16,14 @@ public sealed class ZoneTextureProviderBuilderTests
             var names = new[]
             {
                 "z_bh.pak.ps2",
-                "z_bh_net.pak.ps2",
+                "Z_BH_NET.PAK.PS2",
                 "z_bh_accessoryshop_data.pak.ps2",
                 "z_bhho.pak.ps2",
                 "z_bhped.pak.ps2",
                 "z_bhsm.pak.ps2",
-                "z_bhsr_net.pak.ps2"
+                "z_bhsr_net.pak.ps2",
+                "z_bh_net.pak",
+                "z_bh_net.pak.ps2.bak"
             };
 
             foreach (var name in names)
@@ -32,18 +34,37 @@ public sealed class ZoneTextureProviderBuilderTests
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             Assert.Contains("z_bh.pak.ps2", files);
-            Assert.Contains("z_bh_net.pak.ps2", files);
+            Assert.Contains("Z_BH_NET.PAK.PS2", files);
             Assert.Contains("z_bh_accessoryshop_data.pak.ps2", files);
             Assert.DoesNotContain("z_bhho.pak.ps2", files);
             Assert.DoesNotContain("z_bhped.pak.ps2", files);
             Assert.DoesNotContain("z_bhsm.pak.ps2", files);
             Assert.DoesNotContain("z_bhsr_net.pak.ps2", files);
+            Assert.DoesNotContain("z_bh_net.pak", files);
+            Assert.DoesNotContain("z_bh_net.pak.ps2.bak", files);
         }
         finally
         {
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, true);
         }
+    }
+
+    [Theory]
+    [InlineData("z_bh.pak.ps2", true)]
+    [InlineData("Z_BH_NET.PAK.PS2", true)]
+    [InlineData("z_bh_accessoryshop_data.pak.ps2", true)]
+    [InlineData("z_bhho.pak.ps2", false)]
+    [InlineData("z_bhsr_net.pak.ps2", false)]
+    [InlineData("z_bh_net.pak", false)]
+    [InlineData("z_bh_net.pak.ps2.bak", false)]
+    public void IsSiblingPakFileName_RequiresExactSuffixAndStemBoundary(
+        string candidate,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            ZoneTextureProviderBuilder.IsSiblingPakFileName(candidate, "z_bh"));
     }
 
     [Fact]

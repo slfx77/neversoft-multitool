@@ -206,13 +206,19 @@ public static class PsxLibrary
     private static string GetOutputPath(string filename, string outputDir, bool createSubDirs,
         PsxTextureHeader header, uint nameHash, string extension)
     {
-        var filenameWithoutExt = Path.GetFileNameWithoutExtension(filename);
+        var filenameWithoutExt = GetOutputStem(filename);
         var targetDir = createSubDirs ? Path.Combine(outputDir, filenameWithoutExt) : outputDir;
         var resolvedName = QbKey.QbKey.TryResolve(nameHash);
         var textureName = resolvedName != null
             ? $"{filenameWithoutExt}_{resolvedName}"
             : $"{filenameWithoutExt}_{header.Offset:X8}";
         return Path.Combine(targetDir, textureName + extension);
+    }
+
+    internal static string GetOutputStem(string filename)
+    {
+        var stem = Path.GetFileNameWithoutExtension(filename);
+        return stem.Length == 0 ? "file" + Path.GetFileName(filename) : stem;
     }
 
     /// <summary>

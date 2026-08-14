@@ -260,8 +260,12 @@ public static class Ps2TexFile
         var numGroups = ReadU32(data, ref offset);
         if (numGroups > 1000) return Ps2TexResult.Fail($"Invalid group count {numGroups}");
 
+        uint totalTextures = 0;
         if (version >= 3)
-            ReadU32(data, ref offset); // totalTextures (informational)
+            totalTextures = ReadU32(data, ref offset); // informational when groups are present
+
+        if (numGroups == 0 && totalTextures != 0)
+            return Ps2TexResult.Fail($"Invalid total texture count {totalTextures} for zero groups");
 
         var textures = new List<Ps2Texture>();
 
@@ -296,6 +300,9 @@ public static class Ps2TexFile
                 // TW=0xFFFFFFFF means skip
                 if (tw == 0xFFFFFFFF)
                     continue;
+
+                if (tw > 11 || th > 11)
+                    return Ps2TexResult.Fail($"Invalid dimensions TW={tw} TH={th}");
 
                 var psm = ReadU32(data, ref offset);
                 var cpsm = ReadU32(data, ref offset);

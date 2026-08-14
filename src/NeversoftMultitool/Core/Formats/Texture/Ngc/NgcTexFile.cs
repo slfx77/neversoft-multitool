@@ -98,7 +98,8 @@ public static class NgcTexFile
                     // DXT5-style alpha ships as a second CMPR chain whose green
                     // channel carries the alpha (same trick THUG GC used, see
                     // Sample/thug Gfx/NGC/NX/texture.cpp).
-                    if (entry.AlphaOffset >= 0 && entry.AlphaOffset + entry.DataSize <= data.Length)
+                    if (entry.AlphaOffset >= 0
+                        && entry.AlphaOffset <= data.Length - entry.DataSize)
                     {
                         var alpha = NgcTexCmprDecoder.DecodeToRgba(
                             data.Slice(entry.AlphaOffset, entry.DataSize),
@@ -299,10 +300,9 @@ public static class NgcTexFile
         var height = 1 << heightExponent;
         var formatA = span[13];
         var formatB = span[14];
-        var dataSize = checked((int)BinaryPrimitives.ReadUInt32BigEndian(span[16..]));
-        var dataOffset = checked((int)BinaryPrimitives.ReadUInt32BigEndian(span[20..]));
+        var rawDataSize = BinaryPrimitives.ReadUInt32BigEndian(span[16..]);
+        var rawDataOffset = BinaryPrimitives.ReadUInt32BigEndian(span[20..]);
         var alphaRaw = BinaryPrimitives.ReadUInt32BigEndian(span[24..]);
-        var alphaOffset = alphaRaw == 0xFFFFFFFF ? -1 : checked((int)alphaRaw);
 
         if (width <= 0 || height <= 0)
         {
@@ -310,18 +310,28 @@ public static class NgcTexFile
             return false;
         }
 
-        if (dataSize <= 0)
+        if (rawDataSize == 0 || rawDataSize > int.MaxValue)
         {
-            error = $"NGC TEX entry {index} has invalid data size {dataSize}.";
+            error = $"NGC TEX entry {index} has invalid data size {rawDataSize}.";
             return false;
         }
 
-        if (dataOffset < HeaderSize || dataOffset > data.Length - dataSize)
+        if (rawDataOffset < HeaderSize
+            || (ulong)rawDataOffset + rawDataSize > (ulong)data.Length)
         {
-            error = $"NGC TEX entry {index} has invalid data range ({dataOffset}, {dataSize}).";
+            error = $"NGC TEX entry {index} has invalid data range ({rawDataOffset}, {rawDataSize}).";
             return false;
         }
 
+        if (alphaRaw != uint.MaxValue && alphaRaw > int.MaxValue)
+        {
+            error = $"NGC TEX entry {index} has invalid alpha offset {alphaRaw}.";
+            return false;
+        }
+
+        var dataSize = (int)rawDataSize;
+        var dataOffset = (int)rawDataOffset;
+        var alphaOffset = alphaRaw == uint.MaxValue ? -1 : (int)alphaRaw;
         entry = new NgcTexEntry(magic, checksum, width, height, formatA, formatB, dataSize, dataOffset, alphaOffset);
         error = string.Empty;
         return true;

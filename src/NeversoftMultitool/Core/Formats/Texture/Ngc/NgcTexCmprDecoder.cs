@@ -9,9 +9,18 @@ internal static class NgcTexCmprDecoder
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
 
-        var paddedWidth = RoundUpToBlock(width, 8);
-        var paddedHeight = RoundUpToBlock(height, 8);
-        var expectedSize = paddedWidth * paddedHeight / 2;
+        var tileColumns = ((long)width + 7) / 8;
+        var tileRows = ((long)height + 7) / 8;
+        var paddedWidthLong = tileColumns * 8;
+        var paddedHeightLong = tileRows * 8;
+        var paddedPixelCount = paddedWidthLong * paddedHeightLong;
+        if (paddedPixelCount > Array.MaxLength / 4L)
+        {
+            throw new InvalidDataException(
+                $"CMPR dimensions {width}x{height} exceed the runtime array limit");
+        }
+
+        var expectedSize = paddedPixelCount / 2;
 
         if (data.Length < expectedSize)
         {
@@ -19,7 +28,9 @@ internal static class NgcTexCmprDecoder
                 $"CMPR data too small: expected at least {expectedSize} bytes, found {data.Length}.");
         }
 
-        var paddedPixels = new byte[paddedWidth * paddedHeight * 4];
+        var paddedWidth = (int)paddedWidthLong;
+        var paddedHeight = (int)paddedHeightLong;
+        var paddedPixels = new byte[(int)(paddedPixelCount * 4)];
         var offset = 0;
 
         for (var y = 0; y < paddedHeight; y += 8)
@@ -47,7 +58,8 @@ internal static class NgcTexCmprDecoder
             return paddedPixels;
         }
 
-        var croppedPixels = new byte[width * height * 4];
+        var pixelCount = (long)width * height;
+        var croppedPixels = new byte[(int)(pixelCount * 4)];
         var rowBytes = width * 4;
         for (var y = 0; y < height; y++)
         {
@@ -135,11 +147,5 @@ internal static class NgcTexCmprDecoder
             (byte)((a.B + b.B) / 2),
             (byte)((a.A + b.A) / 2));
     }
-
-    private static int RoundUpToBlock(int value, int blockSize)
-    {
-        return (value + blockSize - 1) / blockSize * blockSize;
-    }
-
     private readonly record struct Rgba32(byte R, byte G, byte B, byte A);
 }

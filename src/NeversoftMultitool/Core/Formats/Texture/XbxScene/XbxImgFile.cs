@@ -63,6 +63,8 @@ public static class XbxImgFile
                 // Paletted: read BGRA palette, then 8-bit indexed pixels with morton swizzle
                 if (clutSize > (uint)(data.Length - offset))
                     return Ps2TexResult.Fail("Truncated palette");
+                if ((clutSize & 3u) != 0)
+                    return Ps2TexResult.Fail($"Invalid palette size {clutSize} (BGRA entries require 4 bytes)");
 
                 var paletteSize = (int)clutSize;
                 var palette = data.Slice(offset, paletteSize).ToArray();

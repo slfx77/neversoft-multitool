@@ -81,14 +81,14 @@ public static class ThawImgFile
                 if (offset + 4 > data.Length)
                     return Ps2TexResult.Fail("Truncated palette header");
 
-                var paletteColorCount = (int)BitConverter.ToUInt32(data[offset..]);
+                var paletteColorCount = BitConverter.ToUInt32(data[offset..]);
                 offset += 4;
 
                 var paletteEntryBytes = Math.Max(1, (paletteDepth + 7) / 8);
-                var paletteBytes = paletteColorCount * paletteEntryBytes;
-                if (offset + paletteBytes > data.Length)
+                if (paletteColorCount > (uint)((data.Length - offset) / paletteEntryBytes))
                     return Ps2TexResult.Fail("Truncated palette data");
 
+                var paletteBytes = (int)paletteColorCount * paletteEntryBytes;
                 palette = data.Slice(offset, paletteBytes).ToArray();
                 offset += paletteBytes;
             }
@@ -105,19 +105,22 @@ public static class ThawImgFile
                 int dataSize;
                 if (compression != 0)
                 {
-                    dataSize = (int)BitConverter.ToUInt32(data[offset..]);
+                    var rawDataSize = BitConverter.ToUInt32(data[offset..]);
                     offset += 4;
+                    if (rawDataSize > (uint)(data.Length - offset))
+                        return Ps2TexResult.Fail($"Truncated mip data at mip {mip}");
+                    dataSize = (int)rawDataSize;
                 }
                 else
                 {
                     var bytesPerLine = (int)BitConverter.ToUInt16(data[offset..]);
                     var numLines = (int)BitConverter.ToUInt16(data[(offset + 2)..]);
-                    dataSize = bytesPerLine * numLines;
+                    var rawDataSize = (long)bytesPerLine * numLines;
                     offset += 4;
+                    if (rawDataSize > data.Length - offset)
+                        return Ps2TexResult.Fail($"Truncated mip data at mip {mip}");
+                    dataSize = (int)rawDataSize;
                 }
-
-                if (offset + dataSize > data.Length)
-                    return Ps2TexResult.Fail($"Truncated mip data at mip {mip}");
 
                 if (mip == 0)
                 {

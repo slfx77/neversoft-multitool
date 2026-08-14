@@ -101,6 +101,9 @@ public static class Ps2VramAllocator
                 if (tw == 0xFFFFFFFF) continue; // skip entry
 
                 var th = ReadU32(data, ref offset);
+                if (tw > 11 || th > 11)
+                    return mapping;
+
                 var psm = ReadU32(data, ref offset);
                 var cpsm = ReadU32(data, ref offset);
                 var mxlRaw = (int)ReadU32(data, ref offset);

@@ -101,11 +101,30 @@ public static class ColorHelpers
     /// </summary>
     public static byte[] Convert16BitTextureToRgba(uint pixelFormat, int width, int height, ushort[] textureBuffer)
     {
+        ArgumentNullException.ThrowIfNull(textureBuffer);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+
+        var pixelCount = (long)width * height;
+        if (pixelCount > Array.MaxLength / 4L)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(width),
+                $"Texture dimensions {width}x{height} exceed the maximum supported RGBA output size.");
+        }
+
+        if (textureBuffer.LongLength != pixelCount)
+        {
+            throw new ArgumentException(
+                $"Texture buffer contains {textureBuffer.LongLength} pixels; expected exactly {pixelCount} for {width}x{height}.",
+                nameof(textureBuffer));
+        }
+
         var format = Get16BppColorFormat(pixelFormat);
-        var pixels = new byte[width * height * 4];
+        var pixels = new byte[checked((int)(pixelCount * 4))];
         Span<byte> rgba = stackalloc byte[4];
 
-        for (var i = 0; i < textureBuffer.Length && i < width * height; i++)
+        for (var i = 0; i < textureBuffer.Length; i++)
         {
             Convert16BppTo32Bpp(textureBuffer[i], format, rgba);
             var offset = i * 4;

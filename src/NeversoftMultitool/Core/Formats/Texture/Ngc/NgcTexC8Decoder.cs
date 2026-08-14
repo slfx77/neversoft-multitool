@@ -15,19 +15,28 @@ internal static class NgcTexC8Decoder
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
 
-        var pixelBytes = width * height;
-        if (data.Length < pixelBytes + PaletteBytes)
+        var pixelCount = (long)width * height;
+        if (pixelCount > Array.MaxLength / 4L)
+        {
+            throw new InvalidDataException(
+                $"C8 dimensions {width}x{height} exceed the runtime array limit");
+        }
+
+        var tileColumns = ((long)width + 7) / 8;
+        var tileRows = ((long)height + 3) / 4;
+        var indexBytes = tileColumns * tileRows * 32;
+        if (indexBytes + PaletteBytes > data.Length)
             throw new InvalidDataException("C8 data truncated");
 
         var palette = new byte[256 * 4];
-        var paletteData = data.Slice(pixelBytes, PaletteBytes);
+        var paletteData = data.Slice((int)indexBytes, PaletteBytes);
         for (var i = 0; i < 256; i++)
         {
             var value = BinaryPrimitives.ReadUInt16BigEndian(paletteData[(i * 2)..]);
             DecodeRgb5A3(value, palette.AsSpan(i * 4, 4));
         }
 
-        var pixels = new byte[width * height * 4];
+        var pixels = new byte[(int)(pixelCount * 4)];
         var offset = 0;
         for (var tileY = 0; tileY < height; tileY += 4)
         {

@@ -52,8 +52,11 @@ internal static class Ps2TexPixelDecoder
         if (requiredBytes < 0 || requiredBytes > texData.Length)
             return null;
 
-        if (psm is PSMT8 or PSMT4 && clut == null)
+        if (psm is PSMT8 or PSMT4
+            && (cpsm is not PSMCT32 and not PSMCT16 || clut == null))
+        {
             return null;
+        }
 
         var pixels = new byte[(int)(pixelCount * 4)];
 

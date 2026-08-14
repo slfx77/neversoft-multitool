@@ -458,10 +458,10 @@ internal static class ThawZoneTexOwnerBlobDecoder
     {
         var pixelSize = (long)tw * th * 4;
 
-        if (pixelAbs < 0 || pixelAbs >= fileData.Length)
+        if (entry.DataSize < pixelSize)
             return null;
-        if (pixelAbs + pixelSize > fileData.Length)
-            pixelSize = fileData.Length - pixelAbs;
+        if (pixelAbs < 0 || pixelAbs > fileData.Length || pixelSize > fileData.Length - pixelAbs)
+            return null;
 
         var srcBytes = fileData.Slice((int)pixelAbs, (int)pixelSize);
 
@@ -497,10 +497,10 @@ internal static class ThawZoneTexOwnerBlobDecoder
     {
         var pixelSize = (long)tw * th * 2;
 
-        if (pixelAbs < 0 || pixelAbs >= fileData.Length)
+        if (entry.DataSize < pixelSize)
             return null;
-        if (pixelAbs + pixelSize > fileData.Length)
-            pixelSize = fileData.Length - pixelAbs;
+        if (pixelAbs < 0 || pixelAbs > fileData.Length || pixelSize > fileData.Length - pixelAbs)
+            return null;
 
         var srcBytes = fileData.Slice((int)pixelAbs, (int)pixelSize);
 

@@ -48,12 +48,16 @@ public static class RwTxdFile
             if (type != RW_TEX_DICT)
                 return Ps2TexResult.Fail($"Not an RW TexDict (got 0x{type:X4})");
 
-            var dictEnd = offset + (int)size;
+            var dictEndLong = (long)offset + size;
+            if (dictEndLong > data.Length)
+                return Ps2TexResult.Fail("RW TexDict chunk exceeds file bounds.");
+            var dictEnd = (int)dictEndLong;
 
             // First child: Struct with textureCount(u16) + deviceId(u16)
-            var (sType, sSize, _) = ReadChunkHeader(data, ref offset);
-            if (sType != RW_STRUCT)
+            if (!TryReadStruct(data, ref offset, dictEnd, out _, out var sSize))
                 return Ps2TexResult.Fail("Expected Struct chunk in TexDict");
+            if (sSize < 4 || sSize > (uint)(dictEnd - offset))
+                return Ps2TexResult.Fail("RW TexDict Struct chunk is truncated.");
 
             var textureCount = BitConverter.ToUInt16(data, offset);
             offset += (int)sSize;

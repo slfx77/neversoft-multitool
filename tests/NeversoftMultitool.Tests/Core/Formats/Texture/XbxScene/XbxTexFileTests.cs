@@ -9,7 +9,7 @@ public sealed class XbxTexFileTests(TestPaths paths)
 
     // ── IsTexFile ──
 
-    [Fact]
+    [CorpusFact]
     public void IsTexFile_ValidFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -60,7 +60,7 @@ public sealed class XbxTexFileTests(TestPaths paths)
 
     // ── Parse known files ──
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AP_Has195Textures()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -73,7 +73,7 @@ public sealed class XbxTexFileTests(TestPaths paths)
         Assert.Equal(195, result.Textures.Count);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AP_TexturesHaveValidDimensions()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -92,7 +92,7 @@ public sealed class XbxTexFileTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AP_TexturesHaveNonZeroChecksums()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -107,7 +107,7 @@ public sealed class XbxTexFileTests(TestPaths paths)
 
     // ── PNG output ──
 
-    [Fact]
+    [CorpusFact]
     public void SaveAllAsPng_AP_ProducesPngFiles()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -167,7 +167,7 @@ public sealed class XbxTexFileTests(TestPaths paths)
 
     // ── IMG tests ──
 
-    [Fact]
+    [CorpusFact]
     public void IsImgFile_ValidFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -184,7 +184,7 @@ public sealed class XbxTexFileTests(TestPaths paths)
         Assert.False(XbxImgFile.IsImgFile([]));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_BlackImg_Succeeds()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

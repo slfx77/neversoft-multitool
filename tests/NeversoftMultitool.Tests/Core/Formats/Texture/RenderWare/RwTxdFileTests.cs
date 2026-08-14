@@ -25,6 +25,19 @@ public sealed class RwTxdFileTests
         Assert.Empty(result.Textures);
     }
 
+    [Fact]
+    public void Parse_StructPayloadCrossingDictionaryBoundary_FailsExplicitly()
+    {
+        var data = CreateDictionary(textureCount: 0);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), 15);
+
+        var result = RwTxdFile.Parse(data);
+
+        Assert.False(result.Success);
+        Assert.Equal("RW TexDict Struct chunk is truncated.", result.ErrorMessage);
+        Assert.Empty(result.Textures);
+    }
+
     private static byte[] CreateDictionary(ushort textureCount)
     {
         var data = new byte[28];

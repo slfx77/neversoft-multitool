@@ -8,8 +8,13 @@ internal static class TexturePreviewSelector
             return null;
 
         var texture = result.Textures[textureIndex];
-        return texture.Pixels is { } pixels
-            ? (pixels, texture.Width, texture.Height)
-            : null;
+        if (texture.Pixels is not { } pixels || texture.Width <= 0 || texture.Height <= 0)
+            return null;
+
+        var pixelCount = (long)texture.Width * texture.Height;
+        if (pixelCount > Array.MaxLength / 4L || pixels.LongLength != pixelCount * 4)
+            return null;
+
+        return (pixels, texture.Width, texture.Height);
     }
 }

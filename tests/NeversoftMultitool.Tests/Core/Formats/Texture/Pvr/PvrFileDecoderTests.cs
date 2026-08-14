@@ -16,6 +16,20 @@ public sealed class PvrFileDecoderTests
     }
 
     [Fact]
+    public void DecodeToRgba_PvrtChunkPastEnd_ReturnsNull()
+    {
+        var data = new byte[16];
+        "PVRT"u8.CopyTo(data);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), 16);
+        data[8] = 1; // RGB565
+        data[9] = 9; // rectangle
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(12), 2);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(14), 2);
+
+        Assert.Null(PvrFileDecoder.DecodeToRgba(data));
+    }
+
+    [Fact]
     public void DecodeToRgba_ValidDirectPvrtRectangle_DecodesPixels()
     {
         var data = new byte[24];

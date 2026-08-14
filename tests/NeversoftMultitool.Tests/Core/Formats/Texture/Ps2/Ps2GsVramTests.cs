@@ -46,6 +46,63 @@ public class Ps2GsVramTests
         }
     }
 
+    [Fact]
+    public void WriteRect_Psmct24_WritesRgbAndPreservesExistingAlpha()
+    {
+        var vram = new Ps2GsVram();
+        vram.WritePixel(
+            0u, 1u, Ps2GsVram.PSMCT32, 0, 0,
+            0xAA, 0xBB, 0xCC, 0xA5);
+
+        vram.WriteRect(
+            0u, 1u, 0x01u, 1, 1,
+            [0x11, 0x22, 0x33, 0xFF]);
+
+        var pixel = vram.ReadPixelRgba(0u, 1u, 0x01u, 0, 0);
+        Assert.Equal((0x11, 0x22, 0x33, 0xA5),
+            ((int)pixel.R, (int)pixel.G, (int)pixel.B, (int)pixel.A));
+    }
+
+    [Fact]
+    public void WriteRect_Psmct24_HonorsDestinationOffsetAndGifWordOrderAcrossPageBoundary()
+    {
+        var vram = new Ps2GsVram(new Ps2GifQwordWordOrder(2, 3, 0, 1));
+        const int destinationX = 63;
+        const int destinationY = 31;
+        for (var x = 0; x < 4; x++)
+        {
+            vram.WritePixel(
+                0u, 2u, Ps2GsVram.PSMCT32, destinationX + x, destinationY,
+                0xE0, 0xE1, 0xE2, (byte)(0xA0 + x));
+        }
+
+        byte[] payload =
+        [
+            0x10, 0x11, 0x12, 0xF0,
+            0x20, 0x21, 0x22, 0xF1,
+            0x30, 0x31, 0x32, 0xF2,
+            0x40, 0x41, 0x42, 0xF3
+        ];
+        vram.WriteRect(
+            0u, 2u, 0x01u, 4, 1, payload,
+            destinationX, destinationY);
+
+        (byte R, byte G, byte B)[] expectedRgb =
+        [
+            (0x30, 0x31, 0x32),
+            (0x40, 0x41, 0x42),
+            (0x10, 0x11, 0x12),
+            (0x20, 0x21, 0x22)
+        ];
+        for (var x = 0; x < expectedRgb.Length; x++)
+        {
+            var pixel = vram.ReadPixelRgba(
+                0u, 2u, 0x01u, destinationX + x, destinationY);
+            Assert.Equal(expectedRgb[x], (pixel.R, pixel.G, pixel.B));
+            Assert.Equal((byte)(0xA0 + x), pixel.A);
+        }
+    }
+
     [Theory]
     [InlineData(64, 64)]
     [InlineData(128, 128)]

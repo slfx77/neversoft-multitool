@@ -54,24 +54,30 @@ public static class XbxTexFile
                     return Ps2TexResult.Fail($"Truncated texture header at index {i}");
 
                 var checksum = BitConverter.ToUInt32(data[offset..]);
-                var width = (int)BitConverter.ToUInt32(data[(offset + 4)..]);
-                var height = (int)BitConverter.ToUInt32(data[(offset + 8)..]);
+                var rawWidth = BitConverter.ToUInt32(data[(offset + 4)..]);
+                var rawHeight = BitConverter.ToUInt32(data[(offset + 8)..]);
                 var levels = (int)BitConverter.ToUInt32(data[(offset + 12)..]);
                 var texelDepth = (int)BitConverter.ToUInt32(data[(offset + 16)..]);
                 // offset+20 = palDepth (unused, palette format always BGRA32)
                 var dxtVersion = (int)BitConverter.ToUInt32(data[(offset + 24)..]);
-                var palSize = (int)BitConverter.ToUInt32(data[(offset + 28)..]);
+                var rawPalSize = BitConverter.ToUInt32(data[(offset + 28)..]);
                 offset += 32;
+
+                if (rawWidth == 0 || rawHeight == 0 || rawWidth > 4096 || rawHeight > 4096)
+                    return Ps2TexResult.Fail($"Texture {i} has invalid dimensions {rawWidth}x{rawHeight}");
+                var width = (int)rawWidth;
+                var height = (int)rawHeight;
 
                 if (levels <= 0)
                     return Ps2TexResult.Fail($"Texture {i} has invalid mip level count {levels}");
 
                 // Read optional palette
                 byte[]? palette = null;
-                if (palSize > 0)
+                if (rawPalSize > 0)
                 {
-                    if (offset + palSize > data.Length)
+                    if (rawPalSize > (uint)(data.Length - offset))
                         return Ps2TexResult.Fail($"Truncated palette at texture {i}");
+                    var palSize = (int)rawPalSize;
                     palette = data.Slice(offset, palSize).ToArray();
                     offset += palSize;
                 }
@@ -83,14 +89,23 @@ public static class XbxTexFile
                     if (offset + 4 > data.Length)
                         return Ps2TexResult.Fail($"Truncated mip header at texture {i}, mip {mip}");
 
-                    var dataSize = (int)BitConverter.ToUInt32(data[offset..]);
+                    var rawDataSize = BitConverter.ToUInt32(data[offset..]);
                     offset += 4;
 
-                    if (offset + dataSize > data.Length)
+                    if (rawDataSize > (uint)(data.Length - offset))
                         return Ps2TexResult.Fail($"Truncated mip data at texture {i}, mip {mip}");
+                    var dataSize = (int)rawDataSize;
 
                     if (mip == 0)
                     {
+                        if (dxtVersion == 0
+                            && TryGetMinimumUncompressedDataLength(
+                                width, height, texelDepth, palette != null, out var minimumBytes)
+                            && dataSize < minimumBytes)
+                        {
+                            return Ps2TexResult.Fail($"Failed to decode Xbox TEX texture {i} mip 0");
+                        }
+
                         pixels = DecodeMip(data.Slice(offset, dataSize), width, height,
                             texelDepth, dxtVersion, palette);
                     }
@@ -142,6 +157,26 @@ public static class XbxTexFile
             0 when texelDepth == 16 => DecodeArgb1555(data, width, height),
             _ => null // unknown format
         };
+    }
+
+    private static bool TryGetMinimumUncompressedDataLength(
+        int width,
+        int height,
+        int texelDepth,
+        bool hasPalette,
+        out long minimumBytes)
+    {
+        var pixelCount = (long)width * height;
+        minimumBytes = (hasPalette, texelDepth) switch
+        {
+            (true, 8) => pixelCount,
+            (true, 4) => (pixelCount + 1) / 2,
+            (false, 32) => pixelCount * 4,
+            (false, 16) => pixelCount * 2,
+            _ => -1
+        };
+
+        return minimumBytes >= 0;
     }
 
     private static byte[] DecodePaletted(ReadOnlySpan<byte> data, int width, int height,

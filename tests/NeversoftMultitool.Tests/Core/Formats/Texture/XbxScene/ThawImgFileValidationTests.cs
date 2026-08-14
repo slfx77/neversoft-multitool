@@ -1,9 +1,39 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Texture.XbxScene;
 
 namespace NeversoftMultitool.Tests.Core.Formats.XbxScene;
 
 public sealed class ThawImgFileValidationTests
 {
+    [Fact]
+    public void Parse_OverflowingPaletteCount_FailsAsTruncatedPalette()
+    {
+        var data = BuildBgra32Img(1, 1, 0, 0, []);
+        data[21] = 8;
+        data[23] = 32;
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(24), uint.MaxValue);
+
+        var result = ThawImgFile.Parse(data);
+
+        Assert.False(result.Success);
+        Assert.Equal("Truncated palette data", result.ErrorMessage);
+        Assert.Empty(result.Textures);
+    }
+
+    [Fact]
+    public void Parse_OverflowingCompressedMipSize_FailsAsTruncatedMip()
+    {
+        var data = BuildBgra32Img(1, 1, 0, 0, []);
+        data[22] = 1;
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(24), uint.MaxValue);
+
+        var result = ThawImgFile.Parse(data);
+
+        Assert.False(result.Success);
+        Assert.Equal("Truncated mip data at mip 0", result.ErrorMessage);
+        Assert.Empty(result.Textures);
+    }
+
     [Fact]
     public void Parse_Bgra32MipWithOnlyOneOfFourPixels_Fails()
     {

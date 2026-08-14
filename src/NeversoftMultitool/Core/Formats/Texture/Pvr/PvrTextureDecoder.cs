@@ -148,9 +148,25 @@ public static class PvrTextureDecoder
     /// <summary>
     ///     Decodes a rectangular texture.
     /// </summary>
-    private static ushort[] DecodeRectangle(BinaryReader reader, PsxTextureHeader header)
+    private static ushort[]? DecodeRectangle(BinaryReader reader, PsxTextureHeader header)
     {
-        var goal = header.Width * header.Height;
+        if (header.Width <= 0 || header.Height <= 0)
+            return null;
+
+        var goal64 = (long)header.Width * header.Height;
+        if (goal64 > Array.MaxLength)
+            return null;
+
+        var requiredBytes = goal64 * sizeof(ushort);
+        if (requiredBytes > header.Size)
+            return null;
+
+        var position = reader.BaseStream.Position;
+        var length = reader.BaseStream.Length;
+        if (position < 0 || position > length || requiredBytes > length - position)
+            return null;
+
+        var goal = (int)goal64;
         var textureBuffer = new ushort[goal];
 
         for (var counter = 0; counter < goal; counter++)

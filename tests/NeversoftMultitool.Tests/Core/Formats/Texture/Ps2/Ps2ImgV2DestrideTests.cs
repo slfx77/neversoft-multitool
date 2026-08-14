@@ -17,6 +17,34 @@ public class Ps2ImgV2DestrideTests
     private const uint Psmt4 = 0x14;
 
     [Fact]
+    public void Parse_NonzeroMxl_Fails()
+    {
+        var data = BuildImgV2(0, 0, Psmct32, Psmct32, 1, 1, [], [10, 20, 30, 128]);
+        WriteU32(data, 24, 1);
+        Assert.Equal(36, data.Length);
+
+        var result = Ps2ImgV2File.Parse(data);
+
+        Assert.False(result.Success);
+        Assert.Equal("IMG MXL must be zero", result.ErrorMessage);
+        Assert.Empty(result.Textures);
+    }
+
+    [Fact]
+    public void Parse_ZeroMxl_OnePixelSucceeds()
+    {
+        var data = BuildImgV2(0, 0, Psmct32, Psmct32, 1, 1, [], [10, 20, 30, 128]);
+        Assert.Equal(36, data.Length);
+
+        var result = Ps2ImgV2File.Parse(data);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        var texture = Assert.Single(result.Textures);
+        Assert.Equal(1, texture.Width);
+        Assert.Equal(1, texture.Height);
+    }
+
+    [Fact]
     public void Parse_DimensionsWhoseRgbaBufferCannotFit_FailsBeforeSizeArithmetic()
     {
         var data = BuildImgV2(

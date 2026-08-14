@@ -62,6 +62,56 @@ public sealed class Ps2TexPixelDecoderBoundsTests
             pixels);
     }
 
+    [Theory]
+    [InlineData(Ps2TexPixelDecoder.PSMT4)]
+    [InlineData(Ps2TexPixelDecoder.PSMT8)]
+    public void DecodePixels_PalettedTextureWithInvalidClutStorageMode_ReturnsNull(uint psm)
+    {
+        var pixels = Ps2TexPixelDecoder.DecodePixels(
+            [0x00],
+            1,
+            1,
+            psm,
+            Ps2TexPixelDecoder.PSMT8,
+            [0x1F, 0x00]);
+
+        Assert.Null(pixels);
+    }
+
+    [Theory]
+    [InlineData(Ps2TexPixelDecoder.PSMCT16)]
+    [InlineData(Ps2TexPixelDecoder.PSMCT32)]
+    public void DecodePixels_PalettedTextureWithSupportedClutStorageMode_DecodesPixel(uint cpsm)
+    {
+        var clut = cpsm == Ps2TexPixelDecoder.PSMCT16
+            ? new byte[] { 0x1F, 0x00 }
+            : [0xFF, 0x00, 0x00, 0x80];
+
+        var pixels = Ps2TexPixelDecoder.DecodePixels(
+            [0x00],
+            1,
+            1,
+            Ps2TexPixelDecoder.PSMT8,
+            cpsm,
+            clut);
+
+        Assert.Equal(new byte[] { 0xFF, 0x00, 0x00, 0xFF }, pixels);
+    }
+
+    [Fact]
+    public void DecodePixels_TrueColorTexture_IgnoresClutStorageMode()
+    {
+        var pixels = Ps2TexPixelDecoder.DecodePixels(
+            [0x11, 0x22, 0x33, 0x80],
+            1,
+            1,
+            Ps2TexPixelDecoder.PSMCT32,
+            uint.MaxValue,
+            null);
+
+        Assert.Equal(new byte[] { 0x11, 0x22, 0x33, 0xFF }, pixels);
+    }
+
     [Fact]
     public void DecodePixels_OutputLargerThanRuntimeArrayLimit_ReturnsNull()
     {

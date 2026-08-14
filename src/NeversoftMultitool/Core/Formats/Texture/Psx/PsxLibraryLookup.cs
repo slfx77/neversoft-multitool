@@ -311,29 +311,42 @@ internal static class PsxLibraryLookup
 
     private static void SkipTextureData(BinaryReader reader, PsxTextureHeader header)
     {
+        long payloadLength;
         if (header.PalSize == 65536)
         {
-            reader.BaseStream.Seek(header.TextureOffset + header.Size, SeekOrigin.Begin);
+            payloadLength = header.Size;
+        }
+        else if (header.PalSize == 16)
+        {
+            var paddedWidth = (((long)header.Width + 0x3) & ~0x3L) >> 1;
+            var padding = GetPaddingAmount(header, paddedWidth);
+            payloadLength = paddedWidth * header.Height + padding;
+        }
+        else if (header.PalSize == 256)
+        {
+            var paddedWidth = ((long)header.Width + 0x1) & ~0x1L;
+            var padding = GetPaddingAmount(header, paddedWidth);
+            payloadLength = paddedWidth * header.Height + padding;
+        }
+        else
+        {
             return;
         }
 
-        if (header.PalSize == 16)
+        var streamLength = reader.BaseStream.Length;
+        var available = header.TextureOffset >= 0 && header.TextureOffset <= streamLength
+            ? streamLength - header.TextureOffset
+            : 0;
+        if (header.TextureOffset < 0 || header.TextureOffset > streamLength || payloadLength > available)
         {
-            var paddedWidth = ((header.Width + 0x3) & ~0x3) >> 1;
-            var padding = GetPaddingAmount(header, paddedWidth);
-            reader.BaseStream.Seek(header.TextureOffset + paddedWidth * header.Height + padding, SeekOrigin.Begin);
-            return;
+            throw new InvalidDataException(
+                $"PSX texture payload is truncated: expected {payloadLength} bytes, but only {available} remain");
         }
 
-        if (header.PalSize == 256)
-        {
-            var paddedWidth = (header.Width + 0x1) & ~0x1;
-            var padding = GetPaddingAmount(header, paddedWidth);
-            reader.BaseStream.Seek(header.TextureOffset + paddedWidth * header.Height + padding, SeekOrigin.Begin);
-        }
+        reader.BaseStream.Seek(header.TextureOffset + payloadLength, SeekOrigin.Begin);
     }
 
-    private static int GetPaddingAmount(PsxTextureHeader header, int paddedWidth)
+    private static int GetPaddingAmount(PsxTextureHeader header, long paddedWidth)
     {
         if (header.Height % 2 != 0)
             return paddedWidth % 4 != 0 ? 2 : 0;

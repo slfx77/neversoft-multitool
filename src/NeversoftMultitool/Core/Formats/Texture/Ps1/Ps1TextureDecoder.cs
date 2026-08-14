@@ -20,6 +20,9 @@ public static class Ps1TextureDecoder
         List<PsxPalette> palette4Bit,
         bool preserveRuntimeSemiTransparency = false)
     {
+        if (header.Width <= 0 || header.Height <= 0)
+            return null;
+
         var padWidth = (header.Width + 0x3) & ~0x3;
         padWidth >>= 1;
         var realLen = padWidth * header.Height + GetPaddingAmount(header, padWidth);
@@ -78,6 +81,9 @@ public static class Ps1TextureDecoder
         List<PsxPalette> palette8Bit,
         bool preserveRuntimeSemiTransparency = false)
     {
+        if (header.Width <= 0 || header.Height <= 0)
+            return null;
+
         var padWidth = (header.Width + 0x1) & ~0x1;
         var realLen = padWidth * header.Height + GetPaddingAmount(header, padWidth);
         var palIndices = reader.ReadBytes(realLen);

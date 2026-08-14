@@ -135,6 +135,8 @@ public static class ThawTexFile
                 var compression = data[offset++];
                 var paletteDepth = data[offset++];
 
+                if (width <= 0 || height <= 0 || width > 4096 || height > 4096)
+                    return FailOrPartial($"Texture {i} has invalid dimensions {width}x{height}");
                 if (mipCount == 0)
                     return FailOrPartial($"Texture {i} has no mip levels");
 
@@ -149,13 +151,13 @@ public static class ThawTexFile
                     if (offset + 4 > data.Length)
                         return FailOrPartial($"Truncated palette header at texture {i}");
 
-                    var paletteColorCount = (int)BitConverter.ToUInt32(data[offset..]);
+                    var paletteColorCount = BitConverter.ToUInt32(data[offset..]);
                     offset += 4;
 
-                    var paletteBytes = paletteColorCount * 4; // RGBA
-                    if (offset + paletteBytes > data.Length)
+                    if (paletteColorCount > (uint)((data.Length - offset) / 4))
                         return FailOrPartial($"Truncated palette data at texture {i}");
 
+                    var paletteBytes = (int)paletteColorCount * 4; // RGBA
                     palette = data.Slice(offset, paletteBytes).ToArray();
                     offset += paletteBytes;
                 }
@@ -173,8 +175,11 @@ public static class ThawTexFile
                         // DXT compressed: dataSize as u32
                         if (offset + 4 > data.Length)
                             return FailOrPartial($"Truncated mip header at texture {i}, mip {m}");
-                        dataSize = (int)BitConverter.ToUInt32(data[offset..]);
+                        var rawDataSize = BitConverter.ToUInt32(data[offset..]);
                         offset += 4;
+                        if (rawDataSize > (uint)(data.Length - offset))
+                            return FailOrPartial($"Truncated mip data at texture {i}, mip {m}");
+                        dataSize = (int)rawDataSize;
                     }
                     else
                     {
@@ -183,15 +188,23 @@ public static class ThawTexFile
                             return FailOrPartial($"Truncated mip header at texture {i}, mip {m}");
                         var bytesPerLine = (int)BitConverter.ToUInt16(data[offset..]);
                         var numLines = (int)BitConverter.ToUInt16(data[(offset + 2)..]);
-                        dataSize = bytesPerLine * numLines;
+                        var rawDataSize = (long)bytesPerLine * numLines;
                         offset += 4;
+                        if (rawDataSize > data.Length - offset)
+                            return FailOrPartial($"Truncated mip data at texture {i}, mip {m}");
+                        dataSize = (int)rawDataSize;
                     }
-
-                    if (offset + dataSize > data.Length)
-                        return FailOrPartial($"Truncated mip data at texture {i}, mip {m}");
 
                     if (m == 0)
                     {
+                        if (compression == 0
+                            && TryGetMinimumUncompressedDataLength(
+                                mipW, mipH, texelDepth, palette != null, out var minimumBytes)
+                            && dataSize < minimumBytes)
+                        {
+                            return FailOrPartial($"Failed to decode THAW TEX texture {i} mip 0");
+                        }
+
                         pixels = DecodeMip(data.Slice(offset, dataSize),
                             mipW, mipH, texelDepth, compression, palette);
 
@@ -230,6 +243,25 @@ public static class ThawTexFile
             0 when texelDepth == 32 => DecodeBgra32(data, width, height),
             _ => null
         };
+    }
+
+    private static bool TryGetMinimumUncompressedDataLength(
+        int width,
+        int height,
+        int texelDepth,
+        bool hasPalette,
+        out long minimumBytes)
+    {
+        var pixelCount = (long)width * height;
+        minimumBytes = (hasPalette, texelDepth) switch
+        {
+            (true, 8) => pixelCount,
+            (true, 4) => (pixelCount + 1) / 2,
+            (false, 32) => pixelCount * 4,
+            _ => -1
+        };
+
+        return minimumBytes >= 0;
     }
 
     private static byte[] DecodePaletted(ReadOnlySpan<byte> data, int width, int height,

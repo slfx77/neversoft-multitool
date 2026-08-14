@@ -18,6 +18,18 @@ public sealed class XbxImgFileValidationTests
     }
 
     [Fact]
+    public void Parse_PaletteSizeNotDivisibleByBgraEntrySize_FailsWithoutTextures()
+    {
+        var data = CreateSinglePixelImg(1, 34);
+
+        var result = XbxImgFile.Parse(data);
+
+        Assert.False(result.Success);
+        Assert.Equal("Invalid palette size 1 (BGRA entries require 4 bytes)", result.ErrorMessage);
+        Assert.Empty(result.Textures);
+    }
+
+    [Fact]
     public void Parse_ZeroPaletteSize_DecodesBgraPixelAsRgba()
     {
         var data = CreateSinglePixelImg(0);
@@ -35,9 +47,9 @@ public sealed class XbxImgFileValidationTests
         Assert.Equal(new byte[] { 0x30, 0x20, 0x10, 0xFF }, texture.Pixels);
     }
 
-    private static byte[] CreateSinglePixelImg(uint clutSize)
+    private static byte[] CreateSinglePixelImg(uint clutSize, int length = 36)
     {
-        var data = new byte[36];
+        var data = new byte[length];
         BinaryPrimitives.WriteUInt32LittleEndian(data, 2);
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(8), 1);
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(12), 1);

@@ -96,7 +96,8 @@ public static class PvrFileDecoder
 
         // Parse PVRT header
         var pvrtDataSize = reader.ReadUInt32();
-        if (pvrtDataSize < 8)
+        if (pvrtDataSize < 8 ||
+            (long)pvrtDataSize > reader.BaseStream.Length - reader.BaseStream.Position)
             return null;
 
         var pixelFormat = reader.ReadByte();

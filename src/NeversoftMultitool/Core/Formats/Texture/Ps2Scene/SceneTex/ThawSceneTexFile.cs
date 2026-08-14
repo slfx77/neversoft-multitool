@@ -158,8 +158,11 @@ public static class ThawSceneTexFile
             return Ps2TexResult.Fail("Invalid offsets");
 
         var entries = ScanTex0Entries(data, 0x40, off1, numTex);
-        if (entries.Count == 0)
-            return Ps2TexResult.Fail("No valid TEX0 entries found in metadata");
+        if (entries.Count != numTex)
+        {
+            return Ps2TexResult.Fail(
+                $"Texture metadata count mismatch: header declares {numTex}, found {entries.Count}");
+        }
 
         var textures = DecodeEntries(data, entries, off2);
         return textures.Any(static texture => texture.Pixels != null)

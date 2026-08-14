@@ -126,17 +126,8 @@ public static class ZoneTextureProviderBuilder
                 continue;
             if (!string.Equals(candidate.Directory, mainEntry.Directory, StringComparison.OrdinalIgnoreCase))
                 continue;
-            if (!candidate.Name.EndsWith(".pak.ps2", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var candidateStem = GetPakStem(candidate.Name);
-            if (candidateStem == null)
-                continue;
-            if (string.Equals(candidateStem, stem, StringComparison.OrdinalIgnoreCase)
-                || candidateStem.StartsWith(stem + "_", StringComparison.OrdinalIgnoreCase))
-            {
+            if (IsSiblingPakFileName(candidate.Name, stem))
                 Add(candidate, false);
-            }
         }
 
         return sources;
@@ -165,17 +156,27 @@ public static class ZoneTextureProviderBuilder
         }
 
         Add(pakPath);
-        foreach (var candidate in Directory.EnumerateFiles(dir, $"{stem}*.pak.ps2"))
+        foreach (var candidate in Directory.EnumerateFiles(
+                     dir,
+                     "*",
+                     SearchOption.TopDirectoryOnly))
         {
-            var candidateStem = GetPakStem(Path.GetFileName(candidate));
-            if (candidateStem == null)
-                continue;
-            if (string.Equals(candidateStem, stem, StringComparison.OrdinalIgnoreCase)
-                || candidateStem.StartsWith(stem + "_", StringComparison.OrdinalIgnoreCase))
+            if (IsSiblingPakFileName(Path.GetFileName(candidate), stem))
                 Add(candidate);
         }
 
         return result;
+    }
+
+    internal static bool IsSiblingPakFileName(string fileName, string zoneStem)
+    {
+        const string PakPs2Suffix = ".pak.ps2";
+        if (!fileName.EndsWith(PakPs2Suffix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var candidateStem = fileName[..^PakPs2Suffix.Length];
+        return string.Equals(candidateStem, zoneStem, StringComparison.OrdinalIgnoreCase)
+               || candidateStem.StartsWith(zoneStem + "_", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? GetZoneStem(string fileName)
@@ -193,15 +194,5 @@ public static class ZoneTextureProviderBuilder
         }
 
         return stem.Length > 0 ? stem : null;
-    }
-
-    private static string? GetPakStem(string fileName)
-    {
-        const string PakPs2 = ".pak.ps2";
-        if (fileName.EndsWith(PakPs2, StringComparison.OrdinalIgnoreCase))
-            return fileName[..^PakPs2.Length];
-
-        var dot = fileName.IndexOf('.');
-        return dot > 0 ? fileName[..dot] : null;
     }
 }

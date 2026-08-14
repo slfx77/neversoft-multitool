@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
 using SixLabors.ImageSharp;
@@ -112,6 +113,49 @@ public sealed class PsxLibraryExtractionTests(TestPaths paths)
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, true);
         }
+    }
+
+    [Fact]
+    public void ExtractTextures_LateCorruptHeader_DoesNotReportSuccessfulPrefix()
+    {
+        var outputDir = Path.Combine(
+            Path.GetTempPath(),
+            nameof(ExtractTextures_LateCorruptHeader_DoesNotReportSuccessfulPrefix),
+            Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var result = PsxLibrary.ExtractTextures(
+                BuildLateCorruptTextureLibrary(),
+                "synthetic.psx",
+                outputDir,
+                createSubDirs: false,
+                writeDds: false);
+
+            Assert.Equal(1, result.TotalTextures);
+            Assert.Equal(1, result.TexturesWritten);
+            Assert.NotNull(result.ErrorMessage);
+            Assert.Contains("Unrecognized texture format 0xF01", result.ErrorMessage, StringComparison.Ordinal);
+            Assert.False(result.Success);
+            Assert.Single(Directory.GetFiles(outputDir, "*.png"));
+        }
+        finally
+        {
+            if (Directory.Exists(outputDir))
+                Directory.Delete(outputDir, true);
+        }
+    }
+
+    [Fact]
+    public void ExtractionResult_CompleteWithoutError_IsSuccessful()
+    {
+        var result = new PsxExtractionResult
+        {
+            TotalTextures = 1,
+            TexturesWritten = 1
+        };
+
+        Assert.True(result.Success);
     }
 
     [CorpusTheory]
@@ -376,5 +420,32 @@ public sealed class PsxLibraryExtractionTests(TestPaths paths)
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, true);
         }
+    }
+
+    private static byte[] BuildLateCorruptTextureLibrary()
+    {
+        var data = new byte[116];
+        data[0] = 0x04;
+        data[2] = 0x02;
+
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), 16); // tagged-chunk list
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16), uint.MaxValue); // chunk terminator
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(20), 2); // texture-name count
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(40), 2); // physical texture count
+
+        WriteTextureHeader(data, 52, index: 0, pixelFormat: 0x901);
+        // The first 2x2 rectangle owns the eight zero pixel bytes at 80..87.
+        WriteTextureHeader(data, 88, index: 1, pixelFormat: 0xF01);
+        return data;
+    }
+
+    private static void WriteTextureHeader(byte[] data, int offset, uint index, uint pixelFormat)
+    {
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset + 4), 65536); // 16-bit texture
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset + 12), index);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(offset + 16), 2);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(offset + 18), 2);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset + 20), pixelFormat);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset + 24), 8);
     }
 }
