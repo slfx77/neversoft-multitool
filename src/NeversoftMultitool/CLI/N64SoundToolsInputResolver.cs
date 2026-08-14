@@ -37,21 +37,60 @@ internal static class N64SoundToolsInputResolver
         IReadOnlyList<N64AssetCarver.CarvedAsset> assets)
     {
         var pointerAssets = assets.Where(static asset =>
-            N64SoundToolsBank.HasPointerMagic(asset.Data)).ToArray();
-        var waveAssets = assets.Where(static asset =>
-            N64SoundToolsBank.HasWaveMagic(asset.Data)).ToArray();
-        if (pointerAssets.Length != 1 || waveAssets.Length != 1)
+                N64SoundToolsBank.HasPointerMagic(asset.Data))
+            .Where(static asset => IsValidPointer(asset.Data))
+            .ToArray();
+        if (pointerAssets.Length != 1)
         {
             throw new InvalidDataException(
-                $"ROM carve must contain exactly one Sound Tools PTR and one WBK; found " +
-                $"{pointerAssets.Length} PTR and {waveAssets.Length} WBK");
+                $"ROM carve must contain exactly one structurally valid Sound Tools PTR; found " +
+                $"{pointerAssets.Length} PTR");
         }
 
+        var pointerAsset = pointerAssets[0];
+        var waveAssets = assets.Where(static asset =>
+                N64SoundToolsBank.HasWaveMagic(asset.Data))
+            .Where(asset => IsValidPair(pointerAsset.Data, asset.Data))
+            .ToArray();
+        if (waveAssets.Length != 1)
+        {
+            throw new InvalidDataException(
+                $"ROM carve must contain exactly one structurally valid Sound Tools WBK; found " +
+                $"{waveAssets.Length} WBK");
+        }
+
+        var waveAsset = waveAssets[0];
         return new N64SoundToolsInputSources(
-            pointerAssets[0].Data,
-            waveAssets[0].Data,
-            Path.GetFileName(pointerAssets[0].Path),
-            Path.GetFileName(waveAssets[0].Path));
+            pointerAsset.Data,
+            waveAsset.Data,
+            Path.GetFileName(pointerAsset.Path),
+            Path.GetFileName(waveAsset.Path));
+    }
+
+    private static bool IsValidPointer(ReadOnlySpan<byte> data)
+    {
+        try
+        {
+            N64SoundToolsBank.ParsePointer(data);
+            return true;
+        }
+        catch (InvalidDataException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsValidPair(ReadOnlySpan<byte> pointerData, ReadOnlySpan<byte> waveData)
+    {
+        try
+        {
+            N64SoundToolsBank.Parse(pointerData, waveData);
+            return true;
+        }
+        catch (InvalidDataException)
+        {
+            return false;
+        }
     }
 }
 

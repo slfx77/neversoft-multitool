@@ -8,7 +8,8 @@ namespace NeversoftMultitool.CLI;
 /// <summary>
 ///     Produces an inspection-only JSON manifest for a paired N64 Sound Tools
 ///     PTR/WBK bank. Standalone files must be paired explicitly; a .z64 input
-///     is paired only when its carve has exactly one of each content magic.
+///     is paired only when its carve has exactly one structurally valid PTR
+///     and one structurally compatible WBK after the content-magic prefilter.
 /// </summary>
 public static class N64AudioInspectCommand
 {

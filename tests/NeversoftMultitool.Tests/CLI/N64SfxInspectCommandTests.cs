@@ -100,6 +100,19 @@ public sealed class N64SfxInspectCommandTests(TestPaths paths)
     }
 
     [Fact]
+    public void Command_OutputCanonicalAliasCannotOverwriteStandaloneSource()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "cue.sfx.n64");
+        var original = BuildBank(loopFlag: 0xFE, note: 0x80);
+        File.WriteAllBytes(input, original);
+        var outputAlias = Path.Combine(temp.Path, ".", Path.GetFileName(input));
+
+        Assert.Equal(1, N64SfxInspectCommand.Execute(input, outputAlias));
+        Assert.Equal(original, File.ReadAllBytes(input));
+    }
+
+    [Fact]
     public void ProgramRoute_RegistersCommandHelp()
     {
         Assert.Equal(0, Program.Main(["n64-sfx-inspect", "--help"]));

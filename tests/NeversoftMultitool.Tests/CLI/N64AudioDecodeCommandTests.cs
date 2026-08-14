@@ -171,7 +171,7 @@ public sealed class N64AudioDecodeCommandTests(TestPaths paths)
             Convert.ToHexString(SHA256.HashData(wav.AsSpan(44))));
     }
 
-    [Fact]
+    [CorpusFact]
     public void Command_Thps3RomAndExplicitPair_AreByteIdenticalRuntimeGolden()
     {
         const string build = "Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)";

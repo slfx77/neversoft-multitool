@@ -41,7 +41,13 @@ public static class N64AudioRuntimeInspectCommand
         return command;
     }
 
-    internal static int Execute(string input, string outputPath)
+    internal static int Execute(string input, string outputPath) =>
+        Execute(input, outputPath, Resolve);
+
+    internal static int Execute(
+        string input,
+        string outputPath,
+        Func<string, N64SoundToolsRuntimeProfile> resolve)
     {
         if (!File.Exists(input))
         {
@@ -51,7 +57,8 @@ public static class N64AudioRuntimeInspectCommand
 
         try
         {
-            var profile = Resolve(input);
+            var profile = resolve(input);
+            RejectCanonicalSourcePath(input, outputPath);
             N64SoundToolsRuntimeProfileJsonExporter.Write(
                 outputPath,
                 Path.GetFileName(input),
@@ -71,6 +78,24 @@ public static class N64AudioRuntimeInspectCommand
         {
             AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
             return 1;
+        }
+    }
+
+    private static void RejectCanonicalSourcePath(string input, string outputPath)
+    {
+        // This guards normalized path aliases. Symlink/hard-link identity is a
+        // separate filesystem-level overwrite policy.
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        if (string.Equals(
+                Path.GetFullPath(outputPath),
+                Path.GetFullPath(input),
+                comparison))
+        {
+            throw new InvalidDataException(
+                "output path resolves to the same canonical path as the input ROM source");
         }
     }
 

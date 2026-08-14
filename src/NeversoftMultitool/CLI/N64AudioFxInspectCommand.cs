@@ -58,6 +58,7 @@ public static class N64AudioFxInspectCommand
             // Resolve and validate the complete BFX/PTR binding before touching
             // the destination. The ordinary JSON write is not transactional.
             var sources = N64SoundToolsFxInputResolver.Resolve(input, pointerPath);
+            RejectCanonicalSourcePath(input, pointerPath, jsonPath);
             N64SoundToolsFxBankJsonExporter.Write(
                 jsonPath,
                 sources.FxBankSource,
@@ -80,6 +81,29 @@ public static class N64AudioFxInspectCommand
         {
             AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
             return 1;
+        }
+    }
+
+    private static void RejectCanonicalSourcePath(
+        string input,
+        string? pointerPath,
+        string outputPath)
+    {
+        // This guards normalized path aliases. Symlink/hard-link identity is a
+        // separate filesystem-level overwrite policy.
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var canonicalOutput = Path.GetFullPath(outputPath);
+
+        if (string.Equals(canonicalOutput, Path.GetFullPath(input), comparison) ||
+            pointerPath != null && string.Equals(
+                canonicalOutput,
+                Path.GetFullPath(pointerPath),
+                comparison))
+        {
+            throw new InvalidDataException(
+                "output path resolves to the same canonical path as an input BFX/PTR/ROM source");
         }
     }
 

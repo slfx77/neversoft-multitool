@@ -246,6 +246,43 @@ public sealed class N64AudioRuntimeInspectCommandTests(TestPaths paths)
     }
 
     [Fact]
+    public void Command_OutputAliasToInputRejectsAfterResolutionAndPreservesRom()
+    {
+        const int clockRomOffset = 0x40;
+        const int aiRoutineRomOffset = 0x80;
+        var rom = BuildSyntheticKnownRom(clockRomOffset, aiRoutineRomOffset);
+        var aiRoutineSha256 = Hash(rom.AsSpan(
+            aiRoutineRomOffset,
+            N64SoundToolsRuntimeProfileResolver.AiRoutineLength));
+        var profile = N64SoundToolsRuntimeProfileResolver.ResolveForEvidence(
+            rom,
+            N64SoundToolsRuntimeProfileResolver.Thps1BootSha256,
+            clockRomOffset,
+            aiRoutineRomOffset,
+            aiRoutineSha256);
+
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "game.z64");
+        File.WriteAllBytes(input, rom);
+        var alias = Path.Combine(temp.Path, ".", Path.GetFileName(input));
+        var resolverCalls = 0;
+
+        var result = N64AudioRuntimeInspectCommand.Execute(
+            input,
+            alias,
+            path =>
+            {
+                resolverCalls++;
+                Assert.Equal(input, path);
+                return profile;
+            });
+
+        Assert.Equal(1, result);
+        Assert.Equal(1, resolverCalls);
+        Assert.Equal(rom, File.ReadAllBytes(input));
+    }
+
+    [Fact]
     public void ProgramRoute_RegistersCommandHelp()
     {
         Assert.Equal(0, Program.Main(["n64-audio-runtime-inspect", "--help"]));

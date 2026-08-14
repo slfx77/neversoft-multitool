@@ -250,6 +250,68 @@ public sealed class N64SoundToolsBankTests(TestPaths paths)
             N64AudioInspectCommand.SelectCarvedPair([pointer, wave, duplicateWave]));
     }
 
+    [Fact]
+    public void RomPairSelection_RejectsExactMagicOnlyPair()
+    {
+        var pointer = new N64AssetCarver.CarvedAsset(
+            "bad.ptr.n64", "N64 PtrTablesV2\0"u8.ToArray());
+        var wave = new N64AssetCarver.CarvedAsset(
+            "bad.wbk.n64", "N64 WaveTables \0"u8.ToArray());
+
+        Assert.Throws<InvalidDataException>(() =>
+            N64AudioInspectCommand.SelectCarvedPair([pointer, wave]));
+    }
+
+    [Fact]
+    public void RomPairSelection_MalformedMagicDecoysDoNotHideValidPair()
+    {
+        var (pointerData, waveData) = BuildPair(pointerTail: 6, waveTail: 1);
+        var pointer = new N64AssetCarver.CarvedAsset("a/shared.ptr.n64", pointerData);
+        var wave = new N64AssetCarver.CarvedAsset("audio/000.bin", waveData);
+        var malformedPointer = new N64AssetCarver.CarvedAsset(
+            "bad.ptr.n64", "N64 PtrTablesV2\0"u8.ToArray());
+        var malformedWave = new N64AssetCarver.CarvedAsset(
+            "bad.wbk.n64", "N64 WaveTables \0"u8.ToArray());
+
+        var selected = N64AudioInspectCommand.SelectCarvedPair(
+            [malformedPointer, malformedWave, pointer, wave]);
+
+        Assert.Same(pointerData, selected.PointerData);
+        Assert.Same(waveData, selected.WaveData);
+        Assert.Equal("shared.ptr.n64", selected.PointerSource);
+        Assert.Equal("000.bin", selected.WaveSource);
+    }
+
+    [Fact]
+    public void RomPairSelection_AcceptsExactValidPairBoundary()
+    {
+        var (pointerData, waveData) = BuildPair(pointerTail: 0, waveTail: 0);
+        var pointer = new N64AssetCarver.CarvedAsset("bank.ptr.n64", pointerData);
+        var wave = new N64AssetCarver.CarvedAsset("waves.wbk.n64", waveData);
+
+        var selected = N64AudioInspectCommand.SelectCarvedPair([pointer, wave]);
+
+        Assert.Same(pointerData, selected.PointerData);
+        Assert.Same(waveData, selected.WaveData);
+        Assert.Equal("bank.ptr.n64", selected.PointerSource);
+        Assert.Equal("waves.wbk.n64", selected.WaveSource);
+    }
+
+    [Fact]
+    public void RomPairSelection_TwoStructurallyValidPointersRemainAmbiguous()
+    {
+        var (pointerData, waveData) = BuildPair(pointerTail: 6, waveTail: 1);
+        var incompatiblePointerData = pointerData.ToArray();
+        WriteU32(incompatiblePointerData, 0x1A0 + 4, 27);
+        var pointer = new N64AssetCarver.CarvedAsset("a/shared.ptr.n64", pointerData);
+        var incompatiblePointer = new N64AssetCarver.CarvedAsset(
+            "b/shared.ptr.n64", incompatiblePointerData);
+        var wave = new N64AssetCarver.CarvedAsset("audio/000.bin", waveData);
+
+        Assert.Throws<InvalidDataException>(() =>
+            N64AudioInspectCommand.SelectCarvedPair([pointer, incompatiblePointer, wave]));
+    }
+
     [CorpusFact]
     public void Parse_RomCorpus_ContentPairsExactlyAndPinsCensusAndRouteParity()
     {

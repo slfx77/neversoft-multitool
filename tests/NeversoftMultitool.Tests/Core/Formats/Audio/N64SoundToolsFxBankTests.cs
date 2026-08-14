@@ -746,6 +746,28 @@ public sealed class N64SoundToolsFxBankTests(TestPaths paths)
     }
 
     [Fact]
+    public void Command_OutputCanonicalAliasesCannotOverwriteStandaloneSources()
+    {
+        using var temp = new TempDirectory();
+        var fxData = Convert.FromHexString(SyntheticHex);
+        var pointerData = BuildPointerData();
+        var fxPath = Path.Combine(temp.Path, "effects.bfx");
+        var pointerPath = Path.Combine(temp.Path, "bank.ptr.n64");
+        File.WriteAllBytes(fxPath, fxData);
+        File.WriteAllBytes(pointerPath, pointerData);
+
+        var fxAlias = Path.Combine(temp.Path, ".", Path.GetFileName(fxPath));
+        Assert.Equal(1, N64AudioFxInspectCommand.Execute(fxPath, pointerPath, fxAlias));
+        Assert.Equal(fxData, File.ReadAllBytes(fxPath));
+        Assert.Equal(pointerData, File.ReadAllBytes(pointerPath));
+
+        var pointerAlias = Path.Combine(temp.Path, ".", Path.GetFileName(pointerPath));
+        Assert.Equal(1, N64AudioFxInspectCommand.Execute(fxPath, pointerPath, pointerAlias));
+        Assert.Equal(fxData, File.ReadAllBytes(fxPath));
+        Assert.Equal(pointerData, File.ReadAllBytes(pointerPath));
+    }
+
+    [Fact]
     public void RomStructuralSelection_RequiresOnePointerAndOneFullPredicateMatch()
     {
         var pointerData = BuildPointerData();
