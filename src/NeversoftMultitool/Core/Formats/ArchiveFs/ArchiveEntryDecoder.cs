@@ -46,7 +46,16 @@ internal static class ArchiveEntryDecoder
                 using var input = new MemoryStream(stored, false);
                 using var zlib = new ZLibStream(input, CompressionMode.Decompress);
                 var output = new byte[entry.Size];
-                zlib.ReadExactly(output);
+                try
+                {
+                    zlib.ReadExactly(output);
+                }
+                catch (EndOfStreamException ex)
+                {
+                    throw new InvalidDataException(
+                        $"Decompressed PKR entry is shorter than its declared size of {entry.Size} bytes.", ex);
+                }
+
                 if (zlib.ReadByte() != -1)
                     throw new InvalidDataException(
                         $"Decompressed PKR entry exceeds its declared size of {entry.Size} bytes.");
@@ -58,7 +67,16 @@ internal static class ArchiveEntryDecoder
                 using var input = new MemoryStream(stored, false);
                 using var deflate = new DeflateStream(input, CompressionMode.Decompress);
                 var output = new byte[entry.Size];
-                deflate.ReadExactly(output);
+                try
+                {
+                    deflate.ReadExactly(output);
+                }
+                catch (EndOfStreamException ex)
+                {
+                    throw new InvalidDataException(
+                        $"Decompressed ZIP entry is shorter than its declared size of {entry.Size} bytes.", ex);
+                }
+
                 if (deflate.ReadByte() != -1)
                     throw new InvalidDataException(
                         $"Decompressed ZIP entry exceeds its declared size of {entry.Size} bytes.");

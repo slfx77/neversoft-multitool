@@ -62,6 +62,7 @@ public static class CompressedPreArchive
     {
         using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
+        EnsureAvailable(stream, HeaderSize, "header");
         _ = reader.ReadInt32(); // totalFileSize (not needed for parsing)
         var version = reader.ReadUInt32();
         if (version is not VersionV2 and not VersionV3)
@@ -70,22 +71,42 @@ public static class CompressedPreArchive
 
         var numEntries = reader.ReadInt32();
         var hasChecksum = version == VersionV3;
+        var entryHeaderSize = hasChecksum ? 16 : 12;
+        if (numEntries < 0 || numEntries > (stream.Length - stream.Position) / entryHeaderSize)
+            throw new InvalidDataException(
+                $"Compressed PRE entry count {numEntries} cannot fit in {stream.Length} bytes.");
+
         var entries = new List<ArchiveEntry>(numEntries);
 
         for (var i = 0; i < numEntries; i++)
         {
+            EnsureAvailable(stream, entryHeaderSize, $"entry {i} header");
             var dataSize = reader.ReadInt32();
             var compressedDataSize = reader.ReadInt32();
             var nameSize = reader.ReadInt16();
             _ = reader.ReadInt16(); // reserved: usage count slot, unused on disk
             var checksum = hasChecksum ? reader.ReadUInt32() : 0u;
 
+            if (dataSize < 0)
+                throw new InvalidDataException($"Compressed PRE entry {i} has negative data size {dataSize}.");
+            if (compressedDataSize < 0)
+                throw new InvalidDataException(
+                    $"Compressed PRE entry {i} has negative compressed size {compressedDataSize}.");
+            if (nameSize < 0)
+                throw new InvalidDataException($"Compressed PRE entry {i} has negative name size {nameSize}.");
+
+            EnsureAvailable(stream, nameSize, $"entry {i} name");
             var nameBytes = reader.ReadBytes(nameSize);
+            if (nameBytes.Length != nameSize)
+                throw new InvalidDataException($"Compressed PRE entry {i} name is truncated.");
+
             var nullIndex = Array.IndexOf(nameBytes, (byte)0);
             var name = Encoding.ASCII.GetString(nameBytes, 0, nullIndex >= 0 ? nullIndex : nameBytes.Length);
 
-            var actualDataSize = compressedDataSize != 0 ? compressedDataSize : dataSize;
+            long actualDataSize = compressedDataSize != 0 ? compressedDataSize : dataSize;
+            var paddedDataSize = (actualDataSize + 3L) & ~3L;
             var dataOffset = stream.Position;
+            EnsureAvailable(stream, paddedDataSize, $"entry {i} stored payload");
 
             // Normalize path separators and strip leading slash
             name = name.Replace('\\', '/').TrimStart('/');
@@ -112,11 +133,16 @@ public static class CompressedPreArchive
             });
 
             // Advance to next entry: data + pad to 4-byte alignment
-            var paddedDataSize = (actualDataSize + 3) & ~3;
             stream.Position = dataOffset + paddedDataSize;
         }
 
         return entries;
+    }
+
+    private static void EnsureAvailable(Stream stream, long byteCount, string context)
+    {
+        if (stream.Position > stream.Length || byteCount < 0 || byteCount > stream.Length - stream.Position)
+            throw new InvalidDataException($"Compressed PRE {context} extends past the end of the archive.");
     }
 
     public static void ExtractFiles(string prePath, string outputDir,

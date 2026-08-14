@@ -44,6 +44,7 @@ public sealed class GdiSheet
 
             // Filenames may be quoted (and may contain spaces when quoted).
             string fileName;
+            string offsetText;
             string[] head;
             var quoteStart = line.IndexOf('"');
             if (quoteStart >= 0)
@@ -52,12 +53,16 @@ public sealed class GdiSheet
                 if (quoteEnd < 0) continue;
                 fileName = line.Substring(quoteStart + 1, quoteEnd - quoteStart - 1);
                 head = line[..quoteStart].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var tail = line[(quoteEnd + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (tail.Length < 1) continue;
+                offsetText = tail[0];
             }
             else
             {
                 var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length < 6) continue;
                 fileName = parts[4];
+                offsetText = parts[5];
                 head = parts;
             }
 
@@ -66,13 +71,21 @@ public sealed class GdiSheet
             if (!long.TryParse(head[1], out var startLba)) continue;
             if (!int.TryParse(head[2], out var type)) continue;
             if (!int.TryParse(head[3], out var sectorSize)) continue;
+            if (!long.TryParse(offsetText, out var fileByteOffset) || fileByteOffset < 0) continue;
+
+            var filePath = Path.Combine(baseDirectory, fileName);
+            if (File.Exists(filePath) && fileByteOffset > new FileInfo(filePath).Length)
+                continue;
 
             tracks.Add(new GdiTrack(
                 number,
                 startLba,
                 type == 4,
                 sectorSize,
-                Path.Combine(baseDirectory, fileName)));
+                filePath)
+            {
+                FileByteOffset = fileByteOffset
+            });
         }
 
         if (tracks.Count == 0)
@@ -91,7 +104,13 @@ public sealed class GdiSheet
     {
         return Tracks
             .Where(t => t.SectorCount > 0)
-            .Select(t => new DiscTrackRegion(t.StartLba, t.SectorCount, t.FilePath, 0, t.SectorSize, !t.IsData))
+            .Select(t => new DiscTrackRegion(
+                t.StartLba,
+                t.SectorCount,
+                t.FilePath,
+                t.FileByteOffset,
+                t.SectorSize,
+                !t.IsData))
             .ToList();
     }
 }

@@ -10,6 +10,10 @@ namespace NeversoftMultitool.Core.Formats.Archives;
 public static class PkrArchive
 {
     private const uint FileCompressed = 0x00000002;
+    private const int FileHeaderSize = 8;
+    private const int DirectoryHeaderSize = 12;
+    private const int DirectoryEntrySize = 40;
+    private const int FileEntrySize = 52;
 
     /// <summary>
     ///     Reads the file list from a PKR archive.
@@ -121,6 +125,9 @@ public static class PkrArchive
 
     private static (List<PkrDir> dirs, PkrDirHeader header) SetupDirectories(BinaryReader reader)
     {
+        var stream = reader.BaseStream;
+        RequireRange(stream, 0, FileHeaderSize, "PKR3 file header");
+
         // Read PKR3 file header
         var magic = Encoding.ASCII.GetString(reader.ReadBytes(4)).TrimEnd('\0');
         if (magic != "PKR3")
@@ -129,16 +136,26 @@ public static class PkrArchive
         var dirOffset = reader.ReadUInt32();
 
         // Seek to directory header
-        reader.BaseStream.Seek(dirOffset, SeekOrigin.Begin);
+        if (dirOffset < FileHeaderSize)
+            throw new InvalidDataException(
+                $"PKR3 directory header offset {dirOffset} overlaps the {FileHeaderSize}-byte file header");
+        RequireRange(stream, dirOffset, DirectoryHeaderSize, "PKR3 directory header");
+        stream.Seek(dirOffset, SeekOrigin.Begin);
 
         var unk = reader.ReadUInt32();
         var numDirs = reader.ReadUInt32();
         var numFiles = reader.ReadUInt32();
-        var header = new PkrDirHeader(unk, (int)numDirs, (int)numFiles);
+        var header = new PkrDirHeader(unk, numDirs, numFiles);
+
+        var directoryTableOffset = stream.Position;
+        var directoryTableSize = (long)numDirs * DirectoryEntrySize;
+        RequireRange(stream, directoryTableOffset, directoryTableSize, "PKR3 directory table");
+        if (numDirs > int.MaxValue)
+            throw new InvalidDataException($"PKR3 directory count {numDirs} exceeds the supported range");
 
         // Read directory entries
         var dirs = new List<PkrDir>((int)numDirs);
-        for (var i = 0; i < numDirs; i++)
+        for (var i = 0; i < (int)numDirs; i++)
         {
             var nameBytes = reader.ReadBytes(32);
             // PKR directory records are inconsistent about carrying a trailing
@@ -152,6 +169,12 @@ public static class PkrArchive
                 .Trim('/');
             var dirUnk = reader.ReadUInt32();
             var dirNumFiles = reader.ReadUInt32();
+            if (dirNumFiles > int.MaxValue)
+            {
+                throw new InvalidDataException(
+                    $"PKR3 directory {i} file count {dirNumFiles} exceeds the supported range");
+            }
+
             dirs.Add(new PkrDir(name, dirUnk, (int)dirNumFiles));
         }
 
@@ -160,7 +183,22 @@ public static class PkrArchive
 
     private static List<ArchiveEntry> ReadAllFileEntries(BinaryReader reader, List<PkrDir> dirs)
     {
-        var entries = new List<ArchiveEntry>();
+        long entryCount = 0;
+        foreach (var dir in dirs)
+            entryCount += dir.NumFiles;
+
+        if (entryCount > int.MaxValue)
+            throw new InvalidDataException($"PKR3 file count {entryCount} exceeds the supported range");
+
+        var stream = reader.BaseStream;
+        var remaining = stream.Length - stream.Position;
+        if (entryCount > remaining / FileEntrySize)
+        {
+            throw new InvalidDataException(
+                $"PKR3 file table for {entryCount} entries runs past end of file");
+        }
+
+        var entries = new List<ArchiveEntry>((int)entryCount);
 
         foreach (var dir in dirs)
         {
@@ -177,6 +215,9 @@ public static class PkrArchive
 
     private static ArchiveEntry ReadFileEntry(BinaryReader reader)
     {
+        var stream = reader.BaseStream;
+        RequireRange(stream, stream.Position, FileEntrySize, "PKR3 file entry");
+
         var nameBytes = reader.ReadBytes(32);
         var name = Encoding.ASCII.GetString(nameBytes).TrimEnd('\0');
         var crc = reader.ReadUInt32();
@@ -184,6 +225,8 @@ public static class PkrArchive
         var fileOffset = reader.ReadUInt32();
         var uncompressedSize = reader.ReadUInt32();
         var compressedSize = reader.ReadUInt32();
+        var storedSize = compressed == FileCompressed ? compressedSize : uncompressedSize;
+        RequireRange(stream, fileOffset, storedSize, $"PKR3 entry '{name}' payload");
 
         return new ArchiveEntry
         {
@@ -211,7 +254,16 @@ public static class PkrArchive
         return Crc32.HashToUInt32(data);
     }
 
-    private sealed record PkrDirHeader(uint Unk, int NumDirs, int NumFiles);
+    private static void RequireRange(Stream stream, long offset, long size, string context)
+    {
+        if (offset < 0 || size < 0 || offset > stream.Length || size > stream.Length - offset)
+        {
+            throw new InvalidDataException(
+                $"{context} range [{offset}, {offset + size}) is outside file length {stream.Length}");
+        }
+    }
+
+    private sealed record PkrDirHeader(uint Unk, uint NumDirs, uint NumFiles);
 
     private sealed record PkrDir(string Name, uint Unk, int NumFiles);
 }

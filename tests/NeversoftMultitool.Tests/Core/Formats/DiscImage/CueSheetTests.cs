@@ -41,6 +41,38 @@ public sealed class CueSheetTests
         Assert.Equal(0, Assert.Single(cue.Tracks).Index01Frames);
     }
 
+    [Fact]
+    public void Parse_UnterminatedQuotedFileName_ThrowsExplicitly()
+    {
+        string[] lines =
+        [
+            "FILE \"unterminated.bin BINARY",
+            "TRACK 01 MODE2/2352",
+            "INDEX 01 00:00:00"
+        ];
+
+        var exception = Assert.Throws<InvalidDataException>(() => CueSheet.Parse(lines, ""));
+
+        Assert.Equal(
+            "Invalid cue FILE statement: unterminated quoted filename in 'FILE \"unterminated.bin BINARY'.",
+            exception.Message);
+    }
+
+    [Fact]
+    public void Parse_UnquotedFileName_PreservesLegacyForm()
+    {
+        string[] lines =
+        [
+            "FILE track.bin BINARY",
+            "TRACK 01 MODE2/2352",
+            "INDEX 01 00:00:00"
+        ];
+
+        var cue = CueSheet.Parse(lines, "fixtures");
+
+        Assert.Equal(Path.Combine("fixtures", "track.bin"), Assert.Single(cue.Tracks).FilePath);
+    }
+
     private static string[] CreateCue(string timestamp) =>
     [
         "FILE \"track.bin\" BINARY",

@@ -26,6 +26,15 @@ internal static class BitmapOutputPathPlanner
     private static string GetStem(string source)
     {
         var normalized = source.Replace("::", "/").Replace('\\', '/');
-        return Path.GetFileNameWithoutExtension(normalized);
+        var fileName = Path.GetFileName(normalized);
+        var stem = Path.GetFileNameWithoutExtension(fileName);
+        if (stem.Length > 0)
+            return stem;
+
+        // Supported extension-only leaves such as ".rle" have no ordinary
+        // file-name stem. Preserve their spelling while supplying the output
+        // planner with a safe, non-empty name.
+        var extension = Path.GetExtension(fileName);
+        return extension.Length > 1 ? $"_{extension[1..]}" : stem;
     }
 }

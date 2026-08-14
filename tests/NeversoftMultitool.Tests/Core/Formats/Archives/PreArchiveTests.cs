@@ -6,6 +6,92 @@ namespace NeversoftMultitool.Tests.Core.Formats.Archives;
 public class PreArchiveTests
 {
     [Fact]
+    public void GetFileList_ValidBytes_ReturnsFramedEntries()
+    {
+        var data = BuildPlainPre(
+            ("a.bin", new byte[] { 0x11, 0x22, 0x33 }),
+            ("long-name.dat", new byte[] { 0x44 }));
+
+        var entries = PreArchive.GetFileList(data);
+
+        Assert.Collection(entries,
+            entry =>
+            {
+                Assert.Equal("a.bin", entry.Name);
+                Assert.Equal(3u, entry.Size);
+                Assert.Equal(new byte[] { 0x11, 0x22, 0x33 }, data[(int)entry.Offset..(int)(entry.Offset + entry.Size)]);
+            },
+            entry =>
+            {
+                Assert.Equal("long-name.dat", entry.Name);
+                Assert.Equal(1u, entry.Size);
+                Assert.Equal(new byte[] { 0x44 }, data[(int)entry.Offset..(int)(entry.Offset + entry.Size)]);
+            });
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void GetFileList_ShortHeader_ThrowsInvalidDataException(int length)
+    {
+        Assert.Throws<InvalidDataException>(() => PreArchive.GetFileList(new byte[length]));
+    }
+
+    [Fact]
+    public void GetFileList_ImpossibleEntryCount_ThrowsInvalidDataException()
+    {
+        var data = new byte[12];
+        BitConverter.TryWriteBytes(data, 2u);
+
+        Assert.Throws<InvalidDataException>(() => PreArchive.GetFileList(data));
+    }
+
+    [Fact]
+    public void GetFileList_HugeEntryCount_ThrowsInvalidDataException()
+    {
+        var data = BitConverter.GetBytes(uint.MaxValue);
+
+        Assert.Throws<InvalidDataException>(() => PreArchive.GetFileList(data));
+    }
+
+    [Fact]
+    public void GetFileList_UnterminatedName_ThrowsInvalidDataException()
+    {
+        var data = new byte[12];
+        BitConverter.TryWriteBytes(data, 1u);
+        Array.Fill(data, (byte)'A', 4, 8);
+
+        Assert.Throws<InvalidDataException>(() => PreArchive.GetFileList(data));
+    }
+
+    [Fact]
+    public void GetFileList_TruncatedSizeField_ThrowsInvalidDataException()
+    {
+        var data = new byte[12];
+        BitConverter.TryWriteBytes(data, 1u);
+        data[4] = (byte)'n';
+        data[5] = (byte)'a';
+        data[6] = (byte)'m';
+        data[7] = (byte)'e';
+        data[8] = 0;
+
+        Assert.Throws<InvalidDataException>(() => PreArchive.GetFileList(data));
+    }
+
+    [Fact]
+    public void GetFileList_DeclaredPayloadPastEnd_ThrowsInvalidDataException()
+    {
+        var data = new byte[15];
+        BitConverter.TryWriteBytes(data, 1u);
+        data[4] = 0;
+        BitConverter.TryWriteBytes(data.AsSpan(8), 4u);
+
+        Assert.Throws<InvalidDataException>(() => PreArchive.GetFileList(data));
+    }
+
+    [Fact]
     public void ExtractFiles_TraversalEntryFailsBeforeAnyOutputOrCallback()
     {
         var tempRoot = CreateTempRoot();
@@ -67,6 +153,18 @@ public class PreArchiveTests
     private static void WritePlainPre(string path, params (string Name, byte[] Data)[] entries)
     {
         using var stream = File.Create(path);
+        WritePlainPre(stream, entries);
+    }
+
+    private static byte[] BuildPlainPre(params (string Name, byte[] Data)[] entries)
+    {
+        using var stream = new MemoryStream();
+        WritePlainPre(stream, entries);
+        return stream.ToArray();
+    }
+
+    private static void WritePlainPre(Stream stream, params (string Name, byte[] Data)[] entries)
+    {
         using var writer = new BinaryWriter(stream, Encoding.ASCII);
         writer.Write((uint)entries.Length);
         foreach (var entry in entries)

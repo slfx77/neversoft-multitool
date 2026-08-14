@@ -6,6 +6,83 @@ namespace NeversoftMultitool.Tests.Core.Formats.Archives;
 public class DdxArchiveTests
 {
     [Fact]
+    public void ReadAllEntries_ValidSyntheticArchiveReturnsDeclaredPayloads()
+    {
+        var data = BuildDdx(
+            ("first.dds", "first"u8.ToArray()),
+            ("second.dds", "second"u8.ToArray()));
+
+        var entries = DdxArchive.GetFileList(data);
+        var payloads = DdxArchive.ReadAllEntries(data);
+
+        Assert.Collection(entries,
+            entry =>
+            {
+                Assert.Equal("first.dds", entry.Name);
+                Assert.Equal(5, entry.Size);
+                Assert.Equal(544, entry.Offset);
+            },
+            entry =>
+            {
+                Assert.Equal("second.dds", entry.Name);
+                Assert.Equal(6, entry.Size);
+                Assert.Equal(549, entry.Offset);
+            });
+        Assert.Equal("first"u8.ToArray(), payloads["first"]);
+        Assert.Equal("second"u8.ToArray(), payloads["second"]);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(15)]
+    public void GetFileList_TruncatedHeaderThrowsInvalidData(int length)
+    {
+        Assert.Throws<InvalidDataException>(() => DdxArchive.GetFileList(new byte[length]));
+    }
+
+    [Fact]
+    public void GetFileList_TruncatedTableThrowsInvalidData()
+    {
+        var data = BuildRawDdx(279, dataOffset: 280, entryCount: 1);
+
+        Assert.Throws<InvalidDataException>(() => DdxArchive.GetFileList(data));
+    }
+
+    [Fact]
+    public void GetFileList_UIntMaxEntryCountThrowsInvalidDataBeforeAllocation()
+    {
+        var data = BuildRawDdx(16, dataOffset: 16, entryCount: uint.MaxValue);
+
+        Assert.Throws<InvalidDataException>(() => DdxArchive.GetFileList(data));
+    }
+
+    [Fact]
+    public void GetFileList_DataRegionInsideTableThrowsInvalidData()
+    {
+        var data = BuildRawDdx(280, dataOffset: 16, entryCount: 1);
+
+        Assert.Throws<InvalidDataException>(() => DdxArchive.GetFileList(data));
+    }
+
+    [Fact]
+    public void GetFileList_OffsetAdditionCannotWrapIntoTable()
+    {
+        var data = BuildRawDdx(281, dataOffset: 280, entryCount: 1,
+            relativeOffset: uint.MaxValue, size: 1);
+
+        Assert.Throws<InvalidDataException>(() => DdxArchive.GetFileList(data));
+    }
+
+    [Fact]
+    public void GetFileList_PayloadPastEndThrowsInvalidData()
+    {
+        var data = BuildRawDdx(281, dataOffset: 280, entryCount: 1,
+            relativeOffset: 0, size: 2);
+
+        Assert.Throws<InvalidDataException>(() => DdxArchive.GetFileList(data));
+    }
+
+    [Fact]
     public void ExtractFiles_TraversalEntryFailsBeforeAnyOutputOrCallback()
     {
         var tempRoot = CreateTempRoot();
@@ -66,12 +143,17 @@ public class DdxArchiveTests
 
     private static void WriteDdx(string path, params (string Name, byte[] Data)[] entries)
     {
+        File.WriteAllBytes(path, BuildDdx(entries));
+    }
+
+    private static byte[] BuildDdx(params (string Name, byte[] Data)[] entries)
+    {
         const int headerSize = 16;
         const int entrySize = 264;
         var dataOffset = headerSize + entrySize * entries.Length;
         var fileSize = dataOffset + entries.Sum(entry => entry.Data.Length);
 
-        using var stream = File.Create(path);
+        using var stream = new MemoryStream();
         using var writer = new BinaryWriter(stream, Encoding.ASCII);
         writer.Write(0u);
         writer.Write((uint)fileSize);
@@ -92,5 +174,27 @@ public class DdxArchiveTests
 
         foreach (var entry in entries)
             writer.Write(entry.Data);
+
+        return stream.ToArray();
+    }
+
+    private static byte[] BuildRawDdx(int length, uint dataOffset, uint entryCount,
+        uint relativeOffset = 0, uint size = 0)
+    {
+        Assert.True(length >= 16);
+        var data = new byte[length];
+        using var stream = new MemoryStream(data);
+        using var writer = new BinaryWriter(stream, Encoding.ASCII);
+        writer.Write(0u);
+        writer.Write((uint)length);
+        writer.Write(dataOffset);
+        writer.Write(entryCount);
+        if (length >= 24)
+        {
+            writer.Write(relativeOffset);
+            writer.Write(size);
+        }
+
+        return data;
     }
 }

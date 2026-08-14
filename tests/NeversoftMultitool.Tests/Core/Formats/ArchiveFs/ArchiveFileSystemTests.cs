@@ -84,6 +84,32 @@ public class ArchiveFileSystemTests(TestPaths paths)
         Assert.Null(fs.FindByPath("levels/ap/missing.bsp"));
     }
 
+    [Theory]
+    [InlineData("00000000")]
+    [InlineData("0000000078563412")]
+    public void TryOpen_EmptyPlainPreOnDisk_ReturnsNull(string fileHex)
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            "NsMultitool_Test_EmptyPre_" + Guid.NewGuid().ToString("N"));
+        var prePath = Path.Combine(tempDir, "empty.pre");
+
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            File.WriteAllBytes(prePath, Convert.FromHexString(fileHex));
+
+            Assert.Equal(ArchiveAssetType.Pre, ArchiveTypeDetector.DetectAssetType(prePath));
+            using var opened = ArchiveFileSystem.TryOpen(prePath);
+            Assert.Null(opened);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public void FindAllByName_ReturnsEveryDirectoryVariant()
     {

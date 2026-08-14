@@ -115,6 +115,10 @@ internal static class ScriptOutputPathPlanner
         // Treat both directory separators explicitly so the result is one leaf on
         // every host OS, including when a Windows path is planned on another host.
         var normalized = sourcePath.Replace('\\', '/');
+        var archiveSeparator = normalized.LastIndexOf("::", StringComparison.Ordinal);
+        if (archiveSeparator >= 0)
+            normalized = normalized[(archiveSeparator + 2)..];
+
         var leaf = normalized[(normalized.LastIndexOf('/') + 1)..];
         var extensionSeparator = leaf.LastIndexOf('.');
         var rawStem = extensionSeparator >= 0 ? leaf[..extensionSeparator] : leaf;

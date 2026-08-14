@@ -4,6 +4,56 @@ namespace NeversoftMultitool.Tests.Core.Formats.Rle;
 
 public sealed class BitmapOutputPathPlannerTests
 {
+    [Theory]
+    [InlineData(".rle", "_rle.png")]
+    [InlineData(".BMR", "_BMR.png")]
+    [InlineData(".zlb", "_zlb.png")]
+    [InlineData(".bmp", "_bmp.png")]
+    [InlineData(".tga", "_tga.png")]
+    public void Plan_ExtensionOnlyLeafUsesSafeCasePreservingStem(
+        string fileName,
+        string expectedPath)
+    {
+        var plan = Assert.Single(BitmapOutputPathPlanner.Plan([fileName], inputRoot: null));
+
+        Assert.Equal(fileName, plan.Source);
+        Assert.Equal(expectedPath, plan.RelativePngPath);
+    }
+
+    [Fact]
+    public void Plan_ExtensionOnlyArchiveCollisionsPreserveOwningDirectories()
+    {
+        var root = Path.Combine("input", "archives");
+        var archive = Path.Combine(root, "bundle.wad");
+        string[] sources =
+        [
+            $"{archive}::left/.rle",
+            $"{archive}::right/.rle"
+        ];
+
+        var plans = BitmapOutputPathPlanner.Plan(sources, root);
+
+        Assert.Equal(sources, plans.Select(static plan => plan.Source));
+        Assert.Equal(
+            [
+                Path.Combine("bundle.wad", "left", "_rle.png"),
+                Path.Combine("bundle.wad", "right", "_rle.png")
+            ],
+            plans.Select(static plan => plan.RelativePngPath));
+    }
+
+    [Theory]
+    [InlineData("named.rle", "named.png")]
+    [InlineData("named.with.dots.tga", "named.with.dots.png")]
+    [InlineData(".hidden.bmp", ".hidden.png")]
+    [InlineData(".img.n64", ".img.png")]
+    public void Plan_NamedLeafKeepsExistingStem(string fileName, string expectedPath)
+    {
+        var plan = Assert.Single(BitmapOutputPathPlanner.Plan([fileName], inputRoot: null));
+
+        Assert.Equal(expectedPath, plan.RelativePngPath);
+    }
+
     [Fact]
     public void Plan_FileSystemCollisionsMirrorFoldersWhileUniqueStemStaysFlat()
     {

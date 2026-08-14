@@ -9,6 +9,9 @@ namespace NeversoftMultitool.Core.Formats.Archives;
 /// </summary>
 public static class PreArchive
 {
+    private const int HeaderSize = sizeof(uint);
+    private const int MinimumEntrySize = 8;
+
     public static List<ArchiveEntry> GetFileList(string prePath)
     {
         using var stream = File.OpenRead(prePath);
@@ -27,6 +30,10 @@ public static class PreArchive
     private static List<ArchiveEntry> GetFileList(Stream stream)
     {
         using var reader = new BinaryReader(stream, Encoding.ASCII, true);
+
+        if (stream.Length < HeaderSize)
+            throw new InvalidDataException(
+                $"Plain PRE header is truncated: expected {HeaderSize} bytes, found {stream.Length}.");
 
         var entryCount = reader.ReadUInt32();
 
@@ -48,18 +55,26 @@ public static class PreArchive
             }
         }
 
+        var maximumEntryCount = (stream.Length - HeaderSize) / MinimumEntrySize;
+        if (entryCount > int.MaxValue || entryCount > maximumEntryCount)
+            throw new InvalidDataException(
+                $"Plain PRE entry count {entryCount} cannot fit in {stream.Length} bytes.");
+
         var entries = new List<ArchiveEntry>((int)entryCount);
 
-        for (var i = 0; i < entryCount; i++)
+        for (var i = 0; i < (int)entryCount; i++)
         {
-            AlignTo4(stream);
+            AlignTo4(stream, $"entry {i} name");
 
-            var name = ReadNullTerminatedString(reader);
+            var name = ReadNullTerminatedString(reader, i);
 
-            AlignTo4(stream);
+            AlignTo4(stream, $"entry {i} size");
+            EnsureAvailable(stream, sizeof(uint), $"entry {i} size");
 
             var dataSize = reader.ReadUInt32();
             var dataOffset = stream.Position;
+
+            EnsureAvailable(stream, dataSize, $"entry {i} payload");
 
             entries.Add(new ArchiveEntry
             {
@@ -68,7 +83,7 @@ public static class PreArchive
                 Offset = dataOffset
             });
 
-            stream.Seek(dataSize, SeekOrigin.Current);
+            stream.Position = dataOffset + dataSize;
         }
 
         return entries;
@@ -113,23 +128,35 @@ public static class PreArchive
         }
     }
 
-    private static void AlignTo4(Stream stream)
+    private static void AlignTo4(Stream stream, string context)
     {
         var remainder = stream.Position % 4;
         if (remainder != 0)
-            stream.Seek(4 - remainder, SeekOrigin.Current);
+        {
+            var paddingSize = 4 - remainder;
+            EnsureAvailable(stream, paddingSize, $"{context} alignment padding");
+            stream.Position += paddingSize;
+        }
     }
 
-    private static string ReadNullTerminatedString(BinaryReader reader)
+    private static string ReadNullTerminatedString(BinaryReader reader, int entryIndex)
     {
         var bytes = new List<byte>();
-        while (true)
+        while (reader.BaseStream.Position < reader.BaseStream.Length)
         {
             var b = reader.ReadByte();
-            if (b == 0) break;
+            if (b == 0)
+                return Encoding.ASCII.GetString(bytes.ToArray());
+
             bytes.Add(b);
         }
 
-        return Encoding.ASCII.GetString(bytes.ToArray());
+        throw new InvalidDataException($"Plain PRE entry {entryIndex} name is not null-terminated.");
+    }
+
+    private static void EnsureAvailable(Stream stream, long byteCount, string context)
+    {
+        if (stream.Position > stream.Length || byteCount > stream.Length - stream.Position)
+            throw new InvalidDataException($"Plain PRE {context} extends past the end of the archive.");
     }
 }

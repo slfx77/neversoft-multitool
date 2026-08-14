@@ -23,6 +23,38 @@ public sealed class ScriptOutputPathPlannerTests
     }
 
     [Fact]
+    public void Plan_VirtualPathsUseEntryLeafAfterFinalArchiveQualifier()
+    {
+        ScriptOutputPathInput[] inputs =
+        [
+            new(@"C:\game\data.wad::level.qb.ps2", ScriptOutputKind.Qb),
+            new(@"C:\game\outer.wad::inner.pre::goals.trg", ScriptOutputKind.Trg),
+            new(@"C:\game\outer.wad::inner.pre::scripts\park.trg.ps2", ScriptOutputKind.Trg)
+        ];
+
+        var planned = ScriptOutputPathPlanner.Plan(inputs);
+
+        Assert.Equal(["level.qb.q", "goals.json", "park.trg.json"], planned);
+    }
+
+    [Fact]
+    public void Plan_RootAndNestedArchiveEntriesWithSameLeafGetStableUniqueNames()
+    {
+        ScriptOutputPathInput[] inputs =
+        [
+            new(@"C:\game\data.wad::level.qb", ScriptOutputKind.Qb),
+            new(@"C:\game\data.wad::inner.pre::level.qb", ScriptOutputKind.Qb)
+        ];
+
+        var forward = ScriptOutputPathPlanner.Plan(inputs);
+        var reversed = ScriptOutputPathPlanner.Plan(inputs.Reverse().ToArray());
+
+        Assert.Equal(["level_2.q", "level.q"], forward);
+        Assert.Equal(["level.q", "level_2.q"], reversed);
+        Assert.Equal(inputs.Length, forward.ToHashSet(StringComparer.OrdinalIgnoreCase).Count);
+    }
+
+    [Fact]
     public void Plan_CompoundAliasesAreCaseInsensitiveAndStableWhenReversed()
     {
         ScriptOutputPathInput[] inputs =

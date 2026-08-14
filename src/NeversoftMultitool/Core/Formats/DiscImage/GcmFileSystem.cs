@@ -13,6 +13,7 @@ namespace NeversoftMultitool.Core.Formats.DiscImage;
 public static class GcmFileSystem
 {
     private const uint Magic = 0xC2339F3D;
+    private const int FstEntrySize = 12;
 
     public static bool IsGcm(Stream stream)
     {
@@ -33,17 +34,22 @@ public static class GcmFileSystem
         var fstOffset = BinaryPrimitives.ReadUInt32BigEndian(header);
         var fstSize = BinaryPrimitives.ReadUInt32BigEndian(header[4..]);
 
-        if (fstOffset == 0 || fstSize == 0 || (long)fstOffset + fstSize > stream.Length)
+        if (fstOffset == 0 ||
+            fstSize < FstEntrySize ||
+            fstSize > int.MaxValue ||
+            (long)fstOffset + fstSize > stream.Length)
             throw new InvalidDataException("GCM FST offset/size invalid.");
 
-        var fst = new byte[fstSize];
+        var fst = new byte[(int)fstSize];
         stream.Position = fstOffset;
         stream.ReadExactly(fst);
 
         var rootEntryCount = BinaryPrimitives.ReadUInt32BigEndian(fst.AsSpan(8));
-        var stringTableOffset = checked((int)(rootEntryCount * 12));
-        if (stringTableOffset > fst.Length)
+        if (rootEntryCount == 0)
+            throw new InvalidDataException("GCM FST root entry count is zero.");
+        if (rootEntryCount > (uint)(fst.Length / FstEntrySize))
             throw new InvalidDataException("GCM FST is truncated.");
+        var stringTableOffset = (int)rootEntryCount * FstEntrySize;
 
         var entries = new List<DiscFileEntry>();
 
@@ -57,7 +63,7 @@ public static class GcmFileSystem
             while (pathStack.Count > 1 && i >= pathStack.Peek().EndIndex)
                 pathStack.Pop();
 
-            var entry = fst.AsSpan(checked((int)(i * 12)), 12);
+            var entry = fst.AsSpan(checked((int)(i * FstEntrySize)), FstEntrySize);
             var flagsAndName = BinaryPrimitives.ReadUInt32BigEndian(entry);
             var isDirectory = flagsAndName >> 24 != 0;
             var nameOffset = (int)(flagsAndName & 0xFFFFFF);

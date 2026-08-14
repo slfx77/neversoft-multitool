@@ -16,6 +16,9 @@ public static class ArchiveNaming
     {
         var name = Path.GetFileName(archivePath);
         var ext = Path.GetExtension(name).ToLowerInvariant();
+        if (name.Length > 1 && name.Equals(ext, StringComparison.OrdinalIgnoreCase))
+            return $"file{name}";
+
         return ext is ".prd" or ".prf" or ".prg" ? name : Path.GetFileNameWithoutExtension(name);
     }
 }

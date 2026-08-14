@@ -60,10 +60,12 @@ public static class WadArchive
 
         // Check if the first bytes are printable ASCII → PS1 plaintext
         var firstBytesAscii = true;
+        var firstNullIndex = -1;
         for (var i = 0; i < Math.Min(8, probe.Length); i++)
         {
             if (probe[i] == 0)
             {
+                firstNullIndex = i;
                 firstBytesAscii = i >= 2;
                 break;
             }
@@ -75,7 +77,8 @@ public static class WadArchive
             }
         }
 
-        if (firstBytesAscii)
+        if (firstBytesAscii ||
+            firstNullIndex == 1 && HasPs1PlaintextFraming(stream))
             return HedFormat.Ps1Plaintext;
 
         // Not PS1 plaintext. Check if bytes 8+ are printable ASCII → THUG plaintext
@@ -103,6 +106,58 @@ public static class WadArchive
         }
 
         return HedFormat.Hashed;
+    }
+
+    private static bool HasPs1PlaintextFraming(Stream stream)
+    {
+        // PS1 entries end on a 4-byte boundary after name(null, align4),
+        // offset(u32), and size(u32). The table then has one 0xFF byte.
+        if (!stream.CanSeek || stream.Length < 13 || stream.Length % 4 != 1)
+            return false;
+
+        var originalPosition = stream.Position;
+        try
+        {
+            stream.Position = 0;
+            var tableEnd = stream.Length - 1;
+            while (stream.Position < tableEnd)
+            {
+                var nameLength = 0;
+                var terminated = false;
+                while (stream.Position < tableEnd)
+                {
+                    var value = stream.ReadByte();
+                    if (value == 0)
+                    {
+                        terminated = true;
+                        break;
+                    }
+
+                    if (value is < 0x20 or > 0x7E)
+                        return false;
+
+                    nameLength++;
+                }
+
+                if (!terminated || nameLength == 0)
+                    return false;
+
+                var remainder = stream.Position % 4;
+                if (remainder != 0)
+                    stream.Position += 4 - remainder;
+
+                if (stream.Position > tableEnd || tableEnd - stream.Position < 8)
+                    return false;
+
+                stream.Position += 8;
+            }
+
+            return stream.Position == tableEnd && stream.ReadByte() == 0xFF;
+        }
+        finally
+        {
+            stream.Position = originalPosition;
+        }
     }
 
     private static List<ArchiveEntry> ReadPlaintextEntries(BinaryReader reader, long fileSize)

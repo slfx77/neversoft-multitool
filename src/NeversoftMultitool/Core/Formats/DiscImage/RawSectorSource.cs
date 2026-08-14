@@ -24,16 +24,65 @@ public sealed class RawSectorSource : IDiscSectorSource
                 throw new InvalidDataException(
                     $"Unsupported physical sector size {region.PhysicalSectorSize}; expected 2048, 2336, or 2352 bytes.");
             }
+
+            if (region.FileByteOffset < 0)
+            {
+                throw new InvalidDataException(
+                    $"Track file byte offset {region.FileByteOffset} cannot be negative.");
+            }
+
+            if (region.SectorCountValue < 0)
+            {
+                throw new InvalidDataException(
+                    $"Track sector count {region.SectorCountValue} cannot be negative.");
+            }
+
+            if (region.StartLba < 0)
+            {
+                throw new InvalidDataException(
+                    $"Track start LBA {region.StartLba} cannot be negative.");
+            }
+
+            if (region.StartLba > long.MaxValue - region.SectorCountValue)
+            {
+                throw new InvalidDataException(
+                    $"Track LBA range {region.StartLba} + {region.SectorCountValue} overflows Int64.");
+            }
+
+            // Division avoids overflowing sectorCount * sectorSize. Exact EOF
+            // is valid; any advertised sector beyond it can never be read.
+            var fileLength = new FileInfo(region.FilePath).Length;
+            if (region.FileByteOffset > fileLength ||
+                region.SectorCountValue > (fileLength - region.FileByteOffset) / region.PhysicalSectorSize)
+            {
+                throw new InvalidDataException(
+                    $"Track region at byte {region.FileByteOffset} with {region.SectorCountValue} " +
+                    $"sectors of {region.PhysicalSectorSize} bytes exceeds file length {fileLength}.");
+            }
         }
 
-        foreach (var region in orderedRegions)
-        {
-            var stream = new FileStream(region.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            _tracks.Add((region, stream));
-        }
-
-        if (_tracks.Count == 0)
+        if (orderedRegions.Count == 0)
             throw new InvalidDataException("Disc image has no track regions.");
+
+        // Only retain streams after every region has passed the structural
+        // preflight, so a malformed later region cannot leak earlier handles.
+        var openedTracks = new List<(DiscTrackRegion Region, FileStream Stream)>(orderedRegions.Count);
+        try
+        {
+            foreach (var region in orderedRegions)
+            {
+                var stream = new FileStream(region.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                openedTracks.Add((region, stream));
+            }
+        }
+        catch
+        {
+            foreach (var (_, stream) in openedTracks)
+                stream.Dispose();
+            throw;
+        }
+
+        _tracks.AddRange(openedTracks);
 
         SectorCount = _tracks.Max(t => t.Region.EndLba);
         Tracks = _tracks.Select(t => t.Region).ToList();

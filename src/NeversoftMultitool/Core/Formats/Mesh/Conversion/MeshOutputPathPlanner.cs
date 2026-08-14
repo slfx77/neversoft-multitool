@@ -81,7 +81,10 @@ public static class MeshOutputPathPlanner
         // Sort before making any ownership decision. Filesystem enumeration order
         // must not decide which record keeps a preferred output name.
         var candidates = files
-            .Select((file, index) => new PlanningCandidate(index, file, stemOf(file)))
+            .Select((file, index) => new PlanningCandidate(
+                index,
+                file,
+                GetPreferredStem(file, stemOf)))
             .OrderBy(static candidate => candidate.File, StringComparer.OrdinalIgnoreCase)
             .ThenBy(static candidate => candidate.File, StringComparer.Ordinal)
             .ToList();
@@ -201,11 +204,11 @@ public static class MeshOutputPathPlanner
         }
 
         var distinct = outputStems.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (outputStems.Any(string.IsNullOrWhiteSpace)
+        if (outputStems.Any(static stem => !IsOutputStem(stem))
             || distinct.Count != outputStems.Count)
         {
             throw new ArgumentException(
-                "A file's output stems must be non-empty and unique.",
+                "A file's output stems must be non-empty, unique file-name stems without path components.",
                 nameof(outputStemsOf));
         }
 
@@ -217,6 +220,30 @@ public static class MeshOutputPathPlanner
         }
 
         return [.. outputStems];
+    }
+
+    private static string GetPreferredStem(
+        string file,
+        Func<string, string> stemOf)
+    {
+        var stem = stemOf(file);
+        if (!IsOutputStem(stem))
+        {
+            throw new ArgumentException(
+                "The preferred output stem must be a non-empty file-name stem without path components.",
+                nameof(stemOf));
+        }
+
+        return stem;
+    }
+
+    private static bool IsOutputStem(string? stem)
+    {
+        return !string.IsNullOrWhiteSpace(stem)
+               && stem is not "." and not ".."
+               && !Path.IsPathRooted(stem)
+               && !stem.Contains('/')
+               && !stem.Contains('\\');
     }
 
     private static IReadOnlyList<string> OutputKeys(

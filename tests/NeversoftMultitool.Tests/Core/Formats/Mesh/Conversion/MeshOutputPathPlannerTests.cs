@@ -172,6 +172,50 @@ public class MeshOutputPathPlannerTests
             @"C:\game"));
     }
 
+    [Theory]
+    [InlineData("../escape")]
+    [InlineData(@"..\escape")]
+    [InlineData("nested/escape")]
+    [InlineData(@"nested\escape")]
+    [InlineData(".")]
+    [InlineData("..")]
+    public void Plan_PathBearingPreferredStem_RejectsStemCallback(string unsafeStem)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => MeshOutputPathPlanner.Plan(
+            [@"C:\game\mission.col"],
+            _ => unsafeStem,
+            @"C:\game"));
+
+        Assert.Equal("stemOf", ex.ParamName);
+    }
+
+    [Fact]
+    public void Plan_RootedPreferredStem_RejectsStemCallback()
+    {
+        var rootedStem = Path.GetFullPath(Path.Combine(
+            Path.GetTempPath(),
+            $"mesh-output-{Guid.NewGuid():N}"));
+
+        var ex = Assert.Throws<ArgumentException>(() => MeshOutputPathPlanner.Plan(
+            [@"C:\game\mission.col"],
+            _ => rootedStem,
+            @"C:\game"));
+
+        Assert.Equal("stemOf", ex.ParamName);
+    }
+
+    [Fact]
+    public void Plan_PathBearingDerivedStem_RejectsOutputStemCallback()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => MeshOutputPathPlanner.Plan(
+            [@"C:\game\mission.col"],
+            static _ => "mission",
+            static (_, proposedStem) => [proposedStem, "../escape"],
+            @"C:\game"));
+
+        Assert.Equal("outputStemsOf", ex.ParamName);
+    }
+
     [Fact]
     public void Plan_ExpandedOutputs_NonVaryingDerivedAliasFailsBoundedly()
     {

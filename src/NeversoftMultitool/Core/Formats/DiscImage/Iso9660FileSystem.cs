@@ -14,6 +14,7 @@ namespace NeversoftMultitool.Core.Formats.DiscImage;
 public static class Iso9660FileSystem
 {
     private const int SectorSize = 2048;
+    private const int MinimumDirectoryRecordSize = 34;
     private const int MaxDepth = 32;
 
     public static bool HasVolumeDescriptor(IDiscSectorSource source, long sessionLba = 0)
@@ -115,8 +116,20 @@ public static class Iso9660FileSystem
                 continue;
             }
 
-            if (offset + recordLength > data.Length)
-                break;
+            if (recordLength < MinimumDirectoryRecordSize)
+            {
+                throw new InvalidDataException(
+                    $"ISO9660 directory record at byte {offset} has length {recordLength}; " +
+                    $"expected at least {MinimumDirectoryRecordSize} bytes.");
+            }
+
+            var recordEnd = (long)offset + recordLength;
+            if (recordEnd > extentSize || recordEnd > data.LongLength)
+            {
+                throw new InvalidDataException(
+                    $"ISO9660 directory record at byte {offset} ends at {recordEnd}, " +
+                    $"past the declared directory extent size {extentSize}.");
+            }
 
             var record = data.AsSpan(offset, recordLength);
             offset += recordLength;

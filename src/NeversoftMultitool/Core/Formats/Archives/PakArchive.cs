@@ -301,22 +301,32 @@ public static class PakArchive
         // Load companion data file if present (.pab for PS2, .mpk.ngc for GC)
         var pabPath = GetPabPath(pakPath);
         byte[]? pabData = null;
-        if (File.Exists(pabPath))
+        if (HasCompanionData(pakPath))
             pabData = File.ReadAllBytes(pabPath);
 
         var outputRoot = Path.GetFullPath(outputDir);
         var extractionRoot = ArchiveExtractionPath.GetContainedPath(
             outputRoot, archiveName, "PAK extraction directory");
         var exportPaths = new string?[entries.Count];
+        var entrySources = new byte[]?[entries.Count];
+        var entryPositions = new long[entries.Count];
         for (var i = 0; i < entries.Count; i++)
         {
             token.ThrowIfCancellationRequested();
             var entry = entries[i];
-            if (entry.Size <= 0 || !TryResolveEntryData(entry, pakData, pabData, out _, out _))
-                continue;
+            if (entry.Size <= 0)
+                throw new InvalidDataException($"PAK entry '{entry.FullName}' has invalid size {entry.Size}.");
+            if (!TryResolveEntryData(entry, pakData, pabData, out var sourceData, out var position))
+            {
+                throw new InvalidDataException(
+                    $"PAK entry '{entry.FullName}' data range starting at {entry.Offset} with length {entry.Size} " +
+                    "is unavailable or outside the PAK/companion data.");
+            }
 
             exportPaths[i] = ArchiveExtractionPath.GetContainedPath(
                 extractionRoot, entry.FullName, "PAK entry");
+            entrySources[i] = sourceData;
+            entryPositions[i] = position;
         }
 
         for (var i = 0; i < entries.Count; i++)
@@ -324,20 +334,8 @@ public static class PakArchive
             token.ThrowIfCancellationRequested();
 
             var entry = entries[i];
-            if (entry.Size <= 0)
-            {
-                onFileExtracted?.Invoke(i + 1, entries.Count);
-                continue;
-            }
-
-            // GameCube companion offsets point directly into MPK data. Little-endian
-            // offsets beyond the PAK length continue into PAB data after subtracting
-            // the PAK length.
-            if (!TryResolveEntryData(entry, pakData, pabData, out var sourceData, out var position))
-            {
-                onFileExtracted?.Invoke(i + 1, entries.Count);
-                continue;
-            }
+            var sourceData = entrySources[i]!;
+            var position = entryPositions[i];
 
             var fileData = new byte[entry.Size];
             Array.Copy(sourceData, position, fileData, 0, (int)entry.Size);
@@ -369,17 +367,24 @@ public static class PakArchive
     {
         sourceData = pakData;
         position = entry.Offset;
-        if (entry.InCompanion && pabData != null)
+        if (entry.InCompanion)
         {
+            if (pabData == null)
+                return false;
             sourceData = pabData;
         }
-        else if (position + entry.Size > pakData.Length && pabData != null)
+        else if (!IsRangeWithin(position, entry.Size, pakData.LongLength) && pabData != null)
         {
             sourceData = pabData;
             position -= pakData.Length;
         }
 
-        return position >= 0 && position + entry.Size <= sourceData.Length;
+        return IsRangeWithin(position, entry.Size, sourceData.LongLength);
+    }
+
+    private static bool IsRangeWithin(long position, long size, long length)
+    {
+        return position >= 0 && size >= 0 && position <= length && size <= length - position;
     }
 
     /// <summary>

@@ -416,7 +416,7 @@ public static partial class CutArchive
         Dictionary<uint, string> animFileByKey, Dictionary<uint, string> modelFileByKey)
     {
         var count = BitConverter.ToInt32(cif[4..8]);
-        if (count < 0 || cif.Length != 8 + count * 20)
+        if (count < 0 || cif.Length != 8L + count * 20L)
             return null;
 
         var objects = new List<CutManifestObject>(count);

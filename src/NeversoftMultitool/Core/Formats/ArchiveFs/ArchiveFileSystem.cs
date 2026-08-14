@@ -55,6 +55,9 @@ public static class ArchiveFileSystem
             return null;
         }
 
+        if (type == ArchiveAssetType.Pre && entries.Count == 0)
+            return null;
+
         var companionPath = type == ArchiveAssetType.Pak ? PakArchive.GetPabPath(path) : null;
         return new FileArchiveFileSystem(path, type.Value, entries, companionPath);
     }

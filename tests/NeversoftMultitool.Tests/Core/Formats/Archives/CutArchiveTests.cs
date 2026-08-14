@@ -15,6 +15,7 @@ public class CutArchiveTests(TestPaths paths)
     private const string Thug2WindowsBuild = "Tony Hawks Underground 2 (2004-10-4, Windows - Final)";
 
     private const uint ExtQb = 0x2BBEA5C3;
+    private const uint ExtCif = 0x5AC14717;
     private const uint ExtTex = 0x1512808D;
     private const uint ExtCas = 0xFFC529F4;
     private const uint ExtWgt = 0x2CD4107D;
@@ -280,6 +281,55 @@ public class CutArchiveTests(TestPaths paths)
             // THUG CIF v1 table; the manifest must decode it into the object list.
             Assert.Contains("\"objects\"", json);
             Assert.Contains("\"camAnimDuration\"", json);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ExtractFiles_CifCountWhoseSerializedSizeWraps_IsIgnored()
+    {
+        const int wrappedCount = 214_748_365;
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            "NsMultitool_Test_Cut_CifOverflow_" + Guid.NewGuid().ToString("N")[..8]);
+        var cutPath = Path.Combine(tempDir, "wrapped.cut");
+        var outputDir = Path.Combine(tempDir, "output");
+
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            using var stream = new MemoryStream();
+            using (var writer = new BinaryWriter(stream, System.Text.Encoding.ASCII, true))
+            {
+                writer.Write(1); // CUT version
+                writer.Write(1); // file count
+                writer.Write(24); // payload immediately after the one-entry TOC
+                writer.Write(12); // wrapped 8 + count * 20 result under 32-bit arithmetic
+                writer.Write(0u); // singleton name key
+                writer.Write(ExtCif);
+                writer.Write(1u); // CIF version
+                writer.Write(wrappedCount);
+                writer.Write(0u); // completes the 12-byte malformed payload
+            }
+
+            var cutData = stream.ToArray();
+            Assert.Equal(36, cutData.Length);
+            File.WriteAllBytes(cutPath, cutData);
+
+            Assert.True(CutArchive.IsCut(cutPath));
+            CutArchive.ExtractFiles(
+                cutPath, outputDir, null, TestContext.Current.CancellationToken);
+
+            var manifestPath = Path.Combine(outputDir, "wrapped.cif.json");
+            Assert.True(File.Exists(manifestPath));
+            Assert.DoesNotContain("\"objects\":", File.ReadAllText(manifestPath));
+            Assert.Equal(
+                12,
+                new FileInfo(Path.Combine(outputDir, "wrapped", "objects.cif")).Length);
         }
         finally
         {

@@ -6,7 +6,7 @@ public class PakArchiveTests(TestPaths paths)
 {
     private const string BuildName = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void IsPakArchive_WithArchivePak_ReturnsTrue()
     {
         var pakPath = paths.FindSampleFile(BuildName, "qb.pak.ps2");
@@ -15,7 +15,7 @@ public class PakArchiveTests(TestPaths paths)
         Assert.True(PakArchive.IsPakArchive(pakPath!));
     }
 
-    [Fact]
+    [CorpusFact]
     public void IsPakArchive_WithShellPak_ReturnsTrue()
     {
         var pakPath = paths.FindSampleFile(BuildName, "cap_shell2.pak.ps2");
@@ -24,7 +24,7 @@ public class PakArchiveTests(TestPaths paths)
         Assert.True(PakArchive.IsPakArchive(pakPath!));
     }
 
-    [Fact]
+    [CorpusFact]
     public void IsPakArchive_WithSkyPak_ReturnsTrue()
     {
         var pakPath = paths.FindSampleFile(BuildName, "cap_shell1_sky.pak.ps2");
@@ -33,7 +33,7 @@ public class PakArchiveTests(TestPaths paths)
         Assert.True(PakArchive.IsPakArchive(pakPath!));
     }
 
-    [Fact]
+    [CorpusFact]
     public void IsPakArchive_WithRawDataPak_ReturnsFalse()
     {
         var pakPath = paths.FindSampleFile(BuildName, "cap_assets_fast_particle_data.pak.ps2");
@@ -42,7 +42,7 @@ public class PakArchiveTests(TestPaths paths)
         Assert.False(PakArchive.IsPakArchive(pakPath!));
     }
 
-    [Fact]
+    [CorpusFact]
     public void GetFileList_QbPak_Returns266Entries()
     {
         var pakPath = paths.FindSampleFile(BuildName, "qb.pak.ps2");
@@ -60,7 +60,7 @@ public class PakArchiveTests(TestPaths paths)
             e.FullName.Equals("scripts/plugin/plugin.qb.ps2", StringComparison.OrdinalIgnoreCase));
     }
 
-    [Fact]
+    [CorpusFact]
     public void GetFileList_CapShellPak_ReturnsShellEntries()
     {
         var pakPath = paths.FindSampleFile(BuildName, "cap_shell1.pak.ps2");
@@ -77,7 +77,7 @@ public class PakArchiveTests(TestPaths paths)
         Assert.Contains(entries, e => e.Name.EndsWith(".col", StringComparison.OrdinalIgnoreCase));
     }
 
-    [Fact]
+    [CorpusFact]
     public void GetFileList_CapShellSkyPak_ReturnsSkyEntries()
     {
         var pakPath = paths.FindSampleFile(BuildName, "cap_shell1_sky.pak.ps2");
@@ -93,7 +93,7 @@ public class PakArchiveTests(TestPaths paths)
         Assert.Contains(entries, e => e.Name.EndsWith(".tex", StringComparison.OrdinalIgnoreCase));
     }
 
-    [Fact]
+    [CorpusFact]
     public void GetFileList_CapShellPak_UsesNormalOffsetSizeOrder()
     {
         var pakPath = paths.FindSampleFile(BuildName, "cap_shell1.pak.ps2");
@@ -114,7 +114,7 @@ public class PakArchiveTests(TestPaths paths)
         Assert.Equal(0x0002901Au, colEntry.Size);
     }
 
-    [Fact]
+    [CorpusFact]
     public void ExtractFiles_QbPak_AllFilesExtracted()
     {
         var pakPath = paths.FindSampleFile(BuildName, "qb.pak.ps2");
@@ -209,7 +209,7 @@ public class NgcPakArchiveTests(TestPaths paths)
 {
     private const string BuildName = "Tony Hawk's American Wasteland (2005-8-22, GC - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void IsPakArchive_ApkNgc_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -219,7 +219,7 @@ public class NgcPakArchiveTests(TestPaths paths)
         Assert.True(PakArchive.IsPakArchive(file));
     }
 
-    [Fact]
+    [CorpusFact]
     public void IsPakArchive_SfxRawPak_ReturnsFalse()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -229,7 +229,7 @@ public class NgcPakArchiveTests(TestPaths paths)
         Assert.False(PakArchive.IsPakArchive(file));
     }
 
-    [Fact]
+    [CorpusFact]
     public void GetFileList_CagrAssets_TilesInPakOffsets()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -254,7 +254,7 @@ public class NgcPakArchiveTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void GetFileList_CutsceneMain_MarksCompanionEntries()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -266,7 +266,7 @@ public class NgcPakArchiveTests(TestPaths paths)
         Assert.Equal(63, entries.Count(e => e.InCompanion));
     }
 
-    [Fact]
+    [CorpusFact]
     public void GetFileList_QbPakNgc_ParsesEmbeddedFilenames()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -287,7 +287,7 @@ public class NgcPakArchiveTests(TestPaths paths)
             PakArchive.GetPabPath(Path.Combine("dir", "bh_11_main.apk.ngc")));
     }
 
-    [Fact]
+    [CorpusFact]
     public void ExtractFiles_CutsceneMain_ResolvesCompanionData()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

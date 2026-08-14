@@ -88,6 +88,73 @@ public class WadArchiveTests(TestPaths paths)
     }
 
     [Fact]
+    public void GetFileList_OneCharacterPs1Name_IsPlaintext()
+    {
+        var tempRoot = CreateTempRoot();
+        try
+        {
+            var wadPath = Path.Combine(tempRoot, "one-character.wad");
+            WritePs1Wad(
+                wadPath,
+                ("a", [0x2A]),
+                ("normal.bin", [0x10, 0x20]));
+
+            var entries = WadArchive.GetFileList(wadPath);
+
+            Assert.Collection(
+                entries,
+                entry =>
+                {
+                    Assert.Equal("a", entry.Name);
+                    Assert.Equal(0u, entry.Crc);
+                    Assert.Equal(0, entry.Offset);
+                    Assert.Equal(1, entry.Size);
+                },
+                entry =>
+                {
+                    Assert.Equal("normal.bin", entry.Name);
+                    Assert.Equal(0u, entry.Crc);
+                    Assert.Equal(1, entry.Offset);
+                    Assert.Equal(2, entry.Size);
+                });
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, true);
+        }
+    }
+
+    [Fact]
+    public void GetFileList_HashedLowByteAsciiAndNull_RemainsHashed()
+    {
+        var tempRoot = CreateTempRoot();
+        try
+        {
+            var wadPath = Path.Combine(tempRoot, "hashed.wad");
+            File.WriteAllBytes(wadPath, [0x2A]);
+            using (var writer = new BinaryWriter(File.Create(WadArchive.GetHedPath(wadPath))))
+            {
+                writer.Write(0x00000061u);
+                writer.Write(0u);
+                writer.Write(1u);
+                writer.Write(0u);
+                writer.Write(0u);
+                writer.Write(0u);
+            }
+
+            var entry = Assert.Single(WadArchive.GetFileList(wadPath));
+
+            Assert.Equal(0x00000061u, entry.Crc);
+            Assert.Equal(0, entry.Offset);
+            Assert.Equal(1, entry.Size);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, true);
+        }
+    }
+
+    [Fact]
     public void ExtractFiles_TraversalEntryFailsBeforeAnyOutputOrCallback()
     {
         var tempRoot = CreateTempRoot();

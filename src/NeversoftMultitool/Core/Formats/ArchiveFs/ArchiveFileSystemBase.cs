@@ -76,7 +76,8 @@ public abstract class ArchiveFileSystemBase : IArchiveFileSystem
         {
             data = ReadEntry(entry);
         }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException)
+        catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException
+                                   or ArgumentException or OverflowException)
         {
             return null;
         }
@@ -96,7 +97,8 @@ public abstract class ArchiveFileSystemBase : IArchiveFileSystem
                     companion = ReadEntry(pabEntry);
                     reloadCompanion = () => ReadEntry(pabEntry);
                 }
-                catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException)
+                catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException
+                                           or ArgumentException or OverflowException)
                 {
                     companion = null;
                 }

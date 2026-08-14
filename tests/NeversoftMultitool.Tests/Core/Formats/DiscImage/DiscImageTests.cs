@@ -91,6 +91,56 @@ public sealed class DiscImageTests : IDisposable
         Assert.Equal("GDI sheet declares 2 tracks but contains 1.", error.Message);
     }
 
+    [Theory]
+    [InlineData("track.bin", "track.bin")]
+    [InlineData("track file.bin", "\"track file.bin\"")]
+    public void GdiSheet_NonzeroFileOffset_MapsOnlyTheTrackPayload(
+        string fileName, string serializedFileName)
+    {
+        const int sectorSize = 2048;
+        var trackPath = Path.Combine(_tempDir, fileName);
+        var trackData = new byte[sectorSize * 3];
+        trackData.AsSpan(0, sectorSize).Fill(0xEE);
+        trackData.AsSpan(sectorSize, sectorSize).Fill(0x11);
+        trackData.AsSpan(sectorSize * 2, sectorSize).Fill(0x22);
+        File.WriteAllBytes(trackPath, trackData);
+
+        var gdi = GdiSheet.Parse(
+        [
+            "1",
+            $"1 45000 4 {sectorSize} {serializedFileName} {sectorSize}"
+        ], _tempDir);
+
+        var track = Assert.Single(gdi.Tracks);
+        Assert.Equal(sectorSize, track.FileByteOffset);
+        Assert.Equal(2, track.SectorCount);
+
+        var region = Assert.Single(gdi.BuildRegions());
+        Assert.Equal(sectorSize, region.FileByteOffset);
+        Assert.Equal(2, region.SectorCountValue);
+
+        using var source = new RawSectorSource([region]);
+        var sector = new byte[sectorSize];
+        source.ReadSector(45000, sector);
+        Assert.All(sector, static value => Assert.Equal(0x11, value));
+        source.ReadSector(45001, sector);
+        Assert.All(sector, static value => Assert.Equal(0x22, value));
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("2049")]
+    public void GdiSheet_NegativeOrPastEndFileOffset_IsRejected(string serializedOffset)
+    {
+        File.WriteAllBytes(Path.Combine(_tempDir, "track.bin"), new byte[2048]);
+
+        Assert.Throws<InvalidDataException>(() => GdiSheet.Parse(
+        [
+            "1",
+            $"1 45000 4 2048 track.bin {serializedOffset}"
+        ], _tempDir));
+    }
+
     // ─── Synthetic ISO9660 round-trips ────────────────────────────────────
 
     [Fact]

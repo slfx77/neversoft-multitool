@@ -39,7 +39,21 @@ public static class QZipArchive
     public static List<ArchiveEntry> GetFileList(string zipPath)
     {
         using var stream = File.OpenRead(zipPath);
-        using var reader = new BinaryReader(stream);
+        return ReadFileList(stream);
+    }
+
+    /// <summary>
+    ///     In-memory variant.
+    /// </summary>
+    public static List<ArchiveEntry> GetFileList(byte[] data)
+    {
+        using var stream = new MemoryStream(data, false);
+        return ReadFileList(stream);
+    }
+
+    private static List<ArchiveEntry> ReadFileList(Stream stream)
+    {
+        using var reader = new BinaryReader(stream, Encoding.UTF8, true);
 
         var entries = new List<ArchiveEntry>();
 
@@ -65,6 +79,13 @@ public static class QZipArchive
                     "Zip entry uses a data descriptor (sizes unknown at the local header) — unsupported");
             if (method is not MethodStore and not MethodDeflate)
                 throw new InvalidDataException($"Unsupported zip compression method {method} (only STORE/DEFLATE)");
+
+            var variableHeaderSize = (long)nameLength + extraLength;
+            if (variableHeaderSize > stream.Length - stream.Position)
+            {
+                throw new InvalidDataException(
+                    $"Zip local header declares {nameLength} filename bytes and {extraLength} extra bytes past end of file");
+            }
 
             var nameBytes = reader.ReadBytes(nameLength);
             var name = Encoding.UTF8.GetString(nameBytes).Replace('\\', '/').TrimStart('/');

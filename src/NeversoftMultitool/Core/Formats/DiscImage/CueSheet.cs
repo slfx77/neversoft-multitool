@@ -54,7 +54,15 @@ public sealed class CueSheet
             if (line.StartsWith("FILE ", StringComparison.OrdinalIgnoreCase))
             {
                 FlushTrack();
-                var name = ExtractQuoted(line) ?? line[5..].Trim().Split(' ')[0];
+                var fileStatement = line[5..].Trim();
+                var name = ExtractQuoted(fileStatement);
+                if (fileStatement.StartsWith('"') && name == null)
+                {
+                    throw new InvalidDataException(
+                        $"Invalid cue FILE statement: unterminated quoted filename in '{line}'.");
+                }
+
+                name ??= fileStatement.Split(' ')[0];
                 currentFile = Path.Combine(baseDirectory, name);
                 currentFileLength = File.Exists(currentFile) ? new FileInfo(currentFile).Length : 0;
             }

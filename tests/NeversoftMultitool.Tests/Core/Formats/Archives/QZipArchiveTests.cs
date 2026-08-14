@@ -11,6 +11,37 @@ public class QZipArchiveTests(TestPaths paths)
     private const string ThawGcBuild = "Tony Hawk's American Wasteland (2005-8-22, GC - Final)";
 
     [Fact]
+    public void GetFileList_ExactBoundaryLocalRecord_ReturnsDeclaredEntry()
+    {
+        var data = BuildLocalRecord(
+            declaredNameLength: 5,
+            declaredExtraLength: 2,
+            variableFields: [.. "a.txt"u8, 0xAA, 0xBB],
+            payload: "x"u8.ToArray());
+
+        var entry = Assert.Single(QZipArchive.GetFileList(data));
+
+        Assert.Equal("a.txt", entry.Name);
+        Assert.Equal("", entry.Directory);
+        Assert.Equal(1, entry.Size);
+        Assert.Equal(37, entry.Offset);
+        Assert.Equal(1, entry.CompressedSize);
+        Assert.False(entry.IsCompressed);
+    }
+
+    [Fact]
+    public void GetFileList_TruncatedDeclaredName_ThrowsInvalidData()
+    {
+        var data = BuildLocalRecord(
+            declaredNameLength: 2,
+            declaredExtraLength: 0,
+            variableFields: "a"u8.ToArray(),
+            payload: []);
+
+        Assert.Throws<InvalidDataException>(() => QZipArchive.GetFileList(data));
+    }
+
+    [Fact]
     public void GetFileList_SyntheticZip_WalksStoredAndDeflateEntries()
     {
         var tempZip = Path.Combine(Path.GetTempPath(),
@@ -281,5 +312,29 @@ public class QZipArchiveTests(TestPaths paths)
         Assert.True(failures.Count == 0, $"{failures.Count} failures:\n{string.Join("\n", failures.Take(10))}");
         Assert.Equal(1337, files.Count);
         Assert.True(totalEntries > files.Count, "Every zip should hold at least one image + debug.log");
+    }
+
+    private static byte[] BuildLocalRecord(
+        ushort declaredNameLength,
+        ushort declaredExtraLength,
+        byte[] variableFields,
+        byte[] payload)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.UTF8, true);
+        writer.Write(0x04034B50u); // local file header signature
+        writer.Write((ushort)20); // version needed
+        writer.Write((ushort)0); // flags
+        writer.Write((ushort)0); // STORE
+        writer.Write((ushort)0); // mod time
+        writer.Write((ushort)0); // mod date
+        writer.Write(0u); // CRC (not validated by listing)
+        writer.Write((uint)payload.Length);
+        writer.Write((uint)payload.Length);
+        writer.Write(declaredNameLength);
+        writer.Write(declaredExtraLength);
+        writer.Write(variableFields);
+        writer.Write(payload);
+        return stream.ToArray();
     }
 }

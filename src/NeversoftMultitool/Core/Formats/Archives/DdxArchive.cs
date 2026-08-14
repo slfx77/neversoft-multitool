@@ -8,7 +8,9 @@ namespace NeversoftMultitool.Core.Formats.Archives;
 /// </summary>
 public static class DdxArchive
 {
+    private const int HeaderSize = 16;
     private const int NameFieldSize = 256;
+    private const int TocEntrySize = 8 + NameFieldSize;
 
     /// <summary>
     ///     Reads the file list from a DDX archive.
@@ -30,6 +32,10 @@ public static class DdxArchive
 
     private static List<ArchiveEntry> ReadFileList(Stream stream)
     {
+        if (stream.Length < HeaderSize)
+            throw new InvalidDataException(
+                $"DDX header is truncated ({stream.Length} bytes, expected at least {HeaderSize})");
+
         using var reader = new BinaryReader(stream, Encoding.ASCII, true);
 
         // Header: 4 reserved + 4 fileSize + 4 dataOffset + 4 entryCount
@@ -37,6 +43,16 @@ public static class DdxArchive
         reader.ReadUInt32(); // file size
         var dataOffset = reader.ReadUInt32();
         var entryCount = reader.ReadUInt32();
+
+        var tableEnd = HeaderSize + (long)entryCount * TocEntrySize;
+        if (tableEnd > stream.Length)
+            throw new InvalidDataException(
+                $"DDX table for {entryCount} entries ends at {tableEnd}, past file length {stream.Length}");
+        if (entryCount > int.MaxValue)
+            throw new InvalidDataException($"DDX entry count {entryCount} exceeds the supported range");
+        if (dataOffset < tableEnd || dataOffset > stream.Length)
+            throw new InvalidDataException(
+                $"DDX data offset {dataOffset} is outside the bounded data region {tableEnd}..{stream.Length}");
 
         var entries = new List<ArchiveEntry>((int)entryCount);
 
@@ -47,11 +63,16 @@ public static class DdxArchive
             var nameBytes = reader.ReadBytes(NameFieldSize);
             var name = Encoding.ASCII.GetString(nameBytes).TrimEnd('\0');
 
+            var offset = (long)dataOffset + relativeOffset;
+            if (offset < dataOffset || offset > stream.Length || size > stream.Length - offset)
+                throw new InvalidDataException(
+                    $"DDX entry {i} payload [{offset}, {offset + size}) is outside file length {stream.Length}");
+
             entries.Add(new ArchiveEntry
             {
                 Name = name,
                 Size = size,
-                Offset = dataOffset + relativeOffset
+                Offset = offset
             });
         }
 

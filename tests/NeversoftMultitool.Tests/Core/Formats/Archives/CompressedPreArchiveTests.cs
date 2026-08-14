@@ -1,15 +1,21 @@
+using System.Text;
 using NeversoftMultitool.Core.Formats.Archives;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Archives;
 
 public class CompressedPreArchiveTests(TestPaths paths)
 {
+    private const uint VersionV2 = 0xABCD0002;
+    private const uint VersionV3 = 0xABCD0003;
+    private const uint RawEntryChecksum = 0x11223344;
+    private const uint CompressedEntryChecksum = 0x55667788;
+
     private const string Thps3PsxBuild = "Tony Hawk's Pro Skater 3 (2001-10-3, PSX - Final)";
     private const string Thps3Ps2Build = "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)";
     private const string Thug2XboxBuild = "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)";
     private const string Thug2WindowsBuild = "Tony Hawks Underground 2 (2004-10-4, Windows - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void IsCompressedPre_WithPs1PreFile_ReturnsFalse()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -41,7 +47,30 @@ public class CompressedPreArchiveTests(TestPaths paths)
         Assert.Contains("0xABCD0004", exception.Message);
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(0x6F663273L, false)]
+    [InlineData(0xABCD0002L, true)]
+    [InlineData(0xABCD0003L, true)]
+    public void IsCompressedPre_GeneratedHeader_RecognizesOnlySupportedVersions(long versionValue, bool expected)
+    {
+        var version = checked((uint)versionValue);
+        var data = BuildDetectionHeader(version);
+        var tempRoot = CreateTempRoot();
+        try
+        {
+            var path = Path.Combine(tempRoot, "header.pre");
+            File.WriteAllBytes(path, data);
+
+            Assert.Equal(expected, CompressedPreArchive.IsCompressedPre(data));
+            Assert.Equal(expected, CompressedPreArchive.IsCompressedPre(path));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, true);
+        }
+    }
+
+    [CorpusFact]
     public void IsCompressedPre_WithV2PreFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -53,7 +82,140 @@ public class CompressedPreArchiveTests(TestPaths paths)
         Assert.True(CompressedPreArchive.IsCompressedPre(preFile!));
     }
 
+    [Theory]
+    [InlineData(0xABCD0002L, 0L, 0L)]
+    [InlineData(0xABCD0003L, 0x11223344L, 0x55667788L)]
+    public void GetFileList_GeneratedArchive_ListsRawAndCompressedEntries(
+        long versionValue, long expectedRawChecksum, long expectedCompressedChecksum)
+    {
+        var data = BuildSyntheticPre(checked((uint)versionValue));
+
+        var entries = CompressedPreArchive.GetFileList(data);
+
+        Assert.Collection(entries,
+            entry =>
+            {
+                Assert.Equal("folder/raw.bin", entry.FullName);
+                Assert.Equal(3L, entry.Size);
+                Assert.False(entry.IsCompressed);
+                Assert.Equal(0L, entry.CompressedSize);
+                Assert.Equal(checked((uint)expectedRawChecksum), entry.Crc);
+                Assert.Equal(new byte[] { 0x10, 0x20, 0x30 },
+                    data[(int)entry.Offset..(int)(entry.Offset + entry.Size)]);
+            },
+            entry =>
+            {
+                Assert.Equal("packed.bin", entry.FullName);
+                Assert.Equal(8L, entry.Size);
+                Assert.True(entry.IsCompressed);
+                Assert.Equal(9L, entry.CompressedSize);
+                Assert.Equal(checked((uint)expectedCompressedChecksum), entry.Crc);
+                Assert.Equal(new byte[] { 0xFF, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x21, 0x21, 0x21 },
+                    data[(int)entry.Offset..(int)(entry.Offset + entry.CompressedSize)]);
+            });
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(11)]
+    public void GetFileList_TruncatedHeader_ThrowsInvalidDataException(int length)
+    {
+        Assert.Throws<InvalidDataException>(() => CompressedPreArchive.GetFileList(new byte[length]));
+    }
+
     [Fact]
+    public void GetFileList_NegativeEntryCount_ThrowsInvalidDataBeforeAllocation()
+    {
+        var data = BuildCompressedPreHeader(VersionV2, -1);
+
+        Assert.Throws<InvalidDataException>(() => CompressedPreArchive.GetFileList(data));
+    }
+
+    [Fact]
+    public void GetFileList_ImpossibleEntryCount_ThrowsInvalidDataBeforeAllocation()
+    {
+        var data = BuildCompressedPreHeader(VersionV2, 1);
+
+        Assert.Throws<InvalidDataException>(() => CompressedPreArchive.GetFileList(data));
+    }
+
+    [Theory]
+    [InlineData(12, "data size")]
+    [InlineData(16, "compressed size")]
+    [InlineData(20, "name size")]
+    public void GetFileList_NegativeEntryField_ThrowsInvalidDataException(int fieldOffset, string fieldName)
+    {
+        var data = BuildVersion2SingleEntry();
+        if (fieldOffset == 20)
+            BitConverter.TryWriteBytes(data.AsSpan(fieldOffset), (short)-1);
+        else
+            BitConverter.TryWriteBytes(data.AsSpan(fieldOffset), -1);
+
+        var exception = Assert.Throws<InvalidDataException>(() => CompressedPreArchive.GetFileList(data));
+        Assert.Contains(fieldName, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetFileList_TruncatedDeclaredName_ThrowsInvalidDataException()
+    {
+        var data = BuildVersion2SingleEntry(nameSize: 4, trailingBytes: "ab"u8.ToArray());
+
+        Assert.Throws<InvalidDataException>(() => CompressedPreArchive.GetFileList(data));
+    }
+
+    [Theory]
+    [InlineData(4, 0)]
+    [InlineData(8, 4)]
+    public void GetFileList_TruncatedStoredPayload_ThrowsInvalidDataException(
+        int dataSize, int compressedDataSize)
+    {
+        var data = BuildVersion2SingleEntry(
+            dataSize, compressedDataSize, trailingBytes: [0x10, 0x20, 0x30]);
+
+        Assert.Throws<InvalidDataException>(() => CompressedPreArchive.GetFileList(data));
+    }
+
+    [Theory]
+    [InlineData(int.MaxValue, 0)]
+    [InlineData(0, int.MaxValue)]
+    public void GetFileList_IntMaxStoredPayload_ThrowsInvalidDataWithoutOffsetOverflow(
+        int dataSize, int compressedDataSize)
+    {
+        var data = BuildVersion2SingleEntry(dataSize, compressedDataSize);
+
+        Assert.Throws<InvalidDataException>(() => CompressedPreArchive.GetFileList(data));
+    }
+
+    [Fact]
+    public void GetFileList_ZeroSizesAndNamesWithoutNullTerminators_RemainAccepted()
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        writer.Write(int.MinValue); // totalFileSize is deliberately ignored.
+        writer.Write(VersionV2);
+        writer.Write(2);
+        WriteVersion2EntryHeader(writer, 0, 0, 0);
+        WriteVersion2EntryHeader(writer, 0, 0, 3);
+        writer.Write("raw"u8);
+
+        var entries = CompressedPreArchive.GetFileList(stream.ToArray());
+
+        Assert.Collection(entries,
+            entry =>
+            {
+                Assert.Equal("", entry.Name);
+                Assert.Equal(0L, entry.Size);
+                Assert.False(entry.IsCompressed);
+            },
+            entry =>
+            {
+                Assert.Equal("raw", entry.Name);
+                Assert.Equal(0L, entry.Size);
+                Assert.False(entry.IsCompressed);
+            });
+    }
+
+    [CorpusFact]
     public void GetFileList_Ps2Pre_ReturnsNonEmptyList()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -73,7 +235,38 @@ public class CompressedPreArchiveTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(".pre", "synthetic", 0xABCD0002L)]
+    [InlineData(".prd", "synthetic.prd", 0xABCD0003L)]
+    public void ExtractFiles_GeneratedArchive_WritesRawAndCompressedPayloadsToExpectedDirectory(
+        string extension, string expectedDirectoryName, long versionValue)
+    {
+        var tempRoot = CreateTempRoot();
+        try
+        {
+            var prePath = Path.Combine(tempRoot, "synthetic" + extension);
+            File.WriteAllBytes(prePath, BuildSyntheticPre(checked((uint)versionValue)));
+            var output = Path.Combine(tempRoot, "output");
+            var progress = new List<(int Current, int Total)>();
+
+            CompressedPreArchive.ExtractFiles(prePath, output,
+                (current, total) => progress.Add((current, total)),
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(new[] { (1, 2), (2, 2) }, progress);
+            var extractionRoot = Path.Combine(output, expectedDirectoryName);
+            Assert.Equal(new byte[] { 0x10, 0x20, 0x30 },
+                File.ReadAllBytes(Path.Combine(extractionRoot, "folder", "raw.bin")));
+            Assert.Equal("Hello!!!"u8.ToArray(),
+                File.ReadAllBytes(Path.Combine(extractionRoot, "packed.bin")));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, true);
+        }
+    }
+
+    [CorpusFact]
     public void ExtractFiles_Ps2Pre_AllFilesExtracted()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -156,7 +349,7 @@ public class CompressedPreArchiveTests(TestPaths paths)
         Assert.Equal(50_190, totalEntries);
     }
 
-    [Fact]
+    [CorpusFact]
     public void LocalizedPre_Prd_ParsesAndExtractsToFullNameDir()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -225,6 +418,98 @@ public class CompressedPreArchiveTests(TestPaths paths)
     // -------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------
+
+    private static string CreateTempRoot()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "nmt-compressed-pre-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static byte[] BuildDetectionHeader(uint version)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        writer.Write(12);
+        writer.Write(version);
+        writer.Write(0);
+        return stream.ToArray();
+    }
+
+    private static byte[] BuildCompressedPreHeader(uint version, int entryCount)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        writer.Write(0); // totalFileSize is advisory and deliberately ignored by the parser.
+        writer.Write(version);
+        writer.Write(entryCount);
+        return stream.ToArray();
+    }
+
+    private static byte[] BuildVersion2SingleEntry(
+        int dataSize = 0, int compressedDataSize = 0, short nameSize = 0, byte[]? trailingBytes = null)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        writer.Write(0);
+        writer.Write(VersionV2);
+        writer.Write(1);
+        WriteVersion2EntryHeader(writer, dataSize, compressedDataSize, nameSize);
+        writer.Write(trailingBytes ?? []);
+        return stream.ToArray();
+    }
+
+    private static void WriteVersion2EntryHeader(
+        BinaryWriter writer, int dataSize, int compressedDataSize, short nameSize)
+    {
+        writer.Write(dataSize);
+        writer.Write(compressedDataSize);
+        writer.Write(nameSize);
+        writer.Write((short)0);
+    }
+
+    private static byte[] BuildSyntheticPre(uint version)
+    {
+        if (version is not VersionV2 and not VersionV3)
+            throw new ArgumentOutOfRangeException(nameof(version));
+
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.ASCII);
+        writer.Write(0); // Patched with the completed archive size below.
+        writer.Write(version);
+        writer.Write(2);
+
+        WriteSyntheticEntry(writer, version, "folder\\raw.bin", [0x10, 0x20, 0x30], null, RawEntryChecksum);
+        WriteSyntheticEntry(writer, version, "packed.bin", "Hello!!!"u8.ToArray(),
+            [0xFF, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x21, 0x21, 0x21], CompressedEntryChecksum);
+
+        writer.Flush();
+        var totalFileSize = checked((int)stream.Length);
+        stream.Position = 0;
+        writer.Write(totalFileSize);
+        writer.Flush();
+        return stream.ToArray();
+    }
+
+    private static void WriteSyntheticEntry(BinaryWriter writer, uint version, string name,
+        byte[] decodedData, byte[]? compressedData, uint checksum)
+    {
+        var storedData = compressedData ?? decodedData;
+        var nameBytes = Encoding.ASCII.GetBytes(name + "\0");
+        var nameFieldSize = checked((short)((nameBytes.Length + 3) & ~3));
+
+        writer.Write(decodedData.Length);
+        writer.Write(compressedData?.Length ?? 0);
+        writer.Write(nameFieldSize);
+        writer.Write((short)0);
+        if (version == VersionV3)
+            writer.Write(checksum);
+
+        writer.Write(nameBytes);
+        writer.Write(new byte[nameFieldSize - nameBytes.Length]);
+        writer.Write(storedData);
+        writer.Write(new byte[((storedData.Length + 3) & ~3) - storedData.Length]);
+    }
 
     private string? FindPlainPreFixture()
     {

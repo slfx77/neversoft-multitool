@@ -146,6 +146,7 @@ public static class BonArchive
             // PVR data size and offset
             var pvrSize = reader.ReadUInt32();
             var pvrOffset = stream.Position;
+            EnsurePayloadFits(stream, pvrSize, "PVR", i);
 
             // Use the filename stem from the dev path as the entry name
             var textureName = Path.GetFileNameWithoutExtension(devPath);
@@ -199,6 +200,7 @@ public static class BonArchive
             reader.ReadBytes(3);
             var ddsSize = reader.ReadUInt32();
             var ddsOffset = stream.Position;
+            EnsurePayloadFits(stream, ddsSize, "DDS", i);
 
             entries.Add(new ArchiveEntry
             {
@@ -212,5 +214,13 @@ public static class BonArchive
         }
 
         return entries;
+    }
+
+    private static void EnsurePayloadFits(Stream stream, uint payloadSize, string payloadKind, int entryIndex)
+    {
+        var payloadOffset = stream.Position;
+        if (payloadOffset > stream.Length || (long)payloadSize > stream.Length - payloadOffset)
+            throw new InvalidDataException(
+                $"Invalid BON file: {payloadKind} payload for entry {entryIndex} extends past end of file");
     }
 }

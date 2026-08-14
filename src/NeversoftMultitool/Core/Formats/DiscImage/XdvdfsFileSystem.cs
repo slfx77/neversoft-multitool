@@ -120,6 +120,21 @@ public static class XdvdfsFileSystem
 
             var name = Encoding.Latin1.GetString(data.AsSpan(byteOffset + 14, nameLength));
             var isDirectory = (attributes & 0x10) != 0;
+
+            if (!isDirectory && fileSize != 0)
+            {
+                var fileSectors = ((long)fileSize + SectorSize - 1) / SectorSize;
+                if (baseSector < 0 || baseSector > source.SectorCount)
+                    continue;
+
+                var availableSectors = source.SectorCount - baseSector;
+                if (fileSectors > availableSectors ||
+                    (long)startSector > availableSectors - fileSectors)
+                {
+                    continue;
+                }
+            }
+
             var entry = new DiscFileEntry(directory, name, baseSector + startSector, fileSize, isDirectory);
 
             if (isDirectory)

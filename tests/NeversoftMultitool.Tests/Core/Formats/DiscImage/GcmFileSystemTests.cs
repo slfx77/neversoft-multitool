@@ -24,6 +24,42 @@ public sealed class GcmFileSystemTests
     }
 
     [Fact]
+    public void ReadFileList_FstShorterThanRootEntry_ThrowsInvalidDataException()
+    {
+        var image = CreateRootOnlyGcm();
+        BinaryPrimitives.WriteUInt32BigEndian(image.AsSpan(0x428, 4), 8);
+        using var stream = new MemoryStream(image, false);
+
+        var error = Assert.Throws<InvalidDataException>(() => GcmFileSystem.ReadFileList(stream));
+
+        Assert.Equal("GCM FST offset/size invalid.", error.Message);
+    }
+
+    [Fact]
+    public void ReadFileList_ZeroRootEntryCount_ThrowsInvalidDataException()
+    {
+        var image = CreateRootOnlyGcm();
+        BinaryPrimitives.WriteUInt32BigEndian(image.AsSpan(FstOffset + 8, 4), 0);
+        using var stream = new MemoryStream(image, false);
+
+        var error = Assert.Throws<InvalidDataException>(() => GcmFileSystem.ReadFileList(stream));
+
+        Assert.Equal("GCM FST root entry count is zero.", error.Message);
+    }
+
+    [Fact]
+    public void ReadFileList_RootEntryCountWhoseTableCannotFit_ThrowsInvalidDataException()
+    {
+        var image = CreateRootOnlyGcm();
+        BinaryPrimitives.WriteUInt32BigEndian(image.AsSpan(FstOffset + 8, 4), 0x40000000);
+        using var stream = new MemoryStream(image, false);
+
+        var error = Assert.Throws<InvalidDataException>(() => GcmFileSystem.ReadFileList(stream));
+
+        Assert.Equal("GCM FST is truncated.", error.Message);
+    }
+
+    [Fact]
     public void ReadFileList_RootOnlyFst_ReturnsEmptyList()
     {
         using var stream = new MemoryStream(CreateRootOnlyGcm(), false);

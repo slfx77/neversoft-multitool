@@ -145,8 +145,10 @@ public static class DiscImageArchive
         try
         {
             var cue = CueSheet.Parse(path);
-            var dataTrack = cue.Tracks.FirstOrDefault(t => !t.IsAudio);
-            return dataTrack != null && File.Exists(dataTrack.FilePath) ? cue : null;
+            return cue.Tracks.Any(t => !t.IsAudio) &&
+                   cue.Tracks.All(t => File.Exists(t.FilePath))
+                ? cue
+                : null;
         }
         catch
         {
@@ -159,7 +161,10 @@ public static class DiscImageArchive
         try
         {
             var gdi = GdiSheet.Parse(path);
-            return gdi.Tracks.Any(t => t.IsData && File.Exists(t.FilePath)) ? gdi : null;
+            return gdi.Tracks.Any(t => t.IsData) &&
+                   gdi.Tracks.All(t => File.Exists(t.FilePath))
+                ? gdi
+                : null;
         }
         catch
         {

@@ -100,7 +100,9 @@ public static class ArchiveTypeDetector
         {
             // WAD needs a sibling .HED — without it, the listing is unreadable.
             ".wad" => File.Exists(WadArchive.GetHedPath(path)) ? ArchiveAssetType.Wad : null,
-            ".prx" => ArchiveAssetType.CompressedPre,
+            ".prx" => File.Exists(path) && CompressedPreArchive.IsCompressedPre(path)
+                ? ArchiveAssetType.CompressedPre
+                : null,
             ".pre" or ".prd" or ".prf" or ".prg" => CompressedPreArchive.IsCompressedPre(path)
                 ? ArchiveAssetType.CompressedPre
                 : ArchiveAssetType.Pre,
@@ -128,7 +130,9 @@ public static class ArchiveTypeDetector
 
         return ext switch
         {
-            ".prx" => ArchiveAssetType.CompressedPre,
+            ".prx" => CompressedPreArchive.IsCompressedPre(data.AsSpan())
+                ? ArchiveAssetType.CompressedPre
+                : null,
             ".pre" or ".prd" or ".prf" or ".prg" => CompressedPreArchive.IsCompressedPre(data.AsSpan())
                 ? ArchiveAssetType.CompressedPre
                 : ArchiveAssetType.Pre,

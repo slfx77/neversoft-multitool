@@ -20,16 +20,32 @@ public sealed class FileArchiveFileSystem : ArchiveFileSystemBase
         string path, ArchiveAssetType type, IReadOnlyList<ArchiveEntry> entries, string? companionPath)
         : base(Path.GetFileName(path), path, type, 0, entries, null)
     {
-        _handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.RandomAccess);
-        _length = RandomAccess.GetLength(_handle);
-
-        // GC ships 32-byte 0xAB/0xCD stub .mpk.ngc files next to self-contained
-        // archives — those don't count as real companion data.
-        if (companionPath != null && File.Exists(companionPath) && new FileInfo(companionPath).Length > 32)
+        var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.RandomAccess);
+        SafeFileHandle? companionHandle = null;
+        try
         {
-            _companionHandle = File.OpenHandle(
-                companionPath, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.RandomAccess);
-            _companionLength = RandomAccess.GetLength(_companionHandle);
+            var length = RandomAccess.GetLength(handle);
+            long companionLength = 0;
+
+            // GC ships 32-byte 0xAB/0xCD stub .mpk.ngc files next to self-contained
+            // archives — those don't count as real companion data.
+            if (companionPath != null && File.Exists(companionPath) && new FileInfo(companionPath).Length > 32)
+            {
+                companionHandle = File.OpenHandle(
+                    companionPath, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.RandomAccess);
+                companionLength = RandomAccess.GetLength(companionHandle);
+            }
+
+            _handle = handle;
+            _length = length;
+            _companionHandle = companionHandle;
+            _companionLength = companionLength;
+        }
+        catch
+        {
+            companionHandle?.Dispose();
+            handle.Dispose();
+            throw;
         }
     }
 

@@ -8,6 +8,25 @@ namespace NeversoftMultitool.Tests.Core.Formats.ArchiveFs;
 public sealed class ArchiveEntryDecoderTests
 {
     [Theory]
+    [InlineData(ArchiveAssetType.Pkr, "PKR")]
+    [InlineData(ArchiveAssetType.Zip, "ZIP")]
+    public void Decode_CompressedPayloadSmallerThanDeclaredSize_ThrowsInvalidDataException(
+        ArchiveAssetType type,
+        string formatName)
+    {
+        var stored = Compress(type, "AB"u8);
+        var entry = CreateCompressedEntry(stored.Length, size: 3);
+
+        var exception = Assert.Throws<InvalidDataException>(
+            () => ArchiveEntryDecoder.Decode(type, entry, stored));
+
+        Assert.Equal(
+            $"Decompressed {formatName} entry is shorter than its declared size of 3 bytes.",
+            exception.Message);
+        Assert.IsType<EndOfStreamException>(exception.InnerException);
+    }
+
+    [Theory]
     [InlineData(ArchiveAssetType.Pkr)]
     [InlineData(ArchiveAssetType.Zip)]
     public void Decode_CompressedPayloadLargerThanDeclaredSize_ThrowsInsteadOfTruncating(
