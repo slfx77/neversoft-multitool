@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace NeversoftMultitool.Core.Formats.Audio;
 
 /// <summary>
@@ -32,9 +34,43 @@ public static class SfxExtractor
     /// </summary>
     public static List<SfxSampleInfo> EnumerateSamples(byte[] sfxData, SfxBankBytes? bankBytes)
     {
-        return SfxByteBankResolver.TryResolvePlanFromBytes(sfxData, bankBytes, out var plan, out _)
-            ? plan.Mappings.Select(static mapping => mapping.ToSampleInfo()).ToList()
+        return bankBytes is { } bank &&
+               TryResolveSamples(sfxData, bank, out var resolution, out _)
+            ? resolution.Samples.ToList()
             : [];
+    }
+
+    /// <summary>
+    ///     Resolves an in-memory SFX table against one explicit companion bank
+    ///     and preserves whether its rows are true cue mappings or the existing
+    ///     conservative full-bank fallback.
+    /// </summary>
+    public static bool TryResolveSamples(
+        byte[] sfxData,
+        SfxBankBytes bankBytes,
+        [NotNullWhen(true)] out SfxResolution? resolution,
+        out string error)
+    {
+        if (!SfxByteBankResolver.TryResolvePlanFromBytes(sfxData, bankBytes, out var plan, out error))
+        {
+            resolution = null;
+            return false;
+        }
+
+        if (plan.Mappings.Count == 0)
+        {
+            resolution = null;
+            error = "Resolved SFX bank contains no sample mappings";
+            return false;
+        }
+
+        var kind = plan.Mappings.All(static mapping => mapping.Cue != null)
+            ? SfxResolutionKind.ResolvedCues
+            : SfxResolutionKind.FullBankFallback;
+        resolution = new SfxResolution(
+            kind,
+            plan.Mappings.Select(static mapping => mapping.ToSampleInfo()).ToList());
+        return true;
     }
 
     public static string? ExtractSingleToWav(string inputPath, int cueIndex, string outputDir)

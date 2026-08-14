@@ -52,6 +52,8 @@ internal static class SfxCueResolver
 
         var reader = new EndianSpanReader(data, layout.BigEndian);
         var stoppedAtTerminatorOrPadding = false;
+        var stoppedTailOffset = -1;
+        string? stoppedTailError = null;
         for (var offset = 0; offset + SfxExtractor.EntrySize <= data.Length; offset += SfxExtractor.EntrySize)
         {
             // The terminator is 0xFFFFFFFF either way round, so it needs no
@@ -59,12 +61,16 @@ internal static class SfxCueResolver
             if (SfxAliasResolver.ReadUInt32LittleEndian(data, offset) == SfxExtractor.CueTerminator)
             {
                 stoppedAtTerminatorOrPadding = true;
+                stoppedTailOffset = offset + sizeof(uint);
+                stoppedTailError = "SFX cue table has nonzero data after its terminator";
                 break;
             }
 
             if (SfxAliasResolver.IsZeroedEntry(data, offset))
             {
                 stoppedAtTerminatorOrPadding = true;
+                stoppedTailOffset = offset + SfxExtractor.EntrySize;
+                stoppedTailError = "SFX cue table has nonzero data after a zero-padding record";
                 break;
             }
 
@@ -95,23 +101,27 @@ internal static class SfxCueResolver
                 alias));
         }
 
+        if (stoppedAtTerminatorOrPadding && HasNonzeroByte(data.AsSpan(stoppedTailOffset)))
+        {
+            cues = [];
+            error = stoppedTailError!;
+            return false;
+        }
+
         if (!stoppedAtTerminatorOrPadding)
         {
             var tailOffset = data.Length - data.Length % SfxExtractor.EntrySize;
             var tail = data.AsSpan(tailOffset);
             var hasCompleteTerminator = tail.Length >= sizeof(uint) &&
                                         BinaryPrimitives.ReadUInt32LittleEndian(tail) == SfxExtractor.CueTerminator;
-            var hasNonzeroByte = false;
-            foreach (var value in tail)
+            if (hasCompleteTerminator && HasNonzeroByte(tail[sizeof(uint)..]))
             {
-                if (value == 0)
-                    continue;
-
-                hasNonzeroByte = true;
-                break;
+                cues = [];
+                error = "SFX cue table has nonzero data after its terminator";
+                return false;
             }
 
-            if (tail.IsEmpty || (!hasCompleteTerminator && hasNonzeroByte))
+            if (tail.IsEmpty || (!hasCompleteTerminator && HasNonzeroByte(tail)))
             {
                 cues = [];
                 error = tail.IsEmpty
@@ -129,6 +139,17 @@ internal static class SfxCueResolver
 
         error = "";
         return true;
+    }
+
+    private static bool HasNonzeroByte(ReadOnlySpan<byte> data)
+    {
+        foreach (var value in data)
+        {
+            if (value != 0)
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>
