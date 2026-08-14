@@ -82,6 +82,46 @@ public sealed class ColFileTests(TestPaths paths)
         Assert.Contains("face data is truncated", error.Message);
     }
 
+    [Fact]
+    public void Parse_EmptyHeaderWithNegativeTotalVertexCount_Throws()
+    {
+        var data = new byte[32];
+        BinaryPrimitives.WriteInt32LittleEndian(data, 10);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(8), -1);
+
+        var error = Assert.Throws<InvalidDataException>(() => ColFile.Parse(data));
+
+        Assert.Contains("total vertex count is negative: -1", error.Message);
+    }
+
+    [Theory]
+    [InlineData(12, "total large-face")]
+    [InlineData(16, "total small-face")]
+    [InlineData(20, "total large-vertex")]
+    [InlineData(24, "total small-vertex")]
+    public void Parse_NegativeAggregateCount_Throws(int fieldOffset, string fieldName)
+    {
+        var data = new byte[32];
+        BinaryPrimitives.WriteInt32LittleEndian(data, 10);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(fieldOffset), -1);
+
+        var error = Assert.Throws<InvalidDataException>(() => ColFile.Parse(data));
+
+        Assert.Contains($"{fieldName} count is negative: -1", error.Message);
+    }
+
+    [Fact]
+    public void Parse_EmptyHeaderWithZeroAggregateCounts_IsAccepted()
+    {
+        var data = new byte[32];
+        BinaryPrimitives.WriteInt32LittleEndian(data, 10);
+
+        var scene = ColFile.Parse(data);
+
+        Assert.Equal(10, scene.Version);
+        Assert.Empty(scene.Objects);
+    }
+
     private static byte[] CreateOneObjectFile(
         int totalVertices,
         int totalLargeVertices,

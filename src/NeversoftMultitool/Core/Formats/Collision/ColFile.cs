@@ -50,13 +50,19 @@ public static class ColFile
 
         var numObjects = BinaryPrimitives.ReadInt32LittleEndian(data[4..]);
         var totalVerts = BinaryPrimitives.ReadInt32LittleEndian(data[8..]);
-        _ = BinaryPrimitives.ReadInt32LittleEndian(data[12..]);
-        // totalSmallFaces @ 16 (not needed)
+        var totalLargeFaces = BinaryPrimitives.ReadInt32LittleEndian(data[12..]);
+        var totalSmallFaces = BinaryPrimitives.ReadInt32LittleEndian(data[16..]);
         var totalLargeVerts = BinaryPrimitives.ReadInt32LittleEndian(data[20..]);
         var totalSmallVerts = BinaryPrimitives.ReadInt32LittleEndian(data[24..]);
 
         if (numObjects < 0 || numObjects > 100_000)
             throw new InvalidDataException($"Unreasonable object count: {numObjects}");
+
+        EnsureNonNegative(totalVerts, "total vertex");
+        EnsureNonNegative(totalLargeFaces, "total large-face");
+        EnsureNonNegative(totalSmallFaces, "total small-face");
+        EnsureNonNegative(totalLargeVerts, "total large-vertex");
+        EnsureNonNegative(totalSmallVerts, "total small-vertex");
 
         // THAW-generation files insert a 48-byte supersector block between the
         // file header and the object headers: marker(u32=0) + unknown(u32) +
@@ -245,5 +251,11 @@ public static class ColFile
     private static int Align4(int value)
     {
         return (value + 3) & ~3;
+    }
+
+    private static void EnsureNonNegative(int value, string fieldName)
+    {
+        if (value < 0)
+            throw new InvalidDataException($"COL {fieldName} count is negative: {value}");
     }
 }
