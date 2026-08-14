@@ -76,6 +76,25 @@ public class QbStructBufferTests
     }
 
     [Fact]
+    public void Parse_NoneArrayWithNonzeroCount_Throws()
+    {
+        var data = Buffer(TArray, 0x11111111u, TNone, (ushort)1, TNone);
+
+        Assert.Throws<InvalidDataException>(() => QbStructBuffer.Parse(data));
+    }
+
+    [Fact]
+    public void Parse_NoneArrayWithZeroCount_ReturnsEmptyArray()
+    {
+        var data = Buffer(TArray, 0x11111111u, TNone, (ushort)0, TNone);
+
+        var component = Assert.Single(QbStructBuffer.Parse(data));
+        var array = Assert.IsType<QbStructBuffer.Array>(component.Value);
+        Assert.Equal(TNone, array.ElementType);
+        Assert.Empty(array.Elements);
+    }
+
+    [Fact]
     public void Parse_TrailingBytes_Throws()
     {
         var data = Buffer(TZeroInt, 0x11111111u, TNone, (byte)0xFF);

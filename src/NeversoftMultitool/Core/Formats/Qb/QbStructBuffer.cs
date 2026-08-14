@@ -148,6 +148,9 @@ public static class QbStructBuffer
         var header = Slice(data, ref pos, 3);
         var elemType = header[0];
         int count = BitConverter.ToUInt16(header[1..]);
+        if (elemType == TypeNone && count != 0)
+            throw new InvalidDataException($"NONE array declares nonzero element count {count}");
+
         var array = new Array { ElementType = elemType };
         for (var i = 0; i < count; i++)
         {

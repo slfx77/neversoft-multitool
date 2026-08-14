@@ -91,7 +91,7 @@ public class QbSectionParserTests(TestPaths paths)
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(offset), value);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_CamPakInfo_Ps2AndGc_AgreeOnStructure()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -132,7 +132,7 @@ public class QbSectionParserTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_GcCutsceneScripts_DecompileWithLzssAndInlineStructs()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -198,7 +198,7 @@ public class QbSectionParserTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_KeyboardScript_FastBranchesProduceBalancedBlocks()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

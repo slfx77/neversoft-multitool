@@ -152,6 +152,11 @@ public sealed class TrgFile
                 throw new InvalidDataException(
                     $"TRG node {runStart} has invalid size {nodeSizeValue}");
             }
+            if (nodeSizeValue < sizeof(ushort))
+            {
+                throw new InvalidDataException(
+                    $"TRG node {runStart} is shorter than the 2-byte type field");
+            }
 
             var nodeSize = (int)nodeSizeValue;
 

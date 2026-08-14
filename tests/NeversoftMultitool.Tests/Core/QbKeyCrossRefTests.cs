@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
 using NeversoftMultitool.Core.QbKey;
 
@@ -89,21 +90,100 @@ public class QbKeyCrossRefTests(TestPaths paths)
     [Fact]
     public void EnumerateAllHashes_InvalidFile_ReturnsNull()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(),
-            "NsMultitool_Test_HashInvalid_" + Guid.NewGuid().ToString("N")[..8]);
-        var tempFile = Path.Combine(tempDir, "invalid.psx");
+        Assert.Null(EnumerateBytes([0x00, 0x00, 0x00, 0x00]));
+    }
+
+    [Fact]
+    public void EnumerateAllHashes_RecognizedMagicOnly_ReturnsNull()
+    {
+        Assert.Null(EnumerateBytes([0x04, 0x00, 0x02, 0x00]));
+    }
+
+    [Fact]
+    public void EnumerateAllHashes_TruncatedDeclaredObjectRecord_ReturnsNull()
+    {
+        var data = new byte[12];
+        data[0] = 0x04;
+        data[2] = 0x02;
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), 12);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(8), 1);
+
+        Assert.Null(EnumerateBytes(data));
+    }
+
+    [Fact]
+    public void EnumerateAllHashes_MetadataPointerBeforeMeshTable_ReturnsNull()
+    {
+        var data = CreateEmptyPsxFixture(36);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), 0);
+
+        Assert.Null(EnumerateBytes(data));
+    }
+
+    [Fact]
+    public void EnumerateAllHashes_TruncatedExtendedNameRecord_ReturnsNull()
+    {
+        var data = CreateEmptyPsxFixture(40);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(32), 0xFFFFFFFF);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(36), 1);
+
+        Assert.Null(EnumerateBytes(data));
+    }
+
+    [Fact]
+    public void EnumerateAllHashes_ExtendedHeaderMissingActualCount_ReturnsNull()
+    {
+        var data = CreateEmptyPsxFixture(44);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(32), 0xFFFFFFFF);
+
+        Assert.Null(EnumerateBytes(data));
+    }
+
+    [Fact]
+    public void EnumerateAllHashes_DeclaredTextureMissingTopPointer_ReturnsNull()
+    {
+        var data = CreateEmptyPsxFixture(36);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(32), 1);
+
+        Assert.Null(EnumerateBytes(data));
+    }
+
+    [Fact]
+    public void EnumerateAllHashes_ExactEmptyFile_ReturnsEmptyHashes()
+    {
+        var data = CreateEmptyPsxFixture(36);
+
+        var result = EnumerateBytes(data);
+
+        Assert.NotNull(result);
+        Assert.Empty(result.MeshNameHashes);
+        Assert.Empty(result.TextureNameHashes);
+        Assert.Null(result.DetailTextureNames);
+        Assert.Null(result.CubemapNames);
+    }
+
+    private static byte[] CreateEmptyPsxFixture(int length)
+    {
+        var data = new byte[length];
+        data[0] = 0x04;
+        data[2] = 0x02;
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), 16);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16), 0xFFFFFFFF);
+        return data;
+    }
+
+    private static PsxHashEnumeration? EnumerateBytes(byte[] data)
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(),
+            $"NsMultitool_Test_Hashes_{Guid.NewGuid():N}.psx");
         try
         {
-            Directory.CreateDirectory(tempDir);
-            File.WriteAllBytes(tempFile, [0x00, 0x00, 0x00, 0x00]);
-
-            var result = PsxHashEnumerator.EnumerateAllHashes(tempFile);
-            Assert.Null(result);
+            File.WriteAllBytes(tempFile, data);
+            return PsxHashEnumerator.EnumerateAllHashes(tempFile);
         }
         finally
         {
-            if (Directory.Exists(tempDir))
-                Directory.Delete(tempDir, true);
+            File.Delete(tempFile);
         }
     }
 }

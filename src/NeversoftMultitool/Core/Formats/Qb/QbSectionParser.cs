@@ -128,10 +128,10 @@ public static class QbSectionParser
             return tokens;
         }
 
-        // Info-value encoding from the first section value.
-        var first = bigEndian
-            ? BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(28))
-            : BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(28));
+        // Info-value encoding from the first section value. The declared fileSize,
+        // rather than any trailing bytes in the backing buffer, owns every parse read.
+        var probeContext = new Context(data, bigEndian, false, 0, fileSize);
+        var first = probeContext.U32(28);
         bool newEncoding;
         if (NewValues.TryGetValue(first, out var kn) && IsSection(kn))
             newEncoding = true;
@@ -140,10 +140,16 @@ public static class QbSectionParser
         else
             throw new InvalidDataException($"Unknown first section value 0x{first:X8}");
 
-        var ctx = new Context(data, bigEndian, newEncoding, 0);
+        var ctx = new Context(data, bigEndian, newEncoding, 0, fileSize);
         long pos = 28;
         while (pos + 20 <= fileSize)
+        {
+            var sectionStart = pos;
             pos = EmitSection(ctx, pos, tokens);
+            if (pos > fileSize)
+                throw new InvalidDataException(
+                    $"Section at 0x{sectionStart:X} ends at 0x{pos:X}, beyond parse limit 0x{fileSize:X}");
+        }
 
         tokens.Add(new QbToken { Type = QbTokenType.EndOfFile, Offset = pos });
         return tokens;
@@ -284,9 +290,10 @@ public static class QbSectionParser
     /// <summary>Narrow, null-terminated string padded to 4-byte alignment.</summary>
     private static long EmitString(Context ctx, long pos, List<QbToken> tokens)
     {
-        var nul = Array.IndexOf(ctx.Data, (byte)0, (int)pos);
+        ctx.RequireRange(pos, 1);
+        var nul = Array.IndexOf(ctx.Data, (byte)0, (int)pos, (int)(ctx.Limit - pos));
         if (nul < 0)
-            throw new InvalidDataException($"Unterminated string at 0x{pos:X}");
+            throw new InvalidDataException($"Unterminated string at 0x{pos:X} before parse limit 0x{ctx.Limit:X}");
 
         tokens.Add(new QbToken
         {
@@ -353,7 +360,7 @@ public static class QbSectionParser
                 }
 
                 tokens.Add(new QbToken { Type = QbTokenType.KeywordScript, Offset = scriptData });
-                var body = ctx.Data.AsSpan((int)scriptData, scriptSize).ToArray();
+                var body = ctx.Span(scriptData, scriptSize).ToArray();
                 tokens.AddRange(QbFile.TokenizeScriptBody(body, ctx.BigEndian, ctx.NewEncoding));
                 if (tokens[^1].Type != QbTokenType.KeywordEndScript)
                     tokens.Add(new QbToken { Type = QbTokenType.KeywordEndScript, Offset = scriptData + scriptSize });
@@ -536,10 +543,7 @@ public static class QbSectionParser
     {
         var decompressedSize = ctx.U32(pos + 4);
         var compressedSize = ctx.U32(pos + 8);
-        if (pos + 12 + compressedSize > ctx.Data.Length)
-            throw new InvalidDataException($"Script data at 0x{pos:X} overruns the file");
-
-        var blob = ctx.Data.AsSpan((int)(pos + 12), (int)compressedSize);
+        var blob = ctx.Span(pos + 12, compressedSize);
         var body = compressedSize < decompressedSize
             ? LzssDecoder.Decode(blob, (int)decompressedSize)
             : blob.ToArray();
@@ -565,12 +569,14 @@ public static class QbSectionParser
         // pos points at the u16 length that follows the 0x4A token byte. The length
         // belongs to the (always little-endian) token stream; only the struct binary
         // itself follows the file's byte order.
-        var length = BinaryPrimitives.ReadUInt16LittleEndian(body.AsSpan(pos));
+        var bodyContext = new Context(body, bigEndian, newEncoding, 0, body.LongLength);
+        bodyContext.RequireRange(pos, sizeof(ushort));
+        var length = BinaryPrimitives.ReadUInt16LittleEndian(bodyContext.Span(pos, sizeof(ushort)));
         var structStart = (int)Align4(pos + 2);
         if (structStart >= body.Length)
             throw new InvalidDataException($"Inline struct at 0x{pos:X} overruns the script body");
 
-        var ctx = new Context(body, bigEndian, newEncoding, structStart);
+        var ctx = new Context(body, bigEndian, newEncoding, structStart, body.LongLength);
         var end = EmitStruct(ctx, structStart, true, tokens);
 
         // The stored length is the serialized struct size; trust the walked end but
@@ -635,20 +641,45 @@ public static class QbSectionParser
     }
 
     /// <summary>A section/item value tree reader bound to one buffer + encoding.</summary>
-    private readonly struct Context(byte[] data, bool bigEndian, bool newEncoding, long pointerBase)
+    private readonly struct Context(
+        byte[] data, bool bigEndian, bool newEncoding, long pointerBase, long limit)
     {
         public byte[] Data { get; } = data;
         public bool BigEndian { get; } = bigEndian;
         public bool NewEncoding { get; } = newEncoding;
 
+        /// <summary>Exclusive upper bound owned by this parse context.</summary>
+        public long Limit { get; } = limit;
+
         /// <summary>Added to stored pointers (inline script structs use relative pointers).</summary>
         public long PointerBase { get; } = pointerBase;
 
+        public void RequireRange(long pos, long length)
+        {
+            if (pos < 0 || length < 0 || pos > Limit || length > Limit - pos)
+                throw new InvalidDataException(
+                    $"Sectioned-QB access at 0x{pos:X} for 0x{length:X} bytes exceeds parse limit 0x{Limit:X}");
+        }
+
+        public ReadOnlySpan<byte> Span(long pos, long length)
+        {
+            RequireRange(pos, length);
+            return Data.AsSpan((int)pos, (int)length);
+        }
+
+        public void RequirePosition(long pos)
+        {
+            if (pos < 0 || pos > Limit)
+                throw new InvalidDataException(
+                    $"Sectioned-QB pointer target 0x{pos:X} is outside parse limit 0x{Limit:X}");
+        }
+
         public uint U32(long pos)
         {
+            var bytes = Span(pos, sizeof(uint));
             return BigEndian
-                ? BinaryPrimitives.ReadUInt32BigEndian(Data.AsSpan((int)pos))
-                : BinaryPrimitives.ReadUInt32LittleEndian(Data.AsSpan((int)pos));
+                ? BinaryPrimitives.ReadUInt32BigEndian(bytes)
+                : BinaryPrimitives.ReadUInt32LittleEndian(bytes);
         }
 
         public float F32(long pos)
@@ -664,7 +695,9 @@ public static class QbSectionParser
 
         public long Pointer(long pos)
         {
-            return PointerBase + U32(pos);
+            var pointer = PointerBase + U32(pos);
+            RequirePosition(pointer);
+            return pointer;
         }
     }
 }

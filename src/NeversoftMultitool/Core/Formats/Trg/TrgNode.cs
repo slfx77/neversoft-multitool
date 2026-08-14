@@ -214,22 +214,31 @@ public sealed class TrgNode
         };
     }
 
-    private static string ReadNullTerminatedString(EndianBinaryReader reader)
+    private static string ReadNullTerminatedString(EndianBinaryReader reader, long endPos)
     {
+        var startPos = reader.BaseStream.Position;
+        var streamLength = reader.BaseStream.Length;
         var sb = new StringBuilder();
-        while (true)
+        while (reader.BaseStream.Position < endPos && reader.BaseStream.Position < streamLength)
         {
             var b = reader.ReadByte();
-            if (b == 0) break;
+            if (b == 0)
+            {
+                var alignedPos = (reader.BaseStream.Position + 1) & ~1L;
+                if (alignedPos > endPos || alignedPos > streamLength)
+                    throw new InvalidDataException(
+                        $"TRG string at position {startPos} cannot align to position {alignedPos} " +
+                        $"within boundary {endPos} and stream length {streamLength}.");
+
+                reader.BaseStream.Position = alignedPos;
+                return sb.ToString();
+            }
+
             sb.Append((char)b);
         }
 
-        // Align to 2-byte boundary after null terminator
-        var pos = reader.BaseStream.Position;
-        if (pos % 2 != 0)
-            reader.BaseStream.Position = pos + 1;
-
-        return sb.ToString();
+        throw new InvalidDataException(
+            $"TRG string at position {startPos} is not NUL-terminated within boundary {endPos}.");
     }
 
     // --- Node type parsers ---
@@ -239,7 +248,7 @@ public sealed class TrgNode
         node.Links = ReadLinks(reader);
         node.Position = ReadPosition(reader);
         node.Angles = ReadAngles(reader);
-        node.Name = ReadNullTerminatedString(reader);
+        node.Name = ReadNullTerminatedString(reader, startPos + nodeSize);
 
         // Restart nodes have a command list after the name
         var remaining = (int)(startPos + nodeSize - reader.BaseStream.Position);

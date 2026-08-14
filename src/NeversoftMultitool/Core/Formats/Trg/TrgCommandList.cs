@@ -30,13 +30,13 @@ public static class TrgCommandList
 
             if (opcode == 0xBF) // SetVisibilityByName — string, first suffix, last suffix, visible
             {
-                args.Add(ReadString(reader));
+                args.Add(ReadString(reader, endPos));
                 for (var i = 0; i < 3 && reader.BaseStream.Position + 2 <= endPos; i++)
                     args.Add(reader.ReadUInt16());
             }
             else if (StringCommands.Contains(opcode))
             {
-                args.Add(ReadString(reader));
+                args.Add(ReadString(reader, endPos));
             }
             else if (NoArgCommands.Contains(opcode))
             {
@@ -111,7 +111,7 @@ public static class TrgCommandList
             {
                 while (reader.BaseStream.Position + 1 <= endPos)
                 {
-                    var str = ReadString(reader);
+                    var str = ReadString(reader, endPos);
                     if (str.Length == 0) break;
                     args.Add(str);
                 }
@@ -279,7 +279,7 @@ public static class TrgCommandList
                     break;
 
                 case 0x42B0: // C_TEXT_MESSAGE — null-terminated string, align 2
-                    op.Value = ReadString(reader);
+                    op.Value = ReadString(reader, endPos);
                     break;
 
                 case 0x4201: // C_CYCLE_ANIM — anim, speed
@@ -306,7 +306,7 @@ public static class TrgCommandList
                     break;
 
                 case 0x4200: // C_LOAD_MODEL — null-terminated string
-                    op.Value = ReadString(reader);
+                    op.Value = ReadString(reader, endPos);
                     break;
 
                 // No-arg script opcodes
@@ -372,24 +372,31 @@ public static class TrgCommandList
         return ops;
     }
 
-    private static string ReadString(EndianBinaryReader reader)
+    private static string ReadString(EndianBinaryReader reader, long endPos)
     {
+        var startPos = reader.BaseStream.Position;
+        var streamLength = reader.BaseStream.Length;
         var sb = new StringBuilder();
-        while (true)
+        while (reader.BaseStream.Position < endPos && reader.BaseStream.Position < streamLength)
         {
-            if (reader.BaseStream.Position >= reader.BaseStream.Length)
-                break;
             var b = reader.ReadByte();
-            if (b == 0) break;
+            if (b == 0)
+            {
+                var alignedPos = (reader.BaseStream.Position + 1) & ~1L;
+                if (alignedPos > endPos || alignedPos > streamLength)
+                    throw new InvalidDataException(
+                        $"TRG string at position {startPos} cannot align to position {alignedPos} " +
+                        $"within boundary {endPos} and stream length {streamLength}.");
+
+                reader.BaseStream.Position = alignedPos;
+                return sb.ToString();
+            }
+
             sb.Append((char)b);
         }
 
-        // Align to 2-byte boundary
-        var pos = reader.BaseStream.Position;
-        if (pos % 2 != 0)
-            reader.BaseStream.Position = pos + 1;
-
-        return sb.ToString();
+        throw new InvalidDataException(
+            $"TRG string at position {startPos} is not NUL-terminated within boundary {endPos}.");
     }
 
     private static void Align4(EndianBinaryReader reader)

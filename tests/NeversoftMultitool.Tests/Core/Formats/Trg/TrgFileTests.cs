@@ -160,6 +160,49 @@ public class TrgFileTests(TestPaths paths)
         Assert.Equal([255, 255], trg.Nodes.Select(static node => node.TypeId));
     }
 
+    [Fact]
+    public void Parse_NodeShorterThanTypeField_ThrowsInvalidDataException()
+    {
+        var data = BuildSingleNodeTrg(0xFF);
+        Assert.Equal(17, data.Length);
+        using var stream = new MemoryStream(data, false);
+        using var reader = new BinaryReader(stream);
+
+        var exception = Assert.Throws<InvalidDataException>(() => TrgFile.Parse(reader));
+
+        Assert.Equal("TRG node 0 is shorter than the 2-byte type field", exception.Message);
+    }
+
+    [Fact]
+    public void Parse_TwoByteTerminatorNode_ReturnsNode()
+    {
+        var data = BuildSingleNodeTrg(0xFF, 0x00);
+        Assert.Equal(18, data.Length);
+        using var stream = new MemoryStream(data, false);
+        using var reader = new BinaryReader(stream);
+
+        var trg = TrgFile.Parse(reader);
+
+        var node = Assert.Single(trg.Nodes);
+        Assert.Equal(TrgNodeMetadata.TypeTerminator, node.TypeId);
+    }
+
+    private static byte[] BuildSingleNodeTrg(params byte[] nodePayload)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
+        {
+            writer.Write(0x4752545Fu);
+            writer.Write((ushort)2);
+            writer.Write((ushort)1);
+            writer.Write(1u);
+            writer.Write(16u);
+            writer.Write(nodePayload);
+        }
+
+        return stream.ToArray();
+    }
+
     [Theory]
     [InlineData(0x1000)]
     [InlineData(0x1001)]
