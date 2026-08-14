@@ -31,11 +31,11 @@ Once `initialAccumulator + frame` exceeds the sum of the next 256 intervals, the
 
 **Fix as shipped**: both walks now fold the playhead into one cycle first (the walk is periodic in the cycle length, so this is equivalent wherever the old walk actually terminated, and frame-0 agreement with the bake is unchanged — the corpus sweep stays green). Regressions added: four late-playhead cases plus a short-interval sweep and an explicit "still animates late in playback" assertion in `PsxColourPulseEvaluatorTests`, and an ordering pin in `PsxColourPulseViewerContractTests` for the untestable viewer JS. Mutation-checked: four of the five new C# cases fail against the pre-fix evaluator.
 
-### A2. 🔴 Pulses run at the wrong speed — REPORTED, needs one decomp check
+### A2. ⚪ Pulse clock matches the PS1 runtime — NO SPEED CORRECTION 2026-08-12
 
-Reported as "pulse animations play too quickly". The viewer advances the shared surface clock at 60 Hz (`mesh-viewer.html:1136`, `textureWibbleFrame + dt * 60`), which matches the documented contract in `PsxColourPulseEvaluator`'s summary ("the engine advances each pulse's playhead by the frame delta `XblanksNow - XblanksThen` … intervals are therefore in 60 Hz frames").
+The reported symptom was "pulse animations play too quickly", but the proposed 30 Hz correction is contradicted by the executable. The target `M3d_PreprocessPulsingColours` at `0x80097CD0` loads `XblanksNow` and `XblanksThen`, computes their unsigned subtraction, and advances every pulse by that delta; only a backwards/wrapped counter substitutes `1`. It does **not** add one per rendered frame. The matching decomp expresses the same rule as `dt = XblanksNow - XblanksThen`.
 
-So either that contract is wrong, or the perceived speed comes from A1's phase corruption. **Check first**: confirm in the decomp whether `M3d_PreprocessPulsingColours` advances by the xblank *delta* (60 Hz wall clock, current assumption) or by a fixed +1 per rendered frame — the latter would run at the game's frame rate and make our playback exactly 2× fast on a 30 fps title. Re-evaluate this item *after* A1 lands, since a frozen/clamped playhead changes what "too quick" looks like.
+The viewer already implements that runtime cadence with `textureWibbleFrame + dt * 60`, and the synthetic viewer contract pins that exact shared-clock expression. A1's late-playhead phase corruption is the only demonstrated actionable defect associated with the original observation; halving the clock would now make pulse and UV-wibble timing diverge from the runtime. Re-open this item only with a post-A1 capture that demonstrates a different remaining timing error.
 
 ### A3. 🔴 Pulses too bright on some pickups (web cartridges) — REPORTED
 
@@ -45,21 +45,21 @@ That leaves the **interpolation domain** as the suspect: endpoints are transform
 
 **Repro to capture**: web cartridge pickup, note whether the overbright is continuous or only mid-interval; compare `_PSX_COLOR_0` (packet) against `COLOR_1` (portable) sampling for that primitive, and check the 255/128 textured-modulation scale on an additive/untextured pickup face.
 
-### A4. 🔴 Surface animation needs its own toggle — FEATURE
+### A4. ✅ Surface animation needs its own toggle — FIXED 2026-08-12
 
-Colour pulses and animated (UV-wibble) textures should be toggleable from the Animations panel, **separate from the skeletal animation list** — they are per-surface effects, not clips, and today they run unconditionally. Panel lives at `App/Tabs/MeshConverterTabAnimationPanel.cs`; the viewer already keeps the two collections independent (`colourPulseMeshes` / `textureWibbleMeshes`, `mesh-viewer.html:175-176`), and the shared clock at `:1130-1137` is already written to tolerate either being empty, so two booleans through the existing viewer message path should be enough.
+Colour pulses and animated (UV-wibble) textures are now independently toggleable from a dedicated **Surface animations** group above the skeletal animation list. Both switches default on and retain their state across model loads and WebView initialization. Disabling an effect restores its authored display state — pulse frame zero or the base UVs — rather than freezing whatever animated frame happened to be visible. The shared 60 Hz clock continues whenever either enabled effect has work, so a pulse-only or wibble-only model still animates correctly. Synthetic viewer-contract tests pin the independent gates, restoration behavior, and exported host function without loading game files.
 
 ---
 
 ## B. N64 rendering fidelity
 
-### B1. 🔴 Transparency cutouts render as solid black on some meshes — REPORTED
+### B1. ✅ Transparency cutouts render as solid black on some meshes — FIXED AND ROM-VERIFIED 2026-08-13
 
-`122_venom.psx.n64` renders Venom's teeth against solid black; **`123_venom.psx.n64` is correct**, which makes this a per-file classification difference rather than a broken path.
+`122_venom.psx.n64` rendered Venom's teeth against solid black while **`123_venom.psx.n64` was correct**. The two 581-triangle bundles expose the exact distinction: slot 122's 16-triangle teeth material binds 32x32 I8 texture `2501_psxtxt_755e2673` (332 zero, 206 partial, and 486 full-intensity texels), while slot 123's matching 16-triangle material binds CI4 texture `2503_psxtxt_8aa1d98c` (415 transparent and 609 opaque texels).
 
-Likely mechanism: `ResolveBlendState` (`N64ModelWriter.cs:706-720`) returns `Mask` only when the bound texture actually carries one-bit alpha, else `Opaque`. A CI4 texture's transparent slots are the `A=0` palette entries whose **colour bytes are garbage by design** — so if a cutout texture is classified opaque, those texels paint as (typically black) garbage instead of being discarded. That is precisely "solid black background".
+The decoder had treated both N64 intensity formats as opaque grayscale. Nintendo's texture contract is instead `R=G=B=A=I`: the intensity value is copied to alpha, specifically so zero backgrounds and filtered edge ramps can be transparent. `N64TexFile` now applies that rule to I4 and I8. More importantly, when the dictionary header's alpha-threshold byte at `+0x2E` is `FF`, its unaligned big-endian flag word at `+0x2F` is retained by the Spider-Man runtime and selects the actual RDP render class: low bits `0/2` emit `AA_ZB_OPA_SURF`, `1` emits `AA_ZB_TEX_TERR` (`CVG_X_ALPHA | ALPHA_CVG_SEL`), and `3` emits the forced-blend cloud/translucent path. Model classification now follows that authored state for I4/I8 rather than guessing from pixel content: opaque ignores physical art alpha, texture coverage maps every non-full alpha to a depth-writing `Mask`, and translucent forces `Blend` while retaining the real art profile. Nonzero-rate face blending and vertex-alpha blending still win; the existing rate-0 cutout rule remains. Non-intensity formats and the separate custom-threshold path retain the existing pixel-profile fallback pending a dedicated audit. Slot 122 sets texture coverage and therefore matches slot 123's known-good `Mask`; ordinary all-partial I modulation such as slot 357 sets opaque and stays opaque.
 
-**Investigate**: dump the bound texture format + alpha histogram for the teeth material in 122 vs 123 (they are probably different formats, e.g. CI4 vs RGBA16); the classifier likely misses one of them.
+Byte-exact synthetic I4/I8 regressions pin intensity replication into all four RGBA channels, the four serialized render classes are classified explicitly, the verified `biglight` I4 golden was updated for the corrected alpha channel, and synthetic material rows pin opaque/texture-coverage/translucent behavior. `SpiderManVenomTeeth_IntensityAlphaMatchesTheCutoutControl` runs both reported bundles through the public model importer and pins both teeth materials as `Mask`; Spider-Man slot 150 is the non-regression control, keeping its 40 non-semitransparent triangles over constant-intensity I4 texture `psxtxt_00000002` opaque instead of turning the whole surface 2/3 transparent.
 
 ### B2. 🔴 Texture seams — REPORTED
 
@@ -75,55 +75,61 @@ Both look like authored vertex colour being discarded in favour of the ROM's lig
 
 **Investigate**: for the torch fire and the 145 untextured parts specifically, dump `kind`, the resolved lighting flag, and the trailing four bytes. Note whether an untextured material additionally forces a white base colour, which would compound it.
 
-### B4. 🔴 Bundle-name mapping is misaligned in places — REPORTED, with a strong self-check available
+### B4. ✅ Bundle-name mapping is misaligned in places — FIXED AND ROM-VERIFIED 2026-08-13
 
 Two examples: `168_L1A2_O` appears to actually be JJJViewer, and `L1A2a_L` appears to be a `_G` file for a training map. The user supplies a decisive invariant: **`_L` files are texture libraries and never contain geometry.**
 
 This fits the naming mechanism's known failure mode. `N64BundleNameResolver` maps a case-insensitively sorted TRG family list one-for-one onto a *contiguous run* of slots, deliberately including 24-byte stubs, anchored on a content-named slot (`N64BundleNameResolver.cs:10-46`). Any family member with no slot at all — or any slot the TRG does not name — shifts everything after it by one, which produces exactly this: an `_O` name landing on a character model and an `_L` name landing on geometry.
 
-**Highest-value fix is a post-condition, not a re-derivation**: after aligning a run, assert that every slot receiving an `_L` name carries no geometry, and (weaker) that `_O`/`_G` names land on bundles whose content matches. On violation, decline the run rather than emitting a wrong name — the resolver's existing philosophy is already "return a name only when it is TRUE of the content". This is the same self-validating-exporter pattern that caught three defects in the colour-pulse work.
+**Guard and verification**: family alignment now requires every `_L` name to land on an authored-empty 24-byte N64 shell with zero objects. If it lands on geometry or malformed bytes, the entire candidate run is declined and other anchors may still be considered. Existing content-derived checks continue to validate the `_O`/`_G` slots for which a content name is available. Synthetic shifted/valid runs pin the post-condition without depending on a ROM; this deliberately prefers a numeric slot over a confidently wrong name.
+
+The current Spider-Man ROM was then carved through the same `N64AssetCarver` path that supplies archive and GUI rows. Slot 168 now stays numeric as `models/168/168.psx.n64` rather than the false `168_L1A2_O`; slot 169 is correctly `169_l1a2a_g.psx.n64`; slot 170 also stays numeric because it is geometry; and no `L1A2a_L` path is emitted. Both slots 014 and 168 share the same ambiguous `jameson|jjviewer` content key and therefore truthfully remain numeric, while the observed 40 names ending in terminal `_L` all own recognized authored-empty 24-byte shells. `SpiderMan_L1A2ShiftedRunFailsClosedAndEveryNamedLibraryIsAuthoredEmpty` permanently pins the reported slot outcomes and the terminal-`_L` invariant as a focused single-ROM corpus regression. The GUI performs no later name transformation, so this end-to-end carve is also the authoritative UI-label verification.
 
 ---
 
 ## C. GUI / UX
 
-### C1. 🔴 Expand/collapse controls read as sort buttons (Audio) — CONFIRMED IN CODE
+### C1. ✅ Expand/collapse controls read as sort buttons (Audio) — FIXED 2026-08-12
 
-The Expand-all / Collapse-all buttons exist, but they are **chevron icons sitting inside the header row itself**, in column 0, immediately left of the sortable column-header buttons (`AudioConverterTab.xaml:177-200`, glyphs `E70D`/`E70E`, beside "File Name"/"Folder"/"Format"/"Samples"). A chevron pair in a row of sort headers reads as ascending/descending — the user's diagnosis is correct and is a direct consequence of the layout.
+Previously, the Expand-all / Collapse-all buttons were **chevron icons sitting inside the header row itself**, immediately left of the sortable column-header buttons. A chevron pair in a row of sort headers read as ascending/descending — the user's diagnosis was correct and was a direct consequence of the layout.
 
-**Fix**: move them out of the header grid into a control row **above** the table, right-aligned, with actual text labels ("Expand All" / "Collapse All").
+**Fix as shipped**: the actions now live in a right-aligned control row above the table with explicit "Expand All" / "Collapse All" labels, separate from the sortable headers.
 
-### C2. 🔴 Expanded child rows are indented backwards (Audio)
+### C2. ✅ Expanded child rows are indented backwards (Audio) — FIXED 2026-08-12
 
-For expanded containers (e.g. SFX), the parent filename is indented *further right* than its own children. Should be the other way round. Template pair: `AudioConverterTab.xaml` `ParentTemplate` (:14-72) / `ChildTemplate` (:75-108).
+Expanded samples now begin inside the filename column with an additional 16-pixel inset, so the parent filename is the visual root and its children read as children.
 
-### C3. 🔴 File size is shown on children but is not a column (Audio)
+### C3. ✅ File size is shown on children but is not a column (Audio) — FIXED 2026-08-12
 
-Expanded entries display a size, but there is no sortable Size column and the container's own size is never shown. Add a sortable size column (`SortableColumnHeaderButtonStyle` + `FileTableBehavior.SortProperty`, as the existing headers do) and populate it for containers as well as children.
+The table now has a numeric, sortable Size column. Filesystem rows use file metadata and archive rows use the declared entry size, while child rows retain the per-sample/channel data sizes reported by the format enumerators.
 
-### C4. 🔴 Show audio duration in the file table (Audio) — FEATURE
+### C4. ✅ Show audio duration in the file table (Audio) — SHIPPED 2026-08-12
 
-Track length would be useful in the table alongside format/samples.
+The Audio table now has a numeric, sortable Duration column for both stream rows and expandable sample/cue/channel rows. Metadata resolves sequentially off the UI thread from the same byte-backed source used by conversion, so filesystem and archive entries share one contract; rescans cancel stale work, malformed/unreadable leaves stay blank, and XA reuses its duration read for channel discovery instead of reading the entry twice.
 
-### C5. 🔴 SFX cue sheets are listed as if they were audio (Audio)
+Duration follows the decoded output timeline rather than a file-size estimate: ADX/VAG/Xbox PCM/THUG2 SND/PSS show their single stream, raw XA shows its stereo stream, sectored XA uses the longest concurrently multiplexed channel, and multi-track VID uses the longest alternative language track. XA children show their own channel lengths. VAB/KAT parents deliberately stay blank because a sound bank is a set of independent sounds, while raw and SFX-resolved children use each sample's exact decoded frame count and authored/effective cue rate; unsupported encodings remain blank. Display uses the shared playback time format while sorting retains the underlying sub-second numeric value.
 
-SFX files are **cue sheets for the VAB banks**, not audio. Listing both side by side is misleading. Preferred shape: list the **VAB** (which holds the actual samples) and use its paired SFX to resolve and display the contents. The engine-exact VAB tone-table walk already exists, so the pairing data is available; this is a presentation change in the audio scanner.
+### C5. ✅ SFX cue sheets are listed as if they were audio (Audio) — FIXED 2026-08-12
 
-### C6. 🔴 Script Decompiler cannot open archives, and is missing "Select file…"
+SFX files are **cue sheets for KAT/VAB banks**, not standalone audio rows. The scanner now suppresses every SFX parent and assigns same-directory, same-stem sheets to one unambiguous bank, preferring KAT over VAB when both exist. An otherwise unowned sheet can also inherit a bank from an already exact-anchored sibling sheet in the same directory, using the existing cue-layout score only when the best distinct bank scores at most 24 and leads the runner-up by at least 8. Multiple anchors for one bank collapse to that bank's best score; malformed/unreadable sheets, close or tied scores, different-directory candidates, and ambiguous exact-stem bank sets stay unowned rather than being guessed. Archive identity and alias scope use the entry's full path rather than a flat basename, and scan status reports exact and cross-stem pairings separately.
 
-Confirmed: `ScriptDecompilerTab.xaml:163` offers only "Browse folder…", where the comparable panel at `:404-409` offers both "Select file…" and "Browse folder…". Add the missing button, and wire archive support so `.qb`/`.trg` can be read from inside containers — every other content tab already goes through `ArchiveFileSystem`.
+A bank expands to true resolved cue rows carrying both the authored cue index and actual bank-sample index; preview reads that exact sheet and bank. When no attached sheet yields true cues, invalid/unreadable exact sheets and the conservative KAT full-bank resolution fall back to the raw bank once instead of fabricating cue rows or hiding the audio. Batch conversion now applies the same truth boundary: zero true sheets extracts the raw bank once, one preserves the legacy `<bank>/<cue>.wav` layout, and multiple true sheets export every one beneath deterministic collision-safe `<bank>/<sheet>/<cue>.wav` directories. Malformed and full-bank-fallback sheets do not suppress valid siblings, repeated cue indices cannot overwrite across sheets, and reported sample counts aggregate across all emitted sheets. Unpaired or ambiguous SFX sheets are omitted and counted in scan status.
 
-### C7. 🔴 `.z64` missing from archive pickers outside the Texture tab
+The CLI's explicit single-SFX route remains unchanged; the ownership and multi-sheet behavior above apply to the Audio tab's bank-oriented folder/archive workflow.
 
-Confirmed: `.z64` is present **only** in `TextureTab.xaml.cs:13`. `AudioConverterTab` (:16), `BitmapConverterTab` (:13), and `VideoConverterTab` (:16) all use the same list without it.
+### C6. ✅ Script Decompiler archive and empty-state inputs — FIXED 2026-08-12
 
-The underlying question the user raised — N64 full-screen images are currently treated as textures, so they surface in the Texture tab rather than with other images — is a **classification** decision worth settling before adding extensions blindly: decide whether `.img.n64` full-screen art belongs in the Bitmap tab, and if so whether it can be told apart from ordinary textures structurally (the 3-part CI record with its 28-byte header, magic `0x00080410`, is a candidate discriminator). Add `.z64` to whichever pickers end up owning that content.
+The lower input row already had file and folder actions; the empty state was the part missing direct file selection. Both locations now offer **Select file…**, **Select archive…**, and **Browse folder…**. Archive selection uses `ArchiveFileSystem` across every enumerable root type and walks bounded nested containers for `.qb`, `.sqb`, and `.trg` entries, including platform-qualified names. Each entry keeps its complete virtual identity so duplicate basenames remain distinct. Script bytes are buffered once before archive handles close, then the same byte-based parsers drive metadata, preview, and export without temporary extraction. Export naming now treats the final `::` as an archive path boundary and retains deterministic collision disambiguation. The catalog, parser, lifecycle, duplicate-name, and virtual-output cases are covered by synthetic in-memory tests.
+
+### C7. ✅ N64 fullscreen images have an owning archive picker — FIXED 2026-08-12
+
+The existing carver/decoder contract already distinguishes fullscreen `.img.n64` assets structurally: a bounded three-part CI8 record with a 28-byte header and magic `0x00080410`. The Bitmap tab now owns those records, treats their dimensions as self-described, previews/converts them through `N64TexFile`, and accepts `.z64` archives. The Texture tab continues to own `.tex.n64` dictionaries but no longer duplicates fullscreen images. Audio and Video deliberately do not receive `.z64`: neither tab currently has a playable carved-N64 format or a truthful rate/container route, so adding the picker there would only open a ROM and report zero entries. Synthetic tests pin exact RGBA decode, case-insensitive routing, malformed failure, and overflow-safe stride validation.
 
 ---
 
 ## D. Testing
 
-### D1. 🔶 Default test run is slow, and the corpus gate hides one dominant test
+### D1. ✅ Default test cost reduced and remeasured — FIXED 2026-08-13
 
 Measured on this machine, 2026-08-12:
 
@@ -131,9 +137,12 @@ Measured on this machine, 2026-08-12:
 |---|---|---|---|
 | default | 2,055 | 1,849 passed / 206 skipped | **1m 52s** |
 | `--explicit on` | 2,042 | 1,956 passed / 86 skipped | **7m 52s** |
+| default after cleanup | 2,836 | 2,137 passed / 699 skipped | **46.97s** |
 
 The explicit run is dominated by a **single** test: `PsxColourPulseExportTests.Export_Frame0MatchesTheBake_AcrossEveryPulsedPsxFile` was still running at 7m 50s of the 7m 52s total, i.e. it essentially *is* the sweep's runtime.
 
 The user's hypothesis is broadly right: the default run does read real sample data. That is the documented design — bounded `[Fact]` tests locate real files through `TestPaths.FindSampleFile`, while unbounded enumeration is gated behind `[CorpusFact]`. So the gate is working; the cost is in the bounded tests.
 
 **Actions**: (1) profile the default run and convert the heaviest real-file tests to synthetic fixtures where the file's *content* is not the thing under test; (2) audit for bounded tests that are effectively sweeps and should carry `[CorpusFact]`; (3) note that A1 shows the pulse sweep is also the least informative long test — it only checks frame zero, so making it cheaper and adding a late-playhead case improves both runtime and coverage.
+
+**Cleanup and result**: the heavy Xbox TEX/IMG, N64 model/animation, AnimationDiscovery, VID1, MDEC, PAK, ERZ, N64-audio, PSX alternate-leaf, THAW worldzone-QB, and QB-section archive cases now use explicit corpus attributes. Five real compressed-PRE checks are also corpus-gated, while seven generated rows retain v2/v3 detection, listing, CRC, LZSS extraction, callback, and `.pre`/`.prd` naming coverage in the default run. Existing synthetic parser, malformed-input, late-playhead, and path-policy coverage remains ordinary. The serialized 2026-08-13 default run completed all 2,836 discovered cases with 2,137 passed, 699 explicit/corpus skips, and zero failures in 46.97 seconds wall time—65.03 seconds, or 58%, faster than the prior 1m52 baseline. The full pulse corpus sweep remains deliberately explicit; its missing late-playhead coverage is now supplied by the focused synthetic A1 regressions.
