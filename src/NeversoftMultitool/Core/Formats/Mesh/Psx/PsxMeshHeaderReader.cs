@@ -42,6 +42,14 @@ internal static class PsxMeshHeaderReader
         if (objectCount == 0)
             return null;
 
+        const int serializedObjectSize = 36;
+        var remainingObjectBytes = reader.BaseStream.Length - reader.BaseStream.Position;
+        if (objectCount > int.MaxValue ||
+            (long)objectCount * serializedObjectSize > remainingObjectBytes)
+        {
+            return null;
+        }
+
         var objects = new List<PsxMeshObject>((int)objectCount);
         for (uint i = 0; i < objectCount; i++)
             objects.Add(ReadObject(reader));

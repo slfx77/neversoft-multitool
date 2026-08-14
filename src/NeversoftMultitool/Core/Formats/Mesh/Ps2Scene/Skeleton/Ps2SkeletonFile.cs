@@ -13,6 +13,9 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 /// </summary>
 public static class Ps2SkeletonFile
 {
+    private const int HeaderSize = 12;
+    private const int SerializedBytesPerBone = 3 * sizeof(uint) + 8 * sizeof(float);
+
     public static Ps2Skeleton Parse(string filePath)
     {
         return Parse(File.ReadAllBytes(filePath));
@@ -20,6 +23,12 @@ public static class Ps2SkeletonFile
 
     public static Ps2Skeleton Parse(byte[] data)
     {
+        if (data.Length < HeaderSize)
+        {
+            throw new InvalidDataException(
+                $"SKE header is truncated: expected at least {HeaderSize} bytes, found {data.Length}");
+        }
+
         using var ms = new MemoryStream(data);
         using var r = new BinaryReader(ms);
 
@@ -31,6 +40,14 @@ public static class Ps2SkeletonFile
         var numBones = r.ReadInt32();
         if (numBones <= 0 || numBones > 256)
             throw new InvalidDataException($"Invalid bone count {numBones}");
+
+        var requiredSize = HeaderSize + (long)numBones * SerializedBytesPerBone;
+        if (data.LongLength < requiredSize)
+        {
+            throw new InvalidDataException(
+                $"SKE body is truncated: {numBones} bones require at least {requiredSize} bytes, " +
+                $"found {data.LongLength}");
+        }
 
         // Read the three name tables
         var boneNames = new uint[numBones];

@@ -108,6 +108,34 @@ public class PshFileTests(TestPaths paths)
     }
 
     [Fact]
+    public void Parse_NegativeOnlyBoneIndex_ReturnsNull()
+    {
+        var data = System.Text.Encoding.ASCII.GetBytes(
+            "#define TESTPART_BAD -1\n" +
+            "//   parent: Scene Root\n");
+
+        Assert.Null(PshFile.Parse(data));
+    }
+
+    [Fact]
+    public void Parse_MixedNegativeAndZeroIndices_KeepsOnlyZero()
+    {
+        var data = System.Text.Encoding.ASCII.GetBytes(
+            "#define TESTPART_BAD -1\n" +
+            "//   parent: Scene Root\n" +
+            "#define TESTPART_ROOT 0\n" +
+            "//   parent: Scene Root\n");
+
+        var parsed = Assert.IsType<PshFile>(PshFile.Parse(data));
+
+        var bone = Assert.Single(parsed.Bones);
+        Assert.Equal("root", bone.Name);
+        Assert.Equal(0, bone.Index);
+        Assert.Null(bone.ParentName);
+        Assert.Null(parsed.GetBoneName(-1));
+    }
+
+    [Fact]
     public void FindCompanion_FilenameOnlyPath_UsesCurrentDirectory()
     {
         var stem = $"nmt-psh-{Guid.NewGuid():N}";

@@ -121,11 +121,13 @@ internal static class XbxPassCompositor
                 canvas ??= Image.Load<Rgba32>(basePng);
 
                 // A higher-resolution overlay (e.g. a tattoo sheet over a low-res
-                // body base) would lose its detail sampled down — upscale the
-                // base canvas first instead.
-                if (overlay.Width >= canvas.Width && overlay.Height >= canvas.Height &&
-                    (overlay.Width > canvas.Width || overlay.Height > canvas.Height))
-                    canvas.Mutate(op => op.Resize(overlay.Width, overlay.Height));
+                // body base) would lose its detail sampled down. Grow each canvas
+                // axis independently so crossed dimensions (4x1 over 2x2) preserve
+                // both inputs' resolution, and never shrink an earlier pass.
+                var outputWidth = Math.Max(canvas.Width, overlay.Width);
+                var outputHeight = Math.Max(canvas.Height, overlay.Height);
+                if (outputWidth != canvas.Width || outputHeight != canvas.Height)
+                    canvas.Mutate(op => op.Resize(outputWidth, outputHeight));
 
                 BlendOverlayOntoCanvas(canvas, overlay, pass);
                 composited++;

@@ -54,7 +54,9 @@ public sealed class DdmFile
         if (objectCount > int.MaxValue)
             throw new InvalidDataException($"DDM object count is too large: {objectCount}");
 
-        EnsureRange(stream, FileHeaderSize, (long)objectCount * ObjectTableEntrySize, "DDM object table");
+        var objectTableSize = (long)objectCount * ObjectTableEntrySize;
+        EnsureRange(stream, FileHeaderSize, objectTableSize, "DDM object table");
+        var objectDataStart = FileHeaderSize + objectTableSize;
 
         // Object table: offset (4) + size (4) per entry
         var objectTable = new (uint Offset, uint Size)[(int)objectCount];
@@ -69,6 +71,12 @@ public sealed class DdmFile
         {
             var (offset, size) = objectTable[i];
             EnsureRange(stream, offset, size, $"DDM object {i}");
+
+            if (offset < objectDataStart)
+            {
+                throw new InvalidDataException(
+                    $"DDM object {i} starts at {offset}, before the object table ends at {objectDataStart}");
+            }
 
             if (size < ObjectHeaderSize)
             {

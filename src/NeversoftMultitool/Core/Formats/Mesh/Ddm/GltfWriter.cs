@@ -18,6 +18,17 @@ using VERTEX = VertexBuilder<VertexPositionNormal, VertexColor1Texture1, VertexE
 /// </summary>
 public static class GltfWriter
 {
+    private enum MaterialBlendFamily
+    {
+        StandardOrRaw,
+        Additive,
+        Cutout
+    }
+
+    private readonly record struct MaterialCacheKey(
+        string TextureName,
+        MaterialBlendFamily BlendFamily);
+
     /// <summary>
     ///     Small offset applied along vertex normals for non-opaque geometry (decals, graffiti,
     ///     signs) to prevent z-fighting with coplanar walls in glTF viewers that lack depth bias.
@@ -57,7 +68,7 @@ public static class GltfWriter
         var textureDirs = MeshTextureHelper.BuildTextureSearchPaths(texturePath, ddmName);
 
         var scene = new SceneBuilder();
-        var materialCache = new Dictionary<string, MaterialBuilder>();
+        var materialCache = new Dictionary<MaterialCacheKey, MaterialBuilder>();
         var totalTriangles = 0;
 
         foreach (var obj in ddm.Objects)
@@ -110,7 +121,7 @@ public static class GltfWriter
 
         // Level geometry
         var levelScene = new SceneBuilder();
-        var levelMats = new Dictionary<string, MaterialBuilder>();
+        var levelMats = new Dictionary<MaterialCacheKey, MaterialBuilder>();
         var levelTriangles = AddDdmToScene(levelScene, levelDdm, levelPsx, textureDirs, levelMats, ddxTextures);
         if (lights != null) GltfLightWriter.AddLightsToScene(levelScene, lights);
         var levelModel = levelScene.ToGltf2();
@@ -127,7 +138,7 @@ public static class GltfWriter
             objectsPsx = objectsPsxPath != null ? PsxLayoutFile.Parse(objectsPsxPath) : null;
 
             var objScene = new SceneBuilder();
-            var objMats = new Dictionary<string, MaterialBuilder>();
+            var objMats = new Dictionary<MaterialCacheKey, MaterialBuilder>();
             objectTriangles = AddDdmToScene(objScene, objectsDdm, objectsPsx, textureDirs, objMats, ddxTextures);
             var objModel = objScene.ToGltf2();
             GltfNormalSmoother.SmoothNormals(objModel);
@@ -136,7 +147,7 @@ public static class GltfWriter
 
         // Combined
         var combinedScene = new SceneBuilder();
-        var combinedMats = new Dictionary<string, MaterialBuilder>();
+        var combinedMats = new Dictionary<MaterialCacheKey, MaterialBuilder>();
         AddDdmToScene(combinedScene, levelDdm, levelPsx, textureDirs, combinedMats, ddxTextures);
         if (objectsDdm != null)
             AddDdmToScene(combinedScene, objectsDdm, objectsPsx, textureDirs, combinedMats, ddxTextures);
@@ -154,7 +165,7 @@ public static class GltfWriter
     /// </summary>
     private static int AddDdmToScene(
         SceneBuilder scene, DdmFile ddm, PsxLayoutFile? psx,
-        List<string> textureDirs, Dictionary<string, MaterialBuilder> materialCache,
+        List<string> textureDirs, Dictionary<MaterialCacheKey, MaterialBuilder> materialCache,
         Dictionary<string, byte[]>? ddxTextures)
     {
         if (psx != null)
@@ -175,7 +186,7 @@ public static class GltfWriter
     /// </summary>
     private static (int Triangles, HashSet<int> PlacedIndices) AddPlacedObjects(
         SceneBuilder scene, DdmFile ddm, PsxLayoutFile psxFile,
-        List<string> textureDirs, Dictionary<string, MaterialBuilder> materialCache,
+        List<string> textureDirs, Dictionary<MaterialCacheKey, MaterialBuilder> materialCache,
         Dictionary<string, byte[]>? ddxTextures)
     {
         var ddmByHash = DdmHashLookup.Build(ddm);
@@ -216,7 +227,7 @@ public static class GltfWriter
     /// </summary>
     private static void AddUnplacedObjects(
         SceneBuilder scene, DdmFile ddm, HashSet<int> placedIndices,
-        List<string> textureDirs, Dictionary<string, MaterialBuilder> materialCache,
+        List<string> textureDirs, Dictionary<MaterialCacheKey, MaterialBuilder> materialCache,
         Dictionary<string, byte[]>? ddxTextures)
     {
         for (var i = 0; i < ddm.Objects.Count; i++)
@@ -236,12 +247,17 @@ public static class GltfWriter
 
     private static MaterialBuilder GetOrCreateMaterial(
         DdmMaterial mat, List<string> textureDirs,
-        Dictionary<string, MaterialBuilder> cache,
+        Dictionary<MaterialCacheKey, MaterialBuilder> cache,
         Dictionary<string, byte[]>? ddxTextures)
     {
-        // Additive materials need luminance-to-alpha conversion, so cache separately
-        var isAdditive = mat.BlendMode is 1 or 3;
-        var key = isAdditive ? $"{mat.TextureName}__additive" : mat.TextureName;
+        var blendFamily = mat.BlendMode switch
+        {
+            1 or 3 => MaterialBlendFamily.Additive,
+            2 => MaterialBlendFamily.Cutout,
+            _ => MaterialBlendFamily.StandardOrRaw
+        };
+        var isAdditive = blendFamily == MaterialBlendFamily.Additive;
+        var key = new MaterialCacheKey(mat.TextureName, blendFamily);
         if (cache.TryGetValue(key, out var cached))
             return cached;
 
@@ -356,7 +372,7 @@ public static class GltfWriter
     private static MeshBuilder<VertexPositionNormal, VertexColor1Texture1, VertexEmpty> BuildDdmMesh(
         DdmObject obj,
         List<string> textureDirs,
-        Dictionary<string, MaterialBuilder> materialCache,
+        Dictionary<MaterialCacheKey, MaterialBuilder> materialCache,
         Dictionary<string, byte[]>? ddxTextures,
         out int triangleCount)
     {

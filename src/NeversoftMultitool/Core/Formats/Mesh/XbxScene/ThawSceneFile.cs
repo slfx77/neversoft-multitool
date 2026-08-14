@@ -91,6 +91,9 @@ public static class ThawSceneFile
         r.ReadSingle(); // sphere_radius
 
         var numLinks = r.ReadInt32();
+        if (numLinks < 0)
+            throw new InvalidDataException($"THAW scene link count {numLinks} is invalid");
+
         r.BaseStream.Position += 32; // reserved
         var offHierarchy = offScene + r.ReadInt32();
         r.BaseStream.Position += 4; // reserved

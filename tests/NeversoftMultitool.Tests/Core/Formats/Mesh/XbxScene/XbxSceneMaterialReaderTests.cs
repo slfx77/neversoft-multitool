@@ -5,6 +5,29 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.XbxScene;
 
 public sealed class XbxSceneMaterialReaderTests
 {
+    [Fact]
+    public void ReadMaterial_NegativeVcWibbleSequenceCount_IsRejected()
+    {
+        using var reader = CreateVcWibbleMaterialReader(sequenceCount: -1);
+
+        var exception = Assert.Throws<InvalidDataException>(
+            () => XbxSceneMaterialReader.ReadMaterial(reader));
+
+        Assert.Equal(
+            "Xbox material VC-wibble sequence count -1 is invalid",
+            exception.Message);
+    }
+
+    [Fact]
+    public void ReadMaterial_ZeroVcWibbleSequences_RemainsValid()
+    {
+        using var reader = CreateVcWibbleMaterialReader(sequenceCount: 0);
+
+        var material = XbxSceneMaterialReader.ReadMaterial(reader);
+
+        Assert.Single(material.Passes);
+    }
+
     [Theory]
     [InlineData(-1)]
     [InlineData(5)]
@@ -29,6 +52,16 @@ public sealed class XbxSceneMaterialReaderTests
 
         Assert.Equal(0, material.NumPasses);
         Assert.Empty(material.Passes);
+    }
+
+    private static BinaryReader CreateVcWibbleMaterialReader(int sequenceCount)
+    {
+        var data = new byte[101];
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(8), 1); // pass count
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            data.AsSpan(36), XbxMaterialFlags.VcWibble); // first-pass flags
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(81), sequenceCount);
+        return new BinaryReader(new MemoryStream(data, writable: false));
     }
 
     private static BinaryReader CreateMaterialReader(int passCount)

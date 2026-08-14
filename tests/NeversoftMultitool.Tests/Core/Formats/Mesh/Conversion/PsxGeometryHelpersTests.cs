@@ -424,7 +424,7 @@ public sealed class PsxGeometryHelpersTests
         using var opaque = Image.Load<Rgba32>(document.Textures[opaqueMaterial.TextureIndex!.Value].PngBytes!);
         using var additive = Image.Load<Rgba32>(document.Textures[additiveMaterial.TextureIndex!.Value].PngBytes!);
         Assert.Equal(new Rgba32(64, 128, 192, 255), opaque[0, 0]);
-        Assert.Equal(new Rgba32(255, 255, 255, 115), additive[0, 0]);
+        Assert.Equal(new Rgba32(255, 255, 255, 116), additive[0, 0]);
     }
 
     [Fact]

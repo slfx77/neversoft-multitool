@@ -11,8 +11,19 @@ internal static class RwDffDataSections
         if (!TryReadStruct(data, ref offset, endOffset, out _, out var structSize))
             return [];
 
+        if (structSize < sizeof(int)
+            || (long)structSize > (long)endOffset - offset
+            || (long)structSize > (long)data.Length - offset)
+        {
+            return [];
+        }
+
         var numMaterials = BitConverter.ToInt32(data, offset);
         if (numMaterials <= 0 || numMaterials > 1000)
+            return [];
+
+        var requiredStructSize = sizeof(int) + (long)numMaterials * sizeof(int);
+        if (structSize < requiredStructSize)
             return [];
 
         offset += (int)structSize;

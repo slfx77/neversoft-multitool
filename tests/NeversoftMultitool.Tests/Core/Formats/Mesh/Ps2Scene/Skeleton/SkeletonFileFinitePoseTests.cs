@@ -32,6 +32,42 @@ public sealed class SkeletonFileFinitePoseTests
         Assert.Equal(Matrix4x4.Identity, bone.InverseBindMatrix);
     }
 
+    [Fact]
+    public void Parse_ThugZeroBoneStubWithUnterminatedTimestamp_Throws()
+    {
+        var data = BuildZeroBoneThugSkeleton('X');
+
+        var exception = Assert.Throws<InvalidDataException>(() => SkeletonFile.Parse(data));
+
+        Assert.Equal("Unrecognized cross-platform skeleton format (size=17)", exception.Message);
+    }
+
+    [Fact]
+    public void Parse_ThugZeroBoneStubAtExactEof_ReturnsEmptySkeleton()
+    {
+        var skeleton = SkeletonFile.Parse(BuildZeroBoneThugSkeleton());
+
+        Assert.Empty(skeleton.Bones);
+    }
+
+    [Fact]
+    public void Parse_ThugZeroBoneStubWithTerminatedTimestamp_ReturnsEmptySkeleton()
+    {
+        var skeleton = SkeletonFile.Parse(BuildZeroBoneThugSkeleton('X', '\0'));
+
+        Assert.Empty(skeleton.Bones);
+    }
+
+    private static byte[] BuildZeroBoneThugSkeleton(params char[] timestamp)
+    {
+        var data = new byte[16 + timestamp.Length];
+        BinaryPrimitives.WriteUInt32LittleEndian(data, 0x222756D5);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(4), 2);
+        for (var i = 0; i < timestamp.Length; i++)
+            data[16 + i] = checked((byte)timestamp[i]);
+        return data;
+    }
+
     private static byte[] BuildOneBoneThugSkeleton()
     {
         // 16-byte standalone header + three u32 name tables + one 32-byte neutral pose.

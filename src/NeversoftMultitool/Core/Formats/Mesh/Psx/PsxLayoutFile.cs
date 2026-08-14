@@ -10,6 +10,8 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 /// </summary>
 public sealed class PsxLayoutFile
 {
+    private const int FileHeaderSize = 12;
+
     public required List<PsxLayoutObject> Objects { get; init; }
     public required uint[] MeshNameHashes { get; init; }
 
@@ -20,6 +22,9 @@ public sealed class PsxLayoutFile
     public static PsxLayoutFile? Parse(string filePath)
     {
         using var stream = File.OpenRead(filePath);
+        if (stream.Length - stream.Position < FileHeaderSize)
+            return null;
+
         using var reader = new BinaryReader(stream);
 
         var version = reader.ReadUInt16();

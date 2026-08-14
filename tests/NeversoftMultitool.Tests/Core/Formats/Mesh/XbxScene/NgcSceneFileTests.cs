@@ -9,7 +9,7 @@ public sealed class NgcSceneFileTests(TestPaths paths)
 
     // ── IsNgcScene ──
 
-    [Fact]
+    [CorpusFact]
     public void IsNgcScene_ValidFile_ReturnsTrue()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -49,6 +49,144 @@ public sealed class NgcSceneFileTests(TestPaths paths)
     }
 
     [Fact]
+    public void Parse_CompleteEmptyObject_IsAccepted()
+    {
+        var data = CreateSyntheticScene(128);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x10), 1);
+
+        var scene = NgcSceneFile.Parse(data);
+
+        var sector = Assert.Single(scene.Sectors);
+        Assert.Empty(sector.Meshes);
+        Assert.Empty(scene.Links);
+    }
+
+    [Fact]
+    public void Parse_PositionCountWhoseSerializedBytesWrapInt32_IsRejected()
+    {
+        var data = CreateSyntheticScene(64);
+        BinaryPrimitives.WriteUInt32BigEndian(data, 0x40000000);
+
+        var error = Assert.Throws<InvalidDataException>(() => NgcSceneFile.Parse(data));
+
+        Assert.StartsWith("NGC scene fixed pool arrays overruns its containing region", error.Message);
+    }
+
+    [Fact]
+    public void Parse_PoolSizeAboveSignedRange_IsRejected()
+    {
+        var data = CreateSyntheticScene(64);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(0x0C), uint.MaxValue);
+
+        var error = Assert.Throws<InvalidDataException>(() => NgcSceneFile.Parse(data));
+
+        Assert.Equal("NGC scene pool size 4294967295 exceeds the 0 remaining bytes", error.Message);
+    }
+
+    [Fact]
+    public void Parse_BlendDisplayListCountWithoutTable_IsRejected()
+    {
+        var data = CreateSyntheticScene(64);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x18), 1);
+
+        var error = Assert.Throws<InvalidDataException>(() => NgcSceneFile.Parse(data));
+
+        Assert.StartsWith("NGC scene material display-list tables overruns its containing region", error.Message);
+    }
+
+    [Fact]
+    public void Parse_BlendDisplayListPayloadSumAboveRemainingBytes_IsRejected()
+    {
+        var data = CreateSyntheticScene(96);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x18), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(64), uint.MaxValue);
+
+        var error = Assert.Throws<InvalidDataException>(() => NgcSceneFile.Parse(data));
+
+        Assert.StartsWith("NGC scene material display-list data overruns its containing region", error.Message);
+    }
+
+    [Theory]
+    [InlineData(-1, "NGC scene VC-wibble 0 has negative frame count -1")]
+    [InlineData(int.MaxValue, "NGC scene VC-wibble 0 overruns its containing region")]
+    public void Parse_InvalidVcWibbleFrameCount_IsRejected(int frameCount, string expectedMessage)
+    {
+        var data = CreateSyntheticScene(72);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(0x0C), 8);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x1A), 1);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(64), frameCount);
+
+        var error = Assert.Throws<InvalidDataException>(() => NgcSceneFile.Parse(data));
+
+        Assert.StartsWith(expectedMessage, error.Message);
+    }
+
+    [Fact]
+    public void Parse_ObjectSkinSizeAboveSignedRange_IsRejected()
+    {
+        var data = CreateSyntheticScene(128);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x10), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(68), uint.MaxValue);
+
+        var error = Assert.Throws<InvalidDataException>(() => NgcSceneFile.Parse(data));
+
+        Assert.StartsWith("NGC scene object 0 skin data overruns its containing region", error.Message);
+    }
+
+    [Fact]
+    public void Parse_EachInterleavedObjectNeedsItsOwnCompleteHeader()
+    {
+        var data = CreateSyntheticScene(192);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x10), 2);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(68), 1);
+
+        var error = Assert.Throws<InvalidDataException>(() => NgcSceneFile.Parse(data));
+
+        Assert.StartsWith("NGC scene object 1 header overruns its containing region", error.Message);
+    }
+
+    [Fact]
+    public void Parse_SkinListCannotBorrowBytesPastDeclaredSkinRegion()
+    {
+        var data = CreateSyntheticScene(148);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x10), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(68), 8);
+        data[76] = 1;
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(128), 1);
+
+        var error = Assert.Throws<InvalidDataException>(() => NgcSceneFile.Parse(data));
+
+        Assert.StartsWith("NGC scene object 0 single-skin list 0 vertices overruns its containing region", error.Message);
+    }
+
+    [Fact]
+    public void Parse_MeshDisplayListSizeAboveSignedRange_IsRejected()
+    {
+        var data = CreateSyntheticScene(192);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x10), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(64), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(128), uint.MaxValue);
+
+        var error = Assert.Throws<InvalidDataException>(() => NgcSceneFile.Parse(data));
+
+        Assert.StartsWith("NGC scene object 0 mesh 0 display list overruns its containing region", error.Message);
+    }
+
+    [Fact]
+    public void Parse_DisplayListCommandCannotBorrowBytesPastDeclaredPayload()
+    {
+        var data = CreateSyntheticScene(198);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x10), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(64), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(128), 1);
+        data[192] = 0x08;
+
+        var error = Assert.Throws<InvalidDataException>(() => NgcSceneFile.Parse(data));
+
+        Assert.StartsWith("NGC scene object 0 mesh 0 display list CP command overruns its containing region", error.Message);
+    }
+
+    [Fact]
     public void IsNgcScene_XboxSceneData_ReturnsFalse()
     {
         // Xbox version triple (1,1,1) header, no 0xAAFFEEFF sentinel
@@ -68,7 +206,7 @@ public sealed class NgcSceneFileTests(TestPaths paths)
 
     // ── Parse known files (values validated against PC/PS2 Rosetta pairs) ──
 
-    [Fact]
+    [CorpusFact]
     public void Parse_Pigeon_MatchesPcRosettaPair()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
@@ -104,7 +242,7 @@ public sealed class NgcSceneFileTests(TestPaths paths)
         });
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_Pigeon_MaterialReferencesTextureByIndex()
     {
         Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");

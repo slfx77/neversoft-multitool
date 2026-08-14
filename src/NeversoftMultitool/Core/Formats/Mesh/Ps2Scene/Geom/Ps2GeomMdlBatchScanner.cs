@@ -213,7 +213,7 @@ internal static class Ps2GeomMdlBatchScanner
         // also emit short register lists or a single NOP placeholder when all GS state
         // should be inherited from the previous draw.
         var pCode = batchStart;
-        while (pCode < batchEnd && pCode + 4 <= data.Length)
+        while (pCode < batchEnd && pCode + 4 <= batchEnd && pCode + 4 <= data.Length)
         {
             var cmd = data[pCode + 3];
             var num = data[pCode + 2];
@@ -221,8 +221,11 @@ internal static class Ps2GeomMdlBatchScanner
             if ((cmd & 0x7F) == 0x6C && num == 1)
             {
                 var nextP = Ps2GeomVifVertexDecoder.VifNextCode(data, pCode, batchEnd);
-                if (nextP + 4 <= data.Length && (data[nextP + 3] & 0x7F) == 0x68 && data[nextP + 2] >= 1)
-                    return TryExtractRegistersFromV332(data, nextP, data[nextP + 2]);
+                if (nextP + 4 <= batchEnd && nextP + 4 <= data.Length &&
+                    (data[nextP + 3] & 0x7F) == 0x68 && data[nextP + 2] >= 1)
+                {
+                    return TryExtractRegistersFromV332(data, nextP, data[nextP + 2], batchEnd);
+                }
             }
 
             pCode = Ps2GeomVifVertexDecoder.VifNextCode(data, pCode, batchEnd);
@@ -245,7 +248,7 @@ internal static class Ps2GeomMdlBatchScanner
         Ps2GeomGsContextScan? lastCtx = null;
         var pCode = batchStart;
 
-        while (pCode < batchEnd && pCode + 4 <= data.Length)
+        while (pCode < batchEnd && pCode + 4 <= batchEnd && pCode + 4 <= data.Length)
         {
             var cmd = data[pCode + 3];
             var num = data[pCode + 2];
@@ -256,7 +259,7 @@ internal static class Ps2GeomMdlBatchScanner
             // Validate by checking that at least one entry has a known GS register address.
             if ((cmd & 0x7F) == 0x68 && num >= 1)
             {
-                var ctx = TryExtractRegistersFromV332(data, pCode, num);
+                var ctx = TryExtractRegistersFromV332(data, pCode, num, batchEnd);
                 if (ctx is { HasRegisters: true })
                     lastCtx = ctx;
             }
@@ -267,7 +270,11 @@ internal static class Ps2GeomMdlBatchScanner
         return lastCtx;
     }
 
-    private static Ps2GeomGsContextScan? TryExtractRegistersFromV332(byte[] data, int vifOffset, int num)
+    private static Ps2GeomGsContextScan? TryExtractRegistersFromV332(
+        byte[] data,
+        int vifOffset,
+        int num,
+        int batchEnd)
     {
         var regDataStart = vifOffset + 4;
         var ctx = new Ps2GeomGsContext();
@@ -276,7 +283,7 @@ internal static class Ps2GeomMdlBatchScanner
         for (var i = 0; i < num; i++)
         {
             var off = regDataStart + i * 12;
-            if (off + 12 > data.Length)
+            if (off + 12 > batchEnd || off + 12 > data.Length)
                 return null;
 
             var lo32 = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(off));
@@ -331,7 +338,7 @@ internal static class Ps2GeomMdlBatchScanner
     internal static Vector3? ScanBatchForCenter(byte[] data, int batchStart, int batchEnd)
     {
         var pCode = batchStart;
-        while (pCode < batchEnd && pCode + 4 <= data.Length)
+        while (pCode < batchEnd && pCode + 4 <= batchEnd && pCode + 4 <= data.Length)
         {
             var cmd = data[pCode + 3];
             var num = data[pCode + 2];
@@ -339,10 +346,11 @@ internal static class Ps2GeomMdlBatchScanner
             if ((cmd & 0x7F) == 0x6C && num == 1)
             {
                 var nextP = Ps2GeomVifVertexDecoder.VifNextCode(data, pCode, batchEnd);
-                if (nextP + 4 <= data.Length && (data[nextP + 3] & 0x7F) == 0x68 && data[nextP + 2] == 1)
+                if (nextP + 4 <= batchEnd && nextP + 4 <= data.Length &&
+                    (data[nextP + 3] & 0x7F) == 0x68 && data[nextP + 2] == 1)
                 {
                     var centerOff = nextP + 4;
-                    if (centerOff + 12 <= data.Length)
+                    if (centerOff + 12 <= batchEnd && centerOff + 12 <= data.Length)
                     {
                         return new Vector3(
                             BinaryPrimitives.ReadSingleLittleEndian(data.AsSpan(centerOff)),

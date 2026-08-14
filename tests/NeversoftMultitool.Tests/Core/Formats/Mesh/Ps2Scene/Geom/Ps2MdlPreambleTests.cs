@@ -9,6 +9,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Geom;
 public sealed class Ps2MdlPreambleTests(TestPaths paths)
 {
     private const string BuildName = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
+    private const uint PreambleRecordSignature = 0x4B189680;
 
     public static TheoryData<string, string, int, string> CanonicalObjectMdlCases => new()
     {
@@ -25,6 +26,68 @@ public sealed class Ps2MdlPreambleTests(TestPaths paths)
             "3B9DF16C9FB2ACD7DA85082C6A7311A88AB11FCB810AED387813F524E36F463F"
         }
     };
+
+    [Theory]
+    [InlineData(0x20)]
+    [InlineData(0x24)]
+    [InlineData(0x28)]
+    [InlineData(0x2C)]
+    [InlineData(0x30)]
+    [InlineData(0x34)]
+    [InlineData(0x38)]
+    public void TryParse_RecognizedPreambleRecordWithNonFiniteFloat_OmitsOptionalRecord(int floatOffset)
+    {
+        var data = CreateSignatureOnlyPreambleRecord();
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(floatOffset), 0x7FC00000u);
+
+        var preamble = Ps2MdlPreamble.TryParse(data, data.Length);
+
+        Assert.NotNull(preamble);
+        Assert.Empty(preamble!.Records);
+    }
+
+    [Fact]
+    public void TryParse_RecognizedPreambleRecordWithOverflowingQuaternionMagnitude_OmitsOptionalRecord()
+    {
+        var data = CreateSignatureOnlyPreambleRecord();
+        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(0x20), float.MaxValue);
+
+        var preamble = Ps2MdlPreamble.TryParse(data, data.Length);
+
+        Assert.NotNull(preamble);
+        Assert.Empty(preamble!.Records);
+    }
+
+    [Fact]
+    public void TryParse_NonFinitePreambleRecord_ContinuesAtTheNextRecordStride()
+    {
+        var data = new byte[0xA0];
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x18), PreambleRecordSignature);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x20), 0x7FC00000u);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x68), PreambleRecordSignature);
+
+        var preamble = Ps2MdlPreamble.TryParse(data, data.Length);
+
+        Assert.NotNull(preamble);
+        var record = Assert.Single(preamble!.Records);
+        Assert.Equal(0x50, record.Key);
+        Assert.Equal(Quaternion.Identity, record.Value.Rotation);
+    }
+
+    [Fact]
+    public void TryParse_SignatureOnlyFinitePreambleRecord_PreservesZeroQuaternionIdentity()
+    {
+        var data = CreateSignatureOnlyPreambleRecord();
+
+        var preamble = Ps2MdlPreamble.TryParse(data, data.Length);
+
+        Assert.NotNull(preamble);
+        var record = Assert.Single(preamble!.Records);
+        Assert.Equal(0, record.Key);
+        Assert.Equal(Quaternion.Identity, record.Value.Rotation);
+        Assert.Equal(Vector3.Zero, record.Value.Centre);
+        Assert.Equal(Vector3.Zero, record.Value.Size);
+    }
 
     [Theory]
     [MemberData(nameof(CanonicalObjectMdlCases))]
@@ -165,6 +228,13 @@ public sealed class Ps2MdlPreambleTests(TestPaths paths)
 
         var candidate = Path.Combine(paths.TestOutputDir, pakStem + "_pak", pakStem + ".pak", mdlName);
         return File.Exists(candidate) ? candidate : null;
+    }
+
+    private static byte[] CreateSignatureOnlyPreambleRecord()
+    {
+        var data = new byte[0x50];
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x18), PreambleRecordSignature);
+        return data;
     }
 
     private static bool IsOriginCenteredDetailLeaf(Ps2GeomLeaf leaf)

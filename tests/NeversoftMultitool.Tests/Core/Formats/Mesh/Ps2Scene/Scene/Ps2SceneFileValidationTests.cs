@@ -6,6 +6,17 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Ps2Scene.Scene;
 public sealed class Ps2SceneFileValidationTests
 {
     [Fact]
+    public void Parse_NegativeChildCount_Throws()
+    {
+        var data = BuildMinimalScene(0);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(48), -1);
+
+        var exception = Assert.Throws<InvalidDataException>(() => Ps2SceneFile.Parse(data));
+
+        Assert.Equal("Mesh 0x12345678 has invalid child count -1.", exception.Message);
+    }
+
+    [Fact]
     public void Parse_NegativeVertexCount_Throws()
     {
         var data = BuildMinimalScene(-1);

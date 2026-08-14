@@ -65,10 +65,22 @@ internal static class ThawSkeletonDiscovery
         string stem,
         bool isThawSkin)
     {
-        var direct = backend.FindEntry(stem + SkeletonExtensionPs2) ?? backend.FindEntry(stem + SkeletonExtensionNgc)
-            ?? backend.FindEntry(stem + SkeletonExtensionCross);
-        if (direct != null)
-            return new Result(backend.ReadEntryBytes(direct), direct.Name);
+        foreach (var extension in new[] { SkeletonExtensionPs2, SkeletonExtensionNgc, SkeletonExtensionCross })
+        {
+            var matches = backend.FindAllByName(stem + extension);
+            if (matches.Count == 0)
+                continue;
+
+            var first = matches[0];
+            var bytes = backend.ReadEntryBytes(first);
+            for (var i = 1; i < matches.Count; i++)
+            {
+                if (!bytes.AsSpan().SequenceEqual(backend.ReadEntryBytes(matches[i])))
+                    return null;
+            }
+
+            return new Result(bytes, first.Name);
+        }
 
         if (!isThawSkin)
             return null;

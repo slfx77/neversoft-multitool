@@ -4,6 +4,19 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
 public sealed class BlendModelExporter : IModelExporter
 {
+    private readonly Action<string, string, ModelDocument, string, CancellationToken> _runHelper;
+
+    public BlendModelExporter()
+        : this(RunHelper)
+    {
+    }
+
+    internal BlendModelExporter(
+        Action<string, string, ModelDocument, string, CancellationToken> runHelper)
+    {
+        _runHelper = runHelper ?? throw new ArgumentNullException(nameof(runHelper));
+    }
+
     public MeshExportResult Export(ModelDocument document, MeshExportRequest request)
     {
         request.CancellationToken.ThrowIfCancellationRequested();
@@ -17,12 +30,29 @@ public sealed class BlendModelExporter : IModelExporter
 
         var stem = request.OutputStem ?? document.Name;
         var outputPath = Path.Combine(request.OutputDirectory, stem + ".blend");
+        var stagedOutputPath = Path.Combine(
+            request.OutputDirectory,
+            "." + Guid.NewGuid().ToString("N") + ".tmp.blend");
 
-        RunHelper(helperPath, scriptPath, document, outputPath, request.CancellationToken);
+        try
+        {
+            _runHelper(helperPath, scriptPath, document, stagedOutputPath, request.CancellationToken);
+            if (!IsNonEmptyRegularFile(stagedOutputPath))
+            {
+                throw new InvalidOperationException(
+                    "Blender export helper completed successfully but did not produce a non-empty .blend file.");
+            }
+
+            File.Move(stagedOutputPath, outputPath, true);
+        }
+        finally
+        {
+            TryDeleteStagedOutput(stagedOutputPath);
+        }
 
         return new MeshExportResult
         {
-            OutputPaths = File.Exists(outputPath) ? [outputPath] : [],
+            OutputPaths = [outputPath],
             Triangles = document.TriangleCount > 0
                 ? document.TriangleCount
                 : document.Meshes.SelectMany(static mesh => mesh.Primitives)
@@ -30,6 +60,15 @@ public sealed class BlendModelExporter : IModelExporter
             MaterialCount = document.Materials.Count,
             TextureCount = document.Textures.Count
         };
+    }
+
+    private static bool IsNonEmptyRegularFile(string path)
+    {
+        if (!File.Exists(path)) return false;
+
+        var attributes = File.GetAttributes(path);
+        return (attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) == 0
+               && new FileInfo(path).Length > 0;
     }
 
     private static string? ResolveScriptPath()
@@ -110,6 +149,30 @@ public sealed class BlendModelExporter : IModelExporter
         catch
         {
             // Cancellation should not be masked by process cleanup failures.
+        }
+    }
+
+    private static void TryDeleteStagedOutput(string path)
+    {
+        try
+        {
+            var attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.Directory) == 0)
+            {
+                File.Delete(path);
+            }
+            else if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                Directory.Delete(path, recursive: false);
+            }
+            else
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Staged-output cleanup must not mask the export result.
         }
     }
 }

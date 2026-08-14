@@ -50,6 +50,33 @@ public sealed class DdmFileTests
         Assert.Throws<InvalidDataException>(() => DdmFile.Parse(data));
     }
 
+    [Fact]
+    public void Parse_ObjectStartingInsideObjectTable_ThrowsInvalidDataException()
+    {
+        var data = CreateEmptyObjectDdm(ObjectHeaderSize);
+        WriteUInt32(data, FileHeaderSize, FileHeaderSize);
+        WriteUInt32(data, FileHeaderSize + 4, (uint)(data.Length - FileHeaderSize));
+
+        Assert.Throws<InvalidDataException>(() => DdmFile.Parse(data));
+    }
+
+    [Fact]
+    public void Parse_ObjectStartingInsideLaterObjectTableEntry_ThrowsInvalidDataException()
+    {
+        const int objectCount = 2;
+        var objectDataStart = FileHeaderSize + objectCount * ObjectTableSize;
+        var data = new byte[objectDataStart + ObjectHeaderSize];
+        WriteUInt32(data, 0, 1);
+        WriteUInt32(data, 4, (uint)data.Length);
+        WriteUInt32(data, 8, objectCount);
+        WriteUInt32(data, FileHeaderSize, FileHeaderSize + ObjectTableSize);
+        WriteUInt32(data, FileHeaderSize + 4, (uint)(data.Length - FileHeaderSize - ObjectTableSize));
+        WriteUInt32(data, FileHeaderSize + ObjectTableSize, (uint)objectDataStart);
+        WriteUInt32(data, FileHeaderSize + ObjectTableSize + 4, ObjectHeaderSize);
+
+        Assert.Throws<InvalidDataException>(() => DdmFile.Parse(data));
+    }
+
     private static byte[] CreateEmptyObjectDdm(int declaredObjectSize, int backingObjectSize = ObjectHeaderSize)
     {
         var data = new byte[ObjectOffset + backingObjectSize];

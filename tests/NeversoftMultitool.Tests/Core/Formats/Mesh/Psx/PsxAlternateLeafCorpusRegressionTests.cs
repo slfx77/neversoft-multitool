@@ -14,7 +14,7 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
     private static readonly int[] MercenaryGunObjects = [12, 13];
     private static readonly int[] LowDetailHeadObjects = [15, 16];
 
-    [Fact]
+    [CorpusFact]
     public void EnterElectroMercenaryGunPair_FromCdWad_IsAnAlternateVariant()
     {
         var file = ReadArchiveMesh(EnterElectroBuild, "CD.WAD", "mercthug.psx");
@@ -39,7 +39,7 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
                 .ToArray());
     }
 
-    [Fact]
+    [CorpusFact]
     public void Thps2LowDetailHeadPair_FromCdWad_IsAnAlternateVariant()
     {
         var file = ReadArchiveMesh(Thps2Build, "CD.WAD", "sk2def_l.psx");
@@ -61,7 +61,7 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
                 .ToArray());
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData(EnterElectroBuild, "CD.WAD", "daazeve.psx")]
     [InlineData(EnterElectroBuild, "CD.WAD", "gelectro.psx")]
     [InlineData(EnterElectroBuild, "CD.WAD", "xavier.psx")]
@@ -77,7 +77,7 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
         Assert.Empty(PsxMeshSemantics.FindAlternateLeafObjectIndices(file));
     }
 
-    [Fact]
+    [CorpusFact]
     public void SpiderManPcController_FromDataPkr_KeepsAllSharedPivotParts()
     {
         var pkrPath = paths.FindSampleFile(SpiderManPcBuild, "data.pkr");
@@ -111,7 +111,7 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
         Assert.Equal(authoredTriangleCount, document.TriangleCount);
     }
 
-    [Fact]
+    [CorpusFact]
     public void SpiderManPcCarnage_FromDataPkr_RetainsTrueHandAlternates()
     {
         var file = ReadArchiveMesh(SpiderManPcBuild, "data.pkr", "carnage.psx");
@@ -124,7 +124,7 @@ public sealed class PsxAlternateLeafCorpusRegressionTests(TestPaths paths)
                 .ToArray());
     }
 
-    [Fact]
+    [CorpusFact]
     public void PrototypeLizardSevenBoxEditorRig_FromCdWad_IsNotASplineAppendage()
     {
         var file = ReadArchiveMesh(SpiderManPrototypeBuild, "CD.WAD", "lizard.psx");

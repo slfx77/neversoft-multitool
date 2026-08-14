@@ -28,6 +28,17 @@ public sealed class ThawSkeletonFileValidationTests
         Assert.Single(skeleton.Bones);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Parse_TrailingByteAfterFinalBlock_Throws(bool bigEndian)
+    {
+        byte[] data = [.. BuildSkeleton([0x80, 0x84, 0x88, 0x8C, 0x90, 0x94], bigEndian), 0];
+
+        Assert.False(ThawSkeletonFile.IsThawSkeleton(data));
+        Assert.Throws<InvalidDataException>(() => ThawSkeletonFile.Parse(data));
+    }
+
     private static byte[] BuildSkeleton(int[] offsets, bool bigEndian)
     {
         var data = new byte[offsets[5] + 128];

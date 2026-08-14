@@ -42,7 +42,7 @@ public static class ThawPs2SkinFile
         var bsR = BitConverter.ToSingle(data, 0x1C);
         if (float.IsNaN(bsR) || float.IsInfinity(bsR) || bsR <= 0) return false;
 
-        return data.Length <= 32 || EntryTableIsValid(data, fileSize, numObjects, totalMeshes2);
+        return EntryTableIsValid(data, fileSize, numObjects, totalMeshes2);
     }
 
     /// <summary>

@@ -45,6 +45,7 @@ public static class PsxN64ShellFile
 {
     private const int HeaderFixedSize = 12;
     private const int ObjectRecordSize = 36;
+    private const int MaxTaggedChunks = 16;
 
     /// <summary>
     ///     Bounds the zero-padding allocation for a garbage mesh count. Not a
@@ -101,20 +102,26 @@ public static class PsxN64ShellFile
     }
 
     /// <summary>
-    ///     Works out how many zero bytes the stripped texture-hash array needs.
-    ///     The count stored in the file equals the mesh count, so padding
-    ///     <c>4 × meshCount</c> (plus the count word and a little slack for the
-    ///     0–4 byte carve alignment) is sufficient and bounded — no reliance on
-    ///     a length field read from truncated data. Counts are validated
-    ///     against the buffer rather than an invented ceiling: the object table
-    ///     must physically fit, which is what separates a real 837-object model
-    ///     from garbage.
+    ///     Works out how many zero bytes the stripped texture-hash values need.
+    ///     The tagged chain, mesh-name hashes, and texture-count word remain
+    ///     physical in a compact shell; only the texture-hash values may be
+    ///     absent. The surviving texture count equals the mesh count. Requiring
+    ///     those structural fields before padding prevents a short buffer from
+    ///     acquiring invented name hashes or an invented zero texture count.
+    ///     Counts are validated against the buffer rather than an invented
+    ///     ceiling: the object table must physically fit, which is what
+    ///     separates a real 837-object model from garbage.
     /// </summary>
     private static bool TryMeasureTail(byte[] data, out int padding)
     {
         padding = 0;
         if (data.Length < HeaderFixedSize)
             return false;
+
+        var metaTopValue = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(4));
+        if (metaTopValue > int.MaxValue)
+            return false;
+        var metaTop = (int)metaTopValue;
 
         var objectCount = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(8));
         if (objectCount == 0)
@@ -129,7 +136,50 @@ public static class PsxN64ShellFile
         if (meshCount is 0 or > MaxMeshCount)
             return false;
 
-        padding = (int)(meshCount * 4) + 8;
+        var metadataMinimum = meshCountOffset + sizeof(uint);
+        if (metaTop < metadataMinimum || metaTop > data.Length - sizeof(uint))
+            return false;
+
+        var cursor = metaTop;
+        var taggedChunkCount = 0;
+        while (true)
+        {
+            if (cursor > data.Length - sizeof(uint))
+                return false;
+
+            var tag = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(cursor));
+            cursor += sizeof(uint);
+            if (tag == uint.MaxValue)
+                break;
+
+            if (taggedChunkCount++ >= MaxTaggedChunks
+                || cursor > data.Length - sizeof(uint))
+            {
+                return false;
+            }
+
+            var length = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(cursor));
+            cursor += sizeof(uint);
+            var chunkEnd = (long)cursor + length;
+            if (chunkEnd > data.Length)
+                return false;
+            cursor = (int)chunkEnd;
+        }
+
+        var meshNameBytes = (long)meshCount * sizeof(uint);
+        var textureCountOffset = (long)cursor + meshNameBytes;
+        if (textureCountOffset + sizeof(uint) > data.Length)
+            return false;
+
+        var textureCount = BinaryPrimitives.ReadUInt32BigEndian(
+            data.AsSpan((int)textureCountOffset));
+        if (textureCount != meshCount)
+            return false;
+
+        var textureValuesOffset = textureCountOffset + sizeof(uint);
+        var physicalTextureBytes = data.Length - textureValuesOffset;
+        var missingTextureBytes = meshNameBytes - physicalTextureBytes;
+        padding = missingTextureBytes > 0 ? (int)missingTextureBytes : 0;
         return true;
     }
 }

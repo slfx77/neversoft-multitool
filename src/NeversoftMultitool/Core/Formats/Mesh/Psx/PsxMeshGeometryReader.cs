@@ -226,6 +226,14 @@ internal static class PsxMeshGeometryReader
 
         var faceFlags = reader.ReadUInt16();
         var faceLength = reader.ReadUInt16();
+        var remainingPhysicalBytes = reader.BaseStream.Length - facePosition;
+        if (faceLength > remainingPhysicalBytes)
+        {
+            throw new EndOfStreamException(
+                $"PSX face {rawFaceIndex} at 0x{facePosition:X} declares {faceLength} bytes, " +
+                $"but only {remainingPhysicalBytes} physical bytes remain");
+        }
+
         var hasTexturePayload = (faceFlags & 0x0003) != 0;
         var isTextured = hasTexturePayload;
         var quad = (faceFlags & 0x0010) == 0;

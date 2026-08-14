@@ -237,6 +237,10 @@ public static class Ps2SceneFile
             r.ReadUInt32(); // lod2
             r.ReadUInt32(); // hierarchy data
             var numChildren = r.ReadInt32();
+            if (numChildren < 0)
+                throw new InvalidDataException(
+                    $"Mesh 0x{meshChecksum:X8} has invalid child count {numChildren}.");
+
             for (var c = 0; c < numChildren; c++)
                 r.ReadUInt32(); // child checksum
             r.BaseStream.Seek(16, SeekOrigin.Current); // bounding sphere (4 floats)

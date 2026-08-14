@@ -8,6 +8,9 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 
 public sealed class GltfModelExporterTests
 {
+    private const string IncompleteTriangleMessage =
+        "Mesh primitive 'triangle' has 4 indices; triangle indices must contain complete triples.";
+
     [Fact]
     public void BuildGlbBytes_StoresVertexColorsAsNormalizedUnsignedShort()
     {
@@ -36,6 +39,69 @@ public sealed class GltfModelExporterTests
         Assert.Equal("VEC4", colorAccessor.GetProperty("type").GetString());
         Assert.False(attributes.TryGetProperty(PsxOverbrightVertexColor1Texture1.AttributeName, out _));
         Assert.False(attributes.TryGetProperty(PsxOverbrightVertexColor1Texture1.FlagsAttributeName, out _));
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, false)]
+    [InlineData(false, true, true)]
+    public void BuildGlbBytes_IncompleteTriangleIndices_ThrowsForEveryEmitter(
+        bool overbright,
+        bool textureWibble,
+        bool skinned)
+    {
+        var document = CreateTriangleDocument(overbright, skinned, [0, 1, 2, 0]);
+        if (textureWibble)
+        {
+            var primitive = Assert.Single(Assert.Single(document.Meshes).Primitives);
+            primitive.Vertices[0] = primitive.Vertices[0] with
+            {
+                TextureWibble = new ModelTextureWibble(1, 0, 0, 0, 0, 0, 0, 1, 1)
+            };
+        }
+
+        var exception = Assert.Throws<InvalidDataException>(
+            () => new GltfModelExporter().BuildGlbBytes(document));
+
+        Assert.Equal(IncompleteTriangleMessage, exception.Message);
+    }
+
+    [Fact]
+    public void Export_IncompleteTriangleIndices_DoesNotCreateOutputDirectory()
+    {
+        var tempRoot = Path.Combine(
+            Path.GetTempPath(),
+            "NsMtGltfIncompleteTriangles_" + Guid.NewGuid().ToString("N"));
+        var outputDirectory = Path.Combine(tempRoot, "output");
+        var outputPath = Path.Combine(outputDirectory, "triangle.glb");
+
+        try
+        {
+            Assert.False(Directory.Exists(tempRoot));
+            var document = CreateTriangleDocument(indices: [0, 1, 2, 0]);
+
+            var exception = Assert.Throws<InvalidDataException>(() =>
+                new GltfModelExporter().Export(
+                    document,
+                    new MeshExportRequest
+                    {
+                        OutputDirectory = outputDirectory,
+                        OutputStem = "triangle"
+                    }));
+
+            Assert.Equal(IncompleteTriangleMessage, exception.Message);
+            Assert.False(Directory.Exists(outputDirectory));
+            Assert.False(File.Exists(outputPath));
+            Assert.False(Directory.Exists(tempRoot));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
     }
 
     [Theory]
@@ -351,7 +417,10 @@ public sealed class GltfModelExporterTests
         }
     }
 
-    private static ModelDocument CreateTriangleDocument(bool overbright = false, bool skinned = false)
+    private static ModelDocument CreateTriangleDocument(
+        bool overbright = false,
+        bool skinned = false,
+        int[]? indices = null)
     {
         var document = new ModelDocument { Name = "high_precision_vertex_color" };
         var mesh = new ModelMesh { Name = "triangle" };
@@ -376,7 +445,7 @@ public sealed class GltfModelExporterTests
                     new Vector4(0.028f, 0.032f, 0.036f, 1f),
                     Vector2.UnitY)
             ],
-            Indices = [0, 1, 2],
+            Indices = indices ?? [0, 1, 2],
             Skin = skinned
                 ? new ModelSkinBinding
                 {

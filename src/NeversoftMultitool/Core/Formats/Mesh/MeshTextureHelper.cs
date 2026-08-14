@@ -86,7 +86,10 @@ internal static class MeshTextureHelper
             var pngFiles = Directory.GetFiles(dir, textureName + ".png",
                 new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
             if (pngFiles.Length > 0)
-                return (File.ReadAllBytes(pngFiles[0]), false);
+            {
+                var pngBytes = File.ReadAllBytes(pngFiles[0]);
+                return (pngBytes, HasNonOpaqueAlpha(pngBytes));
+            }
 
             // Try DDS (decode to PNG)
             var ddsFiles = Directory.GetFiles(dir, textureName + ".dds",
@@ -96,6 +99,38 @@ internal static class MeshTextureHelper
         }
 
         return null;
+    }
+
+    private static bool HasNonOpaqueAlpha(byte[] pngBytes)
+    {
+        try
+        {
+            using var image = Image.Load<Rgba32>(pngBytes);
+            var hasAlpha = false;
+            image.ProcessPixelRows(accessor =>
+            {
+                for (var y = 0; y < accessor.Height && !hasAlpha; y++)
+                {
+                    var row = accessor.GetRowSpan(y);
+                    for (var x = 0; x < row.Length; x++)
+                    {
+                        if (row[x].A >= 255)
+                            continue;
+
+                        hasAlpha = true;
+                        break;
+                    }
+                }
+            });
+            return hasAlpha;
+        }
+        catch
+        {
+            // Alpha discovery is advisory. Preserve the historical behavior
+            // for malformed PNGs: return their raw bytes and let the eventual
+            // exporter remain responsible for accepting or rejecting them.
+            return false;
+        }
     }
 
     /// <summary>

@@ -16,6 +16,22 @@ internal static class BuildTreeCompanionLocator
 {
     private static readonly string[] SceneArchiveExtensions = [".pre", ".prx", ".prd", ".prf", ".prg"];
 
+    private enum BuildTreeProbeStatus
+    {
+        Missing,
+        Found,
+        Conflict
+    }
+
+    private readonly record struct BuildTreeProbeResult(
+        BuildTreeProbeStatus Status,
+        byte[]? Bytes = null)
+    {
+        public static BuildTreeProbeResult Missing => new(BuildTreeProbeStatus.Missing);
+        public static BuildTreeProbeResult Conflict => new(BuildTreeProbeStatus.Conflict);
+        public static BuildTreeProbeResult Found(byte[] bytes) => new(BuildTreeProbeStatus.Found, bytes);
+    }
+
     public static byte[]? TryReadTextureCompanion(
         AssetSource source, string stem, IReadOnlyList<string> extensions)
     {
@@ -39,53 +55,93 @@ internal static class BuildTreeCompanionLocator
         var dir = Path.GetDirectoryName(assetPath);
         for (var depth = 0; depth < 4 && !string.IsNullOrEmpty(dir); depth++, dir = Path.GetDirectoryName(dir))
         {
-            string? preDir;
-            try
+            var result = ProbeBuildRoot(dir, stem, extensions);
+            switch (result.Status)
             {
-                preDir = Directory.EnumerateDirectories(dir)
-                    .FirstOrDefault(d => Path.GetFileName(d).Equals("pre", StringComparison.OrdinalIgnoreCase));
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                return null;
-            }
-
-            if (preDir == null)
-                continue;
-
-            foreach (var scnDir in Directory.EnumerateDirectories(preDir)
-                         .Where(d => Path.GetFileName(d).Equals(stem + "Scn", StringComparison.OrdinalIgnoreCase)))
-            {
-                var hit = ProbeSceneDir(scnDir, stem, extensions);
-                if (hit != null)
-                    return File.ReadAllBytes(hit);
+                case BuildTreeProbeStatus.Found:
+                    return result.Bytes;
+                case BuildTreeProbeStatus.Conflict:
+                    return null;
             }
         }
 
         return null;
     }
 
-    private static string? ProbeSceneDir(string scnDir, string stem, IReadOnlyList<string> extensions)
+    private static BuildTreeProbeResult ProbeBuildRoot(
+        string buildRoot,
+        string stem,
+        IReadOnlyList<string> extensions)
     {
-        // The canonical location first, then a bounded search of the scene tree
-        // only (never all of pre/).
-        foreach (var ext in extensions)
+        string[] preDirs;
+        try
         {
-            var direct = Path.Combine(scnDir, "Levels", stem, stem + ext);
-            if (File.Exists(direct))
-                return direct;
+            preDirs = Directory.EnumerateDirectories(buildRoot)
+                .Where(path => Path.GetFileName(path).Equals("pre", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return BuildTreeProbeResult.Conflict;
         }
 
+        if (preDirs.Length == 0)
+            return BuildTreeProbeResult.Missing;
+
+        // Enumerate every case-insensitive match before choosing. On a
+        // case-sensitive filesystem both "pre" and "PRE" (or two differently
+        // cased StemScn directories) can coexist; filesystem enumeration order
+        // must not decide which texture dictionary owns the mesh.
+        var sceneDirs = preDirs
+            .SelectMany(Directory.EnumerateDirectories)
+            .Where(path => Path.GetFileName(path).Equals(stem + "Scn", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (sceneDirs.Length == 0)
+            return BuildTreeProbeResult.Missing;
+
+        // The canonical location wins globally across all matching scene
+        // directories. Preserve the caller's extension order within the tier.
         foreach (var ext in extensions)
         {
-            var match = Directory
-                .EnumerateFiles(scnDir, stem + ext, SearchOption.AllDirectories)
-                .FirstOrDefault();
-            if (match != null)
-                return match;
+            var candidates = sceneDirs
+                .Select(sceneDir => Path.Combine(sceneDir, "Levels", stem, stem + ext))
+                .Where(File.Exists)
+                .ToArray();
+            if (candidates.Length > 0)
+                return ReadEquivalentCandidates(candidates);
         }
 
-        return null;
+        // Only when no canonical file exists may a dictionary elsewhere in the
+        // bounded scene tree be considered. Resolve the whole tier before
+        // returning so filesystem enumeration order cannot pick an owner.
+        foreach (var ext in extensions)
+        {
+            var candidates = sceneDirs
+                .SelectMany(sceneDir => Directory.EnumerateFiles(
+                    sceneDir,
+                    stem + ext,
+                    SearchOption.AllDirectories))
+                .ToArray();
+            if (candidates.Length > 0)
+                return ReadEquivalentCandidates(candidates);
+        }
+
+        return BuildTreeProbeResult.Missing;
+    }
+
+    private static BuildTreeProbeResult ReadEquivalentCandidates(IReadOnlyList<string> candidates)
+    {
+        // Enumeration and reads intentionally remain exception-transparent. A
+        // partial scan cannot safely claim that one candidate is unique.
+        var selected = File.ReadAllBytes(candidates[0]);
+        for (var index = 1; index < candidates.Count; index++)
+        {
+            var candidate = File.ReadAllBytes(candidates[index]);
+            if (!selected.AsSpan().SequenceEqual(candidate))
+                return BuildTreeProbeResult.Conflict;
+        }
+
+        return BuildTreeProbeResult.Found(selected);
     }
 
     /// <summary>

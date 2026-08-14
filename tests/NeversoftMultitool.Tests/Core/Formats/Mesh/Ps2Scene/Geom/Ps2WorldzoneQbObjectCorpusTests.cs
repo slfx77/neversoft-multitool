@@ -13,7 +13,7 @@ public sealed class Ps2WorldzoneQbObjectCorpusTests(TestPaths paths, ITestOutput
 {
     private const string ThawPs2Build = "Tony Hawk's American Wasteland (2005-8-22, PS2 - Final)";
 
-    [Fact]
+    [CorpusFact]
     public void Resolve_ZBh_PinsFiveResourcesThirtySixAuthoredTransforms()
     {
         var pakPath = paths.FindSampleFile(ThawPs2Build, "z_bh.pak.ps2");
@@ -45,7 +45,7 @@ public sealed class Ps2WorldzoneQbObjectCorpusTests(TestPaths paths, ITestOutput
             new Vector3(-13623.282f, -19.952545f, 4151.6284f), new Vector3(0f, 1.501717f, 0f));
     }
 
-    [Fact]
+    [CorpusFact]
     public void PopulatePs2Worldzone_ZBh_EmitsAuthoredCompactInstancesWithoutOriginFallback()
     {
         var pakPath = paths.FindSampleFile(ThawPs2Build, "z_bh.pak.ps2");
@@ -92,7 +92,7 @@ public sealed class Ps2WorldzoneQbObjectCorpusTests(TestPaths paths, ITestOutput
         Assert.Equal(956, compactPrimitives.Sum(static item => item.Primitive.TriangleCount));
     }
 
-    [Fact]
+    [CorpusFact]
     public void PopulatePs2Worldzone_ZSr_ResolvedEmptyObjectsDoNotFallBackToOrigin()
     {
         var pakPath = paths.FindSampleFile(ThawPs2Build, "z_sr.pak.ps2");

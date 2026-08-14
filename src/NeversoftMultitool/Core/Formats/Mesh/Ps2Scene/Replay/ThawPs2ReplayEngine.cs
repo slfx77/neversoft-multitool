@@ -23,8 +23,14 @@ internal static class ThawPs2ReplayEngine
         var nextBoundaryIndex = 0;
         var firstSetupStart = setupStarts.Count > 0 ? setupStarts[0] : chainStart;
 
-        while (position < chainEnd && position + 4 <= data.Length)
+        while (position >= 0 && position < chainEnd &&
+               (long)position + 4 <= chainEnd &&
+               (long)position + 4 <= data.Length)
         {
+            var nextPosition = ThawPs2SkinFile.VifNextCode(data, position, chainEnd);
+            if (nextPosition <= position || nextPosition > chainEnd || nextPosition > data.Length)
+                break;
+
             while (nextBoundaryIndex < setupStarts.Count && position >= setupStarts[nextBoundaryIndex])
             {
                 nextBoundaryIndex++;

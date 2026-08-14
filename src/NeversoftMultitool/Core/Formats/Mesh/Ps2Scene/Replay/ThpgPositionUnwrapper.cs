@@ -104,8 +104,9 @@ internal static class ThpgPositionUnwrapper
             return false;
 
         var maxAbs = 0;
+        var ownedEnd = Math.Clamp(scanEnd, 0, data.Length);
         var i = Math.Max(scanStart, 0);
-        var last = Math.Min(scanEnd, data.Length) - 8;
+        var last = ownedEnd - 8;
         while (i < last)
         {
             // STCYCL CL=3 WL=1 followed by UNPACK V3_16 (0x69, mask bit tolerated).
@@ -114,21 +115,23 @@ internal static class ThpgPositionUnwrapper
             {
                 int n = data[i + 6];
                 if (n == 0) n = 256;
-                var posOff = i + 8;
-                var posSize = ((6 * n + 3) >> 2) << 2;
+                var posOff = (long)i + 8;
+                var positionLength = 6L * n;
+                var posSize = (positionLength + 3) & ~3L;
                 var nrmOff = posOff + posSize;
                 // Require the V3_8 normals unpack right after — the interleaved-batch
                 // signature — so stray V3_16 unpacks elsewhere don't contribute.
-                if (nrmOff + 4 <= data.Length && (data[nrmOff + 3] & 0x6F) == 0x6A)
+                if (nrmOff + 4 <= ownedEnd &&
+                    (data[(int)nrmOff + 3] & 0x6F) == 0x6A)
                 {
-                    var end = Math.Min(posOff + 6 * n, data.Length - 1);
-                    for (var p = posOff; p + 1 < end; p += 2)
+                    var end = (int)(posOff + positionLength);
+                    for (var p = (int)posOff; p + 1 < end; p += 2)
                     {
                         var v = Math.Abs((int)BitConverter.ToInt16(data, p));
                         if (v > maxAbs) maxAbs = v;
                     }
 
-                    i = nrmOff;
+                    i = (int)nrmOff;
                     continue;
                 }
             }

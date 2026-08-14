@@ -8,10 +8,11 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 ///     THPS1/THPS2 mode-variant regions (<c>&lt;base&gt;_2</c> two player,
 ///     <c>&lt;base&gt;_h</c> H-O-R-S-E) ship no companions under their own stem:
 ///     the SHARED <c>&lt;base&gt;_t.trg</c> spools them and the bank is the
-///     reduced <c>&lt;base&gt;_o2.psx</c> / squeezed <c>&lt;base&gt;o2.psx</c>,
-///     falling back to the one-player <c>&lt;base&gt;_o.psx</c>. Added 2026-08-03
-///     — before this rule every variant converted with zero bank objects, zero
-///     pickups, and no sky classification.
+///     reduced <c>&lt;base&gt;_o2.psx</c> / squeezed <c>&lt;base&gt;o2.psx</c> for
+///     both variants, falling back to the one-player <c>&lt;base&gt;_o.psx</c>
+///     only when no reduced bank ships. Added 2026-08-03 — before this rule
+///     every variant converted with zero bank objects, zero pickups, and no sky
+///     classification.
 /// </summary>
 public sealed class ThpsVariantLevelCompanionTests(TestPaths paths)
 {
@@ -28,9 +29,9 @@ public sealed class ThpsVariantLevelCompanionTests(TestPaths paths)
     // AUTOEXEC2 sets SkBurn_O).
     [InlineData("skburn_2.psx", "skburn", "skburn_o.psx",
         new[] { "skburn_o.psx", "skburn_t.trg" })]
-    // HORSE regions always run the one-player AUTOEXEC bank, even when a
-    // two-player o2 bank ships (skros_t's AUTOEXEC sets SkRos_O).
-    [InlineData("skros_h.psx", "skros", "skros_o.psx",
+    // HORSE fallback follows the same two-player bank order; the authoritative
+    // skros_t AUTOEXEC2 selects SkRosO2 too.
+    [InlineData("skros_h.psx", "skros", "skroso2.psx",
         new[] { "skroso2.psx", "skros_o.psx", "skros_t.trg" })]
     public void Companions_ThpsModeVariants_ResolveSharedTriggerAndReducedBank(
         string fileName,

@@ -168,7 +168,8 @@ internal static class XbxGeometryWriter
             finalPng,
             checksum,
             pass.UAddressing == 3 ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat,
-            pass.VAddressing == 3 ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat);
+            pass.VAddressing == 3 ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat,
+            distinguishChecksumVariantsByContent: true);
 
         return (textureAlphaMode, bakeApplied);
     }

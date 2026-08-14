@@ -121,6 +121,8 @@ public static class SkeletonFile
         // File may have trailing timestamp string — allow extra bytes
         if (data.Length < expectedMinSize)
             return false;
+        if (data.Length > expectedMinSize && data[^1] != 0)
+            return false;
 
         skeleton = BuildThugSkeleton(data, 16, version, flags, numBones);
         return true;

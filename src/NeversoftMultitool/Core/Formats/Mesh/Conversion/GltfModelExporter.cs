@@ -25,8 +25,6 @@ public sealed class GltfModelExporter : IModelExporter
     public MeshExportResult Export(ModelDocument document, MeshExportRequest request)
     {
         request.CancellationToken.ThrowIfCancellationRequested();
-        Directory.CreateDirectory(request.OutputDirectory);
-
         return ExportGeneric(document, request);
     }
 
@@ -48,6 +46,7 @@ public sealed class GltfModelExporter : IModelExporter
     private static MeshExportResult ExportGeneric(ModelDocument document, MeshExportRequest request)
     {
         var (model, triangles) = BuildGenericModel(document);
+        Directory.CreateDirectory(request.OutputDirectory);
         if (model == null)
             return MeshExportResult.Empty;
 
@@ -828,6 +827,7 @@ public sealed class GltfModelExporter : IModelExporter
         PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, HighPrecisionVertexColor1Texture1, VertexEmpty> prim,
         ModelPrimitive primitive)
     {
+        ValidateCompleteTriangleIndices(primitive);
         var triangles = 0;
         for (var i = 0; i + 2 < primitive.Indices.Length; i += 3)
         {
@@ -862,6 +862,7 @@ public sealed class GltfModelExporter : IModelExporter
         PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, PsxAnimatedVertexColor1Texture1, VertexEmpty> prim,
         ModelPrimitive primitive)
     {
+        ValidateCompleteTriangleIndices(primitive);
         var triangles = 0;
         for (var i = 0; i + 2 < primitive.Indices.Length; i += 3)
         {
@@ -896,6 +897,7 @@ public sealed class GltfModelExporter : IModelExporter
         PrimitiveBuilder<MaterialBuilder, VertexPositionNormal, PsxOverbrightVertexColor1Texture1, VertexEmpty> prim,
         ModelPrimitive primitive)
     {
+        ValidateCompleteTriangleIndices(primitive);
         var triangles = 0;
         for (var i = 0; i + 2 < primitive.Indices.Length; i += 3)
         {
@@ -931,6 +933,7 @@ public sealed class GltfModelExporter : IModelExporter
         ModelPrimitive primitive,
         ModelSkinBinding skin)
     {
+        ValidateCompleteTriangleIndices(primitive);
         var triangles = 0;
         for (var i = 0; i + 2 < primitive.Indices.Length; i += 3)
         {
@@ -971,6 +974,7 @@ public sealed class GltfModelExporter : IModelExporter
         ModelPrimitive primitive,
         ModelSkinBinding skin)
     {
+        ValidateCompleteTriangleIndices(primitive);
         var triangles = 0;
         for (var i = 0; i + 2 < primitive.Indices.Length; i += 3)
         {
@@ -1013,6 +1017,7 @@ public sealed class GltfModelExporter : IModelExporter
         ModelPrimitive primitive,
         ModelSkinBinding skin)
     {
+        ValidateCompleteTriangleIndices(primitive);
         var triangles = 0;
         for (var i = 0; i + 2 < primitive.Indices.Length; i += 3)
         {
@@ -1034,6 +1039,16 @@ public sealed class GltfModelExporter : IModelExporter
         }
 
         return triangles;
+    }
+
+    private static void ValidateCompleteTriangleIndices(ModelPrimitive primitive)
+    {
+        if (primitive.Indices.Length % 3 != 0)
+        {
+            throw new InvalidDataException(
+                $"Mesh primitive '{primitive.Name}' has {primitive.Indices.Length} indices; " +
+                "triangle indices must contain complete triples.");
+        }
     }
 
     private static PsxOverbrightGltfSkinnedVertex MakePsxOverbrightSkinnedVertex(

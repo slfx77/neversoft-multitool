@@ -213,21 +213,23 @@ public sealed class PsxMeshFile
         if (data.Length < 8) return false;
 
         var metaTop = BitConverter.ToInt32(data, 4);
-        if (metaTop is < 8 || metaTop + 8 > data.Length)
+        if (metaTop < 8 || metaTop > data.Length - 8)
             return false;
 
         var cursor = metaTop;
-        var safety = 0;
         var found = false;
         while (cursor + 8 <= data.Length)
         {
-            if (++safety > 256) return found;
             var tag = BitConverter.ToUInt32(data, cursor);
             if (tag == 0xFFFFFFFFu) break;
             var size = BitConverter.ToUInt32(data, cursor + 4);
             var dataOffset = cursor + 8;
-            if (size > (uint)data.Length || dataOffset + size > data.Length)
-                return found;
+            if (size > (uint)(data.Length - dataOffset))
+            {
+                chunkTag = 0;
+                chunkDataOffset = -1;
+                return false;
+            }
 
             if (tag is HierChunkV1Tag or HierChunkV2Tag)
             {

@@ -6,6 +6,19 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.XbxScene;
 public sealed class ThawSceneMeshVertexStrideTests
 {
     [Fact]
+    public void ReadSMesh_NegativeFaceCount_ThrowsInvalidData()
+    {
+        var data = new byte[224];
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(40), -1);
+        using var reader = new BinaryReader(new MemoryStream(data, writable: false));
+
+        var exception = Assert.Throws<InvalidDataException>(
+            () => ThawSceneMeshSupport.ReadSMesh(reader, 0, 0, 0, []));
+
+        Assert.Equal("THAW mesh face count -1 is invalid", exception.Message);
+    }
+
+    [Fact]
     public void ReadSMesh_VertexStrideShorterThanDecodedFields_SkipsVertices()
     {
         using var reader = CreateMeshReader(vertexStride: 19);

@@ -36,9 +36,7 @@ public static class LitFile
         {
             var line = lines[i].Trim();
 
-            if (line.StartsWith("DirLight ", StringComparison.Ordinal) ||
-                line.StartsWith("SpotLight ", StringComparison.Ordinal) ||
-                line.StartsWith("OmniLight ", StringComparison.Ordinal))
+            if (IsLightDeclaration(line))
             {
                 var light = ParseLight(lines, ref i);
                 if (light != null)
@@ -89,7 +87,11 @@ public static class LitFile
     {
         while (i < lines.Length)
         {
-            if (lines[i].Trim().Contains('{'))
+            var line = lines[i].Trim();
+            if (IsLightDeclaration(line))
+                return false;
+
+            if (line.Contains('{'))
             {
                 i++;
                 return true;
@@ -101,6 +103,13 @@ public static class LitFile
         return false;
     }
 
+    private static bool IsLightDeclaration(string line)
+    {
+        return line.StartsWith("DirLight ", StringComparison.Ordinal) ||
+               line.StartsWith("SpotLight ", StringComparison.Ordinal) ||
+               line.StartsWith("OmniLight ", StringComparison.Ordinal);
+    }
+
     /// <summary>
     ///     Collects tokens from the current block depth until the closing brace.
     ///     Nested blocks (BoxGradShadow, LensFlare, LightProjMap) are skipped.
@@ -108,17 +117,44 @@ public static class LitFile
     private static List<string> CollectBlockTokens(string[] lines, ref int i)
     {
         var tokens = new List<string>();
-        var depth = 0;
+        var nestedDepth = 0;
+        var awaitingNestedOpenBrace = false;
 
         while (i < lines.Length)
         {
             var line = lines[i].Trim();
             i++;
+            var openBraces = line.Count(c => c == '{');
+            var closeBraces = line.Count(c => c == '}');
 
-            if (depth > 0)
+            if (nestedDepth > 0)
             {
-                depth += line.Count(c => c == '{') - line.Count(c => c == '}');
-                if (depth < 0) depth = 0;
+                var nextDepth = nestedDepth + openBraces - closeBraces;
+                if (nextDepth < 0)
+                    break;
+
+                nestedDepth = nextDepth;
+                continue;
+            }
+
+            if (awaitingNestedOpenBrace)
+            {
+                if (openBraces > 0)
+                {
+                    var nextDepth = openBraces - closeBraces;
+                    awaitingNestedOpenBrace = false;
+                    if (nextDepth < 0)
+                        break;
+
+                    nestedDepth = nextDepth;
+                    continue;
+                }
+
+                // A malformed nested declaration must not consume the parent
+                // block's closing brace or any following light declaration.
+                if (closeBraces > 0)
+                    break;
+
                 continue;
             }
 
@@ -126,8 +162,16 @@ public static class LitFile
                 line.StartsWith("LensFlare", StringComparison.Ordinal) ||
                 line.StartsWith("LightProjMap", StringComparison.Ordinal))
             {
-                depth += line.Count(c => c == '{') - line.Count(c => c == '}');
-                if (depth < 0) depth = 0;
+                if (openBraces > 0)
+                {
+                    var nextDepth = openBraces - closeBraces;
+                    if (nextDepth < 0)
+                        break;
+
+                    nestedDepth = nextDepth;
+                }
+                else
+                    awaitingNestedOpenBrace = true;
                 continue;
             }
 

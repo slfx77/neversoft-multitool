@@ -23,8 +23,8 @@ internal static class MeshContentProbe
             MeshFileKind.Ps2Scene => ResolveSuffixedPs2Scene(route, data, fileSize),
             MeshFileKind.Collision => ResolveCollision(route, data),
             MeshFileKind.Psx => ResolvePsx(route, data),
-            MeshFileKind.RenderWareDff => ResolveChunk(route, data, 0x0010, "RW DFF Mesh", "DFF"),
-            MeshFileKind.RenderWareBsp => ResolveChunk(route, data, 0x000B, "RW BSP Level", "BSP"),
+            MeshFileKind.RenderWareDff => ResolveChunk(route, data, fileSize, 0x0010, "RW DFF Mesh", "DFF"),
+            MeshFileKind.RenderWareBsp => ResolveChunk(route, data, fileSize, 0x000B, "RW BSP Level", "BSP"),
             MeshFileKind.Ps2Worldzone => ResolveWorldzone(route, data),
             // Bare .skin/.mdl carry no kind from the name — the ladder decides.
             _ => ResolveAmbiguousScene(route, data, fileSize)
@@ -193,18 +193,32 @@ internal static class MeshContentProbe
     }
 
     private static MeshFileRoute ResolveChunk(
-        MeshFileRoute route, byte[] data, uint expected, string label, string what)
+        MeshFileRoute route, byte[] data, long fileSize, uint expected, string label, string what)
     {
-        if (data.Length < 4)
+        const int headerSize = 12;
+        if (data.Length < headerSize || fileSize < headerSize)
             return TooSmall(route);
 
         var chunkType = BitConverter.ToUInt32(data, 0);
-        return chunkType == expected
-            ? route with { RequiresContentProbe = false, DisplayFormat = label }
-            : MeshFileRoute.Rejected(
+        if (chunkType != expected)
+        {
+            return MeshFileRoute.Rejected(
                 route.Suffix,
                 UnknownFormat,
                 $"Not a valid RenderWare {what} file (header: 0x{chunkType:X8})");
+        }
+
+        var payloadSize = BitConverter.ToUInt32(data, 4);
+        if (route.Kind == MeshFileKind.RenderWareDff && payloadSize > fileSize - headerSize)
+        {
+            return MeshFileRoute.Rejected(
+                route.Suffix,
+                UnknownFormat,
+                $"RenderWare {what} root declares {payloadSize} payload bytes, " +
+                $"but only {fileSize - headerSize} fit in the file");
+        }
+
+        return route with { RequiresContentProbe = false, DisplayFormat = label };
     }
 
     private static MeshFileRoute ResolveWorldzone(MeshFileRoute route, byte[] data)

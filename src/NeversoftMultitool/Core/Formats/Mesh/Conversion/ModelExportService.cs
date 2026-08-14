@@ -4,6 +4,8 @@ public static class ModelExportService
 {
     public static MeshExportResult Export(ModelDocument document, MeshExportRequest request)
     {
+        ValidateEffectiveOutputStem(document, request);
+
         return request.Format switch
         {
             MeshOutputFormat.Glb => new GltfModelExporter().Export(document, request),
@@ -16,6 +18,23 @@ public static class ModelExportService
     public static (byte[]? GlbBytes, int Triangles) BuildGlbBytes(ModelDocument document)
     {
         return new GltfModelExporter().BuildGlbBytes(document);
+    }
+
+    private static void ValidateEffectiveOutputStem(ModelDocument document, MeshExportRequest request)
+    {
+        var stem = request.OutputStem ?? document.Name;
+        if (!string.IsNullOrWhiteSpace(stem)
+            && stem is not "." and not ".."
+            && !Path.IsPathRooted(stem)
+            && !stem.Contains('/')
+            && !stem.Contains('\\'))
+        {
+            return;
+        }
+
+        throw new ArgumentException(
+            "effective output stem must be a non-empty file-name stem without path components.",
+            request.OutputStem is null ? nameof(document) : nameof(request));
     }
 
     private static MeshExportResult ExportBoth(ModelDocument document, MeshExportRequest request)

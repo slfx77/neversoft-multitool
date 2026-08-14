@@ -233,8 +233,14 @@ internal static class ModelDocumentGeometryAdapter
 
     internal static (int Width, int Height)? TryExtractPngDimensions(ReadOnlySpan<byte> pngBytes)
     {
-        if (pngBytes.Length < 24)
+        ReadOnlySpan<byte> pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        if (pngBytes.Length < 33
+            || !pngBytes[..8].SequenceEqual(pngSignature)
+            || BinaryPrimitives.ReadUInt32BigEndian(pngBytes[8..12]) != 13
+            || !pngBytes[12..16].SequenceEqual("IHDR"u8))
+        {
             return null;
+        }
 
         var width = BinaryPrimitives.ReadInt32BigEndian(pngBytes[16..20]);
         var height = BinaryPrimitives.ReadInt32BigEndian(pngBytes[20..24]);

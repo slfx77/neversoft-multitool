@@ -177,6 +177,74 @@ public sealed class XbxGeometryWriterBlendTests
     }
 
     [Fact]
+    public void SharedTexture_DifferentAddressingRegistersDistinctVariants()
+    {
+        var raw = CreatePngBytes(new Rgba32(64, 32, 16, 255));
+        var scene = CreateScene(
+            CreateMaterial(0x1000_0011,
+                new XbxPass
+                {
+                    TextureChecksum = BaseTextureChecksum,
+                    BlendMode = 0,
+                    UAddressing = 0
+                }),
+            CreateMaterial(0x1000_0012,
+                new XbxPass
+                {
+                    TextureChecksum = BaseTextureChecksum,
+                    BlendMode = 0,
+                    UAddressing = 3
+                }));
+
+        var document = Convert(scene, CreateResolver((BaseTextureChecksum, raw)));
+
+        Assert.Equal(2, document.Textures.Count);
+        var repeatIndex = Assert.IsType<int>(document.Materials[0].TextureIndex);
+        var clampIndex = Assert.IsType<int>(document.Materials[1].TextureIndex);
+        Assert.NotEqual(repeatIndex, clampIndex);
+
+        var repeat = document.Textures[repeatIndex];
+        var clamp = document.Textures[clampIndex];
+        Assert.Equal(BaseTextureChecksum, repeat.NativeChecksum);
+        Assert.Equal(BaseTextureChecksum, clamp.NativeChecksum);
+        Assert.Equal(ModelTextureWrap.Repeat, repeat.WrapU);
+        Assert.Equal(ModelTextureWrap.ClampToEdge, clamp.WrapU);
+        Assert.Equal(ModelTextureWrap.Repeat, repeat.WrapV);
+        Assert.Equal(ModelTextureWrap.Repeat, clamp.WrapV);
+    }
+
+    [Fact]
+    public void SharedTexture_IdenticalAddressingDeduplicates()
+    {
+        var raw = CreatePngBytes(new Rgba32(64, 32, 16, 255));
+        var scene = CreateScene(
+            CreateMaterial(0x1000_0021,
+                new XbxPass
+                {
+                    TextureChecksum = BaseTextureChecksum,
+                    BlendMode = 0,
+                    UAddressing = 3,
+                    VAddressing = 3
+                }),
+            CreateMaterial(0x1000_0022,
+                new XbxPass
+                {
+                    TextureChecksum = BaseTextureChecksum,
+                    BlendMode = 0,
+                    UAddressing = 3,
+                    VAddressing = 3
+                }));
+
+        var document = Convert(scene, CreateResolver((BaseTextureChecksum, raw)));
+
+        var texture = Assert.Single(document.Textures);
+        Assert.Equal(BaseTextureChecksum, texture.NativeChecksum);
+        Assert.Equal(ModelTextureWrap.ClampToEdge, texture.WrapU);
+        Assert.Equal(ModelTextureWrap.ClampToEdge, texture.WrapV);
+        Assert.Equal(document.Materials[0].TextureIndex, document.Materials[1].TextureIndex);
+    }
+
+    [Fact]
     public void MultiPass_OverlayComposites()
     {
         var basePixel = new Rgba32(40, 80, 120, 255);

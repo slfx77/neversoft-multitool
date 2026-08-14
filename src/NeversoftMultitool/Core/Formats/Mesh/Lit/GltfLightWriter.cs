@@ -58,11 +58,12 @@ internal static class GltfLightWriter
             {
                 Color = color, Intensity = intensity, Range = range
             },
-            LitLightType.Spot => CreateSpotLight(color, intensity, range, lit),
+            LitLightType.Spot => CreateSpotLight(
+                color, intensity, range, lit, anglesAreDegrees: true),
             // DirLights with small Radius are bounded area lights — approximate as spot.
             // Large or negative Radius means unbounded directional.
             LitLightType.Directional when lit.Radius is > 0 and < 100 =>
-                CreateSpotLight(color, intensity, range, lit),
+                CreateSpotLight(color, intensity, range, lit, anglesAreDegrees: false),
             LitLightType.Directional => new LightBuilder.Directional
             {
                 Color = color, Intensity = intensity
@@ -72,15 +73,19 @@ internal static class GltfLightWriter
     }
 
     private static LightBuilder.Spot CreateSpotLight(
-        Vector3 color, float intensity, float range, LitLight lit)
+        Vector3 color, float intensity, float range, LitLight lit, bool anglesAreDegrees)
     {
+        // AdvLights stores spotlight cone sizes as full angles in degrees, while
+        // glTF stores half-angles in radians. The directional-area approximation
+        // predates that mapping and deliberately retains its existing scaling.
+        var halfAngleScale = anglesAreDegrees ? MathF.PI / 360f : 0.5f;
         return new LightBuilder.Spot
         {
             Color = color,
             Intensity = intensity,
             Range = range,
-            InnerConeAngle = lit.Hotspot > 0 ? lit.Hotspot / 2f : 0f,
-            OuterConeAngle = lit.Radius > 0 ? lit.Radius / 2f : 0.785f
+            InnerConeAngle = lit.Hotspot > 0 ? lit.Hotspot * halfAngleScale : 0f,
+            OuterConeAngle = lit.Radius > 0 ? lit.Radius * halfAngleScale : 0.785f
         };
     }
 

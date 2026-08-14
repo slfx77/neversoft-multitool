@@ -73,9 +73,10 @@ internal static class RwGeometryWriter
                     indices);
             }
 
-            var transform = atomic.FrameIndex >= 0 && atomic.FrameIndex < frameWorld.Length
+            var authoredWorld = atomic.FrameIndex >= 0 && atomic.FrameIndex < frameWorld.Length
                 ? frameWorld[atomic.FrameIndex]
                 : Matrix4x4.Identity;
+            var transform = authoredWorld * RwDffZupToYupRotation;
             ModelDocumentGeometryAdapter.AddMeshNode(document, $"atomic_{atomic.GeometryIndex}", mesh, transform);
         }
 

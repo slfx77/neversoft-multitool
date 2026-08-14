@@ -93,8 +93,7 @@ public class MeshTypeDetectorContentRoutingTests
     [Fact]
     public void Dff_ClumpChunk_RoutesToRenderWareDff()
     {
-        var data = new byte[16];
-        BitConverter.GetBytes(0x0010u).CopyTo(data, 0);
+        var data = BuildRwRoot(0x0010, 0, 12);
 
         var route = MeshTypeDetector.DetectFromBytes("Hawk.dff", data, data.Length);
 
@@ -116,12 +115,67 @@ public class MeshTypeDetectorContentRoutingTests
     [Fact]
     public void Skn_AndDff_RouteIdentically()
     {
-        var data = new byte[16];
-        BitConverter.GetBytes(0x0010u).CopyTo(data, 0);
+        var data = BuildRwRoot(0x0010, 0, 12);
 
         Assert.Equal(
             MeshTypeDetector.DetectFromBytes("Hawk.skn", data, data.Length).Kind,
             MeshTypeDetector.DetectFromBytes("Hawk.dff", data, data.Length).Kind);
+    }
+
+    [Theory]
+    [InlineData("Hawk.dff", 0x0010u)]
+    [InlineData("level.bsp", 0x000Bu)]
+    public void RenderWareRoot_TruncatedHeader_IsRejected(string fileName, uint type)
+    {
+        foreach (var length in new[] { 4, 11 })
+        {
+            var data = BuildRwRoot(type, 0, length);
+
+            var route = MeshTypeDetector.DetectFromBytes(fileName, data, data.Length);
+
+            Assert.False(route.IsSupported);
+        }
+    }
+
+    [Fact]
+    public void DffRoot_DeclaredPayloadPastFile_IsRejected()
+    {
+        var data = BuildRwRoot(0x0010, 1, 12);
+
+        var route = MeshTypeDetector.DetectFromBytes("Hawk.dff", data, data.Length);
+
+        Assert.False(route.IsSupported);
+        Assert.Contains("only 0 fit", route.UnsupportedReason);
+    }
+
+    [Fact]
+    public void BspRoot_DeclaredPayloadPastFile_RemainsAccepted()
+    {
+        var data = BuildRwRoot(0x000B, 1, 12);
+
+        var route = MeshTypeDetector.DetectFromBytes("level.bsp", data, data.Length);
+
+        Assert.True(route.IsSupported);
+        Assert.Equal(MeshFileKind.RenderWareBsp, route.Kind);
+    }
+
+    [Theory]
+    [InlineData("Hawk.dff", 0x0010u, MeshFileKind.RenderWareDff)]
+    [InlineData("level.bsp", 0x000Bu, MeshFileKind.RenderWareBsp)]
+    public void RenderWareRoot_DeclaredPayloadEndingAtOrBeforeFile_IsAccepted(
+        string fileName,
+        uint type,
+        MeshFileKind expectedKind)
+    {
+        foreach (var length in new[] { 13, 14 })
+        {
+            var data = BuildRwRoot(type, 1, length);
+
+            var route = MeshTypeDetector.DetectFromBytes(fileName, data, data.Length);
+
+            Assert.True(route.IsSupported);
+            Assert.Equal(expectedKind, route.Kind);
+        }
     }
 
     [Fact]
@@ -144,5 +198,15 @@ public class MeshTypeDetectorContentRoutingTests
         Assert.Equal(MeshFileKind.None, route.Kind);
         Assert.False(route.RequiresContentProbe);
         Assert.Contains(".wav", route.UnsupportedReason);
+    }
+
+    private static byte[] BuildRwRoot(uint type, uint payloadSize, int length)
+    {
+        var data = new byte[length];
+        if (length >= 4)
+            BitConverter.GetBytes(type).CopyTo(data, 0);
+        if (length >= 8)
+            BitConverter.GetBytes(payloadSize).CopyTo(data, 4);
+        return data;
     }
 }

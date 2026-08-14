@@ -6,6 +6,32 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.RenderWare;
 public sealed class RwDffDataSectionsTests
 {
     [Fact]
+    public void ParseMaterialList_MissingMaterialIndexArray_ReturnsEmpty()
+    {
+        var data = BuildMaterialList(materialListStructSize: 4);
+        var offset = 0;
+
+        var materials = RwDffDataSections.ParseMaterialList(data, ref offset, data.Length);
+
+        Assert.Empty(materials);
+    }
+
+    [Fact]
+    public void ParseMaterialList_CompleteMaterialIndexArray_ParsesMaterial()
+    {
+        var data = BuildMaterialList(materialListStructSize: 8);
+        var offset = 0;
+
+        var materials = RwDffDataSections.ParseMaterialList(data, ref offset, data.Length);
+
+        var material = Assert.Single(materials);
+        Assert.Equal(1, material.R);
+        Assert.Equal(2, material.G);
+        Assert.Equal(3, material.B);
+        Assert.Equal(4, material.A);
+    }
+
+    [Fact]
     public void ParseSkinPlg_DeclaredPayloadPastEnd_ReturnsNull()
     {
         var data = BuildSkinHeader(1, 1, 8);
@@ -57,6 +83,31 @@ public sealed class RwDffDataSectionsTests
         var data = new byte[length];
         BinaryPrimitives.WriteInt32LittleEndian(data, numBones);
         BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(4), numVertices);
+        return data;
+    }
+
+    private static byte[] BuildMaterialList(int materialListStructSize)
+    {
+        const int materialPayloadSize = 40;
+        var data = new byte[12 + materialListStructSize + 12 + materialPayloadSize];
+
+        BinaryPrimitives.WriteUInt32LittleEndian(data, RwChunkReader.RW_STRUCT);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), (uint)materialListStructSize);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(12), 1);
+        if (materialListStructSize >= 8)
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(16), -1);
+
+        var materialOffset = 12 + materialListStructSize;
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(materialOffset), RwChunkReader.RW_MATERIAL);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(materialOffset + 4), materialPayloadSize);
+
+        var structOffset = materialOffset + 12;
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(structOffset), RwChunkReader.RW_STRUCT);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(structOffset + 4), 28);
+        data[structOffset + 16] = 1;
+        data[structOffset + 17] = 2;
+        data[structOffset + 18] = 3;
+        data[structOffset + 19] = 4;
         return data;
     }
 }

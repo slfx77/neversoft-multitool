@@ -90,7 +90,7 @@ public static class ThawSkeletonFile
                 return false;
         }
 
-        return (long)r.U32(0x24) + 128 <= r.Length;
+        return (long)r.U32(0x24) + 128 == r.Length;
     }
 
     public static Ps2Skeleton Parse(string filePath)

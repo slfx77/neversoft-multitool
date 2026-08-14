@@ -57,10 +57,10 @@ internal static class MeshCompanionResolver
     ///             <c>&lt;base&gt;2o.psx</c>, or the 8.3-squeezed spelling
     ///             <c>&lt;base&gt;o2.psx</c> (THPS1 final
     ///             ships skjamo2/skmallo2/skroso2 but sksf_o2; THPS2 always keeps
-    ///             the underscore), falling back to the one-player
-    ///             <c>&lt;base&gt;_o.psx</c> (skburn_t's AUTOEXEC2 sets SkBurn_O;
-    ///             skschl/skvans/skware ship no AUTOEXEC2 at all). HORSE restarts
-    ///             run the one-player AUTOEXEC bank.
+    ///             the underscore). Both variants run two-player and fall back
+    ///             to the one-player <c>&lt;base&gt;_o.psx</c> only when no reduced
+    ///             bank ships (skburn_t's AUTOEXEC2 sets SkBurn_O;
+    ///             skschl/skvans/skware ship no AUTOEXEC2 at all).
     ///         </item>
     ///     </list>
     ///     The bank object table is the same placed-layer convention in both
@@ -178,9 +178,8 @@ internal static class MeshCompanionResolver
 
         // Fallback only: no parsable TRG / no boot script, or it named a bank
         // this build does not ship.
-        string[] bankCandidates = isTwoPlayer
-            ? [baseStem + "_o2.psx", baseStem + "o2.psx", baseStem + "2o.psx", baseStem + PsxBankSuffix]
-            : [baseStem + PsxBankSuffix];
+        string[] bankCandidates =
+            [baseStem + "_o2.psx", baseStem + "o2.psx", baseStem + "2o.psx", baseStem + PsxBankSuffix];
         foreach (var bank in bankCandidates)
         {
             if (!TryResolveNamedPsxBank(source, bank, out var resolvedBank))

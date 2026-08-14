@@ -7,6 +7,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 /// </summary>
 public static class PsxObjectPositionParser
 {
+    private const int HeaderSize = 12;
     private const int EntrySize = 36;
     private const float FixedPointDivisor = 4096.0f;
 
@@ -17,6 +18,9 @@ public static class PsxObjectPositionParser
     public static List<PsxObjectPosition>? ParsePositions(string psxFilePath)
     {
         using var stream = File.OpenRead(psxFilePath);
+        if (stream.Length - stream.Position < HeaderSize)
+            return null;
+
         using var reader = new BinaryReader(stream);
 
         var magic = reader.ReadBytes(4);
@@ -26,11 +30,17 @@ public static class PsxObjectPositionParser
         reader.ReadUInt32(); // ptrMeta — not needed for positions
         var objectCount = reader.ReadUInt32();
 
+        var objectTableSize = (long)objectCount * EntrySize;
+        if (objectCount > int.MaxValue || objectTableSize > stream.Length - stream.Position)
+            return null;
+
         var positions = new List<PsxObjectPosition>((int)objectCount);
 
         for (var i = 0; i < objectCount; i++)
         {
             var entry = reader.ReadBytes(EntrySize);
+            if (entry.Length != EntrySize)
+                return null;
 
             // Int32 fixed-point positions at byte offsets 4, 8, 12
             var rawX = BitConverter.ToInt32(entry, 4);

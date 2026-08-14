@@ -139,6 +139,19 @@ public sealed class PsxMeshParsingTests(TestPaths paths)
     // ── Null/invalid file handling ────────────────────────────────────
 
     [Fact]
+    public void Parse_TruncatedObjectTable_ReturnsNull()
+    {
+        byte[] data =
+        [
+            0x04, 0x00, 0x02, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x00
+        ];
+
+        Assert.Null(PsxMeshFile.Parse(data));
+    }
+
+    [Fact]
     public void Parse_InvalidFile_ReturnsNull()
     {
         var tempDir = Path.Combine(Path.GetTempPath(),

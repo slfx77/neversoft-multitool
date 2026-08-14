@@ -72,8 +72,10 @@ public static class RwBspFile
             if (!TryReadAnyChunk(data, ref offset, worldEnd, out var childType, out var childSize))
                 break;
 
-            var childEnd = offset + (int)childSize;
-            if (childEnd < offset || childEnd > data.Length) break;
+            var childEndLong = (long)offset + childSize;
+            if (childEndLong > worldEnd || childEndLong > data.Length)
+                break;
+            var childEnd = (int)childEndLong;
 
             switch (childType)
             {
@@ -119,6 +121,8 @@ public static class RwBspFile
         // PlaneSection STRUCT (24 bytes): sector type, value, leftIsAtomic, rightIsAtomic, leftValue, rightValue
         if (!TryReadStruct(data, ref offset, endOffset, out _, out var structSize))
             return;
+        if ((long)structSize > endOffset - offset)
+            return;
         offset += (int)structSize;
 
         // Two children: left and right (each can be PlaneSection or AtomicSection)
@@ -127,8 +131,10 @@ public static class RwBspFile
             if (!TryReadAnyChunk(data, ref offset, endOffset, out var childType, out var childSize))
                 break;
 
-            var childEnd = offset + (int)childSize;
-            if (childEnd < offset || childEnd > data.Length) break;
+            var childEndLong = (long)offset + childSize;
+            if (childEndLong > endOffset || childEndLong > data.Length)
+                break;
+            var childEnd = (int)childEndLong;
 
             switch (childType)
             {
@@ -155,11 +161,12 @@ public static class RwBspFile
     private static RwBspSection? ParseAtomicSection(byte[] data, int offset, int endOffset,
         int formatFlags)
     {
-        if (!TryReadStruct(data, ref offset, endOffset, out _, out _))
+        if (!TryReadStruct(data, ref offset, endOffset, out _, out var structSize))
             return null;
 
         var pos = offset;
-        if (pos + 44 > data.Length) return null;
+        if (structSize < 44 || (long)structSize > endOffset - pos)
+            return null;
 
         var matListWindowBase = BitConverter.ToInt32(data, pos);
         var numTriangles = BitConverter.ToInt32(data, pos + 4);
@@ -169,6 +176,24 @@ public static class RwBspFile
         if (numVertices == 0) return null;
         if (numVertices < 0 || numVertices > 100000) return null;
         if (numTriangles < 0 || numTriangles > 200000) return null;
+
+        var bytesPerVertex = 12L;
+        if ((formatFlags & WF_NORMALS) != 0)
+            bytesPerVertex += 4;
+        if ((formatFlags & WF_PRELIT) != 0)
+            bytesPerVertex += 4;
+        if ((formatFlags & (WF_TEXTURED | WF_TEXTURED2)) != 0)
+            bytesPerVertex += 8;
+        if ((formatFlags & WF_TEXTURED2) != 0)
+            bytesPerVertex += 8;
+
+        var requiredStructSize = 44L
+                                 + (long)numVertices * bytesPerVertex
+                                 + (long)numTriangles * 8;
+        if (requiredStructSize > structSize)
+            return null;
+
+        var structEnd = pos + (int)structSize;
 
         // Bounding box (6 floats = 24 bytes) — skip
         pos += 24;
@@ -180,7 +205,7 @@ public static class RwBspFile
         var vertices = new Vector3[numVertices];
         for (var i = 0; i < numVertices; i++)
         {
-            if (pos + 12 > data.Length) return null;
+            if (pos > structEnd - 12) return null;
             vertices[i] = new Vector3(
                 BitConverter.ToSingle(data, pos),
                 BitConverter.ToSingle(data, pos + 4),
@@ -195,7 +220,7 @@ public static class RwBspFile
             normals = new Vector3[numVertices];
             for (var i = 0; i < numVertices; i++)
             {
-                if (pos + 4 > data.Length) break;
+                if (pos > structEnd - 4) return null;
                 var nx = (sbyte)data[pos];
                 var ny = (sbyte)data[pos + 1];
                 var nz = (sbyte)data[pos + 2];
@@ -214,7 +239,7 @@ public static class RwBspFile
             colors = new RwVertexColor[numVertices];
             for (var i = 0; i < numVertices; i++)
             {
-                if (pos + 4 > data.Length) break;
+                if (pos > structEnd - 4) return null;
                 colors[i] = new RwVertexColor(data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
                 pos += 4;
             }
@@ -228,7 +253,7 @@ public static class RwBspFile
             uvs = new Vector2[numVertices];
             for (var i = 0; i < numVertices; i++)
             {
-                if (pos + 8 > data.Length) break;
+                if (pos > structEnd - 8) return null;
                 var u = BitConverter.ToSingle(data, pos);
                 var v = BitConverter.ToSingle(data, pos + 4);
                 uvs[i] = new Vector2(u, v);
@@ -247,7 +272,7 @@ public static class RwBspFile
         var triangles = new RwTriangle[numTriangles];
         for (var i = 0; i < numTriangles; i++)
         {
-            if (pos + 8 > data.Length) break;
+            if (pos > structEnd - 8) return null;
             var matId = BitConverter.ToUInt16(data, pos);
             var v0 = BitConverter.ToUInt16(data, pos + 2);
             var v1 = BitConverter.ToUInt16(data, pos + 4);

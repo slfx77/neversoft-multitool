@@ -7,6 +7,27 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.XbxScene;
 public sealed class XbxSceneVertexBlockValidationTests
 {
     [Fact]
+    public void Parse_NegativeLinkCount_ThrowsInvalidData()
+    {
+        var data = BuildMinimalScene(linkCount: -1);
+
+        Assert.True(XbxSceneFile.IsXbxScene(data));
+        var exception = Assert.Throws<InvalidDataException>(() => XbxSceneFile.Parse(data));
+
+        Assert.Contains("link count -1", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_ZeroLinkCount_ReturnsEmptyScene()
+    {
+        var scene = XbxSceneFile.Parse(BuildMinimalScene(linkCount: 0));
+
+        Assert.Empty(scene.Materials);
+        Assert.Empty(scene.Sectors);
+        Assert.Empty(scene.Links);
+    }
+
+    [Fact]
     public void Parse_DeclaredVertexStrideSpanCannotExceedVertexBlock()
     {
         var data = BuildSingleVertexScene(blockBytes: 19);
@@ -27,6 +48,16 @@ public sealed class XbxSceneVertexBlockValidationTests
         var vertex = Assert.Single(mesh.Vertices);
         Assert.Equal(Vector3.Zero, vertex.Position);
         Assert.Empty(scene.Links);
+    }
+
+    private static byte[] BuildMinimalScene(int linkCount)
+    {
+        var data = new byte[24];
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0, 4), 1); // material version
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4, 4), 1); // mesh version
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(8, 4), 1); // vertex version
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(20, 4), linkCount);
+        return data;
     }
 
     private static byte[] BuildSingleVertexScene(int blockBytes)

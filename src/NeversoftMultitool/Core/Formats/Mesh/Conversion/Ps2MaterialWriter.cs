@@ -34,7 +34,8 @@ internal static class Ps2MaterialWriter
                     pngBytes,
                     material.TextureChecksum,
                     material.ClampU ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat,
-                    material.ClampV ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat);
+                    material.ClampV ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat,
+                    distinguishChecksumVariantsByContent: true);
             }
         }
 
@@ -150,7 +151,8 @@ internal static class Ps2MaterialWriter
                     pngBytes,
                     textureChecksum,
                     Ps2ClampToWrap((uint)(leaf.DmaClamp1 & 0x3)),
-                    Ps2ClampToWrap((uint)((leaf.DmaClamp1 >> 2) & 0x3)));
+                    Ps2ClampToWrap((uint)((leaf.DmaClamp1 >> 2) & 0x3)),
+                    distinguishChecksumVariantsByContent: true);
             }
         }
 

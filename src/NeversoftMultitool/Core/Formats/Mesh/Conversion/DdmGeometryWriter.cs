@@ -110,7 +110,7 @@ internal static class DdmGeometryWriter
                     ? MeshTextureHelper.ConvertLuminanceToAlpha(loaded.Value.Bytes)
                     : loaded.Value.Bytes;
                 renderMaterial.TextureIndex ??=
-                    ModelDocumentGeometryAdapter.AddTexture(document, material.TextureName, pngBytes);
+                    AddDdmTexture(document, material.TextureName, pngBytes);
                 if (isAdditive || loaded.Value.HasAlpha)
                     renderMaterial.AlphaMode = ModelAlphaMode.Blend;
                 else if (material.BlendMode == 2)
@@ -124,6 +124,27 @@ internal static class DdmGeometryWriter
             renderMaterial.AlphaMode = ModelAlphaMode.Blend;
         else if (material.BlendMode == 2)
             renderMaterial.AlphaMode = ModelAlphaMode.Mask;
+    }
+
+    private static int AddDdmTexture(ModelDocument document, string name, byte[] pngBytes)
+    {
+        for (var i = 0; i < document.Textures.Count; i++)
+        {
+            var texture = document.Textures[i];
+            if (string.Equals(texture.Name, name, StringComparison.OrdinalIgnoreCase) &&
+                texture.PngBytes is { } existingBytes &&
+                existingBytes.AsSpan().SequenceEqual(pngBytes))
+            {
+                return i;
+            }
+        }
+
+        document.Textures.Add(new ModelTexture
+        {
+            Name = name,
+            PngBytes = pngBytes
+        });
+        return document.Textures.Count - 1;
     }
 
     private static void PopulateDdmWithLayout(

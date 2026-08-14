@@ -84,6 +84,10 @@ internal static class XbxSceneMaterialReader
         if (passIndex == 0 && (flags & XbxMaterialFlags.VcWibble) != 0)
         {
             var numSeqs = r.ReadInt32();
+            if (numSeqs < 0)
+                throw new InvalidDataException(
+                    $"Xbox material VC-wibble sequence count {numSeqs} is invalid");
+
             for (var seq = 0; seq < numSeqs; seq++)
             {
                 var numKeys = r.ReadInt32();

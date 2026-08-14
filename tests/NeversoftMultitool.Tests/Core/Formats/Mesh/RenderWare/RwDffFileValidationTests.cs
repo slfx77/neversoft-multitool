@@ -25,6 +25,15 @@ public sealed class RwDffFileValidationTests
         Assert.Empty(clump.Atomics);
     }
 
+    [Fact]
+    public void Parse_ClumpStructSizeWhoseIntCastMovesOffsetBackward_ThrowsInvalidDataException()
+    {
+        var data = CreateEmptyClump(ActualClumpPayloadSize);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16), uint.MaxValue);
+
+        Assert.Throws<InvalidDataException>(() => RwDffFile.Parse(data));
+    }
+
     private static byte[] CreateEmptyClump(uint declaredPayloadSize)
     {
         var data = new byte[12 + ActualClumpPayloadSize];

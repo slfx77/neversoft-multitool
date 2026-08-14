@@ -162,6 +162,8 @@ public static class MeshTypeDetector
             return 32;
         if (XboxSceneSuffixes.Contains(suffix))
             return 48;
+        if (RenderWareDffSuffixes.Contains(suffix) || string.Equals(suffix, ".bsp", StringComparison.Ordinal))
+            return 12;
 
         return 4;
     }

@@ -21,6 +21,18 @@ public sealed class ThawPs2SkinSizeValidationTests
         Assert.True(ThawPs2SkinFile.IsThawPs2Skin(data));
     }
 
+    [Theory]
+    [InlineData(32, false)]
+    [InlineData(104, true)]
+    public void IsThawPs2Skin_HeaderPrefix_RequiresDeclaredFileToContainTables(
+        long fileSize,
+        bool expected)
+    {
+        var data = BuildMinimalHeader(16)[..32];
+
+        Assert.Equal(expected, ThawPs2SkinFile.IsThawPs2Skin(data, fileSize));
+    }
+
     private static byte[] BuildMinimalHeader(uint dataSize)
     {
         var data = new byte[104];

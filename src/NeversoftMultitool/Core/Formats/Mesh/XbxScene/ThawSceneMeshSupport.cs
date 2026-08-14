@@ -122,6 +122,9 @@ internal static class ThawSceneMeshSupport
         var vertexCount = r.ReadUInt16();
 
         var faceCount0 = r.ReadInt32();
+        if (faceCount0 < 0)
+            throw new InvalidDataException($"THAW mesh face count {faceCount0} is invalid");
+
         r.BaseStream.Position += 12;
         r.BaseStream.Position += 8;
         r.BaseStream.Position += 16;

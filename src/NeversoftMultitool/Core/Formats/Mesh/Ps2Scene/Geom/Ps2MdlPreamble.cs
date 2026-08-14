@@ -98,14 +98,16 @@ public static class Ps2MdlPreamble
             if (BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(sigAt)) != PreambleRecordSig)
                 break;
 
-            records[recStart] = ReadPreambleRecord(data, recStart);
+            var record = ReadPreambleRecord(data, recStart);
+            if (record != null)
+                records[recStart] = record;
             recStart += PreambleRecordStride;
         }
 
         return records;
     }
 
-    private static PreambleRecord ReadPreambleRecord(byte[] data, int offset)
+    private static PreambleRecord? ReadPreambleRecord(byte[] data, int offset)
     {
         var span = data.AsSpan(offset);
 
@@ -118,7 +120,16 @@ public static class Ps2MdlPreamble
         var qy = BinaryPrimitives.ReadSingleLittleEndian(span[0x24..]);
         var qz = BinaryPrimitives.ReadSingleLittleEndian(span[0x28..]);
         var qw = BinaryPrimitives.ReadSingleLittleEndian(span[0x2C..]);
+        if (!float.IsFinite(qx) || !float.IsFinite(qy) ||
+            !float.IsFinite(qz) || !float.IsFinite(qw))
+        {
+            return null;
+        }
+
         var mag = MathF.Sqrt(qx * qx + qy * qy + qz * qz + qw * qw);
+        if (!float.IsFinite(mag))
+            return null;
+
         var rotation = mag > 0f
             ? new Quaternion(qx / mag, qy / mag, qz / mag, qw / mag)
             : Quaternion.Identity;
@@ -126,6 +137,8 @@ public static class Ps2MdlPreamble
         var sx = BinaryPrimitives.ReadSingleLittleEndian(span[0x30..]);
         var sy = BinaryPrimitives.ReadSingleLittleEndian(span[0x34..]);
         var sz = BinaryPrimitives.ReadSingleLittleEndian(span[0x38..]);
+        if (!float.IsFinite(sx) || !float.IsFinite(sy) || !float.IsFinite(sz))
+            return null;
 
         var flags = BinaryPrimitives.ReadUInt32LittleEndian(span[0x3C..]);
         var field40 = BinaryPrimitives.ReadUInt32LittleEndian(span[0x40..]);

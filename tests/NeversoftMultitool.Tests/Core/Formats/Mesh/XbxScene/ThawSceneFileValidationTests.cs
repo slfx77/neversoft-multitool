@@ -6,6 +6,18 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.XbxScene;
 public sealed class ThawSceneFileValidationTests
 {
     [Fact]
+    public void Parse_NegativeLinkCount_ThrowsInvalidData()
+    {
+        var data = BuildMinimalScene(sectorCount: 0);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(428, 4), -1);
+
+        Assert.True(ThawSceneFile.IsThawScene(data));
+        var error = Assert.Throws<InvalidDataException>(() => ThawSceneFile.Parse(data));
+
+        Assert.Equal("THAW scene link count -1 is invalid", error.Message);
+    }
+
+    [Fact]
     public void Parse_NegativeSectorCount_ThrowsInvalidData()
     {
         var data = BuildMinimalScene(sectorCount: -1);

@@ -34,6 +34,8 @@ public static class RwDffFile
         // Struct child: numAtomics
         if (!TryReadStruct(data, ref offset, clumpEnd, out _, out var structSize))
             throw new InvalidDataException("Missing Clump Struct");
+        if (structSize < sizeof(int) || structSize > clumpEnd - offset)
+            throw new InvalidDataException("RW Clump Struct exceeds its parent chunk");
         _ = BitConverter.ToInt32(data, offset);
         offset += (int)structSize;
 

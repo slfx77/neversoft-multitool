@@ -77,6 +77,34 @@ public sealed class RwBspFileTests(TestPaths paths)
         Assert.Contains("beyond the World payload", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Parse_AtomicStructCannotBorrowGeometryPastItsDeclaredExtent()
+    {
+        var world = RwBspFile.Parse(BuildSingleAtomicWorld(structSize: 44));
+
+        Assert.Empty(world.Sections);
+    }
+
+    [Fact]
+    public void Parse_AtomicChunkCannotEscapeItsWorldExtent()
+    {
+        var world = RwBspFile.Parse(BuildSingleAtomicWorld(worldSize: 132));
+
+        Assert.Empty(world.Sections);
+    }
+
+    [Fact]
+    public void Parse_AtomicStructGeometryEndingExactlyAtWorldEof_IsAccepted()
+    {
+        var world = RwBspFile.Parse(BuildSingleAtomicWorld());
+
+        var section = Assert.Single(world.Sections);
+        Assert.Equal(new System.Numerics.Vector3(1f, 2f, 3f), Assert.Single(section.Vertices));
+        var triangle = Assert.Single(section.Triangles);
+        Assert.Equal((0, 0, 0, 0),
+            ((int)triangle.V0, (int)triangle.V1, (int)triangle.V2, (int)triangle.MaterialIndex));
+    }
+
     // ── Parse known files ──
 
     [CorpusTheory]
@@ -272,6 +300,37 @@ public sealed class RwBspFileTests(TestPaths paths)
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4, 4), 64);
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(12, 4), 0x0001);
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16, 4), 52);
+        return data;
+    }
+
+    private static byte[] BuildSingleAtomicWorld(
+        uint worldSize = 152,
+        uint atomicSize = 76,
+        uint structSize = 64)
+    {
+        // The physical bytes always contain the vertex and triangle at 144..163.
+        // Individual tests independently shorten the nested STRUCT or its WORLD
+        // parent; the exact-EOF control owns every byte through offset 164.
+        var data = new byte[164];
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0, 4), 0x000B);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4, 4), worldSize);
+
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(12, 4), 0x0001);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16, 4), 52);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(52, 4), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(56, 4), 1);
+
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(76, 4), 0x0009);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(80, 4), atomicSize);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(88, 4), 0x0001);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(92, 4), structSize);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(104, 4), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(108, 4), 1);
+
+        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(144, 4), 1f);
+        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(148, 4), 2f);
+        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(152, 4), 3f);
+        // Triangle at 156 is all zero: material 0 and three references to vertex 0.
         return data;
     }
 }

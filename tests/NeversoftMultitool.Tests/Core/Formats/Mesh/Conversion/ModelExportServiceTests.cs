@@ -29,6 +29,84 @@ public sealed class ModelExportServiceTests
         Assert.Equal(1, result.MaterialCount);
     }
 
+    [Theory]
+    [InlineData(MeshOutputFormat.Glb)]
+    [InlineData(MeshOutputFormat.Blend)]
+    [InlineData(MeshOutputFormat.Both)]
+    public void Export_PathBearingExplicitStem_RejectsBeforeExporterSideEffects(MeshOutputFormat format)
+    {
+        using var temp = new TempDirectory();
+        var outputDirectory = Path.Combine(temp.Path, "output");
+        var document = CreateTriangleDocument();
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            ModelExportService.Export(
+                document,
+                new MeshExportRequest
+                {
+                    OutputDirectory = outputDirectory,
+                    OutputStem = "../escaped",
+                    Format = format,
+                    BlenderHelperPath = Path.Combine(temp.Path, "missing-blender.exe")
+                }));
+
+        Assert.Equal("request", ex.ParamName);
+        Assert.StartsWith(
+            "effective output stem must be a non-empty file-name stem without path components.",
+            ex.Message,
+            StringComparison.Ordinal);
+        Assert.False(Directory.Exists(outputDirectory));
+        Assert.False(File.Exists(Path.Combine(temp.Path, "escaped.glb")));
+        Assert.False(File.Exists(Path.Combine(temp.Path, "escaped.blend")));
+    }
+
+    [Fact]
+    public void Export_InvalidFallbackDocumentName_RejectsBeforeExporterSideEffects()
+    {
+        using var temp = new TempDirectory();
+        var outputDirectory = Path.Combine(temp.Path, "output");
+        var document = CreateTriangleDocument("..");
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            ModelExportService.Export(
+                document,
+                new MeshExportRequest
+                {
+                    OutputDirectory = outputDirectory,
+                    Format = MeshOutputFormat.Glb
+                }));
+
+        Assert.Equal("document", ex.ParamName);
+        Assert.StartsWith(
+            "effective output stem must be a non-empty file-name stem without path components.",
+            ex.Message,
+            StringComparison.Ordinal);
+        Assert.False(Directory.Exists(outputDirectory));
+    }
+
+    [Fact]
+    public void Export_RootedExplicitStem_RejectsBeforeExporterSideEffects()
+    {
+        using var temp = new TempDirectory();
+        var outputDirectory = Path.Combine(temp.Path, "output");
+        var rootedStem = Path.Combine(temp.Path, "rooted");
+        var document = CreateTriangleDocument();
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            ModelExportService.Export(
+                document,
+                new MeshExportRequest
+                {
+                    OutputDirectory = outputDirectory,
+                    OutputStem = rootedStem,
+                    Format = MeshOutputFormat.Glb
+                }));
+
+        Assert.Equal("request", ex.ParamName);
+        Assert.False(Directory.Exists(outputDirectory));
+        Assert.False(File.Exists(rootedStem + ".glb"));
+    }
+
     [Fact]
     public void Export_Glb_EmbedsTextureSamplerAndAlphaMode()
     {
@@ -314,9 +392,9 @@ public sealed class ModelExportServiceTests
         Assert.Equal(128f, reader.ReadSingle());
     }
 
-    private static ModelDocument CreateTriangleDocument()
+    private static ModelDocument CreateTriangleDocument(string name = "triangle")
     {
-        var document = new ModelDocument { Name = "triangle" };
+        var document = new ModelDocument { Name = name };
         document.Materials.Add(new RenderMaterial
         {
             Name = "triangle_mat",

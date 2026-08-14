@@ -36,6 +36,7 @@ public sealed class RwChunkReaderTests
         Assert.True(result);
         Assert.Equal(RwChunkReader.RW_STRUCT, type);
         Assert.Equal(100u, size);
+        Assert.Equal(12, offset);
     }
 
     [Fact]
@@ -47,9 +48,19 @@ public sealed class RwChunkReaderTests
         BitConverter.GetBytes((uint)0x0310).CopyTo(data, 8);
 
         var offset = 0;
-        var result = RwChunkReader.TryReadStruct(data, ref offset, data.Length, out _, out _);
+        var result = RwChunkReader.TryReadStruct(
+            data, ref offset, data.Length, out var type, out var size);
 
         Assert.False(result);
+        Assert.Equal(RwChunkReader.RW_STRING, type);
+        Assert.Equal(10u, size);
+        Assert.Equal(0, offset);
+
+        Assert.True(RwChunkReader.TryReadAnyChunk(
+            data, ref offset, data.Length, out var anyType, out var anySize));
+        Assert.Equal(RwChunkReader.RW_STRING, anyType);
+        Assert.Equal(10u, anySize);
+        Assert.Equal(12, offset);
     }
 
     [Fact]
@@ -77,6 +88,7 @@ public sealed class RwChunkReaderTests
 
         Assert.True(result);
         Assert.Equal(500u, size);
+        Assert.Equal(12, offset);
     }
 
     [Fact]
@@ -89,9 +101,17 @@ public sealed class RwChunkReaderTests
 
         var offset = 0;
         var result = RwChunkReader.TryReadChunk(data, ref offset, data.Length,
-            RwChunkReader.RW_CLUMP, out _);
+            RwChunkReader.RW_CLUMP, out var size);
 
         Assert.False(result);
+        Assert.Equal(500u, size);
+        Assert.Equal(0, offset);
+
+        Assert.True(RwChunkReader.TryReadAnyChunk(
+            data, ref offset, data.Length, out var type, out var anySize));
+        Assert.Equal(RwChunkReader.RW_GEOMETRY, type);
+        Assert.Equal(500u, anySize);
+        Assert.Equal(12, offset);
     }
 
     [Fact]

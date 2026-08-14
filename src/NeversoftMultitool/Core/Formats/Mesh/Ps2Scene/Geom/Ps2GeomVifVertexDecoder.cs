@@ -213,6 +213,9 @@ internal static class Ps2GeomVifVertexDecoder
     private static List<(VifBatch Batch, int BatchStart, int BatchEnd)> ParseBatches(
         byte[] data, int pStart, int pEnd)
     {
+        if (pStart < 0 || pEnd < pStart || pEnd > data.Length)
+            return [];
+
         var batches = new List<(VifBatch, int, int)>();
         var currentBatch = new VifBatch();
         var stmodActive = false;
@@ -226,20 +229,26 @@ internal static class Ps2GeomVifVertexDecoder
         byte lastPositionUnpackCmd = 0;
 
         var pCode = pStart;
-        while (pCode < pEnd && pCode + 4 <= data.Length)
+        while (pCode < pEnd)
         {
+            if (pEnd - pCode < 4)
+                return [];
+
             var cmd = data[pCode + 3];
+            var nextCode = VifNextCode(data, pCode, pEnd);
+            if (nextCode <= pCode || nextCode > pEnd || nextCode > data.Length)
+                return [];
 
             if ((cmd & 0x7F) == 0x05)
             {
                 stmodActive = data[pCode] == 1;
-                pCode = VifNextCode(data, pCode, pEnd);
+                pCode = nextCode;
                 continue;
             }
 
             if ((cmd & 0x7F) == 0x14)
             {
-                var batchEnd = VifNextCode(data, pCode, pEnd);
+                var batchEnd = nextCode;
                 if (currentBatch.PositionOffset >= 0)
                     batches.Add((currentBatch, currentBatchStart, batchEnd));
 
@@ -323,7 +332,7 @@ internal static class Ps2GeomVifVertexDecoder
                 }
             }
 
-            pCode = VifNextCode(data, pCode, pEnd);
+            pCode = nextCode;
         }
 
         if (currentBatch.PositionOffset >= 0)

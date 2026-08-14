@@ -24,6 +24,9 @@ internal static class BlendPackageWriter
                 $"Parser adapter for {document.SourceKind} did not populate either.");
         }
 
+        foreach (var primitive in document.Meshes.SelectMany(static mesh => mesh.Primitives))
+            ValidateCompleteTriangleIndices(primitive);
+
         using var archive = new ZipArchive(packageStream, ZipArchiveMode.Create, true);
         var textures = WriteTextures(document, archive);
         var (colourPulseChannels, colourPulseCodeMap) = BuildColourPulseChannels(document);
@@ -64,6 +67,16 @@ internal static class BlendPackageWriter
         var manifestEntry = archive.CreateEntry("manifest.json", CompressionLevel.Fastest);
         using var manifestStream = manifestEntry.Open();
         JsonSerializer.Serialize(manifestStream, manifest, BlendPackageManifest.JsonOptions);
+    }
+
+    private static void ValidateCompleteTriangleIndices(ModelPrimitive primitive)
+    {
+        if (primitive.Indices.Length % 3 != 0)
+        {
+            throw new InvalidDataException(
+                $"Mesh primitive '{primitive.Name}' has {primitive.Indices.Length} indices; " +
+                "triangle indices must contain complete triples.");
+        }
     }
 
     private static List<BlendTextureManifest> WriteTextures(ModelDocument document, ZipArchive archive)

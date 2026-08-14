@@ -48,8 +48,10 @@ internal static class RwChunkReader
 
         type = BitConverter.ToUInt32(data, offset);
         size = BitConverter.ToUInt32(data, offset + 4);
+        if (type != RW_STRUCT) return false;
+
         offset += 12;
-        return type == RW_STRUCT;
+        return true;
     }
 
     internal static bool TryReadChunk(byte[] data, ref int offset, int endOffset,
@@ -60,8 +62,10 @@ internal static class RwChunkReader
 
         var type = BitConverter.ToUInt32(data, offset);
         size = BitConverter.ToUInt32(data, offset + 4);
+        if (type != expectedType) return false;
+
         offset += 12;
-        return type == expectedType;
+        return true;
     }
 
     /// <summary>

@@ -72,6 +72,66 @@ public sealed class Ps2GeomGsContextScanTests
         Assert.Equal(frame, scan.Value.Context.Frame1);
     }
 
+    [Theory]
+    [InlineData(20)]
+    [InlineData(24)]
+    public void ScanBatchForGsContext_PrimaryPatternDoesNotBorrowNextBatchRegisterBlock(int batchEnd)
+    {
+        var data = MakeGifRegisterBlock(0x4C, 0x123456789ABCDEF0);
+
+        var scan = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(data, 0, batchEnd);
+
+        Assert.Null(scan);
+    }
+
+    [Fact]
+    public void ScanBatchForGsContext_StandalonePatternDoesNotBorrowPayloadPastBatchEnd()
+    {
+        var data = MakeStandaloneRegisterBlock(0x4C, 0x123456789ABCDEF0);
+
+        var scan = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(data, 0, 4);
+
+        Assert.Null(scan);
+    }
+
+    [Fact]
+    public void ScanBatchForGsContext_StandalonePatternAcceptsPayloadEndingAtBatchEnd()
+    {
+        const ulong frame = 0x123456789ABCDEF0;
+        var data = MakeStandaloneRegisterBlock(0x4C, frame);
+
+        var scan = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(data, 0, data.Length);
+
+        Assert.True(scan.HasValue);
+        Assert.Equal(GsRegisterMask.Frame1, scan.Value.Present);
+        Assert.Equal(frame, scan.Value.Context.Frame1);
+    }
+
+    [Theory]
+    [InlineData(20)]
+    [InlineData(24)]
+    public void ScanBatchForCenter_DoesNotBorrowNextBatchPayload(int batchEnd)
+    {
+        var data = MakeCenterBlock(1.25f, -2.5f, 3.75f);
+
+        var center = Ps2GeomMdlBatchScanner.ScanBatchForCenter(data, 0, batchEnd);
+
+        Assert.Null(center);
+    }
+
+    [Fact]
+    public void ScanBatchForCenter_AcceptsPayloadEndingAtBatchEnd()
+    {
+        var data = MakeCenterBlock(1.25f, -2.5f, 3.75f);
+
+        var center = Ps2GeomMdlBatchScanner.ScanBatchForCenter(data, 0, data.Length);
+
+        Assert.True(center.HasValue);
+        Assert.Equal(1.25f, center.Value.X);
+        Assert.Equal(-2.5f, center.Value.Y);
+        Assert.Equal(3.75f, center.Value.Z);
+    }
+
     private static Ps2GeomGsContext MakeInheritedContext()
     {
         return new Ps2GeomGsContext
@@ -97,6 +157,30 @@ public sealed class Ps2GeomGsContextScanTests
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(24), (uint)value);
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(28), (uint)(value >> 32));
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(32), reg);
+        return data;
+    }
+
+    private static byte[] MakeStandaloneRegisterBlock(uint reg, ulong value)
+    {
+        var data = new byte[16];
+        data[2] = 1;
+        data[3] = 0x68;
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), (uint)value);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(8), (uint)(value >> 32));
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(12), reg);
+        return data;
+    }
+
+    private static byte[] MakeCenterBlock(float x, float y, float z)
+    {
+        var data = new byte[36];
+        data[2] = 1;
+        data[3] = 0x6C;
+        data[22] = 1;
+        data[23] = 0x68;
+        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(24), x);
+        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(28), y);
+        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(32), z);
         return data;
     }
 }

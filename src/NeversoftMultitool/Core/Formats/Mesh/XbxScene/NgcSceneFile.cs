@@ -46,11 +46,11 @@ public static class NgcSceneFile
         var span = data.AsSpan();
 
         // sSceneHeader (THUG layout, first 32 bytes of the 64-byte header).
-        var numPos = (int)BinaryPrimitives.ReadUInt32BigEndian(span);
+        var numPosRaw = BinaryPrimitives.ReadUInt32BigEndian(span);
         var numNrm = (int)BinaryPrimitives.ReadUInt16BigEndian(span[0x06..]);
         var numCol = (int)BinaryPrimitives.ReadUInt16BigEndian(span[0x08..]);
         var numTex = (int)BinaryPrimitives.ReadUInt16BigEndian(span[0x0A..]);
-        var numPoolBytes = (int)BinaryPrimitives.ReadUInt32BigEndian(span[0x0C..]);
+        var numPoolBytesRaw = BinaryPrimitives.ReadUInt32BigEndian(span[0x0C..]);
         var numObjects = (int)BinaryPrimitives.ReadUInt16BigEndian(span[0x10..]);
         var numMaterials = (int)BinaryPrimitives.ReadUInt16BigEndian(span[0x12..]);
         var numBlendDls = (int)BinaryPrimitives.ReadUInt16BigEndian(span[0x18..]);
@@ -59,37 +59,68 @@ public static class NgcSceneFile
         var numPassItems = (int)BinaryPrimitives.ReadUInt16BigEndian(span[0x1E..]);
 
         // sMaterialDL (8B) + sTextureDL (24B) tables, padded together to 32.
+        // Validate their complete framing before reading individual entries.
+        var tableBytes = (long)numBlendDls * 8 + (long)numMaterials * 24;
+        var paddedTableBytes = tableBytes + (32 - tableBytes % 32) % 32;
+        RequireRange(span.Length, HeaderSize, paddedTableBytes,
+            "NGC scene material display-list tables");
+
         var offset = HeaderSize;
-        var blendDlBytes = 0;
+        long blendDlBytes = 0;
         for (var i = 0; i < numBlendDls; i++)
         {
-            blendDlBytes += (int)BinaryPrimitives.ReadUInt32BigEndian(span[offset..]);
+            blendDlBytes += BinaryPrimitives.ReadUInt32BigEndian(span[offset..]);
             offset += 8;
         }
 
-        var textureDlBytes = 0;
+        long textureDlBytes = 0;
         var materialTextured = new bool[numMaterials];
         for (var i = 0; i < numMaterials; i++)
         {
-            textureDlBytes += (int)BinaryPrimitives.ReadUInt32BigEndian(span[offset..]);
+            textureDlBytes += BinaryPrimitives.ReadUInt32BigEndian(span[offset..]);
             // m_tex_offset[0] >= 0 means the DL contains a texture address to patch.
             materialTextured[i] = BinaryPrimitives.ReadInt16BigEndian(span[(offset + 8)..]) >= 0;
             offset += 24;
         }
 
-        var tableBytes = numBlendDls * 8 + numMaterials * 24;
-        offset += (32 - tableBytes % 32) % 32;
-        offset += blendDlBytes + textureDlBytes;
+        offset = checked(HeaderSize + (int)paddedTableBytes);
+        RequireRange(span.Length, offset, blendDlBytes + textureDlBytes,
+            "NGC scene material display-list data");
+        offset = checked(offset + (int)(blendDlBytes + textureDlBytes));
 
         var poolStart = offset;
+        if (numPoolBytesRaw > (uint)(span.Length - poolStart))
+        {
+            throw new InvalidDataException(
+                $"NGC scene pool size {numPoolBytesRaw} exceeds the {span.Length - poolStart} remaining bytes");
+        }
+
+        var numPoolBytes = (int)numPoolBytesRaw;
+        var poolEnd = poolStart + numPoolBytes;
 
         // VC wibble keys precede the material headers inside the pool.
         for (var i = 0; i < numVcWibbles; i++)
         {
+            RequireRange(poolEnd, offset, 8, $"NGC scene VC-wibble {i} header");
             var frames = BinaryPrimitives.ReadInt32BigEndian(span[offset..]);
-            offset += 8 + frames * 8;
+            if (frames < 0)
+                throw new InvalidDataException($"NGC scene VC-wibble {i} has negative frame count {frames}");
+
+            var wibbleBytes = 8L + (long)frames * 8;
+            RequireRange(poolEnd, offset, wibbleBytes, $"NGC scene VC-wibble {i}");
+            offset += (int)wibbleBytes;
         }
 
+        var fixedPoolBytes = (long)numMaterials * 32
+                             + (long)numUvWibbles * 32
+                             + (long)numPassItems * 32
+                             + (long)numPosRaw * 12
+                             + (long)numCol * 4
+                             + (long)numTex * 4
+                             + (long)numNrm * 6;
+        RequireRange(poolEnd, offset, fixedPoolBytes, "NGC scene fixed pool arrays");
+
+        var numPos = checked((int)numPosRaw);
         var materialOffsets = offset;
         offset += numMaterials * 32;
         offset += numUvWibbles * 32;
@@ -114,10 +145,12 @@ public static class NgcSceneFile
             span, materialOffsets, numMaterials, passOffsets, numPassItems, materialTextured);
 
         // Objects follow the pool region.
-        offset = poolStart + numPoolBytes;
+        offset = poolEnd;
+        RequireRange(span.Length, offset, (long)numObjects * ObjectHeaderSize,
+            "NGC scene object headers");
         var sectors = new List<XbxSector>(numObjects);
         for (var obj = 0; obj < numObjects; obj++)
-            offset = ReadObject(span, offset, pools, sectors);
+            offset = ReadObject(span, offset, obj, pools, sectors);
 
         var links = ReadHierarchy(span, offset);
 
@@ -183,11 +216,14 @@ public static class NgcSceneFile
     private static int ReadObject(
         ReadOnlySpan<byte> span,
         int offset,
+        int objectIndex,
         PoolLayout pools,
         List<XbxSector> sectors)
     {
+        RequireRange(span.Length, offset, ObjectHeaderSize,
+            $"NGC scene object {objectIndex} header");
         var numMeshes = (int)BinaryPrimitives.ReadUInt16BigEndian(span[offset..]);
-        var skinBytes = (int)BinaryPrimitives.ReadUInt32BigEndian(span[(offset + 4)..]);
+        var skinBytesRaw = BinaryPrimitives.ReadUInt32BigEndian(span[(offset + 4)..]);
         var numSkinVerts = (int)BinaryPrimitives.ReadUInt16BigEndian(span[(offset + 8)..]);
         var numDoubleLists = (int)BinaryPrimitives.ReadUInt16BigEndian(span[(offset + 10)..]);
         var numSingleLists = (int)span[offset + 12];
@@ -196,17 +232,24 @@ public static class NgcSceneFile
         var sphere = ReadVector4(span, offset + 48);
 
         var skinStart = offset + ObjectHeaderSize;
-        var skinVerts = skinBytes > 0
-            ? ParseSkin(span, skinStart, numSingleLists, numDoubleLists, numAddLists, numSkinVerts)
-            : [];
+        RequireRange(span.Length, skinStart, skinBytesRaw,
+            $"NGC scene object {objectIndex} skin data");
+        var skinBytes = (int)skinBytesRaw;
+        var skinEnd = skinStart + skinBytes;
+        var skinVerts = ParseSkin(
+            span, skinStart, skinEnd,
+            numSingleLists, numDoubleLists, numAddLists, numSkinVerts,
+            objectIndex);
 
-        offset = skinStart + skinBytes;
+        offset = skinEnd;
 
         var meshes = new List<XbxMesh>(numMeshes);
         uint sectorChecksum = 0;
         for (var m = 0; m < numMeshes; m++)
         {
-            var dlSize = (int)BinaryPrimitives.ReadUInt32BigEndian(span[offset..]);
+            RequireRange(span.Length, offset, DlHeaderSize,
+                $"NGC scene object {objectIndex} mesh {m} header");
+            var dlSizeRaw = BinaryPrimitives.ReadUInt32BigEndian(span[offset..]);
             var materialChecksum = BinaryPrimitives.ReadUInt32BigEndian(span[(offset + 4)..]);
             var flags = BinaryPrimitives.ReadUInt32BigEndian(span[(offset + 8)..]);
             var checksum = BinaryPrimitives.ReadUInt32BigEndian(span[(offset + 12)..]);
@@ -215,11 +258,15 @@ public static class NgcSceneFile
                 sectorChecksum = checksum;
 
             var dlStart = offset + DlHeaderSize;
+            RequireRange(span.Length, dlStart, dlSizeRaw,
+                $"NGC scene object {objectIndex} mesh {m} display list");
+            var dlSize = (int)dlSizeRaw;
             if (dlSize > 0)
             {
                 var mesh = ParseMeshDisplayList(
                     span, dlStart, dlSize, skinVerts, pools,
-                    materialChecksum, flags, meshSphere);
+                    materialChecksum, flags, meshSphere,
+                    $"NGC scene object {objectIndex} mesh {m} display list");
                 if (mesh != null)
                     meshes.Add(mesh);
             }
@@ -261,32 +308,46 @@ public static class NgcSceneFile
     private static SkinVertex[] ParseSkin(
         ReadOnlySpan<byte> span,
         int offset,
+        int end,
         int numSingleLists,
         int numDoubleLists,
         int numAddLists,
-        int numSkinVerts)
+        int numSkinVerts,
+        int objectIndex)
     {
         var verts = new List<SkinVertex>(numSkinVerts);
 
         for (var list = 0; list < numSingleLists; list++)
         {
-            var count = (int)BinaryPrimitives.ReadUInt32BigEndian(span[offset..]);
+            RequireRange(end, offset, 8,
+                $"NGC scene object {objectIndex} single-skin list {list} header");
+            var countRaw = BinaryPrimitives.ReadUInt32BigEndian(span[offset..]);
             var mtx = (int)BinaryPrimitives.ReadUInt32BigEndian(span[(offset + 4)..]);
             offset += 8;
+            var recordBytes = (long)countRaw * 12;
+            RequireRange(end, offset, recordBytes,
+                $"NGC scene object {objectIndex} single-skin list {list} vertices");
+            var count = (int)countRaw;
             for (var i = 0; i < count; i++)
             {
                 var (pos, nrm) = ReadSkinPosNormal(span, offset + i * 12);
                 verts.Add(new SkinVertex(pos, nrm, mtx, 0, 1f, 0f, 0, 0f));
             }
 
-            offset += count * 12;
+            offset += (int)recordBytes;
         }
 
         for (var list = 0; list < numDoubleLists; list++)
         {
-            var count = (int)BinaryPrimitives.ReadUInt32BigEndian(span[offset..]);
+            RequireRange(end, offset, 8,
+                $"NGC scene object {objectIndex} double-skin list {list} header");
+            var countRaw = BinaryPrimitives.ReadUInt32BigEndian(span[offset..]);
             var mtx = (int)BinaryPrimitives.ReadUInt32BigEndian(span[(offset + 4)..]);
             offset += 8;
+            var recordBytes = (long)countRaw * 16;
+            RequireRange(end, offset, recordBytes,
+                $"NGC scene object {objectIndex} double-skin list {list} vertices and weights");
+            var count = (int)countRaw;
             var weightOffset = offset + count * 12;
             for (var i = 0; i < count; i++)
             {
@@ -296,16 +357,22 @@ public static class NgcSceneFile
                 verts.Add(new SkinVertex(pos, nrm, mtx & 255, (mtx >> 8) & 255, w0, w1, 0, 0f));
             }
 
-            offset = weightOffset + count * 4;
+            offset += (int)recordBytes;
         }
 
         var result = verts.ToArray();
 
         for (var list = 0; list < numAddLists; list++)
         {
-            var count = (int)BinaryPrimitives.ReadUInt32BigEndian(span[offset..]);
+            RequireRange(end, offset, 8,
+                $"NGC scene object {objectIndex} add-skin list {list} header");
+            var countRaw = BinaryPrimitives.ReadUInt32BigEndian(span[offset..]);
             var mtx = (int)BinaryPrimitives.ReadUInt32BigEndian(span[(offset + 4)..]);
             offset += 8;
+            var recordBytes = (long)countRaw * 16;
+            RequireRange(end, offset, recordBytes,
+                $"NGC scene object {objectIndex} add-skin list {list} vertices, weights, and indices");
+            var count = (int)countRaw;
             var weightOffset = offset + count * 12;
             var indexOffset = weightOffset + count * 2;
             for (var i = 0; i < count; i++)
@@ -316,7 +383,7 @@ public static class NgcSceneFile
                     result[target] = result[target] with { Bone2 = mtx, Weight2 = weight };
             }
 
-            offset = indexOffset + count * 2;
+            offset += (int)recordBytes;
         }
 
         return result;
@@ -388,7 +455,8 @@ public static class NgcSceneFile
         PoolLayout pools,
         uint materialChecksum,
         uint flags,
-        Vector4 meshSphere)
+        Vector4 meshSphere,
+        string context)
     {
         var skinned = skinVerts.Length > 0;
         var vertices = new List<XbxVertex>();
@@ -408,6 +476,7 @@ public static class NgcSceneFile
                     offset++;
                     continue;
                 case 0x08: // CP register load
+                    RequireRange(end, offset, 6, $"{context} CP command");
                     var reg = span[offset + 1];
                     var value = BinaryPrimitives.ReadUInt32BigEndian(span[(offset + 2)..]);
                     if (reg == 0x50) vcdLo = value;
@@ -415,11 +484,15 @@ public static class NgcSceneFile
                     offset += 6;
                     continue;
                 case 0x10: // XF register load: header packs (count-1) << 16 | address
+                    RequireRange(end, offset, 5, $"{context} XF command header");
                     var xfHeader = BinaryPrimitives.ReadUInt32BigEndian(span[(offset + 1)..]);
                     var xfCount = (int)((xfHeader >> 16) & 0xFFFF) + 1;
+                    RequireRange(end, offset, 5L + (long)xfCount * 4,
+                        $"{context} XF command");
                     offset += 5 + xfCount * 4;
                     continue;
                 case 0x61: // BP register load
+                    RequireRange(end, offset, 5, $"{context} BP command");
                     offset += 5;
                     continue;
             }
@@ -428,9 +501,12 @@ public static class NgcSceneFile
             if (drawOp is not (0x80 or 0x90 or 0x98 or 0xA0))
                 throw new InvalidDataException($"Unknown GX display list opcode 0x{op:X2} at 0x{offset:X}");
 
+            RequireRange(end, offset, 3, $"{context} draw header");
             var descriptor = DecodeVcd(vcdLo, vcdHi, offset);
             var count = (int)BinaryPrimitives.ReadUInt16BigEndian(span[(offset + 1)..]);
             offset += 3;
+            RequireRange(end, offset, (long)count * descriptor.Stride,
+                $"{context} draw tuples");
 
             var primIndices = new ushort[count];
             for (var v = 0; v < count; v++)
@@ -645,6 +721,16 @@ public static class NgcSceneFile
             BinaryPrimitives.ReadSingleBigEndian(span[(offset + 4)..]),
             BinaryPrimitives.ReadSingleBigEndian(span[(offset + 8)..]),
             BinaryPrimitives.ReadSingleBigEndian(span[(offset + 12)..]));
+    }
+
+    private static void RequireRange(int end, int offset, long size, string context)
+    {
+        if (offset < 0 || size < 0 || offset > end || size > end - offset)
+        {
+            throw new InvalidDataException(
+                $"{context} overruns its containing region at 0x{offset:X} " +
+                $"(need {size} bytes, end 0x{end:X})");
+        }
     }
 
     private readonly record struct PoolLayout(

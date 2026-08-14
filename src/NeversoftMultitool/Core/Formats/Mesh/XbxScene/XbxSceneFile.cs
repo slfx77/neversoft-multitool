@@ -368,7 +368,9 @@ public static class XbxSceneFile
             return [];
 
         var numLinks = r.ReadInt32();
-        if (numLinks <= 0)
+        if (numLinks < 0)
+            throw new InvalidDataException($"Xbox scene link count {numLinks} is invalid");
+        if (numLinks == 0)
             return [];
 
         var links = new XbxLink[numLinks];

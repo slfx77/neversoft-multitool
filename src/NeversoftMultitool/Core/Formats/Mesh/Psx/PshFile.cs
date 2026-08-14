@@ -84,7 +84,7 @@ public sealed class PshFile
 
             // Extract index number (after the name, skip whitespace)
             var indexStr = afterPart[endIdx..].Trim();
-            if (!int.TryParse(indexStr, out var index))
+            if (!int.TryParse(indexStr, out var index) || index < 0)
                 continue;
 
             // Check next line for parent comment: "//   parent: hawk_pelvis"
