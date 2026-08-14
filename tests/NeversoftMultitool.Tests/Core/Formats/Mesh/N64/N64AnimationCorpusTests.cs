@@ -167,7 +167,7 @@ public sealed class N64AnimationCorpusTests(TestPaths paths)
         Assert.Equal(300, maxShellClips);
     }
 
-    [Fact]
+    [CorpusFact]
     public void SpiderDocOck_CompressedClipsAndGlobalPartsMatchPsxSiblingExactly()
     {
         const string n64Build = "Spider-Man (2000-11-21, N64 - Final)";
@@ -312,7 +312,7 @@ public sealed class N64AnimationCorpusTests(TestPaths paths)
         Assert.Equal(536_820, comparedSamples);
     }
 
-    [Fact]
+    [CorpusFact]
     public void SpiderMap_ExactPayloadAdmitsRelativeK1AndRejectsGlobalInterpretation()
     {
         const string n64Build = "Spider-Man (2000-11-21, N64 - Final)";
@@ -485,7 +485,7 @@ public sealed class N64AnimationCorpusTests(TestPaths paths)
         Assert.Equal(pcAnimation.DirectRotations, n64Animation.DirectRotations);
     }
 
-    [Fact]
+    [CorpusFact]
     public void SevenPsxRosettaPairs_DirectTablesAndSwappedPayloadsMatchExactly()
     {
         const string thps2N64 = "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)";

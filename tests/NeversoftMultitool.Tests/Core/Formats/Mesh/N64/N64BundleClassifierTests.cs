@@ -59,6 +59,21 @@ public sealed class N64BundleClassifierTests(TestPaths paths)
         Assert.True(N64BundleClassifier.IsLevel(5000f, 300));
     }
 
+    [Theory]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    [InlineData(float.NegativeInfinity)]
+    public void NonFiniteRadius_NeverClassifiesAsWorld(float radius)
+    {
+        Assert.False(N64BundleClassifier.IsWorldScale(radius));
+        Assert.False(N64BundleClassifier.IsLevel(radius, N64BundleClassifier.LevelMinObjectCount));
+        Assert.Equal(
+            N64BundleClass.CharacterProp,
+            N64BundleClassifier.Classify(radius, N64BundleClassifier.LevelMinObjectCount));
+
+        Assert.True(N64BundleClassifier.IsWorldScale(N64BundleClassifier.WorldScaleRadius));
+    }
+
     /// <summary>
     ///     The empty band is the whole basis of the threshold, so assert it
     ///     directly against the corpus: no bundle may sit between the measured

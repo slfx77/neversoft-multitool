@@ -58,6 +58,8 @@ public static class N64TexCommand
         bool verbose,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         List<string> files;
         string? inputRoot = null;
         if (File.Exists(input))

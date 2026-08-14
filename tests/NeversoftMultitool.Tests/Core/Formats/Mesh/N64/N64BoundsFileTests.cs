@@ -59,6 +59,52 @@ public sealed class N64BoundsFileTests
         Assert.Equal(10f, N64BoundsFile.MaxRadius(data));
     }
 
+    [Fact]
+    public void Parse_RejectsInvertedExtent()
+    {
+        byte[] data =
+        [
+            0x00, 0x00, 0x00, 0x01, // count
+            0x00, 0x00, 0x00, 0x08, // kind
+            0x00, 0x00, 0x10, 0x00, // radius = 1
+            0x00, 0x01, 0x00, 0x00, // minX = 1, maxX = 0
+            0xFF, 0xFE, 0x00, 0x02, // minY = -2, maxY = 2
+            0xFF, 0xFD, 0x00, 0x03, // minZ = -3, maxZ = 3
+            0x00, 0x00, 0x00, 0x00  // renderer fields
+        ];
+
+        Assert.Equal(28, data.Length);
+        Assert.Empty(N64BoundsFile.Parse(data));
+        Assert.Equal(0f, N64BoundsFile.MaxRadius(data));
+    }
+
+    [Fact]
+    public void Parse_AcceptsDegenerateExtent()
+    {
+        byte[] data =
+        [
+            0x00, 0x00, 0x00, 0x01, // count
+            0x00, 0x00, 0x00, 0x08, // kind
+            0x00, 0x00, 0x10, 0x00, // radius = 1
+            0x00, 0x01, 0x00, 0x01, // minX = maxX = 1
+            0xFF, 0xFE, 0x00, 0x02, // minY = -2, maxY = 2
+            0xFF, 0xFD, 0x00, 0x03, // minZ = -3, maxZ = 3
+            0x00, 0x00, 0x00, 0x00  // renderer fields
+        ];
+
+        Assert.Equal(28, data.Length);
+        var record = Assert.Single(N64BoundsFile.Parse(data));
+        Assert.Equal(8u, record.Kind);
+        Assert.Equal(1f, record.Radius);
+        Assert.Equal(1, record.MinX);
+        Assert.Equal(1, record.MaxX);
+        Assert.Equal(-2, record.MinY);
+        Assert.Equal(2, record.MaxY);
+        Assert.Equal(-3, record.MinZ);
+        Assert.Equal(3, record.MaxZ);
+        Assert.Equal(1f, N64BoundsFile.MaxRadius(data));
+    }
+
     /// <summary>
     ///     80 of THPS2's 116 bundles carry four zero bytes after the last
     ///     record, so the parse must accept a tail rather than pin the length —

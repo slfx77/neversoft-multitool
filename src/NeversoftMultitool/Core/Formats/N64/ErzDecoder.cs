@@ -73,6 +73,15 @@ public static class ErzDecoder
         if (decompressedSize < 0 || decompressedSize > 1 << 24)
             throw new InvalidDataException($"Implausible ERZ output size {decompressedSize}");
 
+        var compressedSize = GetCompressedSize(block);
+        if (compressedSize <= 0 || compressedSize > block.Length - HeaderSize)
+        {
+            throw new InvalidDataException(
+                $"Implausible ERZ v1 compressed size {compressedSize} for a {block.Length}-byte block");
+        }
+
+        var compressedEnd = HeaderSize + compressedSize;
+
         var output = new byte[decompressedSize];
         var s3 = HeaderSize;     // stream pointer (16-bit LE window chunks + literals)
         var s4 = 0;              // dst
@@ -93,7 +102,7 @@ public static class ErzDecoder
             // follows in ROM and their bits are never consumed into output;
             // zero-fill is equally never-consumed and keeps exact slices safe.
             // The golden-hash tests prove no padded byte reaches the output.
-            return index >= block.Length ? (byte)0 : block[index];
+            return index >= compressedEnd ? (byte)0 : block[index];
         }
 
         // Bit window state (0x1444..0x145C): t6 = LE16 at s3, t7 = bits
@@ -243,6 +252,9 @@ public static class ErzDecoder
                     // 0x18A8: literals are byte-aligned in the stream.
                     while (true)
                     {
+                        if (s3 >= compressedEnd)
+                            throw new InvalidDataException(
+                                "ERZ v1 literal exceeds its declared compressed payload");
                         if (s4 >= output.Length)
                             throw new InvalidDataException("ERZ v1 output overrun");
                         output[s4++] = SrcByte(s3);
@@ -289,7 +301,16 @@ public static class ErzDecoder
             }
 
             if (s4 >= s5)
+            {
+                var semanticBitCursor = (long)(s3 - HeaderSize) * 8 - t7;
+                if (semanticBitCursor > (long)compressedSize * 8)
+                {
+                    throw new InvalidDataException(
+                        "ERZ v1 bitstream exceeds its declared compressed payload");
+                }
+
                 return output;
+            }
         }
     }
 

@@ -134,6 +134,32 @@ public sealed class N64BundleNamesTests(TestPaths paths)
         Assert.Null(N64BundleNames.TryResolve(0xDEAD_BEEF_DEAD_BEEF));
     }
 
+    [Fact]
+    public void ResolveAll_KnownCandidatesCannotMutateTheSharedDictionary()
+    {
+        const ulong key = 0x001A135A20CCF311;
+        var candidates = N64BundleNames.ResolveAll(key);
+        var mutable = Assert.IsAssignableFrom<IList<string>>(candidates);
+        var original = mutable[0];
+        Exception? mutationException = null;
+
+        try
+        {
+            mutationException = Record.Exception(() => mutable[0] = "corrupted");
+        }
+        finally
+        {
+            // The old implementation exposed the backing array. Restore it so
+            // an old-code test failure cannot poison later static lookups.
+            if (!StringComparer.Ordinal.Equals(mutable[0], original))
+                mutable[0] = original;
+        }
+
+        Assert.Equal(["skss_o", "skss_o2"], N64BundleNames.ResolveAll(key));
+        Assert.Equal("skss_o", N64BundleNames.TryResolve(key));
+        Assert.IsType<NotSupportedException>(mutationException);
+    }
+
     /// <summary>A stub slot and a garbage buffer both degrade to null, never throw.</summary>
     [Fact]
     public void TryResolveShell_ReturnsNullRatherThanThrowing()

@@ -49,7 +49,7 @@ public static class N64BoundsFile
     /// </summary>
     public static IReadOnlyList<Record> Parse(ReadOnlySpan<byte> data)
     {
-        if (!TryReadCount(data, out var count))
+        if (!TryReadCount(data, out var count) || !HasOrderedExtents(data, count))
             return [];
 
         var records = new Record[count];
@@ -76,7 +76,7 @@ public static class N64BoundsFile
     /// </summary>
     public static float MaxRadius(ReadOnlySpan<byte> data)
     {
-        if (!TryReadCount(data, out var count))
+        if (!TryReadCount(data, out var count) || !HasOrderedExtents(data, count))
             return 0f;
 
         var largest = 0u;
@@ -101,6 +101,24 @@ public static class N64BoundsFile
             return false;
 
         count = (int)declared;
+        return true;
+    }
+
+    private static bool HasOrderedExtents(ReadOnlySpan<byte> data, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var offset = HeaderSize + i * RecordSize + 8;
+            var minX = BinaryPrimitives.ReadInt16BigEndian(data[offset..]);
+            var maxX = BinaryPrimitives.ReadInt16BigEndian(data[(offset + 2)..]);
+            var minY = BinaryPrimitives.ReadInt16BigEndian(data[(offset + 4)..]);
+            var maxY = BinaryPrimitives.ReadInt16BigEndian(data[(offset + 6)..]);
+            var minZ = BinaryPrimitives.ReadInt16BigEndian(data[(offset + 8)..]);
+            var maxZ = BinaryPrimitives.ReadInt16BigEndian(data[(offset + 10)..]);
+            if (minX > maxX || minY > maxY || minZ > maxZ)
+                return false;
+        }
+
         return true;
     }
 }

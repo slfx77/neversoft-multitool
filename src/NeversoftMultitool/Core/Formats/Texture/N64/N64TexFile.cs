@@ -35,7 +35,7 @@ namespace NeversoftMultitool.Core.Formats.Texture.N64;
 ///     interleave baked into storage, on the 0x3F-based byte grid. Texels
 ///     and CI4 palette entries are BE u16 RGBA5551 (R bits 15-11, A bit 0);
 ///     the palette (16 entries, 32 bytes) sits at 0x3F+dataSize; IA8 = I4+A4
-///     nibbles; IA4 = I3+A1; I4/I8 export as opaque grayscale.
+///     nibbles; IA4 = I3+A1; I4/I8 replicate intensity to every RGBA channel.
 ///
 ///     IMAGE RECORD (.img.n64, fullscreen CI8 banks): a 3-slot sub-file
 ///     table {28-byte header (BE magic 0x00080410, BE constant 3, BE
@@ -99,6 +99,23 @@ public static class N64TexFile
         ///     mips.
         /// </summary>
         public bool HasAuxiliaryPlane { get; init; }
+
+        /// <summary>
+        ///     The dictionary record's authored RDP render class when its
+        ///     alpha-threshold byte is 0xFF. Low bits 1 and 3 select
+        ///     textured-terrain coverage and translucent blending; 0 and 2
+        ///     select the opaque surface path. Image records and the separate
+        ///     custom-threshold path retain <see cref="N64TextureRenderClass.Unspecified" />.
+        /// </summary>
+        public N64TextureRenderClass RenderClass { get; init; }
+    }
+
+    public enum N64TextureRenderClass
+    {
+        Unspecified,
+        Opaque,
+        TextureCoverage,
+        Translucent
     }
 
     public static bool IsN64Texture(ReadOnlySpan<byte> data)
@@ -167,6 +184,7 @@ public static class N64TexFile
         var height = BinaryPrimitives.ReadUInt16BigEndian(span[0x22..]);
         var dataSize = BinaryPrimitives.ReadUInt16BigEndian(span[0x2A..]);
         var formatWord = BinaryPrimitives.ReadUInt16BigEndian(span[0x26..]);
+        var renderFlags = BinaryPrimitives.ReadUInt32BigEndian(span[0x2F..]);
         if (!TryGetPixelLayout(span, width, height, out var format, out var bitsPerTexel))
         {
             throw new InvalidDataException($"Unknown N64 texture format word 0x{formatWord:X4}");
@@ -221,7 +239,15 @@ public static class N64TexFile
             levels)
         {
             UndecodedPayloadByteCount = plan.UndecodedPayloadByteCount,
-            HasAuxiliaryPlane = hasAuxiliaryPlane
+            HasAuxiliaryPlane = hasAuxiliaryPlane,
+            RenderClass = span[0x2E] == 0xFF
+                ? (renderFlags & 3) switch
+                {
+                    1 => N64TextureRenderClass.TextureCoverage,
+                    3 => N64TextureRenderClass.Translucent,
+                    _ => N64TextureRenderClass.Opaque
+                }
+                : N64TextureRenderClass.Unspecified
         };
     }
 
@@ -349,12 +375,12 @@ public static class N64TexFile
             case (4, 4): // I4
             {
                 var i = (byte)(Nibble(row, x) * 17);
-                return (i, i, i, 255);
+                return (i, i, i, i);
             }
             case (4, 8): // I8
             {
                 var i = row[x];
-                return (i, i, i, 255);
+                return (i, i, i, i);
             }
             default:
                 throw new InvalidDataException($"Unhandled N64 texel format ({format},{bitsPerTexel})");
@@ -465,6 +491,11 @@ public static class N64TexFile
                 return false;
         }
 
+        // Match the payload-table shape used by the carver. Three records have
+        // a 20-byte offset table, with one observed/aligned variant allowing an
+        // extra four bytes before the first payload and at most eight tail bytes.
+        if (offsets[0] is not (20 or 24) || data.Length - offsets[3] > 8)
+            return false;
         if (offsets[1] - offsets[0] != 28)
             return false;
         var header = data[offsets[0]..];
@@ -482,6 +513,6 @@ public static class N64TexFile
                && colors is >= 1 and <= 256
                && stride >= width
                && offsets[2] - offsets[1] >= colors * 2
-               && offsets[3] - offsets[2] >= stride * height;
+               && (long)offsets[3] - offsets[2] >= (long)stride * height;
     }
 }

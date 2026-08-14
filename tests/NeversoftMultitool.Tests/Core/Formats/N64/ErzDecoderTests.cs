@@ -32,7 +32,7 @@ public sealed class ErzDecoderTests(TestPaths paths)
         Assert.Throws<InvalidDataException>(() => ErzDecoder.Decode(block));
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData(0x13BB8, 65_536, "42e9d73b36a74ff1481aee6eea20ab651f065b15983153e0cdc6baea39ad217f")]
     [InlineData(0x1AB84, 65_536, "cd6f62a4486e23cfe89507bbffccc52481b53e14697ffa59aa8c4f366435f68f")]
     [InlineData(0x229C0, 65_536, "16d2a189283ab50667cd75f7acfdcf66c6997885962b0a7325ff8ef77531000f")]
@@ -63,7 +63,7 @@ public sealed class ErzDecoderTests(TestPaths paths)
     ///     first boot block, both emulator-decoded. v1 is the Deflate-like
     ///     canonical-code scheme used by the THPS1/2/3 asset corpora.
     /// </summary>
-    [Theory]
+    [CorpusTheory]
     [InlineData(Thps2N64Build, RomName, 0x79AAA, 16_384,
         "bb3c5d8a6509aeaabe64eeb0c9c9e815c5374c505321ac51acff32dc7a94095f")]
     [InlineData("Tony Hawk's Pro Skater (2000-2-29, N64 - Final)",

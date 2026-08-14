@@ -98,6 +98,46 @@ public sealed class N64TexFileTests(TestPaths paths)
         Assert.False(texture.HasAuxiliaryPlane);
     }
 
+    [Theory]
+    [InlineData(4)]
+    [InlineData(8)]
+    public void IntensityFormats_ReplicateIntensityIntoEveryRgbaChannel(int bitsPerTexel)
+    {
+        var data = N64TexTestBuilder.CreateIntensityRecord(bitsPerTexel, renderFlags: 1);
+
+        var texture = N64TexFile.Decode(data);
+
+        Assert.Equal(bitsPerTexel == 4 ? "I4" : "I8", texture.Format);
+        Assert.Equal(N64TexFile.N64TextureRenderClass.TextureCoverage, texture.RenderClass);
+        var intensity = bitsPerTexel == 4 ? (byte)255 : (byte)128;
+        Assert.Equal([0, 0, 0, 0, intensity, intensity, intensity, intensity], texture.Rgba);
+    }
+
+    [Theory]
+    [InlineData(0u, N64TexFile.N64TextureRenderClass.Opaque)]
+    [InlineData(1u, N64TexFile.N64TextureRenderClass.TextureCoverage)]
+    [InlineData(2u, N64TexFile.N64TextureRenderClass.Opaque)]
+    [InlineData(3u, N64TexFile.N64TextureRenderClass.Translucent)]
+    public void DictionaryRecord_ExposesTheAuthoredRdpRenderClass(
+        uint renderFlags,
+        N64TexFile.N64TextureRenderClass expected)
+    {
+        var texture = N64TexFile.Decode(N64TexTestBuilder.CreateIntensityRecord(8, renderFlags));
+
+        Assert.Equal(expected, texture.RenderClass);
+    }
+
+    [Fact]
+    public void DictionaryRecord_CustomAlphaThreshold_DoesNotClaimALowBitRenderClass()
+    {
+        var data = N64TexTestBuilder.CreateIntensityRecord(8, renderFlags: 1);
+        data[0x2E] = 0x80;
+
+        var texture = N64TexFile.Decode(data);
+
+        Assert.Equal(N64TexFile.N64TextureRenderClass.Unspecified, texture.RenderClass);
+    }
+
     [Fact]
     public void Abutton_DoesNotMisclassifyItsFullResolutionAuxiliaryPlaneAsAMip()
     {
@@ -152,7 +192,7 @@ public sealed class N64TexFileTests(TestPaths paths)
     [InlineData("textures/2816_psxtxt_bfd7c623.tex.n64", "psxtxt_bfd7c623", 24, 48, "CI4",
         "8b0928b223dcede20ce74c2715b0d9a502fe617f57d838223f646851dd945d29")]
     [InlineData("textures/0438_biglight.tex.n64", "biglight", 64, 64, "I4",
-        "c3f8528fc716e6b71d099549127f697de285462a4bc92182a1eb0d252dfa8b95")]
+        "e9f217989ed17f7370b4d03a82d92c1bb1fdf401a4a7185072b1d4432343d2ef")]
     public void DictionaryRecords_DecodeTheVerifiedFixtures(
         string assetPath,
         string expectedName,
@@ -256,6 +296,26 @@ public sealed class N64TexFileTests(TestPaths paths)
 
 internal static class N64TexTestBuilder
 {
+    public static byte[] CreateIntensityRecord(int bitsPerTexel, uint renderFlags)
+    {
+        if (bitsPerTexel is not (4 or 8))
+            throw new ArgumentOutOfRangeException(nameof(bitsPerTexel));
+
+        const int dataSize = 8; // One 64-bit TMEM row.
+        var data = new byte[0x3F + dataSize];
+        Encoding.ASCII.GetBytes($"i{bitsPerTexel}").CopyTo(data, 0);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x20), 2);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x22), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x26), (ushort)(0x0400 | bitsPerTexel));
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x2A), dataSize);
+        data[0x2E] = 0xFF;
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(0x2F), renderFlags);
+        data[0x3F] = bitsPerTexel == 4 ? (byte)0x0F : (byte)0x00;
+        if (bitsPerTexel == 8)
+            data[0x40] = 0x80;
+        return data;
+    }
+
     public static byte[] CreateDictionaryWithCompleteStoredMipChain()
     {
         var data = new byte[0x3F + 48];

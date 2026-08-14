@@ -95,7 +95,7 @@ public sealed record N64LightRig(Vector3 Ambient, Vector3 Colour, Vector3 Direct
 
             var lightPointer = BinaryPrimitives.ReadUInt32BigEndian(boot[(offset + 12)..]);
             var ambientPointer = BinaryPrimitives.ReadUInt32BigEndian(boot[(offset + 20)..]);
-            if (lightPointer != ambientPointer + 8)
+            if ((ulong)lightPointer != (ulong)ambientPointer + 8)
                 continue;
 
             return TryLocateBody(boot, offset);

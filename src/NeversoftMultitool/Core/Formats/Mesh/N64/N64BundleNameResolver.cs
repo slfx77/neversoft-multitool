@@ -177,7 +177,7 @@ internal static class N64BundleNameResolver
     ///     content match. Returns null when no placement satisfies every
     ///     content-named slot it would cover.
     /// </summary>
-    private static List<(string Slot, string Name)>? TryAlign(
+    internal static List<(string Slot, string Name)>? TryAlign(
         IReadOnlyList<Bundle> bundles,
         string?[] content,
         IReadOnlyList<string> family)
@@ -204,7 +204,7 @@ internal static class N64BundleNameResolver
         return null;
     }
 
-    private static List<(string Slot, string Name)>? TryPlace(
+    internal static List<(string Slot, string Name)>? TryPlace(
         IReadOnlyList<Bundle> bundles,
         string?[] content,
         IReadOnlyList<string> family,
@@ -221,6 +221,16 @@ internal static class N64BundleNameResolver
                 return null;
             }
 
+            // _L is the family's texture-library slot. In the N64 ports those
+            // libraries are authored-empty shells; placing the name on a
+            // parseable geometry shell proves the run is shifted, even when
+            // that slot has no content-derived name to expose the mismatch.
+            if (family[offset].EndsWith("_l", StringComparison.OrdinalIgnoreCase)
+                && !IsStub(bundles[index].Shell))
+            {
+                return null;
+            }
+
             placement.Add((bundles[index].Slot, family[offset]));
         }
 
@@ -228,11 +238,15 @@ internal static class N64BundleNameResolver
     }
 
     /// <summary>
-    ///     Whether a shell is an authored-empty stub. Exposed so the carver can
-    ///     report stub slots without re-parsing.
+    ///     Whether a shell has the measured authored-empty form: a recognized
+    ///     N64 PSX header, exactly 24 bytes long, with zero objects. Parse
+    ///     failure alone is not sufficient because malformed bytes must not
+    ///     validate an otherwise questionable family alignment.
     /// </summary>
     internal static bool IsStub(byte[] shell)
     {
-        return PsxN64ShellFile.Parse(shell) == null;
+        return shell.Length == 24
+               && PsxN64ShellFile.IsN64Shell(shell)
+               && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(shell.AsSpan(8)) == 0;
     }
 }

@@ -100,7 +100,7 @@ public static class N64BundleClassifier
     /// </summary>
     public static bool IsWorldScale(float maxBoundsRadius)
     {
-        return maxBoundsRadius >= WorldScaleRadius;
+        return float.IsFinite(maxBoundsRadius) && maxBoundsRadius >= WorldScaleRadius;
     }
 
     /// <summary>

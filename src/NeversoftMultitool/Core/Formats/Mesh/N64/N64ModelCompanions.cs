@@ -85,7 +85,14 @@ public static class N64ModelCompanions
     ///     and foliage are cut out of their quads.
     /// </summary>
     public sealed record N64ResolvedTexture(
-        string Name, int Width, int Height, byte[] Png, bool HasCutout, bool HasGraduatedAlpha);
+        string Name, int Width, int Height, byte[] Png, bool HasCutout, bool HasGraduatedAlpha)
+    {
+        /// <summary>
+        ///     The authored render state composites this texture with the
+        ///     framebuffer even when its decoded alpha is only binary or solid.
+        /// </summary>
+        public bool ForcesBlend { get; init; }
+    }
 
     /// <summary>
     ///     Resolves textures by dictionary slot, caching decoded PNGs (the
@@ -116,14 +123,20 @@ public static class N64ModelCompanions
                     // its sampling pyramid. Keep that image at authored level
                     // zero; stored N64 mips are disk-extraction companions,
                     // not additional model materials.
-                    var (cutout, graduated) = ClassifyAlpha(texture.Rgba);
+                    var (cutout, graduated, forcesBlend) = ClassifyAlpha(
+                        texture.Format,
+                        texture.RenderClass,
+                        texture.Rgba);
                     resolved = new N64ResolvedTexture(
                         texture.Name ?? $"tex_{slot:D4}",
                         texture.Width,
                         texture.Height,
                         ImageWriter.WritePngToMemory(texture.Width, texture.Height, texture.Rgba),
                         cutout,
-                        graduated);
+                        graduated)
+                    {
+                        ForcesBlend = forcesBlend
+                    };
                 }
                 catch (InvalidDataException)
                 {
@@ -139,10 +152,16 @@ public static class N64ModelCompanions
     /// <summary>
     ///     Splits a decoded image into "has fully transparent texels" (a
     ///     cutout, which wants alpha testing) and "has partial alpha" (which
-    ///     wants blending). The N64's 1-bit RGBA5551 and A=0 palette entries
-    ///     produce the former; IA formats can produce the latter.
+    ///     wants blending). Existing non-intensity formats retain that pixel
+    ///     policy. I4/I8 additionally use the authored render class: opaque
+    ///     surfaces ignore their physical A=I channel, texture coverage maps
+    ///     every non-full intensity to a mask, and translucent surfaces retain
+    ///     their profile plus a separate forced-blend signal.
     /// </summary>
-    private static (bool Cutout, bool Graduated) ClassifyAlpha(byte[] rgba)
+    internal static (bool Cutout, bool Graduated, bool ForcesBlend) ClassifyAlpha(
+        string format,
+        N64TexFile.N64TextureRenderClass renderClass,
+        byte[] rgba)
     {
         var cutout = false;
         var graduated = false;
@@ -155,7 +174,26 @@ public static class N64ModelCompanions
                 graduated = true;
         }
 
-        return (cutout, graduated);
+        if (format is not ("I4" or "I8"))
+            return (cutout, graduated, false);
+
+        return renderClass switch
+        {
+            // The runtime emits AA_ZB_TEX_TERR: texel alpha becomes coverage,
+            // which glTF approximates with a depth-writing mask.
+            N64TexFile.N64TextureRenderClass.TextureCoverage =>
+                (cutout || graduated, false, false),
+            // The runtime emits a FORCE_BL/ZMODE_XLU surface. Keep the actual
+            // art profile, and carry blending independently so binary/solid
+            // alpha cannot collapse this authored state to Mask/Opaque.
+            N64TexFile.N64TextureRenderClass.Translucent => (cutout, graduated, true),
+            // Opaque render state ignores physical texture alpha. Face and
+            // vertex blend signals are applied separately by N64ModelWriter.
+            N64TexFile.N64TextureRenderClass.Opaque => (false, false, false),
+            // No standard low-bit class was available (image record or custom
+            // threshold path), so retain the historical content policy.
+            _ => (cutout, graduated, false)
+        };
     }
 
     /// <summary>

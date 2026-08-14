@@ -35,12 +35,21 @@ public static class N64TextureOutput
     /// <summary>
     ///     Returns the historical output stem. Carved records are slot-prefixed
     ///     and therefore already unique within one bank; using the text before
-    ///     the first dot preserves that slot instead of the embedded art name,
-    ///     which can legitimately repeat.
+    ///     the first separator dot preserves that slot instead of the embedded
+    ///     art name, which can legitimately repeat. Leading dots are part of the
+    ///     stem rather than separators.
     /// </summary>
     internal static string GetLegacyOutputStem(string inputPath)
     {
-        return Path.GetFileName(inputPath).Split('.')[0];
+        var fileName = Path.GetFileName(inputPath);
+        var firstNonDot = 0;
+        while (firstNonDot < fileName.Length && fileName[firstNonDot] == '.')
+            firstNonDot++;
+
+        var separatorDot = firstNonDot < fileName.Length - 1
+            ? fileName.IndexOf('.', firstNonDot + 1)
+            : -1;
+        return separatorDot >= 0 ? fileName[..separatorDot] : fileName;
     }
 
     /// <summary>

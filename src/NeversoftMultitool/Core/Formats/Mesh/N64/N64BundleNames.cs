@@ -167,7 +167,7 @@ public static class N64BundleNames
     /// </summary>
     public static IReadOnlyList<string> ResolveAll(ulong key)
     {
-        return Names.TryGetValue(key, out var names) ? names : NoNames;
+        return Names.TryGetValue(key, out var names) ? Array.AsReadOnly(names) : NoNames;
     }
 
     /// <summary>

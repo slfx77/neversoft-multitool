@@ -1,6 +1,9 @@
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.ArchiveFs;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Formats.Mesh.N64;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
+using NeversoftMultitool.Core.Formats.Texture.N64;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.N64;
 
@@ -24,11 +27,22 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
 {
     private const string Thps1N64Build = "Tony Hawk's Pro Skater (2000-2-29, N64 - Final)";
     private const string RomName = "Tony Hawk's Pro Skater (USA).z64";
+    private const string SpiderManN64Build = "Spider-Man (2000-11-21, N64 - Final)";
+    private const string SpiderManRomName = "Spider-Man (USA).z64";
 
     private ModelDocument ParseBundle(string slot, out IArchiveFileSystem fs)
     {
-        var romPath = paths.FindSampleFile(Thps1N64Build, RomName);
-        Assert.SkipWhen(romPath == null, "THPS1 N64 ROM sample not available");
+        return ParseBundle(Thps1N64Build, RomName, slot, out fs);
+    }
+
+    private ModelDocument ParseBundle(
+        string buildName,
+        string romName,
+        string slot,
+        out IArchiveFileSystem fs)
+    {
+        var romPath = paths.FindSampleFile(buildName, romName);
+        Assert.SkipWhen(romPath == null, $"{buildName} ROM sample not available");
         fs = ArchiveFileSystem.TryOpen(romPath!)!;
         var backend = ArchiveAssetBackend.TryOpen(romPath!)!;
         var entry = N64Bundles.FindBundle(backend, slot);
@@ -41,6 +55,138 @@ public sealed class N64ModelAlphaModeTests(TestPaths paths)
             OutputStem = "n64_alpha",
             SourceKind = ModelSourceKind.N64Model
         });
+    }
+
+    [Theory]
+    [InlineData("I4", N64TexFile.N64TextureRenderClass.TextureCoverage, 0, 128, true, false, false)]
+    [InlineData("I8", N64TexFile.N64TextureRenderClass.TextureCoverage, 128, 128, true, false, false)]
+    [InlineData("I8", N64TexFile.N64TextureRenderClass.Opaque, 0, 128, false, false, false)]
+    [InlineData("I8", N64TexFile.N64TextureRenderClass.Translucent, 0, 255, true, false, true)]
+    [InlineData("I8", N64TexFile.N64TextureRenderClass.Translucent, 128, 128, false, true, true)]
+    [InlineData("I8", N64TexFile.N64TextureRenderClass.Unspecified, 0, 128, true, true, false)]
+    [InlineData("IA8", N64TexFile.N64TextureRenderClass.Opaque, 0, 128, true, true, false)]
+    public void TextureAlphaClassification_UsesTheAuthoredRdpRenderClass(
+        string format,
+        N64TexFile.N64TextureRenderClass renderClass,
+        byte firstAlpha,
+        byte secondAlpha,
+        bool expectedCutout,
+        bool expectedGraduated,
+        bool expectedForcesBlend)
+    {
+        byte[] rgba = [255, 255, 255, firstAlpha, 255, 255, 255, secondAlpha];
+
+        var actual = N64ModelCompanions.ClassifyAlpha(format, renderClass, rgba);
+
+        Assert.Equal((expectedCutout, expectedGraduated, expectedForcesBlend), actual);
+    }
+
+    [Fact]
+    public void AuthoredTranslucentTexture_PreservesAverageBlendForBinaryArt()
+    {
+        var texture = new N64ModelCompanions.N64ResolvedTexture(
+            "cloud", 1, 1, [], HasCutout: true, HasGraduatedAlpha: false)
+        {
+            ForcesBlend = true
+        };
+
+        Assert.Equal(
+            (ModelAlphaMode.Blend, 0.5f),
+            N64MaterialCache.ResolveBlendState(0, semi: true, translucentVertices: false, texture));
+        Assert.Equal(
+            (ModelAlphaMode.Blend, 1f),
+            N64MaterialCache.ResolveBlendState(0, semi: false, translucentVertices: false, texture));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AuthoredTranslucentTexture_CachesSemiAndOpaqueFacesIndependently(bool semiFirst)
+    {
+        var document = new ModelDocument { Name = "forced_blend_cache" };
+        var texture = new N64ModelCompanions.N64ResolvedTexture(
+            "cloud", 1, 1, [], HasCutout: true, HasGraduatedAlpha: false)
+        {
+            ForcesBlend = true
+        };
+        var cache = new N64MaterialCache(document, _ => texture);
+        var opaque = new N64RenderBankFile.N64Triangle(
+            default, default, default, Flags: 0, MatrixIndex: 0, TextureSlot: 1);
+        var semi = opaque with { Flags = PsxFaceFlags.SemiTransparent };
+
+        var first = cache.Resolve(semiFirst ? semi : opaque, translucentVertices: false);
+        var second = cache.Resolve(semiFirst ? opaque : semi, translucentVertices: false);
+
+        Assert.NotEqual(first.MaterialIndex, second.MaterialIndex);
+        var semiIndex = semiFirst ? first.MaterialIndex : second.MaterialIndex;
+        var opaqueIndex = semiFirst ? second.MaterialIndex : first.MaterialIndex;
+        Assert.Equal((ModelAlphaMode.Blend, 0.5f, "cloud__st0"),
+            (document.Materials[semiIndex].AlphaMode,
+             document.Materials[semiIndex].BaseColor.W,
+             document.Materials[semiIndex].Name));
+        Assert.Equal((ModelAlphaMode.Blend, 1f, "cloud"),
+            (document.Materials[opaqueIndex].AlphaMode,
+             document.Materials[opaqueIndex].BaseColor.W,
+             document.Materials[opaqueIndex].Name));
+    }
+
+    [Fact]
+    public void OrdinaryCutoutTexture_KeepsLegacySemiAndOpaqueMaterialIdentity()
+    {
+        var document = new ModelDocument { Name = "cutout_cache" };
+        var texture = new N64ModelCompanions.N64ResolvedTexture(
+            "cutout", 1, 1, [], HasCutout: true, HasGraduatedAlpha: false);
+        var cache = new N64MaterialCache(document, _ => texture);
+        var opaque = new N64RenderBankFile.N64Triangle(
+            default, default, default, Flags: 0, MatrixIndex: 0, TextureSlot: 1);
+        var semi = opaque with { Flags = PsxFaceFlags.SemiTransparent };
+
+        var opaqueResult = cache.Resolve(opaque, translucentVertices: false);
+        var semiResult = cache.Resolve(semi, translucentVertices: false);
+
+        Assert.Equal(opaqueResult.MaterialIndex, semiResult.MaterialIndex);
+        var material = Assert.Single(document.Materials);
+        Assert.Equal((ModelAlphaMode.Mask, 1f, "cutout"),
+            (material.AlphaMode, material.BaseColor.W, material.Name));
+    }
+
+    /// <summary>
+    ///     The reported slot-122 black rectangle and its slot-123 control use
+    ///     otherwise equivalent 16-triangle teeth art. Slot 122 binds I8,
+    ///     whose intensity is also its alpha on N64 hardware; slot 123 binds
+    ///     CI4 with a conventional one-bit cutout palette.
+    /// </summary>
+    [CorpusFact]
+    public void SpiderManVenomTeeth_IntensityAlphaMatchesTheCutoutControl()
+    {
+        var slot122 = ParseBundle(SpiderManN64Build, SpiderManRomName, "122", out var fs122);
+        using var _122 = fs122;
+        var slot123 = ParseBundle(SpiderManN64Build, SpiderManRomName, "123", out var fs123);
+        using var _123 = fs123;
+        var modulationControl = ParseBundle(SpiderManN64Build, SpiderManRomName, "150", out var fs150);
+        using var _150 = fs150;
+
+        Assert.Equal(581, slot122.TriangleCount);
+        Assert.Equal(581, slot123.TriangleCount);
+        Assert.Equal(40, modulationControl.TriangleCount);
+
+        var intensityTeeth = Assert.Single(
+            slot122.Materials,
+            material => material.Name.StartsWith("psxtxt_755e2673", StringComparison.Ordinal));
+        var indexedTeeth = Assert.Single(
+            slot123.Materials,
+            material => material.Name.StartsWith("psxtxt_8aa1d98c", StringComparison.Ordinal));
+
+        Assert.Equal(ModelAlphaMode.Mask, intensityTeeth.AlphaMode);
+        Assert.Equal(ModelAlphaMode.Mask, indexedTeeth.AlphaMode);
+
+        // Texture 357 is a 32x32 I4 image whose 1,024 texels are all intensity
+        // 170. Its 40 non-semitransparent triangles use I to modulate colour,
+        // not as a blanket 2/3-alpha surface.
+        var constantIntensity = Assert.Single(
+            modulationControl.Materials,
+            material => material.Name.StartsWith("psxtxt_00000002", StringComparison.Ordinal));
+        Assert.Equal(ModelAlphaMode.Opaque, constantIntensity.AlphaMode);
     }
 
     [CorpusFact]

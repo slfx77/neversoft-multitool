@@ -118,7 +118,7 @@ public static class N64RomArchive
             offsets[k] = BinaryPrimitives.ReadInt32BigEndian(rom.AsSpan(position + 4 + 4 * k));
             if (offsets[k] < headerSize
                 || (k > 0 && offsets[k] <= offsets[k - 1])
-                || position + offsets[k] > rom.Length)
+                || offsets[k] > rom.Length - position)
             {
                 return null;
             }
@@ -288,7 +288,8 @@ public static class N64RomArchive
         for (var k = 0; k <= count; k++)
         {
             offsets[k] = BinaryPrimitives.ReadInt32BigEndian(rom.AsSpan(position + 4 + 4 * k));
-            if ((k > 0 && offsets[k] < offsets[k - 1]) || position + offsets[k] > rom.Length)
+            if ((k > 0 && offsets[k] < offsets[k - 1])
+                || offsets[k] > rom.Length - position)
                 return null;
         }
 

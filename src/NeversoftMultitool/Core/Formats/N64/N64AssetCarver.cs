@@ -240,7 +240,11 @@ public static class N64AssetCarver
     private const string PsxExtension = ".psx.n64";
     private const string TrgExtension = ".trg.n64";
 
-    private static void CarveStream(byte[] stream, int groupIndex, List<CarvedAsset> assets, HashSet<string> usedDirs)
+    internal static void CarveStream(
+        byte[] stream,
+        int groupIndex,
+        List<CarvedAsset> assets,
+        HashSet<string> usedDirs)
     {
         var offsets = TryReadPayloadTable(stream, 0, stream.Length);
         if (offsets == null)
@@ -475,7 +479,9 @@ public static class N64AssetCarver
         for (var k = 0; k <= count; k++)
         {
             offsets[k] = BinaryPrimitives.ReadInt32BigEndian(data.AsSpan(position + 4 + 4 * k));
-            if (k > 0 && (offsets[k] < offsets[k - 1] || offsets[k] > length))
+            if (offsets[k] < 0 || offsets[k] > length)
+                return null;
+            if (k > 0 && offsets[k] < offsets[k - 1])
                 return null;
         }
 

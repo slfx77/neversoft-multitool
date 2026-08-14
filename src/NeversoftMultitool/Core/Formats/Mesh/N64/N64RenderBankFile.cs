@@ -172,6 +172,9 @@ public static class N64RenderBankFile
         if (end - start < 8)
             return null;
 
+        if (BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(start + 4)) != 0)
+            return null;
+
         var count = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(start));
         if (count == 0 || count > (end - start - 8) / VertexStride)
             return null;

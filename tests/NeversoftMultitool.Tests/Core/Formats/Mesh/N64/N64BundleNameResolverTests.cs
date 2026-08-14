@@ -24,7 +24,7 @@ public sealed class N64BundleNameResolverTests(TestPaths paths)
         { "Tony Hawk's Pro Skater (2000-2-29, N64 - Final)", "Tony Hawk's Pro Skater (USA).z64", 73, 80 },
         { "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)", "Tony Hawk's Pro Skater 2 (USA).z64", 98, 141 },
         { "Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)", "Tony Hawk's Pro Skater 3 (USA).z64", 66, 112 },
-        { "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64", 181, 261 }
+        { "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64", 178, 261 }
     };
 
     [Fact]
@@ -121,24 +121,76 @@ public sealed class N64BundleNameResolverTests(TestPaths paths)
 
     /// <summary>
     ///     Spider-Man has four ambiguous content keys touched by outsider TRG
-    ///     literals. Jameson and DEM4_G each leave exactly one unresolved slot
-    ///     after authoritative family alignment, so they are provable. The two
-    ///     Mysterio and two firering occurrences remain indistinguishable and
-    ///     must retain numeric names.
+    ///     literals. DEM4_G leaves exactly one unresolved slot after
+    ///     authoritative family alignment, so it is provable. The rejected
+    ///     L1A2a family leaves Jameson/JJJViewer ambiguous at both slots 014 and
+    ///     168; the Mysterio and firering pairs are likewise indistinguishable.
+    ///     Every ambiguous occurrence must retain its numeric name.
     /// </summary>
     [CorpusFact]
-    public void SpiderMan_DisambiguatesOnlyTheUniqueOutsiderLiteralSlots()
+    public void SpiderMan_DisambiguatesOnlyTheRemainingUniqueOutsiderLiteralSlot()
     {
         var shells = CarveShells(
             "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64");
 
-        Assert.Contains("models/014/014_jameson.psx.n64", shells);
+        Assert.Contains("models/014/014.psx.n64", shells);
+        Assert.Contains("models/168/168.psx.n64", shells);
         Assert.Contains("models/254/254_dem4_g.psx.n64", shells);
         Assert.Contains("models/110/110.psx.n64", shells);
         Assert.Contains("models/224/224.psx.n64", shells);
         Assert.Contains("models/166/166.psx.n64", shells);
         Assert.Contains("models/226/226.psx.n64", shells);
-        Assert.Equal(181, shells.Count(IsNamed));
+        Assert.Equal(178, shells.Count(IsNamed));
+    }
+
+    /// <summary>
+    ///     Regression for the reported shifted L1A2 family. The old placement
+    ///     called geometry slot 168 <c>L1A2_O</c> and put the library name
+    ///     <c>L1A2a_L</c> on geometry. A rejected family run must stay numeric,
+    ///     while every emitted terminal <c>_L</c> name remains an authored-empty
+    ///     shell rather than merely a 24-byte malformed buffer.
+    /// </summary>
+    [CorpusFact]
+    public void SpiderMan_L1A2ShiftedRunFailsClosedAndEveryNamedLibraryIsAuthoredEmpty()
+    {
+        var assets = CarveModelAssets(
+            "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64");
+
+        var slot168 = Assert.Single(assets, static asset =>
+            asset.Path.StartsWith("models/168/", StringComparison.Ordinal));
+        Assert.Equal("models/168/168.psx.n64", slot168.Path);
+        Assert.DoesNotContain(assets, static asset =>
+            asset.Path.EndsWith("168_L1A2_O.psx.n64", StringComparison.OrdinalIgnoreCase));
+
+        Assert.Contains(assets, static asset =>
+            asset.Path == "models/169/169_l1a2a_g.psx.n64");
+        var slot170 = Assert.Single(assets, static asset =>
+            asset.Path.StartsWith("models/170/", StringComparison.Ordinal));
+        Assert.Equal("models/170/170.psx.n64", slot170.Path);
+        Assert.False(N64BundleNameResolver.IsStub(slot170.Data));
+        Assert.DoesNotContain(assets, static asset =>
+            asset.Path.Contains("L1A2a_L", StringComparison.OrdinalIgnoreCase));
+
+        var slot014 = Assert.Single(assets, static asset =>
+            asset.Path.StartsWith("models/014/", StringComparison.Ordinal));
+        Assert.Equal("models/014/014.psx.n64", slot014.Path);
+        var slot014Identity = N64BundleNames.TryReadShellIdentity(slot014.Data);
+        var slot168Identity = N64BundleNames.TryReadShellIdentity(slot168.Data);
+        Assert.NotNull(slot014Identity);
+        Assert.NotNull(slot168Identity);
+        Assert.Equal(slot014Identity.Value.Key, slot168Identity.Value.Key);
+        Assert.Equal(["jameson", "jjviewer"], slot168Identity.Value.Candidates);
+
+        var libraries = assets.Where(static asset =>
+        {
+            var file = asset.Path[(asset.Path.LastIndexOf('/') + 1)..];
+            var stem = file[..^".psx.n64".Length];
+            return stem.EndsWith("_L", StringComparison.OrdinalIgnoreCase);
+        }).ToList();
+        Assert.NotEmpty(libraries);
+        Assert.All(libraries, static asset =>
+            Assert.True(N64BundleNameResolver.IsStub(asset.Data),
+                $"{asset.Path} is named as a texture library but is not an authored-empty shell."));
     }
 
     private static bool IsNamed(string path)
@@ -150,15 +202,22 @@ public sealed class N64BundleNameResolverTests(TestPaths paths)
 
     private List<string> CarveShells(string build, string rom)
     {
+        return CarveModelAssets(build, rom)
+            .Select(static asset => asset.Path)
+            .OrderBy(static path => path, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private List<N64AssetCarver.CarvedAsset> CarveModelAssets(string build, string rom)
+    {
         var romPath = paths.FindSampleFile(build, rom);
         Assert.SkipWhen(romPath == null, $"{build} ROM sample not available");
         Assert.True(N64AssetCarver.TryCarve(File.ReadAllBytes(romPath!), out var assets));
 
         return assets
-            .Select(static a => a.Path)
-            .Where(static p => p.StartsWith("models/", StringComparison.Ordinal)
-                               && p.EndsWith(".psx.n64", StringComparison.Ordinal))
-            .OrderBy(static p => p, StringComparer.Ordinal)
+            .Where(static asset => asset.Path.StartsWith("models/", StringComparison.Ordinal)
+                                   && asset.Path.EndsWith(".psx.n64", StringComparison.Ordinal))
+            .OrderBy(static asset => asset.Path, StringComparer.Ordinal)
             .ToList();
     }
 }

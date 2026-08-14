@@ -590,15 +590,18 @@ public static class N64ModelWriter
 /// <summary>
 ///     Builds one glTF material per (texture slot, blend state) a bank
 ///     references, mirroring the PS1 material key so the same texture used
-///     opaque and semi-transparent yields distinct materials. Blend semantics
-///     come from the PS1 face flag word blob B carries: bit 6 sets ABE, bits
-///     7-8 the ABR rate, bit 9 disables backface culling.
+///     opaque and semi-transparent yields distinct materials. Face blend
+///     semantics come from blob B's PS1 flag word (bit 6 ABE, bits 7-8 ABR),
+///     while an intensity texture can independently retain the N64 runtime's
+///     authored forced-blend class. Bit 9 disables backface culling.
 /// </summary>
 internal sealed class N64MaterialCache(
     ModelDocument document,
     Func<int, N64ModelCompanions.N64ResolvedTexture?> textureProvider)
 {
-    private readonly Dictionary<(int Slot, ModelAlphaMode Mode, bool DoubleSided, int Rate), int>
+    private readonly Dictionary<
+        (int Slot, ModelAlphaMode Mode, bool DoubleSided, int Rate,
+         bool ForcedBlendSemi, float ForcedBlendAlpha), int>
         _materials = [];
     private readonly Dictionary<int, (int Width, int Height)> _sizes = [];
 
@@ -619,7 +622,15 @@ internal sealed class N64MaterialCache(
         _sizes[triangle.TextureSlot] = size;
 
         var (mode, alpha) = ResolveBlendState(rate, semi, translucentVertices, texture);
-        var key = (triangle.TextureSlot, mode, doubleSided, rate);
+        // Non-semi authored forced-blend faces and semi/rate-0 faces can both
+        // resolve to Blend/rate 0 while requiring different alpha and names.
+        // Scope that extra identity to authored forced-blend textures so this
+        // fix does not split legacy CI/RGBA/IA materials outside B1.
+        var forcesBlend = texture is { ForcesBlend: true };
+        var forcedBlendSemi = forcesBlend && semi;
+        var forcedBlendAlpha = forcesBlend ? alpha : 1f;
+        var key = (triangle.TextureSlot, mode, doubleSided, rate,
+            forcedBlendSemi, forcedBlendAlpha);
         if (_materials.TryGetValue(key, out var existing))
         {
             Count(triangle.TextureSlot);
@@ -666,7 +677,9 @@ internal sealed class N64MaterialCache(
 
     /// <summary>
     ///     Works out how a face composites. The PS1 semi-transparent bit alone
-    ///     does not decide it, and neither does the art alone.
+    ///     does not decide it, and neither does the art alone. An authored N64
+    ///     forced-blend texture state is evaluated separately from the art's
+    ///     alpha profile so binary cloud textures cannot collapse to Mask.
     ///     <para>
     ///         Rates 1-3 (additive, subtractive, quarter-additive) composite
     ///         with the framebuffer by EQUATION rather than by texel alpha, so
@@ -703,7 +716,7 @@ internal sealed class N64MaterialCache(
     ///         CLEAR are opaque on both sides, against 12 that are not.
     ///     </para>
     /// </summary>
-    private static (ModelAlphaMode Mode, float Alpha) ResolveBlendState(
+    internal static (ModelAlphaMode Mode, float Alpha) ResolveBlendState(
         int blendRate,
         bool semi,
         bool translucentVertices,
@@ -711,6 +724,12 @@ internal sealed class N64MaterialCache(
     {
         if (blendRate != 0 || translucentVertices || texture is { HasGraduatedAlpha: true })
             return (ModelAlphaMode.Blend, 1f);
+
+        if (texture is { ForcesBlend: true })
+        {
+            return (ModelAlphaMode.Blend,
+                semi && blendRate == 0 ? AverageBlendAlpha : 1f);
+        }
 
         if (semi && texture is not { HasCutout: true })
             return (ModelAlphaMode.Blend, AverageBlendAlpha);

@@ -23,6 +23,19 @@ public sealed class N64LightRigValidationTests
         Assert.Null(rig);
     }
 
+    [Fact]
+    public void TryParse_WrappingAmbientPointer_ReturnsNull()
+    {
+        const int displayListOffset = 24;
+        var boot = BuildBoot(secondaryLightColourPad: 0);
+        WriteWord(boot, displayListOffset + 12, 0);
+        WriteWord(boot, displayListOffset + 20, 0xFFFF_FFF8);
+
+        var rig = N64LightRig.TryParse(boot);
+
+        Assert.Null(rig);
+    }
+
     private static byte[] BuildBoot(byte secondaryLightColourPad)
     {
         const int displayListOffset = 24;

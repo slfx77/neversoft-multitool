@@ -63,7 +63,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
         });
     }
 
-    [Fact]
+    [CorpusFact]
     public void SelectedDirectClip_BuildsSkinnedAnimatedGlbWithoutMovingBindGeometry()
     {
         var staticDocument = ParseBundle(
@@ -159,7 +159,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
         return null;
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_ProducesTheShellSkeletonAndRenderBankMetadata()
     {
         var document = ParseBundle("000", out var fs);
@@ -190,7 +190,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
             static primitive => Assert.Null(primitive.Skin));
     }
 
-    [Fact]
+    [CorpusFact]
     public void SelectedCompressedClip_AddsRigidGlobalInfluencesWithoutMovingBindGeometry()
     {
         var staticDocument = ParseBundle("045", out var staticFs);
@@ -249,7 +249,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
         });
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData(Thps2N64Build, Thps2RomName, "046", 0x2A, 110, 1, 33, true)]
     [InlineData(SpiderN64Build, SpiderRomName, "225", 0x2C, 16, 6, 1, true)]
     [InlineData(SpiderN64Build, SpiderRomName, "007", 0x2C, 46, 43, 1, false)]
@@ -358,7 +358,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
         });
     }
 
-    [Fact]
+    [CorpusFact]
     public void SelectedSpiderMapClip_UsesRelativeJointsK1GeometryAndCleanRestPose()
     {
         var staticDocument = ParseBundle(
@@ -582,7 +582,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
             "N64 animation translation incorrectly inherited the render-vertex x8 scale");
     }
 
-    [Fact]
+    [CorpusFact]
     public void InvalidExactSelection_FailsBackToByteIdenticalStaticGlb()
     {
         // slot 046 is the 33-placement direct-matrix sk2def control. An
@@ -602,7 +602,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
         Assert.Equal(staticGlb, rejectedGlb);
     }
 
-    [Fact]
+    [CorpusFact]
     public void AllSelectedDecodesFail_PreservesUnskinnedByteIdenticalStaticGlb()
     {
         // Spider-Man slot 225 is a newly admitted compressed shell whose
@@ -641,7 +641,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
         Assert.Equal(staticGlb, rejectedGlb);
     }
 
-    [Fact]
+    [CorpusFact]
     public void AllClipOptIn_ExportsTheWholeRealBank()
     {
         var document = ParseBundle("045", out var fs, includeAllAnimations: true);
@@ -656,7 +656,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
     ///     End-to-end: a bundle read from the ROM exports a real GLB carrying
     ///     the decoded render-bank geometry.
     /// </summary>
-    [Fact]
+    [CorpusFact]
     public void Document_ExportsAValidGlbWithGeometry()
     {
         var document = ParseBundle("000", out var fs);
@@ -674,7 +674,7 @@ public sealed class N64ModelParseTests(TestPaths paths)
         Assert.True(glb.Length > 512, $"expected a populated GLB, got {glb.Length} bytes");
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_RejectsAnEmptyBundleSlotWithAClearMessage()
     {
         // models/049 is a 24-byte authored-empty shell.
