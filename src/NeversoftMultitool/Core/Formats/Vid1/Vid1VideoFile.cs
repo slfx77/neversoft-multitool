@@ -281,6 +281,13 @@ public sealed class Vid1VideoFile
                 frames.Add(frame);
             }
 
+            if (childOffset < frameChunk.EndOffset
+                && !TryIsZeroPadding(data, childOffset, frameChunk.EndOffset))
+            {
+                error = "VID1 FRAM child header is truncated";
+                return false;
+            }
+
             offset = frameChunk.EndOffset;
         }
 

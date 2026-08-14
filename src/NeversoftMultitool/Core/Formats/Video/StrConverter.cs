@@ -12,6 +12,8 @@ namespace NeversoftMultitool.Core.Formats.Video;
 /// </summary>
 public static class StrConverter
 {
+    private const string ScratchAudioStem = "audio";
+
     /// <summary>
     ///     Probes an STR file for metadata without fully decoding it.
     /// </summary>
@@ -59,7 +61,7 @@ public static class StrConverter
         var outputPath = Path.Combine(outputDir,
             Path.GetFileNameWithoutExtension(inputPath) + ".mp4");
 
-        string? tempXaPath = null;
+        string? tempAudioDirectory = null;
         string? tempWavPath = null;
 
         try
@@ -83,7 +85,12 @@ public static class StrConverter
             var height = frames[0].Height;
 
             // Prepare audio track if present
-            (tempXaPath, tempWavPath) = PrepareAudio(data, inputPath);
+            tempAudioDirectory = Path.Combine(
+                Path.GetTempPath(),
+                "NeversoftMultitool",
+                "StrConvert",
+                Guid.NewGuid().ToString("N"));
+            tempWavPath = PrepareAudio(data, inputPath, tempAudioDirectory);
 
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -100,46 +107,42 @@ public static class StrConverter
         }
         finally
         {
-            TryDeleteFile(tempXaPath);
-            TryDeleteFile(tempWavPath);
+            TryDeleteDirectory(tempAudioDirectory);
         }
     }
 
-    private static (string? tempXaPath, string? tempWavPath) PrepareAudio(byte[] data, string inputPath)
+    internal static string? PrepareAudio(byte[] data, string inputPath, string scratchDirectory)
     {
         if (!StrDemuxer.HasAudio(data))
-            return (null, null);
+            return null;
 
         var audioSectors = StrDemuxer.ExtractAudioSectors(data);
         if (audioSectors.Length == 0)
-            return (null, null);
+            return null;
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "StrConvert");
-        Directory.CreateDirectory(tempDir);
-
-        var stem = Path.GetFileNameWithoutExtension(inputPath);
-        var tempXaPath = Path.Combine(tempDir, stem + ".xa");
-        File.WriteAllBytes(tempXaPath, audioSectors);
-
-        var audioResult = XaDecoder.ConvertToWav(tempXaPath, tempDir);
+        Directory.CreateDirectory(scratchDirectory);
+        // Never derive a path inside owned scratch from an input leaf: names
+        // such as "...str" reduce to ".." and would escape the GUID directory.
+        _ = inputPath;
+        var channelInfo = XaExtractor.EnumerateChannels(audioSectors);
+        var audioResult = XaDecoder.ConvertToWav(audioSectors, ScratchAudioStem, scratchDirectory);
         if (!audioResult.Success)
-            return (tempXaPath, null);
+            return null;
 
-        // XaDecoder creates {stem}.wav or a subdirectory for multi-channel
-        var expectedWav = Path.Combine(tempDir, stem + ".wav");
-        if (File.Exists(expectedWav))
-            return (tempXaPath, expectedWav);
-
-        // Multi-channel: use first channel
-        var subDir = Path.Combine(tempDir, stem);
-        if (Directory.Exists(subDir))
+        string? expectedWav = null;
+        if (channelInfo.Count == 1)
         {
-            var wavFiles = Directory.GetFiles(subDir, "*.wav");
-            if (wavFiles.Length > 0)
-                return (tempXaPath, wavFiles[0]);
+            expectedWav = Path.Combine(scratchDirectory, ScratchAudioStem + ".wav");
+        }
+        else if (channelInfo.Count > 1)
+        {
+            expectedWav = Path.Combine(
+                scratchDirectory,
+                ScratchAudioStem,
+                $"ch{channelInfo[0].ChannelNumber:D2}.wav");
         }
 
-        return (tempXaPath, null);
+        return expectedWav != null && File.Exists(expectedWav) ? expectedWav : null;
     }
 
     private static string BuildFfmpegArgs(int width, int height, double frameRate, string? audioPath, string outputPath)
@@ -283,6 +286,20 @@ public static class StrConverter
         try
         {
             File.Delete(path);
+        }
+        catch
+        {
+            /* best effort */
+        }
+    }
+
+    internal static void TryDeleteDirectory(string? path)
+    {
+        if (path == null) return;
+        try
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, true);
         }
         catch
         {

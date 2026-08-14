@@ -4,6 +4,30 @@ namespace NeversoftMultitool.Tests.Core.Formats.Vid1;
 
 public sealed class Vid1YuvToRgbTests
 {
+    [Theory]
+    [InlineData(0, 1, "width")]
+    [InlineData(-1, 1, "width")]
+    [InlineData(1, 0, "height")]
+    [InlineData(1, -1, "height")]
+    [InlineData(-1, -1, "width")]
+    public void ConversionEntryPoints_NonpositiveDimensions_Throw(
+        int width, int height, string expectedParameter)
+    {
+        var rgb = new byte[4];
+        var bgra = new byte[4];
+
+        var allocatingException = Assert.Throws<ArgumentOutOfRangeException>(
+            () => Vid1YuvToRgb.Convert([], [], [], width, height));
+        var rgbException = Assert.Throws<ArgumentOutOfRangeException>(
+            () => Vid1YuvToRgb.ConvertToRgb([], [], [], width, height, rgb));
+        var bgraException = Assert.Throws<ArgumentOutOfRangeException>(
+            () => Vid1YuvToRgb.ConvertToBgra([], [], [], width, height, bgra));
+
+        Assert.Equal(expectedParameter, allocatingException.ParamName);
+        Assert.Equal(expectedParameter, rgbException.ParamName);
+        Assert.Equal(expectedParameter, bgraException.ParamName);
+    }
+
     [Fact]
     public void FrameContext_OddDimensions_AllocatesCeilingChromaPlanes()
     {

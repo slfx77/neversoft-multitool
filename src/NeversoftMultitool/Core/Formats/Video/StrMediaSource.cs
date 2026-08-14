@@ -3,9 +3,62 @@ using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Media.Core;
 using Windows.Media.MediaProperties;
 using NeversoftMultitool.Core.Formats.Audio;
+#endif
 
 namespace NeversoftMultitool.Core.Formats.Video;
 
+internal readonly record struct StrMediaSourceSeekPosition(
+    int FrameIndex,
+    TimeSpan ActualPosition,
+    int AudioByteOffset);
+
+internal static class StrMediaSourceSeekAlignment
+{
+    internal static StrMediaSourceSeekPosition AlignExplicit(
+        TimeSpan requestedPosition,
+        double frameRate,
+        int frameCount,
+        int audioSampleRate,
+        int audioChannels,
+        int audioByteLength)
+    {
+        if (!double.IsFinite(frameRate) || frameRate <= 0)
+            throw new ArgumentOutOfRangeException(nameof(frameRate));
+        if (frameCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(frameCount));
+        if (audioSampleRate <= 0)
+            throw new ArgumentOutOfRangeException(nameof(audioSampleRate));
+        if (audioChannels <= 0)
+            throw new ArgumentOutOfRangeException(nameof(audioChannels));
+        if (audioByteLength < 0)
+            throw new ArgumentOutOfRangeException(nameof(audioByteLength));
+
+        var requestedFrame = Math.Floor(requestedPosition.TotalSeconds * frameRate);
+        var frameIndex = requestedFrame <= 0
+            ? 0
+            : requestedFrame >= frameCount - 1
+                ? frameCount - 1
+                : (int)requestedFrame;
+        var actualSeconds = frameIndex / frameRate;
+        var actualPosition = TimeSpan.FromSeconds(actualSeconds);
+
+        var bytesPerSampleFrame = checked(audioChannels * sizeof(short));
+        var completeAudioBytes = audioByteLength - audioByteLength % bytesPerSampleFrame;
+        // Round forward in sample-frame units; truncating bytes first can land one
+        // complete PCM frame before the actual video-frame boundary.
+        var firstSampleFrame = Math.Ceiling(actualPosition.TotalSeconds * audioSampleRate);
+        if (TimeSpan.FromSeconds(firstSampleFrame / audioSampleRate) < actualPosition)
+            firstSampleFrame++;
+        var requestedAudioBytes = firstSampleFrame * bytesPerSampleFrame;
+        var audioByteOffset = requestedAudioBytes >= completeAudioBytes
+            ? completeAudioBytes
+            : (int)requestedAudioBytes;
+
+        return new StrMediaSourceSeekPosition(frameIndex, actualPosition, audioByteOffset);
+    }
+}
+
+#if WINDOWS_GUI
 /// <summary>
 ///     Creates a <see cref="MediaSource" /> from PS1 STR video data for direct playback
 ///     in a <see cref="Windows.Media.Playback.MediaPlayer" /> without ffmpeg conversion.
@@ -117,30 +170,28 @@ public sealed class StrMediaSource : IDisposable
 
     private void OnStarting(MediaStreamSource sender, MediaStreamSourceStartingEventArgs args)
     {
+        TimeSpan actualPosition;
         if (args.Request.StartPosition.HasValue)
         {
-            var position = args.Request.StartPosition.Value;
-            _frameIndex = Math.Clamp((int)(position.TotalSeconds * _frameRate), 0, _frames.Count - 1);
-
-            // Sync audio position to video
-            if (_audioBytes != null)
-            {
-                var audioBytesPerSecond = _audioSampleRate * _audioChannels * 2; // 16-bit samples
-                _audioByteOffset = Math.Clamp(
-                    (int)(position.TotalSeconds * audioBytesPerSecond),
-                    0, _audioBytes.Length);
-                // Align to frame boundary (channels * 2 bytes per sample)
-                _audioByteOffset -= _audioByteOffset % (_audioChannels * 2);
-            }
+            var aligned = StrMediaSourceSeekAlignment.AlignExplicit(
+                args.Request.StartPosition.Value,
+                _frameRate,
+                _frames.Count,
+                _audioSampleRate,
+                _audioChannels,
+                _audioBytes?.Length ?? 0);
+            _frameIndex = aligned.FrameIndex;
+            _audioByteOffset = aligned.AudioByteOffset;
+            actualPosition = aligned.ActualPosition;
         }
         else
         {
             _frameIndex = 0;
             _audioByteOffset = 0;
+            actualPosition = TimeSpan.Zero;
         }
 
-        args.Request.SetActualStartPosition(
-            TimeSpan.FromSeconds(_frameIndex / _frameRate));
+        args.Request.SetActualStartPosition(actualPosition);
     }
 
     private void OnSampleRequested(MediaStreamSource sender, MediaStreamSourceSampleRequestedEventArgs args)

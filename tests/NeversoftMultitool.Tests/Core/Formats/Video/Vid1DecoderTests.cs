@@ -61,7 +61,7 @@ public class Vid1DecoderTests(TestPaths paths)
         return file;
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFrame_FirstFrame_DoesNotThrow_ReturnsCorrectShape()
     {
         var file = ParseIntroVid();
@@ -78,7 +78,7 @@ public class Vid1DecoderTests(TestPaths paths)
         Assert.Equal(file.Width * file.Height * 3, result.Rgb24.Length);
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFrame_FirstFrame_UsesNeutralFallback()
     {
         var file = ParseIntroVid();
@@ -97,7 +97,7 @@ public class Vid1DecoderTests(TestPaths paths)
         });
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFrame_MultipleFrames_NoThrow()
     {
         var file = ParseIntroVid();
@@ -113,7 +113,7 @@ public class Vid1DecoderTests(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFrame_AtviTinyBFrame_CopiesSkippedReference()
     {
         var file = ParseAtviVid();
@@ -130,7 +130,7 @@ public class Vid1DecoderTests(TestPaths paths)
         Assert.Equal(skippedReference.Rgb24, tinyBFrame.Rgb24);
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFrame_AtviClass2Frame_DoesNotPromoteBOutputAsReference()
     {
         var file = ParseAtviVid();
@@ -173,7 +173,7 @@ public class Vid1DecoderTests(TestPaths paths)
         Assert.Equal(nextWithoutB.Rgb24, nextAfterB.Rgb24);
     }
 
-    [Fact]
+    [CorpusFact]
     public void PresentationProvider_Atvi_DisplaysClass2BeforeHeldReference()
     {
         var file = ParseAtviVid();
@@ -197,7 +197,7 @@ public class Vid1DecoderTests(TestPaths paths)
         Assert.Equal(1, third.FrameIndex);
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFrame_Stats_ReportMacroblockCounters()
     {
         var file = ParseIntroVid();
@@ -340,7 +340,7 @@ public class Vid1DecoderTests(TestPaths paths)
             "c0909be665aec7be74ce7fde6493d1dbd862cdd2d7f45ea50e983c589581169a");
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFrame_Frame3_CleanEndOfStreamCopiesReferenceLetterbox()
     {
         var file = ParseIntroVid();
@@ -371,7 +371,7 @@ public class Vid1DecoderTests(TestPaths paths)
             $"frame 3 lower letterbox average was {average:F2}; clean EOF should copy the black reference, not leave neutral-gray fallback");
     }
 
-    [Fact]
+    [CorpusFact]
     public void Reset_ClearsReferenceBuffer()
     {
         var file = ParseIntroVid();

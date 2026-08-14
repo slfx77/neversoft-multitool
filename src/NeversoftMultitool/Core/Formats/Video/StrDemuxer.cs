@@ -100,6 +100,7 @@ public static class StrDemuxer
         var currentFrameNum = -1;
         int frameWidth = 0, frameHeight = 0, frameQscale = 0;
         var expectedChunks = 0;
+        var hasConsistentChunkCount = true;
         var frameChunks = new SortedDictionary<int, byte[]>();
 
         for (var s = 0; s < sectorCount; s++)
@@ -135,6 +136,7 @@ public static class StrDemuxer
             {
                 // Yield the previous frame if complete
                 if (currentFrameNum >= 0
+                    && hasConsistentChunkCount
                     && HasCompleteChunkSet(frameChunks.Keys, frameChunks.Count, expectedChunks))
                 {
                     yield return AssembleFrame(currentFrameNum, frameWidth, frameHeight, frameQscale, frameChunks);
@@ -144,7 +146,12 @@ public static class StrDemuxer
                 frameWidth = width;
                 frameHeight = height;
                 expectedChunks = chunkCount;
+                hasConsistentChunkCount = true;
                 frameChunks.Clear();
+            }
+            else if (chunkCount != expectedChunks)
+            {
+                hasConsistentChunkCount = false;
             }
 
             // Extract chunk data (payload after 32-byte video header).
@@ -165,6 +172,7 @@ public static class StrDemuxer
 
         // Yield final frame
         if (currentFrameNum >= 0
+            && hasConsistentChunkCount
             && HasCompleteChunkSet(frameChunks.Keys, frameChunks.Count, expectedChunks))
         {
             yield return AssembleFrame(currentFrameNum, frameWidth, frameHeight, frameQscale, frameChunks);
@@ -249,6 +257,7 @@ public static class StrDemuxer
         var sectorCount = data.Length / SectorSize;
         var currentFrameNum = -1;
         var expectedChunks = 0;
+        var hasConsistentChunkCount = true;
         var frameChunks = new HashSet<int>();
         var frameCount = 0;
 
@@ -268,18 +277,25 @@ public static class StrDemuxer
             if (frameNum != currentFrameNum)
             {
                 if (currentFrameNum >= 0
+                    && hasConsistentChunkCount
                     && HasCompleteChunkSet(frameChunks, frameChunks.Count, expectedChunks))
                     frameCount++;
 
                 currentFrameNum = frameNum;
                 expectedChunks = chunkCount;
+                hasConsistentChunkCount = true;
                 frameChunks.Clear();
+            }
+            else if (chunkCount != expectedChunks)
+            {
+                hasConsistentChunkCount = false;
             }
 
             frameChunks.Add(chunkIndex);
         }
 
         if (currentFrameNum >= 0
+            && hasConsistentChunkCount
             && HasCompleteChunkSet(frameChunks, frameChunks.Count, expectedChunks))
             frameCount++;
 
@@ -309,6 +325,8 @@ public static class StrDemuxer
         width = 0;
         height = 0;
         if (payloadOffset < 0 || payloadOffset > data.Length - VideoHeaderSize)
+            return false;
+        if (BitConverter.ToUInt16(data, payloadOffset) != 0x0160)
             return false;
         if (BitConverter.ToUInt16(data, payloadOffset + 2) != 0x8001)
             return false;

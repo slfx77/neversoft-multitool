@@ -6,7 +6,7 @@ namespace NeversoftMultitool.Core.Formats.Vid1;
 ///     With <c>enableSeekAnchors</c>, it also supports seeking: reference-state
 ///     snapshots are captured every N emissions while decoding advances, and
 ///     <see cref="SeekToEmissionOrdinal" /> resumes from the best of {current
-///     position, nearest anchor, nearest intra frame, stream start}, then
+///     position, nearest anchor, nearest safe intra frame, stream start}, then
 ///     fast-forwards with plane-only decodes (no BGRA conversion). The held
 ///     presentation frame's BGRA is regenerated lazily from the reference
 ///     planes — the held frame is always the last promoted reference, because
@@ -186,11 +186,10 @@ internal sealed class Vid1BgraPresentationFrameProvider
             bestStart = anchor.NextEmissionOrdinal;
         }
 
-        // Intra frames are self-contained restart points. Emission ordinals
-        // and container indices differ by at most the one-frame reorder hold,
-        // so treating the container position as the resume ordinal costs at
-        // most a single-frame timestamp offset — cheaper than decoding from a
-        // much earlier anchor. Only used when it beats everything else.
+        // A later intra followed immediately by B-frames is not a stateless
+        // restart point: those B-frames present before the intra and depend on
+        // both the preceding and current reference. Safe indexed points either
+        // are the initial reference or reach another reference before any B.
         var intra = FindIntraAtOrBelow(target);
         if (intra > bestStart)
         {
@@ -300,7 +299,10 @@ internal sealed class Vid1BgraPresentationFrameProvider
         _heldBgraStale = false;
     }
 
-    /// <summary>Largest intra-frame (PreambleClass 0) container position ≤ target, or -1.</summary>
+    /// <summary>
+    ///     Largest safe intra-frame container position at or below the target,
+    ///     or -1. Later intra frames immediately followed by B-frames are unsafe.
+    /// </summary>
     private int FindIntraAtOrBelow(int target)
     {
         if (_anchors == null)
@@ -322,10 +324,22 @@ internal sealed class Vid1BgraPresentationFrameProvider
     private int[] BuildIntraFrameIndex()
     {
         var positions = new List<int>();
+        var hasReference = false;
         for (var i = 0; i < _file.Frames.Count; i++)
         {
-            if (_file.Frames[i].PreambleClass == 0)
-                positions.Add(i);
+            var frame = _file.Frames[i];
+            if (frame.PreambleClass == 0 &&
+                !frame.IsPartial &&
+                frame.CodedPayload.Length > 0)
+            {
+                var followedByBFrame = i + 1 < _file.Frames.Count &&
+                                       _file.Frames[i + 1].PreambleClass == 2;
+                if (!hasReference || !followedByBFrame)
+                    positions.Add(i);
+            }
+
+            if (frame.PreambleClass != 2)
+                hasReference = true;
         }
 
         return [.. positions];

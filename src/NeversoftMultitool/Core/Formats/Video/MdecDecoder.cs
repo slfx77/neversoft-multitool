@@ -36,7 +36,9 @@ public static class MdecDecoder
         if (version != 2)
             throw new InvalidDataException($"Unsupported STR bitstream version {version}; only version 2 is supported.");
 
-        var qscale = BitConverter.ToUInt16(frameData, 4);
+        // The STR header stores this in a u16, but the PSX MDEC command keeps
+        // only the low six bits when packing the block's first halfword.
+        var qscale = BitConverter.ToUInt16(frameData, 4) & 0x3F;
 
         var reader = new MdecBitReader(frameData.AsSpan(8));
 
@@ -148,12 +150,17 @@ public static class MdecDecoder
             vectorPos += run + 1;
             if (vectorPos >= 64) return false; // RLC out of bounds = corruption
 
-            var matrixPos = MdecTables.ReverseZigZag[vectorPos];
+            // qscale 0 is the MDEC's special unquantized mode: coefficients
+            // stay in their natural order instead of following the zigzag map.
+            var matrixPos = qscale == 0 ? vectorPos : MdecTables.ReverseZigZag[vectorPos];
 
             if (level != 0)
             {
-                // Dequantize AC: (level * quantTable[pos] * qscale + 4) >> 3
-                block[matrixPos] = (level * MdecTables.QuantizationMatrix[matrixPos] * qscale + 4) >> 3;
+                // qscale 0 bypasses the quantization table; normal AC values
+                // use the hardware's rounded dequantization formula.
+                block[matrixPos] = qscale == 0
+                    ? level * 2
+                    : (level * MdecTables.QuantizationMatrix[matrixPos] * qscale + 4) >> 3;
             }
         }
 

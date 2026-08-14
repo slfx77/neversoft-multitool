@@ -48,7 +48,7 @@ public class MdecDecoderTests(TestPaths paths)
 
     // ── StrDemuxer Tests ───────────────────────────────────────────────
 
-    [Fact]
+    [CorpusFact]
     public void IsStrFile_ValidStrFile_ReturnsTrue()
     {
         var file = FindStrFile("Apocalypse", "INTRO.STR");
@@ -59,7 +59,7 @@ public class MdecDecoderTests(TestPaths paths)
         Assert.True(StrDemuxer.IsStrFile(data));
     }
 
-    [Fact]
+    [CorpusFact]
     public void IsStrFile_AfsArchive_ReturnsFalse()
     {
         // DC SPEECH.STR is actually an AFS archive
@@ -90,7 +90,7 @@ public class MdecDecoderTests(TestPaths paths)
         Assert.False(StrDemuxer.IsStrFile(new byte[2337]));
     }
 
-    [Fact]
+    [CorpusFact]
     public void EnumerateFrames_ApocalypseIntro_HasFrames()
     {
         var file = FindStrFile("Apocalypse", "INTRO.STR");
@@ -143,7 +143,7 @@ public class MdecDecoderTests(TestPaths paths)
         Assert.Equal(1, StrDemuxer.CountFrames(data));
     }
 
-    [Fact]
+    [CorpusFact]
     public void CountFrames_ApocalypseIntroCountsCompleteFramesRatherThanHeaderMaximum()
     {
         var file = FindStrFile("Apocalypse", "INTRO.STR");
@@ -157,7 +157,7 @@ public class MdecDecoderTests(TestPaths paths)
         Assert.Equal(1960, count);
     }
 
-    [Fact]
+    [CorpusFact]
     public void HasAudio_TypicalStrFile_ReturnsTrue()
     {
         var file = FindStrFile("Apocalypse", "INTRO.STR");
@@ -167,7 +167,7 @@ public class MdecDecoderTests(TestPaths paths)
         Assert.True(StrDemuxer.HasAudio(data));
     }
 
-    [Fact]
+    [CorpusFact]
     public void ExtractAudioSectors_ReturnsAlignedData()
     {
         var file = FindStrFile("Apocalypse", "INTRO.STR");
@@ -182,7 +182,7 @@ public class MdecDecoderTests(TestPaths paths)
 
     // ── MdecDecoder Tests ──────────────────────────────────────────────
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFrame_FirstFrame_ProducesNonZeroRgb()
     {
         var file = FindStrFile("Apocalypse", "INTRO.STR");
@@ -206,7 +206,7 @@ public class MdecDecoderTests(TestPaths paths)
             $"Expected >10% non-zero pixels, got {nonZero}/{rgb.Length} ({100.0 * nonZero / rgb.Length:F1}%)");
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFrame_OutputDimensions_MatchInput()
     {
         var file = FindStrFile("Apocalypse", "INTRO.STR");
@@ -221,7 +221,7 @@ public class MdecDecoderTests(TestPaths paths)
         Assert.Equal(320 * 240 * 3, rgb.Length);
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFrame_MultipleFrames_AllDecode()
     {
         var file = FindStrFile("Apocalypse", "INTRO.STR");
@@ -250,7 +250,7 @@ public class MdecDecoderTests(TestPaths paths)
             $"Failed to decode {errors.Count}/{decoded + errors.Count} frames:\n{string.Join("\n", errors)}");
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFrame_ApocalypseIntroFrame101_PinsJpsxdecFramingAndRgbRegression()
     {
         var file = FindStrFile("Apocalypse", "INTRO.STR");
@@ -323,7 +323,7 @@ public class MdecDecoderTests(TestPaths paths)
         Assert.Contains("only version 2 is supported", error.Message);
     }
 
-    [Fact]
+    [CorpusFact]
     public void DecodeFrame_Sm2FinalE5M6HeaderFrame2_IsRejectedByBothDecoders()
     {
         var file = FindStrFile("Spider-Man 2 - Enter Electro (2001-8-15", "E5M6.STR");
@@ -345,7 +345,7 @@ public class MdecDecoderTests(TestPaths paths)
 
     // ── StrProbeResult Tests ───────────────────────────────────────────
 
-    [Fact]
+    [CorpusFact]
     public void Probe_ValidFile_ReturnsMetadata()
     {
         var file = FindStrFile("Apocalypse", "INTRO.STR");

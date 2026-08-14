@@ -5,6 +5,9 @@ namespace NeversoftMultitool.Tests.Core.Formats.Video;
 
 public sealed class Vid1VideoConverterTests(TestPaths paths)
 {
+    private const string MissingMp4Error =
+        "VID1 native decode completed successfully but did not produce a non-empty regular MP4 file.";
+
     // Properties evaluate eagerly when referenced (even inside Assert.SkipWhen(!File.Exists(...))),
     // so guard SampleBuildsDir to avoid Path.Combine throwing on CI when sample data is absent.
     private string ThawGcVidDir =>
@@ -54,6 +57,249 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
         finally
         {
             File.Delete(tempFile);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ConvertToMp4_SuccessWithoutNonEmptyStage_PreservesExistingOutput(bool writeEmptyStage)
+    {
+        var tempRoot = CreateSyntheticConversionFixture(
+            out var inputPath,
+            out var outputDir,
+            out var outputPath,
+            out var staleOutput);
+        string? stagedOutputPath = null;
+
+        try
+        {
+            Vid1VideoConverter.NativeDecodePipelineRunner pipeline =
+                (string ffmpegPath,
+                    Vid1VideoFile _,
+                    List<string> audioPaths,
+                    string stagePath,
+                    IProgress<double>? _,
+                    CancellationToken cancellationToken,
+                    out string error) =>
+                {
+                    Assert.Equal("synthetic-ffmpeg", ffmpegPath);
+                    Assert.Empty(audioPaths);
+                    Assert.False(cancellationToken.IsCancellationRequested);
+                    stagedOutputPath = stagePath;
+                    if (writeEmptyStage)
+                        File.WriteAllBytes(stagePath, []);
+                    error = "";
+                    return true;
+                };
+
+            var result = Vid1VideoConverter.ConvertToMp4(
+                inputPath,
+                outputDir,
+                () => "synthetic-ffmpeg",
+                pipeline);
+
+            Assert.False(result.Success);
+            Assert.Equal(MissingMp4Error, result.ErrorMessage);
+            Assert.Equal(staleOutput, File.ReadAllBytes(outputPath));
+            AssertStagedPath(stagedOutputPath, outputDir, outputPath);
+            Assert.False(File.Exists(stagedOutputPath));
+            Assert.False(Directory.Exists(stagedOutputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ConvertToMp4_NonEmptyStage_ReplacesExistingOutput()
+    {
+        var tempRoot = CreateSyntheticConversionFixture(
+            out var inputPath,
+            out var outputDir,
+            out var outputPath,
+            out _);
+        byte[] replacement = [0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70];
+        string? stagedOutputPath = null;
+
+        try
+        {
+            Vid1VideoConverter.NativeDecodePipelineRunner pipeline =
+                (string ffmpegPath,
+                    Vid1VideoFile _,
+                    List<string> audioPaths,
+                    string stagePath,
+                    IProgress<double>? _,
+                    CancellationToken cancellationToken,
+                    out string error) =>
+                {
+                    Assert.Equal("synthetic-ffmpeg", ffmpegPath);
+                    Assert.Empty(audioPaths);
+                    Assert.False(cancellationToken.IsCancellationRequested);
+                    stagedOutputPath = stagePath;
+                    File.WriteAllBytes(stagePath, replacement);
+                    error = "";
+                    return true;
+                };
+
+            var result = Vid1VideoConverter.ConvertToMp4(
+                inputPath,
+                outputDir,
+                () => "synthetic-ffmpeg",
+                pipeline);
+
+            Assert.True(result.Success, result.ErrorMessage);
+            Assert.Null(result.ErrorMessage);
+            Assert.Equal(outputPath, result.OutputPath);
+            Assert.Equal(replacement, File.ReadAllBytes(outputPath));
+            AssertStagedPath(stagedOutputPath, outputDir, outputPath);
+            Assert.False(File.Exists(stagedOutputPath));
+            Assert.False(Directory.Exists(stagedOutputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ConvertToMp4_DirectoryStage_IsRejectedAndRemoved()
+    {
+        var tempRoot = CreateSyntheticConversionFixture(
+            out var inputPath,
+            out var outputDir,
+            out var outputPath,
+            out var staleOutput);
+        string? stagedOutputPath = null;
+
+        try
+        {
+            Vid1VideoConverter.NativeDecodePipelineRunner pipeline =
+                (string _,
+                    Vid1VideoFile _,
+                    List<string> _,
+                    string stagePath,
+                    IProgress<double>? _,
+                    CancellationToken _,
+                    out string error) =>
+                {
+                    stagedOutputPath = stagePath;
+                    Directory.CreateDirectory(stagePath);
+                    File.WriteAllBytes(Path.Combine(stagePath, "partial.bin"), [0xAA]);
+                    error = "";
+                    return true;
+                };
+
+            var result = Vid1VideoConverter.ConvertToMp4(
+                inputPath,
+                outputDir,
+                () => "synthetic-ffmpeg",
+                pipeline);
+
+            Assert.False(result.Success);
+            Assert.Equal(MissingMp4Error, result.ErrorMessage);
+            Assert.Equal(staleOutput, File.ReadAllBytes(outputPath));
+            AssertStagedPath(stagedOutputPath, outputDir, outputPath);
+            Assert.False(Directory.Exists(stagedOutputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ConvertToMp4_CancelledAfterPipeline_PreservesExistingOutput()
+    {
+        var tempRoot = CreateSyntheticConversionFixture(
+            out var inputPath,
+            out var outputDir,
+            out var outputPath,
+            out var staleOutput);
+        using var cancellation = new CancellationTokenSource();
+        string? stagedOutputPath = null;
+
+        try
+        {
+            Vid1VideoConverter.NativeDecodePipelineRunner pipeline =
+                (string _,
+                    Vid1VideoFile _,
+                    List<string> _,
+                    string stagePath,
+                    IProgress<double>? _,
+                    CancellationToken _,
+                    out string error) =>
+                {
+                    stagedOutputPath = stagePath;
+                    File.WriteAllBytes(stagePath, [0x01]);
+                    cancellation.Cancel();
+                    error = "";
+                    return true;
+                };
+
+            var result = Vid1VideoConverter.ConvertToMp4(
+                inputPath,
+                outputDir,
+                () => "synthetic-ffmpeg",
+                pipeline,
+                cancellationToken: cancellation.Token);
+
+            Assert.False(result.Success);
+            Assert.Equal("Cancelled", result.ErrorMessage);
+            Assert.Equal(staleOutput, File.ReadAllBytes(outputPath));
+            AssertStagedPath(stagedOutputPath, outputDir, outputPath);
+            Assert.False(File.Exists(stagedOutputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ConvertToMp4_CompletionProgressFailure_PreservesExistingOutput()
+    {
+        var tempRoot = CreateSyntheticConversionFixture(
+            out var inputPath,
+            out var outputDir,
+            out var outputPath,
+            out var staleOutput);
+        string? stagedOutputPath = null;
+
+        try
+        {
+            Vid1VideoConverter.NativeDecodePipelineRunner pipeline =
+                (string _,
+                    Vid1VideoFile _,
+                    List<string> _,
+                    string stagePath,
+                    IProgress<double>? _,
+                    CancellationToken _,
+                    out string error) =>
+                {
+                    stagedOutputPath = stagePath;
+                    File.WriteAllBytes(stagePath, [0x01]);
+                    error = "";
+                    return true;
+                };
+
+            var result = Vid1VideoConverter.ConvertToMp4(
+                inputPath,
+                outputDir,
+                () => "synthetic-ffmpeg",
+                pipeline,
+                new ThrowOnCompletionProgress());
+
+            Assert.False(result.Success);
+            Assert.Equal("completion progress failed", result.ErrorMessage);
+            Assert.Equal(staleOutput, File.ReadAllBytes(outputPath));
+            AssertStagedPath(stagedOutputPath, outputDir, outputPath);
+            Assert.False(File.Exists(stagedOutputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
         }
     }
 
@@ -166,6 +412,46 @@ public sealed class Vid1VideoConverterTests(TestPaths paths)
         finally
         {
             Directory.Delete(outputDir, true);
+        }
+    }
+
+    private static string CreateSyntheticConversionFixture(
+        out string inputPath,
+        out string outputDir,
+        out string outputPath,
+        out byte[] staleOutput)
+    {
+        var tempRoot = FormatProbeTestHelper.CreateTempDirectory("vid_video_convert_staging");
+        inputPath = Path.Combine(tempRoot, "sample.vid");
+        outputDir = Path.Combine(tempRoot, "output");
+        outputPath = Path.Combine(outputDir, "sample.mp4");
+        staleOutput = [0x53, 0x54, 0x41, 0x4C, 0x45];
+
+        File.WriteAllBytes(inputPath, Vid1VideoTestBuilder.CreateVideoVid1());
+        Directory.CreateDirectory(outputDir);
+        File.WriteAllBytes(outputPath, staleOutput);
+        return tempRoot;
+    }
+
+    private static void AssertStagedPath(string? stagedOutputPath, string outputDir, string outputPath)
+    {
+        Assert.NotNull(stagedOutputPath);
+        var stage = stagedOutputPath!;
+        Assert.Equal(outputDir, Path.GetDirectoryName(stage));
+        Assert.NotEqual(outputPath, stage);
+
+        var fileName = Path.GetFileName(stage)!;
+        Assert.StartsWith(".", fileName, StringComparison.Ordinal);
+        Assert.EndsWith(".tmp.mp4", fileName, StringComparison.Ordinal);
+        Assert.True(Guid.TryParseExact(fileName[1..^".tmp.mp4".Length], "N", out _));
+    }
+
+    private sealed class ThrowOnCompletionProgress : IProgress<double>
+    {
+        public void Report(double value)
+        {
+            if (value >= 1.0)
+                throw new InvalidOperationException("completion progress failed");
         }
     }
 }

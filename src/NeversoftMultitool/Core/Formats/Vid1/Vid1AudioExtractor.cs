@@ -23,12 +23,45 @@ public static class Vid1AudioExtractor
             : null;
     }
 
+    /// <summary>In-memory variant of <see cref="Probe(string, int)" />.</summary>
+    public static Vid1AudioProbeResult? Probe(byte[] data, int trackIndex = 0)
+    {
+        try
+        {
+            if (!TryParseVid1(data, out var tracks, out _) ||
+                trackIndex < 0 || trackIndex >= tracks.Count)
+                return null;
+
+            return CreateProbe(tracks[trackIndex], tracks.Count);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>Probes every audio track in a VID1 file (e.g. one per dubbed language).</summary>
     public static IReadOnlyList<Vid1AudioProbeResult> ProbeTracks(string inputPath)
     {
         return TryProbeTracks(inputPath, out var probes, out _)
             ? probes
             : [];
+    }
+
+    /// <summary>In-memory variant of <see cref="ProbeTracks(string)" />.</summary>
+    public static IReadOnlyList<Vid1AudioProbeResult> ProbeTracks(byte[] data)
+    {
+        try
+        {
+            if (!TryParseVid1(data, out var tracks, out _))
+                return [];
+
+            return tracks.Select(track => CreateProbe(track, tracks.Count)).ToArray();
+        }
+        catch
+        {
+            return [];
+        }
     }
 
     /// <summary>
@@ -183,8 +216,7 @@ public static class Vid1AudioExtractor
         if (!TryReadTrack(inputPath, trackIndex, out var track, out error, out var trackCount))
             return false;
 
-        probe = new Vid1AudioProbeResult(
-            "VID1 Vorbis", track.SampleRate, track.Channels, track.TotalSamples, track.TrackIndex, trackCount);
+        probe = CreateProbe(track, trackCount);
         error = "";
         return true;
     }
@@ -197,12 +229,20 @@ public static class Vid1AudioExtractor
         if (!TryReadTracks(inputPath, out var tracks, out error))
             return false;
 
-        probes = tracks
-            .Select(track => new Vid1AudioProbeResult(
-                "VID1 Vorbis", track.SampleRate, track.Channels, track.TotalSamples, track.TrackIndex, tracks.Count))
-            .ToArray();
+        probes = tracks.Select(track => CreateProbe(track, tracks.Count)).ToArray();
         error = "";
         return true;
+    }
+
+    private static Vid1AudioProbeResult CreateProbe(Vid1AudioTrack track, int trackCount)
+    {
+        return new Vid1AudioProbeResult(
+            "VID1 Vorbis",
+            track.SampleRate,
+            track.Channels,
+            track.TotalSamples,
+            track.TrackIndex,
+            trackCount);
     }
 
     internal static bool TryReadPacketHeader(
@@ -985,5 +1025,10 @@ public static class Vid1AudioExtractor
         int Channels,
         int TotalSamples,
         int TrackIndex,
-        int TrackCount);
+        int TrackCount)
+    {
+        public double? DurationSeconds => SampleRate > 0 && TotalSamples > 0
+            ? TotalSamples / (double)SampleRate
+            : null;
+    }
 }

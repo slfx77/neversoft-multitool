@@ -89,7 +89,7 @@ internal static class Vid1VideoRebuilder
             timeIncrement++;
         }
 
-        return [.. output];
+        return timeIncrement == 0 ? [] : [.. output];
     }
 
     internal static Vid1DeterministicFramePlan? GetDeterministicFramePlan(Vid1VideoVariant variant,

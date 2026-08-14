@@ -105,6 +105,35 @@ public sealed class Vid1VideoRebuilderTests
         Assert.False(ContainsSubsequence(rebuilt, Enumerable.Repeat((byte)0xEE, 24).ToArray()));
     }
 
+    [Fact]
+    public void BuildDeterministicCandidateStream_NoEligibleFrames_ReturnsEmptyInsteadOfPrefixOnly()
+    {
+        var prefix = new byte[] { 0x00, 0x00, 0x01, 0xB0, 0x20 };
+        var data = Vid1VideoTestBuilder.CreateVideoVid1(
+            frames:
+            [
+                new Vid1SyntheticVideoFrameSpec(
+                    0x2107,
+                    0,
+                    Quantizer: 7,
+                    CurrentFrameStateWord: 0x11223344,
+                    HasSpecialCallerGate: true,
+                    CodedPayload: Enumerable.Repeat((byte)0xEE, 24).ToArray())
+            ]);
+
+        var success = Vid1VideoFile.TryParse(data, "intro.vid", out var file, out var error);
+        Assert.True(success, error);
+        var frame = Assert.Single(file!.Frames);
+        Assert.Equal(32, frame.CodedPayload.Length);
+        Assert.Equal(
+            56,
+            Vid1VideoRebuilder.GetDeterministicFramePlan(file.Variant, frame)!.Value.PayloadOffsetBytes);
+
+        var rebuilt = Vid1VideoRebuilder.BuildDeterministicCandidateStream(prefix, file);
+
+        Assert.Empty(rebuilt);
+    }
+
     private static bool ContainsSubsequence(byte[] haystack, byte[] needle)
     {
         if (needle.Length == 0 || haystack.Length < needle.Length)

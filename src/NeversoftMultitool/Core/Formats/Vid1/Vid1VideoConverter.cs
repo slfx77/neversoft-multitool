@@ -7,6 +7,18 @@ namespace NeversoftMultitool.Core.Formats.Vid1;
 
 public static class Vid1VideoConverter
 {
+    private const string MissingMp4Error =
+        "VID1 native decode completed successfully but did not produce a non-empty regular MP4 file.";
+
+    internal delegate bool NativeDecodePipelineRunner(
+        string ffmpegPath,
+        Vid1VideoFile file,
+        List<string> audioPaths,
+        string outputPath,
+        IProgress<double>? progress,
+        CancellationToken cancellationToken,
+        out string error);
+
     public static Vid1VideoProbeResult? Probe(string inputPath)
     {
         return TryProbe(inputPath, out var probe, out _)
@@ -20,18 +32,38 @@ public static class Vid1VideoConverter
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        return ConvertToMp4(
+            inputPath,
+            outputDir,
+            SfdConverter.FindFfmpeg,
+            RunNativeDecodePipeline,
+            progress,
+            cancellationToken);
+    }
+
+    internal static SfdConvertResult ConvertToMp4(
+        string inputPath,
+        string outputDir,
+        Func<string?> findFfmpeg,
+        NativeDecodePipelineRunner runNativeDecodePipeline,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
         cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(findFfmpeg);
+        ArgumentNullException.ThrowIfNull(runNativeDecodePipeline);
 
         if (!TryProbe(inputPath, out _, out var error))
             return new SfdConvertResult { ErrorMessage = error };
 
-        var ffmpeg = SfdConverter.FindFfmpeg();
+        var ffmpeg = findFfmpeg();
         if (ffmpeg == null)
             return new SfdConvertResult { ErrorMessage = "ffmpeg not found on PATH" };
 
         Directory.CreateDirectory(outputDir);
         var stem = Path.GetFileNameWithoutExtension(inputPath);
         var outputPath = Path.Combine(outputDir, stem + ".mp4");
+        var stagedOutputPath = Path.Combine(outputDir, $".{Guid.NewGuid():N}.tmp.mp4");
         var tempDir = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "Vid1Video", Guid.NewGuid().ToString("N"));
         var tempVideoPath = Path.Combine(tempDir, stem + ".m4v");
         var tempAudioDir = Path.Combine(tempDir, "audio");
@@ -61,20 +93,30 @@ public static class Vid1VideoConverter
 
             progress?.Report(0.10);
 
-            if (!RunNativeDecodePipeline(ffmpeg, file!, audioPaths, outputPath,
+            if (!runNativeDecodePipeline(ffmpeg, file!, audioPaths, stagedOutputPath,
                     progress, cancellationToken, out error))
                 return new SfdConvertResult { ErrorMessage = error };
 
+            if (cancellationToken.IsCancellationRequested)
+                return new SfdConvertResult { ErrorMessage = "Cancelled" };
+
+            if (!IsNonEmptyRegularFile(stagedOutputPath))
+                return new SfdConvertResult { ErrorMessage = MissingMp4Error };
+
             progress?.Report(1.0);
+            if (cancellationToken.IsCancellationRequested)
+                return new SfdConvertResult { ErrorMessage = "Cancelled" };
+
+            File.Move(stagedOutputPath, outputPath, overwrite: true);
             return new SfdConvertResult { Success = true, OutputPath = outputPath };
         }
         catch (Exception ex)
         {
-            TryDeleteFile(outputPath);
             return new SfdConvertResult { ErrorMessage = ex.Message };
         }
         finally
         {
+            TryDeleteStagedOutput(stagedOutputPath);
             TryDeleteFile(tempVideoPath);
             TryDeleteDirectory(tempAudioDir);
             TryDeleteDirectory(tempDir);
@@ -553,6 +595,44 @@ public static class Vid1VideoConverter
         }
 
         return Math.Min(requested, availableFrames);
+    }
+
+    private static bool IsNonEmptyRegularFile(string path)
+    {
+        if (!File.Exists(path))
+            return false;
+
+        var attributes = File.GetAttributes(path);
+        return (attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) == 0
+               && new FileInfo(path).Length > 0;
+    }
+
+    private static void TryDeleteStagedOutput(string path)
+    {
+        try
+        {
+            var attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                if ((attributes & FileAttributes.Directory) != 0)
+                    Directory.Delete(path, recursive: false);
+                else
+                    File.Delete(path);
+            }
+            else if ((attributes & FileAttributes.Directory) != 0)
+            {
+                Directory.Delete(path, recursive: true);
+            }
+            else
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Staged-output cleanup must not mask the conversion result. Reparse
+            // points are removed only at their root and are never followed.
+        }
     }
 
     internal static void TryDeleteFile(string? path)

@@ -361,6 +361,7 @@ public static partial class SfdConverter
 
             var width = 0;
             var height = 0;
+            var hasUsableVideo = false;
             double frameRate = 0;
             string? videoCodec = null;
             string? audioCodec = null;
@@ -375,17 +376,24 @@ public static partial class SfdConverter
 
                     if (codecType == "video")
                     {
-                        if (stream.TryGetProperty("width", out var w)) width = w.GetInt32();
-                        if (stream.TryGetProperty("height", out var h)) height = h.GetInt32();
-                        if (stream.TryGetProperty("codec_name", out var cn)) videoCodec = cn.GetString();
-                        if (stream.TryGetProperty("r_frame_rate", out var fr))
+                        var streamWidth = stream.TryGetProperty("width", out var w) ? w.GetInt32() : 0;
+                        var streamHeight = stream.TryGetProperty("height", out var h) ? h.GetInt32() : 0;
+                        if (streamWidth > 0 && streamHeight > 0)
                         {
-                            var parts = fr.GetString()?.Split('/');
-                            if (parts?.Length == 2 &&
-                                double.TryParse(parts[0], CultureInfo.InvariantCulture, out var num) &&
-                                double.TryParse(parts[1], CultureInfo.InvariantCulture, out var den) &&
-                                den > 0)
-                                frameRate = num / den;
+                            hasUsableVideo = true;
+                            width = streamWidth;
+                            height = streamHeight;
+                            videoCodec = stream.TryGetProperty("codec_name", out var cn) ? cn.GetString() : null;
+                            frameRate = 0;
+                            if (stream.TryGetProperty("r_frame_rate", out var fr))
+                            {
+                                var parts = fr.GetString()?.Split('/');
+                                if (parts?.Length == 2 &&
+                                    double.TryParse(parts[0], CultureInfo.InvariantCulture, out var num) &&
+                                    double.TryParse(parts[1], CultureInfo.InvariantCulture, out var den) &&
+                                    den > 0)
+                                    frameRate = num / den;
+                            }
                         }
                     }
                     else if (codecType == "audio")
@@ -398,6 +406,9 @@ public static partial class SfdConverter
                     }
                 }
             }
+
+            if (!hasUsableVideo)
+                return null;
 
             if (audioCodec == null && pssAudio != null)
             {

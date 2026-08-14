@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using NeversoftMultitool.Core.Formats.Vid1;
+using NeversoftMultitool.Tests.Core.Formats.Video;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Vid1;
 
@@ -12,6 +13,41 @@ public sealed class Vid1SeekTests(TestPaths paths)
 {
     private const string ThawGcBuild = "Tony Hawk's American Wasteland (2005-8-22, GC - Final)";
     private const int LinearFrames = 40;
+
+    [Fact]
+    public void SeekAcrossLaterIntraWithBFrames_PreservesTheLinearPresentationTail()
+    {
+        var data = Vid1VideoTestBuilder.CreateVideoVid1(
+            width: 16,
+            height: 16,
+            frames:
+            [
+                new Vid1SyntheticVideoFrameSpec(0x2107, PreambleClass: 0),
+                new Vid1SyntheticVideoFrameSpec(0x4014, PreambleClass: 1),
+                new Vid1SyntheticVideoFrameSpec(0x8046, PreambleClass: 2),
+                new Vid1SyntheticVideoFrameSpec(0x2107, PreambleClass: 0),
+                new Vid1SyntheticVideoFrameSpec(0x8046, PreambleClass: 2),
+                new Vid1SyntheticVideoFrameSpec(0x4014, PreambleClass: 1)
+            ]);
+        Assert.True(Vid1VideoFile.TryParse(data, "synthetic.vid", out var file, out var error), error);
+
+        var expected = DecodeRemaining(new Vid1BgraPresentationFrameProvider(file!, true), file);
+        Assert.Equal([0, 2, 1, 4, 3, 5], expected.Select(static frame => frame.FrameIndex));
+
+        foreach (var target in new[] { 3, 4, 5 })
+        {
+            var provider = new Vid1BgraPresentationFrameProvider(file, true);
+            Assert.Equal(target, provider.SeekToEmissionOrdinal(target));
+
+            var actual = DecodeRemaining(provider, file);
+            Assert.Equal(expected.Count - target, actual.Count);
+            for (var index = 0; index < actual.Count; index++)
+            {
+                Assert.Equal(expected[target + index].FrameIndex, actual[index].FrameIndex);
+                Assert.Equal(expected[target + index].Bgra, actual[index].Bgra);
+            }
+        }
+    }
 
     [CorpusFact]
     public void SeekToEmissionOrdinal_ReproducesLinearDecodeExactly()
@@ -97,5 +133,17 @@ public sealed class Vid1SeekTests(TestPaths paths)
 
         var provider = new Vid1BgraPresentationFrameProvider(file!, true);
         Assert.Equal(-1, provider.SeekToEmissionOrdinal(int.MaxValue));
+    }
+
+    private static List<(int FrameIndex, byte[] Bgra)> DecodeRemaining(
+        Vid1BgraPresentationFrameProvider provider,
+        Vid1VideoFile file)
+    {
+        var frames = new List<(int FrameIndex, byte[] Bgra)>();
+        var buffer = new byte[file.Width * file.Height * 4];
+        while (provider.TryDecodeNextFrame(buffer, out var frameIndex))
+            frames.Add((frameIndex, buffer.ToArray()));
+
+        return frames;
     }
 }

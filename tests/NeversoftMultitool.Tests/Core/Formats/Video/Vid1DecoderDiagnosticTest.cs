@@ -343,7 +343,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Diagnostic_CreditsFrame100_MotionResidualBlocks()
     {
         Assert.SkipWhen(Environment.GetEnvironmentVariable("VID1_RUN_CREDITS_DIAG") != "1",
@@ -429,7 +429,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         Assert.NotEmpty(log);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Diagnostic_CreditsA878_StripeWindow()
     {
         Assert.SkipWhen(Environment.GetEnvironmentVariable("VID1_RUN_CREDITS_A878_DIAG") != "1",
@@ -913,7 +913,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         }
     }
 
-    [Fact]
+    [CorpusFact]
     public void Diagnostic_Frame0_FirstMacroblock()
     {
         var (_, file) = RequireIntroVid();
@@ -1046,7 +1046,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         Assert.NotEmpty(log);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Diagnostic_Frame0_FirstCodedBlock_PixelPipeline()
     {
         var fixture = RequireIntroVid();
@@ -1265,7 +1265,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         Assert.NotEmpty(log);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Diagnostic_Frame0_TwoReaderSplit()
     {
         var (_, file) = RequireIntroVid();
@@ -1365,7 +1365,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         Assert.NotEmpty(log);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Diagnostic_Frame0_FirstFailureResyncSearch()
     {
         var (_, file) = RequireIntroVid();
@@ -1468,7 +1468,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         Assert.NotEmpty(log);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Diagnostic_Frame0_PreFailureWindow()
     {
         var (_, file) = RequireIntroVid();
@@ -1587,7 +1587,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         Assert.NotEmpty(log);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Diagnostic_Frame1_FirstFailureWithActiveDecoderPath()
     {
         var (_, file) = RequireIntroVid();
@@ -1646,7 +1646,7 @@ public class Vid1DecoderDiagnosticTest(TestPaths paths)
         Assert.NotEmpty(log);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Diagnostic_Frame1_HeaderWalk_CurrentLayout()
     {
         var fixture = RequireIntroVid();

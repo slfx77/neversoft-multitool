@@ -20,6 +20,8 @@ internal static class Vid1YuvToRgb
         byte[] lumaPlane, byte[] cbPlane, byte[] crPlane,
         int width, int height)
     {
+        ValidateDimensions(width, height);
+
         var rgb = new byte[width * height * 3];
         ConvertToRgb(lumaPlane, cbPlane, crPlane, width, height, rgb);
         return rgb;
@@ -30,6 +32,8 @@ internal static class Vid1YuvToRgb
         int width, int height,
         Span<byte> rgb)
     {
+        ValidateDimensions(width, height);
+
         if (rgb.Length < width * height * 3)
             throw new ArgumentException("RGB destination is too small", nameof(rgb));
 
@@ -93,6 +97,8 @@ internal static class Vid1YuvToRgb
         int width, int height,
         Span<byte> bgra)
     {
+        ValidateDimensions(width, height);
+
         if (bgra.Length < width * height * 4)
             throw new ArgumentException("BGRA destination is too small", nameof(bgra));
 
@@ -149,6 +155,12 @@ internal static class Vid1YuvToRgb
                 }
             }
         }
+    }
+
+    private static void ValidateDimensions(int width, int height)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
     }
 
     private static int[] BuildContributionTable(Func<int, int> transform)

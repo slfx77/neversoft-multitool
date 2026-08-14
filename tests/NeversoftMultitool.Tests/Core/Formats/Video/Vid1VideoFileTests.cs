@@ -208,7 +208,7 @@ public sealed class Vid1VideoFileTests(TestPaths paths)
         Assert.InRange(file.FrameRate, 29.9, 30.1);
     }
 
-    [Fact]
+    [CorpusFact]
     public void Parse_AllThawGcSamples_ClassifiesLongFormAndAtvi()
     {
         Assert.SkipWhen(!Directory.Exists(ThawGcVidDir), "THAW GameCube VID sample directory not found");
