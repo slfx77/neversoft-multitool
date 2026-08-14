@@ -99,6 +99,23 @@ public sealed class CasCommandTests
     }
 
     [Fact]
+    public void Execute_EmptyDirectoryPreCancelled_PropagatesWithoutOutput()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "empty");
+        var output = Path.Combine(temp.Path, "output");
+        Directory.CreateDirectory(input);
+
+        Assert.Throws<OperationCanceledException>(() =>
+            CasCommand.Execute(
+                input,
+                output,
+                verbose: true,
+                new CancellationToken(canceled: true)));
+        Assert.False(Directory.Exists(output));
+    }
+
+    [Fact]
     public void TryGetPlatform_AcceptsOnlyTypedPs2AndXboxSuffixes()
     {
         Assert.True(CasCommand.TryGetPlatform("thing.CAS.PS2", out var ps2));
