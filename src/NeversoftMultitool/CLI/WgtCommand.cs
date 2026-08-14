@@ -48,6 +48,8 @@ public static class WgtCommand
         bool verbose,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!File.Exists(input) && !Directory.Exists(input))
         {
             AnsiConsole.MarkupLine($"[red]Input does not exist: {Markup.Escape(input)}[/]");
