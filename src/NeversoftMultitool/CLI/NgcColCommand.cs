@@ -49,6 +49,8 @@ public static class NgcColCommand
 
     internal static int Execute(string input, string output, bool verbose, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!File.Exists(input) && !Directory.Exists(input))
         {
             AnsiConsole.MarkupLine($"[red]Input does not exist: {Markup.Escape(input)}[/]");

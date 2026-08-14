@@ -29,6 +29,29 @@ public sealed class NgcColFileTests(TestPaths paths)
     }
 
     [Fact]
+    public void IsNgcColFile_HeaderAndBoundsWithoutBspSize_ReturnsFalse()
+    {
+        var data = new byte[56];
+        BinaryPrimitives.WriteUInt32BigEndian(data, 10);
+
+        Assert.False(NgcColFile.IsNgcColFile(data));
+    }
+
+    [Fact]
+    public void IsNgcColFile_ExactEmptyFile_ReturnsTrueAndParses()
+    {
+        var data = new byte[60];
+        BinaryPrimitives.WriteUInt32BigEndian(data, 10);
+        BinaryPrimitives.WriteSingleBigEndian(data.AsSpan(36), 1.0f);
+        BinaryPrimitives.WriteSingleBigEndian(data.AsSpan(52), 1.0f);
+
+        Assert.True(NgcColFile.IsNgcColFile(data));
+        var scene = NgcColFile.Parse(data);
+        Assert.Empty(scene.Objects);
+        Assert.Equal(60, scene.SerializedSize);
+    }
+
+    [Fact]
     public void IsNgcColFile_MinimalSynthetic_ReturnsTrue()
     {
         Assert.True(NgcColFile.IsNgcColFile(BuildMinimalFile()));

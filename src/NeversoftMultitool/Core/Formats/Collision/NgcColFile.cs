@@ -32,6 +32,7 @@ public static class NgcColFile
 {
     private const int SizeofHeader = 24;
     private const int SizeofBounds = 32;
+    private const int MinimumFileSize = SizeofHeader + SizeofBounds + sizeof(uint);
     private const int SizeofObject = 64;
     private const int SizeofFace = 10;
     private const int SizeofNode = 8;
@@ -41,7 +42,7 @@ public static class NgcColFile
     /// <summary>Returns true when the data starts like a big-endian v10 collision file.</summary>
     public static bool IsNgcColFile(ReadOnlySpan<byte> data)
     {
-        if (data.Length < SizeofHeader + SizeofBounds) return false;
+        if (data.Length < MinimumFileSize) return false;
         if (BinaryPrimitives.ReadUInt32BigEndian(data) != 10) return false;
         var numObjects = BinaryPrimitives.ReadUInt32BigEndian(data[4..]);
         return numObjects <= MaxObjects;
