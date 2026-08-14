@@ -39,11 +39,9 @@ internal static class MeshConverterTabFileScanner
     {
         var buckets = ClassifyFiles(inputDir, ct);
 
-        var ddmStems = buckets.DdmFiles
-            .Select(Path.GetFileNameWithoutExtension)
-            .Where(static stem => stem != null)
-            .Cast<string>()
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ddmCompanionPaths = DdmCompanionIdentity.FindCompanionPsxPaths(
+            buckets.DdmFiles,
+            buckets.PsxFiles);
 
         var results = new ConcurrentBag<MeshFileEntry>();
         var processed = 0;
@@ -68,7 +66,8 @@ internal static class MeshConverterTabFileScanner
         });
 
         Parallel.ForEach(
-            buckets.PsxFiles.Where(file => !ddmStems.Contains(Path.GetFileNameWithoutExtension(file))),
+            buckets.PsxFiles.Where(file =>
+                !ddmCompanionPaths.Contains(file)),
             parallelOptions,
             file =>
             {

@@ -24,6 +24,8 @@ public sealed partial class ModelViewerControl : UserControl
     private string _lightingMode = "day";
     private long _loadGeneration;
     private TaskCompletionSource<bool>? _pageReady;
+    private bool _showColourPulses = true;
+    private bool _showTextureWibbles = true;
     private DateTime _suppressTimeUntil = DateTime.MinValue;
     private bool _updatingSlider;
     private bool _webMessageHooked;
@@ -97,6 +99,7 @@ public sealed partial class ModelViewerControl : UserControl
                     { Path = "mesh-viewer.html" }.Uri.ToString());
             await _pageReady.Task.WaitAsync(TimeSpan.FromSeconds(15));
             _webViewInitialized = true;
+            await ApplySurfaceAnimationSettingsAsync();
 
             // The page's own status overlay takes over from here.
             PlaceholderText.Visibility = Visibility.Collapsed;
@@ -233,6 +236,27 @@ public sealed partial class ModelViewerControl : UserControl
         if (mode is not ("all" or "day" or "night")) return Task.CompletedTask;
         _lightingMode = mode;
         return ExecuteScriptSafeAsync($"setLightingMode('{mode}')");
+    }
+
+    /// <summary>
+    ///     Independently enable the PS1 colour-pulse and UV-wibble surface
+    ///     effects. The page restores each disabled effect to its authored
+    ///     frame-zero state rather than freezing the last animated frame.
+    /// </summary>
+    public Task SetSurfaceAnimationsEnabledAsync(
+        bool colourPulsesEnabled,
+        bool textureWibblesEnabled)
+    {
+        _showColourPulses = colourPulsesEnabled;
+        _showTextureWibbles = textureWibblesEnabled;
+        return ApplySurfaceAnimationSettingsAsync();
+    }
+
+    private Task ApplySurfaceAnimationSettingsAsync()
+    {
+        return ExecuteScriptSafeAsync(
+            $"setSurfaceAnimationsEnabled({_showColourPulses.ToString().ToLowerInvariant()}, "
+            + $"{_showTextureWibbles.ToString().ToLowerInvariant()})");
     }
 
     private async void ModeButton_Click(object sender, RoutedEventArgs e)

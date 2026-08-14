@@ -18,11 +18,11 @@ internal static class TextureTabTextureOperations
     [
         ".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc",
         ".tex.ps2", ".img.ps2", ".tex.ngc", ".img.ngc", ".stex",
-        ".tex.n64", ".img.n64"
+        ".tex.n64"
     ];
 
     private static readonly string[] NgcTexExtensions = [".tex.ngc", ".img.ngc"];
-    private static readonly string[] N64TexExtensions = [".tex.n64", ".img.n64"];
+    private static readonly string[] N64TexExtensions = [".tex.n64"];
 
     // .stex = THAW level/zone textures: DXT containers on PC, zone TEX on PS2 —
     // ParseXbxTextures dispatches by content, mirroring the CLI xbxtex/ps2tex routing.

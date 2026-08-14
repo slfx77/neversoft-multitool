@@ -945,6 +945,18 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
     // ─── Animations pane ──────────────────────────────────────────────────
 
+    private async void SurfaceAnimationToggles_Toggled(object sender, RoutedEventArgs e)
+    {
+        // IsOn="True" can raise Toggled while InitializeComponent is still
+        // constructing the sibling toggle and viewer.
+        if (ColourPulsesToggle == null || TextureWibblesToggle == null || ModelViewer == null)
+            return;
+
+        await ModelViewer.SetSurfaceAnimationsEnabledAsync(
+            ColourPulsesToggle.IsOn,
+            TextureWibblesToggle.IsOn);
+    }
+
     private async void AnimationListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_suppressAnimationSelectionChanged)

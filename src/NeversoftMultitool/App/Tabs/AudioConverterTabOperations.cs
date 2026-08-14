@@ -15,6 +15,11 @@ internal static class AudioConverterTabOperations
         return SupportedExtensions.Contains(ext);
     }
 
+    public static bool IsSfxCueSheet(string path)
+    {
+        return Path.GetExtension(path).Equals(".sfx", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static List<string> FindAudioFiles(string inputDir)
     {
         var allFiles = Directory.GetFiles(inputDir, "*", SearchOption.AllDirectories);
@@ -50,11 +55,30 @@ internal static class AudioConverterTabOperations
 
     public static List<AudioSampleEntry> EnumerateChildren(AudioFileEntry parent)
     {
-        var source = parent.Source;
-        var data = source.ReadBytes();
+        return EnumerateChildren(parent, parent.Source.ReadBytes());
+    }
+
+    /// <summary>
+    ///     Byte-based overload used by the background metadata pass so an XA
+    ///     file is read only once for both its parent duration and child rows.
+    /// </summary>
+    internal static List<AudioSampleEntry> EnumerateChildren(AudioFileEntry parent, byte[] data)
+    {
         return parent.AudioFormat switch
         {
-            "VAB" => VabExtractor.EnumerateSamples(data)
+            "VAB" => EnumerateVabChildren(parent, data),
+            "KAT" => EnumerateKatChildren(parent, data),
+            "XA" => EnumerateXaChannels(data, parent),
+            _ => []
+        };
+    }
+
+    private static List<AudioSampleEntry> EnumerateVabChildren(AudioFileEntry parent, byte[] data)
+    {
+        var cues = EnumerateResolvedCueChildren(parent, data);
+        return cues.Count > 0
+            ? cues
+            : VabExtractor.EnumerateSamples(data)
                 .Select(sample => new AudioSampleEntry
                 {
                     Parent = parent,
@@ -62,10 +86,20 @@ internal static class AudioConverterTabOperations
                     Encoding = "SPU-ADPCM",
                     SampleRate = sample.SampleRate,
                     Channels = 1,
-                    DataSize = sample.DataSize
+                    DataSize = sample.DataSize,
+                    DurationSeconds = AudioDurationProbe.FromDecodedFrames(
+                        sample.DecodedFrameCount,
+                        sample.SampleRate)
                 })
-                .ToList(),
-            "KAT" => KatExtractor.EnumerateSamples(data)
+                .ToList();
+    }
+
+    private static List<AudioSampleEntry> EnumerateKatChildren(AudioFileEntry parent, byte[] data)
+    {
+        var cues = EnumerateResolvedCueChildren(parent, data);
+        return cues.Count > 0
+            ? cues
+            : KatExtractor.EnumerateSamples(data)
                 .Select(sample => new AudioSampleEntry
                 {
                     Parent = parent,
@@ -73,12 +107,69 @@ internal static class AudioConverterTabOperations
                     Encoding = sample.Encoding,
                     SampleRate = sample.SampleRate,
                     Channels = sample.Channels,
-                    DataSize = sample.DataSize
+                    DataSize = sample.DataSize,
+                    DurationSeconds = AudioDurationProbe.FromDecodedFrames(
+                        sample.DecodedFrameCount,
+                        sample.SampleRate)
                 })
-                .ToList(),
-            "SFX" => EnumerateSfxSamples(source, data, parent),
-            "XA" => EnumerateXaChannels(data, parent),
-            _ => []
+                .ToList();
+    }
+
+    private static List<AudioSampleEntry> EnumerateResolvedCueChildren(AudioFileEntry parent, byte[] bankData)
+    {
+        if (parent.CueSheets.Count == 0)
+            return [];
+
+        var bank = new SfxExtractor.SfxBankBytes(bankData, parent.AudioFormat);
+        var decodedFrames = EnumerateDecodedFrames(parent.AudioFormat, bankData);
+        var children = new List<AudioSampleEntry>();
+        foreach (var sheet in parent.CueSheets)
+        {
+            try
+            {
+                var sfxData = sheet.Source.ReadBytes();
+                if (!SfxExtractor.TryResolveSamples(sfxData, bank, out var resolution, out _) ||
+                    resolution.Kind != SfxResolutionKind.ResolvedCues)
+                    continue;
+
+                children.AddRange(resolution.Samples.Select(sample =>
+                {
+                    decodedFrames.TryGetValue(sample.BankSampleIndex, out var decodedFrameCount);
+                    return new AudioSampleEntry
+                    {
+                        Parent = parent,
+                        SampleIndex = sample.BankSampleIndex,
+                        CueIndex = sample.CueIndex,
+                        CueSheet = sheet,
+                        Encoding = $"{sample.Encoding} via {sheet.FileName}",
+                        SampleRate = sample.SampleRate,
+                        Channels = sample.Channels,
+                        DataSize = sample.DataSize,
+                        DurationSeconds = AudioDurationProbe.FromDecodedFrames(
+                            decodedFrameCount,
+                            sample.SampleRate)
+                    };
+                }));
+            }
+            catch
+            {
+                // One unreadable sheet must not suppress other resolved sheets
+                // or the raw bank fallback below.
+            }
+        }
+
+        return children;
+    }
+
+    private static IReadOnlyDictionary<int, long?> EnumerateDecodedFrames(string bankFormat, byte[] bankData)
+    {
+        return bankFormat switch
+        {
+            "VAB" => VabExtractor.EnumerateSamples(bankData)
+                .ToDictionary(static sample => sample.Index, static sample => sample.DecodedFrameCount),
+            "KAT" => KatExtractor.EnumerateSamples(bankData)
+                .ToDictionary(static sample => sample.Index, static sample => sample.DecodedFrameCount),
+            _ => new Dictionary<int, long?>()
         };
     }
 
@@ -96,54 +187,12 @@ internal static class AudioConverterTabOperations
         {
             Parent = parent,
             SampleIndex = channel.ChannelNumber,
-            Encoding = $"Channel {channel.ChannelNumber:D2} — " +
-                       TimeDisplay.Format(TimeSpan.FromSeconds(channel.DurationSeconds)),
+            Encoding = $"Channel {channel.ChannelNumber:D2}",
             SampleRate = channel.SampleRate,
             Channels = channel.IsStereo ? 2 : 1,
-            DataSize = channel.DataSize
+            DataSize = channel.DataSize,
+            DurationSeconds = channel.DurationSeconds
         }).ToList();
-    }
-
-    private static List<AudioSampleEntry> EnumerateSfxSamples(AssetSource source, byte[] data, AudioFileEntry parent)
-    {
-        var bankBytes = TryResolveSfxBankFromSource(source);
-        var filesystemPath = source.FileSystemPath;
-
-        List<SfxExtractor.SfxSampleInfo> samples;
-        if (bankBytes is { } bb)
-            samples = SfxExtractor.EnumerateSamples(data, bb);
-        else if (filesystemPath != null)
-            samples = SfxExtractor.EnumerateSamples(filesystemPath);
-        else
-            samples = [];
-
-        return samples.Select(sample => new AudioSampleEntry
-        {
-            Parent = parent,
-            SampleIndex = sample.CueIndex,
-            Encoding = $"{sample.Encoding} via {sample.BankFormat} #{sample.BankSampleIndex:D3}",
-            SampleRate = sample.SampleRate,
-            Channels = sample.Channels,
-            DataSize = sample.DataSize
-        }).ToList();
-    }
-
-    /// <summary>
-    ///     Try to pull a companion KAT/VAB from the same <see cref="AssetSource" />
-    ///     (works for both filesystem and archive sources because of how
-    ///     <see cref="AssetSource.TryReadCompanion(string)" /> resolves siblings).
-    /// </summary>
-    private static SfxExtractor.SfxBankBytes? TryResolveSfxBankFromSource(AssetSource source)
-    {
-        var stem = Path.GetFileNameWithoutExtension(source.EntryName);
-
-        var katBytes = source.TryReadCompanion(stem + ".kat") ?? source.TryReadCompanion(stem + ".KAT");
-        if (katBytes != null) return new SfxExtractor.SfxBankBytes(katBytes, "KAT");
-
-        var vabBytes = source.TryReadCompanion(stem + ".vab") ?? source.TryReadCompanion(stem + ".VAB");
-        if (vabBytes != null) return new SfxExtractor.SfxBankBytes(vabBytes, "VAB");
-
-        return null;
     }
 
     public static AudioConvertResult ConvertFile(
@@ -159,28 +208,77 @@ internal static class AudioConverterTabOperations
         {
             "ADX" => AdxDecoder.ConvertToWav(data, outputStem, outputDir),
             "XA" => XaDecoder.ConvertToWav(data, outputStem, outputDir),
-            "VAB" => VabExtractor.ExtractToWav(data, outputStem, outputDir, vabSampleRate),
+            "VAB" => ConvertVabBank(entry, data, outputStem, outputDir, vabSampleRate),
             "VAG" => VagDecoder.ConvertToWav(data, outputStem, outputDir),
             "PCM" => XboxPcmDecoder.ConvertToWav(data, outputStem, outputDir),
             "SND" => Thug2PcSndDecoder.ConvertToWav(data, outputStem, outputDir),
             "PSS" => PssAudioExtractor.ConvertToWav(data, outputStem, outputDir),
             "VID" => Vid1AudioExtractor.ConvertToWav(data, outputStem, outputDir),
-            "KAT" => KatExtractor.ExtractToWav(data, outputStem, outputDir),
-            "SFX" => ConvertSfxFile(source, data, outputStem, outputDir),
+            "KAT" => ConvertKatBank(entry, data, outputStem, outputDir),
             _ => new AudioConvertResult { ErrorMessage = "Unknown format" }
         };
     }
 
-    private static AudioConvertResult ConvertSfxFile(AssetSource source, byte[] data, string stem, string outputDir)
+    private static AudioConvertResult ConvertVabBank(
+        AudioFileEntry entry,
+        byte[] data,
+        string outputStem,
+        string outputDir,
+        int sampleRate)
     {
-        var bankBytes = TryResolveSfxBankFromSource(source);
-        if (bankBytes is { } bb)
-            return SfxExtractor.ExtractToWav(data, stem, bb, outputDir);
+        return TryConvertOwnedCueSheets(entry, data, outputStem, outputDir, out var result)
+            ? result
+            : VabExtractor.ExtractToWav(data, outputStem, outputDir, sampleRate);
+    }
 
-        // Filesystem fallback so the cross-sibling alias search still runs
-        return source.FileSystemPath != null
-            ? SfxExtractor.ExtractToWav(source.FileSystemPath, stem, outputDir)
-            : new AudioConvertResult { ErrorMessage = "SFX companion KAT/VAB not found in archive" };
+    private static AudioConvertResult ConvertKatBank(
+        AudioFileEntry entry,
+        byte[] data,
+        string outputStem,
+        string outputDir)
+    {
+        return TryConvertOwnedCueSheets(entry, data, outputStem, outputDir, out var result)
+            ? result
+            : KatExtractor.ExtractToWav(data, outputStem, outputDir);
+    }
+
+    private static bool TryConvertOwnedCueSheets(
+        AudioFileEntry entry,
+        byte[] bankData,
+        string outputStem,
+        string outputDir,
+        out AudioConvertResult result)
+    {
+        var sheets = new List<SfxCueSheetBatchInput>(entry.CueSheets.Count);
+        foreach (var binding in entry.CueSheets)
+        {
+            try
+            {
+                sheets.Add(new SfxCueSheetBatchInput(
+                    binding.FileName,
+                    binding.RelativePath,
+                    binding.Source.ReadBytes()));
+            }
+            catch
+            {
+                // An unreadable sheet is not a reason to hide other resolved
+                // cues, and cannot suppress the raw-bank fallback when none do.
+            }
+        }
+
+        if (SfxCueSheetBatchExporter.TryExtractToWav(
+                sheets,
+                outputStem,
+                new SfxExtractor.SfxBankBytes(bankData, entry.AudioFormat),
+                outputDir,
+                out var cueResult))
+        {
+            result = cueResult;
+            return true;
+        }
+
+        result = new AudioConvertResult();
+        return false;
     }
 
     public static string? ConvertForPreview(
@@ -248,25 +346,41 @@ internal static class AudioConverterTabOperations
         var data = parentEntry.Source.ReadBytes();
         var stem = Path.GetFileNameWithoutExtension(parentEntry.FileName);
 
+        if (sample.CueSheet is { } sheet && sample.CueIndex is { } cueIndex)
+            return ConvertCueSamplePreview(parentEntry, sheet, data, stem, cueIndex, tempDir);
+
         return parentEntry.AudioFormat switch
         {
             "VAB" => VabExtractor.ExtractSingleToWav(data, stem, sample.SampleIndex, tempDir, vabSampleRate),
             "KAT" => KatExtractor.ExtractSingleToWav(data, stem, sample.SampleIndex, tempDir),
-            "SFX" => ConvertSfxSamplePreview(parentEntry.Source, data, stem, sample.SampleIndex, tempDir),
             "XA" => XaExtractor.ExtractChannelToWav(data, stem, sample.SampleIndex, tempDir),
             _ => null
         };
     }
 
-    private static string? ConvertSfxSamplePreview(
-        AssetSource source, byte[] data, string stem, int cueIndex, string tempDir)
+    private static string? ConvertCueSamplePreview(
+        AudioFileEntry parent,
+        AudioCueSheetBinding sheet,
+        byte[] bankData,
+        string stem,
+        int cueIndex,
+        string tempDir)
     {
-        var bankBytes = TryResolveSfxBankFromSource(source);
-        if (bankBytes is { } bb)
-            return SfxExtractor.ExtractSingleToWav(data, stem, cueIndex, bb, tempDir);
+        if (parent.AudioFormat is not ("VAB" or "KAT"))
+            return null;
 
-        return source.FileSystemPath != null
-            ? SfxExtractor.ExtractSingleToWav(source.FileSystemPath, cueIndex, tempDir)
-            : null;
+        try
+        {
+            return SfxExtractor.ExtractSingleToWav(
+                sheet.Source.ReadBytes(),
+                stem,
+                cueIndex,
+                new SfxExtractor.SfxBankBytes(bankData, parent.AudioFormat),
+                tempDir);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

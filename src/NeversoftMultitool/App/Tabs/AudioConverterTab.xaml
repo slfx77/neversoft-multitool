@@ -16,11 +16,13 @@
           <Grid Style="{StaticResource ListItemRowGridStyle}"
                 local:FileTableBehavior.IsRow="True">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="56" MinWidth="56" />
+              <ColumnDefinition Width="32" MinWidth="32" />
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="0.6*" />
               <ColumnDefinition Width="60" />
               <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="80" />
               <ColumnDefinition Width="90" />
             </Grid.ColumnDefinitions>
             <Button
@@ -65,6 +67,18 @@
             <TextBlock
               Grid.Column="5"
               VerticalAlignment="Center"
+              HorizontalAlignment="Right"
+              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+              Text="{x:Bind DurationDisplay, Mode=OneWay}" />
+            <TextBlock
+              Grid.Column="6"
+              VerticalAlignment="Center"
+              HorizontalAlignment="Right"
+              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+              Text="{x:Bind SizeDisplay}" />
+            <TextBlock
+              Grid.Column="7"
+              VerticalAlignment="Center"
               Foreground="{x:Bind StatusColor, Mode=OneWay}"
               Text="{x:Bind StatusDisplay, Mode=OneWay}" />
           </Grid>
@@ -77,28 +91,42 @@
           <Grid Style="{StaticResource ListItemRowGridStyle}"
                 local:FileTableBehavior.IsRow="True">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="56" MinWidth="56" />
+              <ColumnDefinition Width="32" MinWidth="32" />
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="0.6*" />
               <ColumnDefinition Width="60" />
               <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="80" />
               <ColumnDefinition Width="90" />
             </Grid.ColumnDefinitions>
-            <TextBlock
-              Grid.Column="0"
-              Margin="28,0,0,0"
-              VerticalAlignment="Center"
-              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-              Text="{x:Bind IndexDisplay}" />
-            <TextBlock
+            <Grid
               Grid.Column="1"
               Grid.ColumnSpan="4"
-              VerticalAlignment="Center"
-              Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-              Text="{x:Bind InfoDisplay}"
-              TextTrimming="CharacterEllipsis" />
+              Margin="16,0,0,0"
+              ColumnSpacing="8"
+              VerticalAlignment="Center">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <TextBlock
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="{x:Bind IndexDisplay}" />
+              <TextBlock
+                Grid.Column="1"
+                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                Text="{x:Bind InfoDisplay}"
+                TextTrimming="CharacterEllipsis" />
+            </Grid>
             <TextBlock
               Grid.Column="5"
+              VerticalAlignment="Center"
+              HorizontalAlignment="Right"
+              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+              Text="{x:Bind DurationDisplay}" />
+            <TextBlock
+              Grid.Column="6"
               VerticalAlignment="Center"
               HorizontalAlignment="Right"
               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -129,7 +157,7 @@
           Text="Audio Conversion"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Convert ADX, XA, VAB, VAG, KAT, SFX, PCM, SND, PSS, and VID audio files to WAV"
+          Text="Convert ADX, XA, VAB, VAG, KAT, PCM, SND, PSS, and VID audio to WAV; paired SFX cue sheets are applied to their banks"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>
@@ -160,44 +188,36 @@
               local:FileTableBehavior.IsEnabled="True">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
 
+          <!-- Table actions are separate from sortable headers so the
+               expand/collapse controls cannot be mistaken for sort arrows. -->
+          <StackPanel Grid.Row="0"
+                      Margin="8,8,8,4"
+                      Orientation="Horizontal"
+                      HorizontalAlignment="Right"
+                      Spacing="8">
+            <Button Content="Expand All"
+                    Click="ExpandAll_Click" />
+            <Button Content="Collapse All"
+                    Click="CollapseAll_Click" />
+          </StackPanel>
+
           <!-- Column headers -->
-          <Grid Grid.Row="0"
+          <Grid Grid.Row="1"
                 Style="{StaticResource ColumnHeaderGridStyle}">
             <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="56" MinWidth="56" />
+              <ColumnDefinition Width="32" MinWidth="32" />
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="0.6*" />
               <ColumnDefinition Width="60" />
               <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="80" />
               <ColumnDefinition Width="90" />
             </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
-              <Button
-                Padding="0"
-                MinWidth="0"
-                MinHeight="0"
-                Width="24" Height="24"
-                Background="Transparent"
-                BorderThickness="0"
-                Click="ExpandAll_Click"
-                ToolTipService.ToolTip="Expand all">
-                <FontIcon FontSize="10" Glyph="&#xE70D;" />
-              </Button>
-              <Button
-                Padding="0"
-                MinWidth="0"
-                MinHeight="0"
-                Width="24" Height="24"
-                Background="Transparent"
-                BorderThickness="0"
-                Click="CollapseAll_Click"
-                ToolTipService.ToolTip="Collapse all">
-                <FontIcon FontSize="10" Glyph="&#xE70E;" />
-              </Button>
-            </StackPanel>
             <Button Grid.Column="1"
                     Content="File Name"
                     Style="{StaticResource SortableColumnHeaderButtonStyle}"
@@ -216,6 +236,16 @@
                     Style="{StaticResource SortableColumnHeaderButtonStyle}"
                     local:FileTableBehavior.SortProperty="SampleCount" />
             <Button Grid.Column="5"
+                    Content="Duration"
+                    HorizontalContentAlignment="Right"
+                    Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                    local:FileTableBehavior.SortProperty="DurationSeconds" />
+            <Button Grid.Column="6"
+                    Content="Size"
+                    HorizontalContentAlignment="Right"
+                    Style="{StaticResource SortableColumnHeaderButtonStyle}"
+                    local:FileTableBehavior.SortProperty="Size" />
+            <Button Grid.Column="7"
                     Content="Status"
                     Style="{StaticResource SortableColumnHeaderButtonStyle}"
                     local:FileTableBehavior.SortProperty="Status" />
@@ -224,7 +254,7 @@
           <!-- Files ListView -->
           <ListView
             x:Name="FilesListView"
-            Grid.Row="1"
+            Grid.Row="2"
             SelectionMode="Single"
             Style="{StaticResource FileListViewStyle}"
             SelectionChanged="FilesListView_SelectionChanged"

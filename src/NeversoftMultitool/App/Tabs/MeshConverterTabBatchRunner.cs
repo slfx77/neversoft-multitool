@@ -104,6 +104,9 @@ internal sealed class MeshConverterTabBatchRunner(
                         includeLevelObjects: includeLevelObjects,
                         preparedSkeleton: skeletons[entry],
                         cancellationToken: token);
+                    if (result.OutputPaths.Count == 0)
+                        throw new InvalidOperationException("Mesh conversion produced no output.");
+
                     Interlocked.Add(ref totalTriangles, result.Triangles);
                     Interlocked.Increment(ref totalConverted);
 

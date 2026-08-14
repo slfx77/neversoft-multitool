@@ -105,10 +105,7 @@ internal static class VideoConverterTabOperations
     /// </summary>
     public static bool IsMpegPsVideoFile(string path)
     {
-        if (!BinaryProbeReader.TryReadHeader(path, 4, out var header, out var bytesRead) || bytesRead < 4)
-            return false;
-
-        return header[0] == 0x00 && header[1] == 0x00 && header[2] == 0x01 && header[3] == 0xBA;
+        return MpegProgramStreamProbe.HasPackHeader(path);
     }
 
     public static (string duration, string resolution) ProbeFile(string path)

@@ -170,10 +170,12 @@
     let lastPostedTime = -1;
     let textureWibbleMeshes = [];
     let textureWibbleFrame = 0;
+    let textureWibblesEnabled = true;
     // PS1 colour pulses (tagged chunk 7). Shares the wibble's 60 Hz Xblank
     // clock so both animations stay phase-locked.
     let colourPulseMeshes = [];
     let colourPulseChannels = [];
+    let colourPulsesEnabled = true;
     let psxGpuMaterials = [];
     let skyLockObjects = [];
     let skyBackdropColor = null;
@@ -1097,11 +1099,9 @@ if (psxFlags.z < 0.5) {
       return out;
     }
 
-    function updatePsxColourPulses() {
+    function applyPsxColourPulses(frame) {
       if (colourPulseMeshes.length === 0 || colourPulseChannels.length === 0) return;
 
-      // Shares textureWibbleFrame so pulses and UV wibbles run on one clock.
-      const frame = Math.floor(textureWibbleFrame);
       const packet = [0, 0, 0, 0];
       const portable = [0, 0, 0, 0];
 
@@ -1136,6 +1136,29 @@ if (psxFlags.z < 0.5) {
       }
     }
 
+    function updatePsxColourPulses() {
+      if (!colourPulsesEnabled) return;
+      // Shares textureWibbleFrame so pulses and UV wibbles run on one clock.
+      applyPsxColourPulses(Math.floor(textureWibbleFrame));
+    }
+
+    function restorePsxTextureWibbles() {
+      for (const entry of textureWibbleMeshes) {
+        const { uv, baseUv } = entry;
+        for (let i = 0; i < uv.count; i++) {
+          uv.setXY(i, baseUv[i * 2], baseUv[i * 2 + 1]);
+        }
+        uv.needsUpdate = true;
+      }
+    }
+
+    function setSurfaceAnimationsEnabled(enableColourPulses, enableTextureWibbles) {
+      colourPulsesEnabled = !!enableColourPulses;
+      textureWibblesEnabled = !!enableTextureWibbles;
+      if (!colourPulsesEnabled) applyPsxColourPulses(0);
+      if (!textureWibblesEnabled) restorePsxTextureWibbles();
+    }
+
     function psxWibbleSample(basePhase, phase, amplitude) {
       const sampleIndex = ((basePhase + phase * 4) % 64 + 64) % 64;
       // The native table stores (rcossin_tbl[sample] * amplitude) >> 4.
@@ -1147,9 +1170,11 @@ if (psxFlags.z < 0.5) {
       // pulse-only model still needs that clock even though there are no UVs
       // to mutate; with neither animation type present, frame zero remains the
       // inert fallback.
-      if (textureWibbleMeshes.length === 0 && colourPulseMeshes.length === 0) return;
+      const hasTextureWibbles = textureWibblesEnabled && textureWibbleMeshes.length > 0;
+      const hasColourPulses = colourPulsesEnabled && colourPulseMeshes.length > 0;
+      if (!hasTextureWibbles && !hasColourPulses) return;
       textureWibbleFrame = (textureWibbleFrame + dt * 60) % 0x100000;
-      if (textureWibbleMeshes.length === 0) return;
+      if (!hasTextureWibbles) return;
       const nativeFrame = Math.floor(textureWibbleFrame);
 
       for (const entry of textureWibbleMeshes) {
@@ -1649,6 +1674,7 @@ if (psxFlags.z < 0.5) {
     window.stepAzimuth = stepAzimuth;
     window.setControlMode = setControlMode;
     window.setLightingMode = setLightingMode;
+    window.setSurfaceAnimationsEnabled = setSurfaceAnimationsEnabled;
     window.cancelModelLoad = cancelModelLoad;
     post({ type: 'ready' });
   </script>

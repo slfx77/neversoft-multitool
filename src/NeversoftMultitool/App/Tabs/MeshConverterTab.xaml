@@ -341,6 +341,43 @@
                 <StackPanel Grid.Row="0"
                             Padding="8,4,8,8"
                             Spacing="6">
+                  <TextBlock Text="Surface animations"
+                             FontWeight="SemiBold" />
+                  <Grid ColumnSpacing="8"
+                        RowSpacing="4">
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Row="0"
+                               Grid.Column="0"
+                               Text="Colour pulses"
+                               VerticalAlignment="Center" />
+                    <ToggleSwitch x:Name="ColourPulsesToggle"
+                                  Grid.Row="0"
+                                  Grid.Column="1"
+                                  OffContent="Off"
+                                  OnContent="On"
+                                  IsOn="True"
+                                  Toggled="SurfaceAnimationToggles_Toggled"
+                                  AutomationProperties.Name="Colour pulses" />
+                    <TextBlock Grid.Row="1"
+                               Grid.Column="0"
+                               Text="Texture wibbles"
+                               VerticalAlignment="Center" />
+                    <ToggleSwitch x:Name="TextureWibblesToggle"
+                                  Grid.Row="1"
+                                  Grid.Column="1"
+                                  OffContent="Off"
+                                  OnContent="On"
+                                  IsOn="True"
+                                  Toggled="SurfaceAnimationToggles_Toggled"
+                                  AutomationProperties.Name="Texture wibbles" />
+                  </Grid>
                   <TextBlock
                     x:Name="AnimDiscoveryStatusText"
                     Foreground="{ThemeResource TextFillColorTertiaryBrush}"

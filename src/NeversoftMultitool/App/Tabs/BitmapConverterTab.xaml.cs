@@ -10,7 +10,8 @@ namespace NeversoftMultitool;
 
 public sealed partial class BitmapConverterTab : UserControl, IDisposable
 {
-    private static readonly string[] ArchiveExtensions = [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr"];
+    private static readonly string[] ArchiveExtensions =
+        [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr", ".z64"];
 
     private readonly ObservableCollection<RleFileEntry> _files = [];
     private CancellationTokenSource? _debounceCts;

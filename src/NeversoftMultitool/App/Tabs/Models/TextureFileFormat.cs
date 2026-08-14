@@ -9,6 +9,6 @@ internal enum TextureFileFormat
     XbxTex,
     XbxImg,
 
-    /// <summary>Carved N64 .tex.n64 dictionary / .img.n64 image records (one texture per file).</summary>
+    /// <summary>Carved N64 .tex.n64 dictionary records (one texture per file).</summary>
     N64Tex
 }

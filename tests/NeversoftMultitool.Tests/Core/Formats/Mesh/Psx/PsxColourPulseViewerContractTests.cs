@@ -15,7 +15,11 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Psx;
 /// </summary>
 public class PsxColourPulseViewerContractTests
 {
-    private static string ReadViewer()
+    private static readonly Lazy<string> ViewerSource = new(ReadViewerCore);
+
+    private static string ReadViewer() => ViewerSource.Value;
+
+    private static string ReadViewerCore()
     {
         var directory = AppContext.BaseDirectory;
         for (var i = 0; i < 8; i++)
@@ -59,10 +63,10 @@ public class PsxColourPulseViewerContractTests
         var body = ExtractFunction(viewer, "function updatePsxTextureWibbles(dt)");
 
         var inactiveGate = body.IndexOf(
-            "textureWibbleMeshes.length === 0 && colourPulseMeshes.length === 0",
+            "if (!hasTextureWibbles && !hasColourPulses) return",
             StringComparison.Ordinal);
         var clockAdvance = body.IndexOf("textureWibbleFrame = (textureWibbleFrame + dt * 60)", StringComparison.Ordinal);
-        var uvOnlyGate = body.IndexOf("if (textureWibbleMeshes.length === 0) return", StringComparison.Ordinal);
+        var uvOnlyGate = body.IndexOf("if (!hasTextureWibbles) return", StringComparison.Ordinal);
 
         Assert.True(inactiveGate >= 0, "The shared clock is not gated by both animation types.");
         Assert.True(clockAdvance > inactiveGate, "The shared clock must advance after the all-inactive guard.");
@@ -103,7 +107,7 @@ public class PsxColourPulseViewerContractTests
         var clockAdvance = body.IndexOf("textureWibbleFrame =", StringComparison.Ordinal);
 
         Assert.Contains(
-            "if (textureWibbleMeshes.length === 0 && colourPulseMeshes.length === 0) return;",
+            "if (!hasTextureWibbles && !hasColourPulses) return;",
             body);
         Assert.InRange(firstReturn, 0, clockAdvance - 1);
     }
@@ -203,15 +207,41 @@ public class PsxColourPulseViewerContractTests
     {
         var viewer = ReadViewer();
 
-        var start = viewer.IndexOf("function updatePsxColourPulses(", StringComparison.Ordinal);
-        Assert.True(start > 0, "updatePsxColourPulses not found.");
-        var end = viewer.IndexOf("function psxWibbleSample(", StringComparison.Ordinal);
-        var body = end > start ? viewer[start..end] : viewer.Substring(start, 2000);
+        var body = ExtractFunction(viewer, "function applyPsxColourPulses(frame)");
 
         // Pulses own the colour attributes; the wibble owns uv. Sharing one
         // would make their update order significant.
         Assert.Contains("psxColor", body);
         Assert.DoesNotContain(".setXY(", body);
+    }
+
+    [Fact]
+    public void Viewer_SurfaceAnimationTogglesAreIndependentAndRestoreAuthoredState()
+    {
+        var viewer = ReadViewer();
+        var setter = ExtractFunction(viewer, "function setSurfaceAnimationsEnabled(");
+        var pulses = ExtractFunction(viewer, "function updatePsxColourPulses()");
+        var wibbles = ExtractFunction(viewer, "function updatePsxTextureWibbles(dt)");
+        var restoreWibbles = ExtractFunction(viewer, "function restorePsxTextureWibbles()");
+
+        Assert.Contains("colourPulsesEnabled = !!enableColourPulses", setter);
+        Assert.Contains("textureWibblesEnabled = !!enableTextureWibbles", setter);
+        Assert.Contains("if (!colourPulsesEnabled) applyPsxColourPulses(0)", setter);
+        Assert.Contains("if (!textureWibblesEnabled) restorePsxTextureWibbles()", setter);
+        Assert.Contains("if (!colourPulsesEnabled) return", pulses);
+        Assert.Contains("textureWibblesEnabled && textureWibbleMeshes.length > 0", wibbles);
+        Assert.Contains("colourPulsesEnabled && colourPulseMeshes.length > 0", wibbles);
+        Assert.Contains("uv.setXY(i, baseUv[i * 2], baseUv[i * 2 + 1])", restoreWibbles);
+    }
+
+    [Fact]
+    public void Viewer_ExportsSurfaceAnimationToggleContract()
+    {
+        var viewer = ReadViewer();
+
+        Assert.Contains(
+            "window.setSurfaceAnimationsEnabled = setSurfaceAnimationsEnabled",
+            viewer);
     }
 
     private static void AssertResetOwnedByUnload(

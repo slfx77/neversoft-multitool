@@ -34,7 +34,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
     private bool _suppressVolumeEvents;
     private bool _updatingSlider;
     private DebouncedAction? _persistVolume;
-    private CancellationTokenSource? _xaProbeCts;
+    private CancellationTokenSource? _metadataProbeCts;
 
     public AudioConverterTab()
     {
@@ -74,9 +74,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
     public void Dispose()
     {
         Unloaded -= AudioConverterTab_Unloaded;
-        _xaProbeCts?.Cancel();
-        _xaProbeCts?.Dispose();
-        _xaProbeCts = null;
+        CancelAudioMetadataProbe();
         ClearPreview();
         _conversionController.Dispose();
 
@@ -97,6 +95,8 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         var path = await FolderPickerHelper.PickFolderAsync();
         if (path == null) return;
 
+        CancelAudioMetadataProbe();
+
         _inputDir = path;
         InputPathText.Text = _inputDir;
         DefaultOutputToInput(path);
@@ -111,8 +111,17 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         // Probe audio files for unsupported variants (e.g. ADX encoding type)
         var unsupported = new List<ScanSummaryDialog.UnsupportedFile>();
         var supported = new List<string>();
+        var cueSheets = new List<string>();
         foreach (var filePath in audioFiles)
         {
+            // SFX is metadata owned by a same-directory KAT/VAB row. It must
+            // not be probed or materialized as standalone audio.
+            if (AudioConverterTabOperations.IsSfxCueSheet(filePath))
+            {
+                cueSheets.Add(filePath);
+                continue;
+            }
+
             var probe = FormatProbe.ProbeAudio(filePath);
             if (probe.Support == FormatProbe.FormatSupport.Unsupported)
                 unsupported.Add(new ScanSummaryDialog.UnsupportedFile(Path.GetFileName(filePath)!,
@@ -128,30 +137,34 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
             if (!proceed) return;
         }
 
-        foreach (var filePath in supported.OrderBy(f => MakeRelativePath(f, _inputDir),
-                     StringComparer.OrdinalIgnoreCase))
-        {
-            var fileName = Path.GetFileName(filePath)!;
-            var ext = Path.GetExtension(filePath).ToLowerInvariant();
-            var entry = new AudioFileEntry
+        var scan = BuildAudioScan(
+            supported.Concat(cueSheets).Select(filePath =>
             {
-                FileName = fileName,
-                AudioFormat = AudioConverterTabOperations.DetectFormat(ext),
-                Source = new FileSystemAssetSource(filePath),
-                RelativePath = MakeRelativePath(filePath, _inputDir)
-            };
+                var relativePath = MakeRelativePath(filePath, _inputDir);
+                return new AudioScanAsset(
+                    relativePath,
+                    Path.GetFileName(filePath)!,
+                    relativePath,
+                    new FileInfo(filePath).Length,
+                    new FileSystemAssetSource(filePath));
+            }));
+        foreach (var entry in scan.Entries)
+        {
             _parentFiles.Add(entry);
             _items.Add(entry);
         }
 
+        MainWindow.Instance?.SetStatus(FormatAudioScanStatus(null, scan));
         UpdateUiState();
-        StartXaChannelProbe();
+        StartAudioMetadataProbe();
     }
 
     private async void SelectArchive_Click(object sender, RoutedEventArgs e)
     {
         var path = await FilePickerHelper.PickFileAsync(ArchiveExtensions);
         if (path == null) return;
+
+        CancelAudioMetadataProbe();
 
         _inputDir = Path.GetDirectoryName(path) ?? "";
         InputPathText.Text = path;
@@ -177,72 +190,106 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
             }
 
             var archiveName = Path.GetFileName(path);
-            var entries = new List<AudioFileEntry>();
+            var assets = new List<AudioScanAsset>();
             foreach (var archiveEntry in backend.Entries)
             {
                 if (!AudioConverterTabOperations.IsAudioFile(archiveEntry.Name)) continue;
-                var ext = Path.GetExtension(archiveEntry.Name).ToLowerInvariant();
-                entries.Add(new AudioFileEntry
-                {
-                    FileName = archiveEntry.Name,
-                    AudioFormat = AudioConverterTabOperations.DetectFormat(ext),
-                    Source = new ArchiveAssetSource(backend, archiveEntry),
-                    RelativePath = $"{archiveName}::{archiveEntry.Name}"
-                });
+                var entryPath = archiveEntry.FullName;
+                assets.Add(new AudioScanAsset(
+                    entryPath,
+                    EntryLeaf(entryPath),
+                    $"{archiveName}::{entryPath}",
+                    archiveEntry.Size,
+                    new ArchiveAssetSource(backend, archiveEntry)));
             }
+
+            var scan = BuildAudioScan(assets);
 
             DispatcherQueue.TryEnqueue(() =>
             {
-                foreach (var entry in entries.OrderBy(e => e.RelativePath, StringComparer.OrdinalIgnoreCase))
+                foreach (var entry in scan.Entries)
                 {
                     _parentFiles.Add(entry);
                     _items.Add(entry);
                 }
 
-                MainWindow.Instance?.SetStatus(entries.Count == 0
-                    ? $"{archiveName}: no audio entries."
-                    : $"Found {entries.Count} audio entrie(s) in {archiveName}.");
+                MainWindow.Instance?.SetStatus(FormatAudioScanStatus(archiveName, scan));
 
                 UpdateUiState();
-                StartXaChannelProbe();
+                StartAudioMetadataProbe();
             });
         });
     }
 
     /// <summary>
-    ///     XA expandability requires walking every sector of the file, so
-    ///     channel counts resolve off-thread after a scan: multi-channel files
-    ///     then grow their expander chevron, single-channel XA stays flat.
+    ///     Duration probes can walk or read an entire stream, so they run only
+    ///     after the rows are visible. XA reuses that one byte read to discover
+    ///     interleaved channel children and expandability as well.
     /// </summary>
-    private void StartXaChannelProbe()
+    private void StartAudioMetadataProbe()
     {
         // A rescan replaces the entry list wholesale, so the previous probe
         // would keep reading the stale files to completion (and probes would
         // stack per rescan) — supersede it like the preview/conversion jobs.
-        _xaProbeCts?.Cancel();
-        _xaProbeCts?.Dispose();
-        _xaProbeCts = null;
+        CancelAudioMetadataProbe();
 
-        var xaEntries = _parentFiles
-            .Where(parent => parent.AudioFormat == "XA" && parent.CachedChildren == null)
+        // A bank has no truthful aggregate timeline; its independent child
+        // durations resolve lazily when the bank is expanded.
+        var entries = _parentFiles
+            .Where(static parent => parent.AudioFormat is not ("VAB" or "KAT"))
             .ToList();
-        if (xaEntries.Count == 0) return;
+        if (entries.Count == 0) return;
 
         var cts = new CancellationTokenSource();
-        _xaProbeCts = cts;
+        _metadataProbeCts = cts;
         var token = cts.Token;
         var dispatcher = DispatcherQueue;
         _ = Task.Run(() =>
         {
-            foreach (var entry in xaEntries)
+            foreach (var entry in entries)
             {
                 if (token.IsCancellationRequested)
                     return;
-                EnsureChildren(entry);
-                if (!token.IsCancellationRequested && entry.CachedChildren is { Count: > 0 })
-                    dispatcher.TryEnqueue(entry.NotifyExpandabilityChanged);
+
+                try
+                {
+                    var data = entry.Source.ReadBytes();
+                    var duration = AudioDurationProbe.Probe(entry.AudioFormat, data);
+                    var xaChildren = entry.AudioFormat == "XA"
+                        ? AudioConverterTabOperations.EnumerateChildren(entry, data)
+                        : null;
+
+                    if (token.IsCancellationRequested)
+                        return;
+
+                    dispatcher.TryEnqueue(() =>
+                    {
+                        // A queued publication can outlive its scan or the tab.
+                        if (token.IsCancellationRequested || !_parentFiles.Contains(entry))
+                            return;
+
+                        entry.DurationSeconds = duration;
+                        if (xaChildren is not { Count: > 0 } || entry.CachedChildren != null)
+                            return;
+
+                        entry.CachedChildren = xaChildren;
+                        entry.NotifyExpandabilityChanged();
+                    });
+                }
+                catch
+                {
+                    // Unreadable or malformed leaves retain blank metadata and
+                    // must not prevent later rows from being probed.
+                }
             }
         }, token);
+    }
+
+    private void CancelAudioMetadataProbe()
+    {
+        _metadataProbeCts?.Cancel();
+        _metadataProbeCts?.Dispose();
+        _metadataProbeCts = null;
     }
 
     private static string MakeRelativePath(string file, string rootDir)
@@ -257,6 +304,129 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
             return Path.GetFileName(file);
         }
     }
+
+    private static AudioScanResult BuildAudioScan(IEnumerable<AudioScanAsset> input)
+    {
+        var assets = input
+            .OrderBy(static asset => asset.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static asset => asset.RelativePath, StringComparer.Ordinal)
+            .ToArray();
+        var ownership = SfxExactStemOwnership.Plan(assets
+            .Select(static (asset, index) => new SfxScanCandidate(
+                index,
+                asset.EntryPath,
+                TryReadCueData(asset)))
+            .ToArray());
+        var sheetsByBank = new Dictionary<int, List<AudioCueSheetBinding>>();
+        var exactPaired = 0;
+        var aliasPaired = 0;
+        var omitted = 0;
+
+        foreach (var item in ownership)
+        {
+            if (item.BankIndex is not { } bankIndex ||
+                item.CueIndex < 0 || item.CueIndex >= assets.Length ||
+                bankIndex < 0 || bankIndex >= assets.Length)
+            {
+                omitted++;
+                continue;
+            }
+
+            var cue = assets[item.CueIndex];
+            if (!sheetsByBank.TryGetValue(bankIndex, out var sheets))
+            {
+                sheets = [];
+                sheetsByBank.Add(bankIndex, sheets);
+            }
+
+            sheets.Add(new AudioCueSheetBinding(cue.FileName, cue.RelativePath, cue.Source));
+            if (item.IsAlias)
+                aliasPaired++;
+            else
+                exactPaired++;
+        }
+
+        var entries = new List<AudioFileEntry>();
+        for (var index = 0; index < assets.Length; index++)
+        {
+            var asset = assets[index];
+            if (AudioConverterTabOperations.IsSfxCueSheet(asset.FileName))
+                continue;
+
+            var extension = Path.GetExtension(asset.FileName).ToLowerInvariant();
+            var cueSheets = sheetsByBank.TryGetValue(index, out var ownedSheets)
+                ? ownedSheets
+                    .OrderBy(static sheet => sheet.RelativePath, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(static sheet => sheet.RelativePath, StringComparer.Ordinal)
+                    .ToArray()
+                : [];
+            entries.Add(new AudioFileEntry
+            {
+                FileName = asset.FileName,
+                AudioFormat = AudioConverterTabOperations.DetectFormat(extension),
+                Source = asset.Source,
+                RelativePath = asset.RelativePath,
+                Size = asset.Size,
+                CueSheets = cueSheets
+            });
+        }
+
+        return new AudioScanResult(entries, exactPaired, aliasPaired, omitted);
+    }
+
+    private static byte[]? TryReadCueData(AudioScanAsset asset)
+    {
+        if (!AudioConverterTabOperations.IsSfxCueSheet(asset.FileName))
+            return null;
+
+        try
+        {
+            return asset.Source.ReadBytes();
+        }
+        catch
+        {
+            // Exact-stem ownership remains path-based so an unreadable sheet can
+            // conservatively fall back to the raw bank. Cross-stem ownership,
+            // which needs positive cue-layout evidence, simply omits it.
+            return null;
+        }
+    }
+
+    private static string FormatAudioScanStatus(string? containerName, AudioScanResult scan)
+    {
+        var location = string.IsNullOrEmpty(containerName) ? string.Empty : $" in {containerName}";
+        var message = scan.Entries.Count == 0
+            ? $"No audio entries found{location}."
+            : $"Found {scan.Entries.Count} audio entrie(s){location}.";
+
+        if (scan.ExactStemCueSheets > 0)
+            message += $" Paired {scan.ExactStemCueSheets} exact-stem SFX cue sheet(s).";
+        if (scan.AliasCueSheets > 0)
+            message += $" Paired {scan.AliasCueSheets} high-confidence cross-stem SFX alias sheet(s).";
+        if (scan.OmittedCueSheets > 0)
+            message += $" Omitted {scan.OmittedCueSheets} unpaired or ambiguous SFX cue sheet(s).";
+        return message;
+    }
+
+    private static string EntryLeaf(string entryPath)
+    {
+        var normalized = entryPath.Replace('\\', '/');
+        var separator = normalized.LastIndexOf('/');
+        return separator < 0 ? normalized : normalized[(separator + 1)..];
+    }
+
+    private sealed record AudioScanAsset(
+        string EntryPath,
+        string FileName,
+        string RelativePath,
+        long Size,
+        AssetSource Source);
+
+    private sealed record AudioScanResult(
+        IReadOnlyList<AudioFileEntry> Entries,
+        int ExactStemCueSheets,
+        int AliasCueSheets,
+        int OmittedCueSheets);
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
     {
@@ -510,8 +680,10 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         }
         else if (item is AudioSampleEntry sample)
         {
-            cacheKey = new AudioPreviewCacheKey(sample.Parent, sample.SampleIndex, vabSampleRate);
-            displayName = $"{sample.ParentFileName} #{sample.SampleIndex:D3}";
+            // Cue indices repeat across sheets and can target the same bank
+            // sample. The child object is the exact session-local selection.
+            cacheKey = new AudioPreviewCacheKey(sample, null, vabSampleRate);
+            displayName = $"{sample.ParentFileName} — {sample.IndexDisplay}";
             infoText = sample.InfoDisplay;
         }
         else

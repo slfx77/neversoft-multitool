@@ -5,6 +5,7 @@ namespace NeversoftMultitool;
 
 public class AudioFileEntry : BaseFileEntry, IListEntry
 {
+    private double? _durationSeconds;
     private bool _isExpanded;
     private int _sampleCount;
 
@@ -12,17 +13,49 @@ public class AudioFileEntry : BaseFileEntry, IListEntry
     public required string AudioFormat { get; init; }
     public required AssetSource Source { get; init; }
     public string RelativePath { get; init; } = "";
+    public required long Size { get; init; }
+    internal IReadOnlyList<AudioCueSheetBinding> CueSheets { get; init; } = [];
+
+    public string SizeDisplay => Size switch
+    {
+        >= 1_073_741_824 => $"{Size / 1_073_741_824.0:F1} GB",
+        >= 1_048_576 => $"{Size / 1_048_576.0:F1} MB",
+        >= 1_024 => $"{Size / 1_024.0:F1} KB",
+        _ => $"{Size} B"
+    };
+
+    /// <summary>
+    ///     Playable timeline length for stream formats. Sound-bank parents stay
+    ///     null because their samples are independent sounds, not one timeline.
+    /// </summary>
+    public double? DurationSeconds
+    {
+        get => _durationSeconds;
+        set
+        {
+            var duration = value is > 0 && double.IsFinite(value.Value) ? value : null;
+            if (_durationSeconds == duration) return;
+
+            _durationSeconds = duration;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DurationDisplay));
+        }
+    }
+
+    public string DurationDisplay => _durationSeconds is { } duration
+        ? TimeDisplay.Format(TimeSpan.FromSeconds(duration))
+        : "";
 
     protected override string ProcessingVerb => "Converting...";
 
     /// <summary>
-    ///     Whether this format supports expand/collapse (VAB, KAT, SFX have
-    ///     multiple samples). XA files are only expandable once a background
+    ///     Whether this format supports expand/collapse (VAB and KAT have
+    ///     multiple samples or owned cues). XA files are only expandable once a background
     ///     probe has found more than one interleaved channel — single-channel
     ///     XA stays a flat, directly-previewable row.
     /// </summary>
     public bool IsExpandable =>
-        AudioFormat is "VAB" or "KAT" or "SFX"
+        AudioFormat is "VAB" or "KAT"
         || (AudioFormat == "XA" && CachedChildren is { Count: > 0 });
 
     /// <summary>

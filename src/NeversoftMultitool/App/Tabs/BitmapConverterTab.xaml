@@ -24,7 +24,7 @@
           Text="Bitmap Conversion"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Convert Neversoft RLE/BMR/ZLB and standard BMP/TGA bitmaps to PNG"
+          Text="Convert Neversoft RLE/BMR/ZLB, N64 fullscreen images, and standard BMP/TGA bitmaps to PNG"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>
@@ -149,7 +149,7 @@
             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
             TextAlignment="Center" />
           <TextBlock
-            Text="Select a folder of .rle/.bmr/.zlb/.bmp/.tga files or a game archive (WAD/PRE/PKR/...)"
+            Text="Select a folder of .rle/.bmr/.zlb/.bmp/.tga/.img.n64 files or a game archive (WAD/PRE/PKR/Z64/...)"
             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
             TextAlignment="Center"
             TextWrapping="Wrap"

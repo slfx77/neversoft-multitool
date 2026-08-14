@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Qb;
 
 namespace NeversoftMultitool;
@@ -10,6 +11,7 @@ public class QbFileEntry : BaseFileEntry, IListEntry
 
     public required string FileName { get; init; }
     public required string FilePath { get; init; }
+    public required AssetSource Source { get; init; }
 
     protected override string ProcessingVerb => "Exporting...";
 
