@@ -108,7 +108,21 @@ public class AudioOutputStemPlannerTests
     [InlineData("COM1.pcm", "_COM1")]
     [InlineData("lpt9.vid", "_lpt9")]
     [InlineData("clock$.snd", "_clock$")]
+    [InlineData("COM¹.snd", "_COM¹")]
+    [InlineData("lPt².vag", "_lPt²")]
+    [InlineData("CoM³.track.snd", "_CoM³.track")]
     public void Plan_WindowsDeviceNamesAreMadeSafe(string fileName, string expectedStem)
+    {
+        var stems = AudioOutputStemPlanner.Plan([new(fileName, "Sounds/" + fileName)]);
+
+        Assert.Equal([expectedStem], stems);
+    }
+
+    [Theory]
+    [InlineData("COM0.snd", "COM0")]
+    [InlineData("LPT10.vag", "LPT10")]
+    [InlineData("COM⁴.snd", "COM⁴")]
+    public void Plan_NonDeviceNamesRemainUnchanged(string fileName, string expectedStem)
     {
         var stems = AudioOutputStemPlanner.Plan([new(fileName, "Sounds/" + fileName)]);
 

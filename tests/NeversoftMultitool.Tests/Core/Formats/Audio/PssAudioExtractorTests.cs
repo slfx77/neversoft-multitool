@@ -70,6 +70,54 @@ public sealed class PssAudioExtractorTests(TestPaths paths)
     }
 
     [Fact]
+    public void Probe_ByteArrayReportsDecodedPcmDuration()
+    {
+        var samples = new short[] { 1, -1, 2, -2, 3, -3, 4, -4 };
+        var data = PssTestBuilder.CreatePssWithAdsPcm(samples, 48000, 2, 4);
+
+        var probe = PssAudioExtractor.Probe(data);
+
+        Assert.NotNull(probe);
+        Assert.Equal(4 / 48000.0, probe.DurationSeconds);
+        Assert.Equal(probe.DurationSeconds, AudioDurationProbe.Probe("PSS", data));
+    }
+
+    [Fact]
+    public void Probe_AdpcmUsesLongestChannelAndStopsAtEndMarker()
+    {
+        var body = new byte[64];
+        body[1] = SpuAdpcm.FlagEnd; // channel 0: one block, then padding
+        body[32 + 16 + 1] = SpuAdpcm.FlagEnd; // channel 1: two blocks
+
+        var probe = PssAudioExtractor.Probe(
+            PssTestBuilder.CreatePssWithAdsAdpcm(body, 22050, 2, 32));
+
+        Assert.NotNull(probe);
+        Assert.Equal(56 / 22050.0, probe.DurationSeconds);
+    }
+
+    [Theory]
+    [InlineData(2, 0)]
+    [InlineData(4, 0x40000000)]
+    public void Probe_MultichannelAdpcmWithInvalidInterleave_ReturnsNull(
+        int channels,
+        int interleave)
+    {
+        var pss = PssTestBuilder.CreatePssWithAdsAdpcm(new byte[16], 22050, channels, interleave);
+
+        Assert.Null(PssAudioExtractor.Probe(pss));
+    }
+
+    [Fact]
+    public void Probe_TruncatedStereoPcmWithoutWholeFrames_ReturnsNull()
+    {
+        var pss = PssTestBuilder.CreatePssWithAdsPcmBody(new byte[6], 48000, 2, 4);
+
+        Assert.Null(PssAudioExtractor.Probe(pss));
+        Assert.Null(AudioDurationProbe.Probe("PSS", pss));
+    }
+
+    [Fact]
     public void Probe_MissingInput_ReturnsNull()
     {
         var inputPath = Path.Combine(
@@ -153,7 +201,27 @@ internal static class PssTestBuilder
     public static byte[] CreatePssWithAdsPcm(short[] samples, int sampleRate, int channels, int interleave)
     {
         var pcmBody = CreateInterleavedPcmBody(samples, channels, interleave);
-        var adsBytes = CreateAdsStream(pcmBody, sampleRate, channels, interleave);
+        return CreatePssWithAdsStream(pcmBody, sampleRate, channels, interleave, 0x01);
+    }
+
+    public static byte[] CreatePssWithAdsPcmBody(byte[] body, int sampleRate, int channels, int interleave)
+    {
+        return CreatePssWithAdsStream(body, sampleRate, channels, interleave, 0x01);
+    }
+
+    public static byte[] CreatePssWithAdsAdpcm(byte[] body, int sampleRate, int channels, int interleave)
+    {
+        return CreatePssWithAdsStream(body, sampleRate, channels, interleave, 0x10);
+    }
+
+    private static byte[] CreatePssWithAdsStream(
+        byte[] body,
+        int sampleRate,
+        int channels,
+        int interleave,
+        uint codec)
+    {
+        var adsBytes = CreateAdsStream(body, sampleRate, channels, interleave, codec);
 
         var firstPayloadLength = Math.Min(adsBytes.Length, 0x30);
         var firstPayload = adsBytes.AsSpan(0, firstPayloadLength).ToArray();
@@ -166,20 +234,25 @@ internal static class PssTestBuilder
         return stream.ToArray();
     }
 
-    private static byte[] CreateAdsStream(byte[] pcmBody, int sampleRate, int channels, int interleave)
+    private static byte[] CreateAdsStream(
+        byte[] body,
+        int sampleRate,
+        int channels,
+        int interleave,
+        uint codec)
     {
-        var adsBytes = new byte[0x28 + pcmBody.Length];
+        var adsBytes = new byte[0x28 + body.Length];
         "SShd"u8.CopyTo(adsBytes.AsSpan(0, 4));
         BinaryPrimitives.WriteUInt32LittleEndian(adsBytes.AsSpan(4, 4), 0x18);
-        BinaryPrimitives.WriteUInt32LittleEndian(adsBytes.AsSpan(8, 4), 0x01);
+        BinaryPrimitives.WriteUInt32LittleEndian(adsBytes.AsSpan(8, 4), codec);
         BinaryPrimitives.WriteInt32LittleEndian(adsBytes.AsSpan(0x0C, 4), sampleRate);
         BinaryPrimitives.WriteInt32LittleEndian(adsBytes.AsSpan(0x10, 4), channels);
         BinaryPrimitives.WriteInt32LittleEndian(adsBytes.AsSpan(0x14, 4), interleave);
         BinaryPrimitives.WriteUInt32LittleEndian(adsBytes.AsSpan(0x18, 4), 0xFFFFFFFF);
         BinaryPrimitives.WriteUInt32LittleEndian(adsBytes.AsSpan(0x1C, 4), 0xFFFFFFFF);
         "SSbd"u8.CopyTo(adsBytes.AsSpan(0x20, 4));
-        BinaryPrimitives.WriteInt32LittleEndian(adsBytes.AsSpan(0x24, 4), pcmBody.Length);
-        pcmBody.CopyTo(adsBytes.AsSpan(0x28));
+        BinaryPrimitives.WriteInt32LittleEndian(adsBytes.AsSpan(0x24, 4), body.Length);
+        body.CopyTo(adsBytes.AsSpan(0x28));
         return adsBytes;
     }
 

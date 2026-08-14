@@ -66,8 +66,7 @@ internal static class SfxAliasResolver
 
         var best = ordered[0];
         var secondBestScore = ordered.Count > 1 ? ordered[1].Score : int.MaxValue;
-        if (best.Score > SfxExtractor.AliasScoreThreshold ||
-            secondBestScore - best.Score < SfxExtractor.AliasMarginThreshold)
+        if (!IsHighConfidenceMatch(best.Score, secondBestScore))
         {
             error = "Companion KAT/VAB soundbank not found and no high-confidence sibling SFX alias was found";
             return false;
@@ -78,7 +77,11 @@ internal static class SfxAliasResolver
         return true;
     }
 
-    private static int ScoreEntries(List<SfxCue> left, List<SfxCue> right)
+    /// <summary>
+    ///     Returns the cue-layout distance used by both filesystem lookup and
+    ///     archive/folder scan ownership. Lower scores are stronger matches.
+    /// </summary>
+    internal static int ScoreEntries(IReadOnlyList<SfxCue> left, IReadOnlyList<SfxCue> right)
     {
         var count = Math.Min(left.Count, right.Count);
         var score = Math.Abs(left.Count - right.Count) * 20;
@@ -100,6 +103,17 @@ internal static class SfxAliasResolver
         }
 
         return score;
+    }
+
+    /// <summary>
+    ///     Applies the executable-audited alias acceptance thresholds. The
+    ///     runner-up is a distinct bank candidate, not another sheet attached
+    ///     to the same bank.
+    /// </summary>
+    internal static bool IsHighConfidenceMatch(int bestScore, int secondBestScore)
+    {
+        return bestScore <= SfxExtractor.AliasScoreThreshold &&
+               (long)secondBestScore - bestScore >= SfxExtractor.AliasMarginThreshold;
     }
 
     internal static bool IsZeroedEntry(byte[] data, int offset)

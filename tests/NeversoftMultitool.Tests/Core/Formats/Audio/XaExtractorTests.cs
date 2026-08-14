@@ -35,6 +35,25 @@ public sealed class XaExtractorTests(TestPaths paths)
     }
 
     [Fact]
+    public void EnumerateChannels_NonAudioSector_DoesNotCreateChannel()
+    {
+        var data = CreateSectoredXa((1, 0x00), (2, 0x05));
+        var nonAudioOffset = SectorSize;
+        data[nonAudioOffset + 2] = 0x68; // real-time + Form 2 + data; audio bit is clear
+        data[nonAudioOffset + 6] = data[nonAudioOffset + 2]; // duplicated XA sub-header
+
+        var channels = XaExtractor.EnumerateChannels(data);
+
+        var only = Assert.Single(channels);
+        Assert.Equal(1, only.ChannelNumber);
+        Assert.Equal(1, only.SectorCount);
+        Assert.Equal(37800, only.SampleRate);
+        Assert.False(only.IsStereo);
+        Assert.Equal(18 * 128, only.DataSize);
+        Assert.Equal(1.0 * SamplesPerSector / 37800, only.DurationSeconds, 6);
+    }
+
+    [Fact]
     public void EnumerateChannels_SingleChannelStream_ReturnsOneEntry()
     {
         var data = CreateSectoredXa((0, 0x00), (0, 0x00));

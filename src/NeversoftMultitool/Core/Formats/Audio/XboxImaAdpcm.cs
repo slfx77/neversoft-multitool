@@ -66,6 +66,29 @@ public static class XboxImaAdpcm
         if (blocks == 0)
             return [];
 
+        for (var block = 0; block < blocks; block++)
+        {
+            var blockBase = block * blockAlign;
+            for (var channel = 0; channel < channels; channel++)
+            {
+                var headerOffset = blockBase + channel * BlockAlignPerChannel;
+                var stepIndex = data[headerOffset + 2];
+                if (stepIndex > MaxStepIndex)
+                {
+                    throw new InvalidDataException(
+                        $"Xbox ADPCM block {block}, channel {channel} has invalid initial step index " +
+                        $"{stepIndex} (expected 0..{MaxStepIndex})");
+                }
+
+                var reserved = data[headerOffset + 3];
+                if (reserved != 0)
+                {
+                    throw new InvalidDataException(
+                        $"Xbox ADPCM block {block}, channel {channel} has nonzero reserved byte 0x{reserved:X2}");
+                }
+            }
+        }
+
         var samples = new short[blocks * SamplesPerBlock * channels];
 
         for (var block = 0; block < blocks; block++)

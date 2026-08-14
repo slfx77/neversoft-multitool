@@ -49,4 +49,16 @@ public sealed class SpuAdpcmTests
         Assert.Equal((short)8, samples[0]);
         Assert.All(samples[1..], sample => Assert.Equal((short)0, sample));
     }
+
+    [Fact]
+    public void CountDecodedSamples_StopsAfterFirstEndMarkedBlock()
+    {
+        var data = new byte[SpuAdpcm.BlockSize * 3];
+        data[SpuAdpcm.BlockSize + 1] = SpuAdpcm.FlagEnd;
+
+        var count = SpuAdpcm.CountDecodedSamples(data);
+
+        Assert.Equal(SpuAdpcm.SamplesPerBlock * 2, count);
+        Assert.Equal(count, SpuAdpcm.Decode(data).Length);
+    }
 }

@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats.Audio;
 using NeversoftMultitool.Core.Formats.Vid1;
 using NeversoftMultitool.Core.Formats.Video;
 
@@ -113,6 +114,28 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
     }
 
     [Fact]
+    public void Probe_ByteArrayReportsDurationWithoutFilesystemInput()
+    {
+        var probe = Vid1AudioExtractor.Probe(Vid1TestBuilder.CreateVid1(32000, 1, 2048));
+
+        Assert.NotNull(probe);
+        Assert.Equal(2048 / 32000.0, probe.DurationSeconds);
+    }
+
+    [Fact]
+    public void Probe_OverflowingByteMetadataReturnsNoResult()
+    {
+        var data = Vid1TestBuilder.CreateVid1();
+        var metadataOffset = data.AsSpan().IndexOf("VAUD"u8);
+        Assert.True(metadataOffset >= 0);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(metadataOffset + 4, 4), 0x80000000);
+
+        Assert.Null(Vid1AudioExtractor.Probe(data));
+        Assert.Empty(Vid1AudioExtractor.ProbeTracks(data));
+        Assert.Null(AudioDurationProbe.Probe("VID", data));
+    }
+
+    [Fact]
     public void ProbeTracks_SyntheticMultiTrackVid1_ReturnsAllTracksWithDistinctMetadata()
     {
         var data = Vid1TestBuilder.CreateMultiTrackVid1(
@@ -138,6 +161,20 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
         {
             File.Delete(vidPath);
         }
+    }
+
+    [Fact]
+    public void ProbeTracks_ByteArrayPreservesPerTrackDurations()
+    {
+        var probes = Vid1AudioExtractor.ProbeTracks(Vid1TestBuilder.CreateMultiTrackVid1(
+            2,
+            static _ => 1000,
+            static _ => 1,
+            static index => index == 0 ? 250 : 750));
+
+        Assert.Equal(2, probes.Count);
+        Assert.Equal(0.25, probes[0].DurationSeconds);
+        Assert.Equal(0.75, probes[1].DurationSeconds);
     }
 
     [Fact]

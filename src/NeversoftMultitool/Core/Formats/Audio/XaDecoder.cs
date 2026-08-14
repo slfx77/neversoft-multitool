@@ -11,6 +11,7 @@ public static class XaDecoder
 {
     private const int SectorSize = 2336;
     private const int SubheaderSize = 8;
+    private const byte SubmodeAudio = 0x04;
     private const int SoundGroupSize = 128;
     private const int SoundGroupParamSize = 16;
     private const int SoundGroupsPerSector = 18;
@@ -32,11 +33,11 @@ public static class XaDecoder
     }
 
     /// <summary>
-    ///     Channel-filtered variant: decodes only the sectors whose sub-header
+    ///     Channel-filtered variant: decodes only audio sectors whose sub-header
     ///     channel byte matches <paramref name="channelFilter" /> (null = all
-    ///     sectors, matching the unfiltered overload). Format comes from the
-    ///     first matching sector's coding byte. Returns null if the data is not
-    ///     sectored XA or no sector matches.
+    ///     audio sectors, matching the unfiltered overload). Format comes from
+    ///     the first matching audio sector's coding byte. Returns null if the
+    ///     data is not sectored XA or no audio sector matches.
     /// </summary>
     public static (short[] Samples, int SampleRate, int Channels)? DecodeToSamples(
         byte[] sectoredData, int? channelFilter)
@@ -53,6 +54,9 @@ public static class XaDecoder
         for (var s = 0; s < sectorCount; s++)
         {
             var sectorOffset = s * SectorSize;
+            if (!IsAudioSector(sectoredData, sectorOffset))
+                continue;
+
             if (channelFilter.HasValue && sectoredData[sectorOffset + 1] != channelFilter.Value)
                 continue;
 
@@ -116,12 +120,29 @@ public static class XaDecoder
         if (data.Length < SubheaderSize || data.Length % SectorSize != 0)
             return false;
 
-        // Subheader: 4 bytes repeated
-        if (data[0] != data[4] || data[1] != data[5] || data[2] != data[6] || data[3] != data[7])
+        // Preserve the established mixed-stream discriminator: the first
+        // sector identifies this as sectored XA audio.
+        if (!IsAudioSector(data, 0))
             return false;
 
-        // Submode audio bit (bit 2) must be set
-        return (data[2] & 0x04) != 0;
+        for (var offset = 0; offset < data.Length; offset += SectorSize)
+        {
+            // Every sector carries the same four-byte subheader twice.
+            if (data[offset] != data[offset + 4]
+                || data[offset + 1] != data[offset + 5]
+                || data[offset + 2] != data[offset + 6]
+                || data[offset + 3] != data[offset + 7])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsAudioSector(byte[] data, int offset)
+    {
+        return (data[offset + 2] & SubmodeAudio) != 0;
     }
 
     private static AudioConvertResult DecodeSectored(byte[] data, string stem, string outputDir)
@@ -135,6 +156,9 @@ public static class XaDecoder
         for (var s = 0; s < sectorCount; s++)
         {
             var offset = s * SectorSize;
+            if (!IsAudioSector(data, offset))
+                continue;
+
             var channel = data[offset + 1];
             var coding = data[offset + 3];
 

@@ -11,6 +11,42 @@ public static class AdxDecoder
 {
     private const int HeaderSize = 18;
 
+    /// <summary>Reads validated ADX timeline metadata without decoding audio.</summary>
+    public static AdxProbeResult? Probe(byte[] data)
+    {
+        try
+        {
+            using var stream = new MemoryStream(data, false);
+            using var reader = new BinaryReader(stream, Encoding.ASCII, true);
+            var header = ReadHeader(reader);
+            if (header == null ||
+                header.Encoding != 3 ||
+                header.BlockSize <= 2 ||
+                header.ChannelCount == 0 ||
+                header.SampleRate <= 0 ||
+                header.TotalSamples <= 0 ||
+                header.DataOffset < HeaderSize ||
+                header.DataOffset > stream.Length)
+                return null;
+
+            var samplesPerFrame = (header.BlockSize - 2) * 2;
+            var framesPerChannel = ((long)header.TotalSamples + samplesPerFrame - 1) / samplesPerFrame;
+            var requiredPayloadBytes = framesPerChannel * header.ChannelCount * header.BlockSize;
+            if (requiredPayloadBytes > stream.Length - header.DataOffset)
+                return null;
+
+            return new AdxProbeResult(
+                header.SampleRate,
+                header.ChannelCount,
+                header.TotalSamples,
+                header.TotalSamples / (double)header.SampleRate);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>
     ///     Converts an ADX file to a WAV file in the specified output directory.
     /// </summary>
@@ -238,4 +274,10 @@ public static class AdxDecoder
         public int HighpassFrequency { get; init; }
         public int DataOffset { get; init; }
     }
+
+    public sealed record AdxProbeResult(
+        int SampleRate,
+        int Channels,
+        int TotalSamples,
+        double DurationSeconds);
 }

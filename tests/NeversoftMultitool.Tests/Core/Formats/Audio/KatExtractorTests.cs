@@ -7,6 +7,63 @@ public sealed class KatExtractorTests
     private const int EntrySize = 44;
 
     [Fact]
+    public void EnumerateSamples_CompletePayloads_ReturnsEverySample()
+    {
+        var samples = KatExtractor.EnumerateSamples(BuildTwoEntryKat(includeSecondPayload: true));
+
+        Assert.Equal(2, samples.Count);
+        Assert.Equal([0, 1], samples.Select(static sample => sample.Index));
+        Assert.All(samples, static sample =>
+        {
+            Assert.Equal(2, sample.DataSize);
+            Assert.Equal(22050, sample.SampleRate);
+            Assert.Equal("PCM 16-bit", sample.Encoding);
+        });
+    }
+
+    [Fact]
+    public void EnumerateSamples_TruncatedSinglePayload_ReturnsEmpty()
+    {
+        Assert.Empty(KatExtractor.EnumerateSamples(BuildTruncatedSingleEntryKat()));
+    }
+
+    [Fact]
+    public void EnumerateSamples_LaterTruncatedPayload_DoesNotPublishValidPrefix()
+    {
+        Assert.Empty(KatExtractor.EnumerateSamples(BuildTwoEntryKat(includeSecondPayload: false)));
+    }
+
+    [Fact]
+    public void EnumerateSamples_EntryCountWhoseTableSizeWrapsUInt32_ReturnsEmpty()
+    {
+        Assert.Empty(KatExtractor.EnumerateSamples(BitConverter.GetBytes(0x40000000u)));
+    }
+
+    [Theory]
+    [InlineData(4u, 5u, 10L)]
+    [InlineData(8u, 5u, 5L)]
+    [InlineData(16u, 5u, 2L)]
+    [InlineData(0u, 5u, 2L)]
+    public void EnumerateSamples_ReportsDecodedFramesForKnownEncodings(
+        uint bitsPerSample,
+        uint dataSize,
+        long expectedFrames)
+    {
+        var sample = Assert.Single(KatExtractor.EnumerateSamples(
+            BuildSingleEntryKat(dataSize, bitsPerSample)));
+
+        Assert.Equal(expectedFrames, sample.DecodedFrameCount);
+    }
+
+    [Fact]
+    public void EnumerateSamples_UnknownEncodingHasNoDecodedFrameCount()
+    {
+        var sample = Assert.Single(KatExtractor.EnumerateSamples(BuildSingleEntryKat(5, 12)));
+
+        Assert.Null(sample.DecodedFrameCount);
+    }
+
+    [Fact]
     public void ExtractToWav_LaterPayloadIsTruncated_FailsBeforeWritingAnyFiles()
     {
         var outputDir = CreateTempPath();
@@ -106,6 +163,17 @@ public sealed class KatExtractorTests
         writer.Write(1u);
         WriteEntry(writer, tableSize, 4, 22050, 16);
         writer.Write((short)0x1234);
+        return stream.ToArray();
+    }
+
+    private static byte[] BuildSingleEntryKat(uint dataSize, uint bitsPerSample)
+    {
+        const uint tableSize = 4 + EntrySize;
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        writer.Write(1u);
+        WriteEntry(writer, tableSize, dataSize, 22050, bitsPerSample);
+        writer.Write(new byte[checked((int)dataSize)]);
         return stream.ToArray();
     }
 

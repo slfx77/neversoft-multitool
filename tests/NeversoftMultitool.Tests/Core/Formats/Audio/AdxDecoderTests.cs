@@ -81,6 +81,25 @@ public sealed class AdxDecoderTests
         }
     }
 
+    [Fact]
+    public void Probe_CompleteFrameReportsDeclaredTimeline()
+    {
+        var probe = AdxDecoder.Probe(CreateAdx(includeFrame: true));
+
+        Assert.NotNull(probe);
+        Assert.Equal(SampleRate, probe.SampleRate);
+        Assert.Equal(1, probe.Channels);
+        Assert.Equal(SamplesPerFrame, probe.TotalSamples);
+        Assert.Equal(SamplesPerFrame / (double)SampleRate, probe.DurationSeconds);
+        Assert.Equal(probe.DurationSeconds, AudioDurationProbe.Probe("ADX", CreateAdx(includeFrame: true)));
+    }
+
+    [Fact]
+    public void Probe_TruncatedDeclaredFrameReturnsNull()
+    {
+        Assert.Null(AdxDecoder.Probe(CreateAdx(includeFrame: false)));
+    }
+
     private static byte[] CreateAdx(bool includeFrame)
     {
         var data = new byte[HeaderSize + (includeFrame ? BlockSize : 0)];

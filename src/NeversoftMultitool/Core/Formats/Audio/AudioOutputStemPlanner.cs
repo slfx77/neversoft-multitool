@@ -189,7 +189,7 @@ public static class AudioOutputStemPlanner
         return device.Length == 4
                && (device.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
                    || device.StartsWith("LPT", StringComparison.OrdinalIgnoreCase))
-               && device[3] is >= '1' and <= '9';
+               && device[3] is >= '1' and <= '9' or '¹' or '²' or '³';
     }
 
     private static bool IsVidTrackStem(string candidate, string vidStem)

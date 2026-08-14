@@ -35,6 +35,14 @@ public static class Thug2PcSndDecoder
     {
         try
         {
+            if (!IsOutputStem(stem))
+            {
+                return new AudioConvertResult
+                {
+                    ErrorMessage = "Output stem must be a non-empty file-name stem without path components."
+                };
+            }
+
             if (!TryDescribe(data, out var info, out var sampleCount, out var error))
                 return new AudioConvertResult { ErrorMessage = error };
 
@@ -51,6 +59,15 @@ public static class Thug2PcSndDecoder
         {
             return new AudioConvertResult { ErrorMessage = ex.Message };
         }
+    }
+
+    private static bool IsOutputStem(string? stem)
+    {
+        return !string.IsNullOrWhiteSpace(stem)
+               && stem is not "." and not ".."
+               && !Path.IsPathRooted(stem)
+               && !stem.Contains('/')
+               && !stem.Contains('\\');
     }
 
     public static Thug2PcSndProbeResult? Probe(string filePath)

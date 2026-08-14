@@ -126,14 +126,16 @@ public class XboxPcmDecoderTests
     [Fact]
     public void Probe_AcceptsOneCompleteMonoBlock()
     {
-        var probe = XboxPcmDecoder.Probe(Wave(
+        var data = Wave(
             XboxImaAdpcm.BlockAlignPerChannel,
-            XboxImaAdpcm.BlockAlignPerChannel));
+            XboxImaAdpcm.BlockAlignPerChannel);
+        var probe = XboxPcmDecoder.Probe(data);
 
         Assert.NotNull(probe);
         Assert.Equal(44100, probe!.SampleRate);
         Assert.Equal(1, probe.Channels);
         Assert.Equal(XboxImaAdpcm.SamplesPerBlock / 44100.0, probe.DurationSeconds);
+        Assert.Equal(probe.DurationSeconds, AudioDurationProbe.Probe("PCM", data));
     }
 
     /// <summary>

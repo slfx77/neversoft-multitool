@@ -121,6 +121,18 @@ public sealed class VabExtractorTests
         }
     }
 
+    [Fact]
+    public void EnumerateSamples_DecodedFramesStopAtEndMarkerBeforePadding()
+    {
+        var data = SfxTestBuilder.CreateVab([SpuAdpcm.BlockSize * 3]);
+        var sampleStart = data.Length - SpuAdpcm.BlockSize * 3;
+        data[sampleStart + SpuAdpcm.BlockSize + 1] = SpuAdpcm.FlagEnd;
+
+        var sample = Assert.Single(VabExtractor.EnumerateSamples(data));
+
+        Assert.Equal((long)SpuAdpcm.SamplesPerBlock * 2, sample.DecodedFrameCount);
+    }
+
     private static string CreateTempPath()
     {
         return Path.Combine(

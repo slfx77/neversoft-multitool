@@ -43,31 +43,33 @@ public static class KatExtractor
         if (stream.Length < 4) return [];
 
         var entryCount = reader.ReadUInt32();
-        if (stream.Length < 4 + entryCount * EntrySize) return [];
+        if (!TryReadEntries(stream, reader, entryCount, out var entries, out _))
+            return [];
 
-        var results = new List<KatSampleInfo>();
-        for (var i = 0; i < entryCount; i++)
+        var results = new List<KatSampleInfo>(entries.Length);
+        for (var i = 0; i < entries.Length; i++)
         {
-            reader.ReadUInt32(); // channels (AICA voices are always mono)
-            reader.ReadUInt32(); // offset
-            var size = reader.ReadUInt32();
-            var sampleRate = reader.ReadUInt32();
-            reader.ReadUInt32(); // loop
-            var bits = reader.ReadUInt32();
-            reader.ReadUInt32(); // unknown
-            reader.ReadBytes(16); // name
+            var entry = entries[i];
 
-            if (size == 0 || sampleRate == 0) continue;
+            if (entry.Size == 0 || entry.SampleRate == 0) continue;
 
-            var encoding = bits switch
+            var encoding = entry.Bits switch
             {
                 4 => "AICA ADPCM",
                 8 => "PCM 8-bit",
                 0 or 16 => "PCM 16-bit",
-                _ => $"{bits}-bit"
+                _ => $"{entry.Bits}-bit"
             };
 
-            results.Add(new KatSampleInfo(i, (int)size, (int)sampleRate, 1, encoding));
+            results.Add(new KatSampleInfo(
+                i,
+                (int)entry.Size,
+                (int)entry.SampleRate,
+                1,
+                encoding)
+            {
+                DecodedFrameCount = GetDecodedFrameCount(entry.Size, entry.Bits)
+            });
         }
 
         return results;
@@ -110,21 +112,16 @@ public static class KatExtractor
 
         if (stream.Length < 4) return null;
         var entryCount = reader.ReadUInt32();
-        if (sampleIndex < 0 || sampleIndex >= (int)entryCount) return null;
-        if (stream.Length < 4 + entryCount * EntrySize) return null;
+        if (sampleIndex < 0 ||
+            entryCount > int.MaxValue ||
+            sampleIndex >= (int)entryCount ||
+            !TryGetTableEnd(stream, entryCount, out _))
+        {
+            return null;
+        }
 
         stream.Position = 4 + (long)sampleIndex * EntrySize;
-        var entry = new KatEntry
-        {
-            Channels = reader.ReadUInt32(),
-            Offset = reader.ReadUInt32(),
-            Size = reader.ReadUInt32(),
-            SampleRate = reader.ReadUInt32(),
-            Loop = reader.ReadUInt32(),
-            Bits = reader.ReadUInt32(),
-            Unknown = reader.ReadUInt32(),
-            Name = reader.ReadBytes(16)
-        };
+        var entry = ReadEntry(reader);
 
         if (entry.Size == 0 || entry.SampleRate == 0) return null;
 
@@ -187,44 +184,8 @@ public static class KatExtractor
             return new AudioConvertResult { ErrorMessage = "File too small for KAT header" };
 
         var entryCount = reader.ReadUInt32();
-        var expectedHeaderSize = 4 + entryCount * EntrySize;
-
-        if (stream.Length < expectedHeaderSize)
-            return new AudioConvertResult { ErrorMessage = $"File too small for {entryCount} entries" };
-
-        var entries = new KatEntry[entryCount];
-        for (var i = 0; i < entryCount; i++)
-        {
-            entries[i] = new KatEntry
-            {
-                Channels = reader.ReadUInt32(),
-                Offset = reader.ReadUInt32(),
-                Size = reader.ReadUInt32(),
-                SampleRate = reader.ReadUInt32(),
-                Loop = reader.ReadUInt32(),
-                Bits = reader.ReadUInt32(),
-                Unknown = reader.ReadUInt32(),
-                Name = reader.ReadBytes(16)
-            };
-        }
-
-        for (var i = 0; i < entries.Length; i++)
-        {
-            var entry = entries[i];
-            if (entry.Size == 0)
-                continue;
-
-            var dataOffset = (long)entry.Offset;
-            var dataSize = (long)entry.Size;
-            if (dataOffset > stream.Length || dataSize > stream.Length - dataOffset)
-            {
-                return new AudioConvertResult
-                {
-                    ErrorMessage =
-                        $"KAT entry {i} data range ({entry.Offset}, {entry.Size}) extends past end of file ({stream.Length} bytes)"
-                };
-            }
-        }
+        if (!TryReadEntries(stream, reader, entryCount, out var entries, out var error))
+            return new AudioConvertResult { ErrorMessage = error };
 
         var outDir = Path.Combine(outputDir, stem);
         var filesWritten = 0;
@@ -267,6 +228,67 @@ public static class KatExtractor
         }
 
         return new AudioConvertResult { Success = true, SamplesWritten = filesWritten };
+    }
+
+    private static bool TryReadEntries(
+        Stream stream,
+        BinaryReader reader,
+        uint entryCount,
+        out KatEntry[] entries,
+        out string error)
+    {
+        if (entryCount > int.MaxValue || !TryGetTableEnd(stream, entryCount, out _))
+        {
+            entries = [];
+            error = $"File too small for {entryCount} entries";
+            return false;
+        }
+
+        var parsed = new KatEntry[(int)entryCount];
+        for (var i = 0; i < parsed.Length; i++)
+            parsed[i] = ReadEntry(reader);
+
+        for (var i = 0; i < parsed.Length; i++)
+        {
+            var entry = parsed[i];
+            if (entry.Size == 0)
+                continue;
+
+            var dataOffset = (long)entry.Offset;
+            var dataSize = (long)entry.Size;
+            if (dataOffset > stream.Length || dataSize > stream.Length - dataOffset)
+            {
+                entries = [];
+                error =
+                    $"KAT entry {i} data range ({entry.Offset}, {entry.Size}) extends past end of file ({stream.Length} bytes)";
+                return false;
+            }
+        }
+
+        entries = parsed;
+        error = "";
+        return true;
+    }
+
+    private static bool TryGetTableEnd(Stream stream, uint entryCount, out long tableEnd)
+    {
+        tableEnd = 4L + (long)entryCount * EntrySize;
+        return tableEnd <= stream.Length;
+    }
+
+    private static KatEntry ReadEntry(BinaryReader reader)
+    {
+        return new KatEntry
+        {
+            Channels = reader.ReadUInt32(),
+            Offset = reader.ReadUInt32(),
+            Size = reader.ReadUInt32(),
+            SampleRate = reader.ReadUInt32(),
+            Loop = reader.ReadUInt32(),
+            Bits = reader.ReadUInt32(),
+            Unknown = reader.ReadUInt32(),
+            Name = reader.ReadBytes(16)
+        };
     }
 
     /// <summary>
@@ -337,7 +359,26 @@ public static class KatExtractor
         return data.AsSpan().IndexOfAnyExcept((byte)0) < 0;
     }
 
-    public sealed record KatSampleInfo(int Index, int DataSize, int SampleRate, int Channels, string Encoding);
+    private static long? GetDecodedFrameCount(uint dataSize, uint bits)
+    {
+        return bits switch
+        {
+            4 => (long)dataSize * 2,
+            8 => dataSize,
+            0 or 16 => dataSize / 2,
+            _ => null
+        };
+    }
+
+    public sealed record KatSampleInfo(
+        int Index,
+        int DataSize,
+        int SampleRate,
+        int Channels,
+        string Encoding)
+    {
+        public long? DecodedFrameCount { get; init; }
+    }
 
     private sealed class KatEntry
     {

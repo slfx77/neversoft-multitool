@@ -47,13 +47,34 @@ public static class VabExtractor
         if (layout == null) return [];
 
         var results = new List<VabSampleInfo>();
+        var sampleOffset = layout.VagDataOffset + layout.VagSizes[0];
         for (var v = 1; v <= layout.Header.VagCount && v < VagSizeTableEntries; v++)
         {
-            if (layout.VagSizes[v] > 0)
-                results.Add(new VabSampleInfo(v, layout.VagSizes[v], GetSuggestedSampleRate(layout, v)));
+            var size = layout.VagSizes[v];
+            if (size <= 0)
+                continue;
+
+            long? decodedFrameCount = null;
+            if (IsDataRangeWithinStream(sampleOffset, size, stream.Length))
+                decodedFrameCount = CountDecodedSamples(stream, sampleOffset, size);
+
+            results.Add(new VabSampleInfo(
+                v,
+                size,
+                GetSuggestedSampleRate(layout, v))
+            {
+                DecodedFrameCount = decodedFrameCount
+            });
+            sampleOffset += size;
         }
 
         return results;
+    }
+
+    private static long CountDecodedSamples(Stream stream, long offset, int byteCount)
+    {
+        stream.Position = offset;
+        return SpuAdpcm.CountDecodedSamples(stream, byteCount);
     }
 
     /// <summary>
@@ -342,7 +363,10 @@ public static class VabExtractor
         };
     }
 
-    public sealed record VabSampleInfo(int Index, int DataSize, int SampleRate);
+    public sealed record VabSampleInfo(int Index, int DataSize, int SampleRate)
+    {
+        public long? DecodedFrameCount { get; init; }
+    }
 
     private readonly record struct VabToneInfo(byte Center, byte Shift, int Order);
 

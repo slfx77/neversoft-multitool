@@ -3,8 +3,8 @@ using System.Runtime.CompilerServices;
 namespace NeversoftMultitool.Core.Formats.Audio;
 
 /// <summary>
-///     Session-local preview identity. Parent entries are compared by reference so
-///     two same-named files or archive entries cannot share a cached conversion.
+///     Session-local preview identity. Entries are compared by reference so two
+///     same-named files, archive entries, or cue children cannot share a cached conversion.
 /// </summary>
 internal readonly struct AudioPreviewCacheKey : IEquatable<AudioPreviewCacheKey>
 {

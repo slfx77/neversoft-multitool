@@ -51,6 +51,8 @@ public static class SpuStereoMusicStream
     public static short[] DecodeInterleaved(ReadOnlySpan<byte> data)
     {
         var (left, right) = SplitChannels(data);
+        ValidateChannelTail(left, "left");
+        ValidateChannelTail(right, "right");
         var leftPcm = SpuAdpcm.Decode(left);
         var rightPcm = SpuAdpcm.Decode(right);
 
@@ -65,6 +67,24 @@ public static class SpuStereoMusicStream
         }
 
         return pcm;
+    }
+
+    private static void ValidateChannelTail(ReadOnlySpan<byte> data, string channelName)
+    {
+        var partialBytes = data.Length % SpuAdpcm.BlockSize;
+        if (partialBytes == 0)
+            return;
+
+        var completeBytes = data.Length - partialBytes;
+        for (var offset = 0; offset < completeBytes; offset += SpuAdpcm.BlockSize)
+        {
+            if ((data[offset + 1] & SpuAdpcm.FlagEnd) != 0)
+                return;
+        }
+
+        throw new InvalidDataException(
+            $"Stereo music {channelName} channel has a {partialBytes}-byte partial " +
+            "SPU-ADPCM block without an earlier end marker.");
     }
 
     /// <summary>Estimated duration in seconds (per-channel samples at 48 kHz).</summary>

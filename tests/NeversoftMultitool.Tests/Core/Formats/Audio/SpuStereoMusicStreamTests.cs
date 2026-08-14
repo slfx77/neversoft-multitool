@@ -96,6 +96,76 @@ public sealed class SpuStereoMusicStreamTests
         Assert.Equal(7.168, SpuStereoMusicStream.EstimateDuration(5L * ChunkSize), 12);
     }
 
+    [Theory]
+    [InlineData(15, "left")]
+    [InlineData(ChunkSize + 15, "right")]
+    public void DecodeInterleaved_PartialChannelBlockWithoutEndMarker_IsRejected(
+        int appendedBytes,
+        string channelName)
+    {
+        var data = AppendBytes(BuildStereoFixture(2), appendedBytes, 0xA5);
+
+        var exception = Assert.Throws<InvalidDataException>(
+            () => SpuStereoMusicStream.DecodeInterleaved(data));
+
+        Assert.Equal(
+            $"Stereo music {channelName} channel has a 15-byte partial " +
+            "SPU-ADPCM block without an earlier end marker.",
+            exception.Message);
+    }
+
+    [Theory]
+    [InlineData(15, 3 * ChunkSize - 15)]
+    [InlineData(ChunkSize + 15, 4 * ChunkSize - 15)]
+    public void DecodeInterleaved_PartialPaddingAfterChannelEndMarker_IsIgnored(
+        int appendedBytes,
+        int endFlagOffset)
+    {
+        var baseline = BuildStereoFixture(2);
+        baseline[endFlagOffset] = SpuAdpcm.FlagEnd;
+        var expected = SpuStereoMusicStream.DecodeInterleaved(baseline);
+        var padded = AppendBytes(baseline, appendedBytes, 0xA5);
+
+        var actual = SpuStereoMusicStream.DecodeInterleaved(padded);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void DecodeInterleaved_AlignedFinalLeftOnlyChunk_RemainsAccepted()
+    {
+        var baseline = BuildStereoFixture(2);
+        var withLeftTail = AppendBytes(baseline, ChunkSize, 0);
+        FillBlocks(withLeftTail.AsSpan(baseline.Length), _ => 0x22);
+
+        var actual = SpuStereoMusicStream.DecodeInterleaved(withLeftTail);
+
+        Assert.Equal(SpuStereoMusicStream.DecodeInterleaved(baseline), actual);
+    }
+
+    [Fact]
+    public void ConvertToWav_PartialChannelBlock_FailsWithoutWritingOutput()
+    {
+        var data = AppendBytes(BuildStereoFixture(2), 15, 0xA5);
+        var outputDir = FormatProbeTestHelper.CreateTempDirectory("vag_stereo_partial");
+
+        try
+        {
+            var result = VagDecoder.ConvertToWav(data, "partial_music", outputDir);
+
+            Assert.False(result.Success);
+            Assert.Equal(
+                "Stereo music left channel has a 15-byte partial SPU-ADPCM block " +
+                "without an earlier end marker.",
+                result.ErrorMessage);
+            Assert.False(File.Exists(Path.Combine(outputDir, "partial_music.wav")));
+        }
+        finally
+        {
+            Directory.Delete(outputDir, true);
+        }
+    }
+
     [Fact]
     public void ConvertToWav_HeaderedVagp_StaysMonoAtHeaderRate()
     {
@@ -141,6 +211,14 @@ public sealed class SpuStereoMusicStreamTests
         }
 
         return data;
+    }
+
+    private static byte[] AppendBytes(byte[] source, int count, byte value)
+    {
+        var result = new byte[source.Length + count];
+        source.CopyTo(result, 0);
+        result.AsSpan(source.Length).Fill(value);
+        return result;
     }
 
     /// <summary>Fills SPU-ADPCM blocks (filter 0, shift 3) with a per-block nibble byte.</summary>

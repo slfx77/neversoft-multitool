@@ -38,6 +38,14 @@ public static class XboxPcmDecoder
     {
         try
         {
+            if (!IsOutputStem(stem))
+            {
+                return new AudioConvertResult
+                {
+                    ErrorMessage = "Output stem must be a non-empty file-name stem without path components."
+                };
+            }
+
             if (!RiffWaveReader.TryRead(data, out var info))
                 return new AudioConvertResult { ErrorMessage = "Not a RIFF/WAVE container" };
 
@@ -80,6 +88,15 @@ public static class XboxPcmDecoder
         {
             return new AudioConvertResult { ErrorMessage = ex.Message };
         }
+    }
+
+    private static bool IsOutputStem(string? stem)
+    {
+        return !string.IsNullOrWhiteSpace(stem)
+               && stem is not "." and not ".."
+               && !Path.IsPathRooted(stem)
+               && !stem.Contains('/')
+               && !stem.Contains('\\');
     }
 
     public static XboxPcmProbeResult? Probe(string filePath)

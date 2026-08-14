@@ -19,6 +19,54 @@ public static class SpuAdpcm
     public const byte FlagLoopStart = 0x04; // Loop start marker
     public const byte FlagLoop = 0x02; // Loop (jump to loop start on end)
 
+    /// <summary>
+    ///     Counts the PCM samples the decoder will emit without allocating the
+    ///     decoded buffer. Padding after the first end-marked block is not part
+    ///     of the authored timeline.
+    /// </summary>
+    public static long CountDecodedSamples(ReadOnlySpan<byte> data)
+    {
+        var blockCount = data.Length / BlockSize;
+        long samples = 0;
+
+        for (var blockIndex = 0; blockIndex < blockCount; blockIndex++)
+        {
+            var block = data.Slice(blockIndex * BlockSize, BlockSize);
+            samples += SamplesPerBlock;
+            if ((block[1] & FlagEnd) != 0)
+                break;
+        }
+
+        return samples;
+    }
+
+    /// <summary>Streaming counterpart used by file and bank metadata probes.</summary>
+    internal static long CountDecodedSamples(Stream stream, long byteCount)
+    {
+        const int bufferSize = BlockSize * 256;
+        Span<byte> buffer = stackalloc byte[bufferSize];
+        var remainingBlocks = byteCount / BlockSize;
+        long samples = 0;
+
+        while (remainingBlocks > 0)
+        {
+            var blocksToRead = (int)Math.Min(remainingBlocks, bufferSize / BlockSize);
+            var bytesToRead = blocksToRead * BlockSize;
+            stream.ReadExactly(buffer[..bytesToRead]);
+
+            for (var blockIndex = 0; blockIndex < blocksToRead; blockIndex++)
+            {
+                samples += SamplesPerBlock;
+                if ((buffer[blockIndex * BlockSize + 1] & FlagEnd) != 0)
+                    return samples;
+            }
+
+            remainingBlocks -= blocksToRead;
+        }
+
+        return samples;
+    }
+
     // SPU-ADPCM filter coefficients (f0, f1) scaled by 1/64
     private static readonly int[] F0 = [0, 60, 115, 98, 122];
     private static readonly int[] F1 = [0, 0, -52, -55, -60];

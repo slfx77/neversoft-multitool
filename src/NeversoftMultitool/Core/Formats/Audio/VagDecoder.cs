@@ -111,8 +111,8 @@ public static class VagDecoder
                 if (!HasCompleteVagPayload(data.Length, header.DataSize))
                     return null;
 
-                var totalBlocks = header.DataSize / SpuAdpcm.BlockSize;
-                var totalSamples = totalBlocks * SpuAdpcm.SamplesPerBlock;
+                var totalSamples = SpuAdpcm.CountDecodedSamples(
+                    data.AsSpan(VagHeaderSize, header.DataSize));
                 return new VagProbeResult(
                     header.SampleRate,
                     totalSamples / (double)header.SampleRate,
@@ -130,8 +130,7 @@ public static class VagDecoder
                     2);
             }
 
-            var blocks = data.Length / SpuAdpcm.BlockSize;
-            var samples = blocks * SpuAdpcm.SamplesPerBlock;
+            var samples = SpuAdpcm.CountDecodedSamples(data);
             var duration = samples / (double)DefaultSampleRate;
             return new VagProbeResult(DefaultSampleRate, duration, false, null);
         }
@@ -160,8 +159,10 @@ public static class VagDecoder
                 if (!HasCompleteVagPayload(stream.Length, header.DataSize))
                     return null;
 
-                var totalBlocks = header.DataSize / SpuAdpcm.BlockSize;
-                var totalSamples = totalBlocks * SpuAdpcm.SamplesPerBlock;
+                var totalSamples = CountDecodedSamples(
+                    stream,
+                    VagHeaderSize,
+                    header.DataSize);
                 return new VagProbeResult(
                     header.SampleRate,
                     totalSamples / (double)header.SampleRate,
@@ -190,9 +191,9 @@ public static class VagDecoder
                 }
             }
 
-            // Headerless: estimate from file size
-            var blocks = (int)(stream.Length / SpuAdpcm.BlockSize);
-            var samples = blocks * SpuAdpcm.SamplesPerBlock;
+            // Headerless mono: scan only the 2-byte block headers so authored
+            // padding after the end marker does not inflate the timeline.
+            var samples = CountDecodedSamples(stream, 0, stream.Length);
             var duration = samples / (double)DefaultSampleRate;
             return new VagProbeResult(DefaultSampleRate, duration, false, null);
         }
@@ -205,6 +206,12 @@ public static class VagDecoder
     private static bool HasCompleteVagPayload(long fileLength, int dataSize)
     {
         return fileLength >= VagHeaderSize && dataSize <= fileLength - VagHeaderSize;
+    }
+
+    private static long CountDecodedSamples(Stream stream, long offset, long byteCount)
+    {
+        stream.Position = offset;
+        return SpuAdpcm.CountDecodedSamples(stream, byteCount);
     }
 
     private static bool TryParseVagHeader(ReadOnlySpan<byte> data, out VagHeader header)

@@ -72,6 +72,21 @@ public sealed class VagDecoderTests
         }
     }
 
+    [Fact]
+    public void Probe_StopsAtEndMarkerBeforeDeclaredPadding()
+    {
+        var data = CreateVag(
+            declaredPayloadSize: BlockSize * 3,
+            actualPayloadSize: BlockSize * 3);
+        data[HeaderSize + BlockSize + 1] = SpuAdpcm.FlagEnd;
+
+        var probe = VagDecoder.Probe(data);
+
+        Assert.NotNull(probe);
+        Assert.Equal(2 * 28 / (double)SampleRate, probe.DurationSeconds);
+        Assert.Equal(probe.DurationSeconds, AudioDurationProbe.Probe("VAG", data));
+    }
+
     private static byte[] CreateVag(int declaredPayloadSize, int actualPayloadSize)
     {
         var data = new byte[HeaderSize + actualPayloadSize];

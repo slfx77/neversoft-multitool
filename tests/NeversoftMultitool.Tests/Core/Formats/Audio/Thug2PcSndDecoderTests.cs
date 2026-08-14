@@ -76,6 +76,7 @@ public class Thug2PcSndDecoderTests
         Assert.Equal(22050, probe.SampleRate);
         Assert.Equal(1, probe.Channels);
         Assert.Equal(3 / 22050.0, probe.DurationSeconds, 12);
+        Assert.Equal(probe.DurationSeconds, AudioDurationProbe.Probe("SND", data));
     }
 
     [Fact]

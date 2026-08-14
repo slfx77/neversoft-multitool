@@ -10,6 +10,7 @@ namespace NeversoftMultitool.Core.Formats.Audio;
 public static class XaExtractor
 {
     private const int SectorSize = 2336;
+    private const byte SubmodeAudio = 0x04;
     private const int AudioBytesPerSector = 18 * 128; // sound groups × group size
 
     // 18 sound groups × 8 units × 28 samples; stereo interleaves L/R, halving frames.
@@ -34,6 +35,9 @@ public static class XaExtractor
         for (var s = 0; s < sectorCount; s++)
         {
             var offset = s * SectorSize;
+            if ((data[offset + 2] & SubmodeAudio) == 0)
+                continue;
+
             var channel = data[offset + 1];
             if (sectorsByChannel.TryAdd(channel, 1))
                 codingByChannel[channel] = data[offset + 3];

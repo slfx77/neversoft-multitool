@@ -23,18 +23,41 @@ public static class PssAudioExtractor
         try
         {
             using var stream = File.OpenRead(inputPath);
-            return TryReadAdsStream(stream, out var adsStream, out _)
-                ? new PssAudioProbeResult(
-                    GetCodecName(adsStream.Codec),
-                    adsStream.SampleRate,
-                    adsStream.Channels,
-                    adsStream.Interleave)
-                : null;
+            return Probe(stream);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return null;
         }
+    }
+
+    /// <summary>In-memory variant of <see cref="Probe(string)" />.</summary>
+    public static PssAudioProbeResult? Probe(byte[] data)
+    {
+        using var stream = new MemoryStream(data, false);
+        return Probe(stream);
+    }
+
+    private static PssAudioProbeResult? Probe(Stream stream)
+    {
+        if (!TryReadAdsStream(stream, out var adsStream, out _))
+            return null;
+
+        var duration = GetDurationSeconds(adsStream);
+        if (adsStream.Codec is Pcm16Codec or Pcm16CodecVariant or PsxAdpcmCodec or PsxAdpcmCodecVariant &&
+            duration is null)
+        {
+            return null;
+        }
+
+        return new PssAudioProbeResult(
+            GetCodecName(adsStream.Codec),
+            adsStream.SampleRate,
+            adsStream.Channels,
+            adsStream.Interleave)
+        {
+            DurationSeconds = duration
+        };
     }
 
     public static AudioConvertResult ConvertToWav(string inputPath, string outputDir)
@@ -224,6 +247,14 @@ public static class PssAudioExtractor
             return false;
         }
 
+        if (channels > 1 &&
+            codec is Pcm16Codec or Pcm16CodecVariant or PsxAdpcmCodec or PsxAdpcmCodecVariant &&
+            (interleave <= 0 || (long)channels * interleave > int.MaxValue))
+        {
+            error = $"Invalid ADS interleave {interleave} for {channels} channels";
+            return false;
+        }
+
         if (bodySize <= 0)
         {
             error = "ADS body size is invalid";
@@ -254,7 +285,9 @@ public static class PssAudioExtractor
             return ConvertLittleEndianPcmToShorts(bodySpan);
 
         var samples = new List<short>(bodySpan.Length / 2);
-        var frameSize = channels * interleave;
+        // TryReadAdsStream proves this product is positive and representable
+        // for every supported multichannel codec.
+        var frameSize = checked(channels * interleave);
 
         for (var frameBase = 0; frameBase < bodySpan.Length; frameBase += frameSize)
         {
@@ -308,6 +341,70 @@ public static class PssAudioExtractor
         return interleaved;
     }
 
+    private static double? GetDurationSeconds(AdsStream adsStream)
+    {
+        if (adsStream.SampleRate <= 0 || adsStream.Channels <= 0)
+            return null;
+
+        double? frames = adsStream.Codec switch
+        {
+            Pcm16Codec or Pcm16CodecVariant => CountInterleavedPcmFrames(
+                adsStream.Body,
+                adsStream.Channels,
+                adsStream.Interleave),
+            PsxAdpcmCodec or PsxAdpcmCodecVariant =>
+                DeinterleaveChannelBlocks(adsStream.Body, adsStream.Channels, adsStream.Interleave)
+                    .Select(static channel => SpuAdpcm.CountDecodedSamples(channel))
+                    .DefaultIfEmpty()
+                    .Max(),
+            _ => null
+        };
+
+        return frames is > 0 ? frames.Value / adsStream.SampleRate : null;
+    }
+
+    private static long? CountInterleavedPcmFrames(ReadOnlyMemory<byte> body, int channels, int interleave)
+    {
+        var samples = CountInterleavedPcmSamples(body, channels, interleave);
+        return samples > 0 && samples % channels == 0
+            ? samples / channels
+            : null;
+    }
+
+    private static long CountInterleavedPcmSamples(ReadOnlyMemory<byte> body, int channels, int interleave)
+    {
+        var bodyLength = body.Length;
+        if (channels == 1 || interleave <= 0)
+            return bodyLength / sizeof(short);
+
+        var frameSize = (long)channels * interleave;
+        if (frameSize <= 0)
+            return 0;
+
+        long samples = 0;
+        for (long frameBase = 0; frameBase < bodyLength; frameBase += frameSize)
+        {
+            for (var sampleOffset = 0; sampleOffset < interleave; sampleOffset += sizeof(short))
+            {
+                var wroteSample = false;
+                for (var channel = 0; channel < channels; channel++)
+                {
+                    var position = frameBase + (long)channel * interleave + sampleOffset;
+                    if (position + 1 >= bodyLength)
+                        continue;
+
+                    samples++;
+                    wroteSample = true;
+                }
+
+                if (!wroteSample)
+                    break;
+            }
+        }
+
+        return samples;
+    }
+
     private static List<byte[]> DeinterleaveChannelBlocks(ReadOnlyMemory<byte> body, int channels, int interleave)
     {
         var bodySpan = body.Span;
@@ -318,7 +415,9 @@ public static class PssAudioExtractor
             .Select(_ => new MemoryStream())
             .ToArray();
 
-        var frameSize = channels * interleave;
+        // TryReadAdsStream proves this product is positive and representable
+        // for every supported multichannel codec.
+        var frameSize = checked(channels * interleave);
         for (var frameBase = 0; frameBase < bodySpan.Length; frameBase += frameSize)
         {
             for (var channel = 0; channel < channels; channel++)
@@ -499,5 +598,8 @@ public static class PssAudioExtractor
         string CodecName,
         int SampleRate,
         int Channels,
-        int Interleave);
+        int Interleave)
+    {
+        public double? DurationSeconds { get; init; }
+    }
 }
