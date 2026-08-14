@@ -157,7 +157,7 @@ public sealed class FormatProbeMeshTests
     [Fact]
     public void ProbeMesh_BspValidMagic_Supported()
     {
-        var tempFile = FormatProbeTestHelper.CreateTempFile(".bsp", BitConverter.GetBytes(0x000Bu));
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".bsp", BuildRwRoot(0x000B, 0, 12));
         try
         {
             var result = FormatProbe.ProbeMesh(tempFile);
@@ -188,7 +188,7 @@ public sealed class FormatProbeMeshTests
     [Fact]
     public void ProbeMesh_RwDff_Supported()
     {
-        var tempFile = FormatProbeTestHelper.CreateTempFile(".skn", BitConverter.GetBytes(0x0010u));
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".skn", BuildRwRoot(0x0010, 0, 12));
         try
         {
             var result = FormatProbe.ProbeMesh(tempFile);
@@ -215,5 +215,94 @@ public sealed class FormatProbeMeshTests
         {
             File.Delete(tempFile);
         }
+    }
+
+    [Theory]
+    [InlineData(".skn", 0x0010u)]
+    [InlineData(".bsp", 0x000Bu)]
+    public void ProbeMesh_RenderWareRootTruncated_Unsupported(string extension, uint type)
+    {
+        foreach (var length in new[] { 4, 11 })
+        {
+            var tempFile = FormatProbeTestHelper.CreateTempFile(extension, BuildRwRoot(type, 0, length));
+            try
+            {
+                var result = FormatProbe.ProbeMesh(tempFile);
+
+                Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            }
+            finally
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
+
+    [Fact]
+    public void ProbeMesh_DffRootPayloadPastFile_Unsupported()
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".skn", BuildRwRoot(0x0010, 1, 12));
+        try
+        {
+            var result = FormatProbe.ProbeMesh(tempFile);
+
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeMesh_BspRootPayloadPastFile_RemainsSupported()
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".bsp", BuildRwRoot(0x000B, 1, 12));
+        try
+        {
+            var result = FormatProbe.ProbeMesh(tempFile);
+
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Equal("RW BSP Level", result.FormatName);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Theory]
+    [InlineData(".skn", 0x0010u, "RW DFF Mesh")]
+    [InlineData(".bsp", 0x000Bu, "RW BSP Level")]
+    public void ProbeMesh_RenderWareRootPayloadEndingAtOrBeforeFile_Supported(
+        string extension,
+        uint type,
+        string expectedFormat)
+    {
+        foreach (var length in new[] { 13, 14 })
+        {
+            var tempFile = FormatProbeTestHelper.CreateTempFile(extension, BuildRwRoot(type, 1, length));
+            try
+            {
+                var result = FormatProbe.ProbeMesh(tempFile);
+
+                Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+                Assert.Equal(expectedFormat, result.FormatName);
+            }
+            finally
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
+
+    private static byte[] BuildRwRoot(uint type, uint payloadSize, int length)
+    {
+        var data = new byte[length];
+        if (length >= 4)
+            BitConverter.GetBytes(type).CopyTo(data, 0);
+        if (length >= 8)
+            BitConverter.GetBytes(payloadSize).CopyTo(data, 4);
+        return data;
     }
 }

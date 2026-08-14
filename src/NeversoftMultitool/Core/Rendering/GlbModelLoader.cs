@@ -27,7 +27,7 @@ internal static class GlbModelLoader
             if (node.Mesh == null) continue;
 
             // Compute world transform for this node
-            var worldMatrix = GetWorldTransform(node);
+            var worldMatrix = GetWorldTransform(node, animation, time);
 
             // Check if this node uses skinning
             var skin = node.Skin;
@@ -45,9 +45,7 @@ internal static class GlbModelLoader
                 for (var j = 0; j < jointCount; j++)
                 {
                     var (jointNode, ibm) = skin.GetJoint(j);
-                    jointWorldTransforms[j] = animation != null
-                        ? jointNode.GetWorldMatrix(animation, time)
-                        : GetWorldTransform(jointNode);
+                    jointWorldTransforms[j] = GetWorldTransform(jointNode, animation, time);
                     inverseBindMatrices[j] = ibm;
                     jointNormalTransforms[j] = CreateNormalMatrix(ibm * jointWorldTransforms[j]);
                 }
@@ -365,17 +363,30 @@ internal static class GlbModelLoader
         result += Vector3.Transform(position, skinMatrix) * weight;
     }
 
-    private static Matrix4x4 GetWorldTransform(Node node)
+    private static Matrix4x4 GetWorldTransform(
+        Node node, Animation? animation = null, float time = 0f)
     {
-        var transform = node.LocalMatrix;
+        var transform = GetLocalTransform(node, animation, time);
         var current = node.VisualParent;
         while (current != null)
         {
-            transform *= current.LocalMatrix;
+            transform *= GetLocalTransform(current, animation, time);
             current = current.VisualParent;
         }
 
         return transform;
+    }
+
+    private static Matrix4x4 GetLocalTransform(
+        Node node, Animation? animation, float time)
+    {
+        if (animation == null)
+            return node.LocalMatrix;
+
+        var curves = node.GetCurveSamplers(animation);
+        return curves.HasTransformCurves
+            ? curves.GetLocalTransform(time).Matrix
+            : node.LocalMatrix;
     }
 
     private static Matrix4x4 EvaluateWorldMatrix(

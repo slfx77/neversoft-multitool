@@ -135,7 +135,18 @@ public static class RiffWaveReader
             var length = (int)Math.Min(HeaderProbeBytes, stream.Length);
             var buffer = new byte[length];
             stream.ReadExactly(buffer, 0, length);
-            return TryRead(buffer, out info);
+            if (!TryRead(buffer, out info))
+                return false;
+
+            // TryRead clamps the data chunk to its input span. For a bounded
+            // header probe, replace that prefix length with the same clamp
+            // against the actual file while preserving the existing int API.
+            var declaredLength = BinaryPrimitives.ReadUInt32LittleEndian(
+                buffer.AsSpan(info.DataOffset - sizeof(uint), sizeof(uint)));
+            var availableLength = Math.Max(0L, stream.Length - info.DataOffset);
+            var dataLength = Math.Min((long)declaredLength, availableLength);
+            info = info with { DataLength = (int)Math.Min(dataLength, int.MaxValue) };
+            return true;
         }
         catch (IOException)
         {

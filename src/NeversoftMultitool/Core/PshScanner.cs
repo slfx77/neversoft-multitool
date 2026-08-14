@@ -31,7 +31,7 @@ internal static class PshScanner
             });
 
         // Collect all candidate names across all .psh files
-        var candidates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var candidates = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var pshFile in pshFiles)
         {
             var entries = ParsePshFile(pshFile);
@@ -39,9 +39,15 @@ internal static class PshScanner
                 AddPshCandidates(candidates, entry);
         }
 
+        // Parent-case replacement and the original define can occasionally converge on
+        // the same exact spelling. Hash each case-sensitive candidate only once.
+        var candidateNames = candidates.Values
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
         // Match candidates against mesh hash pool
         var matches = new List<QbKeyMapping>();
-        foreach (var (_, name) in candidates)
+        foreach (var name in candidateNames)
         {
             var hash = QbKey.QbKey.Hash(name);
             if (meshHashes.Contains(hash))
@@ -62,7 +68,7 @@ internal static class PshScanner
         {
             Matches = matches,
             TotalPshFiles = pshFiles.Length,
-            TotalCandidateNames = candidates.Count,
+            TotalCandidateNames = candidateNames.Length,
             TotalMeshHashes = meshHashes.Count,
             NewDiscoveries = newDiscoveries
         };

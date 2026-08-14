@@ -170,13 +170,30 @@ public sealed class FormatProbeMediaTests
     }
 
     [Fact]
-    public void ProbeVideo_StrValidSize_Supported()
+    public void ProbeVideo_StrSectorAlignedDataWithoutVideoMarker_Unsupported()
     {
         var tempFile = FormatProbeTestHelper.CreateTempFile(".str", new byte[2336]);
         try
         {
             var result = FormatProbe.ProbeVideo(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            Assert.Contains("video frame", result.UnsupportedReason!);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeVideo_StrCompleteSingleSectorVideo_Supported()
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".str", BuildStrSector());
+        try
+        {
+            var result = FormatProbe.ProbeVideo(tempFile);
             Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Equal("STR Video", result.FormatName);
         }
         finally
         {
@@ -187,7 +204,7 @@ public sealed class FormatProbeMediaTests
     [Fact]
     public void ProbeVideo_StrMixedCaseExtension_Supported()
     {
-        var tempFile = FormatProbeTestHelper.CreateTempFile(".StR", new byte[2336]);
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".StR", BuildStrSector());
         try
         {
             var result = FormatProbe.ProbeVideo(tempFile);
@@ -209,6 +226,61 @@ public sealed class FormatProbeMediaTests
             var result = FormatProbe.ProbeVideo(tempFile);
             Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
             Assert.Equal("VID1 Video", result.FormatName);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeVideo_StrIncompleteFirstFrame_Unsupported()
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".str", BuildStrSector(chunkCount: 2));
+        try
+        {
+            var result = FormatProbe.ProbeVideo(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            Assert.Contains("video frame", result.UnsupportedReason!);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeVideo_RiffCdxaHeaderWithoutSector_Unsupported()
+    {
+        var data = new byte[44];
+        "RIFF"u8.CopyTo(data);
+        "CDXA"u8.CopyTo(data.AsSpan(8));
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".str", data);
+        try
+        {
+            var result = FormatProbe.ProbeVideo(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            Assert.Contains("video frame", result.UnsupportedReason!);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeVideo_RiffCdxaCompleteVideo_PreservesFormatName()
+    {
+        var data = new byte[44 + 2352];
+        "RIFF"u8.CopyTo(data);
+        "CDXA"u8.CopyTo(data.AsSpan(8));
+        BuildStrSector().CopyTo(data, 44 + 16);
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".str", data);
+        try
+        {
+            var result = FormatProbe.ProbeVideo(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Equal("STR Video (RIFF/CDXA)", result.FormatName);
         }
         finally
         {
@@ -267,5 +339,22 @@ public sealed class FormatProbeMediaTests
         writer.Write((byte)0x01);
         writer.Write((byte)0x24);
         return stream.ToArray();
+    }
+
+    private static byte[] BuildStrSector(ushort chunkCount = 1)
+    {
+        const int sectorSize = 2336;
+        const int videoHeaderOffset = 8;
+        var data = new byte[sectorSize];
+        data[2] = 0x48;
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(videoHeaderOffset), 0x0160);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(videoHeaderOffset + 2), 0x8001);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(videoHeaderOffset + 4), 0);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(videoHeaderOffset + 6), chunkCount);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(videoHeaderOffset + 8), 7);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(videoHeaderOffset + 12), 2016);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(videoHeaderOffset + 16), 16);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(videoHeaderOffset + 18), 16);
+        return data;
     }
 }

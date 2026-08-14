@@ -12,6 +12,7 @@ internal static class GlbGifRenderer
         float azimuthDeg = -90f, float elevationDeg = 10f,
         int? animationIndex = null)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(fps);
         var model = ModelRoot.Load(glbPath);
 
         Animation? anim;

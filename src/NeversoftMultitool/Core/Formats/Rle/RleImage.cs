@@ -11,6 +11,7 @@ namespace NeversoftMultitool.Core.Formats.Rle;
 public static class RleImage
 {
     private const string RleMagic = "_RLE_16_";
+    private const int RleHeaderLength = 8;
 
     private static readonly int[] CandidateWidths = [512, 640, 768, 320, 256, 384, 480, 1024];
     private static readonly HashSet<long> PreferredHeights = [240, 256, 480, 512];
@@ -159,6 +160,14 @@ public static class RleImage
             }
             else if (VerifyFileIsRle(reader))
             {
+                var declaredSize = reader.ReadUInt32();
+                if (!TryGetRleDecompressedPayloadSize(declaredSize, out var decompressedPayloadSize))
+                {
+                    throw new InvalidDataException(
+                        $"RLE decompressed size {declaredSize} is smaller than the {RleHeaderLength}-byte header");
+                }
+
+                reader.BaseStream.Seek(RleHeaderLength, SeekOrigin.Begin);
                 if (IsBmpWrappedRle(reader))
                 {
                     var bmpResult = LoadRleAsBmp(reader);
@@ -166,7 +175,7 @@ public static class RleImage
                     return bmpResult;
                 }
 
-                canvas = LoadRle(reader, width.Value);
+                canvas = LoadRle(reader, width.Value, decompressedPayloadSize);
             }
             else
             {
@@ -237,14 +246,15 @@ public static class RleImage
     /// <summary>
     ///     Load and decompress an RLE-encoded bitmap file.
     /// </summary>
-    private static List<List<RgbColor>> LoadRle(BinaryReader reader, int maxWidth)
+    private static List<List<RgbColor>> LoadRle(
+        BinaryReader reader,
+        int maxWidth,
+        uint decompressedPayloadSize)
     {
-        const int headerLength = 8;
         var fileSize = reader.BaseStream.Length;
-        reader.BaseStream.Seek(headerLength, SeekOrigin.Begin);
+        reader.BaseStream.Seek(RleHeaderLength + sizeof(uint), SeekOrigin.Begin);
 
-        var decompressedFileSize = reader.ReadUInt32() - headerLength;
-        var totalRows = (int)(decompressedFileSize / 2 / (uint)maxWidth);
+        var totalRows = (int)(decompressedPayloadSize / 2 / (uint)maxWidth);
 
         var canvas = new List<List<RgbColor>>();
         var row = new List<RgbColor>();
@@ -319,7 +329,21 @@ public static class RleImage
         stream.Position = 0;
         reader.ReadBytes(8); // skip magic
         var decompressedFileSize = reader.ReadUInt32();
-        return (decompressedFileSize - 8) / 2;
+        return TryGetRleDecompressedPayloadSize(decompressedFileSize, out var payloadSize)
+            ? payloadSize / 2
+            : 0;
+    }
+
+    private static bool TryGetRleDecompressedPayloadSize(uint declaredSize, out uint payloadSize)
+    {
+        if (declaredSize < RleHeaderLength)
+        {
+            payloadSize = 0;
+            return false;
+        }
+
+        payloadSize = declaredSize - RleHeaderLength;
+        return true;
     }
 
     /// <summary>

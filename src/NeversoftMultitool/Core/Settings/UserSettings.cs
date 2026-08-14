@@ -69,14 +69,14 @@ public static class UserSettings
                 var raw = key?.GetValue(PlayerVolumeValueName) as string;
                 return raw != null
                        && double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
-                    ? Math.Clamp(value, 0.0, 1.0)
+                    ? NormalizePlayerVolume(value)
                     : 1.0;
             }
         }
         set
         {
             if (!OperatingSystem.IsWindows()) return;
-            var clamped = Math.Clamp(value, 0.0, 1.0);
+            var clamped = NormalizePlayerVolume(value);
             lock (Sync)
             {
                 // Skip no-op writes: Changed listeners re-probe Blender and
@@ -90,6 +90,11 @@ public static class UserSettings
 
             Changed?.Invoke();
         }
+    }
+
+    internal static double NormalizePlayerVolume(double value)
+    {
+        return double.IsNaN(value) ? 1.0 : Math.Clamp(value, 0.0, 1.0);
     }
 
     /// <summary>Raised after any setting is written (on the writing thread).</summary>

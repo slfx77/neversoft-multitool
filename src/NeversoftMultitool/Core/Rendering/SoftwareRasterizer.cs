@@ -146,11 +146,11 @@ internal static class SoftwareRasterizer
 
                 // Base color: texture * vertex color * base color factor * shade
                 float fr, fg, fb;
+                var bcR = submesh?.BaseColorR ?? 1f;
+                var bcG = submesh?.BaseColorG ?? 1f;
+                var bcB = submesh?.BaseColorB ?? 1f;
                 if (hasTexture)
                 {
-                    var bcR = submesh!.BaseColorR;
-                    var bcG = submesh.BaseColorG;
-                    var bcB = submesh.BaseColorB;
                     var linearTexR = SrgbByteToLinear(texR);
                     var linearTexG = SrgbByteToLinear(texG);
                     var linearTexB = SrgbByteToLinear(texB);
@@ -176,15 +176,15 @@ internal static class SoftwareRasterizer
                     var cr = tri.R0 * w0 + tri.R1 * w1 + tri.R2 * w2;
                     var cg = tri.G0 * w0 + tri.G1 * w1 + tri.G2 * w2;
                     var cb = tri.B0 * w0 + tri.B1 * w1 + tri.B2 * w2;
-                    fr = cr * 255f * shade;
-                    fg = cg * 255f * shade;
-                    fb = cb * 255f * shade;
+                    fr = cr * bcR * 255f * shade;
+                    fg = cg * bcG * 255f * shade;
+                    fb = cb * bcB * 255f * shade;
                 }
                 else
                 {
-                    fr = 200f * shade;
-                    fg = 200f * shade;
-                    fb = 200f * shade;
+                    fr = 200f * bcR * shade;
+                    fg = 200f * bcG * shade;
+                    fb = 200f * bcB * shade;
                 }
 
                 var pIdx = idx * 4;

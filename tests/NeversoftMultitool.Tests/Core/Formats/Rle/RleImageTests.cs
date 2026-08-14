@@ -97,6 +97,52 @@ public class RleImageTests(TestPaths paths)
         }
     }
 
+    [Fact]
+    public void DeclaredSizeSmallerThanHeader_DetectionFallsBackAndConversionFails()
+    {
+        byte[] data =
+        [
+            0x5F, 0x52, 0x4C, 0x45, 0x5F, 0x31, 0x36, 0x5F,
+            0x07, 0x00, 0x00, 0x00,
+            0x00, 0x82, 0x1F, 0x00
+        ];
+
+        Assert.Equal(DefaultWidth, RleImage.DetectWidth(data, "bad.rle"));
+
+        var automatic = RleImage.Convert(data, "bad.rle");
+        var explicitWidth = RleImage.Convert(data, "bad.rle", DefaultWidth);
+
+        Assert.False(automatic.Success);
+        Assert.False(explicitWidth.Success);
+        Assert.Equal("RLE decompressed size 7 is smaller than the 8-byte header", automatic.ErrorMessage);
+        Assert.Equal(automatic.ErrorMessage, explicitWidth.ErrorMessage);
+        Assert.Equal(DefaultWidth, automatic.Width);
+        Assert.Equal(DefaultWidth, explicitWidth.Width);
+        Assert.True(automatic.WidthAutoDetected);
+        Assert.False(explicitWidth.WidthAutoDetected);
+    }
+
+    [Fact]
+    public void DeclaredSizeAtValidOneRowBoundary_ConvertsOneRow()
+    {
+        byte[] data =
+        [
+            0x5F, 0x52, 0x4C, 0x45, 0x5F, 0x31, 0x36, 0x5F,
+            0x08, 0x04, 0x00, 0x00,
+            0x00, 0x82, 0x1F, 0x00
+        ];
+
+        Assert.Equal(DefaultWidth, RleImage.DetectWidth(data, "valid.rle"));
+
+        var result = RleImage.Convert(data, "valid.rle");
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.True(result.WidthAutoDetected);
+        Assert.Equal(DefaultWidth, result.Width);
+        Assert.Equal(1, result.Height);
+        Assert.Equal(DefaultWidth * 3, result.RgbPixels.Length);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core;
 
 namespace NeversoftMultitool.Tests.Core;
@@ -199,5 +200,68 @@ public sealed class RecursiveUnpackerTests
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, true);
         }
+    }
+
+    [Fact]
+    public void ExtractArchive_InvalidGuardedZip_Throws()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(),
+            "NsMultitool_Test_Unpack_" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var archivePath = Path.Combine(tempDir, "changed.zip");
+            File.WriteAllBytes(archivePath, CreateRecognizedZipHeader());
+            Assert.Equal("ZIP", RecursiveUnpacker.ClassifyArchive(archivePath));
+            File.WriteAllBytes(archivePath, new byte[30]);
+
+            var exception = Assert.Throws<InvalidDataException>(() =>
+                RecursiveUnpacker.ExtractArchive(archivePath));
+
+            Assert.Equal($"Unsupported or invalid archive: {archivePath}", exception.Message);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ExtractAll_ZipInvalidatedAfterDiscovery_RecordsErrorInsteadOfSuccess()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(),
+            "NsMultitool_Test_Unpack_" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var archivePath = Path.Combine(tempDir, "changed.zip");
+            File.WriteAllBytes(archivePath, CreateRecognizedZipHeader());
+
+            var results = RecursiveUnpacker.ExtractAll(
+                tempDir,
+                onPassDiscovered: (_, archives) =>
+                {
+                    var discovered = Assert.Single(archives);
+                    Assert.Equal(archivePath, discovered.FilePath);
+                    File.WriteAllBytes(archivePath, new byte[30]);
+                });
+
+            var result = Assert.Single(results);
+            Assert.False(result.Extracted);
+            Assert.Equal($"Unsupported or invalid archive: {archivePath}", result.Error);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    private static byte[] CreateRecognizedZipHeader()
+    {
+        var data = new byte[30];
+        BinaryPrimitives.WriteUInt32LittleEndian(data, 0x04034B50);
+        return data;
     }
 }

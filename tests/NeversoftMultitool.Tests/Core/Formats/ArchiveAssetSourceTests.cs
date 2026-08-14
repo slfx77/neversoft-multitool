@@ -64,6 +64,89 @@ public sealed class ArchiveAssetSourceTests
         }
     }
 
+    [Fact]
+    public void CompanionLookup_NoLocalMatchWithMultipleGlobalCandidates_FailsClosed()
+    {
+        var (wadPath, tempDir) = BuildWadOnDisk(
+            ("models/female/shared.tex.ps2", new byte[] { 0xF0 }),
+            ("models/neutral/shared.skin.ps2", new byte[] { 0x10 }),
+            ("models/male/shared.tex.ps2", new byte[] { 0xA0 }));
+        ArchiveAssetBackend? backend = null;
+
+        try
+        {
+            backend = ArchiveAssetBackend.TryOpen(wadPath);
+            Assert.NotNull(backend);
+
+            var mesh = backend!.FindByPath("models/neutral/shared.skin.ps2");
+            Assert.NotNull(mesh);
+            var source = new ArchiveAssetSource(backend, mesh!);
+
+            Assert.Null(source.TryReadCompanion("shared.tex.ps2"));
+            Assert.False(source.CompanionExists("shared.tex.ps2"));
+        }
+        finally
+        {
+            backend?.FileSystem.Dispose();
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CompanionLookup_NoLocalMatchWithUniqueGlobalCandidate_PreservesFlatFallback()
+    {
+        var (wadPath, tempDir) = BuildWadOnDisk(
+            ("models/female/shared.tex.ps2", new byte[] { 0xF0 }),
+            ("models/neutral/shared.skin.ps2", new byte[] { 0x10 }));
+        ArchiveAssetBackend? backend = null;
+
+        try
+        {
+            backend = ArchiveAssetBackend.TryOpen(wadPath);
+            Assert.NotNull(backend);
+
+            var mesh = backend!.FindByPath("models/neutral/shared.skin.ps2");
+            Assert.NotNull(mesh);
+            var source = new ArchiveAssetSource(backend, mesh!);
+
+            Assert.Equal(new byte[] { 0xF0 }, source.TryReadCompanion("shared.tex.ps2"));
+            Assert.True(source.CompanionExists("shared.tex.ps2"));
+        }
+        finally
+        {
+            backend?.FileSystem.Dispose();
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CompanionLookup_DuplicateSameDirectoryCandidates_FailsClosed()
+    {
+        var (wadPath, tempDir) = BuildWadOnDisk(
+            ("models/male/shared.tex.ps2", new byte[] { 0xF0 }),
+            ("models/male/shared.skin.ps2", new byte[] { 0x10 }),
+            ("models/male/shared.tex.ps2", new byte[] { 0xA0 }));
+        ArchiveAssetBackend? backend = null;
+
+        try
+        {
+            backend = ArchiveAssetBackend.TryOpen(wadPath);
+            Assert.NotNull(backend);
+
+            var mesh = backend!.FindByPath("models/male/shared.skin.ps2");
+            Assert.NotNull(mesh);
+            var source = new ArchiveAssetSource(backend, mesh!);
+
+            Assert.Null(source.TryReadCompanion("shared.tex.ps2"));
+            Assert.False(source.CompanionExists("shared.tex.ps2"));
+        }
+        finally
+        {
+            backend?.FileSystem.Dispose();
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     private static (string WadPath, string TempDir) BuildWadOnDisk(
         params (string Name, byte[] Data)[] files)
     {

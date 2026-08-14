@@ -157,6 +157,30 @@ public class RiffWaveReaderTests
     }
 
     [Fact]
+    public void TryReadHeader_DataBeyondProbePrefix_MatchesFullBufferLength()
+    {
+        var wave = BuildWave([("fmt ", Fmt(1, 1, 44100, 2, 16)), ("data", new byte[9_000])]);
+        var path = Path.Combine(
+            Path.GetTempPath(), $"nmt_riff_probe_{Guid.NewGuid():N}.wav");
+
+        try
+        {
+            File.WriteAllBytes(path, wave);
+
+            Assert.True(RiffWaveReader.TryRead(wave, out var fullInfo));
+            Assert.True(RiffWaveReader.TryReadHeader(path, out var headerInfo));
+
+            Assert.Equal(44, headerInfo.DataOffset);
+            Assert.Equal(9_000, headerInfo.DataLength);
+            Assert.Equal(fullInfo.DataLength, headerInfo.DataLength);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void TryRead_ChunkSizeOverflow_ReturnsFalse()
     {
         var wave = BuildWave([("fmt ", Fmt(1, 1, 44100, 2, 16)), ("data", new byte[8])]);

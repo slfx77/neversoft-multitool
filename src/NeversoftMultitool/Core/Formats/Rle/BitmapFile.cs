@@ -4,20 +4,22 @@ using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Formats.Bmp;
 using SixLabors.ImageSharp.Formats.Tga;
 using SixLabors.ImageSharp.PixelFormats;
+using NeversoftMultitool.Core.Formats.Texture.N64;
 
 namespace NeversoftMultitool.Core.Formats.Rle;
 
 /// <summary>
 ///     Unified entry point for the bitmap converter. Neversoft formats
-///     (.rle/.bmr/.zlb) route through <see cref="RleImage" />; standard
-///     bitmaps (.bmp/.tga, as shipped on THPS/Spider-Man discs) decode via
-///     ImageSharp with alpha preserved.
+///     (.rle/.bmr/.zlb) route through <see cref="RleImage" />; N64 fullscreen
+///     image records route through <see cref="N64TexFile" />; standard bitmaps
+///     (.bmp/.tga, as shipped on THPS/Spider-Man discs) decode via ImageSharp
+///     with alpha preserved.
 /// </summary>
 public static class BitmapFile
 {
     public static bool IsSupportedExtension(string path)
     {
-        return IsNeversoftExtension(path) || IsStandardExtension(path);
+        return IsNeversoftExtension(path) || IsStandardExtension(path) || IsN64ImageExtension(path);
     }
 
     public static bool IsNeversoftExtension(string path)
@@ -33,24 +35,31 @@ public static class BitmapFile
                || path.EndsWith(".tga", StringComparison.OrdinalIgnoreCase);
     }
 
+    public static bool IsN64ImageExtension(string path)
+    {
+        return path.EndsWith(".img.n64", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     ///     Standard bitmaps carry their dimensions in the header, so width
     ///     auto-detection/override only applies to the Neversoft formats.
     /// </summary>
     public static bool HasSelfDescribedDimensions(string path)
     {
-        return IsStandardExtension(path);
+        return IsStandardExtension(path) || IsN64ImageExtension(path);
     }
 
     public static int DetectWidth(string filePath)
     {
-        return IsStandardExtension(filePath)
-            ? DetectStandardWidth(File.ReadAllBytes(filePath), filePath)
+        return IsN64ImageExtension(filePath) || IsStandardExtension(filePath)
+            ? DetectWidth(File.ReadAllBytes(filePath), filePath)
             : RleImage.DetectWidth(filePath);
     }
 
     public static int DetectWidth(byte[] data, string extensionOrName)
     {
+        if (IsN64ImageExtension(extensionOrName))
+            return TryDecodeN64Image(data)?.Width ?? 0;
         return IsStandardExtension(extensionOrName)
             ? DetectStandardWidth(data, extensionOrName)
             : RleImage.DetectWidth(data, extensionOrName);
@@ -62,6 +71,8 @@ public static class BitmapFile
     /// </summary>
     public static RleConversionResult Convert(byte[] data, string extensionOrName, int? width = null)
     {
+        if (IsN64ImageExtension(extensionOrName))
+            return ConvertN64Image(data);
         return IsStandardExtension(extensionOrName)
             ? ConvertStandard(data, extensionOrName)
             : RleImage.Convert(data, extensionOrName, width);
@@ -101,6 +112,33 @@ public static class BitmapFile
             {
                 ErrorMessage = $"Failed to decode {Path.GetExtension(name)}: {ex.Message}"
             };
+        }
+    }
+
+    private static RleConversionResult ConvertN64Image(byte[] data)
+    {
+        var texture = TryDecodeN64Image(data);
+        return texture == null
+            ? new RleConversionResult { ErrorMessage = "Failed to decode N64 image record" }
+            : new RleConversionResult
+            {
+                Width = texture.Width,
+                Height = texture.Height,
+                RgbaPixels = texture.Rgba
+            };
+    }
+
+    private static N64TexFile.N64Texture? TryDecodeN64Image(byte[] data)
+    {
+        try
+        {
+            return N64TexFile.IsImageRecord(data)
+                ? N64TexFile.DecodeImageRecord(data)
+                : null;
+        }
+        catch (InvalidDataException)
+        {
+            return null;
         }
     }
 

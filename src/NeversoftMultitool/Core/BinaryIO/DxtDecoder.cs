@@ -10,9 +10,8 @@ public static class DxtDecoder
     /// <summary>Decode DXT1 compressed data to RGBA32 (4 bytes/pixel).</summary>
     public static byte[] DecodeDxt1(ReadOnlySpan<byte> data, int width, int height)
     {
-        var output = new byte[width * height * 4];
-        var blocksX = (width + 3) / 4;
-        var blocksY = (height + 3) / 4;
+        var (output, blocksX, blocksY) = PrepareDecode(
+            data.Length, width, height, 8, "DXT1");
         var offset = 0;
 
         for (var by = 0; by < blocksY; by++)
@@ -34,9 +33,8 @@ public static class DxtDecoder
     /// <summary>Decode DXT3 (explicit alpha) compressed data to RGBA32 (4 bytes/pixel).</summary>
     public static byte[] DecodeDxt3(ReadOnlySpan<byte> data, int width, int height)
     {
-        var output = new byte[width * height * 4];
-        var blocksX = (width + 3) / 4;
-        var blocksY = (height + 3) / 4;
+        var (output, blocksX, blocksY) = PrepareDecode(
+            data.Length, width, height, 16, "DXT3");
         var offset = 0;
 
         for (var by = 0; by < blocksY; by++)
@@ -61,9 +59,8 @@ public static class DxtDecoder
     /// <summary>Decode DXT5 compressed data to RGBA32 (4 bytes/pixel).</summary>
     public static byte[] DecodeDxt5(ReadOnlySpan<byte> data, int width, int height)
     {
-        var output = new byte[width * height * 4];
-        var blocksX = (width + 3) / 4;
-        var blocksY = (height + 3) / 4;
+        var (output, blocksX, blocksY) = PrepareDecode(
+            data.Length, width, height, 16, "DXT5");
         var offset = 0;
 
         for (var by = 0; by < blocksY; by++)
@@ -83,6 +80,32 @@ public static class DxtDecoder
         }
 
         return output;
+    }
+
+    private static (byte[] Output, int BlocksX, int BlocksY) PrepareDecode(
+        int dataLength,
+        int width,
+        int height,
+        int bytesPerBlock,
+        string format)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+
+        var pixelCount = (long)width * height;
+        if (pixelCount > Array.MaxLength / 4L)
+        {
+            throw new InvalidDataException(
+                $"{format} dimensions {width}x{height} exceed the runtime array limit.");
+        }
+
+        var blocksX = ((long)width + 3) / 4;
+        var blocksY = ((long)height + 3) / 4;
+        var requiredDataLength = blocksX * blocksY * bytesPerBlock;
+        if (requiredDataLength > dataLength)
+            throw new InvalidDataException($"Truncated {format} block data.");
+
+        return (new byte[(int)(pixelCount * 4)], (int)blocksX, (int)blocksY);
     }
 
     private static void DecodeDxt1Block(ReadOnlySpan<byte> block, byte[] output,

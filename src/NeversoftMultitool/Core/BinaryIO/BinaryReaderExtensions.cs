@@ -33,6 +33,12 @@ public static class BinaryReaderExtensions
     public static string ReadFixedString(this BinaryReader reader, int length)
     {
         var bytes = reader.ReadBytes(length);
+        if (bytes.Length != length)
+        {
+            throw new EndOfStreamException(
+                $"Expected {length} bytes for fixed-length string, but read {bytes.Length}.");
+        }
+
         var nullIndex = Array.IndexOf(bytes, (byte)0);
         var actualLength = nullIndex >= 0 ? nullIndex : length;
 

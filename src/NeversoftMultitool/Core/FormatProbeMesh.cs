@@ -15,6 +15,14 @@ internal static class FormatProbeMesh
 
         if (route.IsSupported)
         {
+            if (!File.Exists(filePath))
+            {
+                return new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    route.DisplayFormat ?? "Mesh",
+                    "File not found");
+            }
+
             return new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Supported,
                 route.DisplayFormat ?? "Mesh");

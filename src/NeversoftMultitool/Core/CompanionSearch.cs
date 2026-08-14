@@ -135,7 +135,16 @@ public static class CompanionSearch
 
     private static bool IsSameOrDescendant(string ancestor, string path)
     {
-        if (!path.StartsWith(ancestor, StringComparison.OrdinalIgnoreCase))
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        return IsSameOrDescendant(ancestor, path, comparison);
+    }
+
+    internal static bool IsSameOrDescendant(string ancestor, string path, StringComparison comparison)
+    {
+        if (!path.StartsWith(ancestor, comparison))
             return false;
 
         if (path.Length == ancestor.Length || Path.EndsInDirectorySeparator(ancestor))

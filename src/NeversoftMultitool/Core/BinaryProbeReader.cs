@@ -16,8 +16,7 @@ internal static class BinaryProbeReader
         try
         {
             using var stream = File.OpenRead(filePath);
-            bytesRead = stream.Read(header, 0, header.Length);
-            return true;
+            return TryReadHeader(stream, header, out bytesRead);
         }
         catch
         {
@@ -25,6 +24,44 @@ internal static class BinaryProbeReader
             bytesRead = 0;
             return false;
         }
+    }
+
+    internal static bool TryReadHeader(Stream stream, int headerLength, out byte[] header, out int bytesRead)
+    {
+        if (headerLength < 0)
+        {
+            header = [];
+            bytesRead = 0;
+            return false;
+        }
+
+        header = new byte[headerLength];
+
+        try
+        {
+            return TryReadHeader(stream, header, out bytesRead);
+        }
+        catch
+        {
+            header = [];
+            bytesRead = 0;
+            return false;
+        }
+    }
+
+    private static bool TryReadHeader(Stream stream, byte[] header, out int bytesRead)
+    {
+        bytesRead = 0;
+        while (bytesRead < header.Length)
+        {
+            var read = stream.Read(header, bytesRead, header.Length - bytesRead);
+            if (read == 0)
+                break;
+
+            bytesRead += read;
+        }
+
+        return true;
     }
 
     public static bool TryReadAllBytes(string filePath, out byte[] data)

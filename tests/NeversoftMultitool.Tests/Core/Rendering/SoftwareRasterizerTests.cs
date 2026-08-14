@@ -69,6 +69,57 @@ public sealed class SoftwareRasterizerTests
         AssertZeroAlphaFragmentIsDiscarded(baseColorAlpha: 1f, vertexAlpha: 0f, hasVertexColors: true);
     }
 
+    [Theory]
+    [InlineData(true, 255, 63, 0)]
+    [InlineData(false, 200, 50, 0)]
+    public void RasterizeTriangle_UntexturedMaterial_AppliesBaseColorFactor(
+        bool hasVertexColors,
+        byte expectedRed,
+        byte expectedGreen,
+        byte expectedBlue)
+    {
+        var pixels = new byte[4];
+        var depth = new[] { float.NegativeInfinity };
+        var triangle = new RenderTriangle
+        {
+            Sx0 = 0f,
+            Sy0 = 0f,
+            Z0 = 1f,
+            Sx1 = 0f,
+            Sy1 = 2f,
+            Z1 = 1f,
+            Sx2 = 2f,
+            Sy2 = 0f,
+            Z2 = 1f,
+            R0 = 1f,
+            G0 = 1f,
+            B0 = 1f,
+            A0 = 1f,
+            R1 = 1f,
+            G1 = 1f,
+            B1 = 1f,
+            A1 = 1f,
+            R2 = 1f,
+            G2 = 1f,
+            B2 = 1f,
+            A2 = 1f,
+            HasVertexColors = hasVertexColors,
+            FlatShade = 1f
+        };
+        var submesh = new RenderSubmesh
+        {
+            Positions = [],
+            Triangles = [],
+            BaseColorR = 1f,
+            BaseColorG = 0.25f,
+            BaseColorB = 0f
+        };
+
+        SoftwareRasterizer.RasterizeTriangle(pixels, depth, 1, 1, triangle, [submesh]);
+
+        Assert.Equal([expectedRed, expectedGreen, expectedBlue, (byte)255], pixels);
+    }
+
     private static void AssertZeroAlphaFragmentIsDiscarded(
         float baseColorAlpha,
         float vertexAlpha,

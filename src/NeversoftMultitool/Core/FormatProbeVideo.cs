@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.Formats.Vid1;
+using NeversoftMultitool.Core.Formats.Video;
 
 namespace NeversoftMultitool.Core;
 
@@ -48,19 +49,32 @@ internal static class FormatProbeVideo
                     FormatProbe.FormatSupport.Unsupported, "Unknown", "File too small");
             }
 
-            // RIFF/CDXA container: "RIFF....CDXA" header + 2352-byte raw sectors
-            if (header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F'
-                && header[8] == 'C' && header[9] == 'D' && header[10] == 'X' && header[11] == 'A'
-                && (info.Length - 44) % 2352 == 0)
-                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "STR Video (RIFF/CDXA)");
+            // RIFF/CDXA container: "RIFF....CDXA" header + 2352-byte raw sectors.
+            // Layout identifies the variant label, but it does not prove that the
+            // sectors contain video (an aligned all-zero file used to pass here).
+            var isRiffCdxa = header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F'
+                             && header[8] == 'C' && header[9] == 'D' && header[10] == 'X' && header[11] == 'A'
+                             && (info.Length - 44) % 2352 == 0;
+            var hasStandardLayout = info.Length % 2336 == 0;
+            if (!isRiffCdxa && !hasStandardLayout)
+            {
+                return new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported, "Unknown",
+                    "Not a valid STR video (unrecognized sector layout)");
+            }
 
-            // Standard 2336-byte sectors
-            if (info.Length % 2336 == 0)
-                return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "STR Video");
+            // Match the advertised conversion path: a supported STR must contain
+            // at least one complete frame, not merely occupy whole sector slots.
+            if (StrConverter.Probe(filePath) == null)
+            {
+                return new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported, "Unknown",
+                    "Not a valid STR video (no complete video frame)");
+            }
 
             return new FormatProbe.FormatProbeResult(
-                FormatProbe.FormatSupport.Unsupported, "Unknown",
-                "Not a valid STR video (unrecognized sector layout)");
+                FormatProbe.FormatSupport.Supported,
+                isRiffCdxa ? "STR Video (RIFF/CDXA)" : "STR Video");
         }
         catch
         {

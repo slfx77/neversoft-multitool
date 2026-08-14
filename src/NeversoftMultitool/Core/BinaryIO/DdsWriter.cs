@@ -35,6 +35,27 @@ public static class DdsWriter
     /// </summary>
     public static void WriteDds(string outputPath, int width, int height, ColorFormat format, ushort[] pixelData)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+        ArgumentNullException.ThrowIfNull(pixelData);
+
+        var expectedPixelCount = (long)width * height;
+        if (expectedPixelCount > Array.MaxLength / (long)sizeof(ushort))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(width),
+                $"16-bit DDS dimensions {width}x{height} exceed the runtime byte-array limit.");
+        }
+
+        if (pixelData.Length != expectedPixelCount)
+        {
+            throw new ArgumentException(
+                $"DDS dimensions {width}x{height} require exactly {expectedPixelCount} pixels; " +
+                $"found {pixelData.Length}.",
+                nameof(pixelData));
+        }
+
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);

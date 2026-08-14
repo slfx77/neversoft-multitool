@@ -16,15 +16,27 @@ internal static class FormatProbeAudio
             ".adx" => ProbeAdxFile(filePath),
             ".pcm" => ProbePcmFile(filePath),
             ".snd" => ProbeSndFile(filePath),
-            ".xa" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "XA Audio"),
-            ".vab" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "VAB Sound Bank"),
-            ".vag" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "VAG Audio"),
-            ".kat" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "KAT Sound Bank"),
+            ".xa" => ProbeExtensionOnlyFile(filePath, "XA Audio"),
+            ".vab" => ProbeExtensionOnlyFile(filePath, "VAB Sound Bank"),
+            ".vag" => ProbeExtensionOnlyFile(filePath, "VAG Audio"),
+            ".kat" => ProbeExtensionOnlyFile(filePath, "KAT Sound Bank"),
             ".sfx" => ProbeSfxFile(filePath),
             ".pss" => ProbePssFile(filePath),
             ".vid" => ProbeVidFile(filePath),
             _ => ProbeHeaderlessAudio(filePath)
         };
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeExtensionOnlyFile(
+        string filePath,
+        string formatName)
+    {
+        return File.Exists(filePath)
+            ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, formatName)
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                formatName,
+                "File not found");
     }
 
     private static FormatProbe.FormatProbeResult ProbeAdxFile(string filePath)

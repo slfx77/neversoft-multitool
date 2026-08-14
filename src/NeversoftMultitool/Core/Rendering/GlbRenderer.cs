@@ -73,24 +73,24 @@ public static class GlbRenderer
         int fixedWidth = 0, int fixedHeight = 0,
         float referenceWidth = 0f, float referenceHeight = 0f)
     {
+        var backgroundWidth = fixedWidth > 0 ? fixedWidth : longEdge;
+        var backgroundHeight = fixedHeight > 0 ? fixedHeight : longEdge;
         if (!scene.HasGeometry)
-            return CreateBackground(
-                fixedWidth > 0 ? fixedWidth : longEdge,
-                fixedHeight > 0 ? fixedHeight : longEdge);
+            return CreateBackground(backgroundWidth, backgroundHeight);
 
         SmoothNormals(scene);
 
         // Collect all triangles from the scene
         var triangles = CollectTriangles(scene);
         if (triangles.Count == 0)
-            return CreateBackground(longEdge, longEdge);
+            return CreateBackground(backgroundWidth, backgroundHeight);
 
         // Apply view rotation (azimuth/elevation camera)
         var (projMinX, projMinY, projWidth, projHeight) =
             ApplyViewRotation(triangles, azimuthDeg, elevationDeg);
 
         if (projWidth < 0.001f && projHeight < 0.001f)
-            return CreateBackground(longEdge, longEdge);
+            return CreateBackground(backgroundWidth, backgroundHeight);
 
         // Compute output dimensions from model aspect ratio (or use fixed size)
         int width, height;

@@ -117,6 +117,8 @@ public static class RecursiveUnpacker
             case ".z64" when N64RomArchive.IsN64Rom(archivePath):
                 N64RomArchive.ExtractFiles(archivePath, outputDir, null, ct);
                 break;
+            default:
+                throw new InvalidDataException($"Unsupported or invalid archive: {archivePath}");
         }
     }
 

@@ -6,10 +6,12 @@ namespace NeversoftMultitool.Core.Formats;
 ///     <see cref="AssetSource" /> backed by a single entry inside an archive.
 ///     Shares an <see cref="ArchiveAssetBackend" /> with every other entry from
 ///     the same archive, so the archive bytes are read once and entry lookups
-///     are a cheap dictionary hit. Companion resolution prefers a basename
-///     match in the selected entry's directory, then falls back to the legacy
-///     flat lookup. <see cref="AssetSource.FileSystemPath" /> is always null;
-///     callers that truly need a path must degrade to byte-based APIs.
+///     are a cheap dictionary hit. Companion resolution uses a unique basename
+///     match in the selected entry's directory, then falls back only when that
+///     basename is unique across the archive; ambiguous matches are left
+///     unresolved rather than chosen by archive order.
+///     <see cref="AssetSource.FileSystemPath" /> is always null; callers that
+///     truly need a path must degrade to byte-based APIs.
 /// </summary>
 public sealed class ArchiveAssetSource : AssetSource
 {
@@ -69,12 +71,29 @@ public sealed class ArchiveAssetSource : AssetSource
         // Archives such as THAW DATAP.WAD contain same-named male/female CAS
         // textures. The game resolves those relative to the model directory;
         // a flat first-wins lookup silently binds the other model's texture.
-        var sameDirectory = candidates.FirstOrDefault(candidate =>
-            string.Equals(
-                GetEntryDirectory(candidate),
-                GetEntryDirectory(Entry),
-                StringComparison.OrdinalIgnoreCase));
-        return sameDirectory ?? candidates[0];
+        var selectedDirectory = GetEntryDirectory(Entry);
+        ArchiveEntry? sameDirectory = null;
+        foreach (var candidate in candidates)
+        {
+            if (!string.Equals(
+                    GetEntryDirectory(candidate),
+                    selectedDirectory,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (sameDirectory != null)
+                return null;
+            sameDirectory = candidate;
+        }
+
+        if (sameDirectory != null)
+            return sameDirectory;
+
+        // Preserve the legacy flat fallback only when archive-wide ownership
+        // is unambiguous. Multiple remote matches have no safe first choice.
+        return candidates.Count == 1 ? candidates[0] : null;
     }
 
     private static string GetEntryDirectory(ArchiveEntry entry)

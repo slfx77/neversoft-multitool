@@ -4,14 +4,16 @@ namespace NeversoftMultitool.Core;
 
 internal static class FormatProbeArchive
 {
+    private const int CompressedPreHeaderSize = 12;
+
     public static FormatProbe.FormatProbeResult Probe(string filePath)
     {
         var ext = RecursiveUnpacker.GetArchiveExtension(filePath);
         return ext switch
         {
-            ".wad" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "WAD Archive"),
+            ".wad" => ProbeWadArchive(filePath),
             ".pkr" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "PKR3 Archive"),
-            ".prx" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Compressed PRE"),
+            ".prx" => ProbeCompressedPreArchive(filePath),
             ".pre" => ProbePreArchive(filePath),
             ".prd" or ".prg" => ProbeLocalizedPre(filePath, "German"),
             ".prf" => ProbeLocalizedPre(filePath, "French"),
@@ -35,6 +37,44 @@ internal static class FormatProbeArchive
                 FormatProbe.FormatSupport.Unsupported,
                 "Unknown",
                 $"Unrecognized archive format: {ext}")
+        };
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeWadArchive(string filePath)
+    {
+        return File.Exists(WadArchive.GetHedPath(filePath))
+            ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "WAD Archive")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "WAD Archive",
+                "Companion HED file not found");
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeCompressedPreArchive(string filePath)
+    {
+        if (!BinaryProbeReader.TryReadHeader(
+                filePath,
+                CompressedPreHeaderSize,
+                out var header,
+                out var bytesRead))
+        {
+            return HeaderReadFailure();
+        }
+
+        if (bytesRead < CompressedPreHeaderSize)
+            return FileTooSmall();
+
+        var version = BinaryProbeReader.ReadUInt32(header, 4);
+        return version switch
+        {
+            0xABCD0002 or 0xABCD0003 => new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Supported,
+                "Compressed PRE"),
+            _ => new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "Compressed PRE",
+                $"Invalid compressed PRE header version 0x{version:X8} " +
+                "(expected 0xABCD0002 or 0xABCD0003)")
         };
     }
 

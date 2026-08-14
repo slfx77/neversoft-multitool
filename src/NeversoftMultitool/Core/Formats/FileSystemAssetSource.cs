@@ -26,13 +26,13 @@ public sealed class FileSystemAssetSource : AssetSource
 
     public override bool CompanionExists(string nameWithExtension)
     {
-        return File.Exists(Path.Combine(_directory, nameWithExtension));
+        return ResolveCompanionPath(nameWithExtension) != null;
     }
 
     public override byte[]? TryReadCompanion(string nameWithExtension)
     {
-        var path = Path.Combine(_directory, nameWithExtension);
-        return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        var path = ResolveCompanionPath(nameWithExtension);
+        return path != null ? File.ReadAllBytes(path) : null;
     }
 
     public override byte[]? TryReadCompanion(
@@ -46,8 +46,7 @@ public sealed class FileSystemAssetSource : AssetSource
 
     public override string? TryResolveCompanionPath(string nameWithExtension)
     {
-        var path = Path.Combine(_directory, nameWithExtension);
-        return File.Exists(path) ? path : null;
+        return ResolveCompanionPath(nameWithExtension);
     }
 
     public override string? TryResolveCompanionPath(
@@ -63,9 +62,15 @@ public sealed class FileSystemAssetSource : AssetSource
         IReadOnlyList<string> extensions,
         IReadOnlyList<string>? subdirs)
     {
+        var validExtensions = extensions
+            .Where(extension => IsCompanionBasename(stem + extension))
+            .ToArray();
+        if (validExtensions.Length == 0)
+            return null;
+
         if (subdirs == null || subdirs.Count == 0)
         {
-            foreach (var ext in extensions)
+            foreach (var ext in validExtensions)
             {
                 var path = Path.Combine(_directory, stem + ext);
                 if (File.Exists(path)) return path;
@@ -74,10 +79,32 @@ public sealed class FileSystemAssetSource : AssetSource
             return null;
         }
 
+        var validSubdirs = subdirs
+            .Where(IsCompanionBasename)
+            .ToArray();
+
         return CompanionSearch.FindCompanion(
             _directory,
             stem,
-            extensions is string[] arr ? arr : [.. extensions],
-            subdirs is string[] subArr ? subArr : [.. subdirs]);
+            validExtensions,
+            validSubdirs);
+    }
+
+    private string? ResolveCompanionPath(string nameWithExtension)
+    {
+        if (!IsCompanionBasename(nameWithExtension))
+            return null;
+
+        var path = Path.Combine(_directory, nameWithExtension);
+        return File.Exists(path) ? path : null;
+    }
+
+    private static bool IsCompanionBasename(string name)
+    {
+        return !string.IsNullOrEmpty(name)
+               && name is not "." and not ".."
+               && !Path.IsPathRooted(name)
+               && !name.Contains('/')
+               && !name.Contains('\\');
     }
 }

@@ -2,8 +2,8 @@ namespace NeversoftMultitool.Core.Formats.Rle;
 
 /// <summary>
 ///     Result of converting a single bitmap file. Neversoft RLE/BMR decodes
-///     fill <see cref="RgbPixels" />; standard BMP/TGA decodes fill
-///     <see cref="RgbaPixels" /> (alpha preserved).
+///     fill <see cref="RgbPixels" />; standard BMP/TGA and N64 fullscreen-image
+///     decodes fill <see cref="RgbaPixels" /> (alpha preserved).
 /// </summary>
 public sealed class RleConversionResult
 {

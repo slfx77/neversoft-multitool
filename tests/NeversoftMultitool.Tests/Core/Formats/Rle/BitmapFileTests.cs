@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Rle;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Rle;
@@ -87,5 +88,66 @@ public class BitmapFileTests(TestPaths paths)
         // (magic check), not the ImageSharp path.
         var result = BitmapFile.Convert([0x00, 0x01, 0x02, 0x03], "garbage.rle");
         Assert.False(result.Success);
+    }
+
+    [Fact]
+    public void Convert_N64FullscreenImage_DecodesSelfDescribedRgba()
+    {
+        var data = BuildN64ImageRecord();
+
+        Assert.True(BitmapFile.IsSupportedExtension("splash.IMG.N64"));
+        Assert.True(BitmapFile.HasSelfDescribedDimensions("splash.img.n64"));
+        Assert.Equal(1, BitmapFile.DetectWidth(data, "splash.img.n64"));
+
+        var result = BitmapFile.Convert(data, "splash.img.n64", 99);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal(1, result.Width);
+        Assert.Equal(1, result.Height);
+        Assert.Equal(new byte[] { 255, 0, 0, 255 }, result.RgbaPixels);
+    }
+
+    [Fact]
+    public void Convert_MalformedN64FullscreenImage_FailsWithoutRleFallback()
+    {
+        var result = BitmapFile.Convert([0, 1, 2, 3], "broken.img.n64", 1);
+
+        Assert.False(result.Success);
+        Assert.Equal("Failed to decode N64 image record", result.ErrorMessage);
+    }
+
+    [Fact]
+    public void Convert_N64FullscreenImageWithOverflowingStride_FailsClosed()
+    {
+        var data = BuildN64ImageRecord();
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(32), 2);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(40), int.MaxValue);
+
+        Assert.Equal(0, BitmapFile.DetectWidth(data, "broken.img.n64"));
+        var result = BitmapFile.Convert(data, "broken.img.n64");
+        Assert.False(result.Success);
+        Assert.Equal("Failed to decode N64 image record", result.ErrorMessage);
+    }
+
+    private static byte[] BuildN64ImageRecord()
+    {
+        var data = new byte[51];
+        BinaryPrimitives.WriteUInt32BigEndian(data, 3);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(4), 20);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(8), 48);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(12), 50);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(16), 51);
+
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(20), 0x00080410);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(24), 3);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(28), 1);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(32), 1);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(36), 1);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(40), 1);
+        BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(44), 0);
+
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(48), 0xF801);
+        data[50] = 0;
+        return data;
     }
 }

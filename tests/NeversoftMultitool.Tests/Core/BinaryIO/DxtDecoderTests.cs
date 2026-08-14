@@ -91,6 +91,60 @@ public sealed class DxtDecoderTests
         Assert.Equal("Truncated DXT5 block data.", error.Message);
     }
 
+    [Theory]
+    [InlineData(1, 0, 4, "width")]
+    [InlineData(1, -1, 4, "width")]
+    [InlineData(1, 4, 0, "height")]
+    [InlineData(1, 4, -1, "height")]
+    [InlineData(3, 0, 4, "width")]
+    [InlineData(3, -1, 4, "width")]
+    [InlineData(3, 4, 0, "height")]
+    [InlineData(3, 4, -1, "height")]
+    [InlineData(5, 0, 4, "width")]
+    [InlineData(5, -1, 4, "width")]
+    [InlineData(5, 4, 0, "height")]
+    [InlineData(5, 4, -1, "height")]
+    public void Decode_InvalidDimensions_ThrowArgumentOutOfRange(
+        int dxtVersion,
+        int width,
+        int height,
+        string parameterName)
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Decode(dxtVersion, [], width, height));
+
+        Assert.Equal(parameterName, error.ParamName);
+    }
+
+    [Theory]
+    [InlineData(1, "DXT1")]
+    [InlineData(3, "DXT3")]
+    [InlineData(5, "DXT5")]
+    public void Decode_OutputLargerThanRuntimeArrayLimit_ThrowsInvalidData(
+        int dxtVersion,
+        string format)
+    {
+        var error = Assert.Throws<InvalidDataException>(() =>
+            Decode(dxtVersion, [], int.MaxValue, 1));
+
+        Assert.Equal(
+            $"{format} dimensions {int.MaxValue}x1 exceed the runtime array limit.",
+            error.Message);
+    }
+
+    [Theory]
+    [InlineData(1, 8)]
+    [InlineData(3, 16)]
+    [InlineData(5, 16)]
+    public void Decode_OneByOneTextureWithOneBlock_ReturnsOneRgbaPixel(
+        int dxtVersion,
+        int blockSize)
+    {
+        var pixels = Decode(dxtVersion, new byte[blockSize], 1, 1);
+
+        Assert.Equal(4, pixels.Length);
+    }
+
     private static void WriteColorBlock(Span<byte> block, int selector)
     {
         // Blue sorts below red, exercising the endpoint order that triggers
@@ -119,5 +173,20 @@ public sealed class DxtDecoderTests
             Assert.Equal(expectedBlue, pixels[offset + 2]);
             Assert.Equal(expectedAlpha, pixels[offset + 3]);
         }
+    }
+
+    private static byte[] Decode(
+        int dxtVersion,
+        byte[] data,
+        int width,
+        int height)
+    {
+        return dxtVersion switch
+        {
+            1 => DxtDecoder.DecodeDxt1(data, width, height),
+            3 => DxtDecoder.DecodeDxt3(data, width, height),
+            5 => DxtDecoder.DecodeDxt5(data, width, height),
+            _ => throw new ArgumentOutOfRangeException(nameof(dxtVersion))
+        };
     }
 }

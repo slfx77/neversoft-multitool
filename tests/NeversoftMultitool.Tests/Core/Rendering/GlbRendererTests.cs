@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 using NeversoftMultitool.Core.Rendering;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace NeversoftMultitool.Tests.Core.Rendering;
 
@@ -33,6 +34,33 @@ public sealed class GlbRendererTests
             if (Directory.Exists(temp))
                 Directory.Delete(temp, recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RenderScene_FixedCanvasTransparentExit_PreservesRequestedDimensions(
+        bool hasDegenerateTriangle)
+    {
+        var scene = new RenderScene();
+        scene.Submeshes.Add(new RenderSubmesh
+        {
+            Positions = hasDegenerateTriangle
+                ? [1f, 2f, 3f, 1f, 2f, 3f, 1f, 2f, 3f]
+                : [],
+            Triangles = hasDegenerateTriangle ? [0, 1, 2] : []
+        });
+
+        using var image = GlbRenderer.RenderScene(
+            scene,
+            longEdge: 64,
+            fixedWidth: 24,
+            fixedHeight: 12);
+
+        Assert.Equal(24, image.Width);
+        Assert.Equal(12, image.Height);
+        Assert.Equal(new Rgba32(0, 0, 0, 0), image[0, 0]);
+        Assert.Equal(new Rgba32(0, 0, 0, 0), image[23, 11]);
     }
 
     private static byte[] BuildEmptySceneGlb()
