@@ -156,14 +156,25 @@
             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
             TextAlignment="Center" />
           <TextBlock
-            Text="Open a .trg or .qb file, or browse a directory"
+            Text="Open a .trg or .qb file, an archive, or browse a directory"
             Foreground="{ThemeResource TextFillColorTertiaryBrush}"
             TextAlignment="Center" />
-          <Button
-            Content="Browse folder..."
-            HorizontalAlignment="Center"
-            Click="InputBrowse_Click"
-            Style="{StaticResource AccentButtonStyle}" />
+          <StackPanel HorizontalAlignment="Center"
+                      Spacing="8">
+            <Button Content="Select file..."
+                    MinWidth="140"
+                    HorizontalAlignment="Stretch"
+                    Click="OpenFile_Click"
+                    Style="{StaticResource AccentButtonStyle}" />
+            <Button Content="Select archive..."
+                    MinWidth="140"
+                    HorizontalAlignment="Stretch"
+                    Click="SelectArchive_Click" />
+            <Button Content="Browse folder..."
+                    MinWidth="140"
+                    HorizontalAlignment="Stretch"
+                    Click="InputBrowse_Click" />
+          </StackPanel>
         </StackPanel>
       </Border>
 
@@ -404,6 +415,9 @@
         <Button Content="Select file..."
                 MinWidth="120"
                 Click="OpenFile_Click" />
+        <Button Content="Select archive..."
+                MinWidth="120"
+                Click="SelectArchive_Click" />
         <Button Content="Browse folder..."
                 MinWidth="120"
                 Click="InputBrowse_Click" />

@@ -1,26 +1,17 @@
 using System.Collections.ObjectModel;
-using Windows.Storage.Pickers;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using NeversoftMultitool.Core.Formats.Qb;
-using NeversoftMultitool.Core.Formats.Trg;
-using WinRT.Interop;
+using NeversoftMultitool.Core.Formats;
+using NeversoftMultitool.Core.Formats.Script;
 
 namespace NeversoftMultitool;
 
 public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
 {
-    private static readonly string[] TrgExtensions = [".trg"];
-
-    /// <summary>
-    ///     Compiled script files: THPS3-THUG2 raw-token .qb plus THAW-generation
-    ///     platform-suffixed sectioned QB (and .sqb sound-script) variants.
-    /// </summary>
-    private static readonly string[] QbFileSuffixes =
+    private static readonly string[] ScriptPickerExtensions =
     [
-        ".qb", ".qb.ps2", ".qb.wpc", ".qb.ngc", ".qb.xbx",
-        ".sqb", ".sqb.ps2", ".sqb.wpc", ".sqb.ngc", ".sqb.xbx"
+        ".trg", ".qb", ".sqb",
+        ".ps2", ".wpc", ".ngc", ".xbx", ".xen", ".n64"
     ];
 
     private readonly ScriptDecompilerDetailPresenter _detailPresenter;
@@ -28,6 +19,8 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly ObservableCollection<IListEntry> _nodeItems = [];
     private readonly List<IListEntry> _parentFiles = [];
+    private CancellationTokenSource? _loadCts;
+    private bool _disposed;
     private int _nodeListRequestId;
     private string _outputDir = string.Empty;
     private bool _outputManuallySet;
@@ -64,194 +57,266 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
             DetailSourceText));
     }
 
-    private static bool IsQbPath(string path)
-    {
-        var name = Path.GetFileName(path);
-        return QbFileSuffixes.Any(s => name.EndsWith(s, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool IsScriptPath(string path)
-    {
-        return IsQbPath(path) || IsTrgPath(path);
-    }
-
-    /// <summary>
-    ///     A TRG is either a bare <c>.trg</c> or a platform-suffixed one — the
-    ///     carved N64 triggers are <c>.trg.n64</c>. The reader takes the byte
-    ///     order from the file's own magic, so both route to the same parser.
-    /// </summary>
-    private static bool IsTrgPath(string path)
-    {
-        var name = Path.GetFileName(path);
-        return TrgExtensions.Contains(Path.GetExtension(path).ToLowerInvariant()) ||
-               name.Contains(".trg.", StringComparison.OrdinalIgnoreCase);
-    }
-
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         Unloaded -= ScriptDecompilerTab_Unloaded;
+        _loadCts?.Cancel();
+        _nodeListRequestId++;
         _exporter.Dispose();
     }
 
     private async void OpenFile_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FileOpenPicker();
-        picker.FileTypeFilter.Add(".trg");
-        picker.FileTypeFilter.Add(".qb");
-        picker.FileTypeFilter.Add(".sqb");
-        picker.FileTypeFilter.Add(".ps2");
-        picker.FileTypeFilter.Add(".wpc");
-        picker.FileTypeFilter.Add(".ngc");
-        picker.FileTypeFilter.Add(".xbx");
-        // Carved N64 triggers and model bundles.
-        picker.FileTypeFilter.Add(".n64");
-        var hwnd = WindowNative.GetWindowHandle(MainWindow.Instance);
-        InitializeWithWindow.Initialize(picker, hwnd);
-
-        var file = await picker.PickSingleFileAsync();
-        if (file == null) return;
-
-        InputPathText.Text = file.Path;
-        if (Path.GetDirectoryName(file.Path) is { Length: > 0 } fileDir)
-            DefaultOutputToInput(fileDir);
-        ClearDetail();
-        _items.Clear();
-        _parentFiles.Clear();
-
+        CancellationTokenSource? cts = null;
         try
         {
-            IListEntry entry = IsQbPath(file.Path)
-                ? ParseQbFileEntry(file.Path)
-                : ParseTrgFileEntry(file.Path);
-            _parentFiles.Add(entry);
-            _items.Add(entry);
+            var path = await FilePickerHelper.PickFileAsync(ScriptPickerExtensions);
+            if (path == null || _disposed) return;
+
+            var loadCts = cts = BeginLoad(path, Path.GetDirectoryName(path));
+            var kind = ScriptAssetParser.ClassifyEntryName(Path.GetFileName(path));
+            if (kind == null)
+                throw new InvalidDataException(
+                    $"'{Path.GetFileName(path)}' does not have a supported script suffix.");
+
+            var entry = await Task.Run(() =>
+            {
+                loadCts.Token.ThrowIfCancellationRequested();
+                return CreateParsedEntry(new FileSystemAssetSource(path), kind.Value);
+            }, loadCts.Token);
+
+            if (!IsCurrentLoad(cts)) return;
+            PublishEntries([entry]);
+            MainWindow.Instance?.SetStatus($"Loaded {Path.GetFileName(path)}.");
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
-            MainWindow.Instance?.SetStatus($"Failed to parse: {ex.Message}");
+            if (cts == null || IsCurrentLoad(cts))
+                MainWindow.Instance?.SetStatus($"Failed to parse: {ex.Message}");
         }
-
-        UpdateUiState();
+        finally
+        {
+            ReleaseLoad(cts);
+        }
     }
 
     private async void InputBrowse_Click(object sender, RoutedEventArgs e)
     {
-        var path = await FolderPickerHelper.PickFolderAsync();
-        if (path == null) return;
+        CancellationTokenSource? cts = null;
+        try
+        {
+            var path = await FolderPickerHelper.PickFolderAsync();
+            if (path == null || _disposed) return;
 
-        InputPathText.Text = path;
-        DefaultOutputToInput(path);
+            var loadCts = cts = BeginLoad(path, path);
+            var entries = await Task.Run(() =>
+            {
+                var loaded = new List<IListEntry>();
+                var scripts = Directory.EnumerateFiles(path)
+                    .Select(filePath => (
+                        FilePath: filePath,
+                        Kind: ScriptAssetParser.ClassifyEntryName(Path.GetFileName(filePath))))
+                    .Where(static candidate => candidate.Kind != null)
+                    .OrderBy(static candidate => Path.GetFileName(candidate.FilePath),
+                        StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(static candidate => candidate.FilePath, StringComparer.Ordinal)
+                    .ToArray();
+
+                foreach (var (filePath, kind) in scripts)
+                {
+                    loadCts.Token.ThrowIfCancellationRequested();
+                    loaded.Add(CreateEntryWithMetadata(
+                        new FileSystemAssetSource(filePath), kind!.Value));
+                }
+
+                return loaded;
+            }, loadCts.Token);
+
+            if (!IsCurrentLoad(cts)) return;
+            PublishEntries(entries);
+            MainWindow.Instance?.SetStatus(entries.Count == 0
+                ? $"{Path.GetFileName(path)}: no script files found."
+                : $"Found {entries.Count} script file(s) in {Path.GetFileName(path)}.");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            if (cts == null || IsCurrentLoad(cts))
+                MainWindow.Instance?.SetStatus($"Failed to scan folder: {ex.Message}");
+        }
+        finally
+        {
+            ReleaseLoad(cts);
+        }
+    }
+
+    private async void SelectArchive_Click(object sender, RoutedEventArgs e)
+    {
+        CancellationTokenSource? cts = null;
+        try
+        {
+            var path = await FilePickerHelper.PickFileAsync(ScriptArchiveCatalog.PickerExtensions);
+            if (path == null || _disposed) return;
+
+            var loadCts = cts = BeginLoad(path, Path.GetDirectoryName(path));
+            var result = await Task.Run(() =>
+            {
+                using var catalog = ScriptArchiveCatalog.Open(path, loadCts.Token);
+                var loaded = new List<IListEntry>(catalog.Candidates.Count);
+                var unreadable = 0;
+
+                foreach (var candidate in catalog.Candidates)
+                {
+                    loadCts.Token.ThrowIfCancellationRequested();
+                    try
+                    {
+                        // Archive sources are lazy. Buffer each script before the
+                        // catalog is disposed so preview/export never depends on a
+                        // live archive handle after this load operation completes.
+                        var source = ScriptAssetParser.Materialize(candidate.Source);
+                        loaded.Add(CreateEntryWithMetadata(source, candidate.Kind));
+                    }
+                    catch (Exception ex) when (ex is InvalidDataException or IOException
+                                               or EndOfStreamException or ArgumentException
+                                               or OverflowException)
+                    {
+                        unreadable++;
+                    }
+                }
+
+                return new ArchiveLoadResult(loaded, unreadable);
+            }, loadCts.Token);
+
+            if (!IsCurrentLoad(cts)) return;
+            PublishEntries(result.Entries);
+            var archiveName = Path.GetFileName(path);
+            var failureSuffix = result.UnreadableCount == 0
+                ? string.Empty
+                : $" ({result.UnreadableCount} unreadable entr{(result.UnreadableCount == 1 ? "y" : "ies")})";
+            MainWindow.Instance?.SetStatus(result.Entries.Count == 0
+                ? $"{archiveName}: no script files found{failureSuffix}."
+                : $"Found {result.Entries.Count} script file(s) in {archiveName}{failureSuffix}.");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            if (cts == null || IsCurrentLoad(cts))
+                MainWindow.Instance?.SetStatus($"Failed to scan archive: {ex.Message}");
+        }
+        finally
+        {
+            ReleaseLoad(cts);
+        }
+    }
+
+    private CancellationTokenSource BeginLoad(string inputPath, string? defaultOutputDirectory)
+    {
+        _loadCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _loadCts = cts;
+
+        InputPathText.Text = inputPath;
+        if (!string.IsNullOrEmpty(defaultOutputDirectory))
+            DefaultOutputToInput(defaultOutputDirectory);
         ClearDetail();
         _items.Clear();
         _parentFiles.Clear();
+        UpdateUiState();
+        return cts;
+    }
 
-        var scriptFiles = Directory.GetFiles(path)
-            .Where(IsScriptPath)
-            .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase);
+    private bool IsCurrentLoad(CancellationTokenSource cts) =>
+        !_disposed && !cts.IsCancellationRequested && ReferenceEquals(_loadCts, cts);
 
-        foreach (var filePath in scriptFiles)
+    private void ReleaseLoad(CancellationTokenSource? cts)
+    {
+        if (cts == null) return;
+        if (ReferenceEquals(_loadCts, cts))
+            _loadCts = null;
+        cts.Dispose();
+    }
+
+    private void PublishEntries(IEnumerable<IListEntry> entries)
+    {
+        foreach (var entry in entries)
         {
-            IListEntry entry = IsQbPath(filePath)
-                ? new QbFileEntry
-                {
-                    FileName = Path.GetFileName(filePath),
-                    FilePath = filePath
-                }
-                : new TrgFileEntry
-                {
-                    FileName = Path.GetFileName(filePath),
-                    FilePath = filePath
-                };
             _parentFiles.Add(entry);
             _items.Add(entry);
         }
 
         UpdateUiState();
-
-        var entries = _parentFiles.ToList();
-        var dispatcher = DispatcherQueue;
-        _ = Task.Run(() =>
-        {
-            foreach (var entry in entries)
-            {
-                switch (entry)
-                {
-                    case TrgFileEntry trg:
-                        BackgroundParseTrg(trg, dispatcher);
-                        break;
-                    case QbFileEntry qb:
-                        BackgroundParseQb(qb, dispatcher);
-                        break;
-                }
-            }
-        });
     }
 
-    private static void BackgroundParseTrg(TrgFileEntry entry,
-        DispatcherQueue dispatcher)
+    private static IListEntry CreateEntryWithMetadata(AssetSource source, ScriptAssetKind kind)
     {
+        var entry = CreateUnparsedEntry(source, kind);
         try
         {
-            var trg = TrgFile.Parse(entry.FilePath);
-            entry.CachedParsedFile = trg;
-            dispatcher.TryEnqueue(() =>
-            {
-                entry.NodeCount = trg.NodeCount;
-                entry.VersionDisplay = $"{trg.VersionMajor}.{trg.VersionMinor}";
-            });
+            PopulateMetadata(entry);
         }
         catch
         {
-            dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Error);
+            ((BaseFileEntry)entry).Status = ExtractionStatus.Error;
         }
-    }
 
-    private static void BackgroundParseQb(QbFileEntry entry,
-        DispatcherQueue dispatcher)
-    {
-        try
-        {
-            var qb = QbFile.Parse(entry.FilePath);
-            entry.CachedParsedFile = qb;
-            dispatcher.TryEnqueue(() =>
-            {
-                entry.NodeCount = qb.Items.Count;
-                entry.VersionDisplay = "QB";
-            });
-        }
-        catch
-        {
-            dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Error);
-        }
-    }
-
-    private static TrgFileEntry ParseTrgFileEntry(string filePath)
-    {
-        var trg = TrgFile.Parse(filePath);
-        var entry = new TrgFileEntry
-        {
-            FileName = Path.GetFileName(filePath),
-            FilePath = filePath
-        };
-        entry.CachedParsedFile = trg;
-        entry.NodeCount = trg.NodeCount;
-        entry.VersionDisplay = $"{trg.VersionMajor}.{trg.VersionMinor}";
         return entry;
     }
 
-    private static QbFileEntry ParseQbFileEntry(string filePath)
+    private static IListEntry CreateParsedEntry(AssetSource source, ScriptAssetKind kind)
     {
-        var qb = QbFile.Parse(filePath);
-        var entry = new QbFileEntry
-        {
-            FileName = Path.GetFileName(filePath),
-            FilePath = filePath
-        };
-        entry.CachedParsedFile = qb;
-        entry.NodeCount = qb.Items.Count;
-        entry.VersionDisplay = "QB";
+        var entry = CreateUnparsedEntry(source, kind);
+        PopulateMetadata(entry);
         return entry;
     }
+
+    private static IListEntry CreateUnparsedEntry(AssetSource source, ScriptAssetKind kind) => kind switch
+    {
+        ScriptAssetKind.Qb => new QbFileEntry
+        {
+            FileName = source.EntryName,
+            FilePath = source.DisplayName,
+            Source = source
+        },
+        ScriptAssetKind.Trg => new TrgFileEntry
+        {
+            FileName = source.EntryName,
+            FilePath = source.DisplayName,
+            Source = source
+        },
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown script asset kind.")
+    };
+
+    private static void PopulateMetadata(IListEntry entry)
+    {
+        switch (entry)
+        {
+            case TrgFileEntry trgEntry:
+                var trg = ScriptAssetParser.ParseTrg(trgEntry.Source);
+                trgEntry.CachedParsedFile = trg;
+                trgEntry.NodeCount = trg.NodeCount;
+                trgEntry.VersionDisplay = $"{trg.VersionMajor}.{trg.VersionMinor}";
+                break;
+            case QbFileEntry qbEntry:
+                var qb = ScriptAssetParser.ParseQb(qbEntry.Source);
+                qbEntry.CachedParsedFile = qb;
+                qbEntry.NodeCount = qb.Items.Count;
+                qbEntry.VersionDisplay = "QB";
+                break;
+        }
+    }
+
+    private sealed record ArchiveLoadResult(
+        IReadOnlyList<IListEntry> Entries,
+        int UnreadableCount);
 
     private async void OutputBrowse_Click(object sender, RoutedEventArgs e)
     {
@@ -345,7 +410,7 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
             {
                 try
                 {
-                    parent.CachedParsedFile = TrgFile.Parse(parent.FilePath);
+                    parent.CachedParsedFile = ScriptAssetParser.ParseTrg(parent.Source);
                 }
                 catch
                 {
@@ -374,7 +439,7 @@ public sealed partial class ScriptDecompilerTab : UserControl, IDisposable
             {
                 try
                 {
-                    parent.CachedParsedFile = QbFile.Parse(parent.FilePath);
+                    parent.CachedParsedFile = ScriptAssetParser.ParseQb(parent.Source);
                 }
                 catch
                 {

@@ -4,7 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Qb;
-using NeversoftMultitool.Core.Formats.Trg;
+using NeversoftMultitool.Core.Formats.Script;
 
 namespace NeversoftMultitool;
 
@@ -176,7 +176,7 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
 
         try
         {
-            var trg = entry.CachedParsedFile ?? TrgFile.Parse(entry.FilePath);
+            var trg = entry.CachedParsedFile ?? ScriptAssetParser.ParseTrg(entry.Source);
             entry.CachedParsedFile ??= trg;
 
             trg.WriteJson(outputPath);
@@ -218,7 +218,7 @@ internal sealed class ScriptDecompilerTabExporter : IDisposable
 
         try
         {
-            var qb = entry.CachedParsedFile ?? QbFile.Parse(entry.FilePath);
+            var qb = entry.CachedParsedFile ?? ScriptAssetParser.ParseQb(entry.Source);
             entry.CachedParsedFile ??= qb;
 
             var source = QbDecompiler.Decompile(qb);
