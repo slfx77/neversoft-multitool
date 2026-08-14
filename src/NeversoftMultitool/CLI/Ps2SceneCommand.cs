@@ -192,6 +192,9 @@ public static class Ps2SceneCommand
                 worldzoneTimeOfDay: timeOfDay,
                 worldzoneScale: coordinateScale);
 
+            if (result.OutputPaths.Count == 0)
+                throw new InvalidDataException("Mesh export produced no output.");
+
             stopwatch.Stop();
 
             if (verbose && result.OutputPaths.Count > 0)

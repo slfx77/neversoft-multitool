@@ -61,9 +61,8 @@ public static class StrCommand
             return 1;
         }
 
-        var strFiles = Directory.GetFiles(input, "*.str", SearchOption.TopDirectoryOnly)
-            .Concat(Directory.GetFiles(input, "*.STR", SearchOption.TopDirectoryOnly))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+        var strFiles = SelectCandidatePaths(
+                Directory.GetFiles(input, "*", SearchOption.TopDirectoryOnly))
             .Where(IsCandidate)
             .ToArray();
         cancellationToken.ThrowIfCancellationRequested();
@@ -72,6 +71,21 @@ public static class StrCommand
         {
             AnsiConsole.MarkupLine("[yellow]No .str files found in the specified directory.[/]");
             return 0;
+        }
+
+        var duplicateOutputStems = FindDuplicateOutputStems(strFiles);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (duplicateOutputStems.Length > 0)
+        {
+            foreach (var stem in duplicateOutputStems)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                AnsiConsole.MarkupLine(
+                    $"[red]Error:[/] Multiple STR inputs map to output stem " +
+                    $"[green]{Markup.Escape(stem)}[/]");
+            }
+
+            return 1;
         }
 
         if (convertOverride == null)
@@ -168,6 +182,27 @@ public static class StrCommand
                 return false;
             }
         }
+    }
+
+    internal static string[] SelectCandidatePaths(IEnumerable<string> paths)
+    {
+        return paths
+            .Where(static path =>
+                Path.GetExtension(path).Equals(".str", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    internal static string[] FindDuplicateOutputStems(IEnumerable<string> paths)
+    {
+        return paths
+            .GroupBy(
+                static path => Path.GetFileNameWithoutExtension(path) ?? string.Empty,
+                StringComparer.Ordinal)
+            .Where(static group => group.Count() > 1)
+            .Select(static group => group.Key)
+            .OrderBy(static stem => stem, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static SfdConvertResult ConvertWithFfmpeg(

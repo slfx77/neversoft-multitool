@@ -94,9 +94,9 @@ public static class PsxCommand
             totalTextures += result.TotalTextures;
             totalWritten += result.TexturesWritten;
 
-            // ErrorMessage is independent of the computed flags. In particular, invalid
-            // input can be Error+Skipped and a late corrupt header can be Error+Success.
-            // A non-skipped, non-success result with no message is still incomplete.
+            // ErrorMessage always makes the extraction unsuccessful. Invalid input can
+            // still be Error+Skipped, while a non-skipped failure with no message is an
+            // incomplete extraction and must also count as an error.
             var failed = result.ErrorMessage is not null
                          || (!result.Skipped && !result.Success);
             if (failed)

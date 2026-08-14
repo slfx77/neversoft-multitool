@@ -171,6 +171,24 @@ public static class DdmCommand
             return 0;
         }
 
+        var duplicateOutputStems = FindDuplicateOutputStems(
+            allDdmFiles.Where(static file =>
+                !Path.GetFileNameWithoutExtension(file)
+                    .EndsWith("_o", StringComparison.OrdinalIgnoreCase)));
+        cancellationToken.ThrowIfCancellationRequested();
+        if (duplicateOutputStems.Length > 0)
+        {
+            foreach (var stem in duplicateOutputStems)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                AnsiConsole.MarkupLine(
+                    $"[red]Error:[/] Multiple DDM inputs map to output stem " +
+                    $"[green]{Markup.Escape(stem)}[/]");
+            }
+
+            return 1;
+        }
+
         ddxPath = ResolveCompanionDir(input, ddxPath, "*.ddx", "DDX");
         psxPath = ResolveCompanionDir(input, psxPath, "*.psx", "PSX");
         cancellationToken.ThrowIfCancellationRequested();
@@ -376,5 +394,17 @@ public static class DdmCommand
         var files = Directory.GetFiles(directory, stem + extension,
             new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive });
         return files.Length > 0 ? files[0] : null;
+    }
+
+    internal static string[] FindDuplicateOutputStems(IEnumerable<string> paths)
+    {
+        return paths
+            .GroupBy(
+                static path => Path.GetFileNameWithoutExtension(path) ?? string.Empty,
+                StringComparer.Ordinal)
+            .Where(static group => group.Count() > 1)
+            .Select(static group => group.Key)
+            .OrderBy(static stem => stem, StringComparer.Ordinal)
+            .ToArray();
     }
 }

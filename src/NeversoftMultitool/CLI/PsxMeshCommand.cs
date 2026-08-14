@@ -65,9 +65,7 @@ public static class PsxMeshCommand
         }
         else if (Directory.Exists(input))
         {
-            psxFiles = Directory.GetFiles(input, "*.psx",
-                    new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive })
-                .ToList();
+            psxFiles = DiscoverPsxFiles(input).ToList();
         }
         else
         {
@@ -94,5 +92,14 @@ public static class PsxMeshCommand
             verbose,
             cancellationToken,
             inputRoot: Directory.Exists(input) ? input : null);
+    }
+
+    internal static string[] DiscoverPsxFiles(string directory)
+    {
+        return Directory.GetFiles(directory, "*.psx", new EnumerationOptions
+        {
+            MatchCasing = MatchCasing.CaseInsensitive,
+            RecurseSubdirectories = true
+        });
     }
 }

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.CLI;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Detection;
@@ -33,6 +34,30 @@ public sealed class MeshExportCliOptionsTests
             input,
             output,
             TestContext.Current.CancellationToken));
+        Assert.True(Directory.Exists(output));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(output));
+    }
+
+    [Fact]
+    public void ExportFiles_ValidEmptyCollision_ReturnsFailureWithoutOutput()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "empty.col");
+        var output = Path.Combine(temp.Path, "output");
+        var data = new byte[32];
+        BinaryPrimitives.WriteInt32LittleEndian(data, 10);
+        File.WriteAllBytes(input, data);
+
+        var result = MeshExportCliOptions.ExportFiles(
+            [input],
+            output,
+            ModelSourceKind.Collision,
+            MeshOutputFormat.Glb,
+            blenderHelperPath: null,
+            verbose: true,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, result);
         Assert.True(Directory.Exists(output));
         Assert.Empty(Directory.EnumerateFileSystemEntries(output));
     }

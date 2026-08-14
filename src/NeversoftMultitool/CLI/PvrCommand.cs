@@ -52,7 +52,8 @@ public static class PvrCommand
         if (File.Exists(input))
             pvrFiles = [input];
         else if (Directory.Exists(input))
-            pvrFiles = Directory.GetFiles(input, "*.pvr");
+            pvrFiles = SelectCandidatePaths(
+                Directory.GetFiles(input, "*", SearchOption.TopDirectoryOnly));
         else
             pvrFiles = [];
 
@@ -63,6 +64,22 @@ public static class PvrCommand
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+
+        var duplicateStems = FindDuplicateOutputStems(pvrFiles);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (duplicateStems.Length > 0)
+        {
+            foreach (var stem in duplicateStems)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                AnsiConsole.MarkupLine(
+                    $"[red]Error:[/] Multiple PVR inputs map to output stem " +
+                    $"[green]{Markup.Escape(stem)}[/]");
+            }
+
+            return 1;
+        }
+
         Directory.CreateDirectory(output);
         AnsiConsole.MarkupLine($"Found [green]{pvrFiles.Length}[/] PVR file(s)");
 
@@ -105,5 +122,26 @@ public static class PvrCommand
             AnsiConsole.MarkupLine($"[yellow]{failed} file(s) had unsupported formats[/]");
 
         return failed > 0 ? 1 : 0;
+    }
+
+    internal static string[] SelectCandidatePaths(IEnumerable<string> paths)
+    {
+        return paths
+            .Where(static path => Path.GetExtension(path)
+                .Equals(".pvr", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    internal static string[] FindDuplicateOutputStems(IEnumerable<string> paths)
+    {
+        return paths
+            .GroupBy(
+                static path => Path.GetFileNameWithoutExtension(path) ?? string.Empty,
+                StringComparer.Ordinal)
+            .Where(static group => group.Count() > 1)
+            .Select(static group => group.Key)
+            .OrderBy(static stem => stem, StringComparer.Ordinal)
+            .ToArray();
     }
 }

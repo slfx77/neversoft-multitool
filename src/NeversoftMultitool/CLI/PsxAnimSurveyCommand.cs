@@ -87,6 +87,14 @@ public static class PsxAnimSurveyCommand
 
         var csvPath = output ?? Path.Combine("TestOutput", "psx_anim_survey.csv");
         cancellationToken.ThrowIfCancellationRequested();
+        if (OutputAliasesSource(csvPath, files))
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Error:[/] CSV output path resolves to a scanned PSX source: " +
+                Markup.Escape(csvPath));
+            return 1;
+        }
+
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(csvPath))!);
         WriteCsv(csvPath, rows, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
@@ -95,6 +103,22 @@ public static class PsxAnimSurveyCommand
         PrintSummary(rows);
         cancellationToken.ThrowIfCancellationRequested();
         return 0;
+    }
+
+    private static bool OutputAliasesSource(
+        string outputPath,
+        IReadOnlyList<string> sourcePaths)
+    {
+        // This guards normalized path aliases. Symlink/hard-link identity is a
+        // separate filesystem-level overwrite policy.
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var canonicalOutput = Path.GetFullPath(outputPath);
+        return sourcePaths.Any(sourcePath => string.Equals(
+            canonicalOutput,
+            Path.GetFullPath(sourcePath),
+            comparison));
     }
 
     private static SurveyRow ProbeFile(string path, string rootFull)

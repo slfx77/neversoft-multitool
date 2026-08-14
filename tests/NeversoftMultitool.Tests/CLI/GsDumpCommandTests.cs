@@ -5,6 +5,33 @@ namespace NeversoftMultitool.Tests.CLI;
 public sealed class GsDumpCommandTests
 {
     [Fact]
+    public void SelectCandidatePaths_FiltersExtensionCaseInsensitivelyAndRemovesOnlyExactDuplicates()
+    {
+        var mixedCasePath = Path.Combine("input", "first.Gs");
+        var caseDistinctPath = Path.Combine("input", "FIRST.GS");
+        var compressedPath = Path.Combine("input", "compressed.gs.xz");
+        var unrelatedPath = Path.Combine("input", "notes.txt");
+
+        var result = GsDumpCommand.SelectCandidatePaths(
+            [mixedCasePath, mixedCasePath, caseDistinctPath, compressedPath, unrelatedPath]);
+
+        Assert.Equal([mixedCasePath, caseDistinctPath], result);
+    }
+
+    [Fact]
+    public void FindDuplicateOutputStems_UsesExactStemIdentity()
+    {
+        var lowerCasePath = Path.Combine("input", "clip.gs");
+        var sameStemPath = Path.Combine("input", "clip.GS");
+        var upperCasePath = Path.Combine("input", "CLIP.Gs");
+
+        Assert.Equal(
+            ["clip"],
+            GsDumpCommand.FindDuplicateOutputStems([lowerCasePath, sameStemPath]));
+        Assert.Empty(GsDumpCommand.FindDuplicateOutputStems([lowerCasePath, upperCasePath]));
+    }
+
+    [Fact]
     public void Command_MissingBracketedInputFailsWithoutOutput()
     {
         using var temp = new TempDirectory();

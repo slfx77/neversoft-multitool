@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
 using NeversoftMultitool.CLI;
+using NeversoftMultitool.Core.Formats.Texture.Ngc;
+using NeversoftMultitool.Core.Formats.Texture.XbxScene;
 
 namespace NeversoftMultitool.Tests.CLI;
 
@@ -35,6 +37,50 @@ public sealed class XbxTexCommandTests
             verbose: true,
             CancellationToken.None));
         Assert.True(File.Exists(Path.Combine(validOnlyOutput, "[good].png")));
+    }
+
+    [Fact]
+    public void Execute_ParsedTextureWithNoDecodablePixels_ReturnsFailureWithoutPng()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "[unsupported].tex.xbx");
+        var output = Path.Combine(temp.Path, "output");
+        var data = BuildUnsupportedDxtTex();
+
+        var parsed = XbxTexFile.Parse(data);
+        Assert.True(parsed.Success);
+        Assert.Null(Assert.Single(parsed.Textures).Pixels);
+        File.WriteAllBytes(input, data);
+
+        var result = XbxTexCommand.Execute(
+            input, output, verbose: true, CancellationToken.None);
+
+        Assert.Equal(1, result);
+        Assert.Empty(Directory.EnumerateFiles(
+            output, "*.png", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public void Execute_ValidEmptyNgcDictionary_RemainsSuccessfulWithoutPng()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "[empty].tex.ngc");
+        var output = Path.Combine(temp.Path, "output");
+        var data = new byte[32];
+        data[0] = 1;
+        data[1] = 8;
+
+        var parsed = NgcTexFile.Parse(data);
+        Assert.True(parsed.Success);
+        Assert.Empty(parsed.Textures);
+        File.WriteAllBytes(input, data);
+
+        var result = XbxTexCommand.Execute(
+            input, output, verbose: true, CancellationToken.None);
+
+        Assert.Equal(0, result);
+        Assert.Empty(Directory.EnumerateFiles(
+            output, "*.png", SearchOption.AllDirectories));
     }
 
     [Fact]
@@ -119,6 +165,21 @@ public sealed class XbxTexCommandTests
         data[33] = 0x22; // green
         data[34] = 0x11; // red
         data[35] = 0xFF; // alpha
+        return data;
+    }
+
+    private static byte[] BuildUnsupportedDxtTex()
+    {
+        var data = new byte[44];
+        BinaryPrimitives.WriteUInt32LittleEndian(data, 1); // version
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), 1); // texture count
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(8), 0x12345678); // checksum
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(12), 1); // width
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16), 1); // height
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(20), 1); // mip levels
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(24), 32); // texel depth
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(32), 99); // unsupported DXT version
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(40), 0); // mip data size
         return data;
     }
 

@@ -6,6 +6,19 @@ namespace NeversoftMultitool.Tests.CLI;
 public sealed class RwBspCommandTests
 {
     [Fact]
+    public void SelectCandidatePaths_FiltersExtensionCaseInsensitivelyAndRemovesOnlyExactDuplicates()
+    {
+        var bspPath = Path.Combine("input", "nested", "first.BsP");
+        var caseDistinctBspPath = Path.Combine("input", "nested", "FIRST.BSP");
+        var unrelatedPath = Path.Combine("input", "nested", "notes.txt");
+
+        var result = RwBspCommand.SelectCandidatePaths(
+            [bspPath, bspPath, caseDistinctBspPath, unrelatedPath]);
+
+        Assert.Equal([bspPath, caseDistinctBspPath], result);
+    }
+
+    [Fact]
     public void Execute_ExplicitMalformedFileFailsButDirectoryRemainsNoWorkSuccess()
     {
         using var temp = new TempDirectory();

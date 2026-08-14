@@ -35,6 +35,8 @@ public static class ArchiveCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
             var verbose = parseResult.GetValue(verboseOption);

@@ -9,13 +9,14 @@ namespace NeversoftMultitool.CLI;
 
 public static class NgcTexCommand
 {
-    private static readonly string[] SupportedSuffixes = [".tex.ngc"];
+    private static readonly string[] SupportedSuffixes = [".tex.ngc", ".img.ngc"];
 
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to a GameCube TEX file (.tex.ngc) or directory containing them"
+            Description =
+                "Path to a GameCube texture file (.tex.ngc/.img.ngc) or directory containing them"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -27,7 +28,7 @@ public static class NgcTexCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("ngctex", "Extract textures from GameCube TEX dictionaries to PNG");
+        var command = new Command("ngctex", "Extract textures from GameCube TEX/IMG files to PNG");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -70,7 +71,7 @@ public static class NgcTexCommand
 
         if (files.Count == 0)
         {
-            AnsiConsole.MarkupLine("[yellow]No GameCube TEX files found.[/]");
+            AnsiConsole.MarkupLine("[yellow]No GameCube texture files found.[/]");
             return 0;
         }
 
@@ -88,13 +89,13 @@ public static class NgcTexCommand
 
         if (supported.Count == 0)
         {
-            AnsiConsole.MarkupLine("[yellow]No supported GameCube TEX files to process.[/]");
+            AnsiConsole.MarkupLine("[yellow]No supported GameCube texture files to process.[/]");
             return 0;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(output);
-        AnsiConsole.MarkupLine($"Processing [green]{supported.Count}[/] GameCube TEX file(s)");
+        AnsiConsole.MarkupLine($"Processing [green]{supported.Count}[/] GameCube texture file(s)");
 
         // Directory.GetFiles preserves the caller's relative/absolute path form.
         // Keep the root in that same form so mirrored collision paths are truly

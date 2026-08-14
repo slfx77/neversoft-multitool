@@ -10,6 +10,39 @@ public sealed class GlbRenderCommandTests
         [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
     [Fact]
+    public void SelectCandidatePaths_FiltersExtensionCaseInsensitivelyAndRemovesOnlyExactDuplicates()
+    {
+        var glbPath = Path.Combine("input", "nested", "first.GlB");
+        var caseDistinctGlbPath = Path.Combine("input", "nested", "FIRST.GLB");
+        var unrelatedPath = Path.Combine("input", "nested", "notes.txt");
+
+        var result = GlbRenderCommand.SelectCandidatePaths(
+            [glbPath, glbPath, caseDistinctGlbPath, unrelatedPath]);
+
+        Assert.Equal([glbPath, caseDistinctGlbPath], result);
+    }
+
+    [Fact]
+    public void FindDuplicateBesideSourceOutputs_UsesExactDirectoryAndStemIdentity()
+    {
+        var left = Path.Combine("input", "left");
+        var right = Path.Combine("input", "right");
+        var lowerCasePath = Path.Combine(left, "clip.glb");
+        var sameStemPath = Path.Combine(left, "clip.GLB");
+        var upperCasePath = Path.Combine(left, "CLIP.GLB");
+        var otherDirectoryPath = Path.Combine(right, "clip.GLB");
+
+        Assert.Equal(
+            [Path.GetFullPath(Path.Combine(left, "clip"))],
+            GlbRenderCommand.FindDuplicateBesideSourceOutputs(
+                [lowerCasePath, sameStemPath]));
+        Assert.Empty(GlbRenderCommand.FindDuplicateBesideSourceOutputs(
+            [lowerCasePath, upperCasePath]));
+        Assert.Empty(GlbRenderCommand.FindDuplicateBesideSourceOutputs(
+            [lowerCasePath, otherDirectoryPath]));
+    }
+
+    [Fact]
     public void Execute_MixedBracketedBatch_PreservesSuccessAndReturnsFailure()
     {
         using var temp = new TempDirectory();

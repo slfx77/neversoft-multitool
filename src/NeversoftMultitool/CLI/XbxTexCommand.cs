@@ -125,6 +125,18 @@ public static class XbxTexCommand
 
                 var outPath = Path.Combine(plannedOutput, planned.Stem + ".png");
                 var count = XbxImgFile.SaveAsPng(result, outPath);
+                if (result.Textures.Count > 0 && count == 0)
+                {
+                    failed++;
+                    if (verbose)
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"  {Markup.Escape(filename)}: [red]No decodable textures[/]");
+                    }
+
+                    continue;
+                }
+
                 totalTextures += count;
                 converted++;
 
@@ -154,6 +166,18 @@ public static class XbxTexCommand
                 }
 
                 var count = XbxTexFile.SaveAllAsPng(result, plannedOutput, planned.Stem);
+                if (result.Textures.Count > 0 && count == 0)
+                {
+                    failed++;
+                    if (verbose)
+                    {
+                        AnsiConsole.MarkupLine(
+                            $"  {Markup.Escape(filename)}: [red]No decodable textures[/]");
+                    }
+
+                    continue;
+                }
+
                 totalTextures += count;
                 converted++;
 

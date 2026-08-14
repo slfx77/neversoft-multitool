@@ -182,6 +182,13 @@ public static class PsxAnimDumpCommand
         // ─── Layer 4: decompress one whole animation (all bones, 6 channels each) ───
         if (hierResult is not null)
         {
+            if ((uint)animIndex >= (uint)hierResult.NumStreams)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[red]Error:[/] Animation index {animIndex} is outside 0..{hierResult.NumStreams - 1}.");
+                return 1;
+            }
+
             AnsiConsole.MarkupLine(
                 $"\n[bold underline]Layer 4[/] [grey]— decompress animation {animIndex} (all bones)[/]");
             PsxAnimDumpDecoder.DumpAnimationSlot(data, hierResult, animIndex, boneIndex, meshFile.Objects.Count,

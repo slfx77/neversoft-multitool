@@ -6,6 +6,20 @@ namespace NeversoftMultitool.Tests.CLI;
 public sealed class LegacyMeshWrapperCommandTests
 {
     [Fact]
+    public void PsxMesh_DiscoverPsxFiles_RecursesAndMatchesExtensionCaseInsensitively()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "input");
+        var nested = Path.Combine(input, "nested");
+        var psxPath = Path.Combine(nested, "model.PsX");
+        Directory.CreateDirectory(nested);
+        File.WriteAllBytes(psxPath, []);
+        File.WriteAllBytes(Path.Combine(nested, "notes.txt"), []);
+
+        Assert.Equal([psxPath], PsxMeshCommand.DiscoverPsxFiles(input));
+    }
+
+    [Fact]
     public void PsxMesh_MissingBracketedPathFailsWithoutOutput()
     {
         using var temp = new TempDirectory();

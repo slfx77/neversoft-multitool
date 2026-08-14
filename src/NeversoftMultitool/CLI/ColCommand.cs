@@ -56,6 +56,8 @@ public static class ColCommand
         string? blenderHelperPath,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         List<string> files;
         var isSingleFile = File.Exists(input);
 

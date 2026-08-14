@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Diagnostics;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Qb;
 using NeversoftMultitool.Core.QbKey;
 using Spectre.Console;
@@ -61,6 +62,7 @@ public static class QbCommand
             return 0;
         }
 
+        var outputPaths = PlanOutputPaths(input, files, output);
         Directory.CreateDirectory(output);
         AnsiConsole.MarkupLine($"Found [green]{files.Length}[/] QB file(s)");
 
@@ -72,9 +74,10 @@ public static class QbCommand
         var totalNames = 0;
         var errors = 0;
 
-        foreach (var file in files)
+        for (var fileIndex = 0; fileIndex < files.Length; fileIndex++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var file = files[fileIndex];
             var filename = Path.GetFileName(file);
 
             try
@@ -84,7 +87,7 @@ public static class QbCommand
                     throw new InvalidDataException("QB contains no recognized tokens.");
 
                 var source = QbDecompiler.Decompile(qb);
-                var outputPath = GetOutputPath(input, file, output, ".q");
+                var outputPath = outputPaths[fileIndex];
                 var outputDir = Path.GetDirectoryName(outputPath);
                 if (!string.IsNullOrEmpty(outputDir))
                     Directory.CreateDirectory(outputDir);
@@ -164,16 +167,51 @@ public static class QbCommand
                filename.Contains(".qb.", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string GetOutputPath(string inputRoot, string filePath, string outputRoot, string outputExtension)
+    private static string[] PlanOutputPaths(
+        string inputRoot,
+        IReadOnlyList<string> files,
+        string outputRoot)
     {
-        var relativePath = Directory.Exists(inputRoot)
-            ? Path.GetRelativePath(inputRoot, filePath)
-            : Path.GetFileName(filePath);
-        var relativeDir = Path.GetDirectoryName(relativePath);
-        var outputName = Path.GetFileNameWithoutExtension(relativePath) + outputExtension;
+        var inputIsDirectory = Directory.Exists(inputRoot);
+        var candidates = files
+            .Select((file, index) =>
+            {
+                var relativePath = inputIsDirectory
+                    ? Path.GetRelativePath(inputRoot, file)
+                    : Path.GetFileName(file);
+                return new OutputCandidate(
+                    index,
+                    file,
+                    Path.GetDirectoryName(relativePath) ?? "");
+            })
+            .ToArray();
 
-        return string.IsNullOrEmpty(relativeDir)
-            ? Path.Combine(outputRoot, outputName)
-            : Path.Combine(outputRoot, relativeDir, outputName);
+        var paths = new string[files.Count];
+        foreach (var directoryGroup in candidates.GroupBy(
+                     static candidate => candidate.RelativeDirectory,
+                     StringComparer.Ordinal))
+        {
+            var group = directoryGroup.ToArray();
+            var outputNames = ScriptOutputPathPlanner.Plan(group
+                .Select(static candidate => new ScriptOutputPathInput(
+                    candidate.SourcePath,
+                    ScriptOutputKind.Qb))
+                .ToArray());
+
+            for (var index = 0; index < group.Length; index++)
+            {
+                var candidate = group[index];
+                paths[candidate.OriginalIndex] = string.IsNullOrEmpty(candidate.RelativeDirectory)
+                    ? Path.Combine(outputRoot, outputNames[index])
+                    : Path.Combine(outputRoot, candidate.RelativeDirectory, outputNames[index]);
+            }
+        }
+
+        return paths;
     }
+
+    private readonly record struct OutputCandidate(
+        int OriginalIndex,
+        string SourcePath,
+        string RelativeDirectory);
 }

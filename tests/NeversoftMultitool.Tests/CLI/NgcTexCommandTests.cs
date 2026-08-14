@@ -119,10 +119,50 @@ public sealed class NgcTexCommandTests
         Assert.False(File.Exists(Path.Combine(output, "[shared]", "12345678.png")));
     }
 
+    [Fact]
+    public void Execute_BareImgDirectoryAndDirectInput_UseCompoundStem()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "input");
+        var imagePath = Path.Combine(input, "[image].img.ngc");
+        var directoryOutput = Path.Combine(temp.Path, "directory-output");
+        var directOutput = Path.Combine(temp.Path, "direct-output");
+        Directory.CreateDirectory(input);
+        File.WriteAllBytes(imagePath, BuildBareImg());
+
+        Assert.Equal(0, NgcTexCommand.Execute(
+            input, directoryOutput, verbose: true, CancellationToken.None));
+        Assert.Equal(0, NgcTexCommand.Execute(
+            imagePath, directOutput, verbose: true, CancellationToken.None));
+
+        var expectedDirectoryPng = Path.Combine(
+            directoryOutput, "[image]", "12345678.png");
+        var expectedDirectPng = Path.Combine(
+            directOutput, "[image]", "12345678.png");
+        Assert.Equal(expectedDirectoryPng, Assert.Single(Directory.EnumerateFiles(
+            directoryOutput, "*.png", SearchOption.AllDirectories)));
+        Assert.Equal(expectedDirectPng, Assert.Single(Directory.EnumerateFiles(
+            directOutput, "*.png", SearchOption.AllDirectories)));
+        AssertPng(expectedDirectoryPng);
+        AssertPng(expectedDirectPng);
+        Assert.False(Directory.Exists(Path.Combine(directoryOutput, "[image].img")));
+        Assert.False(Directory.Exists(Path.Combine(directOutput, "[image].img")));
+    }
+
     private static byte[] BuildProbeAcceptedTruncatedCmprDictionary()
     {
         var data = NgcTexTestBuilder.CreateDictionary();
         BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(24), 1);
+        return data;
+    }
+
+    private static byte[] BuildBareImg()
+    {
+        var dictionary = NgcTexTestBuilder.CreateDictionary();
+        var data = new byte[64];
+        dictionary.AsSpan(8, 32).CopyTo(data);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(20), 32);
+        dictionary.AsSpan(40, 32).CopyTo(data.AsSpan(32));
         return data;
     }
 

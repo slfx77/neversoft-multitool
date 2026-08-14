@@ -73,10 +73,8 @@ public static class VidCommand
             return 1;
         }
 
-        var candidates = Directory.GetFiles(input, "*.vid", SearchOption.TopDirectoryOnly)
-            .Concat(Directory.GetFiles(input, "*.VID", SearchOption.TopDirectoryOnly))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var candidates = SelectCandidatePaths(
+            Directory.GetFiles(input, "*", SearchOption.TopDirectoryOnly));
         cancellationToken.ThrowIfCancellationRequested();
 
         var probeFile = probeOverride ?? Vid1VideoConverter.Probe;
@@ -94,6 +92,22 @@ public static class VidCommand
         {
             AnsiConsole.MarkupLine("[yellow]No valid .vid files found in the specified directory.[/]");
             return 0;
+        }
+
+        var duplicateOutputStems = FindDuplicateOutputStems(
+            vidFiles.Select(static item => item.File));
+        cancellationToken.ThrowIfCancellationRequested();
+        if (duplicateOutputStems.Length > 0)
+        {
+            foreach (var stem in duplicateOutputStems)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                AnsiConsole.MarkupLine(
+                    $"[red]Error:[/] Multiple VID inputs map to output stem " +
+                    $"[green]{Markup.Escape(stem)}[/]");
+            }
+
+            return 1;
         }
 
         if (convertOverride == null)
@@ -165,6 +179,27 @@ public static class VidCommand
         cancellationToken.ThrowIfCancellationRequested();
         return totalFailed > 0 ? 1 : 0;
 
+    }
+
+    internal static string[] SelectCandidatePaths(IEnumerable<string> paths)
+    {
+        return paths
+            .Where(static path => Path.GetExtension(path).Equals(
+                ".vid", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    internal static string[] FindDuplicateOutputStems(IEnumerable<string> paths)
+    {
+        return paths
+            .GroupBy(
+                static path => Path.GetFileNameWithoutExtension(path) ?? string.Empty,
+                StringComparer.Ordinal)
+            .Where(static group => group.Count() > 1)
+            .Select(static group => group.Key)
+            .OrderBy(static stem => stem, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static SfdConvertResult ConvertWithFfmpeg(

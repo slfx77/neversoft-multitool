@@ -9,6 +9,32 @@ public sealed class PvrCommandTests
         [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
     [Fact]
+    public void SelectCandidatePaths_FiltersExtensionCaseInsensitivelyAndRemovesOnlyExactDuplicates()
+    {
+        var pvrPath = Path.Combine("input", "first.PvR");
+        var caseDistinctPvrPath = Path.Combine("input", "FIRST.PVR");
+        var unrelatedPath = Path.Combine("input", "notes.txt");
+
+        var result = PvrCommand.SelectCandidatePaths(
+            [pvrPath, pvrPath, caseDistinctPvrPath, unrelatedPath]);
+
+        Assert.Equal([pvrPath, caseDistinctPvrPath], result);
+    }
+
+    [Fact]
+    public void FindDuplicateOutputStems_UsesExactStemIdentity()
+    {
+        var lowerCasePath = Path.Combine("input", "clip.pvr");
+        var sameStemPath = Path.Combine("input", "clip.PVR");
+        var upperCasePath = Path.Combine("input", "CLIP.PvR");
+
+        Assert.Equal(
+            ["clip"],
+            PvrCommand.FindDuplicateOutputStems([lowerCasePath, sameStemPath]));
+        Assert.Empty(PvrCommand.FindDuplicateOutputStems([lowerCasePath, upperCasePath]));
+    }
+
+    [Fact]
     public void Execute_ValidBracketedPvr_VerboseWritesPngAndSucceeds()
     {
         using var temp = new TempDirectory();

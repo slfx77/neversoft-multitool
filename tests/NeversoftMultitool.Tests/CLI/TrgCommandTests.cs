@@ -59,6 +59,40 @@ public sealed class TrgCommandTests
         Assert.False(Directory.Exists(emptyOutput));
     }
 
+    [Fact]
+    public void Execute_NestedSameDirectoryPlatformVariants_GetDistinctOwnedOutputs()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "input");
+        var nestedInput = Path.Combine(input, "scripts");
+        var output = Path.Combine(temp.Path, "output");
+        var nestedOutput = Path.Combine(output, "scripts");
+        Directory.CreateDirectory(nestedInput);
+        File.WriteAllBytes(Path.Combine(nestedInput, "level.trg.n64"), BuildTerminatorTrg());
+        File.WriteAllBytes(Path.Combine(nestedInput, "level.trg.ps2"), BuildTerminatorTrg());
+
+        var result = TrgCommand.Execute(
+            input, output, verbose: true, CancellationToken.None);
+
+        Assert.Equal(0, result);
+        var naturalPath = Path.Combine(nestedOutput, "level.trg.json");
+        var suffixedPath = Path.Combine(nestedOutput, "level.trg_2.json");
+        Assert.Equal(
+            [naturalPath, suffixedPath],
+            Directory.EnumerateFiles(output, "*.json", SearchOption.AllDirectories)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+
+        using var naturalJson = JsonDocument.Parse(File.ReadAllText(naturalPath));
+        Assert.Equal(
+            "level.trg.n64",
+            naturalJson.RootElement.GetProperty("fileName").GetString());
+        using var suffixedJson = JsonDocument.Parse(File.ReadAllText(suffixedPath));
+        Assert.Equal(
+            "level.trg.ps2",
+            suffixedJson.RootElement.GetProperty("fileName").GetString());
+    }
+
     private static byte[] BuildTerminatorTrg()
     {
         var data = new byte[18];

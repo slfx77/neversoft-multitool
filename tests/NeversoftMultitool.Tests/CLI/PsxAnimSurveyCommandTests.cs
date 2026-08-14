@@ -28,6 +28,27 @@ public sealed class PsxAnimSurveyCommandTests
     }
 
     [Fact]
+    public void Execute_OutputCanonicalAliasCannotOverwriteSurveyedPsx()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "input");
+        Directory.CreateDirectory(input);
+        var source = Path.Combine(input, "sample.psx");
+        var original = "NOPE"u8.ToArray();
+        File.WriteAllBytes(source, original);
+        var outputAlias = Path.Combine(input, ".", Path.GetFileName(source));
+
+        var result = PsxAnimSurveyCommand.Execute(
+            input,
+            outputAlias,
+            verbose: true,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, result);
+        Assert.Equal(original, File.ReadAllBytes(source));
+    }
+
+    [Fact]
     public void Execute_PreCancelled_PropagatesWithoutCreatingOutput()
     {
         using var temp = new TempDirectory();

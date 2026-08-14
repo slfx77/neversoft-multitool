@@ -72,7 +72,25 @@ public sealed class AudioCommandTests
 
         Assert.Throws<OperationCanceledException>(() => AudioCommand.Execute(
             input, output, verbose: true, sampleRate: 0, cancellationSource.Token));
-        Assert.Empty(Directory.EnumerateFiles(output, "*.wav"));
+        Assert.False(Directory.Exists(output));
+    }
+
+    [Fact]
+    public void Execute_EmptyDirectoryPreCancelled_PropagatesWithoutOutput()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "empty");
+        var output = Path.Combine(temp.Path, "output");
+        Directory.CreateDirectory(input);
+
+        Assert.Throws<OperationCanceledException>(() =>
+            AudioCommand.Execute(
+                input,
+                output,
+                verbose: true,
+                sampleRate: 0,
+                new CancellationToken(canceled: true)));
+        Assert.False(Directory.Exists(output));
     }
 
     [Fact]

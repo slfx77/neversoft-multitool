@@ -5,6 +5,22 @@ namespace NeversoftMultitool.Tests.CLI;
 
 public sealed class LegacySceneCommandCancellationTests
 {
+    [Fact]
+    public void NgcCol_EmptyDirectoryPreCancelled_PropagatesWithoutOutput()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "input");
+        var output = Path.Combine(temp.Path, "output");
+        Directory.CreateDirectory(input);
+
+        Assert.Throws<OperationCanceledException>(() => NgcColCommand.Execute(
+            input,
+            output,
+            verbose: true,
+            new CancellationToken(canceled: true)));
+        Assert.False(Directory.Exists(output));
+    }
+
     [Theory]
     [InlineData("ps2geom")]
     [InlineData("ps2scene")]

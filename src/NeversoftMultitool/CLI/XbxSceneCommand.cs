@@ -47,6 +47,7 @@ public static class XbxSceneCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
             var texPath = parseResult.GetValue(texPathOption);

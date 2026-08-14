@@ -31,6 +31,22 @@ public sealed class PsxMeshDumpCommandTests
     }
 
     [Fact]
+    public void Execute_OutputCanonicalAliasCannotOverwriteValidInput()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "model.psx");
+        var original = CreateMinimalPsx();
+        File.WriteAllBytes(input, original);
+        var outputAlias = Path.Combine(temp.Path, ".", Path.GetFileName(input));
+
+        Assert.Equal(1, PsxMeshDumpCommand.Execute(
+            input,
+            outputAlias,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(original, File.ReadAllBytes(input));
+    }
+
+    [Fact]
     public void Execute_InvalidAndMissingBracketedInputs_ReturnFailureWithoutOutput()
     {
         using var temp = new TempDirectory();

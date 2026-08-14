@@ -7,6 +7,33 @@ namespace NeversoftMultitool.Tests.CLI;
 public sealed class VidCommandTests
 {
     [Fact]
+    public void SelectCandidatePaths_FiltersExtensionAndRemovesOnlyExactDuplicates()
+    {
+        var lowerCasePath = Path.Combine("input", "clip.vid");
+        var upperCasePath = Path.Combine("input", "CLIP.VID");
+        var mixedCasePath = Path.Combine("input", "mixed.ViD");
+        var unrelatedPath = Path.Combine("input", "clip.txt");
+
+        var result = VidCommand.SelectCandidatePaths(
+            [lowerCasePath, lowerCasePath, upperCasePath, mixedCasePath, unrelatedPath]);
+
+        Assert.Equal([lowerCasePath, upperCasePath, mixedCasePath], result);
+    }
+
+    [Fact]
+    public void FindDuplicateOutputStems_UsesExactStemIdentity()
+    {
+        var lowerCasePath = Path.Combine("input", "clip.vid");
+        var sameStemPath = Path.Combine("input", "clip.VID");
+        var upperCasePath = Path.Combine("input", "CLIP.VID");
+
+        Assert.Equal(
+            ["clip"],
+            VidCommand.FindDuplicateOutputStems([lowerCasePath, sameStemPath]));
+        Assert.Empty(VidCommand.FindDuplicateOutputStems([lowerCasePath, upperCasePath]));
+    }
+
+    [Fact]
     public void Execute_MissingAndNoWorkInputsPreserveExitContractsWithoutConverter()
     {
         using var temp = new TempDirectory();

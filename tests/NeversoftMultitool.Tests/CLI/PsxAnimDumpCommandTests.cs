@@ -53,17 +53,98 @@ public sealed class PsxAnimDumpCommandTests
         Assert.Equal(1, result.NumStreams);
     }
 
-    private static int Execute(string input, CancellationToken? cancellationToken = null)
+    [Fact]
+    public void Execute_OutOfRangeAnimationIndex_ReturnsFailure()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "one-clip.psx");
+        File.WriteAllBytes(input, BuildMinimalDirectMatrixPsx());
+
+        Assert.Equal(0, Execute(input, animIndex: 0));
+        Assert.Equal(1, Execute(input, animIndex: 1));
+    }
+
+    private static int Execute(
+        string input,
+        CancellationToken? cancellationToken = null,
+        int animIndex = 0)
     {
         return PsxAnimDumpCommand.Execute(
             input,
             hexBytes: 256,
-            animIndex: 0,
+            animIndex,
             boneIndex: 0,
             rankBoneIndex: null,
             rankTop: 12,
             verbose: true,
             cancellationToken ?? TestContext.Current.CancellationToken);
+    }
+
+    private static byte[] BuildMinimalDirectMatrixPsx()
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+
+        writer.Write(0x00020004u);
+        writer.Write(56u);
+        writer.Write(1u);
+
+        writer.Write(0u);
+        writer.Write(0);
+        writer.Write(0);
+        writer.Write(0);
+        writer.Write(0u);
+        writer.Write((ushort)0);
+        writer.Write((ushort)0);
+        writer.Write((short)0);
+        writer.Write((short)0);
+        writer.Write(0u);
+        writer.Write(0u);
+
+        writer.Write(1u);
+        writer.Write(124u);
+
+        writer.Write(0x52454948u); // HIER
+        writer.Write(4u);
+        writer.Write((ushort)0);
+        writer.Write((ushort)0);
+
+        writer.Write(PsxMeshFile.HierChunkV1Tag);
+        writer.Write(0x24u);
+        writer.Write(1u);
+        writer.Write(0x0Cu);
+        writer.Write((ushort)1);
+        writer.Write((ushort)0);
+
+        Span<short> matrix =
+        [
+            4096, 0, 0,
+            0, 4096, 0,
+            0, 0, 4096
+        ];
+        foreach (var value in matrix)
+            writer.Write(value);
+        writer.Write((short)36);
+        writer.Write((short)0);
+        writer.Write((short)0);
+
+        writer.Write(uint.MaxValue);
+        writer.Write(0x12345678u);
+        writer.Write(0u);
+
+        writer.Write((ushort)0);
+        writer.Write((ushort)0);
+        writer.Write((ushort)0);
+        writer.Write((ushort)0);
+        writer.Write(0u);
+        writer.Write(new byte[12]);
+        writer.Write(short.MaxValue);
+        writer.Write(ushort.MaxValue);
+
+        // The command requires a post-mesh region before entering its
+        // hierarchy diagnostic layers.
+        writer.Write(new byte[16]);
+        return stream.ToArray();
     }
 
     private sealed class TempDirectory : IDisposable

@@ -59,6 +59,8 @@ public static class AudioCommand
         int sampleRate,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!Directory.Exists(input))
         {
             AnsiConsole.MarkupLine(

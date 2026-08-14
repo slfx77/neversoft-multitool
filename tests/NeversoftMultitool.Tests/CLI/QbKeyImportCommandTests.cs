@@ -1,9 +1,36 @@
+using System.CommandLine;
 using NeversoftMultitool.CLI;
 
 namespace NeversoftMultitool.Tests.CLI;
 
 public sealed class QbKeyImportCommandTests
 {
+    [Fact]
+    public async Task Command_PreCancelledDoesNotWriteExport()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "names.txt");
+        var exportDirectory = Path.Combine(temp.Path, "export");
+        var export = Path.Combine(exportDirectory, "[cancelled].txt");
+        File.WriteAllText(input, "synthetic_candidate\n");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        await cancellation.CancelAsync();
+
+        var parseResult = QbKeyCommand.Create()
+            .Parse(["import", input, "--export", export]);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            parseResult.InvokeAsync(
+                new InvocationConfiguration
+                {
+                    EnableDefaultExceptionHandler = false
+                },
+                cancellation.Token));
+        Assert.False(File.Exists(export));
+        Assert.False(Directory.Exists(exportDirectory));
+    }
+
     [Fact]
     public void Command_ValidBracketedNamesFileSucceeds()
     {

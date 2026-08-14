@@ -59,6 +59,23 @@ public sealed class RleCommandTests
     }
 
     [Fact]
+    public void Execute_EmptyDirectoryPreCancelled_PropagatesWithoutOutput()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "input");
+        var output = Path.Combine(temp.Path, "output");
+        Directory.CreateDirectory(input);
+
+        Assert.Throws<OperationCanceledException>(() => RleCommand.Execute(
+            input,
+            output,
+            width: 0,
+            verbose: true,
+            cancellationToken: new CancellationToken(canceled: true)));
+        Assert.False(Directory.Exists(output));
+    }
+
+    [Fact]
     public void Execute_DifferentFormatsWithSameStem_WriteDistinctOutputs()
     {
         using var temp = new TempDirectory();

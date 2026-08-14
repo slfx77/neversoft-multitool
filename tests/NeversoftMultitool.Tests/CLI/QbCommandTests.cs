@@ -47,6 +47,29 @@ public sealed class QbCommandTests
     }
 
     [Fact]
+    public void Execute_SameDirectoryPlatformVariants_GetDistinctOutputFiles()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "input");
+        var output = Path.Combine(temp.Path, "output");
+        Directory.CreateDirectory(input);
+        File.WriteAllBytes(Path.Combine(input, "level.qb.ps2"), MinimalQb);
+        File.WriteAllBytes(Path.Combine(input, "level.qb.xbx"), MinimalQb);
+
+        var result = QbCommand.Execute(
+            input, output, verbose: true, CancellationToken.None);
+
+        Assert.Equal(0, result);
+        var outputFiles = Directory.EnumerateFiles(output, "*.q")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(
+            [Path.Combine(output, "level.qb.q"), Path.Combine(output, "level.qb_2.q")],
+            outputFiles);
+        Assert.All(outputFiles, path => Assert.Empty(File.ReadAllText(path)));
+    }
+
+    [Fact]
     public void Execute_PreCancelled_PropagatesWithoutWritingOutputFile()
     {
         using var temp = new TempDirectory();

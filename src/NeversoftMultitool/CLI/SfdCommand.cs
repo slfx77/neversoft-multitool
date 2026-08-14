@@ -62,11 +62,8 @@ public static class SfdCommand
             return 1;
         }
 
-        string[] videoExtensions = ["*.sfd", "*.SFD", "*.pss", "*.PSS", "*.bik", "*.BIK"];
-        var sfdFiles = videoExtensions
-            .SelectMany(ext => Directory.GetFiles(input, ext, SearchOption.TopDirectoryOnly))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var sfdFiles = SelectCandidatePaths(
+            Directory.GetFiles(input, "*", SearchOption.TopDirectoryOnly));
         cancellationToken.ThrowIfCancellationRequested();
 
         if (sfdFiles.Length == 0)
@@ -76,14 +73,7 @@ public static class SfdCommand
             return 0;
         }
 
-        var duplicateStems = sfdFiles
-            .GroupBy(
-                static file => Path.GetFileNameWithoutExtension(file) ?? string.Empty,
-                StringComparer.OrdinalIgnoreCase)
-            .Where(static group => group.Count() > 1)
-            .Select(static group => group.Key)
-            .OrderBy(static stem => stem, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var duplicateStems = FindDuplicateOutputStems(sfdFiles);
         cancellationToken.ThrowIfCancellationRequested();
         if (duplicateStems.Length > 0)
         {
@@ -164,6 +154,32 @@ public static class SfdCommand
 
         cancellationToken.ThrowIfCancellationRequested();
         return totalFailed > 0 ? 1 : 0;
+    }
+
+    internal static string[] SelectCandidatePaths(IEnumerable<string> paths)
+    {
+        return paths
+            .Where(static path =>
+            {
+                var extension = Path.GetExtension(path);
+                return extension.Equals(".sfd", StringComparison.OrdinalIgnoreCase) ||
+                       extension.Equals(".pss", StringComparison.OrdinalIgnoreCase) ||
+                       extension.Equals(".bik", StringComparison.OrdinalIgnoreCase);
+            })
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    internal static string[] FindDuplicateOutputStems(IEnumerable<string> paths)
+    {
+        return paths
+            .GroupBy(
+                static path => Path.GetFileNameWithoutExtension(path) ?? string.Empty,
+                StringComparer.Ordinal)
+            .Where(static group => group.Count() > 1)
+            .Select(static group => group.Key)
+            .OrderBy(static stem => stem, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static SfdConvertResult ConvertWithFfmpeg(

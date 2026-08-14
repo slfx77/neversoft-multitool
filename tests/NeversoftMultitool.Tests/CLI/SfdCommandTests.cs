@@ -6,6 +6,34 @@ namespace NeversoftMultitool.Tests.CLI;
 public sealed class SfdCommandTests
 {
     [Fact]
+    public void SelectCandidatePaths_FiltersExtensionsCaseInsensitivelyAndRemovesOnlyExactDuplicates()
+    {
+        var sfdPath = Path.Combine("input", "first.SfD");
+        var caseDistinctSfdPath = Path.Combine("input", "FIRST.SFD");
+        var pssPath = Path.Combine("input", "second.PsS");
+        var bikPath = Path.Combine("input", "third.BiK");
+        var unrelatedPath = Path.Combine("input", "notes.txt");
+
+        var result = SfdCommand.SelectCandidatePaths(
+            [sfdPath, sfdPath, caseDistinctSfdPath, pssPath, bikPath, unrelatedPath]);
+
+        Assert.Equal([sfdPath, caseDistinctSfdPath, pssPath, bikPath], result);
+    }
+
+    [Fact]
+    public void FindDuplicateOutputStems_UsesExactStemIdentity()
+    {
+        var lowerCasePath = Path.Combine("input", "clip.sfd");
+        var sameStemPath = Path.Combine("input", "clip.PSS");
+        var upperCasePath = Path.Combine("input", "CLIP.BIK");
+
+        Assert.Equal(
+            ["clip"],
+            SfdCommand.FindDuplicateOutputStems([lowerCasePath, sameStemPath]));
+        Assert.Empty(SfdCommand.FindDuplicateOutputStems([lowerCasePath, upperCasePath]));
+    }
+
+    [Fact]
     public void Execute_MissingAndEmptyInputsPreserveExitContractsWithoutConverter()
     {
         using var temp = new TempDirectory();

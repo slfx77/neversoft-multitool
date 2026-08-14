@@ -42,6 +42,7 @@ public static class Ps2TexCommand
 
         command.SetAction((parseResult, cancellationToken) =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var input = parseResult.GetValue(inputArgument)!;
             var output = parseResult.GetValue(outputOption)!;
             var verbose = parseResult.GetValue(verboseOption);
@@ -65,6 +66,8 @@ public static class Ps2TexCommand
         string gifQwordOrderText,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!Ps2GifQwordWordOrder.TryParse(gifQwordOrderText, out var gifQwordWordOrder))
         {
             AnsiConsole.MarkupLine(

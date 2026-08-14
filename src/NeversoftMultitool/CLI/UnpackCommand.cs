@@ -39,6 +39,8 @@ public static class UnpackCommand
         bool verbose,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!Directory.Exists(input))
         {
             AnsiConsole.MarkupLine(

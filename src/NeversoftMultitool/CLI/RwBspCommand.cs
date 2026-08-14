@@ -69,7 +69,8 @@ public static class RwBspCommand
         }
         else if (Directory.Exists(input))
         {
-            files = Directory.GetFiles(input, "*.bsp", SearchOption.AllDirectories)
+            files = SelectCandidatePaths(
+                    Directory.EnumerateFiles(input, "*", SearchOption.AllDirectories))
                 .ToList();
         }
         else
@@ -123,5 +124,14 @@ public static class RwBspCommand
             cancellationToken,
             texturePath: texPath,
             inputRoot: isSingleFile ? null : input);
+    }
+
+    internal static string[] SelectCandidatePaths(IEnumerable<string> paths)
+    {
+        return paths
+            .Where(static path => Path.GetExtension(path)
+                .Equals(".bsp", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
     }
 }

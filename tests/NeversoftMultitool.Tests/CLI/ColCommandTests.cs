@@ -36,6 +36,24 @@ public sealed class ColCommandTests
         Assert.False(Directory.Exists(directoryOutput));
     }
 
+    [Fact]
+    public void Execute_EmptyDirectoryPreCancelled_PropagatesWithoutOutput()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "empty");
+        var output = Path.Combine(temp.Path, "output");
+        Directory.CreateDirectory(input);
+
+        Assert.Throws<OperationCanceledException>(() => ColCommand.Execute(
+            input,
+            output,
+            verbose: true,
+            format: MeshOutputFormat.Glb,
+            blenderHelperPath: null,
+            cancellationToken: new CancellationToken(canceled: true)));
+        Assert.False(Directory.Exists(output));
+    }
+
     private static int Execute(string input, string output)
     {
         return ColCommand.Execute(

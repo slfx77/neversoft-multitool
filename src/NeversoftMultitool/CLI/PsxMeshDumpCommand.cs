@@ -51,6 +51,7 @@ public static class PsxMeshDumpCommand
             cancellationToken.ThrowIfCancellationRequested();
             var json = PsxMeshDumpSnapshotBuilder.Serialize(snapshot);
             cancellationToken.ThrowIfCancellationRequested();
+            RejectCanonicalSourcePath(input, jsonPath);
 
             var directory = Path.GetDirectoryName(jsonPath);
             if (!string.IsNullOrEmpty(directory))
@@ -66,6 +67,24 @@ public static class PsxMeshDumpCommand
         {
             AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(ex.Message)}");
             return 1;
+        }
+    }
+
+    private static void RejectCanonicalSourcePath(string input, string outputPath)
+    {
+        // This guards normalized path aliases. Symlink/hard-link identity is a
+        // separate filesystem-level overwrite policy.
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        if (string.Equals(
+                Path.GetFullPath(outputPath),
+                Path.GetFullPath(input),
+                comparison))
+        {
+            throw new InvalidDataException(
+                "output path resolves to the same canonical path as the input PSX source");
         }
     }
 }

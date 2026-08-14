@@ -128,6 +128,23 @@ public sealed class Ps2TexCommandTests
     }
 
     [Fact]
+    public void Execute_PreCancelled_TakesPrecedenceOverInvalidGifOrder()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "source.img.ps2");
+        var output = Path.Combine(temp.Path, "output");
+        File.WriteAllBytes(input, BuildOnePixelPsmct32Img());
+
+        Assert.Throws<OperationCanceledException>(() => Ps2TexCommand.Execute(
+            input,
+            output,
+            verbose: true,
+            gifQwordOrderText: "[0123]",
+            new CancellationToken(canceled: true)));
+        Assert.False(Directory.Exists(output));
+    }
+
+    [Fact]
     public void Execute_InvalidBracketedGifOrder_ReturnsFailureWithoutOutput()
     {
         using var temp = new TempDirectory();

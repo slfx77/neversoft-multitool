@@ -45,6 +45,22 @@ public sealed class UnpackCommandTests
         Assert.Empty(Directory.EnumerateFileSystemEntries(empty));
     }
 
+    [Fact]
+    public void Execute_PreCancelledEmptyDirectoryThrowsWithoutCreatingOutput()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "input");
+        Directory.CreateDirectory(input);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() => UnpackCommand.Execute(
+            input, verbose: true, cancellation.Token));
+
+        Assert.Empty(Directory.EnumerateFileSystemEntries(input));
+    }
+
     private static void WriteSingleEntryWad(string directory, string stem)
     {
         File.WriteAllBytes(Path.Combine(directory, stem + ".wad"), [0x42]);

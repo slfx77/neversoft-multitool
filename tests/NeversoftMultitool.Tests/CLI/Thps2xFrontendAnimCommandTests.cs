@@ -73,6 +73,23 @@ public sealed class Thps2XFrontendAnimCommandTests
         Assert.False(Directory.Exists(output));
     }
 
+    [Fact]
+    public void Execute_EmptyDirectoryPreCancelled_PropagatesWithoutOutput()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "empty");
+        var output = Path.Combine(temp.Path, "output");
+        Directory.CreateDirectory(input);
+
+        Assert.Throws<OperationCanceledException>(() =>
+            Thps2XFrontendAnimCommand.Execute(
+                input,
+                output,
+                verbose: true,
+                new CancellationToken(canceled: true)));
+        Assert.False(Directory.Exists(output));
+    }
+
     private static byte[] BuildMinimalAnim()
     {
         var data = new byte[16];

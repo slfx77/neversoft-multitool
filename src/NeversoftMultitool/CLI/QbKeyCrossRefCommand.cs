@@ -52,6 +52,7 @@ internal static class QbKeyCrossRefCommand
 
         crossRefCmd.SetAction((parseResult, cancellationToken) =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var ddmDir = parseResult.GetValue(ddmDirArg)!;
             var psxDir = parseResult.GetValue(psxDirArg)!;
             var export = parseResult.GetValue(exportOption);
@@ -61,15 +62,18 @@ internal static class QbKeyCrossRefCommand
             var scanPsh = parseResult.GetValue(scanPshOption);
 
             return Task.FromResult(Execute(ddmDir, psxDir, export, verbose, showUnmatched,
-                scanArchives, scanPsh));
+                scanArchives, scanPsh, cancellationToken));
         });
 
         return crossRefCmd;
     }
 
-    private static int Execute(string ddmDir, string psxDir, string? export,
-        bool verbose, bool showUnmatched, string? scanArchives, string? scanPsh)
+    internal static int Execute(string ddmDir, string psxDir, string? export,
+        bool verbose, bool showUnmatched, string? scanArchives, string? scanPsh,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!Directory.Exists(ddmDir))
         {
             AnsiConsole.MarkupLine($"[red]Error:[/] DDM directory not found: {ddmDir}");

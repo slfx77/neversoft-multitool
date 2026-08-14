@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 using NeversoftMultitool.CLI;
+using NeversoftMultitool.Core.Rendering;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -120,6 +121,25 @@ public sealed class GlbGifCommandTests
             animIndex: null,
             cancellationToken: new CancellationToken(canceled: true)));
         Assert.False(Directory.Exists(output));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void RenderToFile_NonPositiveFps_ThrowsBeforeCreatingOutput(int fps)
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "animated.glb");
+        var outputDirectory = Path.Combine(temp.Path, "output");
+        var output = Path.Combine(outputDirectory, "animated.gif");
+        File.WriteAllBytes(input, BuildAnimatedEmptySceneGlb());
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            GlbGifRenderer.RenderToFile(input, output, longEdge: 8, fps: fps));
+
+        Assert.Equal("fps", exception.ParamName);
+        Assert.False(Directory.Exists(outputDirectory));
+        Assert.False(File.Exists(output));
     }
 
     private static int Execute(

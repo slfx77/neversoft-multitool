@@ -218,6 +218,21 @@ public static class GsDumpCommand
         if (maxDumps.HasValue)
             files = files.Take(maxDumps.Value).ToList();
 
+        var duplicateStems = FindDuplicateOutputStems(files);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (duplicateStems.Length > 0)
+        {
+            foreach (var stem in duplicateStems)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                AnsiConsole.MarkupLine(
+                    $"[red]Error:[/] Multiple GS dump inputs map to output stem " +
+                    $"[green]{Markup.Escape(stem)}[/]");
+            }
+
+            return 1;
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(output);
         AnsiConsole.MarkupLine($"Found [green]{files.Count}[/] raw GS dump(s)");
@@ -284,10 +299,32 @@ public static class GsDumpCommand
         if (!Directory.Exists(input))
             return [];
 
-        return Directory.EnumerateFiles(input, "*.gs", SearchOption.TopDirectoryOnly)
-            .Where(IsRawGs)
+        return SelectCandidatePaths(
+                Directory.EnumerateFiles(input, "*", SearchOption.TopDirectoryOnly))
             .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static path => path, StringComparer.Ordinal)
             .ToList();
+    }
+
+    internal static string[] SelectCandidatePaths(IEnumerable<string> paths)
+    {
+        return paths
+            .Where(IsRawGs)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    internal static string[] FindDuplicateOutputStems(IEnumerable<string> paths)
+    {
+        return paths
+            .GroupBy(
+                static path => Path.GetFileNameWithoutExtension(path) ?? string.Empty,
+                StringComparer.Ordinal)
+            .Where(static group => group.Count() > 1)
+            .Select(static group => group.Key)
+            .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static path => path, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static bool IsRawGs(string path)

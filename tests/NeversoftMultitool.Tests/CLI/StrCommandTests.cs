@@ -6,6 +6,33 @@ namespace NeversoftMultitool.Tests.CLI;
 public sealed class StrCommandTests
 {
     [Fact]
+    public void SelectCandidatePaths_KeepsEveryStrExtensionCaseAndRemovesOnlyExactDuplicates()
+    {
+        var lowerCasePath = Path.Combine("input", "clip.str");
+        var upperCasePath = Path.Combine("input", "CLIP.STR");
+        var mixedCasePath = Path.Combine("input", "mixed.Str");
+        var unrelatedPath = Path.Combine("input", "not-video.txt");
+
+        var result = StrCommand.SelectCandidatePaths(
+            [lowerCasePath, lowerCasePath, upperCasePath, mixedCasePath, unrelatedPath]);
+
+        Assert.Equal([lowerCasePath, upperCasePath, mixedCasePath], result);
+    }
+
+    [Fact]
+    public void FindDuplicateOutputStems_UsesExactStemIdentity()
+    {
+        var lowerCasePath = Path.Combine("input", "clip.str");
+        var sameStemPath = Path.Combine("input", "clip.STR");
+        var upperCasePath = Path.Combine("input", "CLIP.STR");
+
+        Assert.Equal(
+            ["clip"],
+            StrCommand.FindDuplicateOutputStems([lowerCasePath, sameStemPath]));
+        Assert.Empty(StrCommand.FindDuplicateOutputStems([lowerCasePath, upperCasePath]));
+    }
+
+    [Fact]
     public void Execute_MissingAndEmptyInputsPreserveExitContractsWithoutConverter()
     {
         using var temp = new TempDirectory();

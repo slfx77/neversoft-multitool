@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.CLI;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
@@ -50,6 +51,21 @@ public sealed class MeshCommandTests
             output,
             cancellation.Token));
         Assert.False(Directory.Exists(output));
+    }
+
+    [Fact]
+    public void Execute_ValidEmptyCollisionFailsWithoutOutput()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "empty.col");
+        var output = Path.Combine(temp.Path, "output");
+        var data = new byte[32];
+        BinaryPrimitives.WriteInt32LittleEndian(data, 10);
+        File.WriteAllBytes(input, data);
+
+        Assert.Equal(1, Execute(input, output));
+        Assert.True(Directory.Exists(output));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(output));
     }
 
     private static int Execute(

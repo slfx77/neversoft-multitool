@@ -95,7 +95,9 @@ public static class GlbGifCommand
         }
         else if (Directory.Exists(input))
         {
-            files = Directory.GetFiles(input, "*.glb", SearchOption.AllDirectories).ToList();
+            files = SelectCandidatePaths(
+                    Directory.EnumerateFiles(input, "*", SearchOption.AllDirectories))
+                .ToList();
             AnsiConsole.MarkupLine($"Found [green]{files.Count}[/] .glb files");
         }
         else
@@ -105,6 +107,23 @@ public static class GlbGifCommand
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (output == null)
+        {
+            var duplicateOutputs = FindDuplicateBesideSourceOutputs(files);
+            if (duplicateOutputs.Length > 0)
+            {
+                foreach (var duplicateOutput in duplicateOutputs)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    AnsiConsole.MarkupLine(
+                        $"[red]Error:[/] Multiple GLB inputs map to beside-source output " +
+                        $"[green]{Markup.Escape(duplicateOutput + ".gif")}[/]");
+                }
+
+                return 1;
+            }
+        }
 
         // With an explicit output root, only colliding stems mirror their source
         // directories. The default beside-source layout is already collision-safe
@@ -182,5 +201,27 @@ public static class GlbGifCommand
             $"[red]{fail}[/] failed ({sw.Elapsed.TotalSeconds:F1}s)");
 
         return fail > 0 ? 1 : 0;
+    }
+
+    internal static string[] SelectCandidatePaths(IEnumerable<string> paths)
+    {
+        return paths
+            .Where(static path => Path.GetExtension(path)
+                .Equals(".glb", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    internal static string[] FindDuplicateBesideSourceOutputs(IEnumerable<string> paths)
+    {
+        return paths
+            .Select(static path => Path.GetFullPath(Path.Combine(
+                Path.GetDirectoryName(path) ?? ".",
+                Path.GetFileNameWithoutExtension(path) ?? string.Empty)))
+            .GroupBy(static output => output, StringComparer.Ordinal)
+            .Where(static group => group.Count() > 1)
+            .Select(static group => group.Key)
+            .OrderBy(static output => output, StringComparer.Ordinal)
+            .ToArray();
     }
 }

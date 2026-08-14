@@ -116,6 +116,9 @@ internal static class MeshExportCliOptions
                     worldzoneScale: worldzoneScale,
                     exportStem: stem);
 
+                if (result.OutputPaths.Count == 0)
+                    throw new InvalidDataException("Mesh export produced no output.");
+
                 totalTriangles += result.Triangles;
                 converted++;
 

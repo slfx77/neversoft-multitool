@@ -17,8 +17,8 @@ public static class SkaCommand
     private static readonly string[] SkaSuffixes = [".ska", ".ska.ps2", ".ska.xbx", ".ska.wpc", ".ska.ngc"];
 
     // Q48/T48 compression tables (standardkeyQ.bin / standardkeyT.bin) are required to
-    // decode quantised rotation/translation keys. Without them, table-lookup keys fall
-    // back to identity, causing visible "snap to bind pose" stutter at those frames.
+    // decode quantised rotation/translation lookup keys. Without them, shared compressed
+    // lookup records fail closed instead of exporting fabricated identity/zero tracks.
     // Cache by directory since tables apply to every SKA in the same build.
     private static readonly Dictionary<string, SkaCompressTable?> _tableCache =
         new(StringComparer.OrdinalIgnoreCase);

@@ -217,9 +217,13 @@ internal static class PsxAnimExportRunner
         });
         cancellationToken.ThrowIfCancellationRequested();
 
-        var emittedPaths = result.OutputPaths.Count > 0
-            ? string.Join(", ", result.OutputPaths.Select(Path.GetFileName))
-            : Path.GetFileName(outputPath);
+        if (result.OutputPaths.Count == 0)
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] Animation export produced no output.");
+            return 1;
+        }
+
+        var emittedPaths = string.Join(", ", result.OutputPaths.Select(Path.GetFileName));
         string transStatus;
         if (opts.SkipTranslation)
         {
@@ -257,7 +261,7 @@ internal static class PsxAnimExportRunner
             $"rotScale={opts.RotationScale:F3}");
 
         cancellationToken.ThrowIfCancellationRequested();
-        return result.Triangles == 0 ? 1 : 0;
+        return 0;
     }
 
     private static void PrintBankSummary(string kind, PsxAnimationBankInfo bank)

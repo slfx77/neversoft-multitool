@@ -7,6 +7,19 @@ namespace NeversoftMultitool.Tests.CLI;
 public sealed class DdmCommandTests
 {
     [Fact]
+    public void FindDuplicateOutputStems_UsesExactStemIdentity()
+    {
+        var lowerCasePath = Path.Combine("input", "clip.ddm");
+        var sameStemPath = Path.Combine("input", "clip.DDM");
+        var upperCasePath = Path.Combine("input", "CLIP.DdM");
+
+        Assert.Equal(
+            ["clip"],
+            DdmCommand.FindDuplicateOutputStems([lowerCasePath, sameStemPath]));
+        Assert.Empty(DdmCommand.FindDuplicateOutputStems([lowerCasePath, upperCasePath]));
+    }
+
+    [Fact]
     public void Execute_MissingAndEmptyDirectories_PreserveExitContracts()
     {
         using var temp = new TempDirectory();

@@ -260,6 +260,9 @@ public static class MeshCommand
                     exportStem,
                     includeN64Animations);
 
+                if (result.OutputPaths.Count == 0)
+                    throw new InvalidDataException("Mesh export produced no output.");
+
                 converted++;
                 totalTriangles += result.Triangles;
                 if (verbose)

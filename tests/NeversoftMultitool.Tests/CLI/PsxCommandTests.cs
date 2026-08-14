@@ -183,7 +183,7 @@ public sealed class PsxCommandTests
 
         // The first texture has already been written when this source-valid header
         // shape reaches the intentionally unsupported encoding. PsxLibrary then
-        // returns ErrorMessage + Success because it rewrites TotalTextures=Written.
+        // returns an error after rewriting TotalTextures=Written for the valid prefix.
         WriteRectangleHeader(writer, index: 1, pixelFormat: 0x0001, size: 0);
         writer.Flush();
         return stream.ToArray();

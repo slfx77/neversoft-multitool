@@ -29,6 +29,8 @@ internal static class QbKeyImportCommand
 
         importCmd.SetAction((parseResult, cancellationToken) =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var namesFile = parseResult.GetValue(namesFileArg)!;
             var psxDir = parseResult.GetValue(psxDirOption);
             var export = parseResult.GetValue(exportOption);

@@ -48,6 +48,8 @@ public static class Thps2XFrontendAnimCommand
         bool verbose,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (!File.Exists(input) && !Directory.Exists(input))
         {
             AnsiConsole.MarkupLine(
