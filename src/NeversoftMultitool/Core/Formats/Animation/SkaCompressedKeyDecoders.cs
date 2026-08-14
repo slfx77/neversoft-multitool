@@ -34,17 +34,13 @@ internal static class SkaCompressedKeyDecoders
                     var index = data[off];
                     off += 1;
 
-                    if (table != null)
-                    {
-                        qx = table.Q48[index].X / 16384f;
-                        qy = table.Q48[index].Y / 16384f;
-                        qz = table.Q48[index].Z / 16384f;
-                    }
-                    else
-                    {
-                        // No table — use identity as fallback
-                        qx = qy = qz = 0;
-                    }
+                    if (table == null)
+                        throw new InvalidDataException(
+                            $"SKA compressed Q lookup index {index} requires a Q48 compression table.");
+
+                    qx = table.Q48[index].X / 16384f;
+                    qy = table.Q48[index].Y / 16384f;
+                    qz = table.Q48[index].Z / 16384f;
                 }
                 else
                 {
@@ -153,16 +149,13 @@ internal static class SkaCompressedKeyDecoders
                 var index = data[off];
                 off += 1;
 
-                if (table != null)
-                {
-                    tx = table.T48[index].X / 32f;
-                    ty = table.T48[index].Y / 32f;
-                    tz = table.T48[index].Z / 32f;
-                }
-                else
-                {
-                    tx = ty = tz = 0;
-                }
+                if (table == null)
+                    throw new InvalidDataException(
+                        $"SKA compressed T lookup index {index} requires a T48 compression table.");
+
+                tx = table.T48[index].X / 32f;
+                ty = table.T48[index].Y / 32f;
+                tz = table.T48[index].Z / 32f;
             }
             else
             {

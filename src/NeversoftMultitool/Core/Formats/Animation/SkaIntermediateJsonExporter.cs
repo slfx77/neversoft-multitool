@@ -24,11 +24,12 @@ internal static class SkaIntermediateJsonExporter
 
     internal static void Write(string outputPath, string sourceFile, SkaAnimation animation)
     {
+        var json = Serialize(sourceFile, animation);
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        File.WriteAllText(outputPath, Serialize(sourceFile, animation));
+        File.WriteAllText(outputPath, json);
     }
 
     internal static string Serialize(string sourceFile, SkaAnimation animation)

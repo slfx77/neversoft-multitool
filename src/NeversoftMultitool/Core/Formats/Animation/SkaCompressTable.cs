@@ -21,7 +21,7 @@ internal sealed class SkaCompressTable
         var q48Data = File.ReadAllBytes(q48Path);
         var t48Data = File.ReadAllBytes(t48Path);
 
-        if (q48Data.Length < 2048 || t48Data.Length < 2048)
+        if (q48Data.Length != 2048 || t48Data.Length != 2048)
             return null;
 
         return new SkaCompressTable

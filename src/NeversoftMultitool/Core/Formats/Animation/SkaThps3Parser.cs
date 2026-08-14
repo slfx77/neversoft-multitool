@@ -239,6 +239,17 @@ internal static class SkaThps3Parser
                 prev = BitConverter.ToInt32(data[(off + 16)..]);
             }
 
+            var finite = trackKind == ThpsRecordKind.Q
+                ? float.IsFinite(x) && float.IsFinite(y) && float.IsFinite(z) &&
+                  float.IsFinite(w) && float.IsFinite(time)
+                : float.IsFinite(x) && float.IsFinite(y) && float.IsFinite(z) &&
+                  float.IsFinite(time);
+            if (!finite)
+            {
+                throw new InvalidDataException(
+                    $"THPS3 SKA {trackKind} key {i} contains a non-finite component.");
+            }
+
             keys[i] = new ThpsRawKey(x, y, z, w, time, prev, i);
 
             // Sentinel = prev doesn't land on an earlier record in this array.

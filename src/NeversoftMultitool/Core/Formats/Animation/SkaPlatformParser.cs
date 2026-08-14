@@ -153,6 +153,12 @@ internal static class SkaPlatformParser
                     var qx = BitConverter.ToSingle(data[(qOff + 2)..]);
                     var qy = BitConverter.ToSingle(data[(qOff + 6)..]);
                     var qz = BitConverter.ToSingle(data[(qOff + 10)..]);
+                    if (!float.IsFinite(qx) || !float.IsFinite(qy) || !float.IsFinite(qz))
+                    {
+                        throw new InvalidDataException(
+                            $"SKA platform: bone {bone} high-resolution Q key {k} contains a non-finite component");
+                    }
+
                     var time = timestamp / 60f;
                     rotKeys[k] = new SkaRotationKey(time, SkaFile.ReconstructQuat(qx, qy, qz, signBit));
                     qOff += 14;
@@ -180,6 +186,12 @@ internal static class SkaPlatformParser
                     var tx = BitConverter.ToSingle(data[(tOff + 2)..]);
                     var ty = BitConverter.ToSingle(data[(tOff + 6)..]);
                     var tz = BitConverter.ToSingle(data[(tOff + 10)..]);
+                    if (!float.IsFinite(tx) || !float.IsFinite(ty) || !float.IsFinite(tz))
+                    {
+                        throw new InvalidDataException(
+                            $"SKA platform: bone {bone} high-resolution T key {k} contains a non-finite component");
+                    }
+
                     var time = timestamp / 60f;
                     transKeys[k] = new SkaTranslationKey(time, new Vector3(tx, ty, tz));
                     tOff += 14;

@@ -119,8 +119,8 @@ internal static class PsxAnimationBoneMap
         // loop breaks on first hit). The case-insensitive and semantic tiers
         // below are converter leniency beyond the engine, consulted only when
         // the engine-faithful comparison finds nothing.
-        var targetExact = BuildFirstWinsIndex(targetPsh, StringComparer.Ordinal);
-        var targetIgnoreCase = BuildFirstWinsIndex(targetPsh, StringComparer.OrdinalIgnoreCase);
+        var targetExact = BuildLowestIndex(targetPsh, StringComparer.Ordinal);
+        var targetIgnoreCase = BuildLowestIndex(targetPsh, StringComparer.OrdinalIgnoreCase);
         var targetSemantic = BuildUniqueSemanticIndex(targetPsh);
 
         var usedTargets = new bool[boneCount];
@@ -163,7 +163,7 @@ internal static class PsxAnimationBoneMap
         out int targetIndex)
     {
         // Tier 1 mirrors the engine: a case-sensitive strcmp where the
-        // first duplicate wins. Tiers 2 and 3 are converter leniency for
+        // lowest-index duplicate wins. Tiers 2 and 3 are converter leniency for
         // cross-bank pairings the engine would leave unmapped.
         if (targetExact.TryGetValue(sourceName, out targetIndex))
             return true;
@@ -174,7 +174,7 @@ internal static class PsxAnimationBoneMap
         return targetSemantic.TryGetValue(ToSemanticName(sourceName), out targetIndex);
     }
 
-    private static Dictionary<string, int> BuildFirstWinsIndex(
+    private static Dictionary<string, int> BuildLowestIndex(
         PshFile targetPsh, StringComparer comparer)
     {
         var index = new Dictionary<string, int>(comparer);
@@ -183,9 +183,14 @@ internal static class PsxAnimationBoneMap
             if (bone.Index < 0)
                 continue;
 
-            // TryAdd keeps the first (lowest-index) bone on duplicate names,
-            // matching CalculateAnimOrder's break-on-first-hit inner loop.
-            index.TryAdd(bone.Name, bone.Index);
+            // PSH declaration order need not match numeric bone order. The
+            // runtime walks its indexed table, so the lowest index is its
+            // first matching duplicate regardless of declaration order.
+            if (!index.TryGetValue(bone.Name, out var existingIndex) ||
+                bone.Index < existingIndex)
+            {
+                index[bone.Name] = bone.Index;
+            }
         }
 
         return index;

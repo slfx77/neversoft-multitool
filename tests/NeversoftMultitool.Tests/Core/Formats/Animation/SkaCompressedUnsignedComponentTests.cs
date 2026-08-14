@@ -169,6 +169,28 @@ public sealed class SkaCompressedUnsignedComponentTests(TestPaths paths)
         Assert.Equal(new Vector3(1f, -2f, 3f), t.Translation);
     }
 
+    [Fact]
+    public void CompressTable_ExactFixedSizePair_IsAccepted()
+    {
+        var table = TryLoadSyntheticTables(2048, 2048);
+
+        Assert.NotNull(table);
+        Assert.Equal(256, table.Q48.Length);
+        Assert.Equal(256, table.T48.Length);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CompressTable_OneAppendedByte_IsRejected(bool appendToQ)
+    {
+        var table = TryLoadSyntheticTables(
+            appendToQ ? 2049 : 2048,
+            appendToQ ? 2048 : 2049);
+
+        Assert.Null(table);
+    }
+
     [CorpusFact]
     public void ThugCompiledCut_QKeysMatchBareAuthoringValues_WithUnsignedByteLiterals()
     {
@@ -257,6 +279,25 @@ public sealed class SkaCompressedUnsignedComponentTests(TestPaths paths)
         Assert.Equal(1_412_381, narrowComponents);
         Assert.Equal(99_562, highBitNarrowComponents);
         Assert.InRange(maxXyzDelta, 0.000068f, 0.000070f);
+    }
+
+    private static SkaCompressTable? TryLoadSyntheticTables(int qLength, int tLength)
+    {
+        var stem = Path.Combine(
+            Path.GetTempPath(), "nmt_ska_table_" + Guid.NewGuid().ToString("N"));
+        var qPath = stem + "_q.bin";
+        var tPath = stem + "_t.bin";
+        try
+        {
+            File.WriteAllBytes(qPath, new byte[qLength]);
+            File.WriteAllBytes(tPath, new byte[tLength]);
+            return SkaCompressTable.TryLoad(qPath, tPath);
+        }
+        finally
+        {
+            File.Delete(qPath);
+            File.Delete(tPath);
+        }
     }
 
     private static Dictionary<uint, byte[]> ReadSkaMembers(string cutPath)

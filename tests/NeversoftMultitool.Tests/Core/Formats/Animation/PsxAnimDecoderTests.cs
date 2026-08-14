@@ -107,6 +107,28 @@ public class PsxAnimDecoderTests(TestPaths paths)
     }
 
     [Fact]
+    public void Decode_TruncatedMode14Constant_ThrowsInvalidDataException()
+    {
+        var error = Assert.Throws<InvalidDataException>(
+            () => PsxAnimDecoder.Decode([0x0E], 1, 1));
+
+        Assert.Equal(
+            "PSX animation compressed stream is truncated at byte 1; need 2 bytes",
+            error.Message);
+    }
+
+    [Fact]
+    public void Decode_TruncatedBitPackedWindow_ThrowsInvalidDataException()
+    {
+        var error = Assert.Throws<InvalidDataException>(
+            () => PsxAnimDecoder.Decode([0x01, 0x00, 0x00], 1, 2));
+
+        Assert.Equal(
+            "PSX animation compressed stream is truncated at byte 3; need a 3-byte bit window",
+            error.Message);
+    }
+
+    [Fact]
     public void GetBoneRotation_DefaultCompressedStreamUsesPsyqAngleUnits()
     {
         var channels = new short[1, 6, 1];

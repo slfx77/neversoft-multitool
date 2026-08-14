@@ -85,14 +85,14 @@ internal static class PsxAnimationBank
         string? namePrefix)
     {
         var usePrefix = !string.IsNullOrWhiteSpace(namePrefix);
-        if (animIndex < 0)
+        if (animIndex == -1)
         {
             return Enumerable.Range(0, animFile.Entries.Count)
                 .Select(i => new PsxAnimationBankSelection(i, BuildName(i)))
                 .ToList();
         }
 
-        if (animIndex >= animFile.Entries.Count)
+        if (animIndex < -1 || animIndex >= animFile.Entries.Count)
             return [];
 
         return [new PsxAnimationBankSelection(animIndex, BuildName(animIndex))];

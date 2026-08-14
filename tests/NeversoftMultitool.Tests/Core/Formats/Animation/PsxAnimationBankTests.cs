@@ -42,6 +42,22 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
         Assert.Equal("idle", selection.Name);
     }
 
+    [Theory]
+    [InlineData(-2)]
+    [InlineData(int.MinValue)]
+    public void ResolveSelections_NegativeIndexBelowAllSentinel_IsRejected(int animIndex)
+    {
+        var bank = ParseSyntheticBank();
+
+        var selected = PsxAnimationBank.ResolveSelections(
+            bank.AnimFile,
+            animIndex,
+            null,
+            null);
+
+        Assert.Empty(selected);
+    }
+
     [Fact]
     public void PsxAnimationSource_DecodesFromGenericAssetSource()
     {

@@ -74,11 +74,17 @@ internal static class SkaFile
         if (SkaThawParser.IsThawSka(data, out var thawBigEndian))
         {
             var thawReader = new EndianSpanReader(data, thawBigEndian);
-            return new SkaProbeResult(thawReader.F32(8), data[0x0D]);
+            var thawDuration = thawReader.F32(8);
+            if (!IsValidProbeDuration(thawDuration))
+                return null;
+
+            return new SkaProbeResult(thawDuration, data[0x0D]);
         }
 
         var flags = BitConverter.ToUInt32(data[4..]);
         var duration = BitConverter.ToSingle(data[8..]);
+        if (!IsValidProbeDuration(duration))
+            return null;
 
         // Bare-CUT intermediate SKAs are inspection-only: their embedded
         // skeleton has names/hierarchy but no proven neutral pose. Returning
@@ -102,6 +108,9 @@ internal static class SkaFile
         // THPS3 RpHAnim has no explicit bone count in the header; signal "unknown".
         return new SkaProbeResult(duration, null);
     }
+
+    private static bool IsValidProbeDuration(float duration) =>
+        float.IsFinite(duration) && duration >= 0f;
 
     internal static SkaAnimation Parse(byte[] data, SkaCompressTable? compressTable = null)
     {

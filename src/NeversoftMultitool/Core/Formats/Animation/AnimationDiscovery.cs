@@ -168,10 +168,10 @@ internal static class AnimationDiscovery
 
         var animDirEntries = backend.Entries
             .Where(e => IsAnimFileName(e.Name) &&
-                        e.Directory.Contains("anims", StringComparison.OrdinalIgnoreCase))
+                        HasDirectorySegment(e.Directory, "anims"))
             .ToList();
         var charScoped = animDirEntries
-            .Where(e => e.Directory.Contains(charStem, StringComparison.OrdinalIgnoreCase))
+            .Where(e => HasDirectorySegment(e.Directory, charStem))
             .ToList();
         var candidates = charScoped.Count > 0 ? charScoped : animDirEntries;
 
@@ -187,6 +187,14 @@ internal static class AnimationDiscovery
         // No anims directory in this archive at all — probe every .ska* entry
         // (the bone-count flag still separates mismatches).
         return results.Count > 0 ? results : FindInArchive(backend, skeletonBoneCount, ct);
+    }
+
+    private static bool HasDirectorySegment(string directory, string segment)
+    {
+        return directory
+            .Replace('\\', '/')
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Any(candidate => candidate.Equals(segment, StringComparison.OrdinalIgnoreCase));
     }
 
     private static List<AnimationProbe> FindForPsxCharacter(AssetSource skinSource, CancellationToken ct)

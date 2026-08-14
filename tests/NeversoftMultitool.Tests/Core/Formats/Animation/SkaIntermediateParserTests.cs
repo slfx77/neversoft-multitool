@@ -82,6 +82,33 @@ public sealed class SkaIntermediateParserTests(TestPaths paths)
     }
 
     [Fact]
+    public void Write_InvalidMetadata_DoesNotCreateOutputArtifacts()
+    {
+        var animation = SkaFile.Parse(BuildFixture());
+        var metadata = Assert.IsType<SkaIntermediateMetadata>(animation.IntermediateMetadata);
+        metadata.RotationFrames[0] = [];
+
+        var outputRoot = Path.Combine(
+            Path.GetTempPath(),
+            "NsMultitool_Test_IntermediateWrite_" + Guid.NewGuid().ToString("N"));
+        var outputPath = Path.Combine(outputRoot, "nested", "sample.ska.json");
+
+        try
+        {
+            Assert.Throws<InvalidDataException>(() =>
+                SkaIntermediateJsonExporter.Write(outputPath, "sample.ska", animation));
+
+            Assert.False(Directory.Exists(outputRoot));
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            if (Directory.Exists(outputRoot))
+                Directory.Delete(outputRoot, true);
+        }
+    }
+
+    [Fact]
     public void AnimationDiscovery_DoesNotAdvertiseIntermediateStreams()
     {
         var temp = Path.Combine(Path.GetTempPath(),

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
@@ -132,6 +133,62 @@ public class PsxAnimFileTests(TestPaths paths)
         var data = new byte[16];
         var result = PsxAnimFile.Parse(data, 19);
         Assert.Null(result);
+    }
+
+    [Fact]
+    public void TryGetAnimChunkTag_MalformedChunkAfterMatch_FailsClosed()
+    {
+        var data = BuildTaggedAnimationFile(0x12345678u, uint.MaxValue);
+
+        var success = PsxMeshFile.TryGetAnimChunkTag(data, out var chunkTag, out var chunkDataOffset);
+
+        Assert.False(success);
+        Assert.Equal(0u, chunkTag);
+        Assert.Equal(-1, chunkDataOffset);
+        Assert.Null(PsxAnimFile.Parse(data, 1));
+    }
+
+    [Fact]
+    public void TryGetAnimChunkTag_OverflowingMetaTop_FailsClosed()
+    {
+        var data = new byte[8];
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(4), int.MaxValue);
+
+        var success = PsxMeshFile.TryGetAnimChunkTag(data, out var chunkTag, out var chunkDataOffset);
+
+        Assert.False(success);
+        Assert.Equal(0u, chunkTag);
+        Assert.Equal(-1, chunkDataOffset);
+        Assert.Null(PsxAnimFile.Parse(data, 1));
+    }
+
+    [Fact]
+    public void TryGetAnimChunkTag_TerminatorAfterMatch_PreservesAnimation()
+    {
+        var data = BuildTaggedAnimationFile(uint.MaxValue, 0);
+
+        var success = PsxMeshFile.TryGetAnimChunkTag(data, out var chunkTag, out var chunkDataOffset);
+
+        Assert.True(success);
+        Assert.Equal(PsxMeshFile.HierChunkV1Tag, chunkTag);
+        Assert.Equal(16, chunkDataOffset);
+        Assert.NotNull(PsxAnimFile.Parse(data, 1));
+    }
+
+    private static byte[] BuildTaggedAnimationFile(uint trailingTag, uint trailingSize)
+    {
+        var data = new byte[40];
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(4), 8);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(8), PsxMeshFile.HierChunkV1Tag);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(12), 16);
+
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(20), 12);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(24), 1);
+
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(32), trailingTag);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(36), trailingSize);
+        return data;
     }
 
     private static (PsxMeshFile psxFile, PsxAnimFile animFile) ParseAnimFile(string path)

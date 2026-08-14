@@ -32,6 +32,9 @@ internal static class PsxAnimDecompressor
     /// <returns>Number of <paramref name="src" /> bytes consumed.</returns>
     public static int Decompress(ReadOnlySpan<byte> src, Span<short> dst, int step, int streamLength)
     {
+        if (src.IsEmpty)
+            throw new InvalidDataException("PSX animation compressed stream is missing its header");
+
         var srcIdx = 0;
         var header = src[srcIdx++];
         var numSegments = (header >> 4) + 1;
@@ -229,6 +232,13 @@ internal static class PsxAnimDecompressor
     {
         // The decomp reads a 24-bit window and shifts; we replicate that
         // behaviour to handle bit widths up to 15 cleanly.
+        if (byteIdx < 0 || byteIdx > src.Length - 3)
+        {
+            throw new InvalidDataException(
+                $"PSX animation compressed stream is truncated at byte {byteIdx}; " +
+                "need a 3-byte bit window");
+        }
+
         var window =
             ((uint)src[byteIdx] << 16)
             | ((uint)src[byteIdx + 1] << 8)
@@ -250,6 +260,12 @@ internal static class PsxAnimDecompressor
 
     private static int ReadInt16Le(ReadOnlySpan<byte> src, int idx)
     {
+        if (idx < 0 || idx > src.Length - 2)
+        {
+            throw new InvalidDataException(
+                $"PSX animation compressed stream is truncated at byte {idx}; need 2 bytes");
+        }
+
         return (short)(src[idx] | (src[idx + 1] << 8));
     }
 }

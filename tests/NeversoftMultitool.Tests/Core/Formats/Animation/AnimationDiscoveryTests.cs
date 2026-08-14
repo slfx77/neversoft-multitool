@@ -9,7 +9,7 @@ namespace NeversoftMultitool.Tests.Core.Formats.Animation;
 
 public sealed class AnimationDiscoveryTests(TestPaths paths)
 {
-    [Fact]
+    [CorpusFact]
     public void FindForCharacter_N64DirectBank_RoutesExactEmbeddedSelectionBackToItsModel()
     {
         const string buildName = "Spider-Man (2000-11-21, N64 - Final)";
@@ -61,7 +61,7 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
             static primitive => Assert.NotNull(primitive.Skin));
     }
 
-    [Fact]
+    [CorpusFact]
     public void FindForCharacter_N64EligibleShell_RoutesExactEmbeddedSelectionBackToItsModel()
     {
         const string buildName = "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)";
@@ -109,7 +109,7 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
             static primitive => Assert.NotNull(primitive.Skin));
     }
 
-    [Theory]
+    [CorpusTheory]
     [InlineData("Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)",
         "Tony Hawk's Pro Skater 2 (USA).z64", "046", 1)]
     [InlineData("Spider-Man (2000-11-21, N64 - Final)",
@@ -412,7 +412,7 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
         Assert.EndsWith($"::{entry.FullName}", source.DisplayName, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
+    [CorpusFact]
     public void FindForCharacter_Thps3NestedPre_DerivesUnknownClipBoneCounts()
     {
         const string buildName = "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)";

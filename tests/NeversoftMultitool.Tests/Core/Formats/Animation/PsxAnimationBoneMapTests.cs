@@ -38,11 +38,11 @@ public sealed class PsxAnimationBoneMapTests
     [Fact]
     public void TryBuild_DuplicateTargetNames_LowestIndexWins()
     {
-        // CalculateAnimOrder's inner loop breaks on the first hit, so the
-        // lowest-index duplicate wins. A last-wins regression would resolve
-        // to index 1, which is out of range for boneCount 1 and would fail.
+        // PSH declaration order need not match numeric bone order.
+        // CalculateAnimOrder walks the indexed table, so index 0 must win
+        // even when its duplicate is declared after index 1.
         var source = MakePsh(("arm", 0));
-        var target = MakePsh(("arm", 0), ("arm", 1));
+        var target = MakePsh(("arm", 1), ("arm", 0));
 
         var ok = PsxAnimationBoneMap.TryBuild(source, target, 1, out var map, out var diagnostic);
 

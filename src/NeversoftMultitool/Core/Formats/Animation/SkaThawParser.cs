@@ -428,17 +428,35 @@ internal static class SkaThawParser
             for (var k = 0; k < rotKeys.Length; k++, qOff += 16)
             {
                 var ts = r.U16(qOff);
+                var qx = r.F32(qOff + 4);
+                var qy = r.F32(qOff + 8);
+                var qz = r.F32(qOff + 12);
+                if (!float.IsFinite(qx) || !float.IsFinite(qy) || !float.IsFinite(qz))
+                {
+                    throw new InvalidDataException(
+                        $"THAW SKA hi-res: bone {bone} Q key {k} contains a non-finite component");
+                }
+
                 rotKeys[k] = new SkaRotationKey(
                     (ts & 0x7FFF) / 60f,
-                    SkaFile.ReconstructQuat(r.F32(qOff + 4), r.F32(qOff + 8), r.F32(qOff + 12), (ts & 0x8000) != 0));
+                    SkaFile.ReconstructQuat(qx, qy, qz, (ts & 0x8000) != 0));
             }
 
             var transKeys = new SkaTranslationKey[tCounts[bone]];
             for (var k = 0; k < transKeys.Length; k++, tOff += 16)
             {
+                var tx = r.F32(tOff + 4);
+                var ty = r.F32(tOff + 8);
+                var tz = r.F32(tOff + 12);
+                if (!float.IsFinite(tx) || !float.IsFinite(ty) || !float.IsFinite(tz))
+                {
+                    throw new InvalidDataException(
+                        $"THAW SKA hi-res: bone {bone} T key {k} contains a non-finite component");
+                }
+
                 transKeys[k] = new SkaTranslationKey(
                     (r.U16(tOff) & 0x7FFF) / 60f,
-                    new Vector3(r.F32(tOff + 4), r.F32(tOff + 8), r.F32(tOff + 12)));
+                    new Vector3(tx, ty, tz));
             }
 
             tracks[bone] = new SkaBoneTrack
