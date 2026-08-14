@@ -54,7 +54,7 @@ internal sealed class GsDumpFile
         }
 
         var crcOrSentinel = U32(raw, ref offset);
-        var headerBlockSize = checked((int)U32(raw, ref offset));
+        var headerBlockSize = ToSupportedInt32(U32(raw, ref offset), "header block size");
         var headerBlock = Bytes(raw, ref offset, headerBlockSize);
 
         uint crc;
@@ -73,15 +73,23 @@ internal sealed class GsDumpFile
                 throw new InvalidDataException("GS dump header block is shorter than GSDumpHeader.");
 
             var header = headerBlock.AsSpan();
-            stateVersion = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[..]));
-            var stateSize = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[4..]));
-            var serialOffset = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[8..]));
-            var serialSize = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[12..]));
+            stateVersion = ToSupportedInt32(
+                BinaryPrimitives.ReadUInt32LittleEndian(header[..]), "state version");
+            var stateSize = ToSupportedInt32(
+                BinaryPrimitives.ReadUInt32LittleEndian(header[4..]), "state size");
+            var serialOffset = ToSupportedInt32(
+                BinaryPrimitives.ReadUInt32LittleEndian(header[8..]), "serial offset");
+            var serialSize = ToSupportedInt32(
+                BinaryPrimitives.ReadUInt32LittleEndian(header[12..]), "serial size");
             crc = BinaryPrimitives.ReadUInt32LittleEndian(header[16..]);
-            screenshotWidth = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[20..]));
-            screenshotHeight = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[24..]));
-            screenshotOffset = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[28..]));
-            screenshotSize = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(header[32..]));
+            screenshotWidth = ToSupportedInt32(
+                BinaryPrimitives.ReadUInt32LittleEndian(header[20..]), "screenshot width");
+            screenshotHeight = ToSupportedInt32(
+                BinaryPrimitives.ReadUInt32LittleEndian(header[24..]), "screenshot height");
+            screenshotOffset = ToSupportedInt32(
+                BinaryPrimitives.ReadUInt32LittleEndian(header[28..]), "screenshot offset");
+            screenshotSize = ToSupportedInt32(
+                BinaryPrimitives.ReadUInt32LittleEndian(header[32..]), "screenshot size");
 
             if (serialSize > 0 &&
                 serialOffset >= 0 &&
@@ -122,7 +130,8 @@ internal sealed class GsDumpFile
                 {
                     Require(raw, offset, 5);
                     var path = raw[offset++];
-                    var length = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(raw[offset..]));
+                    var length = ToSupportedInt32(
+                        BinaryPrimitives.ReadUInt32LittleEndian(raw[offset..]), "transfer packet length");
                     offset += 4;
                     var data = Bytes(raw, ref offset, length);
                     packets.Add(new GsDumpPacket(
@@ -185,5 +194,16 @@ internal sealed class GsDumpFile
     {
         if (offset < 0 || count < 0 || offset > data.Length || count > data.Length - offset)
             throw new EndOfStreamException($"Unexpected end of GS dump at 0x{offset:X}; wanted {count} bytes.");
+    }
+
+    private static int ToSupportedInt32(uint value, string field)
+    {
+        if (value > int.MaxValue)
+        {
+            throw new InvalidDataException(
+                $"GS dump {field} {value} exceeds the supported Int32 maximum {int.MaxValue}.");
+        }
+
+        return (int)value;
     }
 }

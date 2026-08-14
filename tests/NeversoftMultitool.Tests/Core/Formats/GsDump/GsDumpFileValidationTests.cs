@@ -6,6 +6,61 @@ namespace NeversoftMultitool.Tests.Core.Formats.GsDump;
 public sealed class GsDumpFileValidationTests
 {
     [Fact]
+    public void Parse_UnrepresentableHeaderBlockSize_ThrowsInvalidDataException()
+    {
+        var raw = new byte[8];
+        BinaryPrimitives.WriteUInt32LittleEndian(raw.AsSpan(4), 0x80000000);
+
+        var error = Assert.Throws<InvalidDataException>(() => GsDumpFile.Parse(raw));
+
+        Assert.Equal(
+            "GS dump header block size 2147483648 exceeds the supported Int32 maximum 2147483647.",
+            error.Message);
+    }
+
+    [Theory]
+    [InlineData(0, "state version")]
+    [InlineData(4, "state size")]
+    [InlineData(8, "serial offset")]
+    [InlineData(12, "serial size")]
+    [InlineData(20, "screenshot width")]
+    [InlineData(24, "screenshot height")]
+    [InlineData(28, "screenshot offset")]
+    [InlineData(32, "screenshot size")]
+    public void Parse_UnrepresentableExtendedHeaderField_ThrowsInvalidDataException(
+        int fieldOffset,
+        string field)
+    {
+        const int headerSize = 36;
+        var raw = new byte[8 + headerSize];
+        BinaryPrimitives.WriteUInt32LittleEndian(raw, uint.MaxValue);
+        BinaryPrimitives.WriteUInt32LittleEndian(raw.AsSpan(4), headerSize);
+        BinaryPrimitives.WriteUInt32LittleEndian(raw.AsSpan(8 + fieldOffset), 0x80000000);
+
+        var error = Assert.Throws<InvalidDataException>(() => GsDumpFile.Parse(raw));
+
+        Assert.Equal(
+            $"GS dump {field} 2147483648 exceeds the supported Int32 maximum 2147483647.",
+            error.Message);
+    }
+
+    [Fact]
+    public void Parse_UnrepresentableTransferPacketLength_ThrowsInvalidDataException()
+    {
+        const int packetOffset = 8 + 8192;
+        var raw = new byte[packetOffset + 6];
+        raw[packetOffset] = 0;
+        raw[packetOffset + 1] = 0;
+        BinaryPrimitives.WriteUInt32LittleEndian(raw.AsSpan(packetOffset + 2), 0x80000000);
+
+        var error = Assert.Throws<InvalidDataException>(() => GsDumpFile.Parse(raw));
+
+        Assert.Equal(
+            "GS dump transfer packet length 2147483648 exceeds the supported Int32 maximum 2147483647.",
+            error.Message);
+    }
+
+    [Fact]
     public void Parse_OverflowingScreenshotGeometry_DoesNotExposePixels()
     {
         var dump = GsDumpFile.Parse(BuildDump(0x40000001, 1, [1, 2, 3, 4]));

@@ -913,7 +913,7 @@ public sealed class GsDumpAuditTests
     }
 
     [Fact]
-    public void TextureDump_LabelsFramebufferFeedbackSource()
+    public void TextureDump_LabelsRenderTargetCacheFramebufferFeedbackSource()
     {
         var tex0 = MakeTex0(1, 1, tbp: 0, tbw: 1, psm: 0);
         var textureDumps = new List<GsRuntimeTextureDump>();
@@ -957,8 +957,11 @@ public sealed class GsDumpAuditTests
 
         Assert.Single(textureDumps);
         var audit = Assert.Single(result.Render.TextureDumps);
-        Assert.Equal("framebuffer", audit.Source);
-        Assert.Equal("FBP=0,FBW=1,PSM=0x00,FBMSK=0x00000000", audit.SourceKey);
+        Assert.Equal("rt_cache", audit.Source);
+        Assert.Null(audit.SourceKey);
+        Assert.Contains("texture_from_rt_cache", result.Render.Approximations);
+        Assert.Contains(result.Render.FramebufferTargets.Values, target =>
+            target.Fbp == 0 && target.Fbw == 1 && target.Psm == 0 && target.Fbmsk == 0);
     }
 
     [Fact]
