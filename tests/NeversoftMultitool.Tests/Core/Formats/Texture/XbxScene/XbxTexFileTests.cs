@@ -117,7 +117,11 @@ public sealed class XbxTexFileTests(TestPaths paths)
         var result = XbxTexFile.Parse(file);
         Assert.True(result.Success, result.ErrorMessage);
 
-        var outputDir = Path.Combine(Path.GetTempPath(), "xbxtex_test");
+        // Unique per run: a fixed shared path is deleted wholesale in the
+        // finally below, so a concurrent or interrupted run leaves this one
+        // writing into a directory something else is removing.
+        var outputDir = Path.Combine(
+            Path.GetTempPath(), "xbxtex_test_" + Guid.NewGuid().ToString("N")[..8]);
 
         try
         {
