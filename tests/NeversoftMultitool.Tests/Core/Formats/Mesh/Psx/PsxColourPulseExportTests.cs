@@ -50,6 +50,40 @@ public class PsxColourPulseExportTests
         });
     }
 
+    /// <summary>
+    ///     A PS1 textured modulation is relative to a 128-neutral texel, so its
+    ///     linear form legitimately runs past 1 — items.psx reached 4.41 — but
+    ///     the portable keys are consumed by writing them into the NORMALIZED
+    ///     unsigned-short COLOR_0 attribute, scaled by 65535 with no clamp, so
+    ///     anything above 1 wraps to an unrelated colour. The static bake into
+    ///     the same carrier is clamped, so the animated keys must be too, or a
+    ///     pulsed corner leaves frame 0 for a colour the engine never showed.
+    /// </summary>
+    [CorpusFact]
+    public void Export_PortableChannelKeys_StayInsideTheNormalizedCarrier()
+    {
+        var path = _paths.FindSampleFile("Spider-Man (2000-9-1, PSX - Final)", "items.psx");
+        Assert.SkipWhen(path is null, "items.psx not present in Sample/Builds");
+
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = new FileSystemAssetSource(path!),
+            FileName = Path.GetFileName(path!),
+            OutputStem = "items",
+            SourceKind = ModelSourceKind.Psx
+        });
+
+        var table = Assert.Single(document.NativeMetadata.OfType<PsxColourPulseTableMetadata>());
+        Assert.NotEmpty(table.Channels);
+        foreach (var key in table.Channels.SelectMany(static channel => channel.PortableKeys))
+        {
+            Assert.InRange(key.X, 0f, 1f);
+            Assert.InRange(key.Y, 0f, 1f);
+            Assert.InRange(key.Z, 0f, 1f);
+            Assert.InRange(key.W, 0f, 1f);
+        }
+    }
+
     private byte[] ExportPulsedBank()
     {
         var (glb, _) = ModelExportService.BuildGlbBytes(ParsePulsedBank());

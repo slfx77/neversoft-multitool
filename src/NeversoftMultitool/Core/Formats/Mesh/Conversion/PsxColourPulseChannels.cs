@@ -173,7 +173,19 @@ public sealed class PsxColourPulseChannels
                 ? ApplyBlend(key.BlendRate, resolved)
                 : resolved;
 
-            portable[i] = PsxGeometryHelpers.DisplayRgbToLinear(blended, key.Ps1TexturedModulation);
+            // Clamped exactly as the STATIC colour is on its way into the same
+            // carrier (PsxOverbrightVertexColor1Texture1 clamps `vertex.Color`).
+            // A PS1 textured modulation is relative to a 128-neutral texel, so
+            // its linear form legitimately exceeds 1 — items.psx reaches 4.41 —
+            // but COLOR_0 is a NORMALIZED unsigned-short attribute, and the
+            // consumer that writes an animated key into it scales by 65535
+            // without clamping, so anything above 1 wraps to an unrelated
+            // colour. Publishing the clamped value keeps an animated frame in
+            // the same domain as the frame-0 bake it has to agree with.
+            portable[i] = Vector4.Clamp(
+                PsxGeometryHelpers.DisplayRgbToLinear(blended, key.Ps1TexturedModulation),
+                Vector4.Zero,
+                Vector4.One);
 
             // _PSX_COLOR_0 is written as "PsxPacketColor ?? Color", so a file
             // that emits no PS1 packet (v6) stores the LINEAR colour there, not
