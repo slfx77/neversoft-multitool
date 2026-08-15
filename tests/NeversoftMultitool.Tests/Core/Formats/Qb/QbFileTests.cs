@@ -6,6 +6,19 @@ public class QbFileTests(TestPaths paths)
 {
     private const string Thps3Ps2Build = "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)";
 
+    private static long CountOccurrences(string text, string value)
+    {
+        var count = 0L;
+        for (var i = text.IndexOf(value, StringComparison.Ordinal);
+             i >= 0;
+             i = text.IndexOf(value, i + value.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+
+        return count;
+    }
+
     private string[] GetAllQbFiles()
     {
         if (!paths.HasSampleBuilds) return [];
@@ -183,6 +196,7 @@ public class QbFileTests(TestPaths paths)
         var errors = new List<string>();
         var decompiled = 0;
         var totalOutputChars = 0L;
+        var escapedQuotes = 0L;
 
         Assert.Equal(4_746, files.Length);
 
@@ -195,6 +209,7 @@ public class QbFileTests(TestPaths paths)
                 Assert.NotNull(source);
                 decompiled++;
                 totalOutputChars += source.Length;
+                escapedQuotes += CountOccurrences(source, "\\'");
             }
             catch (Exception ex)
             {
@@ -205,7 +220,13 @@ public class QbFileTests(TestPaths paths)
         Assert.True(errors.Count == 0,
             $"Failed to decompile {errors.Count}/{files.Length} files:\n{string.Join("\n", errors)}");
         Assert.Equal(files.Length, decompiled);
-        Assert.Equal(105_403_160L, totalOutputChars);
+
+        // Single-quoted local strings escape any quote they contain, one added
+        // character each. The corpus holds 183 of them, which is exactly the
+        // difference from the pre-escaping total of 105,403,160 — so the pin
+        // below is derived from that cause rather than copied off a failure.
+        Assert.Equal(183L, escapedQuotes);
+        Assert.Equal(105_403_160L + escapedQuotes, totalOutputChars);
     }
 
     [Fact]
