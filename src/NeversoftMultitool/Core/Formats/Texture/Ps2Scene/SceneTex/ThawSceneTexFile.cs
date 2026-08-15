@@ -92,7 +92,13 @@ public static class ThawSceneTexFile
 
             try
             {
-                parsed = TryParseExact(slice);
+                // An embedded payload is a header found inside a larger blob, so
+                // its declared count describes the whole authored group while
+                // the scan only sees what fits the slice. Requiring the two to
+                // agree here empties the fallback and reduces the result to the
+                // exact path's failure — which is what this path exists to
+                // recover from.
+                parsed = TryParseExact(slice, requireDeclaredCount: false);
             }
             catch
             {
@@ -145,7 +151,9 @@ public static class ThawSceneTexFile
         return map;
     }
 
-    private static Ps2TexResult TryParseExact(ReadOnlySpan<byte> data)
+    private static Ps2TexResult TryParseExact(
+        ReadOnlySpan<byte> data,
+        bool requireDeclaredCount = true)
     {
         if (data.Length < 0x40)
             return Ps2TexResult.Fail("File too small for THAW scene tex");
@@ -158,11 +166,14 @@ public static class ThawSceneTexFile
             return Ps2TexResult.Fail("Invalid offsets");
 
         var entries = ScanTex0Entries(data, 0x40, off1, numTex);
-        if (entries.Count != numTex)
+        if (requireDeclaredCount && entries.Count != numTex)
         {
             return Ps2TexResult.Fail(
                 $"Texture metadata count mismatch: header declares {numTex}, found {entries.Count}");
         }
+
+        if (entries.Count == 0)
+            return Ps2TexResult.Fail("No valid TEX0 entries found in metadata");
 
         var textures = DecodeEntries(data, entries, off2);
         return textures.Any(static texture => texture.Pixels != null)
