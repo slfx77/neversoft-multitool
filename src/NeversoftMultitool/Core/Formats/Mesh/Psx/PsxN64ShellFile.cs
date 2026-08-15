@@ -14,13 +14,17 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Psx;
 ///             The file is <b>big-endian</b> (N64), field for field. The PS1
 ///             header grammar is otherwise unchanged, so it is read by the same
 ///             reader with the byte order declared — see
-///             <see cref="PsxMeshFile.ParseHeaderOnly(byte[], bool)" />.
+///             <see cref="PsxMeshFile.ParseHeaderOnly(byte[], bool, bool)" />.
 ///         </item>
 ///         <item>
-///             The trailing texture-hash array is <b>stripped</b>: the count
-///             survives (equal to the mesh count) but the file ends there, so a
-///             faithful reader runs off the end. Zero-padding the tail lets the
-///             stock header reader consume it unchanged. The per-mesh
+///             The trailing texture-hash array is <b>stripped</b>: the carve
+///             cuts the file at a 4-byte boundary at or after the mesh-name
+///             hashes, so a faithful reader runs off the end. Usually the count
+///             word survives and only its values are gone (417 of 450 shells);
+///             in 33 the file ends at the name hashes and the count is gone
+///             too. Zero-padding the tail lets the stock header reader consume
+///             either shape unchanged. The count is the number of distinct
+///             textures and is <i>not</i> tied to the mesh count. The per-mesh
 ///             <c>meshTopPointers</c> array is stripped too, but that is
 ///             harmless — the reader seeks to <c>metaTop</c> immediately after
 ///             it, and the pointers are only consulted for v3 Apocalypse
@@ -52,6 +56,13 @@ public static class PsxN64ShellFile
     ///     format limit — real shells run to 837 objects (THPS2 model 051).
     /// </summary>
     private const uint MaxMeshCount = 65535;
+
+    /// <summary>
+    ///     Bounds the zero-padding allocation for a garbage texture-hash count.
+    ///     Also not a format limit — the largest real count measured across the
+    ///     four ROMs is 1,217, needing 4,864 bytes of padding.
+    /// </summary>
+    private const uint MaxTextureHashCount = 65535;
 
     /// <summary>
     ///     True when the buffer looks like a byteswapped PSX container — the
@@ -168,17 +179,41 @@ public static class PsxN64ShellFile
 
         var meshNameBytes = (long)meshCount * sizeof(uint);
         var textureCountOffset = (long)cursor + meshNameBytes;
-        if (textureCountOffset + sizeof(uint) > data.Length)
+
+        // The mesh-name hashes always survive the carve — none of the 450
+        // non-empty shells across the four ROMs is truncated inside them — so a
+        // buffer too short to hold them is not a shell we understand.
+        if (textureCountOffset > data.Length)
             return false;
 
+        if (textureCountOffset + sizeof(uint) > data.Length)
+        {
+            // The count word itself was cut. Every carved shell's trailing
+            // region is 4-byte aligned, so a shell that gets here ends exactly
+            // at the name hashes (33 of 450) rather than part-way through the
+            // word. Refuse the part-way case instead of assembling a count out
+            // of real bytes plus padding, then let the zero padding supply the
+            // zero count the reader consumed before this measurement existed.
+            if (textureCountOffset != data.Length)
+                return false;
+
+            padding = sizeof(uint);
+            return true;
+        }
+
+        // The count is the number of DISTINCT TEXTURES, which the format does
+        // not tie to the mesh count: across 2,620 parseable PS1 files — the
+        // container this one is a byteswapped copy of — the two agree in only
+        // 210, and are unequal in 2,410. Requiring equality rejected 54 real
+        // shells outright. Read the count the file actually stores.
         var textureCount = BinaryPrimitives.ReadUInt32BigEndian(
             data.AsSpan((int)textureCountOffset));
-        if (textureCount != meshCount)
+        if (textureCount > MaxTextureHashCount)
             return false;
 
         var textureValuesOffset = textureCountOffset + sizeof(uint);
         var physicalTextureBytes = data.Length - textureValuesOffset;
-        var missingTextureBytes = meshNameBytes - physicalTextureBytes;
+        var missingTextureBytes = (long)textureCount * sizeof(uint) - physicalTextureBytes;
         padding = missingTextureBytes > 0 ? (int)missingTextureBytes : 0;
         return true;
     }

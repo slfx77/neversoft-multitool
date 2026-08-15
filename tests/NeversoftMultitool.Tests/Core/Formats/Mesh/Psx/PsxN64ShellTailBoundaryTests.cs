@@ -29,12 +29,58 @@ public sealed class PsxN64ShellTailBoundaryTests
         Assert.Equal([0u], shell.TextureHashes);
     }
 
+    /// <summary>
+    ///     The texture-hash count is the number of distinct textures and is not
+    ///     tied to the mesh count. Across the 2,620 parseable PS1 files this
+    ///     container is a byteswapped copy of, the two agree in only 210; among
+    ///     the 450 real N64 shells, 54 disagree. Each shape below is one the
+    ///     carved corpus actually contains.
+    /// </summary>
     [Theory]
-    [InlineData(0u)]
-    [InlineData(2u)]
-    public void Parse_TextureCountMustEqualMeshCount(uint textureCount)
+    [InlineData(0u, 0)]   // 36 shells: no textures at all
+    [InlineData(1u, 4)]   // the mesh count, which is only a coincidence
+    [InlineData(3u, 12)]  // 18 shells: more textures than meshes
+    public void Parse_AcceptsAnyTextureCountAndPadsTheStrippedValues(
+        uint textureCount, int expectedValueBytes)
     {
         var data = CreateCompactShell(textureCount);
+
+        var shell = PsxN64ShellFile.Parse(data);
+
+        Assert.NotNull(shell);
+        Assert.Equal([MeshNameHash], shell!.MeshNameHashes);
+        Assert.Equal(expectedValueBytes / sizeof(uint), shell.TextureHashes.Length);
+        Assert.All(shell.TextureHashes, hash => Assert.Equal(0u, hash));
+    }
+
+    [Fact]
+    public void Parse_ShellEndingAtTheMeshNameHashes_ReadsAZeroTextureCount()
+    {
+        // 33 of the 450 real shells stop here: the carve cut the count word off
+        // as well as its values.
+        var data = CreateShellPrefix(MetadataOffset + 8);
+        WriteUInt32(data, MetadataOffset, uint.MaxValue);
+        WriteUInt32(data, MetadataOffset + 4, MeshNameHash);
+
+        var shell = PsxN64ShellFile.Parse(data);
+
+        Assert.NotNull(shell);
+        Assert.Equal([MeshNameHash], shell!.MeshNameHashes);
+        Assert.Empty(shell.TextureHashes);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void Parse_PartiallyPresentTextureCount_IsRefusedRatherThanAssembled(int presentBytes)
+    {
+        // Every carved shell's trailing region is 4-byte aligned, so a count
+        // word split across the physical end never occurs. Refuse it instead of
+        // building a count out of real bytes plus padding.
+        var data = CreateShellPrefix(MetadataOffset + 8 + presentBytes);
+        WriteUInt32(data, MetadataOffset, uint.MaxValue);
+        WriteUInt32(data, MetadataOffset + 4, MeshNameHash);
 
         Assert.Null(PsxN64ShellFile.Parse(data));
     }

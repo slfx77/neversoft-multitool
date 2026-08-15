@@ -140,7 +140,11 @@ public sealed class N64BundleNameResolverTests(TestPaths paths)
         Assert.Contains("models/224/224.psx.n64", shells);
         Assert.Contains("models/166/166.psx.n64", shells);
         Assert.Contains("models/226/226.psx.n64", shells);
-        Assert.Equal(178, shells.Count(IsNamed));
+        // 179, not 178: content naming keys on the mesh-name hashes the shell
+        // parser produces, so while the parser was rejecting 87 of the 450 real
+        // shells one library lost the anchor its family alignment needed. Every
+        // slot asserted above is unchanged either way.
+        Assert.Equal(179, shells.Count(IsNamed));
     }
 
     /// <summary>
