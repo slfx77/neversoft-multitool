@@ -89,14 +89,25 @@ public static class NgcSceneFile
         offset = checked(offset + (int)(blendDlBytes + textureDlBytes));
 
         var poolStart = offset;
-        if (numPoolBytesRaw > (uint)(span.Length - poolStart))
+
+        // The declared pool length can run a little past the physical end,
+        // because it counts the region's own trailing alignment: 26 of the 1,612
+        // THAW GC .mdl.ngc files overrun by 4-16 bytes, and every one of them
+        // declares zero objects, so nothing ever addresses the region. Allow
+        // less than one alignment unit of slack — beyond that a declared size is
+        // real corruption, not padding — and bound the in-pool checks by what is
+        // physically present, leaving each array's own RequireRange to catch a
+        // pool genuinely truncated under content.
+        const int poolAlignment = 32;
+        var declaredPoolEnd = (long)poolStart + numPoolBytesRaw;
+        if (declaredPoolEnd - span.Length >= poolAlignment)
         {
             throw new InvalidDataException(
-                $"NGC scene pool size {numPoolBytesRaw} exceeds the {span.Length - poolStart} remaining bytes");
+                $"NGC scene pool size {numPoolBytesRaw} exceeds the " +
+                $"{span.Length - poolStart} remaining bytes");
         }
 
-        var numPoolBytes = (int)numPoolBytesRaw;
-        var poolEnd = poolStart + numPoolBytes;
+        var poolEnd = (int)Math.Min(declaredPoolEnd, span.Length);
 
         // VC wibble keys precede the material headers inside the pool.
         for (var i = 0; i < numVcWibbles; i++)
@@ -144,13 +155,22 @@ public static class NgcSceneFile
         var materials = ReadMaterials(
             span, materialOffsets, numMaterials, passOffsets, numPassItems, materialTextured);
 
-        // Objects follow the pool region.
-        offset = poolEnd;
-        RequireRange(span.Length, offset, (long)numObjects * ObjectHeaderSize,
-            "NGC scene object headers");
+        // Objects follow the DECLARED pool region. A scene with no objects never
+        // addresses it, so only require it to be in bounds when there is
+        // something to read there.
         var sectors = new List<XbxSector>(numObjects);
-        for (var obj = 0; obj < numObjects; obj++)
-            offset = ReadObject(span, offset, obj, pools, sectors);
+        if (numObjects > 0)
+        {
+            RequireRange(span.Length, (int)declaredPoolEnd, (long)numObjects * ObjectHeaderSize,
+                "NGC scene object headers");
+            offset = (int)declaredPoolEnd;
+            for (var obj = 0; obj < numObjects; obj++)
+                offset = ReadObject(span, offset, obj, pools, sectors);
+        }
+        else
+        {
+            offset = poolEnd;
+        }
 
         var links = ReadHierarchy(span, offset);
 

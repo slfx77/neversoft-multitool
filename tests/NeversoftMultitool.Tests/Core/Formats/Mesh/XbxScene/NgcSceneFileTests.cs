@@ -197,6 +197,52 @@ public sealed class NgcSceneFileTests(TestPaths paths)
         Assert.False(NgcSceneFile.IsNgcScene(data));
     }
 
+    /// <summary>
+    ///     26 of the 1,612 THAW GC .mdl.ngc files declare a pool that ends past
+    ///     the physical file by 4-16 bytes of the region's own 32-byte
+    ///     alignment, and every one of them declares zero objects — so nothing
+    ///     ever addresses the overrun. Rejecting them refused real shipped
+    ///     scenes.
+    /// </summary>
+    [Theory]
+    [InlineData(4u)]
+    [InlineData(16u)]
+    [InlineData(31u)]
+    public void Parse_ZeroObjectSceneWhoseDeclaredPoolOverrunsItsAlignment_IsAccepted(uint overrun)
+    {
+        var data = CreateSyntheticScene(64);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(0x0C), overrun);
+
+        var scene = NgcSceneFile.Parse(data);
+
+        Assert.Empty(scene.Sectors);
+    }
+
+    [Fact]
+    public void Parse_ZeroObjectSceneOverrunningAWholeAlignmentUnit_IsStillRejected()
+    {
+        var data = CreateSyntheticScene(64);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(0x0C), 32);
+
+        var error = Assert.Throws<InvalidDataException>(() => NgcSceneFile.Parse(data));
+
+        Assert.StartsWith("NGC scene pool size 32 exceeds", error.Message);
+    }
+
+    [Fact]
+    public void Parse_SceneWithObjectsWhoseDeclaredPoolOverruns_IsRejected()
+    {
+        // The slack only exists because nothing reads past the pool. Declare an
+        // object and the overrun becomes a real out-of-bounds read.
+        var data = CreateSyntheticScene(64);
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(0x0C), 16);
+        BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(0x10), 1);
+
+        var error = Assert.Throws<InvalidDataException>(() => NgcSceneFile.Parse(data));
+
+        Assert.StartsWith("NGC scene object headers overruns its containing region", error.Message);
+    }
+
     private static byte[] CreateSyntheticScene(int length)
     {
         var data = new byte[length];
