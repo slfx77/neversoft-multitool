@@ -527,7 +527,8 @@ public static class N64ModelWriter
     ///     64/128/256-wide sheets, so a fixed divisor is wrong for most faces.
     ///     UVs come from the CORNER, which carries any G_MODIFYVTX override.
     ///     <paramref name="lift" /> is the semi-transparent separation, zero for
-    ///     every opaque face.
+    ///     every opaque face. Normal, colour, and UV each have their own helper
+    ///     so they can be pinned without building a synthetic render bank.
     /// </summary>
     private static ModelVertex ToVertex(
         N64RenderBankFile.N64RenderMesh mesh,
@@ -540,50 +541,116 @@ public static class N64ModelWriter
         var (shell, _, scale, rig, _, _, binding) = context;
         var offset = CornerOffset(shell, objectIndex, corner, binding);
         var vertex = mesh.Vertices[corner.Vertex];
-        var hasNormals = mesh.HasNormals;
-        var uScale = 32f * Math.Max(1, size.Width);
-        var vScale = 32f * Math.Max(1, size.Height);
-
-        // F3DEX2 reuses the trailing four bytes for either a lit normal or an
-        // authored colour, chosen by the group descriptor's G_LIGHTING bit.
-        var normal = Vector3.UnitY;
-        var colour = Vector4.One;
-        if (hasNormals)
-        {
-            var raw = new Vector3((sbyte)vertex.R, (sbyte)vertex.G, (sbyte)vertex.B) / 127f;
-            if (raw.LengthSquared() > 1e-6f)
-                normal = Vector3.Normalize(PsxMeshSemantics.ToGltfPosition(raw));
-
-            // Bake the ROM's own rig. Each port uploads exactly ONE Lights1 —
-            // a monochrome grey directional plus grey ambient — at startup and
-            // never rewrites it, so the shade is ambient + colour*max(0, N.L)
-            // and spans grey [70,175] on THPS2/3/SM or [95,215] on THPS1. A lit
-            // vertex therefore can never be coloured and can never reach 255,
-            // which is why exporting these as pure WHITE was wrong in kind.
-            // A degenerate all-zero normal (112 groups corpus-wide, among them
-            // THPS1's taxi body and wheels) lands on pure ambient here, which
-            // is what the hardware produces for it rather than a chosen
-            // fallback. Without a rig we cannot shade, so white stands.
-            if (rig != null)
-            {
-                var shade = rig.Shade(raw);
-                colour = new Vector4(shade.X, shade.Y, shade.Z, 1f);
-            }
-        }
-        else
-        {
-            colour = new Vector4(vertex.R / 255f, vertex.G / 255f, vertex.B / 255f, vertex.A / 255f);
-        }
 
         return new ModelVertex
         {
             Position = PsxMeshSemantics.ToGltfPosition(
                 new Vector3(vertex.X * scale, vertex.Y * scale, vertex.Z * scale) + offset) + lift,
-            Normal = normal,
-            Color = colour,
+            Normal = ComputeN64Normal(vertex, mesh.HasNormals),
+            Color = ComputeN64VertexColour(vertex, mesh.HasNormals, rig),
             // Corner ST, not the pool vertex's: G_MODIFYVTX can rewrite it.
-            TexCoord = new Vector2(corner.S / uScale, corner.T / vScale)
+            TexCoord = ComputeN64TextureUv(corner.S, corner.T, size.Width, size.Height)
         };
+    }
+
+    /// <summary>
+    ///     Half a texel in the S10.5 fixed point the pool stores ST in.
+    /// </summary>
+    private const float HalfTexelS10_5 = 16f;
+
+    /// <summary>
+    ///     Maps a corner's S10.5 texel coordinate onto the bound texture,
+    ///     addressing texel CENTRES. Stored spans run 0..N−1 over an N-wide
+    ///     sheet, i.e. integer texel INDICES, so sending index <c>k</c> to
+    ///     <c>k/N</c> lands on the texel's leading EDGE; a linearly filtered
+    ///     sample there blends with the neighbour across the edge, which under
+    ///     REPEAT is the opposite side of the sheet. That is the seam. The PS1
+    ///     writer already addresses centres for the identical reason — see
+    ///     <see cref="PsxGeometryHelpers.ComputePsxTextureUv" /> — and these two
+    ///     paths convert the same authored art, so they must agree.
+    ///     Coordinates beyond the sheet still exceed 1 and tile naturally.
+    /// </summary>
+    internal static Vector2 ComputeN64TextureUv(short s, short t, int width, int height)
+    {
+        return new Vector2(
+            (s + HalfTexelS10_5) / (32f * Math.Max(1, width)),
+            (t + HalfTexelS10_5) / (32f * Math.Max(1, height)));
+    }
+
+    /// <summary>
+    ///     F3DEX2 reuses a vertex's trailing four bytes for either a lit normal
+    ///     or an authored colour, chosen by the group descriptor's G_LIGHTING
+    ///     bit. Only the normal reading produces a normal.
+    /// </summary>
+    internal static Vector3 ComputeN64Normal(
+        N64RenderBankFile.N64Vertex vertex,
+        bool hasNormals)
+    {
+        if (!hasNormals)
+            return Vector3.UnitY;
+
+        var raw = SignedNormal(vertex);
+        return raw.LengthSquared() > 1e-6f
+            ? Vector3.Normalize(PsxMeshSemantics.ToGltfPosition(raw))
+            : Vector3.UnitY;
+    }
+
+    /// <summary>
+    ///     Resolves a vertex's glTF <c>COLOR_0</c>.
+    ///     <para>
+    ///         For a lit vertex this bakes the ROM's own rig. Each port uploads
+    ///         exactly ONE Lights1 — a monochrome grey directional plus grey
+    ///         ambient — at startup and never rewrites it, so the shade is
+    ///         <c>ambient + colour*max(0, N·L)</c> and spans grey [70,175] on
+    ///         THPS2/3/SM or [95,215] on THPS1. A lit vertex can therefore never
+    ///         be coloured and never reach 255, which is why exporting these as
+    ///         pure WHITE was wrong in kind. A degenerate all-zero normal (112
+    ///         groups corpus-wide, among them THPS1's taxi body and wheels)
+    ///         lands on pure ambient, which is what the hardware produces for
+    ///         it rather than a chosen fallback. Without a rig we cannot shade,
+    ///         so white stands.
+    ///     </para>
+    ///     <para>
+    ///         Both readings are DISPLAY-domain values — the RSP does its
+    ///         lighting arithmetic in the same 8-bit space the framebuffer
+    ///         shows, and an unlit vertex's bytes are emitted verbatim — while
+    ///         glTF <c>COLOR_0</c> is a LINEAR multiplier applied to an
+    ///         sRGB-decoded texture. Writing the normalized bytes straight
+    ///         through gamma-encodes them a second time, which is why every N64
+    ///         model read far brighter than the console and than the PS1 export
+    ///         of the same asset: ambient 70/255 displayed near 144. The PS1
+    ///         writers already convert; the plain sRGB branch is the right one
+    ///         here because F3DEX2's combiner neutral is 255, not the PS1
+    ///         packet's 128. Alpha is coverage and passes through untouched.
+    ///     </para>
+    /// </summary>
+    internal static Vector4 ComputeN64VertexColour(
+        N64RenderBankFile.N64Vertex vertex,
+        bool hasNormals,
+        N64LightRig? rig)
+    {
+        Vector4 colour;
+        if (!hasNormals)
+        {
+            colour = new Vector4(
+                vertex.R / 255f, vertex.G / 255f, vertex.B / 255f, vertex.A / 255f);
+        }
+        else if (rig != null)
+        {
+            var shade = rig.Shade(SignedNormal(vertex));
+            colour = new Vector4(shade.X, shade.Y, shade.Z, 1f);
+        }
+        else
+        {
+            colour = Vector4.One;
+        }
+
+        return PsxGeometryHelpers.DisplayRgbToLinear(colour);
+    }
+
+    private static Vector3 SignedNormal(N64RenderBankFile.N64Vertex vertex)
+    {
+        return new Vector3((sbyte)vertex.R, (sbyte)vertex.G, (sbyte)vertex.B) / 127f;
     }
 }
 

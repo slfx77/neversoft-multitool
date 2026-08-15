@@ -30,10 +30,30 @@ public sealed class N64LightingTests(TestPaths paths)
     private const string Thps1N64Build = "Tony Hawk's Pro Skater (2000-2-29, N64 - Final)";
     private const string RomName = "Tony Hawk's Pro Skater (USA).z64";
 
-    /// <summary>THPS1's measured rig: ambient 95/255, light 120/255.</summary>
+    /// <summary>
+    ///     THPS1's measured rig: ambient 95/255, light 120/255. These are the
+    ///     rig's own values, in the console's display domain.
+    /// </summary>
     private const float Thps1Ambient = 95f / 255f;
 
     private const float Thps1LitCeiling = (95f + 120f) / 255f;
+
+    /// <summary>
+    ///     The same two values as they reach glTF <c>COLOR_0</c>, which is a
+    ///     LINEAR multiplier rather than a display value: 95/255 exports as
+    ///     0.1144, not 0.3725. Asserting the display fraction here is what a
+    ///     doubly gamma-encoded export would satisfy.
+    /// </summary>
+    private static readonly float Thps1AmbientExported = SrgbToLinear(Thps1Ambient);
+
+    private static readonly float Thps1LitCeilingExported = SrgbToLinear(Thps1LitCeiling);
+
+    private static float SrgbToLinear(float value)
+    {
+        return value <= 0.04045f
+            ? value / 12.92f
+            : MathF.Pow((value + 0.055f) / 1.055f, 2.4f);
+    }
 
     private string RomPath()
     {
@@ -130,8 +150,8 @@ public sealed class N64LightingTests(TestPaths paths)
 
         var (min, max, chroma) = ColourStats(document);
         Assert.Equal(0f, chroma, 3);
-        Assert.InRange(min, Thps1Ambient - 0.002f, Thps1Ambient + 0.002f);
-        Assert.InRange(max, Thps1Ambient, Thps1LitCeiling + 0.002f);
+        Assert.InRange(min, Thps1AmbientExported - 0.002f, Thps1AmbientExported + 0.002f);
+        Assert.InRange(max, Thps1AmbientExported, Thps1LitCeilingExported + 0.002f);
     }
 
     /// <summary>
@@ -147,8 +167,8 @@ public sealed class N64LightingTests(TestPaths paths)
 
         var (min, max, chroma) = ColourStats(document);
         Assert.Equal(0f, chroma, 3);
-        Assert.Equal(Thps1Ambient, min, 2);
-        Assert.Equal(Thps1Ambient, max, 2);
+        Assert.Equal(Thps1AmbientExported, min, 3);
+        Assert.Equal(Thps1AmbientExported, max, 3);
     }
 
     /// <summary>
@@ -167,6 +187,7 @@ public sealed class N64LightingTests(TestPaths paths)
 
         var (min, _, chroma) = ColourStats(document);
         Assert.True(chroma > 0.1f, $"expected authored colour, got a monochrome model (chroma {chroma:F3})");
-        Assert.True(min < Thps1Ambient, "an unlit bank should reach darker than the rig's ambient floor");
+        Assert.True(min < Thps1AmbientExported,
+            "an unlit bank should reach darker than the rig's ambient floor");
     }
 }
