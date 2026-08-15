@@ -5,9 +5,6 @@ namespace NeversoftMultitool.Tests.Core.Formats.Video;
 
 public class MdecDecoderTests(TestPaths paths)
 {
-    private const string KnownCorruptSm2E5M6FrameSha256 =
-        "ec1ec8ae4e8927ef009c3f158357904e7f0acc1f7bef8c20121a4d2dcc957f34";
-
     private string? FindStrFile(string buildPattern, string fileName)
     {
         if (!paths.HasSampleBuilds) return null;
@@ -323,8 +320,18 @@ public class MdecDecoderTests(TestPaths paths)
         Assert.Contains("only version 2 is supported", error.Message);
     }
 
+    /// <summary>
+    ///     E5M6.STR opens with corrupt chunk headers. This used to be caught in
+    ///     two places: the demuxer could not assemble header frame 1, and header
+    ///     frame 2 assembled but blew up in the bitstream reader at "macroblock
+    ///     (16, 5), block 3, bit 64832". The demuxer now also requires a frame's
+    ///     sectors to agree on their chunk count, which rejects frame 2 up
+    ///     front — so the same corruption is caught strictly earlier, and
+    ///     nothing decodable is lost: the frame that no longer reaches the
+    ///     decoder is exactly the one the decoder used to reject.
+    /// </summary>
     [CorpusFact]
-    public void DecodeFrame_Sm2FinalE5M6HeaderFrame2_IsRejectedByBothDecoders()
+    public void DecodeFrame_Sm2FinalE5M6_CorruptLeadingFramesNeverReachTheDecoder()
     {
         var file = FindStrFile("Spider-Man 2 - Enter Electro (2001-8-15", "E5M6.STR");
         Assert.SkipWhen(file == null, "SM2 Final E5M6.STR not found");
@@ -332,15 +339,17 @@ public class MdecDecoderTests(TestPaths paths)
         var data = File.ReadAllBytes(file!);
         var frame = StrDemuxer.EnumerateFrames(data).First();
 
-        // Corrupt chunk headers prevent frame 1 from assembling as a complete
-        // frame, so the first frame the demuxer can yield is header frame 2.
-        Assert.Equal(2, frame.FrameNumber);
-        Assert.Equal(KnownCorruptSm2E5M6FrameSha256,
+        // Header frames 1 and 2 are both withheld; 3 is the first the demuxer
+        // will stand behind, and it decodes to a complete RGB image.
+        Assert.Equal(3, frame.FrameNumber);
+        Assert.Equal(
+            "c593dd40afd35e8d3c0a2288d11f05ac36970240e5b45f80da0f06e0c11f1baf",
             Convert.ToHexStringLower(SHA256.HashData(frame.Data)));
-        var error = Assert.Throws<InvalidDataException>(() =>
-            MdecDecoder.DecodeFrame(frame.Data, frame.Width, frame.Height));
-        Assert.Contains("macroblock (16, 5), block 3, bit 64832", error.Message);
-        Assert.Equal(551, StrDemuxer.CountFrames(data));
+
+        var rgb = MdecDecoder.DecodeFrame(frame.Data, frame.Width, frame.Height);
+        Assert.Equal(frame.Width * frame.Height * 3, rgb.Length);
+
+        Assert.Equal(550, StrDemuxer.CountFrames(data));
     }
 
     // ── StrProbeResult Tests ───────────────────────────────────────────
@@ -390,7 +399,6 @@ public class MdecDecoderTests(TestPaths paths)
         var demuxed = 0;
         var skippedNonVideo = 0;
         var skippedUnsupported = 0;
-        var expectedCorrupt = 0;
 
         foreach (var file in files)
         {
@@ -425,15 +433,9 @@ public class MdecDecoderTests(TestPaths paths)
                     continue;
                 }
 
-                var frameSha256 = Convert.ToHexStringLower(SHA256.HashData(firstFrame.Data));
-                if (frameSha256 == KnownCorruptSm2E5M6FrameSha256)
-                {
-                    Assert.Throws<InvalidDataException>(() =>
-                        MdecDecoder.DecodeFrame(firstFrame.Data, firstFrame.Width, firstFrame.Height));
-                    expectedCorrupt++;
-                    continue;
-                }
-
+                // No carve-out for E5M6's corrupt lead any more: the demuxer
+                // withholds those frames, so every frame it does yield must
+                // decode. If one stops decoding, this should fail loudly.
                 var rgb = MdecDecoder.DecodeFrame(firstFrame.Data, firstFrame.Width, firstFrame.Height);
                 Assert.Equal(firstFrame.Width * firstFrame.Height * 3, rgb.Length);
 
@@ -447,7 +449,7 @@ public class MdecDecoderTests(TestPaths paths)
 
         Assert.True(errors.Count == 0,
             $"Failed to demux+decode {errors.Count}/" +
-            $"{files.Length - skippedNonVideo - skippedUnsupported - expectedCorrupt} supported video files:\n" +
+            $"{files.Length - skippedNonVideo - skippedUnsupported} supported video files:\n" +
             string.Join("\n", errors));
         Assert.True(demuxed > 0, "No files were demuxed");
     }
