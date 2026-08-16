@@ -169,9 +169,11 @@ path assigning through a different offset or a copied struct).
 
 ## Needs the user, not code
 
-- Visual pass over the rest of the round-2/3 list: sky domes, sprite billboards (trees, antennas),
-  DC chain-link fences, skmar/skware decal z-fighting, pickup heights. control.psx and the l1a2
-  apparition are confirmed done.
+- Visual pass over what is genuinely left of the round-2/3 list: sprite billboards (trees,
+  antennas) and skmar/skware decal z-fighting. Pruned 2026-08-16 — sky domes, DC chain-link
+  fences and pickup heights were still listed here although `mesh-fidelity.md` records all three
+  as fixed and pinned in the 2026-07-28 THPS2-DC batch; control.psx and the l1a2 apparition were
+  already noted as confirmed.
 - Dreamcast emulator screenshots (Flycast, Philly trees) — the bit7 "missing geometry" conclusion
   rests on disassembly plus TRG cross-reference across 10 binaries, with no in-engine check on the
   one platform never tested.

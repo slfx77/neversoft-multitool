@@ -386,7 +386,7 @@ schedule work from their old descriptions.
     Khronos with zero issues. Preview uses the existing 30 fps PSX cadence, and direct tween endings use
     the established CycleAnim wrap, as explicit export policies; N64 runtime cadence and per-clip
     loop/clamp behavior remain unproven;
-  - improve incomplete bundle naming only from proven trigger/content correspondences (418/594 currently named), never an arbitrary first-candidate guess. Spider-Man's literal `Jameson` and `DEM4_G` outsider loads now disambiguate the sole remaining matching content occurrences; the duplicated Mysterio/firering pairs stay numeric.
+  - improve incomplete bundle naming only from proven trigger/content correspondences (418/594 as last counted; that figure predates the 2026-08-13 fail-closed `_L` guard, which deliberately returns slots to numeric — Spider-Man measured 179/261 on 2026-08-14 — so re-count before quoting it), never an arbitrary first-candidate guess. Spider-Man's literal `Jameson` and `DEM4_G` outsider loads now disambiguate the sole remaining matching content occurrences; the duplicated Mysterio/firering pairs stay numeric.
 
 ---
 
