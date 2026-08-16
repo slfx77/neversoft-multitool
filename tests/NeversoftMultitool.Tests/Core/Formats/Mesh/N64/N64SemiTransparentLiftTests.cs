@@ -204,9 +204,21 @@ public sealed class N64SemiTransparentLiftTests(TestPaths paths)
     ///         genuinely smaller than its partner, and the PS1's
     ///         ordering-table tie-break for equals does not transfer to a
     ///         console with a z-buffer. The count is pinned so that residue
-    ///         cannot grow unnoticed. It reads 63 here against the probe's 60
-    ///         because the probe additionally skips pairs sharing both mesh and
-    ///         material as ordinary tessellation, which this does not.
+    ///         cannot grow unnoticed. It read 63 against the probe's 60 because
+    ///         the probe additionally skips pairs sharing both mesh and material
+    ///         as ordinary tessellation, which this does not.
+    ///     </para>
+    ///     <para>
+    ///         It reads 98 since the engine's <c>kind &amp; 0x0800</c> skip was
+    ///         honoured. That is a grouping perturbation, not new z-fighting:
+    ///         the skip removes 10 of this bundle's exported triangles and
+    ///         <b>none of the skipped faces is semi-transparent</b> (0 of 1,894
+    ///         in the bank), so no lift lost its partner. Removing a face
+    ///         re-partitions the detector's overlap groups, and the size branch
+    ///         deliberately declines near-equal pairs, so a group that split
+    ///         contributes more unclaimed pairs than the one it came from. The
+    ///         load-bearing assertion is the semi-transparent zero below, which
+    ///         is unchanged; the total is a watch figure.
     ///     </para>
     /// </summary>
     [CorpusFact]
@@ -218,7 +230,7 @@ public sealed class N64SemiTransparentLiftTests(TestPaths paths)
         var (total, semiTransparent) = CoplanarOverlaps(ExportedTriangles(document));
 
         Assert.Equal(0, semiTransparent);
-        Assert.True(total <= 63, $"opaque coplanar residue grew to {total}, was 63");
+        Assert.True(total <= 98, $"opaque coplanar residue grew to {total}, was 98");
     }
 
     /// <summary>

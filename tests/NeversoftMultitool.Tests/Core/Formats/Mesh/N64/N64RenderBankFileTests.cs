@@ -61,7 +61,7 @@ public sealed class N64RenderBankFileTests(TestPaths paths)
         Assert.Equal(437, meshes.Count);
         Assert.Equal(8, meshes[0].Bounds.Length);
         Assert.Equal(7_173, meshes.Sum(static m => m.Vertices.Count));
-        Assert.Equal(5_527, meshes.Sum(static m => m.Triangles.Count));
+        Assert.Equal(5_121, meshes.Sum(static m => m.Triangles.Count));
     }
 
     /// <summary>
@@ -71,13 +71,13 @@ public sealed class N64RenderBankFileTests(TestPaths paths)
     /// </summary>
     [CorpusTheory]
     [InlineData("Tony Hawk's Pro Skater (2000-2-29, N64 - Final)",
-        "Tony Hawk's Pro Skater (USA).z64", 11_049, 190_287, 150_140)]
+        "Tony Hawk's Pro Skater (USA).z64", 11_049, 190_287, 134_857)]
     [InlineData("Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)",
-        "Tony Hawk's Pro Skater 2 (USA).z64", 13_651, 256_496, 204_131)]
+        "Tony Hawk's Pro Skater 2 (USA).z64", 13_651, 256_496, 179_653)]
     [InlineData("Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)",
-        "Tony Hawk's Pro Skater 3 (USA).z64", 9_707, 261_309, 223_348)]
+        "Tony Hawk's Pro Skater 3 (USA).z64", 9_707, 261_309, 205_858)]
     [InlineData("Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64",
-        7_498, 302_296, 234_190)]
+        7_498, 302_296, 222_485)]
     public void EveryBankDecodes_WithInBoundsIndices(
         string buildName,
         string romName,

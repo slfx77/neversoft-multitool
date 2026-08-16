@@ -39,6 +39,23 @@ public static class N64RenderBankFile
     /// <summary>Marks a group whose blob A is not a packed display list (2.5% of the corpus).</summary>
     private const int KindNonDisplayList = 0x8000;
 
+    /// <summary>
+    ///     kind bit 11: the engine's SECOND skip, and it is skipped exactly the
+    ///     way <see cref="KindNonDisplayList" /> is. Both group loops load the
+    ///     descriptor word at +4 and then branch to the same loop increment on
+    ///     0x8000 and again on 0x0800 (Spider-Man @0x800D1DF0/0x800D1DFC and
+    ///     @0x800D2304/0x800D2310). The paired test appears exactly twice in
+    ///     each of the four boot images — once per loop, no more, no fewer — so
+    ///     this is engine-wide rather than a Spider-Man quirk.
+    ///     <para>
+    ///         Honouring it removes geometry the console never draws: 11,613 of
+    ///         the 80,533 display-list groups, 14.4% of the corpus (THPS1 2,358
+    ///         of 17,904 · THPS2 4,509 of 24,695 · THPS3 2,864 of 22,165 ·
+    ///         Spider-Man 1,882 of 15,769).
+    ///     </para>
+    /// </summary>
+    private const int KindSkip = 0x0800;
+
     /// <summary>kind bit 0: the group's triangles are textured (slot at +0x02).</summary>
     private const int TexturedBit = 0x0001;
 
@@ -278,7 +295,7 @@ public static class N64RenderBankFile
                 continue;
 
             var kind = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(group[0].Start + 6));
-            if ((kind & KindNonDisplayList) != 0)
+            if ((kind & (KindNonDisplayList | KindSkip)) != 0)
                 continue;
 
             // The lighting bit is per GROUP, but no node in the corpus mixes it

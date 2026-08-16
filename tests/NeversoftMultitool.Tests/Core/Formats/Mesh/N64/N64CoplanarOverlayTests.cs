@@ -113,8 +113,8 @@ public sealed class N64CoplanarOverlayTests(TestPaths paths)
     ///     measurement here is meaningless.
     /// </summary>
     [CorpusTheory]
-    [InlineData("004", 9875)]
-    [InlineData("014", 10781)]
+    [InlineData("004", 9865)]
+    [InlineData("014", 10757)]
     [InlineData("061", 264)]
     public void OverlaySplit_LeavesTriangleCountsUnchanged(string bundle, int expected)
     {
