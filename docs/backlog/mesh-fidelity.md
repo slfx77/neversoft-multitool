@@ -78,11 +78,27 @@ adjudicated and regression-pinned:
 
 Still open:
 
-- **skny: wrong texture wins on coplanar storefront layers** (screenshot: Pinky's Loans pawnbroker
-  sign truncated) — a stable paint-order report, not z-fighting. The same-file overlay candidate path
-  now covers adjacent plane buckets, quad secondary triangles, and writer-expanded sprites; re-render
-  the reported storefront and identify the exact source faces before changing ranking. Do not infer
-  success from the broader `skny` census alone.
+- **skny: wrong texture wins on coplanar storefront layers** — faces identified 2026-08-16, cause is
+  **unranked members inside one overlap group**. The reported storefront is `dt_pawnsign01` /
+  `dt_pawnshop02/04/05/06/07/08/09` in `skny.psx`, all coplanar at z=0. Nine of them land in overlap
+  group 32 and **every one carries `neversoftDrawIndex = 1`**, so the detector finds the group but
+  never orders its members; the winner is then decided per triangle by submission order. The
+  screenshot confirms that shape rather than a whole-quad swap: the sign loses its leading `P` on
+  both lines and takes two triangular wedges out of its bottom corners, each with a visible diagonal.
+  The competing panels are nested rectangles on the same plane — `dt_pawnsign01` y −26.7…+26.2,
+  `dt_pawnshop05/06` y −59.1…+59.6, `dt_pawnshop08/09` y −68.9…+68.9 — with four different textures.
+  Group 32 also looks over-merged at 10 members where most groups here hold 1–3.
+  Ruled out: the three byte-identical pairs (`pawnsign01`≡`pawnshop02`, `05`≡`06`, `08`≡`09`, matching
+  in position, UV *and* texture) are authored duplicates and cosmetically irrelevant.
+  **The fix is ranking within a group**, which is a real change to the detector rather than a
+  threshold tweak. Do not infer success from the broader `skny` census alone.
+
+- 🔴 **THPS2: a shadow decal z-fights the base of the object casting it** — reported 2026-08-16 with a
+  screenshot of a valve whose ground shadow fights its own base. **This is not the coplanar-layer
+  class above** and must not be folded into it: the shadow polygon and the valve base are not in one
+  plane, so the overlay detector never considers them a pair at all. Reads as genuine depth precision
+  at that geometry's scale. **Needs the level name** before it is actionable — "shadow versus its own
+  base" is far cheaper to locate with a level than by scanning every THPS2 decal.
 
 ---
 
