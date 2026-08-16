@@ -623,6 +623,30 @@ public static class N64ModelWriter
     ///         here because F3DEX2's combiner neutral is 255, not the PS1
     ///         packet's 128. Alpha is coverage and passes through untouched.
     ///     </para>
+    ///     <para>
+    ///         <b>The shade really is a multiplier</b>, which is why baking it
+    ///         is correct rather than merely self-consistent. The model draw
+    ///         path emits exactly two combiners, chosen by kind bit 0
+    ///         (Spider-Man @0x800D2154, word1 @0x800D2178):
+    ///         <c>0xFC127E05</c> for a textured group, giving cycle 0
+    ///         <c>TEXEL0 * SHADE</c>, and <c>0xFC527E1F</c> for an untextured
+    ///         one, giving <c>ENVIRONMENT * SHADE</c>. Both share word1
+    ///         <c>0xFFFFF2F8</c>, whose b and d slots are 0. A decal combiner
+    ///         that would ignore shade does exist in these ROMs
+    ///         (<c>0xFCFFFFFF FFFCF279</c>) but only in the 2D blitter, which
+    ///         reads no group descriptor. So a dark result on a self-illuminated
+    ///         surface — the Human Torch's flame is the reported case — is the
+    ///         console's own output, not an export defect.
+    ///     </para>
+    ///     <para>
+    ///         NOT reproduced: cycle 1 is
+    ///         <c>COMBINED * ENVIRONMENT + PRIMITIVE</c>, and neither global is
+    ///         exported. Both are BSS (<c>0x80105084</c> and <c>0x80105080</c>
+    ///         in Spider-Man) and no direct-offset store to either exists in the
+    ///         image, so their runtime values are unrecovered. ENVIRONMENT is a
+    ///         multiplier and can only darken further; PRIMITIVE is ADDITIVE and
+    ///         could brighten. Recovering them is the open residual here.
+    ///     </para>
     /// </summary>
     internal static Vector4 ComputeN64VertexColour(
         N64RenderBankFile.N64Vertex vertex,
