@@ -138,8 +138,18 @@ public static class StrCommand
             if (result.Success)
             {
                 totalConverted++;
-                if (verbose)
+                if (result.BlackFramesSubstituted > 0)
+                {
+                    // Say it even without --verbose: the substitution is
+                    // invisible in the output file, which just looks black.
+                    AnsiConsole.MarkupLine(
+                        $"    [yellow]{result.BlackFramesSubstituted}[/] frames failed to decode " +
+                        "and were written black");
+                }
+                else if (verbose)
+                {
                     AnsiConsole.MarkupLine("    → [green]OK[/]");
+                }
             }
             else
             {

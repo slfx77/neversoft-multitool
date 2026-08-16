@@ -197,7 +197,7 @@ public static class StrConverter
         process.BeginErrorReadLine();
 
         PipeFrames(process.StandardInput.BaseStream, frames,
-            width, height, progress, cancellationToken, out var cancelled);
+            width, height, progress, cancellationToken, out var cancelled, out var blackFrames);
 
         if (cancelled || cancellationToken.IsCancellationRequested)
         {
@@ -238,14 +238,27 @@ public static class StrConverter
             };
         }
 
-        return new SfdConvertResult { Success = true, OutputPath = outputPath };
+        return new SfdConvertResult
+        {
+            Success = true,
+            OutputPath = outputPath,
+            BlackFramesSubstituted = blackFrames
+        };
     }
 
+    /// <summary>
+    ///     Writes each decoded frame to ffmpeg. A frame that fails to decode is
+    ///     written as black rather than aborting the conversion, and
+    ///     <paramref name="blackFrames" /> reports how many, because the
+    ///     substitution is otherwise silent — a stream that fails on every frame
+    ///     yields a wholly black video and a successful result.
+    /// </summary>
     private static void PipeFrames(Stream stdin, List<StrDemuxer.StrFrame> frames,
         int width, int height, IProgress<double>? progress,
-        CancellationToken cancellationToken, out bool cancelled)
+        CancellationToken cancellationToken, out bool cancelled, out int blackFrames)
     {
         cancelled = false;
+        blackFrames = 0;
         for (var i = 0; i < frames.Count; i++)
         {
             if (cancellationToken.IsCancellationRequested)
@@ -266,6 +279,7 @@ public static class StrConverter
             catch
             {
                 // Decode error — write black frame
+                blackFrames++;
                 try
                 {
                     stdin.Write(new byte[width * height * 3]);
