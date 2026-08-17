@@ -174,17 +174,19 @@ public sealed class PsxPlacedTrafficParserTests(TestPaths paths)
         Assert.Equal(15, boneNames.Length);
         Assert.Equal(15, boneNames.Distinct(StringComparer.Ordinal).Count());
 
+        // Re-pinned 2026-08-17: rotation follows the spawn road segment
+        // (CCar_Update's converged heading), rebuilt here from the TRG rather
+        // than hard-coded so the pin names its own evidence. Trigger nodes
+        // 148/304/728 spawn at road nodes 156/315/143.
+        var trg = LoadTrg(Thps1FinalBuild, "skdown_t.trg");
         var expectedRoots = new[]
         {
-            CreateExpectedRoot(
-                new Vector3(503f / 2.25f, 94f / 2.25f, 11249f / 2.25f),
-                0, 2049, 0),
-            CreateExpectedRoot(
-                new Vector3(-10614f / 2.25f, 518f / 2.25f, 3328f / 2.25f),
-                0, 0, 0),
-            CreateExpectedRoot(
-                new Vector3(10414f / 2.25f, 603f / 2.25f, -1054f / 2.25f),
-                0, 170, 0)
+            CreateExpectedRoadRoot(trg, 156,
+                new Vector3(503f / 2.25f, 94f / 2.25f, 11249f / 2.25f)),
+            CreateExpectedRoadRoot(trg, 315,
+                new Vector3(-10614f / 2.25f, 518f / 2.25f, 3328f / 2.25f)),
+            CreateExpectedRoadRoot(trg, 143,
+                new Vector3(10414f / 2.25f, 603f / 2.25f, -1054f / 2.25f))
         };
         for (var i = 0; i < expectedRoots.Length; i++)
             AssertMatrixClose(expectedRoots[i], skeletons[i].RootTransform);
@@ -400,6 +402,43 @@ public sealed class PsxPlacedTrafficParserTests(TestPaths paths)
         Assert.Equal(30, animation.GetProperty("Channels").GetArrayLength());
         Assert.All(animation.GetProperty("Channels").EnumerateArray(), static channel =>
             Assert.Equal(2, channel.GetProperty("KeyCount").GetInt32()));
+    }
+
+    private TrgFile LoadTrg(string build, string trgFileName)
+    {
+        var trgPath = paths.FindSampleFile(build, trgFileName);
+        Assert.SkipWhen(trgPath == null, $"{build} {trgFileName} fixture is not available");
+        return TrgFile.Parse(trgPath!);
+    }
+
+    /// <summary>
+    ///     Expected traffic root: facing along the spawn road segment, exactly
+    ///     CCar_Update's converged orientation (yaw = atan2(-dx,-dz) about Y,
+    ///     pitch = atan2(dyNormalized, 1) about X, roll 0), independently
+    ///     rebuilt from the TRG's road-node graph.
+    /// </summary>
+    private static Matrix4x4 CreateExpectedRoadRoot(
+        TrgFile trg,
+        int roadNodeIndex,
+        Vector3 translation)
+    {
+        var byIndex = trg.Nodes.ToDictionary(static n => n.Index, static n => n);
+        var road = byIndex[roadNodeIndex];
+        var next = byIndex[road.Links![0]];
+        var direction = Vector3.Normalize(new Vector3(
+            next.Position!.RawX - road.Position!.RawX,
+            next.Position.RawY - road.Position.RawY,
+            next.Position.RawZ - road.Position.RawZ));
+        var native = Quaternion.Normalize(
+            Quaternion.CreateFromAxisAngle(
+                Vector3.UnitY, MathF.Atan2(-direction.X, -direction.Z))
+            * Quaternion.CreateFromAxisAngle(
+                Vector3.UnitX, MathF.Atan2(direction.Y, 1f)));
+        var gltf = Quaternion.Normalize(new Quaternion(
+            native.X, -native.Y, -native.Z, native.W));
+        var result = Matrix4x4.CreateFromQuaternion(gltf);
+        result.Translation = translation;
+        return result;
     }
 
     private static Matrix4x4 CreateExpectedRoot(

@@ -110,8 +110,10 @@ public sealed class PsxPlacedTrafficResolverTests(TestPaths paths)
     }
 
     [Fact]
-    public void Resolve_UsesFirstRoadPositionYOffsetAndNativeYxzRotation()
+    public void Resolve_WithoutAnOnwardRoadLink_FallsBackToAuthoredYxzRotation()
     {
+        // The engine would read garbage past the empty link list; the authored
+        // seed is the only orientation that exists for a dead-end road node.
         var source = new TrackingCompanionSource(new Dictionary<string, byte[]>
         {
             ["c_taxi.psx"] = BuildMinimalTrafficPsx()
@@ -143,6 +145,52 @@ public sealed class PsxPlacedTrafficResolverTests(TestPaths paths)
         Assert.Equal(0f, placement.RootTransform.M31, 5);
         Assert.Equal(-1f, placement.RootTransform.M32, 5);
         Assert.Equal(0f, placement.RootTransform.M33, 5);
+    }
+
+    [Fact]
+    public void Resolve_FacesAlongTheSpawnRoadSegment_IgnoringAuthoredAngles()
+    {
+        // CCar_Update's proven orientation: yaw = ratan2(-SegDir.x, -SegDir.z),
+        // pitch = ratan2(SegDir.y, ONE) — the constant adjacent, not the
+        // horizontal magnitude — converged within frames of spawn. skny
+        // authors all ten taxis at yaw 3073 regardless of segment; the engine
+        // discards that, so the snapshot must too.
+        var source = new TrackingCompanionSource(new Dictionary<string, byte[]>
+        {
+            ["c_taxi.psx"] = BuildMinimalTrafficPsx()
+        });
+        // Authored yaw 0 faces -Z; the segment heads +X (yaw -90°). If the
+        // resolver kept the authored seed the matrix would be near identity.
+        var baddy = Baddy(0, 0xD5, 1);
+        baddy.Angles = new TrgAngles { RawX = 0, RawY = 0, RawZ = 0 };
+        var road = Road(1, 1000, 110, 2000);
+        road.Links = [2];
+
+        var placement = Assert.Single(PsxPlacedTrafficResolver.Resolve(
+            source,
+            // Segment runs +X with a slight downhill (native Y is down).
+            BuildTrg([baddy, road, Road(2, 3000, 310, 2000)]),
+            2.25f));
+
+        var native = new Vector3(2000f, 200f, 0f);
+        var direction = Vector3.Normalize(native);
+        var expectedNative = Quaternion.Normalize(
+            Quaternion.CreateFromAxisAngle(
+                Vector3.UnitY, MathF.Atan2(-direction.X, -direction.Z))
+            * Quaternion.CreateFromAxisAngle(
+                Vector3.UnitX, MathF.Atan2(direction.Y, 1f)));
+        var expected = Matrix4x4.CreateFromQuaternion(Quaternion.Normalize(
+            new Quaternion(
+                expectedNative.X, -expectedNative.Y, -expectedNative.Z, expectedNative.W)));
+
+        Assert.Equal(expected.M11, placement.RootTransform.M11, 5);
+        Assert.Equal(expected.M13, placement.RootTransform.M13, 5);
+        Assert.Equal(expected.M22, placement.RootTransform.M22, 5);
+        Assert.Equal(expected.M31, placement.RootTransform.M31, 5);
+        Assert.Equal(expected.M33, placement.RootTransform.M33, 5);
+        // The authored identity rotation must NOT survive: a quarter-turn's
+        // M11 is ~0 where identity's is 1.
+        Assert.True(MathF.Abs(placement.RootTransform.M11) < 0.1f);
     }
 
     [Fact]
@@ -278,15 +326,14 @@ public sealed class PsxPlacedTrafficResolverTests(TestPaths paths)
         Assert.Same(resolved[0].Source, resolved[1].Source);
         Assert.Same(resolved[0].Source, resolved[2].Source);
 
-        AssertRoot(resolved[0],
-            new Vector3(503f / 2.25f, 94f / 2.25f, 11249f / 2.25f),
-            0, 2049, 0);
-        AssertRoot(resolved[1],
-            new Vector3(-10614f / 2.25f, 518f / 2.25f, 3328f / 2.25f),
-            0, 0, 0);
-        AssertRoot(resolved[2],
-            new Vector3(10414f / 2.25f, 603f / 2.25f, -1054f / 2.25f),
-            0, 170, 0);
+        // Re-pinned 2026-08-17: rotation now follows the spawn road segment
+        // (CCar_Update's converged heading), not the authored BADDY angles.
+        AssertRoadRoot(resolved[0], trg,
+            new Vector3(503f / 2.25f, 94f / 2.25f, 11249f / 2.25f));
+        AssertRoadRoot(resolved[1], trg,
+            new Vector3(-10614f / 2.25f, 518f / 2.25f, 3328f / 2.25f));
+        AssertRoadRoot(resolved[2], trg,
+            new Vector3(10414f / 2.25f, 603f / 2.25f, -1054f / 2.25f));
 
         var traffic = resolved[0].Source;
         Assert.Equal(5, traffic.MeshFile.Objects.Count);
@@ -383,6 +430,47 @@ public sealed class PsxPlacedTrafficResolverTests(TestPaths paths)
             new FileSystemAssetSource(levelPath!),
             TrgFile.Parse(trgPath!),
             level!.TranslationDivisor);
+    }
+
+    /// <summary>
+    ///     Asserts a placement faces along its spawn road segment: expected
+    ///     rotation independently rebuilt from the TRG's road and next-road
+    ///     positions with CCar_Update's formula (yaw = atan2(-dx,-dz),
+    ///     pitch = atan2(dyNormalized, 1), roll 0).
+    /// </summary>
+    private static void AssertRoadRoot(
+        PsxPlacedTrafficPlacement placement,
+        TrgFile trg,
+        Vector3 translation)
+    {
+        Assert.Equal(translation.X, placement.RootTransform.Translation.X, 4);
+        Assert.Equal(translation.Y, placement.RootTransform.Translation.Y, 4);
+        Assert.Equal(translation.Z, placement.RootTransform.Translation.Z, 4);
+
+        var byIndex = trg.Nodes.ToDictionary(static n => n.Index, static n => n);
+        var road = byIndex[placement.RoadNodeIndex];
+        var next = byIndex[road.Links![0]];
+        var direction = Vector3.Normalize(new Vector3(
+            next.Position!.RawX - road.Position!.RawX,
+            next.Position.RawY - road.Position.RawY,
+            next.Position.RawZ - road.Position.RawZ));
+        var expectedNative = Quaternion.Normalize(
+            Quaternion.CreateFromAxisAngle(
+                Vector3.UnitY, MathF.Atan2(-direction.X, -direction.Z))
+            * Quaternion.CreateFromAxisAngle(
+                Vector3.UnitX, MathF.Atan2(direction.Y, 1f)));
+        var expected = Matrix4x4.CreateFromQuaternion(Quaternion.Normalize(new Quaternion(
+            expectedNative.X, -expectedNative.Y, -expectedNative.Z, expectedNative.W)));
+
+        Assert.Equal(expected.M11, placement.RootTransform.M11, 5);
+        Assert.Equal(expected.M12, placement.RootTransform.M12, 5);
+        Assert.Equal(expected.M13, placement.RootTransform.M13, 5);
+        Assert.Equal(expected.M21, placement.RootTransform.M21, 5);
+        Assert.Equal(expected.M22, placement.RootTransform.M22, 5);
+        Assert.Equal(expected.M23, placement.RootTransform.M23, 5);
+        Assert.Equal(expected.M31, placement.RootTransform.M31, 5);
+        Assert.Equal(expected.M32, placement.RootTransform.M32, 5);
+        Assert.Equal(expected.M33, placement.RootTransform.M33, 5);
     }
 
     private static void AssertRoot(

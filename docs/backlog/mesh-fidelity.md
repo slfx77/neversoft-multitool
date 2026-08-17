@@ -78,6 +78,64 @@ adjudicated and regression-pinned:
 
 Still open:
 
+- ✅ **Scripted traffic faces the wrong way — fixed 2026-08-17.** Reported via a P-key pose (skny's
+  subway cars fanned off the elevated track at right angles). Root cause proven in the decomp:
+  `CCar_Construct` seeds from the authored BADDY angles but `CCar_Update` immediately turns the body
+  toward the road segment (`yaw = ratan2(-SegDir.x, -SegDir.z)`, `pitch = ratan2(SegDir.y, ONE)` —
+  the constant adjacent, not the horizontal magnitude), snapping within frames. skny authors ALL ten
+  taxis at yaw 3073 and its trains near 0 — values the engine discards; our resolver was placing
+  them verbatim. The taxi whose segment runs pure +X has authored yaw 3073 ≈ the formula's 3072,
+  which cross-checks the sign convention end-to-end. `PsxPlacedTrafficResolver` now derives the
+  orientation from the spawn road node → its first link (fallback to authored angles only for a
+  dead-end road node); the trains sit nose-to-tail along the track with slope pitch. Note the trains
+  are the CABLE subtype (0xD8) — the constructor's model *name* is per-subtype, the art per-level.
+  Remaining and deliberately unclaimed: spawn timing/repeats (the snapshot shows every
+  script-reachable spawn simultaneously) and route motion. With headings fixed, promoting the group
+  to default-ON is a judgement call for the user.
+
+- **skny river/pond water is AUTHORED opaque — export is faithful; the "reflection" is dead content.**
+  Reported with a P-key pose looking under the world at a mirrored-building copy beneath the water
+  plane. Measured: `ny_cp_pond0` carries no semi-transparent bit in THPS2 **PSX** *and* the **DC**
+  port (materials `tex_63DA5249` / `tex_D8CEC6B5`, both OPAQUE, no `__st` suffix) — and the DC port
+  re-authored transparency everywhere else it wanted it, so this is an authored choice surviving a
+  hardware generation, not a lost flag. With the water opaque in-game too, the mirrored copy below
+  it was never visible on either platform: developer leftover from an abandoned reflection effect.
+  No export change; forcing the water translucent would diverge from both shipped games.
+
+- 🔴 **skph "floating hole" over the LOVE fountain = `obj_love_shadow` at its authored bank position**
+  (P-key pose + probe, 2026-08-17). The bank mesh is a flat dark sheet at world Y 711.6 hovering
+  ~680 units above the fountain water, directly on the fountain's XZ centre — reads as a hole from
+  above. It is the l1a2-Watcher class: a mesh whose real placement is runtime state. Entity shadows
+  in the engine are runtime QUAD BITS with a texture (`CBody_UpdateShadow`, OB.cpp:735 — not bank
+  meshes), so something level-specific repositions this mesh; the proto decomp ships only one level
+  and cannot name it. Needs retail-EXE evidence (signature scan for the consumer of the
+  `Obj_Love_Shadow` hash) before gating it behind a default-off group — the Watcher precedent says
+  don't guess. The fountain-spray `__blend` sheets over the same spot render dark in the headless
+  rasterizer but are correctly split/lifted; judge their in-app look separately.
+
+- 🔴 **skny fire-hydrant knock-over spray renders always-on** (user report + in-game reference shot,
+  2026-08-17). The spray columns are LEVEL meshes `hydrantspout`, `hydrantspout01`,
+  `hydrantspout02` (one even coplanar-flagged as `__overlay`), exported unconditionally; in-game
+  they appear only after knocking the hydrant (`ny_pit_hydrant04/06/08`). A "hydrant spray"
+  default-OFF visibility group is the right shape (What-If/ghost precedent), but the gate needs a
+  proven file signal: v2.0 TRGs carry no model checksums, so the trigger association is positional
+  or scripted — find the mechanism (likely a COMMANDPOINT/collision pulse in skny_t.trg near each
+  hydrant, or a retail-EXE path) before shipping a name-based heuristic. The Muska-boombox rule
+  applies: "hidden by default" must be evidence, not inference. `pitsculptureshadow` in the same
+  level is likely the same class as skph's love shadow.
+
+- 🔴 **2P variant exports are not TRG-region-aware** (user report, 2026-08-17). What is already
+  CORRECT: skny_2 selects the boot-script bank — AUTOEXEC2 runs `SetObjFile SkNY_O2` (2 objects:
+  `obj_barrier01` + `dt_park_rail03`) vs AUTOEXEC's `SkNY_O` (5 objects incl. the
+  `obj_background01` skybox) — and the export's missing skybox is FAITHFUL: SkNY_O2 contains no
+  background object and the user's "the 2P bank exists to load the skybox" belief is refuted for
+  skny by the bank contents themselves. What is WRONG: the shared `skny_t.trg` carries BOTH
+  regions' PLATFORM/POWERUP/entity nodes, and the placement pipeline applies all of them to a
+  variant file — SP-region re-instances land in the 2P export (the reported "full object placement
+  from the single player version"; skny_2 shows 8 `obj_barrier01` instances). Fix needs
+  `Trig_InitialParseTRGFile`'s region rules (TRIG.cpp:2800) — how nodes bind to the active
+  geometry region — so a variant export only applies its own region's nodes.
+
 - ✅ **skb1: opaque overlays and semi-transparent water met at one lifted plane — fixed 2026-08-17.**
   Reported via a P-key pose in THPS2 PSX `skb1.psx`; `glb-render --probe` at that pose showed
   `mesh_0000004E__overlay00` and `jowwater07__blend006` at an identical distance (gap **+0**). The

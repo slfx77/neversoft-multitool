@@ -78,6 +78,17 @@ internal static class PsxPlacedTrafficResolver
                 continue;
             }
 
+            // CCar_Update immediately steers toward the spawn segment's far
+            // end, so the surviving orientation is the ROAD direction, not the
+            // authored BADDY angles (skny authors all ten taxis at yaw 3073
+            // and its subway cars near 0 — the engine discards both).
+            TrgPosition? nextRoadPosition = null;
+            if (roadNode.Links is { Count: > 0 }
+                && nodesByIndex.TryGetValue(roadNode.Links[0], out var nextRoad))
+            {
+                nextRoadPosition = nextRoad.Position;
+            }
+
             if (!sourcesBySubType.TryGetValue(subType, out var trafficSource))
             {
                 trafficSource = TryLoadSource(levelSource, subType);
@@ -96,6 +107,7 @@ internal static class PsxPlacedTrafficResolver
                 initiallyCreated,
                 CreateRootTransform(
                     roadNode.Position,
+                    nextRoadPosition,
                     node.Angles,
                     levelTranslationDivisor),
                 trafficSource));
@@ -269,6 +281,7 @@ internal static class PsxPlacedTrafficResolver
 
     private static Matrix4x4 CreateRootTransform(
         TrgPosition roadPosition,
+        TrgPosition? nextRoadPosition,
         TrgAngles baddyAngles,
         float translationDivisor)
     {
@@ -276,7 +289,11 @@ internal static class PsxPlacedTrafficResolver
             roadPosition.RawX / translationDivisor,
             (roadPosition.RawY + RuntimeRoadYOffset) / translationDivisor,
             roadPosition.RawZ / translationDivisor);
-        var nativeRotation = CreateNativeYxzRotation(baddyAngles);
+        var nativeRotation =
+            TryCreateNativeRoadRotation(roadPosition, nextRoadPosition)
+            // A road node without a resolvable onward link cannot yield a
+            // segment direction; the authored seed is all that exists.
+            ?? CreateNativeYxzRotation(baddyAngles);
         var gltfRotation = Quaternion.Normalize(new Quaternion(
             nativeRotation.X,
             -nativeRotation.Y,
@@ -286,6 +303,38 @@ internal static class PsxPlacedTrafficResolver
         var transform = Matrix4x4.CreateFromQuaternion(gltfRotation);
         transform.Translation = PsxMeshSemantics.ToGltfPosition(nativePosition);
         return transform;
+    }
+
+    /// <summary>
+    ///     The engine-converged orientation: CCar_Update turns the body toward
+    ///     the current road segment every frame (yaw snaps within a few frames
+    ///     of spawn), so a faithful snapshot faces along the segment. Exactly
+    ///     CCar_Update's math — yaw = ratan2(-SegDir.x, -SegDir.z) about Y,
+    ///     pitch = ratan2(SegDir.y, 1.0) about X (the car noses along the
+    ///     slope; note the engine's adjacent is the CONSTANT one, not the
+    ///     horizontal magnitude), roll always zero.
+    /// </summary>
+    private static Quaternion? TryCreateNativeRoadRotation(
+        TrgPosition roadPosition,
+        TrgPosition? nextRoadPosition)
+    {
+        if (nextRoadPosition is not { } next)
+            return null;
+
+        var direction = new Vector3(
+            next.RawX - roadPosition.RawX,
+            next.RawY - roadPosition.RawY,
+            next.RawZ - roadPosition.RawZ);
+        var lengthSquared = direction.LengthSquared();
+        if (lengthSquared <= 0f)
+            return null;
+
+        direction /= MathF.Sqrt(lengthSquared);
+        var yaw = MathF.Atan2(-direction.X, -direction.Z);
+        var pitch = MathF.Atan2(direction.Y, 1f);
+        return Quaternion.Normalize(
+            Quaternion.CreateFromAxisAngle(Vector3.UnitY, yaw) *
+            Quaternion.CreateFromAxisAngle(Vector3.UnitX, pitch));
     }
 
     private static Quaternion CreateNativeYxzRotation(TrgAngles angles)
