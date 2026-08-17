@@ -23,12 +23,20 @@ internal sealed class MeshConverterTabPreview : IDisposable
     // bounding sphere. SM2:EE's player is 90.861 units tall, so 82 remains the
     // observed-correct eye. THAW's skater is 73 units tall, yielding 66. The
     // older Apocalypse v3 level space needs the lower empirically requested
-    // height while retaining a stable header-based classification. THPS
-    // levels felt like a giant at Spider-Man's 82 (user report, THPS2 DC) —
-    // 58 matches a skater-scale eye there; tune against the GUI if needed.
+    // height while retaining a stable header-based classification.
+    //
+    // THPS is bracketed by two opposing user reports rather than a measured
+    // player height: 82 read as a giant (THPS2 DC) and 58 as too short beside
+    // benches (THPS2 PSX), so 70 sits between them. It is a feel value — the
+    // only hard evidence either way is that skny's authored bench legs run
+    // ground-to-seat over 28.444 units, and a real bench seat is ~0.45 m, which
+    // argues for an eye nearer 100; that contradicts the "giant at 82" report,
+    // so it is not applied. A platform-scale explanation was ruled out by
+    // measurement: THPS2 PSX and DC skny have identical extents
+    // (21655.6 x 5059.1 x 32914.2) and identical 28.444-unit bench legs.
     private const double PsxLevelWalkEyeHeight = 82d;
     private const double ApocalypseLevelWalkEyeHeight = 56d;
-    private const double ThpsLevelWalkEyeHeight = 58d;
+    private const double ThpsLevelWalkEyeHeight = 70d;
     private const double ThawWorldzoneWalkEyeHeight = 66d;
 
     private readonly ModelViewerControl _viewer;
