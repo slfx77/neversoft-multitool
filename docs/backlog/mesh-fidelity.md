@@ -99,12 +99,27 @@ Still open:
   the node **matrix** — every mesh node carries one and no `translation`, and using local coordinates
   makes unrelated faces across the level look coincident.
 
-- 🔴 **THPS2: a shadow decal z-fights the base of the object casting it** — reported 2026-08-16 with a
-  screenshot of a valve whose ground shadow fights its own base. **This is not the coplanar-layer
-  class above** and must not be folded into it: the shadow polygon and the valve base are not in one
-  plane, so the overlay detector never considers them a pair at all. Reads as genuine depth precision
-  at that geometry's scale. **Needs the level name** before it is actionable — "shadow versus its own
-  base" is far cheaper to locate with a level than by scanning every THPS2 decal.
+- 🔴 **skph: a ground shadow fights the base of the valve casting it** — measured 2026-08-16. The
+  faces are `jam_goal_valve05` (Philadelphia's goal valves, also 06 and 07) and `dt_shaddy__blend000`
+  / `__blend001` in `skph.psx`.
+
+  **The two do not overlap — they abut, and the semi-transparent lift is what puts them in contact.**
+  The valve's base plinth spans x[−3210.22,−3177.33] y[452.44,470.67] z[−2759.56,−2726.22]. The two
+  shadow quads are flat at y = **452.694**, and their footprints start at exactly the plinth's
+  boundary coordinates: `blend000` at x −3177.33, `blend001` at z −2726.22. So they share an edge with
+  the plinth rather than a footprint.
+
+  452.694 − 452.444 = **0.25**, which is precisely the geometric lift a semi-transparent face already
+  receives. Lifting the shadow off the ground therefore slides its shared edge 0.25 up the plinth's
+  *vertical* side face, so the lifted edge now lies in that face's plane and fights along the seam.
+  That is why the overlay detector is silent: it only pairs faces that overlap in a shared plane, and
+  these overlap in neither.
+
+  So this is a **lift side effect at an abutting edge**, not depth precision and not the coplanar
+  layer class. The fix has to consider what a lifted face's edges run into, which is a new
+  consideration for that code — treat it as its own piece of work rather than a tweak to the overlay
+  detector. Note the same 0.25 lift is load-bearing elsewhere (SKB2's water, webdome), so it cannot
+  simply be reduced.
 
 ---
 
