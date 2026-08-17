@@ -53,6 +53,14 @@ public static class MeshCommand
             Description = "For THAW PS2 worldzones, choose which time-of-day layers to export: all, day, or night.",
             DefaultValueFactory = _ => "all"
         };
+        var worldzoneDebugDirOption = new Option<string?>("--worldzone-debug-dir")
+        {
+            Description =
+                "For THAW PS2 worldzones, write triage diagnostics into this directory: "
+                + "per-leaf rejection reasons ({stem}.rejections.csv), emitted-leaf GS state "
+                + "with texture-resolution tags ({stem}.materials.csv), and the texture "
+                + "catalog debug dump. Conversion output is unchanged."
+        };
         var psxLightOption = new Option<string?>("--psx-light")
         {
             Description =
@@ -87,6 +95,7 @@ public static class MeshCommand
         command.Options.Add(ddmTexturesOption);
         command.Options.Add(scaleOption);
         command.Options.Add(worldzoneTimeOfDayOption);
+        command.Options.Add(worldzoneDebugDirOption);
         command.Options.Add(psxLightOption);
         command.Options.Add(n64AnimationsOption);
         command.Options.Add(verboseOption);
@@ -149,7 +158,8 @@ public static class MeshCommand
                 format,
                 blenderHelperPath,
                 includeN64Animations,
-                cancellationToken));
+                cancellationToken,
+                parseResult.GetValue(worldzoneDebugDirOption)));
         });
 
         return command;
@@ -170,7 +180,8 @@ public static class MeshCommand
         MeshOutputFormat format,
         string? blenderHelperPath,
         bool includeN64Animations,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? worldzoneDebugDirectory = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var isSingleFile = File.Exists(input);
@@ -258,7 +269,8 @@ public static class MeshCommand
                     coordinateScale,
                     psxLightPreset,
                     exportStem,
-                    includeN64Animations);
+                    includeN64Animations,
+                    worldzoneDebugDirectory);
 
                 if (result.OutputPaths.Count == 0)
                     throw new InvalidDataException("Mesh export produced no output.");

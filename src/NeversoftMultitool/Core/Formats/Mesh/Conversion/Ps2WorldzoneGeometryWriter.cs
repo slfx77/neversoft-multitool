@@ -24,7 +24,8 @@ internal static class Ps2WorldzoneGeometryWriter
         string? textureSourceHint,
         WorldzoneTimeOfDay timeOfDay,
         float coordinateScale,
-        Ps2WorldzoneLighting? lighting = null)
+        Ps2WorldzoneLighting? lighting = null,
+        Ps2GeomDebugCollector? debugCollector = null)
     {
         if (!float.IsFinite(coordinateScale) || coordinateScale <= 0f)
             throw new ArgumentOutOfRangeException(nameof(coordinateScale), coordinateScale,
@@ -65,25 +66,40 @@ internal static class Ps2WorldzoneGeometryWriter
             var materialCache = new Dictionary<Ps2WorldzoneMaterialWriter.Ps2WorldzoneMaterialKey, int>();
             foreach (var mdlEntry in mdlEntries)
             {
+                var entryName = $"{mdlEntry.Offset:X8}";
                 if (mdlEntry.Offset < 0 ||
                     mdlEntry.Size <= 0 ||
                     mdlEntry.Offset + mdlEntry.Size > pakBytes.Length)
                 {
+                    debugCollector?.AddRejection(new Ps2GeomLeafRejection(
+                        entryName, "writer", "entry_out_of_bounds", -1, 0, 0,
+                        Vector3.Zero, Vector3.Zero));
                     continue;
                 }
 
                 var mdlData = new byte[mdlEntry.Size];
                 Array.Copy(pakBytes, mdlEntry.Offset, mdlData, 0, (int)mdlEntry.Size);
-                var mdlName = $"{mdlEntry.Offset:X8}";
+                var mdlName = entryName;
                 mdlData = Ps2WorldzoneMdlPreamble.ExtendLevelMdlPreambleIfNeeded(pakBytes, mdlEntry, mdlData);
                 if (!Ps2GeomFile.IsPakMdl(mdlData))
+                {
+                    debugCollector?.AddRejection(new Ps2GeomLeafRejection(
+                        mdlName, "writer", "not_pak_mdl", -1, 0, 0,
+                        Vector3.Zero, Vector3.Zero));
                     continue;
+                }
 
                 var mdlTextureHint = textureCatalog?.FindTextureEntryHintBefore(textureSourceHint, mdlEntry.Offset)
                                      ?? textureSourceHint;
                 var mdlTex0Resolver = textureCatalog?.CreateTex0ChecksumResolver(mdlTextureHint)
                                       ?? tex0Resolver;
-                var geomScene = Ps2GeomFile.ParsePakMdl(mdlData, mdlName);
+                var mdlDebugTex0Resolver = debugCollector != null
+                    ? textureCatalog?.CreateDebugTex0Resolver(mdlTextureHint)
+                    : null;
+                var geomScene = Ps2GeomFile.ParsePakMdl(
+                    mdlData,
+                    mdlName,
+                    debugCollector != null ? debugCollector.AddRejection : null);
 
                 // Compact THAW object resources have no MDL bone-placement table.
                 // Their preceding model QB establishes ownership and the main NQB
@@ -109,7 +125,15 @@ internal static class Ps2WorldzoneGeometryWriter
                             texaTextureProvider,
                             mdlTex0Resolver,
                             coordinateScale,
-                            "qb");
+                            "qb",
+                            debugCollector,
+                            mdlDebugTex0Resolver);
+                    }
+                    else
+                    {
+                        debugCollector?.AddRejection(new Ps2GeomLeafRejection(
+                            mdlName, "writer", "qb_resolved_empty", -1,
+                            geomScene.Leaves.Count, 0, Vector3.Zero, Vector3.Zero));
                     }
 
                     continue;
@@ -142,7 +166,9 @@ internal static class Ps2WorldzoneGeometryWriter
                     texaTextureProvider,
                     mdlTex0Resolver,
                     coordinateScale,
-                    "world");
+                    "world",
+                    debugCollector,
+                    mdlDebugTex0Resolver);
 
                 if (bonePlacements.Count > 0)
                 {
@@ -157,7 +183,9 @@ internal static class Ps2WorldzoneGeometryWriter
                         texaTextureProvider,
                         mdlTex0Resolver,
                         coordinateScale,
-                        "local");
+                        "local",
+                        debugCollector,
+                        mdlDebugTex0Resolver);
                 }
             }
 
@@ -180,7 +208,9 @@ internal static class Ps2WorldzoneGeometryWriter
         Ps2TexaTextureResolver? texaTextureProvider,
         Ps2Tex0ChecksumResolver? tex0Resolver,
         float coordinateScale,
-        string space)
+        string space,
+        Ps2GeomDebugCollector? debugCollector = null,
+        Func<ulong, uint, Ps2GeomTextureResolution>? debugTex0Resolver = null)
     {
         var instances = placements.Count > 0
             ? placements
@@ -204,6 +234,17 @@ internal static class Ps2WorldzoneGeometryWriter
         var overlapGroupIds = new Dictionary<Ps2DestinationAlphaLeafGeometryKey, int>();
         var overlapPassCounters = new Dictionary<Ps2DestinationAlphaLeafGeometryKey, int>();
 
+        // Rejections are logged only for leaves this pass OWNS by space — the
+        // world/local passes each see every leaf and filter the other space
+        // out, so logging unconditionally would record every leaf as
+        // "filtered" once per pass.
+        Func<Ps2GeomLeaf, bool> ownsLeaf = space switch
+        {
+            "world" => static leaf => !leaf.IsLocalSpace,
+            "local" => static leaf => leaf.IsLocalSpace,
+            _ => static _ => true
+        };
+
         foreach (var drawItem in orderedLeaves)
         {
             var leaf = drawItem.Leaf;
@@ -212,6 +253,17 @@ internal static class Ps2WorldzoneGeometryWriter
                 !leafFilter(leaf) ||
                 ShouldSkipWorldzoneLeaf(leaf))
             {
+                if (debugCollector != null && ownsLeaf(leaf))
+                {
+                    var (skipMin, skipMax) = ComputeBbox(leaf.Vertices);
+                    var reason = leaf.Vertices.Length < 3 ? "too_few_vertices"
+                        : !leafFilter(leaf) ? "time_of_day_night_overlay"
+                        : "geometric_quarantine";
+                    debugCollector.AddRejection(new Ps2GeomLeafRejection(
+                        mdlName, "writer", reason, leafIndex,
+                        leaf.Vertices.Length, leaf.DmaTex0, skipMin, skipMax));
+                }
+
                 continue;
             }
 
@@ -219,7 +271,17 @@ internal static class Ps2WorldzoneGeometryWriter
             var geometryKey = Ps2GeomDestinationAlphaSynthesis.CreateLeafGeometryKey(leaf);
             if (Ps2WorldzoneMaterialWriter.ShouldSkipRedundantWorldzoneBlendLayer(leaf, textureChecksum, geometryKey,
                     recentAlphaMasks))
+            {
+                if (debugCollector != null && ownsLeaf(leaf))
+                {
+                    var (skipMin, skipMax) = ComputeBbox(leaf.Vertices);
+                    debugCollector.AddRejection(new Ps2GeomLeafRejection(
+                        mdlName, "writer", "redundant_blend_layer", leafIndex,
+                        leaf.Vertices.Length, leaf.DmaTex0, skipMin, skipMax));
+                }
+
                 continue;
+            }
 
             var usesSynthesizedDestinationAlpha = false;
             if (textureChecksum != 0 && effectiveTexaTextureProvider != null &&
@@ -343,6 +405,37 @@ internal static class Ps2WorldzoneGeometryWriter
                     : $"{mesh.Name}_p{placementIndex:D4}";
                 ModelDocumentGeometryAdapter.AddMeshNode(document, nodeName, mesh,
                     CreateTransform(rotation, nodePosition));
+            }
+
+            if (emittedLeaf && debugCollector != null)
+            {
+                var resolution = debugTex0Resolver?.Invoke(leaf.DmaTex0, leaf.GroupChecksum);
+                debugCollector.AddMaterial(new Ps2GeomMaterialDebugRecord(
+                    mdlName,
+                    leafIndex,
+                    space,
+                    drawItem.DrawIndex,
+                    passIndex,
+                    overlapGroup,
+                    leaf.IsBillboard,
+                    leaf.DmaAlpha1,
+                    leaf.DmaTest1,
+                    leaf.DmaFrame1,
+                    alphaMode,
+                    Ps2GeomRenderSemantics.ClassifyWorldzoneRenderLayer(leaf).ToString(),
+                    Ps2GeomRenderSemantics.GetWorldzoneRenderOrderKey(leaf),
+                    leaf.GroupChecksum,
+                    leaf.DmaTex0,
+                    textureChecksum,
+                    usesSynthesizedDestinationAlpha,
+                    alphaModePng != null,
+                    resolution?.ResolveMode ?? "",
+                    resolution?.SourceLabel ?? "",
+                    resolution?.EntryLabel ?? "",
+                    Ps2GeomRenderSemantics.ClassifyPortableBakeClass((byte)(leaf.DmaAlpha1 & 0xFF)),
+                    leaf.Vertices.Length,
+                    min,
+                    max));
             }
 
             if (emittedLeaf &&

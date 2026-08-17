@@ -105,6 +105,26 @@ internal static class Ps2GeomRenderSemantics
             : Ps2GeomRenderLayer.Base;
     }
 
+    /// <summary>
+    ///     The texture-bake class the portable exporter would apply — the
+    ///     STRICTER test from <c>GltfModelExporter.ProcessTextureForPortableGltf</c>
+    ///     (it requires C∈{0,2} where <see cref="ClassifyWorldzoneAlphaMode" />
+    ///     ignores C). Surfaced for diagnostics so a classifier/bake mismatch
+    ///     is visible per leaf instead of silently rendering solid.
+    /// </summary>
+    internal static string ClassifyPortableBakeClass(byte alphaBlend)
+    {
+        var aField = alphaBlend & 0x03;
+        var bField = (alphaBlend >> 2) & 0x03;
+        var cField = (alphaBlend >> 4) & 0x03;
+        var dField = (alphaBlend >> 6) & 0x03;
+        if (aField == 0 && bField == 2 && dField == 1 && cField is 0 or 2)
+            return "additive";
+        if (aField == 2 && bField == 0 && dField == 1 && cField is 0 or 2)
+            return "subtractive";
+        return "none";
+    }
+
     internal static bool IsStandardSourceAlphaBlend(byte alphaBlend)
     {
         var aField = alphaBlend & 0x03;

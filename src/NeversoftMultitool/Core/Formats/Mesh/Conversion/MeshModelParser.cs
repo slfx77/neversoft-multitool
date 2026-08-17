@@ -1099,6 +1099,10 @@ public sealed class MeshModelParser : IModelParser
             tex0Resolver = textureCatalog.CreateTex0ChecksumResolver(textureSourceHint);
         }
 
+        var debugCollector = request.WorldzoneDebugDirectory != null
+            ? new Ps2GeomDebugCollector(request.OutputStem)
+            : null;
+
         Ps2WorldzoneGeometryWriter.PopulatePs2Worldzone(
             document,
             pakBytes,
@@ -1109,7 +1113,18 @@ public sealed class MeshModelParser : IModelParser
             textureCatalog,
             textureSourceHint,
             request.WorldzoneTimeOfDay,
-            request.WorldzoneScale);
+            request.WorldzoneScale,
+            debugCollector: debugCollector);
+
+        if (debugCollector != null && request.WorldzoneDebugDirectory != null)
+        {
+            Ps2WorldzoneDebugDump.Write(
+                request.WorldzoneDebugDirectory,
+                request.OutputStem,
+                debugCollector,
+                textureCatalog);
+        }
+
         return document;
     }
 

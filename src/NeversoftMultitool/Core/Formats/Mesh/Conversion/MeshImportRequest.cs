@@ -53,6 +53,14 @@ public sealed class MeshImportRequest
     public float WorldzoneScale { get; init; } = 1f;
 
     /// <summary>
+    ///     When set, worldzone conversion writes triage diagnostics into this
+    ///     directory: per-leaf rejection reasons, emitted-leaf GS state with
+    ///     texture-resolution tags, and the texture catalog's debug dump.
+    ///     Null (the default) changes nothing — pure opt-in diagnostics.
+    /// </summary>
+    public string? WorldzoneDebugDirectory { get; init; }
+
+    /// <summary>
     ///     Options for embedding PSX character animations into the document. When
     ///     null, no animation tracks are populated. When set, the parser also
     ///     consults <see cref="PsxDecodedAnimations" /> for the pre-decoded slot
