@@ -78,6 +78,40 @@ adjudicated and regression-pinned:
 
 Still open:
 
+- ✅ **skb1: opaque overlays and semi-transparent water met at one lifted plane — fixed 2026-08-17.**
+  Reported via a P-key pose in THPS2 PSX `skb1.psx`; `glb-render --probe` at that pose showed
+  `mesh_0000004E__overlay00` and `jowwater07__blend006` at an identical distance (gap **+0**). The
+  two anti-z-fighting mechanisms each applied exactly one 0.25 step from the same authored plane —
+  the opaque duplicate-floor overlays through their node-transform BlendOffset, the water through
+  its baked vertex lift — and cancelled each other out: 44 surfaces (12 overlays + 32 water sheets)
+  landed on one Y. Neither classifier could see the pair by design (`ClassifyPair` declines
+  semi-transparent members; the layer rule compares transparent textures only).
+
+  Fix: `FindSemiTransparentLayerSteps` gained an opaque-overlay **clearance rule** — a transparent
+  face steps to `overlappedOverlayRank + 1`, per-face overlap only, capped at 3. The cap is
+  measured, not chosen: the twelve-level corpus maximum overlapped rank is 2 (skware's pool sheet
+  crosses a rank-2 overlay and needs step 3 = 0.75); an earlier cap of 2 would have parked that
+  sheet at the rank-2 overlay's own height. Corpus effect: skb1 +39 stepped faces, DC SKB1 +8,
+  SKB2 +23 (its `Assert.Empty` expectation was this same defect — the "resolved by the standard
+  one-step lift" claim ignored the 24 opaque overlays on the plane), SKMAR +16, skmar +6,
+  skware +8, l7a2_g +6; **SKPH/skmall/skny/l2a1/lda1 unchanged** (their step censuses held).
+  Verified at the reported pose: water now nearest at +0.349 along the ray (= 0.25 / |dirY|),
+  planes at −301.7778 / −301.5278 / −301.2778. The baked lift is now also recorded as inert
+  `PsxSemiTransparentLiftMetadata` (GLB extras + blend manifest, no `blendOffset` key) so a future
+  GLB→PSX importer can subtract it.
+
+  Scope note: the clearance rule sees **per-file** overlay assignments only. Cross-file placed
+  overlays (`PsxPlacedCoplanarOverlayResolver` — currently one School door pair corpus-wide) carry
+  BlendOffsets the rule does not consult; if a placed overlay ever shares a plane with a transparent
+  sheet, that is a separate, currently-hypothetical defect.
+
+  **N64 measured, not changed**: the same two-mechanism design shares one constant
+  (`DecalLiftInRawUnits = 0.5`) and has no clearance rule, so it is structurally exposed — but a
+  probe composing the overlay BlendOffset (which `N64SemiTransparentLiftTests`' harness does NOT
+  compose, so its pinned zero cannot see this class) found **0 coincident overlay/ST pairs** in
+  THPS1 Downtown (28 overlay / 708 ST tris), slot 014 (466 / 84), and Spider-Man 007. Nothing to
+  fix today; re-measure with that probe shape if an N64 water/decal report arrives.
+
 - **skny storefront sign — RESOLVED as a geometry defect; the ordering is correct.**
   The 2026-08-16 entry that stood here blamed `ClassifyPair`'s
   `SmallerFaceHasInsufficientSharedArea` decline on the polygon-clip perimeter walk. **Both halves

@@ -10,14 +10,21 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 internal static class PsxGeometryWriter
 {
     /// <summary>
-    ///     Lift applied to ordering-table overlays along their outward normal,
-    ///     in glTF units. The PS1 has no depth buffer — transparent shadows and
-    ///     opaque decals alike can sit exactly coplanar with their base face and
-    ///     win by draw order — but depth-tested glTF viewers z-fight. 0.25 is
-    ///     below the minimum level-geometry grid step (1 raw unit / 2.25 ≈
-    ///     0.44), so the lift is invisible while clearing depth precision. A
-    ///     stacked semi-transparent layer (SKB2's animated waves over its
-    ///     static water) lifts a second step (0.5) — still under the grid step.
+    ///     One separation step for coplanar layer stacks, in glTF units. The
+    ///     PS1 has no depth buffer — transparent shadows and opaque decals
+    ///     alike can sit exactly coplanar with their base face and win by draw
+    ///     order — but depth-tested glTF viewers z-fight. Read at TWO places:
+    ///     opaque overlays carry rank × step as node-transform BlendOffset
+    ///     metadata (vertices stay authored), semi-transparent faces bake
+    ///     steps × step into their vertices. The two mechanisms share one
+    ///     plane, so a transparent face overlapping an opaque overlay steps
+    ///     OVER it (FindSemiTransparentLayerSteps' clearance rule; before
+    ///     2026-08-17 both took one step and landed exactly coplanar — skb1's
+    ///     water vs its duplicate floor tiles). 0.25 is below the minimum
+    ///     level-geometry grid step (1 raw unit / 2.25 ≈ 0.44), so a single
+    ///     step is invisible; stacked steps (2 = 0.50, corpus max 3 = 0.75)
+    ///     exceed one grid step and are accepted as the cost of separating
+    ///     layers the source resolved by draw order alone.
     /// </summary>
     private const float PsxOverlayFaceLift = 0.25f;
 
@@ -63,7 +70,8 @@ internal static class PsxGeometryWriter
         var placedCoplanarGroupOffset = coplanarOverlays.Count == 0
             ? 0
             : coplanarOverlays.Values.Max(static assignment => assignment.GroupId) + 1;
-        var semiTransparentLiftSteps = PsxCoplanarOverlayDetector.FindSemiTransparentLayerSteps(psxFile);
+        var semiTransparentLiftSteps = PsxCoplanarOverlayDetector.FindSemiTransparentLayerSteps(
+            psxFile, coplanarOverlays);
         var semiTransparentLiftDirections = BuildSemiTransparentLiftDirections(psxFile);
         var untexturedMaterial = context.UntexturedMaterialIndex ??=
             ModelDocumentGeometryAdapter.AddMaterial(document, new RenderMaterial
@@ -419,6 +427,20 @@ internal static class PsxGeometryWriter
                 liftContext);
             if (faceMesh == null)
                 continue;
+
+            // Round-trip provision: record the baked lift so a future GLB→PSX
+            // importer can subtract it. Inert by design — the type implements
+            // no draw-order interface, so neither the GLB node composition nor
+            // the Blender importer re-applies it (see the record's remarks).
+            var liftDirection = ComputePsxOverlayLiftVector(
+                    psxFile.Version, psxMesh, [item], liftContext.SpriteResolver) /
+                PsxOverlayFaceLift;
+            foreach (var primitive in faceMesh.Primitives)
+            {
+                primitive.NativeMetadata.Add(new PsxSemiTransparentLiftMetadata(
+                    liftContext.LiftStepsFor(item.FaceIndex),
+                    liftDirection.X, liftDirection.Y, liftDirection.Z));
+            }
 
             var centroid = RebaseMeshToCentroid(faceMesh);
             ModelDocumentGeometryAdapter.AddMeshNode(

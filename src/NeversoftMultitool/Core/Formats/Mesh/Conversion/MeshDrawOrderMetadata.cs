@@ -40,3 +40,41 @@ public sealed record MeshDrawOrderMetadata(
     float BlendOffsetY = 0f,
     float BlendOffsetZ = 0f)
     : NativeRenderMetadata("draw_order"), IMeshDrawOrderExtras;
+
+/// <summary>
+///     Records that a PSX semi-transparent face's vertices were BAKED with the
+///     anti-z-fighting lift (per-corner direction × Steps × 0.25 export
+///     units), so a future GLB→PSX importer can subtract it and recover the
+///     authored coplanar position. The opaque half of the scheme is already
+///     invertible — <see cref="MeshDrawOrderMetadata" /> carries its
+///     BlendOffset while the vertices stay authored — but the semi-transparent
+///     half moves the vertices themselves and was previously recorded nowhere.
+/// </summary>
+/// <remarks>
+///     <para>
+///         Deliberately does NOT implement <see cref="IMeshDrawOrderExtras" />:
+///         <c>GltfModelExporter.ComposeDrawOrderSeparation</c> re-applies any
+///         BlendOffset it finds into the GLB node transform, and the Blender
+///         importer re-applies it again at object level — either would double
+///         the already-baked lift. This record is purely informational,
+///         consumed by nothing.
+///     </para>
+///     <para>
+///         Direction is the face's own outward geometric normal — the fallback
+///         the writer uses when a corner is not shared. A corner coincident
+///         with other lifted faces moves along the file's POSITION-AVERAGED
+///         direction instead, so one vector per face cannot name every
+///         corner's exact motion. The lift is nonetheless invertible from
+///         Steps alone: directions are translation-invariant face normals and
+///         welded corners move together (coincident stays coincident), so the
+///         averaging map rebuilt from the LIFTED geometry equals the original,
+///         and subtracting direction × Steps × 0.25 recovers the authored
+///         positions exactly.
+///     </para>
+/// </remarks>
+public sealed record PsxSemiTransparentLiftMetadata(
+    int Steps,
+    float DirectionX,
+    float DirectionY,
+    float DirectionZ)
+    : NativeRenderMetadata("psx_semi_transparent_lift");

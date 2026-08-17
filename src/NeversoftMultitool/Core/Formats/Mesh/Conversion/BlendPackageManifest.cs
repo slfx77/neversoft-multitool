@@ -176,6 +176,16 @@ internal sealed class BlendPackageManifest
                     drawOrder.BlendOffsetX, drawOrder.BlendOffsetY, drawOrder.BlendOffsetZ
                 };
                 break;
+            case PsxSemiTransparentLiftMetadata semiLift:
+                // Informational round-trip record of the already-BAKED vertex
+                // lift. Deliberately not "blendOffset" — the importer would
+                // re-apply that key at object level and double the lift.
+                result["steps"] = semiLift.Steps;
+                result["bakedLiftDirection"] = new[]
+                {
+                    semiLift.DirectionX, semiLift.DirectionY, semiLift.DirectionZ
+                };
+                break;
             case Ps2WorldzoneBillboardMetadata billboard:
                 result["billboardKind"] = billboard.BillboardKind;
                 result["anchor"] = new[] { billboard.AnchorX, billboard.AnchorY, billboard.AnchorZ };

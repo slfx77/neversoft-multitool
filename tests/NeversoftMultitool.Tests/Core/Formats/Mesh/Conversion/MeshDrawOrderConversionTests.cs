@@ -120,6 +120,99 @@ public sealed class MeshDrawOrderConversionTests
     }
 
     [Fact]
+    public void Psx_SemiTransparentSheet_ClearsAnOpaqueOverlayOnItsOwnPlane()
+    {
+        // The skb1 defect: an opaque decal (draw-order BlendOffset, one step)
+        // and a semi-transparent sheet (baked vertex lift, one step) on the
+        // SAME authored plane landed exactly coplanar at 0.25 — the two
+        // anti-z-fighting mechanisms recreated the fight. The sheet must step
+        // over the overlay: base 0.00, overlay 0.25, sheet 0.50.
+        var file = CreatePsxFile(
+            CreateQuad(10f, 0f, 1),                        // opaque base
+            CreateQuad(4f, 0f, 2),                         // opaque overlay (rank 1)
+            CreateQuad(6f, 0f, 3, semiTransparent: true)); // sheet crossing the overlay
+        var document = new ModelDocument { Name = "psx_stack", SourceKind = ModelSourceKind.Psx };
+        PsxGeometryWriter.PopulatePsx(document, file, null);
+
+        // Overlay: metadata separation only, vertices authored.
+        var overlayNode = Assert.Single(document.Nodes, static n => n.Name.Contains("__overlay"));
+        var overlayMesh = document.Meshes[overlayNode.MeshIndex!.Value];
+        var metadata = Assert.Single(
+            overlayMesh.Primitives.Single().NativeMetadata.OfType<MeshDrawOrderMetadata>());
+        Assert.Equal(0.25f, MathF.Abs(metadata.BlendOffsetY), 5);
+        foreach (var vertex in overlayMesh.Primitives.Single().Vertices)
+            Assert.Equal(0f, vertex.Position.Y, 6);
+
+        // Sheet: TWO steps baked, clearing the overlay's one.
+        var blendNode = Assert.Single(document.Nodes, static n => n.Name.Contains("__blend"));
+        var blendMesh = document.Meshes[blendNode.MeshIndex!.Value];
+        foreach (var vertex in blendMesh.Primitives.Single().Vertices)
+        {
+            var world = vertex.Position + blendNode.Transform.Translation;
+            Assert.Equal(0.50f, MathF.Abs(world.Y), 5);
+        }
+    }
+
+    [Fact]
+    public void Psx_SheetAwayFromTheOverlay_KeepsTheSingleStep()
+    {
+        // Same plane, but the sheet does not reach the overlay: no clearance
+        // step. Guards the rule's per-face overlap test against becoming a
+        // plane-wide promotion (the union-bounds failure mode).
+        var file = CreatePsxFile(
+            CreateQuad(20f, 0f, 1),
+            CreateQuad(2f, 0f, 2),
+            CreateShiftedQuad(4f, 0f, 3, offsetX: 9f, semiTransparent: true));
+        var document = new ModelDocument { Name = "psx_apart", SourceKind = ModelSourceKind.Psx };
+        PsxGeometryWriter.PopulatePsx(document, file, null);
+
+        var blendNode = Assert.Single(document.Nodes, static n => n.Name.Contains("__blend"));
+        var blendMesh = document.Meshes[blendNode.MeshIndex!.Value];
+        foreach (var vertex in blendMesh.Primitives.Single().Vertices)
+        {
+            var world = vertex.Position + blendNode.Transform.Translation;
+            Assert.Equal(0.25f, MathF.Abs(world.Y), 5);
+        }
+    }
+
+    [Fact]
+    public void Psx_SemiTransparentLiftMetadata_IsRecordedAndInert()
+    {
+        // Round-trip provision: the baked lift is recorded on the __blend
+        // primitive. It must NOT implement IMeshDrawOrderExtras — the GLB
+        // exporter composes any BlendOffset it finds into the node transform
+        // and the Blender importer applies it again, either of which would
+        // double the already-baked lift.
+        var file = CreatePsxFile(CreateQuad(4f, 0f, 3, semiTransparent: true));
+        var document = new ModelDocument { Name = "psx_lift_meta", SourceKind = ModelSourceKind.Psx };
+        PsxGeometryWriter.PopulatePsx(document, file, null);
+
+        var mesh = document.Meshes.Single();
+        var lift = Assert.Single(
+            mesh.Primitives.Single().NativeMetadata.OfType<PsxSemiTransparentLiftMetadata>());
+        Assert.Equal(1, lift.Steps);
+        var direction = new Vector3(lift.DirectionX, lift.DirectionY, lift.DirectionZ);
+        Assert.Equal(1f, direction.Length(), 4);
+        Assert.Equal(1f, MathF.Abs(direction.Y), 4);
+        Assert.False(lift is IMeshDrawOrderExtras);
+    }
+
+    [Fact]
+    public void ToDictionary_SerializesTheSemiTransparentLiftWithoutABlendOffsetKey()
+    {
+        // "blendOffset" is the key import_package.py re-applies at object
+        // level; the recorded lift must never travel under it.
+        var dictionary = BlendPackageManifest.ToDictionary(
+            new PsxSemiTransparentLiftMetadata(2, 0f, 1f, 0f));
+
+        Assert.Equal("psx_semi_transparent_lift", dictionary["kind"]);
+        Assert.Equal(2, dictionary["steps"]);
+        Assert.Equal([0f, 1f, 0f], Assert.IsType<float[]>(dictionary["bakedLiftDirection"]));
+        Assert.False(dictionary.ContainsKey("blendOffset"));
+        Assert.False(dictionary.ContainsKey("drawIndex"));
+    }
+
+    [Fact]
     public void ToDictionary_SerializesGenericDrawOrderKind()
     {
         var dictionary = BlendPackageManifest.ToDictionary(
@@ -201,15 +294,21 @@ public sealed class MeshDrawOrderConversionTests
 
     private static PsxMesh CreateQuad(float size, float y, uint textureHash, bool semiTransparent = false)
     {
+        return CreateShiftedQuad(size, y, textureHash, 0f, semiTransparent);
+    }
+
+    private static PsxMesh CreateShiftedQuad(
+        float size, float y, uint textureHash, float offsetX, bool semiTransparent = false)
+    {
         var half = size * 0.5f;
         return new PsxMesh
         {
             Vertices =
             [
-                new PsxVertex { X = -half, Y = y, Z = -half },
-                new PsxVertex { X = half, Y = y, Z = -half },
-                new PsxVertex { X = -half, Y = y, Z = half },
-                new PsxVertex { X = half, Y = y, Z = half }
+                new PsxVertex { X = offsetX - half, Y = y, Z = -half },
+                new PsxVertex { X = offsetX + half, Y = y, Z = -half },
+                new PsxVertex { X = offsetX - half, Y = y, Z = half },
+                new PsxVertex { X = offsetX + half, Y = y, Z = half }
             ],
             Normals = [new PsxNormal { Y = 1f }],
             Faces =

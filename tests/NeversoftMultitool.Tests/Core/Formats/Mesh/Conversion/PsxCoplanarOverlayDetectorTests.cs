@@ -174,20 +174,28 @@ public sealed class PsxCoplanarOverlayDetectorTests(TestPaths paths)
 
         var file = PsxMeshFile.Parse(path);
         Assert.NotNull(file);
-        var steps = PsxCoplanarOverlayDetector.FindSemiTransparentLayerSteps(file!);
 
         // The water plane at Y≈301.8 tiles two scrolling ST textures
         // (0x36D4916F + 0x629763D7) side by side over an OPAQUE base
-        // (0x2CB42720) at the exact same Y. The reported z-fight is the
-        // ST-over-opaque pair at DC-scale depth precision — resolved by the
-        // uniform one-step lift plus the viewer's log depth buffer. The two
-        // ST tile sets never interpenetrate, so the layer detector must NOT
-        // invent a stack for them (union-bounds grouping used to lift one
-        // whole set 0.5 spuriously).
-        // Assert the OUTCOME, not a loop over it: the detector finds no stack
-        // anywhere in this file, so iterating its (empty) results asserted
-        // nothing at all and passed no matter what the detector did.
-        Assert.Empty(steps);
+        // (0x2CB42720) at the exact same Y. The two ST tile sets never
+        // interpenetrate, so the ST-vs-ST layer rule must NOT invent a stack
+        // for them (union-bounds grouping used to lift one whole set 0.5
+        // spuriously). Asserted against the rule in isolation via the empty
+        // overlay map.
+        var transparentOnly = PsxCoplanarOverlayDetector.FindSemiTransparentLayerSteps(
+            file!, new Dictionary<PsxFaceInstanceKey, PsxCoplanarOverlayAssignment>());
+        Assert.Empty(transparentOnly);
+
+        // Re-pinned 2026-08-17: the pre-clearance expectation of ZERO steps
+        // was itself the skb1-class defect. This plane also carries 24 OPAQUE
+        // draw-order overlays (duplicate floor tiles) whose one-step
+        // BlendOffset landed exactly on the water's one-step vertex lift —
+        // the "resolved by the standard one-step lift" claim ignored them.
+        // Measured: 23 of the water tiles overlap a rank-1 overlay and now
+        // step to 2 (0.50); the other tiles clear nothing and stay at 1.
+        var steps = PsxCoplanarOverlayDetector.FindSemiTransparentLayerSteps(file!);
+        Assert.Equal(23, steps.Count);
+        Assert.All(steps, static step => Assert.Equal(2, step.Value));
     }
 
     [Fact]
@@ -266,15 +274,31 @@ public sealed class PsxCoplanarOverlayDetectorTests(TestPaths paths)
             sameTextureSharedCornerPairs,
             pair => EffectiveStep(steps, pair.First) != EffectiveStep(steps, pair.Second));
 
-        // The related final-PSX skware report cannot originate in the extra
-        // layer-step mechanism: production selects no step-2 face there.
+        // The related final-PSX skware report cannot originate in the
+        // ST-vs-ST layer rule: it selects no step-2 face there (asserted in
+        // isolation via the empty overlay map).
         var skwarePath = paths.FindSampleFile(
             "Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)",
             "skware.psx");
         Assert.SkipWhen(skwarePath == null, "THPS2 PSX skware fixture not available");
         var skware = PsxMeshFile.Parse(skwarePath!);
         Assert.NotNull(skware);
-        Assert.Empty(PsxCoplanarOverlayDetector.FindSemiTransparentLayerSteps(skware!));
+        Assert.Empty(PsxCoplanarOverlayDetector.FindSemiTransparentLayerSteps(
+            skware!, new Dictionary<PsxFaceInstanceKey, PsxCoplanarOverlayAssignment>()));
+
+        // Re-pinned 2026-08-17 with the opaque-overlay clearance rule: 8
+        // skware water faces cross opaque overlay stacks. This is the level
+        // that sets the step CAP — its pool sheet crosses a RANK-2 overlay
+        // (the corpus-wide maximum), so it carries the only step-3 faces in
+        // the twelve-level corpus; clamping them to 2 would park the sheet at
+        // the rank-2 overlay's own 0.50 height and preserve the collision.
+        var skwareSteps = PsxCoplanarOverlayDetector.FindSemiTransparentLayerSteps(skware!);
+        Assert.Equal(8, skwareSteps.Count);
+        Assert.Equal(3, skwareSteps.Values.Max());
+        Assert.Equal(
+            2,
+            PsxCoplanarOverlayDetector.MeasureMaxOpaqueRankUnderSemiTransparent(
+                skware!, PsxCoplanarOverlayDetector.FindGroups(skware!)));
     }
 
     [Fact]

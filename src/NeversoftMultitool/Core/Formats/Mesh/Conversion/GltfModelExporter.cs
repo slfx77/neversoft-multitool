@@ -521,8 +521,12 @@ public sealed class GltfModelExporter : IModelExporter
             .SelectMany(static primitive => primitive.NativeMetadata)
             .OfType<PsxColourPulseMetadata>()
             .FirstOrDefault();
+        var semiLift = modelMesh.Primitives
+            .SelectMany(static primitive => primitive.NativeMetadata)
+            .OfType<PsxSemiTransparentLiftMetadata>()
+            .FirstOrDefault();
         if (drawOrder == null && sky == null && billboard == null && colourPulse == null &&
-            !psxVertexCarriers)
+            semiLift == null && !psxVertexCarriers)
             return;
 
         var extras = new System.Text.Json.Nodes.JsonObject();
@@ -531,6 +535,16 @@ public sealed class GltfModelExporter : IModelExporter
             extras["neversoftDrawIndex"] = drawOrder.DrawIndex;
             extras["neversoftPassIndex"] = drawOrder.PassIndex;
             extras["neversoftOverlapGroup"] = drawOrder.OverlapGroup;
+        }
+
+        if (semiLift != null)
+        {
+            // Informational only: the lift is already baked into the vertex
+            // positions. Recorded so a GLB→PSX importer can subtract it; no
+            // viewer or importer consumes it (see PsxSemiTransparentLiftMetadata).
+            extras["neversoftSemiTransparentLiftSteps"] = semiLift.Steps;
+            extras["neversoftSemiTransparentLiftDirection"] = new System.Text.Json.Nodes.JsonArray(
+                semiLift.DirectionX, semiLift.DirectionY, semiLift.DirectionZ);
         }
 
         if (sky != null)

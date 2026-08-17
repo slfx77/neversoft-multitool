@@ -314,34 +314,187 @@ internal static class PsxCoplanarOverlayDetector
     internal static IReadOnlyDictionary<PsxFaceInstanceKey, int> FindSemiTransparentLayerSteps(
         PsxMeshFile file)
     {
+        return FindSemiTransparentLayerSteps(file, FindGroups(file));
+    }
+
+    /// <summary>
+    ///     Overload taking the file's already-computed opaque overlay
+    ///     assignments so the writer (which needs both) computes
+    ///     <see cref="FindGroups" /> once.
+    /// </summary>
+    internal static IReadOnlyDictionary<PsxFaceInstanceKey, int> FindSemiTransparentLayerSteps(
+        PsxMeshFile file,
+        IReadOnlyDictionary<PsxFaceInstanceKey, PsxCoplanarOverlayAssignment> opaqueOverlays)
+    {
         Dictionary<PsxFaceInstanceKey, int>? steps = null;
         foreach (var candidates in CollectPlanes(file).Values)
         {
-            var layerGroups = candidates
-                .Where(static candidate => candidate.Face.IsSemiTransparent)
-                .GroupBy(static candidate => (candidate.Face.TextureHash, candidate.Face.IsTextured))
-                .Select(static group => group.ToList())
-                .ToList();
-            if (layerGroups.Count < 2)
+            AccumulateTransparentLayerPairSteps(candidates, ref steps);
+            AccumulateOpaqueOverlayClearanceSteps(candidates, opaqueOverlays, ref steps);
+        }
+
+        return steps ?? (IReadOnlyDictionary<PsxFaceInstanceKey, int>)EmptySteps;
+    }
+
+    /// <summary>
+    ///     Stacked semi-transparent layers of DIFFERENT textures on one plane:
+    ///     the top layer of each pair takes one extra step (SKB2's animated
+    ///     waves over its static water). Overlap is decided per face pair,
+    ///     never from group union bounds — union bounds chain side-by-side
+    ///     sign panels into deep stacks.
+    /// </summary>
+    private static void AccumulateTransparentLayerPairSteps(
+        List<Candidate> candidates,
+        ref Dictionary<PsxFaceInstanceKey, int>? steps)
+    {
+        var layerGroups = candidates
+            .Where(static candidate => candidate.Face.IsSemiTransparent)
+            .GroupBy(static candidate => (candidate.Face.TextureHash, candidate.Face.IsTextured))
+            .Select(static group => group.ToList())
+            .ToList();
+        if (layerGroups.Count < 2)
+            return;
+
+        for (var i = 0; i < layerGroups.Count; i++)
+        {
+            for (var j = i + 1; j < layerGroups.Count; j++)
+            {
+                var top = SelectTopLayer(layerGroups[i], layerGroups[j]);
+                var bottom = ReferenceEquals(top, layerGroups[i]) ? layerGroups[j] : layerGroups[i];
+                foreach (var candidate in top.Where(candidate => bottom.Any(other =>
+                             BoundsOverlap((candidate.Min, candidate.Max), (other.Min, other.Max)))))
+                {
+                    steps ??= [];
+                    steps[candidate.Key] = Math.Max(steps.GetValueOrDefault(candidate.Key, 1), 2);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    ///     A semi-transparent face must also clear any OPAQUE draw-order
+    ///     overlay it overlaps on its own plane. Both anti-z-fighting
+    ///     mechanisms apply one 0.25 step from the same authored plane — the
+    ///     opaque overlay through its node-transform BlendOffset, the
+    ///     semi-transparent face through its baked vertex lift — so without
+    ///     this rule they land exactly coplanar and recreate the fight both
+    ///     were built to avoid (THPS2 PSX skb1: 12 duplicate pool-floor
+    ///     overlays and 32 water sheets all met at one lifted plane, 46
+    ///     overlapping pairs). The transparent surface is the top of any such
+    ///     stack — the engine draws it over the floor it covers — so it steps
+    ///     to the overlapped overlay's rank + 1.
+    /// </summary>
+    /// <remarks>
+    ///     The two classifiers themselves stay deliberately blind to each
+    ///     other: <c>ClassifyPair</c> declines pairs with a semi-transparent
+    ///     member (the face lifts geometrically instead of being flagged), and
+    ///     the layer rule above compares transparent textures only. This rule
+    ///     is the one place the two mechanisms are reconciled, and it only
+    ///     ever RAISES a step count — membership of both sets is untouched.
+    ///     Steps cap at <see cref="MaxSemiTransparentLiftSteps" /> = 3,
+    ///     measured: the deepest overlapped opaque rank in the twelve-level
+    ///     corpus is 2 (skware's pool, whose water sheet crosses a rank-2
+    ///     overlay stack and so needs step 3), every other level needs at
+    ///     most rank 1 + 1 = 2. The cap must exceed the deepest overlapped
+    ///     rank — clamping to the rank itself would park the sheet AT the
+    ///     overlay's height and preserve the collision — so anything past 3
+    ///     is evidence of a mis-grouped plane, not authored layering.
+    /// </remarks>
+    private static void AccumulateOpaqueOverlayClearanceSteps(
+        List<Candidate> candidates,
+        IReadOnlyDictionary<PsxFaceInstanceKey, PsxCoplanarOverlayAssignment> opaqueOverlays,
+        ref Dictionary<PsxFaceInstanceKey, int>? steps)
+    {
+        if (opaqueOverlays.Count == 0)
+            return;
+
+        List<(Candidate Candidate, int Rank)>? flaggedOpaque = null;
+        foreach (var candidate in candidates)
+        {
+            if (!candidate.Face.IsSemiTransparent &&
+                opaqueOverlays.TryGetValue(candidate.Key, out var assignment))
+            {
+                flaggedOpaque ??= [];
+                flaggedOpaque.Add((candidate, assignment.DrawRank));
+            }
+        }
+
+        if (flaggedOpaque == null)
+            return;
+
+        foreach (var candidate in candidates)
+        {
+            if (!candidate.Face.IsSemiTransparent)
                 continue;
 
-            for (var i = 0; i < layerGroups.Count; i++)
+            var maxRank = 0;
+            foreach (var (opaque, rank) in flaggedOpaque)
             {
-                for (var j = i + 1; j < layerGroups.Count; j++)
+                if (rank > maxRank &&
+                    BoundsOverlap((candidate.Min, candidate.Max), (opaque.Min, opaque.Max)))
                 {
-                    var top = SelectTopLayer(layerGroups[i], layerGroups[j]);
-                    var bottom = ReferenceEquals(top, layerGroups[i]) ? layerGroups[j] : layerGroups[i];
-                    foreach (var candidate in top.Where(candidate => bottom.Any(other =>
-                                 BoundsOverlap((candidate.Min, candidate.Max), (other.Min, other.Max)))))
+                    maxRank = rank;
+                }
+            }
+
+            if (maxRank == 0)
+                continue;
+
+            var required = Math.Min(maxRank + 1, MaxSemiTransparentLiftSteps);
+            steps ??= [];
+            steps[candidate.Key] = Math.Max(steps.GetValueOrDefault(candidate.Key, 1), required);
+        }
+    }
+
+    /// <summary>
+    ///     Upper bound on the semi-transparent lift's step count. See
+    ///     <see cref="AccumulateOpaqueOverlayClearanceSteps" />.
+    /// </summary>
+    private const int MaxSemiTransparentLiftSteps = 3;
+
+    /// <summary>
+    ///     Measurement used by the corpus tests: the highest opaque-overlay
+    ///     draw rank any semi-transparent face actually overlaps. The cap in
+    ///     <see cref="AccumulateOpaqueOverlayClearanceSteps" /> is only exact
+    ///     while this stays at 1 corpus-wide — a face over a rank-2 overlay
+    ///     would need step 3, and clamping it to 2 would recreate the
+    ///     collision at the overlay's own height.
+    /// </summary>
+    internal static int MeasureMaxOpaqueRankUnderSemiTransparent(
+        PsxMeshFile file,
+        IReadOnlyDictionary<PsxFaceInstanceKey, PsxCoplanarOverlayAssignment> opaqueOverlays)
+    {
+        var maxRank = 0;
+        if (opaqueOverlays.Count == 0)
+            return maxRank;
+
+        foreach (var candidates in CollectPlanes(file).Values)
+        {
+            var flaggedOpaque = candidates
+                .Where(candidate => !candidate.Face.IsSemiTransparent &&
+                                    opaqueOverlays.ContainsKey(candidate.Key))
+                .ToList();
+            if (flaggedOpaque.Count == 0)
+                continue;
+
+            foreach (var candidate in candidates)
+            {
+                if (!candidate.Face.IsSemiTransparent)
+                    continue;
+
+                foreach (var opaque in flaggedOpaque)
+                {
+                    var rank = opaqueOverlays[opaque.Key].DrawRank;
+                    if (rank > maxRank &&
+                        BoundsOverlap((candidate.Min, candidate.Max), (opaque.Min, opaque.Max)))
                     {
-                        steps ??= [];
-                        steps[candidate.Key] = 2;
+                        maxRank = rank;
                     }
                 }
             }
         }
 
-        return steps ?? (IReadOnlyDictionary<PsxFaceInstanceKey, int>)EmptySteps;
+        return maxRank;
     }
 
     private static List<Candidate> SelectTopLayer(List<Candidate> first, List<Candidate> second)
