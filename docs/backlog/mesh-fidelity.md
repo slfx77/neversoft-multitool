@@ -78,20 +78,26 @@ adjudicated and regression-pinned:
 
 Still open:
 
-- **skny: wrong texture wins on coplanar storefront layers** — faces identified 2026-08-16, cause is
-  **unranked members inside one overlap group**. The reported storefront is `dt_pawnsign01` /
-  `dt_pawnshop02/04/05/06/07/08/09` in `skny.psx`, all coplanar at z=0. Nine of them land in overlap
-  group 32 and **every one carries `neversoftDrawIndex = 1`**, so the detector finds the group but
-  never orders its members; the winner is then decided per triangle by submission order. The
-  screenshot confirms that shape rather than a whole-quad swap: the sign loses its leading `P` on
-  both lines and takes two triangular wedges out of its bottom corners, each with a visible diagonal.
-  The competing panels are nested rectangles on the same plane — `dt_pawnsign01` y −26.7…+26.2,
-  `dt_pawnshop05/06` y −59.1…+59.6, `dt_pawnshop08/09` y −68.9…+68.9 — with four different textures.
-  Group 32 also looks over-merged at 10 members where most groups here hold 1–3.
-  Ruled out: the three byte-identical pairs (`pawnsign01`≡`pawnshop02`, `05`≡`06`, `08`≡`09`, matching
-  in position, UV *and* texture) are authored duplicates and cosmetically irrelevant.
-  **The fix is ranking within a group**, which is a real change to the detector rather than a
-  threshold tweak. Do not infer success from the broader `skny` census alone.
+- **skny: wrong texture wins on coplanar storefront layers** — culprit pair identified 2026-08-16.
+  The sign is `dt_pawnsign01` (object 775, face 0) in `skny.psx`, world x[−25013,−24871]
+  y[211,264] z −6754.9. Searching every face in the level for a coplanar world-space overlap returns
+  **exactly one**: `ajc_bldg01` (object 763, face 0), the building facade, which covers **100%** of
+  the sign and is **not flagged into any overlay group**, while the sign is (group 32, rank 1).
+  The detector *does* compare that exact pair and declines it:
+  `obj763/f0 vs obj775/f0 -> decline = SmallerFaceHasInsufficientSharedArea`.
+  **That is the defect**: the shared-area test reports under 1% for a pair that geometrically overlaps
+  completely. Suspect the polygon-clip perimeter walk, which assumes the PSX quad strip order
+  `0,1,3,2`; a face that is not a quad would clip as a degenerate and report ~0 shared area. Confirm
+  the two faces' vertex counts before changing the test.
+  The screenshot matches a partial, per-triangle loss: the sign drops its leading `P` on both lines
+  and takes a wedge out of each bottom corner, each with a visible diagonal.
+  Ruled out along the way — **two earlier hypotheses that measurement killed**, recorded so they are
+  not retried: (1) "the big `dt_pawnshop07` wall covers the sign" is false, the two share a plane but
+  not a footprint (sign y 211…264 vs wall y 413…622); (2) "group 32's members are unranked and fight
+  each other" is false, every pair among the pawnshop faces is declined as non-overlapping, so one
+  rank for all of them is self-consistent. Note also that reading placement from these GLBs requires
+  the node **matrix** — every mesh node carries one and no `translation`, and using local coordinates
+  makes unrelated faces across the level look coincident.
 
 - 🔴 **THPS2: a shadow decal z-fights the base of the object casting it** — reported 2026-08-16 with a
   screenshot of a valve whose ground shadow fights its own base. **This is not the coplanar-layer
