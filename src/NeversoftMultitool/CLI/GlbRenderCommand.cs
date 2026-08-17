@@ -50,6 +50,40 @@ public static class GlbRenderCommand
         {
             Description = "Enable verbose output"
         };
+        var cameraEyeOption = new Option<string?>(ViewPose.EyeOptionName)
+        {
+            Description =
+                "Camera position as X,Y,Z. Selects a perspective view at that exact point " +
+                "instead of azimuth/elevation framing. Press P in the app's viewer to copy " +
+                "a ready-made camera line. Renders geometry and depth, not PS1 appearance"
+        };
+        var cameraYawOption = new Option<float>(ViewPose.YawOptionName)
+        {
+            Description = "Camera yaw in degrees (0 looks down -Z)",
+            DefaultValueFactory = _ => ViewPose.Unsupplied
+        };
+        var cameraPitchOption = new Option<float>(ViewPose.PitchOptionName)
+        {
+            Description = "Camera pitch in degrees (positive looks up)",
+            DefaultValueFactory = _ => ViewPose.Unsupplied
+        };
+        var cameraFovOption = new Option<float>(ViewPose.FovOptionName)
+        {
+            Description = $"Vertical field of view in degrees (default {ViewPose.DefaultFovDegrees})",
+            DefaultValueFactory = _ => ViewPose.Unsupplied
+        };
+        var cameraSizeOption = new Option<string?>(ViewPose.SizeOptionName)
+        {
+            Description = "Output size as WxH; aspect must match the view being reproduced"
+        };
+        var probeOption = new Option<bool>("--probe")
+        {
+            Description = "List every surface along the centre ray with the gap between them"
+        };
+        var probeAtOption = new Option<string?>("--probe-at")
+        {
+            Description = "Probe through pixel X,Y instead of the centre of the frame"
+        };
 
         var command = new Command("glb-render", "Render .glb files to .png images");
         command.Arguments.Add(inputArgument);
@@ -61,6 +95,13 @@ public static class GlbRenderCommand
         command.Options.Add(animIndexOption);
         command.Options.Add(timeOption);
         command.Options.Add(verboseOption);
+        command.Options.Add(cameraEyeOption);
+        command.Options.Add(cameraYawOption);
+        command.Options.Add(cameraPitchOption);
+        command.Options.Add(cameraFovOption);
+        command.Options.Add(cameraSizeOption);
+        command.Options.Add(probeOption);
+        command.Options.Add(probeAtOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -74,12 +115,87 @@ public static class GlbRenderCommand
             var time = parseResult.GetValue(timeOption);
             var verbose = parseResult.GetValue(verboseOption);
 
+            if (!ViewPose.TryCreate(
+                    parseResult.GetValue(cameraEyeOption),
+                    parseResult.GetValue(cameraYawOption),
+                    parseResult.GetValue(cameraPitchOption),
+                    parseResult.GetValue(cameraFovOption),
+                    parseResult.GetValue(cameraSizeOption),
+                    size,
+                    out var pose,
+                    out var poseError))
+            {
+                AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(poseError!)}");
+                return Task.FromResult(1);
+            }
+
+            if (!TryCreateProbeRequest(
+                    parseResult.GetValue(probeOption),
+                    parseResult.GetValue(probeAtOption),
+                    pose,
+                    out var probe,
+                    out var probeError))
+            {
+                AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(probeError!)}");
+                return Task.FromResult(1);
+            }
+
             return Task.FromResult(Execute(
                 input, output, size, azimuth, elevation, preset, animIndex, time, verbose,
-                cancellationToken));
+                cancellationToken, pose, probe));
         });
 
         return command;
+    }
+
+    /// <summary>
+    ///     Resolve the probe pixel, defaulting to the centre of the frame.
+    /// </summary>
+    /// <remarks>
+    ///     A probe needs an origin and a direction, so it is only meaningful with an
+    ///     explicit camera — the azimuth/elevation path has neither.
+    /// </remarks>
+    internal static bool TryCreateProbeRequest(
+        bool probe, string? probeAt, ViewPose? pose,
+        out ProbeRequest? request, out string? error)
+    {
+        request = null;
+        error = null;
+
+        if (!probe && string.IsNullOrWhiteSpace(probeAt))
+            return true;
+
+        if (pose is not { } camera)
+        {
+            error = $"--probe requires a camera; pass {ViewPose.EyeOptionName}=X,Y,Z.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(probeAt))
+        {
+            request = new ProbeRequest(camera.Width / 2, camera.Height / 2);
+            return true;
+        }
+
+        var parts = probeAt.Split(',');
+        if (parts.Length != 2 ||
+            !int.TryParse(parts[0].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture,
+                out var x) ||
+            !int.TryParse(parts[1].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture,
+                out var y))
+        {
+            error = "--probe-at must be two comma-separated pixel coordinates, e.g. --probe-at=725,450";
+            return false;
+        }
+
+        if (x < 0 || y < 0 || x >= camera.Width || y >= camera.Height)
+        {
+            error = $"--probe-at must lie inside the {camera.Width}x{camera.Height} frame.";
+            return false;
+        }
+
+        request = new ProbeRequest(x, y);
+        return true;
     }
 
     internal static int Execute(
@@ -92,7 +208,9 @@ public static class GlbRenderCommand
         int? animIndex,
         float? time,
         bool verbose,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ViewPose? pose = null,
+        ProbeRequest? probe = null)
     {
         List<string> files;
 
@@ -117,6 +235,14 @@ public static class GlbRenderCommand
         {
             AnsiConsole.MarkupLine(
                 $"[red]Unknown preset:[/] {Markup.Escape(preset!)} ([grey]supported: object-review[/])");
+            return 1;
+        }
+
+        if (pose != null && !string.IsNullOrWhiteSpace(preset))
+        {
+            AnsiConsole.MarkupLine(
+                "[red]Error:[/] --preset renders fixed orbit views and cannot be combined " +
+                $"with {ViewPose.EyeOptionName}.");
             return 1;
         }
 
@@ -178,7 +304,9 @@ public static class GlbRenderCommand
                     time);
                 if (verbose)
                 {
-                    var angleLabel = $"az={view.Azimuth:0.##}, el={view.Elevation:0.##}";
+                    var angleLabel = pose is { } camera
+                        ? $"eye={camera.Eye.X:0.##},{camera.Eye.Y:0.##},{camera.Eye.Z:0.##}"
+                        : $"az={view.Azimuth:0.##}, el={view.Elevation:0.##}";
                     AnsiConsole.MarkupLine(
                         $"Rendering [cyan]{Markup.Escape(Path.GetFileName(file))}[/] " +
                         $"({Markup.Escape(view.Name)}, {angleLabel}) -> " +
@@ -188,7 +316,7 @@ public static class GlbRenderCommand
                 try
                 {
                     GlbRenderer.RenderToFile(
-                        file, pngPath, longEdge, view.Azimuth, view.Elevation, animIndex, time);
+                        file, pngPath, longEdge, view.Azimuth, view.Elevation, animIndex, time, pose);
                     success++;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -196,6 +324,27 @@ public static class GlbRenderCommand
                     AnsiConsole.MarkupLine(
                         $"[red]FAIL[/] {Markup.Escape(Path.GetFileName(file))} " +
                         $"({Markup.Escape(view.Name)}): {Markup.Escape(ex.Message)}");
+                    fail++;
+                }
+            }
+
+            if (probe is { } request && pose is { } probeCamera)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var scene = GlbRenderer.LoadScene(file, animIndex, time);
+                    var direction = ViewProbe.RayDirection(
+                        probeCamera, request.PixelX, request.PixelY);
+                    ProbeReporter.Report(
+                        file, probeCamera, request,
+                        ViewProbe.Cast(scene, probeCamera.Eye, direction));
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"[red]Probe failed[/] {Markup.Escape(Path.GetFileName(file))}: " +
+                        Markup.Escape(ex.Message));
                     fail++;
                 }
             }

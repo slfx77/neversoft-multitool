@@ -78,19 +78,37 @@ adjudicated and regression-pinned:
 
 Still open:
 
-- **skny: wrong texture wins on coplanar storefront layers** — culprit pair identified 2026-08-16.
-  The sign is `dt_pawnsign01` (object 775, face 0) in `skny.psx`, world x[−25013,−24871]
-  y[211,264] z −6754.9. Searching every face in the level for a coplanar world-space overlap returns
-  **exactly one**: `ajc_bldg01` (object 763, face 0), the building facade, which covers **100%** of
-  the sign and is **not flagged into any overlay group**, while the sign is (group 32, rank 1).
-  The detector *does* compare that exact pair and declines it:
-  `obj763/f0 vs obj775/f0 -> decline = SmallerFaceHasInsufficientSharedArea`.
-  **That is the defect**: the shared-area test reports under 1% for a pair that geometrically overlaps
-  completely. Suspect the polygon-clip perimeter walk, which assumes the PSX quad strip order
-  `0,1,3,2`; a face that is not a quad would clip as a degenerate and report ~0 shared area. Confirm
-  the two faces' vertex counts before changing the test.
-  The screenshot matches a partial, per-triangle loss: the sign drops its leading `P` on both lines
-  and takes a wedge out of each bottom corner, each with a visible diagonal.
+- **skny storefront sign — RESOLVED as a geometry defect; the ordering is correct.**
+  The 2026-08-16 entry that stood here blamed `ClassifyPair`'s
+  `SmallerFaceHasInsufficientSharedArea` decline on the polygon-clip perimeter walk. **Both halves
+  of that were wrong**, and both are retracted:
+  - The perimeter-walk bug was already fixed in `5995cf0`; `ProjectRenderedTriangles` branches on
+    `points.Length` and `CoplanarOverlayGeometryTests.TriangleOverlappingQuad_MeasuresTheClippedArea`
+    pins the case at 1.0.
+  - The decline was measured against the wrong face. `DiagnosePair` shows `763/f0` genuinely does
+    not overlap the sign (shared 0.0000), while **`763/f3` and `763/f7` are both accepted**
+    (shared 0.8157 / 0.1844, every admission primary/primary) with the sign as the flagged overlay.
+    Together they are the 100% coverage the original search found.
+
+  Verified end-to-end with the new pose/probe tooling on a fresh export
+  (`glb-render skny.glb --camera-eye=-24942.67,237.78,-7054.67 --camera-yaw=180 --probe`):
+
+  ```
+  5.  299.754            dt_pawnsign01__overlay32  MASK, draw-order overlay
+  6.  300.004  (+0.25)   ajc_bldg01                OPAQUE
+  ```
+
+  The sign is classified as the decal, ranked above the facade, and lifted exactly 0.25 **in front**
+  of it. Rendering the same pose against the stale 2026-07-29 export shows the two at an identical
+  distance (`+0`) and a visibly shredded sign; the current export renders clean. **The reported
+  screenshot predates the fix.** No change to the detector is warranted, and the planned
+  "preserve the pairwise verdict" rework has no defect left to justify it — see
+  `psx-round3-audit-followups.md` for that fragility, which is real but currently symptom-free.
+
+  Not settled by this: the same probe shows two `__blend` panes (shop glass) 130–265 units in front
+  of the sign. The headless rasterizer alpha-*tests* rather than blends, so it cannot say whether
+  those read correctly in the app. If the truncation is still visible on a current build, that is
+  where to look — it is a transparency question, not an ordering one.
   Ruled out along the way — **two earlier hypotheses that measurement killed**, recorded so they are
   not retried: (1) "the big `dt_pawnshop07` wall covers the sign" is false, the two share a plane but
   not a footprint (sign y 211…264 vs wall y 413…622); (2) "group 32's members are unranked and fight

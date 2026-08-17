@@ -56,7 +56,7 @@
       <StackPanel
         Orientation="Horizontal"
         Spacing="4"
-        ToolTipService.ToolTip="F toggles Fly/Walk; O toggles Orbit">
+        ToolTipService.ToolTip="F toggles Fly/Walk; O toggles Orbit; Space jumps in Walk; P copies this view to the clipboard for glb-render">
         <ToggleButton
           x:Name="OrbitModeButton"
           Height="32"

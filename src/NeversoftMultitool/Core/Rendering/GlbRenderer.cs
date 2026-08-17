@@ -16,6 +16,12 @@ public static class GlbRenderer
     // Transparent background
     private const byte BgR = 0, BgG = 0, BgB = 0, BgA = 0;
 
+    // Near plane as a fraction of the model radius, matching the interactive viewer's
+    // `perspCamera.near = framingRadius / 100` so a replayed pose clips where the live
+    // one did.
+    private const float NearPlaneModelFraction = 0.01f;
+    private const float MinNearPlane = 1e-4f;
+
     /// <summary>
     ///     Render a GLB file to a PNG image file.
     /// </summary>
@@ -24,13 +30,20 @@ public static class GlbRenderer
     /// <param name="longEdge">Long edge of the output image in pixels.</param>
     /// <param name="azimuthDeg">Camera azimuth in degrees (0=front, 90=right side).</param>
     /// <param name="elevationDeg">Camera elevation in degrees above horizontal.</param>
+    /// <param name="animationIndex">Animation to sample, or null for the static pose.</param>
+    /// <param name="animationTime">Time within the animation, in seconds.</param>
+    /// <param name="pose">
+    ///     An explicit first-person camera copied out of the interactive viewer. When
+    ///     supplied it replaces azimuth/elevation and the automatic framing entirely.
+    /// </param>
     public static void RenderToFile(string glbPath, string pngPath,
         int longEdge = 512,
         float azimuthDeg = -90f, float elevationDeg = 10f,
-        int? animationIndex = null, float? animationTime = null)
+        int? animationIndex = null, float? animationTime = null,
+        ViewPose? pose = null)
     {
         using var image = RenderToImage(
-            glbPath, longEdge, azimuthDeg, elevationDeg, animationIndex, animationTime);
+            glbPath, longEdge, azimuthDeg, elevationDeg, animationIndex, animationTime, pose);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(pngPath))!);
         image.SaveAsPng(pngPath);
     }
@@ -43,10 +56,25 @@ public static class GlbRenderer
     public static Image<Rgba32> RenderToImage(string glbPath,
         int longEdge = 512,
         float azimuthDeg = -90f, float elevationDeg = 10f,
-        int? animationIndex = null, float? animationTime = null)
+        int? animationIndex = null, float? animationTime = null,
+        ViewPose? pose = null)
+    {
+        var scene = LoadScene(glbPath, animationIndex, animationTime);
+        return RenderScene(scene, longEdge, azimuthDeg, elevationDeg, pose: pose);
+    }
+
+    /// <summary>
+    ///     Load the geometry a render would use — the static pose, or one animation frame.
+    /// </summary>
+    /// <remarks>
+    ///     Shared with the crosshair probe so a probe reports on exactly the geometry the
+    ///     accompanying image shows, rather than re-deriving the frame selection.
+    /// </remarks>
+    internal static RenderScene LoadScene(
+        string glbPath, int? animationIndex, float? animationTime)
     {
         if (!animationIndex.HasValue && !animationTime.HasValue)
-            return RenderScene(GlbModelLoader.Load(glbPath), longEdge, azimuthDeg, elevationDeg);
+            return GlbModelLoader.Load(glbPath);
 
         var model = ModelRoot.Load(glbPath);
         if (model.LogicalAnimations.Count == 0)
@@ -63,18 +91,18 @@ public static class GlbRenderer
         if (animation.Duration > 0f)
             time = Math.Clamp(time, 0f, animation.Duration);
 
-        var scene = GlbModelLoader.Load(model, animation, time);
-        return RenderScene(scene, longEdge, azimuthDeg, elevationDeg);
+        return GlbModelLoader.Load(model, animation, time);
     }
 
     internal static Image<Rgba32> RenderScene(RenderScene scene,
         int longEdge = 512,
         float azimuthDeg = -90f, float elevationDeg = 10f,
         int fixedWidth = 0, int fixedHeight = 0,
-        float referenceWidth = 0f, float referenceHeight = 0f)
+        float referenceWidth = 0f, float referenceHeight = 0f,
+        ViewPose? pose = null)
     {
-        var backgroundWidth = fixedWidth > 0 ? fixedWidth : longEdge;
-        var backgroundHeight = fixedHeight > 0 ? fixedHeight : longEdge;
+        var backgroundWidth = pose?.Width ?? (fixedWidth > 0 ? fixedWidth : longEdge);
+        var backgroundHeight = pose?.Height ?? (fixedHeight > 0 ? fixedHeight : longEdge);
         if (!scene.HasGeometry)
             return CreateBackground(backgroundWidth, backgroundHeight);
 
@@ -84,6 +112,10 @@ public static class GlbRenderer
         var triangles = CollectTriangles(scene);
         if (triangles.Count == 0)
             return CreateBackground(backgroundWidth, backgroundHeight);
+
+        // An explicit camera replaces both the view rotation and the automatic framing.
+        if (pose is { } camera)
+            return RenderThroughPose(scene, triangles, camera);
 
         // Apply view rotation (azimuth/elevation camera)
         var (projMinX, projMinY, projWidth, projHeight) =
@@ -156,6 +188,53 @@ public static class GlbRenderer
 
         // Convert to ImageSharp image
         return PixelsToImage(pixels, width, height);
+    }
+
+    /// <summary>
+    ///     Rasterize through an explicit camera: fixed canvas, perspective divide, and
+    ///     near-plane clipping instead of the orthographic fit-to-bounds path.
+    /// </summary>
+    private static Image<Rgba32> RenderThroughPose(
+        RenderScene scene, List<RenderTriangle> triangles, ViewPose pose)
+    {
+        var ssWidth = pose.Width * SsaaFactor;
+        var ssHeight = pose.Height * SsaaFactor;
+
+        var projected = PerspectiveProjector.Project(
+            triangles, pose, ssWidth, ssHeight, NearPlaneFor(scene));
+
+        // Everything can legitimately fall behind the eye — the pose may look away
+        // from the model. That is a black frame, not an error.
+        if (projected.Count == 0)
+            return CreateBackground(pose.Width, pose.Height);
+
+        var ssPixels = new byte[ssWidth * ssHeight * 4];
+        var depthBuffer = new float[ssWidth * ssHeight];
+        Array.Fill(depthBuffer, float.MinValue);
+
+        var submeshes = scene.Submeshes;
+        foreach (var tri in projected)
+            SoftwareRasterizer.RasterizeTriangle(ssPixels, depthBuffer, ssWidth, ssHeight, tri, submeshes);
+
+        var pixels = SoftwareRasterizer.Downsample(ssPixels, ssWidth, ssHeight, SsaaFactor);
+        return PixelsToImage(pixels, pose.Width, pose.Height);
+    }
+
+    /// <summary>Near-plane distance for a scene, scaled to the model like the viewer does.</summary>
+    internal static float NearPlaneFor(RenderScene scene)
+    {
+        if (!scene.HasGeometry)
+            return MinNearPlane;
+
+        var radius = 0.5f * MathF.Sqrt(
+            scene.Width * scene.Width +
+            scene.Height * scene.Height +
+            scene.Depth * scene.Depth);
+
+        if (!float.IsFinite(radius) || radius <= 0f)
+            return MinNearPlane;
+
+        return MathF.Max(radius * NearPlaneModelFraction, MinNearPlane);
     }
 
     internal static (float MinX, float MinY, float Width, float Height) ComputeProjectedBounds(

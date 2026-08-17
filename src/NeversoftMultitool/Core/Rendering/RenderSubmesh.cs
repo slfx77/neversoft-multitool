@@ -46,6 +46,19 @@ internal sealed class RenderSubmesh
 
     public float AlphaCutoff { get; init; } = 0.5f;
 
+    /// <summary>
+    ///     Name of the glTF node that placed this primitive, when it has one.
+    /// </summary>
+    /// <remarks>
+    ///     Carried purely so a render can be diagnosed: the exporters encode meaning in
+    ///     node names (<c>__overlay12</c> draw-order splits, <c>__ghost</c> apparitions,
+    ///     <c>sky__</c> backdrop layers), and the crosshair probe reports them.
+    /// </remarks>
+    public string? NodeName { get; init; }
+
+    /// <summary>Name of the glTF mesh this primitive belongs to, when it has one.</summary>
+    public string? MeshName { get; init; }
+
     public int VertexCount => Positions.Length / 3;
     public int TriangleCount => Triangles.Length / 3;
 }

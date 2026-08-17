@@ -4,6 +4,8 @@ using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.N64;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
+using NeversoftMultitool.Core.Rendering;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace NeversoftMultitool;
 
@@ -31,18 +33,43 @@ internal sealed class MeshConverterTabPreview : IDisposable
 
     private readonly ModelViewerControl _viewer;
     private CancellationTokenSource? _previewCts;
+    private string? _previewSourcePath;
 
     public MeshConverterTabPreview(ModelViewerControl viewer)
     {
         _viewer = viewer;
+        _viewer.ViewPoseCopied += OnViewPoseCopied;
     }
 
     public void Dispose()
     {
+        _viewer.ViewPoseCopied -= OnViewPoseCopied;
         var cts = Interlocked.Exchange(ref _previewCts, null);
         if (cts == null) return;
         cts.Cancel();
         cts.Dispose();
+    }
+
+    /// <summary>
+    ///     P in the viewer: put the current viewpoint on the clipboard as arguments
+    ///     the headless renderer can replay.
+    /// </summary>
+    /// <remarks>
+    ///     The source path is prepended as a comment because a viewpoint means nothing
+    ///     without the file it belongs to, and the viewer itself only ever sees GLB bytes.
+    /// </remarks>
+    private void OnViewPoseCopied(object? sender, CapturedView view)
+    {
+        var arguments = view.ToArguments();
+        var text = _previewSourcePath is { Length: > 0 } source
+            ? $"# {source}{Environment.NewLine}{arguments}"
+            : arguments;
+
+        var package = new DataPackage();
+        package.SetText(text);
+        Clipboard.SetContent(package);
+
+        MainWindow.Instance?.SetStatus($"View copied: {arguments}");
     }
 
     public Task InitializeAsync()
@@ -172,6 +199,7 @@ internal sealed class MeshConverterTabPreview : IDisposable
             _viewer.SetInfo(
                 $"{entry.FormatDisplay} | {triangles:N0} triangles | {glbBytes.Length / 1024:N0} KB");
             _viewer.SetLoading(false);
+            _previewSourcePath = entry.FilePath;
             var isLevel = IsLevelModel(entry);
             var walkEyeHeight = ResolveWalkEyeHeight(entry, isLevel);
             await _viewer.LoadGlbAsync(
@@ -249,6 +277,7 @@ internal sealed class MeshConverterTabPreview : IDisposable
                 $"{character.FormatDisplay} | {animation.DisplayName} | "
                 + $"{animation.DurationSec:0.00} s | {result.Triangles:N0} triangles");
             _viewer.SetLoading(false);
+            _previewSourcePath = character.FilePath;
             await _viewer.LoadGlbAsync(
                 result.GlbBytes,
                 preserveCamera: preserveCamera);

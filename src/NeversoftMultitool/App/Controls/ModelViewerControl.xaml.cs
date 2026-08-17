@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.Web.WebView2.Core;
+using NeversoftMultitool.Core.Rendering;
 
 namespace NeversoftMultitool;
 
@@ -51,6 +52,9 @@ public sealed partial class ModelViewerControl : UserControl
 
     /// <summary>Raised (on the UI thread) once a loaded model reports its animations.</summary>
     public event EventHandler? ModelLoaded;
+
+    /// <summary>Raised when P is pressed in the viewer, carrying the current viewpoint.</summary>
+    public event EventHandler<CapturedView>? ViewPoseCopied;
 
     public async Task InitializeAsync()
     {
@@ -415,6 +419,17 @@ public sealed partial class ModelViewerControl : UserControl
                         && modeProp.GetString() is { } newMode)
                     {
                         UpdateModeUi(newMode);
+                    }
+
+                    break;
+
+                case "copyView":
+                    // P in the viewer. The control knows the camera; only the
+                    // owner knows which file is loaded, so it finishes the job.
+                    if (root.TryGetProperty("pose", out var poseProp)
+                        && CapturedView.TryParse(poseProp, out var captured))
+                    {
+                        ViewPoseCopied?.Invoke(this, captured);
                     }
 
                     break;

@@ -10,7 +10,7 @@ internal static class GlbGifRenderer
     public static (int FrameCount, float Duration) RenderToFile(
         string glbPath, string gifPath, int longEdge = 256, int fps = 15,
         float azimuthDeg = -90f, float elevationDeg = 10f,
-        int? animationIndex = null)
+        int? animationIndex = null, ViewPose? pose = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(fps);
         var model = ModelRoot.Load(glbPath);
@@ -31,9 +31,12 @@ internal static class GlbGifRenderer
         var delayCentiseconds = Math.Max(1, (int)Math.Round(100.0 / fps));
 
         // Pre-pass: compute union of projected bounds across all frames so the
-        // viewport stays stable and nothing gets clipped mid-animation.
-        var (width, height, unionW, unionH) = ComputeStableFrameSize(
-            model, anim, duration, frameCount, longEdge, azimuthDeg, elevationDeg);
+        // viewport stays stable and nothing gets clipped mid-animation. A fixed
+        // camera already has a stable viewport, so the pre-pass is skipped.
+        var (width, height, unionW, unionH) = pose is { } camera
+            ? (camera.Width, camera.Height, 0f, 0f)
+            : ComputeStableFrameSize(
+                model, anim, duration, frameCount, longEdge, azimuthDeg, elevationDeg);
 
         Image<Rgba32>? gif = null;
 
@@ -43,7 +46,7 @@ internal static class GlbGifRenderer
             {
                 var time = duration * i / frameCount;
                 using var frame = RenderFrame(model, anim, time, longEdge,
-                    azimuthDeg, elevationDeg, width, height, unionW, unionH);
+                    azimuthDeg, elevationDeg, width, height, unionW, unionH, pose);
 
                 if (gif == null)
                 {
@@ -124,7 +127,8 @@ internal static class GlbGifRenderer
     private static Image<Rgba32> RenderFrame(
         ModelRoot model, Animation animation, float time,
         int longEdge, float azimuthDeg, float elevationDeg,
-        int fixedWidth, int fixedHeight, float referenceW, float referenceH)
+        int fixedWidth, int fixedHeight, float referenceW, float referenceH,
+        ViewPose? pose)
     {
         var scene = GlbModelLoader.Load(model, animation, time);
         if (!scene.HasGeometry)
@@ -132,6 +136,6 @@ internal static class GlbGifRenderer
 
         return GlbRenderer.RenderScene(scene, longEdge, azimuthDeg, elevationDeg,
             fixedWidth, fixedHeight,
-            referenceW, referenceH);
+            referenceW, referenceH, pose);
     }
 }

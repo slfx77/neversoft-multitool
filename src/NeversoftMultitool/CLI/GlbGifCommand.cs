@@ -46,6 +46,31 @@ public static class GlbGifCommand
         {
             Description = "Enable verbose output"
         };
+        var cameraEyeOption = new Option<string?>(ViewPose.EyeOptionName)
+        {
+            Description =
+                "Camera position as X,Y,Z. Selects a fixed perspective view at that point " +
+                "instead of azimuth/elevation framing. Press P in the app's viewer to copy one"
+        };
+        var cameraYawOption = new Option<float>(ViewPose.YawOptionName)
+        {
+            Description = "Camera yaw in degrees (0 looks down -Z)",
+            DefaultValueFactory = _ => ViewPose.Unsupplied
+        };
+        var cameraPitchOption = new Option<float>(ViewPose.PitchOptionName)
+        {
+            Description = "Camera pitch in degrees (positive looks up)",
+            DefaultValueFactory = _ => ViewPose.Unsupplied
+        };
+        var cameraFovOption = new Option<float>(ViewPose.FovOptionName)
+        {
+            Description = $"Vertical field of view in degrees (default {ViewPose.DefaultFovDegrees})",
+            DefaultValueFactory = _ => ViewPose.Unsupplied
+        };
+        var cameraSizeOption = new Option<string?>(ViewPose.SizeOptionName)
+        {
+            Description = "Output size as WxH; aspect must match the view being reproduced"
+        };
 
         var command = new Command("glb-gif", "Render animated .glb files to .gif images");
         command.Arguments.Add(inputArgument);
@@ -56,6 +81,11 @@ public static class GlbGifCommand
         command.Options.Add(azimuthOption);
         command.Options.Add(elevationOption);
         command.Options.Add(verboseOption);
+        command.Options.Add(cameraEyeOption);
+        command.Options.Add(cameraYawOption);
+        command.Options.Add(cameraPitchOption);
+        command.Options.Add(cameraFovOption);
+        command.Options.Add(cameraSizeOption);
 
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -68,9 +98,23 @@ public static class GlbGifCommand
             var elevation = parseResult.GetValue(elevationOption);
             var verbose = parseResult.GetValue(verboseOption);
 
+            if (!ViewPose.TryCreate(
+                    parseResult.GetValue(cameraEyeOption),
+                    parseResult.GetValue(cameraYawOption),
+                    parseResult.GetValue(cameraPitchOption),
+                    parseResult.GetValue(cameraFovOption),
+                    parseResult.GetValue(cameraSizeOption),
+                    size,
+                    out var pose,
+                    out var poseError))
+            {
+                AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(poseError!)}");
+                return Task.FromResult(1);
+            }
+
             return Task.FromResult(Execute(
                 input, output, size, fps, animIndex, azimuth, elevation, verbose,
-                cancellationToken));
+                cancellationToken, pose));
         });
 
         return command;
@@ -85,7 +129,8 @@ public static class GlbGifCommand
         float azimuth,
         float elevation,
         bool verbose,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ViewPose? pose = null)
     {
         List<string> files;
 
@@ -163,7 +208,7 @@ public static class GlbGifCommand
             {
                 var fileSw = Stopwatch.StartNew();
                 var (frameCount, duration) = GlbGifRenderer.RenderToFile(
-                    file, gifPath, longEdge, fps, azimuth, elevation, animIndex);
+                    file, gifPath, longEdge, fps, azimuth, elevation, animIndex, pose);
                 fileSw.Stop();
 
                 if (frameCount == 0)

@@ -54,7 +54,7 @@ internal static class GlbModelLoader
             foreach (var prim in node.Mesh.Primitives)
             {
                 var submesh = LoadPrimitive(prim, worldMatrix, skin,
-                    jointWorldTransforms, inverseBindMatrices, jointNormalTransforms);
+                    jointWorldTransforms, inverseBindMatrices, jointNormalTransforms, node.Name);
                 if (submesh != null)
                 {
                     scene.Submeshes.Add(submesh);
@@ -75,7 +75,7 @@ internal static class GlbModelLoader
 
     private static RenderSubmesh? LoadPrimitive(MeshPrimitive prim, Matrix4x4 worldMatrix,
         Skin? skin, Matrix4x4[]? jointWorldTransforms, Matrix4x4[]? inverseBindMatrices,
-        Matrix4x4[]? jointNormalTransforms)
+        Matrix4x4[]? jointNormalTransforms, string? nodeName)
     {
         var posAccessor = prim.GetVertexAccessor("POSITION");
         if (posAccessor == null) return null;
@@ -301,7 +301,9 @@ internal static class GlbModelLoader
             BaseColorB = baseColorB,
             BaseColorA = baseColorA,
             AlphaMode = alphaMode,
-            AlphaCutoff = alphaCutoff
+            AlphaCutoff = alphaCutoff,
+            NodeName = nodeName,
+            MeshName = prim.LogicalParent?.Name
         };
     }
 

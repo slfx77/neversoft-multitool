@@ -135,10 +135,17 @@
     const MOUSE_SENSITIVITY = 0.003;                 // rad per dragged px
     const PITCH_LIMIT = THREE.MathUtils.degToRad(89.9);
     const WALK_STEP_SMOOTHING = 12;                  // 1/s exponential approach
+    // Jump ballistics, expressed in eye heights so a prop and a whole worldzone
+    // both feel right — the same reason flySpeed/walkSpeed scale to the model.
+    // 1.45 eye heights matches Xbox360MemoryCarver's hop (163 units on a
+    // 112-unit eye); at g = 20 eye heights/s² that is about 0.76s of airtime.
+    const WALK_JUMP_HEIGHT_FACTOR = 1.45;
+    const WALK_GRAVITY_FACTOR = 20;
+    const WALK_CEILING_HEADROOM_FACTOR = 0.1;        // eye heights kept clear overhead
     const WORLD_UP = new THREE.Vector3(0, 1, 0);
     const WORLD_DOWN = new THREE.Vector3(0, -1, 0);
     const TRACKED_KEYS = new Set([
-      'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE',
+      'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space',
       'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight']);
 
     let controlMode = 'fly';
@@ -150,6 +157,8 @@
     let walkEyeHeightHint = null;
     let lastGroundY = null;     // last known ground height — raycast misses keep it
     let walkYSettled = false;   // first grounded frame after entering walk snaps
+    let walkAirborne = false;   // mid-jump: gravity owns Y, not the ground easing
+    let walkVerticalVelocity = 0;
     let lookPointerId = null;
     let lookLastX = 0;
     let lookLastY = 0;
@@ -310,6 +319,8 @@
         : framingRadius * WALK_SPEED_FACTOR;
       lastGroundY = null;
       walkYSettled = false;
+      walkAirborne = false;
+      walkVerticalVelocity = 0;
 
       controls.target.copy(framingCenter);
       placeCamera(0, projectionElevation());
@@ -455,7 +466,14 @@
       flyEuler.setFromQuaternion(perspCamera.quaternion);
       flyEuler.z = 0; // no roll
       perspCamera.quaternion.setFromEuler(flyEuler);
-      if (mode === 'walk') walkYSettled = false; // seat on the ground directly
+      if (mode === 'walk') {
+        walkYSettled = false; // seat on the ground directly
+        // The snap below would clear these anyway, but leaving a jump armed
+        // across a mode switch makes the state readable only by tracing into
+        // updateWalkHeight. Keep it true at every site that moves the camera.
+        walkAirborne = false;
+        walkVerticalVelocity = 0;
+      }
     }
 
     // Named views / azimuth snaps are orbit vantages — using one from
@@ -563,13 +581,54 @@
       const targetY = lastGroundY + eyeHeight;
       if (!walkYSettled) {
         walkYSettled = true;
+        walkAirborne = false;
+        walkVerticalVelocity = 0;
         pos.y = targetY;
         return;
       }
-      // Frame-rate-independent exponential approach (~12/s) so a stair step
-      // reads as stepping up instead of a snap cut.
-      pos.y += (targetY - pos.y) * (1 - Math.exp(-WALK_STEP_SMOOTHING * dt));
-      if (Math.abs(targetY - pos.y) < framingRadius * 1e-4) pos.y = targetY;
+
+      // Space launches a hop from the ground. Held, it re-hops on landing.
+      if (!walkAirborne && keysDown.has('Space')) {
+        walkAirborne = true;
+        walkVerticalVelocity = Math.sqrt(
+          2 * eyeHeight * WALK_GRAVITY_FACTOR * eyeHeight * WALK_JUMP_HEIGHT_FACTOR);
+      }
+
+      if (!walkAirborne) {
+        // Frame-rate-independent exponential approach (~12/s) so a stair step
+        // reads as stepping up instead of a snap cut.
+        pos.y += (targetY - pos.y) * (1 - Math.exp(-WALK_STEP_SMOOTHING * dt));
+        if (Math.abs(targetY - pos.y) < framingRadius * 1e-4) pos.y = targetY;
+        return;
+      }
+
+      // Airborne: gravity owns Y. The easing above would otherwise pull the
+      // camera straight back down and there would be no jump at all.
+      walkVerticalVelocity -= eyeHeight * WALK_GRAVITY_FACTOR * dt;
+      let nextY = pos.y + walkVerticalVelocity * dt;
+
+      if (walkVerticalVelocity > 0) {
+        // Bonk on a low roof rather than clipping up through the floor above.
+        raycaster.set(tmpRayOrigin.set(pos.x, pos.y, pos.z), WORLD_UP);
+        raycaster.far = eyeHeight * 4;
+        const ceiling = raycaster.intersectObject(modelRoot, true)
+          .find(h => !h.object.userData.neversoftSkyMesh);
+        if (ceiling) {
+          const limit = ceiling.point.y - eyeHeight * WALK_CEILING_HEADROOM_FACTOR;
+          if (nextY > limit) {
+            nextY = Math.max(pos.y, limit);
+            walkVerticalVelocity = 0;
+          }
+        }
+      } else if (nextY <= targetY) {
+        // Landing. Jumping out over a hole cannot fall forever: a raycast miss
+        // keeps the last ground it saw, so the descent always has a floor.
+        nextY = targetY;
+        walkAirborne = false;
+        walkVerticalVelocity = 0;
+      }
+
+      pos.y = nextY;
     }
 
     // ─── First-person input (fly/walk) ────────────────────────────────────
@@ -683,6 +742,11 @@
       }
       if (e.code === 'KeyO') {
         if (!e.repeat) toggleOrbitMode();
+        e.preventDefault();
+        return;
+      }
+      if (e.code === 'KeyP') {
+        if (!e.repeat) copyViewPose();
         e.preventDefault();
         return;
       }
@@ -1468,6 +1532,38 @@ if (psxFlags.z < 0.5) {
       };
     }
 
+    // Orientation leaves as yaw/pitch rather than a quaternion: roll is
+    // structurally zero in every control mode (fly/walk build the quaternion
+    // from a roll-free YXZ Euler, and OrbitControls never rolls), so degrees
+    // are lossless here and survive a copy-paste legibly.
+    const poseEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+
+    function captureViewPose() {
+      if (!modelRoot) return null;
+      poseEuler.setFromQuaternion(camera.quaternion, 'YXZ');
+      return {
+        projectionMode: projectionMode,
+        controlMode: controlMode,
+        eye: camera.position.toArray(),
+        yaw: THREE.MathUtils.radToDeg(poseEuler.y),
+        pitch: THREE.MathUtils.radToDeg(poseEuler.x),
+        fov: perspCamera.fov,
+        // The live canvas size: aspect ratio is an input to framing, so a
+        // headless replay at a different one reproduces a different view.
+        width: Math.max(1, Math.round(canvas.clientWidth)),
+        height: Math.max(1, Math.round(canvas.clientHeight)),
+        // The orthographic/isometric projections are already reproducible
+        // through the renderer's existing --azimuth/--elevation options.
+        azimuth: THREE.MathUtils.radToDeg(controls.getAzimuthalAngle()),
+        elevation: THREE.MathUtils.radToDeg(Math.PI / 2 - controls.getPolarAngle())
+      };
+    }
+
+    function copyViewPose() {
+      const pose = captureViewPose();
+      if (pose) post({ type: 'copyView', pose: pose });
+    }
+
     function isFiniteArray(value, length) {
       return Array.isArray(value)
         && value.length === length
@@ -1530,6 +1626,10 @@ if (psxFlags.z < 0.5) {
         // The next raycast can still ease it onto newly visible ground.
         lastGroundY = null;
         walkYSettled = true;
+        // Land any jump that was in the air when the model was replaced,
+        // otherwise the restored camera resumes mid-arc and sinks.
+        walkAirborne = false;
+        walkVerticalVelocity = 0;
       }
 
       post({ type: 'controlMode', mode: controlMode });
