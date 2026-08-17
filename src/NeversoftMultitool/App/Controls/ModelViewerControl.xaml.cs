@@ -50,6 +50,16 @@ public sealed partial class ModelViewerControl : UserControl
     /// <summary>Whether the loaded GLB contains animation clips.</summary>
     public bool HasAnimations { get; private set; }
 
+    /// <summary>Whether the loaded model has colour-pulse bindings the viewer animates.</summary>
+    public bool HasColourPulses { get; private set; }
+
+    /// <summary>
+    ///     Whether the loaded model has UV-wibble bindings with at least one
+    ///     ACTIVE vertex — attribute presence alone admits meshes that render
+    ///     motionless, so the page reports the strict signal.
+    /// </summary>
+    public bool HasTextureWibbles { get; private set; }
+
     /// <summary>Raised (on the UI thread) once a loaded model reports its animations.</summary>
     public event EventHandler? ModelLoaded;
 
@@ -131,6 +141,8 @@ public sealed partial class ModelViewerControl : UserControl
         var generation = Interlocked.Increment(ref _loadGeneration);
         LastGlbBytes = glbBytes;
         HasAnimations = false;
+        HasColourPulses = false;
+        HasTextureWibbles = false;
         HideTransport();
 
         if (!_webViewInitialized) return;
@@ -160,6 +172,8 @@ public sealed partial class ModelViewerControl : UserControl
         Interlocked.Increment(ref _loadGeneration);
         LastGlbBytes = null;
         HasAnimations = false;
+        HasColourPulses = false;
+        HasTextureWibbles = false;
         HideTransport();
         InfoText.Text = "";
         ErrorText.Visibility = Visibility.Collapsed;
@@ -382,13 +396,11 @@ public sealed partial class ModelViewerControl : UserControl
                     break;
 
                 case "loaded":
-                    var animCount = root.TryGetProperty("animations", out var anims)
-                        ? anims.GetArrayLength()
-                        : 0;
-                    _duration = root.TryGetProperty("duration", out var dur)
-                        ? dur.GetDouble()
-                        : 0;
-                    HasAnimations = animCount > 0 && _duration > 0;
+                    var loaded = ViewerLoadedMessage.Parse(root);
+                    _duration = loaded.Duration;
+                    HasAnimations = loaded.HasAnimations;
+                    HasColourPulses = loaded.HasColourPulses;
+                    HasTextureWibbles = loaded.HasTextureWibbles;
                     if (HasAnimations)
                     {
                         _updatingSlider = true;

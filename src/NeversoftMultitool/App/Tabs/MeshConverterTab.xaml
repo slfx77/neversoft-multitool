@@ -364,26 +364,38 @@
                                Grid.Column="0"
                                Text="Color pulses"
                                VerticalAlignment="Center" />
-                    <ToggleSwitch x:Name="ColourPulsesToggle"
-                                  Grid.Row="0"
-                                  Grid.Column="1"
-                                  OffContent="Off"
-                                  OnContent="On"
-                                  IsOn="True"
-                                  Toggled="SurfaceAnimationToggles_Toggled"
-                                  AutomationProperties.Name="Color pulses" />
+                    <!--  Transparent hosts so the "this model has none" tooltip
+                          still shows while a toggle is disabled (disabled
+                          controls don't hit-test). Disabled until a loaded
+                          model reports the matching surface animation.  -->
+                    <Grid x:Name="ColourPulsesToggleHost"
+                          Grid.Row="0"
+                          Grid.Column="1"
+                          Background="Transparent">
+                      <ToggleSwitch x:Name="ColourPulsesToggle"
+                                    OffContent="Off"
+                                    OnContent="On"
+                                    IsOn="True"
+                                    IsEnabled="False"
+                                    Toggled="SurfaceAnimationToggles_Toggled"
+                                    AutomationProperties.Name="Color pulses" />
+                    </Grid>
                     <TextBlock Grid.Row="1"
                                Grid.Column="0"
                                Text="Texture wibbles"
                                VerticalAlignment="Center" />
-                    <ToggleSwitch x:Name="TextureWibblesToggle"
-                                  Grid.Row="1"
-                                  Grid.Column="1"
-                                  OffContent="Off"
-                                  OnContent="On"
-                                  IsOn="True"
-                                  Toggled="SurfaceAnimationToggles_Toggled"
-                                  AutomationProperties.Name="Texture wibbles" />
+                    <Grid x:Name="TextureWibblesToggleHost"
+                          Grid.Row="1"
+                          Grid.Column="1"
+                          Background="Transparent">
+                      <ToggleSwitch x:Name="TextureWibblesToggle"
+                                    OffContent="Off"
+                                    OnContent="On"
+                                    IsOn="True"
+                                    IsEnabled="False"
+                                    Toggled="SurfaceAnimationToggles_Toggled"
+                                    AutomationProperties.Name="Texture wibbles" />
+                    </Grid>
                   </Grid>
                   <TextBlock
                     x:Name="AnimDiscoveryStatusText"

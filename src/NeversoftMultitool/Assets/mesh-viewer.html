@@ -1061,11 +1061,39 @@ if (psxFlags.z < 0.5) {
         }
 
         const baseUv = new Float32Array(uv.count * 2);
+        // A mesh can carry the wibble attributes with every per-vertex
+        // "present" lane clear (motion.getW < 0.5) — it renders motionless.
+        // Track whether ANY vertex is active so presence reporting can stay
+        // strict; keep pushing inactive entries because the shared 60 Hz
+        // clock gates on textureWibbleMeshes.length.
+        let active = false;
         for (let i = 0; i < uv.count; i++) {
           baseUv[i * 2] = uv.getX(i);
           baseUv[i * 2 + 1] = uv.getY(i);
+          if (motion.getW(i) >= 0.5) active = true;
         }
-        textureWibbleMeshes.push({ uv, motion, wave, size, baseUv });
+        textureWibbleMeshes.push({ uv, motion, wave, size, baseUv, active });
+      });
+    }
+
+    function surfaceAnimationPresence() {
+      return {
+        hasColourPulses: colourPulseMeshes.length > 0,
+        hasTextureWibbles: textureWibbleMeshes.some(entry => entry.active)
+      };
+    }
+
+    // The ONLY emitter of the 'loaded' message: both the load chain and
+    // setAnim re-post through here so the host's surface-animation presence
+    // flags cannot be reset by a mid-session clip switch.
+    function postLoaded(names, duration) {
+      const presence = surfaceAnimationPresence();
+      post({
+        type: 'loaded',
+        animations: names,
+        duration: duration,
+        hasColourPulses: presence.hasColourPulses,
+        hasTextureWibbles: presence.hasTextureWibbles
       });
     }
 
@@ -1709,7 +1737,7 @@ if (psxFlags.z < 0.5) {
           }
 
           status.classList.add('hidden');
-          post({ type: 'loaded', animations: names, duration: duration });
+          postLoaded(names, duration);
         }, () => {
           if (loadGeneration !== modelLoadGeneration) return;
           status.textContent = 'Failed to load model';
@@ -1749,7 +1777,7 @@ if (psxFlags.z < 0.5) {
       activeAction = mixer.clipAction(clip);
       activeAction.play();
       if (!playing) mixer.update(0);
-      post({ type: 'loaded', animations: clips.map(c => c.name), duration: clip.duration || 0 });
+      postLoaded(clips.map(c => c.name), clip.duration || 0);
     }
 
     function clearModel() {

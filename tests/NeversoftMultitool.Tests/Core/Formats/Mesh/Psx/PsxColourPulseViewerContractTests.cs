@@ -244,6 +244,64 @@ public class PsxColourPulseViewerContractTests
             viewer);
     }
 
+    /// <summary>
+    ///     The host enables the surface-animation toggles from the 'loaded'
+    ///     message, and setAnim RE-POSTS that message on every clip switch —
+    ///     so the presence flags must ride on every emission or a mid-session
+    ///     clip change would silently disable working toggles. Requiring the
+    ///     literal to appear exactly once (inside postLoaded) keeps any call
+    ///     site from drifting back to a bare post.
+    /// </summary>
+    [Fact]
+    public void Viewer_LoadedPostCarriesSurfaceAnimationPresence()
+    {
+        var viewer = ReadViewer();
+        var postLoaded = ExtractFunction(viewer, "function postLoaded(names, duration)");
+        var setAnim = ExtractFunction(viewer, "function setAnim(name)");
+
+        Assert.Contains("hasColourPulses", postLoaded);
+        Assert.Contains("hasTextureWibbles", postLoaded);
+        Assert.Contains("surfaceAnimationPresence()", postLoaded);
+        Assert.Contains("postLoaded(", setAnim);
+
+        var occurrences = CountOccurrences(viewer, "type: 'loaded'");
+        Assert.True(
+            occurrences == 1,
+            $"'type: 'loaded'' must be emitted only by postLoaded; found {occurrences} occurrences.");
+    }
+
+    /// <summary>
+    ///     A mesh can carry the wibble carrier attributes with every
+    ///     per-vertex present lane clear — it renders motionless. Presence
+    ///     reporting must be strict (any active vertex), not
+    ///     attribute-presence, or the toggle enables for a model that visibly
+    ///     does nothing.
+    /// </summary>
+    [Fact]
+    public void Viewer_WibblePresenceIsStrict()
+    {
+        var viewer = ReadViewer();
+        var wibbleSetup = ExtractFunction(viewer, "function configurePsxTextureWibbles(root)");
+        var presence = ExtractFunction(viewer, "function surfaceAnimationPresence()");
+
+        Assert.Contains("if (motion.getW(i) >= 0.5) active = true", wibbleSetup);
+        Assert.Contains("textureWibbleMeshes.some(entry => entry.active)", presence);
+        Assert.Contains("colourPulseMeshes.length > 0", presence);
+    }
+
+    private static int CountOccurrences(string source, string token)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = source.IndexOf(token, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += token.Length;
+        }
+
+        return count;
+    }
+
     private static void AssertResetOwnedByUnload(
         string reset,
         string unload,

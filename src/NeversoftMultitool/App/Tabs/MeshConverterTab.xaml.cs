@@ -875,6 +875,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
                 return;
             await ModelViewer.SetLightingModeAsync("day");
             UpdateRenderButtons();
+            UpdateSurfaceAnimationToggleAvailability();
             return;
         }
 
@@ -989,6 +990,30 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         await ModelViewer.SetSurfaceAnimationsEnabledAsync(
             ColourPulsesToggle.IsOn,
             TextureWibblesToggle.IsOn);
+    }
+
+    /// <summary>
+    ///     Enables each surface-animation toggle only when the loaded model
+    ///     actually carries that effect, with an explanatory tooltip when it
+    ///     doesn't. IsOn is deliberately left alone so the on/off preference
+    ///     survives across model loads. A preview-failure ClearAsync that
+    ///     raises no ModelLoaded can leave the toggles stale-enabled until the
+    ///     next load; toggling then is a harmless no-op (the page has no
+    ///     bindings to mutate).
+    /// </summary>
+    private void UpdateSurfaceAnimationToggleAvailability()
+    {
+        if (ColourPulsesToggle == null || TextureWibblesToggle == null || ModelViewer == null)
+            return;
+
+        ColourPulsesToggle.IsEnabled = ModelViewer.HasColourPulses;
+        TextureWibblesToggle.IsEnabled = ModelViewer.HasTextureWibbles;
+        ToolTipService.SetToolTip(
+            ColourPulsesToggleHost,
+            ModelViewer.HasColourPulses ? null : "This model has no color pulses.");
+        ToolTipService.SetToolTip(
+            TextureWibblesToggleHost,
+            ModelViewer.HasTextureWibbles ? null : "This model has no texture wibbles.");
     }
 
     private async void AnimationListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1459,6 +1484,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     private void ModelViewer_ModelLoaded(object? sender, EventArgs e)
     {
         UpdateRenderButtons();
+        UpdateSurfaceAnimationToggleAvailability();
     }
 
     private void UpdateRenderButtons()
