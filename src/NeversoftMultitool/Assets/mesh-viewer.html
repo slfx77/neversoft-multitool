@@ -185,6 +185,9 @@
     let colourPulseMeshes = [];
     let colourPulseChannels = [];
     let colourPulsesEnabled = true;
+    // Session-lived user preference like the surface-animation flags:
+    // unloadCurrent deliberately does not reset it.
+    let wireframeEnabled = false;
     let psxGpuMaterials = [];
     let skyLockObjects = [];
     let skyBackdropColor = null;
@@ -1348,6 +1351,30 @@ if (psxFlags.z < 0.5) {
       });
     }
 
+    function applyWireframe() {
+      // Pure raster state: material.wireframe never invalidates the compiled
+      // program, so the PS1 GPU patch (customProgramCacheKey) is untouched.
+      // Model scene only — sky nodes live in skySceneRoot with cloned
+      // materials, so not traversing it excludes the camera-locked backdrop
+      // whose wireframe would fill the whole viewport; the userData check is
+      // belt-and-braces for any sky mesh not yet reparented.
+      if (!modelRoot) return;
+      modelRoot.traverse(obj => {
+        if (!obj.isMesh || obj.userData.neversoftSkyMesh) return;
+        const materials = Array.isArray(obj.material)
+          ? obj.material
+          : obj.material ? [obj.material] : [];
+        for (const material of materials) {
+          if ('wireframe' in material) material.wireframe = wireframeEnabled;
+        }
+      });
+    }
+
+    function setWireframeEnabled(enabled) {
+      wireframeEnabled = !!enabled;
+      applyWireframe();
+    }
+
     function applyPsxSkyDomes(root) {
       // PSX levels register the sky via TRG BackgroundCreate; the engine's
       // M3d_RenderBackground draws it CAMERA-LOCKED (rotation only, GTE
@@ -1718,6 +1745,9 @@ if (psxFlags.z < 0.5) {
           configurePsxTextureWibbles(skySceneRoot);
           configurePsxColourPulses(skySceneRoot, pulseChannels);
           applyNativeMaterialBlending(skySceneRoot);
+          // After every material swap/clone above so the session-lived flag
+          // lands on the final material instances.
+          applyWireframe();
           refreshBackground();
           scene.add(modelRoot);
           frameModel(modelRoot);
@@ -1812,6 +1842,7 @@ if (psxFlags.z < 0.5) {
     window.setControlMode = setControlMode;
     window.setLightingMode = setLightingMode;
     window.setSurfaceAnimationsEnabled = setSurfaceAnimationsEnabled;
+    window.setWireframeEnabled = setWireframeEnabled;
     window.cancelModelLoad = cancelModelLoad;
     post({ type: 'ready' });
   </script>

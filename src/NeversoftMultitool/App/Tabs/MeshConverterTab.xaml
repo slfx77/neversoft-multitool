@@ -603,6 +603,24 @@
                             Spacing="8">
                   <TextBlock Text="Viewport"
                              FontWeight="SemiBold" />
+                  <!--  Always-applicable, so it sits BEFORE the per-selection
+                        visibility-gated sections and cannot jump around as
+                        they appear.  -->
+                  <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Wireframe"
+                               VerticalAlignment="Center" />
+                    <ToggleSwitch x:Name="WireframeToggle"
+                                  Grid.Column="1"
+                                  OffContent="Off"
+                                  OnContent="On"
+                                  IsOn="False"
+                                  Toggled="WireframeToggle_Toggled"
+                                  AutomationProperties.Name="Wireframe" />
+                  </Grid>
                   <CheckBox
                     x:Name="DisplayIncludeLevelObjectsCheckbox"
                     Content="Include level objects"

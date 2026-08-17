@@ -992,6 +992,14 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             TextureWibblesToggle.IsOn);
     }
 
+    private async void WireframeToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        // Toggled can fire mid-InitializeComponent — null-guard like the
+        // surface-animation handler above.
+        if (WireframeToggle == null || ModelViewer == null) return;
+        await ModelViewer.SetWireframeEnabledAsync(WireframeToggle.IsOn);
+    }
+
     /// <summary>
     ///     Enables each surface-animation toggle only when the loaded model
     ///     actually carries that effect, with an explanatory tooltip when it

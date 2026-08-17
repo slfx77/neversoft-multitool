@@ -31,6 +31,7 @@ public sealed partial class ModelViewerControl : UserControl
     private bool _updatingSlider;
     private bool _webMessageHooked;
     private bool _webViewInitialized;
+    private bool _wireframeEnabled;
 
     public ModelViewerControl()
     {
@@ -114,6 +115,7 @@ public sealed partial class ModelViewerControl : UserControl
             await _pageReady.Task.WaitAsync(TimeSpan.FromSeconds(15));
             _webViewInitialized = true;
             await ApplySurfaceAnimationSettingsAsync();
+            await ApplyWireframeSettingAsync();
 
             // The page's own status overlay takes over from here.
             PlaceholderText.Visibility = Visibility.Collapsed;
@@ -275,6 +277,23 @@ public sealed partial class ModelViewerControl : UserControl
         return ExecuteScriptSafeAsync(
             $"setSurfaceAnimationsEnabled({_showColourPulses.ToString().ToLowerInvariant()}, "
             + $"{_showTextureWibbles.ToString().ToLowerInvariant()})");
+    }
+
+    /// <summary>
+    ///     Render every model-scene material as wireframe. Session-lived like
+    ///     the surface-animation preference: the page re-applies it on each
+    ///     load, and the sky backdrop is deliberately excluded.
+    /// </summary>
+    public Task SetWireframeEnabledAsync(bool enabled)
+    {
+        _wireframeEnabled = enabled;
+        return ApplyWireframeSettingAsync();
+    }
+
+    private Task ApplyWireframeSettingAsync()
+    {
+        return ExecuteScriptSafeAsync(
+            $"setWireframeEnabled({_wireframeEnabled.ToString().ToLowerInvariant()})");
     }
 
     private async void ModeButton_Click(object sender, RoutedEventArgs e)
