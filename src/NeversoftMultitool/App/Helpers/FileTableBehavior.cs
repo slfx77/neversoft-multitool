@@ -67,6 +67,19 @@ public sealed class FileTableBehavior : DependencyObject
     public static void SetSortProperty(DependencyObject element, string value) =>
         element.SetValue(SortPropertyProperty, value);
 
+    /// <summary>
+    ///     Narrows the DISPLAYED rows of the host's table to those matching
+    ///     <paramref name="filter" /> (null clears). View-level only: the
+    ///     tab-owned source collection is never mutated, so batch operations
+    ///     that enumerate the source still see every row. Composes with header
+    ///     sorting in either order. In parent/child tables the predicate is
+    ///     evaluated against the group's parent row and children follow it.
+    /// </summary>
+    public static void SetRowFilter(Grid host, Predicate<object?>? filter)
+    {
+        if (Tables.TryGetValue(host, out var state)) state.SetRowFilter(filter);
+    }
+
     private static void IsEnabledChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
     {
         if (sender is not Grid host) return;
@@ -98,6 +111,7 @@ public sealed class FileTableBehavior : DependencyObject
         private bool _enabled;
         private Grid? _header;
         private ListView? _listView;
+        private Predicate<object?>? _rowFilter;
         private SortedObservableView? _sortedView;
         private string? _sortProperty;
         private IList? _sourceItems;
@@ -167,6 +181,7 @@ public sealed class FileTableBehavior : DependencyObject
             _started = true;
             RegisterHeaders();
             if (_sortProperty != null) UpdateHeaderIndicators();
+            if (_rowFilter != null) EnsureSortedView()?.SetRowFilter(_rowFilter);
             EnsureSplitters();
             RegisterColumnCallbacks();
 
@@ -468,30 +483,50 @@ public sealed class FileTableBehavior : DependencyObject
             QueueColumnSync();
         }
 
+        public void SetRowFilter(Predicate<object?>? filter)
+        {
+            _rowFilter = filter;
+            var view = _sortedView ?? (filter != null ? EnsureSortedView() : null);
+            view?.SetRowFilter(filter);
+        }
+
         private bool SortItems(string property, bool ascending)
         {
             if (_listView == null) return false;
-            var source = _sourceItems ?? _listView.ItemsSource as IList;
-            if (source == null) return false;
-
             var selectedItem = _listView.SelectedItem;
-            if (_sortedView == null)
-            {
-                _sourceItems = source;
-                _sortedView = new SortedObservableView(
-                    source,
-                    _host.DispatcherQueue,
-                    () => _listView?.SelectedItem);
-                _sortedView.SetSort(property, ascending, raiseChanged: false);
-                _listView.ItemsSource = _sortedView;
-            }
-            else
-                _sortedView.SetSort(property, ascending);
+            var view = EnsureSortedView();
+            if (view == null) return false;
 
-            if (selectedItem != null && _sortedView.Contains(selectedItem))
+            view.SetSort(property, ascending);
+            if (selectedItem != null && view.Contains(selectedItem))
                 _listView.SelectedItem = selectedItem;
 
             return true;
+        }
+
+        /// <summary>
+        ///     Materializes the read-only view wrapper on first use — by the
+        ///     first header sort or the first row filter, whichever comes
+        ///     first — so both features share one ItemsSource swap and cannot
+        ///     fight over it.
+        /// </summary>
+        private SortedObservableView? EnsureSortedView()
+        {
+            if (_sortedView != null) return _sortedView;
+            if (_listView == null) return null;
+            var source = _sourceItems ?? _listView.ItemsSource as IList;
+            if (source == null) return null;
+
+            var selectedItem = _listView.SelectedItem;
+            _sourceItems = source;
+            _sortedView = new SortedObservableView(
+                source,
+                _host.DispatcherQueue,
+                () => _listView?.SelectedItem);
+            _listView.ItemsSource = _sortedView;
+            if (selectedItem != null && _sortedView.Contains(selectedItem))
+                _listView.SelectedItem = selectedItem;
+            return _sortedView;
         }
 
         private void UpdateHeaderIndicators()
@@ -692,6 +727,7 @@ public sealed class FileTableBehavior : DependencyObject
             private readonly IList _source;
             private bool _ascending = true;
             private bool _disposed;
+            private Predicate<object?>? _filter;
             private List<object?> _items = [];
             private string _property = "";
             private bool _rebuildQueued;
@@ -732,6 +768,12 @@ public sealed class FileTableBehavior : DependencyObject
                 // a selected row alive with identity Move notifications; when
                 // no row is selected Rebuild still uses one efficient Reset.
                 Rebuild(raiseChanged, preserveByMoves: true);
+            }
+
+            public void SetRowFilter(Predicate<object?>? filter)
+            {
+                _filter = filter;
+                Rebuild(raiseChanged: true, preserveByMoves: true);
             }
 
             public bool Contains(object? value) => _items.Contains(value);
@@ -798,6 +840,11 @@ public sealed class FileTableBehavior : DependencyObject
                 if (_disposed) return;
                 RefreshItemSubscriptions();
                 var groups = BuildSortGroups(_source.Cast<object?>().ToList());
+                // Filter whole groups on their parent row so children always
+                // follow their parent; single-row tables filter per row since
+                // every row is its own group.
+                if (_filter != null)
+                    groups = groups.Where(group => _filter(group.SortItem)).ToList();
                 List<object?> newItems;
                 if (!string.IsNullOrEmpty(_property))
                 {

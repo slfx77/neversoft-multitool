@@ -37,6 +37,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         new(StringComparer.Ordinal);
 
     private bool _blendExportAvailable = true;
+    private DebouncedAction? _filesFilterDebounce;
+    private string _filesFilterText = "";
     private MeshConverterTabPreview? _preview;
     private CancellationTokenSource? _scanCts;
     private CancellationTokenSource? _xbxSkeletonLoadCts;
@@ -70,6 +72,11 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         // Selected in code (like PanelSelector below) so the initial
         // SelectionChanged can't fire before _animPanel exists.
         AnimFilterCombo.SelectedIndex = 0;
+
+        // Debounced like the audio volume slider: applying per keystroke
+        // would rebuild the sorted view on every character.
+        _filesFilterDebounce = new DebouncedAction(
+            DispatcherQueue, TimeSpan.FromMilliseconds(400), ApplyFilesFilter);
         RefreshBlendExportAvailability();
         UserSettings.Changed += OnUserSettingsChanged;
 
@@ -271,16 +278,38 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
         EmptyStatePanel.Visibility = hasFiles ? Visibility.Collapsed : Visibility.Visible;
         FileListCard.Visibility = hasFiles ? Visibility.Visible : Visibility.Collapsed;
-        ConvertButton.Content = checkedCount switch
-        {
-            0 => "Convert files",
-            1 => "Convert 1 file",
-            _ => $"Convert {checkedCount} files"
-        };
+        // Conversion operates on every checked entry, including rows the
+        // filename filter is hiding — the label calls those out instead of
+        // letting the narrowed view misrepresent the batch.
+        var hiddenChecked = _filesFilterText.Length == 0
+            ? 0
+            : _items.Count(i => i.IsChecked && !MatchesCurrentFilter(i));
+        ConvertButton.Content = MeshGuiFileFilterPolicy.ConvertButtonLabel(checkedCount, hiddenChecked);
         ConvertButton.IsEnabled = checkedCount > 0 && hasFormat;
         UpdateWorldzoneExportSettingsVisibility();
         UpdateLevelObjectExportSettingsVisibility();
         UpdateRenderButtons();
+    }
+
+    private void FilesFilterBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        // Fires during InitializeComponent before later-declared elements exist.
+        if (FilesFilterBox == null) return;
+        _filesFilterDebounce?.Invoke();
+    }
+
+    private bool MatchesCurrentFilter(MeshFileEntry entry) =>
+        MeshGuiFileFilterPolicy.Matches(entry.RelativePath, entry.FileName, _filesFilterText);
+
+    private void ApplyFilesFilter()
+    {
+        _filesFilterText = FilesFilterBox.Text?.Trim() ?? "";
+        FileTableBehavior.SetRowFilter(
+            FilesTableHost,
+            _filesFilterText.Length == 0
+                ? null
+                : item => item is MeshFileEntry entry && MatchesCurrentFilter(entry));
+        UpdateUiState();
     }
 
     private void ExportFormatCheckbox_Changed(object sender, RoutedEventArgs e)
@@ -297,15 +326,20 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
     private void FilesSelectAll_Click(object sender, RoutedEventArgs e)
     {
+        // Visible rows only: with a filter active, "all"/"none" mean the rows
+        // the user can see. Hidden rows keep their checked state (and hidden
+        // checked rows still convert — the Convert label counts them).
         foreach (var item in _items)
-            item.IsChecked = true;
+            if (MatchesCurrentFilter(item))
+                item.IsChecked = true;
         UpdateUiState();
     }
 
     private void FilesSelectNone_Click(object sender, RoutedEventArgs e)
     {
         foreach (var item in _items)
-            item.IsChecked = false;
+            if (MatchesCurrentFilter(item))
+                item.IsChecked = false;
         UpdateUiState();
     }
 

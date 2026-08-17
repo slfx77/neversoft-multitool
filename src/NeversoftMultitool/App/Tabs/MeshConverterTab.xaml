@@ -66,7 +66,8 @@
             VerticalAlignment="Stretch"
             Style="{StaticResource CardBorderStyle}"
             Visibility="Collapsed">
-            <Grid VerticalAlignment="Stretch"
+            <Grid x:Name="FilesTableHost"
+                  VerticalAlignment="Stretch"
                   local:FileTableBehavior.IsEnabled="True">
               <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -83,6 +84,12 @@
                         Click="FilesSelectAll_Click" />
                 <Button Content="Select none"
                         Click="FilesSelectNone_Click" />
+                <TextBox x:Name="FilesFilterBox"
+                         MinWidth="200"
+                         VerticalAlignment="Center"
+                         PlaceholderText="Filter file names"
+                         TextChanged="FilesFilterBox_TextChanged"
+                         AutomationProperties.Name="Filter file names" />
               </StackPanel>
 
               <!-- Column headers -->
