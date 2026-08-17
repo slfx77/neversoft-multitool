@@ -176,6 +176,12 @@ internal sealed class BlendPackageManifest
                     drawOrder.BlendOffsetX, drawOrder.BlendOffsetY, drawOrder.BlendOffsetZ
                 };
                 break;
+            case PsxSkyBackdropMetadata backdrop:
+                // The engine's framebuffer clear colour (TRG SetSkyColor),
+                // recorded at document scope; a region can name one while
+                // owning no sky mesh. R<<16 | G<<8 | B.
+                result["skyColor"] = backdrop.SkyColor;
+                break;
             case PsxSemiTransparentLiftMetadata semiLift:
                 // Informational round-trip record of the already-BAKED vertex
                 // lift. Deliberately not "blendOffset" — the importer would

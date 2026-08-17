@@ -110,7 +110,7 @@ public sealed class GltfModelExporter : IModelExporter
         var model = scene.ToGltf2();
         for (var i = 0; i < cameraNames.Count && i < model.LogicalCameras.Count; i++)
             model.LogicalCameras[i].Name = cameraNames[i];
-        ApplyColourPulseTable(model, document);
+        ApplySceneExtras(model, document);
         return (model, totalTriangles);
     }
 
@@ -155,10 +155,32 @@ public sealed class GltfModelExporter : IModelExporter
     ///     and replicating a 60-pulse table across hundreds of level meshes
     ///     would add tens of megabytes of JSON.
     /// </summary>
-    private static void ApplyColourPulseTable(SharpGLTF.Schema2.ModelRoot model, ModelDocument document)
+    /// <summary>
+    ///     Publishes document-scope render facts as SCENE extras: the
+    ///     colour-pulse channel table and the PSX sky backdrop colour (the
+    ///     engine's framebuffer clear — carried at scene scope because a
+    ///     region can name one while owning no sky mesh to ride on).
+    /// </summary>
+    private static void ApplySceneExtras(SharpGLTF.Schema2.ModelRoot model, ModelDocument document)
+    {
+        if (model.DefaultScene == null)
+            return;
+
+        var extras = new System.Text.Json.Nodes.JsonObject();
+        var backdrop = document.NativeMetadata.OfType<PsxSkyBackdropMetadata>().FirstOrDefault();
+        if (backdrop != null)
+            extras["neversoftSkyBackdrop"] = backdrop.SkyColor;
+
+        ApplyColourPulseTable(extras, document);
+        if (extras.Count > 0)
+            model.DefaultScene.Extras = extras;
+    }
+
+    private static void ApplyColourPulseTable(
+        System.Text.Json.Nodes.JsonObject extras, ModelDocument document)
     {
         var table = document.NativeMetadata.OfType<PsxColourPulseTableMetadata>().FirstOrDefault();
-        if (table == null || table.Channels.Count == 0 || model.DefaultScene == null)
+        if (table == null || table.Channels.Count == 0)
             return;
 
         var channels = new System.Text.Json.Nodes.JsonArray();
@@ -197,10 +219,7 @@ public sealed class GltfModelExporter : IModelExporter
             });
         }
 
-        model.DefaultScene.Extras = new System.Text.Json.Nodes.JsonObject
-        {
-            ["neversoftColourPulseChannels"] = channels
-        };
+        extras["neversoftColourPulseChannels"] = channels;
     }
 
     private static void ApplyAnimations(

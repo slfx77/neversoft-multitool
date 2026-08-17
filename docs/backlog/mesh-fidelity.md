@@ -129,7 +129,21 @@ Still open:
   `obj_barrier01` + `dt_park_rail03`) vs AUTOEXEC's `SkNY_O` (5 objects incl. the
   `obj_background01` skybox) — and the export's missing skybox is FAITHFUL: SkNY_O2 contains no
   background object and the user's "the 2P bank exists to load the skybox" belief is refuted for
-  skny by the bank contents themselves. What is WRONG: the shared `skny_t.trg` carries BOTH
+  skny by the bank contents themselves.
+
+  ✅ **Sky backdrop colour shipped for domeless regions (2026-08-17)**: the engine clears the
+  framebuffer to the TRG's `SetSkyColor` every frame (`Db_UpdateSky`: `Draw.isbg=1`; default black
+  after `Db_Init`, 0xFFFF/0xFFFF disables clearing), dome or no dome — and every skny RESTART node,
+  1P and 2P alike, issues `SetSkyColor (0,9,25)` night blue. The colour previously rode only
+  sky-dome MESH extras, so a domeless region lost it; it now also exports at document scope
+  (`PsxSkyBackdropMetadata` → GLB scene extras `neversoftSkyBackdrop`, manifest kind
+  `psx_sky_backdrop`) and the viewer uses it as the background when a model brings no sky meshes.
+  skny_2 now clears to the authored night blue. Also established from the decomp while answering
+  "is fog the sky colour?": **no** — the GTE far colour (`FarColor`) is never written (fog depth-cue
+  target is constant black in the proto) and the tunable per-level fade tint is a separate register
+  (`M3d_FadeColour`, TRG 0xC8, written to scratchpad 0x354 alongside the DPQ fog params; the ASM
+  consumer is not decompiled, so "fade = fog tint" is strong-but-circumstantial). skny sets
+  backdrop (0,9,25) but fade (25,9,0) — deliberately different: cool sky, warm street-glow haze. What is WRONG: the shared `skny_t.trg` carries BOTH
   regions' PLATFORM/POWERUP/entity nodes, and the placement pipeline applies all of them to a
   variant file — SP-region re-instances land in the 2P export (the reported "full object placement
   from the single player version"; skny_2 shows 8 `obj_barrier01` instances). Fix needs

@@ -1330,6 +1330,15 @@ if (psxFlags.z < 0.5) {
       // and adopt the TRG SetSkyColor backdrop as the clear colour. Runs
       // BEFORE configurePsxGpuVertexColors — clones made after the PS1-GPU
       // patch would lose onBeforeCompile and drop out of its uniform updates.
+      //
+      // A region can name a backdrop while owning NO dome (skny_2's 2P bank
+      // has no background object, yet its RESTART nodes issue SetSkyColor —
+      // the engine's framebuffer clear is that region's entire sky). The
+      // exporter carries it as SCENE extras, which GLTFLoader parks on the
+      // scene root's userData.
+      const sceneBackdrop = root.userData && root.userData.neversoftSkyBackdrop;
+      if (Number.isFinite(sceneBackdrop) && skyBackdropColor === null)
+        skyBackdropColor = sceneBackdrop >>> 0;
       const skyBySource = new Map();
       root.traverse(obj => {
         if (!obj.isMesh) return;

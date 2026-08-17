@@ -313,6 +313,14 @@ public sealed class MeshModelParser : IModelParser
                 request.Source, companions.LevelStem);
             var items = PsxItemsBankSubstitution.TryLoadItems(request.Source);
 
+            // The engine clears the framebuffer to the TRG's SetSkyColor every
+            // frame (Db_UpdateSky) whether or not a sky dome exists, so record
+            // the backdrop at document scope independent of the bank/dome path
+            // below — a domeless region (skny_2's SkNY_O2 bank carries no
+            // background object) still has its authored night-blue clear.
+            if (PsxSkyDomeClassifier.FindSkyColor(trg) is { } backdropColor)
+                document.NativeMetadata.Add(new PsxSkyBackdropMetadata(backdropColor));
+
             // Terrain query over the level's own render geometry (the surface the
             // engine ray-casts) so grounded POWERUP pickups reseat onto the floor.
             var terrain = PsxTerrainHeightField.BuildFromLevel(levelMesh);

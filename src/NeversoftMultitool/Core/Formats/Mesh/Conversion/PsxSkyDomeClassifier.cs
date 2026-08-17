@@ -237,7 +237,12 @@ internal static class PsxSkyDomeClassifier
                && uint.TryParse(arg[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out checksum);
     }
 
-    private static uint? FindSkyColor(TrgFile? trg)
+    /// <summary>
+    ///     The TRG's SetSkyColor backdrop, independent of dome classification —
+    ///     the engine applies it as the framebuffer clear colour whether or not
+    ///     any 0xAB background joins a bank mesh.
+    /// </summary>
+    internal static uint? FindSkyColor(TrgFile? trg)
     {
         if (trg == null)
             return null;

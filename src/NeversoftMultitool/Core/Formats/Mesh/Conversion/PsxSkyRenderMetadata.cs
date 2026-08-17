@@ -20,3 +20,25 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 /// </summary>
 public sealed record PsxSkyRenderMetadata(uint? SkyColor = null, int LayerIndex = 0)
     : NativeRenderMetadata("psx_sky");
+
+/// <summary>
+///     Document-scope record of the TRG's <c>SetSkyColor</c> backdrop — the
+///     colour the engine clears the framebuffer to every frame
+///     (<c>Db_UpdateSky</c>: <c>Draw.isbg = 1</c> with this RGB; the default
+///     after <c>Db_Init</c> is black, and 0xFFFF/0xFFFF disables clearing).
+/// </summary>
+/// <remarks>
+///     Separate from <see cref="PsxSkyRenderMetadata" />, which rides sky-dome
+///     MESHES: a region can name a backdrop colour while owning no dome at all
+///     (skny's two-player bank SkNY_O2 has no background object, but its
+///     RESTART nodes still issue SetSkyColor (0,9,25) — the night-blue clear
+///     is the ONLY sky that region has). The glTF exporter publishes this as
+///     scene extras <c>neversoftSkyBackdrop</c>; the viewer uses it as the
+///     background when the model brings no sky meshes of its own. Packing
+///     matches the mesh-level value: <c>R&lt;&lt;16 | G&lt;&lt;8 | B</c>.
+///     Note the fog is NOT this colour: the engine's depth-cue fades toward
+///     <c>M3d_FadeColour</c> (TRG 0xC8), an independent register — skny sets
+///     backdrop (0,9,25) but fade (25,9,0).
+/// </summary>
+public sealed record PsxSkyBackdropMetadata(uint SkyColor)
+    : NativeRenderMetadata("psx_sky_backdrop");
