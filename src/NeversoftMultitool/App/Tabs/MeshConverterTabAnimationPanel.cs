@@ -437,7 +437,7 @@ internal sealed class MeshConverterTabAnimationPanel(
         var text = $"Found {matching} matching animation(s)";
         if (hiddenMismatches > 0)
             text += showAll
-                ? $" ({hiddenMismatches} mismatched shown greyed)"
+                ? $" ({hiddenMismatches} mismatched shown grayed)"
                 : $" ({hiddenMismatches} hidden: bone-count mismatch)";
         if (HideSinglePoses)
         {

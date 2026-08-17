@@ -355,7 +355,7 @@
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Row="0"
                                Grid.Column="0"
-                               Text="Colour pulses"
+                               Text="Color pulses"
                                VerticalAlignment="Center" />
                     <ToggleSwitch x:Name="ColourPulsesToggle"
                                   Grid.Row="0"
@@ -364,7 +364,7 @@
                                   OnContent="On"
                                   IsOn="True"
                                   Toggled="SurfaceAnimationToggles_Toggled"
-                                  AutomationProperties.Name="Colour pulses" />
+                                  AutomationProperties.Name="Color pulses" />
                     <TextBlock Grid.Row="1"
                                Grid.Column="0"
                                Text="Texture wibbles"
