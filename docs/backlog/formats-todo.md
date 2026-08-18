@@ -38,7 +38,15 @@ as the pickup tables RE'd out of the main EXEs), which is per-overlay RE work, n
 an **uncarved ~1.5 MB character-AI segment at ROM 0x1D59BB2–0x1DEBAEE+**, per-character in order
 (blackcat 0x1D72, carnage 0x1D79, chopper 0x1D80, cop 0x1D8B, docock 0x1D91, lizman 0x1DA1,
 mysterio 0x1DA9, rhino 0x1DAF, scorpion 0x1DB0/0x1DB8, simby 0x1DBA/0x1DC8, spclone 0x1DCB,
-superock 0x1DD1, thug 0x1DDE, turret 0x1DE2, venom 0x1DEB). It is referenced by NO master-directory
+superock 0x1DD1, thug 0x1DDE, turret 0x1DE2, venom 0x1DEB). **Bundle-naming angle
+(2026-08-17)**: current N64 naming is triggers-first (TRG scripts spell filenames; contiguous
+slot-run alignment) with the PS1 content-identity resource as fallback — 418/594 slots named, and
+content identity structurally cannot separate shared-rig characters. Each AI block must bind to
+its model somehow (the PS1 side calls Spool_GetModel by name hash); if the N64 blocks carry a
+bundle-slot immediate or hash constant, that is per-character naming evidence for exactly the
+class the fallback cannot reach (82 unnamed Spider-Man slots). Unproven — worth a probe that scans
+each block for slot/hash constants and tests injectivity; the segment order itself already gives
+block → PS1-character-name for free. The segment is referenced by NO master-directory
 group — the whole-carve block scan finds none of it in any carved asset, so it must be DMA'd by
 hardcoded ROM address — meaning `N64AssetCarver` currently misses it entirely. The CODE is
 recompiled (distinct-block coverage of any PS1 overlay vs boot.bin is only 3–8%, all generic MIPS
@@ -59,13 +67,25 @@ constants are source-level. Probe method retained here; runs list in the 2026-08
    (u32 width/height/cell rows); the engine loader is `FontTools.cpp`/`FONT.cpp` in the matched
    decomp (`FontManager`, default `mainf.fnt`), so the layout can be read straight out of it.
    Glyph art location (embedded vs companion BMP) to be established from the loader.
-2. **`.seq` PSY-Q MIDI sequences** — 11 in Apocalypse (`pQES` magic confirmed). The one genuine
-   PS1-era AUDIO gap: Apocalypse music is SEQ+VAB MIDI (later games moved to XA/STR streams, which
-   already convert). SEQ→MIDI is mechanical and well-documented; SEQ+VAB→WAV rendering would make
-   the music audible with the samples we already extract.
-3. **`title_h.zlb`** — plain gzip (`1F 8B`), byte-identical 172,531 bytes in SIX builds (THPS1 proto
-   → THPS4). Decompresses to 614,408 bytes ≈ 640×480 16bpp + 8 — the shared hi-res title/legal
-   screen. One-liner decode once the exact pixel format (likely RGB1555) is eyeballed.
+   **Target format decided 2026-08-17**: PNG glyph atlas + schema-v1 JSON metrics (the repo's
+   PNG-for-art / schema-JSON-for-structure conventions); BMFont text output can be added later if
+   external tool interop is ever wanted, but is not the primary target.
+2. ✅ **`.seq` PSY-Q MIDI sequences — SHIPPED 2026-08-17.** `SeqFile` (pQES header + MIDI event
+   stream with running status), `VabProgramSet` (programs→tones→PCM with SPU loop points), and
+   `SeqSynthesizer` (SsPitchFromNote pitch — the same formula the SFX cue resolver pins — SPU ADSR
+   envelope stepped from the register words, sample-loop sustain, tempo map, equal-power pan)
+   render SEQ+VAB→WAV. Routed: CLI `audio` (`.seq`), GUI Audio tab (needs the same-stem `.vab`
+   sibling, resolved via the companion API so archive entries work). All 11 Apocalypse songs render
+   audibly (corpus-pinned); `city` really is a 17.5-minute piece (notes to tick 1,026,413 — checked,
+   not a parser bug). **Format lesson pinned by test**: VAB `programCount` counts USED programs and
+   the tone region packs used slots in ASCENDING SLOT ORDER — Apocalypse's music banks use slots
+   60–75, so the slot-indexed tone walk (decomp-correct for SFX banks whose used slots are 0..N−1)
+   silences everything. Documented approximations: single pass (no loop-marker repeat), ±2-semitone
+   bend range, linear resampling, envelope without the SPU's stepped quantisation.
+3. ✅ **`title_h.zlb` — already handled** (correcting this survey's own 2026-08-17 claim, same day:
+   the bitmap facade routes `.zlb` as gzip-wrapped RLE/BMR — `RleImage`/`BitmapFile` — and
+   `title_h.zlb` converts to PNG today). Not a gap; retained here only so the extension census
+   stays reconciled.
 
 **Classified, deliberately not converted:** `.rec`/`.dem` demo replays (input streams; `.rec`
 already documented byte-identical on N64), `.prk` park saves, `.rel` relocation tables,

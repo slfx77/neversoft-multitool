@@ -7,7 +7,7 @@ namespace NeversoftMultitool;
 internal static class AudioConverterTabOperations
 {
     private static readonly string[] SupportedExtensions =
-        [".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".pcm", ".snd", ".pss", ".vid"];
+        [".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".seq", ".pcm", ".snd", ".pss", ".vid"];
 
     public static bool IsAudioFile(string path)
     {
@@ -48,6 +48,7 @@ internal static class AudioConverterTabOperations
             ".vid" => "VID",
             ".kat" => "KAT",
             ".sfx" => "SFX",
+            ".seq" => "SEQ",
             "" => "VAG",
             _ => "Unknown"
         };
@@ -215,8 +216,31 @@ internal static class AudioConverterTabOperations
             "PSS" => PssAudioExtractor.ConvertToWav(data, outputStem, outputDir),
             "VID" => Vid1AudioExtractor.ConvertToWav(data, outputStem, outputDir),
             "KAT" => ConvertKatBank(entry, data, outputStem, outputDir),
+            "SEQ" => ConvertSeqSong(entry, data, outputStem, outputDir),
             _ => new AudioConvertResult { ErrorMessage = "Unknown format" }
         };
+    }
+
+    private static AudioConvertResult ConvertSeqSong(
+        AudioFileEntry entry,
+        byte[] data,
+        string outputStem,
+        string outputDir)
+    {
+        // The song is MIDI-like; its instruments live in the same-stem VAB
+        // sibling (Apocalypse ships every .seq with one). The companion API
+        // resolves it for loose files and archive entries alike.
+        var stem = Path.GetFileNameWithoutExtension(entry.FileName);
+        var vabData = entry.Source.TryReadCompanion(stem + ".vab");
+        if (vabData == null)
+        {
+            return new AudioConvertResult
+            {
+                ErrorMessage = "No same-stem .vab bank beside the SEQ"
+            };
+        }
+
+        return SeqExtractor.ConvertToWav(data, vabData, outputStem, outputDir);
     }
 
     private static AudioConvertResult ConvertVabBank(

@@ -9,7 +9,7 @@ namespace NeversoftMultitool.CLI;
 public static class AudioCommand
 {
     private static readonly string[] SupportedExtensions =
-        [".adx", ".xa", ".vab", ".kat", ".sfx", ".vag", ".pcm", ".snd", ".pss", ".vid"];
+        [".adx", ".xa", ".vab", ".kat", ".sfx", ".seq", ".vag", ".pcm", ".snd", ".pss", ".vid"];
 
     public static Command Create()
     {
@@ -177,6 +177,7 @@ public static class AudioCommand
                 ".vid" => Vid1AudioExtractor.ConvertToWav(file, outputDirectory),
                 ".kat" => KatExtractor.ExtractToWav(file, outputDirectory),
                 ".sfx" => SfxExtractor.ExtractToWav(file, outputDirectory),
+                ".seq" => SeqExtractor.ConvertToWav(file, outputDirectory),
                 "" => VagDecoder.ConvertToWav(file, outputDirectory, sampleRate),
                 _ => new AudioConvertResult { ErrorMessage = "Unsupported format" }
             };
@@ -184,6 +185,11 @@ public static class AudioCommand
 
         if (extension == ".sfx")
             return SfxExtractor.ExtractToWav(file, outputStem, outputDirectory);
+
+        // SEQ needs its same-stem sibling VAB, so it converts by path even when
+        // the output stem is disambiguated.
+        if (extension == ".seq")
+            return SeqExtractor.ConvertToWav(file, outputDirectory, outputStem);
 
         try
         {
