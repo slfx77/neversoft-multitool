@@ -18,6 +18,42 @@ schedule work from their old descriptions.
 
 ## Remaining — needs work
 
+### 🔴 PS1-era residual extension survey — 2026-08-17 (answers "any PSX-side gaps left?")
+
+Full extension census re-run over the four PS1-era final builds plus the THPS PS1 lineage, with
+magic-byte probes on everything not already routed. The character-paired `.bin` mystery is settled,
+and three small asset-bearing gaps remain. Everything else is code, saves, or replays.
+
+**Settled — `.bin` paired with characters is CODE, not assets.** Spider-Man pairs a `.bin` with each
+boss/NPC stem (`blackcat/carnage/chopper/cop/docock/hostage/jonah/lizman/mysterio/rhino/scorpion/
+superock/thug/venom.bin`, 1–58 KB, plus `l*lsc.bin` level scripts and `shell.bin`): disassembly-shaped
+MIPS throughout (`lui/addiu` pairs, `jr $ra` epilogues, stack prologues) — **per-character AI code
+overlays**, each with a paired `.rel` relocation table, exactly the "modules" krystalgamer's
+spidey-decomp covers. THPS2's 29 `.bin` are the same class (front-end screens `mainmenu/options/
+tricksel/…` + `GAME.BIN`/`FRONT.BIN`/`EDITOR.BIN`). Not convertible as assets; the interesting
+residue is the DATA tables embedded per overlay (AI params, per-character anim indices — same class
+as the pickup tables RE'd out of the main EXEs), which is per-overlay RE work, not a converter.
+
+**Actionable small gaps (in rough value order):**
+1. **`.fnt` bitmap fonts** — 80 THPS2 + 19 THPS1 + 5 Spider-Man. Header = per-glyph metric records
+   (u32 width/height/cell rows); the engine loader is `FontTools.cpp`/`FONT.cpp` in the matched
+   decomp (`FontManager`, default `mainf.fnt`), so the layout can be read straight out of it.
+   Glyph art location (embedded vs companion BMP) to be established from the loader.
+2. **`.seq` PSY-Q MIDI sequences** — 11 in Apocalypse (`pQES` magic confirmed). The one genuine
+   PS1-era AUDIO gap: Apocalypse music is SEQ+VAB MIDI (later games moved to XA/STR streams, which
+   already convert). SEQ→MIDI is mechanical and well-documented; SEQ+VAB→WAV rendering would make
+   the music audible with the samples we already extract.
+3. **`title_h.zlb`** — plain gzip (`1F 8B`), byte-identical 172,531 bytes in SIX builds (THPS1 proto
+   → THPS4). Decompresses to 614,408 bytes ≈ 640×480 16bpp + 8 — the shared hi-res title/legal
+   screen. One-liner decode once the exact pixel format (likely RGB1555) is eyeballed.
+
+**Classified, deliberately not converted:** `.rec`/`.dem` demo replays (input streams; `.rec`
+already documented byte-identical on N64), `.prk` park saves, `.rel` relocation tables,
+`amap<N>to<M>.dat` (80 THPS2 files, 2 KB each — anim-index permutation tables between skater rigs;
+header + 0..N byte permutations visible in the raw), `trickdb.dat`/`sizes.dat`/`prefs.dat` (small
+data tables/manifests), `.psh` (already parsed as part-name headers). THPS2's 1,283 `.bmp` route
+through the existing BMP facade.
+
 ### 🔶 THAW GameCube platform — textures ✅ 2026-07-07, meshes ✅ 2026-07-08, collision inspection ✅ 2026-08-10
 - Source: 2026-07-07 corpus census + format RE sessions (textures 07-07, meshes 07-08).
 - ✅ **Textures done**: `.tex.ngc` (722) + `.img.ngc` (2,647) parse via `NgcTexFile` (extended from the
