@@ -88,9 +88,16 @@ constants are source-level. Probe method retained here; runs list in the 2026-08
    (u32 width/height/cell rows); the engine loader is `FontTools.cpp`/`FONT.cpp` in the matched
    decomp (`FontManager`, default `mainf.fnt`), so the layout can be read straight out of it.
    Glyph art location (embedded vs companion BMP) to be established from the loader.
-   **Target format decided 2026-08-17**: PNG glyph atlas + schema-v1 JSON metrics (the repo's
-   PNG-for-art / schema-JSON-for-structure conventions); BMFont text output can be added later if
-   external tool interop is ever wanted, but is not the primary target.
+   **Target format decided 2026-08-17 (revised same day)**: PNG glyph atlas + schema-v1 JSON
+   metrics as the primary data output, plus a **Windows `.fon` export** as the installable-font
+   companion — it covers BOTH targets with one format: FreeType's winfnt driver reads `.fon`
+   (GIMP-on-Windows already lists Terminal/Small Fonts, which are `.fon` files fontconfig picked
+   up from C:\Windows\Fonts), and Windows natively previews/installs it, which BDF cannot do.
+   BDF is dropped from the plan. Caveats recorded: `.fon` is an NE-executable shell around FNT
+   resource records (fiddlier to write than BDF but documented and deterministic; multiple sizes
+   pack as multiple FNT resources), 8-bit codepoints only (fine — these are ASCII-ish game
+   glyphs), and Photoshop accepts no raster font at all (the PNG atlas serves it). Verify in GIMP
+   with the first emitted `.fon`.
 2. ✅ **`.seq` PSY-Q MIDI sequences — SHIPPED 2026-08-17.** `SeqFile` (pQES header + MIDI event
    stream with running status), `VabProgramSet` (programs→tones→PCM with SPU loop points), and
    `SeqSynthesizer` (SsPitchFromNote pitch — the same formula the SFX cue resolver pins — SPU ADSR
