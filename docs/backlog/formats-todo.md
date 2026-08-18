@@ -102,9 +102,17 @@ constants are source-level. Probe method retained here; runs list in the 2026-08
      + DC + PC, SM2:EE ×3). The remaining 60 (48 THAW, 12 THPS3-PS2) are genuinely unrelated
      formats sharing the extension and are reported as **skipped, not errors**.
    - **One variant**, THPS2 DC `LEVSEL.FNT`: 12-byte records `{widthUnits, height, baseline}` —
-     no advance width — and **no embedded CLUT**, so its 4-bit values are an intensity ramp.
-     Established by exact EOF plus rendering (it decodes to legible `A-Z 0-9 ? : !`). Exported
-     as white with coverage alpha, since the file states no colour.
+     no advance width — and **no embedded CLUT**. Established by exact EOF plus a per-pixel
+     render check. **Its 4bpp pixels are HIGH nibble first**, opposite to the PS1 layout;
+     measured via a horizontal-smoothness metric that picks low-first for all 382 paletted files
+     and high-first for this one alone. Exported as coverage alpha on white, because with no
+     CLUT and no decompiled Dreamcast loader the values' meaning is not established.
+     **Post-ship correction (2026-08-18)**: this file first shipped decoded low-first, i.e. with
+     every horizontal pixel pair swapped. It slipped because its test pinned counts, size and
+     offsets but no pixels, while the paletted fixture had a full atlas SHA — and because a
+     pairwise swap leaves glyphs readable as their letters, so the visual check I ran could not
+     discriminate. Fixed with a per-layout nibble order, an atlas SHA for this file, and a
+     corpus test that re-derives both orders from the data.
    - **Transparency is by CLUT value**: `0x0000` is the PS1 GPU's not-drawn texel and every
      paletted file carries one. Bit 15 (STP) is set on 91% of entries and is ignored —
      `Font::draw` issues the glyph's main pass with `Transparent = 0`, so the hardware never

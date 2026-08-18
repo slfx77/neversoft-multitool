@@ -47,10 +47,15 @@ public static class FntJsonExporter
             Layout = font.Layout switch
             {
                 FntLayout.PalettedWithAdvance => "palettedWithAdvance",
-                FntLayout.IntensityWithoutPalette => "intensityWithoutPalette",
+                FntLayout.CompactWithoutPalette => "compactWithoutPalette",
                 _ => throw new InvalidDataException($"Unsupported font layout {font.Layout}")
             },
-            PixelFormat = font.HasPalette ? "clut4" : "intensity4",
+            PixelFormat = font.HasPalette ? "clut4" : "unpaletted4",
+            PixelNibbleOrder = font.HasPalette ? "lowNibbleFirst" : "highNibbleFirst",
+            // How the exporter chose to render the values, not a claim about what they mean:
+            // with no CLUT in the file and no decompiled Dreamcast loader, coverage and
+            // palette-index readings are indistinguishable from the bytes.
+            PixelInterpretation = font.HasPalette ? "paletteIndex" : "coverageAlphaOnWhite",
             GlyphCount = font.Glyphs.Length,
             CharacterMapStatus = characterMapMode is null ? "notApplied" : "appliedFromCallerArgument",
             CharacterMapMode = characterMapMode is { } applied ? (int)applied : null,
@@ -176,6 +181,8 @@ public static class FntJsonExporter
         public required string SerializedSha256 { get; init; }
         public required string Layout { get; init; }
         public required string PixelFormat { get; init; }
+        public required string PixelNibbleOrder { get; init; }
+        public required string PixelInterpretation { get; init; }
         public required int GlyphCount { get; init; }
         public required string CharacterMapStatus { get; init; }
         public required int? CharacterMapMode { get; init; }

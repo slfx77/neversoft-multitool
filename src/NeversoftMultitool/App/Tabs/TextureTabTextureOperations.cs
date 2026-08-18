@@ -287,7 +287,7 @@ internal static class TextureTabTextureOperations
         if (font == null)
             return [];
 
-        var paletteType = font.HasPalette ? "4bpp CLUT" : "4bpp intensity";
+        var paletteType = font.HasPalette ? "4bpp CLUT" : "4bpp unpaletted";
         return font.Glyphs
             .Select(glyph => new PsxTextureEntry
             {

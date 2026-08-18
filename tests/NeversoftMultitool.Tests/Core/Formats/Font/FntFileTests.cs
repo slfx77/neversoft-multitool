@@ -25,7 +25,11 @@ namespace NeversoftMultitool.Tests.Core.Formats.Font;
 ///             character map is build-specific and must never be inferred.
 ///         </item>
 ///         <item>
-///             THPS2 Dreamcast <c>LEVSEL.FNT</c> — the sole palette-less 12-byte-record file.
+///             THPS2 Dreamcast <c>LEVSEL.FNT</c> — the sole palette-less 12-byte-record file,
+///             and the only one whose 4bpp pixels are HIGH nibble first. It gets its own atlas
+///             SHA because pinning counts and offsets alone is what let a wrong nibble order
+///             ship: swapping horizontal pixel pairs leaves every glyph readable as its letter,
+///             so a visual check passes while each stroke is riddled with holes.
 ///         </item>
 ///     </list>
 /// </remarks>
@@ -61,12 +65,15 @@ public sealed class FntFileTests(TestPaths paths)
     }
 
     [Fact]
-    public void SyntheticPalettedFont_UnpacksLowNibbleFirst()
+    public void TheTwoLayoutsUseOppositeNibbleOrders()
     {
-        // Row 0 of glyph 0 is bytes 0x10, 0x32 -> pixels 0,1,2,3 low-nibble-first.
-        var font = FntFile.Parse(BuildPalettedFont());
+        // Not a shared convention — each order is measured for its own layout, so pin both.
+        // Row 0 of the synthetic glyph is bytes 0x10, 0x32.
+        var paletted = FntFile.Parse(BuildPalettedFont());
+        Assert.Equal([0, 1, 2, 3], paletted.Glyphs[0].Pixels.Take(4));
 
-        Assert.Equal([0, 1, 2, 3], font.Glyphs[0].Pixels.Take(4));
+        var compact = FntFile.Parse(BuildFont(FntLayout.CompactWithoutPalette, [(2, 3, 2, 0)]));
+        Assert.Equal([1, 0, 3, 2], compact.Glyphs[0].Pixels.Take(4));
     }
 
     [Fact]
@@ -82,11 +89,11 @@ public sealed class FntFileTests(TestPaths paths)
     }
 
     [Fact]
-    public void SyntheticIntensityFont_ParsesWithoutPaletteOrAdvance()
+    public void SyntheticCompactFont_ParsesWithoutPaletteOrAdvance()
     {
-        var font = FntFile.Parse(BuildFont(FntLayout.IntensityWithoutPalette, [(2, 3, 2, 0)]));
+        var font = FntFile.Parse(BuildFont(FntLayout.CompactWithoutPalette, [(2, 3, 2, 0)]));
 
-        Assert.Equal(FntLayout.IntensityWithoutPalette, font.Layout);
+        Assert.Equal(FntLayout.CompactWithoutPalette, font.Layout);
         Assert.False(font.HasPalette);
         Assert.Empty(font.Palette);
         Assert.Null(font.Glyphs[0].AdvanceWidth);
@@ -100,9 +107,9 @@ public sealed class FntFileTests(TestPaths paths)
         Assert.True(FntFile.TryParse(BuildPalettedFont(), out var paletted));
         Assert.Equal(FntLayout.PalettedWithAdvance, paletted.Layout);
 
-        var intensity = BuildFont(FntLayout.IntensityWithoutPalette, [(2, 3, 2, 0), (1, 5, -2, 0)]);
+        var intensity = BuildFont(FntLayout.CompactWithoutPalette, [(2, 3, 2, 0), (1, 5, -2, 0)]);
         Assert.True(FntFile.TryParse(intensity, out var parsed));
-        Assert.Equal(FntLayout.IntensityWithoutPalette, parsed.Layout);
+        Assert.Equal(FntLayout.CompactWithoutPalette, parsed.Layout);
     }
 
     [Fact]
@@ -128,7 +135,7 @@ public sealed class FntFileTests(TestPaths paths)
     }
 
     [Fact]
-    public void ATruncatedPalettedFontCanCoincidentallySatisfyTheIntensityLayout()
+    public void ATruncatedPalettedFontCanCoincidentallySatisfyTheCompactLayout()
     {
         // Pinning a real limit rather than overclaiming. Exact end-of-file makes the two
         // layouts unambiguous across the whole shipped corpus (0 of 443 files satisfy both),
@@ -139,7 +146,7 @@ public sealed class FntFileTests(TestPaths paths)
         var truncated = BuildPalettedFont().AsSpan(0, 56).ToArray();
 
         Assert.True(FntFile.TryParse(truncated, out var font));
-        Assert.Equal(FntLayout.IntensityWithoutPalette, font.Layout);
+        Assert.Equal(FntLayout.CompactWithoutPalette, font.Layout);
     }
 
     [Fact]
@@ -189,9 +196,9 @@ public sealed class FntFileTests(TestPaths paths)
     }
 
     [Fact]
-    public void IntensityPixelsBecomeWhiteWithCoverageAlpha()
+    public void UnpalettedPixelsRenderAsCoverageOnWhite()
     {
-        var font = FntFile.Parse(BuildFont(FntLayout.IntensityWithoutPalette, [(2, 3, 2, 0)]));
+        var font = FntFile.Parse(BuildFont(FntLayout.CompactWithoutPalette, [(2, 3, 2, 0)]));
         Span<byte> rgba = stackalloc byte[4];
 
         FntAtlasBuilder.ToRgba(font, 0, rgba);
@@ -362,13 +369,112 @@ public sealed class FntFileTests(TestPaths paths)
 
         var font = FntFile.Parse(File.ReadAllBytes(file));
 
-        Assert.Equal(FntLayout.IntensityWithoutPalette, font.Layout);
+        Assert.Equal(FntLayout.CompactWithoutPalette, font.Layout);
         Assert.Equal(39, font.Glyphs.Length);
         Assert.Equal(12532, font.SerializedSize);
         Assert.Empty(font.Palette);
         Assert.All(font.Glyphs, glyph => Assert.Null(glyph.AdvanceWidth));
         // Pixel data starts immediately after the 12-byte record table, with no CLUT between.
         Assert.Equal(4 + 12 * 39, font.Glyphs[0].PixelDataOffset);
+
+        // The pixel pin this file originally lacked. Asserting only counts and offsets let a
+        // wrong nibble order ship: swapping horizontal pixel PAIRS leaves every glyph readable
+        // as its letter while punching holes through each stroke, so an eyeball check passes.
+        var atlas = FntAtlasBuilder.Build(font);
+        const string expected = "f0c34d140006e298e8aff52484da6b9216ad9350ca5b6ebe5ea59279b3ab2bd7";
+        var actual = Convert.ToHexStringLower(SHA256.HashData(atlas.Rgba));
+        Assert.True(expected == actual, $"LEVSEL.FNT atlas RGBA sha mismatch: actual {actual}");
+    }
+
+    [CorpusFact]
+    public void EachLayoutsNibbleOrderIsTheOneThatKeepsStrokesContinuous()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        // The orders differ per layout, so neither is assumed. This re-derives both from the
+        // corpus: decoding a glyph with the wrong nibble order shatters solid strokes into
+        // alternating bright/dim columns, which shows up as more contiguous bright runs.
+        var files = Directory
+            .EnumerateFiles(paths.SampleBuildsDir!, "*", SearchOption.AllDirectories)
+            .Where(static file => Path.GetExtension(file).Equals(".fnt", StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        var palettedAgree = 0;
+        var palettedDisagree = 0;
+        var compactAgree = 0;
+        var compactDisagree = 0;
+        var noEvidence = 0;
+
+        foreach (var file in files)
+        {
+            var data = File.ReadAllBytes(file);
+            if (!FntFile.TryParse(data, out var font))
+                continue;
+
+            var asShipped = HorizontalRoughness(font, swapNibbles: false);
+            var swapped = HorizontalRoughness(font, swapNibbles: true);
+            if (asShipped == swapped)
+            {
+                // Symmetric art scores identically either way and votes for neither order.
+                noEvidence++;
+                continue;
+            }
+
+            var shippedIsSmoother = asShipped < swapped;
+            if (font.Layout == FntLayout.PalettedWithAdvance)
+            {
+                if (shippedIsSmoother) palettedAgree++;
+                else palettedDisagree++;
+            }
+            else
+            {
+                if (shippedIsSmoother) compactAgree++;
+                else compactDisagree++;
+            }
+        }
+
+        // Unanimous on both sides: every file that carries evidence is decoded in the order
+        // that keeps its strokes whole, and the two layouts land on opposite orders.
+        Assert.Equal(0, palettedDisagree);
+        Assert.Equal(0, compactDisagree);
+        Assert.Equal(382, palettedAgree);
+        Assert.Equal(1, compactAgree);
+        Assert.Equal(0, noEvidence);
+    }
+
+    /// <summary>
+    ///     Total absolute luminance change between horizontally adjacent pixels. Reading the
+    ///     wrong nibble first swaps every horizontal pixel pair, which turns smooth strokes into
+    ///     alternating bright/dim columns and raises this score.
+    /// </summary>
+    private static long HorizontalRoughness(FntFile font, bool swapNibbles)
+    {
+        Span<byte> rgba = stackalloc byte[4];
+        long roughness = 0;
+        foreach (var glyph in font.Glyphs)
+        {
+            for (var y = 0; y < glyph.Height; y++)
+            {
+                var previous = -1;
+                for (var x = 0; x < glyph.Width; x++)
+                {
+                    // Swapping adjacent pixels within each pair is exactly what reading the
+                    // other nibble first produces.
+                    var sourceX = swapNibbles ? x ^ 1 : x;
+                    FntAtlasBuilder.ToRgba(font, glyph.Pixels[y * glyph.Width + sourceX], rgba);
+                    // Premultiply by alpha so a transparent texel reads as empty, not as its
+                    // (meaningless) colour.
+                    var luminance = (rgba[0] * 30 + rgba[1] * 59 + rgba[2] * 11) / 100 * rgba[3] / 255;
+                    if (previous >= 0)
+                        roughness += Math.Abs(luminance - previous);
+
+                    previous = luminance;
+                }
+            }
+        }
+
+        return roughness;
     }
 
     [CorpusFact]

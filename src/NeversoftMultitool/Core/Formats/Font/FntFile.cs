@@ -53,7 +53,7 @@ public sealed class FntFile
 
     /// <summary>
     ///     The embedded 16-entry CLUT, or empty for
-    ///     <see cref="FntLayout.IntensityWithoutPalette" />, which ships none.
+    ///     <see cref="FntLayout.CompactWithoutPalette" />, which ships none.
     /// </summary>
     public required ushort[] Palette { get; init; }
 
@@ -63,12 +63,16 @@ public sealed class FntFile
     /// <summary>Uppercase SHA-256 of the whole source file.</summary>
     public required string SerializedSha256 { get; init; }
 
-    /// <summary>True when the pixel values index <see cref="Palette" /> rather than being intensities.</summary>
+    /// <summary>
+    ///     True when the pixel values index <see cref="Palette" />; false when the layout ships
+    ///     no CLUT, in which case what the values denote is unproven and the exporter renders
+    ///     them as coverage.
+    /// </summary>
     public bool HasPalette => Layout == FntLayout.PalettedWithAdvance;
 
     /// <summary>
     ///     Reads a <c>.fnt</c>, trying the canonical paletted layout first and the reduced
-    ///     intensity layout second.
+    ///     palette-less layout second.
     /// </summary>
     /// <exception cref="InvalidDataException">The data matches neither layout exactly.</exception>
     public static FntFile Parse(ReadOnlySpan<byte> data)
@@ -86,14 +90,14 @@ public sealed class FntFile
         if (TryParseLayout(data, FntLayout.PalettedWithAdvance, out font))
             return true;
 
-        return TryParseLayout(data, FntLayout.IntensityWithoutPalette, out font);
+        return TryParseLayout(data, FntLayout.CompactWithoutPalette, out font);
     }
 
     /// <summary>Structural check that does not decode pixels.</summary>
     public static bool IsFnt(ReadOnlySpan<byte> data)
     {
         return Measure(data, FntLayout.PalettedWithAdvance, out _)
-               || Measure(data, FntLayout.IntensityWithoutPalette, out _);
+               || Measure(data, FntLayout.CompactWithoutPalette, out _);
     }
 
     private static bool TryParseLayout(ReadOnlySpan<byte> data, FntLayout layout, out FntFile font)
@@ -130,7 +134,7 @@ public sealed class FntFile
                 WidthUnits = record.WidthUnits,
                 PixelDataOffset = offset,
                 PixelDataLength = length,
-                Pixels = DecodePixels(data.Slice(offset, length), record.WidthUnits, record.Height)
+                Pixels = DecodePixels(data.Slice(offset, length), record.WidthUnits, record.Height, layout)
             };
             offset += length;
         }
@@ -215,9 +219,25 @@ public sealed class FntFile
         return (pixels << 1) + ((pixels & 1) << 1);
     }
 
-    /// <summary>Unpacks 4bpp pixels, low nibble first, into one byte per pixel.</summary>
-    private static byte[] DecodePixels(ReadOnlySpan<byte> source, int widthUnits, int height)
+    /// <summary>
+    ///     Unpacks 4bpp pixels into one byte per pixel, in the nibble order the layout uses.
+    /// </summary>
+    /// <remarks>
+    ///     The two layouts disagree, and the order is measured for each rather than shared:
+    ///     <see cref="FntLayout.PalettedWithAdvance" /> is low-nibble-first, the PS1 4bpp
+    ///     convention this codebase already applies to PSX textures, and all 382 paletted corpus
+    ///     files agree; <see cref="FntLayout.CompactWithoutPalette" /> is high-nibble-first.
+    ///     Getting this wrong is quiet — swapping horizontal pixel PAIRS leaves a glyph
+    ///     recognisable as its letter while riddling every stroke with holes — so both
+    ///     directions are pinned by atlas hashes rather than by eye.
+    /// </remarks>
+    private static byte[] DecodePixels(
+        ReadOnlySpan<byte> source,
+        int widthUnits,
+        int height,
+        FntLayout layout)
     {
+        var lowNibbleFirst = layout == FntLayout.PalettedWithAdvance;
         var width = widthUnits * 4;
         var stride = widthUnits * 2;
         var pixels = new byte[width * height];
@@ -228,7 +248,8 @@ public sealed class FntFile
             for (var x = 0; x < width; x++)
             {
                 var value = source[rowStart + (x >> 1)];
-                pixels[destRow + x] = (byte)((x & 1) == 0 ? value & 0x0F : value >> 4);
+                var takeLow = ((x & 1) == 0) == lowNibbleFirst;
+                pixels[destRow + x] = (byte)(takeLow ? value & 0x0F : value >> 4);
             }
         }
 

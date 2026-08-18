@@ -6,7 +6,8 @@ namespace NeversoftMultitool.Core.Formats.Font;
 /// <remarks>
 ///     <see cref="Pixels" /> holds one 4-bit value per pixel in row-major order. For
 ///     <see cref="FntLayout.PalettedWithAdvance" /> those are CLUT indices; for
-///     <see cref="FntLayout.IntensityWithoutPalette" /> they are intensity levels.
+///     <see cref="FntLayout.CompactWithoutPalette" /> no CLUT ships, so what they denote is
+///     unproven and the exporter renders them as coverage.
 /// </remarks>
 public sealed record FntGlyph
 {
@@ -26,7 +27,7 @@ public sealed record FntGlyph
     public required int Baseline { get; init; }
 
     /// <summary>
-    ///     Pen advance in pixels. Absent from <see cref="FntLayout.IntensityWithoutPalette" />
+    ///     Pen advance in pixels. Absent from <see cref="FntLayout.CompactWithoutPalette" />
     ///     files, where it is reported as <see langword="null" /> rather than invented.
     /// </summary>
     public required int? AdvanceWidth { get; init; }
