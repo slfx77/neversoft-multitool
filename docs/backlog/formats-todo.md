@@ -88,22 +88,14 @@ constants are source-level. Probe method retained here; runs list in the 2026-08
    (u32 width/height/cell rows); the engine loader is `FontTools.cpp`/`FONT.cpp` in the matched
    decomp (`FontManager`, default `mainf.fnt`), so the layout can be read straight out of it.
    Glyph art location (embedded vs companion BMP) to be established from the loader.
-   **Target format decided 2026-08-17 (revised twice, final)**: PNG glyph atlas + schema-v1 JSON
-   metrics is the PRIMARY and only lossless output — measured same day from the decomp loader:
-   `FontTools.cpp` uploads glyphs as **4bpp CLUT** (Pal16X/GetFree16Slot/GetClut, upload depth 4,
-   odd-NIBBLE padding), i.e. 16-level paletted art with anti-aliased edges and palette colour.
-   Every installable bitmap-font format on the FreeType stack (`.fon`/FNT, BDF, PCF) is 1 bpp —
-   monochrome bitplanes — so any font-file export thresholds 16 levels to on/off AND discards the
-   colour. Decision: an optional **`.fon` companion export, explicitly documented as lossy**
-   (threshold at a documented level), because it is the one format that both types in
-   GIMP-on-Windows (FreeType winfnt; Terminal/Small Fonts in GIMP's list are `.fon`) and
-   natively previews/installs on Windows; BDF stays dropped (equally 1-bit, none of `.fon`'s
-   Windows support). If true-fidelity TYPING is ever wanted, the only route is colour-bitmap
-   OpenType (CBDT/CBLC, the emoji mechanism — PNG per glyph): FreeType reads it, GIMP 3 renders
-   colour fonts, GIMP 2.10 is unreliable, Photoshop's colour-font support centres on
-   OpenType-SVG — heavier build, softer tool support, not planned. Other caveats stand: `.fon`
-   is an NE shell around FNT resources, 8-bit codepoints, Photoshop takes no raster font (the
-   PNG atlas serves it). Verify in GIMP with the first emitted `.fon`.
+   **Target format decided 2026-08-17 (final, user call)**: **PNG glyph atlas + schema-v1 JSON
+   metrics — the only output.** Measured basis: `FontTools.cpp` uploads glyphs as 4bpp CLUT
+   (Pal16X/GetFree16Slot/GetClut, upload depth 4, odd-NIBBLE padding) — 16-level paletted art
+   with anti-aliasing and palette colour. Every installable bitmap-font format on the FreeType
+   stack (`.fon`/FNT, BDF, PCF) is 1-bit monochrome, so any font-file export would threshold the
+   levels AND drop the colour; the user chose to skip the lossy companion rather than ship it.
+   If true-fidelity TYPING is ever wanted later, colour-bitmap OpenType (CBDT/CBLC) is the only
+   route — noted, not planned.
 2. ✅ **`.seq` PSY-Q MIDI sequences — SHIPPED 2026-08-17.** `SeqFile` (pQES header + MIDI event
    stream with running status), `VabProgramSet` (programs→tones→PCM with SPU loop points), and
    `SeqSynthesizer` (SsPitchFromNote pitch — the same formula the SFX cue resolver pins — SPU ADSR
