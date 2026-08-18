@@ -88,16 +88,22 @@ constants are source-level. Probe method retained here; runs list in the 2026-08
    (u32 width/height/cell rows); the engine loader is `FontTools.cpp`/`FONT.cpp` in the matched
    decomp (`FontManager`, default `mainf.fnt`), so the layout can be read straight out of it.
    Glyph art location (embedded vs companion BMP) to be established from the loader.
-   **Target format decided 2026-08-17 (revised same day)**: PNG glyph atlas + schema-v1 JSON
-   metrics as the primary data output, plus a **Windows `.fon` export** as the installable-font
-   companion — it covers BOTH targets with one format: FreeType's winfnt driver reads `.fon`
-   (GIMP-on-Windows already lists Terminal/Small Fonts, which are `.fon` files fontconfig picked
-   up from C:\Windows\Fonts), and Windows natively previews/installs it, which BDF cannot do.
-   BDF is dropped from the plan. Caveats recorded: `.fon` is an NE-executable shell around FNT
-   resource records (fiddlier to write than BDF but documented and deterministic; multiple sizes
-   pack as multiple FNT resources), 8-bit codepoints only (fine — these are ASCII-ish game
-   glyphs), and Photoshop accepts no raster font at all (the PNG atlas serves it). Verify in GIMP
-   with the first emitted `.fon`.
+   **Target format decided 2026-08-17 (revised twice, final)**: PNG glyph atlas + schema-v1 JSON
+   metrics is the PRIMARY and only lossless output — measured same day from the decomp loader:
+   `FontTools.cpp` uploads glyphs as **4bpp CLUT** (Pal16X/GetFree16Slot/GetClut, upload depth 4,
+   odd-NIBBLE padding), i.e. 16-level paletted art with anti-aliased edges and palette colour.
+   Every installable bitmap-font format on the FreeType stack (`.fon`/FNT, BDF, PCF) is 1 bpp —
+   monochrome bitplanes — so any font-file export thresholds 16 levels to on/off AND discards the
+   colour. Decision: an optional **`.fon` companion export, explicitly documented as lossy**
+   (threshold at a documented level), because it is the one format that both types in
+   GIMP-on-Windows (FreeType winfnt; Terminal/Small Fonts in GIMP's list are `.fon`) and
+   natively previews/installs on Windows; BDF stays dropped (equally 1-bit, none of `.fon`'s
+   Windows support). If true-fidelity TYPING is ever wanted, the only route is colour-bitmap
+   OpenType (CBDT/CBLC, the emoji mechanism — PNG per glyph): FreeType reads it, GIMP 3 renders
+   colour fonts, GIMP 2.10 is unreliable, Photoshop's colour-font support centres on
+   OpenType-SVG — heavier build, softer tool support, not planned. Other caveats stand: `.fon`
+   is an NE shell around FNT resources, 8-bit codepoints, Photoshop takes no raster font (the
+   PNG atlas serves it). Verify in GIMP with the first emitted `.fon`.
 2. ✅ **`.seq` PSY-Q MIDI sequences — SHIPPED 2026-08-17.** `SeqFile` (pQES header + MIDI event
    stream with running status), `VabProgramSet` (programs→tones→PCM with SPU loop points), and
    `SeqSynthesizer` (SsPitchFromNote pitch — the same formula the SFX cue resolver pins — SPU ADSR
